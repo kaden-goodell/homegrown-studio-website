@@ -306,6 +306,7 @@ export const prerender = false; // This page must be server-rendered
 <script>
 	// Fetch and display classes
 	async function fetchClasses() {
+		console.log('=== FETCHING CLASSES ===');
 		const loading = document.getElementById('loading');
 		const error = document.getElementById('error');
 		const grid = document.getElementById('classes-grid');
@@ -317,23 +318,43 @@ export const prerender = false; // This page must be server-rendered
 		if (noClasses) noClasses.style.display = 'none';
 
 		try {
+			console.log('Fetching from /api/classes.json...');
 			const response = await fetch('/api/classes.json');
+			console.log('Response status:', response.status, response.statusText);
+			console.log('Response headers:', Object.fromEntries(response.headers));
 
 			if (!response.ok) {
 				throw new Error('Failed to fetch classes');
 			}
 
-			const data = await response.json();
+			const responseText = await response.text();
+			console.log('=== RAW RESPONSE TEXT ===');
+			console.log('Response text:', responseText);
+			console.log('Response length:', responseText.length);
+
+			const data = JSON.parse(responseText);
+			console.log('=== PARSED RESPONSE DATA ===');
+			console.log('Full data object:', data);
+			console.log('Object keys:', Object.keys(data));
+			console.log('Classes array:', data.classes);
+			console.log('Classes count:', data.count);
+			console.log('Classes length:', data.classes?.length);
 
 			if (loading) loading.style.display = 'none';
 
 			if (data.classes && data.classes.length > 0) {
+				console.log(`=== DISPLAYING ${data.classes.length} CLASSES ===`);
+				data.classes.forEach((cls, index) => {
+					console.log(`Class ${index + 1}:`, cls);
+				});
 				displayClasses(data.classes);
 			} else {
+				console.log('No classes found in response');
 				if (noClasses) noClasses.style.display = 'block';
 			}
 
 		} catch (err) {
+			console.error('=== ERROR FETCHING CLASSES ===');
 			console.error('Error:', err);
 			if (loading) loading.style.display = 'none';
 			if (error) error.style.display = 'block';

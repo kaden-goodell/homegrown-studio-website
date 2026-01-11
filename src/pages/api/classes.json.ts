@@ -14,42 +14,104 @@ export const GET: APIRoute = async ({ request }) => {
 		const url = new URL(request.url);
 		const filterDate = url.searchParams.get('date');
 
+		console.log('=== STARTING API REQUEST ===');
+
 		// Fetch catalog items from Square
 		const apiResponse = await client.catalog.list(undefined, 'ITEM');
 
-		// Get the data from the response
-		const items = apiResponse.result?.objects || [];
+		console.log('=== RAW API RESPONSE ===');
+		console.log('apiResponse keys:', Object.keys(apiResponse));
+		console.log('apiResponse.result exists?', !!apiResponse.result);
+		console.log('apiResponse.response exists?', !!apiResponse.response);
+		console.log('apiResponse.data exists?', !!apiResponse.data);
+
+		if (apiResponse.response) {
+			console.log('apiResponse.response type:', typeof apiResponse.response);
+			console.log('apiResponse.response keys:', Object.keys(apiResponse.response));
+			console.log('apiResponse.response:', JSON.stringify(apiResponse.response, (key, value) =>
+				typeof value === 'bigint' ? value.toString() : value
+			, 2).substring(0, 500));
+		}
+
+		if (apiResponse.data) {
+			console.log('apiResponse.data type:', typeof apiResponse.data);
+			console.log('apiResponse.data is array?', Array.isArray(apiResponse.data));
+			console.log('apiResponse.data length:', apiResponse.data?.length);
+			console.log('apiResponse.data:', JSON.stringify(apiResponse.data, (key, value) =>
+				typeof value === 'bigint' ? value.toString() : value
+			, 2).substring(0, 500));
+		}
+
+		// Get the data from the response - try multiple possible locations
+		const items = apiResponse.result?.objects || apiResponse.response?.objects || apiResponse.data || [];
+
+		console.log('=== ITEMS ARRAY ===');
+		console.log('items length:', items.length);
+		console.log('items:', JSON.stringify(items, (key, value) =>
+			typeof value === 'bigint' ? value.toString() : value
+		, 2));
 
 		if (!items || items.length === 0) {
+			console.log('No items found, returning empty array');
 			return new Response(JSON.stringify({ classes: [] }), {
 				status: 200,
 				headers: { 'Content-Type': 'application/json' }
 			});
 		}
 
-		// Filter for classes (not parties)
-		// Assumes you tag classes differently than parties in Square
-		// You can customize this logic based on your Square setup
+		// Find the Workshop category ID
+		const workshopCategory = items.find(item =>
+			item.type === 'CATEGORY' &&
+			item.categoryData?.name === 'Workshop'
+		);
+		const workshopCategoryId = workshopCategory?.id;
+
+		console.log('=== WORKSHOP CATEGORY ===');
+		console.log('workshopCategory found?', !!workshopCategory);
+		console.log('workshopCategoryId:', workshopCategoryId);
+
+		// Filter for classes with Workshop category
 		const classes = items
 			.filter(item => {
-				// Only process ITEM types (not CATEGORY, etc.)
-				if (item.type !== 'ITEM') return false;
+				console.log(`=== FILTERING ITEM: ${item.id} ===`);
+				console.log('item.type:', item.type);
 
-				// Filter out items with "party" or "private" in the name
-				const name = item.itemData?.name?.toLowerCase() || '';
-				return !name.includes('party') && !name.includes('private');
+				// Only process ITEM types (not CATEGORY, etc.)
+				if (item.type !== 'ITEM') {
+					console.log('Filtered out: not an ITEM type');
+					return false;
+				}
+
+				// Check if item has Workshop category
+				const categories = item.itemData?.categories || [];
+				console.log('item.itemData.categories:', categories);
+
+				const hasWorkshopCategory = categories.some(cat => cat.id === workshopCategoryId);
+				console.log('hasWorkshopCategory?', hasWorkshopCategory);
+
+				return hasWorkshopCategory;
 			})
 			.map(item => {
+				console.log(`=== MAPPING ITEM: ${item.id} ===`);
 				const itemData = item.itemData;
 				const variation = itemData?.variations?.[0];
 
+				console.log('itemData.name:', itemData?.name);
+				console.log('itemData.description:', itemData?.description);
+				console.log('variation exists?', !!variation);
+				console.log('variation.itemVariationData:', variation?.itemVariationData);
+
 				// Get price amount and convert from cents to dollars
 				const amountInCents = variation?.itemVariationData?.priceMoney?.amount;
+				console.log('amountInCents:', amountInCents);
+				console.log('amountInCents type:', typeof amountInCents);
+
 				const price = amountInCents
 					? (Number(amountInCents) / 100).toFixed(2)
 					: '0.00';
+				console.log('calculated price:', price);
 
-				return {
+				const mappedClass = {
 					id: item.id,
 					name: itemData?.name || 'Unnamed Class',
 					description: itemData?.description || '',
@@ -61,7 +123,14 @@ export const GET: APIRoute = async ({ request }) => {
 						: null,
 					// Add more fields as needed
 				};
+
+				console.log('mappedClass:', JSON.stringify(mappedClass, null, 2));
+				return mappedClass;
 			});
+
+		console.log('=== FINAL CLASSES ARRAY ===');
+		console.log('classes length:', classes.length);
+		console.log('classes:', JSON.stringify(classes, null, 2));
 
 		// Filter by date if provided
 		let filteredClasses = classes;
@@ -71,6 +140,9 @@ export const GET: APIRoute = async ({ request }) => {
 			// For now, we'll return all classes
 			filteredClasses = classes;
 		}
+
+		console.log('=== RETURNING RESPONSE ===');
+		console.log('filteredClasses count:', filteredClasses.length);
 
 		return new Response(
 			JSON.stringify({
