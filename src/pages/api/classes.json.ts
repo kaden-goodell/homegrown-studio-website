@@ -15,9 +15,14 @@ export const GET: APIRoute = async ({ request }) => {
 		const filterDate = url.searchParams.get('date');
 
 		// Fetch catalog items from Square
-		const { result } = await client.catalog.list(undefined, 'ITEM');
+		const response = await client.catalog.list(undefined, 'ITEM');
 
-		if (!result.objects) {
+		// Debug logging
+		console.log('Square API Response:', JSON.stringify(response, null, 2));
+
+		const { result } = response;
+
+		if (!result || !result.objects) {
 			return new Response(JSON.stringify({ classes: [] }), {
 				status: 200,
 				headers: { 'Content-Type': 'application/json' }
