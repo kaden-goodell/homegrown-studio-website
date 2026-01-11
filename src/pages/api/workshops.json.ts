@@ -21,7 +21,7 @@ export const GET: APIRoute = async ({ request }) => {
 		const items = apiResponse.result?.objects || apiResponse.response?.objects || apiResponse.data || [];
 
 		if (!items || items.length === 0) {
-			return new Response(JSON.stringify({ classes: [] }), {
+			return new Response(JSON.stringify({ workshops: [] }), {
 				status: 200,
 				headers: { 'Content-Type': 'application/json' }
 			});
@@ -34,8 +34,8 @@ export const GET: APIRoute = async ({ request }) => {
 		);
 		const workshopCategoryId = workshopCategory?.id;
 
-		// Filter for classes with Workshop category
-		const classes = items
+		// Filter for workshops with Workshop category
+		const workshops = items
 			.filter(item => {
 				// Only process ITEM types (not CATEGORY, etc.)
 				if (item.type !== 'ITEM') {
@@ -72,18 +72,18 @@ export const GET: APIRoute = async ({ request }) => {
 			});
 
 		// Filter by date if provided
-		let filteredClasses = classes;
+		let filteredWorkshops = workshops;
 		if (filterDate) {
 			// This is a simple example - you'll need to implement actual date filtering
-			// based on how you store class dates in Square (custom attributes, etc.)
-			// For now, we'll return all classes
-			filteredClasses = classes;
+			// based on how you store workshop dates in Square (custom attributes, etc.)
+			// For now, we'll return all workshops
+			filteredWorkshops = workshops;
 		}
 
 		return new Response(
 			JSON.stringify({
-				classes: filteredClasses,
-				count: filteredClasses.length
+				workshops: filteredWorkshops,
+				count: filteredWorkshops.length
 			}),
 			{
 				status: 200,
@@ -95,11 +95,11 @@ export const GET: APIRoute = async ({ request }) => {
 		);
 
 	} catch (error) {
-		console.error('Error fetching classes from Square:', error);
+		console.error('Error fetching workshops from Square:', error);
 
 		return new Response(
 			JSON.stringify({
-				error: 'Failed to fetch classes',
+				error: 'Failed to fetch workshops',
 				message: error instanceof Error ? error.message : 'Unknown error'
 			}),
 			{

@@ -8,8 +8,8 @@ export const prerender = false; // This page must be server-rendered
 ---
 
 <Layout
-	title="Current Classes - Homegrown Studio"
-	description="Browse our current craft classes and workshops. Book your spot today!"
+	title="Current Workshops - Homegrown Studio"
+	description="Browse our current craft workshops. Book your spot today!"
 >
 	<Header />
 
@@ -17,8 +17,8 @@ export const prerender = false; // This page must be server-rendered
 		<!-- Hero Section -->
 		<section class="page-hero">
 			<div class="container">
-				<h1>Current Classes</h1>
-				<p class="subtitle">Explore our upcoming craft classes and workshops</p>
+				<h1>Current Workshops</h1>
+				<p class="subtitle">Explore our upcoming craft workshops</p>
 			</div>
 		</section>
 
@@ -52,25 +52,25 @@ export const prerender = false; // This page must be server-rendered
 			</div>
 		</section>
 
-		<!-- Classes Grid -->
-		<section class="classes-section">
+		<!-- Workshops Grid -->
+		<section class="workshops-section">
 			<div class="container">
 				<div id="loading" class="loading">
 					<div class="spinner"></div>
-					<p>Loading classes...</p>
+					<p>Loading workshops...</p>
 				</div>
 
 				<div id="error" class="error" style="display: none;">
-					<p>Failed to load classes. Please try again.</p>
+					<p>Failed to load workshops. Please try again.</p>
 					<button id="retry-btn" class="button">Retry</button>
 				</div>
 
-				<div id="classes-grid" class="classes-grid" style="display: none;">
-					<!-- Classes will be dynamically inserted here -->
+				<div id="workshops-grid" class="workshops-grid" style="display: none;">
+					<!-- Workshops will be dynamically inserted here -->
 				</div>
 
-				<div id="no-classes" style="display: none;" class="no-classes">
-					<p>No classes available at the moment. Check back soon!</p>
+				<div id="no-workshops" style="display: none;" class="no-workshops">
+					<p>No workshops available at the moment. Check back soon!</p>
 				</div>
 			</div>
 		</section>
@@ -156,7 +156,7 @@ export const prerender = false; // This page must be server-rendered
 		display: inline-block;
 	}
 
-	.classes-section {
+	.workshops-section {
 		padding: var(--spacing-xl) 0;
 		min-height: 400px;
 	}
@@ -187,7 +187,7 @@ export const prerender = false; // This page must be server-rendered
 		color: #dc2626;
 	}
 
-	.classes-grid {
+	.workshops-grid {
 		display: flex;
 		flex-direction: column;
 		gap: 1.5rem;
@@ -345,7 +345,7 @@ export const prerender = false; // This page must be server-rendered
 		transform: translateX(4px);
 	}
 
-	.no-classes {
+	.no-workshops {
 		text-align: center;
 		padding: var(--spacing-xl);
 		color: var(--color-text-light);
@@ -429,33 +429,33 @@ export const prerender = false; // This page must be server-rendered
 </style>
 
 <script>
-	// Fetch and display classes
-	async function fetchClasses() {
+	// Fetch and display workshops
+	async function fetchWorkshops() {
 		const loading = document.getElementById('loading');
 		const error = document.getElementById('error');
-		const grid = document.getElementById('classes-grid');
-		const noClasses = document.getElementById('no-classes');
+		const grid = document.getElementById('workshops-grid');
+		const noWorkshops = document.getElementById('no-workshops');
 
 		if (loading) loading.style.display = 'block';
 		if (error) error.style.display = 'none';
 		if (grid) grid.style.display = 'none';
-		if (noClasses) noClasses.style.display = 'none';
+		if (noWorkshops) noWorkshops.style.display = 'none';
 
 		try {
-			const response = await fetch('/api/classes.json');
+			const response = await fetch('/api/workshops.json');
 
 			if (!response.ok) {
-				throw new Error('Failed to fetch classes');
+				throw new Error('Failed to fetch workshops');
 			}
 
 			const data = await response.json();
 
 			if (loading) loading.style.display = 'none';
 
-			if (data.classes && data.classes.length > 0) {
-				displayClasses(data.classes);
+			if (data.workshops && data.workshops.length > 0) {
+				displayWorkshops(data.workshops);
 			} else {
-				if (noClasses) noClasses.style.display = 'block';
+				if (noWorkshops) noWorkshops.style.display = 'block';
 			}
 
 		} catch (err) {
@@ -465,22 +465,22 @@ export const prerender = false; // This page must be server-rendered
 		}
 	}
 
-	function displayClasses(classes: any[]) {
-		const grid = document.getElementById('classes-grid');
+	function displayWorkshops(workshops: any[]) {
+		const grid = document.getElementById('workshops-grid');
 		if (!grid) return;
 
 		grid.innerHTML = '';
 		grid.style.display = 'flex';
 
-		classes.forEach((classItem: any, index: number) => {
+		workshops.forEach((workshop: any, index: number) => {
 			const card = document.createElement('div');
 			card.className = 'class-card';
 			card.style.animationDelay = `${index * 0.1}s`;
 
 			card.innerHTML = `
 				<div class="card-image">
-					${classItem.imageUrl
-						? `<img src="${classItem.imageUrl}" alt="${classItem.name}" />`
+					${workshop.imageUrl
+						? `<img src="${workshop.imageUrl}" alt="${workshop.name}" />`
 						: `<div class="image-placeholder">
 							<span class="placeholder-icon">🎨</span>
 						</div>`
@@ -489,16 +489,16 @@ export const prerender = false; // This page must be server-rendered
 
 				<div class="card-content">
 					<div class="card-body">
-						<h3 class="card-title">${classItem.name}</h3>
-						<p class="card-description">${classItem.description || 'No description available'}</p>
+						<h3 class="card-title">${workshop.name}</h3>
+						<p class="card-description">${workshop.description || 'No description available'}</p>
 					</div>
 
 					<div class="card-footer">
 						<div class="price-section">
-							<span class="price">$${classItem.price}</span>
-							<span class="currency">${classItem.currency || 'USD'}</span>
+							<span class="price">$${workshop.price}</span>
+							<span class="currency">${workshop.currency || 'USD'}</span>
 						</div>
-						<button class="book-btn" data-class-id="${classItem.id}">
+						<button class="book-btn" data-workshop-id="${workshop.id}">
 							Book Now
 							<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
 								<path d="M7.5 15L12.5 10L7.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -515,34 +515,34 @@ export const prerender = false; // This page must be server-rendered
 		document.querySelectorAll('.book-btn').forEach(btn => {
 			btn.addEventListener('click', (e) => {
 				const target = e.target as HTMLElement;
-				const classId = target.dataset.classId;
+				const workshopId = target.dataset.workshopId;
 				// Redirect to booking page or open Square checkout
 				// This will be implemented based on your Square setup
-				window.location.href = `/booking?class=${classId}`;
+				window.location.href = `/booking?workshop=${workshopId}`;
 			});
 		});
 	}
 
 	// Initialize on page load
 	document.addEventListener('DOMContentLoaded', () => {
-		fetchClasses();
+		fetchWorkshops();
 
 		// Refresh button
 		const refreshBtn = document.getElementById('refresh-btn');
 		if (refreshBtn) {
-			refreshBtn.addEventListener('click', fetchClasses);
+			refreshBtn.addEventListener('click', fetchWorkshops);
 		}
 
 		// Retry button
 		const retryBtn = document.getElementById('retry-btn');
 		if (retryBtn) {
-			retryBtn.addEventListener('click', fetchClasses);
+			retryBtn.addEventListener('click', fetchWorkshops);
 		}
 
 		// Filter handlers (basic implementation)
 		const dateFilter = document.getElementById('date-filter');
 		if (dateFilter) {
-			dateFilter.addEventListener('change', fetchClasses);
+			dateFilter.addEventListener('change', fetchWorkshops);
 		}
 	});
 </script>
