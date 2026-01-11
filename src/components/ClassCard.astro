@@ -1,0 +1,256 @@
+---
+export interface Props {
+	id: string;
+	name: string;
+	description: string;
+	price: string;
+	currency: string;
+	imageUrl?: string | null;
+	index?: number;
+}
+
+const { id, name, description, price, currency, imageUrl, index = 0 } = Astro.props;
+---
+
+<div class="class-card" style={`animation-delay: ${index * 0.1}s`}>
+	<div class="card-image">
+		{imageUrl ? (
+			<img src={imageUrl} alt={name} />
+		) : (
+			<div class="image-placeholder">
+				<span class="placeholder-icon">🎨</span>
+			</div>
+		)}
+	</div>
+
+	<div class="card-content">
+		<div class="card-body">
+			<h3 class="card-title">{name}</h3>
+			<p class="card-description">{description}</p>
+		</div>
+
+		<div class="card-footer">
+			<div class="price-section">
+				<span class="price">${price}</span>
+				<span class="currency">{currency}</span>
+			</div>
+			<button class="book-btn" data-class-id={id}>
+				Book Now
+				<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+					<path d="M7.5 15L12.5 10L7.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+				</svg>
+			</button>
+		</div>
+	</div>
+</div>
+
+<style>
+	.class-card {
+		display: flex;
+		background: white;
+		border-radius: 1rem;
+		overflow: hidden;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		border: 1px solid #e5e7eb;
+		animation: slideInFromTop 0.6s ease-out backwards;
+		height: 280px;
+	}
+
+	@keyframes slideInFromTop {
+		from {
+			opacity: 0;
+			transform: translateY(-20px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	.class-card:hover {
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+		transform: translateY(-2px);
+		border-color: var(--color-primary);
+	}
+
+	.card-image {
+		flex: 0 0 360px;
+		position: relative;
+		overflow: hidden;
+	}
+
+	.card-image img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		transition: transform 0.3s ease;
+	}
+
+	.class-card:hover .card-image img {
+		transform: scale(1.05);
+	}
+
+	.image-placeholder {
+		width: 100%;
+		height: 100%;
+		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.placeholder-icon {
+		font-size: 5rem;
+		filter: brightness(1.2);
+	}
+
+	.card-content {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		padding: 2rem;
+		min-width: 0;
+	}
+
+	.card-body {
+		flex: 1;
+		min-height: 0;
+	}
+
+	.card-title {
+		font-size: 1.75rem;
+		font-weight: 700;
+		color: var(--color-text);
+		margin: 0 0 1rem 0;
+		line-height: 1.2;
+	}
+
+	.card-description {
+		font-size: 1rem;
+		color: var(--color-text-light);
+		line-height: 1.6;
+		margin: 0;
+		display: -webkit-box;
+		-webkit-line-clamp: 3;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	.card-footer {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 1.5rem;
+		padding-top: 1.5rem;
+		margin-top: 1.5rem;
+		border-top: 1px solid #e5e7eb;
+	}
+
+	.price-section {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+	}
+
+	.price {
+		font-size: 2rem;
+		font-weight: 700;
+		color: var(--color-primary);
+		line-height: 1;
+	}
+
+	.currency {
+		font-size: 0.875rem;
+		color: var(--color-text-light);
+		font-weight: 500;
+	}
+
+	.book-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.875rem 1.75rem;
+		background: var(--color-primary);
+		color: white;
+		border: none;
+		border-radius: 0.5rem;
+		font-weight: 600;
+		font-size: 1rem;
+		cursor: pointer;
+		transition: all 0.2s ease;
+		white-space: nowrap;
+	}
+
+	.book-btn:hover {
+		background: var(--color-primary-dark);
+		transform: translateX(2px);
+	}
+
+	.book-btn svg {
+		transition: transform 0.2s ease;
+	}
+
+	.book-btn:hover svg {
+		transform: translateX(4px);
+	}
+
+	/* Tablet and smaller */
+	@media (max-width: 1024px) {
+		.class-card {
+			height: auto;
+		}
+
+		.card-image {
+			flex: 0 0 280px;
+		}
+
+		.card-content {
+			padding: 1.5rem;
+		}
+
+		.card-title {
+			font-size: 1.5rem;
+		}
+
+		.price {
+			font-size: 1.75rem;
+		}
+	}
+
+	/* Mobile */
+	@media (max-width: 768px) {
+		.class-card {
+			flex-direction: column;
+			height: auto;
+		}
+
+		.card-image {
+			flex: 0 0 240px;
+			width: 100%;
+		}
+
+		.card-content {
+			padding: 1.5rem;
+		}
+
+		.card-description {
+			-webkit-line-clamp: 4;
+		}
+
+		.card-footer {
+			flex-direction: column;
+			align-items: stretch;
+			gap: 1rem;
+		}
+
+		.price-section {
+			justify-content: center;
+		}
+
+		.book-btn {
+			width: 100%;
+			justify-content: center;
+		}
+	}
+</style>

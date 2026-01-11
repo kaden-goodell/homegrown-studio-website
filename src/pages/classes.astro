@@ -2,6 +2,7 @@
 import Layout from '../layouts/Layout.astro';
 import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
+import ClassCard from '../components/ClassCard.astro';
 
 export const prerender = false; // This page must be server-rendered
 ---
@@ -187,88 +188,161 @@ export const prerender = false; // This page must be server-rendered
 	}
 
 	.classes-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-		gap: var(--spacing-lg);
+		display: flex;
+		flex-direction: column;
+		gap: 1.5rem;
+		max-width: 1200px;
+		margin: 0 auto;
 	}
 
 	.class-card {
+		display: flex;
 		background: white;
 		border-radius: 1rem;
 		overflow: hidden;
-		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
-		transition: transform 0.2s, box-shadow 0.2s;
-		border: 2px solid transparent;
+		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+		border: 1px solid #e5e7eb;
+		animation: slideInFromTop 0.6s ease-out backwards;
+		height: 280px;
+	}
+
+	@keyframes slideInFromTop {
+		from {
+			opacity: 0;
+			transform: translateY(-20px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
 	}
 
 	.class-card:hover {
-		transform: translateY(-4px);
-		box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+		transform: translateY(-2px);
 		border-color: var(--color-primary);
 	}
 
-	.class-image {
-		width: 100%;
-		height: 200px;
-		object-fit: cover;
-		background: var(--color-bg-light);
+	.card-image {
+		flex: 0 0 360px;
+		position: relative;
+		overflow: hidden;
 	}
 
-	.class-image-placeholder {
+	.card-image img {
 		width: 100%;
-		height: 200px;
+		height: 100%;
+		object-fit: cover;
+		transition: transform 0.3s ease;
+	}
+
+	.class-card:hover .card-image img {
+		transform: scale(1.05);
+	}
+
+	.image-placeholder {
+		width: 100%;
+		height: 100%;
 		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
 		display: flex;
 		align-items: center;
 		justify-content: center;
-		color: white;
-		font-size: 3rem;
 	}
 
-	.class-content {
-		padding: var(--spacing-md);
+	.placeholder-icon {
+		font-size: 5rem;
+		filter: brightness(1.2);
 	}
 
-	.class-title {
-		font-size: 1.25rem;
+	.card-content {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		padding: 2rem;
+		min-width: 0;
+	}
+
+	.card-body {
+		flex: 1;
+		min-height: 0;
+	}
+
+	.card-title {
+		font-size: 1.75rem;
 		font-weight: 700;
 		color: var(--color-text);
-		margin-bottom: var(--spacing-xs);
+		margin: 0 0 1rem 0;
+		line-height: 1.2;
 	}
 
-	.class-description {
+	.card-description {
+		font-size: 1rem;
 		color: var(--color-text-light);
-		margin-bottom: var(--spacing-md);
 		line-height: 1.6;
+		margin: 0;
+		display: -webkit-box;
+		-webkit-line-clamp: 3;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
 	}
 
-	.class-footer {
+	.card-footer {
 		display: flex;
-		justify-content: space-between;
 		align-items: center;
-		padding-top: var(--spacing-sm);
+		justify-content: space-between;
+		gap: 1.5rem;
+		padding-top: 1.5rem;
+		margin-top: 1.5rem;
 		border-top: 1px solid #e5e7eb;
 	}
 
-	.class-price {
-		font-size: 1.5rem;
+	.price-section {
+		display: flex;
+		align-items: baseline;
+		gap: 0.5rem;
+	}
+
+	.price {
+		font-size: 2rem;
 		font-weight: 700;
 		color: var(--color-primary);
+		line-height: 1;
+	}
+
+	.currency {
+		font-size: 0.875rem;
+		color: var(--color-text-light);
+		font-weight: 500;
 	}
 
 	.book-btn {
-		padding: var(--spacing-xs) var(--spacing-md);
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.875rem 1.75rem;
 		background: var(--color-primary);
 		color: white;
 		border: none;
 		border-radius: 0.5rem;
 		font-weight: 600;
+		font-size: 1rem;
 		cursor: pointer;
-		transition: background 0.2s;
+		transition: all 0.2s ease;
+		white-space: nowrap;
 	}
 
 	.book-btn:hover {
 		background: var(--color-primary-dark);
+		transform: translateX(2px);
+	}
+
+	.book-btn svg {
+		transition: transform 0.2s ease;
+	}
+
+	.book-btn:hover svg {
+		transform: translateX(4px);
 	}
 
 	.no-classes {
@@ -276,6 +350,28 @@ export const prerender = false; // This page must be server-rendered
 		padding: var(--spacing-xl);
 		color: var(--color-text-light);
 		font-size: 1.125rem;
+	}
+
+	@media (max-width: 1024px) {
+		.class-card {
+			height: auto;
+		}
+
+		.card-image {
+			flex: 0 0 280px;
+		}
+
+		.card-content {
+			padding: 1.5rem;
+		}
+
+		.card-title {
+			font-size: 1.5rem;
+		}
+
+		.price {
+			font-size: 1.75rem;
+		}
 	}
 
 	@media (max-width: 768px) {
@@ -297,8 +393,37 @@ export const prerender = false; // This page must be server-rendered
 			align-items: stretch;
 		}
 
-		.classes-grid {
-			grid-template-columns: 1fr;
+		.class-card {
+			flex-direction: column;
+			height: auto;
+		}
+
+		.card-image {
+			flex: 0 0 240px;
+			width: 100%;
+		}
+
+		.card-content {
+			padding: 1.5rem;
+		}
+
+		.card-description {
+			-webkit-line-clamp: 4;
+		}
+
+		.card-footer {
+			flex-direction: column;
+			align-items: stretch;
+			gap: 1rem;
+		}
+
+		.price-section {
+			justify-content: center;
+		}
+
+		.book-btn {
+			width: 100%;
+			justify-content: center;
 		}
 	}
 </style>
@@ -345,23 +470,40 @@ export const prerender = false; // This page must be server-rendered
 		if (!grid) return;
 
 		grid.innerHTML = '';
-		grid.style.display = 'grid';
+		grid.style.display = 'flex';
 
-		classes.forEach((classItem: any) => {
+		classes.forEach((classItem: any, index: number) => {
 			const card = document.createElement('div');
 			card.className = 'class-card';
+			card.style.animationDelay = `${index * 0.1}s`;
 
 			card.innerHTML = `
-				${classItem.imageUrl
-					? `<img src="${classItem.imageUrl}" alt="${classItem.name}" class="class-image" />`
-					: `<div class="class-image-placeholder">🎨</div>`
-				}
-				<div class="class-content">
-					<h3 class="class-title">${classItem.name}</h3>
-					<p class="class-description">${classItem.description || 'No description available'}</p>
-					<div class="class-footer">
-						<div class="class-price">$${classItem.price}</div>
-						<button class="book-btn" data-class-id="${classItem.id}">Book Now</button>
+				<div class="card-image">
+					${classItem.imageUrl
+						? `<img src="${classItem.imageUrl}" alt="${classItem.name}" />`
+						: `<div class="image-placeholder">
+							<span class="placeholder-icon">🎨</span>
+						</div>`
+					}
+				</div>
+
+				<div class="card-content">
+					<div class="card-body">
+						<h3 class="card-title">${classItem.name}</h3>
+						<p class="card-description">${classItem.description || 'No description available'}</p>
+					</div>
+
+					<div class="card-footer">
+						<div class="price-section">
+							<span class="price">$${classItem.price}</span>
+							<span class="currency">${classItem.currency || 'USD'}</span>
+						</div>
+						<button class="book-btn" data-class-id="${classItem.id}">
+							Book Now
+							<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+								<path d="M7.5 15L12.5 10L7.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+							</svg>
+						</button>
 					</div>
 				</div>
 			`;
