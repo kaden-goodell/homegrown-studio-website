@@ -1,0 +1,118 @@
+---
+const currentYear = new Date().getFullYear();
+---
+
+<footer>
+	<div class="container">
+		<div class="footer-content">
+			<div class="footer-section">
+				<h3>Homegrown Studio</h3>
+				<p>Your creative space for crafting, learning, and celebrating together.</p>
+			</div>
+
+			<div class="footer-section">
+				<h4>Quick Links</h4>
+				<ul>
+					<li><a href="/">Home</a></li>
+					<li><a href="/about">About Us</a></li>
+					<li><a href="/gallery">Gallery</a></li>
+					<li><a href="/booking">Book Now</a></li>
+				</ul>
+			</div>
+
+			<div class="footer-section">
+				<h4>Visit Us</h4>
+				<p>
+					123 Craft Street<br />
+					Your City, ST 12345<br />
+					<a href="tel:555-123-4567">(555) 123-4567</a><br />
+					<a href="mailto:hello@homegrownstudio.com">hello@homegrownstudio.com</a>
+				</p>
+			</div>
+
+			<div class="footer-section">
+				<h4>Hours</h4>
+				<p>
+					Monday - Friday: 10am - 8pm<br />
+					Saturday: 9am - 9pm<br />
+					Sunday: 10am - 6pm
+				</p>
+			</div>
+		</div>
+
+		<div class="footer-bottom">
+			<p>&copy; {currentYear} Homegrown Studio. All rights reserved.</p>
+		</div>
+	</div>
+</footer>
+
+<style>
+	footer {
+		background: var(--color-text);
+		color: white;
+		padding: var(--spacing-xl) 0 var(--spacing-md);
+		margin-top: var(--spacing-xl);
+	}
+
+	.footer-content {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+		gap: var(--spacing-lg);
+		margin-bottom: var(--spacing-lg);
+	}
+
+	.footer-section h3 {
+		color: var(--color-primary);
+		margin-bottom: var(--spacing-sm);
+	}
+
+	.footer-section h4 {
+		color: white;
+		font-size: 1.125rem;
+		margin-bottom: var(--spacing-sm);
+	}
+
+	.footer-section p {
+		color: #d1d5db;
+		line-height: 1.8;
+	}
+
+	.footer-section ul {
+		list-style: none;
+	}
+
+	.footer-section li {
+		margin-bottom: var(--spacing-xs);
+	}
+
+	.footer-section a {
+		color: #d1d5db;
+		transition: color 0.2s;
+	}
+
+	.footer-section a:hover {
+		color: var(--color-primary);
+	}
+
+	.footer-bottom {
+		border-top: 1px solid #374151;
+		padding-top: var(--spacing-md);
+		text-align: center;
+	}
+
+	.footer-bottom p {
+		color: #9ca3af;
+		font-size: 0.875rem;
+	}
+
+	@media (max-width: 768px) {
+		footer {
+			padding: var(--spacing-md) 0 var(--spacing-sm);
+		}
+
+		.footer-content {
+			grid-template-columns: 1fr;
+			gap: var(--spacing-md);
+		}
+	}
+</style>

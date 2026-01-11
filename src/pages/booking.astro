@@ -1,0 +1,368 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Header from '../components/Header.astro';
+import Footer from '../components/Footer.astro';
+---
+
+<Layout
+	title="Book Now - Homegrown Studio"
+	description="Book your creative class, workshop, or party at Homegrown Studio. Easy online booking powered by Square."
+>
+	<Header />
+
+	<main>
+		<!-- Hero Section -->
+		<section class="page-hero">
+			<div class="container">
+				<h1>Book Your Experience</h1>
+				<p class="subtitle">Choose from our classes, workshops, and party packages</p>
+			</div>
+		</section>
+
+		<!-- Booking Section -->
+		<section class="booking-section">
+			<div class="container">
+				<div class="booking-intro">
+					<h2>How It Works</h2>
+					<div class="steps-grid">
+						<div class="step">
+							<div class="step-number">1</div>
+							<h3>Choose Your Experience</h3>
+							<p>Browse our available classes, workshops, or party packages below.</p>
+						</div>
+						<div class="step">
+							<div class="step-number">2</div>
+							<h3>Select Date & Time</h3>
+							<p>Pick a date and time that works best for your schedule.</p>
+						</div>
+						<div class="step">
+							<div class="step-number">3</div>
+							<h3>Complete Booking</h3>
+							<p>Secure your spot with easy online payment through Square.</p>
+						</div>
+					</div>
+				</div>
+
+				<!-- Square Booking Widget Placeholder -->
+				<div class="square-booking-container">
+					<div class="booking-widget-placeholder">
+						<div class="placeholder-content">
+							<h3>Square Booking Widget</h3>
+							<p>Your Square Appointments booking widget will be embedded here.</p>
+							<div class="integration-steps">
+								<h4>To integrate Square Appointments:</h4>
+								<ol>
+									<li>Log in to your Square Dashboard</li>
+									<li>Go to Appointments > Settings</li>
+									<li>Find "Online Booking" section</li>
+									<li>Copy the booking widget embed code</li>
+									<li>Paste the code in this booking.astro file</li>
+								</ol>
+								<a
+									href="https://developer.squareup.com/docs/appointments-api/overview"
+									target="_blank"
+									rel="noopener noreferrer"
+									class="button"
+								>
+									Square Appointments Docs
+								</a>
+							</div>
+						</div>
+					</div>
+
+					<!--
+					REPLACE THE PLACEHOLDER ABOVE WITH YOUR SQUARE BOOKING WIDGET
+					Example:
+					<div id="square-appointments"></div>
+					<script src="https://square.site/appointments/buyer/widget/YOUR_WIDGET_ID.js"></script>
+					-->
+				</div>
+
+				<!-- Class Categories -->
+				<div class="categories-section">
+					<h2>Popular Classes & Events</h2>
+					<div class="categories-grid">
+						<div class="category-card">
+							<div class="category-icon">🎨</div>
+							<h3>Painting Classes</h3>
+							<p>Acrylic, watercolor, and mixed media workshops for all skill levels.</p>
+							<ul class="class-features">
+								<li>2-3 hour sessions</li>
+								<li>All materials included</li>
+								<li>Small group sizes</li>
+							</ul>
+						</div>
+
+						<div class="category-card">
+							<div class="category-icon">🏺</div>
+							<h3>Pottery Workshops</h3>
+							<p>Hand-building and wheel throwing classes for beginners to advanced.</p>
+							<ul class="class-features">
+								<li>4-week series available</li>
+								<li>Studio firing included</li>
+								<li>Take home your creations</li>
+							</ul>
+						</div>
+
+						<div class="category-card">
+							<div class="category-icon">🎉</div>
+							<h3>Private Parties</h3>
+							<p>Birthday parties, team building, bridal showers, and special events.</p>
+							<ul class="class-features">
+								<li>2-3 hour private sessions</li>
+								<li>Up to 20 guests</li>
+								<li>Customizable projects</li>
+							</ul>
+						</div>
+
+						<div class="category-card">
+							<div class="category-icon">✂️</div>
+							<h3>Craft Workshops</h3>
+							<p>Rotating seasonal workshops including textiles, paper crafts, and more.</p>
+							<ul class="class-features">
+								<li>Seasonal projects</li>
+								<li>Gift-making workshops</li>
+								<li>Special holiday events</li>
+							</ul>
+						</div>
+					</div>
+				</div>
+
+				<!-- Contact Info -->
+				<div class="booking-contact">
+					<h3>Need Help Booking?</h3>
+					<p>
+						Have questions or want to book a custom event?
+						<a href="tel:555-123-4567">Call us at (555) 123-4567</a> or
+						<a href="mailto:hello@homegrownstudio.com">send us an email</a>.
+					</p>
+				</div>
+			</div>
+		</section>
+	</main>
+
+	<Footer />
+</Layout>
+
+<style>
+	.page-hero {
+		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
+		color: white;
+		padding: var(--spacing-xl) 0;
+		text-align: center;
+	}
+
+	.page-hero h1 {
+		font-size: 3rem;
+		margin-bottom: var(--spacing-sm);
+		color: white;
+	}
+
+	.subtitle {
+		font-size: 1.5rem;
+		opacity: 0.95;
+	}
+
+	.booking-section {
+		padding: var(--spacing-xl) 0;
+	}
+
+	.booking-intro {
+		margin-bottom: var(--spacing-xl);
+		text-align: center;
+	}
+
+	.booking-intro h2 {
+		font-size: 2.5rem;
+		margin-bottom: var(--spacing-lg);
+	}
+
+	.steps-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+		gap: var(--spacing-lg);
+		margin-top: var(--spacing-lg);
+	}
+
+	.step {
+		text-align: center;
+	}
+
+	.step-number {
+		width: 60px;
+		height: 60px;
+		background: var(--color-primary);
+		color: white;
+		border-radius: 50%;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		font-size: 1.5rem;
+		font-weight: 800;
+		margin: 0 auto var(--spacing-sm);
+	}
+
+	.step h3 {
+		margin-bottom: var(--spacing-xs);
+	}
+
+	.square-booking-container {
+		margin: var(--spacing-xl) 0;
+	}
+
+	.booking-widget-placeholder {
+		background: var(--color-bg-light);
+		border: 3px dashed #d1d5db;
+		border-radius: 1rem;
+		padding: var(--spacing-xl);
+		min-height: 500px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.placeholder-content {
+		text-align: center;
+		max-width: 600px;
+	}
+
+	.placeholder-content h3 {
+		color: var(--color-primary);
+		font-size: 2rem;
+		margin-bottom: var(--spacing-sm);
+	}
+
+	.placeholder-content p {
+		font-size: 1.125rem;
+		color: var(--color-text-light);
+		margin-bottom: var(--spacing-lg);
+	}
+
+	.integration-steps {
+		background: white;
+		padding: var(--spacing-lg);
+		border-radius: 0.5rem;
+		text-align: left;
+		margin-top: var(--spacing-lg);
+	}
+
+	.integration-steps h4 {
+		margin-bottom: var(--spacing-sm);
+		color: var(--color-text);
+	}
+
+	.integration-steps ol {
+		margin-bottom: var(--spacing-md);
+		padding-left: var(--spacing-md);
+	}
+
+	.integration-steps li {
+		margin-bottom: var(--spacing-xs);
+		line-height: 1.6;
+	}
+
+	.categories-section {
+		margin-top: var(--spacing-xl);
+	}
+
+	.categories-section h2 {
+		text-align: center;
+		font-size: 2.5rem;
+		margin-bottom: var(--spacing-lg);
+	}
+
+	.categories-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		gap: var(--spacing-lg);
+	}
+
+	.category-card {
+		background: white;
+		padding: var(--spacing-lg);
+		border-radius: 1rem;
+		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.05);
+		border: 2px solid transparent;
+		transition: all 0.2s;
+	}
+
+	.category-card:hover {
+		border-color: var(--color-primary);
+		box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+	}
+
+	.category-icon {
+		font-size: 3rem;
+		margin-bottom: var(--spacing-sm);
+	}
+
+	.category-card h3 {
+		color: var(--color-primary);
+		margin-bottom: var(--spacing-sm);
+	}
+
+	.category-card p {
+		color: var(--color-text-light);
+		margin-bottom: var(--spacing-md);
+	}
+
+	.class-features {
+		list-style: none;
+		padding: 0;
+	}
+
+	.class-features li {
+		padding-left: 1.5rem;
+		position: relative;
+		margin-bottom: var(--spacing-xs);
+		color: var(--color-text);
+	}
+
+	.class-features li:before {
+		content: "✓";
+		position: absolute;
+		left: 0;
+		color: var(--color-primary);
+		font-weight: bold;
+	}
+
+	.booking-contact {
+		background: var(--color-bg-light);
+		padding: var(--spacing-lg);
+		border-radius: 1rem;
+		text-align: center;
+		margin-top: var(--spacing-xl);
+	}
+
+	.booking-contact h3 {
+		margin-bottom: var(--spacing-sm);
+	}
+
+	.booking-contact p {
+		font-size: 1.125rem;
+	}
+
+	.booking-contact a {
+		font-weight: 600;
+	}
+
+	@media (max-width: 768px) {
+		.page-hero h1 {
+			font-size: 2rem;
+		}
+
+		.subtitle {
+			font-size: 1.125rem;
+		}
+
+		.steps-grid,
+		.categories-grid {
+			grid-template-columns: 1fr;
+		}
+
+		.booking-widget-placeholder {
+			padding: var(--spacing-md);
+			min-height: 400px;
+		}
+	}
+</style>
