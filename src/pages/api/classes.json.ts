@@ -15,16 +15,12 @@ export const GET: APIRoute = async ({ request }) => {
 		const filterDate = url.searchParams.get('date');
 
 		// Fetch catalog items from Square
-		const response = await client.catalog.list(undefined, 'ITEM');
+		const apiResponse = await client.catalog.list(undefined, 'ITEM');
 
-		// Debug logging - handle BigInt values
-		console.log('Square API Response:', JSON.stringify(response, (key, value) =>
-			typeof value === 'bigint' ? value.toString() : value
-		, 2));
+		// Get the data from the response
+		const items = apiResponse.result?.objects || [];
 
-		const { result } = response;
-
-		if (!result || !result.objects) {
+		if (!items || items.length === 0) {
 			return new Response(JSON.stringify({ classes: [] }), {
 				status: 200,
 				headers: { 'Content-Type': 'application/json' }
@@ -34,7 +30,7 @@ export const GET: APIRoute = async ({ request }) => {
 		// Filter for classes (not parties)
 		// Assumes you tag classes differently than parties in Square
 		// You can customize this logic based on your Square setup
-		const classes = result.objects
+		const classes = items
 			.filter(item => {
 				// Filter out items with "party" or "private" in the name
 				const name = item.itemData?.name?.toLowerCase() || '';
