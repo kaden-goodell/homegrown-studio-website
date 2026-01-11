@@ -30,6 +30,25 @@ Git configuration has been set for this repository.
 - Web requests: 3 credits per 10,000 requests
 - Deploy previews (branch deploys): **FREE**
 
+### Development Workflow (USE THIS!)
+1. **Always work on `dev` branch** - push freely, deploy previews are FREE
+2. **Test locally first**: `npm run dev`
+3. **Push to dev**: triggers free deploy preview
+4. **Only merge to `main` when ready** - this costs 15 credits
+
+```bash
+# Start work
+git checkout dev
+
+# Push changes (FREE deploy preview)
+git push origin dev
+
+# When ready for production (COSTS 15 CREDITS)
+git checkout main
+git merge dev
+git push origin main
+```
+
 ### Local Development
 Always test locally before pushing to production:
 ```bash
