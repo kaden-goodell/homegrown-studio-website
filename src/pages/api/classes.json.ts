@@ -1,12 +1,12 @@
 import type { APIRoute } from 'astro';
-import { Client, Environment } from 'square';
+import squarePkg from 'square';
 
 // Initialize Square client
-const client = new Client({
+const client = new squarePkg.SquareClient({
 	accessToken: import.meta.env.SQUARE_ACCESS_TOKEN,
 	environment: import.meta.env.SQUARE_ENVIRONMENT === 'production'
-		? Environment.Production
-		: Environment.Sandbox,
+		? squarePkg.SquareEnvironment.Production
+		: squarePkg.SquareEnvironment.Sandbox,
 });
 
 export const GET: APIRoute = async ({ request }) => {
@@ -15,7 +15,7 @@ export const GET: APIRoute = async ({ request }) => {
 		const filterDate = url.searchParams.get('date');
 
 		// Fetch catalog items from Square
-		const { result } = await client.catalogApi.listCatalog(undefined, 'ITEM');
+		const { result } = await client.catalog.list(undefined, 'ITEM');
 
 		if (!result.objects) {
 			return new Response(JSON.stringify({ classes: [] }), {
