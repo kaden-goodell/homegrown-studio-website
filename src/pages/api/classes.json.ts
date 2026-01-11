@@ -32,6 +32,9 @@ export const GET: APIRoute = async ({ request }) => {
 		// You can customize this logic based on your Square setup
 		const classes = items
 			.filter(item => {
+				// Only process ITEM types (not CATEGORY, etc.)
+				if (item.type !== 'ITEM') return false;
+
 				// Filter out items with "party" or "private" in the name
 				const name = item.itemData?.name?.toLowerCase() || '';
 				return !name.includes('party') && !name.includes('private');
@@ -40,13 +43,17 @@ export const GET: APIRoute = async ({ request }) => {
 				const itemData = item.itemData;
 				const variation = itemData?.variations?.[0];
 
+				// Get price amount and convert from cents to dollars
+				const amountInCents = variation?.itemVariationData?.priceMoney?.amount;
+				const price = amountInCents
+					? (Number(amountInCents) / 100).toFixed(2)
+					: '0.00';
+
 				return {
 					id: item.id,
 					name: itemData?.name || 'Unnamed Class',
 					description: itemData?.description || '',
-					price: variation?.itemVariationData?.priceMoney?.amount
-						? (variation.itemVariationData.priceMoney.amount / 100).toFixed(2)
-						: '0.00',
+					price: price,
 					currency: variation?.itemVariationData?.priceMoney?.currency || 'USD',
 					category: itemData?.categoryId || null,
 					imageUrl: itemData?.imageIds?.[0]
