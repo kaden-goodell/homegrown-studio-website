@@ -3,7 +3,7 @@ import squarePkg from 'square';
 
 // Initialize Square client
 const client = new squarePkg.SquareClient({
-	accessToken: import.meta.env.SQUARE_ACCESS_TOKEN,
+	token: import.meta.env.SQUARE_ACCESS_TOKEN,
 	environment: import.meta.env.SQUARE_ENVIRONMENT === 'production'
 		? squarePkg.SquareEnvironment.Production
 		: squarePkg.SquareEnvironment.Sandbox,
@@ -13,13 +13,6 @@ export const GET: APIRoute = async ({ request }) => {
 	try {
 		const url = new URL(request.url);
 		const filterDate = url.searchParams.get('date');
-
-		// Debug: Log environment variables
-		const token = import.meta.env.SQUARE_ACCESS_TOKEN || '';
-		const env = import.meta.env.SQUARE_ENVIRONMENT || '';
-		console.log('DEBUG - Token prefix:', token.substring(0, 15));
-		console.log('DEBUG - Environment:', env);
-		console.log('DEBUG - Token length:', token.length);
 
 		// Fetch catalog items from Square
 		const { result } = await client.catalog.list(undefined, 'ITEM');
@@ -86,19 +79,10 @@ export const GET: APIRoute = async ({ request }) => {
 	} catch (error) {
 		console.error('Error fetching classes from Square:', error);
 
-		const token = import.meta.env.SQUARE_ACCESS_TOKEN || '';
-		const env = import.meta.env.SQUARE_ENVIRONMENT || '';
-
 		return new Response(
 			JSON.stringify({
 				error: 'Failed to fetch classes',
-				message: error instanceof Error ? error.message : 'Unknown error',
-				debug: {
-					tokenPrefix: token.substring(0, 15),
-					tokenLength: token.length,
-					environment: env,
-					hasToken: !!token
-				}
+				message: error instanceof Error ? error.message : 'Unknown error'
 			}),
 			{
 				status: 500,
