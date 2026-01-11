@@ -15,7 +15,14 @@ export const GET: APIRoute = async ({ request }) => {
 		const filterDate = url.searchParams.get('date');
 
 		// Fetch catalog items from Square
-		const { result } = await client.catalog.list(undefined, 'ITEM');
+		const response = await client.catalog.list(undefined, 'ITEM');
+
+		// Debug logging - handle BigInt values
+		console.log('Square API Response:', JSON.stringify(response, (key, value) =>
+			typeof value === 'bigint' ? value.toString() : value
+		, 2));
+
+		const { result } = response;
 
 		if (!result || !result.objects) {
 			return new Response(JSON.stringify({ classes: [] }), {
