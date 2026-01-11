@@ -4,13 +4,55 @@ import Header from '../components/Header.astro';
 import Footer from '../components/Footer.astro';
 import ClassCard from '../components/ClassCard.astro';
 
-export const prerender = false; // This page must be server-rendered
+export const prerender = false;
 
-// Fetch workshops data server-side
-let workshops = [];
-let error = null;
+// Interface for workshop slots built from availability data
+interface AvailabilitySlot {
+	id: string; // Unique ID for this slot
+	serviceVariationId: string;
+	startAt: string; // ISO date string
+	startAtFormatted: string;
+	durationMinutes: number;
+	spotsAvailable: number | null;
+	isSoldOut: boolean;
+	// From catalog item
+	name: string;
+	description: string;
+	price: number;
+	priceFormatted: string;
+	currency: string;
+	imageUrl: string | null;
+	teamMemberId?: string;
+	teamMemberName?: string;
+}
+
+let availabilitySlots: AvailabilitySlot[] = [];
+let error: string | null = null;
+let debugLog: string[] = [];
+let rawDebugData: any = {};
+
+// Helper to serialize BigInt values
+function serializeForClient(obj: any): any {
+	return JSON.parse(JSON.stringify(obj, (key, value) =>
+		typeof value === 'bigint' ? value.toString() : value
+	));
+}
+
+// Format date for display
+function formatDateTime(isoString: string): string {
+	const date = new Date(isoString);
+	return date.toLocaleDateString('en-US', {
+		weekday: 'short',
+		month: 'short',
+		day: 'numeric',
+		hour: 'numeric',
+		minute: '2-digit',
+		hour12: true
+	});
+}
 
 try {
+	debugLog.push('Starting fetch...');
 	const { default: squarePkg } = await import('square');
 
 	const client = new squarePkg.SquareClient({
@@ -20,46 +62,277 @@ try {
 			: squarePkg.SquareEnvironment.Sandbox,
 	});
 
-	const apiResponse = await client.catalog.list(undefined, 'ITEM');
-	const items = apiResponse.result?.objects || apiResponse.response?.objects || apiResponse.data || [];
+	// Step 1: Get location ID
+	debugLog.push('Fetching location...');
+	let locationId: string | null = null;
+	let locations: any[] = [];
 
-	if (items && items.length > 0) {
-		// Find the Workshop category ID
-		const workshopCategory = items.find(item =>
-			item.type === 'CATEGORY' &&
-			item.categoryData?.name === 'Workshop'
-		);
-		const workshopCategoryId = workshopCategory?.id;
+	const locResponse = client.locations.list();
 
-		// Filter for workshops with Workshop category
-		workshops = items
-			.filter(item => {
-				if (item.type !== 'ITEM') return false;
-				const categories = item.itemData?.categories || [];
-				return categories.some(cat => cat.id === workshopCategoryId);
-			})
-			.map(item => {
-				const itemData = item.itemData;
-				const variation = itemData?.variations?.[0];
-				const amountInCents = variation?.itemVariationData?.priceMoney?.amount;
-				const price = amountInCents ? (Number(amountInCents) / 100).toFixed(2) : '0.00';
-
-				return {
-					id: item.id,
-					name: itemData?.name || 'Unnamed Workshop',
-					description: itemData?.description || '',
-					price: price,
-					currency: variation?.itemVariationData?.priceMoney?.currency || 'USD',
-					imageUrl: itemData?.imageIds?.[0]
-						? `https://items-images-production.s3.us-west-2.amazonaws.com/files/${itemData.imageIds[0]}/original.jpeg`
-						: null,
-				};
-			});
+	// Handle async iterator pattern
+	if (locResponse[Symbol.asyncIterator]) {
+		debugLog.push('Using async iterator for locations...');
+		for await (const loc of locResponse) {
+			locations.push(loc);
+		}
+	} else if (locResponse.then) {
+		debugLog.push('Using promise for locations...');
+		const resolved = await locResponse;
+		locations = resolved?.result?.locations || resolved?.locations || resolved?.data || [];
+		if (!Array.isArray(locations)) locations = [];
 	}
+
+	debugLog.push(`Found ${locations.length} locations`);
+
+	if (locations.length > 0) {
+		locationId = locations[0].id;
+		rawDebugData.allLocations = locations.map((l: any) => ({
+			id: l.id,
+			name: l.name,
+			status: l.status,
+		}));
+	}
+
+	debugLog.push(`Location ID: ${locationId}`);
+	rawDebugData.locationId = locationId;
+
+	if (locationId) {
+		// Step 2: Fetch ALL catalog items to build a lookup map
+		debugLog.push('Fetching catalog items...');
+		const catalogMap = new Map<string, any>(); // variationId -> item data
+		const serviceVariationIds: string[] = []; // For APPOINTMENTS_SERVICE items
+		let catalogItems: any[] = [];
+
+		const catalogResponse = client.catalog.list();
+
+		// Handle async iterator pattern
+		if (catalogResponse[Symbol.asyncIterator]) {
+			debugLog.push('Using async iterator for catalog...');
+			for await (const item of catalogResponse) {
+				catalogItems.push(item);
+			}
+			debugLog.push(`Async iterator got ${catalogItems.length} items`);
+		}
+
+		// If async iterator returned nothing, try promise pattern
+		if (catalogItems.length === 0 && catalogResponse.then) {
+			debugLog.push('Trying promise pattern for catalog...');
+			const resolved = await catalogResponse;
+			debugLog.push(`Catalog response keys: ${JSON.stringify(Object.keys(resolved || {}))}`);
+			catalogItems = resolved?.result?.objects || resolved?.objects || resolved?.data || [];
+			debugLog.push(`Promise got ${catalogItems.length} items`);
+		}
+
+		debugLog.push(`Total catalog items: ${catalogItems.length}`);
+		rawDebugData.totalCatalogItems = catalogItems.length;
+
+		// Process catalog items
+		for (const item of catalogItems) {
+			if (item.type === 'ITEM') {
+				const itemData = item.itemData || {};
+				const productType = itemData.productType || 'unknown';
+				const variations = itemData.variations || [];
+
+				debugLog.push(`Item: ${itemData.name} (type: ${productType})`);
+
+				for (const variation of variations) {
+					const varData = variation.itemVariationData || {};
+					const priceMoney = varData.priceMoney || {};
+					const priceInCents = parseInt(priceMoney.amount || '0', 10);
+					const imageIds = itemData.imageIds || [];
+
+					catalogMap.set(variation.id, {
+						itemId: item.id,
+						variationId: variation.id,
+						name: itemData.name || 'Unnamed',
+						description: itemData.descriptionPlaintext || itemData.description || '',
+						price: priceInCents / 100,
+						priceFormatted: (priceInCents / 100).toFixed(2),
+						currency: priceMoney.currency || 'USD',
+						imageUrl: imageIds[0]
+							? `https://items-images-production.s3.us-west-2.amazonaws.com/files/${imageIds[0]}/original.jpeg`
+							: null,
+						productType,
+						serviceDuration: varData.serviceDuration ? parseInt(String(varData.serviceDuration), 10) : null,
+					});
+
+					// Collect APPOINTMENTS_SERVICE variation IDs for booking search
+					if (productType === 'APPOINTMENTS_SERVICE') {
+						serviceVariationIds.push(variation.id);
+						debugLog.push(`  -> Bookable service variation: ${variation.id}`);
+					}
+				}
+			}
+		}
+
+		debugLog.push(`Catalog map has ${catalogMap.size} variations`);
+		debugLog.push(`Found ${serviceVariationIds.length} bookable service variations`);
+		rawDebugData.catalogVariationCount = catalogMap.size;
+		rawDebugData.serviceVariationIds = serviceVariationIds;
+		rawDebugData.catalogVariations = Array.from(catalogMap.entries()).map(([id, data]) => ({
+			id,
+			name: data.name,
+			productType: data.productType,
+		}));
+
+		// Step 2.5: Check team member booking profiles
+		try {
+			debugLog.push('Checking team member booking profiles...');
+			const teamProfileResponse = client.bookings.teamMemberProfiles.list({
+				bookableOnly: true,
+				locationId: locationId,
+			});
+
+			let teamProfiles: any[] = [];
+			if (teamProfileResponse[Symbol.asyncIterator]) {
+				for await (const p of teamProfileResponse) {
+					teamProfiles.push(p);
+				}
+			} else if (teamProfileResponse.then) {
+				const resolved = await teamProfileResponse;
+				teamProfiles = resolved?.result?.teamMemberBookingProfiles || resolved?.data || [];
+			}
+
+			debugLog.push(`Found ${teamProfiles.length} bookable team members`);
+			rawDebugData.teamMemberProfiles = serializeForClient(teamProfiles);
+
+			if (teamProfiles.length === 0) {
+				debugLog.push('WARNING: No bookable team members found - this may cause 0 availability');
+			} else {
+				for (const profile of teamProfiles) {
+					debugLog.push(`  Team member: ${profile.displayName || profile.teamMemberId}`);
+				}
+			}
+		} catch (teamErr: any) {
+			debugLog.push(`Team profiles error: ${teamErr?.message}`);
+		}
+
+		// Step 2.6: Check location booking profile
+		try {
+			debugLog.push('Checking location booking profile...');
+			const locProfileResponse = await client.bookings.locationProfiles.retrieve(locationId);
+			const locProfile = locProfileResponse?.result?.locationBookingProfile || locProfileResponse?.data;
+			debugLog.push(`Location booking profile: ${JSON.stringify(locProfile)}`);
+			rawDebugData.locationBookingProfile = serializeForClient(locProfile);
+
+			if (locProfile) {
+				debugLog.push(`  Online booking enabled: ${locProfile.onlineBookingEnabled}`);
+				debugLog.push(`  Booking policy: ${locProfile.bookingPolicy}`);
+			}
+		} catch (locProfileErr: any) {
+			debugLog.push(`Location profile error: ${locProfileErr?.message}`);
+		}
+
+		// Step 3: Search for availability using Bookings API
+		if (serviceVariationIds.length > 0) {
+			debugLog.push('Searching availability for service variations...');
+
+			const now = new Date();
+			const endDate = new Date();
+			endDate.setDate(endDate.getDate() + 31); // Max 32 days
+
+			// Get team member IDs from profiles we found
+			const teamMemberIds = rawDebugData.teamMemberProfiles?.map((p: any) => p.teamMemberId) || [];
+			debugLog.push(`Team member IDs for filter: ${teamMemberIds.join(', ')}`);
+
+			// segment_filters is REQUIRED - must specify service variations
+			// Also try including team member filter
+			const searchRequest = {
+				query: {
+					filter: {
+						locationId: locationId,
+						startAtRange: {
+							startAt: now.toISOString(),
+							endAt: endDate.toISOString(),
+						},
+						segmentFilters: serviceVariationIds.map(id => ({
+							serviceVariationId: id,
+							teamMemberIdFilter: teamMemberIds.length > 0 ? {
+								any: teamMemberIds,
+							} : undefined,
+						})),
+					},
+				},
+			};
+
+			debugLog.push(`Search request: ${JSON.stringify(searchRequest)}`);
+
+			const availResponse = await client.bookings.searchAvailability(searchRequest);
+			debugLog.push(`searchAvailability response keys: ${JSON.stringify(Object.keys(availResponse || {}))}`);
+
+			// Check for errors in response
+			const errors = availResponse?.result?.errors || availResponse?.errors || [];
+			if (errors.length > 0) {
+				debugLog.push(`searchAvailability ERRORS: ${JSON.stringify(errors)}`);
+				rawDebugData.searchErrors = errors;
+			}
+
+			// Try multiple possible locations for availabilities
+			let availabilities = availResponse?.result?.availabilities
+				|| availResponse?.availabilities
+				|| availResponse?.data?.availabilities
+				|| [];
+			debugLog.push(`searchAvailability returned ${availabilities.length} slots`);
+			rawDebugData.rawAvailabilities = serializeForClient(availabilities.slice(0, 20)); // First 20 for debug
+			rawDebugData.totalAvailabilities = availabilities.length;
+
+			// Step 4: Transform availability slots into display data
+			for (const avail of availabilities) {
+				const startAt = avail.startAt;
+				const segments = avail.appointmentSegments || [];
+
+				for (const segment of segments) {
+					const serviceVariationId = segment.serviceVariationId;
+					const durationMinutes = segment.durationMinutes || 60;
+					const teamMemberId = segment.teamMemberId;
+
+					// Look up catalog data for this service variation
+					const catalogData = catalogMap.get(serviceVariationId);
+
+					// Create unique ID for this slot
+					const slotId = `${serviceVariationId}-${startAt}`;
+
+					availabilitySlots.push({
+						id: slotId,
+						serviceVariationId,
+						startAt,
+						startAtFormatted: formatDateTime(startAt),
+						durationMinutes,
+						spotsAvailable: null, // TODO: Get from booking capacity
+						isSoldOut: false,
+						// Catalog data (use defaults if not found)
+						name: catalogData?.name || 'Workshop',
+						description: catalogData?.description || '',
+						price: catalogData?.price || 0,
+						priceFormatted: catalogData?.priceFormatted || '0.00',
+						currency: catalogData?.currency || 'USD',
+						imageUrl: catalogData?.imageUrl || null,
+						teamMemberId,
+					});
+				}
+			}
+
+			debugLog.push(`Created ${availabilitySlots.length} availability slots`);
+
+			// Sort by date by default
+			availabilitySlots.sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+		} else {
+			debugLog.push('No APPOINTMENTS_SERVICE variations found - no availability to search');
+			rawDebugData.noServiceVariations = true;
+		}
+	} else {
+		debugLog.push('No location ID - skipping availability search');
+	}
+
 } catch (e) {
 	console.error('Error fetching workshops:', e);
 	error = e instanceof Error ? e.message : 'Unknown error';
+	debugLog.push(`ERROR: ${error}`);
 }
+
+// Serialize for client
+const availabilitySlotsForClient = serializeForClient(availabilitySlots);
+const rawDebugDataSerialized = serializeForClient(rawDebugData);
 ---
 
 <Layout
@@ -70,10 +343,78 @@ try {
 
 	<main class="min-h-screen bg-base-200">
 		<!-- Hero Section -->
-		<section class="bg-gradient-to-r from-primary to-secondary text-primary-content py-16 lg:py-24">
+		<section class="bg-gradient-to-r from-primary to-secondary text-primary-content py-12 lg:py-16">
 			<div class="container mx-auto px-4">
 				<h1 class="text-5xl lg:text-6xl font-bold mb-4 text-center">Current Workshops</h1>
 				<p class="text-xl lg:text-2xl text-center opacity-95">Explore our upcoming craft workshops</p>
+			</div>
+		</section>
+
+		<!-- Filters Section -->
+		<section class="sticky top-0 z-10">
+			<div class="bg-white/80 backdrop-blur-md border-b border-base-200 shadow-sm pb-1">
+				<div class="container mx-auto px-4 py-4">
+					<div class="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between">
+						<!-- Left side: Search -->
+						<div class="relative flex-1">
+							<svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-violet-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+								<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+							</svg>
+							<input
+								type="text"
+								id="search-input"
+								placeholder="Search workshops..."
+								class="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-700 placeholder-gray-400 focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all text-sm"
+							/>
+						</div>
+
+						<!-- Right side: Date picker and Sort -->
+						<div class="flex flex-wrap items-center gap-3">
+							<!-- Date Range Picker -->
+							<div class="relative">
+								<svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-violet-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+								</svg>
+								<input
+									type="text"
+									id="date-range-picker"
+									placeholder="Any date"
+									class="pl-10 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-700 placeholder-gray-400 cursor-pointer focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all text-sm w-52 sm:w-64"
+									readonly
+								/>
+								<!-- Clear date button (inside input) -->
+								<button
+									class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400 hover:text-violet-500 rounded-full hover:bg-violet-100 transition-all hidden"
+									id="clear-date-filter"
+									title="Clear date filter"
+								>
+									<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+										<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M6 18L18 6M6 6l12 12" />
+									</svg>
+								</button>
+							</div>
+
+							<!-- Divider -->
+							<div class="hidden lg:block w-px h-8 bg-gray-200"></div>
+
+							<!-- Sort Dropdown -->
+							<div class="relative">
+								<svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-violet-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12" />
+								</svg>
+								<select id="sort-select" class="pl-10 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-gray-700 cursor-pointer focus:outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 transition-all appearance-none">
+									<option value="date" selected>Date</option>
+									<option value="name">Name</option>
+									<option value="price-low">Price: Low to High</option>
+									<option value="price-high">Price: High to Low</option>
+								</select>
+								<svg class="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+									<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+								</svg>
+							</div>
+						</div>
+					</div>
+				</div>
 			</div>
 		</section>
 
@@ -83,27 +424,38 @@ try {
 				{error ? (
 					<div class="alert alert-error">
 						<svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-						<span>Failed to load workshops. Please try again later.</span>
+						<span>Failed to load workshops: {error}</span>
 					</div>
-				) : workshops.length > 0 ? (
-					<div class="flex flex-col gap-6 max-w-6xl mx-auto">
-						{workshops.map((workshop, index) => (
+				) : availabilitySlots.length > 0 ? (
+					<div class="flex flex-col gap-6 max-w-6xl mx-auto" id="workshops-container">
+						{availabilitySlots.map((slot, index) => (
 							<ClassCard
-								id={workshop.id}
-								name={workshop.name}
-								description={workshop.description}
-								price={workshop.price}
-								currency={workshop.currency}
-								imageUrl={workshop.imageUrl}
+								id={slot.id}
+								variationId={slot.serviceVariationId}
+								name={slot.name}
+								description={slot.description}
+								price={slot.priceFormatted}
+								currency={slot.currency}
+								imageUrl={slot.imageUrl}
+								dateTimeDisplay={slot.startAtFormatted}
+								dateTime={slot.startAt}
+								availableSlots={slot.spotsAvailable}
+								isSoldOut={slot.isSoldOut}
 								index={index}
 							/>
 						))}
 					</div>
 				) : (
-					<div class="text-center py-16">
+					<div class="text-center py-16" id="no-workshops">
 						<p class="text-xl text-base-content/70">No workshops available at the moment. Check back soon!</p>
 					</div>
 				)}
+
+				<!-- No results message (hidden by default) -->
+				<div class="text-center py-16 hidden" id="no-results">
+					<p class="text-xl text-base-content/70">No workshops match your search criteria.</p>
+					<button class="btn btn-primary mt-4" id="clear-filters">Clear Search</button>
+				</div>
 			</div>
 		</section>
 	</main>
@@ -111,17 +463,532 @@ try {
 	<Footer />
 </Layout>
 
-<script>
-	// Add click handlers for book buttons
+<!-- Litepicker CSS and JS -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/litepicker/dist/css/litepicker.css"/>
+<script src="https://cdn.jsdelivr.net/npm/litepicker/dist/litepicker.js"></script>
+
+<script define:vars={{ availabilitySlotsForClient, rawDebugData: rawDebugDataSerialized, debugLog }}>
+	// Debug: Log all debug info to console
+	console.log('=== DEBUG LOG ===');
+	debugLog.forEach(msg => console.log(msg));
+	console.log('=================');
+	console.log('Raw Debug Data:', rawDebugData);
+	console.log('Availability Slots:', availabilitySlotsForClient);
+
 	document.addEventListener('DOMContentLoaded', () => {
-		document.querySelectorAll('.btn-primary').forEach(btn => {
-			btn.addEventListener('click', (e) => {
-				const target = e.target as HTMLElement;
-				const workshopId = target.dataset.workshopId || target.closest('[data-workshop-id]')?.getAttribute('data-workshop-id');
+		const searchInput = document.getElementById('search-input');
+		const sortSelect = document.getElementById('sort-select');
+		const clearFilters = document.getElementById('clear-filters');
+		const container = document.getElementById('workshops-container');
+		const noResults = document.getElementById('no-results');
+		const clearDateFilter = document.getElementById('clear-date-filter');
+		const dateRangeInput = document.getElementById('date-range-picker');
+
+		const cards = container ? Array.from(container.querySelectorAll('.card')) : [];
+		let currentSlots = [...availabilitySlotsForClient];
+
+		// Date filter state
+		let dateFilterStart = null;
+		let dateFilterEnd = null;
+		let picker = null;
+
+		// Helper: Get month boundaries
+		function getMonthBounds(monthOffset = 0) {
+			const now = new Date();
+			const start = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1);
+			const end = new Date(now.getFullYear(), now.getMonth() + monthOffset + 1, 0);
+			return { start, end };
+		}
+
+		// Helper: Get next 7 days
+		function getNext7Days() {
+			const start = new Date();
+			const end = new Date();
+			end.setDate(end.getDate() + 7);
+			return { start, end };
+		}
+
+		// Helper: Get next 14 days
+		function getNext14Days() {
+			const start = new Date();
+			const end = new Date();
+			end.setDate(end.getDate() + 14);
+			return { start, end };
+		}
+
+		// Helper: Get next 30 days
+		function getNext30Days() {
+			const start = new Date();
+			const end = new Date();
+			end.setDate(end.getDate() + 30);
+			return { start, end };
+		}
+
+		// Initialize Litepicker
+		const today = new Date();
+		today.setHours(0, 0, 0, 0); // Start of day so today is selectable
+
+		picker = new Litepicker({
+			element: dateRangeInput,
+			singleMode: false,
+			numberOfMonths: 2,
+			numberOfColumns: 2,
+			minDate: today,
+			maxDays: 32, // Limit range to 32 days max
+			format: 'MMM D, YYYY',
+			separator: ' - ',
+			autoApply: false,
+			showTooltip: true,
+			tooltipText: {
+				one: 'day',
+				other: 'days'
+			},
+			buttonText: {
+				apply: 'Apply',
+				cancel: 'Cancel',
+				previousMonth: '<',
+				nextMonth: '>',
+				reset: 'Reset',
+			},
+			resetButton: true,
+			setup: (picker) => {
+				// Add preset buttons to the picker UI
+				picker.on('render', (ui) => {
+					// Check if presets already exist
+					if (ui.querySelector('.litepicker-presets')) return;
+
+					const container = ui.querySelector('.container__months');
+					if (!container) return;
+
+					// Create presets panel with nice styling
+					const presetsPanel = document.createElement('div');
+					presetsPanel.className = 'litepicker-presets';
+
+					// Add a header
+					const header = document.createElement('div');
+					header.textContent = 'Quick Select';
+					header.style.cssText = 'font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #7c3aed; margin-bottom: 12px; padding: 0 4px; border-bottom: 2px solid #c4b5fd; padding-bottom: 8px;';
+					presetsPanel.appendChild(header);
+
+					const presets = [
+						{ label: 'Next 7 Days', getValue: getNext7Days },
+						{ label: 'Next 14 Days', getValue: getNext14Days },
+						{ label: 'Next 30 Days', getValue: getNext30Days },
+						{ label: 'This Month', getValue: () => getMonthBounds(0) },
+						{ label: 'Next Month', getValue: () => getMonthBounds(1) },
+					];
+
+					presets.forEach(preset => {
+						const btn = document.createElement('button');
+						btn.type = 'button';
+						btn.textContent = preset.label;
+						btn.className = 'litepicker-preset-btn';
+						btn.onclick = (e) => {
+							e.preventDefault();
+							e.stopPropagation();
+							const { start, end } = preset.getValue();
+							picker.setDateRange(start, end);
+						};
+						presetsPanel.appendChild(btn);
+					});
+
+					// Insert presets before the months container
+					container.parentNode.insertBefore(presetsPanel, container);
+					container.parentNode.style.display = 'flex';
+				});
+
+				picker.on('selected', (date1, date2) => {
+					if (date1 && date2) {
+						dateFilterStart = date1.dateInstance;
+						dateFilterEnd = date2.dateInstance;
+						dateFilterEnd.setHours(23, 59, 59);
+						// Show clear button
+						clearDateFilter?.classList.remove('hidden');
+						renderCards();
+					}
+				});
+
+				picker.on('clear:selection', () => {
+					dateFilterStart = null;
+					dateFilterEnd = null;
+					// Hide clear button
+					clearDateFilter?.classList.add('hidden');
+					renderCards();
+				});
+			}
+		});
+
+		// Clear date filter
+		function clearDateFilterFn() {
+			dateFilterStart = null;
+			dateFilterEnd = null;
+			picker?.clearSelection();
+			// Hide clear button
+			clearDateFilter?.classList.add('hidden');
+			renderCards();
+		}
+
+		function renderCards() {
+			const searchTerm = searchInput?.value?.toLowerCase() || '';
+
+			// Filter by search term
+			let filtered = currentSlots;
+			if (searchTerm) {
+				filtered = filtered.filter(slot =>
+					slot.name.toLowerCase().includes(searchTerm) ||
+					slot.description.toLowerCase().includes(searchTerm)
+				);
+			}
+
+			// Filter by date range
+			if (dateFilterStart && dateFilterEnd) {
+				filtered = filtered.filter(slot => {
+					const slotDate = new Date(slot.startAt);
+					return slotDate >= dateFilterStart && slotDate <= dateFilterEnd;
+				});
+			}
+
+			// Show/hide cards based on filter
+			let visibleCount = 0;
+			availabilitySlotsForClient.forEach((slot, index) => {
+				const card = cards[index];
+				if (!card) return;
+
+				const isVisible = filtered.some(f => f.id === slot.id);
+				card.style.display = isVisible ? '' : 'none';
+				if (isVisible) visibleCount++;
+			});
+
+			// Show/hide no results
+			if (noResults && container) {
+				if (visibleCount === 0 && availabilitySlotsForClient.length > 0) {
+					noResults.classList.remove('hidden');
+					container.classList.add('hidden');
+				} else {
+					noResults.classList.add('hidden');
+					container.classList.remove('hidden');
+				}
+			}
+		}
+
+		function sortCards() {
+			const sortValue = sortSelect?.value || 'date';
+
+			switch (sortValue) {
+				case 'name':
+					currentSlots.sort((a, b) => a.name.localeCompare(b.name));
+					break;
+				case 'price-low':
+					currentSlots.sort((a, b) => a.price - b.price);
+					break;
+				case 'price-high':
+					currentSlots.sort((a, b) => b.price - a.price);
+					break;
+				case 'date':
+					currentSlots.sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
+					break;
+			}
+
+			// Reorder DOM elements
+			const sortedIds = currentSlots.map(s => s.id);
+			sortedIds.forEach(id => {
+				const card = cards.find(c => c.getAttribute('data-workshop-id') === id);
+				if (card && container) {
+					container.appendChild(card);
+				}
+			});
+
+			renderCards();
+		}
+
+		// Event listeners
+		searchInput?.addEventListener('input', renderCards);
+		sortSelect?.addEventListener('change', sortCards);
+		clearFilters?.addEventListener('click', () => {
+			if (searchInput) searchInput.value = '';
+			clearDateFilterFn();
+		});
+		clearDateFilter?.addEventListener('click', clearDateFilterFn);
+
+		// Book button handlers
+		document.querySelectorAll('[data-workshop-id]').forEach(card => {
+			const btn = card.querySelector('button:not([disabled])');
+			btn?.addEventListener('click', () => {
+				const workshopId = card.getAttribute('data-workshop-id');
+				const variationId = card.getAttribute('data-variation-id');
+				const dateTime = card.getAttribute('data-datetime');
 				if (workshopId) {
-					window.location.href = `/booking?workshop=${workshopId}`;
+					let url = `/booking?workshop=${workshopId}`;
+					if (variationId) url += `&variation=${variationId}`;
+					if (dateTime) url += `&datetime=${encodeURIComponent(dateTime)}`;
+					window.location.href = url;
 				}
 			});
 		});
 	});
 </script>
+
+<style is:global>
+	/* Litepicker custom styles - Complete redesign */
+	.litepicker {
+		font-family: inherit;
+		--litepicker-container-months-color-bg: #ffffff;
+		--litepicker-month-header-color: #1f2937;
+		--litepicker-button-prev-month-color: #6b7280;
+		--litepicker-button-next-month-color: #6b7280;
+		--litepicker-button-prev-month-color-hover: #8b5cf6;
+		--litepicker-button-next-month-color-hover: #8b5cf6;
+		--litepicker-day-color: #374151;
+		--litepicker-day-color-hover: #8b5cf6;
+		--litepicker-is-in-range-color: #ede9fe;
+		--litepicker-is-start-color: #8b5cf6;
+		--litepicker-is-end-color: #8b5cf6;
+		--litepicker-is-start-color-bg: #8b5cf6;
+		--litepicker-is-end-color-bg: #8b5cf6;
+		border-radius: 16px !important;
+		box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25) !important;
+		border: 1px solid #e5e7eb !important;
+		overflow: hidden;
+	}
+
+	/* Main container layout */
+	.litepicker .container__main {
+		display: flex !important;
+		background: #ffffff;
+	}
+
+	/* Presets panel styling */
+	.litepicker-presets {
+		background: linear-gradient(180deg, #f5f3ff 0%, #ede9fe 100%) !important;
+		padding: 16px 14px !important;
+		border-right: 1px solid #ddd6fe !important;
+		display: flex !important;
+		flex-direction: column !important;
+		gap: 6px !important;
+		min-width: 140px !important;
+	}
+
+	.litepicker-preset-btn {
+		padding: 10px 14px !important;
+		background: #ffffff !important;
+		border: 1px solid #ddd6fe !important;
+		border-left: 3px solid #8b5cf6 !important;
+		border-radius: 0 8px 8px 0 !important;
+		cursor: pointer !important;
+		font-size: 13px !important;
+		font-weight: 500 !important;
+		text-align: left !important;
+		transition: all 0.2s ease !important;
+		color: #5b21b6 !important;
+		box-shadow: 0 1px 3px rgba(139, 92, 246, 0.1) !important;
+	}
+
+	.litepicker-preset-btn:hover {
+		background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
+		border-color: #8b5cf6 !important;
+		border-left-color: #6d28d9 !important;
+		color: #ffffff !important;
+		transform: translateX(4px);
+		box-shadow: 0 4px 12px rgba(139, 92, 246, 0.35) !important;
+	}
+
+	/* Months container */
+	.litepicker .container__months {
+		border-radius: 0 !important;
+		padding: 16px !important;
+		background: #ffffff;
+	}
+
+	/* Month header */
+	.litepicker .month-item-header {
+		padding: 8px 0 16px 0 !important;
+	}
+
+	.litepicker .month-item-name {
+		font-weight: 600 !important;
+		font-size: 15px !important;
+		color: #1f2937 !important;
+	}
+
+	.litepicker .month-item-year {
+		font-weight: 600 !important;
+		font-size: 15px !important;
+		color: #6b7280 !important;
+	}
+
+	/* Navigation buttons */
+	.litepicker .button-previous-month,
+	.litepicker .button-next-month {
+		width: 32px !important;
+		height: 32px !important;
+		border-radius: 8px !important;
+		transition: all 0.2s ease !important;
+	}
+
+	.litepicker .button-previous-month:hover,
+	.litepicker .button-next-month:hover {
+		background: #f3f4f6 !important;
+	}
+
+	/* Day names header */
+	.litepicker .month-item-weekdays-row {
+		padding: 8px 0 !important;
+		border-bottom: 1px solid #f3f4f6 !important;
+		margin-bottom: 8px !important;
+	}
+
+	.litepicker .month-item-weekdays-row > div {
+		font-size: 11px !important;
+		font-weight: 600 !important;
+		color: #9ca3af !important;
+		text-transform: uppercase !important;
+		letter-spacing: 0.05em !important;
+	}
+
+	/* Day items */
+	.litepicker .container__days .day-item {
+		width: 36px !important;
+		height: 36px !important;
+		border-radius: 8px !important;
+		font-size: 13px !important;
+		font-weight: 500 !important;
+		transition: all 0.15s ease !important;
+	}
+
+	.litepicker .container__days .day-item:hover {
+		background: #f3f4f6 !important;
+		color: #8b5cf6 !important;
+	}
+
+	/* Selected dates */
+	.litepicker .day-item.is-start-date,
+	.litepicker .day-item.is-end-date {
+		background: #8b5cf6 !important;
+		color: #ffffff !important;
+		font-weight: 600 !important;
+	}
+
+	.litepicker .day-item.is-start-date {
+		border-radius: 8px 0 0 8px !important;
+	}
+
+	.litepicker .day-item.is-end-date {
+		border-radius: 0 8px 8px 0 !important;
+	}
+
+	.litepicker .day-item.is-start-date.is-end-date {
+		border-radius: 8px !important;
+	}
+
+	/* In-range dates */
+	.litepicker .day-item.is-in-range {
+		background: #ede9fe !important;
+		color: #6d28d9 !important;
+		border-radius: 0 !important;
+	}
+
+	/* Locked/disabled dates */
+	.litepicker .day-item.is-locked {
+		color: #d1d5db !important;
+	}
+
+	/* Today marker */
+	.litepicker .day-item.is-today {
+		color: #8b5cf6 !important;
+		font-weight: 700 !important;
+		position: relative;
+	}
+
+	.litepicker .day-item.is-today::after {
+		content: '';
+		position: absolute;
+		bottom: 4px;
+		left: 50%;
+		transform: translateX(-50%);
+		width: 4px;
+		height: 4px;
+		border-radius: 50%;
+		background: #8b5cf6;
+	}
+
+	/* Footer with buttons */
+	.litepicker .container__footer {
+		padding: 12px 16px !important;
+		border-top: 1px solid #e5e7eb !important;
+		background: #f9fafb !important;
+		display: flex !important;
+		justify-content: flex-end !important;
+		gap: 8px !important;
+	}
+
+	.litepicker .button-cancel {
+		padding: 8px 16px !important;
+		background: #ffffff !important;
+		border: 1px solid #d1d5db !important;
+		border-radius: 8px !important;
+		color: #4b5563 !important;
+		font-weight: 500 !important;
+		font-size: 13px !important;
+		cursor: pointer !important;
+		transition: all 0.2s ease !important;
+	}
+
+	.litepicker .button-cancel:hover {
+		background: #f3f4f6 !important;
+		border-color: #9ca3af !important;
+	}
+
+	.litepicker .button-apply {
+		padding: 8px 20px !important;
+		background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%) !important;
+		border: none !important;
+		border-radius: 8px !important;
+		color: #ffffff !important;
+		font-weight: 600 !important;
+		font-size: 13px !important;
+		cursor: pointer !important;
+		transition: all 0.2s ease !important;
+		box-shadow: 0 2px 4px rgba(139, 92, 246, 0.3) !important;
+	}
+
+	.litepicker .button-apply:hover {
+		background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%) !important;
+		transform: translateY(-1px);
+		box-shadow: 0 4px 8px rgba(139, 92, 246, 0.4) !important;
+	}
+
+	/* Reset button */
+	.litepicker .button-reset {
+		color: #8b5cf6 !important;
+		font-size: 12px !important;
+		font-weight: 500 !important;
+		text-decoration: none !important;
+		transition: all 0.2s ease !important;
+	}
+
+	.litepicker .button-reset:hover {
+		color: #6d28d9 !important;
+		text-decoration: underline !important;
+	}
+
+	/* Tooltip */
+	.litepicker .container__tooltip {
+		background: #1f2937 !important;
+		color: #ffffff !important;
+		border-radius: 6px !important;
+		padding: 4px 10px !important;
+		font-size: 12px !important;
+		font-weight: 500 !important;
+		box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1) !important;
+	}
+
+	/* Input field styling */
+	#date-range-picker {
+		transition: all 0.2s ease;
+	}
+
+	#date-range-picker:focus {
+		border-color: #8b5cf6;
+		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+	}
+</style>

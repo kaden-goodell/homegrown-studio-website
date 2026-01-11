@@ -1,20 +1,57 @@
 ---
 export interface Props {
 	id: string;
+	variationId?: string;
 	name: string;
 	description: string;
 	price: string;
 	currency: string;
 	imageUrl?: string | null;
+	dateTimeDisplay?: string;
+	dateTime?: string;
+	availableSlots?: number | null;
+	isSoldOut?: boolean;
 	index?: number;
 }
 
-const { id, name, description, price, currency, imageUrl, index = 0 } = Astro.props;
+const {
+	id,
+	variationId,
+	name,
+	description,
+	price,
+	currency,
+	imageUrl,
+	dateTimeDisplay,
+	dateTime,
+	availableSlots,
+	isSoldOut = false,
+	index = 0
+} = Astro.props;
+
+// Format availability text
+let availabilityText = '';
+let availabilityClass = '';
+if (isSoldOut) {
+	availabilityText = 'Sold Out';
+	availabilityClass = 'bg-error text-error-content';
+} else if (availableSlots !== null && availableSlots !== undefined) {
+	if (availableSlots <= 3) {
+		availabilityText = `Only ${availableSlots} spot${availableSlots !== 1 ? 's' : ''} left!`;
+		availabilityClass = 'bg-warning text-warning-content';
+	} else {
+		availabilityText = `${availableSlots} spots available`;
+		availabilityClass = 'bg-success text-success-content';
+	}
+}
 ---
 
 <div
-	class="card flex flex-col lg:flex-row bg-base-100 shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border border-base-300 hover:border-primary animate-fade-in-up"
+	class={`card flex flex-col lg:flex-row bg-base-100 shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border border-base-300 hover:border-primary animate-fade-in-up ${isSoldOut ? 'opacity-60' : ''}`}
 	style={`animation-delay: ${index * 0.1}s`}
+	data-workshop-id={id}
+	data-variation-id={variationId}
+	data-datetime={dateTime}
 >
 	<figure class="w-full lg:w-80 h-60 lg:h-72 relative overflow-hidden shrink-0">
 		{imageUrl ? (
@@ -28,23 +65,46 @@ const { id, name, description, price, currency, imageUrl, index = 0 } = Astro.pr
 				<span class="text-8xl opacity-90">🎨</span>
 			</div>
 		)}
+		{/* Availability badge on image */}
+		{availabilityText && (
+			<div class={`absolute top-3 right-3 px-3 py-1 rounded-full text-sm font-semibold ${availabilityClass}`}>
+				{availabilityText}
+			</div>
+		)}
 	</figure>
 
 	<div class="card-body p-8">
 		<h2 class="card-title text-2xl lg:text-3xl">{name}</h2>
-		<p class="text-base-content/70 line-clamp-3 flex-grow">{description}</p>
+
+		{/* Date/Time display */}
+		{dateTimeDisplay && (
+			<div class="flex items-center gap-2 text-base-content/80 mt-1">
+				<svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+					<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+				</svg>
+				<span class="font-medium">{dateTimeDisplay}</span>
+			</div>
+		)}
+
+		<p class="text-base-content/70 line-clamp-3 flex-grow mt-2">{description}</p>
 
 		<div class="flex flex-row items-center justify-between mt-6 pt-6 border-t border-base-300 gap-4">
 			<div class="flex items-baseline gap-2">
 				<span class="text-4xl font-bold text-primary">${price}</span>
 				<span class="text-sm text-base-content/60 font-medium">{currency}</span>
 			</div>
-			<button class="bg-violet-500 hover:bg-violet-600 text-white font-semibold py-3 px-12 rounded-full shadow-md hover:shadow-lg flex items-center gap-2 group shrink-0 transition-all" data-workshop-id={id}>
-				Book Now
-				<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" class="transition-transform group-hover:translate-x-1">
-					<path d="M7.5 15L12.5 10L7.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-				</svg>
-			</button>
+			{isSoldOut ? (
+				<button class="bg-gray-400 text-white font-semibold py-3 px-12 rounded-full shadow-md flex items-center gap-2 shrink-0 cursor-not-allowed" disabled>
+					Sold Out
+				</button>
+			) : (
+				<button class="bg-violet-500 hover:bg-violet-600 text-white font-semibold py-3 px-12 rounded-full shadow-md hover:shadow-lg flex items-center gap-2 group shrink-0 transition-all">
+					Book Now
+					<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" class="transition-transform group-hover:translate-x-1">
+						<path d="M7.5 15L12.5 10L7.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+					</svg>
+				</button>
+			)}
 		</div>
 	</div>
 </div>
