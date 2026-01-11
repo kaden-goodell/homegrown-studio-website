@@ -68,25 +68,25 @@ try {
 >
 	<Header />
 
-	<main>
+	<main class="min-h-screen bg-base-200">
 		<!-- Hero Section -->
-		<section class="page-hero">
-			<div class="container">
-				<h1>Current Workshops</h1>
-				<p class="subtitle">Explore our upcoming craft workshops</p>
+		<section class="bg-gradient-to-r from-primary to-secondary text-primary-content py-16 lg:py-24">
+			<div class="container mx-auto px-4">
+				<h1 class="text-5xl lg:text-6xl font-bold mb-4 text-center">Current Workshops</h1>
+				<p class="text-xl lg:text-2xl text-center opacity-95">Explore our upcoming craft workshops</p>
 			</div>
 		</section>
 
-
 		<!-- Workshops Grid -->
-		<section class="workshops-section">
-			<div class="container">
+		<section class="py-12 lg:py-16">
+			<div class="container mx-auto px-4">
 				{error ? (
-					<div class="error">
-						<p>Failed to load workshops. Please try again later.</p>
+					<div class="alert alert-error">
+						<svg xmlns="http://www.w3.org/2000/svg" class="stroke-current shrink-0 h-6 w-6" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+						<span>Failed to load workshops. Please try again later.</span>
 					</div>
 				) : workshops.length > 0 ? (
-					<div class="workshops-grid">
+					<div class="flex flex-col gap-6 max-w-6xl mx-auto">
 						{workshops.map((workshop, index) => (
 							<ClassCard
 								id={workshop.id}
@@ -100,8 +100,8 @@ try {
 						))}
 					</div>
 				) : (
-					<div class="no-workshops">
-						<p>No workshops available at the moment. Check back soon!</p>
+					<div class="text-center py-16">
+						<p class="text-xl text-base-content/70">No workshops available at the moment. Check back soon!</p>
 					</div>
 				)}
 			</div>
@@ -111,275 +111,16 @@ try {
 	<Footer />
 </Layout>
 
-<style>
-	.page-hero {
-		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-		color: white;
-		padding: var(--spacing-xl) 0;
-		text-align: center;
-	}
-
-	.page-hero h1 {
-		font-size: 3rem;
-		margin-bottom: var(--spacing-sm);
-		color: white;
-	}
-
-	.subtitle {
-		font-size: 1.5rem;
-		opacity: 0.95;
-	}
-
-	.workshops-section {
-		padding: var(--spacing-xl) 0;
-		min-height: 400px;
-	}
-
-	.error {
-		text-align: center;
-		padding: var(--spacing-xl);
-		color: #dc2626;
-	}
-
-	.workshops-grid {
-		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-		max-width: 1200px;
-		margin: 0 auto;
-	}
-
-	.class-card {
-		display: flex;
-		background: white;
-		border-radius: 1rem;
-		overflow: hidden;
-		box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-		transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-		border: 1px solid #e5e7eb;
-		animation: slideInFromTop 0.6s ease-out backwards;
-		height: 280px;
-	}
-
-	@keyframes slideInFromTop {
-		from {
-			opacity: 0;
-			transform: translateY(-20px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
-	}
-
-	.class-card:hover {
-		box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
-		transform: translateY(-2px);
-		border-color: var(--color-primary);
-	}
-
-	.card-image {
-		flex: 0 0 360px;
-		position: relative;
-		overflow: hidden;
-	}
-
-	.card-image img {
-		width: 100%;
-		height: 100%;
-		object-fit: cover;
-		transition: transform 0.3s ease;
-	}
-
-	.class-card:hover .card-image img {
-		transform: scale(1.05);
-	}
-
-	.image-placeholder {
-		width: 100%;
-		height: 100%;
-		background: linear-gradient(135deg, var(--color-primary) 0%, var(--color-secondary) 100%);
-		display: flex;
-		align-items: center;
-		justify-content: center;
-	}
-
-	.placeholder-icon {
-		font-size: 5rem;
-		filter: brightness(1.2);
-	}
-
-	.card-content {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		padding: 2rem;
-		min-width: 0;
-	}
-
-	.card-body {
-		flex: 1;
-		min-height: 0;
-	}
-
-	.card-title {
-		font-size: 1.75rem;
-		font-weight: 700;
-		color: var(--color-text);
-		margin: 0 0 1rem 0;
-		line-height: 1.2;
-	}
-
-	.card-description {
-		font-size: 1rem;
-		color: var(--color-text-light);
-		line-height: 1.6;
-		margin: 0;
-		display: -webkit-box;
-		-webkit-line-clamp: 3;
-		-webkit-box-orient: vertical;
-		overflow: hidden;
-	}
-
-	.card-footer {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: 1.5rem;
-		padding-top: 1.5rem;
-		margin-top: 1.5rem;
-		border-top: 1px solid #e5e7eb;
-	}
-
-	.price-section {
-		display: flex;
-		align-items: baseline;
-		gap: 0.5rem;
-	}
-
-	.price {
-		font-size: 2rem;
-		font-weight: 700;
-		color: var(--color-primary);
-		line-height: 1;
-	}
-
-	.currency {
-		font-size: 0.875rem;
-		color: var(--color-text-light);
-		font-weight: 500;
-	}
-
-	.book-btn {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.5rem;
-		padding: 0.875rem 1.75rem;
-		background: var(--color-primary);
-		color: white;
-		border: none;
-		border-radius: 0.5rem;
-		font-weight: 600;
-		font-size: 1rem;
-		cursor: pointer;
-		transition: all 0.2s ease;
-		white-space: nowrap;
-	}
-
-	.book-btn:hover {
-		background: var(--color-primary-dark);
-		transform: translateX(2px);
-	}
-
-	.book-btn svg {
-		transition: transform 0.2s ease;
-	}
-
-	.book-btn:hover svg {
-		transform: translateX(4px);
-	}
-
-	.no-workshops {
-		text-align: center;
-		padding: var(--spacing-xl);
-		color: var(--color-text-light);
-		font-size: 1.125rem;
-	}
-
-	@media (max-width: 1024px) {
-		.class-card {
-			height: auto;
-		}
-
-		.card-image {
-			flex: 0 0 280px;
-		}
-
-		.card-content {
-			padding: 1.5rem;
-		}
-
-		.card-title {
-			font-size: 1.5rem;
-		}
-
-		.price {
-			font-size: 1.75rem;
-		}
-	}
-
-	@media (max-width: 768px) {
-		.page-hero h1 {
-			font-size: 2rem;
-		}
-
-		.subtitle {
-			font-size: 1.125rem;
-		}
-
-		.class-card {
-			flex-direction: column;
-			height: auto;
-		}
-
-		.card-image {
-			flex: 0 0 240px;
-			width: 100%;
-		}
-
-		.card-content {
-			padding: 1.5rem;
-		}
-
-		.card-description {
-			-webkit-line-clamp: 4;
-		}
-
-		.card-footer {
-			flex-direction: column;
-			align-items: stretch;
-			gap: 1rem;
-		}
-
-		.price-section {
-			justify-content: center;
-		}
-
-		.book-btn {
-			width: 100%;
-			justify-content: center;
-		}
-	}
-</style>
-
 <script>
 	// Add click handlers for book buttons
 	document.addEventListener('DOMContentLoaded', () => {
-		document.querySelectorAll('.book-btn').forEach(btn => {
+		document.querySelectorAll('.btn-primary').forEach(btn => {
 			btn.addEventListener('click', (e) => {
 				const target = e.target as HTMLElement;
-				const workshopId = target.dataset.workshopId;
-				window.location.href = `/booking?workshop=${workshopId}`;
+				const workshopId = target.dataset.workshopId || target.closest('[data-workshop-id]')?.getAttribute('data-workshop-id');
+				if (workshopId) {
+					window.location.href = `/booking?workshop=${workshopId}`;
+				}
 			});
 		});
 	});
