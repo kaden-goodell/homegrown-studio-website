@@ -13,10 +13,10 @@ const { id, name, description, price, currency, imageUrl, index = 0 } = Astro.pr
 ---
 
 <div
-	class="card card-side bg-base-100 shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border border-base-300 hover:border-primary animate-fade-in-up"
+	class="card flex flex-col lg:flex-row bg-base-100 shadow-lg hover:shadow-2xl transition-all duration-300 hover:-translate-y-1 border border-base-300 hover:border-primary animate-fade-in-up"
 	style={`animation-delay: ${index * 0.1}s`}
 >
-	<figure class="w-96 relative overflow-hidden">
+	<figure class="w-full lg:w-80 h-60 lg:h-72 relative overflow-hidden shrink-0">
 		{imageUrl ? (
 			<img
 				src={imageUrl}
@@ -34,12 +34,12 @@ const { id, name, description, price, currency, imageUrl, index = 0 } = Astro.pr
 		<h2 class="card-title text-2xl lg:text-3xl">{name}</h2>
 		<p class="text-base-content/70 line-clamp-3 flex-grow">{description}</p>
 
-		<div class="card-actions w-full justify-between items-center mt-6 pt-6 border-t border-base-300">
+		<div class="flex flex-row items-center justify-between mt-6 pt-6 border-t border-base-300 gap-4">
 			<div class="flex items-baseline gap-2">
 				<span class="text-4xl font-bold text-primary">${price}</span>
 				<span class="text-sm text-base-content/60 font-medium">{currency}</span>
 			</div>
-			<button class="btn btn-primary btn-lg px-12 rounded-full shadow-md hover:shadow-lg gap-2 group ml-auto" data-workshop-id={id}>
+			<button class="bg-violet-500 hover:bg-violet-600 text-white font-semibold py-3 px-12 rounded-full shadow-md hover:shadow-lg flex items-center gap-2 group shrink-0 transition-all" data-workshop-id={id}>
 				Book Now
 				<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" class="transition-transform group-hover:translate-x-1">
 					<path d="M7.5 15L12.5 10L7.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -63,17 +63,5 @@ const { id, name, description, price, currency, imageUrl, index = 0 } = Astro.pr
 
 	.animate-fade-in-up {
 		animation: fade-in-up 0.6s ease-out backwards;
-	}
-
-	/* Mobile adjustments */
-	@media (max-width: 768px) {
-		.card-side {
-			flex-direction: column;
-		}
-
-		figure {
-			width: 100% !important;
-			height: 240px;
-		}
 	}
 </style>
