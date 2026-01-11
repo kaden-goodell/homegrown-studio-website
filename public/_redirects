@@ -1,0 +1,5 @@
+/workshops /.netlify/functions/ssr 200
+/ /index.html 200
+/about /about/index.html 200
+/booking /booking/index.html 200
+/gallery /gallery/index.html 200
