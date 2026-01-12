@@ -175,7 +175,8 @@ try {
 		let catalogItems: any[] = [];
 
 		// Use async iterator pattern for Square SDK v41+
-		const catalogResponse = client.catalog.list();
+		// Explicitly include IMAGE type since it's a nested type not returned by default
+		const catalogResponse = client.catalog.list({ types: "ITEM,CATEGORY,IMAGE" });
 		if (catalogResponse[Symbol.asyncIterator]) {
 			debugLog.push('Using async iterator for catalog...');
 			for await (const item of catalogResponse) {
