@@ -34,14 +34,14 @@ let availabilityText = '';
 let availabilityClass = '';
 if (isSoldOut) {
 	availabilityText = 'Sold Out';
-	availabilityClass = 'bg-error text-error-content';
+	availabilityClass = 'text-error';
 } else if (availableSlots !== null && availableSlots !== undefined) {
-	if (availableSlots <= 3) {
-		availabilityText = `Only ${availableSlots} spot${availableSlots !== 1 ? 's' : ''} left!`;
-		availabilityClass = 'bg-warning text-warning-content';
+	if (availableSlots <= 10) {
+		availabilityText = `Only ${availableSlots} spot${availableSlots !== 1 ? 's' : ''} left`;
+		availabilityClass = 'text-warning-600';
 	} else {
 		availabilityText = `${availableSlots} spots available`;
-		availabilityClass = 'bg-success text-success-content';
+		availabilityClass = 'text-success-600';
 	}
 }
 ---
@@ -63,12 +63,6 @@ if (isSoldOut) {
 		) : (
 			<div class="h-full w-full bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
 				<span class="text-8xl opacity-90">🎨</span>
-			</div>
-		)}
-		{/* Availability badge on image */}
-		{availabilityText && (
-			<div class={`absolute top-3 right-3 px-3 py-1 rounded-full text-sm font-semibold ${availabilityClass}`}>
-				{availabilityText}
 			</div>
 		)}
 	</figure>
@@ -93,18 +87,23 @@ if (isSoldOut) {
 				<span class="text-4xl font-bold text-primary">${price}</span>
 				<span class="text-sm text-base-content/60 font-medium">{currency}</span>
 			</div>
-			{isSoldOut ? (
-				<button class="bg-gray-400 text-white font-semibold py-3 px-12 rounded-full shadow-md flex items-center gap-2 shrink-0 cursor-not-allowed" disabled>
-					Sold Out
-				</button>
-			) : (
-				<button class="bg-violet-500 hover:bg-violet-600 text-white font-semibold py-3 px-12 rounded-full shadow-md hover:shadow-lg flex items-center gap-2 group shrink-0 transition-all">
-					Book Now
-					<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" class="transition-transform group-hover:translate-x-1">
-						<path d="M7.5 15L12.5 10L7.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-					</svg>
-				</button>
-			)}
+			<div class="flex flex-col items-center gap-2">
+				{isSoldOut ? (
+					<button class="bg-gray-400 text-white font-semibold py-3 px-12 rounded-full shadow-md flex items-center gap-2 shrink-0 cursor-not-allowed" disabled>
+						Sold Out
+					</button>
+				) : (
+					<button class="bg-violet-500 hover:bg-violet-600 text-white font-semibold py-3 px-12 rounded-full shadow-md hover:shadow-lg flex items-center gap-2 group shrink-0 transition-all">
+						Book Now
+						<svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" class="transition-transform group-hover:translate-x-1">
+							<path d="M7.5 15L12.5 10L7.5 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+						</svg>
+					</button>
+				)}
+				{availabilityText && !isSoldOut && (
+					<span class={`text-sm font-medium ${availabilityClass}`}>{availabilityText}</span>
+				)}
+			</div>
 		</div>
 	</div>
 </div>
