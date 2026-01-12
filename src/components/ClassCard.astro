@@ -12,6 +12,7 @@ export interface Props {
 	availableSlots?: number | null;
 	isSoldOut?: boolean;
 	index?: number;
+	category?: 'Workshop' | 'Party';
 }
 
 const {
@@ -26,7 +27,8 @@ const {
 	dateTime,
 	availableSlots,
 	isSoldOut = false,
-	index = 0
+	index = 0,
+	category = 'Workshop'
 } = Astro.props;
 
 // Format availability text
@@ -52,6 +54,7 @@ if (isSoldOut) {
 	data-workshop-id={id}
 	data-variation-id={variationId}
 	data-datetime={dateTime}
+	data-category={category}
 >
 	<figure class="w-full lg:w-80 h-60 lg:h-72 relative overflow-hidden shrink-0">
 		{imageUrl ? (
@@ -67,8 +70,13 @@ if (isSoldOut) {
 		)}
 	</figure>
 
-	<div class="card-body p-8">
-		<h2 class="card-title text-2xl lg:text-3xl">{name}</h2>
+	<div class="card-body p-8 flex-grow">
+		<div class="flex items-center gap-3 flex-wrap">
+			<h2 class="card-title text-2xl lg:text-3xl">{name}</h2>
+			<span class={`px-2.5 py-0.5 text-xs font-semibold rounded-full ${category === 'Party' ? 'bg-pink-100 text-pink-700' : 'bg-violet-100 text-violet-700'}`}>
+				{category}
+			</span>
+		</div>
 
 		{/* Date/Time display */}
 		{dateTimeDisplay && (
@@ -87,7 +95,7 @@ if (isSoldOut) {
 				<span class="text-4xl font-bold text-primary">${price}</span>
 				<span class="text-sm text-base-content/60 font-medium">{currency}</span>
 			</div>
-			<div class="flex flex-col items-center gap-2">
+			<div class="flex flex-col items-end gap-2">
 				{isSoldOut ? (
 					<button class="bg-gray-400 text-white font-semibold py-3 px-12 rounded-full shadow-md flex items-center gap-2 shrink-0 cursor-not-allowed" disabled>
 						Sold Out

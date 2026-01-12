@@ -6,31 +6,40 @@ import ClassCard from '../components/ClassCard.astro';
 
 export const prerender = false;
 
-// Interface for class slots from Square Classes API
-interface ClassSlot {
+// Unified interface for both classes and appointment services
+interface WorkshopSlot {
 	id: string;
+	serviceVariationId?: string;
+	classScheduleId?: string;
 	startAt: string;
 	startAtFormatted: string;
-	availableCapacity: number;
+	durationMinutes: number;
+	availableCapacity: number | null;
 	isSoldOut: boolean;
-	classScheduleId: string;
 	name: string;
 	description: string;
-	descriptionHtml: string;
-	durationMinutes: number;
 	price: number;
 	priceFormatted: string;
 	currency: string;
-	staffName: string;
-	teamMemberId: string;
-	status: string;
+	imageUrl: string | null;
+	teamMemberId?: string;
+	staffName?: string;
+	source: 'class' | 'appointment'; // Track where this came from
+	category: 'Workshop' | 'Party'; // Category for filtering
 }
 
-let availabilitySlots: ClassSlot[] = [];
+let availabilitySlots: WorkshopSlot[] = [];
 let error: string | null = null;
 let debugLog: string[] = [];
 
-// Format date with timezone offset for Square API
+// Helper to serialize BigInt values
+function serializeForClient(obj: any): any {
+	return JSON.parse(JSON.stringify(obj, (key, value) =>
+		typeof value === 'bigint' ? value.toString() : value
+	));
+}
+
+// Format date with timezone offset for Square internal API
 function formatDateWithOffset(date: Date): string {
 	const offset = -date.getTimezoneOffset();
 	const sign = offset >= 0 ? '+' : '-';
@@ -62,91 +71,294 @@ function formatDateTime(isoString: string): string {
 }
 
 try {
-	debugLog.push('Fetching classes from Square...');
-
 	const locationId = import.meta.env.SQUARE_LOCATION_ID || 'LTHCH1W1J3Y4Q';
-
-	// Date range: now to 3 months from now
 	const now = new Date();
 	const endDate = new Date();
 	endDate.setMonth(endDate.getMonth() + 3);
 
-	const requestBody = {
-		cursor: null,
-		sort: { field: 'START_AT' },
-		query: {
-			filter: {
-				location_id: locationId,
-				starting_at: {
-					start_at: formatDateWithOffset(now),
-					end_at: formatDateWithOffset(endDate)
-				},
-				status: 'CLASS_SCHEDULE_ACTIVE'
-			}
-		},
-		includes: ['CLASS_SCHEDULE'],
-		limit: 50
-	};
+	// ========== SOURCE 1: Internal Classes API ==========
+	debugLog.push('Fetching classes from Square internal API...');
 
-	const response = await fetch(
-		`https://app.squareup.com/appointments/api/buyer/classes/class_schedule_instances/search?unit_token=${locationId}`,
-		{
-			method: 'POST',
-			headers: {
-				'Content-Type': 'application/json',
-				'Accept': 'application/json',
-				'Origin': 'https://book.squareup.com',
-				'Referer': 'https://book.squareup.com/',
+	try {
+		const classesRequestBody = {
+			cursor: null,
+			sort: { field: 'START_AT' },
+			query: {
+				filter: {
+					location_id: locationId,
+					starting_at: {
+						start_at: formatDateWithOffset(now),
+						end_at: formatDateWithOffset(endDate)
+					},
+					status: 'CLASS_SCHEDULE_ACTIVE'
+				}
 			},
-			body: JSON.stringify(requestBody)
-		}
-	);
-
-	if (!response.ok) {
-		throw new Error(`Square API error: ${response.status}`);
-	}
-
-	const data = await response.json();
-	debugLog.push(`Got ${data.class_schedule_instances?.length || 0} class instances`);
-
-	// Build a lookup map for class schedules
-	const classScheduleMap = new Map();
-	if (data.included_resources?.class_schedules) {
-		for (const schedule of data.included_resources.class_schedules) {
-			classScheduleMap.set(schedule.id, schedule);
-		}
-	}
-
-	// Merge class details into each instance
-	availabilitySlots = (data.class_schedule_instances || []).map((instance: any) => {
-		const classDetails = classScheduleMap.get(instance.class_schedule_id) || {};
-
-		return {
-			id: instance.id,
-			startAt: instance.start_at,
-			startAtFormatted: formatDateTime(instance.start_at),
-			availableCapacity: instance.available_capacity || 0,
-			isSoldOut: (instance.available_capacity || 0) <= 0,
-			classScheduleId: instance.class_schedule_id,
-			name: classDetails.name || 'Unnamed Class',
-			description: classDetails.description || '',
-			descriptionHtml: classDetails.description_html || '',
-			durationMinutes: classDetails.duration_minutes || 60,
-			price: (classDetails.price_amount || 0) / 100,
-			priceFormatted: ((classDetails.price_amount || 0) / 100).toFixed(2),
-			currency: classDetails.price_currency || 'USD',
-			staffName: classDetails.staff_name || '',
-			teamMemberId: classDetails.team_member_id || '',
-			status: classDetails.status || 'unknown',
+			includes: ['CLASS_SCHEDULE'],
+			limit: 50
 		};
-	});
 
-	// Sort by date
+		const classesResponse = await fetch(
+			`https://app.squareup.com/appointments/api/buyer/classes/class_schedule_instances/search?unit_token=${locationId}`,
+			{
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json',
+					'Accept': 'application/json',
+					'Origin': 'https://book.squareup.com',
+					'Referer': 'https://book.squareup.com/',
+				},
+				body: JSON.stringify(classesRequestBody)
+			}
+		);
+
+		if (classesResponse.ok) {
+			const classesData = await classesResponse.json();
+			debugLog.push(`Got ${classesData.class_schedule_instances?.length || 0} class instances`);
+
+			// Build lookup map for class schedules
+			const classScheduleMap = new Map();
+			if (classesData.included_resources?.class_schedules) {
+				for (const schedule of classesData.included_resources.class_schedules) {
+					classScheduleMap.set(schedule.id, schedule);
+				}
+			}
+
+			// Add classes to slots
+			for (const instance of (classesData.class_schedule_instances || [])) {
+				const classDetails = classScheduleMap.get(instance.class_schedule_id) || {};
+
+				availabilitySlots.push({
+					id: instance.id,
+					classScheduleId: instance.class_schedule_id,
+					startAt: instance.start_at,
+					startAtFormatted: formatDateTime(instance.start_at),
+					durationMinutes: classDetails.duration_minutes || 60,
+					availableCapacity: instance.available_capacity || 0,
+					isSoldOut: (instance.available_capacity || 0) <= 0,
+					name: classDetails.name || 'Unnamed Class',
+					description: classDetails.description || '',
+					price: (classDetails.price_amount || 0) / 100,
+					priceFormatted: ((classDetails.price_amount || 0) / 100).toFixed(2),
+					currency: classDetails.price_currency || 'USD',
+					imageUrl: null, // Classes API doesn't provide images
+					teamMemberId: classDetails.team_member_id || '',
+					staffName: classDetails.staff_name || '',
+					source: 'class',
+					category: 'Workshop',
+				});
+			}
+			debugLog.push(`Added ${classesData.class_schedule_instances?.length || 0} classes`);
+		} else {
+			debugLog.push(`Classes API error: ${classesResponse.status}`);
+		}
+	} catch (classErr: any) {
+		debugLog.push(`Classes API error: ${classErr?.message}`);
+	}
+
+	// ========== SOURCE 2: Official Search Availability API ==========
+	debugLog.push('Fetching appointments from Square SDK...');
+
+	try {
+		const { default: squarePkg } = await import('square');
+
+		const client = new squarePkg.SquareClient({
+			token: import.meta.env.SQUARE_ACCESS_TOKEN,
+			environment: import.meta.env.SQUARE_ENVIRONMENT === 'production'
+				? squarePkg.SquareEnvironment.Production
+				: squarePkg.SquareEnvironment.Sandbox,
+		});
+
+		// Fetch catalog to find APPOINTMENTS_SERVICE items and build lookup map
+		const catalogMap = new Map<string, any>();
+		const categoryMap = new Map<string, string>(); // categoryId -> categoryName
+		const serviceVariationIds: string[] = [];
+		let catalogItems: any[] = [];
+
+		// Use async iterator pattern for Square SDK v41+
+		const catalogResponse = client.catalog.list();
+		if (catalogResponse[Symbol.asyncIterator]) {
+			debugLog.push('Using async iterator for catalog...');
+			for await (const item of catalogResponse) {
+				catalogItems.push(item);
+			}
+		} else if (catalogResponse.then) {
+			debugLog.push('Using promise pattern for catalog...');
+			const resolved = await catalogResponse;
+			catalogItems = resolved?.result?.objects || resolved?.objects || resolved?.data || [];
+		}
+
+		if (!Array.isArray(catalogItems)) {
+			debugLog.push('Warning: catalogItems is not an array');
+			catalogItems = [];
+		}
+
+		debugLog.push(`Found ${catalogItems.length} catalog items`);
+
+		// First pass: build category and image maps
+		const imageMap = new Map<string, string>(); // imageId -> imageUrl
+		for (const item of catalogItems) {
+			if (item.type === 'CATEGORY') {
+				const categoryData = item.categoryData || {};
+				categoryMap.set(item.id, categoryData.name || 'Unknown');
+				debugLog.push(`Found category: ${categoryData.name} (${item.id})`);
+			} else if (item.type === 'IMAGE') {
+				const imageData = item.imageData || {};
+				if (imageData.url) {
+					imageMap.set(item.id, imageData.url);
+				}
+			}
+		}
+		debugLog.push(`Found ${imageMap.size} images`);
+
+		// Second pass: process catalog items
+		for (const item of catalogItems) {
+			if (item.type === 'ITEM') {
+				const itemData = item.itemData || {};
+				const productType = itemData.productType || 'unknown';
+				const variations = itemData.variations || [];
+
+				// Get the category name for this item
+				const categoryIds = itemData.categoryIds || itemData.categories?.map((c: any) => c.id) || [];
+				const categoryName = categoryIds.length > 0 ? categoryMap.get(categoryIds[0]) || 'Unknown' : 'Unknown';
+
+				for (const variation of variations) {
+					const varData = variation.itemVariationData || {};
+					const priceMoney = varData.priceMoney || {};
+					const priceInCents = parseInt(priceMoney.amount || '0', 10);
+					const imageIds = itemData.imageIds || [];
+
+					// Get image URL from imageMap
+					const imageUrl = imageIds[0] ? imageMap.get(imageIds[0]) || null : null;
+
+					catalogMap.set(variation.id, {
+						itemId: item.id,
+						variationId: variation.id,
+						name: itemData.name || 'Unnamed',
+						description: itemData.descriptionPlaintext || itemData.description || '',
+						price: priceInCents / 100,
+						priceFormatted: (priceInCents / 100).toFixed(2),
+						currency: priceMoney.currency || 'USD',
+						imageUrl,
+						productType,
+						serviceDuration: varData.serviceDuration ? parseInt(String(varData.serviceDuration), 10) : null,
+						categoryName, // Store the category name
+					});
+
+					// Collect APPOINTMENTS_SERVICE variation IDs
+					if (productType === 'APPOINTMENTS_SERVICE') {
+						serviceVariationIds.push(variation.id);
+						debugLog.push(`Found bookable service: ${itemData.name} (${variation.id}) - Category: ${categoryName}`);
+					}
+				}
+			}
+		}
+
+		debugLog.push(`Found ${serviceVariationIds.length} appointment services`);
+
+		// If we have appointment services, search for availability
+		if (serviceVariationIds.length > 0) {
+			// Get team member profiles for the filter
+			let teamMemberIds: string[] = [];
+			try {
+				const teamProfileResponse = client.bookings.teamMemberProfiles.list({
+					bookableOnly: true,
+					locationId: locationId,
+				});
+
+				let teamProfiles: any[] = [];
+				if (teamProfileResponse[Symbol.asyncIterator]) {
+					for await (const profile of teamProfileResponse) {
+						teamProfiles.push(profile);
+					}
+				} else if (teamProfileResponse.then) {
+					const resolved = await teamProfileResponse;
+					teamProfiles = resolved?.data || resolved?.result?.teamMemberBookingProfiles || resolved?.teamMemberBookingProfiles || [];
+				}
+
+				teamMemberIds = teamProfiles.map((p: any) => p.teamMemberId);
+				debugLog.push(`Found ${teamMemberIds.length} bookable team members`);
+			} catch (teamErr: any) {
+				debugLog.push(`Team profiles error: ${teamErr?.message}`);
+			}
+
+			// Search availability
+			const searchEndDate = new Date();
+			searchEndDate.setDate(searchEndDate.getDate() + 31); // Max 32 days for this API
+
+			const searchRequest = {
+				query: {
+					filter: {
+						locationId: locationId,
+						startAtRange: {
+							startAt: now.toISOString(),
+							endAt: searchEndDate.toISOString(),
+						},
+						segmentFilters: serviceVariationIds.map(id => ({
+							serviceVariationId: id,
+							teamMemberIdFilter: teamMemberIds.length > 0 ? { any: teamMemberIds } : undefined,
+						})),
+					},
+				},
+			};
+
+			debugLog.push('Calling searchAvailability...');
+			const availResponse = await client.bookings.searchAvailability(searchRequest);
+
+			const availabilities = availResponse?.availabilities || availResponse?.result?.availabilities || [];
+			debugLog.push(`searchAvailability returned ${availabilities.length} slots`);
+
+			// Add appointment slots
+			for (const avail of availabilities) {
+				const startAt = avail.startAt;
+				const segments = avail.appointmentSegments || [];
+
+				for (const segment of segments) {
+					const serviceVariationId = segment.serviceVariationId;
+					const durationMinutes = segment.durationMinutes || 60;
+					const teamMemberId = segment.teamMemberId;
+					const catalogData = catalogMap.get(serviceVariationId);
+
+					const slotId = `appt-${serviceVariationId}-${startAt}`;
+
+					// Determine category from catalog data (Party or Workshop)
+					const itemCategory = catalogData?.categoryName || 'Unknown';
+					const displayCategory: 'Workshop' | 'Party' =
+						itemCategory.toLowerCase().includes('party') ? 'Party' : 'Workshop';
+
+					availabilitySlots.push({
+						id: slotId,
+						serviceVariationId,
+						startAt,
+						startAtFormatted: formatDateTime(startAt),
+						durationMinutes,
+						availableCapacity: null, // Search Availability doesn't provide capacity
+						isSoldOut: false,
+						name: catalogData?.name || 'Service',
+						description: catalogData?.description || '',
+						price: catalogData?.price || 0,
+						priceFormatted: catalogData?.priceFormatted || '0.00',
+						currency: catalogData?.currency || 'USD',
+						imageUrl: catalogData?.imageUrl || null,
+						teamMemberId,
+						source: 'appointment',
+						category: displayCategory,
+					});
+				}
+			}
+			debugLog.push(`Added ${availabilities.length} appointment slots`);
+		} else {
+			debugLog.push('No APPOINTMENTS_SERVICE items found in catalog');
+		}
+	} catch (sdkErr: any) {
+		debugLog.push(`Square SDK error: ${sdkErr?.message}`);
+	}
+
+	// Sort all slots by date
 	availabilitySlots.sort((a, b) =>
 		new Date(a.startAt).getTime() - new Date(b.startAt).getTime()
 	);
 
-	debugLog.push(`Created ${availabilitySlots.length} class slots`);
+	debugLog.push(`Total slots: ${availabilitySlots.length}`);
 
 } catch (e) {
 	console.error('Error fetching workshops:', e);
@@ -155,7 +367,7 @@ try {
 }
 
 // Serialize for client
-const availabilitySlotsForClient = JSON.stringify(availabilitySlots);
+const availabilitySlotsForClient = JSON.stringify(serializeForClient(availabilitySlots));
 ---
 
 <Layout
@@ -191,8 +403,39 @@ const availabilitySlotsForClient = JSON.stringify(availabilitySlots);
 							/>
 						</div>
 
-						<!-- Right side: Date picker and Sort -->
+						<!-- Right side: Category, Date picker and Sort -->
 						<div class="flex flex-wrap items-center gap-3">
+							<!-- Category Filter -->
+							<div class="flex items-center bg-gray-50 border border-gray-200 rounded-xl p-1">
+								<button
+									type="button"
+									id="filter-all"
+									class="px-3 py-1.5 text-sm font-medium rounded-lg transition-all category-filter-btn active"
+									data-category="all"
+								>
+									All
+								</button>
+								<button
+									type="button"
+									id="filter-workshop"
+									class="px-3 py-1.5 text-sm font-medium rounded-lg transition-all category-filter-btn"
+									data-category="Workshop"
+								>
+									Workshops
+								</button>
+								<button
+									type="button"
+									id="filter-party"
+									class="px-3 py-1.5 text-sm font-medium rounded-lg transition-all category-filter-btn"
+									data-category="Party"
+								>
+									Parties
+								</button>
+							</div>
+
+							<!-- Divider -->
+							<div class="hidden lg:block w-px h-8 bg-gray-200"></div>
+
 							<!-- Date Range Picker -->
 							<div class="relative">
 								<svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-violet-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -254,16 +497,18 @@ const availabilitySlotsForClient = JSON.stringify(availabilitySlots);
 						{availabilitySlots.map((slot, index) => (
 							<ClassCard
 								id={slot.id}
-								variationId={slot.classScheduleId}
+								variationId={slot.classScheduleId || slot.serviceVariationId}
 								name={slot.name}
 								description={slot.description}
 								price={slot.priceFormatted}
 								currency={slot.currency}
+								imageUrl={slot.imageUrl}
 								dateTimeDisplay={slot.startAtFormatted}
 								dateTime={slot.startAt}
 								availableSlots={slot.availableCapacity}
 								isSoldOut={slot.isSoldOut}
 								index={index}
+								category={slot.category}
 							/>
 						))}
 					</div>
@@ -309,10 +554,14 @@ const availabilitySlotsForClient = JSON.stringify(availabilitySlots);
 		const parsedSlots = JSON.parse(availabilitySlotsForClient);
 		let currentSlots = [...parsedSlots];
 
-		// Date filter state
+		// Filter state
 		let dateFilterStart = null;
 		let dateFilterEnd = null;
+		let categoryFilter = 'all'; // 'all', 'Workshop', or 'Party'
 		let picker = null;
+
+		// Category filter buttons
+		const categoryButtons = document.querySelectorAll('.category-filter-btn');
 
 		// Helper: Get month boundaries
 		function getMonthBounds(monthOffset = 0) {
@@ -462,6 +711,11 @@ const availabilitySlotsForClient = JSON.stringify(availabilitySlots);
 				);
 			}
 
+			// Filter by category
+			if (categoryFilter !== 'all') {
+				filtered = filtered.filter(slot => slot.category === categoryFilter);
+			}
+
 			// Filter by date range
 			if (dateFilterStart && dateFilterEnd) {
 				filtered = filtered.filter(slot => {
@@ -529,8 +783,26 @@ const availabilitySlotsForClient = JSON.stringify(availabilitySlots);
 		clearFilters?.addEventListener('click', () => {
 			if (searchInput) searchInput.value = '';
 			clearDateFilterFn();
+			// Reset category filter
+			categoryFilter = 'all';
+			categoryButtons.forEach(btn => btn.classList.remove('active'));
+			document.getElementById('filter-all')?.classList.add('active');
+			renderCards();
 		});
 		clearDateFilter?.addEventListener('click', clearDateFilterFn);
+
+		// Category filter event listeners
+		categoryButtons.forEach(btn => {
+			btn.addEventListener('click', () => {
+				// Update active state
+				categoryButtons.forEach(b => b.classList.remove('active'));
+				btn.classList.add('active');
+
+				// Update filter
+				categoryFilter = btn.getAttribute('data-category') || 'all';
+				renderCards();
+			});
+		});
 
 		// Book button handlers
 		document.querySelectorAll('[data-workshop-id]').forEach(card => {
@@ -812,5 +1084,22 @@ const availabilitySlotsForClient = JSON.stringify(availabilitySlots);
 	#date-range-picker:focus {
 		border-color: #8b5cf6;
 		box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+	}
+
+	/* Category filter buttons */
+	.category-filter-btn {
+		color: #6b7280;
+		background: transparent;
+	}
+
+	.category-filter-btn:hover {
+		color: #8b5cf6;
+		background: #f3f4f6;
+	}
+
+	.category-filter-btn.active {
+		color: #ffffff;
+		background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+		box-shadow: 0 2px 4px rgba(139, 92, 246, 0.3);
 	}
 </style>
