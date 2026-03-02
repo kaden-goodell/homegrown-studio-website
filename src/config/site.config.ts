@@ -41,6 +41,10 @@ export interface SiteConfig {
       enabled: boolean
       types: EventTypeConfig[]
     }
+    programs: {
+      enabled: boolean
+      types: ProgramConfig[]
+    }
     newsletter: boolean
     coupons: boolean
     gallery: boolean
@@ -63,6 +67,37 @@ export interface SiteConfig {
     items: { quote: string; name: string; detail: string }[]
   }
   nav?: NavItem[]
+  email?: {
+    fromAddress: string
+    fromName: string
+  }
+}
+
+export interface ProgramSessionConfig {
+  id: string
+  name: string
+  startDate: string
+  endDate: string
+  catalogVariationId?: string
+}
+
+export interface ProgramConfig {
+  id: string
+  name: string
+  description: string
+  image?: string
+  enrollmentType: 'per-session' | 'full'
+  pricePerHead: number
+  maxCapacity: number
+  ageRange?: { min: number; max: number }
+  schedule: {
+    days: string
+    time: string
+    totalHours: number
+  }
+  sessions: ProgramSessionConfig[]
+  catalogItemId?: string
+  instructorEmail: string
 }
 
 export interface EventTypeConfig {
@@ -185,6 +220,10 @@ export const siteConfig: SiteConfig = {
       enabled: true,
       types: partyTypes,
     },
+    programs: {
+      enabled: true,
+      types: [],
+    },
     newsletter: true,
     coupons: true,
     gallery: true,
@@ -252,9 +291,14 @@ export const siteConfig: SiteConfig = {
       },
     ],
   },
+  email: {
+    fromAddress: 'hello@homegrowncraftstudio.com',
+    fromName: 'Homegrown Craft Studio',
+  },
   nav: [
     { label: 'Home', href: '/' },
     { label: 'Workshops', href: '/workshops' },
+    { label: 'Programs', href: '/programs' },
     { label: 'Book a Party', href: '/book' },
     { label: 'Gallery', href: '/gallery' },
     { label: 'About', href: '/about' },
