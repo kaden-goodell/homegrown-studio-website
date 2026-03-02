@@ -1,9 +1,15 @@
 import { useState } from 'react'
 
-export default function Newsletter() {
+interface NewsletterProps {
+  variant?: 'light' | 'dark'
+}
+
+export default function Newsletter({ variant = 'light' }: NewsletterProps) {
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [message, setMessage] = useState('')
+
+  const isDark = variant === 'dark'
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -30,15 +36,29 @@ export default function Newsletter() {
 
   return (
     <div className="max-w-xl mx-auto text-center">
-      <h2 className="text-3xl font-heading font-bold mb-3" style={{ fontFamily: 'var(--font-heading)' }}>
+      <h2
+        className="text-3xl font-heading font-bold mb-3"
+        style={{
+          fontFamily: 'var(--font-heading)',
+          color: isDark ? 'var(--color-background)' : undefined,
+        }}
+      >
         Stay Inspired
       </h2>
-      <p className="text-muted mb-8" style={{ color: 'var(--color-muted)' }}>
+      <p
+        className="mb-8"
+        style={{
+          color: isDark ? 'rgba(250, 248, 245, 0.7)' : 'var(--color-muted)',
+        }}
+      >
         Get workshop announcements, creative tips, and exclusive offers delivered to your inbox.
       </p>
 
       {status === 'success' ? (
-        <p className="text-lg font-medium" style={{ color: 'var(--color-primary)' }}>
+        <p
+          className="text-lg font-medium"
+          style={{ color: isDark ? 'var(--color-accent)' : 'var(--color-primary)' }}
+        >
           {message}
         </p>
       ) : (
@@ -55,8 +75,11 @@ export default function Newsletter() {
           <button
             type="submit"
             disabled={status === 'loading'}
-            className="px-8 py-3 rounded-lg text-white font-semibold text-base transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-60"
-            style={{ backgroundColor: 'var(--color-primary)' }}
+            className="px-8 py-3 rounded-lg font-semibold text-base transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-60"
+            style={{
+              backgroundColor: isDark ? 'var(--color-accent)' : 'var(--color-primary)',
+              color: isDark ? 'var(--color-dark, #3d3229)' : 'white',
+            }}
           >
             {status === 'loading' ? 'Subscribing...' : 'Subscribe'}
           </button>
