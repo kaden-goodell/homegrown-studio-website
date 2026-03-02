@@ -1,13 +1,5 @@
-import { createHmac } from 'node:crypto'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 
-/**
- * Verifies a Square webhook signature using HMAC-SHA256.
- *
- * Square sends the signature in the `x-square-hmacsha256-signature` header.
- * The HMAC is computed over: webhookUrl + body, using the webhook signature key.
- *
- * @see https://developer.squareup.com/docs/webhooks/step3validate
- */
 export function verifySquareSignature(
   body: string,
   signature: string,
@@ -20,5 +12,11 @@ export function verifySquareSignature(
     .update(webhookUrl + body)
     .digest('base64')
 
-  return hmac === signature
+  // Use timing-safe comparison to prevent timing oracle attacks
+  const expected = Buffer.from(hmac, 'utf8')
+  const actual = Buffer.from(signature, 'utf8')
+
+  if (expected.length !== actual.length) return false
+
+  return timingSafeEqual(expected, actual)
 }

@@ -49,3 +49,15 @@ export function trackPaymentFailed(error: string): void {
 export function trackInquirySubmitted(eventType: string): void {
   capture('inquiry_submitted', { event_type: eventType })
 }
+
+export function trackWizardAbandoned(lastStep: string, eventType: string): void {
+  capture('wizard_abandoned', { lastStep, eventType })
+}
+
+export function trackWorkshopSeatBooked(workshopName: string, price: number): void {
+  capture('workshop_seat_booked', { workshopName, price })
+}
+
+export function trackNewsletterSubscribed(): void {
+  capture('newsletter_subscribed')
+}

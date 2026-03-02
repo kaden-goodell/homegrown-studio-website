@@ -186,26 +186,43 @@ describe('SquareCustomerProvider', () => {
   })
 
   describe('subscribe', () => {
-    it('creates customer with email only using empty name fields', async () => {
+    it('creates customer with email only when not found', async () => {
       mockSearch.mockResolvedValue({ customers: [] })
       mockCreate.mockResolvedValue({
         customer: {
           id: 'sq-sub-1',
           emailAddress: 'newsletter@example.com',
-          givenName: '',
-          familyName: '',
-          phoneNumber: undefined,
         },
       })
 
       await provider.subscribe('newsletter@example.com')
 
-      expect(mockCreate).toHaveBeenCalledWith({
-        givenName: '',
-        familyName: '',
-        emailAddress: 'newsletter@example.com',
-        phoneNumber: undefined,
+      expect(mockSearch).toHaveBeenCalledWith({
+        query: {
+          filter: {
+            emailAddress: { exact: 'newsletter@example.com' },
+          },
+        },
       })
+      expect(mockCreate).toHaveBeenCalledWith({
+        emailAddress: 'newsletter@example.com',
+      })
+    })
+
+    it('skips create when customer already exists', async () => {
+      mockSearch.mockResolvedValue({
+        customers: [
+          {
+            id: 'sq-existing',
+            emailAddress: 'newsletter@example.com',
+          },
+        ],
+      })
+
+      await provider.subscribe('newsletter@example.com')
+
+      expect(mockSearch).toHaveBeenCalled()
+      expect(mockCreate).not.toHaveBeenCalled()
     })
   })
 })

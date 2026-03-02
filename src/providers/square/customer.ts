@@ -76,10 +76,23 @@ export class SquareCustomerProvider implements CustomerProvider {
   }
 
   async subscribe(email: string): Promise<void> {
-    await this.findOrCreate({
-      email,
-      givenName: '',
-      familyName: '',
+    // Search for existing customer first, only create if not found
+    const searchResult = await this.client.customers.search({
+      query: {
+        filter: {
+          emailAddress: { exact: email },
+        },
+      },
+    })
+
+    if (searchResult.customers && searchResult.customers.length > 0) {
+      logger.info('Customer already exists for subscription', { email })
+      return
+    }
+
+    // Create a minimal customer record for newsletter subscription
+    await this.client.customers.create({
+      emailAddress: email,
     })
     logger.info('Subscribed customer', { email })
   }

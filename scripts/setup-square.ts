@@ -79,6 +79,8 @@ const WEBHOOK_EVENTS = [
   'booking.updated',
   'payment.created',
   'payment.updated',
+  'order.created',
+  'order.updated',
 ]
 
 async function setupWebhooks() {

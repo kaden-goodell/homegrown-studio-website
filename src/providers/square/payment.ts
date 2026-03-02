@@ -30,7 +30,7 @@ export class SquarePaymentProvider implements PaymentProvider {
 
   constructor(config: SquareConfig) {
     this.config = config
-    this.client = new SquareClient({ token: config.accessToken })
+    this.client = new SquareClient({ token: config.accessToken, environment: config.environment })
   }
 
   async createOrder(params: {
