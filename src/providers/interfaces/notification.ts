@@ -3,6 +3,7 @@ export type NotificationType =
   | 'api-failure'
   | 'payment-failure'
   | 'consecutive-failures'
+  | 'webhook'
 
 export interface NotificationPayload {
   type: NotificationType
