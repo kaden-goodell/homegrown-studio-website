@@ -56,13 +56,13 @@ export default function CheckoutStep() {
     const items: LineItem[] = []
 
     if (state.eventType) {
-      // Use basePrice from config, fall back to catalog variation
-      const basePrice = state.eventType.basePrice
+      const basePrice = state.selectedPartyType?.variations?.[0]?.priceAmount
+        ?? state.eventType.basePrice
         ?? catalogEvent?.variations?.[0]?.priceAmount
         ?? 0
 
       items.push({
-        name: state.eventType.name,
+        name: state.selectedPartyType?.name ?? state.eventType.name,
         quantity: 1,
         pricePerUnit: basePrice,
       })

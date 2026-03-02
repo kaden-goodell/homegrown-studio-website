@@ -8,12 +8,13 @@ import AvailableSlotsStep from './steps/AvailableSlotsStep'
 import CustomizeStep from './steps/CustomizeStep'
 import CheckoutStep from './steps/CheckoutStep'
 import InquiryStep from './steps/InquiryStep'
+import PartyTypeStep from './steps/PartyTypeStep'
 
 interface BookingModalProps {
   onClose: () => void
 }
 
-const MODAL_STEP_LABELS = ['Details', 'Date', 'Time Slot', 'Customize', 'Checkout']
+const MODAL_STEP_LABELS = ['Date', 'Time Slot', 'Party Type', 'Details', 'Customize', 'Checkout']
 
 export default function BookingModal({ onClose }: BookingModalProps) {
   const { state, dispatch } = useWizard()
@@ -44,8 +45,8 @@ export default function BookingModal({ onClose }: BookingModalProps) {
 
   // Fetch add-ons when reaching Customize step
   useEffect(() => {
-    if (state.currentStep === 4 && state.eventType) {
-      fetch(`/api/catalog/add-ons.json?eventTypeId=${state.eventType.id}`)
+    if (state.currentStep === 5 && state.eventType) {
+      fetch(`/api/catalog/add-ons.json?eventTypeId=${state.eventType.catalogItemId ?? state.eventType.id}`)
         .then((res) => res.json())
         .then((json) => setAddOns(Array.isArray(json) ? json : json.data ?? []))
         .catch(() => setAddOns([]))
@@ -54,7 +55,7 @@ export default function BookingModal({ onClose }: BookingModalProps) {
 
   const finalStepLabel = state.eventType?.flow === 'quote' ? 'Inquiry' : 'Checkout'
   const stepLabels = MODAL_STEP_LABELS.map((label, i) =>
-    i === 4 ? finalStepLabel : label,
+    i === 5 ? finalStepLabel : label,
   )
 
   // Modal step index (0-based within modal)
@@ -64,7 +65,14 @@ export default function BookingModal({ onClose }: BookingModalProps) {
 
   function renderStep() {
     switch (displayStep) {
-      case 1: {
+      case 1:
+        return <DateSelectionStep onSlotsLoaded={setAvailableSlots} />
+      case 2:
+        return <AvailableSlotsStep slots={availableSlots} />
+      case 3:
+        return <PartyTypeStep />
+      case 4: {
+        const partyType = state.selectedPartyType
         const detailsTags = [
           ...(state.eventType?.duration ? [{ label: `${state.eventType.duration} min` }] : []),
           ...(state.eventType?.maxCapacity
@@ -75,21 +83,18 @@ export default function BookingModal({ onClose }: BookingModalProps) {
         ]
         return (
           <DetailsStep
-            title={state.eventType?.name ?? ''}
-            description={state.eventType?.description ?? ''}
+            imageUrl={partyType?.imageUrl}
+            title={partyType?.name ?? state.eventType?.name ?? ''}
+            description={partyType?.description ?? state.eventType?.description ?? ''}
             tags={detailsTags}
-            buttonText="Select This Party"
-            onContinue={() => dispatch({ type: 'GO_TO_STEP', payload: 2 })}
+            buttonText="Continue"
+            onContinue={() => dispatch({ type: 'GO_TO_STEP', payload: 5 })}
           />
         )
       }
-      case 2:
-        return <DateSelectionStep onSlotsLoaded={setAvailableSlots} />
-      case 3:
-        return <AvailableSlotsStep slots={availableSlots} />
-      case 4:
-        return <CustomizeStep addOns={addOns} basePrice={state.eventType?.basePrice ?? 0} />
       case 5:
+        return <CustomizeStep addOns={addOns} basePrice={state.selectedPartyType?.variations?.[0]?.priceAmount ?? state.eventType?.basePrice ?? 0} />
+      case 6:
         return state.eventType?.flow === 'quote' ? (
           <InquiryStep />
         ) : (

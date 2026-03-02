@@ -69,7 +69,7 @@ describe('AvailableSlotsStep', () => {
     })
     expect(mockDispatch).toHaveBeenCalledWith({
       type: 'GO_TO_STEP',
-      payload: 4,
+      payload: 3,
     })
   })
 

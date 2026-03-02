@@ -44,7 +44,7 @@ export default function AvailableSlotsStep({ slots }: AvailableSlotsStepProps) {
 
   function handleSelect(slot: TimeSlot) {
     dispatch({ type: 'SET_SLOT', payload: slot })
-    dispatch({ type: 'GO_TO_STEP', payload: 4 })
+    dispatch({ type: 'GO_TO_STEP', payload: 3 })
   }
 
   return (

@@ -217,7 +217,7 @@ export default function CustomizeStep({ addOns, basePrice }: CustomizeStepProps)
 
       <button
         type="button"
-        onClick={() => dispatch({ type: 'GO_TO_STEP', payload: 5 })}
+        onClick={() => dispatch({ type: 'GO_TO_STEP', payload: 6 })}
         style={{
           padding: '0.875rem',
           background: 'var(--color-primary)',
