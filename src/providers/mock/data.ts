@@ -4,7 +4,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'party-birthday',
     name: 'Kids Party',
-    description: 'A fun-filled craft birthday party for kids with a dedicated party host.',
+    description: 'Celebrate your child\'s special day with a hands-on craft birthday party at Homegrown Studio! Each guest creates two custom art projects guided by a dedicated party host who keeps the energy high and the creativity flowing.\n\nYour party includes a private studio space, all craft materials, aprons, setup and cleanup, and a special birthday crown craft for the guest of honor. Choose from pottery painting, canvas art, jewelry making, or slime creation as your featured activities.\n\nWhat to bring: A birthday cake or cupcakes (we provide plates, napkins, and utensils). Any additional food or drinks you\'d like to serve.\n\nWhat to wear: Comfortable clothes that can get a little messy — we provide aprons but creativity sometimes escapes them!',
     category: 'birthday',
     duration: 120,
     baseCapacity: 12,
@@ -24,7 +24,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'party-adult',
     name: 'Adult Workshop Party',
-    description: 'Host a private craft workshop for your group with drinks and snacks included.',
+    description: 'Gather your friends for a private craft night at Homegrown Studio! Whether it\'s a birthday celebration, girls\' night out, or just a reason to create something beautiful together, our adult workshop parties are the perfect mix of guided creativity and social fun.\n\nYour group will work on a featured project — choose from hand-built pottery, soy candle making, macrame wall hangings, or watercolor painting. A dedicated instructor guides you step by step, so no experience is needed. Complimentary wine, beer, and a charcuterie spread are included.\n\nWhat to bring: Your favorite playlist — we have a Bluetooth speaker ready for you. Feel free to bring additional snacks or a cake if you\'re celebrating.\n\nWhat to wear: Something comfortable that you don\'t mind getting a little clay or paint on. We provide aprons, but sleeves can be tricky!',
     category: 'party',
     duration: 150,
     baseCapacity: 10,
@@ -43,7 +43,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'corporate-event',
     name: 'Corporate Team Building',
-    description: 'Custom team-building craft experiences for corporate groups. Contact us for pricing.',
+    description: 'Build stronger teams through shared creativity. Our corporate team-building events are designed to spark collaboration, break down silos, and give your group a memorable hands-on experience outside the office.\n\nChoose from collaborative mural painting, group pottery projects, team candle-making challenges, or custom craft activities tailored to your company\'s goals. Each event includes a facilitator who weaves in team dynamics and communication exercises alongside the creative work.\n\nWe accommodate groups of 10-50 and can customize the experience for your timeframe, budget, and objectives. Catering partnerships available for full-day events. A/V equipment on-site for presentations or icebreakers.\n\nContact us to discuss your vision and we\'ll put together a custom proposal within 48 hours.',
     category: 'corporate',
     duration: 180,
     baseCapacity: 30,
@@ -56,7 +56,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'workshop-pottery',
     name: 'Hand-Built Pottery',
-    description: 'Learn the art of hand-building with clay — pinch pots, coil vessels, and slab construction. All materials and kiln firing included.',
+    description: 'Discover the meditative art of hand-building with clay in this immersive two-hour workshop. You\'ll learn three foundational techniques — pinch pots, coil vessels, and slab construction — and create two finished pieces to take home.\n\nOur instructor walks you through each technique step by step, from wedging your clay to adding surface textures and decorative details. No wheel is needed — hand-building is one of the oldest and most approachable forms of pottery, perfect for beginners and experienced makers alike.\n\nAll materials are included: stoneware clay, glazes, tools, and kiln firing. Your finished pieces will be bisque-fired, glazed, and ready for pickup in about two weeks. We\'ll email you when they\'re done!\n\nWhat to wear: Comfortable clothes you don\'t mind getting dusty. Avoid long, flowing sleeves. We provide aprons.',
     category: 'workshop',
     duration: 120,
     baseCapacity: 10,
@@ -69,7 +69,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'workshop-candle',
     name: 'Soy Candle Making',
-    description: 'Craft your own hand-poured soy candles with custom scent blends. Take home two finished candles.',
+    description: 'Create two beautiful hand-poured soy candles with your own custom scent blends in this relaxing 90-minute workshop. You\'ll learn the fundamentals of candle making — wax melting temperatures, wick selection, fragrance ratios, and proper pouring technique.\n\nChoose from over 30 premium fragrance oils to create your signature scent. Love lavender and vanilla? Go for it. Want to experiment with cedar and tobacco? We\'ll help you find the perfect balance. You\'ll also choose your vessel — ceramic tumblers, amber jars, or concrete pots.\n\nYour candles will need about an hour to set, so we\'ll have them wrapped and ready for pickup at the end of the session. Each candle burns for approximately 40 hours.\n\nThis workshop pairs perfectly with a glass of wine — feel free to bring your own beverages!',
     category: 'workshop',
     duration: 90,
     baseCapacity: 12,
@@ -82,7 +82,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'workshop-macrame',
     name: 'Modern Macrame',
-    description: 'Create a beautiful macrame wall hanging using contemporary knotting techniques. All cord and dowels provided.',
+    description: 'Learn the art of modern macrame and create a stunning wall hanging to display in your home. This 2.5-hour workshop covers essential knots — square knots, spiral knots, half hitches, and gathering knots — woven together into a contemporary geometric design.\n\nNo experience necessary! Your instructor demonstrates each knot slowly and walks around to help you get the tension just right. By the end of the session, you\'ll have a finished piece approximately 12 inches wide and 24 inches long, mounted on a natural driftwood dowel.\n\nAll materials included: 100% cotton macrame cord in your choice of natural, sage, or dusty rose, plus a hand-selected driftwood dowel. You\'ll also take home a knot reference card so you can continue making at home.\n\nThis is one of our most popular workshops — it fills up fast, so book early!',
     category: 'workshop',
     duration: 150,
     baseCapacity: 8,
@@ -95,7 +95,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'workshop-watercolor',
     name: 'Watercolor Basics',
-    description: 'An introduction to watercolor painting — washes, layering, and botanical subjects. Supplies included.',
+    description: 'Dive into the luminous world of watercolor painting in this beginner-friendly two-hour session. You\'ll learn fundamental techniques — wet-on-wet washes, layered glazing, dry brush textures, and lifting — while painting a beautiful botanical subject from our curated reference collection.\n\nYour instructor guides you through color mixing, brush control, and the art of letting water do the work. Watercolor has a reputation for being unpredictable, but with the right techniques it becomes wonderfully expressive. You\'ll leave with a finished painting and the confidence to keep experimenting at home.\n\nAll supplies included: professional-grade watercolor paints (Winsor & Newton Cotman), round and flat brushes, cold-press watercolor paper, palette, and water cups. You\'ll also receive a color mixing reference sheet to take home.\n\nPerfect for date nights, solo creative time, or a fun outing with friends.',
     category: 'workshop',
     duration: 120,
     baseCapacity: 10,
@@ -109,7 +109,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'summer-camp',
     name: 'Summer Art Camp',
-    description: 'A week of creative exploration',
+    description: 'A week of creative exploration for kids ages 6-12! Each day features a different art medium — pottery on Monday, painting on Tuesday, printmaking on Wednesday, and mixed media collage on Thursday. Kids build skills progressively throughout the week while creating a portfolio of pieces they\'re genuinely proud of.\n\nOur camp instructors are practicing artists with experience teaching kids. The studio environment is structured but relaxed — we believe creativity flourishes when kids feel safe to experiment and make mistakes. Expect messy hands, big smiles, and a daily show-and-tell where campers share what they made.\n\nWhat to bring: A water bottle, a nut-free snack (we are a nut-free studio), and a smock or old shirt for extra coverage. We provide all art materials, aprons, and cleanup supplies.\n\nWhat to wear: Comfortable clothes that can get messy. Closed-toe shoes required in the studio.\n\nDrop-off begins at 8:45 AM and pickup is at 12:30 PM sharp. Early drop-off (8:00 AM) available for an additional fee.',
     category: 'program',
     duration: 210,
     baseCapacity: 12,
@@ -125,7 +125,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'homeschool-spring',
     name: 'Homeschool Studio Days',
-    description: 'Weekly art enrichment for homeschool families',
+    description: 'A semester-long art enrichment program designed specifically for homeschool families. Every Wednesday from 10 AM to 1 PM, students dive deep into a rotating curriculum that covers drawing fundamentals, color theory, ceramics, fiber arts, and art history connections.\n\nUnlike drop-in workshops, this program builds skills progressively over 14 weeks. Students keep an art journal throughout the semester, developing their own creative voice alongside technical ability. Class sizes are intentionally small (max 10 students) so every child gets meaningful instructor attention.\n\nThe program culminates in a student art show during the final week, where families are invited to see the semester\'s work displayed gallery-style in our studio. It\'s always a highlight!\n\nWhat to bring: A dedicated sketchbook (we\'ll specify size at orientation), water bottle, and nut-free lunch. All other materials provided.\n\nWhat to wear: Studio clothes — things that can handle clay, paint, and ink. Closed-toe shoes required.',
     category: 'program',
     duration: 180,
     baseCapacity: 10,
@@ -138,7 +138,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'winter-break-camp',
     name: 'Winter Break Camp',
-    description: 'Creative fun while school is out',
+    description: 'Keep the creativity alive over winter break! This camp runs Monday through Thursday each week with a cozy, festive theme — think handmade ornaments, winter watercolor landscapes, clay mug making, and printmaking holiday cards.\n\nEach day features a primary project plus free exploration time where kids can experiment with open studio materials. We keep the vibe relaxed and joyful — hot cocoa breaks included! Our instructors bring warmth and patience to every session, making sure kids of all skill levels feel welcome.\n\nThis camp is perfect for kids who need creative stimulation during the long break, and for parents who need a few hours of reliable, enriching childcare during the holiday season.\n\nWhat to bring: Water bottle, nut-free snack, and a smock or old shirt. All art materials provided.\n\nWhat to wear: Comfortable, messy-friendly clothes. Layers recommended — the studio can be warm when the kiln is running!\n\nDrop-off at 9:00 AM, pickup at 12:00 PM. No early drop-off available during winter camp.',
     category: 'program',
     duration: 180,
     baseCapacity: 12,
