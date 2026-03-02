@@ -51,19 +51,22 @@ export default function SearchView({ workshops }: SearchViewProps) {
   return (
     <div>
       <div className="flex flex-col sm:flex-row gap-3 mb-8">
-        <input
-          type="text"
-          placeholder="Search workshops..."
-          value={query}
-          onChange={(e) => { setQuery(e.target.value); setPage(0) }}
-          className="flex-1 rounded-xl px-5 py-3 text-sm focus:outline-none focus:ring-2 transition-all"
-          style={{
-            background: 'rgba(255, 255, 255, 0.75)',
-            backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(150, 112, 91, 0.06)',
-            color: 'var(--color-text)',
-          }}
-        />
+        <div className="flex-1">
+          <label className="hidden sm:block" style={{ fontSize: '0.625rem', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'transparent', marginBottom: '0.25rem' }}>&nbsp;</label>
+          <input
+            type="text"
+            placeholder="Search workshops..."
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setPage(0) }}
+            className="w-full rounded-xl px-5 py-3 text-sm focus:outline-none focus:ring-2 transition-all"
+            style={{
+              background: 'rgba(255, 255, 255, 0.75)',
+              backdropFilter: 'blur(12px)',
+              border: '1px solid rgba(150, 112, 91, 0.06)',
+              color: 'var(--color-text)',
+            }}
+          />
+        </div>
         <div className="flex gap-3 flex-1 sm:flex-none">
           <div style={{ flex: 1 }}>
             <label style={{ display: 'block', fontSize: '0.625rem', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-muted)', marginBottom: '0.25rem' }}>From</label>
