@@ -30,20 +30,20 @@ const currentYear = new Date().getFullYear()
 const { street, city, state, zip } = siteConfig.address
 ---
 
-<footer class="bg-[var(--color-text)]/5 border-t border-[var(--color-primary)]/10 mt-20">
-  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+<footer class="bg-[var(--color-dark)] border-t border-[var(--color-secondary)]/20 mt-20">
+  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
     <div class="grid grid-cols-1 md:grid-cols-3 gap-12">
 
       {/* Column 1: Brand */}
       <div>
-        <h3 class="font-heading text-xl font-semibold text-[var(--color-text)] mb-3">
+        <h3 class="font-heading text-xl font-semibold text-[var(--color-background)] mb-3">
           {siteConfig.name}
         </h3>
-        <p class="text-[var(--color-muted)] text-sm leading-relaxed">
+        <p class="text-[var(--color-background)]/70 text-sm leading-relaxed">
           {siteConfig.tagline}
         </p>
         {siteConfig.features.newsletter && (
-          <p class="text-[var(--color-muted)] text-sm mt-4 italic">
+          <p class="text-[var(--color-background)]/70 text-sm mt-4 italic">
             Sign up for our newsletter to stay in the loop.
           </p>
         )}
@@ -51,7 +51,7 @@ const { street, city, state, zip } = siteConfig.address
 
       {/* Column 2: Quick Links */}
       <div>
-        <h4 class="font-heading text-sm font-semibold text-[var(--color-text)] uppercase tracking-wider mb-4">
+        <h4 class="font-heading text-sm font-semibold text-[var(--color-background)] uppercase tracking-wider mb-4">
           Quick Links
         </h4>
         <ul class="list-none m-0 p-0 space-y-2">
@@ -59,7 +59,7 @@ const { street, city, state, zip } = siteConfig.address
             <li>
               <a
                 href={item.href}
-                class="text-[var(--color-muted)] hover:text-[var(--color-primary)] text-sm no-underline transition-colors duration-200"
+                class="text-[var(--color-background)]/70 hover:text-[var(--color-accent)] text-sm no-underline transition-colors duration-200"
               >
                 {item.label}
               </a>
@@ -70,14 +70,14 @@ const { street, city, state, zip } = siteConfig.address
 
       {/* Column 3: Contact */}
       <div>
-        <h4 class="font-heading text-sm font-semibold text-[var(--color-text)] uppercase tracking-wider mb-4">
+        <h4 class="font-heading text-sm font-semibold text-[var(--color-background)] uppercase tracking-wider mb-4">
           Get in Touch
         </h4>
-        <ul class="list-none m-0 p-0 space-y-3 text-sm text-[var(--color-muted)]">
+        <ul class="list-none m-0 p-0 space-y-3 text-sm text-[var(--color-background)]/70">
           <li>
             <a
               href={`mailto:${siteConfig.contactEmail}`}
-              class="text-[var(--color-muted)] hover:text-[var(--color-primary)] no-underline transition-colors duration-200"
+              class="text-[var(--color-background)]/70 hover:text-[var(--color-accent)] no-underline transition-colors duration-200"
             >
               {siteConfig.contactEmail}
             </a>
@@ -85,7 +85,7 @@ const { street, city, state, zip } = siteConfig.address
           <li>
             <a
               href={`tel:${siteConfig.contactPhone.replace(/[^+\d]/g, '')}`}
-              class="text-[var(--color-muted)] hover:text-[var(--color-primary)] no-underline transition-colors duration-200"
+              class="text-[var(--color-background)]/70 hover:text-[var(--color-accent)] no-underline transition-colors duration-200"
             >
               {siteConfig.contactPhone}
             </a>
@@ -101,9 +101,9 @@ const { street, city, state, zip } = siteConfig.address
   </div>
 
   {/* Bottom bar */}
-  <div class="border-t border-[var(--color-primary)]/10">
+  <div class="border-t border-[var(--color-secondary)]/20">
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      <p class="text-center text-xs text-[var(--color-muted)]">
+      <p class="text-center text-xs text-[var(--color-background)]/50">
         &copy; {currentYear} {siteConfig.name}. All rights reserved.
       </p>
     </div>
