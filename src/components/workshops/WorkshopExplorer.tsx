@@ -32,9 +32,14 @@ export default function WorkshopExplorer({ workshops }: WorkshopExplorerProps) {
           onClick={() => setView('search')}
           className={`px-4 py-2 rounded-lg font-medium transition ${
             view === 'search'
-              ? 'bg-gray-900 text-white'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              ? 'text-white'
+              : 'hover:opacity-80'
           }`}
+          style={
+            view === 'search'
+              ? { backgroundColor: 'var(--color-primary)' }
+              : { backgroundColor: '#f5f0ea', color: 'var(--color-text)' }
+          }
         >
           Search
         </button>
@@ -42,9 +47,14 @@ export default function WorkshopExplorer({ workshops }: WorkshopExplorerProps) {
           onClick={() => setView('calendar')}
           className={`px-4 py-2 rounded-lg font-medium transition ${
             view === 'calendar'
-              ? 'bg-gray-900 text-white'
-              : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              ? 'text-white'
+              : 'hover:opacity-80'
           }`}
+          style={
+            view === 'calendar'
+              ? { backgroundColor: 'var(--color-primary)' }
+              : { backgroundColor: '#f5f0ea', color: 'var(--color-text)' }
+          }
         >
           Calendar
         </button>

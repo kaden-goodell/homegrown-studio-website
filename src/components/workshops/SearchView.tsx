@@ -32,13 +32,21 @@ export default function SearchView({ workshops }: SearchViewProps) {
           placeholder="Search workshops..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="flex-1 rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-gray-400"
+          className="flex-1 rounded-lg px-4 py-2 focus:outline-none focus:ring-2"
+          style={{
+            border: '1px solid rgba(196, 168, 130, 0.5)',
+            backgroundColor: 'white',
+          }}
         />
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
           aria-label="Category"
-          className="rounded-lg border border-gray-300 px-4 py-2 focus:outline-none focus:ring-2 focus:ring-gray-400"
+          className="rounded-full px-5 py-2 focus:outline-none focus:ring-2"
+          style={{
+            border: '1px solid rgba(196, 168, 130, 0.5)',
+            backgroundColor: 'white',
+          }}
         >
           <option value="all">All</option>
           {categories.map((cat) => (
@@ -56,7 +64,7 @@ export default function SearchView({ workshops }: SearchViewProps) {
       </div>
 
       {filtered.length === 0 && (
-        <p className="text-center text-gray-500 py-8">No workshops found.</p>
+        <p className="text-center py-8" style={{ color: 'var(--color-muted)' }}>No workshops found.</p>
       )}
     </div>
   )
