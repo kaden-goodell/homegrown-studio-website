@@ -40,7 +40,7 @@ export default function DateSelectionStep({ onSlotsLoaded }: DateSelectionStepPr
       const json = await res.json()
       const slots: TimeSlot[] = Array.isArray(json) ? json : json.data ?? []
       onSlotsLoaded(slots)
-      dispatch({ type: 'GO_TO_STEP', payload: 2 })
+      dispatch({ type: 'GO_TO_STEP', payload: 3 })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {

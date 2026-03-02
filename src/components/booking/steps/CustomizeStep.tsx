@@ -118,7 +118,7 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
 
       <button
         type="button"
-        onClick={() => dispatch({ type: 'GO_TO_STEP', payload: 4 })}
+        onClick={() => dispatch({ type: 'GO_TO_STEP', payload: 5 })}
         className="rounded-md bg-primary px-6 py-2 text-sm font-medium text-white shadow-sm transition hover:brightness-90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
       >
         Continue

@@ -93,14 +93,14 @@ describe('CustomizeStep', () => {
     expect(screen.getAllByRole('checkbox')).toHaveLength(2)
   })
 
-  it('continue button dispatches GO_TO_STEP(4)', () => {
+  it('continue button dispatches GO_TO_STEP(5)', () => {
     render(<CustomizeStep addOns={addOns} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 
     expect(mockDispatch).toHaveBeenCalledWith({
       type: 'GO_TO_STEP',
-      payload: 4,
+      payload: 5,
     })
   })
 })
