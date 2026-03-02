@@ -88,8 +88,10 @@ describe('CustomizeStep', () => {
   it('renders add-on checkboxes with formatted prices', () => {
     render(<CustomizeStep addOns={addOns} />)
 
-    expect(screen.getByText(/Goodie Bags - \$8\.00/)).toBeInTheDocument()
-    expect(screen.getByText(/Extra Paint Set - \$5\.00/)).toBeInTheDocument()
+    expect(screen.getByText('Goodie Bags')).toBeInTheDocument()
+    expect(screen.getByText('$8.00')).toBeInTheDocument()
+    expect(screen.getByText('Extra Paint Set')).toBeInTheDocument()
+    expect(screen.getByText('$5.00')).toBeInTheDocument()
     expect(screen.getAllByRole('checkbox')).toHaveLength(2)
   })
 
