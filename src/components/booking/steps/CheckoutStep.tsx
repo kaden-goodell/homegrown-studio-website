@@ -101,7 +101,7 @@ export default function CheckoutStep() {
           paymentId: paymentData.data.id,
           customerId: customerData.data.id,
           eventType: state.eventType?.id,
-          slot: state.selectedSlot,
+          slotId: state.selectedSlot?.id,
           guestCount: state.guestCount,
           addOns: state.selectedAddOns,
           specialRequests: state.specialRequests,

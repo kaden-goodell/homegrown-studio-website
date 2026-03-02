@@ -58,21 +58,11 @@ export class SquareInternalCapacityProvider implements CapacityProvider {
       const data: SquareSearchResponse = await response.json()
       const instances = data.class_schedule_instances ?? []
 
-      // Build a lookup from the response
-      const instanceMap = new Map<string, SquareClassScheduleInstance>()
-      for (const instance of instances) {
-        // The API returns instances keyed by their ID; we match by position in the request
-        // Since we batch all IDs, we need to match response instances to requested IDs
-        // The response includes all matching instances
-      }
-
-      // For batched requests, map response instances back to slot IDs by index
-      // Each instance in the response corresponds to a requested slot ID
-      for (const slotId of slotIds) {
-        const instance = instances.find((_inst, idx) => {
-          // The API returns instances in the same order as requested IDs
-          return slotIds.indexOf(slotId) === idx
-        })
+      // Map response instances back to slot IDs by index position.
+      // The internal API returns instances in the same order as the requested IDs.
+      for (let i = 0; i < slotIds.length; i++) {
+        const slotId = slotIds[i]
+        const instance = instances[i]
 
         if (
           instance &&

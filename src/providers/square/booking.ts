@@ -23,14 +23,13 @@ function mapStatus(squareStatus: string): Booking['status'] {
   }
 }
 
-function generateSlotId(startAt: string, locationId: string): string {
-  let hash = 0
-  const str = `${startAt}:${locationId}`
-  for (let i = 0; i < str.length; i++) {
-    const char = str.charCodeAt(i)
-    hash = ((hash << 5) - hash + char) | 0
-  }
-  return `slot-${Math.abs(hash).toString(36)}`
+/**
+ * Square availability slots don't have stable IDs, so we use the startAt timestamp
+ * as the slot ID. This means slotId IS the ISO datetime string for Square bookings.
+ * The createBooking method relies on this — it uses slotId directly as the startAt.
+ */
+function generateSlotId(startAt: string, _locationId: string): string {
+  return startAt
 }
 
 export class SquareBookingProvider implements BookingProvider {
@@ -197,6 +196,18 @@ export class SquareBookingProvider implements BookingProvider {
     const response = await this.client.bookings.get({ bookingId })
     const sqBooking = (response as any).booking!
 
+    // Try to read custom attributes for eventType
+    let eventType = ''
+    try {
+      const attrResponse = await (this.client.bookings as any).customAttributes.get({
+        bookingId,
+        key: 'event_type',
+      })
+      eventType = attrResponse?.customAttribute?.value ?? ''
+    } catch {
+      // Custom attribute may not exist; that's fine
+    }
+
     const segment = sqBooking.appointmentSegments?.[0]
     const startAt = sqBooking.startAt ?? ''
     const durationMinutes = segment?.durationMinutes ?? 0
@@ -219,7 +230,7 @@ export class SquareBookingProvider implements BookingProvider {
         available: false,
       },
       customerId: sqBooking.customerId ?? '',
-      eventType: '',
+      eventType,
       createdAt: sqBooking.createdAt ?? '',
     }
   }

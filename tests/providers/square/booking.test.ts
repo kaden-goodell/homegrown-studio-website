@@ -7,6 +7,7 @@ const mockCreate = vi.fn()
 const mockCancel = vi.fn()
 const mockGet = vi.fn()
 const mockBulkUpsert = vi.fn()
+const mockCustomAttrGet = vi.fn()
 
 vi.mock('square', () => ({
   SquareClient: class MockSquareClient {
@@ -17,6 +18,7 @@ vi.mock('square', () => ({
       get: mockGet,
       customAttributes: {
         bulkUpsert: mockBulkUpsert,
+        get: mockCustomAttrGet,
       },
     }
   },
@@ -84,7 +86,7 @@ describe('SquareBookingProvider', () => {
         serviceVariationId: 'SVC1',
         available: true,
       })
-      expect(slots[0].id).toBeTruthy()
+      expect(slots[0].id).toBe('2026-03-15T10:00:00Z')
       expect(slots[0].endAt).toBe('2026-03-15T12:00:00.000Z')
 
       expect(slots[1]).toMatchObject({
@@ -248,6 +250,7 @@ describe('SquareBookingProvider', () => {
           appointmentSegments: [{ durationMinutes: 120 }],
         },
       })
+      mockCustomAttrGet.mockResolvedValue({ customAttribute: { value: 'birthday' } })
 
       const booking = await provider.getBooking('BK1')
       expect(booking.status).toBe('confirmed')
@@ -265,6 +268,7 @@ describe('SquareBookingProvider', () => {
           appointmentSegments: [],
         },
       })
+      mockCustomAttrGet.mockResolvedValue({ customAttribute: { value: '' } })
 
       const booking = await provider.getBooking('BK2')
       expect(booking.status).toBe('pending')
@@ -282,6 +286,7 @@ describe('SquareBookingProvider', () => {
           appointmentSegments: [],
         },
       })
+      mockCustomAttrGet.mockResolvedValue({ customAttribute: { value: '' } })
 
       const booking = await provider.getBooking('BK3')
       expect(booking.status).toBe('cancelled')
@@ -299,6 +304,7 @@ describe('SquareBookingProvider', () => {
           appointmentSegments: [],
         },
       })
+      mockCustomAttrGet.mockResolvedValue({ customAttribute: { value: '' } })
 
       const booking = await provider.getBooking('BK4')
       expect(booking.status).toBe('cancelled')
@@ -322,14 +328,57 @@ describe('SquareBookingProvider', () => {
           ],
         },
       })
+      mockCustomAttrGet.mockResolvedValue({ customAttribute: { value: 'workshop' } })
 
       const booking = await provider.getBooking('BK5')
       expect(booking.id).toBe('BK5')
       expect(booking.customerId).toBe('CUST1')
+      expect(booking.eventType).toBe('workshop')
+      expect(booking.slot.id).toBe('2026-03-15T10:00:00Z')
       expect(booking.slot.duration).toBe(120)
       expect(booking.slot.locationId).toBe('LOC123')
       expect(booking.slot.teamMemberId).toBe('TEAM1')
       expect(booking.slot.available).toBe(false)
+    })
+
+    it('reads eventType from custom attributes', async () => {
+      mockGet.mockResolvedValue({
+        booking: {
+          id: 'BK6',
+          status: 'ACCEPTED',
+          startAt: '2026-03-15T10:00:00Z',
+          locationId: 'LOC123',
+          customerId: 'CUST1',
+          createdAt: '2026-03-14T08:00:00Z',
+          appointmentSegments: [],
+        },
+      })
+      mockCustomAttrGet.mockResolvedValue({ customAttribute: { value: 'birthday' } })
+
+      const booking = await provider.getBooking('BK6')
+      expect(booking.eventType).toBe('birthday')
+      expect(mockCustomAttrGet).toHaveBeenCalledWith({
+        bookingId: 'BK6',
+        key: 'event_type',
+      })
+    })
+
+    it('returns empty eventType when custom attribute does not exist', async () => {
+      mockGet.mockResolvedValue({
+        booking: {
+          id: 'BK7',
+          status: 'ACCEPTED',
+          startAt: '2026-03-15T10:00:00Z',
+          locationId: 'LOC123',
+          customerId: 'CUST1',
+          createdAt: '2026-03-14T08:00:00Z',
+          appointmentSegments: [],
+        },
+      })
+      mockCustomAttrGet.mockRejectedValue(new Error('NOT_FOUND'))
+
+      const booking = await provider.getBooking('BK7')
+      expect(booking.eventType).toBe('')
     })
   })
 
