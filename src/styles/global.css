@@ -33,13 +33,14 @@ html {
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
   scroll-behavior: smooth;
+  background-color: var(--color-background);
 }
 
 body {
-  background-color: var(--color-background);
   color: var(--color-text);
   font-family: var(--font-body);
   line-height: 1.6;
+  position: relative;
 }
 
 h1,

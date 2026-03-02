@@ -1,5 +1,4 @@
 .texture-linen {
-  background-color: var(--color-background);
   background-image:
     repeating-linear-gradient(
       0deg,
@@ -32,7 +31,6 @@
 }
 
 .texture-paper {
-  background-color: var(--color-background);
   background-image:
     linear-gradient(
       135deg,
@@ -57,10 +55,7 @@
   background-size: 4px 4px;
 }
 
-.texture-clean {
-  background-color: var(--color-background);
-}
-
+.texture-clean,
 .texture-none {
-  background-color: var(--color-background);
+  /* no texture */
 }

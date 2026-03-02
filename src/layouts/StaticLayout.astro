@@ -2,6 +2,7 @@
 import { siteConfig } from '@config/site.config'
 import Header from '@components/shared/Header.astro'
 import Footer from '@components/shared/Footer.astro'
+import Shimmer from '@components/shared/Shimmer'
 import '@styles/global.css'
 import '@styles/textures.css'
 import '@styles/animations.css'
@@ -54,7 +55,6 @@ const bodyFont = fonts.body.replace(/ /g, '+')
       body {
         font-family: var(--font-body);
         color: var(--color-text);
-        background-color: var(--color-background);
       }
       h1, h2, h3, h4, h5, h6,
       .font-heading {
@@ -63,6 +63,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     </style>
   </head>
   <body class={textureClass}>
+    <Shimmer enabled={siteConfig.theme.animations.particles} client:load />
     <Header />
     <main>
       <slot />

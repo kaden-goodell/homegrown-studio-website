@@ -40,16 +40,15 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
 
     function resize() {
       const dpr = window.devicePixelRatio || 1
-      const docHeight = document.documentElement.scrollHeight
       canvas!.width = window.innerWidth * dpr
-      canvas!.height = docHeight * dpr
+      canvas!.height = window.innerHeight * dpr
       canvas!.style.width = `${window.innerWidth}px`
-      canvas!.style.height = `${docHeight}px`
+      canvas!.style.height = `${window.innerHeight}px`
       ctx!.scale(dpr, dpr)
     }
 
     resize()
-    let particles = createParticles(window.innerWidth, document.documentElement.scrollHeight)
+    let particles = createParticles(window.innerWidth, window.innerHeight)
 
     // Static render for reduced motion
     if (prefersReduced) {
@@ -95,7 +94,7 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
 
     function onResize() {
       resize()
-      particles = createParticles(window.innerWidth, document.documentElement.scrollHeight)
+      particles = createParticles(window.innerWidth, window.innerHeight)
     }
     window.addEventListener('resize', onResize)
 
@@ -113,10 +112,8 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
       ref={canvasRef}
       aria-hidden="true"
       style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        width: '100%',
+        position: 'fixed',
+        inset: 0,
         pointerEvents: 'none',
         zIndex: 0,
       }}
