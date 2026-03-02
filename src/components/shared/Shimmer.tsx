@@ -1,57 +1,125 @@
-/**
- * Subtle CSS particle shimmer effect rendered as a background layer.
- * Only active when config.theme.animations.particles is true.
- * Uses pure CSS @keyframes — no heavy JS libraries.
- */
+import { useEffect, useRef } from 'react'
+
+interface Particle {
+  x: number
+  y: number
+  radius: number
+  color: string
+  maxOpacity: number
+  phase: number      // current position in cycle (0-1)
+  speed: number      // how fast it cycles
+}
+
+const COLORS = ['#d4a574', '#c4a882', '#e8c89a', '#f0d9b5']
+const PARTICLE_COUNT = 60
+
+function createParticles(width: number, height: number): Particle[] {
+  return Array.from({ length: PARTICLE_COUNT }, () => ({
+    x: Math.random() * width,
+    y: Math.random() * height,
+    radius: 1 + Math.random() * 2,
+    color: COLORS[Math.floor(Math.random() * COLORS.length)],
+    maxOpacity: 0.4 + Math.random() * 0.4,
+    phase: Math.random(),
+    speed: 0.15 + Math.random() * 0.35, // cycles per second — completes in 2-6s
+  }))
+}
+
 export default function Shimmer({ enabled }: { enabled: boolean }) {
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  useEffect(() => {
+    if (!enabled) return
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+    function resize() {
+      const dpr = window.devicePixelRatio || 1
+      const docHeight = document.documentElement.scrollHeight
+      canvas!.width = window.innerWidth * dpr
+      canvas!.height = docHeight * dpr
+      canvas!.style.width = `${window.innerWidth}px`
+      canvas!.style.height = `${docHeight}px`
+      ctx!.scale(dpr, dpr)
+    }
+
+    resize()
+    let particles = createParticles(window.innerWidth, document.documentElement.scrollHeight)
+
+    // Static render for reduced motion
+    if (prefersReduced) {
+      for (const p of particles) {
+        ctx.globalAlpha = p.maxOpacity * 0.3
+        ctx.fillStyle = p.color
+        ctx.beginPath()
+        ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2)
+        ctx.fill()
+      }
+      return
+    }
+
+    let animId: number
+    let lastTime = 0
+    let paused = false
+
+    function draw(time: number) {
+      if (paused) { animId = requestAnimationFrame(draw); return }
+      const dt = lastTime ? (time - lastTime) / 1000 : 0.016
+      lastTime = time
+
+      ctx!.clearRect(0, 0, canvas!.width / (window.devicePixelRatio || 1), canvas!.height / (window.devicePixelRatio || 1))
+
+      for (const p of particles) {
+        p.phase = (p.phase + p.speed * dt) % 1
+        // Sine wave for smooth fade in/out
+        const opacity = p.maxOpacity * Math.sin(p.phase * Math.PI)
+        ctx!.globalAlpha = opacity
+        ctx!.fillStyle = p.color
+        ctx!.beginPath()
+        ctx!.arc(p.x, p.y, p.radius, 0, Math.PI * 2)
+        ctx!.fill()
+      }
+
+      animId = requestAnimationFrame(draw)
+    }
+
+    animId = requestAnimationFrame(draw)
+
+    function onVisChange() { paused = document.hidden }
+    document.addEventListener('visibilitychange', onVisChange)
+
+    function onResize() {
+      resize()
+      particles = createParticles(window.innerWidth, document.documentElement.scrollHeight)
+    }
+    window.addEventListener('resize', onResize)
+
+    return () => {
+      cancelAnimationFrame(animId)
+      document.removeEventListener('visibilitychange', onVisChange)
+      window.removeEventListener('resize', onResize)
+    }
+  }, [enabled])
+
   if (!enabled) return null
 
   return (
-    <div
-      className="shimmer-container"
+    <canvas
+      ref={canvasRef}
       aria-hidden="true"
       style={{
-        position: 'fixed',
-        inset: 0,
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        width: '100%',
         pointerEvents: 'none',
         zIndex: 0,
-        overflow: 'hidden',
       }}
-    >
-      <style>{`
-        @keyframes shimmer-float {
-          0%, 100% { transform: translateY(0) scale(1); opacity: 0; }
-          10% { opacity: 0.6; }
-          90% { opacity: 0.6; }
-          50% { transform: translateY(-40vh) scale(1.2); }
-        }
-
-        @media (prefers-reduced-motion: reduce) {
-          .shimmer-particle { animation: none !important; display: none; }
-        }
-
-        .shimmer-particle {
-          position: absolute;
-          bottom: -10px;
-          border-radius: 50%;
-          background: radial-gradient(circle, var(--color-accent, #d4a574) 0%, transparent 70%);
-          animation: shimmer-float linear infinite;
-          will-change: transform, opacity;
-        }
-      `}</style>
-      {Array.from({ length: 8 }, (_, i) => (
-        <div
-          key={i}
-          className="shimmer-particle"
-          style={{
-            left: `${10 + i * 12}%`,
-            width: `${3 + (i % 3) * 2}px`,
-            height: `${3 + (i % 3) * 2}px`,
-            animationDuration: `${8 + i * 2}s`,
-            animationDelay: `${i * 1.5}s`,
-          }}
-        />
-      ))}
-    </div>
+    />
   )
 }
