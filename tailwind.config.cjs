@@ -8,7 +8,10 @@ module.exports = {
         body: ['var(--font-body)', 'sans-serif'],
       },
       colors: {
-        primary: 'var(--color-primary)',
+        primary: {
+          DEFAULT: 'var(--color-primary)',
+          light: 'color-mix(in srgb, var(--color-primary) 10%, white)',
+        },
         secondary: 'var(--color-secondary)',
         accent: 'var(--color-accent)',
         surface: 'var(--color-background)',

@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { createLogger } from '@lib/logger'
 import { validateCoupon } from '@lib/coupons'
+import { providers } from '@config/providers'
 
 export const POST: APIRoute = async ({ request }) => {
   const logger = createLogger('api:checkout:validate-coupon')
@@ -22,6 +23,15 @@ export const POST: APIRoute = async ({ request }) => {
       error: error instanceof Error ? error.message : String(error),
       duration_ms: Date.now() - startTime,
     })
+
+    await providers.notification.send({
+      type: 'api-failure',
+      title: 'Coupon validation failed',
+      details: { route: 'checkout/validate-coupon', error: String(error) },
+      severity: 'warning',
+      timestamp: new Date().toISOString(),
+    })
+
     return new Response(
       JSON.stringify({ error: 'Unable to validate coupon' }),
       { status: 500, headers: { 'Content-Type': 'application/json' } },

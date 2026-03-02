@@ -29,7 +29,7 @@ export default function EventTypeStep({ eventTypes }: EventTypeStepProps) {
           key={eventType.id}
           type="button"
           onClick={() => dispatch({ type: 'SET_EVENT_TYPE', payload: eventType })}
-          className="flex flex-col items-start gap-2 rounded-lg border border-gray-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+          className="flex flex-col items-start gap-2 rounded-lg border border-gray-200 bg-white p-6 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary"
         >
           {eventType.icon && (
             <span className="text-3xl" aria-hidden="true">
@@ -38,7 +38,7 @@ export default function EventTypeStep({ eventTypes }: EventTypeStepProps) {
           )}
           <h3 className="text-lg font-semibold text-gray-900">{eventType.name}</h3>
           <p className="text-sm text-gray-600">{eventType.description}</p>
-          <span className="mt-auto text-xs font-medium text-purple-600">
+          <span className="mt-auto text-xs font-medium text-primary">
             {formatDuration(eventType.duration)}
           </span>
         </button>

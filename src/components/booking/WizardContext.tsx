@@ -27,6 +27,7 @@ export type WizardAction =
   | { type: 'SET_SLOT'; payload: TimeSlot }
   | { type: 'SET_GUEST_COUNT'; payload: number }
   | { type: 'TOGGLE_ADDON'; payload: string }
+  | { type: 'SET_DESIRED_DURATION'; payload: number }
   | { type: 'SET_SPECIAL_REQUESTS'; payload: string }
   | { type: 'SET_CUSTOMER_INFO'; payload: { name: string; email: string; phone: string } }
   | { type: 'APPLY_COUPON'; payload: { code: string; discount: Discount } }
@@ -75,6 +76,8 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
           : [...state.selectedAddOns, id],
       }
     }
+    case 'SET_DESIRED_DURATION':
+      return { ...state, desiredDuration: action.payload }
     case 'SET_SPECIAL_REQUESTS':
       return { ...state, specialRequests: action.payload }
     case 'SET_CUSTOMER_INFO':

@@ -200,7 +200,7 @@ export default function CheckoutStep() {
             href={receiptUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-block text-purple-600 underline hover:text-purple-800"
+            className="inline-block text-primary underline hover:brightness-75"
           >
             View Receipt
           </a>
@@ -224,7 +224,7 @@ export default function CheckoutStep() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
           <div>
@@ -237,7 +237,7 @@ export default function CheckoutStep() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
           </div>
         </div>
@@ -250,7 +250,7 @@ export default function CheckoutStep() {
             type="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500 sm:max-w-xs"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary sm:max-w-xs"
           />
         </div>
       </div>
@@ -274,7 +274,7 @@ export default function CheckoutStep() {
         type="button"
         onClick={handleBookAndPay}
         disabled={processing}
-        className="w-full rounded-lg bg-purple-600 px-6 py-3 text-base font-semibold text-white hover:bg-purple-700 disabled:opacity-50"
+        className="w-full rounded-lg bg-primary px-6 py-3 text-base font-semibold text-white hover:brightness-90 disabled:opacity-50"
       >
         {processing ? 'Processing...' : 'Book & Pay'}
       </button>

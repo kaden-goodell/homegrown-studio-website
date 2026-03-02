@@ -55,7 +55,7 @@ export default function AvailableSlotsStep({ slots }: AvailableSlotsStepProps) {
                 key={slot.id}
                 type="button"
                 onClick={() => handleSelect(slot)}
-                className="flex items-center justify-between rounded-md border border-gray-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-purple-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                className="flex items-center justify-between rounded-md border border-gray-200 bg-white px-4 py-3 text-left shadow-sm transition hover:border-primary hover:shadow-md focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 <span className="font-medium text-gray-900">{formatTime(slot.startAt)}</span>
                 <span className="text-sm text-gray-500">{slot.duration} min</span>

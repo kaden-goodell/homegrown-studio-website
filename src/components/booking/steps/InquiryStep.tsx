@@ -49,6 +49,7 @@ export default function InquiryStep() {
           phone: phone.trim() || undefined,
           eventType: state.eventType?.id,
           dates: state.selectedDates,
+          duration: state.desiredDuration,
           guestCount: state.guestCount,
           details: state.specialRequests,
         }),
@@ -98,7 +99,7 @@ export default function InquiryStep() {
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
           {errors.name && <p className="text-sm text-red-600">{errors.name}</p>}
         </div>
@@ -112,7 +113,7 @@ export default function InquiryStep() {
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
           {errors.email && <p className="text-sm text-red-600">{errors.email}</p>}
         </div>
@@ -126,31 +127,31 @@ export default function InquiryStep() {
             type="tel"
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           />
         </div>
       </div>
 
-      <div className="rounded-md bg-purple-50 p-4 space-y-2">
-        <h3 className="text-sm font-medium text-purple-800">Review Your Inquiry</h3>
+      <div className="rounded-md bg-primary-light p-4 space-y-2">
+        <h3 className="text-sm font-medium text-primary">Review Your Inquiry</h3>
         {state.eventType && (
-          <p className="text-sm text-purple-700">
+          <p className="text-sm text-primary">
             Event: {state.eventType.name}
           </p>
         )}
         {state.selectedDates && (
-          <p className="text-sm text-purple-700">
+          <p className="text-sm text-primary">
             Date: {state.selectedDates.start}
             {state.selectedDates.end !== state.selectedDates.start && ` – ${state.selectedDates.end}`}
           </p>
         )}
         {state.guestCount > 1 && (
-          <p className="text-sm text-purple-700">
+          <p className="text-sm text-primary">
             Guests: {state.guestCount}
           </p>
         )}
         {state.specialRequests && (
-          <p className="text-sm text-purple-700">
+          <p className="text-sm text-primary">
             Notes: {state.specialRequests}
           </p>
         )}
@@ -164,7 +165,7 @@ export default function InquiryStep() {
         type="button"
         disabled={submitting}
         onClick={handleSubmit}
-        className="rounded-md bg-purple-600 px-6 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2 disabled:opacity-50"
+        className="rounded-md bg-primary px-6 py-2 text-sm font-medium text-white shadow-sm transition hover:brightness-90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 disabled:opacity-50"
       >
         {submitting ? 'Submitting...' : 'Submit Inquiry'}
       </button>

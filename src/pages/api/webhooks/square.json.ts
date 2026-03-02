@@ -16,6 +16,8 @@ const HANDLED_EVENTS = new Set([
   'booking.updated',
   'payment.created',
   'payment.updated',
+  'order.created',
+  'order.updated',
 ])
 
 export const POST: APIRoute = async ({ request }) => {
@@ -25,7 +27,17 @@ export const POST: APIRoute = async ({ request }) => {
   // Verify signature
   const signature = request.headers.get('x-square-hmacsha256-signature') ?? ''
 
-  if (SIGNATURE_KEY && !verifySquareSignature(body, signature, SIGNATURE_KEY, WEBHOOK_URL)) {
+  if (!SIGNATURE_KEY) {
+    logger.error('Webhook rejected: SQUARE_WEBHOOK_SIGNATURE_KEY not configured', {
+      duration_ms: Date.now() - startTime,
+    })
+    return new Response(JSON.stringify({ error: 'Webhook verification not configured' }), {
+      status: 500,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  if (!verifySquareSignature(body, signature, SIGNATURE_KEY, WEBHOOK_URL)) {
     logger.warn('Webhook signature verification failed', {
       duration_ms: Date.now() - startTime,
     })

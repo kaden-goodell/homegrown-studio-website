@@ -56,7 +56,7 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
                   payload: Math.max(1, Number(e.target.value)),
                 })
               }
-              className="w-24 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+              className="w-24 rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
             />
             {eventType.allowExtraGuests && eventType.extraGuestPrice != null && (
               <p className="text-sm text-gray-500">
@@ -81,7 +81,7 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
                     onChange={() =>
                       dispatch({ type: 'TOGGLE_ADDON', payload: addOn.id })
                     }
-                    className="rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                    className="rounded border-gray-300 text-primary focus:ring-primary"
                   />
                   {addOn.name} - {formatPrice(addOn.priceAmount)}
                 </label>
@@ -89,8 +89,8 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
             </fieldset>
           )}
 
-          <div className="rounded-md bg-purple-50 p-4">
-            <p className="text-sm font-medium text-purple-800">
+          <div className="rounded-md bg-primary-light p-4">
+            <p className="text-sm font-medium text-primary">
               Additional costs: {formatPrice(additionalCost)}
             </p>
           </div>
@@ -111,7 +111,7 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
           onChange={(e) =>
             dispatch({ type: 'SET_SPECIAL_REQUESTS', payload: e.target.value })
           }
-          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-purple-500 focus:outline-none focus:ring-1 focus:ring-purple-500"
+          className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
           placeholder="Any special requests or notes..."
         />
       </div>
@@ -119,7 +119,7 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
       <button
         type="button"
         onClick={() => dispatch({ type: 'GO_TO_STEP', payload: 4 })}
-        className="rounded-md bg-purple-600 px-6 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-purple-700 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-offset-2"
+        className="rounded-md bg-primary px-6 py-2 text-sm font-medium text-white shadow-sm transition hover:brightness-90 focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2"
       >
         Continue
       </button>

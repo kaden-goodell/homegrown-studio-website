@@ -156,11 +156,11 @@ export const siteConfig: SiteConfig = {
   },
   theme: {
     colors: {
-      primary: '#7c3aed',
-      secondary: '#a78bfa',
-      accent: '#f59e0b',
-      background: '#faf5ff',
-      text: '#1e1b4b',
+      primary: '#96705B',
+      secondary: '#c4a882',
+      accent: '#d4a574',
+      background: '#faf8f5',
+      text: '#374151',
       muted: '#6b7280',
     },
     fonts: {
