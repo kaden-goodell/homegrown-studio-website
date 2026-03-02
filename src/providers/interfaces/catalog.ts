@@ -9,6 +9,15 @@ export interface EventType {
   flow: 'booking' | 'quote'
   duration: number
   baseCapacity?: number
+  allowExtraGuests?: boolean
+  extraGuestPrice?: number
+  allowAddOns?: boolean
+  enrollmentType?: 'per-session' | 'full'
+  ageRange?: { min: number; max: number }
+  schedule?: { days: string; time: string; totalHours: number }
+  instructorEmail?: string
+  pricePerHead?: number
+  maxCapacity?: number
 }
 
 export interface EventVariation {
@@ -16,6 +25,8 @@ export interface EventVariation {
   name: string
   priceAmount: number          // cents
   priceCurrency: string
+  startDate?: string
+  endDate?: string
 }
 
 export interface AddOn {
