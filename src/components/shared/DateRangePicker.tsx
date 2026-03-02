@@ -145,8 +145,8 @@ export default function DateRangePicker({
   return (
     <div ref={containerRef} style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
       {/* Date fields row */}
-      <div style={{ display: 'flex', gap: '1rem' }}>
-        <div style={{ flex: 1 }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+        <div style={{ flex: '1 1 12rem' }}>
           <label style={labelStyle}>Start Date</label>
           <button
             type="button"
@@ -164,7 +164,7 @@ export default function DateRangePicker({
           </button>
         </div>
 
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: '1 1 12rem' }}>
           <label style={labelStyle}>End Date</label>
           <button
             type="button"

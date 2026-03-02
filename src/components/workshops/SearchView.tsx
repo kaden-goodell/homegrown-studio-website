@@ -31,6 +31,10 @@ export default function SearchView({ workshops }: SearchViewProps) {
       const afterFrom = !fromDate || wDate >= fromDate
       const beforeTo = !toDate || wDate <= toDate
       return matchesQuery && afterFrom && beforeTo
+    }).sort((a, b) => {
+      const dateCmp = a.date.localeCompare(b.date)
+      if (dateCmp !== 0) return dateCmp
+      return a.name.localeCompare(b.name)
     })
   }, [workshops, query, dateFrom, dateTo])
 

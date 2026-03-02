@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import WorkshopCard from './WorkshopCard'
 import type { WorkshopData } from './WorkshopExplorer'
 
@@ -26,6 +26,15 @@ export default function CalendarView({ workshops }: CalendarViewProps) {
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
   const [selectedDay, setSelectedDay] = useState<number | null>(null)
+  const [compact, setCompact] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 549px)')
+    setCompact(mq.matches)
+    const handler = (e: MediaQueryListEvent) => setCompact(e.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
 
   const workshopsByDay = useMemo(() => {
     const map = new Map<number, WorkshopData[]>()
@@ -77,7 +86,7 @@ export default function CalendarView({ workshops }: CalendarViewProps) {
   return (
     <div>
       <div style={{
-        background: 'linear-gradient(135deg, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.35) 50%, rgba(255,255,255,0.5) 100%)',
+        background: 'linear-gradient(135deg, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0.85) 100%)',
         backdropFilter: 'blur(20px) saturate(1.3)',
         WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
         border: '1px solid rgba(255, 255, 255, 0.5)',
@@ -145,7 +154,7 @@ export default function CalendarView({ workshops }: CalendarViewProps) {
       {/* Day headers */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(7, 1fr)',
+        gridTemplateColumns: compact ? 'repeat(7, 1fr)' : 'repeat(7, minmax(4.5rem, 1fr))',
         gap: '2px',
         marginBottom: '0.5rem',
       }}>
@@ -166,8 +175,8 @@ export default function CalendarView({ workshops }: CalendarViewProps) {
       {/* Day grid */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(7, 1fr)',
-        gap: '4px',
+        gridTemplateColumns: compact ? 'repeat(7, 1fr)' : 'repeat(7, minmax(4.5rem, 1fr))',
+        gap: compact ? '2px' : '4px',
       }}>
         {cells.map((day, i) => {
           if (day === null) return <div key={`empty-${i}`} />
@@ -180,11 +189,12 @@ export default function CalendarView({ workshops }: CalendarViewProps) {
               onClick={() => handleDayClick(day)}
               style={{
                 width: '100%',
-                minHeight: '5.5rem',
+                minHeight: compact ? '2.5rem' : '5.5rem',
                 display: 'flex',
                 flexDirection: 'column',
-                alignItems: 'stretch',
-                padding: '0.25rem 0.3rem',
+                alignItems: compact ? 'center' : 'stretch',
+                justifyContent: compact ? 'center' : 'flex-start',
+                padding: compact ? '0.25rem' : '0.25rem 0.3rem',
                 fontSize: '0.8125rem',
                 fontWeight: isSelected ? 600 : 400,
                 color: isSelected
@@ -199,7 +209,7 @@ export default function CalendarView({ workshops }: CalendarViewProps) {
                 borderRadius: '0.5rem',
                 cursor: hasWorkshops ? 'pointer' : 'default',
                 transition: 'background 0.2s ease',
-                textAlign: 'left',
+                textAlign: compact ? 'center' : 'left',
               }}
               onMouseEnter={(e) => {
                 if (hasWorkshops && !isSelected) {
@@ -215,35 +225,49 @@ export default function CalendarView({ workshops }: CalendarViewProps) {
               <span style={{
                 fontSize: '0.6875rem',
                 fontWeight: 500,
-                marginBottom: '0.125rem',
+                marginBottom: compact ? '0.125rem' : '0.125rem',
               }}>
                 {day}
               </span>
-              {dayWorkshops.slice(0, 2).map((w) => (
-                <span
-                  key={w.id}
-                  style={{
+              {compact ? (
+                hasWorkshops && (
+                  <span style={{
                     display: 'block',
-                    fontSize: '0.625rem',
-                    lineHeight: 1.3,
-                    fontWeight: 500,
-                    color: isSelected ? 'rgba(255,255,255,0.85)' : 'var(--color-primary)',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    marginBottom: '2px',
-                  }}
-                >
-                  {w.name}
-                </span>
-              ))}
-              {dayWorkshops.length > 2 && (
-                <span style={{
-                  fontSize: '0.5625rem',
-                  color: isSelected ? 'rgba(255,255,255,0.6)' : 'var(--color-muted)',
-                }}>
-                  +{dayWorkshops.length - 2} more
-                </span>
+                    width: '5px',
+                    height: '5px',
+                    borderRadius: '50%',
+                    background: isSelected ? 'rgba(255,255,255,0.85)' : 'var(--color-primary)',
+                  }} />
+                )
+              ) : (
+                <>
+                  {dayWorkshops.slice(0, 2).map((w) => (
+                    <span
+                      key={w.id}
+                      style={{
+                        display: 'block',
+                        fontSize: '0.625rem',
+                        lineHeight: 1.3,
+                        fontWeight: 500,
+                        color: isSelected ? 'rgba(255,255,255,0.85)' : 'var(--color-primary)',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        marginBottom: '2px',
+                      }}
+                    >
+                      {w.name}
+                    </span>
+                  ))}
+                  {dayWorkshops.length > 2 && (
+                    <span style={{
+                      fontSize: '0.5625rem',
+                      color: isSelected ? 'rgba(255,255,255,0.6)' : 'var(--color-muted)',
+                    }}>
+                      +{dayWorkshops.length - 2} more
+                    </span>
+                  )}
+                </>
               )}
             </button>
           )

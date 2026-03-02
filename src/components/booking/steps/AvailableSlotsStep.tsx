@@ -39,7 +39,8 @@ export default function AvailableSlotsStep({ slots }: AvailableSlotsStepProps) {
     )
   }
 
-  const grouped = groupByDate(slots)
+  const sorted = [...slots].sort((a, b) => a.startAt.localeCompare(b.startAt))
+  const grouped = groupByDate(sorted)
 
   function handleSelect(slot: TimeSlot) {
     dispatch({ type: 'SET_SLOT', payload: slot })
