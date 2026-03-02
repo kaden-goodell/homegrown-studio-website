@@ -222,7 +222,74 @@ export const siteConfig: SiteConfig = {
     },
     programs: {
       enabled: true,
-      types: [],
+      types: [
+        {
+          id: 'summer-camp',
+          name: 'Summer Art Camp',
+          description:
+            'A week of creative exploration — painting, pottery, mixed media, and more. Kids build skills and confidence while making friends in a supportive studio environment.',
+          enrollmentType: 'per-session',
+          pricePerHead: 22500,
+          maxCapacity: 12,
+          ageRange: { min: 6, max: 12 },
+          schedule: {
+            days: 'Mon–Thu',
+            time: '9:00 AM – 12:30 PM',
+            totalHours: 3.5,
+          },
+          sessions: [
+            { id: 'summer-wk1', name: 'Week 1', startDate: '2026-06-08', endDate: '2026-06-11' },
+            { id: 'summer-wk2', name: 'Week 2', startDate: '2026-06-15', endDate: '2026-06-18' },
+            { id: 'summer-wk3', name: 'Week 3', startDate: '2026-06-22', endDate: '2026-06-25' },
+            { id: 'summer-wk4', name: 'Week 4', startDate: '2026-06-29', endDate: '2026-07-02' },
+          ],
+          instructorEmail: 'instructor@homegrowncraftstudio.com',
+        },
+        {
+          id: 'homeschool-spring',
+          name: 'Homeschool Studio Days',
+          description:
+            'A full semester of weekly art enrichment for homeschool families. Each Thursday brings a new medium and project — from watercolor to weaving.',
+          enrollmentType: 'full',
+          pricePerHead: 45000,
+          maxCapacity: 10,
+          ageRange: { min: 5, max: 14 },
+          schedule: {
+            days: 'Every Thursday',
+            time: '10:00 AM – 1:00 PM',
+            totalHours: 3,
+          },
+          sessions: [
+            {
+              id: 'homeschool-spring-26',
+              name: 'Spring 2026 Semester',
+              startDate: '2026-03-05',
+              endDate: '2026-05-21',
+            },
+          ],
+          instructorEmail: 'instructor@homegrowncraftstudio.com',
+        },
+        {
+          id: 'winter-break-camp',
+          name: 'Winter Break Camp',
+          description:
+            'Creative fun while school is out. Kids stay busy with holiday crafts, ceramics, and collaborative art projects.',
+          enrollmentType: 'per-session',
+          pricePerHead: 17500,
+          maxCapacity: 12,
+          ageRange: { min: 5, max: 12 },
+          schedule: {
+            days: 'Mon–Fri',
+            time: '9:00 AM – 12:00 PM',
+            totalHours: 3,
+          },
+          sessions: [
+            { id: 'winter-wk1', name: 'Week 1', startDate: '2026-12-21', endDate: '2026-12-24' },
+            { id: 'winter-wk2', name: 'Week 2', startDate: '2026-12-28', endDate: '2026-12-31' },
+          ],
+          instructorEmail: 'instructor@homegrowncraftstudio.com',
+        },
+      ],
     },
     newsletter: true,
     coupons: true,

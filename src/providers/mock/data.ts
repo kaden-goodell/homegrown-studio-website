@@ -105,4 +105,48 @@ export const mockEventTypes: EventType[] = [
     ],
     modifiers: [],
   },
+  // Programs
+  {
+    id: 'summer-camp',
+    name: 'Summer Art Camp',
+    description: 'A week of creative exploration',
+    category: 'program',
+    duration: 210,
+    baseCapacity: 12,
+    flow: 'booking' as const,
+    variations: [
+      { id: 'summer-wk1', name: 'Week 1 (Jun 8-11)', priceAmount: 22500, priceCurrency: 'USD' },
+      { id: 'summer-wk2', name: 'Week 2 (Jun 15-18)', priceAmount: 22500, priceCurrency: 'USD' },
+      { id: 'summer-wk3', name: 'Week 3 (Jun 22-25)', priceAmount: 22500, priceCurrency: 'USD' },
+      { id: 'summer-wk4', name: 'Week 4 (Jun 29-Jul 2)', priceAmount: 22500, priceCurrency: 'USD' },
+    ],
+    modifiers: [],
+  },
+  {
+    id: 'homeschool-spring',
+    name: 'Homeschool Studio Days',
+    description: 'Weekly art enrichment for homeschool families',
+    category: 'program',
+    duration: 180,
+    baseCapacity: 10,
+    flow: 'booking' as const,
+    variations: [
+      { id: 'homeschool-spring-26', name: 'Spring 2026 Semester', priceAmount: 45000, priceCurrency: 'USD' },
+    ],
+    modifiers: [],
+  },
+  {
+    id: 'winter-break-camp',
+    name: 'Winter Break Camp',
+    description: 'Creative fun while school is out',
+    category: 'program',
+    duration: 180,
+    baseCapacity: 12,
+    flow: 'booking' as const,
+    variations: [
+      { id: 'winter-wk1', name: 'Week 1 (Dec 21-24)', priceAmount: 17500, priceCurrency: 'USD' },
+      { id: 'winter-wk2', name: 'Week 2 (Dec 28-31)', priceAmount: 17500, priceCurrency: 'USD' },
+    ],
+    modifiers: [],
+  },
 ]
