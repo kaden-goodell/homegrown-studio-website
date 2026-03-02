@@ -8,9 +8,10 @@ export const mockEventTypes: EventType[] = [
     category: 'birthday',
     duration: 120,
     baseCapacity: 12,
+    maxCapacity: 20,
     flow: 'booking',
     variations: [
-      { id: 'birthday-base', name: 'Base Package (up to 12 kids)', priceAmount: 35000, priceCurrency: 'USD' },
+      { id: 'birthday-base', name: 'Base Package (up to 12 kids)', priceAmount: 40000, priceCurrency: 'USD' },
     ],
     modifiers: [
       { id: 'birthday-extra-child', name: 'Extra Child', priceAmount: 2500, priceCurrency: 'USD' },
@@ -27,10 +28,11 @@ export const mockEventTypes: EventType[] = [
     description: 'Gather your friends for a private craft night at Homegrown Studio! Whether it\'s a birthday celebration, girls\' night out, or just a reason to create something beautiful together, our adult workshop parties are the perfect mix of guided creativity and social fun.\n\nYour group will work on a featured project — choose from hand-built pottery, soy candle making, macrame wall hangings, or watercolor painting. A dedicated instructor guides you step by step, so no experience is needed. Complimentary wine, beer, and a charcuterie spread are included.\n\nWhat to bring: Your favorite playlist — we have a Bluetooth speaker ready for you. Feel free to bring additional snacks or a cake if you\'re celebrating.\n\nWhat to wear: Something comfortable that you don\'t mind getting a little clay or paint on. We provide aprons, but sleeves can be tricky!',
     category: 'party',
     duration: 150,
-    baseCapacity: 10,
+    baseCapacity: 12,
+    maxCapacity: 36,
     flow: 'booking',
     variations: [
-      { id: 'adult-party-base', name: 'Base Package (up to 10 guests)', priceAmount: 40000, priceCurrency: 'USD' },
+      { id: 'adult-party-base', name: 'Base Package (up to 12 guests)', priceAmount: 40000, priceCurrency: 'USD' },
     ],
     modifiers: [
       { id: 'adult-extra-guest', name: 'Extra Guest', priceAmount: 3000, priceCurrency: 'USD' },

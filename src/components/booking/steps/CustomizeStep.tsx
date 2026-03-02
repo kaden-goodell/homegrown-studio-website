@@ -3,19 +3,21 @@ import type { AddOn } from '@providers/interfaces/catalog'
 
 interface CustomizeStepProps {
   addOns: AddOn[]
+  basePrice: number
 }
 
 function formatPrice(cents: number): string {
-  return `$${(cents / 100).toFixed(2)}`
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 }
 
-export default function CustomizeStep({ addOns }: CustomizeStepProps) {
+export default function CustomizeStep({ addOns, basePrice }: CustomizeStepProps) {
   const { state, dispatch } = useWizard()
   const eventType = state.eventType
 
   if (!eventType) return null
 
   const isBooking = eventType.flow === 'booking'
+  const maxGuests = eventType.maxCapacity ?? 999
 
   const extraGuestCount = Math.max(
     0,
@@ -27,12 +29,13 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
     .filter((a) => state.selectedAddOns.includes(a.id))
     .reduce((sum, a) => sum + a.priceAmount, 0)
 
-  const additionalCost = extraGuestCost + addOnCost
+  const total = basePrice + extraGuestCost + addOnCost
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
       {isBooking && (
         <>
+          {/* Guest count */}
           <div>
             <label
               htmlFor="guest-count"
@@ -46,22 +49,25 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
             >
               Number of Guests
             </label>
-            {eventType.baseCapacity != null && (
-              <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
-                Base: {eventType.baseCapacity} guests
-              </p>
-            )}
+            <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.5rem' }}>
+              {eventType.baseCapacity} included in base package
+              {eventType.allowExtraGuests && eventType.extraGuestPrice
+                ? ` \u00b7 ${formatPrice(eventType.extraGuestPrice)}/extra guest`
+                : ''}
+              {eventType.maxCapacity ? ` \u00b7 ${eventType.maxCapacity} max` : ''}
+            </p>
             <input
               id="guest-count"
               type="number"
               min={1}
+              max={maxGuests}
               value={state.guestCount}
-              onChange={(e) =>
+              onChange={(e) => {
                 dispatch({
                   type: 'SET_GUEST_COUNT',
-                  payload: Math.max(1, Number(e.target.value)),
+                  payload: Math.max(1, Math.min(maxGuests, Number(e.target.value))),
                 })
-              }
+              }}
               style={{
                 width: '5rem',
                 padding: '0.75rem 1rem',
@@ -74,13 +80,9 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
                 outline: 'none',
               }}
             />
-            {eventType.allowExtraGuests && eventType.extraGuestPrice != null && (
-              <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginTop: '0.375rem' }}>
-                +{formatPrice(eventType.extraGuestPrice)} per extra guest
-              </p>
-            )}
           </div>
 
+          {/* Add-ons */}
           {eventType.allowAddOns && addOns.length > 0 && (
             <fieldset style={{ border: 'none', padding: 0, margin: 0 }}>
               <legend style={{
@@ -133,7 +135,7 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
             </fieldset>
           )}
 
-          {/* Cost summary */}
+          {/* Price breakdown */}
           <div style={{
             padding: '1rem 1.25rem',
             background: 'linear-gradient(135deg, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.35) 50%, rgba(255,255,255,0.5) 100%)',
@@ -142,14 +144,40 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
             border: '1px solid rgba(255, 255, 255, 0.5)',
             borderRadius: '0.75rem',
           }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-              <span>Additional costs</span>
-              <span>{formatPrice(additionalCost)}</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
+              <span>Base package ({eventType.baseCapacity} guests)</span>
+              <span>{formatPrice(basePrice)}</span>
+            </div>
+            {extraGuestCount > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
+                <span>Extra guests ({extraGuestCount} &times; {formatPrice(eventType.extraGuestPrice ?? 0)})</span>
+                <span>{formatPrice(extraGuestCost)}</span>
+              </div>
+            )}
+            {addOnCost > 0 && (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
+                <span>Add-ons</span>
+                <span>{formatPrice(addOnCost)}</span>
+              </div>
+            )}
+            <div style={{
+              borderTop: '1px solid rgba(150, 112, 91, 0.08)',
+              marginTop: '0.5rem',
+              paddingTop: '0.5rem',
+              display: 'flex',
+              justifyContent: 'space-between',
+              fontSize: '1.125rem',
+              fontWeight: 600,
+              color: 'var(--color-dark)',
+            }}>
+              <span>Estimated Total</span>
+              <span>{formatPrice(total)}</span>
             </div>
           </div>
         </>
       )}
 
+      {/* Special requests */}
       <div>
         <label
           htmlFor="special-requests"
@@ -165,7 +193,7 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
         </label>
         <textarea
           id="special-requests"
-          rows={4}
+          rows={3}
           value={state.specialRequests}
           onChange={(e) =>
             dispatch({ type: 'SET_SPECIAL_REQUESTS', payload: e.target.value })
@@ -204,7 +232,7 @@ export default function CustomizeStep({ addOns }: CustomizeStepProps) {
         onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.9)' }}
         onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
       >
-        Continue
+        Continue to Checkout
       </button>
     </div>
   )

@@ -239,13 +239,42 @@ export default function CheckoutStep() {
     )
   }
 
+  const inputStyle = {
+    width: '100%',
+    padding: '0.75rem 1rem',
+    background: 'rgba(255, 255, 255, 0.75)',
+    backdropFilter: 'blur(12px)',
+    border: '1px solid rgba(150, 112, 91, 0.1)',
+    borderRadius: '0.75rem',
+    fontSize: '0.875rem',
+    color: 'var(--color-dark)',
+    outline: 'none',
+  }
+
   return (
-    <div className="space-y-6">
-      <div className="space-y-4">
-        <h3 className="text-lg font-semibold text-gray-900">Contact Information</h3>
-        <div className="grid gap-4 sm:grid-cols-2">
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+      {/* Contact info */}
+      <div>
+        <h3 style={{
+          fontSize: '0.875rem',
+          fontWeight: 600,
+          color: 'var(--color-dark)',
+          marginBottom: '0.75rem',
+        }}>
+          Contact Information
+        </h3>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
           <div>
-            <label htmlFor="checkout-name" className="mb-1 block text-sm font-medium text-gray-700">
+            <label
+              htmlFor="checkout-name"
+              style={{
+                display: 'block',
+                fontSize: '0.8125rem',
+                fontWeight: 500,
+                color: 'var(--color-dark)',
+                marginBottom: '0.375rem',
+              }}
+            >
               Name *
             </label>
             <input
@@ -254,11 +283,20 @@ export default function CheckoutStep() {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              style={inputStyle}
             />
           </div>
           <div>
-            <label htmlFor="checkout-email" className="mb-1 block text-sm font-medium text-gray-700">
+            <label
+              htmlFor="checkout-email"
+              style={{
+                display: 'block',
+                fontSize: '0.8125rem',
+                fontWeight: 500,
+                color: 'var(--color-dark)',
+                marginBottom: '0.375rem',
+              }}
+            >
               Email *
             </label>
             <input
@@ -267,21 +305,30 @@ export default function CheckoutStep() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
+              style={inputStyle}
             />
           </div>
-        </div>
-        <div>
-          <label htmlFor="checkout-phone" className="mb-1 block text-sm font-medium text-gray-700">
-            Phone
-          </label>
-          <input
-            id="checkout-phone"
-            type="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary sm:max-w-xs"
-          />
+          <div>
+            <label
+              htmlFor="checkout-phone"
+              style={{
+                display: 'block',
+                fontSize: '0.8125rem',
+                fontWeight: 500,
+                color: 'var(--color-dark)',
+                marginBottom: '0.375rem',
+              }}
+            >
+              Phone
+            </label>
+            <input
+              id="checkout-phone"
+              type="tel"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              style={{ ...inputStyle, maxWidth: '16rem' }}
+            />
+          </div>
         </div>
       </div>
 
@@ -297,14 +344,26 @@ export default function CheckoutStep() {
       <PaymentForm ref={paymentFormRef} />
 
       {state.error && (
-        <p className="text-sm text-red-600">{state.error}</p>
+        <p style={{ fontSize: '0.8125rem', color: '#dc2626' }}>{state.error}</p>
       )}
 
       <button
         type="button"
         onClick={handleBookAndPay}
         disabled={processing}
-        className="w-full rounded-lg bg-primary px-6 py-3 text-base font-semibold text-white hover:brightness-90 disabled:opacity-50"
+        style={{
+          padding: '0.875rem',
+          background: processing ? 'rgba(150, 112, 91, 0.5)' : 'var(--color-primary)',
+          color: '#fff',
+          border: 'none',
+          borderRadius: '0.75rem',
+          fontSize: '0.875rem',
+          fontWeight: 600,
+          cursor: processing ? 'not-allowed' : 'pointer',
+          transition: 'filter 0.3s ease',
+        }}
+        onMouseEnter={(e) => { if (!processing) e.currentTarget.style.filter = 'brightness(0.9)' }}
+        onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
       >
         {processing ? 'Processing...' : 'Book & Pay'}
       </button>

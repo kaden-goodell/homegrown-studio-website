@@ -9,6 +9,7 @@ let mockState: any = {
     description: 'A creative birthday celebration',
     flow: 'booking',
     baseCapacity: 12,
+    maxCapacity: 20,
     duration: 120,
     allowAddOns: true,
     allowExtraGuests: true,
@@ -42,6 +43,7 @@ describe('CustomizeStep', () => {
         description: 'A creative birthday celebration',
         flow: 'booking',
         baseCapacity: 12,
+        maxCapacity: 20,
         duration: 120,
         allowAddOns: true,
         allowExtraGuests: true,
@@ -53,14 +55,17 @@ describe('CustomizeStep', () => {
     }
   })
 
-  it('booking mode shows guest count input and add-ons', () => {
-    render(<CustomizeStep addOns={addOns} />)
+  it('booking mode shows guest count input and price breakdown', () => {
+    render(<CustomizeStep addOns={addOns} basePrice={40000} />)
 
     expect(screen.getByLabelText('Number of Guests')).toBeInTheDocument()
-    expect(screen.getByText('Base: 12 guests')).toBeInTheDocument()
-    expect(screen.getByText('+$15.00 per extra guest')).toBeInTheDocument()
-    expect(screen.getByText(/Goodie Bags/)).toBeInTheDocument()
-    expect(screen.getByText(/Extra Paint Set/)).toBeInTheDocument()
+    expect(screen.getByText(/12 included in base package/)).toBeInTheDocument()
+    expect(screen.getByText(/\$15\.00\/extra guest/)).toBeInTheDocument()
+    expect(screen.getByText(/20 max/)).toBeInTheDocument()
+    expect(screen.getByText('Base package (12 guests)')).toBeInTheDocument()
+    expect(screen.getByText('Estimated Total')).toBeInTheDocument()
+    // $400.00 appears in both the line item and total
+    expect(screen.getAllByText('$400.00')).toHaveLength(2)
   })
 
   it('quote mode shows only textarea', () => {
@@ -78,7 +83,7 @@ describe('CustomizeStep', () => {
       },
     }
 
-    render(<CustomizeStep addOns={addOns} />)
+    render(<CustomizeStep addOns={addOns} basePrice={0} />)
 
     expect(screen.getByLabelText('Special Requests')).toBeInTheDocument()
     expect(screen.queryByLabelText('Number of Guests')).not.toBeInTheDocument()
@@ -86,7 +91,7 @@ describe('CustomizeStep', () => {
   })
 
   it('renders add-on checkboxes with formatted prices', () => {
-    render(<CustomizeStep addOns={addOns} />)
+    render(<CustomizeStep addOns={addOns} basePrice={40000} />)
 
     expect(screen.getByText('Goodie Bags')).toBeInTheDocument()
     expect(screen.getByText('$8.00')).toBeInTheDocument()
@@ -96,9 +101,9 @@ describe('CustomizeStep', () => {
   })
 
   it('continue button dispatches GO_TO_STEP(5)', () => {
-    render(<CustomizeStep addOns={addOns} />)
+    render(<CustomizeStep addOns={addOns} basePrice={40000} />)
 
-    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue to Checkout' }))
 
     expect(mockDispatch).toHaveBeenCalledWith({
       type: 'GO_TO_STEP',

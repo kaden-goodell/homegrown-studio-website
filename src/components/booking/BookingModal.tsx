@@ -67,7 +67,11 @@ export default function BookingModal({ onClose }: BookingModalProps) {
       case 1: {
         const detailsTags = [
           ...(state.eventType?.duration ? [{ label: `${state.eventType.duration} min` }] : []),
-          ...(state.eventType?.baseCapacity ? [{ label: `Up to ${state.eventType.baseCapacity} guests` }] : []),
+          ...(state.eventType?.maxCapacity
+            ? [{ label: `Up to ${state.eventType.maxCapacity} guests` }]
+            : state.eventType?.baseCapacity
+              ? [{ label: `Up to ${state.eventType.baseCapacity} guests` }]
+              : []),
         ]
         return (
           <DetailsStep
@@ -84,7 +88,7 @@ export default function BookingModal({ onClose }: BookingModalProps) {
       case 3:
         return <AvailableSlotsStep slots={availableSlots} />
       case 4:
-        return <CustomizeStep addOns={addOns} />
+        return <CustomizeStep addOns={addOns} basePrice={state.eventType?.basePrice ?? 0} />
       case 5:
         return state.eventType?.flow === 'quote' ? (
           <InquiryStep />

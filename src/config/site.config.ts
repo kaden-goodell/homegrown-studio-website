@@ -111,6 +111,8 @@ export interface EventTypeConfig {
   allowAddOns: boolean
   allowExtraGuests: boolean
   extraGuestPrice?: number
+  maxCapacity?: number
+  basePrice?: number
   catalogItemId?: string
 }
 
@@ -160,6 +162,8 @@ const partyTypes: EventTypeConfig[] = [
     allowAddOns: true,
     allowExtraGuests: true,
     extraGuestPrice: 2500, // $25 per extra child
+    maxCapacity: 20,
+    basePrice: 40000, // $400
     catalogItemId: 'birthday-party-package',
   },
   {
@@ -173,6 +177,8 @@ const partyTypes: EventTypeConfig[] = [
     allowAddOns: true,
     allowExtraGuests: true,
     extraGuestPrice: 3000, // $30 per extra guest
+    maxCapacity: 36,
+    basePrice: 40000, // $400
     catalogItemId: 'adult-party-package',
   },
 ]

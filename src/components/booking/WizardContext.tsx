@@ -59,7 +59,7 @@ export const initialState: WizardState = {
 export function wizardReducer(state: WizardState, action: WizardAction): WizardState {
   switch (action.type) {
     case 'SET_EVENT_TYPE':
-      return { ...state, eventType: action.payload, currentStep: 1 }
+      return { ...state, eventType: action.payload, currentStep: 1, guestCount: action.payload.baseCapacity ?? 1 }
     case 'SET_DATES':
       return { ...state, selectedDates: action.payload }
     case 'SET_SLOT':

@@ -45,7 +45,7 @@ function WizardContent({ eventTypes }: PartyWizardProps) {
       case 2:
         return <AvailableSlotsStep slots={availableSlots} />
       case 3:
-        return <CustomizeStep addOns={addOns} />
+        return <CustomizeStep addOns={addOns} basePrice={0} />
       case 4:
         return state.eventType?.flow === 'quote' ? (
           <InquiryStep />
