@@ -77,6 +77,10 @@ export default function EventTypeStep({ eventTypes }: EventTypeStepProps) {
             color: 'var(--color-muted)',
             margin: '0 0 1rem 0',
             flex: 1,
+            display: '-webkit-box',
+            WebkitLineClamp: 4,
+            WebkitBoxOrient: 'vertical' as const,
+            overflow: 'hidden',
           }}>
             {eventType.description}
           </p>
