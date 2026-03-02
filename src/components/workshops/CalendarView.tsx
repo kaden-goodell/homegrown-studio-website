@@ -4,6 +4,7 @@ import type { WorkshopData } from './WorkshopExplorer'
 
 interface CalendarViewProps {
   workshops: WorkshopData[]
+  onBook?: (workshop: WorkshopData) => void
 }
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -21,7 +22,7 @@ function formatMonthYear(year: number, month: number) {
   })
 }
 
-export default function CalendarView({ workshops }: CalendarViewProps) {
+export default function CalendarView({ workshops, onBook }: CalendarViewProps) {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
@@ -290,7 +291,7 @@ export default function CalendarView({ workshops }: CalendarViewProps) {
           </p>
           <div className="grid gap-4 sm:grid-cols-2">
             {selectedWorkshops.map((w) => (
-              <WorkshopCard key={w.id} workshop={w} />
+              <WorkshopCard key={w.id} workshop={w} onBook={onBook} />
             ))}
           </div>
         </div>

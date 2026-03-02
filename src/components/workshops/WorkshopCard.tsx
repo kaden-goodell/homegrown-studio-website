@@ -1,16 +1,8 @@
+import type { WorkshopData } from './WorkshopExplorer'
+
 export interface WorkshopCardProps {
-  workshop: {
-    id: string
-    name: string
-    description: string
-    date: string
-    startTime: string
-    endTime: string
-    duration: number
-    price: number
-    currency: string
-    remainingSeats: number | null
-  }
+  workshop: WorkshopData
+  onBook?: (workshop: WorkshopData) => void
 }
 
 function formatDate(iso: string): string {
@@ -43,7 +35,7 @@ function formatPrice(cents: number, currency: string): string {
   }).format(cents / 100)
 }
 
-export default function WorkshopCard({ workshop }: WorkshopCardProps) {
+export default function WorkshopCard({ workshop, onBook }: WorkshopCardProps) {
   if (workshop.remainingSeats === 0) return null
 
   const dateStr = formatDate(workshop.date)
@@ -87,7 +79,14 @@ export default function WorkshopCard({ workshop }: WorkshopCardProps) {
         <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'var(--font-heading)', color: 'var(--color-dark, #3d3229)' }}>
           {workshop.name}
         </h3>
-        <p className="text-sm leading-relaxed mb-5" style={{ color: 'var(--color-muted)' }}>
+        <p className="text-sm leading-relaxed mb-5" style={{
+          color: 'var(--color-muted)',
+          minHeight: '5.75rem',
+          display: '-webkit-box',
+          WebkitLineClamp: 4,
+          WebkitBoxOrient: 'vertical',
+          overflow: 'hidden',
+        }}>
           {workshop.description}
         </p>
 
@@ -107,12 +106,15 @@ export default function WorkshopCard({ workshop }: WorkshopCardProps) {
           )}
         </div>
 
-        <a
-          href={`/book?workshop=${workshop.id}`}
-          className="block w-full text-center rounded-xl px-6 py-3.5 text-white font-semibold text-sm transition-all duration-300 no-underline"
+        <button
+          type="button"
+          onClick={() => onBook?.(workshop)}
+          className="block w-full text-center rounded-xl px-6 py-3.5 text-white font-semibold text-sm transition-all duration-300"
           style={{
             background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
             boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
+            border: 'none',
+            cursor: 'pointer',
           }}
           onMouseEnter={(e) => {
             const el = e.currentTarget as HTMLElement
@@ -126,7 +128,7 @@ export default function WorkshopCard({ workshop }: WorkshopCardProps) {
           }}
         >
           Book Seat
-        </a>
+        </button>
       </div>
     </div>
   )

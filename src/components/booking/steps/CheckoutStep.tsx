@@ -192,15 +192,45 @@ export default function CheckoutStep() {
 
   if (state.paymentStatus === 'completed') {
     return (
-      <div className="space-y-4 text-center">
-        <h2 className="text-2xl font-bold text-green-700">Booking Confirmed!</h2>
-        <p className="text-gray-600">Your booking has been created successfully.</p>
+      <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+        <div style={{
+          width: '3rem',
+          height: '3rem',
+          margin: '0 auto 1.25rem',
+          borderRadius: '50%',
+          background: 'rgba(34, 197, 94, 0.1)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '1.5rem',
+          color: 'rgb(34, 197, 94)',
+        }}>
+          &#10003;
+        </div>
+        <h3 style={{
+          fontSize: '1.25rem',
+          fontFamily: 'var(--font-heading)',
+          fontWeight: 600,
+          color: 'var(--color-dark)',
+          marginBottom: '0.75rem',
+        }}>
+          Booking Confirmed
+        </h3>
+        <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, maxWidth: '24rem', margin: '0 auto' }}>
+          Your <strong>{state.eventType?.name}</strong> booking has been created successfully.
+          A confirmation has been sent to <strong>{email}</strong>.
+        </p>
         {receiptUrl && (
           <a
             href={receiptUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-block text-primary underline hover:brightness-75"
+            style={{
+              display: 'inline-block',
+              marginTop: '1rem',
+              fontSize: '0.875rem',
+              color: 'var(--color-primary)',
+            }}
           >
             View Receipt
           </a>

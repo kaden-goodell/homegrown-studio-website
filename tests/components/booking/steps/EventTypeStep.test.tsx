@@ -64,7 +64,8 @@ describe('EventTypeStep', () => {
   it('clicking a card dispatches SET_EVENT_TYPE with correct event type', () => {
     render(<EventTypeStep eventTypes={eventTypes} />)
 
-    fireEvent.click(screen.getByText('Birthday Party'))
+    // Click the "Book Now" button on the first card
+    fireEvent.click(screen.getAllByText('Book Now')[0])
 
     expect(mockDispatch).toHaveBeenCalledWith({
       type: 'SET_EVENT_TYPE',

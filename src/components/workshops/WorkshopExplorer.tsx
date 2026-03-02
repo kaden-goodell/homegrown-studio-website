@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import SearchView from './SearchView'
 import CalendarView from './CalendarView'
+import WorkshopBookingModal from './WorkshopBookingModal'
 
 export interface WorkshopData {
   id: string
@@ -24,6 +25,7 @@ type View = 'search' | 'calendar'
 
 export default function WorkshopExplorer({ workshops }: WorkshopExplorerProps) {
   const [view, setView] = useState<View>('search')
+  const [bookingWorkshop, setBookingWorkshop] = useState<WorkshopData | null>(null)
 
   return (
     <div>
@@ -54,9 +56,16 @@ export default function WorkshopExplorer({ workshops }: WorkshopExplorerProps) {
       </div>
 
       {view === 'search' ? (
-        <SearchView workshops={workshops} />
+        <SearchView workshops={workshops} onBook={setBookingWorkshop} />
       ) : (
-        <CalendarView workshops={workshops} />
+        <CalendarView workshops={workshops} onBook={setBookingWorkshop} />
+      )}
+
+      {bookingWorkshop && (
+        <WorkshopBookingModal
+          workshop={bookingWorkshop}
+          onClose={() => setBookingWorkshop(null)}
+        />
       )}
     </div>
   )

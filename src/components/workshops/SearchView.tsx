@@ -6,6 +6,7 @@ const PAGE_SIZE = 9
 
 interface SearchViewProps {
   workshops: WorkshopData[]
+  onBook?: (workshop: WorkshopData) => void
 }
 
 /** Parse a YYYY-MM-DD string as a local-midnight Date (avoids UTC shift). */
@@ -14,7 +15,7 @@ function parseLocalDate(ymd: string): Date {
   return new Date(y, m - 1, d)
 }
 
-export default function SearchView({ workshops }: SearchViewProps) {
+export default function SearchView({ workshops, onBook }: SearchViewProps) {
   const [query, setQuery] = useState('')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -106,7 +107,7 @@ export default function SearchView({ workshops }: SearchViewProps) {
 
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {paged.map((workshop) => (
-          <WorkshopCard key={workshop.id} workshop={workshop} />
+          <WorkshopCard key={workshop.id} workshop={workshop} onBook={onBook} />
         ))}
       </div>
 

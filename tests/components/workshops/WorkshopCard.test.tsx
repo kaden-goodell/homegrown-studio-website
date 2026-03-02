@@ -13,6 +13,7 @@ function makeWorkshop(overrides: Partial<Parameters<typeof WorkshopCard>[0]['wor
     duration: 90,
     price: 4500,
     currency: 'USD',
+    category: 'workshop',
     remainingSeats: 5 as number | null,
     ...overrides,
   }
@@ -41,11 +42,10 @@ describe('WorkshopCard', () => {
     expect(screen.queryByText(/seats remaining/)).not.toBeInTheDocument()
   })
 
-  it('shows Book Seat button with correct href', () => {
+  it('shows Book Seat button', () => {
     render(<WorkshopCard workshop={makeWorkshop()} />)
 
-    const link = screen.getByRole('link', { name: 'Book Seat' })
-    expect(link).toHaveAttribute('href', '/book?workshop=ws-1')
+    expect(screen.getByRole('button', { name: 'Book Seat' })).toBeInTheDocument()
   })
 
   it('returns null when remainingSeats is 0', () => {

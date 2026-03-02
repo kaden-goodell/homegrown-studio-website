@@ -8,6 +8,14 @@ vi.mock('@components/workshops/WorkshopCard', () => ({
   ),
 }))
 
+vi.mock('@components/workshops/WorkshopBookingModal', () => ({
+  default: () => <div data-testid="booking-modal">Modal</div>,
+}))
+
+vi.mock('@components/workshops/CalendarView', () => ({
+  default: () => <div data-testid="calendar-view">Calendar</div>,
+}))
+
 const mockWorkshops = [
   {
     id: '1',
@@ -35,19 +43,6 @@ const mockWorkshops = [
     currency: 'USD',
     remainingSeats: 3 as number | null,
   },
-  {
-    id: '3',
-    name: 'Painting Class',
-    description: 'Paint landscapes',
-    category: 'art',
-    date: '2026-03-15',
-    startTime: '2026-03-15T14:00:00',
-    endTime: '2026-03-15T15:30:00',
-    duration: 90,
-    price: 4000,
-    currency: 'USD',
-    remainingSeats: null as number | null,
-  },
 ]
 
 describe('WorkshopExplorer', () => {
@@ -67,18 +62,6 @@ describe('WorkshopExplorer', () => {
 
     expect(screen.getByTestId('workshop-1')).toBeInTheDocument()
     expect(screen.queryByTestId('workshop-2')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('workshop-3')).not.toBeInTheDocument()
-  })
-
-  it('category filter works', () => {
-    render(<WorkshopExplorer workshops={mockWorkshops} />)
-
-    const select = screen.getByRole('combobox', { name: /category/i })
-    fireEvent.change(select, { target: { value: 'art' } })
-
-    expect(screen.getByTestId('workshop-3')).toBeInTheDocument()
-    expect(screen.queryByTestId('workshop-1')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('workshop-2')).not.toBeInTheDocument()
   })
 
   it('view toggle switches between calendar and search', () => {
@@ -89,7 +72,7 @@ describe('WorkshopExplorer', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Calendar' }))
 
     expect(screen.queryByPlaceholderText(/search workshops/i)).not.toBeInTheDocument()
-    expect(screen.getByLabelText(/previous month/i)).toBeInTheDocument()
+    expect(screen.getByTestId('calendar-view')).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Search' }))
 

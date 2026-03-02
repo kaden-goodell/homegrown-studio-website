@@ -15,6 +15,7 @@ export default function ConfirmationStep() {
         alignItems: 'center',
         justifyContent: 'center',
         fontSize: '1.5rem',
+        color: 'rgb(34, 197, 94)',
       }}>
         &#10003;
       </div>
