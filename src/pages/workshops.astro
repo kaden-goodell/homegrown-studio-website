@@ -1,0 +1,57 @@
+---
+export const prerender = false
+
+import Layout from '@layouts/Layout.astro'
+import { providers } from '@config/providers'
+import WorkshopExplorer from '@components/workshops/WorkshopExplorer'
+import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
+
+const eventTypes = await providers.catalog.getEventTypes({ category: 'workshop' })
+
+const now = new Date()
+const startDate = now.toISOString().split('T')[0]
+const endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+
+const slots = await providers.booking.searchAvailability({
+  startDate,
+  endDate,
+  locationId: 'main',
+})
+
+const slotIds = slots.map((s) => s.id)
+const capacityMap = await providers.capacity.getAvailableCapacity(slotIds)
+
+const workshops: WorkshopData[] = []
+
+for (const eventType of eventTypes) {
+  const matchingSlots = slots.filter((s) => s.serviceVariationId === eventType.variations[0]?.id)
+
+  for (const slot of matchingSlots) {
+    const capacity = capacityMap.get(slot.id)
+    const remainingSeats = capacity ? capacity.availableCapacity : null
+
+    if (remainingSeats === 0) continue
+
+    workshops.push({
+      id: `${eventType.id}-${slot.id}`,
+      name: eventType.name,
+      description: eventType.description,
+      category: eventType.category,
+      date: slot.startAt.split('T')[0],
+      startTime: slot.startAt,
+      endTime: slot.endAt,
+      duration: eventType.duration,
+      price: eventType.variations[0]?.priceAmount ?? 0,
+      currency: eventType.variations[0]?.priceCurrency ?? 'USD',
+      remainingSeats,
+    })
+  }
+}
+---
+
+<Layout title="Workshops">
+  <section class="container mx-auto px-4 py-12">
+    <h1 class="text-4xl font-heading font-bold mb-8">Workshops</h1>
+    <WorkshopExplorer client:load workshops={workshops} />
+  </section>
+</Layout>
