@@ -75,6 +75,8 @@ export class SquareCatalogProvider implements CatalogProvider {
           name: varData.name ?? '',
           priceAmount: Number(varData.priceMoney?.amount ?? 0n),
           priceCurrency: varData.priceMoney?.currency ?? 'USD',
+          startDate: varData.customAttributeValues?.startDate?.stringValue,
+          endDate: varData.customAttributeValues?.endDate?.stringValue,
         }
       })
 
@@ -95,8 +97,20 @@ export class SquareCatalogProvider implements CatalogProvider {
       }
 
       // Determine flow from custom attribute or default
+      const customAttrs = item.customAttributeValues ?? {}
       const flow: 'booking' | 'quote' =
-        item.customAttributeValues?.flow?.stringValue === 'quote' ? 'quote' : 'booking'
+        customAttrs.flow?.stringValue === 'quote' ? 'quote' : 'booking'
+
+      // Program-specific custom attributes
+      const enrollmentType = customAttrs.enrollmentType?.stringValue as 'per-session' | 'full' | undefined
+      const ageMin = customAttrs.ageMin?.numberValue ? Number(customAttrs.ageMin.numberValue) : undefined
+      const ageMax = customAttrs.ageMax?.numberValue ? Number(customAttrs.ageMax.numberValue) : undefined
+      const scheduleDays = customAttrs.scheduleDays?.stringValue
+      const scheduleTime = customAttrs.scheduleTime?.stringValue
+      const totalHours = customAttrs.totalHours?.numberValue ? Number(customAttrs.totalHours.numberValue) : undefined
+      const instructorEmail = customAttrs.instructorEmail?.stringValue
+      const pricePerHead = customAttrs.pricePerHead?.numberValue ? Number(customAttrs.pricePerHead.numberValue) : undefined
+      const maxCapacity = customAttrs.maxCapacity?.numberValue ? Number(customAttrs.maxCapacity.numberValue) : undefined
 
       // Duration from first variation's serviceDuration (ms -> minutes), default 60
       const serviceDurationMs =
@@ -118,6 +132,12 @@ export class SquareCatalogProvider implements CatalogProvider {
         modifiers,
         flow,
         duration,
+        ...(enrollmentType && { enrollmentType }),
+        ...(ageMin !== undefined && ageMax !== undefined && { ageRange: { min: ageMin, max: ageMax } }),
+        ...(scheduleDays && scheduleTime && { schedule: { days: scheduleDays, time: scheduleTime, totalHours: totalHours ?? 0 } }),
+        ...(instructorEmail && { instructorEmail }),
+        ...(pricePerHead !== undefined && { pricePerHead }),
+        ...(maxCapacity !== undefined && { maxCapacity }),
       })
     }
 
