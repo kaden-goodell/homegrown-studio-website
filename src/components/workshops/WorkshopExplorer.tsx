@@ -8,6 +8,7 @@ export interface WorkshopData {
   name: string
   description: string
   category: string
+  imageUrl?: string
   date: string
   startTime: string
   endTime: string
