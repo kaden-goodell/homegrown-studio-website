@@ -29,32 +29,6 @@ export const mockEventTypes: EventType[] = [
     modifiers: [],
   },
   {
-    id: 'workshop-watercolor',
-    name: 'Watercolor Painting',
-    description: 'Explore watercolor techniques and paint a landscape to take home.',
-    category: 'workshop',
-    duration: 90,
-    baseCapacity: 15,
-    flow: 'booking',
-    variations: [
-      { id: 'watercolor-standard', name: 'Standard', priceAmount: 4000, priceCurrency: 'USD' },
-    ],
-    modifiers: [],
-  },
-  {
-    id: 'workshop-soap',
-    name: 'Soap Making Workshop',
-    description: 'Craft your own artisan soaps with natural ingredients and essential oils.',
-    category: 'workshop',
-    duration: 75,
-    baseCapacity: 10,
-    flow: 'booking',
-    variations: [
-      { id: 'soap-standard', name: 'Standard (3 bars)', priceAmount: 3500, priceCurrency: 'USD' },
-    ],
-    modifiers: [],
-  },
-  {
     id: 'party-birthday',
     name: 'Kids Birthday Party',
     description: 'A fun-filled craft birthday party for kids with a dedicated party host.',
@@ -66,9 +40,12 @@ export const mockEventTypes: EventType[] = [
       { id: 'birthday-base', name: 'Base Package (up to 12 kids)', priceAmount: 35000, priceCurrency: 'USD' },
     ],
     modifiers: [
-      { id: 'birthday-extra-child', name: 'Extra Child', priceAmount: 1500, priceCurrency: 'USD' },
+      { id: 'birthday-extra-child', name: 'Extra Child', priceAmount: 2500, priceCurrency: 'USD' },
       { id: 'birthday-goodie-bag', name: 'Goodie Bags', priceAmount: 800, priceCurrency: 'USD' },
       { id: 'birthday-extra-craft', name: 'Extra Craft Activity', priceAmount: 1200, priceCurrency: 'USD' },
+      { id: 'birthday-chocolate-fountain', name: 'Chocolate Fountain', priceAmount: 7500, priceCurrency: 'USD' },
+      { id: 'birthday-balloon-arch', name: 'Balloon Arch', priceAmount: 5000, priceCurrency: 'USD' },
+      { id: 'birthday-extra-time', name: 'Extra 30 Minutes', priceAmount: 10000, priceCurrency: 'USD' },
     ],
   },
   {
@@ -83,8 +60,11 @@ export const mockEventTypes: EventType[] = [
       { id: 'adult-party-base', name: 'Base Package (up to 10 guests)', priceAmount: 40000, priceCurrency: 'USD' },
     ],
     modifiers: [
-      { id: 'adult-extra-guest', name: 'Extra Guest', priceAmount: 2500, priceCurrency: 'USD' },
+      { id: 'adult-extra-guest', name: 'Extra Guest', priceAmount: 3000, priceCurrency: 'USD' },
       { id: 'adult-premium-materials', name: 'Premium Materials Upgrade', priceAmount: 1000, priceCurrency: 'USD' },
+      { id: 'adult-chocolate-fountain', name: 'Chocolate Fountain', priceAmount: 7500, priceCurrency: 'USD' },
+      { id: 'adult-balloon-arch', name: 'Balloon Arch', priceAmount: 5000, priceCurrency: 'USD' },
+      { id: 'adult-extra-time', name: 'Extra 30 Minutes', priceAmount: 10000, priceCurrency: 'USD' },
     ],
   },
   {

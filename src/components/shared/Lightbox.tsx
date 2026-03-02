@@ -4,7 +4,7 @@ interface GalleryItem {
   id: string
   title: string
   caption: string
-  color: string
+  image: string
 }
 
 export default function Lightbox({ items }: { items: GalleryItem[] }) {
@@ -75,13 +75,14 @@ export default function Lightbox({ items }: { items: GalleryItem[] }) {
         </button>
 
         {/* Image area */}
-        <div
-          className="w-full rounded-lg overflow-hidden shadow-2xl"
-          style={{
-            backgroundColor: item.color,
-            aspectRatio: '4 / 3',
-          }}
-        />
+        <div className="w-full rounded-lg overflow-hidden shadow-2xl">
+          <img
+            src={item.image}
+            alt={item.title}
+            className="w-full h-auto"
+            style={{ aspectRatio: '4 / 3', objectFit: 'cover' }}
+          />
+        </div>
 
         {/* Caption */}
         <div className="mt-6 text-center">

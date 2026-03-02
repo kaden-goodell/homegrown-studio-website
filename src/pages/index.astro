@@ -82,6 +82,28 @@ const ctaHref = features.parties.enabled ? '/book' : '/workshops'
     </div>
   </section>
 
+  <!-- Testimonials -->
+  {siteConfig.testimonials && siteConfig.testimonials.items.length > 0 && (
+    <section class="py-20 sm:py-28 px-4 bg-white/50">
+      <div class="max-w-6xl mx-auto">
+        <h2 class="text-3xl sm:text-4xl font-heading font-bold text-center mb-14">
+          {siteConfig.testimonials.heading || 'What Our Guests Say'}
+        </h2>
+        <div class="grid gap-8 sm:grid-cols-3 max-w-5xl mx-auto">
+          {siteConfig.testimonials.items.map((t) => (
+            <div class="fade-in rounded-xl p-8 bg-white border border-gray-100 shadow-sm">
+              <p class="text-gray-600 italic leading-relaxed mb-6">&ldquo;{t.quote}&rdquo;</p>
+              <div>
+                <p class="font-semibold text-sm">{t.name}</p>
+                <p class="text-xs text-[var(--color-muted)]">{t.detail}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  )}
+
   <!-- Newsletter -->
   {features.newsletter && (
     <section class="py-20 sm:py-28 px-4" style="background-color: color-mix(in srgb, var(--color-primary) 4%, var(--color-background));">

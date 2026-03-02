@@ -58,6 +58,10 @@ export interface SiteConfig {
     provider: 'posthog' | 'plausible' | 'ga4' | 'none'
     config: Record<string, string>
   }
+  testimonials?: {
+    heading?: string
+    items: { quote: string; name: string; detail: string }[]
+  }
   nav?: NavItem[]
 }
 
@@ -113,14 +117,28 @@ const partyTypes: EventTypeConfig[] = [
   {
     id: 'birthday',
     name: 'Birthday Party',
-    description: 'A creative birthday celebration with guided crafting activities',
+    description: 'A creative birthday celebration with guided crafting activities for kids',
     icon: 'cake',
     flow: 'booking',
     baseCapacity: 12,
     duration: 120,
     allowAddOns: true,
     allowExtraGuests: true,
-    extraGuestPrice: 1500,
+    extraGuestPrice: 2500, // $25 per extra child
+    catalogItemId: 'birthday-party-package',
+  },
+  {
+    id: 'adult-party',
+    name: 'Adult Party',
+    description: 'Host a private craft workshop for your group with drinks and snacks included',
+    icon: 'wine',
+    flow: 'booking',
+    baseCapacity: 12,
+    duration: 150,
+    allowAddOns: true,
+    allowExtraGuests: true,
+    extraGuestPrice: 3000, // $30 per extra guest
+    catalogItemId: 'adult-party-package',
   },
 ]
 
@@ -174,26 +192,40 @@ export const siteConfig: SiteConfig = {
   eventTypes: [
     ...partyTypes,
     {
-      id: 'adult-workshop',
-      name: 'Adult Workshop',
-      description: 'Hands-on crafting workshops for adults',
+      id: 'workshop-candle',
+      name: 'Candle Making Workshop',
+      description: 'Learn to create beautiful hand-poured soy candles with custom scents and colors',
+      icon: 'flame',
+      flow: 'booking',
+      baseCapacity: 12,
+      duration: 90,
+      allowAddOns: false,
+      allowExtraGuests: false,
+      catalogItemId: 'workshop-candle',
+    },
+    {
+      id: 'workshop-pottery',
+      name: 'Pottery Basics',
+      description: 'Get your hands dirty with wheel-thrown pottery basics. All skill levels welcome.',
       icon: 'palette',
       flow: 'booking',
-      baseCapacity: 16,
-      duration: 90,
-      allowAddOns: true,
+      baseCapacity: 8,
+      duration: 120,
+      allowAddOns: false,
       allowExtraGuests: false,
+      catalogItemId: 'workshop-pottery',
     },
     {
       id: 'corporate',
       name: 'Corporate Event',
-      description: 'Team-building and corporate crafting experiences',
+      description: 'Custom team-building craft experiences for corporate groups',
       icon: 'briefcase',
       flow: 'quote',
       baseCapacity: 30,
       duration: 180,
       allowAddOns: true,
       allowExtraGuests: true,
+      catalogItemId: undefined,
     },
   ],
   providers: {
@@ -223,6 +255,26 @@ export const siteConfig: SiteConfig = {
       apiKey: (typeof process !== 'undefined' && process.env?.POSTHOG_API_KEY) || '',
       host: (typeof process !== 'undefined' && process.env?.POSTHOG_HOST) || 'https://app.posthog.com',
     },
+  },
+  testimonials: {
+    heading: 'What Our Guests Say',
+    items: [
+      {
+        quote: 'The birthday party was amazing! The kids had so much fun and the staff was incredible.',
+        name: 'Sarah M.',
+        detail: 'Birthday Party',
+      },
+      {
+        quote: 'Such a relaxing and creative experience. I will definitely be back for more workshops.',
+        name: 'Emily R.',
+        detail: 'Candle Making Workshop',
+      },
+      {
+        quote: 'Our team building event was the best one we have ever had. Everyone loved it.',
+        name: 'David L.',
+        detail: 'Corporate Event',
+      },
+    ],
   },
   nav: [
     { label: 'Home', href: '/' },
