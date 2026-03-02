@@ -1,0 +1,36 @@
+---
+export const prerender = true
+
+import Layout from '@layouts/Layout.astro'
+import { siteConfig } from '@config/site.config'
+import { getCollection, render } from 'astro:content'
+
+const aboutEntries = await getCollection('about')
+aboutEntries.sort((a, b) => (a.data.order ?? 99) - (b.data.order ?? 99))
+
+const rendered = await Promise.all(
+  aboutEntries.map(async (entry) => {
+    const { Content } = await render(entry)
+    return { entry, Content }
+  })
+)
+---
+
+<Layout title="About">
+  <section class="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
+    <h1 class="text-4xl md:text-5xl font-heading font-bold text-center mb-16 fade-in">
+      About {siteConfig.name}
+    </h1>
+
+    {rendered.map(({ entry, Content }) => (
+      <article class="mb-16 fade-in">
+        <h2 class="text-2xl md:text-3xl font-heading font-semibold mb-6 text-[var(--color-primary)]">
+          {entry.data.title}
+        </h2>
+        <div class="prose prose-lg max-w-none text-[var(--color-text)] leading-relaxed [&>p]:mb-6">
+          <Content />
+        </div>
+      </article>
+    ))}
+  </section>
+</Layout>
