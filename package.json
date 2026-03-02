@@ -1,5 +1,5 @@
 {
-  "name": "green-giant",
+  "name": "homegrown-craft-studio",
   "type": "module",
   "version": "0.0.1",
   "scripts": {
@@ -9,14 +9,22 @@
     "astro": "astro"
   },
   "dependencies": {
-    "@astrojs/netlify": "^6.6.3",
-    "@astrojs/node": "^9.5.1",
-    "astro": "^5.16.8",
-    "square": "^43.2.1"
+    "@astrojs/netlify": "^6.6.4",
+    "@astrojs/react": "^4.4.2",
+    "@astrojs/tailwind": "^6.0.2",
+    "astro": "^5.17.1",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "square": "^44.0.0",
+    "tailwindcss": "^3.4.19"
   },
   "devDependencies": {
-    "@astrojs/tailwind": "^6.0.2",
-    "daisyui": "^5.5.14",
-    "tailwindcss": "^3.4.19"
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "jsdom": "^28.1.0",
+    "prettier": "^3.8.1",
+    "vitest": "^4.0.18"
   }
 }
