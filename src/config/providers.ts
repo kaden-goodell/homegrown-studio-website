@@ -1,4 +1,4 @@
-import type { SiteConfig } from './site.config'
+import type { SiteConfig, SquareConfig } from './site.config'
 import { siteConfig } from './site.config'
 import type { BookingProvider } from '@providers/interfaces/booking'
 import type { PaymentProvider } from '@providers/interfaces/payment'
@@ -12,6 +12,11 @@ import { MockCatalogProvider } from '@providers/mock/catalog'
 import { MockCapacityProvider, NullCapacityProvider } from '@providers/mock/capacity'
 import { MockCustomerProvider } from '@providers/mock/customer'
 import { SlackNotificationProvider } from '@providers/slack/notification'
+import { SquareBookingProvider } from '@providers/square/booking'
+import { SquarePaymentProvider } from '@providers/square/payment'
+import { SquareCatalogProvider } from '@providers/square/catalog'
+import { SquareInternalCapacityProvider } from '@providers/square/capacity'
+import { SquareCustomerProvider } from '@providers/square/customer'
 
 export interface Providers {
   booking: BookingProvider
@@ -24,26 +29,27 @@ export interface Providers {
 
 export function createProviders(config: SiteConfig): Providers {
   const useMock = config.providers.booking.type === 'mock'
+  const notification = new SlackNotificationProvider(config.providers.notification.config)
 
   return {
     booking: useMock
       ? new MockBookingProvider()
-      : new MockBookingProvider(), // Square provider will replace this
+      : new SquareBookingProvider(config.providers.booking.config as SquareConfig),
     payment: useMock
       ? new MockPaymentProvider()
-      : new MockPaymentProvider(), // Square provider will replace this
+      : new SquarePaymentProvider(config.providers.payment.config as SquareConfig),
     catalog: useMock
       ? new MockCatalogProvider()
-      : new MockCatalogProvider(), // Square provider will replace this
+      : new SquareCatalogProvider(config.providers.catalog.config as SquareConfig),
     capacity: config.providers.capacity.type === 'none'
       ? new NullCapacityProvider()
       : useMock
         ? new MockCapacityProvider()
-        : new MockCapacityProvider(), // Square provider will replace this
+        : new SquareInternalCapacityProvider(config.providers.capacity.config!, notification),
     customer: useMock
       ? new MockCustomerProvider()
-      : new MockCustomerProvider(), // Square provider will replace this
-    notification: new SlackNotificationProvider(config.providers.notification.config),
+      : new SquareCustomerProvider(config.providers.customer.config as SquareConfig),
+    notification,
   }
 }
 
