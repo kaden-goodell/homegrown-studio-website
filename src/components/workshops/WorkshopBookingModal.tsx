@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import type { WorkshopData } from './WorkshopExplorer'
+import DetailsStep from '@components/shared/DetailsStep'
 import OrderSummary from '@components/checkout/OrderSummary'
 import CouponInput from '@components/checkout/CouponInput'
 import PaymentForm from '@components/checkout/PaymentForm'
@@ -11,7 +12,7 @@ interface WorkshopBookingModalProps {
   onClose: () => void
 }
 
-const STEP_LABELS = ['Details', 'Your Info', 'Payment']
+const STEP_LABELS = ['Details', 'Seats', 'Your Info', 'Payment']
 
 function formatDate(iso: string): string {
   const d = new Date(iso + 'T00:00:00')
@@ -202,35 +203,28 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
     }
 
     switch (displayStep) {
-      case 0:
+      case 0: {
+        const detailsTags = [
+          { label: formatDate(workshop.date) },
+          { label: `${formatTime(workshop.startTime)} - ${formatTime(workshop.endTime)}` },
+          { label: `${workshop.duration} min` },
+          { label: `${formatPrice(workshop.price, workshop.currency)} / seat` },
+          ...(workshop.remainingSeats !== null ? [{ label: `${workshop.remainingSeats} seats left` }] : []),
+        ]
+        return (
+          <DetailsStep
+            imageUrl={workshop.imageUrl}
+            title={workshop.name}
+            description={workshop.description}
+            tags={detailsTags}
+            onContinue={() => setStep(1)}
+          />
+        )
+      }
+
+      case 1:
         return (
           <div>
-            {/* Workshop details */}
-            <div style={{
-              padding: '1.25rem',
-              background: 'rgba(150, 112, 91, 0.04)',
-              borderRadius: '0.75rem',
-              marginBottom: '1.5rem',
-            }}>
-              <h3 style={{
-                fontSize: '1.125rem',
-                fontFamily: 'var(--font-heading)',
-                fontWeight: 600,
-                color: 'var(--color-dark)',
-                marginBottom: '0.5rem',
-              }}>
-                {workshop.name}
-              </h3>
-              <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', marginBottom: '0.75rem', lineHeight: 1.6 }}>
-                {workshop.description}
-              </p>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-                <span>{formatDate(workshop.date)}</span>
-                <span>{formatTime(workshop.startTime)} - {formatTime(workshop.endTime)}</span>
-                <span>{workshop.duration} min</span>
-              </div>
-            </div>
-
             {/* Seat selector */}
             <div style={{ marginBottom: '1.5rem' }}>
               <label style={{
@@ -310,7 +304,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
 
             <button
               type="button"
-              onClick={() => setStep(1)}
+              onClick={() => setStep(2)}
               style={{
                 width: '100%',
                 padding: '0.875rem',
@@ -338,7 +332,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
           </div>
         )
 
-      case 1: {
+      case 2: {
         const infoValid = firstName.trim() && email.trim()
         return (
           <div>
@@ -431,7 +425,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
 
             <button
               type="button"
-              onClick={() => setStep(2)}
+              onClick={() => setStep(3)}
               disabled={!infoValid}
               style={{
                 width: '100%',
@@ -455,7 +449,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
         )
       }
 
-      case 2:
+      case 3:
         return (
           <div>
             <OrderSummary
