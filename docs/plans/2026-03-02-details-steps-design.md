@@ -5,7 +5,7 @@
 
 ## Summary
 
-Add a "Details" step as the first step in workshop and program booking modals, showing full descriptions, images, and metadata pulled from Square catalog. Migrate program data from hardcoded site.config to Square catalog with custom attributes.
+Add a "Details" step to all three booking flows (workshops, programs, parties), showing full descriptions, images, and metadata pulled from Square catalog. Migrate program data from hardcoded site.config to Square catalog with custom attributes.
 
 ## Phase 1: Workshop Details Step
 
@@ -99,9 +99,44 @@ EventVariation {
 | 5 | Payment |
 | 6 | Confirmation |
 
+## Phase 3: Party Type Details Step
+
+### UX Pattern
+
+Unlike workshops and programs (where details is the first modal step), party details uses progressive disclosure *within* the modal. The user picks a party type from cards on the landing page, the modal opens, and the **first step shows full details** for that party type. The back button on this step closes the modal so the user can browse other party types.
+
+This avoids overloading the card grid with full details for 10+ party options.
+
+### BookingModal Step Changes
+
+| Step | Component | Notes |
+|------|-----------|-------|
+| 0 (landing) | EventTypeStep cards | User picks party type, modal opens |
+| 1 | **DetailsStep** (NEW) | Full description, image, what to bring/wear. "Select This Party" CTA. Back button closes modal to return to card grid. |
+| 2 | DateSelectionStep (was 1) | |
+| 3 | AvailableSlotsStep (was 2) | |
+| 4 | CustomizeStep (was 3) | |
+| 5 | CheckoutStep/InquiryStep (was 4) | |
+
+### Data Source
+
+Same as workshops — Square `description` field (4096 chars) and `imageUrl` from EventType. Party EventTypes already flow through the catalog provider.
+
+### Back Button Behavior
+
+- Step 1 (details): Back closes modal, returns to card grid (user can pick a different party type)
+- Step 2+: Back goes to previous modal step (normal behavior)
+
+### Implementation
+
+- Reuses the shared `<DetailsStep>` component from Phase 1
+- Tags show: duration, base capacity, price, flow type (booking vs quote)
+- `buttonText` = "Select This Party"
+- BookingModal renumbers steps (1→2, 2→3, 3→4, 4→5) and adds DetailsStep as step 1
+- WizardContext `SET_EVENT_TYPE` still sets `currentStep: 1` — now that's the details step instead of date selection
+
 ## Out of Scope
 
-- Party type details step (Phase 3 — different UX, details after type selection)
 - Programmatic Square custom attribute creation (manual dashboard setup)
 - Image upload to Square (manual)
 
@@ -109,5 +144,6 @@ EventVariation {
 
 - Single description field in Square (4096 chars) — truncated on cards, full in modal
 - Image + text stacked layout in 40rem modal
-- Phased rollout: workshops first (low risk), then program migration
+- Phased rollout: workshops first (low risk), then program migration, then parties
 - Programs fully migrate to Square as source of truth
+- Party details step uses same shared component but with different back button behavior (closes modal vs previous step)
