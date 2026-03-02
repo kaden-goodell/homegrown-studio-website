@@ -17,7 +17,7 @@ export default function PaymentStep() {
   const { program, selectedSessions, headcount, children, parentInfo } = state
 
   const sessionCount = selectedSessions.length
-  const subtotal = program.pricePerHead * headcount * sessionCount
+  const subtotal = (program.pricePerHead ?? 0) * headcount * sessionCount
   const discountAmount = state.appliedDiscount
     ? state.appliedDiscount.type === 'percent'
       ? Math.round((subtotal * state.appliedDiscount.value) / 100)
@@ -129,7 +129,7 @@ export default function PaymentStep() {
         {selectedSessions.map((session) => (
           <div key={session.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
             <span>{session.name} &times; {headcount}</span>
-            <span>{formatPrice(program.pricePerHead * headcount)}</span>
+            <span>{formatPrice((program.pricePerHead ?? 0) * headcount)}</span>
           </div>
         ))}
         {state.appliedDiscount && (

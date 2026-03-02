@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import type { ProgramConfig } from '@config/site.config'
+import type { EventType } from '@providers/interfaces/catalog'
 import { EnrollmentProvider, useEnrollment } from './EnrollmentContext'
+import DetailsStep from '@components/shared/DetailsStep'
 import SessionSelectStep from './steps/SessionSelectStep'
 import HeadcountStep from './steps/HeadcountStep'
 import ChildIntakeStep from './steps/ChildIntakeStep'
@@ -9,12 +10,16 @@ import PaymentStep from './steps/PaymentStep'
 import ConfirmationStep from './steps/ConfirmationStep'
 
 interface EnrollmentModalProps {
-  program: ProgramConfig
+  program: EventType
   onClose: () => void
 }
 
-function getStepLabels(program: ProgramConfig, headcount: number): string[] {
-  const labels: string[] = []
+function formatPrice(cents: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
+}
+
+function getStepLabels(program: EventType, headcount: number): string[] {
+  const labels: string[] = ['Details']
   if (program.enrollmentType === 'per-session') {
     labels.push('Select Sessions')
   }
@@ -52,7 +57,27 @@ function ModalContent({ program, onClose }: EnrollmentModalProps) {
 
   // Map currentStep to actual component
   function renderStep() {
-    let step = displayStep
+    // Step 0 is always Details
+    if (displayStep === 0) {
+      const tags = [
+        ...(program.ageRange ? [{ label: `Ages ${program.ageRange.min}–${program.ageRange.max}` }] : []),
+        ...(program.schedule ? [{ label: program.schedule.days }, { label: program.schedule.time }] : []),
+        { label: `${program.variations.length} session${program.variations.length !== 1 ? 's' : ''}` },
+        ...(program.pricePerHead ? [{ label: `${formatPrice(program.pricePerHead)} / child` }] : []),
+      ]
+      return (
+        <DetailsStep
+          imageUrl={program.imageUrl}
+          title={program.name}
+          description={program.description}
+          tags={tags}
+          onContinue={() => dispatch({ type: 'NEXT_STEP' })}
+        />
+      )
+    }
+
+    // Remaining steps offset by 1 (details takes slot 0)
+    let step = displayStep - 1
     if (!isPerSession) step += 1 // skip session select
 
     if (isPerSession && step === 0) return <SessionSelectStep />

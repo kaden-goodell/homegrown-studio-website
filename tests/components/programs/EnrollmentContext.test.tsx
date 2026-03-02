@@ -1,20 +1,23 @@
 import { describe, it, expect } from 'vitest'
 import { enrollmentReducer, createInitialState, emptyChild } from '@components/programs/EnrollmentContext'
-import type { ProgramConfig } from '@config/site.config'
+import type { EventType } from '@providers/interfaces/catalog'
 
-const mockProgram: ProgramConfig = {
+const mockProgram: EventType = {
   id: 'test-camp',
   name: 'Test Camp',
   description: 'A test program',
+  category: 'program',
+  duration: 210,
+  flow: 'booking',
   enrollmentType: 'per-session',
   pricePerHead: 20000,
   maxCapacity: 10,
   schedule: { days: 'Mon-Thu', time: '9 AM - 12 PM', totalHours: 3 },
-  sessions: [
-    { id: 'wk1', name: 'Week 1', startDate: '2026-06-08', endDate: '2026-06-11' },
-    { id: 'wk2', name: 'Week 2', startDate: '2026-06-15', endDate: '2026-06-18' },
+  variations: [
+    { id: 'wk1', name: 'Week 1', priceAmount: 20000, priceCurrency: 'USD', startDate: '2026-06-08', endDate: '2026-06-11' },
+    { id: 'wk2', name: 'Week 2', priceAmount: 20000, priceCurrency: 'USD', startDate: '2026-06-15', endDate: '2026-06-18' },
   ],
-  instructorEmail: 'test@test.com',
+  modifiers: [],
 }
 
 describe('enrollmentReducer', () => {
@@ -35,7 +38,7 @@ describe('enrollmentReducer', () => {
     const state = createInitialState(mockProgram)
     const next = enrollmentReducer(state, {
       type: 'SET_SESSIONS',
-      payload: [mockProgram.sessions[0]],
+      payload: [mockProgram.variations[0]],
     })
     expect(next.selectedSessions).toHaveLength(1)
     expect(next.selectedSessions[0].id).toBe('wk1')

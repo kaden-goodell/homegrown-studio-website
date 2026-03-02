@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, type ReactNode } from 'react'
-import type { ProgramConfig, ProgramSessionConfig } from '@config/site.config'
+import type { EventType, EventVariation } from '@providers/interfaces/catalog'
 import type { Discount } from '@providers/interfaces/payment'
 
 export interface ChildInfo {
@@ -15,8 +15,8 @@ export interface ChildInfo {
 
 export interface EnrollmentState {
   currentStep: number
-  program: ProgramConfig
-  selectedSessions: ProgramSessionConfig[]
+  program: EventType
+  selectedSessions: EventVariation[]
   headcount: number
   children: ChildInfo[]
   parentInfo: { firstName: string; lastName: string; email: string; phone: string } | null
@@ -28,7 +28,7 @@ export interface EnrollmentState {
 }
 
 export type EnrollmentAction =
-  | { type: 'SET_SESSIONS'; payload: ProgramSessionConfig[] }
+  | { type: 'SET_SESSIONS'; payload: EventVariation[] }
   | { type: 'SET_HEADCOUNT'; payload: number }
   | { type: 'SET_CHILD_INFO'; payload: { index: number; info: ChildInfo } }
   | { type: 'SET_PARENT_INFO'; payload: { firstName: string; lastName: string; email: string; phone: string } }
@@ -41,11 +41,11 @@ export type EnrollmentAction =
   | { type: 'PREV_STEP' }
   | { type: 'RESET' }
 
-export function createInitialState(program: ProgramConfig): EnrollmentState {
+export function createInitialState(program: EventType): EnrollmentState {
   return {
     currentStep: 0,
     program,
-    selectedSessions: program.enrollmentType === 'full' ? [...program.sessions] : [],
+    selectedSessions: program.enrollmentType === 'full' ? [...program.variations] : [],
     headcount: 1,
     children: [emptyChild()],
     parentInfo: null,
@@ -116,7 +116,7 @@ interface EnrollmentContextValue {
 
 const EnrollmentContext = createContext<EnrollmentContextValue | null>(null)
 
-export function EnrollmentProvider({ program, children }: { program: ProgramConfig; children: ReactNode }) {
+export function EnrollmentProvider({ program, children }: { program: EventType; children: ReactNode }) {
   const [state, dispatch] = useReducer(enrollmentReducer, createInitialState(program))
   return <EnrollmentContext.Provider value={{ state, dispatch }}>{children}</EnrollmentContext.Provider>
 }

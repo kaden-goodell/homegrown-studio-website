@@ -9,7 +9,7 @@ export default function HeadcountStep() {
   const { program, headcount, selectedSessions } = state
 
   const sessionCount = selectedSessions.length
-  const perChild = program.pricePerHead * sessionCount
+  const perChild = (program.pricePerHead ?? 0) * sessionCount
   const total = perChild * headcount
 
   return (
@@ -31,9 +31,9 @@ export default function HeadcountStep() {
           id="headcount"
           type="number"
           min={1}
-          max={program.maxCapacity}
+          max={(program.maxCapacity ?? 20)}
           value={headcount}
-          onChange={(e) => dispatch({ type: 'SET_HEADCOUNT', payload: Math.max(1, Math.min(program.maxCapacity, Number(e.target.value))) })}
+          onChange={(e) => dispatch({ type: 'SET_HEADCOUNT', payload: Math.max(1, Math.min((program.maxCapacity ?? 20), Number(e.target.value))) })}
           style={{
             width: '5rem',
             padding: '0.75rem 1rem',
@@ -47,7 +47,7 @@ export default function HeadcountStep() {
           }}
         />
         <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginTop: '0.375rem' }}>
-          Max {program.maxCapacity} per session
+          Max {(program.maxCapacity ?? 20)} per session
         </p>
       </div>
 
@@ -61,7 +61,7 @@ export default function HeadcountStep() {
         borderRadius: '0.75rem',
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
-          <span>{formatPrice(program.pricePerHead)} &times; {headcount} child{headcount > 1 ? 'ren' : ''} &times; {sessionCount} session{sessionCount > 1 ? 's' : ''}</span>
+          <span>{formatPrice(program.pricePerHead ?? 0)} &times; {headcount} child{headcount > 1 ? 'ren' : ''} &times; {sessionCount} session{sessionCount > 1 ? 's' : ''}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.125rem', fontWeight: 600, color: 'var(--color-dark)' }}>
           <span>Total</span>

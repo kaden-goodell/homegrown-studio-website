@@ -1,8 +1,8 @@
-import type { ProgramConfig } from '@config/site.config'
+import type { EventType } from '@providers/interfaces/catalog'
 
 interface ProgramCardProps {
-  program: ProgramConfig
-  onEnroll: (program: ProgramConfig) => void
+  program: EventType
+  onEnroll: (program: EventType) => void
 }
 
 function formatPrice(cents: number): string {
@@ -15,13 +15,15 @@ function formatAgeRange(range?: { min: number; max: number }): string | null {
 }
 
 export default function ProgramCard({ program, onEnroll }: ProgramCardProps) {
-  const priceLabel = program.enrollmentType === 'per-session'
-    ? `${formatPrice(program.pricePerHead)} / child / session`
-    : `${formatPrice(program.pricePerHead)} / child`
+  const priceLabel = program.pricePerHead
+    ? program.enrollmentType === 'per-session'
+      ? `${formatPrice(program.pricePerHead)} / child / session`
+      : `${formatPrice(program.pricePerHead)} / child`
+    : ''
 
   const sessionSummary = program.enrollmentType === 'per-session'
-    ? `${program.sessions.length} sessions available`
-    : program.sessions[0]?.name ?? ''
+    ? `${program.variations.length} session${program.variations.length !== 1 ? 's' : ''} available`
+    : program.variations[0]?.name ?? ''
 
   return (
     <div
@@ -47,16 +49,18 @@ export default function ProgramCard({ program, onEnroll }: ProgramCardProps) {
       }}
     >
       {/* Schedule badge */}
-      <span style={{
-        fontSize: '0.6875rem',
-        fontWeight: 500,
-        letterSpacing: '0.1em',
-        textTransform: 'uppercase',
-        color: 'var(--color-primary)',
-        marginBottom: '0.75rem',
-      }}>
-        {program.schedule.days} &middot; {program.schedule.time}
-      </span>
+      {program.schedule && (
+        <span style={{
+          fontSize: '0.6875rem',
+          fontWeight: 500,
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          color: 'var(--color-primary)',
+          marginBottom: '0.75rem',
+        }}>
+          {program.schedule.days} &middot; {program.schedule.time}
+        </span>
+      )}
 
       {/* Title */}
       <h3 style={{
@@ -88,6 +92,10 @@ export default function ProgramCard({ program, onEnroll }: ProgramCardProps) {
         color: 'var(--color-muted)',
         margin: '0 0 1rem 0',
         flex: 1,
+        display: '-webkit-box',
+        WebkitLineClamp: 4,
+        WebkitBoxOrient: 'vertical',
+        overflow: 'hidden',
       }}>
         {program.description}
       </p>
@@ -104,13 +112,15 @@ export default function ProgramCard({ program, onEnroll }: ProgramCardProps) {
         <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
           {sessionSummary}
         </span>
-        <span style={{
-          fontSize: '0.9375rem',
-          fontWeight: 600,
-          color: 'var(--color-dark)',
-        }}>
-          {priceLabel}
-        </span>
+        {priceLabel && (
+          <span style={{
+            fontSize: '0.9375rem',
+            fontWeight: 600,
+            color: 'var(--color-dark)',
+          }}>
+            {priceLabel}
+          </span>
+        )}
       </div>
 
       {/* Enroll button */}

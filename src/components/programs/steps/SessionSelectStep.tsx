@@ -1,5 +1,5 @@
 import { useEnrollment } from '../EnrollmentContext'
-import type { ProgramSessionConfig } from '@config/site.config'
+import type { EventVariation } from '@providers/interfaces/catalog'
 
 function formatDateRange(start: string, end: string): string {
   const s = new Date(start + 'T00:00:00')
@@ -8,7 +8,8 @@ function formatDateRange(start: string, end: string): string {
   return `${s.toLocaleDateString('en-US', opts)} – ${e.toLocaleDateString('en-US', opts)}`
 }
 
-function isSessionPastCutoff(session: ProgramSessionConfig): boolean {
+function isSessionPastCutoff(session: EventVariation): boolean {
+  if (!session.startDate) return false
   const cutoff = new Date(session.startDate + 'T00:00:00')
   cutoff.setDate(cutoff.getDate() - 1)
   cutoff.setHours(21, 0, 0, 0) // 9 PM CT night before
@@ -19,7 +20,7 @@ export default function SessionSelectStep() {
   const { state, dispatch } = useEnrollment()
   const { program, selectedSessions } = state
 
-  function toggleSession(session: ProgramSessionConfig) {
+  function toggleSession(session: EventVariation) {
     const isSelected = selectedSessions.some(s => s.id === session.id)
     const updated = isSelected
       ? selectedSessions.filter(s => s.id !== session.id)
@@ -33,7 +34,7 @@ export default function SessionSelectStep() {
         Select the session(s) you'd like to enroll in:
       </p>
 
-      {program.sessions.map((session) => {
+      {program.variations.map((session) => {
         const closed = isSessionPastCutoff(session)
         const selected = selectedSessions.some(s => s.id === session.id)
 
@@ -72,14 +73,16 @@ export default function SessionSelectStep() {
               }}>
                 {session.name}
               </span>
-              <span style={{
-                display: 'block',
-                fontSize: '0.8125rem',
-                color: 'var(--color-muted)',
-                marginTop: '0.125rem',
-              }}>
-                {formatDateRange(session.startDate, session.endDate)}
-              </span>
+              {session.startDate && session.endDate && (
+                <span style={{
+                  display: 'block',
+                  fontSize: '0.8125rem',
+                  color: 'var(--color-muted)',
+                  marginTop: '0.125rem',
+                }}>
+                  {formatDateRange(session.startDate, session.endDate)}
+                </span>
+              )}
             </div>
             {closed ? (
               <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>

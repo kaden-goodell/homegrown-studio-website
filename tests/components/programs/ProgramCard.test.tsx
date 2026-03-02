@@ -1,22 +1,25 @@
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import ProgramCard from '@components/programs/ProgramCard'
-import type { ProgramConfig } from '@config/site.config'
+import type { EventType } from '@providers/interfaces/catalog'
 
-const mockProgram: ProgramConfig = {
+const mockProgram: EventType = {
   id: 'summer-camp',
   name: 'Summer Art Camp',
   description: 'A week of creative exploration',
+  category: 'program',
+  duration: 210,
+  flow: 'booking',
   enrollmentType: 'per-session',
   pricePerHead: 22500,
   maxCapacity: 12,
   ageRange: { min: 6, max: 12 },
   schedule: { days: 'Mon-Thu', time: '9:00 AM - 12:30 PM', totalHours: 3.5 },
-  sessions: [
-    { id: 'wk1', name: 'Week 1', startDate: '2026-06-08', endDate: '2026-06-11' },
-    { id: 'wk2', name: 'Week 2', startDate: '2026-06-15', endDate: '2026-06-18' },
+  variations: [
+    { id: 'wk1', name: 'Week 1', priceAmount: 22500, priceCurrency: 'USD', startDate: '2026-06-08', endDate: '2026-06-11' },
+    { id: 'wk2', name: 'Week 2', priceAmount: 22500, priceCurrency: 'USD', startDate: '2026-06-15', endDate: '2026-06-18' },
   ],
-  instructorEmail: 'test@test.com',
+  modifiers: [],
 }
 
 describe('ProgramCard', () => {

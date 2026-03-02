@@ -1,14 +1,14 @@
 import { useState } from 'react'
-import type { ProgramConfig } from '@config/site.config'
+import type { EventType } from '@providers/interfaces/catalog'
 import ProgramCard from './ProgramCard'
 import EnrollmentModal from './EnrollmentModal'
 
 interface ProgramExplorerProps {
-  programs: ProgramConfig[]
+  programs: EventType[]
 }
 
 export default function ProgramExplorer({ programs }: ProgramExplorerProps) {
-  const [selectedProgram, setSelectedProgram] = useState<ProgramConfig | null>(null)
+  const [selectedProgram, setSelectedProgram] = useState<EventType | null>(null)
 
   return (
     <>

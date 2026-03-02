@@ -1,15 +1,15 @@
 ---
-export const prerender = true
+export const prerender = false
 
-import Layout from '@layouts/StaticLayout.astro'
-import { siteConfig } from '@config/site.config'
+import Layout from '@layouts/Layout.astro'
+import { providers } from '@config/providers'
 import ProgramExplorer from '@components/programs/ProgramExplorer'
 
-const programs = siteConfig.features.programs.types
+const programs = await providers.catalog.getEventTypes({ category: 'program' })
 ---
 
 <Layout title="Programs" description="Multi-session camps, classes, and creative programs for kids">
-  {siteConfig.features.programs.enabled && programs.length > 0 ? (
+  {programs.length > 0 ? (
     <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-28">
       <div class="text-center mb-16 fade-in">
         <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Enroll Now</p>
