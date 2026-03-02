@@ -67,7 +67,7 @@ export default function SearchView({ workshops }: SearchViewProps) {
             }}
           />
         </div>
-        <div className="flex gap-3 flex-1 sm:flex-none" style={{ minWidth: 0 }}>
+        <div className="flex flex-col sm:flex-row gap-3 flex-1 sm:flex-none" style={{ minWidth: 0 }}>
           <div style={{ flex: '1 1 0', minWidth: 0 }}>
             <label style={{ display: 'block', fontSize: '0.625rem', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-muted)', marginBottom: '0.25rem' }}>From</label>
             <input
