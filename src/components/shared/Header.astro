@@ -18,6 +18,9 @@ if (siteConfig.nav && siteConfig.nav.length > 0) {
   if (siteConfig.features.workshops) {
     navItems.push({ label: 'Workshops', href: '/workshops' })
   }
+  if (siteConfig.features.programs?.enabled) {
+    navItems.push({ label: 'Programs', href: '/programs' })
+  }
   if (siteConfig.features.parties.enabled) {
     navItems.push({ label: 'Book a Party', href: '/book' })
   }
@@ -291,27 +294,30 @@ const currentPath = Astro.url.pathname
 </style>
 
 <script>
-  const header = document.getElementById('site-header')
-  let ticking = false
+  function initHeader() {
+    const header = document.getElementById('site-header')
+    let ticking = false
 
-  function onScroll() {
-    if (!ticking) {
-      requestAnimationFrame(() => {
-        if (window.scrollY > 8) {
-          header?.classList.add('scrolled')
-        } else {
-          header?.classList.remove('scrolled')
-        }
-        ticking = false
-      })
-      ticking = true
+    function onScroll() {
+      if (!ticking) {
+        requestAnimationFrame(() => {
+          if (window.scrollY > 8) {
+            header?.classList.add('scrolled')
+          } else {
+            header?.classList.remove('scrolled')
+          }
+          ticking = false
+        })
+        ticking = true
+      }
     }
+
+    window.addEventListener('scroll', onScroll, { passive: true })
+    onScroll()
   }
 
-  window.addEventListener('scroll', onScroll, { passive: true })
-  onScroll()
+  initHeader()
 
-  // Update active link + close mobile menu after view transition
   document.addEventListener('astro:after-swap', () => {
     const path = window.location.pathname
     document.querySelectorAll('.header-link, .mobile-link').forEach((el) => {
@@ -320,6 +326,6 @@ const currentPath = Astro.url.pathname
     })
     const toggle = document.getElementById('mobile-menu-toggle') as HTMLInputElement | null
     if (toggle) toggle.checked = false
-    onScroll()
+    initHeader()
   })
 </script>
