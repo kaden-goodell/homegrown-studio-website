@@ -8,6 +8,8 @@ interface Particle {
   maxOpacity: number
   phase: number      // current position in cycle (0-1)
   speed: number      // how fast it cycles
+  dx: number         // drift pixels per second
+  dy: number
 }
 
 const COLORS = ['#c8943c', '#b8860b', '#daa520', '#cd853f', '#d4a040']
@@ -16,15 +18,21 @@ const PARTICLES_PER_SCREEN = 120
 function createParticles(width: number, height: number): Particle[] {
   const screens = (height / window.innerHeight) || 1
   const count = Math.round(PARTICLES_PER_SCREEN * screens)
-  return Array.from({ length: count }, () => ({
-    x: Math.random() * width,
-    y: Math.random() * height,
-    radius: 1 + Math.random() * 2,
-    color: COLORS[Math.floor(Math.random() * COLORS.length)],
-    maxOpacity: 0.5 + Math.random() * 0.5,
-    phase: Math.random(),
-    speed: 0.3 + Math.random() * 0.7, // cycles per second — completes in 1-3s
-  }))
+  return Array.from({ length: count }, () => {
+    const angle = Math.random() * Math.PI * 2
+    const drift = 3 + Math.random() * 7 // 3-10 px/sec gentle drift
+    return {
+      x: Math.random() * width,
+      y: Math.random() * height,
+      radius: 1 + Math.random() * 2,
+      color: COLORS[Math.floor(Math.random() * COLORS.length)],
+      maxOpacity: 0.5 + Math.random() * 0.5,
+      phase: Math.random(),
+      speed: 0.225 + Math.random() * 0.525,
+      dx: Math.cos(angle) * drift,
+      dy: Math.sin(angle) * drift,
+    }
+  })
 }
 
 export default function Shimmer({ enabled }: { enabled: boolean }) {
@@ -78,8 +86,27 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
       const dpr = window.devicePixelRatio || 1
       ctx!.clearRect(0, 0, canvas!.width / dpr, canvas!.height / dpr)
 
+      const w = canvas!.width / dpr
+      const h = canvas!.height / dpr
+
       for (const p of particles) {
+        const prevPhase = p.phase
         p.phase = (p.phase + p.speed * dt) % 1
+
+        // When phase wraps (particle fully faded out), respawn at random position
+        if (p.phase < prevPhase) {
+          p.x = Math.random() * w
+          p.y = Math.random() * h
+          const angle = Math.random() * Math.PI * 2
+          const drift = 3 + Math.random() * 7
+          p.dx = Math.cos(angle) * drift
+          p.dy = Math.sin(angle) * drift
+        } else {
+          // Gentle drift
+          p.x += p.dx * dt
+          p.y += p.dy * dt
+        }
+
         // Sine wave for smooth fade in/out
         const opacity = p.maxOpacity * Math.sin(p.phase * Math.PI)
         ctx!.globalAlpha = opacity

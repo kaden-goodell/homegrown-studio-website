@@ -81,9 +81,6 @@ export default function BookingModal({ onClose }: BookingModalProps) {
   }
 
   function handleClose() {
-    if (state.currentStep > 1 && !isCompleted) {
-      if (!window.confirm('Are you sure you want to cancel your booking?')) return
-    }
     onClose()
   }
 

@@ -178,7 +178,7 @@ const partyTypes: EventTypeConfig[] = [
 ]
 
 export const siteConfig: SiteConfig = {
-  name: 'Homegrown Craft Studio',
+  name: 'Homegrown Studio',
   tagline: 'Create. Celebrate. Connect.',
   logo: '/images/logo.svg',
   contactEmail: 'hello@homegrowncraftstudio.com',
@@ -360,7 +360,7 @@ export const siteConfig: SiteConfig = {
   },
   email: {
     fromAddress: 'hello@homegrowncraftstudio.com',
-    fromName: 'Homegrown Craft Studio',
+    fromName: 'Homegrown Studio',
   },
   nav: [
     { label: 'Home', href: '/' },

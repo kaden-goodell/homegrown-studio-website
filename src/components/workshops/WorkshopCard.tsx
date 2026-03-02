@@ -55,7 +55,7 @@ export default function WorkshopCard({ workshop }: WorkshopCardProps) {
     <div
       className="group relative rounded-2xl overflow-hidden transition-all duration-400"
       style={{
-        background: 'linear-gradient(135deg, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.35) 50%, rgba(255,255,255,0.5) 100%)',
+        background: 'linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0.9) 100%)',
         backdropFilter: 'blur(20px) saturate(1.3)',
         WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
         border: '1px solid rgba(255, 255, 255, 0.5)',

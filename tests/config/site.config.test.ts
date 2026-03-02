@@ -3,7 +3,7 @@ import { siteConfig, validateConfig } from '@config/site.config'
 
 describe('site config', () => {
   it('has required identity fields', () => {
-    expect(siteConfig.name).toBe('Homegrown Craft Studio')
+    expect(siteConfig.name).toBe('Homegrown Studio')
     expect(siteConfig.contactEmail).toBeTruthy()
     expect(siteConfig.contactPhone).toBeTruthy()
   })
