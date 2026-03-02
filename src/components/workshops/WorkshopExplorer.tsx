@@ -41,9 +41,9 @@ export default function WorkshopExplorer({ workshops }: WorkshopExplorerProps) {
                     boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
                   }
                 : {
-                    background: 'rgba(255, 255, 255, 0.6)',
+                    background: 'rgba(255, 255, 255, 0.35)',
                     backdropFilter: 'blur(12px)',
-                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
                     color: 'var(--color-text)',
                   }
             }

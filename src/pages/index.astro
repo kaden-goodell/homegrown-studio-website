@@ -156,11 +156,11 @@ const testimonials = siteConfig.testimonials?.items ?? []
     </section>
   )}
 
-  <!-- Newsletter — dark section with glass form area -->
+  <!-- Newsletter -->
   {features.newsletter && (
-    <section class="relative py-24 sm:py-32 px-4" style="background-color: var(--color-dark);">
-      <div class="relative z-10">
-        <Newsletter client:visible variant="dark" />
+    <section class="py-24 sm:py-32 px-4">
+      <div class="glass rounded-2xl max-w-2xl mx-auto px-8 py-14 sm:px-14">
+        <Newsletter client:visible />
       </div>
     </section>
   )}
