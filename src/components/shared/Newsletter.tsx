@@ -36,22 +36,31 @@ export default function Newsletter({ variant = 'light' }: NewsletterProps) {
 
   return (
     <div className="max-w-xl mx-auto text-center">
+      <p
+        className="uppercase text-xs font-semibold mb-3"
+        style={{
+          letterSpacing: '0.2em',
+          color: isDark ? 'var(--color-accent)' : 'var(--color-accent)',
+        }}
+      >
+        Newsletter
+      </p>
       <h2
-        className="text-3xl font-heading font-bold mb-3"
+        className="text-3xl sm:text-4xl font-bold mb-4"
         style={{
           fontFamily: 'var(--font-heading)',
-          color: isDark ? 'var(--color-background)' : undefined,
+          color: isDark ? 'var(--color-background)' : 'var(--color-dark, #3d3229)',
         }}
       >
         Stay Inspired
       </h2>
       <p
-        className="mb-8"
+        className="mb-10 text-base"
         style={{
-          color: isDark ? 'rgba(250, 248, 245, 0.7)' : 'var(--color-muted)',
+          color: isDark ? 'rgba(250, 248, 245, 0.6)' : 'var(--color-muted)',
         }}
       >
-        Get workshop announcements, creative tips, and exclusive offers delivered to your inbox.
+        Get workshop announcements, creative tips, and exclusive offers.
       </p>
 
       {status === 'success' ? (
@@ -69,16 +78,26 @@ export default function Newsletter({ variant = 'light' }: NewsletterProps) {
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="your@email.com"
-            className="flex-1 px-5 py-3 rounded-lg border border-gray-200 bg-white text-base focus:outline-none focus:ring-2 focus:ring-primary/40 transition"
-            style={{ color: 'var(--color-text)' }}
+            className="flex-1 px-5 py-3.5 rounded-xl text-base focus:outline-none focus:ring-2 transition-all"
+            style={{
+              background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.8)',
+              backdropFilter: 'blur(12px)',
+              border: isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.4)',
+              color: isDark ? '#faf8f5' : 'var(--color-text)',
+            }}
           />
           <button
             type="submit"
             disabled={status === 'loading'}
-            className="px-8 py-3 rounded-lg font-semibold text-base transition hover:-translate-y-0.5 hover:shadow-lg disabled:opacity-60"
+            className="px-8 py-3.5 rounded-xl font-semibold text-base transition-all duration-300 disabled:opacity-60"
             style={{
-              backgroundColor: isDark ? 'var(--color-accent)' : 'var(--color-primary)',
+              background: isDark
+                ? 'linear-gradient(135deg, var(--color-accent), var(--color-secondary))'
+                : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
               color: isDark ? 'var(--color-dark, #3d3229)' : 'white',
+              boxShadow: isDark
+                ? '0 4px 15px rgba(212, 165, 116, 0.3)'
+                : '0 4px 15px rgba(150, 112, 91, 0.25)',
             }}
           >
             {status === 'loading' ? 'Subscribing...' : 'Subscribe'}
@@ -87,7 +106,7 @@ export default function Newsletter({ variant = 'light' }: NewsletterProps) {
       )}
 
       {status === 'error' && (
-        <p className="mt-4 text-sm text-red-600">{message}</p>
+        <p className="mt-4 text-sm text-red-400">{message}</p>
       )}
     </div>
   )

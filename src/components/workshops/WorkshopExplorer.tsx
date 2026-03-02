@@ -27,37 +27,30 @@ export default function WorkshopExplorer({ workshops }: WorkshopExplorerProps) {
 
   return (
     <div>
-      <div className="flex gap-2 mb-6">
-        <button
-          onClick={() => setView('search')}
-          className={`px-4 py-2 rounded-lg font-medium transition ${
-            view === 'search'
-              ? 'text-white'
-              : 'hover:opacity-80'
-          }`}
-          style={
-            view === 'search'
-              ? { backgroundColor: 'var(--color-primary)' }
-              : { backgroundColor: '#f5f0ea', color: 'var(--color-text)' }
-          }
-        >
-          Search
-        </button>
-        <button
-          onClick={() => setView('calendar')}
-          className={`px-4 py-2 rounded-lg font-medium transition ${
-            view === 'calendar'
-              ? 'text-white'
-              : 'hover:opacity-80'
-          }`}
-          style={
-            view === 'calendar'
-              ? { backgroundColor: 'var(--color-primary)' }
-              : { backgroundColor: '#f5f0ea', color: 'var(--color-text)' }
-          }
-        >
-          Calendar
-        </button>
+      <div className="flex gap-2 mb-8">
+        {(['search', 'calendar'] as View[]).map((v) => (
+          <button
+            key={v}
+            onClick={() => setView(v)}
+            className="px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300"
+            style={
+              view === v
+                ? {
+                    background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                    color: 'white',
+                    boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
+                  }
+                : {
+                    background: 'rgba(255, 255, 255, 0.6)',
+                    backdropFilter: 'blur(12px)',
+                    border: '1px solid rgba(255, 255, 255, 0.3)',
+                    color: 'var(--color-text)',
+                  }
+            }
+          >
+            {v.charAt(0).toUpperCase() + v.slice(1)}
+          </button>
+        ))}
       </div>
 
       {view === 'search' ? (

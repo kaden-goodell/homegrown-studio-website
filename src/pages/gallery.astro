@@ -21,10 +21,10 @@ const galleryItems = galleryEntries
 <Layout title="Gallery" description="A glimpse into our creative space at Homegrown Craft Studio">
   {siteConfig.features.gallery ? (
     <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-28">
-      <div class="text-center mb-16">
-        <h1 class="text-4xl sm:text-5xl font-heading font-bold mb-4" style="color: var(--color-text);">Gallery</h1>
-        <div class="w-16 h-0.5 mx-auto mt-4 mb-4" style="background-color: var(--color-secondary);"></div>
-        <p class="text-lg text-[var(--color-muted)] max-w-xl mx-auto">
+      <div class="text-center mb-16 fade-in">
+        <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Portfolio</p>
+        <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">Gallery</h1>
+        <p class="text-lg mt-4 max-w-xl mx-auto" style="color: var(--color-muted);">
           A glimpse into our creative space
         </p>
       </div>
@@ -32,19 +32,19 @@ const galleryItems = galleryEntries
       <div class="gallery-grid">
         {galleryItems.map((item, i) => (
           <div
-            class="gallery-item fade-in hover-lift cursor-pointer group rounded-lg overflow-hidden"
+            class="gallery-item fade-in cursor-pointer group rounded-2xl overflow-hidden"
             onclick={`window.dispatchEvent(new CustomEvent('open-lightbox', { detail: { index: ${i} } }))`}
             role="button"
             tabindex="0"
             aria-label={`View ${item.title}`}
           >
             <div class="gallery-image relative">
-              <img src={item.image} alt={item.title} class="w-full h-auto" loading="lazy" />
-              <div class="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors duration-300" />
+              <img src={item.image} alt={item.title} class="w-full h-auto transition-transform duration-500 group-hover:scale-105" loading="lazy" />
+              <div class="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-400" />
             </div>
-            <div class="p-4">
-              <h3 class="font-heading font-semibold text-sm">{item.title}</h3>
-              <p class="text-xs text-[var(--color-muted)] mt-1">{item.caption}</p>
+            <div class="p-5">
+              <h3 class="font-heading font-semibold text-sm" style="color: var(--color-dark);">{item.title}</h3>
+              <p class="text-xs mt-1" style="color: var(--color-muted);">{item.caption}</p>
             </div>
           </div>
         ))}
@@ -63,7 +63,7 @@ const galleryItems = galleryEntries
 <style>
   .gallery-grid {
     columns: 1;
-    column-gap: 1.5rem;
+    column-gap: 1.25rem;
   }
 
   @media (min-width: 640px) {
@@ -80,14 +80,24 @@ const galleryItems = galleryEntries
 
   .gallery-item {
     break-inside: avoid;
-    margin-bottom: 1.5rem;
-    background: #f5f0ea;
-    border: 1px solid rgba(196, 168, 130, 0.2);
+    margin-bottom: 1.25rem;
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1),
+                box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .gallery-item:hover {
+    transform: translateY(-4px) scale(1.01);
+    box-shadow: 0 20px 40px rgba(150, 112, 91, 0.12);
   }
 
   .gallery-image {
     position: relative;
     width: 100%;
+    overflow: hidden;
   }
 </style>
 

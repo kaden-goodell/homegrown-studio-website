@@ -30,81 +30,63 @@ const currentYear = new Date().getFullYear()
 const { street, city, state, zip } = siteConfig.address
 ---
 
-<footer class="bg-[var(--color-dark)] border-t border-[var(--color-secondary)]/20 mt-20">
+<footer style="background-color: var(--color-dark);">
   <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-12">
-
-      {/* Column 1: Brand */}
-      <div>
-        <h3 class="font-heading text-xl font-semibold text-[var(--color-background)] mb-3">
+    <!-- Top: Brand + Nav inline -->
+    <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-12 mb-16">
+      <div class="max-w-sm">
+        <h3 class="font-heading text-2xl font-bold mb-3" style="color: var(--color-background);">
           {siteConfig.name}
         </h3>
-        <p class="text-[var(--color-background)]/70 text-sm leading-relaxed">
+        <p class="text-sm leading-relaxed" style="color: rgba(250, 248, 245, 0.5);">
           {siteConfig.tagline}
         </p>
-        {siteConfig.features.newsletter && (
-          <p class="text-[var(--color-background)]/70 text-sm mt-4 italic">
-            Sign up for our newsletter to stay in the loop.
-          </p>
-        )}
       </div>
 
-      {/* Column 2: Quick Links */}
-      <div>
-        <h4 class="font-heading text-sm font-semibold text-[var(--color-background)] uppercase tracking-wider mb-4">
-          Quick Links
-        </h4>
-        <ul class="list-none m-0 p-0 space-y-2">
-          {navItems.map((item) => (
-            <li>
-              <a
-                href={item.href}
-                class="text-[var(--color-background)]/70 hover:text-[var(--color-accent)] text-sm no-underline transition-colors duration-200"
-              >
-                {item.label}
-              </a>
-            </li>
-          ))}
-        </ul>
-      </div>
-
-      {/* Column 3: Contact */}
-      <div>
-        <h4 class="font-heading text-sm font-semibold text-[var(--color-background)] uppercase tracking-wider mb-4">
-          Get in Touch
-        </h4>
-        <ul class="list-none m-0 p-0 space-y-3 text-sm text-[var(--color-background)]/70">
-          <li>
-            <a
-              href={`mailto:${siteConfig.contactEmail}`}
-              class="text-[var(--color-background)]/70 hover:text-[var(--color-accent)] no-underline transition-colors duration-200"
-            >
-              {siteConfig.contactEmail}
-            </a>
-          </li>
-          <li>
-            <a
-              href={`tel:${siteConfig.contactPhone.replace(/[^+\d]/g, '')}`}
-              class="text-[var(--color-background)]/70 hover:text-[var(--color-accent)] no-underline transition-colors duration-200"
-            >
-              {siteConfig.contactPhone}
-            </a>
-          </li>
-          <li class="leading-relaxed">
-            {street}<br />
-            {city}, {state} {zip}
-          </li>
-        </ul>
-      </div>
-
+      <nav class="flex flex-wrap gap-x-8 gap-y-3">
+        {navItems.map((item) => (
+          <a
+            href={item.href}
+            class="text-sm no-underline transition-colors duration-300"
+            style="color: rgba(250, 248, 245, 0.6);"
+            onmouseover="this.style.color='#d4a574'"
+            onmouseout="this.style.color='rgba(250, 248, 245, 0.6)'"
+          >
+            {item.label}
+          </a>
+        ))}
+      </nav>
     </div>
-  </div>
 
-  {/* Bottom bar */}
-  <div class="border-t border-[var(--color-secondary)]/20">
-    <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      <p class="text-center text-xs text-[var(--color-background)]/50">
-        &copy; {currentYear} {siteConfig.name}. All rights reserved.
+    <!-- Contact row -->
+    <div class="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-8 text-sm mb-16" style="color: rgba(250, 248, 245, 0.4);">
+      <a
+        href={`mailto:${siteConfig.contactEmail}`}
+        class="no-underline transition-colors duration-300"
+        style="color: rgba(250, 248, 245, 0.5);"
+        onmouseover="this.style.color='#d4a574'"
+        onmouseout="this.style.color='rgba(250, 248, 245, 0.5)'"
+      >
+        {siteConfig.contactEmail}
+      </a>
+      <span class="hidden sm:inline" style="color: rgba(250, 248, 245, 0.15);">|</span>
+      <a
+        href={`tel:${siteConfig.contactPhone.replace(/[^+\d]/g, '')}`}
+        class="no-underline transition-colors duration-300"
+        style="color: rgba(250, 248, 245, 0.5);"
+        onmouseover="this.style.color='#d4a574'"
+        onmouseout="this.style.color='rgba(250, 248, 245, 0.5)'"
+      >
+        {siteConfig.contactPhone}
+      </a>
+      <span class="hidden sm:inline" style="color: rgba(250, 248, 245, 0.15);">|</span>
+      <span>{street}, {city}, {state} {zip}</span>
+    </div>
+
+    <!-- Divider + copyright -->
+    <div class="pt-8" style="border-top: 1px solid rgba(196, 168, 130, 0.1);">
+      <p class="text-xs" style="color: rgba(250, 248, 245, 0.3);">
+        &copy; {currentYear} {siteConfig.name}
       </p>
     </div>
   </div>

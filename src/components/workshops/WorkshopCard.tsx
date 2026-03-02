@@ -23,12 +23,9 @@ function formatDate(iso: string): string {
   })
 }
 
-function formatShortDate(iso: string): { month: string; day: string } {
+function formatShortDate(iso: string): string {
   const d = new Date(iso + 'T00:00:00')
-  return {
-    month: d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase(),
-    day: d.toLocaleDateString('en-US', { day: 'numeric' }),
-  }
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
 function formatTime(iso: string): string {
@@ -50,41 +47,60 @@ export default function WorkshopCard({ workshop }: WorkshopCardProps) {
   if (workshop.remainingSeats === 0) return null
 
   const dateStr = formatDate(workshop.date)
-  const shortDate = formatShortDate(workshop.date)
+  const shortDateStr = formatShortDate(workshop.date)
   const timeRange = `${formatTime(workshop.startTime)} - ${formatTime(workshop.endTime)}`
   const price = formatPrice(workshop.price, workshop.currency)
 
   return (
     <div
-      className="relative flex rounded-xl overflow-hidden transition hover:-translate-y-1 hover:shadow-lg"
-      style={{ backgroundColor: '#f5f0ea', border: '1px solid rgba(196, 168, 130, 0.3)' }}
+      className="group relative rounded-2xl overflow-hidden transition-all duration-400"
+      style={{
+        background: 'rgba(255, 255, 255, 0.6)',
+        backdropFilter: 'blur(16px)',
+        WebkitBackdropFilter: 'blur(16px)',
+        border: '1px solid rgba(255, 255, 255, 0.3)',
+      }}
+      onMouseEnter={(e) => {
+        const el = e.currentTarget as HTMLElement
+        el.style.transform = 'translateY(-4px) scale(1.02)'
+        el.style.boxShadow = '0 20px 40px rgba(150, 112, 91, 0.12), 0 0 0 1px rgba(212, 165, 116, 0.15)'
+      }}
+      onMouseLeave={(e) => {
+        const el = e.currentTarget as HTMLElement
+        el.style.transform = ''
+        el.style.boxShadow = ''
+      }}
     >
-      {/* Accent stripe */}
-      <div className="w-1.5 flex-shrink-0 rounded-l-xl" style={{ backgroundColor: 'var(--color-primary)' }} />
-
-      <div className="flex-1 p-6">
-        {/* Date badge */}
-        <div
-          className="absolute top-4 right-4 flex flex-col items-center rounded-lg px-3 py-1.5 text-center"
-          style={{ backgroundColor: 'var(--color-secondary)', color: 'var(--color-text)' }}
-        >
-          <span className="text-[10px] font-bold leading-none">{shortDate.month}</span>
-          <span className="text-lg font-bold leading-tight">{shortDate.day}</span>
+      <div className="p-7">
+        {/* Top row: date + price */}
+        <div className="flex items-start justify-between mb-4">
+          <span
+            className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider px-3 py-1.5 rounded-full"
+            style={{ background: 'rgba(150, 112, 91, 0.08)', color: 'var(--color-primary)' }}
+          >
+            {shortDateStr}
+          </span>
+          <span className="text-xl font-bold" style={{ color: 'var(--color-dark, #3d3229)' }}>{price}</span>
         </div>
 
-        <h3 className="text-xl font-bold mb-2 pr-16" style={{ fontFamily: 'var(--font-heading)' }}>{workshop.name}</h3>
-        <p className="mb-4" style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>{workshop.description}</p>
+        <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'var(--font-heading)', color: 'var(--color-dark, #3d3229)' }}>
+          {workshop.name}
+        </h3>
+        <p className="text-sm leading-relaxed mb-5" style={{ color: 'var(--color-muted)' }}>
+          {workshop.description}
+        </p>
 
-        <div className="space-y-1 text-sm mb-4" style={{ color: 'var(--color-muted)' }}>
-          <p>{dateStr}</p>
-          <p>{timeRange}</p>
-          <p>{workshop.duration} min</p>
-        </div>
-
-        <div className="flex items-center justify-between">
-          <span className="text-lg font-semibold">{price}</span>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs mb-6" style={{ color: 'var(--color-muted)' }}>
+          <span>{dateStr}</span>
+          <span className="flex items-center gap-1">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-3.5 h-3.5">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+            </svg>
+            {timeRange}
+          </span>
+          <span>{workshop.duration} min</span>
           {workshop.remainingSeats !== null && (
-            <span className="text-sm font-medium" style={{ color: 'var(--color-accent)' }}>
+            <span className="ml-auto font-medium" style={{ color: 'var(--color-accent)' }}>
               {workshop.remainingSeats} seats remaining
             </span>
           )}
@@ -92,8 +108,21 @@ export default function WorkshopCard({ workshop }: WorkshopCardProps) {
 
         <a
           href={`/book?workshop=${workshop.id}`}
-          className="mt-4 block w-full text-center rounded-lg px-6 py-3 text-white font-semibold transition hover:-translate-y-0.5 hover:shadow-lg"
-          style={{ backgroundColor: 'var(--color-primary)' }}
+          className="block w-full text-center rounded-xl px-6 py-3.5 text-white font-semibold text-sm transition-all duration-300 no-underline"
+          style={{
+            background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+            boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
+          }}
+          onMouseEnter={(e) => {
+            const el = e.currentTarget as HTMLElement
+            el.style.boxShadow = '0 8px 25px rgba(150, 112, 91, 0.35)'
+            el.style.transform = 'translateY(-1px)'
+          }}
+          onMouseLeave={(e) => {
+            const el = e.currentTarget as HTMLElement
+            el.style.boxShadow = '0 4px 15px rgba(150, 112, 91, 0.2)'
+            el.style.transform = ''
+          }}
         >
           Book Seat
         </a>

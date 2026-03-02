@@ -26,29 +26,33 @@ export default function SearchView({ workshops }: SearchViewProps) {
 
   return (
     <div>
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row gap-3 mb-8">
         <input
           type="text"
           placeholder="Search workshops..."
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="flex-1 rounded-lg px-4 py-2 focus:outline-none focus:ring-2"
+          className="flex-1 rounded-xl px-5 py-3 text-sm focus:outline-none focus:ring-2 transition-all"
           style={{
-            border: '1px solid rgba(196, 168, 130, 0.5)',
-            backgroundColor: 'white',
+            background: 'rgba(255, 255, 255, 0.7)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(255, 255, 255, 0.4)',
+            color: 'var(--color-text)',
           }}
         />
         <select
           value={category}
           onChange={(e) => setCategory(e.target.value)}
           aria-label="Category"
-          className="rounded-full px-5 py-2 focus:outline-none focus:ring-2"
+          className="rounded-xl px-5 py-3 text-sm focus:outline-none focus:ring-2 transition-all"
           style={{
-            border: '1px solid rgba(196, 168, 130, 0.5)',
-            backgroundColor: 'white',
+            background: 'rgba(255, 255, 255, 0.7)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(255, 255, 255, 0.4)',
+            color: 'var(--color-text)',
           }}
         >
-          <option value="all">All</option>
+          <option value="all">All Categories</option>
           {categories.map((cat) => (
             <option key={cat} value={cat}>
               {cat}
@@ -57,14 +61,14 @@ export default function SearchView({ workshops }: SearchViewProps) {
         </select>
       </div>
 
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
         {filtered.map((workshop) => (
           <WorkshopCard key={workshop.id} workshop={workshop} />
         ))}
       </div>
 
       {filtered.length === 0 && (
-        <p className="text-center py-8" style={{ color: 'var(--color-muted)' }}>No workshops found.</p>
+        <p className="text-center py-12 text-sm" style={{ color: 'var(--color-muted)' }}>No workshops found.</p>
       )}
     </div>
   )
