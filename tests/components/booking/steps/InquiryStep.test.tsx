@@ -37,7 +37,7 @@ describe('InquiryStep', () => {
     render(<InquiryStep />)
 
     expect(screen.getByText(/Corporate Event/)).toBeInTheDocument()
-    expect(screen.getByText(/2026-04-01/)).toBeInTheDocument()
+    expect(screen.getByText(/April 1, 2026/)).toBeInTheDocument()
     expect(screen.getByText(/Need projector/)).toBeInTheDocument()
   })
 

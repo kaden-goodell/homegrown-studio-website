@@ -217,6 +217,13 @@ export default function CheckoutStep() {
         }}>
           Booking Confirmed
         </h3>
+        {state.selectedSlot && (
+          <p style={{ fontSize: '0.9375rem', fontWeight: 500, color: 'var(--color-dark)', marginBottom: '0.5rem' }}>
+            {new Date(state.selectedSlot.startAt).toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+            {' at '}
+            {new Date(state.selectedSlot.startAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+          </p>
+        )}
         <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, maxWidth: '24rem', margin: '0 auto' }}>
           Your <strong>{state.eventType?.name}</strong> booking has been created successfully.
           A confirmation has been sent to <strong>{email}</strong>.
