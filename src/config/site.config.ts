@@ -120,7 +120,7 @@ const partyTypes: EventTypeConfig[] = [
     duration: 120,
     allowAddOns: true,
     allowExtraGuests: true,
-    extraGuestPrice: 15,
+    extraGuestPrice: 1500,
   },
 ]
 
@@ -200,7 +200,14 @@ export const siteConfig: SiteConfig = {
     booking: { type: isSquare ? 'square' : 'mock', config: squareConfig },
     payment: { type: isSquare ? 'square' : 'mock', config: squareConfig },
     catalog: { type: isSquare ? 'square' : 'mock', config: squareConfig },
-    capacity: { type: isSquare ? 'square-internal' : 'none' },
+    capacity: {
+      type: isSquare ? 'square-internal' : 'none',
+      ...(isSquare && {
+        config: {
+          unitToken: process.env.SQUARE_UNIT_TOKEN || '',
+        },
+      }),
+    },
     customer: { type: isSquare ? 'square' : 'mock', config: squareConfig },
     notification: {
       type: 'slack',
@@ -220,9 +227,9 @@ export const siteConfig: SiteConfig = {
   nav: [
     { label: 'Home', href: '/' },
     { label: 'Workshops', href: '/workshops' },
-    { label: 'Parties', href: '/parties' },
+    { label: 'Book a Party', href: '/book' },
     { label: 'Gallery', href: '/gallery' },
-    { label: 'Contact', href: '/contact' },
+    { label: 'About', href: '/about' },
   ],
 }
 
