@@ -1,0 +1,23 @@
+{
+  "WELCOME10": {
+    "type": "percent",
+    "value": 10,
+    "description": "10% off your first booking",
+    "active": true,
+    "expiresAt": "2026-12-31"
+  },
+  "SPRING25": {
+    "type": "fixed",
+    "value": 2500,
+    "description": "$25 off",
+    "active": true,
+    "expiresAt": null
+  },
+  "EXPIRED99": {
+    "type": "percent",
+    "value": 99,
+    "description": "Expired test coupon",
+    "active": false,
+    "expiresAt": "2025-01-01"
+  }
+}
