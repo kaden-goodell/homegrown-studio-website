@@ -116,6 +116,7 @@ export default function BookingModal({ onClose }: BookingModalProps) {
           width: '100%',
           maxWidth: '40rem',
           minHeight: '85vh',
+          maxHeight: '90vh',
           overflow: 'auto',
           margin: '1rem',
           padding: '2.5rem',
