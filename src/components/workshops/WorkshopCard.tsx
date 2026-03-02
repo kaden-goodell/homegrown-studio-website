@@ -55,10 +55,11 @@ export default function WorkshopCard({ workshop }: WorkshopCardProps) {
     <div
       className="group relative rounded-2xl overflow-hidden transition-all duration-400"
       style={{
-        background: 'rgba(255, 255, 255, 0.35)',
+        background: 'rgba(255, 255, 255, 0.75)',
         backdropFilter: 'blur(16px)',
         WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(255, 255, 255, 0.2)',
+        border: '1px solid rgba(150, 112, 91, 0.06)',
+        boxShadow: '0 2px 8px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.07)',
       }}
       onMouseEnter={(e) => {
         const el = e.currentTarget as HTMLElement
@@ -68,7 +69,7 @@ export default function WorkshopCard({ workshop }: WorkshopCardProps) {
       onMouseLeave={(e) => {
         const el = e.currentTarget as HTMLElement
         el.style.transform = ''
-        el.style.boxShadow = ''
+        el.style.boxShadow = '0 2px 8px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.07)'
       }}
     >
       <div className="p-7">

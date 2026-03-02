@@ -30,58 +30,156 @@ const currentYear = new Date().getFullYear()
 const { street, city, state, zip } = siteConfig.address
 ---
 
-<footer class="mt-20">
-  <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-    <!-- Top: Brand + Nav inline -->
-    <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-12 mb-16">
-      <div class="max-w-sm">
-        <h3 class="font-heading text-2xl font-bold mb-3" style="color: var(--color-dark);">
-          {siteConfig.name}
-        </h3>
-        <p class="text-sm leading-relaxed" style="color: var(--color-muted);">
-          {siteConfig.tagline}
-        </p>
+<footer class="site-footer">
+  <div class="footer-inner">
+    <!-- Thin divider -->
+    <div class="footer-divider"></div>
+
+    <!-- Main footer content -->
+    <div class="footer-content">
+      <!-- Brand -->
+      <div class="footer-brand">
+        <a href="/" class="footer-logo-link">
+          <span class="footer-name">{siteConfig.name}</span>
+        </a>
       </div>
 
-      <nav class="flex flex-wrap gap-x-8 gap-y-3">
+      <!-- Nav links -->
+      <nav class="footer-nav">
         {navItems.map((item) => (
-          <a
-            href={item.href}
-            class="text-sm no-underline transition-colors duration-300"
-            style="color: var(--color-muted);"
-          >
-            {item.label}
-          </a>
+          <a href={item.href} class="footer-link">{item.label}</a>
         ))}
       </nav>
+
+      <!-- Contact -->
+      <div class="footer-contact">
+        <a href={`mailto:${siteConfig.contactEmail}`} class="footer-link">
+          {siteConfig.contactEmail}
+        </a>
+        <a href={`tel:${siteConfig.contactPhone.replace(/[^+\d]/g, '')}`} class="footer-link">
+          {siteConfig.contactPhone}
+        </a>
+        <span class="footer-address">{street}, {city}, {state} {zip}</span>
+      </div>
     </div>
 
-    <!-- Contact row -->
-    <div class="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-8 text-sm" style="color: var(--color-muted);">
-      <a
-        href={`mailto:${siteConfig.contactEmail}`}
-        class="no-underline transition-colors duration-300"
-        style="color: var(--color-muted);"
-      >
-        {siteConfig.contactEmail}
-      </a>
-      <span class="hidden sm:inline" style="color: var(--color-secondary);">|</span>
-      <a
-        href={`tel:${siteConfig.contactPhone.replace(/[^+\d]/g, '')}`}
-        class="no-underline transition-colors duration-300"
-        style="color: var(--color-muted);"
-      >
-        {siteConfig.contactPhone}
-      </a>
-      <span class="hidden sm:inline" style="color: var(--color-secondary);">|</span>
-      <span>{street}, {city}, {state} {zip}</span>
-    </div>
-
-    <!-- Divider + copyright -->
-    <div class="mt-16 pt-8" style="border-top: 1px solid var(--color-secondary);">
-      <p class="text-xs" style="color: var(--color-muted);">
-        &copy; {currentYear} {siteConfig.name}
-      </p>
-    </div>
+    <!-- Copyright -->
+    <p class="footer-copyright">
+      &copy; {currentYear} {siteConfig.name}
+    </p>
   </div>
 </footer>
+
+<style>
+  .site-footer {
+    margin-top: 6rem;
+    padding: 0 1.5rem;
+  }
+
+  .footer-inner {
+    max-width: 72rem;
+    margin: 0 auto;
+  }
+
+  .footer-divider {
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      rgba(150, 112, 91, 0.15) 20%,
+      rgba(150, 112, 91, 0.15) 80%,
+      transparent
+    );
+  }
+
+  .footer-content {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2rem;
+    padding: 3rem 0 2rem;
+    text-align: center;
+  }
+
+  @media (min-width: 768px) {
+    .footer-content {
+      flex-direction: row;
+      justify-content: space-between;
+      align-items: flex-start;
+      text-align: left;
+    }
+  }
+
+  /* Brand */
+  .footer-logo-link {
+    text-decoration: none;
+    transition: opacity 0.3s ease;
+  }
+  .footer-logo-link:hover {
+    opacity: 0.6;
+    text-decoration: none;
+  }
+
+  .footer-name {
+    font-family: var(--font-heading);
+    font-size: 1.125rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--color-dark);
+  }
+
+  /* Nav */
+  .footer-nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 1.5rem;
+  }
+
+  @media (min-width: 768px) {
+    .footer-nav {
+      gap: 2rem;
+    }
+  }
+
+  .footer-link {
+    font-size: 0.8125rem;
+    letter-spacing: 0.04em;
+    color: var(--color-muted);
+    text-decoration: none;
+    transition: color 0.3s ease;
+  }
+  .footer-link:hover {
+    color: var(--color-dark);
+    text-decoration: none;
+  }
+
+  /* Contact */
+  .footer-contact {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  @media (min-width: 768px) {
+    .footer-contact {
+      align-items: flex-end;
+    }
+  }
+
+  .footer-address {
+    font-size: 0.8125rem;
+    letter-spacing: 0.04em;
+    color: var(--color-muted);
+  }
+
+  /* Copyright */
+  .footer-copyright {
+    text-align: center;
+    font-size: 0.6875rem;
+    letter-spacing: 0.04em;
+    color: rgba(150, 112, 91, 0.35);
+    padding-bottom: 2.5rem;
+  }
+</style>

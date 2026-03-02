@@ -11,7 +11,10 @@ export default function DateSelectionStep({ onSlotsLoaded }: DateSelectionStepPr
   const { state, dispatch } = useWizard()
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
-  const [duration, setDuration] = useState(state.eventType?.duration ? state.eventType.duration / 60 : 2)
+  const [duration, setDuration] = useState(() => {
+    const hrs = state.eventType?.duration ? state.eventType.duration / 60 : 2
+    return Math.min(4, Math.max(2, hrs))
+  })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -34,7 +37,8 @@ export default function DateSelectionStep({ onSlotsLoaded }: DateSelectionStepPr
 
       if (!res.ok) throw new Error('Failed to fetch availability')
 
-      const slots: TimeSlot[] = await res.json()
+      const json = await res.json()
+      const slots: TimeSlot[] = Array.isArray(json) ? json : json.data ?? []
       onSlotsLoaded(slots)
       dispatch({ type: 'GO_TO_STEP', payload: 2 })
     } catch (err) {
@@ -45,7 +49,7 @@ export default function DateSelectionStep({ onSlotsLoaded }: DateSelectionStepPr
   }
 
   return (
-    <div className="mx-auto max-w-md space-y-6">
+    <div style={{ maxWidth: '28rem', margin: '0 auto' }}>
       <DateRangePicker
         startDate={startDate}
         endDate={endDate}
@@ -53,36 +57,88 @@ export default function DateSelectionStep({ onSlotsLoaded }: DateSelectionStepPr
         onEndChange={setEndDate}
       />
 
-      <div className="space-y-4">
-        {isQuoteFlow && (
-          <div>
-            <label htmlFor="duration" className="block text-sm font-medium text-gray-700">
-              Duration (hours)
-            </label>
-            <input
-              id="duration"
-              type="number"
-              min={1}
-              max={12}
-              value={duration}
-              onChange={(e) => {
-                const val = Number(e.target.value)
-                setDuration(val)
-                dispatch({ type: 'SET_DESIRED_DURATION', payload: val * 60 })
-              }}
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
-            />
-          </div>
-        )}
-      </div>
+      {isQuoteFlow && (
+        <div style={{ marginTop: '1.25rem' }}>
+          <label
+            htmlFor="duration"
+            style={{
+              display: 'block',
+              fontSize: '0.75rem',
+              fontWeight: 500,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase' as const,
+              color: 'var(--color-muted)',
+            }}
+          >
+            Duration (hours)
+          </label>
+          <input
+            id="duration"
+            type="number"
+            min={2}
+            max={4}
+            value={duration}
+            onChange={(e) => {
+              const val = Number(e.target.value)
+              setDuration(val)
+              dispatch({ type: 'SET_DESIRED_DURATION', payload: val * 60 })
+            }}
+            style={{
+              marginTop: '0.375rem',
+              width: '100%',
+              padding: '0.75rem 1rem',
+              fontSize: '0.875rem',
+              color: 'var(--color-dark)',
+              background: 'rgba(255, 255, 255, 0.85)',
+              backdropFilter: 'blur(16px)',
+              WebkitBackdropFilter: 'blur(16px)',
+              border: '1px solid rgba(150, 112, 91, 0.12)',
+              borderRadius: '0.75rem',
+              outline: 'none',
+            }}
+          />
+        </div>
+      )}
 
-      {error && <p className="text-sm text-red-600">{error}</p>}
+      {error && (
+        <p style={{
+          marginTop: '1rem',
+          fontSize: '0.875rem',
+          color: '#dc2626',
+        }}>
+          {error}
+        </p>
+      )}
 
       <button
         type="button"
         onClick={handleSearch}
         disabled={loading || !startDate || !endDate}
-        className="w-full rounded-md bg-primary px-4 py-2 text-white font-medium shadow-sm hover:brightness-90 focus:outline-none focus:ring-2 focus:ring-primary disabled:opacity-50 disabled:cursor-not-allowed"
+        style={{
+          marginTop: '1.5rem',
+          width: '100%',
+          padding: '0.875rem 1.5rem',
+          fontSize: '0.875rem',
+          fontWeight: 600,
+          color: '#fff',
+          background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+          border: 'none',
+          borderRadius: '0.75rem',
+          cursor: loading || !startDate || !endDate ? 'not-allowed' : 'pointer',
+          opacity: loading || !startDate || !endDate ? 0.5 : 1,
+          boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
+          transition: 'transform 0.3s ease, box-shadow 0.3s ease, opacity 0.3s ease',
+        }}
+        onMouseEnter={(e) => {
+          if (!e.currentTarget.disabled) {
+            e.currentTarget.style.transform = 'translateY(-2px)'
+            e.currentTarget.style.boxShadow = '0 8px 25px rgba(150, 112, 91, 0.3)'
+          }
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'none'
+          e.currentTarget.style.boxShadow = '0 4px 15px rgba(150, 112, 91, 0.2)'
+        }}
       >
         {loading ? 'Searching...' : 'Search Availability'}
       </button>

@@ -11,10 +11,12 @@ interface Particle {
 }
 
 const COLORS = ['#c8943c', '#b8860b', '#daa520', '#cd853f', '#d4a040']
-const PARTICLE_COUNT = 100
+const PARTICLES_PER_SCREEN = 100
 
 function createParticles(width: number, height: number): Particle[] {
-  return Array.from({ length: PARTICLE_COUNT }, () => ({
+  const screens = (height / window.innerHeight) || 1
+  const count = Math.round(PARTICLES_PER_SCREEN * screens)
+  return Array.from({ length: count }, () => ({
     x: Math.random() * width,
     y: Math.random() * height,
     radius: 1 + Math.random() * 2,
@@ -40,15 +42,17 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
 
     function resize() {
       const dpr = window.devicePixelRatio || 1
-      canvas!.width = window.innerWidth * dpr
-      canvas!.height = window.innerHeight * dpr
-      canvas!.style.width = `${window.innerWidth}px`
-      canvas!.style.height = `${window.innerHeight}px`
+      const w = document.documentElement.scrollWidth
+      const h = document.documentElement.scrollHeight
+      canvas!.width = w * dpr
+      canvas!.height = h * dpr
+      canvas!.style.width = `${w}px`
+      canvas!.style.height = `${h}px`
       ctx!.scale(dpr, dpr)
     }
 
     resize()
-    let particles = createParticles(window.innerWidth, window.innerHeight)
+    let particles = createParticles(document.documentElement.scrollWidth, document.documentElement.scrollHeight)
 
     // Static render for reduced motion
     if (prefersReduced) {
@@ -71,7 +75,8 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
       const dt = lastTime ? (time - lastTime) / 1000 : 0.016
       lastTime = time
 
-      ctx!.clearRect(0, 0, canvas!.width / (window.devicePixelRatio || 1), canvas!.height / (window.devicePixelRatio || 1))
+      const dpr = window.devicePixelRatio || 1
+      ctx!.clearRect(0, 0, canvas!.width / dpr, canvas!.height / dpr)
 
       for (const p of particles) {
         p.phase = (p.phase + p.speed * dt) % 1
@@ -94,7 +99,7 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
 
     function onResize() {
       resize()
-      particles = createParticles(window.innerWidth, window.innerHeight)
+      particles = createParticles(document.documentElement.scrollWidth, document.documentElement.scrollHeight)
     }
     window.addEventListener('resize', onResize)
 
@@ -112,7 +117,7 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
       ref={canvasRef}
       aria-hidden="true"
       style={{
-        position: 'fixed',
+        position: 'absolute',
         inset: 0,
         pointerEvents: 'none',
         zIndex: 0,

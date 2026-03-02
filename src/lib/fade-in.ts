@@ -3,18 +3,18 @@
  * Add class="fade-in" to any element to make it fade in when scrolled into view.
  * Respects prefers-reduced-motion.
  *
- * Load in Layout.astro:
- *   <script>import '@lib/fade-in'</script>
+ * Elements start visible (no FOIC). JS adds the "fade-ready" class to hide them,
+ * then the observer adds "visible" to reveal. This avoids the flash-of-invisible-content
+ * that happens when CSS hides elements before JS can observe them.
  */
 
 function initFadeIn() {
   if (typeof window === 'undefined') return
 
-  // Respect prefers-reduced-motion
   const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)')
   if (prefersReducedMotion.matches) {
-    // Show everything immediately
     document.querySelectorAll('.fade-in').forEach((el) => {
+      el.classList.remove('fade-ready')
       el.classList.add('visible')
     })
     return
@@ -32,7 +32,8 @@ function initFadeIn() {
     { threshold: 0.1 }
   )
 
-  document.querySelectorAll('.fade-in').forEach((el) => {
+  document.querySelectorAll('.fade-in:not(.visible)').forEach((el) => {
+    el.classList.add('fade-ready')
     observer.observe(el)
   })
 }
@@ -43,3 +44,6 @@ if (document.readyState === 'loading') {
 } else {
   initFadeIn()
 }
+
+// Re-run after Astro view transitions
+document.addEventListener('astro:page-load', initFadeIn)

@@ -49,17 +49,16 @@ describe('PartyWizard', () => {
     expect(screen.getByTestId('event-type-step')).toBeInTheDocument()
   })
 
-  it('shows step indicator with all step names', () => {
+  it('shows current step label in the progress indicator', () => {
     render(<PartyWizard eventTypes={mockEventTypes} />)
+    // The new progress bar shows only the current step label, not all at once
     expect(screen.getByText('Event Type')).toBeInTheDocument()
-    expect(screen.getByText('Date')).toBeInTheDocument()
-    expect(screen.getByText('Time Slot')).toBeInTheDocument()
-    expect(screen.getByText('Customize')).toBeInTheDocument()
-    expect(screen.getByText('Checkout')).toBeInTheDocument()
+    // Step count is shown as "1 / 5"
+    expect(screen.getByText(/1\s*\/\s*5/)).toBeInTheDocument()
   })
 
   it('does not show back button on step 0', () => {
     render(<PartyWizard eventTypes={mockEventTypes} />)
-    expect(screen.queryByText('← Back')).not.toBeInTheDocument()
+    expect(screen.queryByText('Back')).not.toBeInTheDocument()
   })
 })

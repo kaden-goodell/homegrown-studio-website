@@ -34,9 +34,9 @@ export default function SearchView({ workshops }: SearchViewProps) {
           onChange={(e) => setQuery(e.target.value)}
           className="flex-1 rounded-xl px-5 py-3 text-sm focus:outline-none focus:ring-2 transition-all"
           style={{
-            background: 'rgba(255, 255, 255, 0.35)',
+            background: 'rgba(255, 255, 255, 0.75)',
             backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
+            border: '1px solid rgba(150, 112, 91, 0.06)',
             color: 'var(--color-text)',
           }}
         />
@@ -46,9 +46,9 @@ export default function SearchView({ workshops }: SearchViewProps) {
           aria-label="Category"
           className="rounded-xl px-5 py-3 text-sm focus:outline-none focus:ring-2 transition-all"
           style={{
-            background: 'rgba(255, 255, 255, 0.35)',
+            background: 'rgba(255, 255, 255, 0.75)',
             backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
+            border: '1px solid rgba(150, 112, 91, 0.06)',
             color: 'var(--color-text)',
           }}
         >

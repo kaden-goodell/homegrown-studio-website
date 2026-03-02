@@ -1,7 +1,7 @@
 ---
-title: "Candle Making Workshop"
-caption: "Guests creating custom soy candles"
+title: "Craft Workshop"
+caption: "Guests enjoying a hands-on creative session"
 image: "/images/gallery/candle-making.svg"
 order: 1
-tags: ["workshop", "candles"]
+tags: ["workshop", "crafts"]
 ---

@@ -29,33 +29,28 @@ if (siteConfig.nav && siteConfig.nav.length > 0) {
 const currentPath = Astro.url.pathname
 ---
 
-<header id="site-header" class="sticky top-0 z-50 backdrop-blur-xl transition-all duration-300" style="background: rgba(250, 248, 245, 0.7);">
-  <nav class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
-    <a href="/" class="flex items-center gap-3 no-underline">
+<header id="site-header" class="header-root">
+  <nav class="header-nav">
+    <a href="/" class="header-brand">
       <img
         src={siteConfig.logo}
         alt={`${siteConfig.name} logo`}
-        class="h-8 w-auto"
+        class="header-logo"
         onerror="this.style.display='none'"
       />
-      <span class="font-heading text-lg font-semibold text-[var(--color-text)]">
-        {siteConfig.name}
-      </span>
+      <span class="header-name">{siteConfig.name}</span>
     </a>
 
     {/* Desktop nav */}
-    <ul class="hidden md:flex items-center gap-8 list-none m-0 p-0">
+    <ul class="header-links">
       {navItems.map((item) => (
         <li>
           <a
             href={item.href}
             class:list={[
-              'nav-link text-sm font-medium no-underline transition-colors duration-200',
-              currentPath === item.href
-                ? 'text-[var(--color-primary)]'
-                : 'text-[var(--color-muted)] hover:text-[var(--color-primary)]',
+              'header-link',
+              currentPath === item.href && 'is-active',
             ]}
-            {...(currentPath === item.href ? { 'data-active': '' } : {})}
           >
             {item.label}
           </a>
@@ -63,88 +58,268 @@ const currentPath = Astro.url.pathname
       ))}
     </ul>
 
-    {/* Mobile hamburger — CSS-only */}
-    <div class="md:hidden">
+    {/* Mobile menu */}
+    <div class="header-mobile">
       <input type="checkbox" id="mobile-menu-toggle" class="peer hidden" />
       <label
         for="mobile-menu-toggle"
-        class="relative flex flex-col justify-center items-center w-8 h-8 cursor-pointer gap-1.5"
+        class="header-burger"
         aria-label="Toggle menu"
       >
-        <span class="hamburger-line block w-5 h-0.5 bg-[var(--color-text)] rounded transition-all duration-300 origin-center peer-checked:translate-y-[4px] peer-checked:rotate-45"></span>
-        <span class="hamburger-line block w-5 h-0.5 bg-[var(--color-text)] rounded transition-all duration-300 peer-checked:opacity-0"></span>
-        <span class="hamburger-line block w-5 h-0.5 bg-[var(--color-text)] rounded transition-all duration-300 origin-center peer-checked:-translate-y-[4px] peer-checked:-rotate-45"></span>
+        <span class="burger-line"></span>
+        <span class="burger-line"></span>
       </label>
 
-      <ul class="mobile-nav hidden peer-checked:flex flex-col absolute top-16 left-0 right-0 bg-[var(--color-background)] border-b border-[var(--color-secondary)]/20 shadow-lg list-none m-0 p-4 gap-1">
-        {navItems.map((item) => (
-          <li>
-            <a
-              href={item.href}
-              class:list={[
-                'block px-4 py-3 rounded-lg text-sm font-medium no-underline transition-colors duration-200',
-                currentPath === item.href
-                  ? 'text-[var(--color-primary)] bg-[var(--color-primary)]/5'
-                  : 'text-[var(--color-muted)] hover:text-[var(--color-primary)] hover:bg-[var(--color-primary)]/5',
-              ]}
-            >
-              {item.label}
-            </a>
-          </li>
-        ))}
-      </ul>
+      <div class="mobile-drawer">
+        <ul class="mobile-links">
+          {navItems.map((item) => (
+            <li>
+              <a
+                href={item.href}
+                class:list={[
+                  'mobile-link',
+                  currentPath === item.href && 'is-active',
+                ]}
+              >
+                {item.label}
+              </a>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   </nav>
 </header>
 
 <style>
-  /* CSS-only hamburger animation via sibling selector */
-  #mobile-menu-toggle:checked ~ label .hamburger-line:nth-child(1) {
-    transform: translateY(4px) rotate(45deg);
-  }
-  #mobile-menu-toggle:checked ~ label .hamburger-line:nth-child(2) {
-    opacity: 0;
-  }
-  #mobile-menu-toggle:checked ~ label .hamburger-line:nth-child(3) {
-    transform: translateY(-4px) rotate(-45deg);
-  }
-  #mobile-menu-toggle:checked ~ .mobile-nav {
-    display: flex;
+  .header-root {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    transition: background 0.4s ease, box-shadow 0.4s ease, backdrop-filter 0.4s ease;
+    background: transparent;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 
-  /* Nav link underline animation */
-  .nav-link {
-    position: relative;
+  .header-root.scrolled {
+    background: rgba(250, 248, 245, 0.6);
+    backdrop-filter: blur(24px) saturate(1.4);
+    -webkit-backdrop-filter: blur(24px) saturate(1.4);
+    box-shadow: 0 1px 0 rgba(150, 112, 91, 0.08);
   }
-  .nav-link::after {
+
+  .header-nav {
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    height: 4.5rem;
+  }
+
+  /* Brand / logo */
+  .header-brand {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    text-decoration: none;
+    transition: opacity 0.3s ease;
+  }
+  .header-brand:hover {
+    opacity: 0.7;
+    text-decoration: none;
+  }
+
+  .header-logo {
+    height: 2rem;
+    width: auto;
+  }
+
+  .header-name {
+    font-family: var(--font-heading);
+    font-size: 1.25rem;
+    font-weight: 500;
+    letter-spacing: -0.01em;
+    color: var(--color-dark);
+  }
+
+  /* Desktop links */
+  .header-links {
+    display: none;
+    align-items: center;
+    gap: 2.5rem;
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  @media (min-width: 768px) {
+    .header-links { display: flex; }
+  }
+
+  .header-link {
+    position: relative;
+    font-size: 0.8125rem;
+    font-weight: 400;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    text-decoration: none;
+    padding: 0.25rem 0;
+    transition: color 0.3s ease;
+  }
+  .header-link:hover {
+    color: var(--color-dark);
+    text-decoration: none;
+  }
+  .header-link.is-active {
+    color: var(--color-dark);
+  }
+
+  /* Minimal underline — a thin line that slides in */
+  .header-link::after {
     content: '';
     position: absolute;
-    bottom: -4px;
+    bottom: -2px;
     left: 0;
-    right: 0;
-    height: 2px;
+    width: 100%;
+    height: 1px;
     background: var(--color-primary);
     transform: scaleX(0);
-    transform-origin: center;
-    transition: transform 0.3s ease;
+    transform-origin: right center;
+    transition: transform 0.4s cubic-bezier(0.25, 0.1, 0, 1);
   }
-  .nav-link:hover::after {
+  .header-link:hover::after {
     transform: scaleX(1);
+    transform-origin: left center;
   }
-  .nav-link[data-active]::after {
+  .header-link.is-active::after {
     transform: scaleX(1);
+    transform-origin: left center;
+  }
+
+  /* Mobile burger — two lines that morph to X */
+  .header-mobile {
+    display: block;
+  }
+  @media (min-width: 768px) {
+    .header-mobile { display: none; }
+  }
+
+  .header-burger {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    width: 2rem;
+    height: 2rem;
+    cursor: pointer;
+    gap: 6px;
+  }
+
+  .burger-line {
+    display: block;
+    width: 1.25rem;
+    height: 1.5px;
+    background: var(--color-dark);
+    border-radius: 1px;
+    transition: transform 0.4s cubic-bezier(0.25, 0.1, 0, 1), opacity 0.3s ease;
+  }
+
+  /* Burger → X */
+  #mobile-menu-toggle:checked ~ .header-burger .burger-line:first-child {
+    transform: translateY(3.75px) rotate(45deg);
+  }
+  #mobile-menu-toggle:checked ~ .header-burger .burger-line:last-child {
+    transform: translateY(-3.75px) rotate(-45deg);
+  }
+
+  /* Mobile drawer */
+  .mobile-drawer {
+    position: absolute;
+    top: 4.5rem;
+    left: 0;
+    right: 0;
+    background: rgba(250, 248, 245, 0.92);
+    backdrop-filter: blur(32px) saturate(1.4);
+    -webkit-backdrop-filter: blur(32px) saturate(1.4);
+    border-bottom: 1px solid rgba(150, 112, 91, 0.08);
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(-8px);
+    transition: opacity 0.35s ease, transform 0.35s cubic-bezier(0.25, 0.1, 0, 1), visibility 0.35s ease;
+  }
+  #mobile-menu-toggle:checked ~ .mobile-drawer {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+  }
+
+  .mobile-links {
+    list-style: none;
+    margin: 0;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+  }
+
+  .mobile-link {
+    display: block;
+    padding: 1rem 0;
+    font-size: 0.875rem;
+    font-weight: 400;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    text-decoration: none;
+    border-bottom: 1px solid rgba(150, 112, 91, 0.06);
+    transition: color 0.3s ease;
+  }
+  .mobile-link:hover {
+    color: var(--color-dark);
+    text-decoration: none;
+  }
+  .mobile-link.is-active {
+    color: var(--color-dark);
+  }
+  .mobile-links li:last-child .mobile-link {
+    border-bottom: none;
   }
 </style>
 
 <script>
   const header = document.getElementById('site-header')
+  let ticking = false
+
   function onScroll() {
-    if (window.scrollY > 10) {
-      header?.classList.add('shadow-sm')
-    } else {
-      header?.classList.remove('shadow-sm')
+    if (!ticking) {
+      requestAnimationFrame(() => {
+        if (window.scrollY > 8) {
+          header?.classList.add('scrolled')
+        } else {
+          header?.classList.remove('scrolled')
+        }
+        ticking = false
+      })
+      ticking = true
     }
   }
+
   window.addEventListener('scroll', onScroll, { passive: true })
   onScroll()
+
+  // Update active link + close mobile menu after view transition
+  document.addEventListener('astro:after-swap', () => {
+    const path = window.location.pathname
+    document.querySelectorAll('.header-link, .mobile-link').forEach((el) => {
+      const href = el.getAttribute('href')
+      el.classList.toggle('is-active', href === path)
+    })
+    const toggle = document.getElementById('mobile-menu-toggle') as HTMLInputElement | null
+    if (toggle) toggle.checked = false
+    onScroll()
+  })
 </script>

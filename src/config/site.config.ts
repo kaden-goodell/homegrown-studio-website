@@ -116,8 +116,8 @@ const squareConfig: SquareConfig | Record<string, never> = isSquare
 const partyTypes: EventTypeConfig[] = [
   {
     id: 'birthday',
-    name: 'Birthday Party',
-    description: 'A creative birthday celebration with guided crafting activities for kids',
+    name: 'Kids Party',
+    description: 'A creative party celebration with guided crafting activities for kids',
     icon: 'cake',
     flow: 'booking',
     baseCapacity: 12,
@@ -192,30 +192,6 @@ export const siteConfig: SiteConfig = {
   eventTypes: [
     ...partyTypes,
     {
-      id: 'workshop-candle',
-      name: 'Candle Making Workshop',
-      description: 'Learn to create beautiful hand-poured soy candles with custom scents and colors',
-      icon: 'flame',
-      flow: 'booking',
-      baseCapacity: 12,
-      duration: 90,
-      allowAddOns: false,
-      allowExtraGuests: false,
-      catalogItemId: 'workshop-candle',
-    },
-    {
-      id: 'workshop-pottery',
-      name: 'Pottery Basics',
-      description: 'Get your hands dirty with wheel-thrown pottery basics. All skill levels welcome.',
-      icon: 'palette',
-      flow: 'booking',
-      baseCapacity: 8,
-      duration: 120,
-      allowAddOns: false,
-      allowExtraGuests: false,
-      catalogItemId: 'workshop-pottery',
-    },
-    {
       id: 'corporate',
       name: 'Corporate Event',
       description: 'Custom team-building craft experiences for corporate groups',
@@ -260,14 +236,14 @@ export const siteConfig: SiteConfig = {
     heading: 'What Our Guests Say',
     items: [
       {
-        quote: 'The birthday party was amazing! The kids had so much fun and the staff was incredible.',
+        quote: 'The kids party was amazing! They had so much fun and the staff was incredible.',
         name: 'Sarah M.',
-        detail: 'Birthday Party',
+        detail: 'Kids Party',
       },
       {
         quote: 'Such a relaxing and creative experience. I will definitely be back for more workshops.',
         name: 'Emily R.',
-        detail: 'Candle Making Workshop',
+        detail: 'Adult Party',
       },
       {
         quote: 'Our team building event was the best one we have ever had. Everyone loved it.',

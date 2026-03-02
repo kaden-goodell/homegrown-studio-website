@@ -9,8 +9,11 @@ const eventTypes = siteConfig.eventTypes
 ---
 
 <Layout title="Book">
-  <section class="container mx-auto px-4 py-12">
-    <h1 class="text-4xl font-heading font-bold mb-8">Book Your Experience</h1>
+  <section class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 pt-20 pb-24">
+    <div class="text-center mb-14 fade-in">
+      <p class="uppercase tracking-[0.2em] text-base font-semibold mb-3" style="color: var(--color-accent);">Book</p>
+      <h1 class="font-heading font-bold text-3xl sm:text-4xl" style="color: var(--color-dark); letter-spacing: -0.01em;">Your Experience</h1>
+    </div>
     <PartyWizard client:load eventTypes={eventTypes} />
   </section>
 </Layout>

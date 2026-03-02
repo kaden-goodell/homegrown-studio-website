@@ -75,8 +75,9 @@ describe('EventTypeStep', () => {
   it('shows duration on each card', () => {
     render(<EventTypeStep eventTypes={eventTypes} />)
 
-    expect(screen.getByText('2 hours')).toBeInTheDocument()
+    // formatDuration uses "hr/hrs" format
+    expect(screen.getByText('2 hrs')).toBeInTheDocument()
     expect(screen.getByText('1 hr 30 min')).toBeInTheDocument()
-    expect(screen.getByText('3 hours')).toBeInTheDocument()
+    expect(screen.getByText('3 hrs')).toBeInTheDocument()
   })
 })

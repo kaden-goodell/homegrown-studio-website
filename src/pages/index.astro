@@ -39,7 +39,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
 
 <Layout title="Home">
   <!-- Hero — full viewport, text pops on frosted glass -->
-  <section class="relative min-h-screen flex flex-col items-center justify-center px-4">
+  <section class="relative flex flex-col items-center justify-center px-4" style="min-height: calc(100vh - 4.5rem);">
     <div class="relative z-10 max-w-3xl mx-auto text-center">
       <!-- Glass panel behind hero text -->
       <div class="glass-strong rounded-3xl px-8 py-14 sm:px-14 sm:py-20">
@@ -60,16 +60,16 @@ const testimonials = siteConfig.testimonials?.items ?? []
     </div>
     <!-- Scroll chevron -->
     <div class="absolute bottom-8 left-1/2 -translate-x-1/2 scroll-hint">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-5 h-5" style="color: var(--color-secondary);">
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-7 h-7 sm:w-9 sm:h-9" style="color: var(--color-primary);">
         <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
       </svg>
     </div>
   </section>
 
   <!-- Offerings — glass cards, flowing into page -->
-  <section class="py-24 sm:py-32 px-4 -mt-20 relative z-10">
+  <section class="py-12 sm:py-16 px-4 relative z-10">
     <div class="max-w-5xl mx-auto">
-      <div class="text-center mb-16 fade-in">
+      <div class="text-center mb-10 fade-in">
         <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Explore</p>
         <h2 class="text-3xl sm:text-4xl lg:text-5xl font-heading font-bold" style="color: var(--color-dark);">What We Offer</h2>
       </div>
@@ -110,55 +110,42 @@ const testimonials = siteConfig.testimonials?.items ?? []
     </div>
   </section>
 
-  <!-- Testimonials — large editorial quotes on glass -->
+  <!-- Testimonials -->
   {testimonials.length > 0 && (
-    <section class="py-24 sm:py-32 px-4">
+    <section class="py-12 sm:py-16 px-4">
       <div class="max-w-5xl mx-auto">
-        <div class="text-center mb-16 fade-in">
+        <div class="text-center mb-10 fade-in">
           <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Testimonials</p>
           <h2 class="text-3xl sm:text-4xl lg:text-5xl font-heading font-bold" style="color: var(--color-dark);">
             {siteConfig.testimonials?.heading || 'What Our Guests Say'}
           </h2>
         </div>
 
-        <div class="testimonial-scroll flex gap-6 overflow-x-auto pb-6 snap-x snap-mandatory -mx-4 px-4">
+        <div class="grid gap-6 md:grid-cols-3">
           {testimonials.map((t) => (
-            <div class="min-w-full sm:min-w-[75%] flex-shrink-0 snap-center">
-              <blockquote class="glass rounded-2xl p-10 sm:p-14 hover-card">
-                <p class="font-heading italic text-2xl sm:text-3xl lg:text-4xl leading-snug mb-10" style="color: var(--color-dark);">
-                  &ldquo;{t.quote}&rdquo;
-                </p>
-                <footer class="flex items-center gap-4">
-                  <div class="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold text-sm" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent));">
-                    {t.name.charAt(0)}
-                  </div>
-                  <div>
-                    <span class="block font-semibold text-sm" style="color: var(--color-dark);">{t.name}</span>
-                    <span class="block text-xs" style="color: var(--color-muted);">{t.detail}</span>
-                  </div>
-                </footer>
-              </blockquote>
-            </div>
+            <blockquote class="glass rounded-2xl p-8 sm:p-10 hover-card" style="display: flex; flex-direction: column; justify-content: space-between;">
+              <p class="font-heading italic text-lg sm:text-xl leading-relaxed mb-8" style="color: var(--color-dark); display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden;">
+                &ldquo;{t.quote}&rdquo;
+              </p>
+              <footer class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent));">
+                  {t.name.charAt(0)}
+                </div>
+                <div>
+                  <span class="block font-semibold text-sm" style="color: var(--color-dark);">{t.name}</span>
+                  <span class="block text-xs" style="color: var(--color-muted);">{t.detail}</span>
+                </div>
+              </footer>
+            </blockquote>
           ))}
         </div>
-
-        {testimonials.length > 1 && (
-          <div class="flex justify-center gap-2.5 mt-8">
-            {testimonials.map((_, i) => (
-              <div
-                class="w-2 h-2 rounded-full transition-all duration-300"
-                style={`background-color: ${i === 0 ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.2)'};`}
-              />
-            ))}
-          </div>
-        )}
       </div>
     </section>
   )}
 
   <!-- Newsletter -->
   {features.newsletter && (
-    <section class="py-24 sm:py-32 px-4">
+    <section class="py-12 sm:py-16 px-4">
       <div class="glass rounded-2xl max-w-2xl mx-auto px-8 py-14 sm:px-14">
         <Newsletter client:visible />
       </div>
@@ -166,11 +153,3 @@ const testimonials = siteConfig.testimonials?.items ?? []
   )}
 </Layout>
 
-<style>
-  .testimonial-scroll {
-    scrollbar-width: none;
-  }
-  .testimonial-scroll::-webkit-scrollbar {
-    display: none;
-  }
-</style>
