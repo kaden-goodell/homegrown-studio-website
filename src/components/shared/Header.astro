@@ -29,7 +29,7 @@ if (siteConfig.nav && siteConfig.nav.length > 0) {
 const currentPath = Astro.url.pathname
 ---
 
-<header class="sticky top-0 z-50 bg-[var(--color-background)]/80 backdrop-blur-md border-b border-[var(--color-primary)]/10">
+<header id="site-header" class="sticky top-0 z-50 bg-[var(--color-background)]/80 backdrop-blur-md transition-shadow duration-300">
   <nav class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center justify-between h-16">
     <a href="/" class="flex items-center gap-3 no-underline">
       <img
@@ -50,11 +50,12 @@ const currentPath = Astro.url.pathname
           <a
             href={item.href}
             class:list={[
-              'text-sm font-medium no-underline transition-colors duration-200',
+              'nav-link text-sm font-medium no-underline transition-colors duration-200',
               currentPath === item.href
                 ? 'text-[var(--color-primary)]'
                 : 'text-[var(--color-muted)] hover:text-[var(--color-primary)]',
             ]}
+            {...(currentPath === item.href ? { 'data-active': '' } : {})}
           >
             {item.label}
           </a>
@@ -75,7 +76,7 @@ const currentPath = Astro.url.pathname
         <span class="hamburger-line block w-5 h-0.5 bg-[var(--color-text)] rounded transition-all duration-300 origin-center peer-checked:-translate-y-[4px] peer-checked:-rotate-45"></span>
       </label>
 
-      <ul class="mobile-nav hidden peer-checked:flex flex-col absolute top-16 left-0 right-0 bg-[var(--color-background)] border-b border-[var(--color-primary)]/10 shadow-lg list-none m-0 p-4 gap-1">
+      <ul class="mobile-nav hidden peer-checked:flex flex-col absolute top-16 left-0 right-0 bg-[var(--color-background)] border-b border-[var(--color-secondary)]/20 shadow-lg list-none m-0 p-4 gap-1">
         {navItems.map((item) => (
           <li>
             <a
@@ -110,4 +111,40 @@ const currentPath = Astro.url.pathname
   #mobile-menu-toggle:checked ~ .mobile-nav {
     display: flex;
   }
+
+  /* Nav link underline animation */
+  .nav-link {
+    position: relative;
+  }
+  .nav-link::after {
+    content: '';
+    position: absolute;
+    bottom: -4px;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: var(--color-primary);
+    transform: scaleX(0);
+    transform-origin: center;
+    transition: transform 0.3s ease;
+  }
+  .nav-link:hover::after {
+    transform: scaleX(1);
+  }
+  .nav-link[data-active]::after {
+    transform: scaleX(1);
+  }
 </style>
+
+<script>
+  const header = document.getElementById('site-header')
+  function onScroll() {
+    if (window.scrollY > 10) {
+      header?.classList.add('shadow-sm')
+    } else {
+      header?.classList.remove('shadow-sm')
+    }
+  }
+  window.addEventListener('scroll', onScroll, { passive: true })
+  onScroll()
+</script>
