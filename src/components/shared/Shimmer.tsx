@@ -17,7 +17,7 @@ function createParticles(width: number, height: number): Particle[] {
   return Array.from({ length: PARTICLE_COUNT }, () => ({
     x: Math.random() * width,
     y: Math.random() * height,
-    radius: 1.5 + Math.random() * 3,
+    radius: 1 + Math.random() * 2,
     color: COLORS[Math.floor(Math.random() * COLORS.length)],
     maxOpacity: 0.5 + Math.random() * 0.5,
     phase: Math.random(),
