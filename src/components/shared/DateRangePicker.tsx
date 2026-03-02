@@ -6,6 +6,7 @@ interface DateRangePickerProps {
   onStartChange: (date: string) => void
   onEndChange: (date: string) => void
   minDate?: string
+  inline?: boolean
 }
 
 function getDaysInMonth(year: number, month: number) {
@@ -40,17 +41,19 @@ export default function DateRangePicker({
   onStartChange,
   onEndChange,
   minDate,
+  inline = false,
 }: DateRangePickerProps) {
   const today = minDate ?? new Date().toISOString().split('T')[0]
   const todayDate = new Date(today + 'T00:00:00')
 
-  const [open, setOpen] = useState(false)
+  const [open, setOpen] = useState(inline)
   const [picking, setPicking] = useState<Picking>('start')
   const [viewYear, setViewYear] = useState(todayDate.getFullYear())
   const [viewMonth, setViewMonth] = useState(todayDate.getMonth())
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    if (inline) return
     function handleClick(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
         setOpen(false)
@@ -58,7 +61,7 @@ export default function DateRangePicker({
     }
     document.addEventListener('mousedown', handleClick)
     return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
+  }, [inline])
 
   function openFor(field: Picking) {
     setPicking(field)
@@ -107,7 +110,7 @@ export default function DateRangePicker({
         setPicking('end')
       } else {
         onEndChange(dateStr)
-        setOpen(false)
+        if (!inline) setOpen(false)
       }
     }
   }
@@ -141,47 +144,53 @@ export default function DateRangePicker({
 
   return (
     <div ref={containerRef} style={{ position: 'relative', display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-      {/* Start field */}
-      <div>
-        <label style={labelStyle}>Start Date</label>
-        <button
-          type="button"
-          onClick={() => openFor('start')}
-          style={{
-            ...fieldStyle,
-            borderColor: open && picking === 'start' ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.12)',
-            boxShadow: open && picking === 'start' ? '0 0 0 3px rgba(150, 112, 91, 0.1)' : 'none',
-          }}
-        >
-          <span style={{ color: startDate ? 'var(--color-dark)' : 'var(--color-muted)' }}>
-            {startDate ? formatDisplay(startDate) : 'Select date'}
-          </span>
-          <CalendarIcon />
-        </button>
+      {/* Date fields row */}
+      <div style={{ display: 'flex', gap: '1rem' }}>
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>Start Date</label>
+          <button
+            type="button"
+            onClick={() => openFor('start')}
+            style={{
+              ...fieldStyle,
+              borderColor: open && picking === 'start' ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.12)',
+              boxShadow: open && picking === 'start' ? '0 0 0 3px rgba(150, 112, 91, 0.1)' : 'none',
+            }}
+          >
+            <span style={{ color: startDate ? 'var(--color-dark)' : 'var(--color-muted)' }}>
+              {startDate ? formatDisplay(startDate) : 'Select date'}
+            </span>
+            <CalendarIcon />
+          </button>
+        </div>
+
+        <div style={{ flex: 1 }}>
+          <label style={labelStyle}>End Date</label>
+          <button
+            type="button"
+            onClick={() => openFor('end')}
+            style={{
+              ...fieldStyle,
+              borderColor: open && picking === 'end' ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.12)',
+              boxShadow: open && picking === 'end' ? '0 0 0 3px rgba(150, 112, 91, 0.1)' : 'none',
+            }}
+          >
+            <span style={{ color: endDate ? 'var(--color-dark)' : 'var(--color-muted)' }}>
+              {endDate ? formatDisplay(endDate) : 'Select date'}
+            </span>
+            <CalendarIcon />
+          </button>
+        </div>
       </div>
 
-      {/* End field */}
-      <div>
-        <label style={labelStyle}>End Date</label>
-        <button
-          type="button"
-          onClick={() => openFor('end')}
-          style={{
-            ...fieldStyle,
-            borderColor: open && picking === 'end' ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.12)',
-            boxShadow: open && picking === 'end' ? '0 0 0 3px rgba(150, 112, 91, 0.1)' : 'none',
-          }}
-        >
-          <span style={{ color: endDate ? 'var(--color-dark)' : 'var(--color-muted)' }}>
-            {endDate ? formatDisplay(endDate) : 'Select date'}
-          </span>
-          <CalendarIcon />
-        </button>
-      </div>
-
-      {/* Calendar dropdown */}
+      {/* Calendar */}
       {open && (
-        <div style={{
+        <div style={inline ? {
+          background: 'rgba(255, 255, 255, 0.6)',
+          border: '1px solid rgba(150, 112, 91, 0.08)',
+          borderRadius: '1rem',
+          padding: '1.25rem',
+        } : {
           position: 'absolute',
           top: '100%',
           marginTop: '0.5rem',

@@ -19,40 +19,34 @@ export default function EventTypeStep({ eventTypes }: EventTypeStepProps) {
   return (
     <div style={{
       display: 'grid',
-      gap: '1rem',
-      gridTemplateColumns: 'repeat(auto-fill, minmax(240px, 1fr))',
+      gap: '1.25rem',
+      gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
     }}>
       {eventTypes.map((eventType) => (
-        <button
+        <div
           key={eventType.id}
-          type="button"
-          onClick={() => dispatch({ type: 'SET_EVENT_TYPE', payload: eventType })}
           style={{
             display: 'flex',
             flexDirection: 'column',
-            alignItems: 'flex-start',
             padding: '2rem',
-            background: 'rgba(255, 255, 255, 0.85)',
-            backdropFilter: 'blur(16px)',
-            WebkitBackdropFilter: 'blur(16px)',
-            border: '1px solid rgba(150, 112, 91, 0.08)',
+            background: 'linear-gradient(135deg, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.35) 50%, rgba(255,255,255,0.5) 100%)',
+            backdropFilter: 'blur(20px) saturate(1.3)',
+            WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
+            border: '1px solid rgba(255, 255, 255, 0.5)',
             borderRadius: '1rem',
-            textAlign: 'left',
-            cursor: 'pointer',
-            boxShadow: '0 2px 8px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.07)',
-            transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s ease',
+            boxShadow: '0 4px 16px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(150, 112, 91, 0.04)',
+            transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
           }}
           onMouseEnter={(e) => {
-            e.currentTarget.style.transform = 'translateY(-4px) scale(1.02)'
-            e.currentTarget.style.boxShadow = '0 12px 40px rgba(150, 112, 91, 0.12)'
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.95)'
+            e.currentTarget.style.transform = 'translateY(-4px) scale(1.01)'
+            e.currentTarget.style.boxShadow = '0 20px 40px rgba(150, 112, 91, 0.12)'
           }}
           onMouseLeave={(e) => {
             e.currentTarget.style.transform = 'none'
-            e.currentTarget.style.boxShadow = '0 2px 8px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.07)'
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.85)'
+            e.currentTarget.style.boxShadow = '0 4px 16px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(150, 112, 91, 0.04)'
           }}
         >
+          {/* Duration badge */}
           <span style={{
             fontSize: '0.6875rem',
             fontWeight: 500,
@@ -63,39 +57,81 @@ export default function EventTypeStep({ eventTypes }: EventTypeStepProps) {
           }}>
             {formatDuration(eventType.duration)}
           </span>
+
+          {/* Title */}
           <h3 style={{
             fontSize: '1.25rem',
             fontWeight: 600,
             fontFamily: 'var(--font-heading)',
             color: 'var(--color-dark)',
-            margin: '0 0 0.625rem 0',
+            margin: '0 0 0.5rem 0',
             lineHeight: 1.2,
           }}>
             {eventType.name}
           </h3>
+
+          {/* Description */}
           <p style={{
             fontSize: '0.875rem',
             lineHeight: 1.6,
             color: 'var(--color-muted)',
-            margin: 0,
+            margin: '0 0 1rem 0',
+            flex: 1,
           }}>
             {eventType.description}
           </p>
-          <span style={{
-            marginTop: 'auto',
-            paddingTop: '1.25rem',
-            fontSize: '0.8125rem',
-            fontWeight: 500,
-            color: 'var(--color-dark)',
+
+          {/* Metadata row */}
+          <div style={{
             display: 'flex',
-            alignItems: 'center',
-            gap: '0.375rem',
-            transition: 'gap 0.3s ease',
+            justifyContent: 'space-between',
+            alignItems: 'baseline',
+            marginBottom: '1.25rem',
+            paddingTop: '0.75rem',
+            borderTop: '1px solid rgba(150, 112, 91, 0.08)',
           }}>
-            Select
-            <span aria-hidden="true" style={{ fontSize: '0.75rem' }}>&rarr;</span>
-          </span>
-        </button>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+              {eventType.flow === 'quote' ? 'Custom quote' : 'Book online'}
+            </span>
+            {eventType.baseCapacity && (
+              <span style={{
+                fontSize: '0.8125rem',
+                color: 'var(--color-muted)',
+              }}>
+                Up to {eventType.baseCapacity} guests
+              </span>
+            )}
+          </div>
+
+          {/* Select button */}
+          <button
+            type="button"
+            onClick={() => dispatch({ type: 'SET_EVENT_TYPE', payload: eventType })}
+            style={{
+              width: '100%',
+              padding: '0.875rem',
+              background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+              color: '#fff',
+              border: 'none',
+              borderRadius: '0.75rem',
+              fontSize: '0.875rem',
+              fontWeight: 600,
+              cursor: 'pointer',
+              boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
+              transition: 'box-shadow 0.3s ease, transform 0.3s ease',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.boxShadow = '0 8px 25px rgba(150, 112, 91, 0.35)'
+              e.currentTarget.style.transform = 'translateY(-1px)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.boxShadow = '0 4px 15px rgba(150, 112, 91, 0.2)'
+              e.currentTarget.style.transform = 'none'
+            }}
+          >
+            {eventType.flow === 'quote' ? 'Get a Quote' : 'Book Now'}
+          </button>
+        </div>
       ))}
     </div>
   )

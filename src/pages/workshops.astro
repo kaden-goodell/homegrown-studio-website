@@ -50,10 +50,13 @@ for (const eventType of eventTypes) {
 ---
 
 <Layout title="Workshops">
-  <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-24">
-    <div class="text-center mb-14 fade-in">
+  <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-28">
+    <div class="text-center mb-16 fade-in">
       <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Upcoming</p>
       <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">Workshops</h1>
+      <p class="text-lg mt-4 max-w-xl mx-auto" style="color: var(--color-muted);">
+        Drop-in crafting sessions and creative workshops for all skill levels
+      </p>
     </div>
     <WorkshopExplorer client:load workshops={workshops} />
   </section>

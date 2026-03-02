@@ -55,21 +55,21 @@ export default function WorkshopCard({ workshop }: WorkshopCardProps) {
     <div
       className="group relative rounded-2xl overflow-hidden transition-all duration-400"
       style={{
-        background: 'rgba(255, 255, 255, 0.75)',
-        backdropFilter: 'blur(16px)',
-        WebkitBackdropFilter: 'blur(16px)',
-        border: '1px solid rgba(150, 112, 91, 0.06)',
-        boxShadow: '0 2px 8px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.07)',
+        background: 'linear-gradient(135deg, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.35) 50%, rgba(255,255,255,0.5) 100%)',
+        backdropFilter: 'blur(20px) saturate(1.3)',
+        WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
+        border: '1px solid rgba(255, 255, 255, 0.5)',
+        boxShadow: '0 4px 16px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -1px 0 rgba(150, 112, 91, 0.06)',
       }}
       onMouseEnter={(e) => {
         const el = e.currentTarget as HTMLElement
         el.style.transform = 'translateY(-4px) scale(1.02)'
-        el.style.boxShadow = '0 20px 40px rgba(150, 112, 91, 0.12), 0 0 0 1px rgba(212, 165, 116, 0.15)'
+        el.style.boxShadow = '0 20px 40px rgba(150, 112, 91, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8)'
       }}
       onMouseLeave={(e) => {
         const el = e.currentTarget as HTMLElement
         el.style.transform = ''
-        el.style.boxShadow = '0 2px 8px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.07)'
+        el.style.boxShadow = '0 4px 16px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(150, 112, 91, 0.04)'
       }}
     >
       <div className="p-7">

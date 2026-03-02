@@ -13,6 +13,19 @@ function dayHash(dateStr: string, idx: number): number {
   return Math.abs(h + idx * 7)
 }
 
+/** Format a Date as YYYY-MM-DD using local time (avoids UTC date shift). */
+function localDateStr(d: Date): string {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+/** Format a local Date as an ISO-like timestamp string, keeping the local date intact. */
+function localISO(d: Date): string {
+  return `${localDateStr(d)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:00`
+}
+
 export class MockBookingProvider implements BookingProvider {
   private bookings = new Map<string, Booking>()
   private nextId = 1
@@ -25,14 +38,17 @@ export class MockBookingProvider implements BookingProvider {
     teamMemberId?: string
   }): Promise<TimeSlot[]> {
     const slots: TimeSlot[] = []
-    const start = new Date(params.startDate)
-    const end = new Date(params.endDate)
+    // Parse as local dates to avoid UTC date shift
+    const [sy, sm, sd] = params.startDate.split('-').map(Number)
+    const [ey, em, ed] = params.endDate.split('-').map(Number)
+    const start = new Date(sy, sm - 1, sd)
+    const end = new Date(ey, em - 1, ed)
     const hours = [10, 13, 16] // 10am, 1pm, 4pm
 
     // If a specific service variation was requested, generate slots for it
     if (params.serviceVariationId) {
       for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
-        const dateStr = d.toISOString().slice(0, 10)
+        const dateStr = localDateStr(d)
         const count = 2 + (dayHash(dateStr, 99) % 2)
         for (let i = 0; i < count; i++) {
           const slotStart = new Date(d)
@@ -42,8 +58,8 @@ export class MockBookingProvider implements BookingProvider {
 
           slots.push({
             id: `mock-slot-${dateStr}-${i}`,
-            startAt: slotStart.toISOString(),
-            endAt: slotEnd.toISOString(),
+            startAt: localISO(slotStart),
+            endAt: localISO(slotEnd),
             duration: 120,
             locationId: params.locationId,
             teamMemberId: params.teamMemberId,
@@ -59,7 +75,7 @@ export class MockBookingProvider implements BookingProvider {
     const workshopTypes = mockEventTypes.filter(e => e.category === 'workshop')
 
     for (let d = new Date(start); d < end; d.setDate(d.getDate() + 1)) {
-      const dateStr = d.toISOString().slice(0, 10)
+      const dateStr = localDateStr(d)
       const dow = d.getDay()
 
       // Skip Mondays (closed)
@@ -78,8 +94,8 @@ export class MockBookingProvider implements BookingProvider {
 
         slots.push({
           id: `mock-slot-${dateStr}-${wt.id}`,
-          startAt: slotStart.toISOString(),
-          endAt: slotEnd.toISOString(),
+          startAt: localISO(slotStart),
+          endAt: localISO(slotEnd),
           duration: wt.duration,
           locationId: params.locationId,
           serviceVariationId: wt.variations[0]?.id,
@@ -97,8 +113,8 @@ export class MockBookingProvider implements BookingProvider {
 
         slots.push({
           id: `mock-slot-${dateStr}-party-${i}`,
-          startAt: slotStart.toISOString(),
-          endAt: slotEnd.toISOString(),
+          startAt: localISO(slotStart),
+          endAt: localISO(slotEnd),
           duration: 120,
           locationId: params.locationId,
           teamMemberId: params.teamMemberId,

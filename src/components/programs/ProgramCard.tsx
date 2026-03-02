@@ -120,21 +120,22 @@ export default function ProgramCard({ program, onEnroll }: ProgramCardProps) {
         style={{
           width: '100%',
           padding: '0.875rem',
-          background: 'var(--color-primary)',
+          background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
           color: '#fff',
           border: 'none',
           borderRadius: '0.75rem',
           fontSize: '0.875rem',
           fontWeight: 600,
           cursor: 'pointer',
-          transition: 'filter 0.3s ease, transform 0.3s ease',
+          boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
+          transition: 'box-shadow 0.3s ease, transform 0.3s ease',
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.filter = 'brightness(0.9)'
+          e.currentTarget.style.boxShadow = '0 8px 25px rgba(150, 112, 91, 0.35)'
           e.currentTarget.style.transform = 'translateY(-1px)'
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.filter = 'none'
+          e.currentTarget.style.boxShadow = '0 4px 15px rgba(150, 112, 91, 0.2)'
           e.currentTarget.style.transform = 'none'
         }}
       >

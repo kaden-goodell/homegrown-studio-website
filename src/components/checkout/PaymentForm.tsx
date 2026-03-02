@@ -57,7 +57,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     const cardRef = useRef<CardInstance | null>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
-    const isMockMode = !config?.appId || config.appId === ''
+    const isMockMode = !config?.appId || config.appId === '' || config.appId.startsWith('mock-')
 
     // Fetch client config on mount
     useEffect(() => {

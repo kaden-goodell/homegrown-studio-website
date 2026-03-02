@@ -55,6 +55,7 @@ export default function DateSelectionStep({ onSlotsLoaded }: DateSelectionStepPr
         endDate={endDate}
         onStartChange={setStartDate}
         onEndChange={setEndDate}
+        inline
       />
 
       {isQuoteFlow && (
