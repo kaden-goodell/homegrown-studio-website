@@ -20,9 +20,10 @@ const galleryItems = galleryEntries
 
 <Layout title="Gallery" description="A glimpse into our creative space at Homegrown Craft Studio">
   {siteConfig.features.gallery ? (
-    <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
+    <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-28">
       <div class="text-center mb-16">
-        <h1 class="text-4xl sm:text-5xl font-heading font-bold mb-4">Gallery</h1>
+        <h1 class="text-4xl sm:text-5xl font-heading font-bold mb-4" style="color: var(--color-text);">Gallery</h1>
+        <div class="w-16 h-0.5 mx-auto mt-4 mb-4" style="background-color: var(--color-secondary);"></div>
         <p class="text-lg text-[var(--color-muted)] max-w-xl mx-auto">
           A glimpse into our creative space
         </p>
@@ -80,7 +81,8 @@ const galleryItems = galleryEntries
   .gallery-item {
     break-inside: avoid;
     margin-bottom: 1.5rem;
-    background: white;
+    background: #f5f0ea;
+    border: 1px solid rgba(196, 168, 130, 0.2);
   }
 
   .gallery-image {
