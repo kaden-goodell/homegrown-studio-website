@@ -1,0 +1,16 @@
+---
+export const prerender = false
+
+import Layout from '@layouts/Layout.astro'
+import { siteConfig } from '@config/site.config'
+import PartyWizard from '@components/booking/PartyWizard'
+
+const eventTypes = siteConfig.eventTypes
+---
+
+<Layout title="Book">
+  <section class="container mx-auto px-4 py-12">
+    <h1 class="text-4xl font-heading font-bold mb-8">Book Your Experience</h1>
+    <PartyWizard client:load eventTypes={eventTypes} />
+  </section>
+</Layout>
