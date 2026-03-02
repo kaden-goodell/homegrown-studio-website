@@ -11,7 +11,7 @@ interface Particle {
 }
 
 const COLORS = ['#c8943c', '#b8860b', '#daa520', '#cd853f', '#d4a040']
-const PARTICLES_PER_SCREEN = 100
+const PARTICLES_PER_SCREEN = 120
 
 function createParticles(width: number, height: number): Particle[] {
   const screens = (height / window.innerHeight) || 1
@@ -23,7 +23,7 @@ function createParticles(width: number, height: number): Particle[] {
     color: COLORS[Math.floor(Math.random() * COLORS.length)],
     maxOpacity: 0.5 + Math.random() * 0.5,
     phase: Math.random(),
-    speed: 0.15 + Math.random() * 0.35, // cycles per second — completes in 2-6s
+    speed: 0.3 + Math.random() * 0.7, // cycles per second — completes in 1-3s
   }))
 }
 
