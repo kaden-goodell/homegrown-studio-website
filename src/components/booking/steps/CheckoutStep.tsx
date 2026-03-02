@@ -56,9 +56,10 @@ export default function CheckoutStep() {
     const items: LineItem[] = []
 
     if (state.eventType) {
-      // Use first variation price from catalog as the base price
-      const variation = catalogEvent?.variations?.[0]
-      const basePrice = variation?.priceAmount ?? 0
+      // Use basePrice from config, fall back to catalog variation
+      const basePrice = state.eventType.basePrice
+        ?? catalogEvent?.variations?.[0]?.priceAmount
+        ?? 0
 
       items.push({
         name: state.eventType.name,
