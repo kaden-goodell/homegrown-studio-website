@@ -1,4 +1,5 @@
 import type { SiteConfig } from './site.config'
+import { siteConfig } from './site.config'
 import type { BookingProvider } from '@providers/interfaces/booking'
 import type { PaymentProvider } from '@providers/interfaces/payment'
 import type { CatalogProvider } from '@providers/interfaces/catalog'
@@ -45,3 +46,6 @@ export function createProviders(config: SiteConfig): Providers {
     notification: new SlackNotificationProvider(config.providers.notification.config),
   }
 }
+
+/** Singleton providers instance using the default site config */
+export const providers: Providers = createProviders(siteConfig)
