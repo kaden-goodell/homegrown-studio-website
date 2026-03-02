@@ -27,7 +27,7 @@ function formatDate(dateStr: string): string {
 }
 
 export default function AvailableSlotsStep({ slots }: AvailableSlotsStepProps) {
-  const { dispatch } = useWizard()
+  const { state, dispatch } = useWizard()
 
   if (slots.length === 0) {
     return (
@@ -44,7 +44,9 @@ export default function AvailableSlotsStep({ slots }: AvailableSlotsStepProps) {
 
   function handleSelect(slot: TimeSlot) {
     dispatch({ type: 'SET_SLOT', payload: slot })
-    dispatch({ type: 'GO_TO_STEP', payload: 3 })
+    // Skip PartyType + Details steps if no catalog category (e.g. corporate)
+    const nextStep = state.eventType?.catalogCategory ? 3 : 5
+    dispatch({ type: 'GO_TO_STEP', payload: nextStep })
   }
 
   return (

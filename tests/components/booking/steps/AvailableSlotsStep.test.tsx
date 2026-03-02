@@ -5,7 +5,12 @@ import type { TimeSlot } from '@providers/interfaces/booking'
 const mockDispatch = vi.fn()
 
 vi.mock('@components/booking/WizardContext', () => ({
-  useWizard: () => ({ state: {}, dispatch: mockDispatch }),
+  useWizard: () => ({
+    state: {
+      eventType: { id: 'birthday', name: 'Kids Party', catalogCategory: 'kids-party', flow: 'booking', duration: 120, allowAddOns: true, allowExtraGuests: true },
+    },
+    dispatch: mockDispatch,
+  }),
 }))
 
 import AvailableSlotsStep from '@components/booking/steps/AvailableSlotsStep'
