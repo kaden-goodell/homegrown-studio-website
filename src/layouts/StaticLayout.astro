@@ -1,0 +1,73 @@
+---
+import { siteConfig } from '@config/site.config'
+import Header from '@components/shared/Header.astro'
+import Footer from '@components/shared/Footer.astro'
+import '@styles/global.css'
+import '@styles/textures.css'
+import '@styles/animations.css'
+
+interface Props {
+  title?: string
+  description?: string
+}
+
+const { title, description } = Astro.props
+const pageTitle = title ? `${title} | ${siteConfig.name}` : siteConfig.name
+const pageDescription = description || siteConfig.tagline
+const { colors, fonts, textures } = siteConfig.theme
+const textureClass = `texture-${textures.background}`
+
+const headingFont = fonts.heading.replace(/ /g, '+')
+const bodyFont = fonts.body.replace(/ /g, '+')
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={pageDescription} />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" href="/favicon.ico" />
+    <title>{pageTitle}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href={`https://fonts.googleapis.com/css2?family=${headingFont}:wght@400;500;600;700&display=swap`}
+      rel="stylesheet"
+    />
+    <link
+      href={`https://fonts.googleapis.com/css2?family=${bodyFont}:wght@400;500;600;700&display=swap`}
+      rel="stylesheet"
+    />
+    <style
+      define:vars={{
+        'color-primary': colors.primary,
+        'color-secondary': colors.secondary,
+        'color-accent': colors.accent,
+        'color-background': colors.background,
+        'color-text': colors.text,
+        'color-muted': colors.muted,
+        'font-heading': `'${fonts.heading}', serif`,
+        'font-body': `'${fonts.body}', sans-serif`,
+      }}
+    >
+      body {
+        font-family: var(--font-body);
+        color: var(--color-text);
+        background-color: var(--color-background);
+      }
+      h1, h2, h3, h4, h5, h6,
+      .font-heading {
+        font-family: var(--font-heading);
+      }
+    </style>
+  </head>
+  <body class={textureClass}>
+    <Header />
+    <main>
+      <slot />
+    </main>
+    <Footer />
+    <script>import '@lib/fade-in'</script>
+  </body>
+</html>

@@ -1,10 +1,11 @@
-import { useState, useRef } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useWizard } from '@components/booking/WizardContext'
 import OrderSummary from '@components/checkout/OrderSummary'
 import CouponInput from '@components/checkout/CouponInput'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
 import type { LineItem, Discount } from '@providers/interfaces/payment'
+import type { EventType, AddOn } from '@providers/interfaces/catalog'
 
 export default function CheckoutStep() {
   const { state, dispatch } = useWizard()
@@ -15,6 +16,32 @@ export default function CheckoutStep() {
   const [phone, setPhone] = useState(state.customerInfo?.phone ?? '')
   const [processing, setProcessing] = useState(false)
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
+  const [catalogEvent, setCatalogEvent] = useState<EventType | null>(null)
+  const [catalogAddOns, setCatalogAddOns] = useState<AddOn[]>([])
+
+  // Fetch catalog data (variations + add-ons) for the selected event type
+  useEffect(() => {
+    if (!state.eventType) return
+
+    const eventId = state.eventType.id
+
+    Promise.all([
+      fetch('/api/catalog/event-types.json')
+        .then((res) => res.json())
+        .then((data) => {
+          const events: EventType[] = data.data ?? data
+          return events.find((e) => e.id === eventId) ?? null
+        })
+        .catch(() => null),
+      fetch(`/api/catalog/add-ons.json?eventTypeId=${eventId}`)
+        .then((res) => res.json())
+        .then((data) => (data.data ?? data) as AddOn[])
+        .catch(() => [] as AddOn[]),
+    ]).then(([event, addOns]) => {
+      setCatalogEvent(event)
+      setCatalogAddOns(addOns)
+    })
+  }, [state.eventType])
 
   const lineItems: LineItem[] = buildLineItems()
   const subtotal = lineItems.reduce((sum, item) => sum + item.pricePerUnit * item.quantity, 0)
@@ -27,13 +54,48 @@ export default function CheckoutStep() {
 
   function buildLineItems(): LineItem[] {
     const items: LineItem[] = []
+
     if (state.eventType) {
+      // Use first variation price from catalog as the base price
+      const variation = catalogEvent?.variations?.[0]
+      const basePrice = variation?.priceAmount ?? 0
+
       items.push({
         name: state.eventType.name,
         quantity: 1,
-        pricePerUnit: 0,
+        pricePerUnit: basePrice,
       })
+
+      // Add extra guest charges
+      if (
+        state.eventType.allowExtraGuests &&
+        state.eventType.extraGuestPrice &&
+        state.eventType.baseCapacity &&
+        state.guestCount > state.eventType.baseCapacity
+      ) {
+        const extraGuests = state.guestCount - state.eventType.baseCapacity
+        items.push({
+          name: `Extra Guest (x${extraGuests})`,
+          quantity: extraGuests,
+          pricePerUnit: state.eventType.extraGuestPrice,
+        })
+      }
+
+      // Add selected add-ons
+      if (state.selectedAddOns?.length && catalogAddOns.length) {
+        for (const addonId of state.selectedAddOns) {
+          const addon = catalogAddOns.find((m) => m.id === addonId)
+          if (addon) {
+            items.push({
+              name: addon.name,
+              quantity: 1,
+              pricePerUnit: addon.priceAmount,
+            })
+          }
+        }
+      }
     }
+
     return items
   }
 
@@ -57,10 +119,16 @@ export default function CheckoutStep() {
         payload: { name: name.trim(), email: email.trim(), phone: phone.trim() },
       })
 
+      const [firstName, ...lastParts] = name.trim().split(' ')
       const customerRes = await fetch('/api/customer/find-or-create.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: name.trim(), email: email.trim(), phone: phone.trim() }),
+        body: JSON.stringify({
+          givenName: firstName,
+          familyName: lastParts.join(' ') || firstName,
+          email: email.trim(),
+          phone: phone.trim(),
+        }),
       })
       if (!customerRes.ok) throw new Error('Failed to create customer')
       const customerData = await customerRes.json()
