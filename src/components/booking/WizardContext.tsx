@@ -2,10 +2,12 @@ import { createContext, useContext, useReducer, type ReactNode } from 'react'
 import type { EventTypeConfig } from '@config/site.config'
 import type { TimeSlot } from '@providers/interfaces/booking'
 import type { Discount } from '@providers/interfaces/payment'
+import type { EventType } from '@providers/interfaces/catalog'
 
 export interface WizardState {
   currentStep: number
   eventType: EventTypeConfig | null
+  selectedPartyType: EventType | null
   selectedDates: { start: string; end: string } | null
   desiredDuration: number | null
   selectedSlot: TimeSlot | null
@@ -23,6 +25,7 @@ export interface WizardState {
 
 export type WizardAction =
   | { type: 'SET_EVENT_TYPE'; payload: EventTypeConfig }
+  | { type: 'SET_PARTY_TYPE'; payload: EventType }
   | { type: 'SET_DATES'; payload: { start: string; end: string } }
   | { type: 'SET_SLOT'; payload: TimeSlot }
   | { type: 'SET_GUEST_COUNT'; payload: number }
@@ -41,6 +44,7 @@ export type WizardAction =
 export const initialState: WizardState = {
   currentStep: 0,
   eventType: null,
+  selectedPartyType: null,
   selectedDates: null,
   desiredDuration: null,
   selectedSlot: null,
@@ -60,6 +64,8 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
   switch (action.type) {
     case 'SET_EVENT_TYPE':
       return { ...state, eventType: action.payload, currentStep: 1, guestCount: action.payload.baseCapacity ?? 1 }
+    case 'SET_PARTY_TYPE':
+      return { ...state, selectedPartyType: action.payload }
     case 'SET_DATES':
       return { ...state, selectedDates: action.payload }
     case 'SET_SLOT':

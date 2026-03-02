@@ -74,4 +74,35 @@ describe('wizardReducer', () => {
     const next = wizardReducer(initialState, action)
     expect(next.paymentStatus).toBe('processing')
   })
+
+  it('SET_PARTY_TYPE stores the selected party type', () => {
+    const partyType = {
+      id: 'kids-slime',
+      name: 'Slime Party',
+      description: 'Gooey fun',
+      category: 'kids-party',
+      duration: 120,
+      flow: 'booking' as const,
+      variations: [{ id: 'kids-slime-base', name: 'Base Package', priceAmount: 40000, priceCurrency: 'USD' }],
+      modifiers: [],
+    }
+    const result = wizardReducer(initialState, { type: 'SET_PARTY_TYPE', payload: partyType })
+    expect(result.selectedPartyType).toEqual(partyType)
+  })
+
+  it('RESET clears selectedPartyType', () => {
+    const partyType = {
+      id: 'kids-slime',
+      name: 'Slime Party',
+      description: 'Gooey fun',
+      category: 'kids-party',
+      duration: 120,
+      flow: 'booking' as const,
+      variations: [{ id: 'kids-slime-base', name: 'Base Package', priceAmount: 40000, priceCurrency: 'USD' }],
+      modifiers: [],
+    }
+    let state = wizardReducer(initialState, { type: 'SET_PARTY_TYPE', payload: partyType })
+    const result = wizardReducer(state, { type: 'RESET' })
+    expect(result.selectedPartyType).toBeNull()
+  })
 })

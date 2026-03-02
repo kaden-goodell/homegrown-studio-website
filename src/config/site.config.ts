@@ -114,6 +114,7 @@ export interface EventTypeConfig {
   maxCapacity?: number
   basePrice?: number
   catalogItemId?: string
+  catalogCategory?: string
 }
 
 export interface SquareConfig {
@@ -165,6 +166,7 @@ const partyTypes: EventTypeConfig[] = [
     maxCapacity: 20,
     basePrice: 40000, // $400
     catalogItemId: 'birthday-party-package',
+    catalogCategory: 'kids-party',
   },
   {
     id: 'adult-party',
@@ -180,6 +182,7 @@ const partyTypes: EventTypeConfig[] = [
     maxCapacity: 36,
     basePrice: 40000, // $400
     catalogItemId: 'adult-party-package',
+    catalogCategory: 'adult-party',
   },
 ]
 
