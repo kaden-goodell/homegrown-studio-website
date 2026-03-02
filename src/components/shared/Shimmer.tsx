@@ -10,16 +10,16 @@ interface Particle {
   speed: number      // how fast it cycles
 }
 
-const COLORS = ['#d4a574', '#c4a882', '#e8c89a', '#f0d9b5']
-const PARTICLE_COUNT = 60
+const COLORS = ['#c8943c', '#b8860b', '#daa520', '#cd853f', '#d4a040']
+const PARTICLE_COUNT = 100
 
 function createParticles(width: number, height: number): Particle[] {
   return Array.from({ length: PARTICLE_COUNT }, () => ({
     x: Math.random() * width,
     y: Math.random() * height,
-    radius: 1 + Math.random() * 2,
+    radius: 1.5 + Math.random() * 3,
     color: COLORS[Math.floor(Math.random() * COLORS.length)],
-    maxOpacity: 0.4 + Math.random() * 0.4,
+    maxOpacity: 0.5 + Math.random() * 0.5,
     phase: Math.random(),
     speed: 0.15 + Math.random() * 0.35, // cycles per second — completes in 2-6s
   }))
