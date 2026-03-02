@@ -9,6 +9,8 @@ interface SearchViewProps {
 export default function SearchView({ workshops }: SearchViewProps) {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState('all')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
 
   const categories = useMemo(() => {
     const unique = Array.from(new Set(workshops.map((w) => w.category)))
@@ -20,9 +22,11 @@ export default function SearchView({ workshops }: SearchViewProps) {
     return workshops.filter((w) => {
       const matchesQuery = w.name.toLowerCase().includes(query.toLowerCase())
       const matchesCategory = category === 'all' || w.category === category
-      return matchesQuery && matchesCategory
+      const afterFrom = !dateFrom || w.date >= dateFrom
+      const beforeTo = !dateTo || w.date <= dateTo
+      return matchesQuery && matchesCategory && afterFrom && beforeTo
     })
-  }, [workshops, query, category])
+  }, [workshops, query, category, dateFrom, dateTo])
 
   return (
     <div>
@@ -38,6 +42,35 @@ export default function SearchView({ workshops }: SearchViewProps) {
             backdropFilter: 'blur(12px)',
             border: '1px solid rgba(150, 112, 91, 0.06)',
             color: 'var(--color-text)',
+          }}
+        />
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          aria-label="From date"
+          placeholder="From"
+          className="rounded-xl px-5 py-3 text-sm focus:outline-none focus:ring-2 transition-all"
+          style={{
+            background: 'rgba(255, 255, 255, 0.75)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(150, 112, 91, 0.06)',
+            color: dateFrom ? 'var(--color-text)' : 'var(--color-muted)',
+          }}
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          aria-label="To date"
+          placeholder="To"
+          min={dateFrom || undefined}
+          className="rounded-xl px-5 py-3 text-sm focus:outline-none focus:ring-2 transition-all"
+          style={{
+            background: 'rgba(255, 255, 255, 0.75)',
+            backdropFilter: 'blur(12px)',
+            border: '1px solid rgba(150, 112, 91, 0.06)',
+            color: dateTo ? 'var(--color-text)' : 'var(--color-muted)',
           }}
         />
         <select

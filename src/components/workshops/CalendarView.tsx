@@ -167,24 +167,24 @@ export default function CalendarView({ workshops }: CalendarViewProps) {
       <div style={{
         display: 'grid',
         gridTemplateColumns: 'repeat(7, 1fr)',
-        gap: '2px',
+        gap: '4px',
       }}>
         {cells.map((day, i) => {
           if (day === null) return <div key={`empty-${i}`} />
-          const hasWorkshops = workshopsByDay.has(day)
+          const dayWorkshops = workshopsByDay.get(day) ?? []
+          const hasWorkshops = dayWorkshops.length > 0
           const isSelected = selectedDay === day
           return (
             <button
               key={day}
               onClick={() => handleDayClick(day)}
               style={{
-                position: 'relative',
                 width: '100%',
-                aspectRatio: '1',
+                minHeight: '5.5rem',
                 display: 'flex',
                 flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
+                alignItems: 'stretch',
+                padding: '0.25rem 0.3rem',
                 fontSize: '0.8125rem',
                 fontWeight: isSelected ? 600 : 400,
                 color: isSelected
@@ -198,33 +198,52 @@ export default function CalendarView({ workshops }: CalendarViewProps) {
                 border: 'none',
                 borderRadius: '0.5rem',
                 cursor: hasWorkshops ? 'pointer' : 'default',
-                transition: 'background 0.2s ease, transform 0.15s ease',
+                transition: 'background 0.2s ease',
+                textAlign: 'left',
               }}
               onMouseEnter={(e) => {
                 if (hasWorkshops && !isSelected) {
-                  e.currentTarget.style.background = 'rgba(150, 112, 91, 0.1)'
-                  e.currentTarget.style.transform = 'scale(1.1)'
+                  e.currentTarget.style.background = 'rgba(150, 112, 91, 0.08)'
                 }
               }}
               onMouseLeave={(e) => {
                 if (hasWorkshops && !isSelected) {
                   e.currentTarget.style.background = 'transparent'
-                  e.currentTarget.style.transform = 'none'
                 }
               }}
             >
-              {day}
-              {hasWorkshops && (
+              <span style={{
+                fontSize: '0.6875rem',
+                fontWeight: 500,
+                marginBottom: '0.125rem',
+              }}>
+                {day}
+              </span>
+              {dayWorkshops.slice(0, 2).map((w) => (
+                <span
+                  key={w.id}
+                  style={{
+                    display: 'block',
+                    fontSize: '0.625rem',
+                    lineHeight: 1.3,
+                    fontWeight: 500,
+                    color: isSelected ? 'rgba(255,255,255,0.85)' : 'var(--color-primary)',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                    marginBottom: '2px',
+                  }}
+                >
+                  {w.name}
+                </span>
+              ))}
+              {dayWorkshops.length > 2 && (
                 <span style={{
-                  position: 'absolute',
-                  bottom: '4px',
-                  left: '50%',
-                  transform: 'translateX(-50%)',
-                  width: '4px',
-                  height: '4px',
-                  borderRadius: '50%',
-                  background: isSelected ? '#fff' : 'var(--color-primary)',
-                }} />
+                  fontSize: '0.5625rem',
+                  color: isSelected ? 'rgba(255,255,255,0.6)' : 'var(--color-muted)',
+                }}>
+                  +{dayWorkshops.length - 2} more
+                </span>
               )}
             </button>
           )
