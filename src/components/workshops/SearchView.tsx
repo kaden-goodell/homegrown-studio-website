@@ -64,35 +64,41 @@ export default function SearchView({ workshops }: SearchViewProps) {
             color: 'var(--color-text)',
           }}
         />
-        <input
-          type="date"
-          value={dateFrom}
-          onChange={(e) => { setDateFrom(e.target.value); setPage(0) }}
-          aria-label="From date"
-          placeholder="From"
-          className="rounded-xl px-5 py-3 text-sm focus:outline-none focus:ring-2 transition-all"
-          style={{
-            background: 'rgba(255, 255, 255, 0.75)',
-            backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(150, 112, 91, 0.06)',
-            color: dateFrom ? 'var(--color-text)' : 'var(--color-muted)',
-          }}
-        />
-        <input
-          type="date"
-          value={dateTo}
-          onChange={(e) => { setDateTo(e.target.value); setPage(0) }}
-          aria-label="To date"
-          placeholder="To"
-          min={dateFrom || undefined}
-          className="rounded-xl px-5 py-3 text-sm focus:outline-none focus:ring-2 transition-all"
-          style={{
-            background: 'rgba(255, 255, 255, 0.75)',
-            backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(150, 112, 91, 0.06)',
-            color: dateTo ? 'var(--color-text)' : 'var(--color-muted)',
-          }}
-        />
+        <div className="flex gap-3 flex-1 sm:flex-none">
+          <div style={{ flex: 1 }}>
+            <label style={{ display: 'block', fontSize: '0.625rem', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-muted)', marginBottom: '0.25rem' }}>From</label>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => { setDateFrom(e.target.value); setPage(0) }}
+              aria-label="From date"
+              className="w-full rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all"
+              style={{
+                background: 'rgba(255, 255, 255, 0.75)',
+                backdropFilter: 'blur(12px)',
+                border: '1px solid rgba(150, 112, 91, 0.06)',
+                color: dateFrom ? 'var(--color-text)' : 'var(--color-muted)',
+              }}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <label style={{ display: 'block', fontSize: '0.625rem', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-muted)', marginBottom: '0.25rem' }}>To</label>
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => { setDateTo(e.target.value); setPage(0) }}
+              aria-label="To date"
+              min={dateFrom || undefined}
+              className="w-full rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 transition-all"
+              style={{
+                background: 'rgba(255, 255, 255, 0.75)',
+                backdropFilter: 'blur(12px)',
+                border: '1px solid rgba(150, 112, 91, 0.06)',
+                color: dateTo ? 'var(--color-text)' : 'var(--color-muted)',
+              }}
+            />
+          </div>
+        </div>
       </div>
 
       <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
