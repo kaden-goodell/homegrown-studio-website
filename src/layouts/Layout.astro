@@ -2,6 +2,7 @@
 import { siteConfig } from '@config/site.config'
 import Header from '@components/shared/Header.astro'
 import Footer from '@components/shared/Footer.astro'
+import Shimmer from '@components/shared/Shimmer'
 import '@styles/global.css'
 import '@styles/textures.css'
 import '@styles/animations.css'
@@ -63,11 +64,13 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     </style>
   </head>
   <body class={textureClass}>
+    <Shimmer enabled={siteConfig.theme.animations.particles} client:load />
     <Header />
     <main>
       <slot />
     </main>
     <Footer />
+    <script>import '@lib/fade-in'</script>
     {siteConfig.analytics.provider === 'posthog' && siteConfig.analytics.config.apiKey && (
       <script
         is:inline
