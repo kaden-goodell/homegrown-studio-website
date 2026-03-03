@@ -49,6 +49,7 @@ export interface PaymentProvider {
     paymentToken: string
     amount: number
     currency: string
+    buyerEmailAddress?: string
   }): Promise<Payment>
 
   getClientConfig(): PaymentClientConfig

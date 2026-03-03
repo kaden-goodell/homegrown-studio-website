@@ -1,17 +1,15 @@
-import { SquareClient } from 'square'
 import type { Customer, CustomerProvider } from '@providers/interfaces/customer'
 import type { SquareConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
+import { createSquareClient } from './client'
 
 const logger = createLogger('square-customer')
 
 export class SquareCustomerProvider implements CustomerProvider {
-  private client: SquareClient
+  private client: ReturnType<typeof createSquareClient>
 
   constructor(config: SquareConfig) {
-    this.client = new SquareClient({
-      token: config.accessToken,
-    })
+    this.client = createSquareClient(config)
   }
 
   async findOrCreate(params: {

@@ -13,7 +13,6 @@ interface ProgramSession {
 interface ProgramForRoster {
   id: string
   name: string
-  instructorEmail: string
   schedule: { days: string; time: string }
   sessions: ProgramSession[]
 }

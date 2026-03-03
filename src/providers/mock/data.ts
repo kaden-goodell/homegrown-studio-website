@@ -243,7 +243,7 @@ export const mockEventTypes: EventType[] = [
     schedule: { days: 'Mon–Thu', time: '9:00 AM – 12:30 PM', totalHours: 3.5 },
     pricePerHead: 22500,
     maxCapacity: 12,
-    instructorEmail: 'instructor@homegrowncraftstudio.com',
+    programDates: 'Jun 8 – Jul 2, 2026',
     variations: [
       { id: 'summer-wk1', name: 'Week 1 (Jun 8-11)', priceAmount: 22500, priceCurrency: 'USD', startDate: '2026-06-08', endDate: '2026-06-11' },
       { id: 'summer-wk2', name: 'Week 2 (Jun 15-18)', priceAmount: 22500, priceCurrency: 'USD', startDate: '2026-06-15', endDate: '2026-06-18' },
@@ -265,7 +265,7 @@ export const mockEventTypes: EventType[] = [
     schedule: { days: 'Wednesdays', time: '10:00 AM – 1:00 PM', totalHours: 3 },
     pricePerHead: 45000,
     maxCapacity: 10,
-    instructorEmail: 'instructor@homegrowncraftstudio.com',
+    programDates: 'Jan 15 – Apr 22, 2026',
     variations: [
       { id: 'homeschool-spring-26', name: 'Spring 2026 Semester', priceAmount: 45000, priceCurrency: 'USD', startDate: '2026-01-15', endDate: '2026-04-22' },
     ],
@@ -284,7 +284,7 @@ export const mockEventTypes: EventType[] = [
     schedule: { days: 'Mon–Thu', time: '9:00 AM – 12:00 PM', totalHours: 3 },
     pricePerHead: 17500,
     maxCapacity: 12,
-    instructorEmail: 'instructor@homegrowncraftstudio.com',
+    programDates: 'Dec 21 – 31, 2026',
     variations: [
       { id: 'winter-wk1', name: 'Week 1 (Dec 21-24)', priceAmount: 17500, priceCurrency: 'USD', startDate: '2026-12-21', endDate: '2026-12-24' },
       { id: 'winter-wk2', name: 'Week 2 (Dec 28-31)', priceAmount: 17500, priceCurrency: 'USD', startDate: '2026-12-28', endDate: '2026-12-31' },

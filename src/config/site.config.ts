@@ -97,7 +97,7 @@ export interface ProgramConfig {
   }
   sessions: ProgramSessionConfig[]
   catalogItemId?: string
-  instructorEmail: string
+  programDates: string
 }
 
 export interface EventTypeConfig {
@@ -139,15 +139,21 @@ export interface NavItem {
   icon?: string
 }
 
-const providerMode = (typeof process !== 'undefined' && process.env?.PROVIDER_MODE) || 'mock'
+// Vite/Astro loads .env into import.meta.env for server-side code;
+// process.env is available in production runtimes (Netlify) and scripts.
+const env = typeof import.meta !== 'undefined' && (import.meta as any).env
+  ? (import.meta as any).env
+  : typeof process !== 'undefined' ? process.env : {}
+
+const providerMode = env.PROVIDER_MODE || 'mock'
 const isSquare = providerMode === 'square'
 
 const squareConfig: SquareConfig | Record<string, never> = isSquare
   ? {
-      accessToken: process.env.SQUARE_ACCESS_TOKEN || '',
-      environment: (process.env.SQUARE_ENVIRONMENT as 'sandbox' | 'production') || 'sandbox',
-      locationId: process.env.SQUARE_LOCATION_ID || '',
-      applicationId: process.env.SQUARE_APPLICATION_ID || '',
+      accessToken: env.SQUARE_ACCESS_TOKEN || '',
+      environment: (env.SQUARE_ENVIRONMENT as 'sandbox' | 'production') || 'sandbox',
+      locationId: env.SQUARE_LOCATION_ID || '',
+      applicationId: env.SQUARE_APPLICATION_ID || '',
     }
   : {}
 
@@ -252,7 +258,7 @@ export const siteConfig: SiteConfig = {
             { id: 'summer-wk3', name: 'Week 3', startDate: '2026-06-22', endDate: '2026-06-25' },
             { id: 'summer-wk4', name: 'Week 4', startDate: '2026-06-29', endDate: '2026-07-02' },
           ],
-          instructorEmail: 'instructor@homegrowncraftstudio.com',
+          programDates: '',
         },
         {
           id: 'homeschool-spring',
@@ -276,7 +282,7 @@ export const siteConfig: SiteConfig = {
               endDate: '2026-05-21',
             },
           ],
-          instructorEmail: 'instructor@homegrowncraftstudio.com',
+          programDates: '',
         },
         {
           id: 'winter-break-camp',
@@ -296,7 +302,7 @@ export const siteConfig: SiteConfig = {
             { id: 'winter-wk1', name: 'Week 1', startDate: '2026-12-21', endDate: '2026-12-24' },
             { id: 'winter-wk2', name: 'Week 2', startDate: '2026-12-28', endDate: '2026-12-31' },
           ],
-          instructorEmail: 'instructor@homegrowncraftstudio.com',
+          programDates: '',
         },
       ],
     },
@@ -327,7 +333,7 @@ export const siteConfig: SiteConfig = {
       type: isSquare ? 'square-internal' : 'none',
       ...(isSquare && {
         config: {
-          unitToken: process.env.SQUARE_UNIT_TOKEN || '',
+          unitToken: env.SQUARE_UNIT_TOKEN || '',
         },
       }),
     },
@@ -335,7 +341,7 @@ export const siteConfig: SiteConfig = {
     notification: {
       type: 'slack',
       config: {
-        webhookUrl: (typeof process !== 'undefined' && process.env?.SLACK_WEBHOOK_URL) || '',
+        webhookUrl: env.SLACK_WEBHOOK_URL || '',
         channel: '#bookings',
       },
     },
@@ -343,8 +349,8 @@ export const siteConfig: SiteConfig = {
   analytics: {
     provider: 'posthog',
     config: {
-      apiKey: (typeof process !== 'undefined' && process.env?.POSTHOG_API_KEY) || '',
-      host: (typeof process !== 'undefined' && process.env?.POSTHOG_HOST) || 'https://app.posthog.com',
+      apiKey: env.POSTHOG_API_KEY || '',
+      host: env.POSTHOG_HOST || 'https://app.posthog.com',
     },
   },
   testimonials: {

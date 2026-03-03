@@ -16,6 +16,9 @@ export interface WorkshopData {
   price: number
   currency: string
   remainingSeats: number | null
+  classScheduleId?: string
+  classScheduleInstanceId?: string
+  teamMemberId?: string
 }
 
 export interface WorkshopExplorerProps {

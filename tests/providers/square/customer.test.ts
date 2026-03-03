@@ -12,6 +12,7 @@ vi.mock('square', () => {
       }
       constructor(_opts: any) {}
     },
+    SquareEnvironment: { Production: 'production', Sandbox: 'sandbox' },
   }
 })
 

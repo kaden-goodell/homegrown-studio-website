@@ -74,15 +74,20 @@ export default function ProgramCard({ program, onEnroll }: ProgramCardProps) {
         {program.name}
       </h3>
 
-      {/* Age range */}
-      {program.ageRange && (
-        <span style={{
+      {/* Age range + date range */}
+      {(program.ageRange || program.programDates) && (
+        <div style={{
+          display: 'flex',
+          gap: '0.75rem',
+          flexWrap: 'wrap',
           fontSize: '0.75rem',
           color: 'var(--color-muted)',
           marginBottom: '0.625rem',
         }}>
-          {formatAgeRange(program.ageRange)}
-        </span>
+          {program.ageRange && <span>{formatAgeRange(program.ageRange)}</span>}
+          {program.ageRange && program.programDates && <span>&middot;</span>}
+          {program.programDates && <span>{program.programDates}</span>}
+        </div>
       )}
 
       {/* Description */}

@@ -97,6 +97,7 @@ export default function PaymentStep() {
           paymentToken: token,
           amount: orderData.data.totalAmount,
           currency: 'USD',
+          buyerEmailAddress: parentInfo.email,
         }),
       })
       if (!paymentRes.ok) throw new Error('Payment failed')

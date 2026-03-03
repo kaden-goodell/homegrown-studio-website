@@ -99,54 +99,48 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
   }
 
   async function handlePay() {
+    // Prevent double-submit
+    if (processing) return
+
     setError(null)
     setProcessing(true)
 
     try {
-      const customerRes = await fetch('/api/customer/find-or-create.json', {
+      // Step 1: Tokenize card
+      let token: string
+      try {
+        token = await paymentFormRef.current!.tokenize()
+      } catch (tokenErr) {
+        throw new Error('Could not process your card. Please check your details and try again.')
+      }
+
+      // Step 2: Book + pay on server
+      const bookRes = await fetch('/api/workshops/book.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          givenName: firstName.trim(),
-          familyName: lastName.trim() || firstName.trim(),
-          email: email.trim(),
-          phone: phone.trim(),
-        }),
-      })
-      if (!customerRes.ok) throw new Error('Failed to create customer')
-      const customerData = await customerRes.json()
-
-      const orderRes = await fetch('/api/checkout/create-order.json', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          customerId: customerData.data.id,
-          lineItems,
-          discounts: discount ? [discount] : [],
-        }),
-      })
-      if (!orderRes.ok) throw new Error('Failed to create order')
-      const orderData = await orderRes.json()
-
-      const token = await paymentFormRef.current!.tokenize()
-
-      const paymentRes = await fetch('/api/checkout/process-payment.json', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          orderId: orderData.data.id,
+          classScheduleId: workshop.classScheduleId,
+          startAt: workshop.startTime,
+          customer: {
+            givenName: firstName.trim(),
+            familyName: lastName.trim() || firstName.trim(),
+            email: email.trim(),
+          },
+          seats,
           paymentToken: token,
-          amount: orderData.data.totalAmount,
-          currency: workshop.currency,
         }),
       })
-      if (!paymentRes.ok) throw new Error('Payment failed')
-      const paymentData = await paymentRes.json()
 
-      setReceiptUrl(paymentData.data.receiptUrl ?? null)
+      if (!bookRes.ok) {
+        const errData = await bookRes.json().catch(() => null)
+        throw new Error(errData?.detail ?? 'Booking failed. Your card was not charged.')
+      }
+
+      const bookData = await bookRes.json()
+      setReceiptUrl(bookData.data.receiptUrl ?? null)
       setCompleted(true)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred')
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.')
     } finally {
       setProcessing(false)
     }
@@ -464,7 +458,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
             </div>
 
             <div style={{ marginTop: '1rem' }}>
-              <PaymentForm ref={paymentFormRef} />
+              <PaymentForm ref={paymentFormRef} applicationIdOverride="sq0idp-0WpGrONcXfCcfav3Lkd9Jg" environmentOverride="production" />
             </div>
 
             {error && (

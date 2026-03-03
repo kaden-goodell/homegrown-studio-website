@@ -1,4 +1,3 @@
-import { SquareClient } from 'square'
 import type {
   BookingProvider,
   BookingDetails,
@@ -7,6 +6,7 @@ import type {
 } from '../interfaces/booking'
 import type { SquareConfig } from '../../config/site.config'
 import { createLogger } from '../../lib/logger'
+import { createSquareClient } from './client'
 
 const logger = createLogger('square-booking')
 
@@ -33,13 +33,10 @@ function generateSlotId(startAt: string, _locationId: string): string {
 }
 
 export class SquareBookingProvider implements BookingProvider {
-  private client: SquareClient
+  private client: ReturnType<typeof createSquareClient>
 
   constructor(private config: SquareConfig) {
-    this.client = new SquareClient({
-      token: config.accessToken,
-      environment: config.environment,
-    })
+    this.client = createSquareClient(config)
   }
 
   async searchAvailability(params: {
@@ -99,7 +96,9 @@ export class SquareBookingProvider implements BookingProvider {
         locationId,
         teamMemberId: segment?.teamMemberId ?? undefined,
         serviceVariationId: segment?.serviceVariationId ?? undefined,
-        serviceVariationVersion: segment?.serviceVariationVersion ?? undefined,
+        serviceVariationVersion: segment?.serviceVariationVersion != null
+          ? Number(segment.serviceVariationVersion)
+          : undefined,
         available: true,
       }
     })

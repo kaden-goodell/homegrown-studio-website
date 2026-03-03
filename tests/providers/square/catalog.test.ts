@@ -14,6 +14,7 @@ vi.mock('square', () => {
 			catalog = mockCatalog
 			constructor(_opts: any) {}
 		},
+		SquareEnvironment: { Production: 'production', Sandbox: 'sandbox' },
 	}
 })
 
@@ -86,6 +87,13 @@ describe('SquareCatalogProvider', () => {
 				})()
 			)
 
+			// batchGet resolves category IDs to names
+			mockCatalog.batchGet.mockResolvedValue({
+				objects: [
+					{ id: 'CAT-1', type: 'CATEGORY', categoryData: { name: 'Workshops' } },
+				],
+			})
+
 			const result = await provider.getEventTypes()
 
 			expect(result).toHaveLength(1)
@@ -113,7 +121,7 @@ describe('SquareCatalogProvider', () => {
 				itemData: {
 					name: 'Yoga Class',
 					description: 'Relaxing yoga',
-					categories: [{ id: 'CAT-2', name: 'Classes' }],
+					categories: [{ id: 'CAT-2' }],
 					variations: [
 						{
 							id: 'VAR-3',
@@ -133,6 +141,13 @@ describe('SquareCatalogProvider', () => {
 					yield classItem
 				})()
 			)
+
+			mockCatalog.batchGet.mockResolvedValue({
+				objects: [
+					{ id: 'CAT-1', type: 'CATEGORY', categoryData: { name: 'Workshops' } },
+					{ id: 'CAT-2', type: 'CATEGORY', categoryData: { name: 'Classes' } },
+				],
+			})
 
 			const result = await provider.getEventTypes({ category: 'Classes' })
 
@@ -177,7 +192,7 @@ describe('SquareCatalogProvider', () => {
 				itemData: {
 					name: 'Art Class',
 					description: 'Creative art',
-					categories: [{ id: 'CAT-1', name: 'Art' }],
+					categories: [{ id: 'CAT-1' }],
 					variations: [
 						{
 							id: 'VAR-1',
@@ -200,22 +215,26 @@ describe('SquareCatalogProvider', () => {
 
 			mockCatalog.batchGet.mockResolvedValue({
 				objects: [
-					makeModifierList('MODLIST-1', [
-						{
-							id: 'MOD-1',
-							modifierData: {
-								name: 'Extra Supplies',
-								priceMoney: { amount: 500n, currency: 'USD' },
+					{ id: 'CAT-1', type: 'CATEGORY', categoryData: { name: 'Art' } },
+					{
+						...makeModifierList('MODLIST-1', [
+							{
+								id: 'MOD-1',
+								modifierData: {
+									name: 'Extra Supplies',
+									priceMoney: { amount: 500n, currency: 'USD' },
+								},
 							},
-						},
-						{
-							id: 'MOD-2',
-							modifierData: {
-								name: 'Canvas Upgrade',
-								priceMoney: { amount: 1000n, currency: 'USD' },
+							{
+								id: 'MOD-2',
+								modifierData: {
+									name: 'Canvas Upgrade',
+									priceMoney: { amount: 1000n, currency: 'USD' },
+								},
 							},
-						},
-					]),
+						]),
+						type: 'MODIFIER_LIST',
+					},
 				],
 			})
 

@@ -1,4 +1,3 @@
-import { SquareClient } from 'square'
 import { createLogger } from '../../lib/logger'
 import type {
   PaymentProvider,
@@ -9,6 +8,7 @@ import type {
   PaymentClientConfig,
 } from '../interfaces/payment'
 import type { SquareConfig } from '../../config/site.config'
+import { createSquareClient } from './client'
 
 const logger = createLogger('square-payment')
 
@@ -25,12 +25,12 @@ const PAYMENT_STATUS_MAP: Record<string, Payment['status']> = {
 }
 
 export class SquarePaymentProvider implements PaymentProvider {
-  private client: SquareClient
+  private client: ReturnType<typeof createSquareClient>
   private config: SquareConfig
 
   constructor(config: SquareConfig) {
     this.config = config
-    this.client = new SquareClient({ token: config.accessToken, environment: config.environment })
+    this.client = createSquareClient(config)
   }
 
   async createOrder(params: {
@@ -107,6 +107,7 @@ export class SquarePaymentProvider implements PaymentProvider {
     paymentToken: string
     amount: number
     currency: string
+    buyerEmailAddress?: string
   }): Promise<Payment> {
     logger.info('Processing payment', {
       orderId: params.orderId,
@@ -121,6 +122,7 @@ export class SquarePaymentProvider implements PaymentProvider {
         currency: params.currency as any,
       },
       orderId: params.orderId,
+      buyerEmailAddress: params.buyerEmailAddress,
     })
 
     const payment = response.payment!

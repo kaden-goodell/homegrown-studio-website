@@ -22,6 +22,7 @@ vi.mock('square', () => ({
       },
     }
   },
+  SquareEnvironment: { Production: 'production', Sandbox: 'sandbox' },
 }))
 
 const config: SquareConfig = {

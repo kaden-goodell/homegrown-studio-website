@@ -1,32 +1,30 @@
-import { SquareClient } from 'square'
 import type { SquareConfig } from '../../config/site.config'
 import type { CatalogProvider, EventType, EventVariation, AddOn } from '../interfaces/catalog'
 import { createLogger } from '../../lib/logger'
+import { createSquareClient } from './client'
 
 const logger = createLogger('square-catalog')
 
 export class SquareCatalogProvider implements CatalogProvider {
-  private client: SquareClient
+  private client: ReturnType<typeof createSquareClient>
 
   constructor(private config: SquareConfig) {
-    this.client = new SquareClient({
-      token: config.accessToken,
-      environment: config.environment,
-    })
+    this.client = createSquareClient(config)
   }
 
   async getEventTypes(params?: { category?: string }): Promise<EventType[]> {
     logger.info('Fetching event types', params)
 
     const items: any[] = []
-    for await (const item of this.client.catalog.list({ types: 'ITEM' }) as any) {
-      items.push(item)
+    for await (const obj of await this.client.catalog.list({ types: 'ITEM' })) {
+      items.push(obj)
     }
 
     logger.info('Found catalog items', { count: items.length })
 
-    // Collect modifier list IDs to batch-fetch
+    // Collect IDs to batch-fetch: modifier lists + categories
     const modifierListIds = new Set<string>()
+    const categoryIds = new Set<string>()
     for (const item of items) {
       const modListInfo = item.itemData?.modifierListInfo ?? []
       for (const info of modListInfo) {
@@ -34,21 +32,30 @@ export class SquareCatalogProvider implements CatalogProvider {
           modifierListIds.add(info.modifierListId)
         }
       }
+      for (const cat of item.itemData?.categories ?? []) {
+        if (cat.id) categoryIds.add(cat.id)
+      }
     }
 
-    // Batch-fetch modifier lists
+    // Batch-fetch modifier lists + categories in one call
+    const batchIds = [...Array.from(modifierListIds), ...Array.from(categoryIds)]
     const modifierListsMap = new Map<string, any>()
-    if (modifierListIds.size > 0) {
-      logger.info('Fetching modifier lists', { count: modifierListIds.size })
+    const categoryNameMap = new Map<string, string>()
+    if (batchIds.length > 0) {
+      logger.info('Fetching modifier lists and categories', { modifiers: modifierListIds.size, categories: categoryIds.size })
       try {
         const response = await this.client.catalog.batchGet({
-          objectIds: Array.from(modifierListIds),
+          objectIds: batchIds,
         })
         for (const obj of (response as any).objects ?? []) {
-          modifierListsMap.set(obj.id, obj)
+          if (obj.type === 'MODIFIER_LIST') {
+            modifierListsMap.set(obj.id, obj)
+          } else if (obj.type === 'CATEGORY') {
+            categoryNameMap.set(obj.id, obj.categoryData?.name ?? '')
+          }
         }
       } catch (err) {
-        logger.error('Failed to fetch modifier lists', {
+        logger.error('Failed to fetch modifier lists/categories', {
           error: err instanceof Error ? err.message : String(err),
         })
       }
@@ -60,7 +67,8 @@ export class SquareCatalogProvider implements CatalogProvider {
       const itemData = item.itemData
       if (!itemData) continue
 
-      const category = itemData.categories?.[0]?.name ?? itemData.category?.name ?? ''
+      const catId = itemData.categories?.[0]?.id
+      const category = (catId ? categoryNameMap.get(catId) : undefined) ?? itemData.category?.name ?? ''
 
       // Filter by category if requested
       if (params?.category && category.toLowerCase() !== params.category.toLowerCase()) {
@@ -108,7 +116,7 @@ export class SquareCatalogProvider implements CatalogProvider {
       const scheduleDays = customAttrs.scheduleDays?.stringValue
       const scheduleTime = customAttrs.scheduleTime?.stringValue
       const totalHours = customAttrs.totalHours?.numberValue ? Number(customAttrs.totalHours.numberValue) : undefined
-      const instructorEmail = customAttrs.instructorEmail?.stringValue
+      const programDates = customAttrs.programDates?.stringValue
       const pricePerHead = customAttrs.pricePerHead?.numberValue ? Number(customAttrs.pricePerHead.numberValue) : undefined
       const maxCapacity = customAttrs.maxCapacity?.numberValue ? Number(customAttrs.maxCapacity.numberValue) : undefined
 
@@ -135,7 +143,7 @@ export class SquareCatalogProvider implements CatalogProvider {
         ...(enrollmentType && { enrollmentType }),
         ...(ageMin !== undefined && ageMax !== undefined && { ageRange: { min: ageMin, max: ageMax } }),
         ...(scheduleDays && scheduleTime && { schedule: { days: scheduleDays, time: scheduleTime, totalHours: totalHours ?? 0 } }),
-        ...(instructorEmail && { instructorEmail }),
+        ...(programDates && { programDates }),
         ...(pricePerHead !== undefined && { pricePerHead }),
         ...(maxCapacity !== undefined && { maxCapacity }),
       })

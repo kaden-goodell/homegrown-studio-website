@@ -2,50 +2,39 @@
 export const prerender = false
 
 import Layout from '@layouts/Layout.astro'
-import { providers } from '@config/providers'
+import { siteConfig } from '@config/site.config'
+import { getClassInstances } from '@providers/square/classes'
 import WorkshopExplorer from '@components/workshops/WorkshopExplorer'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 
-const eventTypes = await providers.catalog.getEventTypes({ category: 'workshop' })
+const locationId = siteConfig.providers.booking.config.locationId || ''
 
-const now = new Date()
-const startDate = now.toISOString().split('T')[0]
-const endDate = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+let workshops: WorkshopData[] = []
 
-const slots = await providers.booking.searchAvailability({
-  startDate,
-  endDate,
-  locationId: 'main',
-})
+if (locationId) {
+  try {
+    const classes = await getClassInstances(locationId)
 
-const slotIds = slots.map((s) => s.id)
-const capacityMap = await providers.capacity.getAvailableCapacity(slotIds)
-
-const workshops: WorkshopData[] = []
-
-for (const eventType of eventTypes) {
-  const matchingSlots = slots.filter((s) => s.serviceVariationId === eventType.variations[0]?.id)
-
-  for (const slot of matchingSlots) {
-    const capacity = capacityMap.get(slot.id)
-    const remainingSeats = capacity ? capacity.availableCapacity : null
-
-    if (remainingSeats === 0) continue
-
-    workshops.push({
-      id: `${eventType.id}-${slot.id}`,
-      name: eventType.name,
-      description: eventType.description,
-      category: eventType.category,
-      imageUrl: eventType.imageUrl,
-      date: slot.startAt.split('T')[0],
-      startTime: slot.startAt,
-      endTime: slot.endAt,
-      duration: eventType.duration,
-      price: eventType.variations[0]?.priceAmount ?? 0,
-      currency: eventType.variations[0]?.priceCurrency ?? 'USD',
-      remainingSeats,
-    })
+    workshops = classes
+      .filter((c) => c.availableCapacity > 0)
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        description: c.description,
+        category: 'workshop',
+        date: c.startAt.split('T')[0],
+        startTime: c.startAt,
+        endTime: new Date(new Date(c.startAt).getTime() + c.durationMinutes * 60_000).toISOString(),
+        duration: c.durationMinutes,
+        price: c.price * 100, // WorkshopData expects cents
+        currency: c.currency,
+        remainingSeats: c.availableCapacity,
+        classScheduleId: c.classScheduleId,
+        classScheduleInstanceId: c.id,
+        teamMemberId: c.teamMemberId,
+      }))
+  } catch {
+    // Classes API may not be available (e.g. sandbox)
   }
 }
 ---

@@ -9,6 +9,7 @@ vi.mock('square', () => ({
     payments = { create: mockPaymentsCreate }
     constructor(_opts: any) {}
   },
+  SquareEnvironment: { Production: 'production', Sandbox: 'sandbox' },
 }))
 
 import { SquarePaymentProvider } from '../../../src/providers/square/payment'

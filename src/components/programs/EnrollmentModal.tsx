@@ -61,8 +61,9 @@ function ModalContent({ program, onClose }: EnrollmentModalProps) {
     if (displayStep === 0) {
       const tags = [
         ...(program.ageRange ? [{ label: `Ages ${program.ageRange.min}–${program.ageRange.max}` }] : []),
+        ...(program.programDates ? [{ label: program.programDates }] : []),
         ...(program.schedule ? [{ label: program.schedule.days }, { label: program.schedule.time }] : []),
-        { label: `${program.variations.length} session${program.variations.length !== 1 ? 's' : ''}` },
+        ...(program.enrollmentType === 'per-session' ? [{ label: `${program.variations.length} session${program.variations.length !== 1 ? 's' : ''}` }] : []),
         ...(program.pricePerHead ? [{ label: `${formatPrice(program.pricePerHead)} / child` }] : []),
       ]
       return (

@@ -15,7 +15,7 @@ export interface EventType {
   enrollmentType?: 'per-session' | 'full'
   ageRange?: { min: number; max: number }
   schedule?: { days: string; time: string; totalHours: number }
-  instructorEmail?: string
+  programDates?: string
   pricePerHead?: number
   maxCapacity?: number
 }

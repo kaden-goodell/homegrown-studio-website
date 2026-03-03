@@ -7,11 +7,33 @@ import {
   useState,
 } from 'react'
 
-export interface PaymentFormRef {
-  tokenize: () => Promise<string>
+export interface VerifyBuyerDetails {
+  givenName?: string
+  familyName?: string
+  email?: string
+  phone?: string
+  /** Total in dollars (e.g. "25.00") — required for CHARGE intent */
+  amount?: string
+  currencyCode?: string
 }
 
-interface PaymentFormProps {}
+export interface TokenizeResult {
+  token: string
+  verificationToken?: string
+}
+
+export interface PaymentFormRef {
+  tokenize: () => Promise<string>
+  tokenizeAndVerify: (buyerDetails: VerifyBuyerDetails) => Promise<TokenizeResult>
+}
+
+interface PaymentFormProps {
+  /** Override the application ID used for the Web Payments SDK */
+  applicationIdOverride?: string
+  /** Override the SDK environment (forces production/sandbox SDK script). Useful when
+   *  the payment endpoint lives on a different environment than your merchant config. */
+  environmentOverride?: 'sandbox' | 'production'
+}
 
 interface ClientConfig {
   appId: string
@@ -48,16 +70,18 @@ function loadSquareScript(environment: string): Promise<void> {
 }
 
 const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
-  function PaymentForm(_props, ref) {
+  function PaymentForm({ applicationIdOverride, environmentOverride }: PaymentFormProps, ref) {
     const [config, setConfig] = useState<ClientConfig | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [sdkReady, setSdkReady] = useState(false)
 
     const cardRef = useRef<CardInstance | null>(null)
+    const paymentsRef = useRef<any>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
-    const isMockMode = !config?.appId || config.appId === '' || config.appId.startsWith('mock-')
+    const effectiveAppId = applicationIdOverride || config?.appId
+    const isMockMode = !effectiveAppId || effectiveAppId === '' || effectiveAppId.startsWith('mock-')
 
     // Fetch client config on mount
     useEffect(() => {
@@ -91,6 +115,8 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     }, [])
 
     // Load Square SDK and initialize card when config is available and not mock
+    const effectiveEnvironment = environmentOverride || config?.environment || 'sandbox'
+
     useEffect(() => {
       if (!config || isMockMode) return
 
@@ -98,7 +124,8 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
       async function initSquare() {
         try {
-          await loadSquareScript(config!.environment)
+          console.log('[PaymentForm] initSquare', { effectiveAppId, locationId: config!.locationId, environment: effectiveEnvironment })
+          await loadSquareScript(effectiveEnvironment)
 
           if (cancelled) return
 
@@ -107,7 +134,9 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
             throw new Error('Square SDK not available after script load')
           }
 
-          const payments = Square.payments(config!.appId, config!.locationId)
+          console.log('[PaymentForm] Square.payments()', { appId: effectiveAppId, locationId: config!.locationId })
+          const payments = Square.payments(effectiveAppId, config!.locationId)
+          paymentsRef.current = payments
           const card = await payments.card()
 
           if (cancelled) {
@@ -137,7 +166,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           cardRef.current = null
         }
       }
-    }, [config, isMockMode])
+    }, [config, isMockMode, effectiveEnvironment])
 
     const tokenize = useCallback(async (): Promise<string> => {
       if (isMockMode) {
@@ -149,7 +178,9 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
         throw new Error('Payment card not initialized')
       }
 
+      console.log('[PaymentForm] tokenize() calling card.tokenize()')
       const result = await card.tokenize()
+      console.log('[PaymentForm] tokenize() result:', { status: result.status, hasToken: !!result.token, tokenPrefix: result.token?.substring(0, 20), errors: result.errors })
 
       if (result.status === 'OK' && result.token) {
         return result.token
@@ -159,7 +190,42 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
       throw new Error(messages)
     }, [isMockMode])
 
-    useImperativeHandle(ref, () => ({ tokenize }), [tokenize])
+    const tokenizeAndVerify = useCallback(async (buyerDetails: VerifyBuyerDetails): Promise<TokenizeResult> => {
+      const token = await tokenize()
+
+      if (isMockMode || !paymentsRef.current) {
+        console.log('[PaymentForm] skipping verifyBuyer (mock or no payments)', { isMockMode, hasPayments: !!paymentsRef.current })
+        return { token }
+      }
+
+      const verifyDetails: any = {
+        intent: 'CHARGE',
+        amount: buyerDetails.amount || '0.00',
+        currencyCode: buyerDetails.currencyCode || 'USD',
+        billingContact: {
+          givenName: buyerDetails.givenName,
+          familyName: buyerDetails.familyName,
+          email: buyerDetails.email,
+          phone: buyerDetails.phone,
+        },
+      }
+      console.log('[PaymentForm] verifyBuyer() calling with:', { tokenPrefix: token.substring(0, 20), ...verifyDetails })
+      try {
+        const verificationResult = await paymentsRef.current.verifyBuyer(token, verifyDetails)
+        console.log('[PaymentForm] verifyBuyer() result:', { hasToken: !!verificationResult?.token, tokenPrefix: verificationResult?.token?.substring(0, 20) })
+
+        if (!verificationResult?.token) {
+          throw new Error('Card verification failed. Please try again.')
+        }
+
+        return { token, verificationToken: verificationResult.token }
+      } catch (err) {
+        console.error('[PaymentForm] verifyBuyer() error:', err)
+        throw err
+      }
+    }, [tokenize, isMockMode])
+
+    useImperativeHandle(ref, () => ({ tokenize, tokenizeAndVerify }), [tokenize, tokenizeAndVerify])
 
     if (loading) {
       return (

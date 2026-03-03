@@ -1,44 +1,29 @@
 import type { APIRoute } from 'astro'
 import { createLogger } from '@lib/logger'
-import { providers } from '@config/providers'
+import { siteConfig } from '@config/site.config'
+import { getClassInstances } from '@providers/square/classes'
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async () => {
   const logger = createLogger('api:workshops:availability')
   const startTime = Date.now()
 
   try {
-    const body = await request.json()
-    const { startDate, endDate, eventTypeId } = body
-
-    const slots = await providers.booking.searchAvailability({
-      startDate,
-      endDate,
-      locationId: 'default',
-    })
-
-    const slotIds = slots.map(s => s.id)
-    const capacityMap = await providers.capacity.getAvailableCapacity(slotIds)
-
-    const slotsWithCapacity = slots
-      .map(slot => ({
-        ...slot,
-        capacity: capacityMap.get(slot.id) ?? null,
-      }))
-      .filter(slot => {
-        if (slot.capacity === null) return true
-        return slot.capacity.availableCapacity > 0
+    const locationId = siteConfig.providers.booking.config.locationId || ''
+    if (!locationId) {
+      return new Response(JSON.stringify({ data: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
       })
+    }
+
+    const classes = await getClassInstances(locationId)
 
     logger.info('Workshop availability fetched', {
       duration_ms: Date.now() - startTime,
-      eventTypeId,
-      startDate,
-      endDate,
-      totalSlots: slots.length,
-      availableSlots: slotsWithCapacity.length,
+      count: classes.length,
     })
 
-    return new Response(JSON.stringify({ data: slotsWithCapacity }), {
+    return new Response(JSON.stringify({ data: classes }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })
@@ -48,16 +33,8 @@ export const POST: APIRoute = async ({ request }) => {
       duration_ms: Date.now() - startTime,
     })
 
-    await providers.notification.send({
-      type: 'api-failure',
-      title: 'Workshop availability fetch failed',
-      details: { route: 'workshops/availability', error: String(error) },
-      severity: 'warning',
-      timestamp: new Date().toISOString(),
-    })
-
-    return new Response(JSON.stringify({ error: 'Unable to check availability' }), {
-      status: 500,
+    return new Response(JSON.stringify({ data: [] }), {
+      status: 200,
       headers: { 'Content-Type': 'application/json' },
     })
   }

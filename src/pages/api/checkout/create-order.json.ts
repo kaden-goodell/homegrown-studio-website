@@ -1,13 +1,17 @@
 import type { APIRoute } from 'astro'
 import { createLogger } from '@lib/logger'
 import { providers } from '@config/providers'
+import { siteConfig } from '@config/site.config'
 
 export const POST: APIRoute = async ({ request }) => {
   const logger = createLogger('api:checkout:create-order')
   const startTime = Date.now()
   try {
     const body = await request.json()
-    const order = await providers.payment.createOrder(body)
+    const order = await providers.payment.createOrder({
+      ...body,
+      locationId: siteConfig.providers.booking.config.locationId || body.locationId,
+    })
     logger.info('Order created', {
       duration_ms: Date.now() - startTime,
       orderId: order.id,
