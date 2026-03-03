@@ -22,10 +22,10 @@ Git configuration has been set for this repository.
 
 ## Netlify Deployment
 
-**IMPORTANT: Develop locally first! Netlify Free Plan has limited credits.**
+**IMPORTANT: Develop locally first! Netlify has limited credits.**
 
-### Credit Limits (Free Plan: 300 credits/month)
-- Production deploys: **15 credits each** (~20 deploys/month max)
+### Credit Limits (1000 credits/month)
+- Production deploys: **15 credits each** (~66 deploys/month max)
 - SSR compute: 5 credits per GB-hour
 - Web requests: 3 credits per 10,000 requests
 - Deploy previews (branch deploys): **FREE**
