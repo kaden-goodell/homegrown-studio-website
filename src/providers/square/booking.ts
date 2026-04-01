@@ -2,6 +2,7 @@ import type {
   BookingProvider,
   BookingDetails,
   Booking,
+  BookingWithMetadata,
   TimeSlot,
 } from '../interfaces/booking'
 import type { SquareConfig } from '../../config/site.config'
@@ -232,5 +233,115 @@ export class SquareBookingProvider implements BookingProvider {
       eventType,
       createdAt: sqBooking.createdAt ?? '',
     }
+  }
+
+  async listBookings(params: {
+    startDate: string
+    endDate: string
+    locationId: string
+  }): Promise<BookingWithMetadata[]> {
+    logger.info('Listing bookings', {
+      locationId: params.locationId,
+      startDate: params.startDate,
+      endDate: params.endDate,
+    })
+
+    const response = await this.client.bookings.list({
+      locationId: params.locationId,
+      startAtMin: params.startDate,
+      startAtMax: params.endDate,
+    })
+
+    const sqBookings = (response as any).bookings ?? []
+
+    // Filter out cancelled bookings
+    const activeBookings = sqBookings.filter(
+      (b: any) =>
+        b.status !== 'CANCELLED_BY_CUSTOMER' &&
+        b.status !== 'CANCELLED_BY_SELLER'
+    )
+
+    const results: BookingWithMetadata[] = []
+
+    for (const sqBooking of activeBookings) {
+      const bookingId = sqBooking.id!
+
+      // Read custom attributes for add-on metadata
+      let partyTable = false
+      try {
+        const attrResponse = await (this.client.bookings as any).customAttributes.get({
+          bookingId,
+          key: 'party_table',
+        })
+        partyTable = attrResponse?.customAttribute?.value === 'true'
+      } catch {
+        // Attribute may not exist
+      }
+
+      let dedicatedHost = false
+      try {
+        const attrResponse = await (this.client.bookings as any).customAttributes.get({
+          bookingId,
+          key: 'dedicated_host',
+        })
+        dedicatedHost = attrResponse?.customAttribute?.value === 'true'
+      } catch {
+        // Attribute may not exist
+      }
+
+      let giftCardId: string | undefined
+      try {
+        const attrResponse = await (this.client.bookings as any).customAttributes.get({
+          bookingId,
+          key: 'gift_card_id',
+        })
+        giftCardId = attrResponse?.customAttribute?.value || undefined
+      } catch {
+        // Attribute may not exist
+      }
+
+      let eventType = ''
+      try {
+        const attrResponse = await (this.client.bookings as any).customAttributes.get({
+          bookingId,
+          key: 'event_type',
+        })
+        eventType = attrResponse?.customAttribute?.value ?? ''
+      } catch {
+        // Attribute may not exist
+      }
+
+      const segment = sqBooking.appointmentSegments?.[0]
+      const startAt = sqBooking.startAt ?? ''
+      const durationMinutes = segment?.durationMinutes ?? 0
+      const endAt = new Date(
+        new Date(startAt).getTime() + durationMinutes * 60_000
+      ).toISOString()
+
+      results.push({
+        id: bookingId,
+        status: mapStatus(sqBooking.status ?? 'PENDING'),
+        slot: {
+          id: generateSlotId(startAt, sqBooking.locationId ?? params.locationId),
+          startAt,
+          endAt,
+          duration: durationMinutes,
+          locationId: sqBooking.locationId ?? params.locationId,
+          teamMemberId: segment?.teamMemberId ?? undefined,
+          serviceVariationId: segment?.serviceVariationId ?? undefined,
+          serviceVariationVersion: segment?.serviceVariationVersion ?? undefined,
+          available: false,
+        },
+        customerId: sqBooking.customerId ?? '',
+        eventType,
+        createdAt: sqBooking.createdAt ?? '',
+        partyTable,
+        dedicatedHost,
+        giftCardId,
+      })
+    }
+
+    logger.info('Listed bookings', { count: results.length })
+    return results
   }
 }

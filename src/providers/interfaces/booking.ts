@@ -29,6 +29,12 @@ export interface Booking {
   createdAt: string
 }
 
+export interface BookingWithMetadata extends Booking {
+  partyTable?: boolean
+  dedicatedHost?: boolean
+  giftCardId?: string
+}
+
 export interface BookingProvider {
   searchAvailability(params: {
     startDate: string
@@ -41,4 +47,10 @@ export interface BookingProvider {
   createBooking(details: BookingDetails): Promise<Booking>
   cancelBooking(bookingId: string, bookingVersion: number): Promise<void>
   getBooking(bookingId: string): Promise<Booking>
+
+  listBookings?(params: {
+    startDate: string
+    endDate: string
+    locationId: string
+  }): Promise<BookingWithMetadata[]>
 }
