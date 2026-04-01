@@ -14,6 +14,8 @@ interface BookRequest {
   partyTable: boolean
   dedicatedHost: boolean
   depositPerTableCents: number
+  partyTablePriceCents?: number
+  dedicatedHostPriceCents?: number
   customer: {
     firstName: string
     lastName: string
@@ -78,18 +80,24 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     if (body.partyTable) {
+      if (!body.partyTablePriceCents || body.partyTablePriceCents <= 0) {
+        return errorResponse('Missing party table price', 400)
+      }
       lineItems.push({
         name: 'Party Table Add-On',
         quantity: 1,
-        pricePerUnit: 5000, // $50
+        pricePerUnit: body.partyTablePriceCents,
       })
     }
 
     if (body.dedicatedHost) {
+      if (!body.dedicatedHostPriceCents || body.dedicatedHostPriceCents <= 0) {
+        return errorResponse('Missing dedicated host price', 400)
+      }
       lineItems.push({
         name: 'Dedicated Host Add-On',
         quantity: 1,
-        pricePerUnit: 10000, // $100
+        pricePerUnit: body.dedicatedHostPriceCents,
       })
     }
 
@@ -167,10 +175,30 @@ export const POST: APIRoute = async ({ request }) => {
           logger.info('Gift card ID stored on booking', { bookingId: bookingIds[0], giftCardId })
         }
       } catch (err) {
-        // Gift card creation is non-critical — log but don't fail the booking
-        logger.error('Gift card creation failed (booking still valid)', {
+        // Gift card is critical — customer paid a deposit expecting craft credit.
+        // Roll back: cancel bookings and log for manual refund.
+        logger.error('Gift card creation failed — rolling back bookings', {
           error: err instanceof Error ? err.message : String(err),
+          bookingIds,
+          orderId: order.id,
+          paymentId: payment.id,
         })
+
+        for (const bookingId of bookingIds) {
+          try {
+            await providers.booking.cancelBooking(bookingId, 0)
+          } catch (cancelErr) {
+            logger.error('Failed to cancel booking during rollback', {
+              bookingId,
+              error: cancelErr instanceof Error ? cancelErr.message : String(cancelErr),
+            })
+          }
+        }
+
+        return errorResponse(
+          'Unable to set up your craft credit. Your bookings have been cancelled and your card will be refunded.',
+          500
+        )
       }
     }
 
