@@ -2,21 +2,18 @@
 export const prerender = false
 
 import Layout from '@layouts/Layout.astro'
-import { siteConfig } from '@config/site.config'
-import BookingLanding from '@components/booking/BookingLanding'
-
-const eventTypes = siteConfig.eventTypes
+import ReservationLanding from '@components/reservations/ReservationLanding'
 ---
 
 <Layout title="Book">
   <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-28">
     <div class="text-center mb-16 fade-in">
-      <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Book</p>
-      <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">Your Experience</h1>
+      <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Open Studio</p>
+      <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">Reserve a Table</h1>
       <p class="text-lg mt-4 max-w-xl mx-auto" style="color: var(--color-muted);">
-        Private parties and group events with guided crafting activities for all ages
+        Walk in or reserve a table to craft at your own pace. Your deposit becomes craft credit.
       </p>
     </div>
-    <BookingLanding client:load eventTypes={eventTypes} />
+    <ReservationLanding client:load />
   </section>
 </Layout>
