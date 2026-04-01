@@ -139,6 +139,15 @@ export class SquareBookingProvider implements BookingProvider {
       attrs.special_requests = details.specialRequests
     }
 
+    // Set separate custom attributes for add-ons so listBookings can query them
+    const addOns = details.addOns ?? []
+    if (addOns.includes('party_table')) {
+      attrs.party_table = 'true'
+    }
+    if (addOns.includes('dedicated_host')) {
+      attrs.dedicated_host = 'true'
+    }
+
     for (const [key, value] of Object.entries(attrs)) {
       customAttrs[key] = {
         bookingId,
@@ -343,5 +352,17 @@ export class SquareBookingProvider implements BookingProvider {
 
     logger.info('Listed bookings', { count: results.length })
     return results
+  }
+
+  async setCustomAttribute(bookingId: string, key: string, value: string): Promise<void> {
+    logger.info('Setting custom attribute on booking', { bookingId, key })
+
+    await (this.client.bookings as any).customAttributes.upsert({
+      bookingId,
+      key,
+      customAttribute: { value },
+    })
+
+    logger.info('Custom attribute set', { bookingId, key })
   }
 }

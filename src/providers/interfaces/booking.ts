@@ -53,4 +53,7 @@ export interface BookingProvider {
     endDate: string
     locationId: string
   }): Promise<BookingWithMetadata[]>
+
+  /** Set a single custom attribute on a booking (e.g. gift_card_id after creation) */
+  setCustomAttribute?(bookingId: string, key: string, value: string): Promise<void>
 }
