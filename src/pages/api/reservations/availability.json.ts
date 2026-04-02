@@ -10,11 +10,11 @@ export const POST: APIRoute = async ({ request }) => {
   const startTime = Date.now()
   try {
     const body = await request.json()
-    const { date } = body
+    const { date, serviceVariationId } = body
 
-    if (!date) {
+    if (!date || !serviceVariationId) {
       return new Response(
-        JSON.stringify({ error: 'Missing required field: date' }),
+        JSON.stringify({ error: 'Missing required fields: date, serviceVariationId' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       )
     }
@@ -30,8 +30,8 @@ export const POST: APIRoute = async ({ request }) => {
       startDate: dayStart,
       endDate: dayEnd,
       locationId,
-      serviceVariationId: reservationConfig.square.serviceVariationIds.oneHour,
-      teamMemberId: reservationConfig.square.teamMemberId,
+      serviceVariationId,
+      teamMemberId: reservationConfig.square.defaultTeamMemberId,
     })
 
     if (availableSlots.length === 0) {

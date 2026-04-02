@@ -10,16 +10,10 @@ export const reservationConfig = {
   wholeStudioCraftCreditCents: 20000, // $200
   /** For table reservations: 100% of deposit becomes gift card craft credit */
   tableCraftCreditPercent: 100,
-  /** Square IDs — all bookings go against one team member, our code enforces table cap */
   square: {
-    teamMemberId: 'TMeIN-kxF-ZVhTVj', // Kaden — all table bookings assigned here
-    serviceVariationIds: {
-      oneHour: 'PTTX7A63IHXJQ6RJHRYUIAEB',
-      twoHour: '5D3MCU4WMNAPGDK3I2A6JD65',
-    },
-    serviceVariationVersions: {
-      oneHour: 1775091058045,
-      twoHour: 1775091065920,
-    },
+    /** The one stable ID — everything else is fetched dynamically via service-info */
+    catalogItemId: 'A4LUBW4SBU5I2LG44KV5PX3B',
+    /** Default team member for bookings (falls back to any available) */
+    defaultTeamMemberId: 'TMeIN-kxF-ZVhTVj',
   },
 }

@@ -9,6 +9,8 @@ const logger = createLogger('api:reservations:book')
 interface BookRequest {
   startTime: string
   durationMinutes: number
+  serviceVariationId: string
+  serviceVariationVersion: number
   tableCount: number
   wholeStudio: boolean
   partyTable: boolean
@@ -34,7 +36,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   // --- Validation ---
-  if (!body.startTime || !body.durationMinutes) {
+  if (!body.startTime || !body.durationMinutes || !body.serviceVariationId || !body.serviceVariationVersion) {
     return errorResponse('Missing reservation time information', 400)
   }
   if (!body.paymentToken) {
@@ -133,14 +135,7 @@ export const POST: APIRoute = async ({ request }) => {
     const eventType = body.wholeStudio ? 'whole_studio' : 'table_reservation'
     const bookingIds: string[] = []
 
-    // Determine service variation based on duration
-    const isOneHour = body.durationMinutes <= 60
-    const serviceVariationId = isOneHour
-      ? reservationConfig.square.serviceVariationIds.oneHour
-      : reservationConfig.square.serviceVariationIds.twoHour
-    const serviceVariationVersion = isOneHour
-      ? reservationConfig.square.serviceVariationVersions.oneHour
-      : reservationConfig.square.serviceVariationVersions.twoHour
+    const { serviceVariationId, serviceVariationVersion } = body
 
     for (let i = 0; i < tableCount; i++) {
       const booking = await providers.booking.createBooking({
@@ -149,7 +144,7 @@ export const POST: APIRoute = async ({ request }) => {
         eventType,
         addOns: i === 0 ? addOns : [], // only set add-ons on first booking
         orderIdRef: order.id,
-        teamMemberId: reservationConfig.square.teamMemberId,
+        teamMemberId: reservationConfig.square.defaultTeamMemberId,
         serviceVariationId,
         serviceVariationVersion,
         durationMinutes: body.durationMinutes,
