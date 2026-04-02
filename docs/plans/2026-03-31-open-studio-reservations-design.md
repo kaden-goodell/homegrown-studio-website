@@ -51,14 +51,14 @@ Homegrown Studio is shifting from scheduled-only parties to an Open Studio model
 
 ## How Tables Map to Square
 
-**Requires Square Appointments Premium ($69/mo) for resource management.**
+**Square Appointments Free plan — no Premium needed.**
 
-Each of the 6 tables is a **resource** (not a team member — avoids payroll/tax issues):
-- Table 1, Table 2, Table 3, Table 4, Table 5, Table 6
-- Resources are dashboard-only — NOT exposed in the Bookings API
-- Square enforces table limits automatically (won't overbook past 6)
-- `SearchAvailability` respects resource constraints behind the scenes
-- `ListBookings` returns existing bookings — we count them to show "X of 6 tables available" in UI
+Tables are NOT modeled as resources or team members. Instead:
+- All bookings go against one team member (Kaden — `TMeIN-kxF-ZVhTVj`)
+- Square allows unlimited concurrent bookings on the same team member
+- Our code enforces the 6-table cap by counting overlapping bookings via `ListBookings`
+- `SearchAvailability` tells us which hours are valid (business hours)
+- `6 - count(overlapping bookings) = tables available`
 
 **Service setup in Square:**
 - "Table Reservation" service with 1hr and 2hr duration variants
@@ -159,7 +159,7 @@ All managed in Square dashboard (not in code):
 
 ## Architecture Decisions (learned during implementation)
 
-1. **Resources vs team members** — Tables are Square "resources" (Premium feature), NOT team members. Avoids payroll/tax issues.
+1. **No resources, no Premium** — Square allows unlimited concurrent bookings on one team member. All bookings go against Kaden. Our code counts overlapping bookings and caps at 6. Tested and confirmed via API.
 2. **Modifiers via Orders API** — Bookings API doesn't support modifiers. Party table ($50) and dedicated host ($100) are line items on the payment order, stored as custom attributes on the booking.
 3. **Pricing in Square, not code** — All pricing (table deposit, add-ons, whole studio) set in Square dashboard. Code fetches at runtime.
 4. **Hours in Square, not code** — Business hours, booking windows, cancellation policy all configured in Square. Code only stores what Square can't: add-on caps and craft credit rules.
@@ -167,6 +167,6 @@ All managed in Square dashboard (not in code):
 
 ## Cost
 
-- Square Appointments Premium: $69/month (required for resource management)
+- Square Appointments Free plan: $0/month
 - Square payment processing: 2.6% + 10¢ per in-person, 2.9% + 30¢ per online transaction
 - Everything else: $0 (existing infrastructure)
