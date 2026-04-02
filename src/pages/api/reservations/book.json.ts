@@ -133,6 +133,15 @@ export const POST: APIRoute = async ({ request }) => {
     const eventType = body.wholeStudio ? 'whole_studio' : 'table_reservation'
     const bookingIds: string[] = []
 
+    // Determine service variation based on duration
+    const isOneHour = body.durationMinutes <= 60
+    const serviceVariationId = isOneHour
+      ? reservationConfig.square.serviceVariationIds.oneHour
+      : reservationConfig.square.serviceVariationIds.twoHour
+    const serviceVariationVersion = isOneHour
+      ? reservationConfig.square.serviceVariationVersions.oneHour
+      : reservationConfig.square.serviceVariationVersions.twoHour
+
     for (let i = 0; i < tableCount; i++) {
       const booking = await providers.booking.createBooking({
         slotId: body.startTime,
@@ -140,6 +149,10 @@ export const POST: APIRoute = async ({ request }) => {
         eventType,
         addOns: i === 0 ? addOns : [], // only set add-ons on first booking
         orderIdRef: order.id,
+        teamMemberId: reservationConfig.square.teamMemberId,
+        serviceVariationId,
+        serviceVariationVersion,
+        durationMinutes: body.durationMinutes,
       })
       bookingIds.push(booking.id)
     }

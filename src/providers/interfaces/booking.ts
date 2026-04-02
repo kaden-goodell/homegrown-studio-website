@@ -18,6 +18,10 @@ export interface BookingDetails {
   addOns?: string[]            // add-on catalog IDs
   specialRequests?: string
   orderIdRef?: string          // links to payment order
+  teamMemberId?: string        // Square team member to assign booking to
+  serviceVariationId?: string  // Square service variation ID
+  serviceVariationVersion?: number
+  durationMinutes?: number     // booking duration
 }
 
 export interface Booking {

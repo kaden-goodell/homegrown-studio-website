@@ -112,13 +112,27 @@ export class SquareBookingProvider implements BookingProvider {
       eventType: details.eventType,
     })
 
+    const bookingPayload: any = {
+      startAt: details.slotId,
+      locationId: this.config.locationId,
+      customerId: details.customerId,
+      customerNote: details.specialRequests,
+    }
+
+    // Include appointment segments if service/team member info is provided
+    if (details.serviceVariationId && details.teamMemberId) {
+      bookingPayload.appointmentSegments = [{
+        serviceVariationId: details.serviceVariationId,
+        serviceVariationVersion: details.serviceVariationVersion
+          ? BigInt(details.serviceVariationVersion)
+          : undefined,
+        teamMemberId: details.teamMemberId,
+        durationMinutes: details.durationMinutes,
+      }]
+    }
+
     const response = await this.client.bookings.create({
-      booking: {
-        startAt: details.slotId,
-        locationId: this.config.locationId,
-        customerId: details.customerId,
-        customerNote: details.specialRequests,
-      },
+      booking: bookingPayload,
     } as any)
 
     const sqBooking = (response as any).booking!
