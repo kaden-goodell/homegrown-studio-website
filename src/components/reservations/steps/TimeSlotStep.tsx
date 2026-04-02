@@ -28,7 +28,7 @@ export default function TimeSlotStep() {
   const [hovered, setHovered] = useState(false)
 
   useEffect(() => {
-    if (!state.date) return
+    if (!state.date || !state.selectedVariation) return
 
     let cancelled = false
     setLoading(true)
@@ -38,7 +38,14 @@ export default function TimeSlotStep() {
 
     async function fetchSlots() {
       try {
-        const res = await fetch(`/api/reservations/availability.json?date=${state.date}`)
+        const res = await fetch('/api/reservations/availability.json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            date: state.date,
+            serviceVariationId: state.selectedVariation!.id,
+          }),
+        })
         if (!res.ok) {
           throw new Error('Failed to load availability')
         }
@@ -59,7 +66,7 @@ export default function TimeSlotStep() {
 
     fetchSlots()
     return () => { cancelled = true }
-  }, [state.date])
+  }, [state.date, state.selectedVariation])
 
   function handleSelect(idx: number) {
     setSelectedIdx(idx)

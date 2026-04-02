@@ -1,13 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useReservation } from '../ReservationContext'
 
-// TODO: Fetch from Square catalog instead of hardcoding
-const TEMP_PRICES = {
-  depositPerTableCents: 10000,  // $100
-  partyTableCents: 5000,        // $50
-  dedicatedHostCents: 10000,    // $100
-}
-
 function formatPrice(cents: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 }
@@ -22,21 +15,28 @@ export default function OptionsStep() {
 
   const wholeStudioAvailable = state.tablesAvailable >= 6
 
-  // Dispatch prices on mount
+  // Derive prices from service info
+  const depositPerTableCents = state.selectedVariation?.priceCents ?? 0
+  const partyTableMod = state.serviceInfo?.modifiers.find(m => m.name.toLowerCase().includes('party'))
+  const hostMod = state.serviceInfo?.modifiers.find(m => m.name.toLowerCase().includes('host'))
+  const partyTablePriceCents = partyTableMod?.priceCents ?? 0
+  const dedicatedHostPriceCents = hostMod?.priceCents ?? 0
+
+  // Dispatch prices on mount (from dynamic catalog data)
   useEffect(() => {
     dispatch({
       type: 'SET_PRICES',
-      depositPerTableCents: TEMP_PRICES.depositPerTableCents,
-      partyTablePriceCents: TEMP_PRICES.partyTableCents,
-      dedicatedHostPriceCents: TEMP_PRICES.dedicatedHostCents,
+      depositPerTableCents,
+      partyTablePriceCents,
+      dedicatedHostPriceCents,
     })
-  }, [])
+  }, [depositPerTableCents, partyTablePriceCents, dedicatedHostPriceCents])
 
   const effectiveTableCount = wholeStudio ? 6 : tableCount
 
-  const tableDeposit = effectiveTableCount * TEMP_PRICES.depositPerTableCents
-  const partyTableCost = partyTable ? TEMP_PRICES.partyTableCents : 0
-  const dedicatedHostCost = dedicatedHost ? TEMP_PRICES.dedicatedHostCents : 0
+  const tableDeposit = effectiveTableCount * depositPerTableCents
+  const partyTableCost = partyTable ? partyTablePriceCents : 0
+  const dedicatedHostCost = dedicatedHost ? dedicatedHostPriceCents : 0
   const total = tableDeposit + partyTableCost + dedicatedHostCost
 
   function handleNext() {
@@ -129,8 +129,8 @@ export default function OptionsStep() {
         </div>
       )}
 
-      {/* Party Table toggle */}
-      {state.partyTableAvailable && (
+      {/* Dynamic modifiers from Square catalog */}
+      {partyTableMod && state.partyTableAvailable && (
         <label style={{
           display: 'flex',
           alignItems: 'center',
@@ -155,20 +155,16 @@ export default function OptionsStep() {
           />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-              Party Table
-            </div>
-            <div style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-              Dedicated party area
+              {partyTableMod.name}
             </div>
           </div>
           <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-            {formatPrice(TEMP_PRICES.partyTableCents)}
+            {formatPrice(partyTablePriceCents)}
           </span>
         </label>
       )}
 
-      {/* Dedicated Host toggle */}
-      {state.dedicatedHostAvailable && (
+      {hostMod && state.dedicatedHostAvailable && (
         <label style={{
           display: 'flex',
           alignItems: 'center',
@@ -193,14 +189,11 @@ export default function OptionsStep() {
           />
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-              Dedicated Host
-            </div>
-            <div style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-              Personal staff member
+              {hostMod.name}
             </div>
           </div>
           <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-            {formatPrice(TEMP_PRICES.dedicatedHostCents)}
+            {formatPrice(dedicatedHostPriceCents)}
           </span>
         </label>
       )}
@@ -215,7 +208,7 @@ export default function OptionsStep() {
       }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
           <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-            Table deposit: {effectiveTableCount} {effectiveTableCount === 1 ? 'table' : 'tables'} &times; {formatPrice(TEMP_PRICES.depositPerTableCents)}
+            Table deposit: {effectiveTableCount} {effectiveTableCount === 1 ? 'table' : 'tables'} &times; {formatPrice(depositPerTableCents)}
           </span>
           <span style={{ fontSize: '0.875rem', color: 'var(--color-dark)' }}>
             {formatPrice(tableDeposit)}
@@ -223,17 +216,17 @@ export default function OptionsStep() {
         </div>
         {partyTable && (
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Party Table</span>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{partyTableMod?.name ?? 'Party Table'}</span>
             <span style={{ fontSize: '0.875rem', color: 'var(--color-dark)' }}>
-              {formatPrice(TEMP_PRICES.partyTableCents)}
+              {formatPrice(partyTablePriceCents)}
             </span>
           </div>
         )}
         {dedicatedHost && (
           <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
-            <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Dedicated Host</span>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{hostMod?.name ?? 'Dedicated Host'}</span>
             <span style={{ fontSize: '0.875rem', color: 'var(--color-dark)' }}>
-              {formatPrice(TEMP_PRICES.dedicatedHostCents)}
+              {formatPrice(dedicatedHostPriceCents)}
             </span>
           </div>
         )}

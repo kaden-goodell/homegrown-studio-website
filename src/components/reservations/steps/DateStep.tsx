@@ -13,11 +13,16 @@ function getMaxDate(): string {
   return d.toISOString().split('T')[0]
 }
 
+function formatPrice(cents: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
+}
+
 export default function DateStep() {
   const { state, dispatch } = useReservation()
   const [hovered, setHovered] = useState(false)
 
-  const canContinue = !!state.date
+  const variations = state.serviceInfo?.variations ?? []
+  const canContinue = !!state.date && !!state.selectedVariation
 
   function handleNext() {
     if (!canContinue) return
@@ -56,6 +61,56 @@ export default function DateStep() {
           }}
         />
       </div>
+
+      {/* Duration / variation picker */}
+      {variations.length > 0 && (
+        <div style={{ marginBottom: '1.5rem' }}>
+          <label style={{
+            display: 'block',
+            fontSize: '0.8125rem',
+            fontWeight: 500,
+            color: 'var(--color-dark)',
+            marginBottom: '0.5rem',
+          }}>
+            Select Duration
+          </label>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {variations.map((v) => {
+              const isSelected = state.selectedVariation?.id === v.id
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => dispatch({ type: 'SET_VARIATION', variation: v })}
+                  style={{
+                    padding: '1rem 1.25rem',
+                    borderRadius: '0.75rem',
+                    border: isSelected
+                      ? '2px solid var(--color-primary)'
+                      : '1px solid rgba(150, 112, 91, 0.15)',
+                    background: isSelected
+                      ? 'rgba(150, 112, 91, 0.05)'
+                      : 'rgba(255, 255, 255, 0.8)',
+                    cursor: 'pointer',
+                    textAlign: 'left',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    transition: 'border-color 0.2s ease, background 0.2s ease',
+                  }}
+                >
+                  <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                    {v.name}
+                  </span>
+                  <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                    {formatPrice(v.priceCents)} / table
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Next button */}
       <button

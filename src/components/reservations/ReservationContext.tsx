@@ -1,8 +1,32 @@
 import { createContext, useContext, useReducer } from 'react'
 import type { ReactNode } from 'react'
 
+export interface ServiceInfoVariation {
+  id: string
+  name: string
+  version: number
+  priceCents: number
+  durationMinutes: number
+}
+
+export interface ServiceInfoModifier {
+  id: string
+  name: string
+  priceCents: number
+}
+
+export interface ServiceInfo {
+  service: { id: string; name: string }
+  variations: ServiceInfoVariation[]
+  modifiers: ServiceInfoModifier[]
+  teamMemberId: string
+}
+
 export interface ReservationState {
   step: number
+  // Service info (from Square catalog)
+  serviceInfo: ServiceInfo | null
+  selectedVariation: ServiceInfoVariation | null
   // Date step
   date: string | null                  // 'YYYY-MM-DD'
   // Time step
@@ -36,6 +60,8 @@ export interface ReservationState {
 }
 
 export type ReservationAction =
+  | { type: 'SET_SERVICE_INFO'; serviceInfo: ServiceInfo }
+  | { type: 'SET_VARIATION'; variation: ServiceInfoVariation }
   | { type: 'SET_DATE'; date: string }
   | { type: 'SET_TIME_SLOT'; startTime: string; durationMinutes: number; tablesAvailable: number; partyTableAvailable: boolean; dedicatedHostAvailable: boolean }
   | { type: 'SET_PRICES'; depositPerTableCents: number; partyTablePriceCents: number; dedicatedHostPriceCents: number }
@@ -48,6 +74,8 @@ export type ReservationAction =
 
 export const initialState: ReservationState = {
   step: 0,
+  serviceInfo: null,
+  selectedVariation: null,
   date: null,
   startTime: null,
   durationMinutes: 0,
@@ -77,6 +105,19 @@ export const initialState: ReservationState = {
 
 export function reservationReducer(state: ReservationState, action: ReservationAction): ReservationState {
   switch (action.type) {
+    case 'SET_SERVICE_INFO':
+      return { ...state, serviceInfo: action.serviceInfo }
+    case 'SET_VARIATION':
+      return {
+        ...state,
+        selectedVariation: action.variation,
+        // Changing duration invalidates selected time slot
+        startTime: null,
+        durationMinutes: 0,
+        tablesAvailable: 0,
+        partyTableAvailable: false,
+        dedicatedHostAvailable: false,
+      }
     case 'SET_DATE':
       return {
         ...state,

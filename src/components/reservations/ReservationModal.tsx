@@ -22,6 +22,18 @@ function ReservationModalInner({ onClose }: ReservationModalProps) {
 
   const completed = state.step >= TOTAL_STEPS  // step 5 = confirmation
 
+  // Fetch service info on mount
+  useEffect(() => {
+    fetch('/api/reservations/service-info.json')
+      .then(res => res.json())
+      .then(json => {
+        if (json.data) {
+          dispatch({ type: 'SET_SERVICE_INFO', serviceInfo: json.data })
+        }
+      })
+      .catch(err => console.error('Failed to load service info:', err))
+  }, [])
+
   // Body scroll lock
   useEffect(() => {
     document.body.style.overflow = 'hidden'
@@ -194,15 +206,21 @@ function ReservationModalInner({ onClose }: ReservationModalProps) {
         )}
 
         {/* Step content with transition */}
-        <div
-          style={{
-            opacity: visible ? 1 : 0,
-            transform: visible ? 'translateY(0)' : 'translateY(12px)',
-            transition: 'opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-          }}
-        >
-          {renderStep()}
-        </div>
+        {!state.serviceInfo && !completed ? (
+          <div style={{ textAlign: 'center', padding: '3rem 0' }}>
+            <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Loading reservation options...</p>
+          </div>
+        ) : (
+          <div
+            style={{
+              opacity: visible ? 1 : 0,
+              transform: visible ? 'translateY(0)' : 'translateY(12px)',
+              transition: 'opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+            }}
+          >
+            {renderStep()}
+          </div>
+        )}
       </div>
     </div>
   )
