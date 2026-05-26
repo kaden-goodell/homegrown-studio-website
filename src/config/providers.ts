@@ -19,6 +19,9 @@ import { SquareInternalCapacityProvider } from '@providers/square/capacity'
 import { SquareCustomerProvider } from '@providers/square/customer'
 import { SquareGiftCardProvider } from '@providers/square/giftcard'
 import type { GiftCardProvider } from '@providers/interfaces/giftcard'
+import type { WorkshopProvider } from '@providers/interfaces/workshop'
+import { MockWorkshopProvider } from '@providers/mock/workshop'
+import { SquareWorkshopProvider } from '@providers/square/workshop'
 
 export interface Providers {
   booking: BookingProvider
@@ -28,6 +31,7 @@ export interface Providers {
   customer: CustomerProvider
   notification: NotificationProvider
   giftcard: GiftCardProvider | null
+  workshop: WorkshopProvider
 }
 
 export function createProviders(config: SiteConfig): Providers {
@@ -52,6 +56,9 @@ export function createProviders(config: SiteConfig): Providers {
     customer: useMock
       ? new MockCustomerProvider()
       : new SquareCustomerProvider(config.providers.customer.config as SquareConfig),
+    workshop: useMock
+      ? new MockWorkshopProvider()
+      : new SquareWorkshopProvider(config.providers.booking.config as SquareConfig),
     notification,
     giftcard: useMock
       ? null

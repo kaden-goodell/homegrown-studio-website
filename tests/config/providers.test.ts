@@ -8,6 +8,7 @@ import { MockCatalogProvider } from '@providers/mock/catalog'
 import { MockCapacityProvider } from '@providers/mock/capacity'
 import { NullCapacityProvider } from '@providers/mock/capacity'
 import { MockCustomerProvider } from '@providers/mock/customer'
+import { MockWorkshopProvider } from '@providers/mock/workshop'
 import { SlackNotificationProvider } from '@providers/slack/notification'
 
 describe('createProviders', () => {
@@ -17,6 +18,7 @@ describe('createProviders', () => {
     expect(providers.payment).toBeInstanceOf(MockPaymentProvider)
     expect(providers.catalog).toBeInstanceOf(MockCatalogProvider)
     expect(providers.customer).toBeInstanceOf(MockCustomerProvider)
+    expect(providers.workshop).toBeInstanceOf(MockWorkshopProvider)
     expect(providers.notification).toBeInstanceOf(SlackNotificationProvider)
   })
 
@@ -64,6 +66,9 @@ describe('createProviders', () => {
     // customer
     expect(typeof providers.customer.findOrCreate).toBe('function')
     expect(typeof providers.customer.subscribe).toBe('function')
+    // workshop
+    expect(typeof providers.workshop.listWorkshops).toBe('function')
+    expect(typeof providers.workshop.getWorkshop).toBe('function')
     // notification
     expect(typeof providers.notification.send).toBe('function')
   })
