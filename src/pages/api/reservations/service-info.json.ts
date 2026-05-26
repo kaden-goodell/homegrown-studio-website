@@ -14,19 +14,30 @@ export const GET: APIRoute = async () => {
       siteConfig.providers.catalog.config as SquareConfig
     )
 
-    const response = await client.catalog.retrieveCatalogObject({
+    const itemResponse = await client.catalog.object.get({
       objectId: reservationConfig.square.catalogItemId,
-      includeRelatedObjects: true,
     })
 
-    const item = (response as any).object
-    const relatedObjects = (response as any).relatedObjects ?? []
+    const item = ((itemResponse as any)?.object ?? itemResponse) as any
 
     if (!item?.itemData) {
       logger.error('Catalog item not found or missing itemData', {
         objectId: reservationConfig.square.catalogItemId,
+        responseShape: Object.keys((itemResponse as any) ?? {}),
       })
       return errorResponse('Service not found', 404)
+    }
+
+    const modifierListIds = (item.itemData.modifierListInfo ?? [])
+      .map((info: any) => info.modifierListId)
+      .filter(Boolean)
+
+    let relatedObjects: any[] = []
+    if (modifierListIds.length > 0) {
+      const batchResponse = await client.catalog.batchGet({
+        objectIds: modifierListIds,
+      })
+      relatedObjects = (batchResponse as any).objects ?? []
     }
 
     // Map variations (duration options with pricing)

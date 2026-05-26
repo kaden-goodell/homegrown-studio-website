@@ -157,7 +157,7 @@ export class SquareCatalogProvider implements CatalogProvider {
     logger.info('Fetching add-ons', { eventTypeId })
 
     const response = await this.client.catalog.object.get({ objectId: eventTypeId })
-    const item = response as any
+    const item = ((response as any)?.object ?? response) as any
 
     const modListInfo = item.itemData?.modifierListInfo ?? []
     const modifierListIds = modListInfo
@@ -189,7 +189,7 @@ export class SquareCatalogProvider implements CatalogProvider {
     logger.info('Fetching pricing', { eventTypeId, variationId })
 
     const response = await this.client.catalog.object.get({ objectId: eventTypeId })
-    const item = response as any
+    const item = ((response as any)?.object ?? response) as any
 
     const variation = (item.itemData?.variations ?? []).find(
       (v: any) => v.id === variationId
