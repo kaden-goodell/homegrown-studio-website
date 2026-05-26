@@ -2,40 +2,18 @@
 export const prerender = false
 
 import Layout from '@layouts/Layout.astro'
-import { siteConfig } from '@config/site.config'
-import { getClassInstances } from '@providers/square/classes'
+import { providers } from '@config/providers'
+import { toWorkshopData } from '@components/workshops/workshop-view-model'
 import WorkshopExplorer from '@components/workshops/WorkshopExplorer'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 
-const locationId = siteConfig.providers.booking.config.locationId || ''
-
 let workshops: WorkshopData[] = []
 
-if (locationId) {
-  try {
-    const classes = await getClassInstances(locationId)
-
-    workshops = classes
-      .filter((c) => c.availableCapacity > 0)
-      .map((c) => ({
-        id: c.id,
-        name: c.name,
-        description: c.description,
-        category: 'workshop',
-        date: c.startAt.split('T')[0],
-        startTime: c.startAt,
-        endTime: new Date(new Date(c.startAt).getTime() + c.durationMinutes * 60_000).toISOString(),
-        duration: c.durationMinutes,
-        price: c.price * 100, // WorkshopData expects cents
-        currency: c.currency,
-        remainingSeats: c.availableCapacity,
-        classScheduleId: c.classScheduleId,
-        classScheduleInstanceId: c.id,
-        teamMemberId: c.teamMemberId,
-      }))
-  } catch {
-    // Classes API may not be available (e.g. sandbox)
-  }
+try {
+  const list = await providers.workshop.listWorkshops()
+  workshops = list.map(toWorkshopData)
+} catch {
+  // Provider may be unavailable (e.g. sandbox)
 }
 ---
 
