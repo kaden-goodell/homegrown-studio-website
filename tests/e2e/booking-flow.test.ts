@@ -15,6 +15,8 @@ const mockFindOrCreate = vi.fn()
 const mockNotificationSend = vi.fn()
 const mockGetAvailableCapacity = vi.fn()
 const mockGetClientConfig = vi.fn()
+const mockListWorkshops = vi.fn(async () => [])
+const mockGetWorkshop = vi.fn(async () => null)
 
 vi.mock('@config/providers', () => ({
   providers: {
@@ -37,6 +39,11 @@ vi.mock('@config/providers', () => ({
     capacity: {
       getAvailableCapacity: mockGetAvailableCapacity,
     },
+    workshop: {
+      listWorkshops: mockListWorkshops,
+      getWorkshop: mockGetWorkshop,
+    },
+    giftcard: null,
     notification: {
       send: mockNotificationSend,
     },
@@ -50,7 +57,6 @@ vi.mock('@lib/coupons', () => ({
 }))
 
 // Import API routes after mocking
-const workshopList = await import('../../src/pages/api/workshops/list.json')
 const workshopAvailability = await import('../../src/pages/api/workshops/availability.json')
 const bookingCreate = await import('../../src/pages/api/booking/create.json')
 const customerFindOrCreate = await import('../../src/pages/api/customer/find-or-create.json')
@@ -71,56 +77,27 @@ describe('Booking flow integration', () => {
     vi.clearAllMocks()
   })
 
-  it('completes full wizard flow: browse → select slot → create customer → order → pay → book', async () => {
-    // Step 1: Browse event types
-    mockGetEventTypes.mockResolvedValue([
+  it('completes full wizard flow: list workshops → create customer → order → pay → book', async () => {
+    // Step 1: List workshop availability (now SSR-driven; the endpoint
+    // returns Workshop[] from providers.workshop.listWorkshops())
+    mockListWorkshops.mockResolvedValueOnce([
       {
-        id: 'EVT1',
-        name: 'Pottery Workshop',
-        description: 'Learn pottery basics',
-        category: 'Workshops',
-        variations: [{ id: 'VAR1', name: 'Standard', priceAmount: 4500, priceCurrency: 'USD' }],
-        modifiers: [],
-        flow: 'booking',
-        duration: 120,
-      },
-    ])
-    // Capacity returns null (unlimited) for all slots
-    mockGetAvailableCapacity.mockResolvedValue(new Map())
-
-    const listCtx = { request: new Request('http://localhost/api/workshops/list.json') } as any
-    const listRes = await workshopList.GET(listCtx)
-    const listData = await listRes.json()
-    expect(listData.data).toHaveLength(1)
-    expect(listData.data[0].name).toBe('Pottery Workshop')
-
-    // Step 2: Search availability
-    mockSearchAvailability.mockResolvedValue([
-      {
-        id: '2026-03-15T10:00:00Z',
-        startAt: '2026-03-15T10:00:00Z',
-        endAt: '2026-03-15T12:00:00Z',
-        duration: 120,
-        locationId: 'LOC1',
-        available: true,
+        id: 'inst-A', scheduleId: 'sched-A', name: 'Test WS 1',
+        description: '', descriptionHtml: '',
+        startAt: new Date(Date.now() + 86400000).toISOString(),
+        durationMinutes: 60, priceCents: 5000, priceCurrency: 'USD',
+        availableCapacity: 5, staffName: '', teamMemberId: '',
       },
       {
-        id: '2026-03-15T14:00:00Z',
-        startAt: '2026-03-15T14:00:00Z',
-        endAt: '2026-03-15T16:00:00Z',
-        duration: 120,
-        locationId: 'LOC1',
-        available: true,
+        id: 'inst-B', scheduleId: 'sched-B', name: 'Test WS 2',
+        description: '', descriptionHtml: '',
+        startAt: new Date(Date.now() + 172800000).toISOString(),
+        durationMinutes: 60, priceCents: 5000, priceCurrency: 'USD',
+        availableCapacity: 3, staffName: '', teamMemberId: '',
       },
     ])
 
-    const availCtx = {
-      request: makeRequest({
-        eventTypeId: 'EVT1',
-        startDate: '2026-03-15',
-        endDate: '2026-03-22',
-      }),
-    } as any
+    const availCtx = { request: makeRequest({}) } as any
     const availRes = await workshopAvailability.POST(availCtx)
     const availData = await availRes.json()
     expect(availData.data).toHaveLength(2)
