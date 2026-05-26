@@ -1,3 +1,6 @@
+This project uses **Jig** for development workflow management.
+See `jig.config.md` for pipeline configuration.
+
 # Claude Code Session Notes
 
 ## Git Configuration
