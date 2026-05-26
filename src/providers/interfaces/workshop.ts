@@ -14,10 +14,10 @@ export interface Workshop {
   availableCapacity: number
   staffName: string
   teamMemberId: string
-  /** Reserved for the workshops-launch feature. Square's class API does not
-   *  provide images; this will be populated by an image-linker from
-   *  public/images/workshops/ in the next plan. Stays undefined for now. */
+  /** Card image (16:9), resolved from the paired catalog item's image with caption "card". */
   imageUrl?: string
+  /** Flyer image (taller, more detailed), resolved from the paired catalog item's image with caption "flyer". */
+  flyerUrl?: string
 }
 
 export interface WorkshopProvider {

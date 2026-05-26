@@ -208,7 +208,8 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
         ]
         return (
           <DetailsStep
-            imageUrl={workshop.imageUrl}
+            imageUrl={workshop.flyerUrl ?? workshop.imageUrl}
+            imageAspect={workshop.flyerUrl ? 'natural' : 'card'}
             title={workshop.name}
             description={workshop.description}
             tags={detailsTags}

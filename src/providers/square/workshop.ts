@@ -104,10 +104,12 @@ export class SquareWorkshopProvider implements WorkshopProvider {
     // Square auto-creates a catalog item for every class added via the
     // Appointments UI; that catalog item is where workshop images live.
     try {
-      const nameToUrl = await this.fetchWorkshopImageMap()
+      const nameToImages = await this.fetchWorkshopImageMap()
       for (const w of workshops) {
-        const url = nameToUrl.get(w.name.toLowerCase())
-        if (url) w.imageUrl = url
+        const imgs = nameToImages.get(w.name.toLowerCase())
+        if (!imgs) continue
+        if (imgs.card) w.imageUrl = imgs.card
+        if (imgs.flyer) w.flyerUrl = imgs.flyer
       }
     } catch (err) {
       logger.error('Failed to join workshop images from catalog', {
@@ -119,10 +121,17 @@ export class SquareWorkshopProvider implements WorkshopProvider {
     return workshops
   }
 
-  /** Maps lowercased workshop name → image URL (first imageId resolved to a CDN URL). */
-  private async fetchWorkshopImageMap(): Promise<Map<string, string>> {
+  /**
+   * Maps lowercased workshop name → { card, flyer } image URLs.
+   * Images are distinguished by their `caption` field on the catalog IMAGE
+   * object: "card" → 16:9 card image, "flyer" → taller flyer image.
+   * If no captioned card exists but images are present, the first image is
+   * used as the card fallback (preserves current behavior for items that
+   * were uploaded before captions were a convention).
+   */
+  private async fetchWorkshopImageMap(): Promise<Map<string, { card?: string; flyer?: string }>> {
     const client = createSquareClient(this.config)
-    const nameToImageId = new Map<string, string>()
+    const nameToImageIds = new Map<string, string[]>()
     const imageIds = new Set<string>()
 
     for await (const obj of await client.catalog.list({ types: 'ITEM' })) {
@@ -130,24 +139,37 @@ export class SquareWorkshopProvider implements WorkshopProvider {
       const name: string | undefined = item.itemData?.name
       const ids: string[] = item.itemData?.imageIds ?? []
       if (!name || ids.length === 0) continue
-      nameToImageId.set(name.toLowerCase(), ids[0])
-      imageIds.add(ids[0])
+      nameToImageIds.set(name.toLowerCase(), ids)
+      for (const id of ids) imageIds.add(id)
     }
 
     if (imageIds.size === 0) return new Map()
 
     const batchResp: any = await client.catalog.batchGet({ objectIds: Array.from(imageIds) })
-    const idToUrl = new Map<string, string>()
+    const idToImage = new Map<string, { url: string; caption: string }>()
     for (const obj of batchResp?.objects ?? batchResp?.relatedObjects ?? []) {
-      if (obj.type === 'IMAGE' && obj.imageData?.url) {
-        idToUrl.set(obj.id, obj.imageData.url)
-      }
+      if (obj.type !== 'IMAGE' || !obj.imageData?.url) continue
+      idToImage.set(obj.id, {
+        url: obj.imageData.url,
+        caption: (obj.imageData.caption ?? '').toLowerCase(),
+      })
     }
 
-    const result = new Map<string, string>()
-    for (const [name, imgId] of nameToImageId) {
-      const url = idToUrl.get(imgId)
-      if (url) result.set(name, url)
+    const result = new Map<string, { card?: string; flyer?: string }>()
+    for (const [name, ids] of nameToImageIds) {
+      const slot: { card?: string; flyer?: string } = {}
+      for (const id of ids) {
+        const img = idToImage.get(id)
+        if (!img) continue
+        if (img.caption === 'card' && !slot.card) slot.card = img.url
+        else if (img.caption === 'flyer' && !slot.flyer) slot.flyer = img.url
+      }
+      // Fallback: if no captioned card, use the first image as the card.
+      if (!slot.card && ids.length > 0) {
+        const first = idToImage.get(ids[0])
+        if (first) slot.card = first.url
+      }
+      if (slot.card || slot.flyer) result.set(name, slot)
     }
     return result
   }

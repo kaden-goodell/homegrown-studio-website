@@ -2,6 +2,12 @@ import type { ReactNode } from 'react'
 
 export interface DetailsStepProps {
   imageUrl?: string
+  /**
+   * How to render the image:
+   *  - "card" (default): fixed 14rem height, object-fit: cover (crops). Use for 16:9 card images.
+   *  - "natural": preserve natural aspect ratio (e.g. tall flyers); width 100%, max-height caps growth so the modal stays usable.
+   */
+  imageAspect?: 'card' | 'natural'
   title: string
   description: string
   tags: { icon?: ReactNode; label: string }[]
@@ -11,6 +17,7 @@ export interface DetailsStepProps {
 
 export default function DetailsStep({
   imageUrl,
+  imageAspect = 'card',
   title,
   description,
   tags,
@@ -19,20 +26,27 @@ export default function DetailsStep({
 }: DetailsStepProps) {
   const paragraphs = description.split(/\n\n|\n/).filter(Boolean)
 
+  const imageStyle: React.CSSProperties =
+    imageAspect === 'natural'
+      ? {
+          width: '100%',
+          height: 'auto',
+          borderRadius: '0.75rem',
+          marginBottom: '1.25rem',
+          display: 'block',
+        }
+      : {
+          width: '100%',
+          height: '14rem',
+          objectFit: 'cover',
+          borderRadius: '0.75rem',
+          marginBottom: '1.25rem',
+        }
+
   return (
     <div>
       {imageUrl && (
-        <img
-          src={imageUrl}
-          alt={title}
-          style={{
-            width: '100%',
-            height: '14rem',
-            objectFit: 'cover',
-            borderRadius: '0.75rem',
-            marginBottom: '1.25rem',
-          }}
-        />
+        <img src={imageUrl} alt={title} style={imageStyle} />
       )}
 
       <h3

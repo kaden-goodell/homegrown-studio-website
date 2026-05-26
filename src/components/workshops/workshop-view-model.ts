@@ -30,5 +30,6 @@ export function toWorkshopData(w: Workshop): WorkshopData {
     classScheduleInstanceId: w.id,
     teamMemberId: w.teamMemberId,
     imageUrl: w.imageUrl,
+    flyerUrl: w.flyerUrl,
   }
 }

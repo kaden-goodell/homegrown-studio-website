@@ -8,18 +8,20 @@ const env = process.env.SQUARE_ENVIRONMENT === 'production'
 
 const client = new SquareClient({ token, environment: env })
 
+function bigIntJson(o: unknown): string {
+  return JSON.stringify(o, (_k, v) => (typeof v === 'bigint' ? v.toString() : v), 2)
+}
+
 async function main() {
   const WORKSHOP_CATEGORY_ID = 'QXN2HDQQG2YBZBNLLKNFTZRC'
 
-  console.log('=== Items in the Workshop catalog category ===\n')
+  console.log('=== Full state of items in the Workshop catalog category ===\n')
   for await (const o of await client.catalog.list({ types: 'ITEM' })) {
     const item = o as any
     const inWorkshop = (item.itemData?.categories ?? []).some((c: any) => c.id === WORKSHOP_CATEGORY_ID)
     if (!inWorkshop) continue
-    console.log(`- ${item.itemData?.name ?? '(no name)'} (id: ${item.id})`)
-    console.log(`    description: ${item.itemData?.description ?? '(none)'}`)
-    console.log(`    imageIds: ${item.itemData?.imageIds?.length ? item.itemData.imageIds.join(', ') : '(none)'}`)
-    console.log(`    variations: ${item.itemData?.variations?.length ?? 0}`)
+    console.log(`--- ${item.itemData?.name ?? '(no name)'} ---`)
+    console.log(bigIntJson(item))
     console.log()
   }
 }

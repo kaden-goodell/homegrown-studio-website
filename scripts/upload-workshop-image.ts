@@ -5,21 +5,33 @@ import { SquareClient, SquareEnvironment } from 'square'
 
 /**
  * Upload a local image file to Square's Catalog Images API and attach it
- * to a catalog item (by item ID).
+ * to a catalog item (by item ID). The image's caption is set to the role
+ * ("card" or "flyer") so the provider knows which slot it belongs in.
  *
- * Usage: npx tsx scripts/upload-workshop-image.ts <itemId> <imagePath>
+ * Usage: npx tsx scripts/upload-workshop-image.ts <itemId> <imagePath> [--role card|flyer]
+ *
+ * Default role is "card". Pass --role flyer to upload a flyer image.
  *
  * Example:
  *   npx tsx scripts/upload-workshop-image.ts \
  *     L4T4PFGYSD4P7UEBM7LTCIAA \
- *     "~/Library/Mobile Documents/com~apple~CloudDocs/Canva/Pot Holder Weaving.png"
+ *     "~/Library/Mobile Documents/com~apple~CloudDocs/Canva/Pot Holder Weaving.png" \
+ *     --role card
  */
 
-const itemId = process.argv[2]
-const imagePath = process.argv[3]?.replace(/^~/, process.env.HOME ?? '~')
+const args = process.argv.slice(2)
+const roleIdx = args.indexOf('--role')
+const role = roleIdx >= 0 ? (args[roleIdx + 1] ?? 'card') : 'card'
+const positional = args.filter((_, i) => i !== roleIdx && i !== roleIdx + 1)
+const itemId = positional[0]
+const imagePath = positional[1]?.replace(/^~/, process.env.HOME ?? '~')
 
 if (!itemId || !imagePath) {
-  console.error('Usage: npx tsx scripts/upload-workshop-image.ts <itemId> <imagePath>')
+  console.error('Usage: npx tsx scripts/upload-workshop-image.ts <itemId> <imagePath> [--role card|flyer]')
+  process.exit(1)
+}
+if (role !== 'card' && role !== 'flyer') {
+  console.error(`Invalid --role: ${role}. Must be "card" or "flyer".`)
   process.exit(1)
 }
 
@@ -38,6 +50,7 @@ async function main() {
   console.log(`Square env: ${env}`)
   console.log(`Item ID: ${itemId}`)
   console.log(`Image: ${imagePath}`)
+  console.log(`Role: ${role}`)
 
   // 1. Read the file.
   const fileBuf = readFileSync(imagePath)
@@ -70,7 +83,7 @@ async function main() {
         id: '#new-image',
         imageData: {
           name: fileName,
-          caption: item.itemData?.name ?? fileName,
+          caption: role, // "card" or "flyer" — read by SquareWorkshopProvider to slot the image.
         },
       },
       objectId: itemId, // Attach to the item directly.

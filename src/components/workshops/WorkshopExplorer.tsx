@@ -9,6 +9,7 @@ export interface WorkshopData {
   description: string
   category: string
   imageUrl?: string
+  flyerUrl?: string
   date: string
   startTime: string
   endTime: string
