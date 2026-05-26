@@ -1,5 +1,6 @@
 import type { Workshop, WorkshopProvider } from '../interfaces/workshop'
 import type { SquareConfig } from '../../config/site.config'
+import { createSquareClient } from './client'
 import { createLogger } from '../../lib/logger'
 
 const logger = createLogger('square-workshop')
@@ -81,7 +82,7 @@ export class SquareWorkshopProvider implements WorkshopProvider {
       scheduleMap.set(schedule.id, schedule)
     }
 
-    return (data.class_schedule_instances ?? []).map((instance: any): Workshop => {
+    const workshops: Workshop[] = (data.class_schedule_instances ?? []).map((instance: any): Workshop => {
       const details = scheduleMap.get(instance.class_schedule_id) ?? {}
       return {
         id: instance.id,
@@ -98,5 +99,56 @@ export class SquareWorkshopProvider implements WorkshopProvider {
         teamMemberId: details.team_member_id ?? '',
       }
     })
+
+    // Join images from paired CLASS_TICKET catalog items by name match.
+    // Square auto-creates a catalog item for every class added via the
+    // Appointments UI; that catalog item is where workshop images live.
+    try {
+      const nameToUrl = await this.fetchWorkshopImageMap()
+      for (const w of workshops) {
+        const url = nameToUrl.get(w.name.toLowerCase())
+        if (url) w.imageUrl = url
+      }
+    } catch (err) {
+      logger.error('Failed to join workshop images from catalog', {
+        error: err instanceof Error ? err.message : String(err),
+      })
+      // Continue — workshops still render without images.
+    }
+
+    return workshops
+  }
+
+  /** Maps lowercased workshop name → image URL (first imageId resolved to a CDN URL). */
+  private async fetchWorkshopImageMap(): Promise<Map<string, string>> {
+    const client = createSquareClient(this.config)
+    const nameToImageId = new Map<string, string>()
+    const imageIds = new Set<string>()
+
+    for await (const obj of await client.catalog.list({ types: 'ITEM' })) {
+      const item = obj as any
+      const name: string | undefined = item.itemData?.name
+      const ids: string[] = item.itemData?.imageIds ?? []
+      if (!name || ids.length === 0) continue
+      nameToImageId.set(name.toLowerCase(), ids[0])
+      imageIds.add(ids[0])
+    }
+
+    if (imageIds.size === 0) return new Map()
+
+    const batchResp: any = await client.catalog.batchGet({ objectIds: Array.from(imageIds) })
+    const idToUrl = new Map<string, string>()
+    for (const obj of batchResp?.objects ?? batchResp?.relatedObjects ?? []) {
+      if (obj.type === 'IMAGE' && obj.imageData?.url) {
+        idToUrl.set(obj.id, obj.imageData.url)
+      }
+    }
+
+    const result = new Map<string, string>()
+    for (const [name, imgId] of nameToImageId) {
+      const url = idToUrl.get(imgId)
+      if (url) result.set(name, url)
+    }
+    return result
   }
 }

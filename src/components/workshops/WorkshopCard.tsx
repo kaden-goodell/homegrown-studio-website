@@ -79,16 +79,33 @@ export default function WorkshopCard({ workshop, onBook }: WorkshopCardProps) {
         <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'var(--font-heading)', color: 'var(--color-dark, #3d3229)' }}>
           {workshop.name}
         </h3>
-        <p className="text-sm leading-relaxed mb-5" style={{
-          color: 'var(--color-muted)',
-          minHeight: '5.75rem',
-          display: '-webkit-box',
-          WebkitLineClamp: 4,
-          WebkitBoxOrient: 'vertical',
-          overflow: 'hidden',
-        }}>
-          {workshop.description}
-        </p>
+        {workshop.imageUrl ? (
+          <div
+            className="mb-5 rounded-xl overflow-hidden"
+            style={{
+              aspectRatio: '16 / 9',
+              backgroundColor: 'rgba(150, 112, 91, 0.06)',
+            }}
+          >
+            <img
+              src={workshop.imageUrl}
+              alt={workshop.name}
+              loading="lazy"
+              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+            />
+          </div>
+        ) : (
+          <p className="text-sm leading-relaxed mb-5" style={{
+            color: 'var(--color-muted)',
+            minHeight: '5.75rem',
+            display: '-webkit-box',
+            WebkitLineClamp: 4,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          }}>
+            {workshop.description}
+          </p>
+        )}
 
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs mb-6" style={{ color: 'var(--color-muted)' }}>
           <span>{dateStr}</span>
