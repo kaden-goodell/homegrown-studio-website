@@ -392,3 +392,12 @@ export function validateConfig(config: SiteConfig): void {
     throw new Error('name is required')
   }
 }
+
+/**
+ * Square's published buyer-facing class-booking widget app ID. Required by
+ * the buyer `class_bookings` API to accept Web Payments SDK tokens — the
+ * merchant app ID is rejected (see square-class-bookings memory).
+ * Used by WorkshopBookingModal and the reservations PaymentStep.
+ * Set unconditionally so mock/dev mode still passes it to PaymentForm.
+ */
+export const CLASS_BOOKING_APP_ID = 'sq0idp-0WpGrONcXfCcfav3Lkd9Jg'

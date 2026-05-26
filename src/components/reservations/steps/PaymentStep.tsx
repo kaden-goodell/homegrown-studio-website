@@ -1,4 +1,5 @@
 import { useState, useRef } from 'react'
+import { CLASS_BOOKING_APP_ID } from '@config/site.config'
 import { useReservation } from '../ReservationContext'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
@@ -126,7 +127,7 @@ export default function PaymentStep() {
 
       {/* Payment form */}
       <div style={{ marginBottom: '1rem' }}>
-        <PaymentForm ref={paymentFormRef} applicationIdOverride="sq0idp-0WpGrONcXfCcfav3Lkd9Jg" environmentOverride="production" />
+        <PaymentForm ref={paymentFormRef} applicationIdOverride={CLASS_BOOKING_APP_ID} environmentOverride="production" />
       </div>
 
       {error && (

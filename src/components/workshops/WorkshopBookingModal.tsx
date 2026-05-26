@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { CLASS_BOOKING_APP_ID } from '@config/site.config'
 import type { WorkshopData } from './WorkshopExplorer'
 import DetailsStep from '@components/shared/DetailsStep'
 import OrderSummary from '@components/checkout/OrderSummary'
@@ -458,7 +459,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
             </div>
 
             <div style={{ marginTop: '1rem' }}>
-              <PaymentForm ref={paymentFormRef} applicationIdOverride="sq0idp-0WpGrONcXfCcfav3Lkd9Jg" environmentOverride="production" />
+              <PaymentForm ref={paymentFormRef} applicationIdOverride={CLASS_BOOKING_APP_ID} environmentOverride="production" />
             </div>
 
             {error && (
