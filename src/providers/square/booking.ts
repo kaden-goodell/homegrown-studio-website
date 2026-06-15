@@ -169,11 +169,19 @@ export class SquareBookingProvider implements BookingProvider {
       }
     }
 
-    await (this.client.bookings as any).customAttributes.bulkUpsert({
-      values: customAttrs,
-    })
-
-    logger.info('Booking created with custom attributes', { bookingId })
+    // Non-fatal: the booking + payment already succeeded. A custom-attribute
+    // write failure (e.g. missing definition) must never fail the booking.
+    try {
+      await (this.client.bookings as any).customAttributes.batchUpsert({
+        values: customAttrs,
+      })
+      logger.info('Booking created with custom attributes', { bookingId })
+    } catch (err) {
+      logger.error('Booking custom attributes failed (non-fatal)', {
+        bookingId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+    }
 
     const segment = sqBooking.appointmentSegments?.[0]
     const startAt = sqBooking.startAt ?? ''
@@ -275,7 +283,10 @@ export class SquareBookingProvider implements BookingProvider {
       startAtMax: params.endDate,
     })
 
-    const sqBookings = (response as any).bookings ?? []
+    // v44: bookings.list returns a paginator (items in async iteration / .data),
+    // NOT a plain { bookings: [] }. Iterate to collect all bookings.
+    const sqBookings: any[] = []
+    for await (const b of response as any) sqBookings.push(b)
 
     // Filter out cancelled bookings
     const activeBookings = sqBookings.filter(
@@ -289,50 +300,13 @@ export class SquareBookingProvider implements BookingProvider {
     for (const sqBooking of activeBookings) {
       const bookingId = sqBooking.id!
 
-      // Read custom attributes for add-on metadata
-      let partyTable = false
-      try {
-        const attrResponse = await (this.client.bookings as any).customAttributes.get({
-          bookingId,
-          key: 'party_table',
-        })
-        partyTable = attrResponse?.customAttribute?.value === 'true'
-      } catch {
-        // Attribute may not exist
-      }
-
-      let dedicatedHost = false
-      try {
-        const attrResponse = await (this.client.bookings as any).customAttributes.get({
-          bookingId,
-          key: 'dedicated_host',
-        })
-        dedicatedHost = attrResponse?.customAttribute?.value === 'true'
-      } catch {
-        // Attribute may not exist
-      }
-
-      let giftCardId: string | undefined
-      try {
-        const attrResponse = await (this.client.bookings as any).customAttributes.get({
-          bookingId,
-          key: 'gift_card_id',
-        })
-        giftCardId = attrResponse?.customAttribute?.value || undefined
-      } catch {
-        // Attribute may not exist
-      }
-
-      let eventType = ''
-      try {
-        const attrResponse = await (this.client.bookings as any).customAttributes.get({
-          bookingId,
-          key: 'event_type',
-        })
-        eventType = attrResponse?.customAttribute?.value ?? ''
-      } catch {
-        // Attribute may not exist
-      }
+      // Booking custom-attribute reads were removed: the definitions aren't
+      // reliably present in v44 (they 400) and the per-booking GETs were slow.
+      // Callers identify party bookings by the segment's serviceVariationId.
+      const partyTable = false
+      const dedicatedHost = false
+      const giftCardId: string | undefined = undefined
+      const eventType = ''
 
       const segment = sqBooking.appointmentSegments?.[0]
       const startAt = sqBooking.startAt ?? ''
