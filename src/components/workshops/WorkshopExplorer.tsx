@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import SearchView from './SearchView'
 import CalendarView from './CalendarView'
 import WorkshopBookingModal from './WorkshopBookingModal'
@@ -23,14 +23,77 @@ export interface WorkshopData {
 }
 
 export interface WorkshopExplorerProps {
-  workshops: WorkshopData[]
+  /** Optional initial list (e.g. SSR). If empty, the component fetches client-side. */
+  workshops?: WorkshopData[]
 }
 
 type View = 'search' | 'calendar'
 
-export default function WorkshopExplorer({ workshops }: WorkshopExplorerProps) {
+/** Placeholder cards shown while workshops load, so navigation feels instant. */
+function WorkshopSkeleton() {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(16rem, 1fr))', gap: '1.5rem' }}>
+      {Array.from({ length: 6 }).map((_, i) => (
+        <div
+          key={i}
+          style={{
+            borderRadius: '1rem',
+            overflow: 'hidden',
+            background: 'rgba(255, 255, 255, 0.6)',
+            border: '1px solid rgba(150, 112, 91, 0.08)',
+          }}
+        >
+          <div className="animate-pulse" style={{ height: '10rem', background: 'rgba(150, 112, 91, 0.08)' }} />
+          <div style={{ padding: '1rem' }}>
+            <div className="animate-pulse" style={{ height: '1rem', width: '70%', background: 'rgba(150, 112, 91, 0.12)', borderRadius: '0.25rem', marginBottom: '0.6rem' }} />
+            <div className="animate-pulse" style={{ height: '0.75rem', width: '40%', background: 'rgba(150, 112, 91, 0.08)', borderRadius: '0.25rem' }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: WorkshopExplorerProps) {
+  const [workshops, setWorkshops] = useState<WorkshopData[]>(initialWorkshops)
+  const [loading, setLoading] = useState(initialWorkshops.length === 0)
   const [view, setView] = useState<View>('search')
   const [bookingWorkshop, setBookingWorkshop] = useState<WorkshopData | null>(null)
+
+  // Fetch workshops client-side so the page shell renders immediately instead of
+  // blocking navigation on the Square Classes API. Skipped if SSR provided them.
+  useEffect(() => {
+    if (initialWorkshops.length > 0) return
+    let cancelled = false
+    setLoading(true)
+    fetch('/api/workshops.json')
+      .then((res) => {
+        if (!res.ok) throw new Error(`workshops fetch failed: ${res.status}`)
+        return res.json()
+      })
+      .then((data: { workshops?: WorkshopData[] }) => {
+        if (!cancelled) setWorkshops(Array.isArray(data?.workshops) ? data.workshops : [])
+      })
+      .catch(() => {
+        // Keep whatever we have; the list just stays empty.
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Deeplink support: /workshops?w=<workshopId> auto-opens that workshop's
+  // booking modal once the list is loaded. Client-only — guards SSR.
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const id = new URLSearchParams(window.location.search).get('w')
+    if (!id) return
+    const target = workshops.find((w) => w.id === id)
+    if (target) setBookingWorkshop(target)
+  }, [workshops])
 
   return (
     <div>
@@ -60,7 +123,9 @@ export default function WorkshopExplorer({ workshops }: WorkshopExplorerProps) {
           ))}
       </div>
 
-      {view === 'search' ? (
+      {loading ? (
+        <WorkshopSkeleton />
+      ) : view === 'search' ? (
         <SearchView workshops={workshops} onBook={setBookingWorkshop} />
       ) : (
         <CalendarView workshops={workshops} onBook={setBookingWorkshop} />

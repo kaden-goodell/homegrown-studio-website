@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { CLASS_BOOKING_APP_ID } from '@config/site.config'
+import { partyConfig } from '@config/party.config'
 import type { WorkshopData } from './WorkshopExplorer'
 import DetailsStep from '@components/shared/DetailsStep'
 import OrderSummary from '@components/checkout/OrderSummary'
@@ -55,7 +56,8 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
   const paymentFormRef = useRef<PaymentFormRef>(null)
 
-  const maxSeats = workshop.remainingSeats ?? 10
+  // Cap seats at the class's remaining capacity AND the studio-wide event cap (30).
+  const maxSeats = Math.min(workshop.remainingSeats ?? partyConfig.maxGuests, partyConfig.maxGuests)
 
   // Body scroll lock
   useEffect(() => {

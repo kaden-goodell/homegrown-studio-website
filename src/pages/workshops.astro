@@ -2,19 +2,10 @@
 export const prerender = false
 
 import Layout from '@layouts/Layout.astro'
-import { providers } from '@config/providers'
-import { toWorkshopData } from '@components/workshops/workshop-view-model'
 import WorkshopExplorer from '@components/workshops/WorkshopExplorer'
-import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 
-let workshops: WorkshopData[] = []
-
-try {
-  const list = await providers.workshop.listWorkshops()
-  workshops = list.map(toWorkshopData)
-} catch {
-  // Provider may be unavailable (e.g. sandbox)
-}
+// Workshops are fetched client-side (via /api/workshops.json) so this page renders
+// instantly instead of blocking navigation on the (sometimes slow) Square Classes API.
 ---
 
 <Layout title="Workshops">
@@ -26,6 +17,6 @@ try {
         Drop-in crafting sessions and creative workshops for all skill levels
       </p>
     </div>
-    <WorkshopExplorer client:load workshops={workshops} />
+    <WorkshopExplorer client:load />
   </section>
 </Layout>
