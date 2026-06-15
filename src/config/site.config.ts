@@ -236,7 +236,7 @@ export const siteConfig: SiteConfig = {
       types: partyTypes,
     },
     programs: {
-      enabled: true,
+      enabled: false,
       types: [
         {
           id: 'summer-camp',
@@ -380,7 +380,7 @@ export const siteConfig: SiteConfig = {
   nav: [
     { label: 'Home', href: '/' },
     { label: 'Workshops', href: '/workshops' },
-    { label: 'Programs', href: '/programs' },
+    { label: 'Calendar', href: '/calendar' },
     { label: 'Book a Party', href: '/book' },
     { label: 'Gallery', href: '/gallery' },
     { label: 'About', href: '/about' },

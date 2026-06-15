@@ -3,7 +3,12 @@ export const prerender = false
 
 import Layout from '@layouts/Layout.astro'
 import { providers } from '@config/providers'
+import { siteConfig } from '@config/site.config'
 import ProgramExplorer from '@components/programs/ProgramExplorer'
+
+if (!siteConfig.features.programs.enabled) {
+  return Astro.redirect('/')
+}
 
 const programs = await providers.catalog.getEventTypes({ category: 'program' })
 ---
