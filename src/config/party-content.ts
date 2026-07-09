@@ -74,15 +74,19 @@ export const partyContent = {
     },
     {
       q: 'Can I bring food, drinks, or a cake?',
-      a: '', // TODO(Kaden): your food & drink policy
+      a: 'A dessert or sweet treat and water — that’s the menu! Treat time is optional and runs about 20–30 minutes (plenty of guests just keep crafting right through it), so keep it simple. Please bring your own plates, napkins, and utensils — we don’t provide paper goods.',
     },
     {
       q: 'Can I decorate the studio for my party?',
-      a: '', // TODO(Kaden): your decoration policy
+      a: 'Yes — minimal decorations are welcome. You’ll have 30 minutes before your start time to set up while we reset the studio from the previous party. Just plan to take your decorations down afterward and leave the space the way you found it.',
     },
     {
       q: 'What happens if I need to cancel or reschedule?',
-      a: '', // TODO(Kaden): your cancellation/reschedule policy
+      a: 'Rescheduling is free up to 7 days before your party. The studio fee isn’t refundable, but if you cancel at least 2 weeks out we’ll convert it to store credit. Parties take planning on both ends — that window gives another group time to book the date, send invites, and get RSVPs.',
+    },
+    {
+      q: 'Do adults or non-guests have to pay?',
+      a: 'Everyone who makes a craft pays the per-person price — adults, friends, siblings, anyone crafting. Crafts aren’t shareable, and it’s all settled at the studio based on who actually crafts, so someone who just comes to watch and cheer costs nothing.',
     },
   ] satisfies FaqEntry[],
 
