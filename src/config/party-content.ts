@@ -38,7 +38,7 @@ export const partyContent = {
   deposit: {
     holdLine: `${FEE} holds your date — that’s all that’s due today.`,
     perPersonExample: { guests: 12 }, // "~$17/person for the room" is computed from this
-    noShowLine: 'Crafts are paid at the studio for whoever actually comes — a friend who can’t make it never costs you a thing.',
+    noShowLine: `Crafts are paid at the studio for whoever actually comes (${partyConfig.minGuests}-craft minimum) — beyond that, a friend who can’t make it never costs you a thing.`,
   },
 
   trust: {
@@ -63,11 +63,15 @@ export const partyContent = {
     },
     {
       q: 'What if some guests can’t make it?',
-      a: 'You only pay for crafts for the people who actually come. Your guest count at booking is just an estimate for planning — no-shows never cost you anything.',
+      a: `You pay for crafts for the people who actually come, with a ${partyConfig.minGuests}-craft minimum (parties are for groups of ${partyConfig.minGuests} or more). Beyond the minimum, your guest count is just an estimate — no-shows never cost you anything.`,
     },
     {
       q: 'How long is a party and how many people can I bring?',
       a: `Parties are ${partyConfig.durationMinutes} minutes in the studio with ${partyConfig.minGuests} to ${partyConfig.maxGuests} guests. The whole space is yours for the entire time.`,
+    },
+    {
+      q: 'Is there a minimum party size?',
+      a: `Yes — parties are for groups of ${partyConfig.minGuests} or more, with a ${partyConfig.minGuests}-craft minimum settled at the studio. If fewer guests end up making it on the day, the ${partyConfig.minGuests}-craft minimum still applies.`,
     },
     {
       q: 'Who are parties for?',
