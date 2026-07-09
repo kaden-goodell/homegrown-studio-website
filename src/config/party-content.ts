@@ -24,7 +24,11 @@ export const partyContent = {
     occasions: 'Birthdays · Girls’ nights · Showers · Team nights · Just because',
     subline:
       'The whole studio, just your people. Pick a craft, pick a date, and come make something together.',
-    valueTrio: ['The whole studio is yours', '90 minutes of making', 'Up to 30 guests'],
+    valueTrio: [
+      'The whole studio is yours',
+      `${partyConfig.durationMinutes} minutes of making`,
+      `${partyConfig.minGuests}–${partyConfig.maxGuests} guests`,
+    ],
     /** AI-generated placeholder (Jul 2026) — swap for a real photo of the studio table before launch. */
     heroImage: '/images/party-hero.jpg' as string,
     heroImageAlt: 'Round oak studio table set for a craft party with tote bags, patches, and ribbon',
@@ -63,7 +67,7 @@ export const partyContent = {
     },
     {
       q: 'How long is a party and how many people can I bring?',
-      a: 'Parties are 90 minutes in the studio with up to 30 guests. The whole space is yours for the entire time.',
+      a: `Parties are ${partyConfig.durationMinutes} minutes in the studio with ${partyConfig.minGuests} to ${partyConfig.maxGuests} guests. The whole space is yours for the entire time.`,
     },
     {
       q: 'Who are parties for?',

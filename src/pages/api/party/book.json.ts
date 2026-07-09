@@ -52,9 +52,9 @@ export const POST: APIRoute = async ({ request }) => {
   if (!body.craft?.id || body.craft.perHeadCents == null) {
     return errorResponse('Missing craft selection', 400)
   }
-  const people = Math.max(1, Math.floor(body.people ?? 0))
-  if (people < 1) {
-    return errorResponse('At least one guest is required', 400)
+  const people = Math.floor(body.people ?? 0)
+  if (people < partyConfig.minGuests) {
+    return errorResponse(`Parties are for groups of ${partyConfig.minGuests} or more`, 400)
   }
   if (people > partyConfig.maxGuests) {
     return errorResponse(`Bookings are limited to ${partyConfig.maxGuests} guests`, 400)

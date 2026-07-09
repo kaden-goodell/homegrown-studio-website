@@ -28,12 +28,14 @@ export const partyConfig = {
   /** Flat room fee in cents. THE single source of truth for the studio fee —
    *  the charge, the modal, and all page copy derive from this value. */
   basePriceCents: 30000,
+  /** Minimum party size — the picker, copy, and server validation all derive from this. */
+  minGuests: 10,
   /** Hard guest cap for any bookable event (studio room capacity). */
   maxGuests: 30,
   /** Default guest estimate — anchors the party at a realistic size, not 1. */
   defaultGuests: 10,
   /** One-tap guest counts offered before the fine-tune stepper. */
-  guestQuickPicks: [8, 10, 12, 15, 20],
+  guestQuickPicks: [10, 15, 20, 25],
   /** Party length shown to the customer. */
   durationMinutes: 90,
   /** How many days ahead the date picker offers bookable party dates. */

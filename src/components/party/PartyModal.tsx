@@ -1092,8 +1092,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 <button
                   type="button"
                   aria-label="Fewer guests"
-                  onClick={() => setPeople(Math.max(1, people - 1))}
-                  disabled={people <= 1}
+                  onClick={() => setPeople(Math.max(partyConfig.minGuests, people - 1))}
+                  disabled={people <= partyConfig.minGuests}
                   style={{
                     width: '2.5rem',
                     height: '2.5rem',
@@ -1101,8 +1101,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                     border: '1px solid rgba(150, 112, 91, 0.15)',
                     background: 'rgba(255, 255, 255, 0.8)',
                     fontSize: '1.25rem',
-                    cursor: people <= 1 ? 'default' : 'pointer',
-                    opacity: people <= 1 ? 0.3 : 1,
+                    cursor: people <= partyConfig.minGuests ? 'default' : 'pointer',
+                    opacity: people <= partyConfig.minGuests ? 0.3 : 1,
                     color: 'var(--color-dark)',
                   }}
                 >
@@ -1139,7 +1139,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: '0.5rem' }}>
                 {people >= partyConfig.maxGuests
                   ? `Maximum ${partyConfig.maxGuests} guests per booking.`
-                  : `Just an estimate for planning — you'll pay for crafts at the studio based on who actually comes, so a friend who can't make it never costs you.`}
+                  : `Parties are for ${partyConfig.minGuests}–${partyConfig.maxGuests} guests. This is just an estimate for planning — you'll pay for crafts at the studio based on who actually comes.`}
               </p>
             </div>
 
