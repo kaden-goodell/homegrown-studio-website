@@ -12,7 +12,7 @@ the field is filled — fill it and the feature appears, no code changes needed.
 | 2 | **Pottery Painting craft photo** | Upload to the Square catalog item (Party Crafts → Pottery Painting), e.g. via `scripts/add-party-craft.ts` image path | Card + modal show a photo instead of the text placeholder |
 | 3 | ~~Reschedule promise~~ **DONE 2026-07-09**: "Free reschedule up to 7 days before your party." | Tweak wording anytime in `partyContent.trust.reschedulePolicy` | Live at the pay button |
 | 4 | ~~Business phone~~ **DONE 2026-07-09**: (256) 464-1710 (Quo) — live in the modal "text us" line and the footer | — | Live |
-| 5 | **FAQ answers** — food/drinks/cake policy, decoration policy, cancellation policy | The empty `a: ''` entries in `partyContent.faq` in `src/config/party-content.ts` | Each answered entry renders on /book AND gets FAQPage JSON-LD (SEO/AEO) |
+| 5 | ~~FAQ answers~~ **DONE 2026-07-09** — all 10 entries answered and live with FAQPage JSON-LD | Edit anytime in `partyContent.faq` | Live |
 | 6 | ~~Footer address~~ **DONE 2026-07-09**: 525 Hughes Rd, Suite F, Madison, AL 35758. Phone gated until #4 decided. | — | Live site-wide |
 | 6b | **Delete Pottery Painting** after showing your wife the price-range display — it's a demo item | `Square Dashboard → Items`, or ask me (it's item `6H3P6JRMGWDL6FQKFX3TFTPR`) | Card disappears from /book |
 
