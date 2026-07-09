@@ -20,7 +20,8 @@ the field is filled — fill it and the feature appears, no code changes needed.
 
 | # | What | How |
 |---|------|-----|
-| 7 | **Apple Pay — final step after next production deploy** | Square's verification file is already committed at `public/.well-known/apple-developer-merchantid-domain-association`, but Apple checks it on the LIVE domain. After the next `dev → main` production deploy, run `npx tsx scripts/register-apple-pay-domain.ts` once (or ask me) — until then the Apple Pay button just doesn't render. Google Pay needs nothing and already works. |
+| 7 | ~~Apple Pay~~ **DONE 2026-07-09** — domain registered (VERIFIED), button live on Apple devices | — | Live |
+| 7b | **Enable Afterpay in the Square Seller Dashboard** — accept the Afterpay seller terms (Settings → Payment methods → Afterpay). UI-only; involves a merchant agreement so it can't be done via API. | Square Dashboard | The Afterpay pay-in-4 button appears automatically at party checkout (already coded + gated to parties only) |
 | 8 | (Later, post-launch) Testimonials, party photos, Instagram embeds | `siteConfig.testimonials` currently holds sample quotes — replace with real ones when they exist; /book intentionally does not render them until then |
 
 ## Explicitly NOT built (would be fake)
