@@ -35,13 +35,12 @@ export const partyConfig = {
   /** Studio timezone for interpreting slot start times. */
   timezone: 'America/Chicago',
   /**
-   * Craft per-head price breaks by guest count (discount applies to the CRAFT cost only,
-   * never the $200 base). Percentage so it's fair across $20–90 crafts.
+   * Craft per-head price breaks by guest count. Kept as a single flat tier (no
+   * volume discount): crafts are now settled at the Square register, so any group
+   * discount is applied there (a saved Square discount), not in the online estimate.
    */
   priceBreakTiers: [
     { fromGuest: 1, discountPct: 0 },
-    { fromGuest: 11, discountPct: 25 },
-    { fromGuest: 21, discountPct: 50 },
   ],
 } as const
 
