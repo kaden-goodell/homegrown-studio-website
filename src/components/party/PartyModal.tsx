@@ -15,6 +15,7 @@ interface Craft {
   id: string
   name: string
   perHeadCents: number
+  perHeadMaxCents?: number
   description?: string
   imageUrl?: string | null
   personalized?: boolean
@@ -61,6 +62,13 @@ function formatDateLabel(ymd: string): string {
 
 function formatPrice(cents: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
+}
+
+/** "$25.00" for a single price, or "$30.00–$40.00" when a craft has a price range. */
+function perPersonLabel(minCents: number, maxCents?: number): string {
+  return maxCents && maxCents > minCents
+    ? `${formatPrice(minCents)}–${formatPrice(maxCents)}`
+    : formatPrice(minCents)
 }
 
 function isValidEmail(email: string): boolean {
@@ -225,6 +233,8 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
   }, [step])
 
   const perHead = selectedCraft?.perHeadCents ?? 0
+  const perHeadMax = selectedCraft?.perHeadMaxCents ?? perHead
+  const hasPriceRange = perHeadMax > perHead // craft has multiple variants → show a range
   const craftLines = craftBreakdown(selectedCraft?.name ?? 'Craft', perHead, people)
   const deposit = BASE_FEE_CENTS // charged today to book
   const craftEstimate = craftTotalCents(perHead, people) // paid at the studio, based on attendance
@@ -392,17 +402,26 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
         </div>
         {selectedCraft && (
           <>
-            {craftLines.map((line, i) => (
-              <div
-                key={`${line.unitCents}-${i}`}
-                style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}
-              >
-                <span>{line.label} @ {formatPrice(line.unitCents)}</span>
-                <span>{formatPrice(line.unitCents * line.qty)}</span>
+            {hasPriceRange ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
+                <span>{selectedCraft.name} × {people}</span>
+                <span>{perPersonLabel(perHead, perHeadMax)} ea</span>
               </div>
-            ))}
+            ) : (
+              craftLines.map((line, i) => (
+                <div
+                  key={`${line.unitCents}-${i}`}
+                  style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}
+                >
+                  <span>{line.label} @ {formatPrice(line.unitCents)}</span>
+                  <span>{formatPrice(line.unitCents * line.qty)}</span>
+                </div>
+              ))
+            )}
             <p style={{ fontSize: '0.72rem', fontStyle: 'italic', color: 'var(--color-muted)', margin: '0.35rem 0 0' }}>
-              Craft cost (~{formatPrice(craftEstimate)}) is an estimate — you pay it at the studio on the day, based on who attends.
+              {hasPriceRange
+                ? `Craft price (${perPersonLabel(perHead, perHeadMax)}/person) depends on the option you choose — picked and paid at the studio.`
+                : `Craft cost (~${formatPrice(craftEstimate)}) is an estimate — you pay it at the studio on the day, based on who attends.`}
             </p>
           </>
         )}
@@ -658,7 +677,7 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.75rem' }}>
                         <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>{craft.name}</span>
                         <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-muted)', flexShrink: 0 }}>
-                          {formatPrice(craft.perHeadCents)}/person
+                          {perPersonLabel(craft.perHeadCents, craft.perHeadMaxCents)}/person
                         </span>
                       </div>
 
@@ -810,7 +829,7 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
                 </button>
                 {selectedCraft && (
                   <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-                    {formatPrice(perHead)} / person
+                    {perPersonLabel(perHead, perHeadMax)} / person
                   </span>
                 )}
               </div>

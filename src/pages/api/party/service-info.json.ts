@@ -67,12 +67,19 @@ export const GET: APIRoute = async () => {
       id: string
       name: string
       perHeadCents: number
+      perHeadMaxCents: number
       description: string
       imageUrl: string | null
       personalized: boolean
     }> = craftItems
       .map((o) => {
-        const v = o.itemData?.variations?.[0]?.itemVariationData
+        // A craft with multiple variations shows a price RANGE; the exact variant
+        // + price is chosen at the register, so we only need min/max here.
+        const prices = (o.itemData?.variations ?? [])
+          .map((vr: any) => Number(vr.itemVariationData?.priceMoney?.amount ?? 0n))
+          .filter((n: number) => n > 0)
+        const minCents = prices.length ? Math.min(...prices) : 0
+        const maxCents = prices.length ? Math.max(...prices) : 0
         const firstImage = (o.itemData?.imageIds ?? [])[0]
         const personalized = (o.itemData?.categories ?? []).some(
           (c: any) => c.id === partyConfig.square.personalizedCategoryId
@@ -80,7 +87,8 @@ export const GET: APIRoute = async () => {
         return {
           id: o.id as string,
           name: (o.itemData?.name ?? '') as string,
-          perHeadCents: Number(v?.priceMoney?.amount ?? 0n),
+          perHeadCents: minCents,
+          perHeadMaxCents: maxCents,
           description: (o.itemData?.descriptionPlaintext ?? o.itemData?.description ?? '') as string,
           imageUrl: firstImage ? imageUrlById[firstImage] ?? null : null,
           personalized,
