@@ -64,10 +64,15 @@ function formatPrice(cents: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 }
 
-/** "$25.00" for a single price, or "$30.00–$40.00" when a craft has a price range. */
+/** Like formatPrice but drops the ".00" on whole dollars (e.g. "$30", "$37.50"). */
+function formatPriceCompact(cents: number): string {
+  return cents % 100 === 0 ? `$${cents / 100}` : formatPrice(cents)
+}
+
+/** "$25.00" for a single price, or a compact "$30–$40" when a craft has a price range. */
 function perPersonLabel(minCents: number, maxCents?: number): string {
   return maxCents && maxCents > minCents
-    ? `${formatPrice(minCents)}–${formatPrice(maxCents)}`
+    ? `${formatPriceCompact(minCents)}–${formatPriceCompact(maxCents)}`
     : formatPrice(minCents)
 }
 
@@ -404,8 +409,8 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
           <>
             {hasPriceRange ? (
               <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
-                <span>{selectedCraft.name} × {people}</span>
-                <span>{perPersonLabel(perHead, perHeadMax)} ea</span>
+                <span>{selectedCraft.name}</span>
+                <span>{perPersonLabel(perHead, perHeadMax)} / person</span>
               </div>
             ) : (
               craftLines.map((line, i) => (
@@ -420,7 +425,7 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
             )}
             <p style={{ fontSize: '0.72rem', fontStyle: 'italic', color: 'var(--color-muted)', margin: '0.35rem 0 0' }}>
               {hasPriceRange
-                ? `Craft price (${perPersonLabel(perHead, perHeadMax)}/person) depends on the option you choose — picked and paid at the studio.`
+                ? 'Your exact piece and price are chosen and paid at the studio, based on who attends.'
                 : `Craft cost (~${formatPrice(craftEstimate)}) is an estimate — you pay it at the studio on the day, based on who attends.`}
             </p>
           </>
