@@ -15,6 +15,9 @@ interface Craft {
   id: string
   name: string
   perHeadCents: number
+  description?: string
+  imageUrl?: string | null
+  personalized?: boolean
 }
 
 interface ServiceInfo {
@@ -50,6 +53,12 @@ function formatSlotLabel(iso: string): string {
   return `${datePart} · ${formatTime(iso)}`
 }
 
+/** "Sat, Aug 15" from a local YYYY-MM-DD string (built locally to avoid a UTC day shift). */
+function formatDateLabel(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 function formatPrice(cents: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 }
@@ -74,9 +83,20 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
   const [loadingSlots, setLoadingSlots] = useState(false)
   const [slotsError, setSlotsError] = useState<string | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null)
+  const [availableDates, setAvailableDates] = useState<string[]>([])
+  const [loadingDates, setLoadingDates] = useState(false)
+  const [datesError, setDatesError] = useState<string | null>(null)
 
   // Craft
   const [selectedCraft, setSelectedCraft] = useState<Craft | null>(null)
+  const [expandedCraft, setExpandedCraft] = useState<string | null>(null)
+  const [ackPersonalized, setAckPersonalized] = useState(false)
+
+  // Selecting a craft resets the personalized acknowledgment (must re-confirm per craft).
+  const selectCraft = (craft: Craft) => {
+    setSelectedCraft(craft)
+    setAckPersonalized(false)
+  }
 
   // Guests
   const [people, setPeople] = useState(1)
@@ -106,7 +126,7 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
   async function loadServiceInfo() {
     setInfoError(null)
     try {
-      const res = await fetch('/api/party/service-info.json')
+      const res = await fetch('/api/party/service-info.json', { cache: 'no-store' })
       if (!res.ok) throw new Error('Failed to load party details.')
       const json = await res.json()
       setInfo((json.data ?? json) as ServiceInfo)
@@ -118,6 +138,34 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
   useEffect(() => {
     loadServiceInfo()
   }, [])
+
+  // Load only the dates that actually have bookable party times, so the picker
+  // offers real options instead of letting the user land on a closed/booked day.
+  useEffect(() => {
+    if (!info) return
+    let cancelled = false
+    setLoadingDates(true)
+    setDatesError(null)
+    ;(async () => {
+      try {
+        const res = await fetch('/api/party/available-dates.json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serviceVariationId: info.variationId }),
+        })
+        if (!res.ok) throw new Error()
+        const json = await res.json()
+        if (!cancelled) setAvailableDates((json.data ?? json).dates ?? [])
+      } catch {
+        if (!cancelled) setDatesError('Could not load available dates.')
+      } finally {
+        if (!cancelled) setLoadingDates(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [info])
 
   // Deeplink prefill: if opened with an ISO `initialStart` (?start=<ISO>), preselect
   // that date + slot and jump straight to the Craft step. Falls back to the Date
@@ -436,14 +484,43 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
         return (
           <div>
             <div style={{ marginBottom: '1.5rem' }}>
-              <label style={labelStyle}>Choose a Date</label>
-              <input
-                type="date"
-                value={selectedDate}
-                min={new Date().toISOString().split('T')[0]}
-                onChange={(e) => handleDateChange(e.target.value)}
-                style={inputStyle}
-              />
+              <label style={{ ...labelStyle, marginBottom: '0.75rem' }}>Choose a Date</label>
+              {loadingDates && (
+                <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Loading available dates…</p>
+              )}
+              {datesError && <p style={{ fontSize: '0.8125rem', color: '#dc2626' }}>{datesError}</p>}
+              {!loadingDates && !datesError && availableDates.length === 0 && (
+                <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+                  No party dates are open right now — please check back soon.
+                </p>
+              )}
+              {availableDates.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(8rem, 1fr))', gap: '0.5rem' }}>
+                  {availableDates.map((d) => {
+                    const active = selectedDate === d
+                    return (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => handleDateChange(d)}
+                        style={{
+                          padding: '0.625rem 0.5rem',
+                          borderRadius: '0.625rem',
+                          border: active ? '1px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.15)',
+                          background: active ? 'rgba(150, 112, 91, 0.12)' : 'rgba(255, 255, 255, 0.8)',
+                          fontSize: '0.8125rem',
+                          fontWeight: active ? 600 : 500,
+                          color: 'var(--color-dark)',
+                          cursor: 'pointer',
+                          transition: 'background 0.2s ease, border-color 0.2s ease',
+                        }}
+                      >
+                        {formatDateLabel(d)}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
             {loadingSlots && (
@@ -508,43 +585,166 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
         return (
           <div>
             <label style={{ ...labelStyle, marginBottom: '0.75rem' }}>Choose a Craft</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '1.5rem' }}>
               {info.crafts.map((craft) => {
                 const active = selectedCraft?.id === craft.id
+                const expanded = expandedCraft === craft.id
                 return (
-                  <button
+                  <div
                     key={craft.id}
-                    type="button"
-                    onClick={() => setSelectedCraft(craft)}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={active}
+                    onClick={() => selectCraft(craft)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault()
+                        selectCraft(craft)
+                      }
+                    }}
                     style={{
-                      display: 'flex',
-                      justifyContent: 'space-between',
-                      alignItems: 'center',
-                      padding: '0.875rem 1.125rem',
-                      borderRadius: '0.75rem',
-                      border: active ? '1px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.15)',
-                      background: active ? 'rgba(150, 112, 91, 0.12)' : 'rgba(255, 255, 255, 0.8)',
+                      borderRadius: '0.875rem',
+                      border: active ? '2px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.18)',
+                      background: active ? 'rgba(150, 112, 91, 0.08)' : 'rgba(255, 255, 255, 0.85)',
+                      overflow: 'hidden',
                       cursor: 'pointer',
-                      textAlign: 'left',
                       transition: 'background 0.2s ease, border-color 0.2s ease',
                     }}
                   >
-                    <span style={{ fontSize: '0.9375rem', fontWeight: active ? 600 : 500, color: 'var(--color-dark)' }}>
-                      {craft.name}
-                    </span>
-                    <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-                      {formatPrice(craft.perHeadCents)}/person
-                    </span>
-                  </button>
+                    {craft.imageUrl && (
+                      <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', background: 'rgba(150, 112, 91, 0.06)' }}>
+                        <img
+                          src={craft.imageUrl}
+                          alt=""
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+                        />
+                        {active && (
+                          <span
+                            aria-hidden
+                            style={{
+                              position: 'absolute',
+                              top: '0.625rem',
+                              right: '0.625rem',
+                              width: '1.5rem',
+                              height: '1.5rem',
+                              borderRadius: '999px',
+                              background: 'var(--color-primary)',
+                              color: '#fff',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.8rem',
+                              boxShadow: '0 1px 4px rgba(0,0,0,0.25)',
+                            }}
+                          >
+                            ✓
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    <div style={{ padding: '0.875rem 1.125rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.75rem' }}>
+                        <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>{craft.name}</span>
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-muted)', flexShrink: 0 }}>
+                          {formatPrice(craft.perHeadCents)}/person
+                        </span>
+                      </div>
+
+                      {craft.description && (
+                        <>
+                          <p
+                            style={{
+                              margin: '0.4rem 0 0',
+                              fontSize: '0.8125rem',
+                              lineHeight: 1.55,
+                              color: 'var(--color-muted)',
+                              ...(expanded
+                                ? { whiteSpace: 'pre-line' }
+                                : {
+                                    display: '-webkit-box',
+                                    WebkitLineClamp: 2,
+                                    WebkitBoxOrient: 'vertical',
+                                    overflow: 'hidden',
+                                  }),
+                            }}
+                          >
+                            {craft.description}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setExpandedCraft(expanded ? null : craft.id)
+                            }}
+                            aria-expanded={expanded}
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.25rem',
+                              marginTop: '0.35rem',
+                              padding: 0,
+                              background: 'transparent',
+                              border: 'none',
+                              cursor: 'pointer',
+                              fontSize: '0.75rem',
+                              fontWeight: 600,
+                              color: 'var(--color-primary)',
+                            }}
+                          >
+                            {expanded ? 'Read less' : 'Read more'}
+                            <span
+                              aria-hidden
+                              style={{ display: 'inline-block', transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s ease' }}
+                            >
+                              ▾
+                            </span>
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 )
               })}
             </div>
 
+            {selectedCraft?.personalized && (
+              <div
+                style={{
+                  marginBottom: '1.5rem',
+                  padding: '1rem 1.125rem',
+                  borderRadius: '0.75rem',
+                  border: '1px solid rgba(180, 83, 9, 0.35)',
+                  background: 'rgba(251, 191, 36, 0.12)',
+                }}
+              >
+                <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600, color: '#92400e' }}>
+                  Heads up — this craft is made to order
+                </p>
+                <p style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.8125rem', lineHeight: 1.5, color: '#92400e' }}>
+                  This craft is personalized and made to order for your group. Once your items are made, they can't be
+                  changed or refunded. We'll email you after booking to collect your final count and personalization
+                  details.
+                </p>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={ackPersonalized}
+                    onChange={(e) => setAckPersonalized(e.target.checked)}
+                    style={{ marginTop: '0.15rem', width: '1rem', height: '1rem', flexShrink: 0, cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--color-dark)' }}>
+                    I understand these items are made to order and are non-refundable once made.
+                  </span>
+                </label>
+              </div>
+            )}
+
             <button
               type="button"
               onClick={() => setStep(2)}
-              disabled={!selectedCraft}
-              style={primaryButtonStyle(!!selectedCraft)}
+              disabled={!selectedCraft || (!!selectedCraft.personalized && !ackPersonalized)}
+              style={primaryButtonStyle(!!selectedCraft && (!selectedCraft.personalized || ackPersonalized))}
             >
               Continue
             </button>

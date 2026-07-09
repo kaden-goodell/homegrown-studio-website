@@ -40,23 +40,53 @@ export const GET: APIRoute = async () => {
     const variationId = variation.id as string
     const variationVersion = Number(variation.version ?? 0)
 
-    // Read the craft modifier list — each modifier carries a per-head price.
-    const batchResponse = await client.catalog.batchGet({
-      objectIds: [partyConfig.square.craftModifierListId],
-    })
-    const relatedObjects = (batchResponse as any).objects ?? []
+    // Crafts are catalog ITEMS in the Party Crafts category. Each carries a
+    // per-head price (its variation), a description, and an optional image.
+    const craftItems: any[] = []
+    const imageIds = new Set<string>()
+    for await (const obj of await client.catalog.list({ types: 'ITEM' })) {
+      const o = obj as any
+      const inCat = (o.itemData?.categories ?? []).some(
+        (c: any) => c.id === partyConfig.square.partyCraftCategoryId
+      )
+      if (!inCat) continue
+      craftItems.push(o)
+      for (const id of o.itemData?.imageIds ?? []) imageIds.add(id)
+    }
 
-    const crafts: Array<{ id: string; name: string; perHeadCents: number }> = []
-    for (const obj of relatedObjects) {
-      if (obj.type !== 'MODIFIER_LIST') continue
-      for (const mod of obj.modifierListData?.modifiers ?? []) {
-        crafts.push({
-          id: mod.id as string,
-          name: (mod.modifierData?.name ?? '') as string,
-          perHeadCents: Number(mod.modifierData?.priceMoney?.amount ?? 0n),
-        })
+    // Resolve craft image ids to CDN urls in one batch.
+    const imageUrlById: Record<string, string> = {}
+    if (imageIds.size > 0) {
+      const imgResp = await client.catalog.batchGet({ objectIds: [...imageIds] })
+      for (const img of ((imgResp as any).objects ?? [])) {
+        imageUrlById[img.id] = img.imageData?.url ?? ''
       }
     }
+
+    const crafts: Array<{
+      id: string
+      name: string
+      perHeadCents: number
+      description: string
+      imageUrl: string | null
+      personalized: boolean
+    }> = craftItems
+      .map((o) => {
+        const v = o.itemData?.variations?.[0]?.itemVariationData
+        const firstImage = (o.itemData?.imageIds ?? [])[0]
+        const personalized = (o.itemData?.categories ?? []).some(
+          (c: any) => c.id === partyConfig.square.personalizedCategoryId
+        )
+        return {
+          id: o.id as string,
+          name: (o.itemData?.name ?? '') as string,
+          perHeadCents: Number(v?.priceMoney?.amount ?? 0n),
+          description: (o.itemData?.descriptionPlaintext ?? o.itemData?.description ?? '') as string,
+          imageUrl: firstImage ? imageUrlById[firstImage] ?? null : null,
+          personalized,
+        }
+      })
+      .sort((a, b) => a.name.localeCompare(b.name))
 
     const data = {
       service: {
@@ -79,8 +109,10 @@ export const GET: APIRoute = async () => {
     return new Response(JSON.stringify({ data }), {
       status: 200,
       headers: {
+        // No caching: crafts carry live price + the non-refundable "personalized"
+        // flag, which must reach the booking flow immediately when changed.
         'Content-Type': 'application/json',
-        'Cache-Control': 'public, max-age=300, s-maxage=600',
+        'Cache-Control': 'no-store',
       },
     })
   } catch (error) {

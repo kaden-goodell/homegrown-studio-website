@@ -1,22 +1,23 @@
 /**
- * Party + Open Studio prototype configuration.
+ * Party + Open Studio configuration.
  *
- * These point at TEST dummy data created in Square production by
- * `scripts/test-data-setup.mjs` (all objects prefixed "TEST —"). Swap these
- * IDs for the real catalog objects before launch; wipe TEST data with
- * `scripts/test-data-teardown.mjs`.
+ * Party is a bookable APPOINTMENTS_SERVICE ($200 flat studio fee) + a per-head
+ * craft cost. Crafts are catalog ITEMS in the "Party Crafts" category (each with
+ * a name, per-head price, description, and optional image), created via
+ * `scripts/seed-party.ts` + `scripts/add-party-craft.ts`.
  *
  * Open Studio is a non-bookable catalog item (flow='display', dated windows in
- * the `programDates` custom attribute). Party is a bookable APPOINTMENTS_SERVICE:
- * $200 flat base + a per-head craft cost that varies by craft (a modifier list).
+ * the `programDates` custom attribute).
  */
 export const partyConfig = {
   square: {
     /** APPOINTMENTS_SERVICE catalog item for the whole-studio party. */
-    catalogItemId: 'BAL6K7M3U5RW2LAYM6VUZN6U',
-    /** Modifier list of craft choices, each modifier carries a per-head price. */
-    craftModifierListId: 'UHO5JT4AID362P4MKTRMVGRX',
-    /** Non-bookable Open Studio display item (flow='display'). */
+    catalogItemId: 'ZMSLASCRBGJ7JE3MJVOVJUSA',
+    /** Category holding craft ITEMS (name + per-head price + description + image). */
+    partyCraftCategoryId: 'YJYZ5FAHKRCFH634JSDJEZVQ',
+    /** Marker category — crafts also tagged here are made-to-order & non-refundable. */
+    personalizedCategoryId: 'FD7DGZWHHJ76KF7YWAWKDWYS',
+    /** Non-bookable Open Studio display item (flow='display'). TODO: rebuild — old TEST item was deleted. */
     openStudioItemId: '3ACHZ6GJKU4SVCF6RN3QJZE4',
     /** Default team member the whole-room booking is assigned to (Kaden). */
     defaultTeamMemberId: 'TMeIN-kxF-ZVhTVj',
@@ -26,19 +27,13 @@ export const partyConfig = {
   /** Hard guest cap for any bookable event (studio room capacity). */
   maxGuests: 30,
   /** Party length shown to the customer. */
-  durationMinutes: 120,
-  /** Cleanup gap enforced app-side between back-to-back parties (Square returns hourly starts). */
+  durationMinutes: 90,
+  /** How many days ahead the date picker offers bookable party dates. */
+  bookingWindowDays: 45,
+  /** Cleanup gap between back-to-back parties, and before the evening workshop. */
   cleanupBufferMinutes: 60,
   /** Studio timezone for interpreting slot start times. */
   timezone: 'America/Chicago',
-  /**
-   * Latest local hour a party may START. 3pm → party (2h) + cleanup (1h) wraps by 6pm,
-   * leaving 6pm onward exclusively for workshops. This is the "6pm-exclusive" rule.
-   * (Per-day party scheduling beyond this is TBD — owner finalizing with the real schedule.)
-   */
-  latestStartHourLocal: 15,
-  /** Spacing between offered party starts: 2h party + 1h cleanup. */
-  slotSpacingHours: 3,
   /**
    * Craft per-head price breaks by guest count (discount applies to the CRAFT cost only,
    * never the $200 base). Percentage so it's fair across $20–90 crafts.
@@ -49,3 +44,16 @@ export const partyConfig = {
     { fromGuest: 21, discountPct: 50 },
   ],
 } as const
+
+/**
+ * Party start schedule per weekday (0=Sun … 6=Sat), in studio-local time. Starts
+ * step by (durationMinutes + cleanupBufferMinutes) from `firstStart`, while
+ * start + party + cleanup ≤ `lastWrap`, so the evening workshop slot stays clear.
+ * Weekdays not listed have no parties.
+ *   Sat: 9:00, 11:30, 2:00, 4:30   (90-min parties, 1-hr gaps, wrap by 7pm)
+ *   Sun: 1:00, 3:30                (wrap by 6pm)
+ */
+export const partyDays: Record<number, { firstStart: string; lastWrap: string }> = {
+  0: { firstStart: '13:00', lastWrap: '18:00' }, // Sunday
+  6: { firstStart: '09:00', lastWrap: '19:00' }, // Saturday
+}

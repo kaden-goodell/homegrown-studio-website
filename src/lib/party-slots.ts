@@ -1,10 +1,16 @@
 /**
- * Filters raw Square availability into the party start times we actually offer:
- * spaced by 2h party + 1h cleanup, and no later than `latestStartHourLocal` (3pm)
- * so every party (incl. cleanup) wraps by 6pm — the "6pm-exclusive" rule that frees
- * the evening for workshops. Used by both the availability endpoint and the calendar.
+ * Party start-time logic. We GENERATE the offered starts from config (per-weekday
+ * schedule in `partyDays`) rather than filtering Square's raw availability, so exact
+ * half-hour anchors (e.g. 11:30, 4:30) and per-day windows are possible. Square is
+ * only consulted for existing bookings, to drop slots that are already taken.
+ *
+ * Schedule: starts step by (durationMinutes + cleanupBufferMinutes) from each day's
+ * `firstStart`, while start + party + cleanup ≤ `lastWrap` (keeps the evening
+ * workshop slot clear). See `partyDays` in party.config.ts.
  */
-import { partyConfig } from '../config/party.config'
+import { partyConfig, partyDays } from '../config/party.config'
+
+const DAY_MS = 86_400_000
 
 /** Local hour (0–23) of an ISO timestamp in the studio's timezone. */
 export function localHour(iso: string, tz: string = partyConfig.timezone): number {
@@ -28,28 +34,85 @@ export function localDate(iso: string, tz: string = partyConfig.timezone): strin
   return `${get('year')}-${get('month')}-${get('day')}`
 }
 
-/**
- * Given Square availability slots (each with a `startAt` ISO string), return only the
- * ones we offer as party starts: local start hour ≤ 3pm, spaced ≥3h apart per day.
- */
-export function offeredPartyStarts<T extends { startAt: string }>(slots: T[]): T[] {
-  const tz = partyConfig.timezone
-  const spacingMs = partyConfig.slotSpacingHours * 3_600_000
+/** Convert a studio-local date (YYYY-MM-DD) + time (HH:MM) to a UTC ISO string. */
+function localToUtcISO(ymd: string, hhmm: string, tz: string = partyConfig.timezone): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  const [hh, mm] = hhmm.split(':').map(Number)
+  const guess = new Date(Date.UTC(y, m - 1, d, hh, mm))
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  }).formatToParts(guess)
+  const p: Record<string, string> = {}
+  for (const x of parts) p[x.type] = x.value
+  const asSeen = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second)
+  const offset = asSeen - guess.getTime()
+  return new Date(guess.getTime() - offset).toISOString()
+}
 
-  const eligible = slots
-    .filter((s) => localHour(s.startAt, tz) <= partyConfig.latestStartHourLocal)
-    .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
+function minutesOfDay(hhmm: string): number {
+  const [h, m] = hhmm.split(':').map(Number)
+  return h * 60 + m
+}
 
-  const out: T[] = []
-  const lastPerDay = new Map<string, number>()
-  for (const s of eligible) {
-    const day = localDate(s.startAt, tz)
-    const t = new Date(s.startAt).getTime()
-    const last = lastPerDay.get(day)
-    if (last === undefined || t - last >= spacingMs) {
-      out.push(s)
-      lastPerDay.set(day, t)
-    }
+/** Occupancy of one party (party + cleanup) in ms — used for overlap checks. */
+function occupancyMs(): number {
+  return (partyConfig.durationMinutes + partyConfig.cleanupBufferMinutes) * 60_000
+}
+
+/** Offered party start ISO timestamps for a local calendar date (YYYY-MM-DD). */
+export function partyStartsForDate(ymd: string): string[] {
+  const [y, m, d] = ymd.split('-').map(Number)
+  const weekday = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()
+  const cfg = partyDays[weekday]
+  if (!cfg) return []
+
+  const step = partyConfig.durationMinutes + partyConfig.cleanupBufferMinutes
+  const first = minutesOfDay(cfg.firstStart)
+  const wrap = minutesOfDay(cfg.lastWrap)
+
+  const out: string[] = []
+  for (let t = first; t + step <= wrap; t += step) {
+    const hh = String(Math.floor(t / 60)).padStart(2, '0')
+    const mm = String(t % 60).padStart(2, '0')
+    out.push(localToUtcISO(ymd, `${hh}:${mm}`))
   }
   return out
+}
+
+/** All offered party starts whose start falls within [startIso, endIso], sorted. */
+export function partyStartsInRange(startIso: string, endIso: string): string[] {
+  const startMs = new Date(startIso).getTime()
+  const endMs = new Date(endIso).getTime()
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (let t = startMs; t <= endMs + DAY_MS; t += DAY_MS) {
+    const ymd = localDate(new Date(Math.min(t, endMs)).toISOString())
+    if (seen.has(ymd)) continue
+    seen.add(ymd)
+    for (const iso of partyStartsForDate(ymd)) {
+      const ms = new Date(iso).getTime()
+      if (ms >= startMs && ms <= endMs) out.push(iso)
+    }
+  }
+  return out.sort()
+}
+
+/**
+ * Drop starts whose party+cleanup window overlaps any already-booked start.
+ * Bookings are normally at offered starts, but overlap keeps manual bookings safe.
+ */
+export function removeBooked(starts: string[], bookedStartIsos: string[]): string[] {
+  const occupy = occupancyMs()
+  const booked = bookedStartIsos.map((b) => new Date(b).getTime())
+  return starts.filter((s) => {
+    const cs = new Date(s).getTime()
+    return !booked.some((bs) => cs < bs + occupy && bs < cs + occupy)
+  })
 }

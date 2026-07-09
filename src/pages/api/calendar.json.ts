@@ -5,7 +5,7 @@ import { createSquareClient } from '@providers/square/client'
 import { partyConfig } from '@config/party.config'
 import type { SquareConfig } from '@config/site.config'
 import { parseOpenStudioWindows } from '@lib/open-studio'
-import { offeredPartyStarts } from '@lib/party-slots'
+import { partyStartsInRange, removeBooked } from '@lib/party-slots'
 import {
   buildCalendarEvents,
   type PartyAvailabilitySlot,
@@ -70,25 +70,6 @@ export const GET: APIRoute = async ({ url }) => {
     logger.error('party variation resolve failed', { error: err instanceof Error ? err.message : String(err) })
   }
 
-  // Available party slots — only query future, in-range dates (Square: 32-day cap,
-  // 90-day lead). Clamp the start to now and skip wholly-past months.
-  const partyAvailable: PartyAvailabilitySlot[] = []
-  const availStart = new Date(Math.max(monthStart.getTime(), now.getTime() + 60_000))
-  if (partyVariationId && availStart.getTime() < monthEnd.getTime()) {
-    try {
-      const slots = await providers.booking.searchAvailability({
-        startDate: availStart.toISOString(),
-        endDate: monthEnd.toISOString(),
-        locationId,
-        serviceVariationId: partyVariationId,
-        teamMemberId: partyConfig.square.defaultTeamMemberId,
-      })
-      for (const s of offeredPartyStarts(slots)) partyAvailable.push({ startAt: s.startAt })
-    } catch (err) {
-      logger.error('party availability failed', { error: err instanceof Error ? err.message : String(err) })
-    }
-  }
-
   // Booked (reserved) parties — identified by the party service variation id.
   const partyBooked: PartyBookedSlot[] = []
   if (partyVariationId && providers.booking.listBookings) {
@@ -107,6 +88,18 @@ export const GET: APIRoute = async ({ url }) => {
       logger.error('party bookings failed', { error: err instanceof Error ? err.message : String(err) })
     }
   }
+
+  // Available party slots — generated from the per-weekday schedule (config),
+  // minus any already booked. Only future, in-range starts.
+  const availStart = new Date(Math.max(monthStart.getTime(), now.getTime() + 60_000))
+  const monthStarts =
+    availStart.getTime() < monthEnd.getTime()
+      ? partyStartsInRange(availStart.toISOString(), monthEnd.toISOString())
+      : []
+  const partyAvailable: PartyAvailabilitySlot[] = removeBooked(
+    monthStarts,
+    partyBooked.map((b) => b.startAt)
+  ).map((startAt) => ({ startAt }))
 
   const events = buildCalendarEvents(workshops, openStudioWindows, partyAvailable, partyBooked)
   return new Response(JSON.stringify({ events }), {
