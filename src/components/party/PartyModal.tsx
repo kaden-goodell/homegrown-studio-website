@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { CLASS_BOOKING_APP_ID } from '@config/site.config'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
-import { craftBreakdown, partyTotalCents } from '@lib/party-pricing'
+import { craftBreakdown, craftTotalCents } from '@lib/party-pricing'
 import { partyConfig } from '@config/party.config'
 
 interface PartyModalProps {
@@ -226,7 +226,8 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
 
   const perHead = selectedCraft?.perHeadCents ?? 0
   const craftLines = craftBreakdown(selectedCraft?.name ?? 'Craft', perHead, people)
-  const total = partyTotalCents(perHead, people)
+  const deposit = BASE_FEE_CENTS // charged today to book
+  const craftEstimate = craftTotalCents(perHead, people) // paid at the studio, based on attendance
 
   const progress = completed ? 100 : (step / (STEP_LABELS.length - 1)) * 100
 
@@ -319,7 +320,7 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
       const json = await bookRes.json()
       const data = json.data ?? json
       setReceiptUrl(data.receiptUrl ?? null)
-      setTotalCharged(typeof data.totalCharged === 'number' ? data.totalCharged : total)
+      setTotalCharged(typeof data.totalCharged === 'number' ? data.totalCharged : deposit)
       setCompleted(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.')
@@ -386,18 +387,25 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
     return (
       <>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
-          <span>Studio rental</span>
-          <span>{formatPrice(BASE_FEE_CENTS)}</span>
+          <span>Studio fee — due today</span>
+          <span>{formatPrice(deposit)}</span>
         </div>
-        {craftLines.map((line, i) => (
-          <div
-            key={`${line.unitCents}-${i}`}
-            style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}
-          >
-            <span>{line.label} @ {formatPrice(line.unitCents)}</span>
-            <span>{formatPrice(line.unitCents * line.qty)}</span>
-          </div>
-        ))}
+        {selectedCraft && (
+          <>
+            {craftLines.map((line, i) => (
+              <div
+                key={`${line.unitCents}-${i}`}
+                style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}
+              >
+                <span>{line.label} @ {formatPrice(line.unitCents)}</span>
+                <span>{formatPrice(line.unitCents * line.qty)}</span>
+              </div>
+            ))}
+            <p style={{ fontSize: '0.72rem', fontStyle: 'italic', color: 'var(--color-muted)', margin: '0.35rem 0 0' }}>
+              Craft cost (~{formatPrice(craftEstimate)}) is an estimate — you pay it at the studio on the day, based on who attends.
+            </p>
+          </>
+        )}
         <div style={{ height: '0.25rem' }} />
       </>
     )
@@ -431,15 +439,18 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
             Party Booked
           </h3>
           <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, maxWidth: '24rem', margin: '0 auto' }}>
-            Your private studio party for <strong>{people} guest{people > 1 ? 's' : ''}</strong>
-            {selectedCraft ? <> ({selectedCraft.name})</> : null} is confirmed.
-            A confirmation has been sent to <strong>{email}</strong>.
+            Your private studio party{selectedCraft ? <> ({selectedCraft.name})</> : null} is confirmed,
+            and a confirmation has been sent to <strong>{email}</strong>.
           </p>
           {totalCharged !== null && (
             <p style={{ fontSize: '0.875rem', color: 'var(--color-dark)', fontWeight: 600, marginTop: '0.75rem' }}>
-              Total charged: {formatPrice(totalCharged)}
+              Studio fee paid: {formatPrice(totalCharged)}
             </p>
           )}
+          <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', lineHeight: 1.55, maxWidth: '24rem', margin: '0.75rem auto 0' }}>
+            You'll pay for your crafts at the studio on the day, based on who attends
+            {selectedCraft?.personalized ? ', and we’ll email you to collect your final headcount and personalization details' : ''}.
+          </p>
           {receiptUrl && (
             <a
               href={receiptUrl}
@@ -806,7 +817,7 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
               <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: '0.5rem' }}>
                 {people >= partyConfig.maxGuests
                   ? `Maximum ${partyConfig.maxGuests} guests per booking.`
-                  : `Up to ${partyConfig.maxGuests} guests per booking.`}
+                  : `Up to ${partyConfig.maxGuests} guests. This is just an estimate for planning — you'll pay for crafts at the studio based on who actually attends.`}
               </p>
             </div>
 
@@ -818,9 +829,9 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
             }}>
               {renderSummaryRows()}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '0.625rem' }}>
-                <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Total</span>
+                <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Due today</span>
                 <span style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-                  {formatPrice(total)}
+                  {formatPrice(deposit)}
                 </span>
               </div>
             </div>
@@ -885,9 +896,9 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
             }}>
               {renderSummaryRows()}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '0.625rem' }}>
-                <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Total</span>
+                <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Due today</span>
                 <span style={{ fontSize: '1.125rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-                  {formatPrice(total)}
+                  {formatPrice(deposit)}
                 </span>
               </div>
             </div>
@@ -921,7 +932,7 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
                 transition: 'box-shadow 0.3s ease, transform 0.3s ease',
               }}
             >
-              {processing ? 'Processing...' : `Pay ${formatPrice(total)}`}
+              {processing ? 'Processing...' : `Pay ${formatPrice(deposit)} studio fee`}
             </button>
           </div>
         )

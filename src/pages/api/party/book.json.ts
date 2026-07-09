@@ -3,7 +3,6 @@ import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
 import { providers } from '@config/providers'
 import { partyConfig } from '@config/party.config'
-import { craftBreakdown, partyTotalCents } from '@lib/party-pricing'
 
 const logger = createLogger('api:party:book')
 
@@ -74,20 +73,15 @@ export const POST: APIRoute = async ({ request }) => {
 
     logger.info('Customer resolved', { customerId: customer.id, email: customer.email })
 
-    // Step 2: Build line items — flat base (never discounted) + per-head craft
-    // cost with the tiered volume discount applied via craftBreakdown (one line
-    // item per breakdown entry).
+    // Step 2: Deposit model — charge ONLY the flat studio fee now. The per-head
+    // craft cost is settled in person at the studio based on actual attendance,
+    // so it's recorded on the booking (Step 5) but never charged here.
     const lineItems = [
       {
-        name: 'Whole Studio Party',
+        name: 'Whole Studio Party — studio fee',
         quantity: 1,
         pricePerUnit: partyConfig.basePriceCents,
       },
-      ...craftBreakdown(body.craft.name, body.craft.perHeadCents, people).map((line) => ({
-        name: line.label,
-        quantity: line.qty,
-        pricePerUnit: line.unitCents,
-      })),
     ]
 
     // Step 3: Create order
@@ -97,9 +91,8 @@ export const POST: APIRoute = async ({ request }) => {
       lineItems,
     })
 
-    // The order total (base + discounted craft line items) must match the single
-    // source of truth used by the client so we never charge a divergent amount.
-    const expectedTotal = partyTotalCents(body.craft.perHeadCents, people)
+    // Deposit only — guard against charging a divergent amount.
+    const expectedTotal = partyConfig.basePriceCents
     if (order.totalAmount !== expectedTotal) {
       logger.error('Party order total mismatch', {
         orderId: order.id,
