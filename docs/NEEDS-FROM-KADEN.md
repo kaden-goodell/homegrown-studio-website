@@ -8,10 +8,10 @@ the field is filled — fill it and the feature appears, no code changes needed.
 
 | # | What | Where | Effect when filled |
 |---|------|-------|--------------------|
-| 1 | **Hero lifestyle photo** — a real shot of a group crafting at the table (landscape, ~1600px wide) | Drop in `public/images/`, set `partyContent.hero.heroImage` in `src/config/party-content.ts` | /book hero becomes photo-backed instead of text-only |
+| 1 | ~~Hero photo~~ **DONE 2026-07-09** (AI-generated table shot at `/images/party-hero.jpg`) — swap for a real photo of the actual studio table before launch | Replace the file or update `partyContent.hero.heroImage` | Live |
 | 2 | **Pottery Painting craft photo** | Upload to the Square catalog item (Party Crafts → Pottery Painting), e.g. via `scripts/add-party-craft.ts` image path | Card + modal show a photo instead of the text placeholder |
 | 3 | ~~Reschedule promise~~ **DONE 2026-07-09**: "Free reschedule up to 7 days before your party." | Tweak wording anytime in `partyContent.trust.reschedulePolicy` | Live at the pay button |
-| 4 | **Business phone number** — decide provider (OpenPhone / Square Messages Plus / Google Voice), then fill BOTH `partyContent.textNumber` (party modal "text us") and `siteConfig.contactPhone` (footer — hidden until filled) | `src/config/party-content.ts` + `src/config/site.config.ts` | "Questions? Text us" + footer phone appear |
+| 4 | ~~Business phone~~ **DONE 2026-07-09**: (256) 464-1710 (Quo) — live in the modal "text us" line and the footer | — | Live |
 | 5 | **FAQ answers** — food/drinks/cake policy, decoration policy, cancellation policy | The empty `a: ''` entries in `partyContent.faq` in `src/config/party-content.ts` | Each answered entry renders on /book AND gets FAQPage JSON-LD (SEO/AEO) |
 | 6 | ~~Footer address~~ **DONE 2026-07-09**: 525 Hughes Rd, Suite F, Madison, AL 35758. Phone gated until #4 decided. | — | Live site-wide |
 | 6b | **Delete Pottery Painting** after showing your wife the price-range display — it's a demo item | `Square Dashboard → Items`, or ask me (it's item `6H3P6JRMGWDL6FQKFX3TFTPR`) | Card disappears from /book |

@@ -20,9 +20,9 @@ export const partyContent = {
     subline:
       'The whole studio, just your people. Pick a craft, pick a date, and come make something together.',
     valueTrio: ['The whole studio is yours', '90 minutes of making', 'Up to 30 guests'],
-    /** TODO(Kaden): hero lifestyle photo (group crafting at the table). Path under /public/images. Empty = text-only hero. */
-    heroImage: '' as string,
-    heroImageAlt: 'Friends crafting together around the studio table',
+    /** AI-generated placeholder (Jul 2026) — swap for a real photo of the studio table before launch. */
+    heroImage: '/images/party-hero.jpg' as string,
+    heroImageAlt: 'Round oak studio table set for a craft party with tote bags, patches, and ribbon',
   },
 
   /** How the $200 is framed everywhere: value first, fee second. */
@@ -39,8 +39,8 @@ export const partyContent = {
     reschedulePolicy: 'Free reschedule up to 7 days before your party.' as string,
   },
 
-  /** TODO(Kaden): a real, SMS-able number. Empty = every "text us" element is hidden. */
-  textNumber: '' as string,
+  /** Business number (Quo, set up Jul 2026). Empty = every "text us" element is hidden. */
+  textNumber: '(256) 464-1710' as string,
 
   /**
    * FAQ — doubles as the AEO/SEO surface (FAQPage JSON-LD is emitted for

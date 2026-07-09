@@ -197,8 +197,7 @@ export const siteConfig: SiteConfig = {
   tagline: 'Create. Celebrate. Connect.',
   logo: '/images/logo.svg',
   contactEmail: 'hello@homegrowncraftstudio.com',
-  // Empty = hidden site-wide. Fill once the business number is set up (see docs/NEEDS-FROM-KADEN.md).
-  contactPhone: '',
+  contactPhone: '(256) 464-1710',
   address: {
     street: '525 Hughes Rd, Suite F',
     city: 'Madison',
