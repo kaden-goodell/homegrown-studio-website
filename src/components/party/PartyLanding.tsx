@@ -12,6 +12,7 @@ interface Craft {
   description?: string
   imageUrl?: string | null
   personalized?: boolean
+  popular?: boolean
 }
 
 function formatPrice(cents: number): string {
@@ -192,6 +193,11 @@ export default function PartyLanding() {
                     <span style={{ position: 'absolute', top: '0.75rem', right: '0.75rem', background: 'rgba(255,255,255,0.94)', borderRadius: '2rem', padding: '0.28rem 0.7rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-dark)', boxShadow: '0 1px 5px rgba(0,0,0,0.12)' }}>
                       {perPersonLabel(craft.perHeadCents, craft.perHeadMaxCents)}/person
                     </span>
+                    {craft.popular && (
+                      <span style={{ position: 'absolute', bottom: '0.75rem', left: '0.75rem', background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))', color: '#fff', borderRadius: '2rem', padding: '0.3rem 0.75rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.02em', boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}>
+                        ♥ Most popular
+                      </span>
+                    )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', flex: 1, width: '100%', padding: '1rem 1.125rem 1.25rem', boxSizing: 'border-box' }}>
                     <span style={{ fontSize: '1.0625rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)' }}>{craft.name}</span>

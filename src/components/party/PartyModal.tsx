@@ -42,6 +42,7 @@ interface Craft {
   description?: string
   imageUrl?: string | null
   personalized?: boolean
+  popular?: boolean
 }
 
 interface ServiceInfo {
@@ -820,7 +821,14 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
                     <div style={{ padding: '0.875rem 1.125rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.75rem' }}>
-                        <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>{craft.name}</span>
+                        <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                          {craft.name}
+                          {craft.popular && (
+                            <span style={{ marginLeft: '0.5rem', verticalAlign: 'middle', display: 'inline-block', background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))', color: '#fff', borderRadius: '2rem', padding: '0.15rem 0.55rem', fontSize: '0.65rem', fontWeight: 700 }}>
+                              ♥ Most popular
+                            </span>
+                          )}
+                        </span>
                         <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-muted)', flexShrink: 0 }}>
                           {perPersonLabel(craft.perHeadCents, craft.perHeadMaxCents)}/person
                         </span>

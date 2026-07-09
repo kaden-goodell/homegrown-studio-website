@@ -10,10 +10,11 @@ the field is filled — fill it and the feature appears, no code changes needed.
 |---|------|-------|--------------------|
 | 1 | **Hero lifestyle photo** — a real shot of a group crafting at the table (landscape, ~1600px wide) | Drop in `public/images/`, set `partyContent.hero.heroImage` in `src/config/party-content.ts` | /book hero becomes photo-backed instead of text-only |
 | 2 | **Pottery Painting craft photo** | Upload to the Square catalog item (Party Crafts → Pottery Painting), e.g. via `scripts/add-party-craft.ts` image path | Card + modal show a photo instead of the text placeholder |
-| 3 | **Reschedule / cancellation promise** — one sentence, e.g. "Free reschedule up to 7 days before your party." | `partyContent.trust.reschedulePolicy` in `src/config/party-content.ts` | Shown next to the pay button (big trust win — decide this one first) |
-| 4 | **Text-us phone number** — a real SMS-able number | `partyContent.textNumber` in `src/config/party-content.ts` | "Questions? Text us" appears in the booking modal footer |
+| 3 | ~~Reschedule promise~~ **DONE 2026-07-09**: "Free reschedule up to 7 days before your party." | Tweak wording anytime in `partyContent.trust.reschedulePolicy` | Live at the pay button |
+| 4 | **Business phone number** — decide provider (OpenPhone / Square Messages Plus / Google Voice), then fill BOTH `partyContent.textNumber` (party modal "text us") and `siteConfig.contactPhone` (footer — hidden until filled) | `src/config/party-content.ts` + `src/config/site.config.ts` | "Questions? Text us" + footer phone appear |
 | 5 | **FAQ answers** — food/drinks/cake policy, decoration policy, cancellation policy | The empty `a: ''` entries in `partyContent.faq` in `src/config/party-content.ts` | Each answered entry renders on /book AND gets FAQPage JSON-LD (SEO/AEO) |
-| 6 | **Real footer contact info** — the footer still shows `(555) 123-4567` / `123 Main St, Anytown, CA` | `siteConfig.contactPhone` + `siteConfig.address` in `src/config/site.config.ts` | Site-wide |
+| 6 | ~~Footer address~~ **DONE 2026-07-09**: 525 Hughes Rd, Suite F, Madison, AL 35758. Phone gated until #4 decided. | — | Live site-wide |
+| 6b | **Delete Pottery Painting** after showing your wife the price-range display — it's a demo item | `Square Dashboard → Items`, or ask me (it's item `6H3P6JRMGWDL6FQKFX3TFTPR`) | Card disappears from /book |
 
 ## Actions you need to take (or approve me doing via API)
 

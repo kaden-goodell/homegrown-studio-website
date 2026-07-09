@@ -71,6 +71,7 @@ export const GET: APIRoute = async () => {
       description: string
       imageUrl: string | null
       personalized: boolean
+      popular: boolean
     }> = craftItems
       .map((o) => {
         // A craft with multiple variations shows a price RANGE; the exact variant
@@ -84,6 +85,9 @@ export const GET: APIRoute = async () => {
         const personalized = (o.itemData?.categories ?? []).some(
           (c: any) => c.id === partyConfig.square.personalizedCategoryId
         )
+        const popular = (o.itemData?.categories ?? []).some(
+          (c: any) => c.id === partyConfig.square.popularCategoryId
+        )
         return {
           id: o.id as string,
           name: (o.itemData?.name ?? '') as string,
@@ -92,6 +96,7 @@ export const GET: APIRoute = async () => {
           description: (o.itemData?.descriptionPlaintext ?? o.itemData?.description ?? '') as string,
           imageUrl: firstImage ? imageUrlById[firstImage] ?? null : null,
           personalized,
+          popular,
         }
       })
       .sort((a, b) => a.name.localeCompare(b.name))

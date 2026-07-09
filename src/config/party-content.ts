@@ -35,8 +35,8 @@ export const partyContent = {
   trust: {
     securedBy: 'Payments secured by Square',
     nothingElseDue: 'Nothing else is due today. Crafts are paid at the studio, based on who comes.',
-    /** TODO(Kaden): exact reschedule/cancellation promise, e.g. "Free reschedule up to 7 days before your party." Empty = line hidden. */
-    reschedulePolicy: '' as string,
+    /** Approved by Kaden 2026-07-09 — tweak wording anytime; empty string hides the line. */
+    reschedulePolicy: 'Free reschedule up to 7 days before your party.' as string,
   },
 
   /** TODO(Kaden): a real, SMS-able number. Empty = every "text us" element is hidden. */

@@ -17,6 +17,9 @@ export const partyConfig = {
     partyCraftCategoryId: 'YJYZ5FAHKRCFH634JSDJEZVQ',
     /** Marker category — crafts also tagged here are made-to-order & non-refundable. */
     personalizedCategoryId: 'FD7DGZWHHJ76KF7YWAWKDWYS',
+    /** Marker category — the (single) craft tagged here shows the "Most popular"
+     *  badge. Manage from Square Dashboard or `scripts/set-popular-craft.ts`. */
+    popularCategoryId: 'N2ZDEPFKYME52I7OQYSFIDWN',
     /** Non-bookable Open Studio display item (flow='display'). TODO: rebuild — old TEST item was deleted. */
     openStudioItemId: '3ACHZ6GJKU4SVCF6RN3QJZE4',
     /** Default team member the whole-room booking is assigned to (Kaden). */

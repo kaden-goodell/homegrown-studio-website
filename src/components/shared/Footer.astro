@@ -56,9 +56,11 @@ const { street, city, state, zip } = siteConfig.address
         <a href={`mailto:${siteConfig.contactEmail}`} class="footer-link">
           {siteConfig.contactEmail}
         </a>
-        <a href={`tel:${siteConfig.contactPhone.replace(/[^+\d]/g, '')}`} class="footer-link">
-          {siteConfig.contactPhone}
-        </a>
+        {siteConfig.contactPhone && (
+          <a href={`tel:${siteConfig.contactPhone.replace(/[^+\d]/g, '')}`} class="footer-link">
+            {siteConfig.contactPhone}
+          </a>
+        )}
         <span class="footer-address">{street}, {city}, {state} {zip}</span>
       </div>
     </div>
