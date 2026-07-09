@@ -25,8 +25,9 @@ export const partyConfig = {
     /** Default team member the whole-room booking is assigned to (Kaden). */
     defaultTeamMemberId: 'TMeIN-kxF-ZVhTVj',
   },
-  /** Flat room fee in cents ($200). Per-head craft cost comes from the chosen craft modifier. */
-  basePriceCents: 20000,
+  /** Flat room fee in cents. THE single source of truth for the studio fee —
+   *  the charge, the modal, and all page copy derive from this value. */
+  basePriceCents: 30000,
   /** Hard guest cap for any bookable event (studio room capacity). */
   maxGuests: 30,
   /** Default guest estimate — anchors the party at a realistic size, not 1. */

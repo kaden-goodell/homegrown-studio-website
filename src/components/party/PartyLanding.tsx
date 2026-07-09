@@ -31,8 +31,9 @@ function formatDateLabel(ymd: string): string {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
-/** "$200 ÷ 12 guests ≈ $17" — the value reframe, computed from real config. */
-const PER_PERSON_EXAMPLE = Math.round(200 / partyContent.deposit.perPersonExample.guests)
+/** "$300" and "fee ÷ 12 guests ≈ $25" — the value reframe, single-sourced from config. */
+const FEE_DOLLARS = partyConfig.basePriceCents / 100
+const PER_PERSON_EXAMPLE = Math.round(FEE_DOLLARS / partyContent.deposit.perPersonExample.guests)
 
 export default function PartyLanding() {
   const [crafts, setCrafts] = useState<Craft[]>([])
@@ -323,7 +324,7 @@ export default function PartyLanding() {
           {[
             { step: '1', text: 'Pick your craft and a date' },
             { step: '2', text: 'Tell us roughly how many guests' },
-            { step: '3', text: 'Pay the $200 studio fee — the date is yours' },
+            { step: '3', text: `Pay the $${FEE_DOLLARS} studio fee — the date is yours` },
             { step: '4', text: 'Guests pay for crafts at the studio, based on who comes' },
           ].map(({ step, text }) => (
             <div key={step} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.875rem 1.25rem', borderRadius: '0.75rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(150, 112, 91, 0.08)' }}>
@@ -367,7 +368,7 @@ export default function PartyLanding() {
               boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
             }}
           >
-            Book your date — $200 holds it
+            {`Book your date — $${FEE_DOLLARS} holds it`}
           </button>
         </div>
       )}

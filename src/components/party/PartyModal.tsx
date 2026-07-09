@@ -61,8 +61,8 @@ interface Slot {
   durationMinutes: number
 }
 
-/** Flat studio rental fee (in cents), independent of guest count. */
-const BASE_FEE_CENTS = 20000
+/** Flat studio rental fee (in cents), independent of guest count — single-sourced from config. */
+const BASE_FEE_CENTS = partyConfig.basePriceCents
 
 function formatTime(iso: string): string {
   const d = new Date(iso)

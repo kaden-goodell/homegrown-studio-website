@@ -12,6 +12,11 @@ export interface FaqEntry {
   a: string
 }
 
+import { partyConfig } from './party.config'
+
+/** "$300" — every mention of the studio fee derives from partyConfig.basePriceCents. */
+const FEE = `$${partyConfig.basePriceCents / 100}`
+
 export const partyContent = {
   hero: {
     eyebrow: 'Private Parties',
@@ -25,9 +30,9 @@ export const partyContent = {
     heroImageAlt: 'Round oak studio table set for a craft party with tote bags, patches, and ribbon',
   },
 
-  /** How the $200 is framed everywhere: value first, fee second. */
+  /** How the studio fee is framed everywhere: value first, fee second. */
   deposit: {
-    holdLine: '$200 holds your date — that’s all that’s due today.',
+    holdLine: `${FEE} holds your date — that’s all that’s due today.`,
     perPersonExample: { guests: 12 }, // "~$17/person for the room" is computed from this
     noShowLine: 'Crafts are paid at the studio for whoever actually comes — a friend who can’t make it never costs you a thing.',
   },
@@ -50,7 +55,7 @@ export const partyContent = {
   faq: [
     {
       q: 'How much does a party cost?',
-      a: 'A flat $200 studio fee reserves the entire studio for your group — that’s all you pay when you book. Each guest’s craft is paid at the studio on the day, priced per person by the craft you choose (most are $15–$40).',
+      a: `A flat ${FEE} studio fee reserves the entire studio for your group — that’s all you pay when you book. Each guest’s craft is paid at the studio on the day, priced per person by the craft you choose (most are $15–$40).`,
     },
     {
       q: 'What if some guests can’t make it?',
