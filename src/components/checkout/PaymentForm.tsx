@@ -356,28 +356,30 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
         <h3 className="text-lg font-semibold text-gray-900">Payment</h3>
 
         {applePayReady && (
-          <button
-            type="button"
-            aria-label="Pay with Apple Pay"
-            onClick={() => tokenizeWallet(applePayRef.current, 'Apple Pay')}
-            style={{
-              width: '100%',
-              height: '44px',
-              borderRadius: '0.5rem',
-              border: 'none',
-              cursor: 'pointer',
-              background: '#000',
-              color: '#fff',
-              fontSize: '1rem',
-              fontWeight: 600,
-              // Native Apple Pay button styling where supported.
-              WebkitAppearance: '-apple-pay-button',
-              // @ts-expect-error vendor property
-              applePayButtonType: 'pay',
-            }}
-          >
-             Pay
-          </button>
+          <>
+            {/* The native -apple-pay-button appearance draws the official button;
+                the element must stay EMPTY or text renders on top of the graphic.
+                Vendor properties only apply via a real stylesheet, not React style. */}
+            <style>{`
+              .apple-pay-button {
+                display: block;
+                width: 100%;
+                height: 44px;
+                border: none;
+                border-radius: 0.5rem;
+                cursor: pointer;
+                -webkit-appearance: -apple-pay-button;
+                -apple-pay-button-type: pay;
+                -apple-pay-button-style: black;
+              }
+            `}</style>
+            <button
+              type="button"
+              className="apple-pay-button"
+              aria-label="Pay with Apple Pay"
+              onClick={() => tokenizeWallet(applePayRef.current, 'Apple Pay')}
+            />
+          </>
         )}
         {/* Google Pay attaches into this div during init — it must always exist. */}
         <div
