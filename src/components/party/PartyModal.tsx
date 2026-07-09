@@ -1214,7 +1214,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             <PaymentForm
               ref={paymentFormRef}
               environmentOverride="production"
-              wallet={{ amount: (deposit / 100).toFixed(2), label: 'Homegrown Studio — party studio fee' }}
+              wallet={{ amount: (deposit / 100).toFixed(2), label: 'Homegrown Studio — party studio fee', bnpl: true }}
               onWalletToken={(token) => handlePay(token)}
             />
 

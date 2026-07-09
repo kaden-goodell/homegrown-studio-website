@@ -34,8 +34,9 @@ interface PaymentFormProps {
    *  the payment endpoint lives on a different environment than your merchant config. */
   environmentOverride?: 'sandbox' | 'production'
   /** When set, offer Apple Pay / Google Pay for this amount (dollars, e.g. "200.00").
-   *  Wallets render only where the browser/device/domain supports them. */
-  wallet?: { amount: string; label: string }
+   *  Wallets render only where the browser/device/domain supports them.
+   *  `bnpl: true` additionally offers Afterpay (pay-in-4) — parties only. */
+  wallet?: { amount: string; label: string; bnpl?: boolean }
   /** Called with the payment token when a wallet (Apple/Google Pay) tokenizes. */
   onWalletToken?: (token: string) => void
 }
@@ -110,12 +111,15 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     const [sdkReady, setSdkReady] = useState(false)
     const [applePayReady, setApplePayReady] = useState(false)
     const [googlePayReady, setGooglePayReady] = useState(false)
+    const [afterpayReady, setAfterpayReady] = useState(false)
     const [walletError, setWalletError] = useState<string | null>(null)
 
     const cardRef = useRef<CardInstance | null>(null)
     const applePayRef = useRef<WalletInstance | null>(null)
     const googlePayRef = useRef<WalletInstance | null>(null)
+    const afterpayRef = useRef<WalletInstance | null>(null)
     const googlePayContainerRef = useRef<HTMLDivElement>(null)
+    const afterpayContainerRef = useRef<HTMLDivElement>(null)
     const paymentsRef = useRef<any>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -231,6 +235,29 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
                 console.log('[PaymentForm] Google Pay unavailable', err)
               }
             }
+
+            // Afterpay (pay-in-4) — needs its own paymentRequest and an
+            // Afterpay-enabled Square account; failures just hide the button.
+            if (wallet.bnpl) {
+              try {
+                const afterpayRequest = payments.paymentRequest({
+                  countryCode: 'US',
+                  currencyCode: 'USD',
+                  total: { amount: wallet.amount, label: wallet.label },
+                  requestShippingContact: false,
+                })
+                const afterpay = await payments.afterpayClearpay(afterpayRequest)
+                if (cancelled) {
+                  afterpay.destroy?.().catch?.(() => {})
+                } else if (afterpayContainerRef.current) {
+                  await afterpay.attach(afterpayContainerRef.current)
+                  afterpayRef.current = afterpay
+                  setAfterpayReady(true)
+                }
+              } catch (err) {
+                console.log('[PaymentForm] Afterpay unavailable', err)
+              }
+            }
           }
         } catch (err) {
           if (!cancelled) {
@@ -247,7 +274,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           cardRef.current.destroy().catch(() => {})
           cardRef.current = null
         }
-        for (const walletRef of [applePayRef, googlePayRef]) {
+        for (const walletRef of [applePayRef, googlePayRef, afterpayRef]) {
           if (walletRef.current) {
             walletRef.current.destroy?.()?.catch?.(() => {})
             walletRef.current = null
@@ -372,7 +399,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
       )
     }
 
-    const anyWalletReady = applePayReady || googlePayReady
+    const anyWalletReady = applePayReady || googlePayReady || afterpayReady
 
     return (
       <div className="space-y-3">
@@ -404,11 +431,16 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
             />
           </>
         )}
-        {/* Google Pay attaches into this div during init — it must always exist. */}
+        {/* Google Pay / Afterpay attach into these divs during init — they must always exist. */}
         <div
           ref={googlePayContainerRef}
           onClick={() => googlePayReady && tokenizeWallet(googlePayRef.current, 'Google Pay')}
           style={{ display: googlePayReady ? 'block' : 'none', minHeight: googlePayReady ? '44px' : 0, cursor: 'pointer' }}
+        />
+        <div
+          ref={afterpayContainerRef}
+          onClick={() => afterpayReady && tokenizeWallet(afterpayRef.current, 'Afterpay')}
+          style={{ display: afterpayReady ? 'block' : 'none', minHeight: afterpayReady ? '44px' : 0, cursor: 'pointer', marginTop: afterpayReady ? '0.5rem' : 0 }}
         />
         {walletError && <div className="text-sm text-red-700">{walletError}</div>}
         {anyWalletReady && (
