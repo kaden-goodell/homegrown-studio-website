@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
-import { CLASS_BOOKING_APP_ID } from '@config/site.config'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
 import { craftBreakdown, craftTotalCents } from '@lib/party-pricing'
@@ -1208,9 +1207,12 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               </div>
             </div>
 
+            {/* Party charges go through the standard Payments API, so the SDK runs
+                under OUR application (from client-config) — required for Apple Pay,
+                whose domain registration is tied to our app. The CLASS_BOOKING_APP_ID
+                override is only for the workshops flow (buyer-facing classes API). */}
             <PaymentForm
               ref={paymentFormRef}
-              applicationIdOverride={CLASS_BOOKING_APP_ID}
               environmentOverride="production"
               wallet={{ amount: (deposit / 100).toFixed(2), label: 'Homegrown Studio — party studio fee' }}
               onWalletToken={(token) => handlePay(token)}
