@@ -120,12 +120,12 @@ export function buildCalendarEvents(
     })
   }
 
-  // Booked whole-room parties → muted, non-bookable "Reserved" markers.
+  // Booked whole-room parties → warm social proof, not a closed door.
   for (const slot of partyBooked) {
     events.push({
       id: `party-booked-${slot.startAt}`,
       kind: 'party-booked',
-      title: 'Reserved · private party',
+      title: 'Booked · private party 🎉',
       date: localDate(slot.startAt),
       startTime: isoToLocalHHMM(slot.startAt),
       bookable: false,

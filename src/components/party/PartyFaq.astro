@@ -1,0 +1,60 @@
+---
+/**
+ * Party FAQ accordion. Renders ONLY answered entries from party-content.ts and
+ * emits FAQPage JSON-LD for them — the page's SEO/AEO surface. Unanswered
+ * questions (empty `a`) stay invisible until Kaden fills them in.
+ */
+import { partyContent } from '@config/party-content'
+
+const answered = partyContent.faq.filter((f) => f.a.trim().length > 0)
+
+const schema = {
+  '@context': 'https://schema.org',
+  '@type': 'FAQPage',
+  mainEntity: answered.map((f) => ({
+    '@type': 'Question',
+    name: f.q,
+    acceptedAnswer: { '@type': 'Answer', text: f.a },
+  })),
+}
+---
+
+{answered.length > 0 && (
+  <section class="max-w-2xl mx-auto mt-16">
+    <h2
+      class="text-center font-heading font-semibold mb-6"
+      style="font-size: 1.5rem; color: var(--color-dark);"
+    >
+      Good to Know
+    </h2>
+    <div class="flex flex-col gap-2">
+      {answered.map((f) => (
+        <details
+          class="faq-item"
+          style="border-radius: 0.75rem; background: rgba(255,255,255,0.6); border: 1px solid rgba(150,112,91,0.08); overflow: hidden;"
+        >
+          <summary
+            style="cursor: pointer; padding: 1rem 1.25rem; font-weight: 600; font-size: 0.9375rem; color: var(--color-dark); list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 1rem;"
+          >
+            {f.q}
+            <span class="faq-chevron" aria-hidden="true" style="color: var(--color-primary); transition: transform 0.2s ease; flex-shrink: 0;">▾</span>
+          </summary>
+          <p style="margin: 0; padding: 0 1.25rem 1rem; font-size: 0.875rem; line-height: 1.6; color: var(--color-muted);">
+            {f.a}
+          </p>
+        </details>
+      ))}
+    </div>
+  </section>
+)}
+
+<script type="application/ld+json" set:html={JSON.stringify(schema)} />
+
+<style>
+  .faq-item summary::-webkit-details-marker {
+    display: none;
+  }
+  .faq-item[open] .faq-chevron {
+    transform: rotate(180deg);
+  }
+</style>

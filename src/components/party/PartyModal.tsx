@@ -1,9 +1,28 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { CLASS_BOOKING_APP_ID } from '@config/site.config'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
 import { craftBreakdown, craftTotalCents } from '@lib/party-pricing'
 import { partyConfig } from '@config/party.config'
+import { partyContent } from '@config/party-content'
+import { partyStartsForDate } from '@lib/party-slots'
+import {
+  visibleSteps,
+  stepLabel,
+  stepIndex,
+  nextStep,
+  prevStep,
+  type PartyStepId,
+} from '@lib/party-steps'
+import { googleCalendarUrl, buildIcs, icsDataUrl, partyInviteText } from '@lib/party-share'
+import {
+  trackWizardStarted,
+  trackWizardStepCompleted,
+  trackPaymentStarted,
+  trackPaymentCompleted,
+  trackPaymentFailed,
+  trackBookingCompleted,
+} from '@lib/analytics'
 
 interface PartyModalProps {
   onClose: () => void
@@ -11,6 +30,8 @@ interface PartyModalProps {
   initialStart?: string
   /** Optional craft id (from the gallery "Book this craft") to preselect and skip the Craft step. */
   initialCraftId?: string
+  /** Optional local date YYYY-MM-DD (from `?date=` deeplink / calendar day) to preselect. */
+  initialDate?: string
 }
 
 interface Craft {
@@ -38,8 +59,6 @@ interface Slot {
   endAt: string
   durationMinutes: number
 }
-
-const STEP_LABELS = ['Date', 'Craft', 'Guests', 'Your Info', 'Payment']
 
 /** Flat studio rental fee (in cents), independent of guest count. */
 const BASE_FEE_CENTS = 20000
@@ -82,11 +101,21 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
-export default function PartyModal({ onClose, initialStart, initialCraftId }: PartyModalProps) {
-  const [step, setStep] = useState(0)
+export default function PartyModal({ onClose, initialStart, initialCraftId, initialDate }: PartyModalProps) {
+  const [currentStep, setCurrentStep] = useState<PartyStepId>('craft')
   const [visible, setVisible] = useState(true)
-  const [displayStep, setDisplayStep] = useState(0)
-  const prevStep = useRef(0)
+  const [displayStep, setDisplayStep] = useState<PartyStepId>('craft')
+  const prevStepRef = useRef<PartyStepId>('craft')
+
+  // Small screens get a full-height bottom sheet instead of a floating card.
+  const [sheetMode, setSheetMode] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 639px)')
+    setSheetMode(mq.matches)
+    const handler = (ev: MediaQueryListEvent) => setSheetMode(ev.matches)
+    mq.addEventListener('change', handler)
+    return () => mq.removeEventListener('change', handler)
+  }, [])
 
   // Service info
   const [info, setInfo] = useState<ServiceInfo | null>(null)
@@ -101,6 +130,10 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
   const [availableDates, setAvailableDates] = useState<string[]>([])
   const [loadingDates, setLoadingDates] = useState(false)
   const [datesError, setDatesError] = useState<string | null>(null)
+  /** A ?start deeplink matched an available slot — the Date step drops out of the flow. */
+  const [slotSettled, setSlotSettled] = useState(false)
+  /** A ?start deeplink pointed at a slot that's gone — explain, don't just dump them on a picker. */
+  const [slotMissed, setSlotMissed] = useState(false)
 
   // Craft
   const [selectedCraft, setSelectedCraft] = useState<Craft | null>(null)
@@ -113,8 +146,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
     setAckPersonalized(false)
   }
 
-  // Guests
-  const [people, setPeople] = useState(1)
+  // Guests — anchored at a realistic party size, never 1.
+  const [people, setPeople] = useState<number>(partyConfig.defaultGuests)
 
   // Contact info
   const [firstName, setFirstName] = useState('')
@@ -128,13 +161,40 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
   const [completed, setCompleted] = useState(false)
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
   const [totalCharged, setTotalCharged] = useState<number | null>(null)
+  const [inviteCopied, setInviteCopied] = useState(false)
   const paymentFormRef = useRef<PaymentFormRef>(null)
+
+  // Email capture when no dates are open (dead-end rescue).
+  const [notifyEmail, setNotifyEmail] = useState('')
+  const [notifyState, setNotifyState] = useState<'idle' | 'sending' | 'done' | 'error'>('idle')
 
   // Body scroll lock
   useEffect(() => {
     document.body.style.overflow = 'hidden'
     return () => { document.body.style.overflow = '' }
   }, [])
+
+  useEffect(() => {
+    trackWizardStarted('party')
+  }, [])
+
+  // Craft preselected from the gallery → the craft step drops out of the flow,
+  // UNLESS it's personalized (the non-refundable acknowledgment lives there).
+  const craftSettled = !!initialCraftId && !!selectedCraft && selectedCraft.id === initialCraftId && !selectedCraft.personalized
+  const steps = useMemo(
+    () => visibleSteps({ craftSettled, slotSettled }),
+    [craftSettled, slotSettled]
+  )
+
+  // Keep the current step valid as settled steps drop out of the flow (async
+  // prefills). Jumping to steps[0] always lands on the first real decision.
+  useEffect(() => {
+    if (!steps.includes(currentStep)) {
+      setCurrentStep(steps[0])
+      setDisplayStep(steps[0])
+      prevStepRef.current = steps[0]
+    }
+  }, [steps, currentStep])
 
   // Fetch service info on open (retryable — a transient network blip must not
   // permanently brick the modal, since without `info` no step renders).
@@ -182,9 +242,26 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
     }
   }, [info])
 
-  // Deeplink prefill: if opened with an ISO `initialStart` (?start=<ISO>), preselect
-  // that date + slot and jump straight to the Craft step. Falls back to the Date
-  // step if the slot isn't actually available. Runs once `info` is loaded.
+  /**
+   * Fetch the available start times for a date. The server already enforces the
+   * cleanup gap and the 6pm-exclusive rule, so the returned slots need no
+   * client-side filtering.
+   */
+  async function fetchAvailability(date: string, variationId: string): Promise<Slot[]> {
+    const res = await fetch('/api/party/availability.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, serviceVariationId: variationId }),
+    })
+    if (!res.ok) throw new Error('Could not load available times.')
+    const json = await res.json()
+    const data = json.data ?? json
+    return data.slots ?? []
+  }
+
+  // Deeplink prefill: ?start=<ISO> preselects that date + slot and removes the
+  // Date step. If the slot is gone, we keep the Date step, prefill its date,
+  // and explain — never a silent dead end. Runs once `info` is loaded.
   const prefillAttempted = useRef(false)
   useEffect(() => {
     if (!info || !initialStart || prefillAttempted.current) return
@@ -193,7 +270,6 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
     const startDate = new Date(initialStart)
     if (isNaN(startDate.getTime())) return
 
-    // Derive the YYYY-MM-DD for the date input (local date of the start time).
     const yyyy = startDate.getFullYear()
     const mm = String(startDate.getMonth() + 1).padStart(2, '0')
     const dd = String(startDate.getDate()).padStart(2, '0')
@@ -212,14 +288,10 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
         const match = slots.find((s) => new Date(s.startAt).getTime() === target)
         if (match) {
           setSelectedSlot(match)
-          // If a (non-personalized) craft is also preselected, skip Craft → Guests.
-          const craft = initialCraftId ? info.crafts.find((c) => c.id === initialCraftId) : null
-          const target = craft && !craft.personalized ? 2 : 1
-          setStep(target)
-          setDisplayStep(target)
-          prevStep.current = target
+          setSlotSettled(true)
+        } else {
+          setSlotMissed(true)
         }
-        // If no match, leave the user on the Date step (step stays 0).
       } catch {
         if (!cancelled) setSlotsError('Could not load available times.')
       } finally {
@@ -227,7 +299,17 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
       }
     })()
     return () => { cancelled = true }
-  }, [info, initialStart, initialCraftId])
+  }, [info, initialStart])
+
+  // Deeplink prefill: ?date=<YYYY-MM-DD> (calendar day chip) preselects the
+  // date and loads its times — the user still picks the start time.
+  const datePrefillAttempted = useRef(false)
+  useEffect(() => {
+    if (!info || !initialDate || initialStart || datePrefillAttempted.current) return
+    datePrefillAttempted.current = true
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(initialDate)) return
+    handleDateChange(initialDate)
+  }, [info, initialDate, initialStart])
 
   // Preselect a craft from the gallery ("Book this craft" / ?craft=<id>).
   useEffect(() => {
@@ -238,54 +320,39 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
 
   // Step transition
   useEffect(() => {
-    if (step !== prevStep.current) {
+    if (currentStep !== prevStepRef.current) {
       setVisible(false)
       const timer = setTimeout(() => {
-        setDisplayStep(step)
-        prevStep.current = step
+        setDisplayStep(currentStep)
+        prevStepRef.current = currentStep
         setVisible(true)
       }, 200)
       return () => clearTimeout(timer)
     }
-  }, [step])
+  }, [currentStep])
 
   const perHead = selectedCraft?.perHeadCents ?? 0
   const perHeadMax = selectedCraft?.perHeadMaxCents ?? perHead
   const hasPriceRange = perHeadMax > perHead // craft has multiple variants → show a range
-  // Craft preselected from the gallery → skip the Craft step. But keep that step for
-  // personalized crafts so the non-refundable acknowledgment is still enforced.
-  const skipCraftStep = !!initialCraftId && !!selectedCraft && !selectedCraft.personalized
   const craftLines = craftBreakdown(selectedCraft?.name ?? 'Craft', perHead, people)
   const deposit = BASE_FEE_CENTS // charged today to book
   const craftEstimate = craftTotalCents(perHead, people) // paid at the studio, based on attendance
 
-  const progress = completed ? 100 : (step / (STEP_LABELS.length - 1)) * 100
+  const stepIdx = stepIndex(currentStep, steps)
+  const progress = completed ? 100 : steps.length > 1 ? (stepIdx / (steps.length - 1)) * 100 : 100
 
-  function handleBack() {
-    if (step === 0) {
-      onClose()
-    } else if (step === 2 && skipCraftStep) {
-      setStep(0) // Guests → Date, skipping the preselected Craft step
-    } else {
-      setStep(step - 1)
+  function goNext() {
+    const next = nextStep(currentStep, steps)
+    if (next) {
+      trackWizardStepCompleted(currentStep)
+      setCurrentStep(next)
     }
   }
 
-  /**
-   * Fetch the available start times for a date. The server already enforces the
-   * cleanup gap and the 6pm-exclusive rule, so the returned slots need no
-   * client-side filtering.
-   */
-  async function fetchAvailability(date: string, variationId: string): Promise<Slot[]> {
-    const res = await fetch('/api/party/availability.json', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, serviceVariationId: variationId }),
-    })
-    if (!res.ok) throw new Error('Could not load available times.')
-    const json = await res.json()
-    const data = json.data ?? json
-    return data.slots ?? []
+  function handleBack() {
+    const prev = prevStep(currentStep, steps)
+    if (prev) setCurrentStep(prev)
+    else onClose()
   }
 
   async function handleDateChange(date: string) {
@@ -306,18 +373,27 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
     }
   }
 
-  async function handlePay() {
+  const infoValid = !!firstName.trim() && isValidEmail(email.trim())
+
+  async function handlePay(walletToken?: string) {
     if (processing || !info || !selectedSlot || !selectedCraft) return
+    if (!infoValid) {
+      setError('Add your name and email above first — we need them for your confirmation.')
+      return
+    }
 
     setError(null)
     setProcessing(true)
+    trackPaymentStarted(deposit / 100)
 
     try {
-      let token: string
-      try {
-        token = await paymentFormRef.current!.tokenize()
-      } catch {
-        throw new Error('Could not process your card. Please check your details and try again.')
+      let token = walletToken
+      if (!token) {
+        try {
+          token = await paymentFormRef.current!.tokenize()
+        } catch {
+          throw new Error('Could not process your card. Please check your details and try again.')
+        }
       }
 
       const bookRes = await fetch('/api/party/book.json', {
@@ -354,10 +430,54 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
       setReceiptUrl(data.receiptUrl ?? null)
       setTotalCharged(typeof data.totalCharged === 'number' ? data.totalCharged : deposit)
       setCompleted(true)
+      trackPaymentCompleted(deposit / 100)
+      trackBookingCompleted('party')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.')
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.'
+      setError(message)
+      trackPaymentFailed(message)
     } finally {
       setProcessing(false)
+    }
+  }
+
+  async function handleNotifyMe() {
+    if (!isValidEmail(notifyEmail.trim()) || notifyState === 'sending') return
+    setNotifyState('sending')
+    try {
+      const res = await fetch('/api/party/notify-me.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: notifyEmail.trim() }),
+      })
+      if (!res.ok) throw new Error()
+      setNotifyState('done')
+    } catch {
+      setNotifyState('error')
+    }
+  }
+
+  async function handleShareInvite() {
+    if (!selectedSlot || !selectedCraft) return
+    const text = partyInviteText({
+      craftName: selectedCraft.name,
+      slotLabel: formatSlotLabel(selectedSlot.startAt),
+    })
+    const url = `${window.location.origin}/book`
+    if (navigator.share) {
+      try {
+        await navigator.share({ text, url })
+        return
+      } catch {
+        /* user closed the sheet — fall through to copy */
+      }
+    }
+    try {
+      await navigator.clipboard.writeText(`${text} ${url}`)
+      setInviteCopied(true)
+      setTimeout(() => setInviteCopied(false), 2500)
+    } catch {
+      /* clipboard unavailable — nothing sensible to do */
     }
   }
 
@@ -412,6 +532,18 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
     whiteSpace: 'nowrap',
   }
 
+  const pillButtonStyle = (active: boolean): React.CSSProperties => ({
+    padding: '0.625rem 0.5rem',
+    borderRadius: '0.625rem',
+    border: active ? '1px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.15)',
+    background: active ? 'rgba(150, 112, 91, 0.12)' : 'rgba(255, 255, 255, 0.8)',
+    fontSize: '0.8125rem',
+    fontWeight: active ? 600 : 500,
+    color: 'var(--color-dark)',
+    cursor: 'pointer',
+    transition: 'background 0.2s ease, border-color 0.2s ease',
+  })
+
   /** Itemized summary rows (base + one row per craft price tier), shared by the
    *  Guests and Payment steps. Driven entirely by the pricing helpers so the
    *  displayed total always matches what we post to /api/party/book.json. */
@@ -452,64 +584,156 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
     )
   }
 
-  function renderStep() {
-    if (completed) {
-      return (
-        <div style={{ textAlign: 'center', padding: '1rem 0' }}>
-          <div style={{
-            width: '3rem',
-            height: '3rem',
-            margin: '0 auto 1.25rem',
-            borderRadius: '50%',
-            background: 'rgba(34, 197, 94, 0.1)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '1.5rem',
-            color: 'rgb(34, 197, 94)',
-          }}>
-            &#10003;
-          </div>
-          <h3 style={{
-            fontSize: '1.25rem',
-            fontFamily: 'var(--font-heading)',
-            fontWeight: 600,
-            color: 'var(--color-dark)',
-            marginBottom: '0.75rem',
-          }}>
-            Party Booked
-          </h3>
-          <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, maxWidth: '24rem', margin: '0 auto' }}>
-            Your private studio party{selectedCraft ? <> ({selectedCraft.name})</> : null} is confirmed,
-            and a confirmation has been sent to <strong>{email}</strong>.
+  function renderTrustBlock() {
+    return (
+      <div style={{ marginTop: '0.875rem', display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-muted)', display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <span aria-hidden>🔒</span> {partyContent.trust.securedBy}
+        </p>
+        <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+          {partyContent.trust.nothingElseDue}
+        </p>
+        {partyContent.trust.reschedulePolicy && (
+          <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+            {partyContent.trust.reschedulePolicy}
           </p>
-          {totalCharged !== null && (
-            <p style={{ fontSize: '0.875rem', color: 'var(--color-dark)', fontWeight: 600, marginTop: '0.75rem' }}>
-              Studio fee paid: {formatPrice(totalCharged)}
-            </p>
-          )}
-          <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', lineHeight: 1.55, maxWidth: '24rem', margin: '0.75rem auto 0' }}>
-            You'll pay for your crafts at the studio on the day, based on who attends
-            {selectedCraft?.personalized ? ', and we’ll email you to collect your final headcount and personalization details' : ''}.
-          </p>
-          {receiptUrl && (
-            <a
-              href={receiptUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: 'inline-block',
-                marginTop: '1rem',
-                fontSize: '0.875rem',
-                color: 'var(--color-primary)',
-              }}
-            >
-              View Receipt
-            </a>
-          )}
+        )}
+      </div>
+    )
+  }
+
+  function renderConfirmation() {
+    const slotStart = selectedSlot?.startAt
+    const slotEnd = selectedSlot?.endAt
+    const calendarEvent = slotStart && slotEnd
+      ? {
+          title: `${selectedCraft ? `${selectedCraft.name} — ` : ''}Party at Homegrown Studio`,
+          startIso: slotStart,
+          endIso: slotEnd,
+          details: 'Private party at Homegrown Studio. homegrowncraftstudio.com',
+          location: 'Homegrown Studio',
+        }
+      : null
+
+    return (
+      <div style={{ textAlign: 'center', padding: '1rem 0' }}>
+        <div style={{
+          width: '3.5rem',
+          height: '3.5rem',
+          margin: '0 auto 1.25rem',
+          borderRadius: '50%',
+          background: 'rgba(34, 197, 94, 0.1)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: '1.75rem',
+        }}>
+          🎉
         </div>
-      )
-    }
+        <h3 style={{
+          fontSize: '1.375rem',
+          fontFamily: 'var(--font-heading)',
+          fontWeight: 600,
+          color: 'var(--color-dark)',
+          marginBottom: '0.5rem',
+        }}>
+          You&rsquo;re booked!
+        </h3>
+        {selectedSlot && (
+          <p style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)', margin: '0 0 0.25rem' }}>
+            {selectedCraft ? `${selectedCraft.name} · ` : ''}{formatSlotLabel(selectedSlot.startAt)}
+          </p>
+        )}
+        <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, maxWidth: '24rem', margin: '0 auto' }}>
+          Your private studio party is confirmed — a confirmation is on its way to <strong>{email}</strong>.
+        </p>
+        {totalCharged !== null && (
+          <p style={{ fontSize: '0.875rem', color: 'var(--color-dark)', fontWeight: 600, marginTop: '0.5rem' }}>
+            Studio fee paid: {formatPrice(totalCharged)}
+          </p>
+        )}
+
+        {/* Add to calendar + invite the guests — the two things a host does next. */}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'center', marginTop: '1.25rem' }}>
+          {calendarEvent && (
+            <>
+              <a
+                href={googleCalendarUrl(calendarEvent)}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ ...chipStyle, textDecoration: 'none', cursor: 'pointer', padding: '0.5rem 0.9rem' }}
+              >
+                📅 Google Calendar
+              </a>
+              <a
+                href={icsDataUrl(buildIcs(calendarEvent))}
+                download="homegrown-party.ics"
+                style={{ ...chipStyle, textDecoration: 'none', cursor: 'pointer', padding: '0.5rem 0.9rem' }}
+              >
+                📅 Apple / Outlook
+              </a>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={handleShareInvite}
+            style={{ ...chipStyle, cursor: 'pointer', padding: '0.5rem 0.9rem' }}
+          >
+            {inviteCopied ? '✓ Copied!' : '💌 Invite your guests'}
+          </button>
+        </div>
+
+        {/* What happens next */}
+        <div style={{ maxWidth: '22rem', margin: '1.5rem auto 0', textAlign: 'left' }}>
+          {partyContent.confirmation.nextSteps.map((step, i) => (
+            <div key={i} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
+              <span style={{
+                flexShrink: 0,
+                width: '1.375rem',
+                height: '1.375rem',
+                borderRadius: '50%',
+                background: 'rgba(150, 112, 91, 0.12)',
+                color: 'var(--color-primary)',
+                fontSize: '0.6875rem',
+                fontWeight: 600,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                {i + 1}
+              </span>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', lineHeight: 1.5 }}>{step}</span>
+            </div>
+          ))}
+        </div>
+
+        {selectedCraft?.personalized && (
+          <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', lineHeight: 1.55, maxWidth: '24rem', margin: '1rem auto 0' }}>
+            Since your craft is personalized, we&rsquo;ll email you to collect your final headcount and
+            personalization details.
+          </p>
+        )}
+        {receiptUrl && (
+          <a
+            href={receiptUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{
+              display: 'inline-block',
+              marginTop: '1rem',
+              fontSize: '0.875rem',
+              color: 'var(--color-primary)',
+            }}
+          >
+            View Receipt
+          </a>
+        )}
+      </div>
+    )
+  }
+
+  function renderStep() {
+    if (completed) return renderConfirmation()
 
     if (infoError) {
       return (
@@ -531,109 +755,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
     }
 
     switch (displayStep) {
-      // DATE
-      case 0:
-        return (
-          <div>
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ ...labelStyle, marginBottom: '0.75rem' }}>Choose a Date</label>
-              {loadingDates && (
-                <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Loading available dates…</p>
-              )}
-              {datesError && <p style={{ fontSize: '0.8125rem', color: '#dc2626' }}>{datesError}</p>}
-              {!loadingDates && !datesError && availableDates.length === 0 && (
-                <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-                  No party dates are open right now — please check back soon.
-                </p>
-              )}
-              {availableDates.length > 0 && (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(8rem, 1fr))', gap: '0.5rem' }}>
-                  {availableDates.map((d) => {
-                    const active = selectedDate === d
-                    return (
-                      <button
-                        key={d}
-                        type="button"
-                        onClick={() => handleDateChange(d)}
-                        style={{
-                          padding: '0.625rem 0.5rem',
-                          borderRadius: '0.625rem',
-                          border: active ? '1px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.15)',
-                          background: active ? 'rgba(150, 112, 91, 0.12)' : 'rgba(255, 255, 255, 0.8)',
-                          fontSize: '0.8125rem',
-                          fontWeight: active ? 600 : 500,
-                          color: 'var(--color-dark)',
-                          cursor: 'pointer',
-                          transition: 'background 0.2s ease, border-color 0.2s ease',
-                        }}
-                      >
-                        {formatDateLabel(d)}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-
-            {loadingSlots && (
-              <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '1rem' }}>
-                Loading available times...
-              </p>
-            )}
-            {slotsError && (
-              <p style={{ fontSize: '0.8125rem', color: '#dc2626', marginBottom: '1rem' }}>{slotsError}</p>
-            )}
-
-            {!loadingSlots && selectedDate && !slotsError && availableSlots.length === 0 && (
-              <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '1rem' }}>
-                No available start times for this date. Please choose another.
-              </p>
-            )}
-
-            {availableSlots.length > 0 && (
-              <div style={{ marginBottom: '1.5rem' }}>
-                <label style={labelStyle}>Start Time</label>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(7rem, 1fr))', gap: '0.5rem' }}>
-                  {availableSlots.map((slot) => {
-                    const active = selectedSlot?.startAt === slot.startAt
-                    return (
-                      <button
-                        key={slot.startAt}
-                        type="button"
-                        onClick={() => setSelectedSlot(slot)}
-                        style={{
-                          padding: '0.625rem 0.5rem',
-                          borderRadius: '0.625rem',
-                          border: active ? '1px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.15)',
-                          background: active ? 'rgba(150, 112, 91, 0.12)' : 'rgba(255, 255, 255, 0.8)',
-                          fontSize: '0.8125rem',
-                          fontWeight: active ? 600 : 500,
-                          color: 'var(--color-dark)',
-                          cursor: 'pointer',
-                          transition: 'background 0.2s ease, border-color 0.2s ease',
-                        }}
-                      >
-                        {formatTime(slot.startAt)}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={() => setStep(skipCraftStep ? 2 : 1)}
-              disabled={!selectedSlot}
-              style={primaryButtonStyle(!!selectedSlot)}
-            >
-              Continue
-            </button>
-          </div>
-        )
-
       // CRAFT
-      case 1:
+      case 'craft':
         return (
           <div>
             <label style={{ ...labelStyle, marginBottom: '0.75rem' }}>Choose a Craft</label>
@@ -794,7 +917,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
 
             <button
               type="button"
-              onClick={() => setStep(2)}
+              onClick={goNext}
               disabled={!selectedCraft || (!!selectedCraft.personalized && !ackPersonalized)}
               style={primaryButtonStyle(!!selectedCraft && (!selectedCraft.personalized || ackPersonalized))}
             >
@@ -803,15 +926,164 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
           </div>
         )
 
-      // GUESTS
-      case 2:
+      // WHEN (date + time)
+      case 'when': {
+        // Real scarcity: how many starts this weekday offers vs how many remain.
+        const expectedStarts = selectedDate ? partyStartsForDate(selectedDate).length : 0
+        const showScarcity =
+          !loadingSlots && !slotsError && selectedDate &&
+          availableSlots.length > 0 && expectedStarts > availableSlots.length
+
+        return (
+          <div>
+            {slotMissed && (
+              <p style={{
+                fontSize: '0.8125rem',
+                color: '#92400e',
+                background: 'rgba(251, 191, 36, 0.12)',
+                border: '1px solid rgba(180, 83, 9, 0.25)',
+                borderRadius: '0.625rem',
+                padding: '0.625rem 0.875rem',
+                marginBottom: '1rem',
+              }}>
+                That time was just booked — these are still open.
+              </p>
+            )}
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ ...labelStyle, marginBottom: '0.25rem' }}>Choose a Date</label>
+              <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0 0 0.75rem' }}>
+                Every party is {partyConfig.durationMinutes} minutes — the whole studio, just your group.
+              </p>
+              {loadingDates && (
+                <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Loading available dates…</p>
+              )}
+              {datesError && <p style={{ fontSize: '0.8125rem', color: '#dc2626' }}>{datesError}</p>}
+              {!loadingDates && !datesError && availableDates.length === 0 && (
+                <div>
+                  <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.75rem' }}>
+                    Every party date is currently booked. Leave your email and we&rsquo;ll let you know
+                    the moment new dates open up.
+                  </p>
+                  {notifyState === 'done' ? (
+                    <p style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'rgb(34, 197, 94)' }}>
+                      ✓ You&rsquo;re on the list — we&rsquo;ll email you when dates open.
+                    </p>
+                  ) : (
+                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                      <input
+                        type="email"
+                        value={notifyEmail}
+                        onChange={(e) => setNotifyEmail(e.target.value)}
+                        placeholder="you@example.com"
+                        style={{ ...inputStyle, flex: 1 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={handleNotifyMe}
+                        disabled={!isValidEmail(notifyEmail.trim()) || notifyState === 'sending'}
+                        style={{ ...primaryButtonStyle(isValidEmail(notifyEmail.trim()) && notifyState !== 'sending'), width: 'auto', padding: '0.75rem 1.25rem' }}
+                      >
+                        {notifyState === 'sending' ? '…' : 'Notify me'}
+                      </button>
+                    </div>
+                  )}
+                  {notifyState === 'error' && (
+                    <p style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '0.5rem' }}>
+                      That didn&rsquo;t go through — please try again.
+                    </p>
+                  )}
+                </div>
+              )}
+              {availableDates.length > 0 && (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(8rem, 1fr))', gap: '0.5rem' }}>
+                  {availableDates.map((d) => (
+                    <button
+                      key={d}
+                      type="button"
+                      onClick={() => handleDateChange(d)}
+                      style={pillButtonStyle(selectedDate === d)}
+                    >
+                      {formatDateLabel(d)}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {loadingSlots && (
+              <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '1rem' }}>
+                Loading available times...
+              </p>
+            )}
+            {slotsError && (
+              <p style={{ fontSize: '0.8125rem', color: '#dc2626', marginBottom: '1rem' }}>{slotsError}</p>
+            )}
+
+            {!loadingSlots && selectedDate && !slotsError && availableSlots.length === 0 && availableDates.length > 0 && (
+              <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '1rem' }}>
+                No available start times for this date. Please choose another.
+              </p>
+            )}
+
+            {availableSlots.length > 0 && (
+              <div style={{ marginBottom: '1.5rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <label style={labelStyle}>Start Time</label>
+                  {showScarcity && (
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#b45309' }}>
+                      Only {availableSlots.length} of {expectedStarts} times left
+                    </span>
+                  )}
+                </div>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(7rem, 1fr))', gap: '0.5rem' }}>
+                  {availableSlots.map((slot) => (
+                    <button
+                      key={slot.startAt}
+                      type="button"
+                      onClick={() => setSelectedSlot(slot)}
+                      style={pillButtonStyle(selectedSlot?.startAt === slot.startAt)}
+                    >
+                      {formatTime(slot.startAt)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={!selectedSlot}
+              style={primaryButtonStyle(!!selectedSlot)}
+            >
+              Continue
+            </button>
+          </div>
+        )
+      }
+
+      // WHO (guests)
+      case 'who':
         return (
           <div>
             <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ ...labelStyle, marginBottom: '0.5rem' }}>Number of Guests</label>
+              <label style={{ ...labelStyle, marginBottom: '0.5rem' }}>About how many guests?</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.875rem' }}>
+                {partyConfig.guestQuickPicks.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => setPeople(n)}
+                    style={{ ...pillButtonStyle(people === n), minWidth: '3.25rem', padding: '0.625rem 0.75rem' }}
+                  >
+                    {n}
+                  </button>
+                ))}
+              </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
                 <button
                   type="button"
+                  aria-label="Fewer guests"
                   onClick={() => setPeople(Math.max(1, people - 1))}
                   disabled={people <= 1}
                   style={{
@@ -833,6 +1105,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
                 </span>
                 <button
                   type="button"
+                  aria-label="More guests"
                   onClick={() => setPeople(Math.min(partyConfig.maxGuests, people + 1))}
                   disabled={people >= partyConfig.maxGuests}
                   style={{
@@ -858,7 +1131,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
               <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: '0.5rem' }}>
                 {people >= partyConfig.maxGuests
                   ? `Maximum ${partyConfig.maxGuests} guests per booking.`
-                  : `Up to ${partyConfig.maxGuests} guests. This is just an estimate for planning — you'll pay for crafts at the studio based on who actually attends.`}
+                  : `Just an estimate for planning — you'll pay for crafts at the studio based on who actually comes, so a friend who can't make it never costs you.`}
               </p>
             </div>
 
@@ -879,7 +1152,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
 
             <button
               type="button"
-              onClick={() => setStep(3)}
+              onClick={goNext}
               style={primaryButtonStyle(true)}
             >
               Continue
@@ -887,46 +1160,29 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
           </div>
         )
 
-      // YOUR INFO
-      case 3: {
-        const infoValid = !!firstName.trim() && isValidEmail(email.trim())
+      // PAY (details + payment on one screen)
+      case 'pay':
         return (
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
               <div>
                 <label style={labelStyle}>First Name *</label>
-                <input type="text" value={firstName} onChange={(e) => setFirstName(e.target.value)} style={inputStyle} />
+                <input type="text" autoComplete="given-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} style={inputStyle} />
               </div>
               <div>
                 <label style={labelStyle}>Last Name</label>
-                <input type="text" value={lastName} onChange={(e) => setLastName(e.target.value)} style={inputStyle} />
+                <input type="text" autoComplete="family-name" value={lastName} onChange={(e) => setLastName(e.target.value)} style={inputStyle} />
               </div>
             </div>
             <div style={{ marginBottom: '1rem' }}>
               <label style={labelStyle}>Email *</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
+              <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
             </div>
-            <div style={{ marginBottom: '1.5rem' }}>
+            <div style={{ marginBottom: '1.25rem' }}>
               <label style={labelStyle}>Phone</label>
-              <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} />
+              <input type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} />
             </div>
 
-            <button
-              type="button"
-              onClick={() => setStep(4)}
-              disabled={!infoValid}
-              style={primaryButtonStyle(infoValid)}
-            >
-              Continue to Payment
-            </button>
-          </div>
-        )
-      }
-
-      // PAYMENT
-      case 4:
-        return (
-          <div>
             {/* Order summary */}
             <div style={{
               padding: '1rem 1.25rem',
@@ -944,9 +1200,13 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
               </div>
             </div>
 
-            <div style={{ marginTop: '1rem' }}>
-              <PaymentForm ref={paymentFormRef} applicationIdOverride={CLASS_BOOKING_APP_ID} environmentOverride="production" />
-            </div>
+            <PaymentForm
+              ref={paymentFormRef}
+              applicationIdOverride={CLASS_BOOKING_APP_ID}
+              environmentOverride="production"
+              wallet={{ amount: (deposit / 100).toFixed(2), label: 'Homegrown Studio — party studio fee' }}
+              onWalletToken={(token) => handlePay(token)}
+            />
 
             {error && (
               <p style={{ fontSize: '0.875rem', color: '#dc2626', marginTop: '0.75rem' }}>{error}</p>
@@ -954,13 +1214,13 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
 
             <button
               type="button"
-              onClick={handlePay}
-              disabled={processing}
+              onClick={() => handlePay()}
+              disabled={processing || !infoValid}
               style={{
                 width: '100%',
                 marginTop: '1.25rem',
                 padding: '0.875rem',
-                background: processing
+                background: processing || !infoValid
                   ? 'rgba(150, 112, 91, 0.4)'
                   : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
                 color: '#fff',
@@ -968,13 +1228,15 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
                 borderRadius: '0.75rem',
                 fontSize: '0.875rem',
                 fontWeight: 600,
-                cursor: processing ? 'default' : 'pointer',
+                cursor: processing || !infoValid ? 'default' : 'pointer',
                 opacity: processing ? 0.7 : 1,
                 transition: 'box-shadow 0.3s ease, transform 0.3s ease',
               }}
             >
-              {processing ? 'Processing...' : `Pay ${formatPrice(deposit)} studio fee`}
+              {processing ? 'Processing...' : `Pay ${formatPrice(deposit)} & reserve your date`}
             </button>
+
+            {renderTrustBlock()}
           </div>
         )
 
@@ -990,7 +1252,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
         inset: 0,
         zIndex: 100,
         display: 'flex',
-        alignItems: 'center',
+        alignItems: sheetMode ? 'flex-end' : 'center',
         justifyContent: 'center',
         background: 'rgba(0, 0, 0, 0.4)',
         backdropFilter: 'blur(4px)',
@@ -1002,16 +1264,16 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
       <div
         style={{
           width: '100%',
-          maxWidth: '40rem',
-          maxHeight: '90vh',
+          maxWidth: sheetMode ? 'none' : '40rem',
+          maxHeight: sheetMode ? '94dvh' : '90vh',
           overflow: 'auto',
-          margin: '1rem',
-          padding: '2.5rem',
+          margin: sheetMode ? 0 : '1rem',
+          padding: sheetMode ? '1.5rem 1.25rem 2rem' : '2.5rem',
           background: 'linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0.9) 100%)',
           backdropFilter: 'blur(32px) saturate(1.4)',
           WebkitBackdropFilter: 'blur(32px) saturate(1.4)',
           border: '1px solid rgba(255, 255, 255, 0.6)',
-          borderRadius: '1.25rem',
+          borderRadius: sheetMode ? '1.25rem 1.25rem 0 0' : '1.25rem',
           boxShadow: '0 24px 80px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(150, 112, 91, 0.08)',
         }}
       >
@@ -1043,7 +1305,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
           </button>
         </div>
 
-        {/* Progress bar */}
+        {/* Progress bar — counts only the steps this visitor will actually see */}
         {!completed && (
           <nav aria-label="Booking progress" style={{ marginBottom: '2rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.5rem' }}>
@@ -1054,18 +1316,18 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
                 textTransform: 'uppercase',
                 color: 'var(--color-dark)',
               }}>
-                {STEP_LABELS[step]}
+                {stepLabel(currentStep)}
               </span>
               <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                {step + 1} / {STEP_LABELS.length}
+                Step {stepIdx + 1} of {steps.length}
               </span>
             </div>
             <div style={{ height: '2px', background: 'rgba(150, 112, 91, 0.1)', borderRadius: '1px', overflow: 'hidden' }}>
               <div
                 role="progressbar"
-                aria-valuenow={step + 1}
+                aria-valuenow={stepIdx + 1}
                 aria-valuemin={1}
-                aria-valuemax={STEP_LABELS.length}
+                aria-valuemax={steps.length}
                 style={{
                   height: '100%',
                   width: `${progress}%`,
@@ -1078,12 +1340,25 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
           </nav>
         )}
 
-        {/* Selection summary — aggregates choices as you move through the steps */}
+        {/* Selection summary — keeps the craft (and its photo) present through checkout */}
         {!completed && (selectedSlot || selectedCraft) && (
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.25rem' }}>
+            {selectedCraft && (
+              <span style={{ ...chipStyle, paddingLeft: selectedCraft.imageUrl ? '0.3rem' : '0.75rem' }}>
+                {selectedCraft.imageUrl && (
+                  <img
+                    src={selectedCraft.imageUrl}
+                    alt=""
+                    style={{ width: '1.5rem', height: '1.5rem', borderRadius: '50%', objectFit: 'cover', display: 'block' }}
+                  />
+                )}
+                {selectedCraft.name}
+              </span>
+            )}
             {selectedSlot && <span style={chipStyle}>{formatSlotLabel(selectedSlot.startAt)}</span>}
-            {selectedCraft && <span style={chipStyle}>{selectedCraft.name}</span>}
-            {step >= 3 && <span style={chipStyle}>{people} guest{people > 1 ? 's' : ''}</span>}
+            {(currentStep === 'pay' || completed) && (
+              <span style={chipStyle}>~{people} guest{people > 1 ? 's' : ''}</span>
+            )}
           </div>
         )}
 
@@ -1123,6 +1398,17 @@ export default function PartyModal({ onClose, initialStart, initialCraftId }: Pa
         >
           {renderStep()}
         </div>
+
+        {/* Human escape hatch — only when a real number is configured */}
+        {!completed && partyContent.textNumber && (
+          <p style={{ marginTop: '1.5rem', textAlign: 'center', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+            Questions?{' '}
+            <a href={`sms:${partyContent.textNumber.replace(/[^+\d]/g, '')}`} style={{ color: 'var(--color-primary)', fontWeight: 600 }}>
+              Text us at {partyContent.textNumber}
+            </a>{' '}
+            — we reply fast.
+          </p>
+        )}
 
         {/* Done button on completion */}
         {completed && (

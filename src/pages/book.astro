@@ -3,18 +3,57 @@ export const prerender = false
 
 import Layout from '@layouts/Layout.astro'
 import PartyLanding from '@components/party/PartyLanding'
+import PartyFaq from '@components/party/PartyFaq.astro'
+import { partyContent } from '@config/party-content'
+
+const { hero, deposit } = partyContent
 ---
 
 <Layout title="Book a Party">
   <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-28">
     <div class="text-center mb-16 fade-in">
-      <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Private Events</p>
-      <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">Book a Party</h1>
-      <p class="text-lg mt-4 max-w-xl mx-auto" style="color: var(--color-muted);">
-        Pick your craft and reserve the whole studio for your group. A $200 studio fee
-        holds your date — crafts are paid per person at the studio.
+      <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">
+        {hero.eyebrow}
       </p>
+      <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">
+        {hero.headline}
+      </h1>
+      <p class="mt-4 text-sm font-medium tracking-wide" style="color: var(--color-primary);">
+        {hero.occasions}
+      </p>
+      {hero.heroImage && (
+        <img
+          src={hero.heroImage}
+          alt={hero.heroImageAlt}
+          class="mt-8 mx-auto rounded-2xl w-full max-w-3xl object-cover"
+          style="aspect-ratio: 21 / 9; box-shadow: 0 24px 60px rgba(150, 112, 91, 0.18);"
+        />
+      )}
+      <p class="text-lg mt-6 max-w-xl mx-auto" style="color: var(--color-muted);">
+        {hero.subline}
+      </p>
+      <div class="mt-5 flex flex-wrap justify-center gap-2">
+        {hero.valueTrio.map((item) => (
+          <span
+            class="inline-flex items-center gap-1.5 rounded-full px-4 py-1.5 text-xs font-semibold"
+            style="background: rgba(150, 112, 91, 0.08); border: 1px solid rgba(150, 112, 91, 0.14); color: var(--color-dark);"
+          >
+            {item}
+          </span>
+        ))}
+      </div>
+      <p class="mt-6 text-sm font-semibold" style="color: var(--color-dark);">
+        {deposit.holdLine}
+      </p>
+      <a
+        href="#open-dates"
+        class="inline-block mt-5 rounded-xl px-8 py-3.5 text-sm font-semibold text-white transition-shadow"
+        style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); box-shadow: 0 4px 15px rgba(150, 112, 91, 0.25);"
+      >
+        See open dates
+      </a>
     </div>
     <PartyLanding client:load />
+    <PartyFaq />
   </section>
 </Layout>

@@ -26,6 +26,10 @@ export const partyConfig = {
   basePriceCents: 20000,
   /** Hard guest cap for any bookable event (studio room capacity). */
   maxGuests: 30,
+  /** Default guest estimate — anchors the party at a realistic size, not 1. */
+  defaultGuests: 10,
+  /** One-tap guest counts offered before the fine-tune stepper. */
+  guestQuickPicks: [8, 10, 12, 15, 20],
   /** Party length shown to the customer. */
   durationMinutes: 90,
   /** How many days ahead the date picker offers bookable party dates. */

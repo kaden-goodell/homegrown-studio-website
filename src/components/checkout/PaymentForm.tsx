@@ -33,6 +33,11 @@ interface PaymentFormProps {
   /** Override the SDK environment (forces production/sandbox SDK script). Useful when
    *  the payment endpoint lives on a different environment than your merchant config. */
   environmentOverride?: 'sandbox' | 'production'
+  /** When set, offer Apple Pay / Google Pay for this amount (dollars, e.g. "200.00").
+   *  Wallets render only where the browser/device/domain supports them. */
+  wallet?: { amount: string; label: string }
+  /** Called with the payment token when a wallet (Apple/Google Pay) tokenizes. */
+  onWalletToken?: (token: string) => void
 }
 
 interface ClientConfig {
@@ -69,14 +74,26 @@ function loadSquareScript(environment: string): Promise<void> {
   })
 }
 
+type WalletInstance = {
+  tokenize: () => Promise<{ status: string; token?: string; errors?: Array<{ message: string }> }>
+  attach?: (container: string | HTMLElement) => Promise<void>
+  destroy?: () => Promise<void>
+}
+
 const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
-  function PaymentForm({ applicationIdOverride, environmentOverride }: PaymentFormProps, ref) {
+  function PaymentForm({ applicationIdOverride, environmentOverride, wallet, onWalletToken }: PaymentFormProps, ref) {
     const [config, setConfig] = useState<ClientConfig | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
     const [sdkReady, setSdkReady] = useState(false)
+    const [applePayReady, setApplePayReady] = useState(false)
+    const [googlePayReady, setGooglePayReady] = useState(false)
+    const [walletError, setWalletError] = useState<string | null>(null)
 
     const cardRef = useRef<CardInstance | null>(null)
+    const applePayRef = useRef<WalletInstance | null>(null)
+    const googlePayRef = useRef<WalletInstance | null>(null)
+    const googlePayContainerRef = useRef<HTMLDivElement>(null)
     const paymentsRef = useRef<any>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
@@ -150,6 +167,48 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
           cardRef.current = card
           setSdkReady(true)
+
+          // Wallets are strictly additive — any failure (unsupported browser,
+          // unregistered domain, http localhost) silently leaves card-only.
+          if (wallet) {
+            let paymentRequest: any = null
+            try {
+              paymentRequest = payments.paymentRequest({
+                countryCode: 'US',
+                currencyCode: 'USD',
+                total: { amount: wallet.amount, label: wallet.label },
+              })
+            } catch (err) {
+              console.log('[PaymentForm] paymentRequest unavailable', err)
+            }
+
+            if (paymentRequest) {
+              try {
+                const applePay = await payments.applePay(paymentRequest)
+                if (cancelled) {
+                  applePay.destroy?.().catch?.(() => {})
+                } else {
+                  applePayRef.current = applePay
+                  setApplePayReady(true)
+                }
+              } catch (err) {
+                console.log('[PaymentForm] Apple Pay unavailable', err)
+              }
+
+              try {
+                const googlePay = await payments.googlePay(paymentRequest)
+                if (cancelled) {
+                  googlePay.destroy?.().catch?.(() => {})
+                } else if (googlePayContainerRef.current) {
+                  await googlePay.attach(googlePayContainerRef.current, { buttonSizeMode: 'fill' })
+                  googlePayRef.current = googlePay
+                  setGooglePayReady(true)
+                }
+              } catch (err) {
+                console.log('[PaymentForm] Google Pay unavailable', err)
+              }
+            }
+          }
         } catch (err) {
           if (!cancelled) {
             setError(err instanceof Error ? err.message : 'Failed to initialize payment SDK')
@@ -165,8 +224,33 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           cardRef.current.destroy().catch(() => {})
           cardRef.current = null
         }
+        for (const walletRef of [applePayRef, googlePayRef]) {
+          if (walletRef.current) {
+            walletRef.current.destroy?.()?.catch?.(() => {})
+            walletRef.current = null
+          }
+        }
       }
     }, [config, isMockMode, effectiveEnvironment])
+
+    async function tokenizeWallet(instance: WalletInstance | null, name: string) {
+      if (!instance || !onWalletToken) return
+      setWalletError(null)
+      try {
+        const result = await instance.tokenize()
+        console.log(`[PaymentForm] ${name} tokenize:`, { status: result.status, hasToken: !!result.token })
+        if (result.status === 'OK' && result.token) {
+          onWalletToken(result.token)
+          return
+        }
+        // "Cancel" means the user closed the wallet sheet — not an error worth showing.
+        if (result.status !== 'CANCEL') {
+          setWalletError(result.errors?.map((e) => e.message).join(', ') ?? `${name} payment failed.`)
+        }
+      } catch (err) {
+        setWalletError(err instanceof Error ? err.message : `${name} payment failed.`)
+      }
+    }
 
     const tokenize = useCallback(async (): Promise<string> => {
       if (isMockMode) {
@@ -265,9 +349,51 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
       )
     }
 
+    const anyWalletReady = applePayReady || googlePayReady
+
     return (
       <div className="space-y-3">
         <h3 className="text-lg font-semibold text-gray-900">Payment</h3>
+
+        {applePayReady && (
+          <button
+            type="button"
+            aria-label="Pay with Apple Pay"
+            onClick={() => tokenizeWallet(applePayRef.current, 'Apple Pay')}
+            style={{
+              width: '100%',
+              height: '44px',
+              borderRadius: '0.5rem',
+              border: 'none',
+              cursor: 'pointer',
+              background: '#000',
+              color: '#fff',
+              fontSize: '1rem',
+              fontWeight: 600,
+              // Native Apple Pay button styling where supported.
+              WebkitAppearance: '-apple-pay-button',
+              // @ts-expect-error vendor property
+              applePayButtonType: 'pay',
+            }}
+          >
+             Pay
+          </button>
+        )}
+        {/* Google Pay attaches into this div during init — it must always exist. */}
+        <div
+          ref={googlePayContainerRef}
+          onClick={() => googlePayReady && tokenizeWallet(googlePayRef.current, 'Google Pay')}
+          style={{ display: googlePayReady ? 'block' : 'none', minHeight: googlePayReady ? '44px' : 0, cursor: 'pointer' }}
+        />
+        {walletError && <div className="text-sm text-red-700">{walletError}</div>}
+        {anyWalletReady && (
+          <div className="flex items-center gap-3" aria-hidden="true">
+            <div className="h-px flex-1 bg-gray-200" />
+            <span className="text-xs text-gray-400">or pay with card</span>
+            <div className="h-px flex-1 bg-gray-200" />
+          </div>
+        )}
+
         <div
           ref={containerRef}
           id="card-container"

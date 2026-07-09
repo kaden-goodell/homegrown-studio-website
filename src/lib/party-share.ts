@@ -1,0 +1,71 @@
+/**
+ * Share + add-to-calendar helpers for the party booking confirmation.
+ * Pure string builders — no DOM, no clock — so they're trivially testable.
+ */
+
+export interface CalendarEventInput {
+  title: string
+  startIso: string
+  endIso: string
+  details: string
+  location: string
+}
+
+/** "20260711T163000Z" from an ISO timestamp. */
+function compactUtc(iso: string): string {
+  return new Date(iso).toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '')
+}
+
+export function googleCalendarUrl(ev: CalendarEventInput): string {
+  const params = new URLSearchParams({
+    action: 'TEMPLATE',
+    text: ev.title,
+    dates: `${compactUtc(ev.startIso)}/${compactUtc(ev.endIso)}`,
+    details: ev.details,
+    location: ev.location,
+  })
+  return `https://calendar.google.com/calendar/render?${params.toString()}`
+}
+
+/** Escape per RFC 5545 TEXT rules: backslash, comma, semicolon, newline. */
+function icsEscape(text: string): string {
+  return text
+    .replace(/\\/g, '\\\\')
+    .replace(/,/g, '\\,')
+    .replace(/;/g, '\\;')
+    .replace(/\r?\n/g, '\\n')
+}
+
+export function buildIcs(ev: CalendarEventInput): string {
+  // Deterministic UID so the same booking never duplicates in a calendar.
+  const uid = `party-${compactUtc(ev.startIso)}@homegrowncraftstudio.com`
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//Homegrown Studio//Party Booking//EN',
+    'BEGIN:VEVENT',
+    `UID:${uid}`,
+    `DTSTAMP:${compactUtc(ev.startIso)}`,
+    `DTSTART:${compactUtc(ev.startIso)}`,
+    `DTEND:${compactUtc(ev.endIso)}`,
+    `SUMMARY:${icsEscape(ev.title)}`,
+    `DESCRIPTION:${icsEscape(ev.details)}`,
+    `LOCATION:${icsEscape(ev.location)}`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].join('\r\n')
+}
+
+export function icsDataUrl(ics: string): string {
+  return `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`
+}
+
+/** Deep link to /book with a craft preselected — used by card share buttons. */
+export function craftShareUrl(craftId: string, origin: string): string {
+  return `${origin}/book?craft=${encodeURIComponent(craftId)}`
+}
+
+/** Invite text the host shares with her guests after booking. */
+export function partyInviteText(input: { craftName: string; slotLabel: string }): string {
+  return `You're invited! We're making ${input.craftName} at Homegrown Studio — ${input.slotLabel}. 🎨`
+}

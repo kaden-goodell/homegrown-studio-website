@@ -26,7 +26,35 @@ const KIND_LABELS: Record<CalendarEvent['kind'], string> = {
   'open-studio': 'Open Studio',
   event: 'Event',
   'party-available': 'Party Available',
-  'party-booked': 'Reserved',
+  'party-booked': 'Booked',
+}
+
+/**
+ * Collapse a day's individual party-available slots into ONE inviting chip for
+ * the month grid ("🎉 4 party times open" → /book with the date preselected).
+ * The selected-day detail below the grid still lists each time individually.
+ */
+function aggregatePartySlots(dayEvents: CalendarEvent[]): CalendarEvent[] {
+  const partySlots = dayEvents.filter((e) => e.kind === 'party-available')
+  if (partySlots.length <= 1) return dayEvents
+  const rest = dayEvents.filter((e) => e.kind !== 'party-available')
+  const date = partySlots[0].date
+  const aggregate: CalendarEvent = {
+    id: `party-available-agg-${date}`,
+    kind: 'party-available',
+    title: `🎉 ${partySlots.length} party times open`,
+    date,
+    startTime: partySlots[0].startTime,
+    bookable: true,
+    href: `/book?date=${encodeURIComponent(date)}`,
+  }
+  const out = [...rest, aggregate]
+  out.sort((a, b) => {
+    const at = a.startTime ?? ''
+    const bt = b.startTime ?? ''
+    return at < bt ? -1 : at > bt ? 1 : 0
+  })
+  return out
 }
 
 function getMonthData(year: number, month: number) {
@@ -353,7 +381,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                 )
               ) : (
                 <>
-                  {dayEvents.slice(0, 5).map((e) => {
+                  {aggregatePartySlots(dayEvents).slice(0, 5).map((e) => {
                     const clickable = e.bookable && !!e.href
                     const chipStyle = {
                       display: 'flex',
@@ -404,12 +432,12 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                       </span>
                     )
                   })}
-                  {dayEvents.length > 5 && (
+                  {aggregatePartySlots(dayEvents).length > 5 && (
                     <span style={{
                       fontSize: '0.5625rem',
                       color: isSelected ? 'rgba(255,255,255,0.6)' : 'var(--color-muted)',
                     }}>
-                      +{dayEvents.length - 5} more
+                      +{aggregatePartySlots(dayEvents).length - 5} more
                     </span>
                   )}
                 </>
@@ -469,7 +497,6 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {selectedEvents.map((e) => {
               const clickable = e.bookable && !!e.href
-              const reserved = e.kind === 'party-booked'
               const rowStyle = {
                 display: 'flex',
                 alignItems: 'center',
@@ -483,7 +510,6 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                 padding: '0.9rem 1.1rem',
                 textDecoration: 'none',
                 cursor: clickable ? 'pointer' : 'default',
-                opacity: reserved ? 0.7 : 1,
                 transition: 'border-color 0.2s ease, background 0.2s ease',
               } as const
 
@@ -502,7 +528,6 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                       fontSize: '0.9375rem',
                       fontWeight: 600,
                       color: 'var(--color-dark)',
-                      textDecoration: reserved ? 'line-through' : 'none',
                     }}>
                       {eventLine(e)}
                     </span>
@@ -521,10 +546,11 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                   {clickable && (
                     <span style={{
                       flexShrink: 0,
-                      fontSize: '1.1rem',
+                      fontSize: e.kind === 'party-available' ? '0.8125rem' : '1.1rem',
+                      fontWeight: e.kind === 'party-available' ? 600 : 400,
                       color: KIND_COLORS[e.kind],
                     }} aria-hidden="true">
-                      &rsaquo;
+                      {e.kind === 'party-available' ? 'Book ›' : '›'}
                     </span>
                   )}
                 </>
