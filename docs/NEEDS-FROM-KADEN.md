@@ -19,7 +19,7 @@ the field is filled — fill it and the feature appears, no code changes needed.
 
 | # | What | How |
 |---|------|-----|
-| 7 | **Apple Pay domain registration** — required before the Apple Pay button will appear on the live site | Run `npx tsx scripts/register-apple-pay-domain.ts` with the production `SQUARE_ACCESS_TOKEN` in `.env` (one-time). Google Pay needs nothing. |
+| 7 | **Apple Pay — final step after next production deploy** | Square's verification file is already committed at `public/.well-known/apple-developer-merchantid-domain-association`, but Apple checks it on the LIVE domain. After the next `dev → main` production deploy, run `npx tsx scripts/register-apple-pay-domain.ts` once (or ask me) — until then the Apple Pay button just doesn't render. Google Pay needs nothing and already works. |
 | 8 | (Later, post-launch) Testimonials, party photos, Instagram embeds | `siteConfig.testimonials` currently holds sample quotes — replace with real ones when they exist; /book intentionally does not render them until then |
 
 ## Explicitly NOT built (would be fake)
