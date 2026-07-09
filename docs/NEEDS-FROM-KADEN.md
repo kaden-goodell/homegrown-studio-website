@@ -21,7 +21,7 @@ the field is filled — fill it and the feature appears, no code changes needed.
 | # | What | How |
 |---|------|-----|
 | 7 | ~~Apple Pay~~ **DONE 2026-07-09** — domain registered (VERIFIED), button live on Apple devices | — | Live |
-| 7b | **Enable Afterpay in the Square Seller Dashboard** — accept the Afterpay seller terms (Settings → Payment methods → Afterpay). UI-only; involves a merchant agreement so it can't be done via API. | Square Dashboard | The Afterpay pay-in-4 button appears automatically at party checkout (already coded + gated to parties only) |
+| 7b | **Afterpay — deliberately NOT enabled** (Kaden's call 2026-07-09: ~6% merchant fee isn't worth it while bookings are healthy). Code ships dormant; the button self-hides until the account is onboarded. | If bookings ever stall: Square Dashboard → Settings → Payment methods → enable Afterpay. Button appears on the live site with no deploy. | Nothing visible until enabled |
 | 8 | (Later, post-launch) Testimonials, party photos, Instagram embeds | `siteConfig.testimonials` currently holds sample quotes — replace with real ones when they exist; /book intentionally does not render them until then |
 
 ## Explicitly NOT built (would be fake)
