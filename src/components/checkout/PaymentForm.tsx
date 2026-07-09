@@ -57,6 +57,28 @@ const SQUARE_CDN: Record<string, string> = {
   production: 'https://web.squarecdn.com/v1/square.js',
 }
 
+/**
+ * Apple's Apple Pay JS SDK provides ApplePaySession in NON-Safari browsers
+ * (desktop Chrome/Edge get a "scan with iPhone" QR flow, iOS 18+ third-party
+ * browsers get the native sheet). Safari has it built in — skip loading there.
+ */
+const APPLE_PAY_JS_SDK = 'https://applepay.cdn-apple.com/jsapi/1.latest/apple-pay-sdk.js'
+
+function loadApplePayPolyfill(): Promise<void> {
+  if ((window as any).ApplePaySession) return Promise.resolve()
+  const existing = document.querySelector(`script[src="${APPLE_PAY_JS_SDK}"]`)
+  if (existing) return Promise.resolve()
+  return new Promise((resolve) => {
+    const script = document.createElement('script')
+    script.src = APPLE_PAY_JS_SDK
+    script.crossOrigin = 'anonymous'
+    // Resolve either way — a failed load just means Apple Pay stays unavailable.
+    script.onload = () => resolve()
+    script.onerror = () => resolve()
+    document.head.appendChild(script)
+  })
+}
+
 function loadSquareScript(environment: string): Promise<void> {
   const url = SQUARE_CDN[environment] ?? SQUARE_CDN.sandbox
 
@@ -184,6 +206,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
             if (paymentRequest) {
               try {
+                await loadApplePayPolyfill()
                 const applePay = await payments.applePay(paymentRequest)
                 if (cancelled) {
                   applePay.destroy?.().catch?.(() => {})
