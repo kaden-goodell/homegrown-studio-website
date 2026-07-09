@@ -1216,6 +1216,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               environmentOverride="production"
               wallet={{ amount: (deposit / 100).toFixed(2), label: 'Homegrown Studio — party studio fee', bnpl: true }}
               onWalletToken={(token) => handlePay(token)}
+              canPayWithWallet={() =>
+                infoValid ? null : 'Add your name and email above first — we need them for your confirmation.'
+              }
             />
 
             {error && (

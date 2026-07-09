@@ -1,4 +1,5 @@
 import {
+  createElement,
   forwardRef,
   useCallback,
   useEffect,
@@ -39,6 +40,10 @@ interface PaymentFormProps {
   wallet?: { amount: string; label: string; bnpl?: boolean }
   /** Called with the payment token when a wallet (Apple/Google Pay) tokenizes. */
   onWalletToken?: (token: string) => void
+  /** Pre-flight check before opening a wallet sheet. Return an error message to
+   *  block (shown to the user), or null to proceed — prevents "approve in the
+   *  wallet, then hit a form validation error" whiplash. */
+  canPayWithWallet?: () => string | null
 }
 
 interface ClientConfig {
@@ -59,14 +64,16 @@ const SQUARE_CDN: Record<string, string> = {
 }
 
 /**
- * Apple's Apple Pay JS SDK provides ApplePaySession in NON-Safari browsers
- * (desktop Chrome/Edge get a "scan with iPhone" QR flow, iOS 18+ third-party
- * browsers get the native sheet). Safari has it built in — skip loading there.
+ * Apple's Apple Pay JS SDK does two jobs: it provides ApplePaySession in
+ * NON-Safari browsers (desktop Chrome/Edge get a "scan with iPhone" QR flow,
+ * iOS 18+ third-party browsers get the native sheet), and it registers the
+ * <apple-pay-button> custom element — the only way the button renders
+ * correctly across ALL browsers (Blink ignores -webkit-appearance:
+ * -apple-pay-button, leaving a hand-rolled button invisible). Load it always.
  */
 const APPLE_PAY_JS_SDK = 'https://applepay.cdn-apple.com/jsapi/1.latest/apple-pay-sdk.js'
 
-function loadApplePayPolyfill(): Promise<void> {
-  if ((window as any).ApplePaySession) return Promise.resolve()
+function loadApplePaySdk(): Promise<void> {
   const existing = document.querySelector(`script[src="${APPLE_PAY_JS_SDK}"]`)
   if (existing) return Promise.resolve()
   return new Promise((resolve) => {
@@ -104,7 +111,7 @@ type WalletInstance = {
 }
 
 const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
-  function PaymentForm({ applicationIdOverride, environmentOverride, wallet, onWalletToken }: PaymentFormProps, ref) {
+  function PaymentForm({ applicationIdOverride, environmentOverride, wallet, onWalletToken, canPayWithWallet }: PaymentFormProps, ref) {
     const [config, setConfig] = useState<ClientConfig | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -210,7 +217,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
             if (paymentRequest) {
               try {
-                await loadApplePayPolyfill()
+                await loadApplePaySdk()
                 const applePay = await payments.applePay(paymentRequest)
                 if (cancelled) {
                   applePay.destroy?.().catch?.(() => {})
@@ -285,6 +292,11 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
     async function tokenizeWallet(instance: WalletInstance | null, name: string) {
       if (!instance || !onWalletToken) return
+      const blocker = canPayWithWallet?.()
+      if (blocker) {
+        setWalletError(blocker)
+        return
+      }
       setWalletError(null)
       try {
         const result = await instance.tokenize()
@@ -407,28 +419,29 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
         {applePayReady && (
           <>
-            {/* The native -apple-pay-button appearance draws the official button;
-                the element must stay EMPTY or text renders on top of the graphic.
-                Vendor properties only apply via a real stylesheet, not React style. */}
+            {/* Apple's <apple-pay-button> custom element (registered by
+                apple-pay-sdk.js) renders the official button in EVERY browser —
+                including Blink, where -webkit-appearance is ignored. */}
             <style>{`
-              .apple-pay-button {
+              apple-pay-button {
+                --apple-pay-button-width: 100%;
+                --apple-pay-button-height: 44px;
+                --apple-pay-button-border-radius: 0.5rem;
+                --apple-pay-button-padding: 0px;
+                --apple-pay-button-box-sizing: border-box;
                 display: block;
                 width: 100%;
-                height: 44px;
-                border: none;
-                border-radius: 0.5rem;
                 cursor: pointer;
-                -webkit-appearance: -apple-pay-button;
-                -apple-pay-button-type: pay;
-                -apple-pay-button-style: black;
               }
             `}</style>
-            <button
-              type="button"
-              className="apple-pay-button"
-              aria-label="Pay with Apple Pay"
-              onClick={() => tokenizeWallet(applePayRef.current, 'Apple Pay')}
-            />
+            {createElement('apple-pay-button', {
+              buttonstyle: 'black',
+              type: 'pay',
+              locale: 'en-US',
+              role: 'button',
+              'aria-label': 'Pay with Apple Pay',
+              onClick: () => tokenizeWallet(applePayRef.current, 'Apple Pay'),
+            })}
           </>
         )}
         {/* Google Pay / Afterpay attach into these divs during init — they must always exist. */}
