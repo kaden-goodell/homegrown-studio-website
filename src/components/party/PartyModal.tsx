@@ -7,8 +7,10 @@ import { partyConfig } from '@config/party.config'
 
 interface PartyModalProps {
   onClose: () => void
-  /** Optional ISO start time (from `?start=` deeplink) to preselect and skip the Date step. */
+  /** Optional ISO start time (from `?start=` deeplink / calendar) to preselect and skip the Date step. */
   initialStart?: string
+  /** Optional craft id (from the gallery "Book this craft") to preselect and skip the Craft step. */
+  initialCraftId?: string
 }
 
 interface Craft {
@@ -80,7 +82,7 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
-export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
+export default function PartyModal({ onClose, initialStart, initialCraftId }: PartyModalProps) {
   const [step, setStep] = useState(0)
   const [visible, setVisible] = useState(true)
   const [displayStep, setDisplayStep] = useState(0)
@@ -210,9 +212,12 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
         const match = slots.find((s) => new Date(s.startAt).getTime() === target)
         if (match) {
           setSelectedSlot(match)
-          setStep(1) // Craft step
-          setDisplayStep(1)
-          prevStep.current = 1
+          // If a (non-personalized) craft is also preselected, skip Craft → Guests.
+          const craft = initialCraftId ? info.crafts.find((c) => c.id === initialCraftId) : null
+          const target = craft && !craft.personalized ? 2 : 1
+          setStep(target)
+          setDisplayStep(target)
+          prevStep.current = target
         }
         // If no match, leave the user on the Date step (step stays 0).
       } catch {
@@ -222,7 +227,14 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
       }
     })()
     return () => { cancelled = true }
-  }, [info, initialStart])
+  }, [info, initialStart, initialCraftId])
+
+  // Preselect a craft from the gallery ("Book this craft" / ?craft=<id>).
+  useEffect(() => {
+    if (!info || !initialCraftId) return
+    const c = info.crafts.find((x) => x.id === initialCraftId)
+    if (c) setSelectedCraft(c)
+  }, [info, initialCraftId])
 
   // Step transition
   useEffect(() => {
@@ -240,6 +252,9 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
   const perHead = selectedCraft?.perHeadCents ?? 0
   const perHeadMax = selectedCraft?.perHeadMaxCents ?? perHead
   const hasPriceRange = perHeadMax > perHead // craft has multiple variants → show a range
+  // Craft preselected from the gallery → skip the Craft step. But keep that step for
+  // personalized crafts so the non-refundable acknowledgment is still enforced.
+  const skipCraftStep = !!initialCraftId && !!selectedCraft && !selectedCraft.personalized
   const craftLines = craftBreakdown(selectedCraft?.name ?? 'Craft', perHead, people)
   const deposit = BASE_FEE_CENTS // charged today to book
   const craftEstimate = craftTotalCents(perHead, people) // paid at the studio, based on attendance
@@ -249,6 +264,8 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
   function handleBack() {
     if (step === 0) {
       onClose()
+    } else if (step === 2 && skipCraftStep) {
+      setStep(0) // Guests → Date, skipping the preselected Craft step
     } else {
       setStep(step - 1)
     }
@@ -606,7 +623,7 @@ export default function PartyModal({ onClose, initialStart }: PartyModalProps) {
 
             <button
               type="button"
-              onClick={() => setStep(1)}
+              onClick={() => setStep(skipCraftStep ? 2 : 1)}
               disabled={!selectedSlot}
               style={primaryButtonStyle(!!selectedSlot)}
             >
