@@ -1,0 +1,32 @@
+---
+export const prerender = false
+
+import Layout from '@layouts/Layout.astro'
+import WaiverFlow from '@components/waiver/WaiverFlow'
+import { waiverContent } from '@config/waiver-content'
+
+const partyId = Astro.url.searchParams.get('party') ?? undefined
+const { page } = waiverContent
+const subline = partyId ? page.partySubline : page.subline
+---
+
+<Layout
+  title="Participation Agreement"
+  description="Sign the Homegrown Studio participation agreement — one signature covers your household for a year of crafting."
+>
+  <section class="max-w-2xl mx-auto px-4 sm:px-6 py-28">
+    <div class="text-center mb-10 fade-in">
+      <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">
+        {page.eyebrow}
+      </p>
+      <h1 class="text-3xl sm:text-4xl font-heading font-bold" style="color: var(--color-dark);">
+        {page.headline}
+      </h1>
+      <p class="text-base mt-4 max-w-lg mx-auto" style="color: var(--color-muted);">
+        {subline}
+      </p>
+    </div>
+
+    <WaiverFlow client:load partyId={partyId} />
+  </section>
+</Layout>
