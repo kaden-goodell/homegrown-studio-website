@@ -4,6 +4,10 @@ Everything below is intentionally left empty/ungated so no fake content ships.
 Each item lists the exact file + field to fill. The UI hides the element until
 the field is filled — fill it and the feature appears, no code changes needed.
 
+## Legal review required before Sept 1 opening
+
+- **Attorney review of Participation Agreement v2 §4(c) supervision language** (`src/config/waiver-content.ts`) before the Sept 1 opening — the text now states parties are not drop-off and requires a designated responsible adult for unaccompanied minors. Note: the version was bumped v1→v2; when the exact LLC legal name lands (existing TODO), that edit will require v3.
+
 ## URGENT — before this branch merges
 
 - **PROVIDER_MODE=square must be set site-wide in the Netlify environment.** Deploy previews are production builds — they will fail the build without it. Go to Netlify dashboard → Site configuration → Environment variables and confirm `PROVIDER_MODE=square` is set. (Use `ALLOW_MOCK_PROVIDER=1` only for a local `npm run build` without Square creds — never set it in Netlify.)

@@ -24,7 +24,7 @@ export const inviteContent = {
 
   rsvp: {
     heading: 'One quick thing before you come',
-    body: 'Everyone coming signs our short participation agreement — it takes about a minute and covers you (and any kids you bring) for a full year of visits.',
+    body: 'Everyone coming signs our short participation agreement — about a minute, and it covers you and your own kids for a full year of visits. Every adult in your group signs their own, so forward this to anyone coming with you.',
     cta: '✍️ RSVP & sign your agreement',
     footnote: 'Each adult signs for themselves and their own kids — please don’t sign for someone else’s children.',
   },
