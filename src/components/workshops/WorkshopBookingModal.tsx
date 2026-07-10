@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { CLASS_BOOKING_APP_ID } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
+import { waiverContent } from '@config/waiver-content'
 import type { WorkshopData } from './WorkshopExplorer'
 import DetailsStep from '@components/shared/DetailsStep'
 import OrderSummary from '@components/checkout/OrderSummary'
@@ -195,6 +196,26 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
               View Receipt
             </a>
           )}
+          <div style={{ marginTop: '1.25rem' }}>
+            <a
+              href="/waiver"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: 'inline-block',
+                padding: '0.6rem 1.1rem',
+                borderRadius: '0.75rem',
+                background: 'rgba(150, 112, 91, 0.1)',
+                border: '1px solid rgba(150, 112, 91, 0.2)',
+                color: 'var(--color-primary)',
+                fontSize: '0.875rem',
+                fontWeight: 600,
+                textDecoration: 'none',
+              }}
+            >
+              {waiverContent.handoff.workshopCta}
+            </a>
+          </div>
         </div>
       )
     }
