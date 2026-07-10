@@ -46,22 +46,18 @@ Key constraints:
 - Idempotency: tag loads with pay-period key so a re-run never double-loads.
 - Later: becomes a page on the planned admin site.
 
-### Phase 4 — `/crew` availability page (Claude, build) — REVISED 2026-07-09 (later same day)
-Kaden wants moms to drag-and-drop their slots on the site behind a login, with assistants scheduled around them afterward. The Labor API has **no availability endpoint**, so mom slot-picks are modeled as real scheduled shifts. Only the mom-facing capture UI is custom; Kaden's side stays native.
+### Phase 4 — Mom slot signup: native Team app + auto-posted open shifts — FINAL (Kaden picked Option A, 2026-07-09, after seeing side-by-side mockups)
+The Square Team app natively supports open-shift claiming: manager publishes unassigned shifts → team member taps Request → manager approves via push notification. Moms need the Team app anyway for clock-in, so mom-facing build is ZERO.
 
-- **Login:** email → must match an ACTIVE Square team member (Team API is the user store; no DB) → magic link emailed (Resend free tier), signed short-lived token → 90-day signed session cookie. Deactivating a team member revokes access. No passwords.
-- **Grid:** week view derived from business hours (Thu/Fri 4–9, Sat 9–9, Sun 2–8); shows her existing shifts; drag-paint blocks to sign up.
-- **Submit = commitment (Kaden's pick):** each painted block → `CreateScheduledShift` assigned to her + immediate publish (`notification audience: AFFECTED`) — it's real and visible in her Square Team app right away.
-- **Kaden's side:** Square's native Shifts scheduler (already drag-and-drop, shows mom shifts, conflict warnings) to place Studio Assistants and adjust anything, then publish. No custom admin scheduler.
-- Edits/cancellations by moms: v1 allows deleting her own future unstarted shifts from the page; anything else goes through Kaden.
-- **v2 ideas (deferred):** overlay booked parties/workshops on the grid so moms sign up where help is needed; assistant use of the same page.
+- **`scripts/team/post-open-shifts.ts`** (the only build): cuts business hours (Thu/Fri 4–9, Sat 9–9, Sun 2–8) into 3–4 hr "Studio Crew" open slots and publishes them for a target week via the ScheduledShift API (unassigned = open). Idempotent per week (skip already-posted slots). Run weekly by Kaden or a scheduled job.
+- Moms claim in the Team app; Kaden approves with one tap per claim; assistants placed afterward in Square's native drag-drop dashboard scheduler.
+- **Superseded:** the custom `/crew` drag-paint grid + magic-link login (previous revision of this section) is shelved as an admin-site-era v2 (see comparison artifact "Mom Signup: Two Ways"). Nothing in Option A blocks building it later. Resend account no longer needed for launch.
 
 ### Phase 5 — Operate
 - Timecards import into each pay run; moms paid $7.25 cash via the same run; credit script run alongside.
 - Salaried conversion for group 2 when it happens — same payroll plan supports it.
 
 ## Open items / risks
-- Resend (or similar) account for magic-link emails — free tier suffices; Kaden to create or hand off an API key.
 - CPA sanity-check on the min-wage-plus-credit structure (and that credit loads are treated as taxable fringe/bonus comp — CPA to advise whether credit value must run through payroll as imputed income).
 - Verify Square Plus subscription is actually active.
 - Confirm workers' comp quote is reasonable at part-time hours.
