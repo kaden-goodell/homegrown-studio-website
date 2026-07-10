@@ -34,3 +34,4 @@ scripts/.test-data-ids.json
 # captured Square dashboard traffic (contains session cookies — never commit)
 captures/
 *.har
+docs/alcohol-license/

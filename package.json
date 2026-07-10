@@ -12,6 +12,7 @@
     "@astrojs/netlify": "^6.6.4",
     "@astrojs/react": "^4.4.2",
     "@astrojs/tailwind": "^6.0.2",
+    "@netlify/blobs": "^10.7.9",
     "astro": "^5.17.1",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
