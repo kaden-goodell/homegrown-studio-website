@@ -627,6 +627,8 @@ git add docs/superpowers/plans/2026-07-09-crew-scheduling-scripts.md
 git commit -m "docs(crew): record live smoke results for scheduled-shift API shapes"
 ```
 
+**Live smoke results (2026-07-09):** two API-shape corrections were needed and are in the committed script: (1) `searchScheduledShifts` caps `limit` at 50 — paginate with `cursor`; (2) Square echoes shift timestamps in the location's local offset (`2026-09-10T16:00:00-05:00`), so slot dedupe keys must compare `Date.parse()` epochs, not ISO strings. Everything else (create → bulk publish with `scheduledShiftNotificationAudience: 'AFFECTED'`, delete via draft `isDeleted: true` + republish at the post-update version) worked exactly as planned. Jobs created: Studio Crew `NXiiWnzfkWztjQyaVwcgcWf4`, Studio Assistant `McrJcRogULT6L6Am9YuWuNDq`. Test week 2026-09-07 posted (7 shifts), re-run skipped all 7, then fully deleted (0 live remaining). `vitest --reporter=basic` no longer exists in vitest 4 — default reporter used.
+
 ---
 
 ### Task 7: `scripts/team/load-crew-credit.ts`

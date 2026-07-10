@@ -35,7 +35,8 @@ async function main() {
     for (const s of existing.scheduledShifts ?? []) {
       const d = s.draftShiftDetails ?? {}
       if (d.isDeleted) continue
-      const k = `${d.startAt}|${d.endAt}`
+      // Square echoes times in the location's local offset — compare as epochs
+      const k = `${Date.parse(d.startAt)}|${Date.parse(d.endAt)}`
       taken.set(k, (taken.get(k) ?? 0) + 1)
     }
     cursor = existing.cursor
@@ -44,7 +45,7 @@ async function main() {
   const jobId = await getOrCreateJob(JOB_TITLES.crew)
   const createdIds: string[] = []
   for (const slot of slots) {
-    const have = taken.get(`${slot.startAt}|${slot.endAt}`) ?? 0
+    const have = taken.get(`${Date.parse(slot.startAt)}|${Date.parse(slot.endAt)}`) ?? 0
     const need = Math.max(0, copies - have)
     if (need === 0) { console.log(`  = ${slot.label} — already posted (${have})`); continue }
     for (let i = 0; i < need; i++) {
