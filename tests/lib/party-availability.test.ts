@@ -119,6 +119,42 @@ describe('openPartyStarts', () => {
   })
 })
 
+describe('POST /api/party/availability.json input validation', () => {
+  function makeCtx(body: unknown) {
+    const url = new URL('http://localhost/api/party/availability.json')
+    const request = new Request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    return { request, url, params: {}, redirect: () => new Response(), locals: {} } as any
+  }
+
+  it('returns 400 for a missing date', async () => {
+    const { POST } = await import('@pages/api/party/availability.json')
+    const response = await POST(makeCtx({}))
+    expect(response.status).toBe(400)
+  })
+
+  it('returns 400 for a malformed date', async () => {
+    const { POST } = await import('@pages/api/party/availability.json')
+    for (const bad of ['not-a-date', '2027/08/07', 12345, { date: '2027-08-07' }]) {
+      const response = await POST(makeCtx({ date: bad }))
+      expect(response.status).toBe(400)
+      const json = await response.json()
+      expect(json.error).toBe('Invalid date')
+    }
+  })
+
+  it('returns 200 for a well-formed date and ignores a non-string serviceVariationId', async () => {
+    const { POST } = await import('@pages/api/party/availability.json')
+    const response = await POST(makeCtx({ date: TEST_DATE, serviceVariationId: { $ne: null } }))
+    expect(response.status).toBe(200)
+    const json = await response.json()
+    expect(json.data.slots.length).toBeGreaterThan(0)
+  })
+})
+
 describe('isStartOpen', () => {
   it('(a) returns true for a future unbooked start in the schedule', async () => {
     const { partyStartsForDate } = await import('@lib/party-slots')

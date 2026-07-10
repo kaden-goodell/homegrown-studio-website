@@ -10,14 +10,21 @@ export const POST: APIRoute = async ({ request }) => {
   const startTime = Date.now()
   try {
     const body = await request.json()
-    const { date, serviceVariationId } = body
+    const { date } = body
 
-    if (!date) {
+    // Public endpoint — validate inputs. Date must be a YYYY-MM-DD string.
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return new Response(
-        JSON.stringify({ error: 'Missing required field: date' }),
+        JSON.stringify({ error: 'Invalid date' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       )
     }
+
+    // Only pass serviceVariationId through when it's a plausible ID string.
+    const serviceVariationId =
+      typeof body.serviceVariationId === 'string' && body.serviceVariationId.length <= 100
+        ? body.serviceVariationId
+        : undefined
 
     // Use the shared helper which queries with studio-local UTC bounds (UTC-window bug fix).
     // If the lookup fails, fall back to showing all future candidates so booking is never blocked.
