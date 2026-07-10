@@ -36,6 +36,7 @@ interface Household {
   adultAllergies: string
   emergency: { name: string; phone: string; relationship: string }
   authorizedPickup: string
+  responsibleAdult: string
   photoConsent: boolean
   signedAt: string
   checkin: Checkin
@@ -227,6 +228,11 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
       <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.55rem 0 0' }}>
         <strong style={{ color: 'var(--color-dark)' }}>Emergency:</strong> {h.emergency.name} · {h.emergency.phone}{h.emergency.relationship ? ` (${h.emergency.relationship})` : ''}
       </p>
+      {h.responsibleAdult && (
+        <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.15rem 0 0' }}>
+          <strong style={{ color: 'var(--color-dark)' }}>With:</strong> {h.responsibleAdult}
+        </p>
+      )}
       {dropOff && (
         <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.15rem 0 0' }}>
           <strong style={{ color: 'var(--color-dark)' }}>Pickup:</strong> {h.authorizedPickup || '— not provided —'}

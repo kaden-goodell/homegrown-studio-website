@@ -46,6 +46,8 @@ export interface WaiverRecord {
   photoConsent: boolean
   signature: string
   partyId: string | null
+  /** Adult who will be with the child(ren) at the party if the signer is not attending. */
+  responsibleAdult: string | null
   squareCustomerId: string | null
   ip: string | null
   userAgent: string | null

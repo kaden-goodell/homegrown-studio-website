@@ -35,6 +35,7 @@ export const GET: APIRoute = async ({ request, url }) => {
         adultAllergies: w.adult.allergies || '',
         emergency: w.emergency,
         authorizedPickup: w.authorizedPickup || '',
+        responsibleAdult: w.responsibleAdult || '',
         photoConsent: w.photoConsent,
         signedAt: w.signedAt,
         checkin: toPublicCheckin(await getCheckin(partyId, w.id)),

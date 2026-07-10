@@ -140,12 +140,33 @@ async function validateParty(partyId: string | null, now: Date): Promise<Respons
   }
 }
 
+/**
+ * Enforce: when a party RSVP has children attending but the signer (adult) is
+ * not in the attending list, require a responsible adult name.
+ */
+function checkResponsibleAdult(
+  partyId: string | null,
+  resolvedIds: string[],
+  responsibleAdult: string,
+): Response | null {
+  if (!partyId) return null
+  const hasKids = resolvedIds.some((id) => id.startsWith('child:'))
+  const adultPresent = resolvedIds.includes('adult')
+  if (hasKids && !adultPresent) {
+    if (!responsibleAdult) {
+      return bad("Parties are not drop-off — tell us which adult will be with your child at the party.")
+    }
+  }
+  return null
+}
+
 /** Returning customer: RSVP by reusing an on-file household — no re-fill. */
 async function handleReuse(
   reuseId: string,
   reuseToken: string,
   partyId: string | null,
   attendingRaw: unknown,
+  responsibleAdult: string,
   now: Date,
   clientAddress: string | undefined,
   userAgent: string | null,
@@ -158,10 +179,20 @@ async function handleReuse(
   if (partyErr) return partyErr
 
   const source = await getWaiverRecord(reuseId)
-  if (!source) return bad("We couldn’t find your agreement — please fill out the form.")
+  if (!source) return bad("We couldn't find your agreement — please fill out the form.")
   if (new Date(source.validUntil).getTime() <= now.getTime()) {
     return bad("Your agreement has expired — please sign a new one.")
   }
+
+  // Resolve the attending ids (same logic as recordExpected uses).
+  const validIds = new Set(['adult', ...source.minors.map((_, i) => `child:${i}`)])
+  const resolvedIds = Array.isArray(attendingRaw)
+    ? [...new Set(attendingRaw.map(String))].filter((id) => validIds.has(id))
+    : [...validIds]
+
+  const raErr = checkResponsibleAdult(partyId, resolvedIds, responsibleAdult)
+  if (raErr) return raErr
+
   const record: WaiverRecord = {
     ...source,
     id: newWaiverId(),
@@ -169,6 +200,7 @@ async function handleReuse(
     // Same 12-month agreement re-affirmed for this party; keep original expiry.
     signature: `${source.adult.firstName} ${source.adult.lastName}`.trim(),
     partyId,
+    responsibleAdult: responsibleAdult || null,
     squareCustomerId: null,
     ip: clientAddress ?? null,
     userAgent,
@@ -192,11 +224,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const now = new Date()
     const partyId = typeof body.partyId === 'string' && body.partyId.trim() ? body.partyId.trim() : null
     const userAgent = request.headers.get('user-agent')
+    const responsibleAdult = typeof body.responsibleAdult === 'string'
+      ? body.responsibleAdult.trim().slice(0, 120)
+      : ''
 
     // Returning-customer fast path.
     const reuseId = typeof body.reuseRecordId === 'string' ? body.reuseRecordId.trim() : ''
     const reuseToken = typeof body.reuseToken === 'string' ? body.reuseToken.trim() : ''
-    if (reuseId) return handleReuse(reuseId, reuseToken, partyId, body.attending, now, clientAddress, userAgent)
+    if (reuseId) return handleReuse(reuseId, reuseToken, partyId, body.attending, responsibleAdult, now, clientAddress, userAgent)
 
     const adult = body.adult ?? {}
     const firstName = String(adult.firstName ?? '').trim()
@@ -252,6 +287,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const partyErr = await validateParty(partyId, now)
     if (partyErr) return partyErr
 
+    // Resolve attending ids for the fresh path to enforce the responsible-adult rule.
+    const freshValidIds = new Set(['adult', ...minors.map((_, i) => `child:${i}`)])
+    const freshResolvedIds = Array.isArray(body.attending)
+      ? [...new Set((body.attending as unknown[]).map(String))].filter((id) => freshValidIds.has(id))
+      : [...freshValidIds]
+    const freshRaErr = checkResponsibleAdult(partyId, freshResolvedIds, responsibleAdult)
+    if (freshRaErr) return freshRaErr
+
     const validUntil = new Date(now)
     validUntil.setMonth(validUntil.getMonth() + waiverContent.validityMonths)
 
@@ -268,6 +311,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       photoConsent: body.photoConsent,
       signature,
       partyId,
+      responsibleAdult: responsibleAdult || null,
       squareCustomerId: null,
       ip: clientAddress ?? null,
       userAgent,

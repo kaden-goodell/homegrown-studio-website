@@ -74,6 +74,7 @@ export default function WaiverFlow({ partyId }: Props) {
   const [photoConsent, setPhotoConsent] = useState<boolean | null>(null)
   const [agreeRelease, setAgreeRelease] = useState(false)
   const [signature, setSignature] = useState('')
+  const [responsibleAdult, setResponsibleAdult] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<{ covered: string[]; validUntil: string } | null>(null)
@@ -83,7 +84,7 @@ export default function WaiverFlow({ partyId }: Props) {
   const [mode, setMode] = useState<'lookup' | 'returning' | 'form'>('lookup')
   const [contact, setContact] = useState('')
   const [lookupBusy, setLookupBusy] = useState(false)
-  const [returning, setReturning] = useState<{ recordId: string; reuseToken: string; firstName: string; kids: string[] } | null>(null)
+  const [returning, setReturning] = useState<{ recordId: string; reuseToken: string; firstName: string; kids: string[]; validUntil: string } | null>(null)
   // Friendly heads-up shown atop the form (e.g. a lapsed agreement was found).
   const [formNotice, setFormNotice] = useState<string | null>(null)
   // RSVP "who's coming" for the returning-household path: person id → coming?
@@ -98,6 +99,24 @@ export default function WaiverFlow({ partyId }: Props) {
     fullName.length > 2 &&
     signature.trim().toLowerCase().replace(/\s+/g, ' ') === fullName.toLowerCase().replace(/\s+/g, ' ')
 
+  // Small local age calculator (mirrors the server's yearsBetween).
+  function yearsBetween(dobIso: string, now: Date): number {
+    const d = new Date(`${dobIso}T00:00:00`)
+    let years = now.getFullYear() - d.getFullYear()
+    const anniversary = new Date(d)
+    anniversary.setFullYear(now.getFullYear())
+    if (now < anniversary) years--
+    return years
+  }
+
+  // True when a party RSVP has kids attending but the signer is not coming —
+  // a responsible adult name is required.
+  const kidsWithoutSigner =
+    !!partyId &&
+    minors.length > 0 &&
+    formAttending['adult'] === false &&
+    minors.some((_, i) => formComing(`child:${i}`))
+
   // What's still keeping the form from being signable — surfaced by the button
   // so a disabled state is never a mystery (the photo choice and exact-match
   // signature are the usual culprits).
@@ -108,6 +127,9 @@ export default function WaiverFlow({ partyId }: Props) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) m.push('a valid email address')
     if (phone.replace(/\D/g, '').length < 10) m.push('a phone number (at least 10 digits)')
     if (!dob) m.push('your date of birth')
+    if (dob && yearsBetween(dob, new Date()) < waiverContent.adultAge) {
+      m.push(`to be ${waiverContent.adultAge}+ to sign — ask a parent/guardian to sign and list you`)
+    }
     if (minors.some((mn) => !mn.name.trim() || !mn.dob)) m.push('a name and date of birth for each child')
     if (!emergencyName.trim()) m.push('an emergency contact name')
     if (emergencyPhone.replace(/\D/g, '').length < 10) m.push('an emergency contact phone')
@@ -115,10 +137,13 @@ export default function WaiverFlow({ partyId }: Props) {
     if (partyId && !['adult', ...minors.map((_, i) => `child:${i}`)].some((id) => formAttending[id] !== false)) {
       m.push('at least one person going to the party')
     }
+    if (kidsWithoutSigner && !responsibleAdult.trim()) {
+      m.push("the adult who'll be with your child at the party")
+    }
     if (!agreeRelease) m.push('the checkbox agreeing to the terms')
     if (!signatureMatches) m.push('your typed signature (must match your name exactly)')
     return m
-  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, signatureMatches, partyId, formAttending])
+  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, signatureMatches, partyId, formAttending, kidsWithoutSigner, responsibleAdult])
 
   const canSubmit = missing.length === 0 && !submitting
 
@@ -156,6 +181,7 @@ export default function WaiverFlow({ partyId }: Props) {
           partyId: partyId ?? null,
           // Who's actually doing the craft — the signer may just be dropping off.
           attending: ['adult', ...minors.map((_, i) => `child:${i}`)].filter(formComing),
+          responsibleAdult: responsibleAdult.trim(),
         }),
       })
       const json = await res.json().catch(() => null)
@@ -185,7 +211,7 @@ export default function WaiverFlow({ partyId }: Props) {
         setError(json?.error ?? 'Something went wrong — please try again.')
       } else if (json?.data?.found) {
         const kids: string[] = json.data.kids ?? []
-        setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids })
+        setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids, validUntil: json.data.validUntil ?? '' })
         // Default everyone in the household to "coming"; they can uncheck below.
         setAttending(Object.fromEntries(['adult', ...kids.map((_, i) => `child:${i}`)].map((id) => [id, true])))
         setMode('returning')
@@ -209,7 +235,7 @@ export default function WaiverFlow({ partyId }: Props) {
       // still works — tell them why they landed here instead of failing silently.
       if (c.includes('@')) setEmail(c)
       else setPhone(c)
-      setFormNotice('We couldn’t look you up just now — no problem, the full form below works too.')
+      setFormNotice("We couldn't look you up just now — no problem, the full form below works too.")
       setMode('form')
     } finally {
       setLookupBusy(false)
@@ -229,6 +255,7 @@ export default function WaiverFlow({ partyId }: Props) {
           reuseToken: returning.reuseToken,
           partyId: partyId ?? null,
           attending: Object.entries(attending).filter(([, coming]) => coming).map(([id]) => id),
+          responsibleAdult: responsibleAdult.trim(),
         }),
       })
       const json = await res.json().catch(() => null)
@@ -277,8 +304,11 @@ export default function WaiverFlow({ partyId }: Props) {
         <h2 style={{ ...sectionHeadingStyle, fontSize: '1.375rem', marginBottom: '0.5rem' }}>
           {confirmation.headline}
         </h2>
-        <p style={{ ...sectionNoteStyle, maxWidth: '26rem', margin: '0 auto 1.25rem' }}>
+        <p style={{ ...sectionNoteStyle, maxWidth: '26rem', margin: '0 auto 0.75rem' }}>
           {confirmation.subline}
+        </p>
+        <p style={{ ...sectionNoteStyle, maxWidth: '26rem', margin: '0 auto 1.25rem', fontSize: '0.8125rem' }}>
+          {confirmation.anotherAdultLine}
         </p>
         {partyId && (
           <p style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '1rem' }}>
@@ -318,7 +348,7 @@ export default function WaiverFlow({ partyId }: Props) {
       <div style={{ ...cardStyle, maxWidth: '30rem', margin: '0 auto' }}>
         <h2 style={sectionHeadingStyle}>Been here before?</h2>
         <p style={sectionNoteStyle}>
-          Enter your email or phone and we’ll pull up your agreement — no need to fill it out again.
+          Enter your email or phone and we'll pull up your agreement — no need to fill it out again.
         </p>
         <input
           style={inputStyle}
@@ -361,12 +391,23 @@ export default function WaiverFlow({ partyId }: Props) {
 
   // Returning customer with a valid agreement on file — one-tap RSVP.
   if (mode === 'returning' && returning) {
+    // Determine if we need the responsible-adult field in the returning path.
+    const returningKidsWithoutSigner =
+      !!partyId &&
+      returning.kids.length > 0 &&
+      attending['adult'] === false &&
+      returning.kids.some((_, i) => !!attending[`child:${i}`])
+
+    const returningValidDate = returning.validUntil
+      ? new Date(returning.validUntil).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+      : ''
+
     return (
       <div style={{ ...cardStyle, maxWidth: '30rem', margin: '0 auto', textAlign: 'center' }}>
         <h2 style={{ ...sectionHeadingStyle, fontSize: '1.375rem' }}>Welcome back, {returning.firstName}! 🎉</h2>
         <p style={{ ...sectionNoteStyle, maxWidth: '24rem', margin: '0.25rem auto 1.25rem' }}>
-          Your participation agreement is already on file — you don’t need to sign again.
-          {partyId ? ' Just tell us who’s coming.' : ''}
+          Your participation agreement is already on file — you don't need to sign again.
+          {partyId ? " Just tell us who's coming." : ''}
         </p>
         {(() => {
           const roster = [
@@ -401,37 +442,59 @@ export default function WaiverFlow({ partyId }: Props) {
               )}
               {partyId && comingCount === 0 && (
                 <p style={{ fontSize: '0.8125rem', color: 'rgb(185,28,28)', margin: '0.4rem 0 0', fontWeight: 600 }}>
-                  Pick at least one person who’s coming.
+                  Pick at least one person who's coming.
                 </p>
               )}
             </div>
           )
         })()}
+        {returningKidsWithoutSigner && (
+          <div style={{ textAlign: 'left', maxWidth: '22rem', margin: '0 auto 1rem' }}>
+            <label style={labelStyle} htmlFor="wv-ret-responsible-adult">
+              {form.responsibleAdultLabel}
+            </label>
+            <input
+              id="wv-ret-responsible-adult"
+              style={inputStyle}
+              value={responsibleAdult}
+              onChange={(e) => setResponsibleAdult(e.target.value)}
+              placeholder="e.g. Riding with Grandma Sue — she'll be there"
+            />
+            <p style={{ ...sectionNoteStyle, margin: '0.3rem 0 0' }}>{form.responsibleAdultNote}</p>
+          </div>
+        )}
         {error && <p style={{ color: 'rgb(185,28,28)', fontSize: '0.875rem', marginBottom: '0.75rem' }}>{error}</p>}
-        {(() => {
-          const noneComing = !!partyId && !Object.values(attending).some(Boolean)
-          const disabled = submitting || noneComing
-          return (
-            <button
-              type="button"
-              onClick={handleReturningRsvp}
-              disabled={disabled}
-              style={{
-                width: '100%',
-                padding: '0.85rem',
-                borderRadius: '0.875rem',
-                border: 'none',
-                background: disabled ? 'rgba(150,112,91,0.35)' : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
-                color: '#fff',
-                fontSize: '1rem',
-                fontWeight: 600,
-                cursor: disabled ? 'not-allowed' : 'pointer',
-              }}
-            >
-              {submitting ? 'One moment…' : partyId ? '✓ RSVP us' : '✓ Check me in'}
-            </button>
-          )
-        })()}
+        {partyId ? (
+          (() => {
+            const noneComing = !Object.values(attending).some(Boolean)
+            const needsAdult = returningKidsWithoutSigner && !responsibleAdult.trim()
+            const disabled = submitting || noneComing || needsAdult
+            return (
+              <button
+                type="button"
+                onClick={handleReturningRsvp}
+                disabled={disabled}
+                style={{
+                  width: '100%',
+                  padding: '0.85rem',
+                  borderRadius: '0.875rem',
+                  border: 'none',
+                  background: disabled ? 'rgba(150,112,91,0.35)' : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                  color: '#fff',
+                  fontSize: '1rem',
+                  fontWeight: 600,
+                  cursor: disabled ? 'not-allowed' : 'pointer',
+                }}
+              >
+                {submitting ? 'One moment…' : '✓ RSVP us'}
+              </button>
+            )
+          })()
+        ) : (
+          <p style={{ ...sectionNoteStyle, fontWeight: 600, color: 'var(--color-dark)', margin: '0 0 0.25rem' }}>
+            You're already covered — valid through {returningValidDate}.
+          </p>
+        )}
         <button
           type="button"
           onClick={() => { setReturning(null); setMode('form') }}
@@ -527,7 +590,7 @@ export default function WaiverFlow({ partyId }: Props) {
           <div key={i} style={{ border: '1px solid rgba(150,112,91,0.14)', borderRadius: '0.75rem', padding: '0.85rem', marginBottom: '0.75rem', background: 'rgba(150,112,91,0.03)' }}>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div style={{ flex: '2 1 12rem' }}>
-                <label style={labelStyle} htmlFor={`wv-minor-name-${i}`}>Child’s full name</label>
+                <label style={labelStyle} htmlFor={`wv-minor-name-${i}`}>Child's full name</label>
                 <input id={`wv-minor-name-${i}`} style={inputStyle} value={minor.name} onChange={(e) => updateMinor(i, { name: e.target.value })} />
               </div>
               <div style={{ flex: '1 1 9rem' }}>
@@ -544,7 +607,7 @@ export default function WaiverFlow({ partyId }: Props) {
               </button>
             </div>
             <div style={{ marginTop: '0.6rem' }}>
-              <label style={labelStyle} htmlFor={`wv-minor-allergy-${i}`}>{minor.name ? `${minor.name.split(' ')[0]}’s allergies / medical` : 'Allergies / medical'} (optional)</label>
+              <label style={labelStyle} htmlFor={`wv-minor-allergy-${i}`}>{minor.name ? `${minor.name.split(' ')[0]}'s allergies / medical` : 'Allergies / medical'} (optional)</label>
               <input id={`wv-minor-allergy-${i}`} style={inputStyle} value={minor.allergies} onChange={(e) => updateMinor(i, { allergies: e.target.value })} placeholder="e.g. Peanuts, bee stings — or leave blank" />
             </div>
           </div>
@@ -592,7 +655,7 @@ export default function WaiverFlow({ partyId }: Props) {
             style={inputStyle}
             value={adultAllergies}
             onChange={(e) => setAdultAllergies(e.target.value)}
-            placeholder="Your own allergies, if you’ll be crafting — or leave blank"
+            placeholder="Your own allergies, if you'll be crafting — or leave blank"
           />
         </div>
         <div style={{ marginTop: '0.9rem' }}>
@@ -644,12 +707,12 @@ export default function WaiverFlow({ partyId }: Props) {
         ))}
       </div>
 
-      {/* Who's coming — only in a party context; the signer may be dropping off */}
+      {/* Who's coming — only in a party context */}
       {partyId && (
         <div style={cardStyle}>
-          <h2 style={sectionHeadingStyle}>Who’s coming to the party?</h2>
+          <h2 style={sectionHeadingStyle}>Who's coming to the party?</h2>
           <p style={sectionNoteStyle}>
-            Check everyone who’ll be there doing the craft. If you’re just dropping off, leave yourself unchecked.
+            Check everyone who'll be there doing the craft.
           </p>
           {[{ id: 'adult', label: `${fullName || 'You'} (you)`, icon: '👤' }, ...minors.map((m, i) => ({ id: `child:${i}`, label: m.name.trim() || `Child ${i + 1}`, icon: '🧒' }))].map((p) => (
             <label
@@ -669,6 +732,21 @@ export default function WaiverFlow({ partyId }: Props) {
             <p style={{ fontSize: '0.8125rem', color: 'rgb(185,28,28)', margin: '0.4rem 0 0', fontWeight: 600 }}>
               Pick at least one person going to the party.
             </p>
+          )}
+          {kidsWithoutSigner && (
+            <div style={{ marginTop: '0.9rem' }}>
+              <label style={labelStyle} htmlFor="wv-responsible-adult">
+                {form.responsibleAdultLabel}
+              </label>
+              <input
+                id="wv-responsible-adult"
+                style={inputStyle}
+                value={responsibleAdult}
+                onChange={(e) => setResponsibleAdult(e.target.value)}
+                placeholder="e.g. Riding with Grandma Sue — she'll be there"
+              />
+              <p style={{ ...sectionNoteStyle, margin: '0.3rem 0 0' }}>{form.responsibleAdultNote}</p>
+            </div>
           )}
         </div>
       )}
