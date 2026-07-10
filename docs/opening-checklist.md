@@ -1,6 +1,6 @@
 # Homegrown Studio — Opening Checklist
 
-**Grand opening:** Friday, July 31, 2026 · **Parents' Night Out** 6–9pm
+**Grand opening:** Tuesday, September 1, 2026 (pushed from Jul 31 on 2026-07-09) · opening-event lineup TBD — PNO pending the childcare-licensing answer (HOM-99)
 **Owner:** Kaden (+ wife) · **Hours:** Thu/Fri 4–9, Sat 9–9, Sun 2–8
 
 > ⚠️ Not legal/tax/insurance advice — items marked ⚠️ vary by city/state and need local verification.
@@ -80,7 +80,7 @@ I'll read your answers and turn this into a **dated, prioritized plan** (front-l
 - [ ] Starting par levels + reorder trigger —
 
 ## 6. Programming & launch calendar
-- [ ] Lock launch-month schedule (Grand Opening, PNO 7/31, Skincare 8/1, Thursday Men's Nights, workshops) —
+- [ ] Lock launch-month schedule (Grand Opening Sep 1, PNO pending HOM-99, Skincare class, Thursday Men's Nights, workshops) —
 - [ ] Project menu + step-by-step instructions per craft —
 - [ ] Sample / display pieces for each craft —
 
@@ -96,7 +96,7 @@ I'll read your answers and turn this into a **dated, prioritized plan** (front-l
 - [ ] Email/newsletter capture set up —
 - [ ] Grand-opening promo plan —
 - [ ] Local/maker community partnerships —
-- [ ] Soft opening (friends & family) before 7/31 —
+- [ ] Soft opening (friends & family) before 9/1 —
 
 ## 9. Pre-open dry run
 - [ ] Full rehearsal: party + workshop + open-studio + POS + waiver —

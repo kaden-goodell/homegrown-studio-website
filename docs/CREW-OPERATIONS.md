@@ -10,7 +10,7 @@ Design + decisions: `docs/superpowers/specs/2026-07-09-staff-payroll-setup-desig
 ## 1. One-time setup (Kaden, manual — do this week)
 
 State registrations first; they have days-to-weeks of lead time and payroll
-onboarding needs the account numbers. Grand opening is Jul 31.
+onboarding needs the account numbers. Grand opening is Sep 1, 2026 (pushed from Jul 31).
 
 1. **Alabama withholding tax account** — register at
    [myalabamataxes.alabama.gov](https://myalabamataxes.alabama.gov) (needs the
@@ -82,7 +82,44 @@ app invite** and set a **POS passcode** for clock-in at the register.
 > $7.25-cash-plus-credit structure, and how gift-card credit is reported
 > (imputed income on the W-2 vs other treatment).
 
-## 5. What this costs
+## 5. Kids' events (Parents Night Out) — safety & supervision
+
+Applies to any **drop-off** event where parents leave (Parents Night Out). These rules
+are how we protect the kids and stay defensible; they are not optional. Legal background
+in Linear HOM-99 (licensing) and HOM-114 (safeguards).
+
+**Onboarding gate — no one works a PNO until all three are on file:**
+1. Criminal background check (GoodHire/Checkr — national criminal + sex-offender registry).
+2. Alabama DHR Mandated Reporter Training certificate (free, training.dhr.alabama.gov).
+3. Read and acknowledged this section (and Stewards of Children if the insurer requires it).
+
+**The two-adult rule (non-negotiable):**
+- **Always at least two vetted adults present** for the whole event.
+- **Never one adult alone with a child.** No one-on-one, no closed-door situations.
+- Bathroom policy for young kids: a child is never alone with a single adult behind a
+  closed door — door stays ajar / a second adult is aware.
+
+**Capacity & ratio:**
+- **Hard cap: 12 children per event.** (This is the licensing decision — do not exceed 12.)
+- Staff to at least **1 adult per 6 kids, minimum 2 adults** — so 2 adults up to 12 kids.
+
+**Check-in / check-out:**
+- Every child signs in on arrival; the signing parent's waiver (with medical authorization
+  + emergency contact + allergies) is on file before the child is left.
+- Maintain an **authorized-pickup list**; release a child only to a listed adult. If you
+  don't recognize the person, check photo ID against the list.
+
+**Mandatory reporting:**
+- Every staffer is a **mandated reporter** (Ala. Code §26-14-3). If you suspect abuse or
+  neglect — from any source — report **immediately** to DHR (1-800-458-7214) or local law
+  enforcement. Good-faith reports are legally protected. Failure to report is a misdemeanor.
+
+**Incident handling:**
+- Any injury: give first aid, contact the parent, document what happened (time, what, who
+  witnessed). The waiver's medical-treatment authorization covers emergency care if the
+  parent is unreachable.
+
+## 6. What this costs
 
 | Item | Cost |
 |---|---|
