@@ -44,6 +44,7 @@ async function giftCardFor(member: { id: string; name: string; email?: string })
   if (existing) return existing
   const gc: any = await client.giftCards.create({
     idempotencyKey: `crew-gc-${member.id}`,
+    locationId: LOCATION_ID, // required by the API
     giftCard: { type: 'DIGITAL' },
   })
   await client.giftCards.linkCustomer({ giftCardId: gc.giftCard.id, customerId })

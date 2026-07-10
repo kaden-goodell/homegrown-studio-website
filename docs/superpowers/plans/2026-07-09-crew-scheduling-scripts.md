@@ -803,6 +803,8 @@ import('./scripts/team/square-helpers').then(async ({ client, LOCATION_ID }) => 
 ```
 Expected: `state PENDING` → `balance { amount: 100n }` → `balance { amount: 0n }`. If `ACTIVATE` rejects `buyerPaymentInstrumentIds: ['crew-credit']`, the error message names the accepted no-payment path — adjust `loadCredit()` in Task 7 accordingly and note the fix in this plan file.
 
+**Live results (2026-07-09):** round-trip succeeded — `PENDING` card → ACTIVATE with `buyerPaymentInstrumentIds: ['crew-credit']` → $1.00 balance → ADJUST_DECREMENT → $0.00. One correction: `giftCards.create` requires top-level `locationId` (SDK client-side schema rejects without it); added to `giftCardFor()`. Test card `gftc:8dedbd36695743cebb503ecc2441fb7e` left at $0 balance, unlinked — harmless.
+
 - [ ] **Step 2: Commit any corrections to load-crew-credit.ts**
 
 ```bash
