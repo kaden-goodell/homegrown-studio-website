@@ -1,0 +1,166 @@
+---
+export const prerender = false
+
+import Layout from '@layouts/Layout.astro'
+import { inviteContent as c } from '@config/invite-content'
+import { partyConfig } from '@config/party.config'
+import { googleCalendarUrl, buildIcs, icsDataUrl, addMinutesIso } from '@lib/party-share'
+
+// All party details ride in the share link — no backend lookup needed.
+const params = Astro.url.searchParams
+const partyId = params.get('party') ?? ''
+const craft = params.get('craft') ?? ''
+const when = params.get('when') ?? ''
+const title = params.get('title') ?? ''
+const start = params.get('start') ?? ''
+
+const hasDetails = Boolean(partyId && craft && when)
+const headline = hasDetails
+  ? (title ? c.headlineWithTitle.replace('{title}', title) : c.headlineDefault)
+  : c.fallback.headline
+
+const waiverHref = partyId ? `/waiver?party=${encodeURIComponent(partyId)}` : '/waiver'
+const ctaLabel = hasDetails ? c.rsvp.cta : c.fallback.cta
+
+const details = [
+  { label: c.labels.craft, value: craft },
+  { label: c.labels.when, value: when },
+  { label: c.labels.where, value: c.where },
+].filter((d) => d.value)
+
+// Build calendar links when we have a start time, so guests can add the party.
+let calendar: { google: string; ics: string } | null = null
+if (start) {
+  const event = {
+    title: title ? `${title} — Homegrown Studio` : `${craft} Party — Homegrown Studio`,
+    startIso: start,
+    endIso: addMinutesIso(start, partyConfig.durationMinutes),
+    // Invitee's calendar event links back to the invitation / RSVP page.
+    details: `We're making ${craft} at Homegrown Studio.\n\nInvitation & RSVP: ${Astro.url.href}`,
+    location: c.where,
+  }
+  calendar = { google: googleCalendarUrl(event), ics: icsDataUrl(buildIcs(event)) }
+}
+---
+
+<Layout
+  title="You're Invited"
+  description={hasDetails ? `${craft} · ${when} · at Homegrown Studio. Tap to RSVP.` : "You're invited to a craft party at Homegrown Studio."}
+  ogTitle={headline}
+>
+  <section class="max-w-xl mx-auto px-4 sm:px-6 py-24">
+    <div
+      class="fade-in"
+      style="
+        background: rgba(255,255,255,0.75);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid rgba(150,112,91,0.16);
+        border-radius: 1.5rem;
+        box-shadow: 0 24px 60px rgba(150,112,91,0.16);
+        padding: 2.5rem 1.75rem;
+        text-align: center;
+      "
+    >
+      <p class="uppercase tracking-[0.25em] text-xs font-semibold mb-4" style="color: var(--color-accent);">
+        {c.eyebrow}
+      </p>
+      <h1 class="text-3xl sm:text-4xl font-heading font-bold" style="color: var(--color-dark);">
+        {headline}
+      </h1>
+      <p class="text-base mt-4 max-w-md mx-auto" style="color: var(--color-muted);">
+        {c.subline}
+      </p>
+
+      {details.length > 0 && (
+        <div class="mt-8 space-y-3 text-left max-w-sm mx-auto">
+          {details.map((d) => (
+            <div
+              style="
+                display: flex;
+                gap: 0.85rem;
+                align-items: baseline;
+                padding: 0.75rem 1rem;
+                background: rgba(150,112,91,0.06);
+                border: 1px solid rgba(150,112,91,0.12);
+                border-radius: 0.875rem;
+              "
+            >
+              <span
+                class="uppercase tracking-wide"
+                style="font-size: 0.6875rem; font-weight: 700; color: var(--color-primary); flex-shrink: 0; width: 5.5rem;"
+              >
+                {d.label}
+              </span>
+              <span style="font-size: 0.9375rem; color: var(--color-dark); font-weight: 500;">
+                {d.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div
+        class="mt-8"
+        style="border-top: 1px solid rgba(150,112,91,0.14); padding-top: 1.75rem;"
+      >
+        {hasDetails && (
+          <>
+            <h2 class="font-heading font-semibold text-lg" style="color: var(--color-dark);">
+              {c.rsvp.heading}
+            </h2>
+            <p class="text-sm mt-2 max-w-md mx-auto" style="color: var(--color-muted);">
+              {c.rsvp.body}
+            </p>
+          </>
+        )}
+        <a
+          href={waiverHref}
+          class="inline-block mt-5"
+          style="
+            padding: 0.9rem 1.75rem;
+            border-radius: 0.875rem;
+            background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 600;
+            text-decoration: none;
+            box-shadow: 0 10px 24px rgba(150,112,91,0.24);
+          "
+        >
+          {ctaLabel}
+        </a>
+        {hasDetails && (
+          <p class="text-xs mt-4 max-w-xs mx-auto" style="color: var(--color-muted);">
+            {c.rsvp.footnote}
+          </p>
+        )}
+
+        {calendar && (
+          <div class="mt-7" style="border-top: 1px solid rgba(150,112,91,0.14); padding-top: 1.5rem;">
+            <p class="text-xs uppercase tracking-wide font-semibold mb-3" style="color: var(--color-primary);">
+              {c.calendar.heading}
+            </p>
+            <div class="flex flex-wrap gap-2 justify-center">
+              <a
+                href={calendar.google}
+                target="_blank"
+                rel="noopener noreferrer"
+                style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(150,112,91,0.08); border: 1px solid rgba(150,112,91,0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
+              >
+                {c.calendar.google}
+              </a>
+              <a
+                href={calendar.ics}
+                download="homegrown-party.ics"
+                style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(150,112,91,0.08); border: 1px solid rgba(150,112,91,0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
+              >
+                {c.calendar.apple}
+              </a>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  </section>
+</Layout>

@@ -3,8 +3,37 @@ import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
 import { providers } from '@config/providers'
 import { partyConfig } from '@config/party.config'
+import { paymentBypassEnabled } from '@lib/dev-flags'
+import { savePartyRecord, newHostToken, type PartyRecord } from '@lib/party-store'
 
 const logger = createLogger('api:party:book')
+
+/** Build + persist the party record for the host's management view. Best-effort. */
+async function persistParty(bookingId: string, body: BookRequest): Promise<string> {
+  const hostToken = newHostToken()
+  const record: PartyRecord = {
+    bookingId,
+    hostToken,
+    craftName: body.craft?.name ?? 'Craft party',
+    startIso: body.startTime,
+    durationMinutes: body.durationMinutes ?? null,
+    hostName: `${body.customer.firstName} ${body.customer.lastName}`.trim(),
+    hostEmail: body.customer.email,
+    guestCount: Math.floor(body.people ?? 0),
+    title: null,
+    dropOff: false, // birthday-style default; drop-off events (PNO) set true
+    createdAt: new Date().toISOString(),
+  }
+  try {
+    await savePartyRecord(record)
+  } catch (err) {
+    logger.error('Party record save failed (booking still succeeded)', {
+      bookingId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+  return hostToken
+}
 
 interface BookRequest {
   startTime: string
@@ -61,6 +90,28 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const locationId = siteConfig.providers.booking.config.locationId
+
+  // Dev-only: skip Square entirely and return a synthetic confirmation so the
+  // booking flow (and its waiver/invite handoff) can be exercised without a
+  // real charge or a live booking. Gated to `astro dev` — never in prod.
+  if (paymentBypassEnabled()) {
+    logger.info('Payment bypass active — returning synthetic party booking')
+    const bookingId = `dev_${Date.now().toString(36)}`
+    const hostToken = await persistParty(bookingId, body)
+    return new Response(
+      JSON.stringify({
+        data: {
+          bookingId,
+          hostToken,
+          orderId: `dev_order_${Date.now().toString(36)}`,
+          receiptUrl: null,
+          totalCharged: partyConfig.basePriceCents,
+          customer: { id: 'dev-customer' },
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
 
   try {
     // Step 1: Find or create customer
@@ -137,11 +188,15 @@ export const POST: APIRoute = async ({ request }) => {
 
     logger.info('Party booking created', { bookingId: booking.id })
 
+    // Persist party metadata + host token for the host's management view.
+    const hostToken = await persistParty(booking.id, body)
+
     // Step 6: Return success response
     return new Response(
       JSON.stringify({
         data: {
           bookingId: booking.id,
+          hostToken,
           orderId: order.id,
           receiptUrl: payment.receiptUrl ?? null,
           totalCharged: order.totalAmount,

@@ -69,3 +69,37 @@ export function craftShareUrl(craftId: string, origin: string): string {
 export function partyInviteText(input: { craftName: string; slotLabel: string }): string {
   return `You're invited! We're making ${input.craftName} at Homegrown Studio — ${input.slotLabel}. 🎨`
 }
+
+/**
+ * Guest waiver link for a booked party. Each guest household signs their own
+ * participation agreement here before the event — a host can't sign for other
+ * people's kids. `bookingId` scopes the signature to this party.
+ */
+export function partyWaiverUrl(bookingId: string, origin: string): string {
+  return `${origin}/waiver?party=${encodeURIComponent(bookingId)}`
+}
+
+/**
+ * Shareable invitation link. Guests land on a friendly invite page whose RSVP
+ * button is the household waiver — party details ride in the query string so
+ * no backend lookup is needed. `title` is the host-chosen party name
+ * (e.g. "Ari's 7th Birthday") and only warms the headline when present.
+ */
+export function partyInviteUrl(
+  input: { bookingId: string; craftName: string; slotLabel: string; startIso: string; title?: string },
+  origin: string
+): string {
+  const params = new URLSearchParams({
+    party: input.bookingId,
+    craft: input.craftName,
+    when: input.slotLabel,
+    start: input.startIso,
+  })
+  if (input.title) params.set('title', input.title)
+  return `${origin}/invite?${params.toString()}`
+}
+
+/** end = start + durationMinutes, as an ISO string. For invite calendar links. */
+export function addMinutesIso(startIso: string, minutes: number): string {
+  return new Date(new Date(startIso).getTime() + minutes * 60_000).toISOString()
+}

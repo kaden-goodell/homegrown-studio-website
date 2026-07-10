@@ -11,11 +11,16 @@ import '@styles/animations.css'
 interface Props {
   title?: string
   description?: string
+  /** Social-share overrides. Default to the page title/description. */
+  ogTitle?: string
+  ogImage?: string
 }
 
-const { title, description } = Astro.props
+const { title, description, ogTitle, ogImage } = Astro.props
 const pageTitle = title ? `${title} | ${siteConfig.name}` : siteConfig.name
 const pageDescription = description || siteConfig.tagline
+const shareTitle = ogTitle || pageTitle
+const shareImage = ogImage || '/images/party-hero.jpg'
 const { colors, fonts, textures } = siteConfig.theme
 const textureClass = `texture-${textures.background}`
 
@@ -30,6 +35,16 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     <meta name="description" content={pageDescription} />
     <link rel="icon" type="image/png" href="/favicon.png" />
     <title>{pageTitle}</title>
+    {/* Link-preview (OpenGraph + Twitter) — makes shared invites unfurl richly. */}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content={siteConfig.name} />
+    <meta property="og:title" content={shareTitle} />
+    <meta property="og:description" content={pageDescription} />
+    <meta property="og:image" content={shareImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={shareTitle} />
+    <meta name="twitter:description" content={pageDescription} />
+    <meta name="twitter:image" content={shareImage} />
     <ViewTransitions />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

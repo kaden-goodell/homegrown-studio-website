@@ -44,8 +44,15 @@ export const partyContent = {
   trust: {
     securedBy: 'Payments secured by Square',
     nothingElseDue: 'Nothing else is due today. Crafts are paid at the studio, based on who comes.',
-    /** Approved by Kaden 2026-07-09 — tweak wording anytime; empty string hides the line. */
-    reschedulePolicy: 'Free reschedule up to 7 days before your party.' as string,
+    /**
+     * Point-of-sale summary of the reschedule/cancellation terms. Keep it in
+     * sync with the fuller FAQ answer below and the eventual policy page
+     * (HOM-108) — the FAQ is the source of truth. Empty string hides the line.
+     * The bare "free reschedule 7 days" line oversold it; this states the fee
+     * terms too so the checkout matches the actual policy.
+     */
+    reschedulePolicy:
+      'Free reschedule up to 7 days out. The studio fee isn’t refundable, but cancel 2+ weeks ahead and it becomes store credit.' as string,
   },
 
   /** Business number (Quo, set up Jul 2026). Empty = every "text us" element is hidden. */

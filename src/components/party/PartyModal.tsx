@@ -13,7 +13,9 @@ import {
   prevStep,
   type PartyStepId,
 } from '@lib/party-steps'
-import { googleCalendarUrl, buildIcs, icsDataUrl, partyInviteText } from '@lib/party-share'
+import { googleCalendarUrl, buildIcs, icsDataUrl, partyWaiverUrl, partyInviteUrl } from '@lib/party-share'
+import { waiverContent } from '@config/waiver-content'
+import { saveRecentParty } from '@lib/recent-party'
 import {
   trackWizardStarted,
   trackWizardStepCompleted,
@@ -161,6 +163,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [completed, setCompleted] = useState(false)
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
   const [totalCharged, setTotalCharged] = useState<number | null>(null)
+  const [bookingId, setBookingId] = useState<string | null>(null)
+  const [hostToken, setHostToken] = useState<string | null>(null)
+  const [partyTitle, setPartyTitle] = useState('')
   const [inviteCopied, setInviteCopied] = useState(false)
   const paymentFormRef = useRef<PaymentFormRef>(null)
 
@@ -177,6 +182,21 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   useEffect(() => {
     trackWizardStarted('party')
   }, [])
+
+  // Keep the saved-invitation pointer in sync with the party name the host
+  // types on the confirmation screen, so returning to it shows the right title.
+  useEffect(() => {
+    if (!completed || !bookingId || !selectedSlot || !selectedCraft) return
+    saveRecentParty({
+      bookingId,
+      hostToken: hostToken ?? undefined,
+      craftName: selectedCraft.name,
+      slotLabel: formatSlotLabel(selectedSlot.startAt),
+      startIso: selectedSlot.startAt,
+      title: partyTitle.trim() || undefined,
+      savedAt: new Date().toISOString(),
+    })
+  }, [partyTitle, completed, bookingId, hostToken])
 
   // Craft preselected from the gallery → the craft step drops out of the flow,
   // UNLESS it's personalized (the non-refundable acknowledgment lives there).
@@ -429,7 +449,24 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       const data = json.data ?? json
       setReceiptUrl(data.receiptUrl ?? null)
       setTotalCharged(typeof data.totalCharged === 'number' ? data.totalCharged : deposit)
+      const newBookingId = typeof data.bookingId === 'string' ? data.bookingId : null
+      const newHostToken = typeof data.hostToken === 'string' ? data.hostToken : null
+      setBookingId(newBookingId)
+      setHostToken(newHostToken)
       setCompleted(true)
+
+      // Remember this booking so the host can return to their party page later
+      // (the links otherwise live only on this confirmation screen).
+      if (newBookingId && selectedSlot && selectedCraft) {
+        saveRecentParty({
+          bookingId: newBookingId,
+          hostToken: newHostToken ?? undefined,
+          craftName: selectedCraft.name,
+          slotLabel: formatSlotLabel(selectedSlot.startAt),
+          startIso: selectedSlot.startAt,
+          savedAt: new Date().toISOString(),
+        })
+      }
       trackPaymentCompleted(deposit / 100)
       trackBookingCompleted('party')
     } catch (err) {
@@ -459,21 +496,31 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
   async function handleShareInvite() {
     if (!selectedSlot || !selectedCraft) return
-    const text = partyInviteText({
-      craftName: selectedCraft.name,
-      slotLabel: formatSlotLabel(selectedSlot.startAt),
-    })
-    const url = `${window.location.origin}/book`
+    // Share ONLY the link — the invitation page is the invitation, and unfurls
+    // into a rich preview when pasted. No blurb to duplicate the page content.
+    const url = bookingId
+      ? partyInviteUrl(
+          {
+            bookingId,
+            craftName: selectedCraft.name,
+            slotLabel: formatSlotLabel(selectedSlot.startAt),
+            startIso: selectedSlot.startAt,
+            title: partyTitle.trim() || undefined,
+          },
+          window.location.origin
+        )
+      : `${window.location.origin}/book`
     if (navigator.share) {
       try {
-        await navigator.share({ text, url })
+        // title gives the native sheet context; the URL is the payload.
+        await navigator.share({ title: partyTitle.trim() || 'You’re invited!', url })
         return
       } catch {
         /* user closed the sheet — fall through to copy */
       }
     }
     try {
-      await navigator.clipboard.writeText(`${text} ${url}`)
+      await navigator.clipboard.writeText(url)
       setInviteCopied(true)
       setTimeout(() => setInviteCopied(false), 2500)
     } catch {
@@ -605,12 +652,19 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   function renderConfirmation() {
     const slotStart = selectedSlot?.startAt
     const slotEnd = selectedSlot?.endAt
+    // Host's calendar event links back to THEIR party page (manage + who's RSVP'd).
+    const hostPageUrl =
+      bookingId && typeof window !== 'undefined'
+        ? `${window.location.origin}/party/${encodeURIComponent(bookingId)}${hostToken ? `?key=${encodeURIComponent(hostToken)}` : ''}`
+        : ''
     const calendarEvent = slotStart && slotEnd
       ? {
           title: `${selectedCraft ? `${selectedCraft.name} — ` : ''}Party at Homegrown Studio`,
           startIso: slotStart,
           endIso: slotEnd,
-          details: 'Private party at Homegrown Studio. homegrowncraftstudio.com',
+          details: hostPageUrl
+            ? `Your private party at Homegrown Studio.\n\nManage your party & see who's RSVP'd: ${hostPageUrl}`
+            : 'Private party at Homegrown Studio. homegrowncraftstudio.com',
           location: 'Homegrown Studio',
         }
       : null
@@ -653,6 +707,35 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           </p>
         )}
 
+        {/* Optional party name — personalizes the shared invitation. The booker
+            usually isn't who the party's for (e.g. "Ari's 7th Birthday"). */}
+        {bookingId && (
+          <div style={{ maxWidth: '20rem', margin: '1.25rem auto 0', textAlign: 'left' }}>
+            <label
+              htmlFor="party-title"
+              style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-muted)', marginBottom: '0.3rem' }}
+            >
+              Party name for your invitation (optional)
+            </label>
+            <input
+              id="party-title"
+              value={partyTitle}
+              onChange={(e) => setPartyTitle(e.target.value)}
+              placeholder="e.g. Ari’s 7th Birthday"
+              style={{
+                width: '100%',
+                padding: '0.55rem 0.75rem',
+                borderRadius: '0.625rem',
+                border: '1px solid rgba(150, 112, 91, 0.25)',
+                background: 'rgba(255, 255, 255, 0.85)',
+                fontSize: '0.9375rem',
+                color: 'var(--color-dark)',
+                outline: 'none',
+              }}
+            />
+          </div>
+        )}
+
         {/* Add to calendar + invite the guests — the two things a host does next. */}
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'center', marginTop: '1.25rem' }}>
           {calendarEvent && (
@@ -681,7 +764,37 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           >
             {inviteCopied ? '✓ Copied!' : '💌 Invite your guests'}
           </button>
+          {bookingId && (
+            <a
+              href={partyWaiverUrl(bookingId, typeof window !== 'undefined' ? window.location.origin : '')}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ ...chipStyle, textDecoration: 'none', cursor: 'pointer', padding: '0.5rem 0.9rem' }}
+            >
+              {waiverContent.handoff.hostCta}
+            </a>
+          )}
         </div>
+
+        {/* Your party page — details + who's RSVP'd, for the host. */}
+        {bookingId && (
+          <a
+            href={`${typeof window !== 'undefined' ? window.location.origin : ''}/party/${encodeURIComponent(bookingId)}${hostToken ? `?key=${encodeURIComponent(hostToken)}` : ''}`}
+            style={{
+              display: 'inline-block',
+              marginTop: '1rem',
+              padding: '0.7rem 1.4rem',
+              borderRadius: '0.875rem',
+              background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+              color: '#fff',
+              fontSize: '0.9375rem',
+              fontWeight: 600,
+              textDecoration: 'none',
+            }}
+          >
+            View your party page →
+          </a>
+        )}
 
         {/* What happens next */}
         <div style={{ maxWidth: '22rem', margin: '1.5rem auto 0', textAlign: 'left' }}>
