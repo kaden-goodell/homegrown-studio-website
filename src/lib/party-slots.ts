@@ -35,7 +35,7 @@ export function localDate(iso: string, tz: string = partyConfig.timezone): strin
 }
 
 /** Convert a studio-local date (YYYY-MM-DD) + time (HH:MM) to a UTC ISO string. */
-function localToUtcISO(ymd: string, hhmm: string, tz: string = partyConfig.timezone): string {
+export function localToUtcISO(ymd: string, hhmm: string, tz: string = partyConfig.timezone): string {
   const [y, m, d] = ymd.split('-').map(Number)
   const [hh, mm] = hhmm.split(':').map(Number)
   const guess = new Date(Date.UTC(y, m - 1, d, hh, mm))
