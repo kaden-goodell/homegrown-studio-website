@@ -22,7 +22,7 @@ describe('MockBookingProvider', () => {
     const booking = await provider.createBooking({
       slotId: 'mock-slot-1',
       customerId: 'mock-customer-1',
-      eventType: 'birthday',
+      eventType: 'party',
     })
     expect(booking.id).toBeTruthy()
     expect(booking.status).toBe('confirmed')

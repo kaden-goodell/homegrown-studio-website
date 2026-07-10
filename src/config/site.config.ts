@@ -146,6 +146,15 @@ const env = typeof import.meta !== 'undefined' && (import.meta as any).env
   : typeof process !== 'undefined' ? process.env : {}
 
 const providerMode = env.PROVIDER_MODE || 'mock'
+
+// Never let demo copy/data ship: a production BUILD without an explicit
+// PROVIDER_MODE is a deploy misconfiguration, not a fallback.
+// ALLOW_MOCK_PROVIDER=1 is the local escape hatch for `npm run build` without
+// Square creds — never set it in Netlify.
+if (env.PROD && providerMode === 'mock' && !env.ALLOW_MOCK_PROVIDER) {
+  throw new Error('PROVIDER_MODE is unset/mock in a production build — set PROVIDER_MODE=square in the Netlify environment (or ALLOW_MOCK_PROVIDER=1 for a local build).')
+}
+
 const isSquare = providerMode === 'square'
 
 const squareConfig: SquareConfig | Record<string, never> = isSquare
@@ -159,36 +168,20 @@ const squareConfig: SquareConfig | Record<string, never> = isSquare
 
 const partyTypes: EventTypeConfig[] = [
   {
-    id: 'birthday',
-    name: 'Kids Party',
-    description: 'A creative party celebration with guided crafting activities for kids',
-    icon: 'cake',
+    id: 'party',
+    name: 'Private Party',
+    description: 'The whole studio for your group — pick a craft, pick a date, and make something together.',
+    icon: 'sparkles',
     flow: 'booking',
-    baseCapacity: 12,
-    duration: 120,
-    allowAddOns: true,
+    baseCapacity: 10,
+    duration: 90,
+    allowAddOns: false,
     allowExtraGuests: true,
-    extraGuestPrice: 2500, // $25 per extra child
-    maxCapacity: 20,
-    basePrice: 40000, // $400
-    catalogItemId: 'birthday-party-package',
-    catalogCategory: 'kids-party',
-  },
-  {
-    id: 'adult-party',
-    name: 'Adult Party',
-    description: 'Host a private craft workshop for your group with drinks and snacks included',
-    icon: 'wine',
-    flow: 'booking',
-    baseCapacity: 12,
-    duration: 150,
-    allowAddOns: true,
-    allowExtraGuests: true,
-    extraGuestPrice: 3000, // $30 per extra guest
-    maxCapacity: 36,
-    basePrice: 40000, // $400
-    catalogItemId: 'adult-party-package',
-    catalogCategory: 'adult-party',
+    extraGuestPrice: 0, // crafts are per-head, settled at the studio
+    maxCapacity: 30,
+    basePrice: 30000, // $300 flat studio fee — must match partyConfig.basePriceCents
+    catalogItemId: 'ZMSLASCRBGJ7JE3MJVOVJUSA',
+    catalogCategory: 'party',
   },
 ]
 
@@ -355,23 +348,7 @@ export const siteConfig: SiteConfig = {
   },
   testimonials: {
     heading: 'What Our Guests Say',
-    items: [
-      {
-        quote: 'The kids party was amazing! They had so much fun and the staff was incredible.',
-        name: 'Sarah M.',
-        detail: 'Kids Party',
-      },
-      {
-        quote: 'Such a relaxing and creative experience. I will definitely be back for more workshops.',
-        name: 'Emily R.',
-        detail: 'Adult Party',
-      },
-      {
-        quote: 'Our team building event was the best one we have ever had. Everyone loved it.',
-        name: 'David L.',
-        detail: 'Corporate Event',
-      },
-    ],
+    items: [],
   },
   email: {
     fromAddress: 'hello@homegrowncraftstudio.com',

@@ -37,10 +37,10 @@ describe('GET /api/catalog/add-ons.json', () => {
     const typesCtx = createMockContext({ url: 'http://localhost/api/catalog/event-types.json' })
     const typesRes = await getEventTypes(typesCtx)
     const typesBody = await typesRes.json()
-    const birthdayType = typesBody.data.find((t: any) => t.category === 'birthday')
-    if (!birthdayType) return
+    const partyType = typesBody.data.find((t: any) => t.category === 'party')
+    if (!partyType) return
 
-    const ctx = createMockContext({ url: `http://localhost/api/catalog/add-ons.json?eventTypeId=${birthdayType.id}` })
+    const ctx = createMockContext({ url: `http://localhost/api/catalog/add-ons.json?eventTypeId=${partyType.id}` })
     const response = await getAddOns(ctx)
     expect(response.status).toBe(200)
     const body = await response.json()

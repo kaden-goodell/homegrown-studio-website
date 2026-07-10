@@ -4,6 +4,10 @@ Everything below is intentionally left empty/ungated so no fake content ships.
 Each item lists the exact file + field to fill. The UI hides the element until
 the field is filled — fill it and the feature appears, no code changes needed.
 
+## URGENT — before this branch merges
+
+- **PROVIDER_MODE=square must be set site-wide in the Netlify environment.** Deploy previews are production builds — they will fail the build without it. Go to Netlify dashboard → Site configuration → Environment variables and confirm `PROVIDER_MODE=square` is set. (Use `ALLOW_MOCK_PROVIDER=1` only for a local `npm run build` without Square creds — never set it in Netlify.)
+
 ## Content you need to supply
 
 | # | What | Where | Effect when filled |
@@ -40,7 +44,7 @@ Note: Gmail app passwords require 2-Step Verification to be enabled on the accou
 |---|------|-----|
 | 7 | ~~Apple Pay~~ **DONE 2026-07-09** — domain registered (VERIFIED), button live on Apple devices | — | Live |
 | 7b | **Afterpay — deliberately NOT enabled** (Kaden's call 2026-07-09: ~6% merchant fee isn't worth it while bookings are healthy). Code ships dormant; the button self-hides until the account is onboarded. | If bookings ever stall: Square Dashboard → Settings → Payment methods → enable Afterpay. Button appears on the live site with no deploy. | Nothing visible until enabled |
-| 8 | (Later, post-launch) Testimonials, party photos, Instagram embeds | `siteConfig.testimonials` currently holds sample quotes — replace with real ones when they exist; /book intentionally does not render them until then |
+| 8 | (Later, post-launch) Testimonials, party photos, Instagram embeds | `siteConfig.testimonials.items` is currently empty — add real testimonials when they exist. The homepage section (`src/pages/index.astro`) is hidden until `items` is non-empty, so no code change is needed: just populate the array. |
 
 ## Explicitly NOT built (would be fake)
 
