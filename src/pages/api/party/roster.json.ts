@@ -24,59 +24,66 @@ export const GET: APIRoute = async ({ url }) => {
     return new Response(JSON.stringify({ error: 'Missing party' }), { status: 400 })
   }
 
-  const party = await getPartyRecord(partyId)
-  if (!hostTokenValid(party, key)) {
-    // Same response whether the party is missing or the token is wrong — don't
-    // leak which parties exist.
-    return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 })
-  }
+  // Storage throws (transient Blobs outage) become a 503 the client can retry.
+  // The 404 below is a plain return, not a throw — a bad token never becomes a 503.
+  try {
+    const party = await getPartyRecord(partyId)
+    if (!hostTokenValid(party, key)) {
+      // Same response whether the party is missing or the token is wrong — don't
+      // leak which parties exist.
+      return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 })
+    }
 
-  const waivers = await listWaiversByParty(partyId)
+    const waivers = await listWaiversByParty(partyId)
 
-  const households = (
-    await Promise.all(
-      waivers.map(async (w) => {
-        const allIds = ['adult', ...w.minors.map((_, i) => `child:${i}`)]
-        const checkin = await getCheckin(partyId, w.id)
-        // "Who's coming" the family selected at RSVP; default to the whole household.
-        const attending = checkin.expected ?? allIds
-        return {
-          signer: `${w.adult.firstName} ${w.adult.lastName}`.trim(),
-          email: w.adult.email,
-          phone: w.adult.phone,
-          children: w.minors.map((m) => ({ name: m.name, allergies: m.allergies || '' })),
-          childCount: w.minors.length,
-          adultAllergies: w.adult.allergies || '',
-          emergency: w.emergency,
-          signedAt: w.signedAt,
-          /** Person ids (`adult`, `child:{i}`) the family said are coming. */
-          attending,
-          attendingCount: attending.length,
-        }
-      }),
-    )
-  ).sort((a, b) => a.signedAt.localeCompare(b.signedAt))
+    const households = (
+      await Promise.all(
+        waivers.map(async (w) => {
+          const allIds = ['adult', ...w.minors.map((_, i) => `child:${i}`)]
+          const checkin = await getCheckin(partyId, w.id)
+          // "Who's coming" the family selected at RSVP; default to the whole household.
+          const attending = checkin.expected ?? allIds
+          return {
+            signer: `${w.adult.firstName} ${w.adult.lastName}`.trim(),
+            email: w.adult.email,
+            phone: w.adult.phone,
+            children: w.minors.map((m) => ({ name: m.name, allergies: m.allergies || '' })),
+            childCount: w.minors.length,
+            adultAllergies: w.adult.allergies || '',
+            emergency: w.emergency,
+            signedAt: w.signedAt,
+            /** Person ids (`adult`, `child:{i}`) the family said are coming. */
+            attending,
+            attendingCount: attending.length,
+          }
+        }),
+      )
+    ).sort((a, b) => a.signedAt.localeCompare(b.signedAt))
 
-  // Headcount the host cares about = people actually coming, not everyone eligible.
-  const peopleCount = households.reduce((n, h) => n + h.attendingCount, 0)
+    // Headcount the host cares about = people actually coming, not everyone eligible.
+    const peopleCount = households.reduce((n, h) => n + h.attendingCount, 0)
 
-  logger.info('Roster served', { partyId, households: households.length })
+    logger.info('Roster served', { partyId, households: households.length })
 
-  return new Response(
-    JSON.stringify({
-      data: {
-        party: {
-          craftName: party!.craftName,
-          startIso: party!.startIso,
-          durationMinutes: party!.durationMinutes,
-          hostName: party!.hostName,
-          guestCount: party!.guestCount,
-          title: party!.title,
+    return new Response(
+      JSON.stringify({
+        data: {
+          party: {
+            craftName: party!.craftName,
+            startIso: party!.startIso,
+            durationMinutes: party!.durationMinutes,
+            hostName: party!.hostName,
+            guestCount: party!.guestCount,
+            title: party!.title,
+          },
+          summary: { households: households.length, people: peopleCount },
+          households,
         },
-        summary: { households: households.length, people: peopleCount },
-        households,
-      },
-    }),
-    { status: 200, headers: { 'Content-Type': 'application/json' } },
-  )
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )
+  } catch (err) {
+    logger.error('Roster load failed', { partyId, error: err instanceof Error ? err.message : String(err) })
+    return new Response(JSON.stringify({ error: 'Couldn’t load the roster — please try again.' }), { status: 503 })
+  }
 }
