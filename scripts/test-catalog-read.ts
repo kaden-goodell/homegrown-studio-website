@@ -1,5 +1,14 @@
+/**
+ * DEPRECATED (Jul 2026): predates the real-only catalog rebuild — the party
+ * model is now seeded by scripts/seed-party.ts. Kept for reference only.
+ * (Queries the dead 'kids-party'/'adult-party' categories.)
+ */
+
 import 'dotenv/config'
 import { SquareCatalogProvider } from '../src/providers/square/catalog'
+
+console.error('DEPRECATED: this script encodes the old Kids/Adult Party model. Use scripts/seed-party.ts. Set RUN_DEPRECATED=1 to force.')
+if (!process.env.RUN_DEPRECATED) process.exit(1)
 
 async function main() {
   const provider = new SquareCatalogProvider({
