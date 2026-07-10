@@ -12,6 +12,9 @@ import {
 } from '@lib/waiver-store'
 import { setExpected } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
+import { rateLimited } from '@lib/rate-limit'
+import { verifyReuseToken } from '@lib/reuse-token'
+import { getPartyRecord } from '@lib/party-store'
 
 export const prerender = false
 
@@ -114,19 +117,50 @@ async function attachSquare(record: WaiverRecord): Promise<void> {
   }
 }
 
+/**
+ * Validate that partyId refers to a real, not-yet-ended party.
+ * Returns null if valid (or partyId is absent), or a Response to return
+ * immediately if invalid. Swallows transient storage errors to avoid blocking
+ * legit RSVPs on a blip.
+ */
+async function validateParty(partyId: string | null, now: Date): Promise<Response | null> {
+  if (!partyId) return null
+  try {
+    const party = await getPartyRecord(partyId)
+    if (!party) {
+      return bad("This party link doesn't look right — ask your host to re-share the invitation.", 404)
+    }
+    if (new Date(party.startIso).getTime() + 24 * 3600_000 < now.getTime()) {
+      return bad("This party has already happened — nothing to RSVP to, but thanks for checking!", 410)
+    }
+    return null
+  } catch (err) {
+    logger.error('Party validation error — proceeding without it', { partyId, error: String(err) })
+    return null
+  }
+}
+
 /** Returning customer: RSVP by reusing an on-file household — no re-fill. */
 async function handleReuse(
   reuseId: string,
+  reuseToken: string,
   partyId: string | null,
   attendingRaw: unknown,
   now: Date,
   clientAddress: string | undefined,
   userAgent: string | null,
 ): Promise<Response> {
+  if (!verifyReuseToken(reuseId, reuseToken)) {
+    return bad("That session expired — look yourself up again to RSVP.", 401)
+  }
+
+  const partyErr = await validateParty(partyId, now)
+  if (partyErr) return partyErr
+
   const source = await getWaiverRecord(reuseId)
-  if (!source) return bad('We couldn’t find your agreement — please fill out the form.')
+  if (!source) return bad("We couldn’t find your agreement — please fill out the form.")
   if (new Date(source.validUntil).getTime() <= now.getTime()) {
-    return bad('Your agreement has expired — please sign a new one.')
+    return bad("Your agreement has expired — please sign a new one.")
   }
   const record: WaiverRecord = {
     ...source,
@@ -147,6 +181,10 @@ async function handleReuse(
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
+  if (rateLimited(`sign:${clientAddress}`, 10, 60_000)) {
+    return bad('Too many lookups — give it a minute and try again.', 429)
+  }
+
   try {
     const body = await request.json().catch(() => null)
     if (!body) return bad('Invalid request body')
@@ -157,7 +195,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
     // Returning-customer fast path.
     const reuseId = typeof body.reuseRecordId === 'string' ? body.reuseRecordId.trim() : ''
-    if (reuseId) return handleReuse(reuseId, partyId, body.attending, now, clientAddress, userAgent)
+    const reuseToken = typeof body.reuseToken === 'string' ? body.reuseToken.trim() : ''
+    if (reuseId) return handleReuse(reuseId, reuseToken, partyId, body.attending, now, clientAddress, userAgent)
 
     const adult = body.adult ?? {}
     const firstName = String(adult.firstName ?? '').trim()
@@ -209,6 +248,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     if (signature.toLowerCase().replace(/\s+/g, ' ') !== fullName.toLowerCase().replace(/\s+/g, ' ')) {
       return bad(`To sign, type your name exactly as entered above: “${fullName}”.`)
     }
+
+    const partyErr = await validateParty(partyId, now)
+    if (partyErr) return partyErr
 
     const validUntil = new Date(now)
     validUntil.setMonth(validUntil.getMonth() + waiverContent.validityMonths)

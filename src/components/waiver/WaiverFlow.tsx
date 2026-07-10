@@ -83,7 +83,7 @@ export default function WaiverFlow({ partyId }: Props) {
   const [mode, setMode] = useState<'lookup' | 'returning' | 'form'>('lookup')
   const [contact, setContact] = useState('')
   const [lookupBusy, setLookupBusy] = useState(false)
-  const [returning, setReturning] = useState<{ recordId: string; firstName: string; kids: string[] } | null>(null)
+  const [returning, setReturning] = useState<{ recordId: string; reuseToken: string; firstName: string; kids: string[] } | null>(null)
   // Friendly heads-up shown atop the form (e.g. a lapsed agreement was found).
   const [formNotice, setFormNotice] = useState<string | null>(null)
   // RSVP "who's coming" for the returning-household path: person id → coming?
@@ -181,9 +181,11 @@ export default function WaiverFlow({ partyId }: Props) {
         body: JSON.stringify({ contact: c }),
       })
       const json = await res.json().catch(() => null)
-      if (res.ok && json?.data?.found) {
+      if (!res.ok) {
+        setError(json?.error ?? 'Something went wrong — please try again.')
+      } else if (json?.data?.found) {
         const kids: string[] = json.data.kids ?? []
-        setReturning({ recordId: json.data.recordId, firstName: json.data.firstName, kids })
+        setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids })
         // Default everyone in the household to "coming"; they can uncheck below.
         setAttending(Object.fromEntries(['adult', ...kids.map((_, i) => `child:${i}`)].map((id) => [id, true])))
         setMode('returning')
@@ -221,11 +223,19 @@ export default function WaiverFlow({ partyId }: Props) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reuseRecordId: returning.recordId,
+          reuseToken: returning.reuseToken,
           partyId: partyId ?? null,
           attending: Object.entries(attending).filter(([, coming]) => coming).map(([id]) => id),
         }),
       })
       const json = await res.json().catch(() => null)
+      if (res.status === 401) {
+        // Session token expired — send back to lookup with a clear message.
+        setReturning(null)
+        setMode('lookup')
+        setError('Your session expired — enter your email or phone again to continue.')
+        return
+      }
       if (!res.ok) throw new Error(json?.error ?? 'Something went wrong — please try again.')
       setDone({ covered: json.data.covered, validUntil: json.data.validUntil })
       window.scrollTo({ top: 0, behavior: 'smooth' })
