@@ -13,7 +13,6 @@ vi.mock('@lib/party-availability', () => ({
 // Mock email so no real SMTP calls are made
 vi.mock('@lib/email', () => ({
   sendPartyConfirmationEmail: vi.fn().mockResolvedValue({ sent: false }),
-  emailConfigured: vi.fn().mockReturnValue(false),
 }))
 
 // Mock party-store so we don't write to Netlify Blobs

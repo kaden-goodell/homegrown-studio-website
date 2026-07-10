@@ -16,10 +16,6 @@ function creds() {
   return user && pass ? { user, pass } : null
 }
 
-export function emailConfigured(): boolean {
-  return !!creds()
-}
-
 export async function sendEmail(input: { to: string; subject: string; html: string; text: string }): Promise<{ sent: boolean }> {
   const c = creds()
   if (!c) {
@@ -62,9 +58,11 @@ export async function sendPartyConfirmationEmail(input: {
     ``,
     `Homegrown Studio · 525 Hughes Rd Ste F, Madison, AL`,
   ].join('\n')
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const html = text
     .split('\n')
-    .map((l) => (l.startsWith('http') ? `<p><a href="${l}">${l}</a></p>` : `<p>${l || '&nbsp;'}</p>`))
+    .map((l) => (l.startsWith('http') ? `<p><a href="${encodeURI(l)}">${esc(l)}</a></p>` : `<p>${esc(l) || '&nbsp;'}</p>`))
     .join('')
-  return sendEmail({ to: input.to, subject: `You're booked — ${input.craftName} at Homegrown Studio`, html, text })
+  const safeCraftName = input.craftName.replace(/[\r\n]+/g, ' ')
+  return sendEmail({ to: input.to, subject: `You're booked — ${safeCraftName} at Homegrown Studio`, html, text })
 }

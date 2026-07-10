@@ -147,14 +147,25 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     // Step 2: Find or create customer
-    const customer = await providers.customer.findOrCreate({
-      email: body.customer.email,
-      givenName: body.customer.firstName,
-      familyName: body.customer.lastName,
-      phone: body.customer.phone,
-    })
+    let customer: Awaited<ReturnType<typeof providers.customer.findOrCreate>>
+    try {
+      customer = await providers.customer.findOrCreate({
+        email: body.customer.email,
+        givenName: body.customer.firstName,
+        familyName: body.customer.lastName,
+        phone: body.customer.phone,
+      })
+    } catch (err) {
+      logger.error('Customer find-or-create failed', {
+        error: err instanceof Error ? err.message : String(err),
+      })
+      return errorResponse(
+        "We couldn't start your booking. Your card was not charged — please try again.",
+        502,
+      )
+    }
 
-    logger.info('Customer resolved', { customerId: customer.id, email: customer.email })
+    logger.info('Customer resolved', { customerId: customer.id })
 
     // Step 3: Create the single whole-room booking FIRST — before charging.
     // If this fails the customer has not been charged. Craft selection is stored
