@@ -137,7 +137,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'adult-knitting',
     name: 'Knitting Party',
-    description: 'Learn to knit with wine and snacks — a relaxed evening of fiber arts. Beginners welcome! Each guest starts a scarf or cowl project to take home.',
+    description: 'Learn to knit in a relaxed evening of fiber arts — good company and cozy snacks included. Beginners welcome! Each guest starts a scarf or cowl project to take home.',
     category: 'party',
     imageUrl: '/images/parties/adult-knitting.jpg',
     duration: 150,
@@ -180,7 +180,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'workshop-candle',
     name: 'Soy Candle Making',
-    description: 'Create two beautiful hand-poured soy candles with your own custom scent blends in this relaxing 90-minute workshop. You\'ll learn the fundamentals of candle making — wax melting temperatures, wick selection, fragrance ratios, and proper pouring technique.\n\nChoose from over 30 premium fragrance oils to create your signature scent. Love lavender and vanilla? Go for it. Want to experiment with cedar and tobacco? We\'ll help you find the perfect balance. You\'ll also choose your vessel — ceramic tumblers, amber jars, or concrete pots.\n\nYour candles will need about an hour to set, so we\'ll have them wrapped and ready for pickup at the end of the session. Each candle burns for approximately 40 hours.\n\nThis workshop pairs perfectly with a glass of wine — feel free to bring your own beverages!',
+    description: 'Create two beautiful hand-poured soy candles with your own custom scent blends in this relaxing 90-minute workshop. You\'ll learn the fundamentals of candle making — wax melting temperatures, wick selection, fragrance ratios, and proper pouring technique.\n\nChoose from over 30 premium fragrance oils to create your signature scent. Love lavender and vanilla? Go for it. Want to experiment with cedar and tobacco? We\'ll help you find the perfect balance. You\'ll also choose your vessel — ceramic tumblers, amber jars, or concrete pots.\n\nYour candles will need about an hour to set, so we\'ll have them wrapped and ready for pickup at the end of the session. Each candle burns for approximately 40 hours.',
     category: 'workshop',
     duration: 90,
     baseCapacity: 12,
