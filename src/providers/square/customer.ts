@@ -35,6 +35,24 @@ export class SquareCustomerProvider implements CustomerProvider {
       return mapSquareCustomer(existing)
     }
 
+    // Step 1b: No email match — try phone, so a returning customer using a
+    // different email still resolves to their existing profile.
+    const e164 = toE164(params.phone)
+    if (e164) {
+      const phoneResult = await this.client.customers.search({
+        query: {
+          filter: {
+            phoneNumber: { exact: e164 },
+          },
+        },
+      })
+      if (phoneResult.customers && phoneResult.customers.length > 0) {
+        const existing = phoneResult.customers[0]
+        logger.info('Found existing customer by phone', { phone: e164, id: existing.id })
+        return mapSquareCustomer(existing)
+      }
+    }
+
     // Step 2: Create new customer
     try {
       const createResult = await this.client.customers.create({
@@ -94,6 +112,30 @@ export class SquareCustomerProvider implements CustomerProvider {
     })
     logger.info('Subscribed customer', { email })
   }
+
+  async appendNote(customerId: string, line: string): Promise<void> {
+    // Read-modify-write: newest line first so staff see the latest at a glance.
+    const current = await this.client.customers.get({ customerId })
+    const existingNote = current.customer?.note ?? ''
+    const note = existingNote ? `${line}\n${existingNote}` : line
+
+    await this.client.customers.update({
+      customerId,
+      // Square caps the note field; keep the newest ~4k characters.
+      note: note.slice(0, 4000),
+    })
+    logger.info('Appended customer note', { customerId, line })
+  }
+}
+
+/** "2565551234" / "(256) 555-1234" → "+12565551234"; passes through +E.164; null if unusable. */
+function toE164(phone?: string): string | null {
+  if (!phone) return null
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length === 10) return `+1${digits}`
+  if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`
+  if (phone.trim().startsWith('+') && digits.length > 7) return `+${digits}`
+  return null
 }
 
 function mapSquareCustomer(sq: any): Customer {
