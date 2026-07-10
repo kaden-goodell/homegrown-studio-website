@@ -138,7 +138,7 @@ export default function WaiverFlow({ partyId }: Props) {
       m.push('at least one person going to the party')
     }
     if (kidsWithoutSigner && !responsibleAdult.trim()) {
-      m.push("the adult who'll be with your child at the party")
+      m.push("the adult who’ll be with your child at the party")
     }
     if (!agreeRelease) m.push('the checkbox agreeing to the terms')
     if (!signatureMatches) m.push('your typed signature (must match your name exactly)')
@@ -235,7 +235,7 @@ export default function WaiverFlow({ partyId }: Props) {
       // still works — tell them why they landed here instead of failing silently.
       if (c.includes('@')) setEmail(c)
       else setPhone(c)
-      setFormNotice("We couldn't look you up just now — no problem, the full form below works too.")
+      setFormNotice("We couldn’t look you up just now — no problem, the full form below works too.")
       setMode('form')
     } finally {
       setLookupBusy(false)
@@ -348,7 +348,7 @@ export default function WaiverFlow({ partyId }: Props) {
       <div style={{ ...cardStyle, maxWidth: '30rem', margin: '0 auto' }}>
         <h2 style={sectionHeadingStyle}>Been here before?</h2>
         <p style={sectionNoteStyle}>
-          Enter your email or phone and we'll pull up your agreement — no need to fill it out again.
+          Enter your email or phone and we’ll pull up your agreement — no need to fill it out again.
         </p>
         <input
           style={inputStyle}
@@ -406,8 +406,8 @@ export default function WaiverFlow({ partyId }: Props) {
       <div style={{ ...cardStyle, maxWidth: '30rem', margin: '0 auto', textAlign: 'center' }}>
         <h2 style={{ ...sectionHeadingStyle, fontSize: '1.375rem' }}>Welcome back, {returning.firstName}! 🎉</h2>
         <p style={{ ...sectionNoteStyle, maxWidth: '24rem', margin: '0.25rem auto 1.25rem' }}>
-          Your participation agreement is already on file — you don't need to sign again.
-          {partyId ? " Just tell us who's coming." : ''}
+          Your participation agreement is already on file — you don’t need to sign again.
+          {partyId ? ' Just tell us who’s coming.' : ''}
         </p>
         {(() => {
           const roster = [
@@ -418,7 +418,7 @@ export default function WaiverFlow({ partyId }: Props) {
           return (
             <div style={{ background: 'rgba(150,112,91,0.06)', border: '1px solid rgba(150,112,91,0.12)', borderRadius: '0.875rem', padding: '0.85rem 1rem', textAlign: 'left', maxWidth: '22rem', margin: '0 auto 1.1rem' }}>
               <p style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-primary)', margin: '0 0 0.5rem' }}>
-                {partyId ? "Who's coming?" : 'On file for your household'}
+                {partyId ? 'Who’s coming?' : 'On file for your household'}
               </p>
               {roster.map((r) => (
                 <label
@@ -442,7 +442,7 @@ export default function WaiverFlow({ partyId }: Props) {
               )}
               {partyId && comingCount === 0 && (
                 <p style={{ fontSize: '0.8125rem', color: 'rgb(185,28,28)', margin: '0.4rem 0 0', fontWeight: 600 }}>
-                  Pick at least one person who's coming.
+                  Pick at least one person who’s coming.
                 </p>
               )}
             </div>
@@ -458,7 +458,7 @@ export default function WaiverFlow({ partyId }: Props) {
               style={inputStyle}
               value={responsibleAdult}
               onChange={(e) => setResponsibleAdult(e.target.value)}
-              placeholder="e.g. Riding with Grandma Sue — she'll be there"
+              placeholder="e.g. Riding with Grandma Sue — she’ll be there"
             />
             <p style={{ ...sectionNoteStyle, margin: '0.3rem 0 0' }}>{form.responsibleAdultNote}</p>
           </div>
@@ -492,7 +492,7 @@ export default function WaiverFlow({ partyId }: Props) {
           })()
         ) : (
           <p style={{ ...sectionNoteStyle, fontWeight: 600, color: 'var(--color-dark)', margin: '0 0 0.25rem' }}>
-            You're already covered — valid through {returningValidDate}.
+            You’re already covered — valid through {returningValidDate}.
           </p>
         )}
         <button
@@ -590,7 +590,7 @@ export default function WaiverFlow({ partyId }: Props) {
           <div key={i} style={{ border: '1px solid rgba(150,112,91,0.14)', borderRadius: '0.75rem', padding: '0.85rem', marginBottom: '0.75rem', background: 'rgba(150,112,91,0.03)' }}>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div style={{ flex: '2 1 12rem' }}>
-                <label style={labelStyle} htmlFor={`wv-minor-name-${i}`}>Child's full name</label>
+                <label style={labelStyle} htmlFor={`wv-minor-name-${i}`}>Child’s full name</label>
                 <input id={`wv-minor-name-${i}`} style={inputStyle} value={minor.name} onChange={(e) => updateMinor(i, { name: e.target.value })} />
               </div>
               <div style={{ flex: '1 1 9rem' }}>
@@ -607,7 +607,7 @@ export default function WaiverFlow({ partyId }: Props) {
               </button>
             </div>
             <div style={{ marginTop: '0.6rem' }}>
-              <label style={labelStyle} htmlFor={`wv-minor-allergy-${i}`}>{minor.name ? `${minor.name.split(' ')[0]}'s allergies / medical` : 'Allergies / medical'} (optional)</label>
+              <label style={labelStyle} htmlFor={`wv-minor-allergy-${i}`}>{minor.name ? `${minor.name.split(' ')[0]}’s allergies / medical` : 'Allergies / medical'} (optional)</label>
               <input id={`wv-minor-allergy-${i}`} style={inputStyle} value={minor.allergies} onChange={(e) => updateMinor(i, { allergies: e.target.value })} placeholder="e.g. Peanuts, bee stings — or leave blank" />
             </div>
           </div>
@@ -655,7 +655,7 @@ export default function WaiverFlow({ partyId }: Props) {
             style={inputStyle}
             value={adultAllergies}
             onChange={(e) => setAdultAllergies(e.target.value)}
-            placeholder="Your own allergies, if you'll be crafting — or leave blank"
+            placeholder="Your own allergies, if you’ll be crafting — or leave blank"
           />
         </div>
         <div style={{ marginTop: '0.9rem' }}>
@@ -710,9 +710,9 @@ export default function WaiverFlow({ partyId }: Props) {
       {/* Who's coming — only in a party context */}
       {partyId && (
         <div style={cardStyle}>
-          <h2 style={sectionHeadingStyle}>Who's coming to the party?</h2>
+          <h2 style={sectionHeadingStyle}>Who’s coming to the party?</h2>
           <p style={sectionNoteStyle}>
-            Check everyone who'll be there doing the craft.
+            Check everyone who’ll be there doing the craft.
           </p>
           {[{ id: 'adult', label: `${fullName || 'You'} (you)`, icon: '👤' }, ...minors.map((m, i) => ({ id: `child:${i}`, label: m.name.trim() || `Child ${i + 1}`, icon: '🧒' }))].map((p) => (
             <label
@@ -743,7 +743,7 @@ export default function WaiverFlow({ partyId }: Props) {
                 style={inputStyle}
                 value={responsibleAdult}
                 onChange={(e) => setResponsibleAdult(e.target.value)}
-                placeholder="e.g. Riding with Grandma Sue — she'll be there"
+                placeholder="e.g. Riding with Grandma Sue — she’ll be there"
               />
               <p style={{ ...sectionNoteStyle, margin: '0.3rem 0 0' }}>{form.responsibleAdultNote}</p>
             </div>

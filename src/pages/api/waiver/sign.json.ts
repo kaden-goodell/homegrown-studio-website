@@ -128,7 +128,7 @@ async function validateParty(partyId: string | null, now: Date): Promise<Respons
   try {
     const party = await getPartyRecord(partyId)
     if (!party) {
-      return bad("This party link doesn't look right — ask your host to re-share the invitation.", 404)
+      return bad("This party link doesn’t look right — ask your host to re-share the invitation.", 404)
     }
     if (new Date(party.startIso).getTime() + 24 * 3600_000 < now.getTime()) {
       return bad("This party has already happened — nothing to RSVP to, but thanks for checking!", 410)
@@ -154,7 +154,7 @@ function checkResponsibleAdult(
   const adultPresent = resolvedIds.includes('adult')
   if (hasKids && !adultPresent) {
     if (!responsibleAdult) {
-      return bad("Parties are not drop-off — tell us which adult will be with your child at the party.")
+      return bad("Parties aren’t drop-off — tell us which adult will be with your child at the party.")
     }
   }
   return null
@@ -179,7 +179,7 @@ async function handleReuse(
   if (partyErr) return partyErr
 
   const source = await getWaiverRecord(reuseId)
-  if (!source) return bad("We couldn't find your agreement — please fill out the form.")
+  if (!source) return bad("We couldn’t find your agreement — please fill out the form.")
   if (new Date(source.validUntil).getTime() <= now.getTime()) {
     return bad("Your agreement has expired — please sign a new one.")
   }
