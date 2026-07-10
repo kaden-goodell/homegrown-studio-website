@@ -205,8 +205,11 @@ export default function WaiverFlow({ partyId }: Props) {
         setMode('form')
       }
     } catch {
+      // Graceful degradation: the lookup service hiccuped, but the full form
+      // still works — tell them why they landed here instead of failing silently.
       if (c.includes('@')) setEmail(c)
       else setPhone(c)
+      setFormNotice('We couldn’t look you up just now — no problem, the full form below works too.')
       setMode('form')
     } finally {
       setLookupBusy(false)
