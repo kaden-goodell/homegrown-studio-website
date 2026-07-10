@@ -27,8 +27,7 @@ export interface PartyRecord {
   title: string | null
   /**
    * Drop-off event (parents leave). Turns on staff pickup verification: a
-   * confirmed pickup list + a pickup code + dropdown check-out. Birthday-style
-   * parties (parent present) leave this false.
+   * confirmed pickup list + a pickup code + dropdown check-out. Parties are never drop-off (a responsible adult stays with each child); only studio-run drop-off events (camps, PNO) set this, via the staff console.
    */
   dropOff: boolean
   createdAt: string // ISO

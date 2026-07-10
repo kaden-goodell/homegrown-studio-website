@@ -19,6 +19,7 @@ the field is filled — fill it and the feature appears, no code changes needed.
 | 5 | ~~FAQ answers~~ **DONE 2026-07-09** — all 10 entries answered and live with FAQPage JSON-LD | Edit anytime in `partyContent.faq` | Live |
 | 6 | ~~Footer address~~ **DONE 2026-07-09**: 525 Hughes Rd, Suite F, Madison, AL 35758. Phone gated until #4 decided. | — | Live site-wide |
 | 6b | **Delete Pottery Painting** after showing your wife the price-range display — it's a demo item | `Square Dashboard → Items`, or ask me (it's item `6H3P6JRMGWDL6FQKFX3TFTPR`) | Card disappears from /book |
+| 6c | Verify the FAQ claim "most are $15–$40" (src/config/party-content.ts faq[0]) against actual Party Crafts catalog prices — adjust or remove the range if it's wrong. | Edit `partyContent.faq[0]` to match reality | Live in FAQ |
 
 ## Email configuration (needed for booking confirmation emails)
 

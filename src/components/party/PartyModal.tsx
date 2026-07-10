@@ -725,7 +725,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               id="party-title"
               value={partyTitle}
               onChange={(e) => setPartyTitle(e.target.value)}
-              placeholder="e.g. Ari’s 7th Birthday"
+              placeholder="e.g. Maya’s Birthday · Team Night"
               style={{
                 width: '100%',
                 padding: '0.55rem 0.75rem',
