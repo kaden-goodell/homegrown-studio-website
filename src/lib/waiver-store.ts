@@ -8,8 +8,10 @@
  * host's roster can list who has RSVP'd.
  */
 import { createLogger } from '@lib/logger'
+import { makeKvStore } from '@lib/blob-store'
 
 const logger = createLogger('waiver-store')
+const kv = makeKvStore('waivers', 'waivers')
 
 export interface WaiverMinor {
   name: string
@@ -65,52 +67,15 @@ export interface HouseholdOnFile {
   photoConsent: boolean
 }
 
-const STORE_NAME = 'waivers'
-
 // ---- Raw key/value layer (Netlify Blobs in prod, .data/ on disk in dev) ----
-
-async function getBlobStore() {
-  const { getStore } = await import('@netlify/blobs')
-  const store = getStore(STORE_NAME)
-  await store.get('__probe__') // fails outside Netlify → triggers fs fallback
-  return store
-}
-
-async function fsWrite(key: string, json: string): Promise<void> {
-  const { mkdir, writeFile } = await import('node:fs/promises')
-  const dir = new URL('../../.data/waivers/', import.meta.url)
-  await mkdir(dir, { recursive: true })
-  await writeFile(new URL(`${key}.json`, dir), json, 'utf8')
-}
-
-async function fsRead(key: string): Promise<string | null> {
-  try {
-    const { readFile } = await import('node:fs/promises')
-    const dir = new URL('../../.data/waivers/', import.meta.url)
-    return await readFile(new URL(`${key}.json`, dir), 'utf8')
-  } catch {
-    return null
-  }
-}
+// Delegated to shared kv — see src/lib/blob-store.ts for error semantics.
 
 async function rawSet(key: string, json: string): Promise<void> {
-  try {
-    const store = await getBlobStore()
-    await store.set(key, json)
-  } catch {
-    await fsWrite(key, json)
-  }
+  await kv.set(key, json)
 }
 
 async function rawGet(key: string): Promise<string | null> {
-  try {
-    const store = await getBlobStore()
-    const val = await store.get(key, { type: 'text' })
-    if (val) return val
-  } catch {
-    /* fall through to fs */
-  }
-  return fsRead(key)
+  return kv.get(key)
 }
 
 // ---- Records ----

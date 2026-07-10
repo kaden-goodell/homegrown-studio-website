@@ -9,8 +9,10 @@
  * Netlify Blobs in prod, `.data/checkins/` on disk in dev.
  */
 import { createLogger } from '@lib/logger'
+import { makeKvStore } from '@lib/blob-store'
 
 const logger = createLogger('checkin-store')
+const kv = makeKvStore('checkins', 'checkins')
 
 /**
  * One person's attendance. Presence is per-person because the waiver is an
@@ -70,34 +72,8 @@ export function personPresent(s: CheckinState, id: string): boolean {
   return !!p && !p.outAt
 }
 
-const STORE_NAME = 'checkins'
-
 function key(partyId: string, recordId: string): string {
   return `${partyId}__${recordId}`
-}
-
-async function getBlobStore() {
-  const { getStore } = await import('@netlify/blobs')
-  const store = getStore(STORE_NAME)
-  await store.get('__probe__')
-  return store
-}
-
-async function fsWrite(k: string, json: string): Promise<void> {
-  const { mkdir, writeFile } = await import('node:fs/promises')
-  const dir = new URL('../../.data/checkins/', import.meta.url)
-  await mkdir(dir, { recursive: true })
-  await writeFile(new URL(`${k}.json`, dir), json, 'utf8')
-}
-
-async function fsRead(k: string): Promise<string | null> {
-  try {
-    const { readFile } = await import('node:fs/promises')
-    const dir = new URL('../../.data/checkins/', import.meta.url)
-    return await readFile(new URL(`${k}.json`, dir), 'utf8')
-  } catch {
-    return null
-  }
 }
 
 function emptyState(): CheckinState {
@@ -117,13 +93,7 @@ function normalize(raw: any): CheckinState {
 
 export async function getCheckin(partyId: string, recordId: string): Promise<CheckinState> {
   const k = key(partyId, recordId)
-  let json: string | null = null
-  try {
-    const store = await getBlobStore()
-    json = await store.get(k, { type: 'text' })
-  } catch {
-    json = await fsRead(k)
-  }
+  const json = await kv.get(k)
   if (json) return normalize(JSON.parse(json))
   return emptyState()
 }
@@ -141,12 +111,6 @@ export async function setExpected(partyId: string, recordId: string, expected: s
 
 export async function setCheckin(partyId: string, recordId: string, state: CheckinState): Promise<void> {
   const k = key(partyId, recordId)
-  const json = JSON.stringify(state)
-  try {
-    const store = await getBlobStore()
-    await store.set(k, json)
-  } catch {
-    await fsWrite(k, json)
-  }
+  await kv.set(k, JSON.stringify(state))
   logger.info('Checkin state set', { partyId, recordId })
 }

@@ -10,8 +10,10 @@
  */
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@lib/logger'
+import { makeKvStore } from '@lib/blob-store'
 
 const logger = createLogger('party-store')
+const kv = makeKvStore('parties', 'parties')
 
 export interface PartyRecord {
   bookingId: string
@@ -32,56 +34,17 @@ export interface PartyRecord {
   createdAt: string // ISO
 }
 
-const STORE_NAME = 'parties'
-
-async function getBlobStore() {
-  const { getStore } = await import('@netlify/blobs')
-  const store = getStore(STORE_NAME)
-  await store.get('__probe__')
-  return store
-}
-
-async function fsWrite(key: string, json: string): Promise<void> {
-  const { mkdir, writeFile } = await import('node:fs/promises')
-  const dir = new URL('../../.data/parties/', import.meta.url)
-  await mkdir(dir, { recursive: true })
-  await writeFile(new URL(`${key}.json`, dir), json, 'utf8')
-}
-
-async function fsRead(key: string): Promise<string | null> {
-  try {
-    const { readFile } = await import('node:fs/promises')
-    const dir = new URL('../../.data/parties/', import.meta.url)
-    return await readFile(new URL(`${key}.json`, dir), 'utf8')
-  } catch {
-    return null
-  }
-}
-
 export function newHostToken(): string {
   return randomUUID().replace(/-/g, '')
 }
 
 export async function savePartyRecord(record: PartyRecord): Promise<void> {
-  const json = JSON.stringify(record, null, 2)
-  try {
-    const store = await getBlobStore()
-    await store.set(record.bookingId, json)
-  } catch {
-    await fsWrite(record.bookingId, json)
-  }
+  await kv.set(record.bookingId, JSON.stringify(record, null, 2))
   logger.info('Party stored', { bookingId: record.bookingId })
 }
 
 export async function getPartyRecord(bookingId: string): Promise<PartyRecord | null> {
-  try {
-    const store = await getBlobStore()
-    const json = await store.get(bookingId, { type: 'text' })
-    if (json) return JSON.parse(json)
-  } catch {
-    /* fall through to fs */
-  }
-  const json = await fsRead(bookingId)
+  const json = await kv.get(bookingId)
   return json ? JSON.parse(json) : null
 }
 
@@ -101,24 +64,9 @@ export async function updatePartyDropOff(bookingId: string, dropOff: boolean): P
 
 /** All party records (for the staff console). Newest first. */
 export async function listParties(): Promise<PartyRecord[]> {
-  try {
-    const store = await getBlobStore()
-    const { blobs } = await store.list()
-    const records = await Promise.all(
-      blobs.map((b: { key: string }) => getPartyRecord(b.key)),
-    )
-    return records.filter((r): r is PartyRecord => r !== null).sort((a, b) => b.startIso.localeCompare(a.startIso))
-  } catch {
-    try {
-      const { readdir, readFile } = await import('node:fs/promises')
-      const dir = new URL('../../.data/parties/', import.meta.url)
-      const files = (await readdir(dir)).filter((f) => f.endsWith('.json'))
-      const records = await Promise.all(
-        files.map(async (f) => JSON.parse(await readFile(new URL(f, dir), 'utf8')) as PartyRecord),
-      )
-      return records.sort((a, b) => b.startIso.localeCompare(a.startIso))
-    } catch {
-      return []
-    }
-  }
+  const keys = (await kv.list()).filter((k) => k !== '__probe__')
+  const records = await Promise.all(keys.map(getPartyRecord))
+  return records
+    .filter((r): r is PartyRecord => r !== null)
+    .sort((a, b) => b.startIso.localeCompare(a.startIso))
 }
