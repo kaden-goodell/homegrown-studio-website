@@ -207,6 +207,7 @@ export class SquareBookingProvider implements BookingProvider {
       customerId: details.customerId,
       eventType: details.eventType,
       createdAt: sqBooking.createdAt ?? new Date().toISOString(),
+      version: sqBooking.version !== undefined ? Number(sqBooking.version) : undefined,
     }
   }
 

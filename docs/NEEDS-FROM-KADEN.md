@@ -16,6 +16,24 @@ the field is filled — fill it and the feature appears, no code changes needed.
 | 6 | ~~Footer address~~ **DONE 2026-07-09**: 525 Hughes Rd, Suite F, Madison, AL 35758. Phone gated until #4 decided. | — | Live site-wide |
 | 6b | **Delete Pottery Painting** after showing your wife the price-range display — it's a demo item | `Square Dashboard → Items`, or ask me (it's item `6H3P6JRMGWDL6FQKFX3TFTPR`) | Card disappears from /book |
 
+## Email configuration (needed for booking confirmation emails)
+
+Booking confirmation emails are sent via Gmail SMTP and are gated on two environment variables. Until these are set, `emailSent: false` is returned and the confirmation screen tells the host to save their party page link instead of promising an email.
+
+**Steps:**
+1. Go to your Google account → Security → 2-Step Verification → App passwords
+2. Create an app password named "Homegrown Studio" — copy the 16-character code
+3. Add to Netlify dashboard → Site configuration → Environment variables:
+   - `GMAIL_USER` = your Gmail address (e.g. `hello@homegrowncraftstudio.com`)
+   - `GMAIL_APP_PASSWORD` = the 16-character app password (no spaces)
+4. Add to your local `.env` file for dev testing:
+   ```
+   GMAIL_USER=your@gmail.com
+   GMAIL_APP_PASSWORD=abcdabcdabcdabcd
+   ```
+
+Note: Gmail app passwords require 2-Step Verification to be enabled on the account.
+
 ## Actions you need to take (or approve me doing via API)
 
 | # | What | How |

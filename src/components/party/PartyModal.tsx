@@ -165,6 +165,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [totalCharged, setTotalCharged] = useState<number | null>(null)
   const [bookingId, setBookingId] = useState<string | null>(null)
   const [hostToken, setHostToken] = useState<string | null>(null)
+  const [emailSent, setEmailSent] = useState(false)
   const [partyTitle, setPartyTitle] = useState('')
   const [inviteCopied, setInviteCopied] = useState(false)
   const paymentFormRef = useRef<PaymentFormRef>(null)
@@ -442,7 +443,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
       if (!bookRes.ok) {
         const errData = await bookRes.json().catch(() => null)
-        throw new Error(errData?.detail ?? 'Booking failed. Your card was not charged.')
+        throw new Error(errData?.detail ?? 'Booking failed.')
       }
 
       const json = await bookRes.json()
@@ -453,6 +454,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       const newHostToken = typeof data.hostToken === 'string' ? data.hostToken : null
       setBookingId(newBookingId)
       setHostToken(newHostToken)
+      setEmailSent(data.emailSent === true)
       setCompleted(true)
 
       // Remember this booking so the host can return to their party page later
@@ -699,7 +701,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           </p>
         )}
         <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, maxWidth: '24rem', margin: '0 auto' }}>
-          Your private studio party is confirmed — a confirmation is on its way to <strong>{email}</strong>.
+          {emailSent
+            ? <>Your private studio party is confirmed — a confirmation is on its way to <strong>{email}</strong>.</>
+            : 'Save your party page link below — it\'s how you get back to your party.'}
         </p>
         {totalCharged !== null && (
           <p style={{ fontSize: '0.875rem', color: 'var(--color-dark)', fontWeight: 600, marginTop: '0.5rem' }}>
@@ -777,9 +781,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         </div>
 
         {/* Your party page — details + who's RSVP'd, for the host. */}
-        {bookingId && (
+        {bookingId && hostToken && (
           <a
-            href={`${typeof window !== 'undefined' ? window.location.origin : ''}/party/${encodeURIComponent(bookingId)}${hostToken ? `?key=${encodeURIComponent(hostToken)}` : ''}`}
+            href={`${typeof window !== 'undefined' ? window.location.origin : ''}/party/${encodeURIComponent(bookingId)}?key=${encodeURIComponent(hostToken)}`}
             style={{
               display: 'inline-block',
               marginTop: '1rem',
@@ -795,10 +799,15 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             View your party page →
           </a>
         )}
+        {bookingId && !hostToken && (
+          <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, maxWidth: '24rem', margin: '1rem auto 0' }}>
+            We couldn&rsquo;t set up your party page — text us at {partyContent.textNumber} and we&rsquo;ll send you the link.
+          </p>
+        )}
 
         {/* What happens next */}
         <div style={{ maxWidth: '22rem', margin: '1.5rem auto 0', textAlign: 'left' }}>
-          {partyContent.confirmation.nextSteps.map((step, i) => (
+          {(emailSent ? partyContent.confirmation.nextStepsEmail : partyContent.confirmation.nextStepsNoEmail).map((step, i) => (
             <div key={i} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', marginBottom: '0.5rem' }}>
               <span style={{
                 flexShrink: 0,

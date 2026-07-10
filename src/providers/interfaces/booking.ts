@@ -31,6 +31,7 @@ export interface Booking {
   customerId: string
   eventType: string
   createdAt: string
+  version?: number
 }
 
 export interface BookingWithMetadata extends Booking {
