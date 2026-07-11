@@ -49,6 +49,8 @@ const { street, city, state, zip } = siteConfig.address
         {navItems.map((item) => (
           <a href={item.href} class="footer-link">{item.label}</a>
         ))}
+        <a href="/waiver" class="footer-link">Waiver</a>
+        <a href={`https://maps.google.com/?q=${encodeURIComponent(`${siteConfig.name}, ${street}, ${city}, ${state} ${zip}`)}`} class="footer-link" rel="noopener" target="_blank">Directions</a>
       </nav>
 
       <!-- Contact -->
@@ -61,6 +63,11 @@ const { street, city, state, zip } = siteConfig.address
             {siteConfig.contactPhone}
           </a>
         )}
+        <div class="footer-hours">
+          {siteConfig.hours.map((h) => (
+            <span class="footer-address">{h.days}: {h.time}</span>
+          ))}
+        </div>
         <span class="footer-address">{street}, {city}, {state} {zip}</span>
       </div>
     </div>
@@ -175,6 +182,8 @@ const { street, city, state, zip } = siteConfig.address
     letter-spacing: 0.04em;
     color: var(--color-muted);
   }
+
+  .footer-hours { display: flex; flex-direction: column; gap: 0.25rem; align-items: inherit; }
 
   /* Copyright */
   .footer-copyright {
