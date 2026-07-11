@@ -65,11 +65,36 @@ export async function sendPartyConfirmationEmail(input: {
     ``,
     `Homegrown Studio · 525 Hughes Rd Ste F, Madison, AL`,
   ].join('\n')
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const html = text
-    .split('\n')
-    .map((l) => (l.startsWith('http') ? `<p><a href="${esc(l)}">${esc(l)}</a></p>` : `<p>${esc(l) || '&nbsp;'}</p>`))
-    .join('')
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+  // Structured HTML with explicit inline margins — email clients give bare <p>
+  // tags fat default margins, so a line-by-line conversion reads double-spaced.
+  // Brand primary ≈ #96705B; email-safe (no CSS vars, no external styles).
+  const P = 'margin:0 0 6px;font-size:14px;color:#3d3630;line-height:1.5'
+  const MUTED = 'margin:0 0 6px;font-size:13px;color:#8a7f75;line-height:1.5'
+  const descriptionHtml = description
+    ? description
+        .split(/\n{2,}/)
+        .map((para) => `<p style="${P}">${esc(para.replace(/\n/g, ' '))}</p>`)
+        .join('')
+    : ''
+  const html = `
+<div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#96705B;font-weight:700;">Homegrown Studio</p>
+  <h1 style="margin:0 0 2px;font-size:22px;color:#3d3630;">You&rsquo;re booked!</h1>
+  <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#3d3630;">${esc(input.craftName)} &middot; ${esc(input.slotLabel)}</p>
+  ${descriptionHtml ? `<p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700;">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
+  <p style="${P}"><strong>Studio fee paid today: ${esc(fee)}.</strong> Crafts are paid at the studio based on who comes.</p>
+  <div style="margin:18px 0 6px;">
+    <a href="${esc(input.hostPageUrl)}" style="display:inline-block;padding:11px 22px;background:#96705B;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">Your party page &rarr;</a>
+  </div>
+  <p style="${MUTED}">Manage details and see who&rsquo;s RSVP&rsquo;d &mdash; keep this link.</p>
+  <p style="margin:14px 0 2px;font-size:14px;color:#3d3630;">Invitation link to share with your guests:</p>
+  <p style="margin:0 0 6px;"><a href="${esc(input.inviteUrl)}" style="color:#96705B;font-size:13px;word-break:break-all;">${esc(input.inviteUrl)}</a></p>
+  ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#96705B;font-size:13px;">View your receipt</a></p>` : ''}
+  <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
+  <p style="margin:0;font-size:12px;color:#8a7f75;">Homegrown Studio &middot; 525 Hughes Rd Ste F, Madison, AL</p>
+</div>`
   const safeCraftName = input.craftName.replace(/[\r\n]+/g, ' ')
   return sendEmail({ to: input.to, subject: `You're booked — ${safeCraftName} at Homegrown Studio`, html, text })
 }
