@@ -122,9 +122,15 @@ export default function AddressInput({ value, onChange, placeholder, style, apiK
 
   return (
     <div ref={rootRef} style={{ position: 'relative' }}>
+      {/* With the Places picker active, the browser's native address autofill
+          must NOT fight our dropdown. Chrome ignores autocomplete="off" on
+          address-shaped fields but gives up when the token and name are ones
+          it can't pattern-match — so the field gets nonsense values while the
+          picker runs, and proper autofill hints when it's a plain input. */}
       <input
         type="text"
-        autoComplete="street-address"
+        autoComplete={key ? 'kit-venue-xk7' : 'street-address'}
+        name={key ? 'kit-venue-search' : 'address'}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         onKeyDown={handleKeyDown}
