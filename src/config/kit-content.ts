@@ -17,21 +17,19 @@ export interface KitTheme {
 }
 
 export const kitThemes: KitTheme[] = [
-  // photo: '' until Kaden's real shots — the same hero jpg on every card read
-  // as broken; the gradient + name fallback reads as intentional.
   {
     id: 'gilded', displayName: 'The Gilded Table', tagline: 'Warm gold, candlelight, and celebration',
-    scheme: 'gold', photo: '', stocked: true, ownedSettings: 45, heroSets: 3,
+    scheme: 'gold', photo: '/images/party-hero.jpg', stocked: true, ownedSettings: 45, heroSets: 3,
     keeps: ['Napkins', 'Candles'], returns: ['Liberty-print plates', 'Cake stand', 'Trays', 'Candle holders'],
   },
   {
     id: 'prism', displayName: 'The Prism Table', tagline: 'Every color invited',
-    scheme: 'rainbow', photo: '', stocked: true, ownedSettings: 45, heroSets: 3,
+    scheme: 'rainbow', photo: '/images/party-hero.jpg', stocked: true, ownedSettings: 45, heroSets: 3,
     keeps: ['Napkins', 'Candles'], returns: ['Liberty-print plates', 'Cake stand', 'Trays', 'Candle holders'],
   },
   {
     id: 'sweet-sixteen', displayName: 'The Sweet Sixteen', tagline: 'Sixteen only happens once',
-    scheme: 'sweet-sixteen', photo: '', stocked: true, ownedSettings: 0, heroSets: 0,
+    scheme: 'sweet-sixteen', photo: '/images/party-hero.jpg', stocked: true, ownedSettings: 0, heroSets: 0,
     keeps: ['Napkins', 'Candles', 'Sweet-sixteen details'], returns: ['Liberty-print plates', 'Cake stand', 'Trays', 'Candle holders'],
     ledgerThemeId: 'gilded', // styling variant: consumes Gilded's tableware
   },
