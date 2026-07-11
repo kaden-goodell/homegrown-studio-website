@@ -39,6 +39,7 @@ export class SquarePaymentProvider implements PaymentProvider {
     customerId: string
     lineItems: LineItem[]
     discounts?: Discount[]
+    fulfillment?: { type: 'PICKUP'; pickupAt: string; recipientName: string }
   }): Promise<Order> {
     logger.info('Creating order', {
       locationId: params.locationId,
@@ -80,12 +81,25 @@ export class SquarePaymentProvider implements PaymentProvider {
       return base
     })
 
+    const fulfillments = params.fulfillment
+      ? [
+          {
+            type: 'PICKUP',
+            pickupDetails: {
+              pickupAt: params.fulfillment.pickupAt,
+              recipient: { displayName: params.fulfillment.recipientName },
+            },
+          },
+        ]
+      : undefined
+
     const response = await this.client.orders.create({
       order: {
         locationId: params.locationId,
         customerId: params.customerId,
         lineItems: lineItems as any,
         discounts: discounts.length > 0 ? discounts as any : undefined,
+        fulfillments: fulfillments as any,
       },
     })
 

@@ -24,6 +24,7 @@ export class MockPaymentProvider implements PaymentProvider {
     customerId: string
     lineItems: LineItem[]
     discounts?: Discount[]
+    fulfillment?: { type: 'PICKUP'; pickupAt: string; recipientName: string }
   }): Promise<Order> {
     const discounts = params.discounts ?? []
 

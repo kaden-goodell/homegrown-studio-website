@@ -50,6 +50,8 @@ export interface PaymentProvider {
     customerId: string
     lineItems: LineItem[]
     discounts?: Discount[]
+    /** Optional pickup fulfillment (kits are picked up in-studio, not shipped). */
+    fulfillment?: { type: 'PICKUP'; pickupAt: string; recipientName: string }
   }): Promise<Order>
 
   processPayment(params: {
