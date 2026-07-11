@@ -108,7 +108,10 @@ export const GET: APIRoute = async () => {
     // In-studio themed-table add-on: stocked themes only, and only when the kit
     // product is live AND seeded (empty variation maps would offer unbuyable
     // tables). Omitted entirely otherwise so the party UI can't surface it.
-    const themesEnabled = siteConfig.features.kits.enabled && !!kitConfig.square.packageItemId
+    // Same preview rule as /kits: local dev always shows themes (Test Mode
+    // payments), deployed URLs wait for the launch flag.
+    const themesEnabled =
+      (siteConfig.features.kits.enabled || import.meta.env.DEV) && !!kitConfig.square.packageItemId
     const themes = themesEnabled
       ? kitThemes
           .filter((t) => t.stocked)
