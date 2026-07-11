@@ -173,12 +173,16 @@ export interface Refund { id: string; paymentId: string; amountCents: number; st
 refundPayment(input: { paymentId: string; amountCents: number; idempotencyKey: string; reason?: string }): Promise<Refund>
 /** Void an order after a failed charge (kits: no orphaned orders). */
 cancelOrder(input: { orderId: string; version: number; locationId: string }): Promise<void>
+// LR-2: Order interface ALSO gains `version: number`, populated from order.version in
+// Square AND mock createOrder — cancelOrder is uncallable without it.
 ```
 
 Square impl follows the file's conventions exactly (BigInt in, `Number(...)` out, `response.<thing>!` unwrap). Mock impl returns canned success + records calls. Run tests → PASS.
 - [ ] **Step 3:** `npm test` green. Commit: `feat(payments): refundPayment + cancelOrder — Square Refunds API (net-new capability)`.
 
 ## Task 3: Date math + weekly ledger (pure libs, TDD)
+
+> ⚠️ Read **LR-1** (Logic-review fixes): availability is computed from claims blobs + overdue orders, not a flat record list.
 
 **Files:** Create `src/lib/kit-dates.ts`, `src/lib/kit-ledger.ts`, `tests/lib/kit-dates.test.ts`, `tests/lib/kit-ledger.test.ts`.
 **Dependencies:** Task 1 (types only — kitConfig tiers/lead time).
@@ -205,6 +209,8 @@ Tests: consumption = records with matching ledger theme where (`weekKey === W`) 
 - [ ] **Step 4 (GREEN):** implement; suite green. Commit: `feat(kits): date math + weekly settings ledger (pure, tested)`.
 
 ## Task 4: Kit store (persistence)
+
+> ⚠️ Read **LR-1**: adds `claimWeek`/`confirmWeekClaim`/`releaseWeekClaim` (CAS claims blobs); `toLedgerRecords`/`createPartyThemeRecord` are superseded.
 
 **Files:** Create `src/lib/kit-store.ts`, `tests/lib/kit-store.test.ts` (mirror checkin-store's test if one exists; else test the pure normalize/mutate helpers with the fs-backed dev store).
 **Dependencies:** Task 3 (imports the `LedgerRecord` interface from `kit-ledger.ts` for the adapter — do NOT duplicate the type). Pattern-copy of `checkin-store.ts` + `makeKvStore('kits','kits')`.
@@ -240,6 +246,8 @@ Functions: `createKitOrder(record)`, `getKitOrder(orderId)`, `listKitOrders()` (
 
 ## Task 6: Kit customer APIs
 
+> ⚠️ Read **LR-1** (claim → order → charge → confirm; release on failure) and **LR-2** (pass order.version to cancelOrder).
+
 **Files:** Create `src/pages/api/kits/{service-info,weeks,order}.json.ts`, `tests/api/kits-order.test.ts`.
 **Dependencies:** Tasks 1–4.
 
@@ -259,6 +267,8 @@ Functions: `createKitOrder(record)`, `getKitOrder(orderId)`, `listKitOrders()` (
 - [ ] **Step 5:** Suite green. Commit: `feat(kits): customer APIs — service-info, weeks (ledger), order (book-before-charge)`.
 
 ## Task 7: Staff APIs
+
+> ⚠️ Read **LR-1** (kit-cancel releases the week claim) and **LR-4** (crafts-only kits settle at pickup, no refund call).
 
 **Files:** Create `src/pages/api/staff/{kits,kit-return,kit-cancel}.json.ts`, `tests/api/kit-return.test.ts`.
 **Dependencies:** Tasks 2, 3, 4.
@@ -296,6 +306,8 @@ Functions: `createKitOrder(record)`, `getKitOrder(orderId)`, `listKitOrders()` (
 
 ## Task 10: In-studio themed-table add-on
 
+> ⚠️ Read **LR-1**: party booking claims/confirms/releases the same claims blobs; booking-cancel releases (replaces cancelPartyThemeRecord).
+
 **Files:** Modify `src/pages/api/party/service-info.json.ts`, `src/pages/api/party/book.json.ts`, `src/components/party/PartyModal.tsx`, `src/pages/api/staff/parties.json.ts`, **`src/lib/party-store.ts`** (theme carried on the PartyRecord — see Step 4).
 **Dependencies:** Tasks 1, 3, 4 (+ seeded ids to fully exercise).
 
@@ -327,6 +339,21 @@ Functions: `createKitOrder(record)`, `getKitOrder(orderId)`, `listKitOrders()` (
 - [ ] **Step 4:** Seeding runbook note for the lead: run `npx tsx scripts/seed-kits.ts --dry-run`, review, run live, paste ids into `kit.config.ts`, commit `chore(kits): seeded catalog ids`.
 
 ---
+
+## Logic-review fixes (binding deltas — read together with the task bodies)
+
+**LR-1 (BLOCKING) — Atomic theme-week reservation.** The ledger check in T6/T10 is check-then-act over `listKitOrders()` — two concurrent customers racing for the last slot both pass and both get charged. Fix — reserve-before-charge, the kit analogue of book-before-charge:
+- `kit-store.ts` (T4) gains a per-(ledgerTheme, week) claims blob, key `claims__<ledgerThemeId>__<weekKey>`, holding `WeekClaim[] = { ref, kind:'kit'|'party', serves, status:'pending'|'confirmed', at }`. Three functions, ALL through the CAS loop (`getWithMeta`/`setIfMatch`, 3 attempts): `claimWeek({ledgerThemeId, weekKey, serves, kind, ref})` → recomputes remaining settings/hero from claims IN the same CAS transaction (confirmed + pending younger than 15 min), appends pending claim or returns `'full'`; `confirmWeekClaim(ledgerThemeId, weekKey, ref)`; `releaseWeekClaim(ledgerThemeId, weekKey, ref)`. Losing a CAS race retries and re-evaluates — the last slot goes to exactly one writer.
+- **The claims blobs become the ledger's availability source** (kit AND party): T3's `availabilityFor(themeId, weekKey, claims, overdueOrders, today)` reads claims for the week plus the overdue-forward-blocking contribution from kit order records (`status:'out' && returnBy < today`). `toLedgerRecords` and `createPartyThemeRecord` are REPLACED by this claims model (T4 Step 2 as originally written is superseded).
+- T6 order.json sequence becomes: validate → `claimWeek` (409 on `'full'`) → customer → createOrder → guard → charge → persist + `confirmWeekClaim` → email. ANY failure after claim → `releaseWeekClaim` in the same catch that voids the order. Expired pending claims (>15 min) are ignored by readers — crash-safe.
+- T10 party book.json: same claim/confirm/release around its booking+charge; `booking/cancel.json.ts` calls `releaseWeekClaim` (replaces `cancelPartyThemeRecord`); kit-cancel (T7) also releases.
+- Test (T6): two concurrent order calls for the last tier of one theme-week against a shared in-memory kv → exactly one 200, one 409.
+
+**LR-2 — `Order.version`.** T2 must add `version: number` to the `Order` interface and populate it from `order.version` in Square AND mock `createOrder` — `cancelOrder` requires it and nothing returns it today. T6 passes `order.version` through. T2 RED test asserts createOrder returns version; T6 failed-charge test asserts cancelOrder receives it.
+
+**LR-3 — Shared pool actually wired.** Subsumed by LR-1: both flows write/read the SAME claims blobs, so kits block parties and parties block kits by construction. `listKitOrders()` filters to kit-order keys only (claims keys excluded).
+
+**LR-4 — Crafts-only kits have no deposit.** `Mark picked up` on a theme-less order settles it directly (`status:'returned'`, event `pickup`, no return tracking); return buckets and `Check in return` only apply to orders with `theme`. T7 test: crafts-only settle never calls `refundPayment`.
 
 ## Self-review notes
 - Fulfillment support intentionally lands in Task 6 (not 2) — Task 6 declares blockedBy Task 2; both touch `payment.ts` files, so they MUST NOT run in parallel (lead: serialize B before F, already implied by dependency).
