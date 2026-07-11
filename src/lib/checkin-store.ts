@@ -25,6 +25,15 @@ export interface PersonPresence {
   outAt: string | null // ISO — picked up / left
 }
 
+/** Append-only record of every custody action taken for this family. */
+export interface CheckinEvent {
+  at: string // ISO
+  action: 'checkin' | 'undo-checkin' | 'pickup' | 'pickup-denied' | 'undo-pickup' | 'reissue-code' | 'set-pickup'
+  personIds: string[]
+  pickedUpBy?: string
+  note?: string
+}
+
 export interface CheckinState {
   /**
    * Person ids the family said are coming to THIS party (set at RSVP time).
@@ -40,9 +49,11 @@ export interface CheckinState {
   confirmedPickup: string[]
   /** SHA-256 of the ONE family pickup code — never the plaintext. */
   pickupCodeHash: string | null
+  /** Append-only audit log of all custody events. Never exposed to clients. */
+  events: CheckinEvent[]
 }
 
-/** What the client is allowed to see — no hash, no plaintext, just presence. */
+/** What the client is allowed to see — no hash, no plaintext, no audit log. */
 export interface PublicCheckin {
   expected: string[] | null
   presence: Record<string, PersonPresence>
@@ -77,17 +88,18 @@ function key(partyId: string, recordId: string): string {
 }
 
 function emptyState(): CheckinState {
-  return { expected: null, presence: {}, pickedUpBy: null, confirmedPickup: [], pickupCodeHash: null }
+  return { expected: null, presence: {}, pickedUpBy: null, confirmedPickup: [], pickupCodeHash: null, events: [] }
 }
 
 /** Normalize a stored record onto the current shape, dropping legacy fields. */
-function normalize(raw: any): CheckinState {
+export function normalize(raw: any): CheckinState {
   return {
     expected: Array.isArray(raw?.expected) ? raw.expected.map(String) : null,
     presence: raw?.presence && typeof raw.presence === 'object' ? raw.presence : {},
     pickedUpBy: typeof raw?.pickedUpBy === 'string' ? raw.pickedUpBy : null,
     confirmedPickup: Array.isArray(raw?.confirmedPickup) ? raw.confirmedPickup.map(String) : [],
     pickupCodeHash: typeof raw?.pickupCodeHash === 'string' ? raw.pickupCodeHash : null,
+    events: Array.isArray(raw?.events) ? raw.events : [],
   }
 }
 
@@ -104,13 +116,28 @@ export async function getCheckin(partyId: string, recordId: string): Promise<Che
  * path (no staff auth) — only ever sets the soft `expected` intent.
  */
 export async function setExpected(partyId: string, recordId: string, expected: string[]): Promise<void> {
-  const state = await getCheckin(partyId, recordId)
-  state.expected = expected
-  await setCheckin(partyId, recordId, state)
+  await mutateCheckin(partyId, recordId, (state) => {
+    state.expected = expected
+  })
 }
 
 export async function setCheckin(partyId: string, recordId: string, state: CheckinState): Promise<void> {
   const k = key(partyId, recordId)
+  // Normalize on every write — ensures legacy fields are handled and events[] exists.
+  state = normalize(state)
+  state.events = state.events.slice(-500)
   await kv.set(k, JSON.stringify(state))
   logger.info('Checkin state set', { partyId, recordId })
+}
+
+/** Apply a mutation with optimistic concurrency (3 attempts). */
+export async function mutateCheckin(partyId: string, recordId: string, fn: (s: CheckinState) => void | Promise<void>): Promise<CheckinState> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { value, etag } = await kv.getWithMeta(key(partyId, recordId))
+    const state = value ? normalize(JSON.parse(value)) : emptyState()
+    await fn(state)
+    state.events = state.events.slice(-500)
+    if (await kv.setIfMatch(key(partyId, recordId), JSON.stringify(state), etag)) return state
+  }
+  throw new Error('Concurrent update — please retry')
 }
