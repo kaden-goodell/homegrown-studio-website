@@ -20,6 +20,8 @@ export interface WaiverMinor {
   allergies: string
 }
 
+export type EventKind = 'party' | 'workshop' | 'open-studio'
+
 export interface WaiverRecord {
   id: string
   agreementVersion: string
@@ -45,7 +47,10 @@ export interface WaiverRecord {
   authorizedPickup: string
   photoConsent: boolean
   signature: string
+  /** Legacy field — kept as a mirror of context.id when kind==='party'. */
   partyId: string | null
+  /** Structured event context. Optional-tolerant on parse (legacy records omit it). */
+  context: { kind: EventKind; id: string } | null
   /** Adult who will be with the child(ren) at the party if the signer is not attending. */
   responsibleAdult: string | null
   squareCustomerId: string | null
@@ -97,13 +102,32 @@ export function newWaiverId(): string {
   return `wvr_${Date.now().toString(36)}_${rand}`
 }
 
-// ---- Per-party RSVP index ----
-// A small blob per party holding the list of { recordId, contactKey } objects.
+// ---- Event RSVP index ----
+// A small blob per event holding the list of { recordId, contactKey } objects.
 // Supports legacy bare-string entries for backward compatibility.
 // Read-modify-write; a party has few guests so contention is negligible.
 
+/**
+ * Derive the blob key for an event index.
+ * IMPORTANT: party kind MUST return the exact legacy key `party-index-{id}`
+ * byte-for-byte — no migration; existing party rosters depend on this.
+ * New kinds use the `event-index-{kind}:{id}` namespace.
+ */
+export function indexKeyFor(kind: EventKind, id: string): string {
+  return kind === 'party' ? `party-index-${id}` : `event-index-${kind}:${id}`
+}
+
+/** @deprecated Use indexKeyFor('party', partyId) — kept for internal clarity. */
 function partyIndexKey(partyId: string): string {
-  return `party-index-${partyId}`
+  return indexKeyFor('party', partyId)
+}
+
+/**
+ * Return the structured event context for a record.
+ * Tolerates legacy records that pre-date the context field.
+ */
+export function contextOf(r: WaiverRecord): { kind: EventKind; id: string } | null {
+  return r.context ?? (r.partyId ? { kind: 'party', id: r.partyId } : null)
 }
 
 /** Parse index entries, upgrading legacy bare-string ids to the object shape. */
@@ -125,15 +149,17 @@ function contactKeyOf(r: WaiverRecord): string {
 }
 
 /**
- * Add-or-replace this household's entry in the party index (re-RSVP = edit).
+ * Add-or-replace this household's entry in the event index (re-RSVP = edit).
  * Same contact key → the previous entry is removed and the new one inserted.
  * Returns the replaced record id (null if this is the first RSVP for this contact).
+ * For kind==='party' this reads/writes the exact legacy `party-index-{id}` key.
  */
-export async function upsertWaiverInPartyIndex(
-  partyId: string,
+export async function upsertWaiverInEventIndex(
+  kind: EventKind,
+  id: string,
   record: WaiverRecord,
 ): Promise<{ replacedRecordId: string | null }> {
-  const key = partyIndexKey(partyId)
+  const key = indexKeyFor(kind, id)
   const entries = await readIndexEntries(key)
   const ck = contactKeyOf(record)
   const prev = entries.find((e) => e.contactKey === ck && e.recordId !== record.id)
@@ -143,10 +169,23 @@ export async function upsertWaiverInPartyIndex(
   return { replacedRecordId: prev?.recordId ?? null }
 }
 
-export async function listWaiversByParty(partyId: string): Promise<WaiverRecord[]> {
-  const entries = await readIndexEntries(partyIndexKey(partyId))
+export async function listWaiversByEvent(kind: EventKind, id: string): Promise<WaiverRecord[]> {
+  const entries = await readIndexEntries(indexKeyFor(kind, id))
   const records = await Promise.all(entries.map((e) => getWaiverRecord(e.recordId)))
   return records.filter((r): r is WaiverRecord => r !== null)
+}
+
+/** Thin party wrapper — existing callers untouched. */
+export async function upsertWaiverInPartyIndex(
+  partyId: string,
+  record: WaiverRecord,
+): Promise<{ replacedRecordId: string | null }> {
+  return upsertWaiverInEventIndex('party', partyId, record)
+}
+
+/** Thin party wrapper — existing callers untouched. */
+export async function listWaiversByParty(partyId: string): Promise<WaiverRecord[]> {
+  return listWaiversByEvent('party', partyId)
 }
 
 // ---- Duplicate-child detection ----

@@ -8,6 +8,7 @@ import { getPartyRecord } from '@lib/party-store'
 import { formatWhen } from '@lib/studio-time'
 
 const rawPartyId = Astro.url.searchParams.get('party') ?? undefined
+const rawWorkshopId = Astro.url.searchParams.get('workshop') ?? undefined
 const { page } = waiverContent
 const subline = rawPartyId ? page.partySubline : page.subline
 
@@ -55,6 +56,10 @@ if (rawPartyId) {
 const flowPartyId   = outcome.kind === 'ok' ? outcome.partyId   : outcome.kind === 'error' ? outcome.partyId   : undefined
 const flowPartyLabel = outcome.kind === 'ok' ? outcome.partyLabel : undefined
 const noticeText    = outcome.kind === 'unknown' || outcome.kind === 'past' ? (outcome as { notice: string }).notice : null
+
+// Workshop param — when present (and no party param), pass workshopId through directly.
+// No server-side validation needed: workshop bookings live in Square.
+const flowWorkshopId = !rawPartyId && rawWorkshopId ? rawWorkshopId : undefined
 ---
 
 <Layout
@@ -93,6 +98,6 @@ const noticeText    = outcome.kind === 'unknown' || outcome.kind === 'past' ? (o
       </div>
     )}
 
-    <WaiverFlow client:load partyId={flowPartyId} partyLabel={flowPartyLabel} />
+    <WaiverFlow client:load partyId={flowPartyId} partyLabel={flowPartyLabel} workshopId={flowWorkshopId} />
   </section>
 </Layout>

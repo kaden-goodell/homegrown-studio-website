@@ -23,6 +23,7 @@ vi.mock('@lib/checkin-store', () => ({
 const mockSaveWaiverRecord = vi.fn().mockResolvedValue(undefined)
 const mockGetWaiverRecord = vi.fn()
 const mockUpsertWaiverInPartyIndex = vi.fn().mockResolvedValue({ replacedRecordId: null })
+const mockUpsertWaiverInEventIndex = vi.fn().mockResolvedValue({ replacedRecordId: null })
 const mockIndexWaiverByContact = vi.fn().mockResolvedValue(undefined)
 const mockNewWaiverId = vi.fn().mockReturnValue('wvr_test_abc')
 
@@ -30,6 +31,7 @@ vi.mock('@lib/waiver-store', () => ({
   saveWaiverRecord: (...args: any[]) => mockSaveWaiverRecord(...args),
   getWaiverRecord: (...args: any[]) => mockGetWaiverRecord(...args),
   upsertWaiverInPartyIndex: (...args: any[]) => mockUpsertWaiverInPartyIndex(...args),
+  upsertWaiverInEventIndex: (...args: any[]) => mockUpsertWaiverInEventIndex(...args),
   indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
   newWaiverId: () => mockNewWaiverId(),
 }))
@@ -122,6 +124,7 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
       saveWaiverRecord: (...args: any[]) => mockSaveWaiverRecord(...args),
       getWaiverRecord: (...args: any[]) => mockGetWaiverRecord(...args),
       upsertWaiverInPartyIndex: (...args: any[]) => mockUpsertWaiverInPartyIndex(...args),
+      upsertWaiverInEventIndex: (...args: any[]) => mockUpsertWaiverInEventIndex(...args),
       indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
       newWaiverId: () => mockNewWaiverId(),
     }))
@@ -140,6 +143,7 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
 
     mockSaveWaiverRecord.mockResolvedValue(undefined)
     mockUpsertWaiverInPartyIndex.mockResolvedValue({ replacedRecordId: null })
+    mockUpsertWaiverInEventIndex.mockResolvedValue({ replacedRecordId: null })
     mockIndexWaiverByContact.mockResolvedValue(undefined)
     mockNewWaiverId.mockReturnValue('wvr_test_abc')
 
@@ -213,6 +217,32 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
       expect(json.data).toBeDefined()
       const savedRecord = mockSaveWaiverRecord.mock.calls[0]?.[0]
       expect(savedRecord?.responsibleAdult).toBe('Uncle Bob')
+    })
+  })
+
+  describe('workshop context — signs with workshopId, indexes under event-index-workshop:', () => {
+    it('returns 200 and records context.kind=workshop when workshopId is provided', async () => {
+      const body = makeAdultBody({ workshopId: 'wkbk-abc123', partyId: null })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      const json = await res.json()
+      expect(json.data).toBeDefined()
+      // context should be set
+      expect(json.data.context).toEqual({ kind: 'workshop', id: 'wkbk-abc123' })
+      // partyId should be null
+      expect(json.data.partyId).toBeNull()
+      // upsertWaiverInEventIndex should have been called with kind='workshop'
+      expect(mockUpsertWaiverInEventIndex).toHaveBeenCalledWith('workshop', 'wkbk-abc123', expect.any(Object))
+    })
+
+    it('returns 400 when both partyId and workshopId are provided', async () => {
+      const body = makeAdultBody({ workshopId: 'wkbk-abc123', partyId: 'party-123' })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(400)
+      const json = await res.json()
+      expect(json.error).toMatch(/one event/i)
     })
   })
 })

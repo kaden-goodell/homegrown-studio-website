@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro'
 import { randomInt, createHash } from 'node:crypto'
 import { staffAuthorized } from '@lib/staff-auth'
-import { getPartyRecord } from '@lib/party-store'
+import { getEvent } from '@lib/events'
 import { getWaiverRecord } from '@lib/waiver-store'
 import { mutateCheckin, toPublicCheckin, type CheckinState } from '@lib/checkin-store'
 
@@ -50,8 +50,8 @@ export const POST: APIRoute = async ({ request }) => {
 
   // Read dropOff flag once before the mutation callback — it doesn't change
   // within a request and avoids async calls inside the retry loop.
-  const partyRecord = await getPartyRecord(party)
-  const dropOff = !!partyRecord?.dropOff
+  const studioEvent = await getEvent('party', party)
+  const dropOff = !!studioEvent?.dropOff
 
   if (action !== 'checkin' && action !== 'undo-checkin' && action !== 'pickup' &&
       action !== 'undo-pickup' && action !== 'reissue-code' && action !== 'set-pickup') {

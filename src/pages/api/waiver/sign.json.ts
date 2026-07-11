@@ -6,9 +6,10 @@ import {
   saveWaiverRecord,
   getWaiverRecord,
   newWaiverId,
-  upsertWaiverInPartyIndex,
+  upsertWaiverInEventIndex,
   indexWaiverByContact,
   type WaiverRecord,
+  type EventKind,
 } from '@lib/waiver-store'
 import { setExpected, getCheckin, setCheckin } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
@@ -34,7 +35,7 @@ function ok(record: WaiverRecord): Response {
   ]
   return new Response(
     JSON.stringify({
-      data: { recordId: record.id, covered, validUntil: record.validUntil, partyId: record.partyId },
+      data: { recordId: record.id, covered, validUntil: record.validUntil, partyId: record.partyId, context: record.context },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   )
@@ -49,7 +50,7 @@ function yearsBetween(dobIso: string, now: Date): number {
   return years
 }
 
-/** Save the signature + update the contact and party indexes. */
+/** Save the signature + update the contact and event indexes. */
 async function persistWaiver(record: WaiverRecord): Promise<void> {
   await saveWaiverRecord(record)
   try {
@@ -57,26 +58,22 @@ async function persistWaiver(record: WaiverRecord): Promise<void> {
   } catch (err) {
     logger.error('Contact index failed (signature saved)', { id: record.id, error: String(err) })
   }
-  if (record.partyId) {
+  if (record.context) {
     try {
-      const { replacedRecordId } = await upsertWaiverInPartyIndex(record.partyId, record)
-      if (replacedRecordId) {
-        // Migrate live check-in state so a mid-party re-sign doesn't orphan
-        // presence or pickup codes. Person ids are positional (adult, child:0, …)
-        // — if the household edited its kid list the mapping can shift; acceptable,
-        // staff verify at the door. The old checkin blob is orphaned but harmless:
-        // its recordId is gone from the party index.
+      const { replacedRecordId } = await upsertWaiverInEventIndex(record.context.kind, record.context.id, record)
+      // Checkin migration is party-only — check-in state lives in the party domain.
+      if (replacedRecordId && record.context.kind === 'party') {
         try {
-          const old = await getCheckin(record.partyId, replacedRecordId)
+          const old = await getCheckin(record.context.id, replacedRecordId)
           if (Object.keys(old.presence).length > 0 || old.pickupCodeHash) {
-            await setCheckin(record.partyId, record.id, old)
+            await setCheckin(record.context.id, record.id, old)
           }
         } catch (err) {
           logger.error('Checkin migration failed on re-RSVP', { error: String(err) })
         }
       }
     } catch (err) {
-      logger.error('Party index failed (signature saved)', { id: record.id, error: String(err) })
+      logger.error('Event index failed (signature saved)', { id: record.id, error: String(err) })
     }
   }
 }
@@ -143,7 +140,7 @@ async function validateParty(partyId: string | null, now: Date): Promise<Respons
   try {
     const party = await getPartyRecord(partyId)
     if (!party) {
-      return bad("This party link doesn’t look right — ask your host to re-share the invitation.", 404)
+      return bad("This party link doesn't look right — ask your host to re-share the invitation.", 404)
     }
     if (new Date(party.startIso).getTime() + 24 * 3600_000 < now.getTime()) {
       return bad("This party has already happened — nothing to RSVP to, but thanks for checking!", 410)
@@ -169,7 +166,7 @@ function checkResponsibleAdult(
   const adultPresent = resolvedIds.includes('adult')
   if (hasKids && !adultPresent) {
     if (!responsibleAdult) {
-      return bad("Parties aren’t drop-off — tell us which adult will be with your child at the party.")
+      return bad("Parties aren't drop-off — tell us which adult will be with your child at the party.")
     }
   }
   return null
@@ -180,6 +177,7 @@ async function handleReuse(
   reuseId: string,
   reuseToken: string,
   partyId: string | null,
+  workshopId: string | null,
   attendingRaw: unknown,
   responsibleAdult: string,
   now: Date,
@@ -194,7 +192,7 @@ async function handleReuse(
   if (partyErr) return partyErr
 
   const source = await getWaiverRecord(reuseId)
-  if (!source) return bad("We couldn’t find your agreement — please fill out the form.")
+  if (!source) return bad("We couldn't find your agreement — please fill out the form.")
   if (new Date(source.validUntil).getTime() <= now.getTime()) {
     return bad("Your agreement has expired — please sign a new one.")
   }
@@ -208,13 +206,21 @@ async function handleReuse(
   const raErr = checkResponsibleAdult(partyId, resolvedIds, responsibleAdult)
   if (raErr) return raErr
 
+  // Build structured event context.
+  const context: WaiverRecord['context'] = partyId
+    ? { kind: 'party', id: partyId }
+    : workshopId
+      ? { kind: 'workshop', id: workshopId }
+      : null
+
   const record: WaiverRecord = {
     ...source,
     id: newWaiverId(),
     signedAt: now.toISOString(),
-    // Same 12-month agreement re-affirmed for this party; keep original expiry.
+    // Same 12-month agreement re-affirmed; keep original expiry.
     signature: `${source.adult.firstName} ${source.adult.lastName}`.trim(),
     partyId,
+    context,
     responsibleAdult: responsibleAdult || null,
     squareCustomerId: null,
     ip: clientAddress ?? null,
@@ -223,7 +229,7 @@ async function handleReuse(
   await persistWaiver(record)
   await recordExpected(record, attendingRaw)
   await attachSquare(record)
-  logger.info('RSVP via reuse', { recordId: record.id, sourceId: reuseId, partyId })
+  logger.info('RSVP via reuse', { recordId: record.id, sourceId: reuseId, partyId, workshopId })
   return ok(record)
 }
 
@@ -238,15 +244,24 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
     const now = new Date()
     const partyId = typeof body.partyId === 'string' && body.partyId.trim() ? body.partyId.trim() : null
+    const workshopId = typeof body.workshopId === 'string' && body.workshopId.trim() ? body.workshopId.trim() : null
     const userAgent = request.headers.get('user-agent')
     const responsibleAdult = typeof body.responsibleAdult === 'string'
       ? body.responsibleAdult.trim().slice(0, 120)
       : ''
 
+    // Mutually exclusive — can only attach a signature to one event at a time.
+    if (partyId && workshopId) return bad('One event per signature, please.')
+
+    // Validate workshopId shape (workshop bookings live in Square — no record lookup needed).
+    if (workshopId && !/^[\w-]{4,64}$/.test(workshopId)) {
+      return bad('Invalid workshop ID.')
+    }
+
     // Returning-customer fast path.
     const reuseId = typeof body.reuseRecordId === 'string' ? body.reuseRecordId.trim() : ''
     const reuseToken = typeof body.reuseToken === 'string' ? body.reuseToken.trim() : ''
-    if (reuseId) return handleReuse(reuseId, reuseToken, partyId, body.attending, responsibleAdult, now, clientAddress, userAgent)
+    if (reuseId) return handleReuse(reuseId, reuseToken, partyId, workshopId, body.attending, responsibleAdult, now, clientAddress, userAgent)
 
     const adult = body.adult ?? {}
     const firstName = String(adult.firstName ?? '').trim()
@@ -313,6 +328,13 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const validUntil = new Date(now)
     validUntil.setMonth(validUntil.getMonth() + waiverContent.validityMonths)
 
+    // Build structured event context.
+    const context: WaiverRecord['context'] = partyId
+      ? { kind: 'party', id: partyId }
+      : workshopId
+        ? { kind: 'workshop', id: workshopId }
+        : null
+
     const record: WaiverRecord = {
       id: newWaiverId(),
       agreementVersion: waiverContent.version,
@@ -326,6 +348,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       photoConsent: body.photoConsent,
       signature,
       partyId,
+      context,
       responsibleAdult: responsibleAdult || null,
       squareCustomerId: null,
       ip: clientAddress ?? null,

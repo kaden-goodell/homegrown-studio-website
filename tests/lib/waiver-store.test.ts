@@ -152,6 +152,82 @@ describe('upsertWaiverInPartyIndex (fs mode)', () => {
   })
 })
 
+// ─── contextOf + indexKeyFor + event-API backward compat ────────────────────
+
+describe('contextOf', () => {
+  let mod: typeof import('@lib/waiver-store')
+
+  beforeEach(async () => {
+    mod = await import('@lib/waiver-store')
+  })
+
+  it('returns context from record.context when present', () => {
+    const r = makeRecord({ partyId: 'party-abc' }) as any
+    r.context = { kind: 'party', id: 'party-abc' }
+    expect(mod.contextOf(r)).toEqual({ kind: 'party', id: 'party-abc' })
+  })
+
+  it('falls back to partyId when context is absent', () => {
+    const r = makeRecord({ partyId: 'party-xyz' }) as any
+    delete r.context
+    expect(mod.contextOf(r)).toEqual({ kind: 'party', id: 'party-xyz' })
+  })
+
+  it('returns null when neither context nor partyId', () => {
+    const r = makeRecord({}) as any
+    delete r.context
+    r.partyId = null
+    expect(mod.contextOf(r)).toBeNull()
+  })
+})
+
+describe('indexKeyFor', () => {
+  let mod: typeof import('@lib/waiver-store')
+
+  beforeEach(async () => {
+    mod = await import('@lib/waiver-store')
+  })
+
+  it('party kind returns exact legacy key', () => {
+    expect(mod.indexKeyFor('party', 'X')).toBe('party-index-X')
+  })
+
+  it('workshop kind returns event-index-workshop: namespace', () => {
+    expect(mod.indexKeyFor('workshop', 'Y')).toBe('event-index-workshop:Y')
+  })
+})
+
+describe('upsertWaiverInEventIndex + listWaiversByEvent legacy compat', () => {
+  let mod: typeof import('@lib/waiver-store')
+
+  beforeEach(async () => {
+    mod = await import('@lib/waiver-store')
+  })
+
+  it('after upserting via event API with kind=party, listWaiversByParty reads pre-existing legacy index blob', async () => {
+    const partyId = `party-legacy-compat-${Date.now()}`
+    const r1 = makeRecord({ id: 'wvr_legacy_existing', partyId })
+    const r2 = makeRecord({ id: 'wvr_new_upsert', partyId, email: 'new@test.com' })
+
+    // Save both records
+    await mod.saveWaiverRecord(r1)
+    await mod.saveWaiverRecord(r2)
+
+    // Write a bare-string legacy index using the same KV the module uses
+    const { makeKvStore } = await import('@lib/blob-store')
+    const kv = makeKvStore('waivers', 'waivers')
+    await kv.set(`party-index-${partyId}`, JSON.stringify(['wvr_legacy_existing']))
+
+    // Upsert via the event API with kind='party'
+    await mod.upsertWaiverInEventIndex('party', partyId, r2)
+
+    // listWaiversByParty must return both records
+    const waivers = await mod.listWaiversByParty(partyId)
+    const ids = waivers.map((w) => w.id).sort()
+    expect(ids).toEqual(['wvr_legacy_existing', 'wvr_new_upsert'])
+  })
+})
+
 // ─── markDuplicateChildren ───────────────────────────────────────────────────
 
 describe('markDuplicateChildren', () => {

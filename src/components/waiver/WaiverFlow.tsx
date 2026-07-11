@@ -7,6 +7,8 @@ interface Props {
   /** Human-readable label shown to the guest so they can see which party their
    *  signature attaches to. Derived server-side from the party record. */
   partyLabel?: string
+  /** Present when opened from a workshop confirmation — /waiver?workshop={bookingId} */
+  workshopId?: string
 }
 
 interface MinorRow {
@@ -84,7 +86,7 @@ function PartyLabelChip({ label }: { label: string }) {
   )
 }
 
-export default function WaiverFlow({ partyId, partyLabel }: Props) {
+export default function WaiverFlow({ partyId, partyLabel, workshopId }: Props) {
   const { form, confirmation, legalSections } = waiverContent
 
   const [firstName, setFirstName] = useState('')
@@ -206,6 +208,7 @@ export default function WaiverFlow({ partyId, partyLabel }: Props) {
           agreeRelease,
           signature: signature.trim(),
           partyId: partyId ?? null,
+          workshopId: workshopId ?? null,
           // Who's actually doing the craft — the signer may just be dropping off.
           attending: ['adult', ...minors.map((_, i) => `child:${i}`)].filter(formComing),
           responsibleAdult: responsibleAdult.trim(),
@@ -281,6 +284,7 @@ export default function WaiverFlow({ partyId, partyLabel }: Props) {
           reuseRecordId: returning.recordId,
           reuseToken: returning.reuseToken,
           partyId: partyId ?? null,
+          workshopId: workshopId ?? null,
           attending: Object.entries(attending).filter(([, coming]) => coming).map(([id]) => id),
           responsibleAdult: responsibleAdult.trim(),
         }),
