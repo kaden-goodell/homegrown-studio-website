@@ -189,7 +189,7 @@ export const siteConfig: SiteConfig = {
   name: 'Homegrown Studio',
   tagline: 'Create. Celebrate. Connect.',
   logo: '/images/logo.svg',
-  contactEmail: 'hello@homegrowncraftstudio.com',
+  contactEmail: 'contact@homegrowncraftstudio.com', // real Workspace alias; hello@ does not exist
   contactPhone: '(256) 464-1710',
   address: {
     street: '525 Hughes Rd, Suite F',
@@ -351,7 +351,7 @@ export const siteConfig: SiteConfig = {
     items: [],
   },
   email: {
-    fromAddress: 'hello@homegrowncraftstudio.com',
+    fromAddress: 'contact@homegrowncraftstudio.com', // display-only; actual SMTP sender is GMAIL_USER
     fromName: 'Homegrown Studio',
   },
   nav: [

@@ -37,7 +37,7 @@ Booking confirmation emails are sent via Gmail SMTP and are gated on two environ
 1. Go to your Google account → Security → 2-Step Verification → App passwords
 2. Create an app password named "Homegrown Studio" — copy the 16-character code
 3. Add to Netlify dashboard → Site configuration → Environment variables:
-   - `GMAIL_USER` = your Gmail address (e.g. `hello@homegrowncraftstudio.com`)
+   - `GMAIL_USER` = kaden@homegrowncraftstudio.com (SET in Netlify 2026-07-10, working)
    - `GMAIL_APP_PASSWORD` = the 16-character app password (no spaces)
 4. Add to your local `.env` file for dev testing:
    ```
