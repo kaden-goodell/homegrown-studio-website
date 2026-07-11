@@ -67,6 +67,12 @@ export interface SiteConfig {
     items: { quote: string; name: string; detail: string }[]
   }
   nav?: NavItem[]
+  /** Public walk-in hours, displayed in footer / Open Studio / homepage. */
+  hours: { days: string; time: string }[]
+  /** Grand-opening date (ISO). Drives the pre-launch banner; remove after opening. */
+  openingDate: string
+  /** Header call-to-action button (rendered as a pill, not a text link). */
+  navCta: { label: string; href: string }
   email?: {
     fromAddress: string
     fromName: string
@@ -197,6 +203,12 @@ export const siteConfig: SiteConfig = {
     state: 'AL',
     zip: '35758',
   },
+  hours: [
+    { days: 'Thursday & Friday', time: '4 – 9 PM' },
+    { days: 'Saturday', time: '9 AM – 9 PM' },
+    { days: 'Sunday', time: '2 – 8 PM' },
+  ],
+  openingDate: '2026-09-01',
   theme: {
     colors: {
       primary: '#96705B',
@@ -301,7 +313,7 @@ export const siteConfig: SiteConfig = {
     },
     newsletter: true,
     coupons: true,
-    gallery: true,
+    gallery: false,
   },
   eventTypes: [
     ...partyTypes,
@@ -355,13 +367,13 @@ export const siteConfig: SiteConfig = {
     fromName: 'Homegrown Studio',
   },
   nav: [
-    { label: 'Home', href: '/' },
+    { label: 'Open Studio', href: '/open-studio' },
     { label: 'Workshops', href: '/workshops' },
-    { label: 'Calendar', href: '/calendar' },
-    { label: 'Book a Party', href: '/book' },
-    { label: 'Gallery', href: '/gallery' },
+    { label: 'Parties', href: '/book' },
+    { label: "What's On", href: '/calendar' },
     { label: 'About', href: '/about' },
   ],
+  navCta: { label: 'Book a Party', href: '/book' },
 }
 
 export function validateConfig(config: SiteConfig): void {
