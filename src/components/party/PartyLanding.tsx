@@ -37,6 +37,10 @@ const PER_PERSON_EXAMPLE = Math.round(FEE_DOLLARS / partyContent.deposit.perPers
 
 export default function PartyLanding() {
   const [crafts, setCrafts] = useState<Craft[]>([])
+  // Gallery previews the first two desktop rows; the rest sit behind one tap so
+  // a growing catalog never buries the open-dates section (the real converter).
+  const CRAFT_PREVIEW_COUNT = 6
+  const [showAllCrafts, setShowAllCrafts] = useState(false)
   const [variationId, setVariationId] = useState<string | null>(null)
   const [nextDates, setNextDates] = useState<string[]>([])
   const [modalOpen, setModalOpen] = useState(false)
@@ -154,7 +158,7 @@ export default function PartyLanding() {
             Every guest makes one — you choose which. Tap share to send a favorite to your group.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(17rem, 1fr))', gap: '1.5rem' }}>
-            {crafts.map((craft) => (
+            {(showAllCrafts ? crafts : crafts.slice(0, CRAFT_PREVIEW_COUNT)).map((craft) => (
               <div
                 key={craft.id}
                 style={{
@@ -187,7 +191,7 @@ export default function PartyLanding() {
                   {/* Image (or a tasteful placeholder) — fixed 4:3 so every card aligns */}
                   <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, rgba(150,112,91,0.10), rgba(198,167,142,0.20))' }}>
                     {craft.imageUrl ? (
-                      <img src={craft.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                      <img src={craft.imageUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     ) : (
                       <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 600, color: 'rgba(150,112,91,0.55)', textAlign: 'center', padding: '0 1rem' }}>{craft.name}</span>
                     )}
@@ -241,6 +245,26 @@ export default function PartyLanding() {
               </div>
             ))}
           </div>
+          {!showAllCrafts && crafts.length > CRAFT_PREVIEW_COUNT && (
+            <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
+              <button
+                type="button"
+                onClick={() => setShowAllCrafts(true)}
+                style={{
+                  padding: '0.65rem 1.5rem',
+                  borderRadius: '999px',
+                  border: '1px solid rgba(150, 112, 91, 0.3)',
+                  background: 'rgba(255, 255, 255, 0.9)',
+                  color: 'var(--color-dark)',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Show all {crafts.length} crafts ↓
+              </button>
+            </div>
+          )}
         </div>
       )}
 

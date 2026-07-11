@@ -99,7 +99,9 @@ export const GET: APIRoute = async () => {
           popular,
         }
       })
-      .sort((a, b) => a.name.localeCompare(b.name))
+      // Popular first (the gallery previews only the first few cards), then
+      // alphabetical within each group.
+      .sort((a, b) => Number(!!b.popular) - Number(!!a.popular) || a.name.localeCompare(b.name))
 
     const data = {
       service: {
