@@ -126,6 +126,27 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     logger.info('Payment bypass active — returning synthetic party booking')
     const bookingId = `dev_${Date.now().toString(36)}`
     const hostToken = await persistParty(bookingId, body)
+    // Send the real confirmation email too (no-ops without GMAIL_* creds) so
+    // the whole flow — including the email — is testable locally. Beware: with
+    // creds in .env this sends an ACTUAL email to whatever address you typed.
+    const bypassOrigin = new URL(request.url).origin
+    const bypassSlotLabel = formatSlotLabel(body.startTime)
+    const { sent: bypassEmailSent } = hostToken
+      ? await sendPartyConfirmationEmail({
+          to: body.customer.email,
+          hostName: body.customer.firstName,
+          craftName: body.craft.name,
+          craftDescription: String(body.craft.description ?? '').slice(0, 2000),
+          slotLabel: bypassSlotLabel,
+          hostPageUrl: `${bypassOrigin}/party/${encodeURIComponent(bookingId)}?key=${encodeURIComponent(hostToken)}`,
+          inviteUrl: partyInviteUrl(
+            { bookingId, craftName: body.craft.name, slotLabel: bypassSlotLabel, startIso: body.startTime },
+            bypassOrigin,
+          ),
+          totalChargedCents: partyConfig.basePriceCents,
+          receiptUrl: null,
+        })
+      : { sent: false }
     return new Response(
       JSON.stringify({
         data: {
@@ -134,7 +155,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           orderId: `dev_order_${Date.now().toString(36)}`,
           receiptUrl: null,
           totalCharged: partyConfig.basePriceCents,
-          emailSent: false,
+          emailSent: bypassEmailSent,
           customer: { id: 'dev-customer' },
         },
       }),
