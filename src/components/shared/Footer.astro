@@ -26,6 +26,17 @@ if (siteConfig.nav && siteConfig.nav.length > 0) {
   }
 }
 
+// Kits joins the nav when the feature is live (or in local dev, where the
+// /kits page is always previewable) — inserted after "Parties".
+if (siteConfig.features.kits.enabled || import.meta.env.DEV) {
+  const partiesIdx = navItems.findIndex((i) => i.href === '/book')
+  navItems = [
+    ...navItems.slice(0, partiesIdx + 1),
+    { label: 'Kits', href: '/kits' },
+    ...navItems.slice(partiesIdx + 1),
+  ]
+}
+
 const currentYear = new Date().getFullYear()
 const { street, city, state, zip } = siteConfig.address
 ---
