@@ -10,7 +10,7 @@ export function toWorkshopData(w: Workshop): WorkshopData {
   const start = new Date(w.startAt)
   const end = new Date(start.getTime() + w.durationMinutes * 60_000)
   // TODO(timezone): w.startAt is UTC ISO. `.split('T')[0]` returns the UTC
-  // date string, but WorkshopCard/SearchView/CalendarView parse it as
+  // date string, but WorkshopCard parses it as
   // local midnight. For a late-evening local time whose UTC equivalent
   // crosses midnight, the rendered date can be off by one day. Pre-existing
   // bug carried over from workshops.astro; resolve in the workshops-launch plan.

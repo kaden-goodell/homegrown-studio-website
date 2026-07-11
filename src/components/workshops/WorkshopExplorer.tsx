@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
-import SearchView from './SearchView'
-import CalendarView from './CalendarView'
+import WorkshopCard from './WorkshopCard'
 import WorkshopBookingModal from './WorkshopBookingModal'
 
 export interface WorkshopData {
@@ -26,8 +25,6 @@ export interface WorkshopExplorerProps {
   /** Optional initial list (e.g. SSR). If empty, the component fetches client-side. */
   workshops?: WorkshopData[]
 }
-
-type View = 'search' | 'calendar'
 
 /** Placeholder cards shown while workshops load, so navigation feels instant. */
 function WorkshopSkeleton() {
@@ -57,7 +54,6 @@ function WorkshopSkeleton() {
 export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: WorkshopExplorerProps) {
   const [workshops, setWorkshops] = useState<WorkshopData[]>(initialWorkshops)
   const [loading, setLoading] = useState(initialWorkshops.length === 0)
-  const [view, setView] = useState<View>('search')
   const [bookingWorkshop, setBookingWorkshop] = useState<WorkshopData | null>(null)
 
   // Fetch workshops client-side so the page shell renders immediately instead of
@@ -95,47 +91,34 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
     if (target) setBookingWorkshop(target)
   }, [workshops])
 
+  const sorted = [...workshops].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime)
+  )
+
   return (
     <div>
-      <div className="flex gap-2 mb-8">
-          {(['search', 'calendar'] as View[]).map((v) => (
-            <button
-              key={v}
-              onClick={() => setView(v)}
-              className="px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300"
-              style={
-                view === v
-                  ? {
-                      background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
-                      color: 'white',
-                      boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
-                    }
-                  : {
-                      background: 'rgba(255, 255, 255, 0.75)',
-                      backdropFilter: 'blur(12px)',
-                      border: '1px solid rgba(150, 112, 91, 0.06)',
-                      color: 'var(--color-text)',
-                    }
-              }
-            >
-              {v.charAt(0).toUpperCase() + v.slice(1)}
-            </button>
-          ))}
-      </div>
-
       {loading ? (
         <WorkshopSkeleton />
-      ) : view === 'search' ? (
-        <SearchView workshops={workshops} onBook={setBookingWorkshop} />
+      ) : sorted.length === 0 ? (
+        <div className="glass" style={{ borderRadius: '1rem', padding: '3rem 2rem', textAlign: 'center' }}>
+          <p className="font-heading" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-dark)' }}>
+            New workshops are on the way
+          </p>
+          <p style={{ marginTop: '0.5rem', fontSize: '0.9375rem', color: 'var(--color-muted)' }}>
+            Join the newsletter and you&rsquo;ll hear about them first — or{' '}
+            <a href="/calendar" style={{ color: 'var(--color-primary)', textDecoration: 'underline' }}>see what else is on</a>.
+          </p>
+        </div>
       ) : (
-        <CalendarView workshops={workshops} onBook={setBookingWorkshop} />
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(16rem, 1fr))', gap: '1.5rem' }}>
+          {sorted.map((w) => (
+            <WorkshopCard key={w.id} workshop={w} onBook={setBookingWorkshop} />
+          ))}
+        </div>
       )}
 
       {bookingWorkshop && (
-        <WorkshopBookingModal
-          workshop={bookingWorkshop}
-          onClose={() => setBookingWorkshop(null)}
-        />
+        <WorkshopBookingModal workshop={bookingWorkshop} onClose={() => setBookingWorkshop(null)} />
       )}
     </div>
   )

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { render, screen } from '@testing-library/react'
 import WorkshopExplorer from '@components/workshops/WorkshopExplorer'
 
 vi.mock('@components/workshops/WorkshopCard', () => ({
@@ -10,10 +10,6 @@ vi.mock('@components/workshops/WorkshopCard', () => ({
 
 vi.mock('@components/workshops/WorkshopBookingModal', () => ({
   default: () => <div data-testid="booking-modal">Modal</div>,
-}))
-
-vi.mock('@components/workshops/CalendarView', () => ({
-  default: () => <div data-testid="calendar-view">Calendar</div>,
 }))
 
 const mockWorkshops = [
@@ -45,37 +41,38 @@ const mockWorkshops = [
   },
 ]
 
+afterEach(() => {
+  window.history.replaceState({}, '', '/workshops')
+  vi.restoreAllMocks()
+})
+
 describe('WorkshopExplorer', () => {
-  it('renders view toggle and defaults to search view', () => {
-    render(<WorkshopExplorer workshops={mockWorkshops} />)
+  it('renders one card per workshop in chronological order', () => {
+    // Pass them out of order to prove the component sorts by date/time.
+    render(<WorkshopExplorer workshops={[mockWorkshops[1], mockWorkshops[0]]} />)
 
-    expect(screen.getByRole('button', { name: 'Search' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Calendar' })).toBeInTheDocument()
-    expect(screen.getByPlaceholderText(/search workshops/i)).toBeInTheDocument()
+    const cards = screen.getAllByTestId(/^workshop-/)
+    expect(cards.map((c) => c.getAttribute('data-testid'))).toEqual([
+      'workshop-1',
+      'workshop-2',
+    ])
   })
 
-  it('search filters workshops by name', () => {
-    render(<WorkshopExplorer workshops={mockWorkshops} />)
+  it('shows the empty-state copy when there are no workshops', async () => {
+    // No SSR list → the component fetches; make the fetch return an empty list.
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: true, json: async () => ({ workshops: [] }) }),
+    )
+    render(<WorkshopExplorer />)
 
-    const input = screen.getByPlaceholderText(/search workshops/i)
-    fireEvent.change(input, { target: { value: 'Candle' } })
-
-    expect(screen.getByTestId('workshop-1')).toBeInTheDocument()
-    expect(screen.queryByTestId('workshop-2')).not.toBeInTheDocument()
+    expect(await screen.findByText(/New workshops are on the way/i)).toBeInTheDocument()
   })
 
-  it('view toggle switches between calendar and search', () => {
+  it('opens the booking modal when a ?w=<id> deeplink is present', () => {
+    window.history.replaceState({}, '', '/workshops?w=2')
     render(<WorkshopExplorer workshops={mockWorkshops} />)
 
-    expect(screen.getByPlaceholderText(/search workshops/i)).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Calendar' }))
-
-    expect(screen.queryByPlaceholderText(/search workshops/i)).not.toBeInTheDocument()
-    expect(screen.getByTestId('calendar-view')).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }))
-
-    expect(screen.getByPlaceholderText(/search workshops/i)).toBeInTheDocument()
+    expect(screen.getByTestId('booking-modal')).toBeInTheDocument()
   })
 })
