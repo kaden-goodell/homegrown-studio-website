@@ -1,0 +1,54 @@
+---
+export const prerender = false
+
+import Layout from '@layouts/Layout.astro'
+import KitLanding from '@components/kits/KitLanding'
+import { siteConfig } from '@config/site.config'
+import { kitContent } from '@config/kit-content'
+
+// Pre-launch safety: kits live behind a feature flag. Until it flips, /kits is
+// not a real page — send visitors to the party flow rather than a dead product.
+if (!siteConfig.features.kits.enabled) {
+  return Astro.redirect('/book')
+}
+
+const { hero, howItWorks } = kitContent
+---
+
+<Layout title="Take-Home Party Kits">
+  <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-28">
+    <div class="text-center mb-16 fade-in">
+      <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">
+        {hero.eyebrow}
+      </p>
+      <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">
+        {hero.headline}
+      </h1>
+      <p class="text-lg mt-6 max-w-xl mx-auto" style="color: var(--color-muted);">
+        {hero.subline}
+      </p>
+    </div>
+
+    {/* How it works — three-step strip */}
+    <div class="grid gap-4 sm:grid-cols-3 max-w-4xl mx-auto mb-16 fade-in">
+      {howItWorks.map((s) => (
+        <div class="glass rounded-2xl p-6 text-center">
+          <span
+            class="inline-flex items-center justify-center w-9 h-9 rounded-full text-sm font-bold mb-3"
+            style="background: rgba(150, 112, 91, 0.12); color: var(--color-primary);"
+          >
+            {s.n}
+          </span>
+          <h3 class="text-base font-heading font-semibold mb-1.5" style="color: var(--color-dark);">
+            {s.title}
+          </h3>
+          <p class="text-sm leading-relaxed" style="color: var(--color-muted);">
+            {s.text}
+          </p>
+        </div>
+      ))}
+    </div>
+
+    <KitLanding client:load />
+  </section>
+</Layout>
