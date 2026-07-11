@@ -30,6 +30,13 @@ export interface PartyRecord {
    * confirmed pickup list + a pickup code + dropdown check-out. Parties are never drop-off (a responsible adult stays with each child); only studio-run drop-off events (camps, PNO) set this, via the staff console.
    */
   dropOff: boolean
+  /**
+   * In-studio themed-table add-on, when the host booked one. `displayName` is
+   * the SELECTED theme (e.g. "The Sweet Sixteen") — never the ledger-collapsed
+   * variant — so staff staging the room see the right name. `claimRef` is the
+   * reservation key on the shared kit ledger, released when the party cancels.
+   */
+  theme?: { themeId: string; displayName: string; serves: number; claimRef: string }
   createdAt: string // ISO
 }
 

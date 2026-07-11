@@ -2,6 +2,8 @@ import type { APIRoute } from 'astro'
 import { createSquareClient } from '@providers/square/client'
 import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
+import { kitConfig } from '@config/kit.config'
+import { kitThemes } from '@config/kit-content'
 import { createLogger } from '@lib/logger'
 import type { SquareConfig } from '@config/site.config'
 
@@ -103,6 +105,22 @@ export const GET: APIRoute = async () => {
       // alphabetical within each group.
       .sort((a, b) => Number(!!b.popular) - Number(!!a.popular) || a.name.localeCompare(b.name))
 
+    // In-studio themed-table add-on: stocked themes only, and only when the kit
+    // product is live AND seeded (empty variation maps would offer unbuyable
+    // tables). Omitted entirely otherwise so the party UI can't surface it.
+    const themesEnabled = siteConfig.features.kits.enabled && !!kitConfig.square.packageItemId
+    const themes = themesEnabled
+      ? kitThemes
+          .filter((t) => t.stocked)
+          .map((t) => ({
+            id: t.id,
+            displayName: t.displayName,
+            tagline: t.tagline,
+            photo: t.photo,
+            tiers: kitConfig.tiers.map((tt) => ({ serves: tt.serves, packagePriceCents: tt.packagePriceCents })),
+          }))
+      : undefined
+
     const data = {
       service: {
         id: item.id as string,
@@ -114,6 +132,7 @@ export const GET: APIRoute = async () => {
       basePriceCents: partyConfig.basePriceCents,
       teamMemberId: partyConfig.square.defaultTeamMemberId,
       crafts,
+      ...(themes ? { themes } : {}),
     }
 
     logger.info('Party service info fetched', {

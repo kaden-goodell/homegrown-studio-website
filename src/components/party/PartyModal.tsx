@@ -47,6 +47,15 @@ interface Craft {
   popular?: boolean
 }
 
+/** In-studio themed-table add-on (present only when the kit product is live + seeded). */
+interface PartyTheme {
+  id: string
+  displayName: string
+  tagline: string
+  photo: string
+  tiers: { serves: number; packagePriceCents: number }[]
+}
+
 interface ServiceInfo {
   service: { id: string; name: string }
   variationId: string
@@ -55,6 +64,7 @@ interface ServiceInfo {
   basePriceCents: number
   teamMemberId: string
   crafts: Craft[]
+  themes?: PartyTheme[]
 }
 
 interface Slot {
@@ -139,6 +149,14 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
   // Guests — anchored at a realistic party size, never 1.
   const [people, setPeople] = useState<number>(partyConfig.defaultGuests)
+
+  // Optional in-studio themed table. `null` = "just crafts" (the default).
+  const [selectedTheme, setSelectedTheme] = useState<PartyTheme | null>(null)
+  const [themeSectionOpen, setThemeSectionOpen] = useState(false)
+  // True once a selection was auto-cleared because the guest count outgrew the
+  // largest table tier — drives an explanatory note so the customer isn't left
+  // believing they ordered a table we can't serve.
+  const [themeDeselectedNote, setThemeDeselectedNote] = useState(false)
 
   // Contact info
   const [firstName, setFirstName] = useState('')
@@ -398,8 +416,31 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const perHeadMax = selectedCraft?.perHeadMaxCents ?? perHead
   const hasPriceRange = perHeadMax > perHead // craft has multiple variants → show a range
   const craftLines = craftBreakdown(selectedCraft?.name ?? 'Craft', perHead, people)
-  const deposit = BASE_FEE_CENTS // charged today to book
+
+  // Themed table: the package tier is the guest count rounded up to the next 5.
+  // Tables cap at the largest kit tier (20); larger parties see no table offer.
+  const partyThemes = info?.themes ?? []
+  const themeTierServes = Math.ceil(people / 5) * 5
+  const themeTierAvailable = partyThemes[0]?.tiers.some((t) => t.serves === themeTierServes) ?? false
+  const currentThemeTier = selectedTheme?.tiers.find((t) => t.serves === themeTierServes) ?? null
+  // Only price/charge a theme when the current guest count maps to a real tier.
+  const themePriceCents = themeTierAvailable ? currentThemeTier?.packagePriceCents ?? 0 : 0
+
+  const deposit = BASE_FEE_CENTS + themePriceCents // charged today to book
   const craftEstimate = craftTotalCents(perHead, people) // paid at the studio, based on attendance
+
+  // Guest count moved past the largest table tier → clear a stale selection so
+  // the card can't stay highlighted for a table that won't be part of the order.
+  useEffect(() => {
+    if (!themeTierAvailable) {
+      if (selectedTheme) {
+        setSelectedTheme(null)
+        setThemeDeselectedNote(true)
+      }
+    } else {
+      setThemeDeselectedNote(false)
+    }
+  }, [themeTierAvailable, selectedTheme])
 
   const stepIdx = stepIndex(currentStep, steps)
   const progress = completed ? 100 : steps.length > 1 ? (stepIdx / (steps.length - 1)) * 100 : 100
@@ -489,6 +530,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             email: email.trim(),
             phone: phone.trim(),
           },
+          // Themed table: send only when the current guest count maps to a real
+          // tier (server re-derives price + variation from themeId + serves).
+          ...(selectedTheme && themeTierAvailable
+            ? { theme: { themeId: selectedTheme.id, serves: themeTierServes } }
+            : {}),
           paymentToken: token,
         }),
       })
@@ -645,6 +691,19 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     transition: 'background 0.2s ease, border-color 0.2s ease',
   })
 
+  const themeCardStyle = (active: boolean): React.CSSProperties => ({
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '0.1rem',
+    padding: '0.625rem 0.75rem',
+    borderRadius: '0.625rem',
+    border: active ? '1px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.15)',
+    background: active ? 'rgba(150, 112, 91, 0.12)' : 'rgba(255, 255, 255, 0.8)',
+    cursor: 'pointer',
+    textAlign: 'left',
+    transition: 'background 0.2s ease, border-color 0.2s ease',
+  })
+
   /** Itemized summary rows (base + one row per craft price tier), shared by the
    *  Guests and Payment steps. Driven entirely by the pricing helpers so the
    *  displayed total always matches what we post to /api/party/book.json. */
@@ -653,8 +712,14 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       <>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
           <span>Studio fee — due today</span>
-          <span>{formatPrice(deposit)}</span>
+          <span>{formatPrice(BASE_FEE_CENTS)}</span>
         </div>
+        {selectedTheme && themePriceCents > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
+            <span>Themed table — {selectedTheme.displayName} (serves {themeTierServes})</span>
+            <span>{formatPrice(themePriceCents)}</span>
+          </div>
+        )}
         {selectedCraft && (
           <>
             {hasPriceRange ? (
@@ -1355,6 +1420,73 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                   : `Parties are for ${partyConfig.minGuests}–${partyConfig.maxGuests} guests with a ${partyConfig.minGuests}-craft minimum. This is just an estimate — you'll pay for crafts at the studio based on who actually comes.`}
               </p>
             </div>
+
+            {/* Optional themed-table add-on (only when the kit product is live). */}
+            {partyThemes.length > 0 && (
+              <div style={{ marginBottom: '1.5rem', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '1rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setThemeSectionOpen((o) => !o)}
+                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' }}
+                >
+                  <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                    ✨ Add a themed table
+                    {selectedTheme && themePriceCents > 0 && (
+                      <span style={{ fontWeight: 400, color: 'var(--color-muted)' }}> — {selectedTheme.displayName}</span>
+                    )}
+                  </span>
+                  <span style={{ fontSize: '1rem', color: 'var(--color-muted)' }}>{themeSectionOpen ? '−' : '+'}</span>
+                </button>
+
+                {themeSectionOpen && (
+                  <div style={{ marginTop: '0.875rem' }}>
+                    {themeTierAvailable ? (
+                      <>
+                        <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0 0 0.75rem' }}>
+                          A styled, photo-worthy table for your group — set up and ready when you arrive. Priced for {themeTierServes} guests.
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(9rem, 1fr))', gap: '0.5rem' }}>
+                          {/* Explicit first-class "no table" default. */}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedTheme(null)}
+                            style={themeCardStyle(selectedTheme === null)}
+                          >
+                            <span style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--color-dark)' }}>No themed table</span>
+                            <span style={{ fontSize: '0.72rem', color: 'var(--color-muted)' }}>Just crafts</span>
+                          </button>
+                          {partyThemes.map((t) => {
+                            const tier = t.tiers.find((tt) => tt.serves === themeTierServes)
+                            return (
+                              <button
+                                key={t.id}
+                                type="button"
+                                onClick={() => setSelectedTheme(t)}
+                                style={themeCardStyle(selectedTheme?.id === t.id)}
+                              >
+                                <span style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--color-dark)' }}>{t.displayName}</span>
+                                <span style={{ fontSize: '0.72rem', color: 'var(--color-muted)' }}>{t.tagline}</span>
+                                {tier && (
+                                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-primary)', marginTop: '0.15rem' }}>
+                                    {formatPrice(tier.packagePriceCents)}
+                                  </span>
+                                )}
+                              </button>
+                            )
+                          })}
+                        </div>
+                      </>
+                    ) : (
+                      <p style={{ fontSize: '0.78rem', color: 'var(--color-muted)', margin: 0 }}>
+                        {themeDeselectedNote
+                          ? `Themed tables are available for parties up to 20 guests — deselected for ${people} guests.`
+                          : 'Themed tables are available for parties up to 20 guests.'}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* Live total breakdown */}
             <div style={{

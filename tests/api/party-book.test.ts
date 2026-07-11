@@ -16,14 +16,30 @@ vi.mock('@lib/email', () => ({
 }))
 
 // Mock party-store so we don't write to Netlify Blobs
+const mockGetPartyRecord = vi.fn()
 vi.mock('@lib/party-store', () => ({
   savePartyRecord: vi.fn().mockResolvedValue(undefined),
   newHostToken: vi.fn().mockReturnValue('mock-host-token'),
+  getPartyRecord: (...args: any[]) => mockGetPartyRecord(...args),
 }))
 
 // Mock dev-flags so payment bypass is always disabled in tests
 vi.mock('@lib/dev-flags', () => ({
   paymentBypassEnabled: vi.fn().mockReturnValue(false),
+}))
+
+// Mock kit-store — the themed-table claims ledger. The party flow reserves a
+// theme-week before charging and confirms/releases around the outcome (LR-1).
+const mockClaimWeek = vi.fn()
+const mockConfirmWeekClaim = vi.fn()
+const mockReleaseWeekClaim = vi.fn()
+const mockListKitOrders = vi.fn()
+vi.mock('@lib/kit-store', () => ({
+  claimWeek: (...args: any[]) => mockClaimWeek(...args),
+  confirmWeekClaim: (...args: any[]) => mockConfirmWeekClaim(...args),
+  releaseWeekClaim: (...args: any[]) => mockReleaseWeekClaim(...args),
+  listKitOrders: (...args: any[]) => mockListKitOrders(...args),
+  kitOrderToLedgerRecord: () => null,
 }))
 
 // --- Mutable provider spies (shared across tests, reset in beforeEach) ---
@@ -32,6 +48,7 @@ const mockCancelBooking = vi.fn()
 const mockFindOrCreate = vi.fn()
 const mockCreateOrder = vi.fn()
 const mockProcessPayment = vi.fn()
+const mockNotify = vi.fn()
 
 vi.mock('@config/providers', () => ({
   providers: {
@@ -46,8 +63,31 @@ vi.mock('@config/providers', () => ({
     customer: {
       findOrCreate: (...args: any[]) => mockFindOrCreate(...args),
     },
+    notification: {
+      send: (...args: any[]) => mockNotify(...args),
+    },
   },
 }))
+
+// Package price for the serves-10 tier — matches kit.config's real tiers.
+const GILDED_10_PRICE_CENTS = 7500
+
+/** Seed kit config so themed tables are enabled + "seeded" for the theme tests. */
+async function enableThemedTables() {
+  const { siteConfig } = await import('@config/site.config')
+  ;(siteConfig.features as any).kits = { enabled: true }
+  const { kitConfig } = await import('@config/kit.config')
+  Object.assign(kitConfig.square, {
+    assemblyItemId: 'assembly-item',
+    assemblyVariationId: 'assembly-var',
+    packageItemId: 'pkg-item',
+    depositItemId: 'dep-item',
+  })
+  ;(kitConfig.square.packageVariations as any).gilded = { 10: 'g10', 15: 'g15', 20: 'g20' }
+  ;(kitConfig.square.depositVariations as any)[10] = 'd10'
+  ;(kitConfig.square.depositVariations as any)[15] = 'd15'
+  ;(kitConfig.square.depositVariations as any)[20] = 'd20'
+}
 
 // --- Helpers ---
 
@@ -93,7 +133,7 @@ function makeMockBooking(id = 'booking-xyz') {
   }
 }
 
-function makeMockOrder(totalAmount = basePriceCents) {
+function makeMockOrder(totalAmount: number = basePriceCents) {
   return { id: 'order-1', lineItems: [], discounts: [], totalAmount, currency: 'USD', status: 'open' }
 }
 
@@ -128,6 +168,15 @@ describe('POST /api/party/book.json', () => {
     mockCancelBooking.mockResolvedValue(undefined)
     mockCreateOrder.mockResolvedValue(makeMockOrder())
     mockProcessPayment.mockResolvedValue(makeMockPayment())
+    mockNotify.mockResolvedValue(undefined)
+
+    mockClaimWeek.mockResolvedValue('ok')
+    mockConfirmWeekClaim.mockResolvedValue('ok')
+    mockReleaseWeekClaim.mockResolvedValue(undefined)
+    mockListKitOrders.mockResolvedValue([])
+    mockGetPartyRecord.mockResolvedValue(null)
+
+    await enableThemedTables()
 
     const mod = await import('@pages/api/party/book.json')
     POST = mod.POST
@@ -242,5 +291,135 @@ describe('POST /api/party/book.json', () => {
     expect(json.detail).toMatch(/not charged|released/i)
     expect(mockCancelBooking).toHaveBeenCalledWith('booking-mismatch', expect.anything())
     expect(mockProcessPayment).not.toHaveBeenCalled()
+  })
+
+  // ── Themed-table add-on ───────────────────────────────────────────────────
+
+  // (T1) theme happy path → package line item, amount guard includes package,
+  // claim placed as kind:'party', claim confirmed after payment.
+  it('accepts a themed table: adds the package line item, guards the combined total, confirms the claim', async () => {
+    const total = basePriceCents + GILDED_10_PRICE_CENTS
+    mockCreateOrder.mockResolvedValue(makeMockOrder(total))
+
+    const ctx = createMockContext(makeBody({ theme: { themeId: 'gilded', serves: 10 } }))
+    const res = await POST(ctx)
+
+    expect(res.status).toBe(200)
+
+    // A package line item carrying the server-derived variation id was added.
+    const orderArg = mockCreateOrder.mock.calls[0][0]
+    const pkgLine = orderArg.lineItems.find((l: any) => l.catalogObjectId === 'g10')
+    expect(pkgLine).toBeDefined()
+    expect(pkgLine.pricePerUnit).toBe(GILDED_10_PRICE_CENTS)
+
+    // Claim reserved as a party, then confirmed after a successful charge.
+    expect(mockClaimWeek).toHaveBeenCalledTimes(1)
+    expect(mockClaimWeek.mock.calls[0][0]).toMatchObject({ ledgerThemeId: 'gilded', serves: 10, kind: 'party' })
+    expect(mockConfirmWeekClaim).toHaveBeenCalledTimes(1)
+    expect(mockReleaseWeekClaim).not.toHaveBeenCalled()
+  })
+
+  // (T2) theme serves must equal the guest tier (ceil-5). serves 15 with 10 guests → 400.
+  it('rejects a theme whose serves tier does not match the guest count', async () => {
+    const ctx = createMockContext(makeBody({ people: 10, theme: { themeId: 'gilded', serves: 15 } }))
+    const res = await POST(ctx)
+
+    expect(res.status).toBe(400)
+    expect(mockClaimWeek).not.toHaveBeenCalled()
+    expect(mockCreateBooking).not.toHaveBeenCalled()
+  })
+
+  // (T3) unstocked themes are never bookable.
+  it('rejects an unstocked theme', async () => {
+    const ctx = createMockContext(makeBody({ theme: { themeId: 'sterling', serves: 10 } }))
+    const res = await POST(ctx)
+
+    expect(res.status).toBe(400)
+    expect(mockClaimWeek).not.toHaveBeenCalled()
+    expect(mockCreateBooking).not.toHaveBeenCalled()
+  })
+
+  // (T4) claim comes back 'full' → 409, and nothing is booked or charged.
+  it('returns 409 when the theme week is fully claimed', async () => {
+    mockClaimWeek.mockResolvedValue('full')
+
+    const ctx = createMockContext(makeBody({ theme: { themeId: 'gilded', serves: 10 } }))
+    const res = await POST(ctx)
+
+    expect(res.status).toBe(409)
+    expect(mockCreateBooking).not.toHaveBeenCalled()
+    expect(mockProcessPayment).not.toHaveBeenCalled()
+    expect(mockConfirmWeekClaim).not.toHaveBeenCalled()
+  })
+
+  // (T5) failed charge with a theme releases BOTH the booking and the claim.
+  it('releases the claim and the booking when the charge fails', async () => {
+    const total = basePriceCents + GILDED_10_PRICE_CENTS
+    mockCreateOrder.mockResolvedValue(makeMockOrder(total))
+    mockProcessPayment.mockResolvedValue(makeMockPayment('failed'))
+
+    const ctx = createMockContext(makeBody({ theme: { themeId: 'gilded', serves: 10 } }))
+    const res = await POST(ctx)
+
+    expect(res.status).toBe(402)
+    expect(mockReleaseWeekClaim).toHaveBeenCalledTimes(1)
+    expect(mockCancelBooking).toHaveBeenCalledTimes(1)
+    expect(mockConfirmWeekClaim).not.toHaveBeenCalled()
+  })
+})
+
+// --- Cancellation frees the themed-table claim ------------------------------
+
+describe('POST /api/booking/cancel.json — themed-table release', () => {
+  let POST: any
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    vi.resetModules()
+
+    const avail = await import('@lib/party-availability')
+    vi.mocked(avail.studioDateOf).mockReturnValue('2026-09-01')
+
+    mockCancelBooking.mockResolvedValue(undefined)
+    mockNotify.mockResolvedValue(undefined)
+    mockReleaseWeekClaim.mockResolvedValue(undefined)
+    mockGetPartyRecord.mockResolvedValue(null)
+
+    const mod = await import('@pages/api/booking/cancel.json')
+    POST = mod.POST
+  })
+
+  it('releases the theme-week claim after a successful cancel', async () => {
+    mockGetPartyRecord.mockResolvedValue({
+      bookingId: 'booking-xyz',
+      startIso: '2026-09-01T16:00:00.000Z',
+      theme: { themeId: 'gilded', displayName: 'The Gilded Table', serves: 10, claimRef: 'party-abc123' },
+    })
+
+    const req = new Request('http://localhost/api/booking/cancel.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bookingId: 'booking-xyz', bookingVersion: 1 }),
+    })
+    const res = await POST({ request: req } as any)
+
+    expect(res.status).toBe(200)
+    expect(mockCancelBooking).toHaveBeenCalledWith('booking-xyz', 1)
+    // weekKeyFor(studioDateOf('2026-09-01...')) → the Thursday on/before Sep 1 = Aug 27.
+    expect(mockReleaseWeekClaim).toHaveBeenCalledWith('gilded', '2026-08-27', 'party-abc123')
+  })
+
+  it('does not release anything for a theme-less party', async () => {
+    mockGetPartyRecord.mockResolvedValue({ bookingId: 'b2', startIso: '2026-09-01T16:00:00.000Z' })
+
+    const req = new Request('http://localhost/api/booking/cancel.json', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bookingId: 'b2', bookingVersion: 1 }),
+    })
+    const res = await POST({ request: req } as any)
+
+    expect(res.status).toBe(200)
+    expect(mockReleaseWeekClaim).not.toHaveBeenCalled()
   })
 })
