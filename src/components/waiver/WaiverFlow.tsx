@@ -9,6 +9,10 @@ interface Props {
   partyLabel?: string
   /** Present when opened from a workshop confirmation — /waiver?workshop={bookingId} */
   workshopId?: string
+  /** True for studio-run drop-off events (camps/PNO) — resolved server-side from
+   *  the party record. Skips the responsible-adult question (drop-off programs
+   *  have their own check-in + pickup-code procedures). */
+  dropOff?: boolean
 }
 
 interface MinorRow {
@@ -86,7 +90,7 @@ function PartyLabelChip({ label }: { label: string }) {
   )
 }
 
-export default function WaiverFlow({ partyId, partyLabel, workshopId }: Props) {
+export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }: Props) {
   const { form, confirmation, legalSections } = waiverContent
 
   const [firstName, setFirstName] = useState('')
@@ -104,6 +108,9 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId }: Props) {
   const [agreeRelease, setAgreeRelease] = useState(false)
   const [signature, setSignature] = useState('')
   const [responsibleAdult, setResponsibleAdult] = useState('')
+  // Kids crafting without the signer on the list: is the signer still coming
+  // (watching, not crafting) or is another adult bringing them? null = unanswered.
+  const [signerPresent, setSignerPresent] = useState<boolean | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [done, setDone] = useState<{ covered: string[]; validUntil: string } | null>(null)
@@ -138,13 +145,86 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId }: Props) {
     return years
   }
 
-  // True when a party RSVP has kids attending but the signer is not coming —
-  // a responsible adult name is required.
+  // True when a party RSVP has kids crafting but the signer isn't on the craft
+  // list — we then ask whether the signer is still coming (watching) or another
+  // adult is. Skipped entirely for studio-run drop-off events.
   const kidsWithoutSigner =
     !!partyId &&
+    !dropOff &&
     minors.length > 0 &&
     formAttending['adult'] === false &&
     minors.some((_, i) => formComing(`child:${i}`))
+
+  /** What we tell staff about who's with the kids: the signer themselves
+   *  (watching, not crafting) or the adult they named. */
+  const effectiveResponsibleAdult = (signerName: string) =>
+    signerPresent === true ? `${signerName} (there, not crafting)` : responsibleAdult.trim()
+
+  // Same rule for the returning path (needed at payload-build scope).
+  const returningKidsWithoutSigner =
+    !!partyId &&
+    !dropOff &&
+    !!returning &&
+    returning.kids.length > 0 &&
+    attending['adult'] === false &&
+    returning.kids.some((_, i) => !!attending[`child:${i}`])
+
+  /** One gentle question when kids are crafting and the signer isn't: are you
+   *  still coming (watching), or is another adult bringing them? The name input
+   *  only appears in the second case. */
+  function presenceBlock(idPrefix: string) {
+    return (
+      <div style={{ marginTop: '0.9rem', textAlign: 'left' }}>
+        <p style={{ ...labelStyle, marginBottom: '0.45rem' }}>{form.presenceQuestion}</p>
+        {[
+          { value: true, label: form.presenceYes },
+          { value: false, label: form.presenceNo },
+        ].map((opt) => (
+          <label
+            key={String(opt.value)}
+            style={{
+              display: 'flex',
+              gap: '0.6rem',
+              alignItems: 'flex-start',
+              padding: '0.55rem 0.8rem',
+              borderRadius: '0.75rem',
+              border: `1px solid ${signerPresent === opt.value ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.2)'}`,
+              background: signerPresent === opt.value ? 'rgba(150, 112, 91, 0.08)' : 'transparent',
+              marginBottom: '0.45rem',
+              cursor: 'pointer',
+              fontSize: '0.875rem',
+              color: 'var(--color-dark)',
+              lineHeight: 1.45,
+            }}
+          >
+            <input
+              type="radio"
+              name={`${idPrefix}-presence`}
+              checked={signerPresent === opt.value}
+              onChange={() => setSignerPresent(opt.value)}
+              style={{ marginTop: '0.15rem' }}
+            />
+            {opt.label}
+          </label>
+        ))}
+        {signerPresent === false && (
+          <div style={{ marginTop: '0.5rem' }}>
+            <label style={labelStyle} htmlFor={`${idPrefix}-responsible-adult`}>
+              {form.responsibleAdultLabel}
+            </label>
+            <input
+              id={`${idPrefix}-responsible-adult`}
+              style={inputStyle}
+              value={responsibleAdult}
+              onChange={(e) => setResponsibleAdult(e.target.value)}
+              placeholder="e.g. Grandma Sue"
+            />
+            <p style={{ ...sectionNoteStyle, margin: '0.3rem 0 0' }}>{form.responsibleAdultNote}</p>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   // What's still keeping the form from being signable — surfaced by the button
   // so a disabled state is never a mystery (the photo choice and exact-match
@@ -166,13 +246,16 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId }: Props) {
     if (partyId && !['adult', ...minors.map((_, i) => `child:${i}`)].some((id) => formAttending[id] !== false)) {
       m.push('at least one person going to the party')
     }
-    if (kidsWithoutSigner && !responsibleAdult.trim()) {
+    if (kidsWithoutSigner && signerPresent === null) {
+      m.push("whether you’ll be at the party with your kids")
+    }
+    if (kidsWithoutSigner && signerPresent === false && !responsibleAdult.trim()) {
       m.push("the adult who’ll be with your child at the party")
     }
     if (!agreeRelease) m.push('the checkbox agreeing to the terms')
     if (!signatureMatches) m.push('your typed signature (must match your name exactly)')
     return m
-  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, signatureMatches, partyId, formAttending, kidsWithoutSigner, responsibleAdult])
+  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, signatureMatches, partyId, formAttending, kidsWithoutSigner, signerPresent, responsibleAdult])
 
   const canSubmit = missing.length === 0 && !submitting
 
@@ -209,9 +292,9 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId }: Props) {
           signature: signature.trim(),
           partyId: partyId ?? null,
           workshopId: workshopId ?? null,
-          // Who's actually doing the craft — the signer may just be dropping off.
+          // Who's making a craft — watchers come free and aren't counted here.
           attending: ['adult', ...minors.map((_, i) => `child:${i}`)].filter(formComing),
-          responsibleAdult: responsibleAdult.trim(),
+          responsibleAdult: kidsWithoutSigner ? effectiveResponsibleAdult(fullName) : '',
         }),
       })
       const json = await res.json().catch(() => null)
@@ -286,7 +369,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId }: Props) {
           partyId: partyId ?? null,
           workshopId: workshopId ?? null,
           attending: Object.entries(attending).filter(([, coming]) => coming).map(([id]) => id),
-          responsibleAdult: responsibleAdult.trim(),
+          responsibleAdult: returningKidsWithoutSigner ? effectiveResponsibleAdult(returning.firstName) : '',
         }),
       })
       const json = await res.json().catch(() => null)
@@ -425,13 +508,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId }: Props) {
 
   // Returning customer with a valid agreement on file — one-tap RSVP.
   if (mode === 'returning' && returning) {
-    // Determine if we need the responsible-adult field in the returning path.
-    const returningKidsWithoutSigner =
-      !!partyId &&
-      returning.kids.length > 0 &&
-      attending['adult'] === false &&
-      returning.kids.some((_, i) => !!attending[`child:${i}`])
-
     const returningValidDate = returning.validUntil
       ? new Date(returning.validUntil).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
       : ''
@@ -485,25 +561,15 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId }: Props) {
           )
         })()}
         {returningKidsWithoutSigner && (
-          <div style={{ textAlign: 'left', maxWidth: '22rem', margin: '0 auto 1rem' }}>
-            <label style={labelStyle} htmlFor="wv-ret-responsible-adult">
-              {form.responsibleAdultLabel}
-            </label>
-            <input
-              id="wv-ret-responsible-adult"
-              style={inputStyle}
-              value={responsibleAdult}
-              onChange={(e) => setResponsibleAdult(e.target.value)}
-              placeholder="e.g. Riding with Grandma Sue — she’ll be there"
-            />
-            <p style={{ ...sectionNoteStyle, margin: '0.3rem 0 0' }}>{form.responsibleAdultNote}</p>
-          </div>
+          <div style={{ maxWidth: '22rem', margin: '0 auto 1rem' }}>{presenceBlock('wv-ret')}</div>
         )}
         {error && <p style={{ color: 'rgb(185,28,28)', fontSize: '0.875rem', marginBottom: '0.75rem' }}>{error}</p>}
         {partyId ? (
           (() => {
             const noneComing = !Object.values(attending).some(Boolean)
-            const needsAdult = returningKidsWithoutSigner && !responsibleAdult.trim()
+            const needsAdult =
+              returningKidsWithoutSigner &&
+              (signerPresent === null || (signerPresent === false && !responsibleAdult.trim()))
             const disabled = submitting || noneComing || needsAdult
             return (
               <button
@@ -748,9 +814,9 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId }: Props) {
       {/* Who's coming — only in a party context */}
       {partyId && (
         <div style={cardStyle}>
-          <h2 style={sectionHeadingStyle}>Who’s coming to the party?</h2>
+          <h2 style={sectionHeadingStyle}>Who’s making a craft?</h2>
           <p style={sectionNoteStyle}>
-            Check everyone who’ll be there doing the craft.
+            Check everyone who’s crafting — coming along to watch is free, no checkmark needed.
           </p>
           {[{ id: 'adult', label: `${fullName || 'You'} (you)`, icon: '👤' }, ...minors.map((m, i) => ({ id: `child:${i}`, label: m.name.trim() || `Child ${i + 1}`, icon: '🧒' }))].map((p) => (
             <label
@@ -771,21 +837,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId }: Props) {
               Pick at least one person going to the party.
             </p>
           )}
-          {kidsWithoutSigner && (
-            <div style={{ marginTop: '0.9rem' }}>
-              <label style={labelStyle} htmlFor="wv-responsible-adult">
-                {form.responsibleAdultLabel}
-              </label>
-              <input
-                id="wv-responsible-adult"
-                style={inputStyle}
-                value={responsibleAdult}
-                onChange={(e) => setResponsibleAdult(e.target.value)}
-                placeholder="e.g. Riding with Grandma Sue — she’ll be there"
-              />
-              <p style={{ ...sectionNoteStyle, margin: '0.3rem 0 0' }}>{form.responsibleAdultNote}</p>
-            </div>
-          )}
+          {kidsWithoutSigner && presenceBlock('wv')}
         </div>
       )}
 

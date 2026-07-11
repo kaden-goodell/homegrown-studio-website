@@ -20,7 +20,7 @@ const subline = rawPartyId ? page.partySubline : page.subline
 //   4. threw             → transient storage error — keep partyId, no partyLabel
 
 type PartyOutcome =
-  | { kind: 'ok';      partyId: string; partyLabel: string }
+  | { kind: 'ok';      partyId: string; partyLabel: string; dropOff: boolean }
   | { kind: 'past';    notice: string }
   | { kind: 'unknown'; notice: string }
   | { kind: 'error';   partyId: string }
@@ -43,7 +43,7 @@ if (rawPartyId) {
         outcome = { kind: 'past', notice: 'This party has already happened.' }
       } else {
         const label = `${record.title ?? record.craftName + ' Party'} · ${formatWhen(record.startIso)} CT`
-        outcome = { kind: 'ok', partyId: rawPartyId, partyLabel: label }
+        outcome = { kind: 'ok', partyId: rawPartyId, partyLabel: label, dropOff: !!record.dropOff }
       }
     }
   } catch {
@@ -55,6 +55,7 @@ if (rawPartyId) {
 
 const flowPartyId   = outcome.kind === 'ok' ? outcome.partyId   : outcome.kind === 'error' ? outcome.partyId   : undefined
 const flowPartyLabel = outcome.kind === 'ok' ? outcome.partyLabel : undefined
+const flowDropOff   = outcome.kind === 'ok' ? outcome.dropOff : undefined
 const noticeText    = outcome.kind === 'unknown' || outcome.kind === 'past' ? (outcome as { notice: string }).notice : null
 
 // Workshop param — when present (and no party param), pass workshopId through directly.
@@ -98,6 +99,6 @@ const flowWorkshopId = !rawPartyId && rawWorkshopId ? rawWorkshopId : undefined
       </div>
     )}
 
-    <WaiverFlow client:load partyId={flowPartyId} partyLabel={flowPartyLabel} workshopId={flowWorkshopId} />
+    <WaiverFlow client:load partyId={flowPartyId} partyLabel={flowPartyLabel} workshopId={flowWorkshopId} dropOff={flowDropOff} />
   </section>
 </Layout>

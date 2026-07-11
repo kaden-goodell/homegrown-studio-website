@@ -135,38 +135,46 @@ async function attachSquare(record: WaiverRecord): Promise<void> {
  * immediately if invalid. Swallows transient storage errors to avoid blocking
  * legit RSVPs on a blip.
  */
-async function validateParty(partyId: string | null, now: Date): Promise<Response | null> {
-  if (!partyId) return null
+async function validateParty(
+  partyId: string | null,
+  now: Date,
+): Promise<{ err: Response | null; dropOff: boolean }> {
+  if (!partyId) return { err: null, dropOff: false }
   try {
     const party = await getPartyRecord(partyId)
     if (!party) {
-      return bad("This party link doesn't look right — ask your host to re-share the invitation.", 404)
+      return { err: bad("This party link doesn't look right — ask your host to re-share the invitation.", 404), dropOff: false }
     }
     if (new Date(party.startIso).getTime() + 24 * 3600_000 < now.getTime()) {
-      return bad("This party has already happened — nothing to RSVP to, but thanks for checking!", 410)
+      return { err: bad("This party has already happened — nothing to RSVP to, but thanks for checking!", 410), dropOff: false }
     }
-    return null
+    return { err: null, dropOff: !!party.dropOff }
   } catch (err) {
     logger.error('Party validation error — proceeding without it', { partyId, error: String(err) })
-    return null
+    // Unknown dropOff on a storage blip: treat as a normal party (enforce the
+    // responsible-adult rule) — failing toward supervision is the safe side.
+    return { err: null, dropOff: false }
   }
 }
 
 /**
- * Enforce: when a party RSVP has children attending but the signer (adult) is
- * not in the attending list, require a responsible adult name.
+ * Enforce: when a party RSVP has children crafting but the signer (adult) is
+ * not in the attending list, require a responsible adult name. Skipped for
+ * studio-run drop-off events (camps/PNO) — those have their own check-in and
+ * pickup-code procedures.
  */
 function checkResponsibleAdult(
   partyId: string | null,
+  dropOff: boolean,
   resolvedIds: string[],
   responsibleAdult: string,
 ): Response | null {
-  if (!partyId) return null
+  if (!partyId || dropOff) return null
   const hasKids = resolvedIds.some((id) => id.startsWith('child:'))
   const adultPresent = resolvedIds.includes('adult')
   if (hasKids && !adultPresent) {
     if (!responsibleAdult) {
-      return bad("Parties aren't drop-off — tell us which adult will be with your child at the party.")
+      return bad("Every child needs an adult at the party — tell us who'll be with yours.")
     }
   }
   return null
@@ -188,7 +196,7 @@ async function handleReuse(
     return bad("That session expired — look yourself up again to RSVP.", 401)
   }
 
-  const partyErr = await validateParty(partyId, now)
+  const { err: partyErr, dropOff } = await validateParty(partyId, now)
   if (partyErr) return partyErr
 
   const source = await getWaiverRecord(reuseId)
@@ -203,7 +211,7 @@ async function handleReuse(
     ? [...new Set(attendingRaw.map(String))].filter((id) => validIds.has(id))
     : [...validIds]
 
-  const raErr = checkResponsibleAdult(partyId, resolvedIds, responsibleAdult)
+  const raErr = checkResponsibleAdult(partyId, dropOff, resolvedIds, responsibleAdult)
   if (raErr) return raErr
 
   // Build structured event context.
@@ -314,7 +322,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       return bad(`To sign, type your name exactly as entered above: “${fullName}”.`)
     }
 
-    const partyErr = await validateParty(partyId, now)
+    const { err: partyErr, dropOff } = await validateParty(partyId, now)
     if (partyErr) return partyErr
 
     // Resolve attending ids for the fresh path to enforce the responsible-adult rule.
@@ -322,7 +330,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const freshResolvedIds = Array.isArray(body.attending)
       ? [...new Set((body.attending as unknown[]).map(String))].filter((id) => freshValidIds.has(id))
       : [...freshValidIds]
-    const freshRaErr = checkResponsibleAdult(partyId, freshResolvedIds, responsibleAdult)
+    const freshRaErr = checkResponsibleAdult(partyId, dropOff, freshResolvedIds, responsibleAdult)
     if (freshRaErr) return freshRaErr
 
     const validUntil = new Date(now)

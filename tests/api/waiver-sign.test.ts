@@ -136,9 +136,9 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
         },
       },
     }))
-    // Mock party-store to return a valid future party
+    // Mock party-store to return a valid future party (normal, not drop-off)
     vi.mock('@lib/party-store', () => ({
-      getPartyRecord: vi.fn().mockResolvedValue({ startIso: FUTURE_PARTY_ISO, bookingId: 'party-123' }),
+      getPartyRecord: vi.fn().mockResolvedValue({ startIso: FUTURE_PARTY_ISO, bookingId: 'party-123', dropOff: false }),
     }))
 
     mockSaveWaiverRecord.mockResolvedValue(undefined)
@@ -163,7 +163,7 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
       const res = await POST(ctx)
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toMatch(/drop-off/i)
+      expect(json.error).toMatch(/needs an adult at the party/i)
     })
 
     it('returns 200 when kids are attending but adult is not, and responsibleAdult is provided', async () => {
@@ -182,6 +182,24 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
       const savedRecord = mockSaveWaiverRecord.mock.calls[0]?.[0]
       expect(savedRecord?.responsibleAdult).toBe('Grandma Sue')
     })
+
+    it('skips the responsible-adult requirement for studio-run drop-off events', async () => {
+      const partyStore = await import('@lib/party-store')
+      vi.mocked(partyStore.getPartyRecord).mockResolvedValueOnce({
+        startIso: FUTURE_PARTY_ISO,
+        bookingId: 'party-123',
+        dropOff: true, // camp/PNO — its own check-in + pickup-code procedures govern
+      } as any)
+      const body = makeAdultBody({
+        partyId: 'party-123',
+        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
+        attending: ['child:0'], // kids only, adult NOT coming — fine at a drop-off event
+        responsibleAdult: '',
+      })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+    })
   })
 
   describe('reuse path — party RSVP with kids only, no signer', () => {
@@ -198,7 +216,7 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
       const res = await POST(ctx)
       expect(res.status).toBe(400)
       const json = await res.json()
-      expect(json.error).toMatch(/drop-off/i)
+      expect(json.error).toMatch(/needs an adult at the party/i)
     })
 
     it('returns 200 when kids are attending but adult is not, and responsibleAdult is provided', async () => {

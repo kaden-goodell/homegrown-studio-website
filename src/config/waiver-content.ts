@@ -68,9 +68,13 @@ export const waiverContent = {
     signatureNote: 'Typing your name here acts as your legal signature.',
     submitLabel: 'Sign the agreement',
     submittingLabel: 'Signing…',
-    responsibleAdultLabel: 'Who will be with them at the party?',
+    /** Shown only when kids are crafting and the signer isn't on the list. */
+    presenceQuestion: 'Will you be at the party with them?',
+    presenceYes: 'Yes — I’ll be there, just not crafting',
+    presenceNo: 'No — another adult will be with them',
+    responsibleAdultLabel: 'Who should we expect with them?',
     responsibleAdultNote:
-      "Parties aren’t drop-off — every child needs a responsible adult with them. If that’s not you, tell us who it will be (e.g. “Riding with Grandma Sue — she’ll be there”).",
+      'Every child needs an adult at the party — tell us who to look for (e.g. “Grandma Sue”).',
   },
 
   confirmation: {
