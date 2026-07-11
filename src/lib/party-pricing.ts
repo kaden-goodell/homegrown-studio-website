@@ -1,5 +1,5 @@
 /**
- * Single source of truth for party pricing: $200 flat base + per-head craft cost,
+ * Single source of truth for party pricing: $300 flat base + per-head craft cost,
  * with tiered volume discounts on the craft portion (see partyConfig.priceBreakTiers).
  * Used by the booking modal (live total), the calendar, and the server (order line items)
  * so they can never disagree.

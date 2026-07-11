@@ -19,29 +19,35 @@ export interface WaiverSection {
 
 const legalEntityName = 'Homegrown Studio' // TODO(Kaden): exact LLC legal name, e.g. "Homegrown Studio LLC"
 const businessAddress = '525 Hughes Rd Ste F, Madison, Alabama 35758'
+const adultAge = 19
 
 export const waiverContent = {
-  /** Bump on any legalSections change (v1 → v2 …). Stored with every signature. */
-  version: 'v1',
+  /**
+   * Bump on any legalSections change (v1 → v2 …). Stored with every signature.
+   * Bumping is a one-way door: records signed at v2 carry a v2 hash and cannot
+   * be re-verified if this text is rolled back. Attorney review required before
+   * deploying changes (see docs/NEEDS-FROM-KADEN.md).
+   */
+  version: 'v2',
   legalEntityName,
   businessAddress,
   /** Months a signature stays valid before re-signing is required. */
   validityMonths: 12,
   /** Alabama's age of majority — the signer must be at least this old. */
-  adultAge: 19,
+  adultAge: adultAge,
 
   page: {
     eyebrow: 'Before You Craft',
     headline: 'Participation Agreement',
     subline:
-      'One quick signature covers you — and any kids you bring — for a full year of studio visits, workshops, and parties.',
+      "One quick signature covers you and your own kids for a full year of studio visits, workshops, and parties. Every adult signs their own.",
     partySubline:
-      'You’re invited to a party at Homegrown Studio! One quick signature covers you (and any kids in your group) for the event — and a full year of visits after.',
+      "You’re invited to a party at Homegrown Studio! One quick signature covers you and your own kids for the event — and a full year of visits after. Every adult signs their own.",
   },
 
   form: {
     adultHeading: 'About you',
-    adultNote: `You must be ${19} or older to sign. This covers you — plus any children you bring, added below.`,
+    adultNote: `You must be ${adultAge} or older to sign. This covers you plus any children you're the parent or legal guardian of — every other adult signs their own.`,
     minorsHeading: 'Bringing kids? Add them here',
     minorsNote: 'Add any child you’re the parent or legal guardian of. Just you? Skip this part.',
     addMinorLabel: '+ Add a child',
@@ -62,6 +68,9 @@ export const waiverContent = {
     signatureNote: 'Typing your name here acts as your legal signature.',
     submitLabel: 'Sign the agreement',
     submittingLabel: 'Signing…',
+    responsibleAdultLabel: 'Who will be with them at the party?',
+    responsibleAdultNote:
+      "Parties aren’t drop-off — every child needs a responsible adult with them. If that’s not you, tell us who it will be (e.g. “Riding with Grandma Sue — she’ll be there”).",
   },
 
   confirmation: {
@@ -69,14 +78,13 @@ export const waiverContent = {
     subline: 'Your signature is on file — show this screen at the front desk if asked.',
     coversLabel: 'This signature covers',
     validLabel: 'Valid through',
-    partyLine: 'You’re signed in for the party — see you there! 🎉',
+    partyLine: "You’re RSVP’d — see you at the party! 🎉",
+    anotherAdultLine: "Bringing another adult? Send them this page’s link — every adult signs their own agreement.",
   },
 
   /** Copy used where booking flows hand off to the waiver. */
   handoff: {
     hostCta: '✍️ Sign your participation agreement',
-    hostLine: 'One signature each — takes about a minute.',
-    guestInviteLine: 'Before you come, everyone in your group signs our quick participation agreement here:',
     workshopCta: '✍️ Sign the participation agreement before your visit',
   },
 
@@ -119,7 +127,7 @@ export const waiverContent = {
         'I understand that under Alabama law, a parent’s signature does not waive a minor’s own legal claims. Accordingly, as to each minor listed on this form:',
         '(a) My own claims released. I release the Released Parties, to the fullest extent permitted by law, from any claims that belong to me individually arising out of the minor’s participation, including claims for the minor’s medical expenses, loss of services, or emotional distress, including such claims arising from a Released Party’s ordinary negligence.',
         '(b) INDEMNIFICATION. I agree to INDEMNIFY, DEFEND, AND HOLD HARMLESS the Released Parties from and against any claim, demand, or action brought by or on behalf of a listed minor (including by the minor upon reaching majority, or by any other person on the minor’s behalf) arising out of the minor’s participation in Studio activities, including the Released Parties’ reasonable attorneys’ fees and costs of defense — except to the extent the claim arises from the willful or wanton conduct of a Released Party.',
-        '(c) Supervision. I remain responsible for supervising each listed minor at all times while at the Studio — including at private parties — unless the minor is checked in to a designated Studio-supervised drop-off program, in which case I agree to the additional terms of that program’s registration. The Studio provides craft instruction and facilities; it does not provide childcare outside designated drop-off programs.',
+        "(c) Supervision. Private parties and regular Studio activities are NOT drop-off events. I remain responsible for each listed minor at all times while at the Studio, and if I am not personally present I will designate another responsible adult, present at the Studio, who is in charge of each listed minor. The Studio provides craft instruction and facilities; it does not provide childcare or supervision of minors. Separately, if the Studio offers a designated drop-off program (such as a camp), participation in that program is governed by that program’s own registration terms and check-in/pickup procedures, which I agree to at registration.",
       ],
     },
     {

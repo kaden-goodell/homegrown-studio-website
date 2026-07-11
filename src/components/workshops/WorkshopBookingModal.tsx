@@ -55,6 +55,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
   const [error, setError] = useState<string | null>(null)
   const [completed, setCompleted] = useState(false)
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
+  const [bookingId, setBookingId] = useState<string | null>(null)
   const paymentFormRef = useRef<PaymentFormRef>(null)
 
   // Cap seats at the class's remaining capacity AND the studio-wide event cap (30).
@@ -142,6 +143,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
 
       const bookData = await bookRes.json()
       setReceiptUrl(bookData.data.receiptUrl ?? null)
+      setBookingId(bookData.data.bookingId ?? null)
       setCompleted(true)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.')
@@ -198,7 +200,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
           )}
           <div style={{ marginTop: '1.25rem' }}>
             <a
-              href="/waiver"
+              href={bookingId ? `/waiver?workshop=${encodeURIComponent(bookingId)}` : '/waiver'}
               target="_blank"
               rel="noopener noreferrer"
               style={{

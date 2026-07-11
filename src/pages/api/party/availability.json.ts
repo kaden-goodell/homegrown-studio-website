@@ -1,56 +1,53 @@
 import type { APIRoute } from 'astro'
-import { providers } from '@config/providers'
-import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
-import { partyStartsForDate, removeBooked } from '@lib/party-slots'
+import { partyStartsForDate } from '@lib/party-slots'
+import { openPartyStarts } from '@lib/party-availability'
 import { createLogger } from '@lib/logger'
+import { rateLimited } from '@lib/rate-limit'
 
 const logger = createLogger('api:party:availability')
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, clientAddress }) => {
+  if (rateLimited(`party-avail:${clientAddress}`, 30, 60_000)) {
+    return new Response(
+      JSON.stringify({ error: 'Too many requests — give it a minute.' }),
+      { status: 429, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
   const startTime = Date.now()
   try {
     const body = await request.json()
-    const { date, serviceVariationId } = body
+    const { date } = body
 
-    if (!date) {
+    // Public endpoint — validate inputs. Date must be a YYYY-MM-DD string.
+    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
       return new Response(
-        JSON.stringify({ error: 'Missing required field: date' }),
+        JSON.stringify({ error: 'Invalid date' }),
         { status: 400, headers: { 'Content-Type': 'application/json' } }
       )
     }
 
-    // Offered starts come from the per-weekday schedule in config; keep only future ones.
-    const now = Date.now()
-    const candidates = partyStartsForDate(date).filter((iso) => new Date(iso).getTime() > now)
+    // Only pass serviceVariationId through when it's a plausible ID string.
+    const serviceVariationId =
+      typeof body.serviceVariationId === 'string' && body.serviceVariationId.length <= 100
+        ? body.serviceVariationId
+        : undefined
 
-    // Drop starts already taken by an existing party booking. If the lookup
-    // fails, fall back to showing all candidates rather than blocking booking.
-    let bookedStarts: string[] = []
-    if (candidates.length > 0 && providers.booking.listBookings) {
-      try {
-        const locationId = siteConfig.providers.booking.config.locationId || ''
-        const bookings = await providers.booking.listBookings({
-          startDate: `${date}T00:00:00Z`,
-          endDate: `${date}T23:59:59Z`,
-          locationId,
-        })
-        bookedStarts = bookings
-          .filter(
-            (b) =>
-              b.status !== 'cancelled' &&
-              (!serviceVariationId || b.slot?.serviceVariationId === serviceVariationId)
-          )
-          .map((b) => b.slot.startAt)
-      } catch (err) {
-        logger.error('Party booking lookup failed (showing all candidates)', {
-          error: err instanceof Error ? err.message : String(err),
-        })
-      }
+    // Use the shared helper which queries with studio-local UTC bounds (UTC-window bug fix).
+    // If the lookup fails, fall back to showing all future candidates so booking is never blocked.
+    let openStarts: string[]
+    try {
+      openStarts = await openPartyStarts(date, serviceVariationId)
+    } catch (err) {
+      logger.error('Party booking lookup failed (showing all candidates)', {
+        error: err instanceof Error ? err.message : String(err),
+      })
+      const now = Date.now()
+      openStarts = partyStartsForDate(date).filter((iso) => new Date(iso).getTime() > now)
     }
 
     const durationMinutes = partyConfig.durationMinutes
-    const slots = removeBooked(candidates, bookedStarts).map((startAt) => ({
+    const slots = openStarts.map((startAt) => ({
       startAt,
       endAt: new Date(new Date(startAt).getTime() + durationMinutes * 60_000).toISOString(),
       durationMinutes,

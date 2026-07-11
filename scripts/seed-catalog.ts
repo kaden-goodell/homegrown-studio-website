@@ -1,4 +1,7 @@
 /**
+ * DEPRECATED (Jul 2026): predates the real-only catalog rebuild — the party
+ * model is now seeded by scripts/seed-party.ts. Kept for reference only.
+ *
  * Seed Square Catalog with all event types from mock data.
  *
  * Usage:
@@ -11,6 +14,9 @@
 
 import 'dotenv/config'
 import { SquareClient, SquareEnvironment } from 'square'
+
+console.error('DEPRECATED: this script encodes the old Kids/Adult Party model. Use scripts/seed-party.ts. Set RUN_DEPRECATED=1 to force.')
+if (!process.env.RUN_DEPRECATED) process.exit(1)
 
 const token = process.env.SQUARE_ACCESS_TOKEN!
 const env = process.env.SQUARE_ENVIRONMENT === 'production'

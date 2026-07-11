@@ -8,8 +8,10 @@
  * host's roster can list who has RSVP'd.
  */
 import { createLogger } from '@lib/logger'
+import { makeKvStore } from '@lib/blob-store'
 
 const logger = createLogger('waiver-store')
+const kv = makeKvStore('waivers', 'waivers')
 
 export interface WaiverMinor {
   name: string
@@ -17,6 +19,8 @@ export interface WaiverMinor {
   /** Allergies / medical notes for THIS child. */
   allergies: string
 }
+
+export type EventKind = 'party' | 'workshop' | 'open-studio'
 
 export interface WaiverRecord {
   id: string
@@ -43,7 +47,12 @@ export interface WaiverRecord {
   authorizedPickup: string
   photoConsent: boolean
   signature: string
+  /** Legacy field — kept as a mirror of context.id when kind==='party'. */
   partyId: string | null
+  /** Structured event context. Optional-tolerant on parse (legacy records omit it). */
+  context: { kind: EventKind; id: string } | null
+  /** Adult who will be with the child(ren) at the party if the signer is not attending. */
+  responsibleAdult: string | null
   squareCustomerId: string | null
   ip: string | null
   userAgent: string | null
@@ -65,52 +74,19 @@ export interface HouseholdOnFile {
   photoConsent: boolean
 }
 
-const STORE_NAME = 'waivers'
-
 // ---- Raw key/value layer (Netlify Blobs in prod, .data/ on disk in dev) ----
-
-async function getBlobStore() {
-  const { getStore } = await import('@netlify/blobs')
-  const store = getStore(STORE_NAME)
-  await store.get('__probe__') // fails outside Netlify → triggers fs fallback
-  return store
-}
-
-async function fsWrite(key: string, json: string): Promise<void> {
-  const { mkdir, writeFile } = await import('node:fs/promises')
-  const dir = new URL('../../.data/waivers/', import.meta.url)
-  await mkdir(dir, { recursive: true })
-  await writeFile(new URL(`${key}.json`, dir), json, 'utf8')
-}
-
-async function fsRead(key: string): Promise<string | null> {
-  try {
-    const { readFile } = await import('node:fs/promises')
-    const dir = new URL('../../.data/waivers/', import.meta.url)
-    return await readFile(new URL(`${key}.json`, dir), 'utf8')
-  } catch {
-    return null
-  }
-}
+// Delegated to shared kv — see src/lib/blob-store.ts for error semantics.
 
 async function rawSet(key: string, json: string): Promise<void> {
-  try {
-    const store = await getBlobStore()
-    await store.set(key, json)
-  } catch {
-    await fsWrite(key, json)
-  }
+  await kv.set(key, json)
 }
 
 async function rawGet(key: string): Promise<string | null> {
-  try {
-    const store = await getBlobStore()
-    const val = await store.get(key, { type: 'text' })
-    if (val) return val
-  } catch {
-    /* fall through to fs */
-  }
-  return fsRead(key)
+  return kv.get(key)
+}
+
+async function rawGetWithMeta(key: string): Promise<{ value: string | null; etag: string | null }> {
+  return kv.getWithMeta(key)
 }
 
 // ---- Records ----
@@ -130,27 +106,134 @@ export function newWaiverId(): string {
   return `wvr_${Date.now().toString(36)}_${rand}`
 }
 
-// ---- Per-party RSVP index ----
-// A small blob per party holding the list of waiver record ids signed for it.
+// ---- Event RSVP index ----
+// A small blob per event holding the list of { recordId, contactKey } objects.
+// Supports legacy bare-string entries for backward compatibility.
 // Read-modify-write; a party has few guests so contention is negligible.
 
+/**
+ * Derive the blob key for an event index.
+ * IMPORTANT: party kind MUST return the exact legacy key `party-index-{id}`
+ * byte-for-byte — no migration; existing party rosters depend on this.
+ * New kinds use the `event-index-{kind}:{id}` namespace.
+ */
+export function indexKeyFor(kind: EventKind, id: string): string {
+  return kind === 'party' ? `party-index-${id}` : `event-index-${kind}:${id}`
+}
+
+/** @deprecated Use indexKeyFor('party', partyId) — kept for internal clarity. */
 function partyIndexKey(partyId: string): string {
-  return `party-index-${partyId}`
+  return indexKeyFor('party', partyId)
 }
 
-export async function addWaiverToPartyIndex(partyId: string, recordId: string): Promise<void> {
-  const key = partyIndexKey(partyId)
-  const existing = await rawGet(key)
-  const ids: string[] = existing ? JSON.parse(existing) : []
-  if (!ids.includes(recordId)) ids.push(recordId)
-  await rawSet(key, JSON.stringify(ids))
+/**
+ * Return the structured event context for a record.
+ * Tolerates legacy records that pre-date the context field.
+ */
+export function contextOf(r: WaiverRecord): { kind: EventKind; id: string } | null {
+  return r.context ?? (r.partyId ? { kind: 'party', id: r.partyId } : null)
 }
 
-export async function listWaiversByParty(partyId: string): Promise<WaiverRecord[]> {
-  const existing = await rawGet(partyIndexKey(partyId))
-  const ids: string[] = existing ? JSON.parse(existing) : []
-  const records = await Promise.all(ids.map(getWaiverRecord))
+/** Parse index entries, upgrading legacy bare-string ids to the object shape. */
+async function readIndexEntries(key: string): Promise<{ recordId: string; contactKey: string }[]> {
+  const raw = await rawGet(key)
+  return raw
+    ? JSON.parse(raw).map((e: any) =>
+        typeof e === 'string' ? { recordId: e, contactKey: '' } : e,
+      )
+    : []
+}
+
+/** Derive a stable contact key from a waiver record. Falls back to record id if no contact info. */
+function contactKeyOf(r: WaiverRecord): string {
+  const email = r.adult.email.trim().toLowerCase()
+  if (email) return `e:${email}`
+  const digits = r.adult.phone.replace(/\D/g, '').slice(-10)
+  return digits ? `p:${digits}` : `r:${r.id}`
+}
+
+/**
+ * Add-or-replace this household's entry in the event index (re-RSVP = edit).
+ * Same contact key → the previous entry is removed and the new one inserted.
+ * Returns the replaced record id (null if this is the first RSVP for this contact).
+ * For kind==='party' this reads/writes the exact legacy `party-index-{id}` key.
+ *
+ * Uses a CAS retry loop (3 attempts) to avoid TOCTOU races when two households
+ * RSVP to the same party simultaneously. A lost race is retried; after 3 failed
+ * CAS attempts the error propagates — persistWaiver's caller catches index failures
+ * as best-effort so the signature is already safely stored.
+ */
+export async function upsertWaiverInEventIndex(
+  kind: EventKind,
+  id: string,
+  record: WaiverRecord,
+): Promise<{ replacedRecordId: string | null }> {
+  const key = indexKeyFor(kind, id)
+  const ck = contactKeyOf(record)
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { value, etag } = await rawGetWithMeta(key)
+    const entries: { recordId: string; contactKey: string }[] = value
+      ? JSON.parse(value).map((e: any) =>
+          typeof e === 'string' ? { recordId: e, contactKey: '' } : e,
+        )
+      : []
+    const prev = entries.find((e) => e.contactKey === ck && e.recordId !== record.id)
+    const next = entries.filter((e) => e.contactKey !== ck && e.recordId !== record.id)
+    next.push({ recordId: record.id, contactKey: ck })
+    if (await kv.setIfMatch(key, JSON.stringify(next), etag)) {
+      return { replacedRecordId: prev?.recordId ?? null }
+    }
+    // Lost the CAS race — retry
+  }
+  throw new Error('Concurrent update on event index — please retry')
+}
+
+export async function listWaiversByEvent(kind: EventKind, id: string): Promise<WaiverRecord[]> {
+  const entries = await readIndexEntries(indexKeyFor(kind, id))
+  const records = await Promise.all(entries.map((e) => getWaiverRecord(e.recordId)))
   return records.filter((r): r is WaiverRecord => r !== null)
+}
+
+/** Thin party wrapper — existing callers untouched. */
+export async function upsertWaiverInPartyIndex(
+  partyId: string,
+  record: WaiverRecord,
+): Promise<{ replacedRecordId: string | null }> {
+  return upsertWaiverInEventIndex('party', partyId, record)
+}
+
+/** Thin party wrapper — existing callers untouched. */
+export async function listWaiversByParty(partyId: string): Promise<WaiverRecord[]> {
+  return listWaiversByEvent('party', partyId)
+}
+
+// ---- Duplicate-child detection ----
+
+/**
+ * Flag children whose normalized name appears in an EARLIER household too.
+ * Mutates the children objects in place by setting `duplicateOf` to the first
+ * signer's name. Returns the number of duplicates found.
+ */
+export function markDuplicateChildren<
+  T extends { signer: string; children: { name: string; duplicateOf?: string }[] },
+>(households: T[]): number {
+  const seen = new Map<string, string>() // normalized name → first signer
+  let duplicates = 0
+  for (const h of households) {
+    for (const c of h.children) {
+      const k = c.name.trim().toLowerCase().replace(/\s+/g, ' ')
+      if (!k) continue
+      const first = seen.get(k)
+      if (first) {
+        c.duplicateOf = first
+        duplicates++
+      } else {
+        seen.set(k, h.signer)
+      }
+    }
+  }
+  return duplicates
 }
 
 // ---- Contact index (returning-customer lookup) ----

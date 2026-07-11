@@ -9,8 +9,10 @@
  * Netlify Blobs in prod, `.data/checkins/` on disk in dev.
  */
 import { createLogger } from '@lib/logger'
+import { makeKvStore } from '@lib/blob-store'
 
 const logger = createLogger('checkin-store')
+const kv = makeKvStore('checkins', 'checkins')
 
 /**
  * One person's attendance. Presence is per-person because the waiver is an
@@ -21,6 +23,15 @@ const logger = createLogger('checkin-store')
 export interface PersonPresence {
   inAt: string // ISO — checked in / marked present
   outAt: string | null // ISO — picked up / left
+}
+
+/** Append-only record of every custody action taken for this family. */
+export interface CheckinEvent {
+  at: string // ISO
+  action: 'checkin' | 'undo-checkin' | 'pickup' | 'pickup-denied' | 'undo-pickup' | 'reissue-code' | 'set-pickup'
+  personIds: string[]
+  pickedUpBy?: string
+  note?: string
 }
 
 export interface CheckinState {
@@ -38,9 +49,11 @@ export interface CheckinState {
   confirmedPickup: string[]
   /** SHA-256 of the ONE family pickup code — never the plaintext. */
   pickupCodeHash: string | null
+  /** Append-only audit log of all custody events. Never exposed to clients. */
+  events: CheckinEvent[]
 }
 
-/** What the client is allowed to see — no hash, no plaintext, just presence. */
+/** What the client is allowed to see — no hash, no plaintext, no audit log. */
 export interface PublicCheckin {
   expected: string[] | null
   presence: Record<string, PersonPresence>
@@ -70,60 +83,29 @@ export function personPresent(s: CheckinState, id: string): boolean {
   return !!p && !p.outAt
 }
 
-const STORE_NAME = 'checkins'
-
 function key(partyId: string, recordId: string): string {
   return `${partyId}__${recordId}`
 }
 
-async function getBlobStore() {
-  const { getStore } = await import('@netlify/blobs')
-  const store = getStore(STORE_NAME)
-  await store.get('__probe__')
-  return store
-}
-
-async function fsWrite(k: string, json: string): Promise<void> {
-  const { mkdir, writeFile } = await import('node:fs/promises')
-  const dir = new URL('../../.data/checkins/', import.meta.url)
-  await mkdir(dir, { recursive: true })
-  await writeFile(new URL(`${k}.json`, dir), json, 'utf8')
-}
-
-async function fsRead(k: string): Promise<string | null> {
-  try {
-    const { readFile } = await import('node:fs/promises')
-    const dir = new URL('../../.data/checkins/', import.meta.url)
-    return await readFile(new URL(`${k}.json`, dir), 'utf8')
-  } catch {
-    return null
-  }
-}
-
 function emptyState(): CheckinState {
-  return { expected: null, presence: {}, pickedUpBy: null, confirmedPickup: [], pickupCodeHash: null }
+  return { expected: null, presence: {}, pickedUpBy: null, confirmedPickup: [], pickupCodeHash: null, events: [] }
 }
 
 /** Normalize a stored record onto the current shape, dropping legacy fields. */
-function normalize(raw: any): CheckinState {
+export function normalize(raw: any): CheckinState {
   return {
     expected: Array.isArray(raw?.expected) ? raw.expected.map(String) : null,
     presence: raw?.presence && typeof raw.presence === 'object' ? raw.presence : {},
     pickedUpBy: typeof raw?.pickedUpBy === 'string' ? raw.pickedUpBy : null,
     confirmedPickup: Array.isArray(raw?.confirmedPickup) ? raw.confirmedPickup.map(String) : [],
     pickupCodeHash: typeof raw?.pickupCodeHash === 'string' ? raw.pickupCodeHash : null,
+    events: Array.isArray(raw?.events) ? raw.events : [],
   }
 }
 
 export async function getCheckin(partyId: string, recordId: string): Promise<CheckinState> {
   const k = key(partyId, recordId)
-  let json: string | null = null
-  try {
-    const store = await getBlobStore()
-    json = await store.get(k, { type: 'text' })
-  } catch {
-    json = await fsRead(k)
-  }
+  const json = await kv.get(k)
   if (json) return normalize(JSON.parse(json))
   return emptyState()
 }
@@ -134,19 +116,28 @@ export async function getCheckin(partyId: string, recordId: string): Promise<Che
  * path (no staff auth) — only ever sets the soft `expected` intent.
  */
 export async function setExpected(partyId: string, recordId: string, expected: string[]): Promise<void> {
-  const state = await getCheckin(partyId, recordId)
-  state.expected = expected
-  await setCheckin(partyId, recordId, state)
+  await mutateCheckin(partyId, recordId, (state) => {
+    state.expected = expected
+  })
 }
 
 export async function setCheckin(partyId: string, recordId: string, state: CheckinState): Promise<void> {
   const k = key(partyId, recordId)
-  const json = JSON.stringify(state)
-  try {
-    const store = await getBlobStore()
-    await store.set(k, json)
-  } catch {
-    await fsWrite(k, json)
-  }
+  // Normalize on every write — ensures legacy fields are handled and events[] exists.
+  state = normalize(state)
+  state.events = state.events.slice(-500)
+  await kv.set(k, JSON.stringify(state))
   logger.info('Checkin state set', { partyId, recordId })
+}
+
+/** Apply a mutation with optimistic concurrency (3 attempts). */
+export async function mutateCheckin(partyId: string, recordId: string, fn: (s: CheckinState) => void | Promise<void>): Promise<CheckinState> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { value, etag } = await kv.getWithMeta(key(partyId, recordId))
+    const state = value ? normalize(JSON.parse(value)) : emptyState()
+    await fn(state)
+    state.events = state.events.slice(-500)
+    if (await kv.setIfMatch(key(partyId, recordId), JSON.stringify(state), etag)) return state
+  }
+  throw new Error('Concurrent update — please retry')
 }

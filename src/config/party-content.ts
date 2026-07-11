@@ -111,10 +111,14 @@ export const partyContent = {
   ] satisfies FaqEntry[],
 
   confirmation: {
-    nextSteps: [
+    nextStepsEmail: [
       'Check your email — your confirmation is on its way.',
       'Invite your people — share the details below.',
-      'Show up and make something. We’ll have everything ready.',
+      "Show up and make something. We'll have everything ready.",
+    ],
+    nextStepsNoEmail: [
+      'Invite your people — share the details below.',
+      "Show up and make something. We'll have everything ready.",
     ],
   },
 } as const

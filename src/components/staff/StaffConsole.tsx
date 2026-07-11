@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { formatWhen, formatTime } from '@lib/studio-time'
 
 interface PartyRow {
   bookingId: string
@@ -31,11 +32,12 @@ interface Household {
   signer: string
   phone: string
   email: string
-  children: { name: string; allergies: string }[]
+  children: { name: string; allergies: string; duplicateOf?: string }[]
   childCount: number
   adultAllergies: string
   emergency: { name: string; phone: string; relationship: string }
   authorizedPickup: string
+  responsibleAdult: string
   photoConsent: boolean
   signedAt: string
   checkin: Checkin
@@ -71,9 +73,6 @@ const field: React.CSSProperties = {
   fontSize: '0.875rem',
 }
 
-const when = (iso: string) => new Date(iso).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
-const timeOnly = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-
 type Status = 'wait' | 'in' | 'out'
 
 function StatusPill({ status, hereCount, total }: { status: Status; hereCount: number; total: number }) {
@@ -89,24 +88,24 @@ function StatusPill({ status, hereCount, total }: { status: Status; hereCount: n
   )
 }
 
-function Badge({ tone, children }: { tone: 'alert' | 'muted'; children: React.ReactNode }) {
+function Badge({ tone, wrap, children }: { tone: 'alert' | 'muted'; wrap?: boolean; children: React.ReactNode }) {
   const t = tone === 'alert'
     ? { bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c', bd: 'rgba(185,28,28,0.3)' }
     : { bg: 'rgba(90,90,90,0.08)', fg: '#4b5563', bd: 'rgba(90,90,90,0.22)' }
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.5rem', borderRadius: '0.5rem', fontSize: '0.7rem', fontWeight: 700, background: t.bg, color: t.fg, border: `1px solid ${t.bd}`, whiteSpace: 'nowrap' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.5rem', borderRadius: '0.5rem', fontSize: '0.7rem', fontWeight: 700, background: t.bg, color: t.fg, border: `1px solid ${t.bd}`, whiteSpace: wrap ? 'normal' : 'nowrap' }}>
       {children}
     </span>
   )
 }
 
 type PersonState = 'here' | 'out' | 'absent'
-interface Person { id: string; icon: string; name: string; sub: string; allergies: string; isChild: boolean }
+interface Person { id: string; icon: string; name: string; sub: string; allergies: string; isChild: boolean; duplicateOf?: string }
 
 function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; post: (recordId: string, extra: any) => Promise<{ error?: string; oneTimeCode?: string }> }) {
   const people: Person[] = [
     { id: 'adult', icon: '👤', name: h.signer, sub: 'adult', allergies: h.adultAllergies, isChild: false },
-    ...h.children.map((c, i) => ({ id: `child:${i}`, icon: '🧒', name: c.name, sub: '', allergies: c.allergies, isChild: true })),
+    ...h.children.map((c, i) => ({ id: `child:${i}`, icon: '🧒', name: c.name, sub: '', allergies: c.allergies, isChild: true, duplicateOf: c.duplicateOf })),
   ]
   const presence = h.checkin.presence || {}
   const expected = h.checkin.expected
@@ -124,8 +123,12 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
   const status: Status = herePeople.length > 0 ? 'in' : anyPresence ? 'out' : 'wait'
 
   // Check-in selection (absent people) defaults to who RSVP'd; expandable at the door.
+  // Duplicate kids (already on another family's RSVP) default to unchecked.
   const [selIn, setSelIn] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(people.map((p) => [p.id, expected ? expected.includes(p.id) : true])),
+    Object.fromEntries(people.map((p) => [
+      p.id,
+      p.duplicateOf ? false : (expected ? expected.includes(p.id) : true),
+    ])),
   )
   // Checkout selection (present people) defaults to everyone here.
   const [selOut, setSelOut] = useState<Record<string, boolean>>({})
@@ -133,6 +136,15 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
   const [collectedBy, setCollectedBy] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [oneTimeCode, setOneTimeCode] = useState<string | null>(null)
+  // Two-tap reset guard
+  const [resetPending, setResetPending] = useState(false)
+  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    return () => {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+    }
+  }, [])
 
   const selectedIn = absentPeople.filter((p) => selIn[p.id]).map((p) => p.id)
   const selectedOut = herePeople.filter((p) => selOut[p.id] !== false).map((p) => p.id)
@@ -148,16 +160,27 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
     else if (r.oneTimeCode) setOneTimeCode(r.oneTimeCode)
   }
 
+  function handleResetTap() {
+    if (!resetPending) {
+      setResetPending(true)
+      resetTimerRef.current = setTimeout(() => setResetPending(false), 5000)
+    } else {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+      setResetPending(false)
+      act({ action: 'undo-checkin' })
+    }
+  }
+
   // Right-side status label (the checkbox lives on the LEFT of the row).
   function stateLabel(p: Person, st: PersonState) {
     const pr = presence[p.id]
     if (st === 'here') {
-      return <span style={{ fontSize: '0.78rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>● here {pr ? timeOnly(pr.inAt) : ''}</span>
+      return <span style={{ fontSize: '0.78rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>● here {pr ? formatTime(pr.inAt) : ''}</span>
     }
     if (st === 'out') {
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-          <span style={{ fontSize: '0.78rem', color: '#666', fontWeight: 700, whiteSpace: 'nowrap' }}>✓ left {pr?.outAt ? timeOnly(pr.outAt) : ''}</span>
+          <span style={{ fontSize: '0.78rem', color: '#666', fontWeight: 700, whiteSpace: 'nowrap' }}>✓ left {pr?.outAt ? formatTime(pr.outAt) : ''}</span>
           <button type="button" onClick={() => act({ action: 'undo-pickup', personIds: [p.id] })} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}>Undo</button>
         </span>
       )
@@ -198,7 +221,7 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
       {/* Card-level scan strip: any allergy or no-photo in this family */}
       {(anyAllergy || noPhoto) && (
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.6rem' }}>
-          {anyAllergy && <Badge tone="alert">⚠ Allergies in this family</Badge>}
+          {anyAllergy && <Badge tone="alert" wrap>⚠ Allergies in this family</Badge>}
           {noPhoto && <Badge tone="muted">🚫 No photos</Badge>}
         </div>
       )}
@@ -213,10 +236,10 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
               <span style={{ fontSize: '0.95rem' }}>{p.icon}</span>
               <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9375rem' }}>{p.name}</span>
               {p.sub && <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{p.sub}</span>}
+              {p.duplicateOf && <Badge tone="muted">also on {p.duplicateOf}’s RSVP</Badge>}
               {stateLabel(p, st)}
               <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-                {p.allergies && <Badge tone="alert">⚠ {p.allergies}</Badge>}
-                {noPhoto && <Badge tone="muted">🚫 Photos</Badge>}
+                {p.allergies && <Badge tone="alert" wrap>⚠ {p.allergies}</Badge>}
               </span>
             </label>
           )
@@ -227,6 +250,11 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
       <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.55rem 0 0' }}>
         <strong style={{ color: 'var(--color-dark)' }}>Emergency:</strong> {h.emergency.name} · {h.emergency.phone}{h.emergency.relationship ? ` (${h.emergency.relationship})` : ''}
       </p>
+      {h.responsibleAdult && (
+        <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.15rem 0 0' }}>
+          <strong style={{ color: 'var(--color-dark)' }}>With:</strong> {h.responsibleAdult}
+        </p>
+      )}
       {dropOff && (
         <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.15rem 0 0' }}>
           <strong style={{ color: 'var(--color-dark)' }}>Pickup:</strong> {h.authorizedPickup || '— not provided —'}
@@ -242,10 +270,14 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
           <button type="button" onClick={() => setOneTimeCode(null)} style={btn(true)}>Parent has it — hide</button>
         </div>
       )}
-      {dropOff && status === 'in' && !oneTimeCode && h.checkin.hasPickupCode && (
+      {dropOff && status === 'in' && !oneTimeCode && (
         <div style={{ marginTop: '0.6rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>🔒 Pickup code issued (hidden)</span>
-          <button type="button" onClick={() => act({ action: 'reissue-code' })} style={btn()}>Re-issue code</button>
+          {h.checkin.hasPickupCode && (
+            <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>🔒 Pickup code issued (hidden)</span>
+          )}
+          <button type="button" onClick={() => act({ action: 'reissue-code' })} style={btn()}>
+            {h.checkin.hasPickupCode ? 'Re-issue code' : 'Issue pickup code'}
+          </button>
         </div>
       )}
 
@@ -266,7 +298,16 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
           >
             Check out ({selectedOut.length})
           </button>
-          <button type="button" onClick={() => act({ action: 'undo-checkin' })} style={{ ...btn(), color: 'var(--color-muted)', borderColor: 'transparent' }}>Reset</button>
+          {/* Two-tap reset guard — no native confirm dialog */}
+          {resetPending ? (
+            <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Really reset? Clears this family’s arrival times.</span>
+              <button type="button" onClick={handleResetTap} style={{ ...btn(), color: '#b91c1c', borderColor: 'rgba(185,28,28,0.35)' }}>Reset</button>
+              <button type="button" onClick={() => { if (resetTimerRef.current) clearTimeout(resetTimerRef.current); setResetPending(false) }} style={btn()}>Keep</button>
+            </span>
+          ) : (
+            <button type="button" onClick={handleResetTap} style={{ ...btn(), color: 'var(--color-muted)', borderColor: 'transparent' }}>Reset</button>
+          )}
         </div>
       )}
 
@@ -293,13 +334,22 @@ export default function StaffConsole() {
   const [loginError, setLoginError] = useState<string | null>(null)
   const [parties, setParties] = useState<PartyRow[]>([])
   const [roster, setRoster] = useState<Roster | null>(null)
+  const [netError, setNetError] = useState<string | null>(null)
+  const [stale, setStale] = useState(false)
+  const [query, setQuery] = useState('')
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   async function loadParties() {
-    const res = await fetch('/api/staff/parties.json', { cache: 'no-store' })
-    if (res.status === 401) { setPhase('login'); return }
-    const json = await res.json()
-    setParties(json.data.parties)
-    setPhase('parties')
+    try {
+      setNetError(null)
+      const res = await fetch('/api/staff/parties.json', { cache: 'no-store' })
+      if (res.status === 401) { setPhase('login'); return }
+      const json = await res.json()
+      setParties(json.data.parties)
+      setPhase('parties')
+    } catch {
+      setNetError('Couldn’t reach the studio server — check wifi and tap Retry.')
+    }
   }
   useEffect(() => { loadParties() }, [])
 
@@ -312,11 +362,39 @@ export default function StaffConsole() {
   async function logout() { await fetch('/api/staff/login.json', { method: 'DELETE' }); setRoster(null); setParties([]); setPhase('login') }
 
   async function openParty(bookingId: string) {
-    const res = await fetch(`/api/staff/roster.json?party=${encodeURIComponent(bookingId)}`, { cache: 'no-store' })
-    if (res.status === 401) { setPhase('login'); return }
-    setRoster((await res.json()).data)
-    setPhase('roster')
+    try {
+      setNetError(null)
+      setQuery('')
+      const res = await fetch(`/api/staff/roster.json?party=${encodeURIComponent(bookingId)}`, { cache: 'no-store' })
+      if (res.status === 401) { setPhase('login'); return }
+      setRoster((await res.json()).data)
+      setPhase('roster')
+    } catch {
+      setNetError('Couldn’t reach the studio server — check wifi and tap Retry.')
+    }
   }
+
+  async function refreshRoster() {
+    if (!roster) return
+    try {
+      const res = await fetch(`/api/staff/roster.json?party=${encodeURIComponent(roster.party.bookingId)}`, { cache: 'no-store' })
+      if (!res.ok) { setStale(true); return }
+      setRoster((await res.json()).data)
+      setStale(false)
+    } catch {
+      setStale(true)
+    }
+  }
+
+  // Poll every 30s while on the roster view
+  useEffect(() => {
+    if (phase === 'roster') {
+      pollRef.current = setInterval(() => { refreshRoster() }, 30_000)
+    } else {
+      if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+    }
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
+  }, [phase, roster?.party.bookingId])
 
   async function setDropOff(on: boolean) {
     if (!roster) return
@@ -326,11 +404,15 @@ export default function StaffConsole() {
 
   async function post(recordId: string, extra: any): Promise<{ error?: string; oneTimeCode?: string }> {
     if (!roster) return {}
-    const res = await fetch('/api/staff/checkin.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ party: roster.party.bookingId, recordId, ...extra }) })
-    const json = await res.json().catch(() => null)
-    if (!res.ok) return { error: json?.error ?? 'Something went wrong.' }
-    setRoster({ ...roster, households: roster.households.map((hh) => (hh.recordId === recordId ? { ...hh, checkin: json.data.checkin } : hh)) })
-    return { oneTimeCode: json.data.oneTimeCode }
+    try {
+      const res = await fetch('/api/staff/checkin.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ party: roster.party.bookingId, recordId, ...extra }) })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) return { error: json?.error ?? 'Something went wrong.' }
+      setRoster({ ...roster, households: roster.households.map((hh) => (hh.recordId === recordId ? { ...hh, checkin: json.data.checkin } : hh)) })
+      return { oneTimeCode: json.data.oneTimeCode }
+    } catch {
+      return { error: 'Couldn’t save — check wifi and try again.' }
+    }
   }
 
   if (phase === 'checking') return <p style={{ textAlign: 'center', color: 'var(--color-muted)' }}>Loading…</p>
@@ -347,6 +429,14 @@ export default function StaffConsole() {
     )
   }
 
+  // Network error banner (shown in parties and roster phases)
+  const netErrorBanner = netError && (
+    <div style={{ background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '0.6rem', padding: '0.7rem 0.9rem', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+      <span style={{ flex: 1, fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{netError}</span>
+      <button type="button" onClick={phase === 'roster' && roster ? () => openParty(roster.party.bookingId) : loadParties} style={btn()}>Retry</button>
+    </div>
+  )
+
   if (phase === 'parties') {
     return (
       <div>
@@ -354,12 +444,13 @@ export default function StaffConsole() {
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', margin: 0 }}>Parties</h2>
           <button type="button" onClick={logout} style={btn()}>Log out</button>
         </div>
-        {parties.length === 0 && <p style={{ color: 'var(--color-muted)' }}>No parties yet.</p>}
+        {netErrorBanner}
+        {parties.length === 0 && !netError && <p style={{ color: 'var(--color-muted)' }}>No parties yet.</p>}
         {parties.map((p) => (
           <button key={p.bookingId} type="button" onClick={() => openParty(p.bookingId)} style={{ ...card, background: 'rgba(255,255,255,0.85)', width: '100%', textAlign: 'left', cursor: 'pointer', display: 'block' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.35rem' }}>
               <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{p.title || `${p.craftName} Party`}</span>
-              <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{when(p.startIso)}</span>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{formatWhen(p.startIso)}</span>
             </div>
             <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
               Host: {p.hostName} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl)
@@ -373,26 +464,50 @@ export default function StaffConsole() {
   if (!roster) return null
   const here = roster.households.reduce((n, h) => n + Object.values(h.checkin.presence || {}).filter((p) => !p.outAt).length, 0)
   const coming = roster.households.reduce((n, h) => n + (h.checkin.expected ? h.checkin.expected.length : 1 + h.children.length), 0)
-  const allergyKids = roster.households.reduce((n, h) => n + h.children.filter((c) => c.allergies).length, 0)
+  const allergyCount = roster.households.reduce((n, h) => n + (h.adultAllergies ? 1 : 0) + h.children.filter((c) => c.allergies).length, 0)
+
+  // Filter households by search query
+  const lowerQuery = query.toLowerCase()
+  const visibleHouseholds = query
+    ? roster.households.filter((h) =>
+        h.signer.toLowerCase().includes(lowerQuery) ||
+        h.children.some((c) => c.name.toLowerCase().includes(lowerQuery))
+      )
+    : roster.households
+
   return (
     <div>
-      <button type="button" onClick={() => setPhase('parties')} style={{ ...btn(), marginBottom: '1rem' }}>← All parties</button>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
+        <button type="button" onClick={() => setPhase('parties')} style={btn()}>← All parties</button>
+        <button type="button" onClick={refreshRoster} style={btn()}>↻ Refresh</button>
+        {stale && <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>⚠ Roster may be stale</span>}
+      </div>
+      {netErrorBanner}
       <div style={{ ...card, background: 'rgba(255,255,255,0.85)', textAlign: 'center' }}>
         <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0 }}>{roster.party.title || `${roster.party.craftName} Party`}</h2>
-        <p style={{ color: 'var(--color-dark)', fontWeight: 600, margin: '0.3rem 0 0' }}>{when(roster.party.startIso)}</p>
+        <p style={{ color: 'var(--color-dark)', fontWeight: 600, margin: '0.3rem 0 0' }}>{formatWhen(roster.party.startIso)}</p>
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginTop: '0.6rem' }}>
           <Badge tone="muted">👥 {roster.summary.households} RSVP’d</Badge>
-          <Badge tone="muted">🗓 {coming} of {roster.summary.people} coming</Badge>
+          <Badge tone="muted">🗓 {coming} expected</Badge>
           <Badge tone="muted">✓ {here} here now</Badge>
-          {allergyKids > 0 && <Badge tone="alert">⚠ {allergyKids} with allergies</Badge>}
+          {allergyCount > 0 && <Badge tone="alert">⚠ {allergyCount} with allergies</Badge>}
         </div>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.7rem', fontSize: '0.8125rem', color: 'var(--color-dark)', cursor: 'pointer' }}>
           <input type="checkbox" checked={roster.party.dropOff} onChange={(e) => setDropOff(e.target.checked)} />
-          Drop-off event (parents leave — enables pickup codes)
+          Drop-off event (studio-run only — camps/PNO; parties are not drop-off)
         </label>
       </div>
 
-      {roster.households.map((h) => (
+      {/* Search */}
+      <input
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        placeholder="Find a family or kid…"
+        style={{ ...field, width: '100%', boxSizing: 'border-box', marginBottom: '0.8rem' }}
+      />
+
+      {visibleHouseholds.map((h) => (
         <HouseholdCard key={h.recordId} h={h} dropOff={roster.party.dropOff} post={post} />
       ))}
     </div>

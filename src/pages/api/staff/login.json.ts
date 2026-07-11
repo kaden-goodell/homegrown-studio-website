@@ -1,9 +1,13 @@
 import type { APIRoute } from 'astro'
 import { checkPasscode, passcodeConfigured, staffCookie, clearStaffCookie } from '@lib/staff-auth'
+import { rateLimited } from '@lib/rate-limit'
 
 export const prerender = false
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, clientAddress }) => {
+  if (rateLimited(`staff-login:${clientAddress}`, 5, 5 * 60_000)) {
+    return new Response(JSON.stringify({ error: 'Too many attempts — wait a few minutes.' }), { status: 429 })
+  }
   if (!passcodeConfigured()) {
     return new Response(JSON.stringify({ error: 'Staff access is not configured (set STAFF_PASSCODE).' }), { status: 503 })
   }

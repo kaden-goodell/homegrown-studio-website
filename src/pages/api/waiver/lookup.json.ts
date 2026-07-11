@@ -1,5 +1,7 @@
 import type { APIRoute } from 'astro'
 import { lookupHouseholdEntry } from '@lib/waiver-store'
+import { rateLimited } from '@lib/rate-limit'
+import { issueReuseToken } from '@lib/reuse-token'
 
 export const prerender = false
 
@@ -10,9 +12,13 @@ export const prerender = false
  * DOBs) are never returned to the browser; they're reused server-side by record
  * id at RSVP time, so typing a stranger's email can't harvest their details.
  *
- * POST { contact }  →  { found, firstName?, kids?, validUntil?, recordId? }
+ * POST { contact }  →  { found, firstName?, kids?, validUntil?, recordId?, reuseToken? }
  */
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, clientAddress }) => {
+  if (rateLimited(`lookup:${clientAddress}`, 10, 60_000)) {
+    return new Response(JSON.stringify({ error: 'Too many lookups — give it a minute and try again.' }), { status: 429 })
+  }
+
   const body = await request.json().catch(() => null)
   const contact = typeof body?.contact === 'string' ? body.contact.trim() : ''
   if (!contact) {
@@ -44,6 +50,7 @@ export const POST: APIRoute = async ({ request }) => {
         firstName: h.firstName,
         kids: h.minors.map((m) => m.name.split(' ')[0]),
         validUntil: h.validUntil,
+        reuseToken: issueReuseToken(h.recordId),
       },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },

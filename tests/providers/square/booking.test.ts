@@ -17,7 +17,9 @@ vi.mock('square', () => ({
       cancel: mockCancel,
       get: mockGet,
       customAttributes: {
-        bulkUpsert: mockBulkUpsert,
+        // Square SDK v44: the bookings custom-attributes batch write is named
+        // `batchUpsert` (request type BulkUpsertBookingCustomAttributesRequest).
+        batchUpsert: mockBulkUpsert,
         get: mockCustomAttrGet,
       },
     }
@@ -167,7 +169,7 @@ describe('SquareBookingProvider', () => {
       const booking = await provider.createBooking({
         slotId: '2026-03-15T10:00:00Z',
         customerId: 'CUST1',
-        eventType: 'birthday',
+        eventType: 'party',
         guestCount: 10,
         addOns: ['ADDON1', 'ADDON2'],
         specialRequests: 'Gluten-free snacks',
@@ -178,7 +180,7 @@ describe('SquareBookingProvider', () => {
         id: 'BK1',
         status: 'confirmed',
         customerId: 'CUST1',
-        eventType: 'birthday',
+        eventType: 'party',
         createdAt: '2026-03-14T08:00:00Z',
       })
       expect(booking.slot.startAt).toBe('2026-03-15T10:00:00Z')
@@ -187,7 +189,7 @@ describe('SquareBookingProvider', () => {
 
       expect(mockBulkUpsert).toHaveBeenCalledWith({
         values: {
-          event_type: { bookingId: 'BK1', customAttribute: { value: 'birthday' } },
+          event_type: { bookingId: 'BK1', customAttribute: { value: 'party' } },
           guest_count: { bookingId: 'BK1', customAttribute: { value: '10' } },
           add_ons: { bookingId: 'BK1', customAttribute: { value: '["ADDON1","ADDON2"]' } },
           order_id: { bookingId: 'BK1', customAttribute: { value: 'ORDER1' } },
@@ -251,7 +253,7 @@ describe('SquareBookingProvider', () => {
           appointmentSegments: [{ durationMinutes: 120 }],
         },
       })
-      mockCustomAttrGet.mockResolvedValue({ customAttribute: { value: 'birthday' } })
+      mockCustomAttrGet.mockResolvedValue({ customAttribute: { value: 'party' } })
 
       const booking = await provider.getBooking('BK1')
       expect(booking.status).toBe('confirmed')
@@ -354,10 +356,10 @@ describe('SquareBookingProvider', () => {
           appointmentSegments: [],
         },
       })
-      mockCustomAttrGet.mockResolvedValue({ customAttribute: { value: 'birthday' } })
+      mockCustomAttrGet.mockResolvedValue({ customAttribute: { value: 'party' } })
 
       const booking = await provider.getBooking('BK6')
-      expect(booking.eventType).toBe('birthday')
+      expect(booking.eventType).toBe('party')
       expect(mockCustomAttrGet).toHaveBeenCalledWith({
         bookingId: 'BK6',
         key: 'event_type',
@@ -403,7 +405,7 @@ describe('SquareBookingProvider', () => {
         provider.createBooking({
           slotId: 'slot-1',
           customerId: 'CUST1',
-          eventType: 'birthday',
+          eventType: 'party',
         })
       ).rejects.toThrow('Booking conflict')
     })

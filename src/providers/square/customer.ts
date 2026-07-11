@@ -15,7 +15,7 @@ export class SquareCustomerProvider implements CustomerProvider {
   async findOrCreate(params: {
     email: string
     givenName: string
-    familyName: string
+    familyName?: string
     phone?: string
   }): Promise<Customer> {
     // Step 1: Search for existing customer by email
@@ -57,9 +57,9 @@ export class SquareCustomerProvider implements CustomerProvider {
     try {
       const createResult = await this.client.customers.create({
         givenName: params.givenName,
-        familyName: params.familyName,
+        ...(params.familyName ? { familyName: params.familyName } : {}),
         emailAddress: params.email,
-        phoneNumber: params.phone,
+        ...(params.phone ? { phoneNumber: params.phone } : {}),
       })
 
       logger.info('Created new customer', { email: params.email, id: createResult.customer?.id })
