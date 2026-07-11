@@ -16,19 +16,19 @@ The studio party ($300 + crafts/head) is the flagship, but it prices out some gr
 New endpoints under `/api/kits/`, mirroring the party flow's conventions (JSON envelope `{ data }`, same rate limiting and validation patterns). Payment reuses the existing checkout provider path (Square Payments via Web Payments SDK).
 
 - [ ] [API] `GET /api/kits/service-info.json` — returns crafts (same source as party crafts: Square "Party Crafts" category), themes with per-tier pricing (from the package catalog item's variations), assembly fee, deposit amount, lead-time days, tier range
-- [ ] [API] `GET /api/kits/pickup-dates.json` — returns selectable pickup dates: open business days (Thu–Sun) that are ≥ 7 calendar days from order date, capped at a reasonable horizon (90 days)
-- [ ] [API] `POST /api/kits/order.json` — accepts `{ crafts: [{craftId, qty}], guests, themeVariationId?, pickupDate, contact: {name, email, phone}, paymentToken, cardOnFileConsent? }`; creates Square Order with PICKUP fulfillment (pickup date/time window), charges total; when a rental package is included, requires `cardOnFileConsent: true` and stores card on file on the Square customer; returns `{ orderId, reference, summary }`
-- [ ] [API] `POST /api/kits/order.json` rejects: guests < 10, guests > 30 when a package is selected, pickupDate not in pickup-dates set, missing card-on-file consent when package includes rentals
-- [ ] [API] `GET /api/staff/kits.json` (staff-auth via existing `staffAuthorized()`) — lists kit orders bucketed by state: awaiting pickup / pickup today / **missed pickup** / out on loan / overdue return / **deposit unsettled** / settled
-- [ ] [API] `POST /api/staff/kit-return.json` (staff-auth) — accepts `{ orderId, returnedComplete: boolean, missingItems?: [{itemKey, qty}] }`; complete → refunds the $50 deposit line; incomplete → refunds deposit minus (or charges card on file for) replacement totals from the replacement-price list; records kit-custody-log entry
+- [ ] [API] `GET /api/kits/weeks.json` — **Thursday→Thursday cadence**: customer picks their PARTY date; the system derives pickup = the Thursday before the party, return-by = the following Thursday. Endpoint returns selectable party dates (≥ 7 days after the derived pickup Thursday's order cutoff, 90-day horizon) with per-theme×tier rental availability for that week (a physical set serves one customer per week)
+- [ ] [API] `POST /api/kits/order.json` — accepts `{ crafts: [{craftId, qty}], guests, themeVariationId?, partyDate, contact: {name, email, phone}, paymentToken, rentalTermsAccepted? }`; creates Square Order with PICKUP fulfillment (derived pickup Thursday), charges total; rental packages require `rentalTermsAccepted: true` (agreement acknowledgment — no card storage); returns `{ orderId, reference, summary: { pickupDate, returnByDate, ... } }`
+- [ ] [API] `POST /api/kits/order.json` rejects: guests < 10, guests > 30 when a package is selected, partyDate whose week fails the lead-time cutoff, theme×tier set already rented that week, missing rental-terms acceptance when package includes rentals
+- [ ] [API] `GET /api/staff/kits.json` (staff-auth via existing `staffAuthorized()`) — lists kit orders bucketed by state: awaiting pickup / pickup today / **missed pickup** / out on loan / due back today / **overdue (forfeit pending)** / settled
+- [ ] [API] `POST /api/staff/kit-return.json` (staff-auth) — accepts `{ orderId, returnedComplete: boolean, withheldCents?: number, note?: string }`; complete → refunds the $50 deposit line; incomplete → staff withholds part or all of the deposit at their discretion (NO per-piece replacement-price computation — Kaden's call: "we're fine if we lose one or two things"); records kit-custody-log entry
 - [ ] [API] `POST /api/staff/kit-return.json` supports `{ action: 'undo', orderId }` — reverses a mistaken check-in with compensating refund/charge, logged (mirrors checkin-store's first-class `undo-*` actions)
 - [ ] [API] `POST /api/staff/kit-cancel.json` (staff-auth) — cancels a not-yet-picked-up order and refunds per cancellation policy (§5); also the resolution path for missed pickups
 - [ ] [API] Rate limiting: `order.json` uses the party-book pattern by name — `rateLimited('kit-order:${clientAddress}', 5, 60_000)`; read endpoints use the availability-style bucket
 
 ### Net-new platform capabilities (NOT reuse — verified absent from codebase)
 
-- [ ] [API] **Refund capability**: `PaymentProvider` gains `refundPayment(paymentId, amountCents, idempotencyKey, reason)` backed by the Square Refunds API. Sequencing rule for partial-return settlements that need refund + charge: refund first, then charge; if the second call fails, order enters `deposit unsettled` (no automatic retry loop)
-- [ ] [API] **Card on file**: first stored-payment-method flow in the app — Square Cards API (`cards.create` from a payment token with customer consent). Treated as a security-sensitive addition: gets a security review pass (`/security-review`) as an acceptance gate
+- [ ] [API] **Refund capability**: `PaymentProvider` gains `refundPayment(paymentId, amountCents, idempotencyKey, reason)` backed by the Square Refunds API — needed for deposit refunds (full or partial) and cancellations. Still net-new; still the biggest platform addition in this PRD
+- **Card on file: CUT from launch** (recommended 2026-07-11, pending Kaden veto). With no per-piece replacement billing, the only automatic money is the $50 deposit — which we already hold. The rental agreement still creates liability for egregious cases (pursued manually). Cutting card-on-file removes the Square Cards API integration AND the security-review gate — the single biggest scope reduction available. Revisit only if non-returns actually happen
 
 ## 4. Data Model
 
@@ -38,26 +38,27 @@ No new database — Square catalog + orders remain the source of truth (consiste
 - [ ] [DATA] Catalog item `Party Package` — one variation per theme × tier (e.g. "The Gilded Table — serves 10" … "— serves 30"); seeded via a new script extending the **multi-variation** patterns in `scripts/seed-catalog.ts` / `scripts/seed-programs.ts` (NOT `add-party-craft.ts`, which is single-variation only); API-only per house rule
 - [ ] [DATA] **New kit custody log** — its own append-only Netlify Blobs store *modeled on* `checkin-store.ts` (which is child-presence-specific: keyed `partyId+waiverRecordId`), keyed by kit order ID with taxonomy `order | cancel | pickup | missed-pickup | return-complete | return-partial | undo-return | deposit-refunded | replacement-charged | charge-failed | card-detached`
 - [ ] [DATA] Catalog item `Rental Deposit` — $50 fixed; added as a line item only when the selected package includes rental (non-consumable) pieces
-- [ ] [DATA] Kit config file `src/config/kit-content.ts` (content-gated like `party-content.ts` + `docs/NEEDS-FROM-KADEN.md`): theme display data (name, description, photo, consumables list, rental pieces list), replacement-price list per rental piece, lead-time days (7), tier bounds (10–30), return-window rule
+- [ ] [DATA] Kit config file `src/config/kit-content.ts` (content-gated like `party-content.ts` + `docs/NEEDS-FROM-KADEN.md`): theme display data (name, description, photo, consumables list, rental pieces list — NO replacement prices), **rental inventory count per theme×tier** (launch default: 1 set each), lead-time days (7), tier bounds (10–30), Thursday cadence rule
+- [ ] [DATA] Rental availability: a theme×tier physical set serves ONE customer per Thursday→Thursday week; weeks.json and order.json enforce it (source of truth: existing paid kit orders for that pickup Thursday)
 - [ ] [DATA] Square Order for a kit carries: craft line items (qty = exact guest count), assembly line, package variation line, deposit line (conditional), PICKUP fulfillment with pickup date, note containing return-by date + theme
-- [ ] [DATA] Card on file stored against the Square customer record when rental package present (consented)
+- ~~Card on file~~ — cut from launch (see §3); rental-terms acceptance recorded on the order instead (agreement version + timestamp, mirroring waiver recording)
 
 ## 5. Business Logic & Rules
 
 - [ ] [LOGIC] Guest minimum 10 for any kit order; crafts are priced/packed **exact per guest** (11 guests = 11 craft kits)
 - [ ] [LOGIC] Package tier = guest count rounded UP to the next multiple of 5 (11→15, 16→20); tiers offered: 10, 15, 20, 25, 30; guests > 30 with a package selected is rejected (order without package, or contact us)
 - [ ] [LOGIC] Tier rounding is shown transparently before payment ("11 guests → serves-15 package")
-- [ ] [LOGIC] Lead time: earliest selectable pickup is 7 calendar days out, for ALL kit orders (with or without package)
-- [ ] [LOGIC] Pickup dates only on open business days (config `siteConfig.hours` days: Thu–Sun)
+- [ ] [LOGIC] **Thursday→Thursday cadence (Kaden 2026-07-11)**: customer picks their PARTY date; pickup = Thursday before, return-by = following Thursday ("easiest to remember", and it batches assembly + returns into one weekly rhythm). UI always shows all three dates before payment
+- [ ] [LOGIC] Lead time: 7 days for ALL kit orders — order cutoff is 7 days before the derived pickup Thursday
+- [ ] [LOGIC] Deposit forfeit: kit not returned by return-by Thursday → deposit is withheld (staff confirms with one click on/after that day — no silent automation, but no card charging either)
+- [ ] [LOGIC] Cleaning: customer is responsible for cleaning food-contact pieces before return ("return it clean" — in agreement + contents card); staff verifies at check-in and does a final sanitize pass; returned-dirty is grounds for withholding part of the deposit
 - [ ] [LOGIC] Deposit ($50) charged only when the selected package contains rental pieces; consumables-only themes (if any) carry no deposit
 - [ ] [LOGIC] Rental orders require checkbox consent: card on file + agreement acknowledgment (rental terms; agreement version recorded, mirroring party agreement handling — terms folded into attorney's v3 review)
-- [ ] [LOGIC] Return-by date = pickup date + 7 days (TBD confirm; printed on contents card, in confirmation email, and stored on the order)
-- [ ] [LOGIC] Return check-in: complete → automatic $50 refund to original payment; incomplete → staff itemizes, system computes replacement total from `kit-content.ts` price list, refunds remainder or charges card on file for the excess; every outcome writes to the kit custody log
+- [ ] [LOGIC] Return-by date = pickup Thursday + 7 days = the next Thursday — CONFIRMED; printed on contents card, in confirmation email, and stored on the order
+- [ ] [LOGIC] Return check-in: complete → automatic $50 deposit refund to original payment; incomplete or dirty → staff withholds part/all of deposit at discretion with a note; every outcome writes to the kit custody log. No per-piece replacement billing (decided 2026-07-11); egregious non-return handled manually per the rental agreement
 - [ ] [LOGIC] Return check-in is reversible: `undo` fires compensating transactions and restores the prior state (staff mistakes must not be permanent real-money errors)
-- [ ] [LOGIC] Card-on-file charge failure (declined/expired weeks later) → order state `deposit unsettled`, surfaced as its own staff-portal bucket with manual retry / collect-another-way actions; never silently dropped
-- [ ] [LOGIC] Card on file is **detached from the Square customer once the deposit settles** (refund complete or replacement charged), unless the customer has another open rental order — stored exactly as long as operationally needed, no longer
 - [ ] [LOGIC] Failed initial payment → the just-created Square Order is voided/canceled (do NOT copy the party flow's orphaned-order wart) and staff kit lists filter to paid orders only
-- [ ] [LOGIC] Cancellation (staff-initiated via kit-cancel): full refund if ≥ 7 days before pickup; inside 7 days refund minus the $50 assembly fee (assembly underway) — **policy pending Kaden confirmation (§10)**; cancelling a rental order also detaches the stored card
+- [ ] [LOGIC] Cancellation (staff-initiated via kit-cancel) — **CONFIRMED by Kaden 2026-07-11**: full refund ≥ 7 days before pickup Thursday; inside 7 days, refund minus the $50 assembly fee
 - [ ] [LOGIC] Missed pickup: pickup date passes unclaimed → `missed pickup` bucket; staff may rebook a new pickup date or cancel per the cancellation policy; kit held 7 days before staff follow-up is prompted
 - [ ] [LOGIC] Confirmation email (existing Gmail/nodemailer pipeline): order summary, pickup date + hours, return-by date, what's-included (keep vs return), unique subject with slot + booking ref in footer (house email rules)
 - [ ] [LOGIC] Reminder email 1 day before return-by date for rental orders with deposit still open — **INFRA weight flag**: this is the app's first real scheduled job (the only existing cron, `netlify/functions/send-rosters.ts`, is an unimplemented skeleton on Resend, not the Gmail pipeline). Requires: working Netlify scheduled function, Gmail-vs-Resend decision (recommend Gmail for consistency), and a query for open-deposit orders due tomorrow. May be deferred to fast-follow if it threatens launch
@@ -90,7 +91,7 @@ Flow inside the modal (dynamic steps, `party-steps` pattern — settled steps dr
 ## 8. Component Behavior
 
 - [ ] [UI] Guest stepper recomputes tier + package price live; crossing a tier boundary animates/updates the "serves T" label and price
-- [ ] [UI] Pickup-date picker greys out dates < 7 days out and non-open days; shows "Kits need 7 days of love and assembly" as the explainer
+- [ ] [UI] Party-date picker: customer picks THEIR party day; picker immediately displays the derived "Pick up Thursday {date} · Return by Thursday {date}"; weeks failing the 7-day cutoff or with the chosen theme's set already rented are greyed with reasons ("Kits need 7 days of love and assembly" / "This theme is spoken for that week")
 - [ ] [UI] Theme card selected state matches party craft-card selection chrome (glass, check overlay)
 - [ ] [UI] Return check-in checklist: unchecking an item reveals qty + auto-computed replacement price; submit shows confirm summary before firing refund/charge (no native dialogs — house rule)
 
@@ -101,14 +102,15 @@ Flow inside the modal (dynamic steps, `party-steps` pattern — settled steps dr
 
 ## 10. Open Questions
 
-- TBD: Theme lineup — names, per-tier prices, photos, exact contents (consumables vs rental pieces per theme). **Kaden** — will land in `docs/NEEDS-FROM-KADEN.md` pattern.
+- TBD: Theme lineup finalization. Kaden's direction (2026-07-11): ~5 themes — the most common Liberty fabric prints as the visual backbone, plus Gold, Silver, Blue, Sweet Sixteen. Candidates suggested: bring back **Rainbow** (was in the original color list; strong for younger birthdays), a **neutral/linen** theme matching the studio aesthetic (showers, book clubs, grown-up gatherings), seasonal limited editions later as marketing beats. ⚠️ Inventory reality: every theme×tier needs a physical rental set — 5 themes × 5 tiers = 25 stocked sets; consider launching with 3–4 themes and the popular tiers (10/15/20) first. Final names/photos/prices/contents → `docs/NEEDS-FROM-KADEN.md`.
+- TBD: Card-on-file CUT from launch (deposit-only protection) — recommended; **Kaden to veto or bless**.
 - TBD: Route name — `/kits` vs `/parties/take-home` (parties-hub framing from the site-reorg plan).
-- TBD: Return window — pickup + 7 days assumed; confirm (anchor to pickup, not event date, since we don't collect event date… or should we collect it?).
-- TBD: Replacement-price list values per rental piece. **Kaden**.
-- TBD: Wash/sanitize workflow + who does it (operational, affects package margin; food-contact items).
-- TBD: Rental terms language — with attorney in agreement v3 review; blocking for LAUNCH, not for build (build against draft terms).
-- TBD: Overdue policy — grace period, when card-on-file charge fires automatically vs staff-initiated (recommend staff-initiated only, no automatic charging).
-- TBD: **Cancellation policy** — proposed: full refund ≥7 days before pickup, refund minus $50 assembly fee inside 7 days, staff-initiated only. Awaiting Kaden's confirmation (asked 2026-07-11).
+- TBD: Rental terms language — with attorney in agreement v3 review; blocking for LAUNCH, not for build (build against draft terms). Now includes the "customer cleans food-contact pieces" clause.
+- ~~Return window~~ — DECIDED: Thursday→Thursday, forfeit staff-confirmed on/after return Thursday.
+- ~~Replacement prices~~ — DECIDED: none; deposit withholding + manual recourse only.
+- ~~Wash/sanitize~~ — DECIDED: customer cleans, staff verifies + final sanitize; dirty returns can dock the deposit.
+- ~~Cancellation policy~~ — DECIDED: full refund ≥7 days pre-pickup, minus $50 assembly fee inside 7 days, staff-initiated.
+- ~~Overdue policy~~ — DECIDED: deposit forfeit (staff one-click confirm), no card charging.
 
 ## 11. Out of Scope
 
@@ -117,7 +119,9 @@ Flow inside the modal (dynamic steps, `party-steps` pattern — settled steps dr
 - Custom/bespoke themes, mixed-theme boxes
 - Kit gifting, gift cards
 - Workshops page redesign (separate push)
-- Automatic overdue charging (see TBD; nothing charges a card without a human deciding)
+- Automatic overdue charging (nothing charges a card without a human deciding)
+- Card on file / Square Cards API — cut from launch with the no-replacement-billing decision; revisit only if non-returns become a real problem
+- Per-piece replacement billing and price lists — deposit withholding + manual recourse instead
 
 ## 12. Acceptance Checklist
 
@@ -126,14 +130,12 @@ Flow inside the modal (dynamic steps, `party-steps` pattern — settled steps dr
 - [ ] [API] pickup-dates returns only open days ≥ 7 days out
 - [ ] [API] order.json creates Square PICKUP order with correct line items and charges once (book-before-charge ordering per house pattern)
 - [ ] [API] order.json rejects guests<10, package with guests>30, short-notice pickup dates, missing rental consent
-- [ ] [API] staff kit-return refunds full deposit on complete return; computes partial refund/charge from replacement list otherwise; supports undo with compensating transactions
+- [ ] [API] staff kit-return refunds full deposit on complete return; supports discretionary partial/zero refund with note; supports undo with compensating transactions
 - [ ] [API] `PaymentProvider.refundPayment` implemented against Square Refunds API with idempotency keys (net-new capability)
-- [ ] [API] kit-cancel refunds per policy and voids/settles correctly for both package and no-package orders
+- [ ] [API] kit-cancel refunds per confirmed policy (full ≥7d, minus $50 assembly <7d) and settles correctly for both package and no-package orders
+- [ ] [API] weeks.json blocks theme×tier weeks whose set is already rented; order.json re-validates at purchase time (no double-rentals under concurrency)
 - [ ] [API] `order.json` rate-limited via `rateLimited('kit-order:${ip}', 5, 60_000)`; inputs validated like party/book
-
-### Security
-- [ ] [LOGIC] Card-on-file flow passes a `/security-review` gate before launch (first stored-payment-method in the app)
-- [ ] [LOGIC] Stored card detached on deposit settlement or cancellation (verified via Square customer state)
+- [ ] [LOGIC] Derived dates correct across month/year boundaries: pickup = Thursday strictly before party date; return-by = pickup + 7 days (unit-tested)
 
 ### Data
 - [ ] [DATA] Catalog seeded: Kit Assembly $50, Rental Deposit $50, Party Package with theme×tier variations — all via scripts (no dashboard work)
