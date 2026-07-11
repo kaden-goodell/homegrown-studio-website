@@ -4,6 +4,9 @@ import { staffAuthorized } from '@lib/staff-auth'
 import { getEvent } from '@lib/events'
 import { getWaiverRecord } from '@lib/waiver-store'
 import { mutateCheckin, toPublicCheckin, type CheckinState } from '@lib/checkin-store'
+import { createLogger } from '@lib/logger'
+
+const logger = createLogger('api:staff:checkin')
 
 export const prerender = false
 
@@ -50,7 +53,13 @@ export const POST: APIRoute = async ({ request }) => {
 
   // Read dropOff flag once before the mutation callback — it doesn't change
   // within a request and avoids async calls inside the retry loop.
-  const studioEvent = await getEvent('party', party)
+  let studioEvent = null
+  try {
+    studioEvent = await getEvent('party', party)
+  } catch (err) {
+    logger.error('Event lookup failed', { error: String(err) })
+    return new Response(JSON.stringify({ error: 'Couldn’t reach storage — check wifi and try again.' }), { status: 503 })
+  }
   const dropOff = !!studioEvent?.dropOff
 
   if (action !== 'checkin' && action !== 'undo-checkin' && action !== 'pickup' &&

@@ -3,10 +3,17 @@ import { partyConfig } from '@config/party.config'
 import { partyStartsForDate } from '@lib/party-slots'
 import { openPartyStarts } from '@lib/party-availability'
 import { createLogger } from '@lib/logger'
+import { rateLimited } from '@lib/rate-limit'
 
 const logger = createLogger('api:party:availability')
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, clientAddress }) => {
+  if (rateLimited(`party-avail:${clientAddress}`, 30, 60_000)) {
+    return new Response(
+      JSON.stringify({ error: 'Too many requests — give it a minute.' }),
+      { status: 429, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
   const startTime = Date.now()
   try {
     const body = await request.json()

@@ -85,6 +85,10 @@ async function rawGet(key: string): Promise<string | null> {
   return kv.get(key)
 }
 
+async function rawGetWithMeta(key: string): Promise<{ value: string | null; etag: string | null }> {
+  return kv.getWithMeta(key)
+}
+
 // ---- Records ----
 
 export async function saveWaiverRecord(record: WaiverRecord): Promise<void> {
@@ -153,6 +157,11 @@ function contactKeyOf(r: WaiverRecord): string {
  * Same contact key → the previous entry is removed and the new one inserted.
  * Returns the replaced record id (null if this is the first RSVP for this contact).
  * For kind==='party' this reads/writes the exact legacy `party-index-{id}` key.
+ *
+ * Uses a CAS retry loop (3 attempts) to avoid TOCTOU races when two households
+ * RSVP to the same party simultaneously. A lost race is retried; after 3 failed
+ * CAS attempts the error propagates — persistWaiver's caller catches index failures
+ * as best-effort so the signature is already safely stored.
  */
 export async function upsertWaiverInEventIndex(
   kind: EventKind,
@@ -160,13 +169,24 @@ export async function upsertWaiverInEventIndex(
   record: WaiverRecord,
 ): Promise<{ replacedRecordId: string | null }> {
   const key = indexKeyFor(kind, id)
-  const entries = await readIndexEntries(key)
   const ck = contactKeyOf(record)
-  const prev = entries.find((e) => e.contactKey === ck && e.recordId !== record.id)
-  const next = entries.filter((e) => e.contactKey !== ck && e.recordId !== record.id)
-  next.push({ recordId: record.id, contactKey: ck })
-  await rawSet(key, JSON.stringify(next))
-  return { replacedRecordId: prev?.recordId ?? null }
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { value, etag } = await rawGetWithMeta(key)
+    const entries: { recordId: string; contactKey: string }[] = value
+      ? JSON.parse(value).map((e: any) =>
+          typeof e === 'string' ? { recordId: e, contactKey: '' } : e,
+        )
+      : []
+    const prev = entries.find((e) => e.contactKey === ck && e.recordId !== record.id)
+    const next = entries.filter((e) => e.contactKey !== ck && e.recordId !== record.id)
+    next.push({ recordId: record.id, contactKey: ck })
+    if (await kv.setIfMatch(key, JSON.stringify(next), etag)) {
+      return { replacedRecordId: prev?.recordId ?? null }
+    }
+    // Lost the CAS race — retry
+  }
+  throw new Error('Concurrent update on event index — please retry')
 }
 
 export async function listWaiversByEvent(kind: EventKind, id: string): Promise<WaiverRecord[]> {

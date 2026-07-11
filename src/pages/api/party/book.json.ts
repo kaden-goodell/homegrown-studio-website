@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro'
 import { createLogger } from '@lib/logger'
+import { rateLimited } from '@lib/rate-limit'
 import { siteConfig } from '@config/site.config'
 import { providers } from '@config/providers'
 import { partyConfig } from '@config/party.config'
@@ -71,7 +72,10 @@ interface BookRequest {
   paymentToken: string
 }
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, clientAddress }) => {
+  if (rateLimited(`party-book:${clientAddress}`, 5, 60_000)) {
+    return errorResponse('Too many booking attempts — give it a minute.', 429)
+  }
   let body: BookRequest
   try {
     body = await request.json()
@@ -106,6 +110,8 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const locationId = siteConfig.providers.booking.config.locationId
+
+  let bookingIdForLog: string | undefined
 
   // Dev-only: skip Square entirely and return a synthetic confirmation so the
   // booking flow (and its waiver/invite handoff) can be exercised without a
@@ -195,6 +201,7 @@ export const POST: APIRoute = async ({ request }) => {
       )
     }
 
+    bookingIdForLog = booking.id
     logger.info('Party booking created', { bookingId: booking.id })
 
     /** Cancel the booking if payment fails. Non-fatal — logs an orphan warning if cancel also fails. */
@@ -319,7 +326,7 @@ export const POST: APIRoute = async ({ request }) => {
     )
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error)
-    logger.error('Party booking failed', { error: msg })
+    logger.error('Party booking failed', { error: msg, ...(bookingIdForLog ? { bookingId: bookingIdForLog } : {}) })
     return errorResponse(
       `Something went wrong finishing your booking. Don't rebook — if you were charged, we'll make it right.${partyContent.textNumber ? ` Text us at ${partyContent.textNumber}.` : ''}`,
       500,

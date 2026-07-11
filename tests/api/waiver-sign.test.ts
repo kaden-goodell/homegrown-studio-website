@@ -17,7 +17,7 @@ vi.mock('@lib/party-store', () => ({
 vi.mock('@lib/checkin-store', () => ({
   setExpected: vi.fn().mockResolvedValue(undefined),
   getCheckin: vi.fn().mockResolvedValue({ presence: {}, pickupCodeHash: null, expected: null, pickedUpBy: null, confirmedPickup: [], events: [] }),
-  setCheckin: vi.fn().mockResolvedValue(undefined),
+  mutateCheckin: vi.fn().mockResolvedValue(undefined),
 }))
 
 const mockSaveWaiverRecord = vi.fn().mockResolvedValue(undefined)
@@ -118,7 +118,7 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
     vi.mock('@lib/checkin-store', () => ({
       setExpected: vi.fn().mockResolvedValue(undefined),
       getCheckin: vi.fn().mockResolvedValue({ presence: {}, pickupCodeHash: null, expected: null, pickedUpBy: null, confirmedPickup: [], events: [] }),
-      setCheckin: vi.fn().mockResolvedValue(undefined),
+      mutateCheckin: vi.fn().mockResolvedValue(undefined),
     }))
     vi.mock('@lib/waiver-store', () => ({
       saveWaiverRecord: (...args: any[]) => mockSaveWaiverRecord(...args),

@@ -1,4 +1,4 @@
-import { createHmac } from 'node:crypto'
+import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createLogger } from '@lib/logger'
 
 const TTL_MS = 15 * 60 * 1000
@@ -26,5 +26,8 @@ export function verifyReuseToken(recordId: string, token: string, now = Date.now
   const [expStr, mac] = String(token).split('.')
   const exp = Number(expStr)
   if (!exp || exp < now || !mac) return false
-  return mac === sig(`${recordId}.${exp}`)
+  const expected = sig(`${recordId}.${exp}`)
+  const a = Buffer.from(String(mac))
+  const b = Buffer.from(expected)
+  return a.length === b.length && timingSafeEqual(a, b)
 }

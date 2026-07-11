@@ -11,7 +11,7 @@ import {
   type WaiverRecord,
   type EventKind,
 } from '@lib/waiver-store'
-import { setExpected, getCheckin, setCheckin } from '@lib/checkin-store'
+import { setExpected, getCheckin, mutateCheckin } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { verifyReuseToken } from '@lib/reuse-token'
@@ -66,7 +66,7 @@ async function persistWaiver(record: WaiverRecord): Promise<void> {
         try {
           const old = await getCheckin(record.context.id, replacedRecordId)
           if (Object.keys(old.presence).length > 0 || old.pickupCodeHash) {
-            await setCheckin(record.context.id, record.id, old)
+            await mutateCheckin(record.context.id, record.id, (s) => { Object.assign(s, old) })
           }
         } catch (err) {
           logger.error('Checkin migration failed on re-RSVP', { error: String(err) })
@@ -235,7 +235,7 @@ async function handleReuse(
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (rateLimited(`sign:${clientAddress}`, 10, 60_000)) {
-    return bad('Too many lookups — give it a minute and try again.', 429)
+    return bad('Too many submissions — give it a minute and try again.', 429)
   }
 
   try {
