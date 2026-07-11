@@ -381,6 +381,13 @@ const STATUS_LABEL: Record<KitOrder['status'], string> = {
   upcoming: 'Upcoming', out: 'Out', returned: 'Returned', cancelled: 'Cancelled', forfeited: 'Forfeited',
 }
 
+/** Display status: a crafts-only kit settles as 'returned' on pickup (nothing
+ *  to bring back), but staff should read that as "picked up", not "returned". */
+function statusLabelFor(order: KitOrder): string {
+  if (!order.theme && order.status === 'returned') return 'Picked up · done'
+  return STATUS_LABEL[order.status]
+}
+
 /** YYYY-MM-DD → "Thu, Jul 16" (local calendar arithmetic, no tz shift). */
 function fmtDay(ymd: string): string {
   const [y, m, d] = ymd.split('-').map(Number)
@@ -433,7 +440,7 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 700, color: 'var(--color-dark)' }}>{order.contact.name}</span>
         <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: statusTone }}>{STATUS_LABEL[order.status]}</span>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: statusTone }}>{statusLabelFor(order)}</span>
           <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>#{order.reference}</span>
         </span>
       </div>
@@ -466,7 +473,9 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.7rem', alignItems: 'center' }}>
         {order.status === 'upcoming' && panel !== 'cancel' && (
           <>
-            <button type="button" disabled={busy} onClick={() => run(KIT_RETURN, { orderId: order.orderId, action: 'pickup' })} style={btn(true)}>Mark picked up</button>
+            <button type="button" disabled={busy} onClick={() => run(KIT_RETURN, { orderId: order.orderId, action: 'pickup' })} style={btn(true)}>
+              {isThemed ? 'Mark picked up — moves to Out' : 'Mark picked up — done, nothing to return'}
+            </button>
             <button type="button" disabled={busy} onClick={() => setPanel('cancel')} style={{ ...btn(), color: '#b91c1c', borderColor: 'rgba(185,28,28,0.35)' }}>Cancel + refund</button>
           </>
         )}
@@ -766,7 +775,7 @@ export default function StaffConsole() {
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9rem' }}>{o.contact.name}</span>
                       <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                        {o.status !== 'upcoming' && <strong style={{ color: 'var(--color-dark)' }}>{STATUS_LABEL[o.status]} · </strong>}
+                        {o.status !== 'upcoming' && <strong style={{ color: 'var(--color-dark)' }}>{statusLabelFor(o)} · </strong>}
                         party {fmtDay(o.partyDate)} · #{o.reference}
                       </span>
                     </div>

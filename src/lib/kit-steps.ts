@@ -1,26 +1,28 @@
 /**
  * Pure step-flow model for the take-home kit modal.
  *
- * The canonical order is craft → guests → theme → when → pay. A craft chosen
- * from the gallery (a ?craft= deeplink or a landing-card click) arrives already
- * settled and drops out of the flow, so the progress indicator counts only the
- * steps the user will actually see. This mirrors the party flow's craft-drop
- * behavior; unlike parties, kits never deeplink a slot, so only craft ever drops.
+ * The canonical order is craft → build → when → pay, where "build" is one
+ * combined step: guest count and the optional themed table, chosen together
+ * (the guest count picks the package tier, the tier prices the tables — they
+ * belong on one screen). A craft chosen from the gallery (a ?craft= deeplink
+ * or a landing-card click) arrives already settled and drops out of the flow,
+ * so the progress indicator counts only the steps the user will actually see.
+ * A theme picked from a landing card does NOT drop the build step (the guest
+ * count still needs choosing) — it arrives preselected instead.
  */
 
-export type KitStepId = 'craft' | 'guests' | 'theme' | 'when' | 'pay'
+export type KitStepId = 'craft' | 'build' | 'when' | 'pay'
 
 export interface FlowInput {
   /** Craft preselected from the gallery — drop the craft step. */
   craftSettled: boolean
 }
 
-const ORDER: KitStepId[] = ['craft', 'guests', 'theme', 'when', 'pay']
+const ORDER: KitStepId[] = ['craft', 'build', 'when', 'pay']
 
 const LABELS: Record<KitStepId, string> = {
   craft: 'Crafts',
-  guests: 'Guests',
-  theme: 'Themed Table',
+  build: 'Guests & Table',
   when: 'Party Date',
   pay: 'Details & Payment',
 }

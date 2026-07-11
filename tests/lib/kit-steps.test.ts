@@ -9,49 +9,40 @@ import {
 } from '@lib/kit-steps'
 
 describe('visibleSteps', () => {
-  it('full flow when nothing is preselected', () => {
-    expect(visibleSteps({ craftSettled: false })).toEqual([
-      'craft',
-      'guests',
-      'theme',
-      'when',
-      'pay',
-    ])
+  it('full flow when nothing is preselected — guests and theme share one build step', () => {
+    expect(visibleSteps({ craftSettled: false })).toEqual(['craft', 'build', 'when', 'pay'])
   })
 
   it('drops the craft step when a craft is preselected', () => {
-    expect(visibleSteps({ craftSettled: true })).toEqual(['guests', 'theme', 'when', 'pay'])
+    expect(visibleSteps({ craftSettled: true })).toEqual(['build', 'when', 'pay'])
   })
 })
 
 describe('navigation', () => {
-  const steps: KitStepId[] = ['guests', 'theme', 'when', 'pay']
+  const steps: KitStepId[] = ['build', 'when', 'pay']
 
   it('nextStep walks right and returns null at the end', () => {
-    expect(nextStep('guests', steps)).toBe('theme')
-    expect(nextStep('theme', steps)).toBe('when')
+    expect(nextStep('build', steps)).toBe('when')
     expect(nextStep('when', steps)).toBe('pay')
     expect(nextStep('pay', steps)).toBeNull()
   })
 
   it('prevStep walks left and returns null at the start', () => {
     expect(prevStep('pay', steps)).toBe('when')
-    expect(prevStep('when', steps)).toBe('theme')
-    expect(prevStep('theme', steps)).toBe('guests')
-    expect(prevStep('guests', steps)).toBeNull()
+    expect(prevStep('when', steps)).toBe('build')
+    expect(prevStep('build', steps)).toBeNull()
   })
 
   it('stepIndex reports the position within the visible flow', () => {
-    expect(stepIndex('guests', steps)).toBe(0)
-    expect(stepIndex('pay', steps)).toBe(3)
+    expect(stepIndex('build', steps)).toBe(0)
+    expect(stepIndex('pay', steps)).toBe(2)
   })
 })
 
 describe('stepLabel', () => {
   it('labels every step', () => {
     expect(stepLabel('craft')).toBe('Crafts')
-    expect(stepLabel('guests')).toBe('Guests')
-    expect(stepLabel('theme')).toBe('Themed Table')
+    expect(stepLabel('build')).toBe('Guests & Table')
     expect(stepLabel('when')).toBe('Party Date')
     expect(stepLabel('pay')).toBe('Details & Payment')
   })

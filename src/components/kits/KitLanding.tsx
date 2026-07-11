@@ -58,8 +58,23 @@ function fromPrice(tiers: Tier[]): number | null {
   return Math.min(...tiers.map((t) => t.packagePriceCents))
 }
 
-/** One waitlist card's email capture — reuses the shared party notify-me
- *  endpoint verbatim (email only; it ignores extra fields). */
+/** Photo-less theme tiles get a gradient in the theme's own palette, so the
+ *  cards read as designed placeholders instead of three identical stock shots. */
+const SCHEME_GRADIENTS: Record<string, string> = {
+  gold: 'linear-gradient(135deg, rgba(212,175,55,0.30), rgba(245,222,179,0.45))',
+  silver: 'linear-gradient(135deg, rgba(160,168,180,0.30), rgba(220,225,232,0.5))',
+  blue: 'linear-gradient(135deg, rgba(90,140,200,0.28), rgba(170,200,235,0.45))',
+  rainbow: 'linear-gradient(120deg, rgba(240,120,120,0.30), rgba(245,205,120,0.32), rgba(140,205,150,0.32), rgba(130,165,230,0.32), rgba(190,140,220,0.32))',
+  neutral: 'linear-gradient(135deg, rgba(200,185,165,0.35), rgba(235,228,215,0.5))',
+  'sweet-sixteen': 'linear-gradient(135deg, rgba(235,140,180,0.30), rgba(250,210,225,0.5))',
+}
+function schemeGradient(scheme: string): string {
+  return SCHEME_GRADIENTS[scheme] ?? 'linear-gradient(135deg, rgba(150,112,91,0.10), rgba(198,167,142,0.20))'
+}
+
+/** One waitlist card's email capture — shares the party notify-me endpoint.
+ *  Sends the theme id as `interest` so the longest waitlist tells us which
+ *  table to stock next. */
 function WaitlistCard({ theme }: { theme: Theme }) {
   const [email, setEmail] = useState('')
   const [state, setState] = useState<'idle' | 'sending' | 'done' | 'error'>('idle')
@@ -71,7 +86,7 @@ function WaitlistCard({ theme }: { theme: Theme }) {
       const res = await fetch('/api/party/notify-me.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim() }),
+        body: JSON.stringify({ email: email.trim(), interest: `kit-theme:${theme.id}` }),
       })
       if (!res.ok) throw new Error()
       setState('done')
@@ -93,11 +108,11 @@ function WaitlistCard({ theme }: { theme: Theme }) {
         opacity: 0.72,
       }}
     >
-      <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, rgba(150,112,91,0.10), rgba(198,167,142,0.20))', filter: 'grayscale(0.4)' }}>
+      <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: schemeGradient(theme.scheme), filter: 'grayscale(0.4)' }}>
         {theme.photo ? (
           <img src={theme.photo} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
         ) : (
-          <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 600, color: 'rgba(150,112,91,0.55)', textAlign: 'center', padding: '0 1rem' }}>{theme.displayName}</span>
+          <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 600, color: 'rgba(90,70,55,0.65)', textAlign: 'center', padding: '0 1rem' }}>{theme.displayName}</span>
         )}
         <span style={{ position: 'absolute', top: '0.75rem', right: '0.75rem', background: 'rgba(70,70,70,0.85)', color: '#fff', borderRadius: '2rem', padding: '0.28rem 0.7rem', fontSize: '0.72rem', fontWeight: 700 }}>
           Coming soon
@@ -154,6 +169,7 @@ export default function KitLanding() {
   const [status, setStatus] = useState<'loading' | 'ready' | 'seeding' | 'error'>('loading')
   const [modalOpen, setModalOpen] = useState(false)
   const [initialCraftId, setInitialCraftId] = useState<string | undefined>(undefined)
+  const [initialThemeId, setInitialThemeId] = useState<string | undefined>(undefined)
   const [showAllCrafts, setShowAllCrafts] = useState(false)
   const CRAFT_PREVIEW_COUNT = 6
 
@@ -178,23 +194,27 @@ export default function KitLanding() {
     loadInfo()
   }, [])
 
-  // ?craft=<id> deeplink — preselect a craft and open the modal (parity with /book).
+  // ?craft=<id> / ?theme=<id> deeplinks — preselect and open the modal
+  // (parity with /book). A theme deeplink lands on the build step with the
+  // table already chosen; the visitor never re-picks what they clicked.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const craft = params.get('craft')
-    if (craft) {
-      setInitialCraftId(craft)
-      setModalOpen(true)
-    }
+    const theme = params.get('theme')
+    if (craft) setInitialCraftId(craft)
+    if (theme) setInitialThemeId(theme)
+    if (craft || theme) setModalOpen(true)
   }, [])
 
-  function openModal(craftId?: string) {
-    setInitialCraftId(craftId)
+  function openModal(opts?: { craftId?: string; themeId?: string }) {
+    setInitialCraftId(opts?.craftId)
+    setInitialThemeId(opts?.themeId)
     setModalOpen(true)
   }
   function closeModal() {
     setModalOpen(false)
     setInitialCraftId(undefined)
+    setInitialThemeId(undefined)
   }
 
   if (status === 'loading') {
@@ -239,6 +259,29 @@ export default function KitLanding() {
 
   return (
     <div>
+      {/* Above-the-fold CTA — don't make the ready-to-buy scroll to the bottom. */}
+      <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
+        <button
+          onClick={() => openModal()}
+          style={{
+            padding: '0.9rem 2.25rem',
+            background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '0.75rem',
+            fontSize: '1rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+            boxShadow: '0 4px 15px rgba(150, 112, 91, 0.25)',
+          }}
+        >
+          Build your kit
+        </button>
+        <p style={{ margin: '0.6rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+          Or browse the tables and crafts below — tapping one starts your kit with it.
+        </p>
+      </div>
+
       {/* Theme gallery — the styled tables. Stocked ones are the pitch; the rest
           take a waitlist email. */}
       {info.themes.length > 0 && (
@@ -256,7 +299,7 @@ export default function KitLanding() {
                 <button
                   key={theme.id}
                   type="button"
-                  onClick={() => openModal()}
+                  onClick={() => openModal({ themeId: theme.id })}
                   style={{
                     display: 'flex',
                     flexDirection: 'column',
@@ -272,11 +315,11 @@ export default function KitLanding() {
                   onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 14px 32px rgba(150,112,91,0.18)'; e.currentTarget.style.transform = 'translateY(-3px)' }}
                   onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}
                 >
-                  <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, rgba(150,112,91,0.10), rgba(198,167,142,0.20))' }}>
+                  <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: schemeGradient(theme.scheme) }}>
                     {theme.photo ? (
                       <img src={theme.photo} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     ) : (
-                      <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 600, color: 'rgba(150,112,91,0.55)', textAlign: 'center', padding: '0 1rem' }}>{theme.displayName}</span>
+                      <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 600, color: 'rgba(90,70,55,0.65)', textAlign: 'center', padding: '0 1rem' }}>{theme.displayName}</span>
                     )}
                     {from != null && (
                       <span style={{ position: 'absolute', top: '0.75rem', right: '0.75rem', background: 'rgba(255,255,255,0.94)', borderRadius: '2rem', padding: '0.28rem 0.7rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-dark)', boxShadow: '0 1px 5px rgba(0,0,0,0.12)' }}>
@@ -315,7 +358,7 @@ export default function KitLanding() {
               <button
                 key={craft.id}
                 type="button"
-                onClick={() => openModal(craft.id)}
+                onClick={() => openModal({ craftId: craft.id })}
                 style={{
                   display: 'flex',
                   flexDirection: 'column',
@@ -394,7 +437,7 @@ export default function KitLanding() {
         </button>
       </div>
 
-      {modalOpen && <KitModal onClose={closeModal} initialCraftId={initialCraftId} />}
+      {modalOpen && <KitModal onClose={closeModal} initialCraftId={initialCraftId} initialThemeId={initialThemeId} />}
     </div>
   )
 }

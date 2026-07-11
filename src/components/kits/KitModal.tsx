@@ -15,6 +15,8 @@ interface KitModalProps {
   onClose: () => void
   /** Optional craft id (from a landing card / ?craft= deeplink) to preselect and skip the Craft step. */
   initialCraftId?: string
+  /** Optional theme id (from a landing card / ?theme= deeplink) to arrive preselected on the build step. */
+  initialThemeId?: string
 }
 
 interface Craft {
@@ -49,6 +51,7 @@ interface KitServiceInfo {
   assemblyFeeCents: number
   minGuests: number
   maxGuests: number
+  tierSizes?: number[]
   leadTimeDays: number
   returnWindow: string
 }
@@ -71,15 +74,6 @@ interface OrderSummary {
   emailSent?: boolean
 }
 
-const MIN_GUESTS = 10
-const MAX_GUESTS = 20
-const GUEST_QUICK_PICKS = [10, 15, 20]
-
-/** Tier size for a guest count: round up to the next 5, clamped to 10–20. */
-function tierFor(guests: number): number {
-  return Math.min(MAX_GUESTS, Math.max(MIN_GUESTS, Math.ceil(guests / 5) * 5))
-}
-
 function formatPrice(cents: number): string {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(cents / 100)
 }
@@ -95,6 +89,11 @@ function formatDateLabel(ymd: string): string {
   const [y, m, d] = ymd.split('-').map(Number)
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
+/** "Sat 15" — compact day chip inside a week card. */
+function formatDayChip(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric' })
+}
 /** "Saturday, August 15" — the prominent confirmation format. */
 function formatDateLong(ymd: string): string {
   const [y, m, d] = ymd.split('-').map(Number)
@@ -105,7 +104,7 @@ function isValidEmail(email: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
 }
 
-export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
+export default function KitModal({ onClose, initialCraftId, initialThemeId }: KitModalProps) {
   const [currentStep, setCurrentStep] = useState<KitStepId>('craft')
   const [visible, setVisible] = useState(true)
   const [displayStep, setDisplayStep] = useState<KitStepId>('craft')
@@ -125,9 +124,18 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
   const [info, setInfo] = useState<KitServiceInfo | null>(null)
   const [infoError, setInfoError] = useState<string | null>(null)
 
+  // Guest bounds and package sizes come from the server (kit.config via
+  // service-info) — the fallbacks only cover the pre-fetch render.
+  const minGuests = info?.minGuests ?? 10
+  const maxGuests = info?.maxGuests ?? 20
+  const tierSizes = useMemo(
+    () => (info?.tierSizes?.length ? [...info.tierSizes].sort((a, b) => a - b) : [10, 15, 20]),
+    [info],
+  )
+
   // Selections
   const [selectedCraft, setSelectedCraft] = useState<Craft | null>(null)
-  const [guests, setGuests] = useState<number>(MIN_GUESTS)
+  const [guests, setGuests] = useState<number>(10)
   // null = undecided; 'none' = crafts-only; otherwise a theme id.
   const [themeChoice, setThemeChoice] = useState<string | 'none' | null>(null)
   const [selectedDate, setSelectedDate] = useState('')
@@ -159,7 +167,8 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
   const dialogRef = useRef<HTMLDivElement>(null)
 
   const hasTheme = !!themeChoice && themeChoice !== 'none'
-  const tierGuests = tierFor(guests)
+  /** Smallest offered package that seats everyone (server sizes, not arithmetic). */
+  const tierGuests = tierSizes.find((s) => s >= guests) ?? tierSizes[tierSizes.length - 1]
   const selectedTheme = hasTheme ? info?.themes.find((t) => t.id === themeChoice) ?? null : null
   const selectedTier = selectedTheme?.tiers.find((t) => t.serves === tierGuests) ?? null
 
@@ -220,12 +229,25 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
   }
   useEffect(() => { loadServiceInfo() }, [])
 
+  // Guest count starts at the server minimum once it's known.
+  useEffect(() => {
+    if (info) setGuests((g) => Math.min(Math.max(g, info.minGuests), info.maxGuests))
+  }, [info])
+
   // Preselect a craft from the gallery.
   useEffect(() => {
     if (!info || !initialCraftId) return
     const c = info.crafts.find((x) => x.id === initialCraftId)
     if (c) setSelectedCraft(c)
   }, [info, initialCraftId])
+
+  // Preselect a theme from the gallery — the user landed here because they
+  // fell for a table; the build step arrives with it already chosen.
+  useEffect(() => {
+    if (!info || !initialThemeId) return
+    const t = info.themes.find((x) => x.id === initialThemeId && x.stocked)
+    if (t) setThemeChoice(t.id)
+  }, [info, initialThemeId])
 
   // Load the selectable party dates + per-theme availability. Availability is
   // live, so refetch when the modal opens.
@@ -254,6 +276,18 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
     if (!hasTheme) return true
     return (d.themes[themeChoice as string] ?? []).includes(tierGuests)
   }
+
+  // The date picker groups party dates by their pickup Thursday — the actual
+  // inventory unit. Availability is per-week, so one flag covers all its days.
+  const weekGroups = useMemo(() => {
+    const map = new Map<string, { pickupDate: string; returnBy: string; days: WeekDate[] }>()
+    for (const w of weeks) {
+      const entry = map.get(w.pickupDate) ?? { pickupDate: w.pickupDate, returnBy: w.returnBy, days: [] }
+      entry.days.push(w)
+      map.set(w.pickupDate, entry)
+    }
+    return [...map.values()]
+  }, [weeks])
 
   // If the guest count or theme changes such that the chosen date is no longer
   // bookable, drop the selection so the user re-picks.
@@ -547,7 +581,7 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
           <div>
             <label style={{ ...labelStyle, marginBottom: '0.75rem' }}>Choose a Craft</label>
             <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0 0 0.875rem' }}>
-              Every guest makes one — we box exactly enough for your headcount.
+              Every guest makes one — we box exactly enough for your headcount. One {formatPrice(assemblyFee)} assembly fee covers packing the whole kit.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '1.5rem' }}>
               {info.crafts.map((craft) => {
@@ -607,14 +641,15 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
           </div>
         )
 
-      // GUESTS
-      case 'guests':
+      // BUILD — guests and the optional themed table, together: the guest
+      // count picks the package size, so the table prices update live.
+      case 'build':
         return (
           <div>
             <div style={{ marginBottom: '1.5rem' }}>
               <label style={{ ...labelStyle, marginBottom: '0.5rem' }}>How many guests?</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.875rem' }}>
-                {GUEST_QUICK_PICKS.map((n) => (
+                {tierSizes.map((n) => (
                   <button key={n} type="button" onClick={() => setGuests(n)} style={{ ...pillButtonStyle(guests === n), minWidth: '3.25rem', padding: '0.625rem 0.75rem' }}>
                     {n}
                   </button>
@@ -624,9 +659,9 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
                 <button
                   type="button"
                   aria-label="Fewer guests"
-                  onClick={() => setGuests(Math.max(MIN_GUESTS, guests - 1))}
-                  disabled={guests <= MIN_GUESTS}
-                  style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.5rem', border: '1px solid rgba(150, 112, 91, 0.15)', background: 'rgba(255, 255, 255, 0.8)', fontSize: '1.25rem', cursor: guests <= MIN_GUESTS ? 'default' : 'pointer', opacity: guests <= MIN_GUESTS ? 0.3 : 1, color: 'var(--color-dark)' }}
+                  onClick={() => setGuests(Math.max(minGuests, guests - 1))}
+                  disabled={guests <= minGuests}
+                  style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.5rem', border: '1px solid rgba(150, 112, 91, 0.15)', background: 'rgba(255, 255, 255, 0.8)', fontSize: '1.25rem', cursor: guests <= minGuests ? 'default' : 'pointer', opacity: guests <= minGuests ? 0.3 : 1, color: 'var(--color-dark)' }}
                 >
                   &minus;
                 </button>
@@ -634,33 +669,22 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
                 <button
                   type="button"
                   aria-label="More guests"
-                  onClick={() => setGuests(Math.min(MAX_GUESTS, guests + 1))}
-                  disabled={guests >= MAX_GUESTS}
-                  style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.5rem', border: '1px solid rgba(150, 112, 91, 0.15)', background: 'rgba(255, 255, 255, 0.8)', fontSize: '1.25rem', cursor: guests >= MAX_GUESTS ? 'default' : 'pointer', opacity: guests >= MAX_GUESTS ? 0.3 : 1, color: 'var(--color-dark)' }}
+                  onClick={() => setGuests(Math.min(maxGuests, guests + 1))}
+                  disabled={guests >= maxGuests}
+                  style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.5rem', border: '1px solid rgba(150, 112, 91, 0.15)', background: 'rgba(255, 255, 255, 0.8)', fontSize: '1.25rem', cursor: guests >= maxGuests ? 'default' : 'pointer', opacity: guests >= maxGuests ? 0.3 : 1, color: 'var(--color-dark)' }}
                 >
                   +
                 </button>
-                {hasTheme && (
-                  <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-primary)' }}>
-                    serves-{tierGuests} package
-                  </span>
-                )}
               </div>
               <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: '0.5rem' }}>
-                Kits are for {MIN_GUESTS}–{MAX_GUESTS} guests. We box a craft for each — you can nudge the exact count with us before pickup.
+                Kits are for {minGuests}–{maxGuests} guests. We box a craft for each — you can nudge the exact count with us before pickup.
               </p>
             </div>
-            <button type="button" onClick={goNext} style={primaryButtonStyle(true)}>Continue</button>
-          </div>
-        )
 
-      // THEME
-      case 'theme':
-        return (
-          <div>
             <label style={{ ...labelStyle, marginBottom: '0.25rem' }}>Add a Themed Table?</label>
             <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0 0 1rem' }}>
               A styled, photograph-worthy table that comes packed and labeled — or skip it and just take the crafts.
+              {guests !== tierGuests && <> Packages come in sizes of {tierSizes.join(' / ')}, so {guests} guests get the serves-{tierGuests} set.</>}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.25rem' }}>
               {info.themes.filter((t) => t.stocked).map((theme) => {
@@ -686,8 +710,10 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
                       transition: 'background 0.2s ease, border-color 0.2s ease',
                     }}
                   >
-                    <div style={{ width: '4rem', height: '4rem', borderRadius: '0.6rem', overflow: 'hidden', flexShrink: 0, background: 'linear-gradient(135deg, rgba(150,112,91,0.10), rgba(198,167,142,0.20))' }}>
-                      {theme.photo && <img src={theme.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />}
+                    <div style={{ width: '4rem', height: '4rem', borderRadius: '0.6rem', overflow: 'hidden', flexShrink: 0, background: 'linear-gradient(135deg, rgba(150,112,91,0.10), rgba(198,167,142,0.20))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      {theme.photo
+                        ? <img src={theme.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                        : <span aria-hidden style={{ fontSize: '1.25rem' }}>🎀</span>}
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>{theme.displayName}</span>
@@ -738,13 +764,14 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
           </div>
         )
 
-      // WHEN
+      // WHEN — weeks, not a wall of days: kits live on a Thu→Wed cycle, so the
+      // picker groups party dates under their pickup Thursday.
       case 'when':
         return (
           <div>
             <label style={{ ...labelStyle, marginBottom: '0.25rem' }}>When&rsquo;s the party?</label>
             <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0 0 0.875rem' }}>
-              Kits need a week — pick a date at least {info.leadTimeDays} days out. You&rsquo;ll pick up the Thursday of that week.
+              Kits need {info.leadTimeDays} days of lead time. Pick your party day — pickup is the Thursday of that week, return the Wednesday after.
             </p>
 
             {loadingWeeks && <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Loading available dates…</p>}
@@ -754,41 +781,60 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
                 <button type="button" onClick={loadWeeks} style={{ ...primaryButtonStyle(true), width: 'auto', padding: '0.5rem 1rem', fontSize: '0.8125rem' }}>Try again</button>
               </div>
             )}
-            {!loadingWeeks && !weeksError && weeks.length === 0 && (
+            {!loadingWeeks && !weeksError && weekGroups.length === 0 && (
               <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>No dates are open right now — check back soon.</p>
             )}
 
-            {weeks.length > 0 && (
-              <div style={{ maxHeight: '20rem', overflowY: 'auto', marginBottom: '1.25rem', paddingRight: '0.25rem' }}>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(8rem, 1fr))', gap: '0.5rem' }}>
-                  {weeks.map((w) => {
-                    const ok = dateAvailable(w)
-                    return (
-                      <button
-                        key={w.partyDate}
-                        type="button"
-                        disabled={!ok}
-                        onClick={() => setSelectedDate(w.partyDate)}
-                        title={ok ? undefined : `${selectedTheme?.displayName ?? 'That table'} is fully booked that week`}
-                        style={{
-                          ...pillButtonStyle(selectedDate === w.partyDate),
-                          opacity: ok ? 1 : 0.4,
-                          cursor: ok ? 'pointer' : 'not-allowed',
-                          textDecoration: ok ? 'none' : 'line-through',
-                        }}
-                      >
-                        {formatDateLabel(w.partyDate)}
-                      </button>
-                    )
-                  })}
-                </div>
+            {weekGroups.length > 0 && (
+              <div style={{ maxHeight: '22rem', overflowY: 'auto', marginBottom: '1.25rem', paddingRight: '0.25rem', display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+                {weekGroups.map((wk) => {
+                  const open = dateAvailable(wk.days[0])
+                  const containsSelection = wk.days.some((d) => d.partyDate === selectedDate)
+                  return (
+                    <div
+                      key={wk.pickupDate}
+                      style={{
+                        borderRadius: '0.875rem',
+                        border: containsSelection ? '2px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.15)',
+                        background: 'rgba(255, 255, 255, 0.75)',
+                        padding: '0.75rem 0.875rem',
+                        opacity: open ? 1 : 0.55,
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap', marginBottom: open ? '0.6rem' : 0 }}>
+                        <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-dark)' }}>
+                          Week of {formatDateLabel(wk.pickupDate)}
+                        </span>
+                        <span style={{ fontSize: '0.72rem', color: 'var(--color-muted)' }}>
+                          {open
+                            ? <>pick up {formatDayChip(wk.pickupDate)} · return {formatDayChip(wk.returnBy)}</>
+                            : `${selectedTheme?.displayName ?? 'That table'} is fully booked this week`}
+                        </span>
+                      </div>
+                      {open && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
+                          {wk.days.map((d) => (
+                            <button
+                              key={d.partyDate}
+                              type="button"
+                              onClick={() => setSelectedDate(d.partyDate)}
+                              style={{ ...pillButtonStyle(selectedDate === d.partyDate), padding: '0.5rem 0.7rem', fontSize: '0.78rem' }}
+                            >
+                              {formatDayChip(d.partyDate)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             )}
 
             {selectedWeek && (
               <div style={{ padding: '0.875rem 1rem', borderRadius: '0.75rem', background: 'rgba(34, 197, 94, 0.06)', border: '1px solid rgba(34, 197, 94, 0.15)', marginBottom: '1.25rem' }}>
                 <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-dark)', lineHeight: 1.5 }}>
-                  Pick up <strong>{formatDateLabel(selectedWeek.pickupDate)}</strong> · Return by <strong>{formatDateLabel(selectedWeek.returnBy)}</strong>, {info.returnWindow}
+                  Party <strong>{formatDateLabel(selectedWeek.partyDate)}</strong> · Pick up <strong>{formatDateLabel(selectedWeek.pickupDate)}</strong> · Return by <strong>{formatDateLabel(selectedWeek.returnBy)}</strong>, {info.returnWindow}
                 </p>
               </div>
             )}
@@ -842,21 +888,29 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
               </div>
             </div>
 
-            {/* Rental terms — only when a table (with returnable pieces) is added. */}
+            {/* Rental terms — inline and in full view, only when a table (with
+                returnable pieces) is added. The customer must be able to READ
+                what the checkbox binds them to, right here. */}
             {hasTheme && (
-              <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer', marginBottom: '1.25rem' }}>
-                <input
-                  type="checkbox"
-                  checked={rentalTermsAccepted}
-                  onChange={(e) => setRentalTermsAccepted(e.target.checked)}
-                  style={{ marginTop: '0.15rem', width: '1rem', height: '1rem', flexShrink: 0, cursor: 'pointer' }}
-                />
-                <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--color-dark)', lineHeight: 1.5 }}>
-                  I agree to the{' '}
-                  <a href="/waiver" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--color-primary)', fontWeight: 600 }}>rental terms</a>
-                  {' '}— the pieces come home clean by Wednesday and my deposit is refunded when they do.
-                </span>
-              </label>
+              <div style={{ padding: '0.875rem 1rem', borderRadius: '0.75rem', background: 'rgba(150, 112, 91, 0.05)', border: '1px solid rgba(150, 112, 91, 0.12)', marginBottom: '1.25rem' }}>
+                <p style={{ margin: '0 0 0.5rem', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)' }}>Rental terms, in brief</p>
+                <ul style={{ margin: '0 0 0.75rem', paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
+                  {kitContent.rentalTermsBrief.map((t) => (
+                    <li key={t} style={{ fontSize: '0.78rem', color: 'var(--color-muted)', lineHeight: 1.5 }}>{t}</li>
+                  ))}
+                </ul>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={rentalTermsAccepted}
+                    onChange={(e) => setRentalTermsAccepted(e.target.checked)}
+                    style={{ marginTop: '0.15rem', width: '1rem', height: '1rem', flexShrink: 0, cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--color-dark)', lineHeight: 1.5 }}>
+                    I agree to the rental terms above. The full rental agreement comes with your pickup paperwork.
+                  </span>
+                </label>
+              </div>
             )}
 
             {/* Kit charges run through the standard Payments API under OUR app
@@ -892,6 +946,10 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
             >
               {processing ? 'Processing...' : `Pay ${formatPrice(dueToday)} & book your kit`}
             </button>
+            <p style={{ margin: '0.6rem 0 0', fontSize: '0.72rem', color: 'var(--color-muted)', textAlign: 'center' }}>
+              🔒 Payments processed securely by Square.
+              {hasTheme && <> Your {formatPrice(depositCents)} deposit comes back when the pieces do.</>}
+            </p>
           </div>
         )
 
@@ -939,7 +997,7 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
 
         {/* Progress bar */}
         {!completed && (
-          <nav aria-label="Kit progress" style={{ marginBottom: '2rem' }}>
+          <nav aria-label="Kit progress" style={{ marginBottom: '1.5rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.5rem' }}>
               <span style={{ fontSize: '0.8125rem', fontWeight: 500, letterSpacing: '0.06em', textTransform: 'uppercase', color: 'var(--color-dark)' }}>
                 {stepLabel(currentStep)}
@@ -958,18 +1016,25 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
           </nav>
         )}
 
-        {/* Selection summary chips */}
+        {/* Selection summary chips + live total. No price surprises at the end:
+            the running "Due today" figure travels with the customer from the
+            first choice on (it already includes the assembly fee). */}
         {!completed && (selectedCraft || hasTheme) && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '1.25rem' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
             {selectedCraft && (
               <span style={{ ...chipStyle, paddingLeft: selectedCraft.imageUrl ? '0.3rem' : '0.75rem' }}>
                 {selectedCraft.imageUrl && <img src={selectedCraft.imageUrl} alt="" style={{ width: '1.5rem', height: '1.5rem', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />}
                 {selectedCraft.name}
               </span>
             )}
-            <span style={chipStyle}>~{guests} guests</span>
+            <span style={chipStyle}>{guests} guests</span>
             {selectedTheme && <span style={chipStyle}>{selectedTheme.displayName}</span>}
             {selectedDate && <span style={chipStyle}>{formatDateLabel(selectedDate)}</span>}
+            {selectedCraft && displayStep !== 'pay' && (
+              <span style={{ ...chipStyle, marginLeft: 'auto', background: 'rgba(150, 112, 91, 0.12)', fontWeight: 600 }}>
+                Due today · {formatPrice(dueToday)}
+              </span>
+            )}
           </div>
         )}
 

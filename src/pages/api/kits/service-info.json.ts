@@ -45,6 +45,9 @@ export const GET: APIRoute = async () => {
       assemblyFeeCents: kitConfig.assemblyFeeCents,
       minGuests: kitConfig.minGuests,
       maxGuests: kitConfig.maxGuests,
+      /** Offered package sizes, ascending — the client's tier math derives from
+       *  this instead of hardcoding serves-5 arithmetic. */
+      tierSizes: kitConfig.tiers.map((t) => t.serves),
       leadTimeDays: kitConfig.leadTimeDays,
       returnWindow: kitConfig.returnWindow,
     }

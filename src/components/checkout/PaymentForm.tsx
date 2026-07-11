@@ -36,7 +36,8 @@ interface PaymentFormProps {
   environmentOverride?: 'sandbox' | 'production'
   /** When set, offer Apple Pay / Google Pay for this amount (dollars, e.g. "200.00").
    *  Wallets render only where the browser/device/domain supports them.
-   *  `bnpl: true` additionally offers Afterpay (pay-in-4) — parties only. */
+   *  `bnpl: true` additionally offers Afterpay (pay-in-4) — big-ticket flows
+   *  (parties, kits); skip it for small amounts where pay-in-4 is noise. */
   wallet?: { amount: string; label: string; bnpl?: boolean }
   /** Called with the payment token when a wallet (Apple/Google Pay) tokenizes. */
   onWalletToken?: (token: string) => void
