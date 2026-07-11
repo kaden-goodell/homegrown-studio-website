@@ -465,6 +465,8 @@ export default function StaffConsole() {
   const here = roster.households.reduce((n, h) => n + Object.values(h.checkin.presence || {}).filter((p) => !p.outAt).length, 0)
   const coming = roster.households.reduce((n, h) => n + (h.checkin.expected ? h.checkin.expected.length : 1 + h.children.length), 0)
   const allergyCount = roster.households.reduce((n, h) => n + (h.adultAllergies ? 1 : 0) + h.children.filter((c) => c.allergies).length, 0)
+  // A group photo includes everyone — if ANY household opted out, group shots are off.
+  const noPhotoGroups = roster.households.filter((h) => !h.photoConsent).length
 
   // Filter households by search query
   const lowerQuery = query.toLowerCase()
@@ -491,6 +493,9 @@ export default function StaffConsole() {
           <Badge tone="muted">🗓 {coming} crafting</Badge>
           <Badge tone="muted">✓ {here} here now</Badge>
           {allergyCount > 0 && <Badge tone="alert">⚠ {allergyCount} with allergies</Badge>}
+          {noPhotoGroups > 0 && (
+            <Badge tone="alert" wrap>🚫 No group photos — {noPhotoGroups} {noPhotoGroups === 1 ? 'group' : 'groups'} opted out</Badge>
+          )}
         </div>
         <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.7rem', fontSize: '0.8125rem', color: 'var(--color-dark)', cursor: 'pointer' }}>
           <input type="checkbox" checked={roster.party.dropOff} onChange={(e) => setDropOff(e.target.checked)} />
