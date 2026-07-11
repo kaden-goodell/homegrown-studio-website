@@ -187,8 +187,8 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
     }
     if (expected == null) return null
     return expected.includes(p.id)
-      ? <span style={{ fontSize: '0.7rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>RSVP'd</span>
-      : <span style={{ fontSize: '0.7rem', color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>didn't RSVP</span>
+      ? <span style={{ fontSize: '0.7rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>RSVP’d</span>
+      : <span style={{ fontSize: '0.7rem', color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>didn’t RSVP</span>
   }
 
   // Big, obvious check box on the left of a person row (or a spacer to keep alignment).
@@ -236,7 +236,7 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
               <span style={{ fontSize: '0.95rem' }}>{p.icon}</span>
               <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9375rem' }}>{p.name}</span>
               {p.sub && <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{p.sub}</span>}
-              {p.duplicateOf && <Badge tone="muted">also on {p.duplicateOf}'s RSVP</Badge>}
+              {p.duplicateOf && <Badge tone="muted">also on {p.duplicateOf}’s RSVP</Badge>}
               {stateLabel(p, st)}
               <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '0.3rem', flexWrap: 'wrap' }}>
                 {p.allergies && <Badge tone="alert" wrap>⚠ {p.allergies}</Badge>}
@@ -266,7 +266,7 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
         <div style={{ marginTop: '0.7rem', background: 'rgba(150,112,91,0.1)', border: '1px solid rgba(150,112,91,0.4)', borderRadius: '0.6rem', padding: '0.7rem 0.8rem', textAlign: 'center' }}>
           <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)', fontWeight: 700 }}>Pickup code — give to parent now</span>
           <div style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '0.25em', color: 'var(--color-dark)', margin: '0.1rem 0' }}>{oneTimeCode}</div>
-          <p style={{ fontSize: '0.7rem', color: 'var(--color-muted)', margin: '0 0 0.5rem' }}>Won't be shown again — it collects any of their kids. Make sure the parent has it.</p>
+          <p style={{ fontSize: '0.7rem', color: 'var(--color-muted)', margin: '0 0 0.5rem' }}>Won’t be shown again — it collects any of their kids. Make sure the parent has it.</p>
           <button type="button" onClick={() => setOneTimeCode(null)} style={btn(true)}>Parent has it — hide</button>
         </div>
       )}
@@ -301,7 +301,7 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
           {/* Two-tap reset guard — no native confirm dialog */}
           {resetPending ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Really reset? Clears this family's arrival times.</span>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Really reset? Clears this family’s arrival times.</span>
               <button type="button" onClick={handleResetTap} style={{ ...btn(), color: '#b91c1c', borderColor: 'rgba(185,28,28,0.35)' }}>Reset</button>
               <button type="button" onClick={() => { if (resetTimerRef.current) clearTimeout(resetTimerRef.current); setResetPending(false) }} style={btn()}>Keep</button>
             </span>
@@ -453,7 +453,7 @@ export default function StaffConsole() {
               <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{formatWhen(p.startIso)}</span>
             </div>
             <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
-              Host: {p.hostName} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP'd ({p.rsvpPeople} ppl)
+              Host: {p.hostName} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl)
             </p>
           </button>
         ))}
@@ -487,7 +487,7 @@ export default function StaffConsole() {
         <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0 }}>{roster.party.title || `${roster.party.craftName} Party`}</h2>
         <p style={{ color: 'var(--color-dark)', fontWeight: 600, margin: '0.3rem 0 0' }}>{formatWhen(roster.party.startIso)}</p>
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginTop: '0.6rem' }}>
-          <Badge tone="muted">👥 {roster.summary.households} RSVP'd</Badge>
+          <Badge tone="muted">👥 {roster.summary.households} RSVP’d</Badge>
           <Badge tone="muted">🗓 {coming} expected</Badge>
           <Badge tone="muted">✓ {here} here now</Badge>
           {allergyCount > 0 && <Badge tone="alert">⚠ {allergyCount} with allergies</Badge>}
