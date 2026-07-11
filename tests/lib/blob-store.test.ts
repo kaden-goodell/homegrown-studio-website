@@ -56,7 +56,7 @@ describe('makeKvStore (fs mode)', () => {
   })
 
   it('setIfMatch in fs mode writes unconditionally and returns true', async () => {
-    const ok = await store.setIfMatch('mykey', '"val"', null)
+    const ok = await store.setIfMatch('mykey', '"val"', null, false)
     expect(ok).toBe(true)
     expect(await store.get('mykey')).toBe('"val"')
   })
@@ -70,7 +70,7 @@ describe('makeKvStore (blob mode via injection)', () => {
     fakeStore._nextModified = false
 
     const store = makeKvStore('test', 'test', { _blobStore: fakeStore })
-    const result = await store.setIfMatch('key', '{}', 'etag-abc')
+    const result = await store.setIfMatch('key', '{}', 'etag-abc', true)
     expect(result).toBe(false)
   })
 
@@ -79,8 +79,27 @@ describe('makeKvStore (blob mode via injection)', () => {
     fakeStore._nextModified = true
 
     const store = makeKvStore('test', 'test', { _blobStore: fakeStore })
-    const result = await store.setIfMatch('key', '{}', 'etag-abc')
+    const result = await store.setIfMatch('key', '{}', 'etag-abc', true)
     expect(result).toBe(true)
+  })
+
+  it('setIfMatch falls back to an UNCONDITIONAL write when the key exists but the backend gave no etag (local BlobsServer)', async () => {
+    const fakeStore = makeFakeStore()
+    fakeStore._nextModified = false // a conditional write WOULD lose — must not be attempted
+    const setCalls: any[] = []
+    const origSet = fakeStore.set.bind(fakeStore)
+    fakeStore.set = async (key: string, value: string, opts?: any) => {
+      setCalls.push(opts)
+      return origSet(key, value, opts)
+    }
+
+    const store = makeKvStore('test', 'test', { _blobStore: fakeStore })
+    const result = await store.setIfMatch('key', '{}', null, true)
+    expect(result).toBe(true)
+    // The write must carry NO conditions (plain set), or it would always lose.
+    expect(setCalls).toHaveLength(1)
+    expect(setCalls[0]?.onlyIfMatch).toBeUndefined()
+    expect(setCalls[0]?.onlyIfNew).toBeUndefined()
   })
 
   it('get delegates to the blob store when injected', async () => {

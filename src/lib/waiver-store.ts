@@ -181,7 +181,7 @@ export async function upsertWaiverInEventIndex(
     const prev = entries.find((e) => e.contactKey === ck && e.recordId !== record.id)
     const next = entries.filter((e) => e.contactKey !== ck && e.recordId !== record.id)
     next.push({ recordId: record.id, contactKey: ck })
-    if (await kv.setIfMatch(key, JSON.stringify(next), etag)) {
+    if (await kv.setIfMatch(key, JSON.stringify(next), etag, value !== null)) {
       return { replacedRecordId: prev?.recordId ?? null }
     }
     // Lost the CAS race — retry

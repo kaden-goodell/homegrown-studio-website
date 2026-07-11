@@ -137,7 +137,7 @@ export async function mutateCheckin(partyId: string, recordId: string, fn: (s: C
     const state = value ? normalize(JSON.parse(value)) : emptyState()
     await fn(state)
     state.events = state.events.slice(-500)
-    if (await kv.setIfMatch(key(partyId, recordId), JSON.stringify(state), etag)) return state
+    if (await kv.setIfMatch(key(partyId, recordId), JSON.stringify(state), etag, value !== null)) return state
   }
   throw new Error('Concurrent update — please retry')
 }

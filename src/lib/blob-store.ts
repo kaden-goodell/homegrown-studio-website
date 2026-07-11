@@ -22,8 +22,17 @@ export interface KvStore {
   set(key: string, json: string): Promise<void>
   /** getWithMetadata → { value, etag } when Blobs; fs mode returns etag null. */
   getWithMeta(key: string): Promise<{ value: string | null; etag: string | null }>
-  /** Conditional write. Returns false when the etag didn't match (Blobs only). */
-  setIfMatch(key: string, json: string, etag: string | null): Promise<boolean>
+  /**
+   * Conditional write. `exists` = whether the paired getWithMeta saw a value.
+   * - etag present            → true CAS (onlyIfMatch)
+   * - no etag, key missing    → create-only CAS (onlyIfNew)
+   * - no etag, key EXISTS     → backend doesn't surface etags on reads (the
+   *   local `netlify dev` BlobsServer is one) — CAS is impossible, so fall back
+   *   to an unconditional write (pre-CAS last-write-wins behavior) instead of
+   *   losing every retry and silently dropping the write.
+   * Returns false when a conditional write lost the race.
+   */
+  setIfMatch(key: string, json: string, etag: string | null, exists: boolean): Promise<boolean>
   list(): Promise<string[]>
 }
 
@@ -44,6 +53,7 @@ export function makeKvStore(
   _testOpts?: _KvStoreTestOptions,
 ): KvStore {
   const logger = createLogger(`kv:${storeName}`)
+  let warnedNoEtag = false
 
   // undefined = not yet probed; null = unavailable (use fs); object = available
   let blobStore: any | null | undefined = _testOpts?._blobStore !== undefined
@@ -69,13 +79,17 @@ export function makeKvStore(
   }
 
   async function fsDir(): Promise<URL> {
-    if (_testOpts?.fsDirOverride) {
-      const { pathToFileURL } = await import('node:url')
-      const p = _testOpts.fsDirOverride
-      return pathToFileURL(p.endsWith('/') ? p : `${p}/`)
-    }
-    // Resolve relative to this module file: src/lib → ../../.data/<fsDirName>/
-    return new URL(`../../.data/${fsDirName}/`, import.meta.url)
+    const { pathToFileURL } = await import('node:url')
+    const asDirUrl = (p: string) => pathToFileURL(p.endsWith('/') ? p : `${p}/`)
+    if (_testOpts?.fsDirOverride) return asDirUrl(_testOpts.fsDirOverride)
+    // Test runs set BLOB_STORE_FS_DIR (a temp dir) so module-level kv instances
+    // never write into the repo. Under vitest, module-URL-relative resolution
+    // proved unreliable (junk files landed in src/lib/), so anchor on cwd —
+    // both `npm run dev`/`netlify dev` and vitest run from the project root.
+    const base = typeof process !== 'undefined' && process.env.BLOB_STORE_FS_DIR
+      ? `${process.env.BLOB_STORE_FS_DIR}/${fsDirName}`
+      : `${process.cwd()}/.data/${fsDirName}`
+    return asDirUrl(base)
   }
 
   async function fsRead(key: string): Promise<string | null> {
@@ -118,10 +132,20 @@ export function makeKvStore(
       return { value: res?.data ?? null, etag: res?.etag ?? null }
     },
 
-    async setIfMatch(key, json, etag) {
+    async setIfMatch(key, json, etag, exists) {
       const store = await resolveBlobStore()
       if (!store) {
         await fsWrite(key, json)
+        return true
+      }
+      if (!etag && exists) {
+        // Backend returned a value without an etag (local BlobsServer does this)
+        // — a conditional write can never succeed, so write unconditionally.
+        if (!warnedNoEtag) {
+          warnedNoEtag = true
+          logger.warn('Backend returns no etag on reads — conditional writes degraded to last-write-wins', { key })
+        }
+        await store.set(key, json)
         return true
       }
       // @netlify/blobs v10: a conditional set that loses the race resolves
