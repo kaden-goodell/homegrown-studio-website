@@ -71,6 +71,25 @@ describe('stepLabel', () => {
     expect(stepLabel('craft')).toBe('Craft')
     expect(stepLabel('when')).toBe('Date & Time')
     expect(stepLabel('who')).toBe('Guests')
+    expect(stepLabel('theme')).toBe('Themed Table')
     expect(stepLabel('pay')).toBe('Details & Payment')
+  })
+})
+
+describe('themed-table step', () => {
+  it('is absent by default (feature off / no stocked themes)', () => {
+    expect(visibleSteps({ craftSettled: false, slotSettled: false })).toEqual(['craft', 'when', 'who', 'pay'])
+  })
+
+  it('appears between guests and pay when themes are available', () => {
+    expect(visibleSteps({ craftSettled: false, slotSettled: false, themesAvailable: true })).toEqual([
+      'craft', 'when', 'who', 'theme', 'pay',
+    ])
+  })
+
+  it('composes with settled craft/slot drops', () => {
+    expect(visibleSteps({ craftSettled: true, slotSettled: true, themesAvailable: true })).toEqual([
+      'who', 'theme', 'pay',
+    ])
   })
 })

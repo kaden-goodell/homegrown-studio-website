@@ -152,7 +152,6 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
   // Optional in-studio themed table. `null` = "just crafts" (the default).
   const [selectedTheme, setSelectedTheme] = useState<PartyTheme | null>(null)
-  const [themeSectionOpen, setThemeSectionOpen] = useState(false)
   // True once a selection was auto-cleared because the guest count outgrew the
   // largest table tier — drives an explanatory note so the customer isn't left
   // believing they ordered a table we can't serve.
@@ -243,8 +242,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   // UNLESS it's personalized (the non-refundable acknowledgment lives there).
   const craftSettled = !!initialCraftId && !!selectedCraft && selectedCraft.id === initialCraftId && !selectedCraft.personalized
   const steps = useMemo(
-    () => visibleSteps({ craftSettled, slotSettled }),
-    [craftSettled, slotSettled]
+    () => visibleSteps({ craftSettled, slotSettled, themesAvailable: (info?.themes?.length ?? 0) > 0 }),
+    [craftSettled, slotSettled, info]
   )
 
   // Keep the current step valid as settled steps drop out of the flow (async
@@ -1421,73 +1420,6 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               </p>
             </div>
 
-            {/* Optional themed-table add-on (only when the kit product is live). */}
-            {partyThemes.length > 0 && (
-              <div style={{ marginBottom: '1.5rem', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '1rem' }}>
-                <button
-                  type="button"
-                  onClick={() => setThemeSectionOpen((o) => !o)}
-                  style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', background: 'none', border: 'none', padding: 0, cursor: 'pointer', textAlign: 'left' }}
-                >
-                  <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-                    ✨ Add a themed table
-                    {selectedTheme && themePriceCents > 0 && (
-                      <span style={{ fontWeight: 400, color: 'var(--color-muted)' }}> — {selectedTheme.displayName}</span>
-                    )}
-                  </span>
-                  <span style={{ fontSize: '1rem', color: 'var(--color-muted)' }}>{themeSectionOpen ? '−' : '+'}</span>
-                </button>
-
-                {themeSectionOpen && (
-                  <div style={{ marginTop: '0.875rem' }}>
-                    {themeTierAvailable ? (
-                      <>
-                        <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0 0 0.75rem' }}>
-                          A styled, photo-worthy table for your group — set up and ready when you arrive. Priced for {themeTierServes} guests.
-                        </p>
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(9rem, 1fr))', gap: '0.5rem' }}>
-                          {/* Explicit first-class "no table" default. */}
-                          <button
-                            type="button"
-                            onClick={() => setSelectedTheme(null)}
-                            style={themeCardStyle(selectedTheme === null)}
-                          >
-                            <span style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--color-dark)' }}>No themed table</span>
-                            <span style={{ fontSize: '0.72rem', color: 'var(--color-muted)' }}>Just crafts</span>
-                          </button>
-                          {partyThemes.map((t) => {
-                            const tier = t.tiers.find((tt) => tt.serves === themeTierServes)
-                            return (
-                              <button
-                                key={t.id}
-                                type="button"
-                                onClick={() => setSelectedTheme(t)}
-                                style={themeCardStyle(selectedTheme?.id === t.id)}
-                              >
-                                <span style={{ fontWeight: 600, fontSize: '0.8125rem', color: 'var(--color-dark)' }}>{t.displayName}</span>
-                                <span style={{ fontSize: '0.72rem', color: 'var(--color-muted)' }}>{t.tagline}</span>
-                                {tier && (
-                                  <span style={{ fontSize: '0.78rem', fontWeight: 600, color: 'var(--color-primary)', marginTop: '0.15rem' }}>
-                                    {formatPrice(tier.packagePriceCents)}
-                                  </span>
-                                )}
-                              </button>
-                            )
-                          })}
-                        </div>
-                      </>
-                    ) : (
-                      <p style={{ fontSize: '0.78rem', color: 'var(--color-muted)', margin: 0 }}>
-                        {themeDeselectedNote
-                          ? `Themed tables are available for parties up to 20 guests — deselected for ${people} guests.`
-                          : 'Themed tables are available for parties up to 20 guests.'}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
             {/* Live total breakdown */}
             <div style={{
               padding: '1rem 0',
@@ -1508,6 +1440,75 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               onClick={goNext}
               style={primaryButtonStyle(true)}
             >
+              Continue
+            </button>
+          </div>
+        )
+
+      // THEME — in-studio themed table, its own step (drops out entirely when
+      // the kit product isn't live; see visibleSteps themesAvailable).
+      case 'theme':
+        return (
+          <div>
+            <h3 style={{ fontFamily: 'var(--font-heading)', fontSize: '1.375rem', fontWeight: 700, color: 'var(--color-dark)', margin: '0 0 0.375rem' }}>
+              Add a themed table?
+            </h3>
+            <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0 0 1.25rem' }}>
+              A styled, photograph-worthy table for your group — set up and ready when you arrive.
+              {themeTierAvailable ? ` Priced for ${themeTierServes} guests.` : ''}
+            </p>
+
+            {themeTierAvailable ? (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(12rem, 1fr))', gap: '0.75rem', marginBottom: '1.5rem' }}>
+                {partyThemes.map((t) => {
+                  const tier = t.tiers.find((tt) => tt.serves === themeTierServes)
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => setSelectedTheme(t)}
+                      style={{ ...themeCardStyle(selectedTheme?.id === t.id), padding: 0, overflow: 'hidden' }}
+                    >
+                      {t.photo && (
+                        <img src={t.photo} alt={t.displayName} loading="lazy" style={{ width: '100%', aspectRatio: '16 / 9', objectFit: 'cover' }} />
+                      )}
+                      <span style={{ display: 'flex', flexDirection: 'column', gap: '0.1rem', padding: '0.625rem 0.75rem' }}>
+                        <span style={{ fontWeight: 600, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>{t.displayName}</span>
+                        <span style={{ fontSize: '0.78rem', color: 'var(--color-muted)' }}>{t.tagline}</span>
+                        {tier && (
+                          <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-primary)', marginTop: '0.15rem' }}>
+                            {formatPrice(tier.packagePriceCents)}
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  )
+                })}
+                {/* Explicit first-class "no table" default. */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedTheme(null)}
+                  style={{ ...themeCardStyle(selectedTheme === null), justifyContent: 'center' }}
+                >
+                  <span style={{ fontWeight: 600, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>No themed table</span>
+                  <span style={{ fontSize: '0.78rem', color: 'var(--color-muted)' }}>Just crafts — the party's still great</span>
+                </button>
+              </div>
+            ) : (
+              <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0 0 1.5rem' }}>
+                {themeDeselectedNote
+                  ? `Themed tables are available for parties up to 20 guests — deselected for ${people} guests.`
+                  : 'Themed tables are available for parties up to 20 guests.'}
+              </p>
+            )}
+
+            {selectedTheme && themePriceCents > 0 && (
+              <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0 0 1.25rem' }}>
+                {selectedTheme.displayName} (serves {themeTierServes}) — {formatPrice(themePriceCents)} added to today's total. We stage it before your group walks in.
+              </p>
+            )}
+
+            <button type="button" onClick={goNext} style={primaryButtonStyle(true)}>
               Continue
             </button>
           </div>

@@ -11,21 +11,24 @@
  * passing craftSettled: false.
  */
 
-export type PartyStepId = 'craft' | 'when' | 'who' | 'pay'
+export type PartyStepId = 'craft' | 'when' | 'who' | 'theme' | 'pay'
 
 export interface FlowInput {
   /** Craft preselected AND requires no acknowledgment — drop the craft step. */
   craftSettled: boolean
   /** A ?start deeplink matched a real available slot — drop the when step. */
   slotSettled: boolean
+  /** Themed tables exist for this booking (feature live + stocked). Absent/false drops the step. */
+  themesAvailable?: boolean
 }
 
-const ORDER: PartyStepId[] = ['craft', 'when', 'who', 'pay']
+const ORDER: PartyStepId[] = ['craft', 'when', 'who', 'theme', 'pay']
 
 const LABELS: Record<PartyStepId, string> = {
   craft: 'Craft',
   when: 'Date & Time',
   who: 'Guests',
+  theme: 'Themed Table',
   pay: 'Details & Payment',
 }
 
@@ -33,6 +36,7 @@ export function visibleSteps(input: FlowInput): PartyStepId[] {
   return ORDER.filter((id) => {
     if (id === 'craft' && input.craftSettled) return false
     if (id === 'when' && input.slotSettled) return false
+    if (id === 'theme' && !input.themesAvailable) return false
     return true
   })
 }
