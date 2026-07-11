@@ -8,7 +8,7 @@
  *  - 2026-12-31 is a Thursday; 2027-01-01 is a Friday (year boundary).
  */
 import { describe, it, expect } from 'vitest'
-import { pickupThursdayFor, returnByFor, weekKeyFor, isOrderable, tierFor, addDays } from '@lib/kit-dates'
+import { pickupThursdayFor, returnByFor, weekKeyFor, isOrderable, tierFor, addDays, assemblyWeekKeyFor, isWeekKey } from '@lib/kit-dates'
 
 describe('pickupThursdayFor — latest Thursday ≤ party date', () => {
   it('a Saturday party picks up the Thursday of that week', () => {
@@ -95,6 +95,36 @@ describe('tierFor — round guests up to the next serves-5, clamped to configure
   it('returns null below the smallest tier', () => {
     // Rounds to serves-5, which is not a configured tier.
     expect(tierFor(5)).toBeNull()
+  })
+})
+
+describe('assemblyWeekKeyFor — the pickup week staff are building for, rolling over Thursday morning', () => {
+  // Thursdays in July 2026: 07-09, 07-16, 07-23.
+  it('Mon–Wed point at this week’s Thursday', () => {
+    expect(assemblyWeekKeyFor('2026-07-13')).toBe('2026-07-16') // Monday
+    expect(assemblyWeekKeyFor('2026-07-15')).toBe('2026-07-16') // Wednesday
+  })
+  it('Thursday itself has already rolled over to next week', () => {
+    expect(assemblyWeekKeyFor('2026-07-16')).toBe('2026-07-23')
+  })
+  it('Fri–Sun build toward the coming Thursday', () => {
+    expect(assemblyWeekKeyFor('2026-07-17')).toBe('2026-07-23') // Friday
+    expect(assemblyWeekKeyFor('2026-07-19')).toBe('2026-07-23') // Sunday
+  })
+  it('crosses a year boundary', () => {
+    // 2026-12-31 is a Thursday → already assembling for 2027-01-07.
+    expect(assemblyWeekKeyFor('2026-12-31')).toBe('2027-01-07')
+  })
+})
+
+describe('isWeekKey — Thursdays only', () => {
+  it('accepts a Thursday', () => {
+    expect(isWeekKey('2026-07-16')).toBe(true)
+  })
+  it('rejects non-Thursdays and malformed strings', () => {
+    expect(isWeekKey('2026-07-18')).toBe(false)
+    expect(isWeekKey('not-a-date')).toBe(false)
+    expect(isWeekKey('')).toBe(false)
   })
 })
 

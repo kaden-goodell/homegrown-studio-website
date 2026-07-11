@@ -2,8 +2,9 @@ import type { APIRoute } from 'astro'
 import { staffAuthorized } from '@lib/staff-auth'
 import { listKitOrders, kitOrderToLedgerRecord, type KitOrderRecord } from '@lib/kit-store'
 import { overCommittedWeeks, type LedgerRecord } from '@lib/kit-ledger'
-import { addDays } from '@lib/kit-dates'
+import { addDays, assemblyWeekKeyFor, isWeekKey } from '@lib/kit-dates'
 import { kitConfig } from '@config/kit.config'
+import { kitThemes } from '@config/kit-content'
 
 export const prerender = false
 
@@ -20,14 +21,55 @@ function publicOrder(o: KitOrderRecord) {
 type Row = ReturnType<typeof publicOrder>
 
 /**
+ * The assembly worksheet for one pickup week: every order due to go out that
+ * Thursday (cancelled ones excluded — nothing to build), plus per-craft and
+ * per-theme totals so staff can pull stock without adding up cards by hand.
+ */
+function assemblyFor(orders: KitOrderRecord[], weekKey: string, today: string) {
+  const weekOrders = orders
+    .filter((o) => o.weekKey === weekKey && o.status !== 'cancelled')
+    .sort((a, b) => a.partyDate.localeCompare(b.partyDate) || a.contact.name.localeCompare(b.contact.name))
+
+  const craftQty = new Map<string, number>()
+  const themeQty = new Map<string, number>()
+  for (const o of weekOrders) {
+    for (const c of o.crafts) craftQty.set(c.name, (craftQty.get(c.name) ?? 0) + c.qty)
+    if (o.theme) {
+      const name = kitThemes.find((t) => t.id === o.theme!.themeId)?.displayName ?? o.theme.themeId
+      const label = `${name} · serves ${o.theme.serves}`
+      themeQty.set(label, (themeQty.get(label) ?? 0) + 1)
+    }
+  }
+
+  return {
+    weekKey,
+    isCurrent: weekKey === assemblyWeekKeyFor(today),
+    orders: weekOrders.map(publicOrder),
+    craftTotals: [...craftQty].map(([name, qty]) => ({ name, qty })).sort((a, b) => b.qty - a.qty),
+    themeTotals: [...themeQty].map(([label, count]) => ({ label, count })).sort((a, b) => b.count - a.count),
+  }
+}
+
+/**
  * Staff-only kit operations board: every non-settled order sorted into the
  * bucket that tells staff what to DO with it today, plus recently-settled for
- * reference and an over-commitment radar for the weekly settings ledger.
- * GET → { data: { buckets, radar } }
+ * reference, an over-commitment radar for the weekly settings ledger, and the
+ * assembly worksheet for one pickup week (`?assemblyWeek=YYYY-MM-DD`, a
+ * Thursday; defaults to the week currently being assembled, which rolls over
+ * Thursday morning).
+ * GET → { data: { buckets, radar, assembly } }
  */
 export const GET: APIRoute = async ({ request }) => {
   if (!staffAuthorized(request)) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
+  }
+
+  const weekParam = new URL(request.url).searchParams.get('assemblyWeek')
+  if (weekParam && !isWeekKey(weekParam)) {
+    return new Response(JSON.stringify({ error: 'assemblyWeek must be a Thursday (YYYY-MM-DD)' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    })
   }
 
   const orders = await listKitOrders()
@@ -66,7 +108,9 @@ export const GET: APIRoute = async ({ request }) => {
     .filter((r): r is LedgerRecord => r !== null)
   const radar = overCommittedWeeks(records, today)
 
-  return new Response(JSON.stringify({ data: { buckets, radar } }), {
+  const assembly = assemblyFor(orders, weekParam ?? assemblyWeekKeyFor(today), today)
+
+  return new Response(JSON.stringify({ data: { buckets, radar, assembly } }), {
     status: 200,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
   })

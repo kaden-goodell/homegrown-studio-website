@@ -65,6 +65,21 @@ export function isOrderable(partyDate: string, now: string): boolean {
 }
 
 /**
+ * The pickup week staff are currently assembling FOR: the next Thursday
+ * strictly after `today`. Mon–Wed point at this week's Thursday; Thursday
+ * morning rolls over to next week's (that day's pickups were assembled last
+ * week); Fri–Sun continue building toward the coming Thursday.
+ */
+export function assemblyWeekKeyFor(today: string): string {
+  return addDays(pickupThursdayFor(today), 7)
+}
+
+/** True when the YYYY-MM-DD string is a Thursday — a valid kit week key. */
+export function isWeekKey(date: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && dayOfWeek(date) === THURSDAY
+}
+
+/**
  * The package tier a guest count maps to: round up to the next serves-5 and
  * clamp to a configured tier. 11→15, 16→20, 21+→null (no package that large),
  * and counts below the smallest tier likewise return null.

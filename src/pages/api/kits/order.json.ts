@@ -24,6 +24,7 @@ import {
 } from '@lib/kit-store'
 import type { LedgerRecord } from '@lib/kit-ledger'
 import { sendKitConfirmationEmail } from '@lib/email'
+import { fetchPartyCrafts } from '@lib/craft-catalog'
 
 const logger = createLogger('api:kits:order')
 
@@ -203,6 +204,32 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     return okResponse({ orderId, reference, record, depositCents: theme?.depositCents, receiptUrl: null, emailSent })
   }
 
+  // Resolve crafts against the live catalog — the charged price NEVER comes from
+  // the client. A client-sent price that disagrees means a stale (or tampered)
+  // page: refuse rather than charge an amount the customer wasn't shown.
+  let resolvedCrafts: { craftId: string; name: string; perHeadCents: number }[]
+  try {
+    const catalog = await fetchPartyCrafts()
+    const missing = crafts.find((c) => !catalog.some((k) => k.id === c.craftId))
+    if (missing) {
+      return errorResponse('That craft isn’t available anymore — refresh and pick again.', 400)
+    }
+    const stale = crafts.find((c) => {
+      const k = catalog.find((kk) => kk.id === c.craftId)!
+      return k.perHeadCents !== c.perHeadCents
+    })
+    if (stale) {
+      return errorResponse('Craft prices have changed since you loaded the page — refresh and try again.', 409)
+    }
+    resolvedCrafts = crafts.map((c) => {
+      const k = catalog.find((kk) => kk.id === c.craftId)!
+      return { craftId: k.id, name: k.name, perHeadCents: k.perHeadCents }
+    })
+  } catch (err) {
+    logger.error('Craft catalog lookup failed', { error: String(err) })
+    return errorResponse("We couldn't verify craft pricing. Your card was not charged — please try again.", 502)
+  }
+
   // --- Reserve → charge → confirm (LR-1 book-before-charge for the theme week) ---
   let claimed = false
   const releaseIfClaimed = async () => {
@@ -265,7 +292,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     // Line items: crafts are ad-hoc per-head lines (they carry item ids, not
     // variation ids); assembly/package/deposit are catalog variations.
     const lineItems = [
-      ...crafts.map((c) => ({ name: `Craft — ${c.name}`, quantity: guests, pricePerUnit: c.perHeadCents })),
+      ...resolvedCrafts.map((c) => ({ name: `Craft — ${c.name}`, quantity: guests, pricePerUnit: c.perHeadCents })),
       { catalogObjectId: kitConfig.square.assemblyVariationId, name: 'Kit Assembly', quantity: 1, pricePerUnit: kitConfig.assemblyFeeCents },
       ...(theme
         ? [
@@ -275,7 +302,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         : []),
     ]
     const expectedTotal =
-      crafts.reduce((s, c) => s + c.perHeadCents * guests, 0) +
+      resolvedCrafts.reduce((s, c) => s + c.perHeadCents * guests, 0) +
       kitConfig.assemblyFeeCents +
       (theme ? theme.packagePriceCents + theme.depositCents : 0)
 
@@ -328,7 +355,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       paymentId: payment.id,
       reference,
       contact,
-      crafts,
+      crafts: resolvedCrafts,
       guests,
       theme,
       partyDate: body.partyDate,

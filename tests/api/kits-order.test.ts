@@ -14,6 +14,13 @@ vi.mock('@lib/dev-flags', () => ({
   paymentBypassEnabled: vi.fn().mockReturnValue(false),
 }))
 
+// Craft catalog: the server-side price authority. Tests tamper with the BODY's
+// perHeadCents; this fixture is what the endpoint must trust instead.
+const { mockFetchPartyCrafts } = vi.hoisted(() => ({ mockFetchPartyCrafts: vi.fn() }))
+vi.mock('@lib/craft-catalog', () => ({
+  fetchPartyCrafts: (...a: any[]) => mockFetchPartyCrafts(...a),
+}))
+
 // kit.config: the real config ships with empty Square ids (unseeded → 503). Mock
 // a seeded config so the order endpoint runs. tiers/lead time mirror the real file
 // (kit-dates + kit-ledger read this same module).
@@ -156,6 +163,9 @@ describe('POST /api/kits/order.json', () => {
     _setKitKvForTests(makeKvStore('kits', 'kits', { _blobStore: makeCasBlobStore() }))
 
     mockCreateKitOrder.mockResolvedValue(undefined)
+    mockFetchPartyCrafts.mockResolvedValue([
+      { id: 'craft-1', name: 'Tote Bag', perHeadCents: 2000, perHeadMaxCents: 2000, description: '', imageUrl: null, personalized: false, popular: false },
+    ])
     mockFindOrCreate.mockResolvedValue({ id: 'cust-1', email: 'alice@example.com', givenName: 'Alice', familyName: 'Smith' })
     mockAppendNote.mockResolvedValue(undefined)
     mockCancelOrder.mockResolvedValue(undefined)
@@ -251,6 +261,39 @@ describe('POST /api/kits/order.json', () => {
     const res = await POST(ctx(makeBody({ contact: { name: 'Alice Smith', email: 'alice@example.com', phone: '256-555-1234', address: 'x' } })))
     expect(res.status).toBe(400)
     expect(mockCreateOrder).not.toHaveBeenCalled()
+  })
+
+  it('rejects a tampered craft price with 409 — no claim, no order, no charge', async () => {
+    // Catalog says $20/head; the body claims $0.01. The catalog must win.
+    const res = await POST(ctx(makeBody({ crafts: [{ craftId: 'craft-1', name: 'Tote Bag', perHeadCents: 1 }] })))
+    expect(res.status).toBe(409)
+    expect(mockCreateOrder).not.toHaveBeenCalled()
+    expect(mockProcessPayment).not.toHaveBeenCalled()
+    expect(await getWeekClaims('gilded', WEEK_KEY)).toHaveLength(0)
+  })
+
+  it('rejects a craft id that is not in the catalog with 400', async () => {
+    const res = await POST(ctx(makeBody({ crafts: [{ craftId: 'not-a-craft', name: 'Fake', perHeadCents: 2000 }] })))
+    expect(res.status).toBe(400)
+    expect(mockCreateOrder).not.toHaveBeenCalled()
+  })
+
+  it('returns 502 without charging when the catalog lookup fails', async () => {
+    mockFetchPartyCrafts.mockRejectedValue(new Error('square down'))
+    const res = await POST(ctx(makeBody()))
+    expect(res.status).toBe(502)
+    expect(mockProcessPayment).not.toHaveBeenCalled()
+  })
+
+  it('charges the CATALOG price and name, not the client’s', async () => {
+    mockFetchPartyCrafts.mockResolvedValue([
+      { id: 'craft-1', name: 'Tote Bag (2026)', perHeadCents: 2000, perHeadMaxCents: 2000, description: '', imageUrl: null, personalized: false, popular: false },
+    ])
+    // Client price agrees; client NAME is stale — the catalog name must ship.
+    const res = await POST(ctx(makeBody({ crafts: [{ craftId: 'craft-1', name: 'Old Name', perHeadCents: 2000 }] })))
+    expect(res.status).toBe(200)
+    const lineItems = mockCreateOrder.mock.calls[0][0].lineItems
+    expect(lineItems).toContainEqual(expect.objectContaining({ name: 'Craft — Tote Bag (2026)', quantity: 10, pricePerUnit: 2000 }))
   })
 
   it('rejects a taken theme-week with 409', async () => {

@@ -369,6 +369,13 @@ interface KitBuckets {
   recentlySettled: KitOrder[]
 }
 interface RadarRow { themeId: string; weekKey: string; committed: number; owned: number }
+interface KitAssembly {
+  weekKey: string
+  isCurrent: boolean
+  orders: KitOrder[]
+  craftTotals: { name: string; qty: number }[]
+  themeTotals: { label: string; count: number }[]
+}
 
 const STATUS_LABEL: Record<KitOrder['status'], string> = {
   upcoming: 'Upcoming', out: 'Out', returned: 'Returned', cancelled: 'Cancelled', forfeited: 'Forfeited',
@@ -512,6 +519,7 @@ export default function StaffConsole() {
   const [phase, setPhase] = useState<'checking' | 'login' | 'parties' | 'roster' | 'kits'>('checking')
   const [kitBuckets, setKitBuckets] = useState<KitBuckets | null>(null)
   const [radar, setRadar] = useState<RadarRow[]>([])
+  const [assembly, setAssembly] = useState<KitAssembly | null>(null)
   const [passcode, setPasscode] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
   const [parties, setParties] = useState<PartyRow[]>([])
@@ -543,14 +551,19 @@ export default function StaffConsole() {
   }
   async function logout() { await fetch('/api/staff/login.json', { method: 'DELETE' }); setRoster(null); setParties([]); setPhase('login') }
 
-  async function loadKits() {
+  /** `assemblyWeek`: a Thursday to view, `null` to snap back to the current
+   *  week, omitted to stay on whichever week is on screen (action refreshes). */
+  async function loadKits(assemblyWeek?: string | null) {
     try {
       setNetError(null)
-      const res = await fetch('/api/staff/kits.json', { cache: 'no-store' })
+      const week = assemblyWeek === null ? undefined : assemblyWeek ?? assembly?.weekKey
+      const url = week ? `/api/staff/kits.json?assemblyWeek=${week}` : '/api/staff/kits.json'
+      const res = await fetch(url, { cache: 'no-store' })
       if (res.status === 401) { setPhase('login'); return }
       const json = await res.json()
       setKitBuckets(json.data.buckets)
       setRadar(json.data.radar ?? [])
+      setAssembly(json.data.assembly ?? null)
       setPhase('kits')
     } catch {
       setNetError('Couldn’t reach the studio server — check wifi and tap Retry.')
@@ -648,7 +661,7 @@ export default function StaffConsole() {
   const netErrorBanner = netError && (
     <div style={{ background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '0.6rem', padding: '0.7rem 0.9rem', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
       <span style={{ flex: 1, fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{netError}</span>
-      <button type="button" onClick={phase === 'kits' ? loadKits : phase === 'roster' && roster ? () => openParty(roster.party.bookingId) : loadParties} style={btn()}>Retry</button>
+      <button type="button" onClick={phase === 'kits' ? () => loadKits() : phase === 'roster' && roster ? () => openParty(roster.party.bookingId) : loadParties} style={btn()}>Retry</button>
     </div>
   )
 
@@ -658,7 +671,7 @@ export default function StaffConsole() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', margin: 0 }}>Parties</h2>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button type="button" onClick={loadKits} style={btn()}>Kits</button>
+            <button type="button" onClick={() => loadKits()} style={btn()}>Kits</button>
             <button type="button" onClick={logout} style={btn()}>Log out</button>
           </div>
         </div>
@@ -700,7 +713,7 @@ export default function StaffConsole() {
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', margin: 0 }}>Kits</h2>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
             <button type="button" onClick={() => setPhase('parties')} style={btn()}>← Parties</button>
-            <button type="button" onClick={loadKits} style={btn()}>↻ Refresh</button>
+            <button type="button" onClick={() => loadKits()} style={btn()}>↻ Refresh</button>
             <button type="button" onClick={logout} style={btn()}>Log out</button>
           </div>
         </div>
@@ -716,6 +729,58 @@ export default function StaffConsole() {
               </p>
             ))}
           </div>
+        )}
+
+        {/* Assembly worksheet — what to build for the pickup Thursday on screen.
+            Rolls over to the next week automatically on Thursday morning. */}
+        {assembly && (
+          <section style={{ ...card, background: 'rgba(255,255,255,0.85)', marginBottom: '1.2rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
+              <h3 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', fontSize: '1rem', margin: 0 }}>
+                🔨 Assemble for pickup {fmtDay(assembly.weekKey)}{' '}
+                <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>({assembly.orders.length})</span>
+              </h3>
+              <span style={{ display: 'inline-flex', gap: '0.4rem' }}>
+                <button type="button" onClick={() => loadKits(addDays(assembly.weekKey, -7))} style={btn()} aria-label="Previous week">‹ Prev</button>
+                {!assembly.isCurrent && (
+                  <button type="button" onClick={() => loadKits(null)} style={btn()}>This week</button>
+                )}
+                <button type="button" onClick={() => loadKits(addDays(assembly.weekKey, 7))} style={btn()} aria-label="Next week">Next ›</button>
+              </span>
+            </div>
+
+            {assembly.orders.length === 0 ? (
+              <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', margin: '0.6rem 0 0' }}>
+                Nothing to assemble for this week{assembly.isCurrent ? ' yet' : ''}.
+              </p>
+            ) : (
+              <>
+                {/* Pull list — totals across the week, biggest first. */}
+                <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.6rem' }}>
+                  {assembly.craftTotals.map((c) => <Badge key={c.name} tone="muted">🎨 {c.name} ×{c.qty}</Badge>)}
+                  {assembly.themeTotals.map((t) => <Badge key={t.label} tone="muted">🎀 {t.label} ×{t.count}</Badge>)}
+                </div>
+
+                {assembly.orders.map((o) => (
+                  <div key={o.orderId} style={{ borderTop: '1px solid rgba(150,112,91,0.12)', marginTop: '0.7rem', paddingTop: '0.6rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
+                      <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9rem' }}>{o.contact.name}</span>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+                        {o.status !== 'upcoming' && <strong style={{ color: 'var(--color-dark)' }}>{STATUS_LABEL[o.status]} · </strong>}
+                        party {fmtDay(o.partyDate)} · #{o.reference}
+                      </span>
+                    </div>
+                    <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.35rem' }}>
+                      {o.crafts.map((c) => <Badge key={c.craftId} tone="muted">{c.name} ×{c.qty}</Badge>)}
+                      {o.theme
+                        ? <Badge tone="muted">🎀 {themeDisplay(o.theme.themeId)} · serves {o.theme.serves}</Badge>
+                        : <Badge tone="muted">Crafts only</Badge>}
+                    </div>
+                  </div>
+                ))}
+              </>
+            )}
+          </section>
         )}
 
         {empty && !netError && <p style={{ color: 'var(--color-muted)' }}>No kit orders yet.</p>}
