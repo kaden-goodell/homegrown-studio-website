@@ -6,6 +6,7 @@
  */
 import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
+import { partyInviteMailto } from '@lib/party-share'
 
 const logger = createLogger('email')
 
@@ -18,7 +19,10 @@ function creds() {
 
 let _transport: any = null
 
-export async function sendEmail(input: { to: string; subject: string; html: string; text: string }): Promise<{ sent: boolean }> {
+export async function sendEmail(input: {
+  to: string; subject: string; html: string; text: string
+  attachments?: { filename: string; content: string; contentType: string }[]
+}): Promise<{ sent: boolean }> {
   const c = creds()
   if (!c) {
     logger.warn('Email not configured — skipping send', { subject: input.subject })
@@ -35,6 +39,7 @@ export async function sendEmail(input: { to: string; subject: string; html: stri
     await _transport.sendMail({
       from: `"${siteConfig.email.fromName}" <${c.user}>`,
       to: input.to, subject: input.subject, html: input.html, text: input.text,
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     })
     return { sent: true }
   } catch (err) {
@@ -45,22 +50,37 @@ export async function sendEmail(input: { to: string; subject: string; html: stri
 
 export async function sendPartyConfirmationEmail(input: {
   to: string; hostName: string; craftName: string; craftDescription?: string; craftImageUrl?: string; slotLabel: string
+  /** Per-person craft price in cents; max set when the craft has a price range. */
+  perHeadCents?: number; perHeadMaxCents?: number
   hostPageUrl: string; inviteUrl: string; totalChargedCents: number; receiptUrl: string | null
+  /** Add-to-calendar: a Google Calendar link for the body + ICS content attached for Apple/Outlook. */
+  googleCalendarUrl?: string; icsContent?: string
 }): Promise<{ sent: boolean }> {
-  const fee = `$${(input.totalChargedCents / 100).toFixed(2).replace(/\.00$/, '')}`
+  const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
+  const fee = dollars(input.totalChargedCents)
+  // "$25" or "$30–$40" per person, matching the booking modal's label.
+  const perPerson = input.perHeadCents
+    ? input.perHeadMaxCents && input.perHeadMaxCents > input.perHeadCents
+      ? `${dollars(input.perHeadCents)}–${dollars(input.perHeadMaxCents)}`
+      : dollars(input.perHeadCents)
+    : ''
   // Craft description: keep the guest's paragraph breaks, drop stray CRs.
   const description = (input.craftDescription ?? '').replace(/\r/g, '').trim()
+  const costLine = perPerson
+    ? `Studio fee paid today: ${fee}. ${input.craftName} is ${perPerson} per person, paid at the studio for whoever crafts.`
+    : `Studio fee paid today: ${fee}. Crafts are paid at the studio based on who comes.`
   const text = [
     `You're booked! ${input.craftName} · ${input.slotLabel}`,
     ``,
     ...(description ? [`About your craft:`, ...description.split('\n'), ``] : []),
-    `Studio fee paid today: ${fee}. Crafts are paid at the studio based on who comes.`,
+    costLine,
     ``,
     `Your party page (manage details + see who's RSVP'd — keep this link):`,
     input.hostPageUrl,
     ``,
     `Invitation link to share with your guests:`,
     input.inviteUrl,
+    ...(input.googleCalendarUrl ? [``, `Add to Google Calendar: ${input.googleCalendarUrl}`, `Apple/Outlook: open the attached invite (.ics)`] : []),
     ...(input.receiptUrl ? [``, `Receipt: ${input.receiptUrl}`] : []),
     ``,
     `Homegrown Studio · 525 Hughes Rd Ste F, Madison, AL`,
@@ -85,17 +105,28 @@ export async function sendPartyConfirmationEmail(input: {
   <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#3d3630;">${esc(input.craftName)} &middot; ${esc(input.slotLabel)}</p>
   ${input.craftImageUrl ? `<img src="${esc(input.craftImageUrl)}" alt="${esc(input.craftName)}" width="552" style="display:block;width:100%;max-width:552px;border-radius:12px;margin:0 0 14px;" />` : ''}
   ${descriptionHtml ? `<p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700;">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
-  <p style="${P}"><strong>Studio fee paid today: ${esc(fee)}.</strong> Crafts are paid at the studio based on who comes.</p>
+  <p style="${P}"><strong>Studio fee paid today: ${esc(fee)}.</strong>${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio based on who comes.'}</p>
   <div style="margin:18px 0 6px;">
     <a href="${esc(input.hostPageUrl)}" style="display:inline-block;padding:11px 22px;background:#96705B;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">Your party page &rarr;</a>
   </div>
   <p style="${MUTED}">Manage details and see who&rsquo;s RSVP&rsquo;d &mdash; keep this link.</p>
   <p style="margin:14px 0 2px;font-size:14px;color:#3d3630;">Invitation link to share with your guests:</p>
   <p style="margin:0 0 6px;"><a href="${esc(input.inviteUrl)}" style="color:#96705B;font-size:13px;word-break:break-all;">${esc(input.inviteUrl)}</a></p>
+  <p style="margin:6px 0 2px;"><a href="${esc(partyInviteMailto({ craftName: input.craftName, slotLabel: input.slotLabel, inviteUrl: input.inviteUrl }))}" style="color:#96705B;font-size:14px;font-weight:600;">&#9993;&#65039; Email your guests</a></p>
+  <p style="${MUTED}">Opens a ready-to-send invitation &mdash; just add addresses.</p>
+  ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="color:#96705B;font-size:14px;font-weight:600;">&#128197; Add to Google Calendar</a></p><p style="${MUTED}">Apple or Outlook? Open the attached invite (.ics).</p>` : ''}
   ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#96705B;font-size:13px;">View your receipt</a></p>` : ''}
   <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
   <p style="margin:0;font-size:12px;color:#8a7f75;">Homegrown Studio &middot; 525 Hughes Rd Ste F, Madison, AL</p>
 </div>`
   const safeCraftName = input.craftName.replace(/[\r\n]+/g, ' ')
-  return sendEmail({ to: input.to, subject: `You're booked — ${safeCraftName} at Homegrown Studio`, html, text })
+  return sendEmail({
+    to: input.to,
+    subject: `You're booked — ${safeCraftName} at Homegrown Studio`,
+    html,
+    text,
+    attachments: input.icsContent
+      ? [{ filename: 'homegrown-party.ics', content: input.icsContent, contentType: 'text/calendar; method=PUBLISH' }]
+      : [],
+  })
 }

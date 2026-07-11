@@ -5,6 +5,7 @@ import {
   icsDataUrl,
   craftShareUrl,
   partyInviteText,
+  partyInviteMailto,
 } from '@lib/party-share'
 
 const EVENT = {
@@ -66,5 +67,27 @@ describe('partyInviteText', () => {
     expect(text).toContain('Junk Journaling')
     expect(text).toContain('Homegrown Studio')
     expect(text).toContain('Sat, Jul 11 · 11:30 AM')
+  })
+})
+
+describe('partyInviteMailto', () => {
+  it('builds a mailto with pre-filled subject and body containing the invite link', () => {
+    const url = partyInviteMailto({
+      craftName: 'Junk Journaling',
+      slotLabel: 'Sat, Jul 18 · 2:00 PM CT',
+      inviteUrl: 'https://example.com/invite?party=abc',
+      title: 'Maya’s Birthday',
+    })
+    expect(url.startsWith('mailto:?subject=')).toBe(true)
+    const params = new URLSearchParams(url.slice('mailto:?'.length))
+    expect(params.get('subject')).toBe('You’re invited — Maya’s Birthday!')
+    expect(params.get('body')).toContain('Junk Journaling')
+    expect(params.get('body')).toContain('https://example.com/invite?party=abc')
+  })
+
+  it('falls back to a generic subject without a title', () => {
+    const url = partyInviteMailto({ craftName: 'X', slotLabel: 'Y', inviteUrl: 'https://z' })
+    const params = new URLSearchParams(url.slice('mailto:?'.length))
+    expect(params.get('subject')).toBe('You’re invited to a craft party!')
   })
 })

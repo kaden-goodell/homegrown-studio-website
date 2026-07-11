@@ -9,7 +9,8 @@ import { paymentBypassEnabled } from '@lib/dev-flags'
 import { savePartyRecord, newHostToken, type PartyRecord } from '@lib/party-store'
 import { isStartOpen } from '@lib/party-availability'
 import { sendPartyConfirmationEmail } from '@lib/email'
-import { partyInviteUrl } from '@lib/party-share'
+import { partyInviteUrl, googleCalendarUrl, buildIcs, addMinutesIso } from '@lib/party-share'
+import { inviteContent } from '@config/invite-content'
 import { formatSlotLabel } from '@lib/studio-time'
 import type { Booking } from '@providers/interfaces/booking'
 
@@ -61,6 +62,8 @@ interface BookRequest {
     id: string
     name: string
     perHeadCents: number
+    /** Upper bound when the craft has a price range — email display only. */
+    perHeadMaxCents?: number
     /** Catalog description — rides into the confirmation email only. */
     description?: string
     /** Catalog image — rides into the confirmation email only. */
@@ -143,6 +146,18 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     // creds in .env this sends an ACTUAL email to whatever address you typed.
     const bypassOrigin = new URL(request.url).origin
     const bypassSlotLabel = formatSlotLabel(body.startTime)
+    const bypassInviteUrl = partyInviteUrl(
+      { bookingId, craftName: body.craft.name, slotLabel: bypassSlotLabel, startIso: body.startTime },
+      bypassOrigin,
+    )
+    // Host's calendar event — token-free details (the invite link is shareable).
+    const bypassCalEvent = {
+      title: `${body.craft.name} — Party at Homegrown Studio`,
+      startIso: body.startTime,
+      endIso: addMinutesIso(body.startTime, body.durationMinutes),
+      details: `Your private party at Homegrown Studio.\n\nInvitation link for guests: ${bypassInviteUrl}`,
+      location: inviteContent.where,
+    }
     const { sent: bypassEmailSent } = hostToken
       ? await sendPartyConfirmationEmail({
           to: body.customer.email,
@@ -150,14 +165,15 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           craftName: body.craft.name,
           craftDescription: String(body.craft.description ?? '').slice(0, 2000),
           craftImageUrl,
+          perHeadCents: body.craft.perHeadCents,
+          perHeadMaxCents: body.craft.perHeadMaxCents,
           slotLabel: bypassSlotLabel,
           hostPageUrl: `${bypassOrigin}/party/${encodeURIComponent(bookingId)}?key=${encodeURIComponent(hostToken)}`,
-          inviteUrl: partyInviteUrl(
-            { bookingId, craftName: body.craft.name, slotLabel: bypassSlotLabel, startIso: body.startTime },
-            bypassOrigin,
-          ),
+          inviteUrl: bypassInviteUrl,
           totalChargedCents: partyConfig.basePriceCents,
           receiptUrl: null,
+          googleCalendarUrl: googleCalendarUrl(bypassCalEvent),
+          icsContent: buildIcs(bypassCalEvent),
         })
       : { sent: false }
     return new Response(
@@ -335,6 +351,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       { bookingId: booking.id, craftName: body.craft.name, slotLabel, startIso: body.startTime },
       origin,
     )
+    // Host's calendar event — token-free details (the invite link is shareable).
+    const calEvent = {
+      title: `${body.craft.name} — Party at Homegrown Studio`,
+      startIso: body.startTime,
+      endIso: addMinutesIso(body.startTime, body.durationMinutes),
+      details: `Your private party at Homegrown Studio.\n\nInvitation link for guests: ${inviteUrl}`,
+      location: inviteContent.where,
+    }
 
     const { sent: emailSent } = await sendPartyConfirmationEmail({
       to: body.customer.email,
@@ -342,11 +366,15 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       craftName: body.craft.name,
       craftDescription: String(body.craft.description ?? '').slice(0, 2000),
       craftImageUrl,
+      perHeadCents: body.craft.perHeadCents,
+      perHeadMaxCents: body.craft.perHeadMaxCents,
       slotLabel,
       hostPageUrl,
       inviteUrl,
       totalChargedCents: order.totalAmount,
       receiptUrl: payment.receiptUrl ?? null,
+      googleCalendarUrl: googleCalendarUrl(calEvent),
+      icsContent: buildIcs(calEvent),
     })
 
     return new Response(

@@ -103,3 +103,26 @@ export function partyInviteUrl(
 export function addMinutesIso(startIso: string, minutes: number): string {
   return new Date(new Date(startIso).getTime() + minutes * 60_000).toISOString()
 }
+
+/**
+ * mailto: link that opens the host's mail app with a ready-to-send invitation
+ * — subject and body pre-filled, guests land on the invite/RSVP page. The host
+ * just adds addresses and hits send.
+ */
+export function partyInviteMailto(input: {
+  craftName: string
+  slotLabel: string
+  inviteUrl: string
+  title?: string
+}): string {
+  const subject = input.title ? `You’re invited — ${input.title}!` : 'You’re invited to a craft party!'
+  const body = [
+    `You’re invited! We’re making ${input.craftName} at Homegrown Studio — ${input.slotLabel}.`,
+    '',
+    'Everything you need (details + a quick RSVP) is here:',
+    input.inviteUrl,
+    '',
+    'See you there!',
+  ].join('\n')
+  return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
+}

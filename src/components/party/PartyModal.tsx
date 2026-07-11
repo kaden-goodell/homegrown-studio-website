@@ -13,7 +13,7 @@ import {
   prevStep,
   type PartyStepId,
 } from '@lib/party-steps'
-import { googleCalendarUrl, buildIcs, icsDataUrl, partyWaiverUrl, partyInviteUrl } from '@lib/party-share'
+import { googleCalendarUrl, buildIcs, icsDataUrl, partyWaiverUrl, partyInviteUrl, partyInviteMailto } from '@lib/party-share'
 import { formatTime, formatSlotLabel } from '@lib/studio-time'
 import { waiverContent } from '@config/waiver-content'
 import { saveRecentParty } from '@lib/recent-party'
@@ -478,6 +478,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             id: selectedCraft.id,
             name: selectedCraft.name,
             perHeadCents: selectedCraft.perHeadCents,
+            perHeadMaxCents: selectedCraft.perHeadMaxCents ?? undefined,
             description: selectedCraft.description ?? '',
             imageUrl: selectedCraft.imageUrl ?? '',
           },
@@ -833,6 +834,22 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           >
             {inviteCopied ? '✓ Copied!' : '💌 Invite your guests'}
           </button>
+          {bookingId && selectedSlot && selectedCraft && (
+            <a
+              href={partyInviteMailto({
+                craftName: selectedCraft.name,
+                slotLabel: formatSlotLabel(selectedSlot.startAt),
+                inviteUrl: partyInviteUrl(
+                  { bookingId, craftName: selectedCraft.name, slotLabel: formatSlotLabel(selectedSlot.startAt), startIso: selectedSlot.startAt, title: partyTitle.trim() || undefined },
+                  typeof window !== 'undefined' ? window.location.origin : '',
+                ),
+                title: partyTitle.trim() || undefined,
+              })}
+              style={{ ...chipStyle, textDecoration: 'none', cursor: 'pointer', padding: '0.5rem 0.9rem' }}
+            >
+              ✉️ Email your guests
+            </a>
+          )}
           {bookingId && (
             <a
               href={partyWaiverUrl(bookingId, typeof window !== 'undefined' ? window.location.origin : '')}
