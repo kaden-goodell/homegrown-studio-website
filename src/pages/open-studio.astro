@@ -1,0 +1,76 @@
+---
+export const prerender = true
+
+import Layout from '@layouts/StaticLayout.astro'
+import { siteConfig } from '@config/site.config'
+import CraftMenu from '@components/open-studio/CraftMenu'
+
+const steps = [
+  { n: '1', title: 'Walk in', text: 'No booking, no reservation — come by any time during open hours.' },
+  { n: '2', title: 'Pick a craft', text: 'Choose from the craft menu below. Pay per craft — no studio fee, no minimum.' },
+  { n: '3', title: 'Make it yours', text: 'Grab a seat, take your time, and leave with something you made.' },
+]
+---
+
+<Layout title="Open Studio" description="Walk-in crafting at Homegrown Studio — no booking needed. Pick a craft, grab a seat, pay per craft.">
+  <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-28">
+    <div class="text-center mb-16 fade-in">
+      <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Open Studio</p>
+      <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">
+        Just walk in and make something
+      </h1>
+      <p class="text-lg mt-4 max-w-xl mx-auto" style="color: var(--color-muted);">
+        No booking, no studio fee — pick a craft from the menu and pay for what you make. Ages 8+, everyone welcome.
+      </p>
+    </div>
+
+    <!-- How it works -->
+    <div class="grid gap-5 sm:grid-cols-3 mb-16">
+      {steps.map((s) => (
+        <div class="glass rounded-2xl p-8 text-center fade-in">
+          <div class="mx-auto mb-4 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent));">
+            {s.n}
+          </div>
+          <h3 class="font-heading font-bold text-lg mb-2" style="color: var(--color-dark);">{s.title}</h3>
+          <p class="text-sm leading-relaxed" style="color: var(--color-muted);">{s.text}</p>
+        </div>
+      ))}
+    </div>
+
+    <!-- Hours -->
+    <div class="glass-strong rounded-2xl px-8 py-10 sm:px-12 text-center mb-16 fade-in">
+      <h2 class="text-2xl sm:text-3xl font-heading font-bold mb-6" style="color: var(--color-dark);">Walk-in hours</h2>
+      <div class="flex flex-wrap justify-center gap-x-10 gap-y-3">
+        {siteConfig.hours.map((h) => (
+          <div>
+            <span class="block text-sm font-semibold" style="color: var(--color-dark);">{h.days}</span>
+            <span class="block text-sm" style="color: var(--color-muted);">{h.time}</span>
+          </div>
+        ))}
+      </div>
+      <p class="mt-6 text-sm" style="color: var(--color-muted);">
+        {siteConfig.address.street}, {siteConfig.address.city}, {siteConfig.address.state} —
+        <a href="/calendar" class="underline" style="color: var(--color-primary);">see what's on this week</a>
+      </p>
+    </div>
+
+    <!-- Craft menu -->
+    <div class="text-center mb-10 fade-in">
+      <h2 class="text-3xl sm:text-4xl font-heading font-bold" style="color: var(--color-dark);">The craft menu</h2>
+      <p class="text-base mt-3 max-w-xl mx-auto" style="color: var(--color-muted);">
+        Every craft is priced per person — make one, or make a few.
+      </p>
+    </div>
+    <CraftMenu client:visible />
+
+    <!-- Waiver + party cross-sell -->
+    <div class="mt-16 text-center fade-in">
+      <p class="text-sm" style="color: var(--color-muted);">
+        First visit? <a href="/waiver" class="underline" style="color: var(--color-primary);">Sign the waiver ahead of time</a> and skip the paperwork at the door.
+      </p>
+      <p class="mt-3 text-sm" style="color: var(--color-muted);">
+        Bringing a group? <a href="/book" class="underline" style="color: var(--color-primary);">Book the whole studio</a> for a private party.
+      </p>
+    </div>
+  </section>
+</Layout>
