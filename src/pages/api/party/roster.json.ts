@@ -64,9 +64,15 @@ export const GET: APIRoute = async ({ url }) => {
     // signedAt is used only for sort order — strip it before sending to the browser.
     const households = householdsRaw.map(({ signedAt: _dropped, ...h }) => h)
 
-    // Flag children whose name appears in an earlier household; subtract duplicates
-    // from the people summary so the host sees the real headcount.
-    const duplicateKids = markDuplicateChildren(households)
+    // Count duplicates among ATTENDING children only — the headcount numerator is
+    // attending-filtered, so counting duplicates over all minors would double-discount
+    // when a duplicate child isn't attending. (The host UI doesn't render duplicateOf,
+    // so marking these filtered copies instead of `households` is fine.)
+    const attendingHouseholds = households.map((h) => ({
+      signer: h.signer,
+      children: h.children.filter((_, ci) => h.attending.includes(`child:${ci}`)),
+    }))
+    const duplicateKids = markDuplicateChildren(attendingHouseholds)
 
     // Headcount the host cares about = people actually coming, not everyone eligible.
     const peopleCount = households.reduce((n, h) => n + h.attendingCount, 0) - duplicateKids

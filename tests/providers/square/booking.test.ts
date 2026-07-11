@@ -17,7 +17,9 @@ vi.mock('square', () => ({
       cancel: mockCancel,
       get: mockGet,
       customAttributes: {
-        bulkUpsert: mockBulkUpsert,
+        // Square SDK v44: the bookings custom-attributes batch write is named
+        // `batchUpsert` (request type BulkUpsertBookingCustomAttributesRequest).
+        batchUpsert: mockBulkUpsert,
         get: mockCustomAttrGet,
       },
     }
