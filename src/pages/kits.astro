@@ -8,7 +8,10 @@ import { kitContent } from '@config/kit-content'
 
 // Pre-launch safety: kits live behind a feature flag. Until it flips, /kits is
 // not a real page — send visitors to the party flow rather than a dead product.
-if (!siteConfig.features.kits.enabled) {
+// Local dev is always allowed: payments run in Test Mode there, so clicking
+// through (and even "paying") is safe. Deployed URLs use the production Square
+// token — a test order there would charge a real card — so they stay gated.
+if (!siteConfig.features.kits.enabled && !import.meta.env.DEV) {
   return Astro.redirect('/book')
 }
 
