@@ -188,14 +188,18 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     dialogRef.current?.focus()
   }, [])
 
-  // Escape key → requestClose (guard is inside requestClose)
+  // Escape key: while the discard prompt is up it DISMISSES the prompt (safe
+  // default — Escape means "never mind"); otherwise it requests close (guard
+  // inside requestClose).
   useEffect(() => {
     function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === 'Escape') requestClose()
+      if (e.key !== 'Escape') return
+      if (confirmDiscard) setConfirmDiscard(false)
+      else requestClose()
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [dirty, completed])
+  }, [dirty, completed, confirmDiscard])
 
   // Once booking completes, dismiss any stale discard prompt.
   useEffect(() => {
@@ -1598,55 +1602,83 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           </button>
         )}
 
-        {/* Discard guard bar — shown above step content when user tries to close mid-flow */}
+        {/* Discard guard — a small centered confirm layered over the modal, so
+            nothing in the form shifts. Clicking the dim area keeps the booking
+            (the safe default); only the explicit Close button discards. */}
         {confirmDiscard && (
-          <div style={{
-            marginBottom: '1.25rem',
-            padding: '0.875rem 1rem',
-            borderRadius: '0.75rem',
-            background: 'rgba(254, 243, 199, 0.9)',
-            border: '1px solid rgba(180, 83, 9, 0.25)',
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: '0.75rem',
-          }}>
-            <span style={{ flex: 1, fontSize: '0.875rem', fontWeight: 500, color: '#92400e' }}>
-              Close and lose your progress?
-            </span>
-            <div style={{ display: 'flex', gap: '0.5rem' }}>
-              <button
-                type="button"
-                onClick={() => setConfirmDiscard(false)}
-                style={{
-                  padding: '0.5rem 1rem',
-                  borderRadius: '0.625rem',
-                  border: '1px solid var(--color-primary)',
-                  background: 'var(--color-primary)',
-                  color: '#fff',
-                  fontSize: '0.8125rem',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                Keep booking
-              </button>
-              <button
-                type="button"
-                onClick={onClose}
-                style={{
-                  padding: '0.5rem 1rem',
-                  borderRadius: '0.625rem',
-                  border: '1px solid rgba(150, 112, 91, 0.3)',
-                  background: 'transparent',
-                  color: 'var(--color-dark)',
-                  fontSize: '0.8125rem',
-                  fontWeight: 500,
-                  cursor: 'pointer',
-                }}
-              >
-                Close
-              </button>
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-label="Close and lose your progress?"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setConfirmDiscard(false)
+            }}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 110,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(0, 0, 0, 0.35)',
+              backdropFilter: 'blur(2px)',
+            }}
+          >
+            <div
+              style={{
+                width: 'calc(100% - 3rem)',
+                maxWidth: '22rem',
+                padding: '1.5rem 1.5rem 1.25rem',
+                borderRadius: '1rem',
+                background: 'linear-gradient(135deg, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0.92) 100%)',
+                border: '1px solid rgba(255, 255, 255, 0.6)',
+                boxShadow: '0 24px 60px rgba(0, 0, 0, 0.25)',
+                textAlign: 'center',
+              }}
+            >
+              <p style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                Close and lose your progress?
+              </p>
+              <p style={{ margin: '0.4rem 0 1.1rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+                Your selections aren’t saved yet.
+              </p>
+              <div style={{ display: 'flex', gap: '0.6rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDiscard(false)}
+                  autoFocus
+                  style={{
+                    flex: 1.4,
+                    padding: '0.7rem 1rem',
+                    borderRadius: '0.75rem',
+                    border: 'none',
+                    background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                    color: '#fff',
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Keep booking
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  style={{
+                    flex: 1,
+                    padding: '0.7rem 1rem',
+                    borderRadius: '0.75rem',
+                    border: '1px solid rgba(150, 112, 91, 0.3)',
+                    background: 'transparent',
+                    color: 'var(--color-muted)',
+                    fontSize: '0.875rem',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Close
+                </button>
+              </div>
             </div>
           </div>
         )}
