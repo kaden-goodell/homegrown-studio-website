@@ -114,7 +114,7 @@ Flow inside the modal (dynamic steps, `party-steps` pattern — settled steps dr
 | The Linen Table | neutral | "Soft naturals for gatherings that glow quietly" |
 | The Sweet Sixteen | sweet-sixteen | "Sixteen only happens once" |
 
-  Draft per-tier pricing, uniform across themes at launch (per-theme adjustment is just a variation-price edit later): **serves 10 — $65 · 15 — $90 · 20 — $115 · 25 — $135 · 30 — $155** (~$5.20–6.50/head, declining with scale). Kaden adjusts numbers/names freely before seeding.
+  Per-tier pricing (Kaden 2026-07-11: "start at 75 then go up 25"), uniform across themes at launch: **serves 10 — $75 · 15 — $100 · 20 — $125 · 25 — $150 · 30 — $175** ($5.80–7.50/head, declining with scale — fair for genuine Liberty-print tableware plus full consumables).
   ⚠️ Inventory reality: every theme×tier needs a physical rental set — 6 themes × 5 tiers = 30 stocked sets; recommend launching 3–4 themes at tiers 10/15/20 and growing from demand. Photos + final box contents → `docs/NEEDS-FROM-KADEN.md`.
 - TBD: Card-on-file CUT from launch (deposit-only protection) — recommended; **Kaden to veto or bless**.
 - TBD: Route name — `/kits` vs `/parties/take-home` (parties-hub framing from the site-reorg plan).
@@ -124,6 +124,18 @@ Flow inside the modal (dynamic steps, `party-steps` pattern — settled steps dr
 - ~~Wash/sanitize~~ — DECIDED: customer cleans, staff verifies + final sanitize; dirty returns can dock the deposit.
 - ~~Cancellation policy~~ — DECIDED: full refund ≥7 days pre-pickup, minus $50 assembly fee inside 7 days, staff-initiated.
 - ~~Overdue policy~~ — DECIDED: deposit forfeit (staff one-click confirm), no card charging.
+
+## 10a. In-Studio Party Packages (added scope — Kaden 2026-07-11)
+
+The same themed packages become an optional add-on for **in-studio parties**: staff decorates the room before guests arrive. No assembly fee, no deposit, no rental terms — the pieces never leave the studio.
+
+- [ ] [API] `/api/party/service-info.json` additionally returns available themes (+ tier prices) so the party flow can offer them
+- [ ] [API] Party booking (`/api/party/book.json`) accepts optional `themeVariationId`; adds the package line item to the party's order (same theme×tier Square variations — tier from the party's guest count, same round-up rule)
+- [ ] [LOGIC] **Shared inventory pool with kits**: an in-studio party on date D requires the theme×tier set to NOT be out on a kit rental during the Thu→Wed window containing D. Multiple in-studio uses in one week are fine (washed between; only one party per day exists anyway). Availability enforced in both flows
+- [ ] [LOGIC] No deposit and no assembly fee on the in-studio path; price = package tier price only
+- [ ] [UI] Party modal gains an optional "Add a themed table" choice (theme cards, computed tier price, skippable — mirrors the kit package step); shows on the payment summary as its own line
+- [ ] [UI] Booking confirmation email includes the chosen theme so staff know what to stage
+- [ ] [LOGIC] Staff party view (existing `/api/staff/parties`) surfaces the theme for prep
 
 ## 11. Out of Scope
 
