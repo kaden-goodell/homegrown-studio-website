@@ -1,4 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
+import type { CSSProperties } from 'react'
+import { groupEventsByDay } from './calendar-view-model'
 import type { CalendarEvent } from './calendar-view-model'
 
 interface WhatsOnCalendarProps {
@@ -92,11 +94,55 @@ function eventLine(e: CalendarEvent) {
   return base
 }
 
+/** Studio-local "today" as YYYY-MM-DD (en-CA yields that format). */
+function todayISO(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
+}
+
+/** A YYYY-MM-DD → "Saturday, July 18" heading for a list day card. */
+function formatDayHeading(date: string): string {
+  const [y, m, d] = date.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  })
+}
+
+/**
+ * Where a list-view row links. CalendarEvent.href is already correct per kind
+ * (workshop → /workshops?w=<realId>, collapsed party summary → /book?date=<date>
+ * from groupEventsByDay). Do NOT build /workshops?w=${e.id} — event ids are
+ * prefixed ("workshop-<id>") and would break the deeplink matcher.
+ */
+function eventHref(e: CalendarEvent): string | null {
+  if (e.kind === 'party-booked') return null // sold out — informational only
+  if (e.kind === 'open-studio') return '/open-studio'
+  return e.href ?? null
+}
+
+/** List|Month toggle pill (inlined; WorkshopExplorer's original is being removed). */
+function pillStyle(active: boolean): CSSProperties {
+  return active
+    ? {
+        background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+        color: 'white',
+        boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
+      }
+    : {
+        background: 'rgba(255, 255, 255, 0.75)',
+        backdropFilter: 'blur(12px)',
+        border: '1px solid rgba(150, 112, 91, 0.06)',
+        color: 'var(--color-text)',
+      }
+}
+
 export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnCalendarProps) {
   const now = new Date()
   const [year, setYear] = useState(now.getFullYear())
   const [month, setMonth] = useState(now.getMonth())
   const [selectedDay, setSelectedDay] = useState<number | null>(null)
+  const [view, setView] = useState<'list' | 'month'>('list')
   const [compact, setCompact] = useState(false)
   const [events, setEvents] = useState<CalendarEvent[]>(initialEvents)
   const [loading, setLoading] = useState(false)
@@ -149,6 +195,9 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
     return map
   }, [events, year, month])
 
+  // List view: upcoming days for the fetched month, party slots collapsed.
+  const dayGroups = useMemo(() => groupEventsByDay(events, todayISO()), [events])
+
   const { firstDay, daysInMonth } = getMonthData(year, month)
 
   function prevMonth() {
@@ -194,16 +243,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
 
   return (
     <div>
-      <div style={{
-        background: 'linear-gradient(135deg, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0.85) 100%)',
-        backdropFilter: 'blur(20px) saturate(1.3)',
-        WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
-        border: '1px solid rgba(255, 255, 255, 0.5)',
-        borderRadius: '1rem',
-        padding: '1.5rem',
-        boxShadow: '0 4px 16px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(150, 112, 91, 0.04)',
-      }}>
-      {/* Month nav */}
+      {/* Month nav — controls both list and month views */}
       <div style={{
         display: 'flex',
         alignItems: 'center',
@@ -274,6 +314,36 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
         </button>
       </div>
 
+      {/* View toggle */}
+      <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
+        <button
+          onClick={() => { setView('list'); setSelectedDay(null) }}
+          className="px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300"
+          style={pillStyle(view === 'list')}
+          aria-pressed={view === 'list'}
+        >
+          List
+        </button>
+        <button
+          onClick={() => { setView('month'); setSelectedDay(null) }}
+          className="px-5 py-2.5 rounded-full text-sm font-medium transition-all duration-300"
+          style={pillStyle(view === 'month')}
+          aria-pressed={view === 'month'}
+        >
+          Month
+        </button>
+      </div>
+
+      {view === 'month' && (
+      <div style={{
+        background: 'linear-gradient(135deg, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0.85) 100%)',
+        backdropFilter: 'blur(20px) saturate(1.3)',
+        WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
+        border: '1px solid rgba(255, 255, 255, 0.5)',
+        borderRadius: '1rem',
+        padding: '1.5rem',
+        boxShadow: '0 4px 16px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(150, 112, 91, 0.04)',
+      }}>
       {/* Day headers */}
       <div style={{
         display: 'grid',
@@ -480,9 +550,83 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
         </div>
       )}
       </div>
+      )}
 
-      {/* Selected day events — read-only overview, no book button */}
-      {selectedDay !== null && selectedEvents.length > 0 && (
+      {/* List view: upcoming day cards, party slots collapsed */}
+      {view === 'list' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '44rem', margin: '0 auto' }}>
+          {dayGroups.length === 0 && (
+            <p style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '3rem 0' }}>
+              Nothing else on this month —{' '}
+              <button
+                onClick={nextMonth}
+                style={{ color: 'var(--color-primary)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit' }}
+              >
+                peek at next month
+              </button>
+            </p>
+          )}
+          {dayGroups.map((day) => (
+            <div key={day.date} className="glass" style={{ borderRadius: '1rem', padding: '1.25rem 1.5rem' }}>
+              <p className="font-heading" style={{ fontWeight: 700, color: 'var(--color-dark)', marginBottom: '0.75rem' }}>
+                {formatDayHeading(day.date)}
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                {day.events.map((e) => {
+                  const href = eventHref(e)
+                  const rowStyle: CSSProperties = {
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '0.75rem',
+                    textDecoration: 'none',
+                    padding: '0.5rem 0.75rem',
+                    borderRadius: '0.625rem',
+                    transition: 'background 0.2s ease',
+                  }
+                  const inner = (
+                    <>
+                      <span style={{ width: '0.5rem', height: '0.5rem', borderRadius: '9999px', background: KIND_COLORS[e.kind], flexShrink: 0 }} />
+                      <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-muted)', width: '5.5rem', flexShrink: 0 }}>
+                        {trimTime(e.startTime)}
+                      </span>
+                      <span style={{ fontSize: '0.9375rem', color: 'var(--color-dark)', flex: 1 }}>{e.title}</span>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: KIND_COLORS[e.kind], flexShrink: 0 }}>{KIND_LABELS[e.kind]}</span>
+                    </>
+                  )
+                  return href ? (
+                    <a
+                      key={e.id}
+                      href={href}
+                      style={rowStyle}
+                      onMouseEnter={(ev) => (ev.currentTarget.style.background = 'rgba(150,112,91,0.06)')}
+                      onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}
+                    >
+                      {inner}
+                    </a>
+                  ) : (
+                    <div key={e.id} style={rowStyle}>
+                      {inner}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+
+          {/* Always offer a way forward — the list is month-scoped by the fetch. */}
+          <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
+            <button
+              onClick={nextMonth}
+              style={{ color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.9375rem', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit' }}
+            >
+              Peek at next month →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Selected day events — read-only overview, no book button (month view only) */}
+      {view === 'month' && selectedDay !== null && selectedEvents.length > 0 && (
         <div style={{ marginTop: '2rem' }}>
           <p style={{
             fontSize: '0.75rem',

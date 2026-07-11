@@ -141,3 +141,40 @@ export function buildCalendarEvents(
 
   return events
 }
+
+export interface DayGroup {
+  /** YYYY-MM-DD */
+  date: string
+  events: CalendarEvent[]
+}
+
+/**
+ * List-view shape: upcoming days only (>= today), ascending, with each day's
+ * party-available slots collapsed to a single "N party times open" entry
+ * (mirrors the month grid's aggregation — detail lives on /book).
+ */
+export function groupEventsByDay(events: CalendarEvent[], today: string): DayGroup[] {
+  const byDate = new Map<string, CalendarEvent[]>()
+  for (const e of events) {
+    if (e.date < today) continue
+    const list = byDate.get(e.date) ?? []
+    list.push(e)
+    byDate.set(e.date, list)
+  }
+  return [...byDate.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, dayEvents]) => {
+      const partySlots = dayEvents.filter((e) => e.kind === 'party-available')
+      if (partySlots.length <= 1) return { date, events: dayEvents }
+      const rest = dayEvents.filter((e) => e.kind !== 'party-available')
+      const summary: CalendarEvent = {
+        ...partySlots[0],
+        id: `party-available-agg-${date}`,
+        title: `🎉 ${partySlots.length} party times open`,
+        // Rebuild the href: partySlots[0].href is slot-specific (/book?start=<ts>);
+        // the collapsed row must link date-scoped, matching aggregatePartySlots.
+        href: `/book?date=${encodeURIComponent(date)}`,
+      }
+      return { date, events: [...rest, summary] }
+    })
+}
