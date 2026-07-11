@@ -69,3 +69,8 @@ Note: Gmail app passwords require 2-Step Verification to be enabled on the accou
 - **Theme names/prices tweaks** — names and tier prices ($75/$100/$125) were drafted by Claude with your blessing to adjust; edit `kit-content.ts` + `kit.config.ts` and re-run `scripts/seed-kits.ts` (idempotent) if you change them.
 - **Rental agreement §6a** (`docs/WAIVER.md`) — with the attorney alongside the v3 review; includes the "return it clean" clause and retrieval-fee language. Blocking for LAUNCH, not for build.
 - **Physical inventory purchase** — Gilded + Prism at 60 settings each (ledger sells 45), 3 hero sets each; Sweet Sixteen shares Gilded's tableware and needs only its own consumables/staging.
+- **Address autocomplete key** (`PUBLIC_GOOGLE_PLACES_KEY`) — the kit party-address field upgrades to Google type-ahead suggestions the moment this exists; until then it's a plain input (fully functional). Steps:
+  1. [console.cloud.google.com](https://console.cloud.google.com) → create project (or reuse one) → enable **Places API (New)** → Credentials → Create API key.
+  2. Restrict the key: Application restrictions → Websites → add `homegrowncraftstudio.com/*`, `*.netlify.app/*`, `localhost:4321/*`; API restrictions → Places API (New) only.
+  3. Add `PUBLIC_GOOGLE_PLACES_KEY=<key>` to Netlify env AND local `.env`. (PUBLIC_ = shipped to the browser by design; the website restriction is what protects it.)
+  - Cost: ~$2.83 per 1,000 autocomplete sessions against Google's $200/month free credit — effectively $0 at launch volume. Billing must be enabled on the Google project (their requirement even inside the free tier).

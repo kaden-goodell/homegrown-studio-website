@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
+import AddressInput from '@components/shared/AddressInput'
 import { kitContent, kitThemes } from '@config/kit-content'
 import {
   visibleSteps,
@@ -910,11 +911,9 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             </div>
             <div style={{ marginBottom: '1.25rem' }}>
               <label style={labelStyle}>Party address *</label>
-              <input
-                type="text"
-                autoComplete="street-address"
+              <AddressInput
                 value={address}
-                onChange={(e) => setAddress(e.target.value)}
+                onChange={setAddress}
                 placeholder="Where the party's happening — in case we need to rescue our plates 😄"
                 style={inputStyle}
               />
