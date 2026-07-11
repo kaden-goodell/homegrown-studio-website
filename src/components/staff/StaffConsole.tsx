@@ -136,6 +136,12 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
   const [collectedBy, setCollectedBy] = useState('')
   const [err, setErr] = useState<string | null>(null)
   const [oneTimeCode, setOneTimeCode] = useState<string | null>(null)
+  // When the server retires the code (Reset, or the last child picked up), drop
+  // any displayed plaintext — it's dead, and handing it to a parent would fail
+  // at checkout.
+  useEffect(() => {
+    if (!h.checkin.hasPickupCode) setOneTimeCode(null)
+  }, [h.checkin.hasPickupCode])
   // Two-tap reset guard
   const [resetPending, setResetPending] = useState(false)
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
