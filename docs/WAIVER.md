@@ -98,6 +98,32 @@ may refuse or discontinue service at its discretion. I agree to hold the Release
 harmless for any injury or damage arising from the consumption of alcohol, whether by me or by
 other guests.
 
+### 6a. Take-home kit rentals (DRAFT — pending counsel review, added 2026-07-11)
+*Applies only when my order includes a party package containing rental pieces; presented and
+accepted at kit checkout.*
+
+(a) **Ownership.** Serving pieces, cake stands, décor, and any items identified as "returns to
+the Studio" on my kit's contents card remain the property of Goodell Holdings, LLC at all times.
+My payment includes a rental of those pieces, not a purchase.
+
+(b) **Return.** I will return all rental pieces to the Studio by the return-by date stated on my
+contents card and order confirmation (the Wednesday following my pickup, during the posted
+drop-off window, or any earlier open business day). If I do not, I understand my refundable
+deposit will be withheld, and the Studio reserves the right to recover the reasonable replacement
+value of unreturned pieces.
+
+(c) **Condition and cleaning.** I will clean all food-contact pieces before returning them. The
+Studio inspects and sanitizes every piece on return; pieces returned damaged beyond normal wear,
+or unwashed, may result in part or all of my deposit being withheld.
+
+(d) **Use.** Rental pieces are for ordinary tabletop use at my event. I am responsible for the
+pieces from pickup until return and will not leave them outdoors, in a vehicle, or otherwise
+exposed to conditions likely to damage them.
+
+(e) **No liability transfer.** Nothing in this section limits or modifies the release,
+assumption of risk, or indemnification provisions above, which apply to my use of all kit
+contents, including craft materials, at my own premises.
+
 ### 7. General terms
 This Agreement is the entire agreement between me and the Studio regarding its subject matter; it
 is governed by Alabama law, with venue in Madison County, Alabama; if any provision is held
@@ -140,6 +166,15 @@ Open decisions and context — not part of the customer-facing text.
 6. **E-sign presentation** (HOM-103): full text scrollable before the accept control; no
    pre-checked boxes; typed-name signature + timestamp + IP + version hash retained; annual
    re-sign. Confirm this meets your conspicuousness expectations.
+7. **§6a kit-rental addendum (NEW, 2026-07-11 — unreviewed draft).** Take-home party kits rent
+   premium tableware (Liberty-print plates, cake stands) with a $50 refundable deposit; business
+   decisions already made: no per-piece replacement billing (deposit withholding + manual
+   recovery only), no stored payment method, deposit forfeit is staff-confirmed. Questions for
+   you: (i) is "reserves the right to recover reasonable replacement value" the right strength
+   without a liquidated-damages schedule, (ii) does the off-premises use of craft materials by
+   minors at a customer's home need its own release language beyond §6a(e), (iii) any bailment
+   framing you'd prefer for the rental relationship, (iv) deferred question of Alabama
+   rental/lease tax on the tableware-rental component of package pricing.
 
 ### How we compare to peer craft-studio waivers (reviewed 2026-07-10)
 Our text is **stronger than the local market leader's** on the points that matter for kids:

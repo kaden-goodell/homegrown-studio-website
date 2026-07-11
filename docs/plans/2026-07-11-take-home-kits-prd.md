@@ -16,7 +16,7 @@ The studio party ($300 + crafts/head) is the flagship, but it prices out some gr
 New endpoints under `/api/kits/`, mirroring the party flow's conventions (JSON envelope `{ data }`, same rate limiting and validation patterns). Payment reuses the existing checkout provider path (Square Payments via Web Payments SDK).
 
 - [ ] [API] `GET /api/kits/service-info.json` — returns crafts (same source as party crafts: Square "Party Crafts" category), themes with per-tier pricing (from the package catalog item's variations), assembly fee, deposit amount, lead-time days, tier range
-- [ ] [API] `GET /api/kits/weeks.json` — **Thursday→Thursday cadence**: customer picks their PARTY date; the system derives pickup = the Thursday before the party, return-by = the following Thursday. Endpoint returns selectable party dates (≥ 7 days after the derived pickup Thursday's order cutoff, 90-day horizon) with per-theme×tier rental availability for that week (a physical set serves one customer per week)
+- [ ] [API] `GET /api/kits/weeks.json` — **Thursday→Wednesday cadence (Kaden 2026-07-11)**: customer picks their PARTY date; the system derives pickup = the Thursday before the party, return-by = the following **Wednesday** (pickup + 6 days). Wednesday is clean-and-prep day: returns come in, sets get washed/sanitized, and go back out Thursday — the same physical set can serve consecutive weeks. Endpoint returns selectable party dates (order cutoff 7 days before pickup Thursday, 90-day horizon) with per-theme×tier rental availability for that week
 - [ ] [API] `POST /api/kits/order.json` — accepts `{ crafts: [{craftId, qty}], guests, themeVariationId?, partyDate, contact: {name, email, phone}, paymentToken, rentalTermsAccepted? }`; creates Square Order with PICKUP fulfillment (derived pickup Thursday), charges total; rental packages require `rentalTermsAccepted: true` (agreement acknowledgment — no card storage); returns `{ orderId, reference, summary: { pickupDate, returnByDate, ... } }`
 - [ ] [API] `POST /api/kits/order.json` rejects: guests < 10, guests > 30 when a package is selected, partyDate whose week fails the lead-time cutoff, theme×tier set already rented that week, missing rental-terms acceptance when package includes rentals
 - [ ] [API] `GET /api/staff/kits.json` (staff-auth via existing `staffAuthorized()`) — lists kit orders bucketed by state: awaiting pickup / pickup today / **missed pickup** / out on loan / due back today / **overdue (forfeit pending)** / settled
@@ -48,13 +48,14 @@ No new database — Square catalog + orders remain the source of truth (consiste
 - [ ] [LOGIC] Guest minimum 10 for any kit order; crafts are priced/packed **exact per guest** (11 guests = 11 craft kits)
 - [ ] [LOGIC] Package tier = guest count rounded UP to the next multiple of 5 (11→15, 16→20); tiers offered: 10, 15, 20, 25, 30; guests > 30 with a package selected is rejected (order without package, or contact us)
 - [ ] [LOGIC] Tier rounding is shown transparently before payment ("11 guests → serves-15 package")
-- [ ] [LOGIC] **Thursday→Thursday cadence (Kaden 2026-07-11)**: customer picks their PARTY date; pickup = Thursday before, return-by = following Thursday ("easiest to remember", and it batches assembly + returns into one weekly rhythm). UI always shows all three dates before payment
+- [ ] [LOGIC] **Thursday→Wednesday cadence (Kaden 2026-07-11)**: customer picks their PARTY date; pickup = Thursday before, return-by = following Wednesday. Wednesday is the studio's clean/prep day so returned sets are washed and ready for Thursday pickups. UI always shows all three dates before payment
+- [ ] [LOGIC] ⚠️ Return logistics: the studio is CLOSED to the public on Wednesdays (hours Thu–Sun) — return-by Wednesday means a **staffed drop-off window** on prep day (time TBD, e.g. 4–6 PM), communicated on the contents card + confirmation email. Early returns also accepted any open day (Thu–Sun) after the party
 - [ ] [LOGIC] Lead time: 7 days for ALL kit orders — order cutoff is 7 days before the derived pickup Thursday
-- [ ] [LOGIC] Deposit forfeit: kit not returned by return-by Thursday → deposit is withheld (staff confirms with one click on/after that day — no silent automation, but no card charging either)
+- [ ] [LOGIC] Deposit forfeit: kit not returned by return-by Wednesday → deposit is withheld (staff confirms with one click on/after Thursday — no silent automation, but no card charging either)
 - [ ] [LOGIC] Cleaning: customer is responsible for cleaning food-contact pieces before return ("return it clean" — in agreement + contents card); staff verifies at check-in and does a final sanitize pass; returned-dirty is grounds for withholding part of the deposit
 - [ ] [LOGIC] Deposit ($50) charged only when the selected package contains rental pieces; consumables-only themes (if any) carry no deposit
 - [ ] [LOGIC] Rental orders require checkbox consent: card on file + agreement acknowledgment (rental terms; agreement version recorded, mirroring party agreement handling — terms folded into attorney's v3 review)
-- [ ] [LOGIC] Return-by date = pickup Thursday + 7 days = the next Thursday — CONFIRMED; printed on contents card, in confirmation email, and stored on the order
+- [ ] [LOGIC] Return-by date = pickup Thursday + 6 days = the next Wednesday — CONFIRMED; printed on contents card, in confirmation email, and stored on the order
 - [ ] [LOGIC] Return check-in: complete → automatic $50 deposit refund to original payment; incomplete or dirty → staff withholds part/all of deposit at discretion with a note; every outcome writes to the kit custody log. No per-piece replacement billing (decided 2026-07-11); egregious non-return handled manually per the rental agreement
 - [ ] [LOGIC] Return check-in is reversible: `undo` fires compensating transactions and restores the prior state (staff mistakes must not be permanent real-money errors)
 - [ ] [LOGIC] Failed initial payment → the just-created Square Order is voided/canceled (do NOT copy the party flow's orphaned-order wart) and staff kit lists filter to paid orders only
@@ -102,7 +103,19 @@ Flow inside the modal (dynamic steps, `party-steps` pattern — settled steps dr
 
 ## 10. Open Questions
 
-- TBD: Theme lineup finalization. Kaden's direction (2026-07-11): ~5 themes — the most common Liberty fabric prints as the visual backbone, plus Gold, Silver, Blue, Sweet Sixteen. Candidates suggested: bring back **Rainbow** (was in the original color list; strong for younger birthdays), a **neutral/linen** theme matching the studio aesthetic (showers, book clubs, grown-up gatherings), seasonal limited editions later as marketing beats. ⚠️ Inventory reality: every theme×tier needs a physical rental set — 5 themes × 5 tiers = 25 stocked sets; consider launching with 3–4 themes and the popular tiers (10/15/20) first. Final names/photos/prices/contents → `docs/NEEDS-FROM-KADEN.md`.
+- DRAFT theme lineup (named/priced by Claude 2026-07-11 per Kaden's "you name them and put prices, we adjust"; Rainbow + neutral approved by Kaden). Liberty-print tableware is the shared backbone; each theme is the accent scheme:
+
+| Theme | Scheme | Tagline |
+|---|---|---|
+| The Gilded Table | gold | "Warm gold, candlelight, and celebration" |
+| The Sterling Table | silver | "Polished, cool, and effortlessly elegant" |
+| The Bluebell Table | blue | "Fresh blues straight out of an English garden" |
+| The Prism Table | rainbow | "Every color invited" |
+| The Linen Table | neutral | "Soft naturals for gatherings that glow quietly" |
+| The Sweet Sixteen | sweet-sixteen | "Sixteen only happens once" |
+
+  Draft per-tier pricing, uniform across themes at launch (per-theme adjustment is just a variation-price edit later): **serves 10 — $65 · 15 — $90 · 20 — $115 · 25 — $135 · 30 — $155** (~$5.20–6.50/head, declining with scale). Kaden adjusts numbers/names freely before seeding.
+  ⚠️ Inventory reality: every theme×tier needs a physical rental set — 6 themes × 5 tiers = 30 stocked sets; recommend launching 3–4 themes at tiers 10/15/20 and growing from demand. Photos + final box contents → `docs/NEEDS-FROM-KADEN.md`.
 - TBD: Card-on-file CUT from launch (deposit-only protection) — recommended; **Kaden to veto or bless**.
 - TBD: Route name — `/kits` vs `/parties/take-home` (parties-hub framing from the site-reorg plan).
 - TBD: Rental terms language — with attorney in agreement v3 review; blocking for LAUNCH, not for build (build against draft terms). Now includes the "customer cleans food-contact pieces" clause.
