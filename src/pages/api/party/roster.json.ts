@@ -36,17 +36,15 @@ export const GET: APIRoute = async ({ url }) => {
 
     const waivers = await listWaiversByParty(partyId)
 
-    const households = (
+    const householdsRaw = (
       await Promise.all(
         waivers.map(async (w) => {
           const allIds = ['adult', ...w.minors.map((_, i) => `child:${i}`)]
           const checkin = await getCheckin(partyId, w.id)
-          // "Who's coming" the family selected at RSVP; default to the whole household.
+          // "Who's coming" the group selected at RSVP; default to the whole household.
           const attending = checkin.expected ?? allIds
           return {
             signer: `${w.adult.firstName} ${w.adult.lastName}`.trim(),
-            email: w.adult.email,
-            phone: w.adult.phone,
             children: w.minors.map((m) => ({
               name: m.name,
               allergies: m.allergies || '',
@@ -54,15 +52,17 @@ export const GET: APIRoute = async ({ url }) => {
             })),
             childCount: w.minors.length,
             adultAllergies: w.adult.allergies || '',
-            emergency: w.emergency,
             signedAt: w.signedAt,
-            /** Person ids (`adult`, `child:{i}`) the family said are coming. */
+            /** Person ids (`adult`, `child:{i}`) the group said are coming. */
             attending,
             attendingCount: attending.length,
           }
         }),
       )
     ).sort((a, b) => a.signedAt.localeCompare(b.signedAt))
+
+    // signedAt is used only for sort order — strip it before sending to the browser.
+    const households = householdsRaw.map(({ signedAt: _dropped, ...h }) => h)
 
     // Flag children whose name appears in an earlier household; subtract duplicates
     // from the people summary so the host sees the real headcount.

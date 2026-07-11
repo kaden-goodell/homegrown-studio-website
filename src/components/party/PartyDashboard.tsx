@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { partyConfig } from '@config/party.config'
+import { partyContent } from '@config/party-content'
 import {
   partyInviteUrl,
   googleCalendarUrl,
@@ -8,6 +9,7 @@ import {
   addMinutesIso,
 } from '@lib/party-share'
 import { inviteContent } from '@config/invite-content'
+import { formatWhen } from '@lib/studio-time'
 
 interface Props {
   bookingId: string
@@ -16,14 +18,10 @@ interface Props {
 
 interface Household {
   signer: string
-  email: string
-  phone: string
-  children: { name: string; allergies: string }[]
+  children: { name: string; allergies: string; duplicateOf?: string }[]
   childCount: number
   adultAllergies: string
-  emergency: { name: string; phone: string; relationship: string }
-  signedAt: string
-  /** Person ids (`adult`, `child:{i}`) the family said are coming. */
+  /** Person ids (`adult`, `child:{i}`) the group said are coming. */
   attending: string[]
   attendingCount: number
 }
@@ -67,39 +65,41 @@ const chip: React.CSSProperties = {
   cursor: 'pointer',
 }
 
-function formatWhen(iso: string): string {
-  return new Date(iso).toLocaleString('en-US', {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
-
 export default function PartyDashboard({ bookingId, hostKey }: Props) {
   const [roster, setRoster] = useState<Roster | null>(null)
   const [state, setState] = useState<'loading' | 'ok' | 'denied' | 'error'>('loading')
   const [copied, setCopied] = useState(false)
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  async function load() {
+  async function load(isRefresh = false) {
     try {
       const res = await fetch(
         `/api/party/roster.json?party=${encodeURIComponent(bookingId)}&key=${encodeURIComponent(hostKey)}`,
         { cache: 'no-store' },
       )
-      if (res.status === 404) return setState('denied')
-      if (!res.ok) return setState('error')
+      if (res.status === 404) {
+        // A 404 on refresh keeps the current view; only the initial load surfaces denied.
+        if (!isRefresh) setState('denied')
+        return
+      }
+      if (!res.ok) {
+        if (!isRefresh) setState('error')
+        return
+      }
       const json = await res.json()
       setRoster(json.data)
       setState('ok')
     } catch {
-      setState('error')
+      if (!isRefresh) setState('error')
     }
   }
 
   useEffect(() => {
     load()
+    intervalRef.current = setInterval(() => load(true), 30_000)
+    return () => {
+      if (intervalRef.current !== null) clearInterval(intervalRef.current)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -109,9 +109,12 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
   if (state === 'denied') {
     return (
       <div style={{ ...card, textAlign: 'center' }}>
-        <p style={{ color: 'var(--color-dark)', fontWeight: 600 }}>This party link isn’t valid.</p>
+        <p style={{ color: 'var(--color-dark)', fontWeight: 600 }}>This party link isn't valid.</p>
         <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
-          Use the link from your booking confirmation, or rebook if you’ve lost it.
+          Use the link from your booking confirmation email. Lost it?{' '}
+          {partyContent.textNumber
+            ? <>Text us at {partyContent.textNumber} and we'll re-send it.</>
+            : <>Contact us and we'll re-send it.</>}
         </p>
       </div>
     )
@@ -119,7 +122,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
   if (state === 'error' || !roster) {
     return (
       <div style={{ ...card, textAlign: 'center' }}>
-        <p style={{ color: 'var(--color-dark)', fontWeight: 600 }}>Couldn’t load your party.</p>
+        <p style={{ color: 'var(--color-dark)', fontWeight: 600 }}>Couldn't load your party.</p>
         <button type="button" onClick={() => { setState('loading'); load() }} style={{ ...chip, marginTop: '0.75rem', border: 'none', background: 'var(--color-primary)', color: '#fff' }}>
           Try again
         </button>
@@ -129,18 +132,17 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
 
   const { party, summary, households } = roster
   const heading = party.title || `${party.craftName} Party`
-  const slotLabel = formatWhen(party.startIso)
+  const slotLabel = formatWhen(party.startIso) + ' CT'
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const inviteUrl = partyInviteUrl(
     { bookingId, craftName: party.craftName, slotLabel, startIso: party.startIso, title: party.title || undefined },
     origin,
   )
-  const hostPageUrl = `${origin}/party/${encodeURIComponent(bookingId)}?key=${encodeURIComponent(hostKey)}`
   const calEvent = {
     title: heading + ' — Homegrown Studio',
     startIso: party.startIso,
     endIso: addMinutesIso(party.startIso, party.durationMinutes ?? partyConfig.durationMinutes),
-    details: `Your private party at Homegrown Studio.\n\nManage your party & see who's RSVP'd: ${hostPageUrl}`,
+    details: `Your private party at Homegrown Studio.\n\nInvitation link for guests: ${inviteUrl}`,
     location: inviteContent.where,
   }
 
@@ -187,19 +189,34 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
       {/* RSVP summary */}
       <div style={card}>
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
-          <h2 style={{ fontSize: '1.0625rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', margin: 0 }}>
-            Who’s coming
-          </h2>
-          <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>
-            <strong style={{ color: 'var(--color-dark)' }}>{summary.households}</strong>{' '}
-            {summary.households === 1 ? 'family' : 'families'} ·{' '}
-            <strong style={{ color: 'var(--color-dark)' }}>{summary.people}</strong> coming
-          </span>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <h2 style={{ fontSize: '1.0625rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', margin: 0 }}>
+              Who's coming
+            </h2>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+              Booked for {party.guestCount} · {summary.people} RSVP'd so far
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>
+              <strong style={{ color: 'var(--color-dark)' }}>{summary.households}</strong>{' '}
+              {summary.households === 1 ? 'group' : 'groups'} ·{' '}
+              <strong style={{ color: 'var(--color-dark)' }}>{summary.people}</strong> coming
+            </span>
+            <button
+              type="button"
+              onClick={() => load(true)}
+              style={{ ...chip, fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
+              aria-label="Refresh roster"
+            >
+              ↻ Refresh
+            </button>
+          </div>
         </div>
 
         {households.length === 0 ? (
           <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', marginTop: '0.9rem' }}>
-            No RSVPs yet. Share your invitation above — each family signs a quick agreement and shows up here.
+            No RSVPs yet — share your invitation above and guests will appear here as they sign.
           </p>
         ) : (
           <div style={{ marginTop: '1rem', display: 'grid', gap: '0.6rem' }}>
@@ -214,12 +231,18 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
                 ...(adultComing && h.adultAllergies ? [`${h.signer.split(' ')[0]}: ${h.adultAllergies}`] : []),
                 ...comingKids.filter((c) => c.allergies).map((c) => `${c.name.split(' ')[0]}: ${c.allergies}`),
               ]
+              const first = h.signer.split(' ')[0]
+              const rowSummary = comingKids.length > 0
+                ? `${adultComing ? `${first} + ` : ''}${comingKids.length} ${comingKids.length === 1 ? 'kid' : 'kids'}`
+                : adultComing
+                  ? `just ${first}`
+                  : '—'
               return (
                 <div key={i} style={{ padding: '0.85rem 1rem', borderRadius: '0.875rem', background: 'rgba(150,112,91,0.05)', border: '1px solid rgba(150,112,91,0.12)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.35rem' }}>
                     <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9375rem' }}>{h.signer}</span>
                     <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                      {comingKids.length > 0 ? `${adultComing ? 'you + ' : ''}${comingKids.length} ${comingKids.length === 1 ? 'kid' : 'kids'}` : adultComing ? 'just them' : '—'}
+                      {rowSummary}
                     </span>
                   </div>
                   {comingKids.length > 0 && (

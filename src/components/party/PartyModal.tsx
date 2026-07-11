@@ -14,6 +14,7 @@ import {
   type PartyStepId,
 } from '@lib/party-steps'
 import { googleCalendarUrl, buildIcs, icsDataUrl, partyWaiverUrl, partyInviteUrl } from '@lib/party-share'
+import { formatWhen as formatWhenCT } from '@lib/studio-time'
 import { waiverContent } from '@config/waiver-content'
 import { saveRecentParty } from '@lib/recent-party'
 import {
@@ -654,18 +655,32 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   function renderConfirmation() {
     const slotStart = selectedSlot?.startAt
     const slotEnd = selectedSlot?.endAt
-    // Host's calendar event links back to THEIR party page (manage + who's RSVP'd).
+    // Host's party page — used for the "View your party page" button only.
     const hostPageUrl =
       bookingId && typeof window !== 'undefined'
         ? `${window.location.origin}/party/${encodeURIComponent(bookingId)}${hostToken ? `?key=${encodeURIComponent(hostToken)}` : ''}`
+        : ''
+    // Invite URL is token-free — safe to embed in a shared calendar event.
+    const confirmInviteUrl =
+      bookingId && slotStart && selectedCraft && typeof window !== 'undefined'
+        ? partyInviteUrl(
+            {
+              bookingId,
+              craftName: selectedCraft.name,
+              slotLabel: formatWhenCT(slotStart) + ' CT',
+              startIso: slotStart,
+              title: partyTitle.trim() || undefined,
+            },
+            window.location.origin,
+          )
         : ''
     const calendarEvent = slotStart && slotEnd
       ? {
           title: `${selectedCraft ? `${selectedCraft.name} — ` : ''}Party at Homegrown Studio`,
           startIso: slotStart,
           endIso: slotEnd,
-          details: hostPageUrl
-            ? `Your private party at Homegrown Studio.\n\nManage your party & see who's RSVP'd: ${hostPageUrl}`
+          details: confirmInviteUrl
+            ? `Your private party at Homegrown Studio.\n\nInvitation link for guests: ${confirmInviteUrl}`
             : 'Private party at Homegrown Studio. homegrowncraftstudio.com',
           location: 'Homegrown Studio',
         }
