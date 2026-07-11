@@ -20,8 +20,9 @@ interface AddressInputProps {
 }
 
 // Studio-centric bias: suggestions favor the Huntsville/Madison area first
-// (kits are pickup-only, so parties cluster nearby). 80 km ≈ 50 miles.
-const BIAS = { latitude: 34.6993, longitude: -86.7483, radius: 80_000 }
+// (kits are pickup-only, so parties cluster nearby). 50 km is Google's MAX
+// circle radius — anything larger 400s the whole request.
+const BIAS = { latitude: 34.6993, longitude: -86.7483, radius: 50_000 }
 
 const MIN_CHARS = 4
 const DEBOUNCE_MS = 250

@@ -19,16 +19,13 @@ fields stay hidden until filled — no code changes needed to "turn them on."
 
 ## 🟡 Do when ready (feature upgrades itself, nothing broken meanwhile)
 
-4. **Address autocomplete key** (`PUBLIC_GOOGLE_PLACES_KEY`) — kit address field
-   is a plain input until this exists, then becomes Google type-ahead.
-   [console.cloud.google.com](https://console.cloud.google.com) → enable **Places
-   API (New)** → create key → restrict to `homegrowncraftstudio.com/*`,
-   `*.netlify.app/*`, `localhost:4321/*` + Places API only → add to Netlify env
-   and local `.env`. Cost: 10,000 autocomplete requests/month are free forever
-   (per-SKU free tier — this replaced the old $200/mo credit), then $2.83/1k.
-   One typed address ≈ 5–10 requests → ~1,500 free address entries/month.
-   Billing must be enabled on the project (their rule even inside the free
-   tier); add a $5 budget alert as a tripwire.
+4. ~~Address autocomplete key~~ **DONE 2026-07-11** — `PUBLIC_GOOGLE_PLACES_KEY`
+   set in Netlify + local `.env`, verified live (suggestions + selection working
+   end-to-end). Key is from the *second* Google project (…W2gbrU); the first
+   project's key (…pRbSrg) is dead weight — delete that key/project in
+   [console.cloud.google.com](https://console.cloud.google.com) when convenient,
+   and optionally add a $5 budget alert. Free tier: 10k requests/month
+   (~1,500 typed addresses), then $2.83/1k.
 5. **Real photos** — party hero (`/images/party-hero.jpg` is an AI placeholder;
    also serves as every kit-theme card via `kit-content.ts` `photo`) and the six
    theme shots. Drop files, update paths, done.
