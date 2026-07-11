@@ -69,6 +69,8 @@ interface OrderSummary {
   returnBy: string
   returnWindow: string
   totalChargedCents: number
+  quoteTotalCents?: number
+  balanceDueCents?: number
   depositCents?: number
   receiptUrl?: string | null
   emailSent?: boolean
@@ -324,13 +326,17 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
     else onClose()
   }
 
-  // Pricing
+  // Pricing — deposit-only booking: $50 today (themed = the refundable rental
+  // deposit, crafts-only = the assembly fee), the rest on the POS at pickup.
+  // MUST mirror the server's rule in api/kits/order.json.
   const perHead = selectedCraft?.perHeadCents ?? 0
   const craftTotal = perHead * guests
   const assemblyFee = info?.assemblyFeeCents ?? 0
   const packageCents = selectedTier?.packagePriceCents ?? 0
   const depositCents = selectedTier?.depositCents ?? 0
-  const dueToday = craftTotal + assemblyFee + (hasTheme ? packageCents + depositCents : 0)
+  const quoteTotal = craftTotal + assemblyFee + (hasTheme ? packageCents + depositCents : 0)
+  const dueToday = hasTheme ? depositCents : assemblyFee
+  const balanceDue = Math.max(0, quoteTotal - dueToday)
 
   const selectedWeek = weeks.find((w) => w.partyDate === selectedDate) ?? null
 
@@ -527,7 +533,12 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
         {summary && (
           <p style={{ fontSize: '0.875rem', color: 'var(--color-dark)', fontWeight: 600, marginTop: '0.85rem' }}>
             Paid today: {formatPrice(summary.totalChargedCents)}
-            {summary.depositCents ? <span style={{ fontWeight: 500, color: 'var(--color-muted)' }}> · includes a {formatPrice(summary.depositCents)} refundable deposit</span> : null}
+            {summary.depositCents ? <span style={{ fontWeight: 500, color: 'var(--color-muted)' }}> — your refundable deposit</span> : null}
+            {summary.balanceDueCents ? (
+              <span style={{ display: 'block', fontWeight: 500, color: 'var(--color-muted)', marginTop: '0.2rem' }}>
+                {formatPrice(summary.balanceDueCents)} due at pickup Thursday — card or cash at the studio.
+              </span>
+            ) : null}
           </p>
         )}
 
@@ -879,12 +890,22 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
               />
             </div>
 
-            {/* Order summary */}
+            {/* Order summary — full quote, then the deposit split. */}
             <div style={{ padding: '1rem 1.25rem', borderRadius: '0.75rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(150, 112, 91, 0.08)', marginBottom: '1rem' }}>
               {renderSummaryRows()}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '0.625rem' }}>
-                <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Due today</span>
-                <span style={{ fontSize: '1.125rem', fontWeight: 600, color: 'var(--color-dark)' }}>{formatPrice(dueToday)}</span>
+                <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Total</span>
+                <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>{formatPrice(quoteTotal)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.375rem' }}>
+                <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>
+                  Due today {hasTheme ? '(your refundable deposit)' : '(kit assembly)'}
+                </span>
+                <span style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--color-dark)' }}>{formatPrice(dueToday)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.25rem' }}>
+                <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Due at pickup (Thursday, card or cash)</span>
+                <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-muted)' }}>{formatPrice(balanceDue)}</span>
               </div>
             </div>
 
@@ -918,7 +939,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             <PaymentForm
               ref={paymentFormRef}
               environmentOverride="production"
-              wallet={{ amount: (dueToday / 100).toFixed(2), label: 'Homegrown Kit', bnpl: true }}
+              wallet={{ amount: (dueToday / 100).toFixed(2), label: 'Homegrown Kit Deposit' }}
               onWalletToken={(token) => handlePay(token)}
               canPayWithWallet={() => (payValid ? null : 'Add your name, email, phone, and party address above first — and accept the rental terms if you added a table.')}
             />
@@ -944,11 +965,12 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                 transition: 'box-shadow 0.3s ease, transform 0.3s ease',
               }}
             >
-              {processing ? 'Processing...' : `Pay ${formatPrice(dueToday)} & book your kit`}
+              {processing ? 'Processing...' : `Pay ${formatPrice(dueToday)} deposit & book your week`}
             </button>
             <p style={{ margin: '0.6rem 0 0', fontSize: '0.72rem', color: 'var(--color-muted)', textAlign: 'center' }}>
-              🔒 Payments processed securely by Square.
+              🔒 Payments processed securely by Square. {formatPrice(balanceDue)} due at pickup.
               {hasTheme && <> Your {formatPrice(depositCents)} deposit comes back when the pieces do.</>}
+              {' '}Cancel {info.leadTimeDays}+ days before pickup for a full refund.
             </p>
           </div>
         )
@@ -1032,7 +1054,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             {selectedDate && <span style={chipStyle}>{formatDateLabel(selectedDate)}</span>}
             {selectedCraft && displayStep !== 'pay' && (
               <span style={{ ...chipStyle, marginLeft: 'auto', background: 'rgba(150, 112, 91, 0.12)', fontWeight: 600 }}>
-                Due today · {formatPrice(dueToday)}
+                {formatPrice(dueToday)} today · {formatPrice(quoteTotal)} total
               </span>
             )}
           </div>

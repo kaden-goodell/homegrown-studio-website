@@ -50,7 +50,15 @@ export const POST: APIRoute = async ({ request }) => {
         const updated = await mutateKitOrder(orderId, (o) => {
           if (o.status !== 'upcoming') return
           o.status = settleDirectly ? 'returned' : 'out'
-          o.events.push({ at: nowIso, action: 'pickup', byStaff })
+          // Deposit-only orders settle their balance on the POS at handover —
+          // stamp the amount so the money trail lives in the custody log.
+          o.events.push({
+            at: nowIso,
+            action: 'pickup',
+            byStaff,
+            note: o.balanceDueCents ? `balance collected on POS at pickup` : undefined,
+            amountCents: o.balanceDueCents || undefined,
+          })
         })
         return json({ data: { order: publicOrder(updated) } }, 200)
       }

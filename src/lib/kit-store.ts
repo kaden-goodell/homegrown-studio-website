@@ -58,7 +58,15 @@ export interface KitOrderRecord {
   pickupDate: string
   returnBy: string
   weekKey: string
+  /** What was actually charged online at booking. Deposit-only model: $50
+   *  (themed = the refundable rental deposit; crafts-only = the assembly fee).
+   *  Pre-deposit-model records carry the full amount here. */
   totalChargedCents: number
+  /** The full order quote (crafts + assembly + package + deposit). Absent on
+   *  pre-deposit-model records, where totalChargedCents was the whole quote. */
+  quoteTotalCents?: number
+  /** Due on the POS at pickup: quote − charged. Absent/0 on old records. */
+  balanceDueCents?: number
   depositRefund?: { amountCents: number; refundId: string; at: string }
   status: 'upcoming' | 'out' | 'returned' | 'cancelled' | 'forfeited'
   events: KitEvent[]

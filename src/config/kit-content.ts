@@ -45,8 +45,8 @@ export const kitContent = {
     subline: 'Crafts for everyone, a styled table worth photographing, and nothing to plan. Pick up Thursday — we take it from there.',
   },
   howItWorks: [
-    { n: '1', title: 'Order a week ahead', text: 'Kits need 7 days of love and assembly.' },
-    { n: '2', title: 'Pick up Thursday', text: 'Everything packed, styled, and labeled — crafts, table, the works.' },
+    { n: '1', title: 'Book with a $50 deposit', text: 'Kits need 7 days of love and assembly — $50 holds your week, the rest at pickup.' },
+    { n: '2', title: 'Pick up Thursday', text: 'Everything packed, styled, and labeled — crafts, table, the works. Settle the balance when you grab it.' },
     { n: '3', title: 'Party, then return the pretties', text: 'Keep the crafts and consumables. Rental pieces come home to us by Wednesday, 4–6 PM.' },
   ],
   depositLine: 'Fully refunded when the rental pieces come home clean by Wednesday.',

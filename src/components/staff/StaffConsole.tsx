@@ -355,6 +355,8 @@ interface KitOrder {
   returnBy: string
   weekKey: string
   totalChargedCents: number
+  quoteTotalCents?: number
+  balanceDueCents?: number
   depositRefund?: { amountCents: number; refundId: string; at: string }
   status: 'upcoming' | 'out' | 'returned' | 'cancelled' | 'forfeited'
   events: { at: string; action: string; note?: string; byStaff?: string; amountCents?: number }[]
@@ -466,6 +468,13 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
           ? ` · deposit ${formatCents(order.depositRefund.amountCents)} refunded ${fmtDay(order.depositRefund.at.slice(0, 10))}`
           : isThemed ? ` · deposit ${formatCents(deposit)} held` : ' · no deposit'}
       </p>
+      {/* Deposit-only orders: the balance is collected on the POS at pickup —
+          make it impossible to hand a kit over without seeing the number. */}
+      {!!order.balanceDueCents && order.status === 'upcoming' && (
+        <p style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'rgb(180,120,20)', margin: '0.3rem 0 0' }}>
+          💵 Collect {formatCents(order.balanceDueCents)} at pickup (of {formatCents(order.quoteTotalCents ?? 0)} total)
+        </p>
+      )}
 
       {err && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginTop: '0.5rem', fontWeight: 600 }}>{err}</p>}
 
@@ -474,7 +483,9 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
         {order.status === 'upcoming' && panel !== 'cancel' && (
           <>
             <button type="button" disabled={busy} onClick={() => run(KIT_RETURN, { orderId: order.orderId, action: 'pickup' })} style={btn(true)}>
-              {isThemed ? 'Mark picked up — moves to Out' : 'Mark picked up — done, nothing to return'}
+              {order.balanceDueCents
+                ? `Balance ${formatCents(order.balanceDueCents)} collected — mark picked up`
+                : isThemed ? 'Mark picked up — moves to Out' : 'Mark picked up — done, nothing to return'}
             </button>
             <button type="button" disabled={busy} onClick={() => setPanel('cancel')} style={{ ...btn(), color: '#b91c1c', borderColor: 'rgba(185,28,28,0.35)' }}>Cancel + refund</button>
           </>

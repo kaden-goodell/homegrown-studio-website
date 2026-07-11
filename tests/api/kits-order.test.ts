@@ -194,16 +194,19 @@ describe('POST /api/kits/order.json', () => {
     expect(typeof json.data.reference).toBe('string')
     expect(json.data.summary.pickupDate).toBe(WEEK_KEY)
     expect(json.data.summary.depositCents).toBe(5000)
-    expect(json.data.summary.totalChargedCents).toBe(2000 * 10 + 5000 + 7500 + 5000)
+    // Deposit-only: $50 charged today; the rest of the quote is a POS balance.
+    expect(json.data.summary.totalChargedCents).toBe(5000)
+    expect(json.data.summary.quoteTotalCents).toBe(2000 * 10 + 5000 + 7500 + 5000)
+    expect(json.data.summary.balanceDueCents).toBe(2000 * 10 + 5000 + 7500)
 
-    // createOrder: PICKUP fulfillment + assembly + package + deposit + craft lines.
+    // createOrder: PICKUP fulfillment; ONLY the rental-deposit line is charged
+    // online (return-time refunds must hit this very payment).
     const call = mockCreateOrder.mock.calls[0][0]
     expect(call.fulfillment).toMatchObject({ type: 'PICKUP', recipientName: 'Alice Smith' })
     const catIds = call.lineItems.map((li: any) => li.catalogObjectId)
-    expect(catIds).toContain('assembly-var')
-    expect(catIds).toContain('pv-g10')
-    expect(catIds).toContain('dv-10')
+    expect(catIds).toEqual(['dv-10'])
     expect(mockProcessPayment).toHaveBeenCalledOnce()
+    expect(mockProcessPayment.mock.calls[0][0].amount).toBe(5000)
 
     // Claim confirmed for the theme-week.
     const claims = await getWeekClaims('gilded', WEEK_KEY)
@@ -211,16 +214,18 @@ describe('POST /api/kits/order.json', () => {
     expect(claims[0].status).toBe('confirmed')
   })
 
-  it('happy path crafts-only: no deposit line, no ledger claim, 200', async () => {
+  it('happy path crafts-only: assembly fee charged as the deposit, no ledger claim, 200', async () => {
     const res = await POST(ctx(makeBody({ theme: undefined, rentalTermsAccepted: undefined })))
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json.data.summary.depositCents).toBeFalsy()
+    expect(json.data.summary.totalChargedCents).toBe(5000)
+    expect(json.data.summary.quoteTotalCents).toBe(2000 * 10 + 5000)
+    expect(json.data.summary.balanceDueCents).toBe(2000 * 10)
 
     const call = mockCreateOrder.mock.calls[0][0]
     const catIds = call.lineItems.map((li: any) => li.catalogObjectId)
-    expect(catIds).toContain('assembly-var')
-    expect(catIds).not.toContain('dv-10')
+    expect(catIds).toEqual(['assembly-var'])
 
     const claims = await getWeekClaims('gilded', WEEK_KEY)
     expect(claims).toHaveLength(0)
@@ -285,15 +290,18 @@ describe('POST /api/kits/order.json', () => {
     expect(mockProcessPayment).not.toHaveBeenCalled()
   })
 
-  it('charges the CATALOG price and name, not the client’s', async () => {
+  it('quotes with the CATALOG price and name, not the client’s', async () => {
     mockFetchPartyCrafts.mockResolvedValue([
       { id: 'craft-1', name: 'Tote Bag (2026)', perHeadCents: 2000, perHeadMaxCents: 2000, description: '', imageUrl: null, personalized: false, popular: false },
     ])
-    // Client price agrees; client NAME is stale — the catalog name must ship.
+    // Client price agrees; client NAME is stale — the catalog name is what the
+    // record (and the pickup-balance quote) must carry.
     const res = await POST(ctx(makeBody({ crafts: [{ craftId: 'craft-1', name: 'Old Name', perHeadCents: 2000 }] })))
     expect(res.status).toBe(200)
-    const lineItems = mockCreateOrder.mock.calls[0][0].lineItems
-    expect(lineItems).toContainEqual(expect.objectContaining({ name: 'Craft — Tote Bag (2026)', quantity: 10, pricePerUnit: 2000 }))
+    const record = mockCreateKitOrder.mock.calls[0][0]
+    expect(record.crafts[0]).toMatchObject({ name: 'Tote Bag (2026)', qty: 10, perHeadCents: 2000 })
+    expect(record.quoteTotalCents).toBe(2000 * 10 + 5000 + 7500 + 5000)
+    expect(record.balanceDueCents).toBe(record.quoteTotalCents - 5000)
   })
 
   it('rejects a taken theme-week with 409', async () => {

@@ -172,6 +172,16 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const locationId = siteConfig.providers.payment.config.locationId
   const reference = generateReference()
 
+  // Deposit-only model: $50 books the week, everything else settles on the POS
+  // at pickup. For a themed kit today's charge IS the refundable rental deposit
+  // (so the return flow can refund the very payment we hold); for crafts-only
+  // it's the assembly fee (which the late-cancel policy already keeps).
+  const quoteFor = (craftList: { perHeadCents: number }[]) =>
+    craftList.reduce((s, c) => s + c.perHeadCents * guests, 0) +
+    kitConfig.assemblyFeeCents +
+    (theme ? theme.packagePriceCents + theme.depositCents : 0)
+  const dueTodayCents = theme ? theme.depositCents : kitConfig.assemblyFeeCents
+
   // Dev-only: skip Square + the ledger claim entirely and return a synthetic
   // confirmation so the flow (persist + email) is exercisable without a charge.
   // Gated to `astro dev` — never in prod. Mirrors party book.json's bypass.
@@ -190,10 +200,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       pickupDate,
       returnBy,
       weekKey,
-      totalChargedCents:
-        crafts.reduce((s, c) => s + c.perHeadCents * guests, 0) +
-        kitConfig.assemblyFeeCents +
-        (theme ? theme.packagePriceCents + theme.depositCents : 0),
+      totalChargedCents: dueTodayCents,
+      quoteTotalCents: quoteFor(crafts),
     })
     try {
       await createKitOrder(record)
@@ -289,22 +297,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       return errorResponse("We couldn't start your order. Your card was not charged — please try again.", 502)
     }
 
-    // Line items: crafts are ad-hoc per-head lines (they carry item ids, not
-    // variation ids); assembly/package/deposit are catalog variations.
-    const lineItems = [
-      ...resolvedCrafts.map((c) => ({ name: `Craft — ${c.name}`, quantity: guests, pricePerUnit: c.perHeadCents })),
-      { catalogObjectId: kitConfig.square.assemblyVariationId, name: 'Kit Assembly', quantity: 1, pricePerUnit: kitConfig.assemblyFeeCents },
-      ...(theme
-        ? [
-            { catalogObjectId: theme.packageVariationId, name: 'Party Package', quantity: 1, pricePerUnit: theme.packagePriceCents },
-            { catalogObjectId: theme.depositVariationId, name: 'Rental Deposit', quantity: 1, pricePerUnit: theme.depositCents },
-          ]
-        : []),
-    ]
-    const expectedTotal =
-      resolvedCrafts.reduce((s, c) => s + c.perHeadCents * guests, 0) +
-      kitConfig.assemblyFeeCents +
-      (theme ? theme.packagePriceCents + theme.depositCents : 0)
+    // Only today's $50 goes on the Square order — the rental deposit variation
+    // for themed kits (so return-time refunds hit this very payment), the
+    // assembly variation for crafts-only. The rest of the quote is collected on
+    // the POS at pickup; the full breakdown lives in our record.
+    const lineItems = theme
+      ? [{ catalogObjectId: theme.depositVariationId, name: 'Rental Deposit', quantity: 1, pricePerUnit: theme.depositCents }]
+      : [{ catalogObjectId: kitConfig.square.assemblyVariationId, name: 'Kit Assembly', quantity: 1, pricePerUnit: kitConfig.assemblyFeeCents }]
+    const expectedTotal = dueTodayCents
 
     let order: Awaited<ReturnType<typeof providers.payment.createOrder>>
     try {
@@ -363,6 +363,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       returnBy,
       weekKey,
       totalChargedCents: order.totalAmount,
+      quoteTotalCents: quoteFor(resolvedCrafts),
     })
 
     if (!(await persistKitOrder(record))) {
@@ -411,7 +412,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           theme: theme?.displayName ?? 'crafts only',
           partyDate: body.partyDate,
           pickupDate,
-          totalChargedCents: order.totalAmount,
+          depositPaidCents: order.totalAmount,
+          balanceDueAtPickupCents: record.balanceDueCents ?? 0,
         },
         severity: 'info',
         timestamp: new Date().toISOString(),
@@ -470,6 +472,7 @@ function buildRecord(input: {
   returnBy: string
   weekKey: string
   totalChargedCents: number
+  quoteTotalCents: number
 }): KitOrderRecord {
   return {
     orderId: input.orderId,
@@ -498,6 +501,8 @@ function buildRecord(input: {
     returnBy: input.returnBy,
     weekKey: input.weekKey,
     totalChargedCents: input.totalChargedCents,
+    quoteTotalCents: input.quoteTotalCents,
+    balanceDueCents: Math.max(0, input.quoteTotalCents - input.totalChargedCents),
     status: 'upcoming',
     events: [{ at: new Date().toISOString(), action: 'order' }],
   }
@@ -519,6 +524,7 @@ async function sendConfirmation(record: KitOrderRecord, theme: ResolvedTheme | u
     earlyDropLine: kitContent.earlyDropLine,
     depositCents: theme?.depositCents,
     totalChargedCents: record.totalChargedCents,
+    balanceDueCents: record.balanceDueCents,
     receiptUrl,
   })
 }
@@ -541,6 +547,8 @@ function okResponse(input: {
           returnBy: input.record.returnBy,
           returnWindow: kitConfig.returnWindow,
           totalChargedCents: input.record.totalChargedCents,
+          quoteTotalCents: input.record.quoteTotalCents,
+          balanceDueCents: input.record.balanceDueCents,
           depositCents: input.depositCents,
           receiptUrl: input.receiptUrl,
           emailSent: input.emailSent,

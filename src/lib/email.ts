@@ -145,10 +145,15 @@ export async function sendKitConfirmationEmail(input: {
   partyDate: string; pickupDate: string; returnBy: string; returnWindow: string
   earlyDropLine: string
   /** Refundable rental deposit, if a themed package was ordered. */
-  depositCents?: number; totalChargedCents: number; receiptUrl: string | null
+  depositCents?: number; totalChargedCents: number
+  /** Due on the POS at pickup (deposit-only booking model). */
+  balanceDueCents?: number; receiptUrl: string | null
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const total = dollars(input.totalChargedCents)
+  const balanceLine = input.balanceDueCents
+    ? `The remaining ${dollars(input.balanceDueCents)} is due when you pick up Thursday — card or cash at the studio.`
+    : ''
   const craftLines = input.crafts.map((c) => `${c.name} × ${c.qty}`)
   const keeps = input.keeps ?? []
   const returns = input.returns ?? []
@@ -171,7 +176,8 @@ export async function sendKitConfirmationEmail(input: {
     `Drop the rental pieces back Wednesday, ${input.returnWindow}.`,
     input.earlyDropLine,
     ``,
-    `Total paid today: ${total}.`,
+    `Paid today: ${total}.`,
+    ...(balanceLine ? [balanceLine] : []),
     ...(input.receiptUrl ? [``, `Receipt: ${input.receiptUrl}`] : []),
     ``,
     `Homegrown Studio · 525 Hughes Rd Ste F, Madison, AL · Booking ref ${input.reference}`,
@@ -200,7 +206,8 @@ export async function sendKitConfirmationEmail(input: {
   ${depositLine ? `<p style="${P}"><strong>${esc(depositLine)}</strong></p>` : ''}
   <p style="${P}">Drop the rental pieces back Wednesday, ${esc(input.returnWindow)}.</p>
   <p style="${MUTED}">${esc(input.earlyDropLine)}</p>
-  <p style="${P}"><strong>Total paid today: ${esc(total)}.</strong></p>
+  <p style="${P}"><strong>Paid today: ${esc(total)}.</strong></p>
+  ${balanceLine ? `<p style="${P}">${esc(balanceLine)}</p>` : ''}
   ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#96705B;font-size:13px;">View your receipt</a></p>` : ''}
   <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
   <p style="margin:0;font-size:12px;color:#8a7f75;">Homegrown Studio &middot; 525 Hughes Rd Ste F, Madison, AL &middot; Booking ref ${esc(input.reference)}</p>

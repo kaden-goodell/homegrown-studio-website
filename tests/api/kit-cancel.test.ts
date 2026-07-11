@@ -112,6 +112,30 @@ describe('POST /api/staff/kit-cancel.json', () => {
     expect(record.status).toBe('cancelled')
   })
 
+  // Deposit-only model: only $50 was ever charged online.
+  it('deposit-only record, ≥7 days out → the $50 comes back in full', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-01T12:00:00.000Z'))
+    record = makeOrder({ status: 'upcoming', totalChargedCents: 5000, quoteTotalCents: 42500, balanceDueCents: 37500 })
+    const res = await POST(ctx({ orderId: 'ord_1' }))
+    expect(res.status).toBe(200)
+    expect(mockRefund).toHaveBeenCalledWith(expect.objectContaining({ amountCents: 5000 }))
+    expect(record.status).toBe('cancelled')
+  })
+
+  it('deposit-only record, inside 7 days → nothing to refund (assembly fee kept), no refund call', async () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-07-12T12:00:00.000Z')) // past the 07-09 cutoff
+    record = makeOrder({ status: 'upcoming', totalChargedCents: 5000, quoteTotalCents: 42500, balanceDueCents: 37500 })
+    const res = await POST(ctx({ orderId: 'ord_1' }))
+    const payload = JSON.parse(await res.text())
+    expect(res.status).toBe(200)
+    expect(mockRefund).not.toHaveBeenCalled() // 5000 − 5000 assembly = 0
+    expect(payload.data.refundCents).toBe(0)
+    expect(payload.data.assemblyWithheld).toBe(true)
+    expect(record.status).toBe('cancelled')
+  })
+
   it('crafts-only cancel refunds but does not touch the ledger', async () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-07-01T12:00:00.000Z'))
