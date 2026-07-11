@@ -72,10 +72,15 @@ function formatMonthYear(year: number, month: number) {
   })
 }
 
-/** "9:00" from "09:00"; "16:00" stays "16:00". */
+/** Display-format an "HH:MM" 24h string as 12-hour, e.g. "13:00" → "1:00 PM". */
 function trimTime(t?: string) {
   if (!t) return ''
-  return t.replace(/^0(\d:)/, '$1')
+  const m = t.match(/^(\d{1,2}):(\d{2})$/)
+  if (!m) return t
+  const h = Number(m[1])
+  const suffix = h >= 12 ? 'PM' : 'AM'
+  const hour12 = h % 12 === 0 ? 12 : h % 12
+  return `${hour12}:${m[2]} ${suffix}`
 }
 
 function timeRange(e: CalendarEvent) {
