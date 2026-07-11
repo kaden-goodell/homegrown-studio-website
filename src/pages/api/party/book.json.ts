@@ -176,6 +176,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           receiptUrl: null,
           googleCalendarUrl: googleCalendarUrl(bypassCalEvent),
           icsContent: buildIcs(bypassCalEvent),
+          bookingRef: bookingId,
         })
       : { sent: false }
     return new Response(
@@ -377,6 +378,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       receiptUrl: payment.receiptUrl ?? null,
       googleCalendarUrl: googleCalendarUrl(calEvent),
       icsContent: buildIcs(calEvent),
+      bookingRef: booking.id,
     })
 
     return new Response(

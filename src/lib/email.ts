@@ -55,6 +55,8 @@ export async function sendPartyConfirmationEmail(input: {
   hostPageUrl: string; inviteUrl: string; totalChargedCents: number; receiptUrl: string | null
   /** Add-to-calendar: a Google Calendar link for the body + ICS content attached for Apple/Outlook. */
   googleCalendarUrl?: string; icsContent?: string
+  /** Booking id — shown as a footer reference (also keeps repeated test emails from Gmail-trimming). */
+  bookingRef?: string
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const fee = dollars(input.totalChargedCents)
@@ -117,12 +119,14 @@ export async function sendPartyConfirmationEmail(input: {
   ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="color:#96705B;font-size:14px;font-weight:600;">&#128197; Add to Google Calendar</a></p><p style="${MUTED}">Apple or Outlook? Open the attached invite (.ics).</p>` : ''}
   ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#96705B;font-size:13px;">View your receipt</a></p>` : ''}
   <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
-  <p style="margin:0;font-size:12px;color:#8a7f75;">Homegrown Studio &middot; 525 Hughes Rd Ste F, Madison, AL</p>
+  <p style="margin:0;font-size:12px;color:#8a7f75;">Homegrown Studio &middot; 525 Hughes Rd Ste F, Madison, AL${input.bookingRef ? ` &middot; Booking ref ${esc(input.bookingRef)}` : ''}</p>
 </div>`
   const safeCraftName = input.craftName.replace(/[\r\n]+/g, ' ')
+  // Slot in the subject: more useful at a glance, and unique subjects keep
+  // Gmail from threading multiple bookings and trimming "repeated" content.
   return sendEmail({
     to: input.to,
-    subject: `You're booked — ${safeCraftName} at Homegrown Studio`,
+    subject: `You're booked — ${safeCraftName}, ${input.slotLabel}`,
     html,
     text,
     attachments: input.icsContent
