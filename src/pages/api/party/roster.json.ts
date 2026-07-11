@@ -47,6 +47,10 @@ export const GET: APIRoute = async ({ url }) => {
             signer: `${w.adult.firstName} ${w.adult.lastName}`.trim(),
             children: w.minors.map((m) => ({
               name: m.name,
+              // dob is used ONLY for duplicate matching below and stripped from
+              // the response — other families' kids' birthdates never reach the
+              // host's browser.
+              dob: m.dob,
               allergies: m.allergies || '',
               duplicateOf: undefined as string | undefined,
             })),
@@ -77,6 +81,12 @@ export const GET: APIRoute = async ({ url }) => {
     // Headcount the host cares about = people actually coming, not everyone eligible.
     const peopleCount = households.reduce((n, h) => n + h.attendingCount, 0) - duplicateKids
 
+    // Strip the dob used for duplicate matching before serialization.
+    const responseHouseholds = households.map((h) => ({
+      ...h,
+      children: h.children.map(({ dob: _dob, ...c }) => c),
+    }))
+
     logger.info('Roster served', { partyId, households: households.length })
 
     return new Response(
@@ -91,7 +101,7 @@ export const GET: APIRoute = async ({ url }) => {
             title: party!.title,
           },
           summary: { households: households.length, people: peopleCount },
-          households,
+          households: responseHouseholds,
         },
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },

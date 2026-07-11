@@ -34,7 +34,10 @@ export const GET: APIRoute = async ({ request, url }) => {
         signer: `${w.adult.firstName} ${w.adult.lastName}`.trim(),
         phone: w.adult.phone,
         email: w.adult.email,
-        children: w.minors.map((m) => ({ name: m.name, allergies: m.allergies || '', duplicateOf: undefined as string | undefined })),
+        // dob is used only for duplicate matching (same kid on two waivers must
+        // share a birthdate; two kids sharing a name must not merge) and is
+        // stripped before the response.
+        children: w.minors.map((m) => ({ name: m.name, dob: m.dob, allergies: m.allergies || '', duplicateOf: undefined as string | undefined })),
         childCount: w.minors.length,
         adultAllergies: w.adult.allergies || '',
         emergency: w.emergency,
@@ -46,14 +49,20 @@ export const GET: APIRoute = async ({ request, url }) => {
       })),
     )
 
-    // Flag children whose name appears in an earlier household; subtract the
-    // duplicate count from the headcount so staff see the real number.
+    // Flag children who appear (same name + birthdate) in an earlier household;
+    // subtract the duplicate count from the headcount so staff see the real number.
     const duplicateKids = markDuplicateChildren(households)
 
     // Re-sort by signer name for display after duplicate detection.
     households.sort((a, b) => a.signer.localeCompare(b.signer))
 
     const people = households.reduce((n, h) => n + 1 + h.childCount, 0) - duplicateKids
+
+    // Strip the matching-only dob before serialization.
+    const responseHouseholds = households.map((h) => ({
+      ...h,
+      children: h.children.map(({ dob: _dob, ...c }) => c),
+    }))
 
     return new Response(
       JSON.stringify({
@@ -68,7 +77,7 @@ export const GET: APIRoute = async ({ request, url }) => {
             dropOff: party.dropOff,
           },
           summary: { households: households.length, people },
-          households,
+          households: responseHouseholds,
         },
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },

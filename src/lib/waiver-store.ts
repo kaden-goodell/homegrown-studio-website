@@ -211,19 +211,23 @@ export async function listWaiversByParty(partyId: string): Promise<WaiverRecord[
 // ---- Duplicate-child detection ----
 
 /**
- * Flag children whose normalized name appears in an EARLIER household too.
- * Mutates the children objects in place by setting `duplicateOf` to the first
- * signer's name. Returns the number of duplicates found.
+ * Flag children who appear in an EARLIER household too — the mom-and-dad case
+ * where both parents list the same kid on their own waivers. Matching requires
+ * name AND date of birth: the same child listed twice shares a birthdate, while
+ * two different kids who happen to share a name (two Bob Silvers at one party)
+ * do not, and both must count. Mutates the children objects in place by setting
+ * `duplicateOf` to the first signer's name. Returns the number of duplicates.
  */
 export function markDuplicateChildren<
-  T extends { signer: string; children: { name: string; duplicateOf?: string }[] },
+  T extends { signer: string; children: { name: string; dob?: string; duplicateOf?: string }[] },
 >(households: T[]): number {
-  const seen = new Map<string, string>() // normalized name → first signer
+  const seen = new Map<string, string>() // normalized name|dob → first signer
   let duplicates = 0
   for (const h of households) {
     for (const c of h.children) {
-      const k = c.name.trim().toLowerCase().replace(/\s+/g, ' ')
-      if (!k) continue
+      const name = c.name.trim().toLowerCase().replace(/\s+/g, ' ')
+      if (!name) continue
+      const k = `${name}|${c.dob ?? ''}`
       const first = seen.get(k)
       if (first) {
         c.duplicateOf = first

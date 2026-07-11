@@ -249,6 +249,27 @@ describe('markDuplicateChildren', () => {
     expect(households[1].children[0].duplicateOf).toBe('Alice Rivera')
   })
 
+  it('flags the same name ONLY when the birthdate matches (same kid on two waivers)', () => {
+    const households = [
+      { signer: 'Mom Silver', children: [{ name: 'Bob Silver', dob: '2017-06-01' }] },
+      { signer: 'Dad Silver', children: [{ name: 'Bob Silver', dob: '2017-06-01' }] },
+    ]
+    const count = mod.markDuplicateChildren(households)
+    expect(count).toBe(1)
+    expect(households[1].children[0].duplicateOf).toBe('Mom Silver')
+  })
+
+  it('does NOT flag two different kids who share a name (different birthdates)', () => {
+    const households = [
+      { signer: 'Family One', children: [{ name: 'Bob Silver', dob: '2015-02-10' }] },
+      { signer: 'Family Two', children: [{ name: 'Bob Silver', dob: '2018-11-30' }] },
+    ]
+    const count = mod.markDuplicateChildren(households)
+    expect(count).toBe(0)
+    expect(households[0].children[0].duplicateOf).toBeUndefined()
+    expect(households[1].children[0].duplicateOf).toBeUndefined()
+  })
+
   it('leaves distinct child names unflagged', () => {
     const households = [
       { signer: 'Parent A', children: [{ name: 'Liam' }] },
