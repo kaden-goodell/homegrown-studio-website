@@ -788,7 +788,7 @@ export default function KitModal({ onClose, initialCraftId }: KitModalProps) {
             {selectedWeek && (
               <div style={{ padding: '0.875rem 1rem', borderRadius: '0.75rem', background: 'rgba(34, 197, 94, 0.06)', border: '1px solid rgba(34, 197, 94, 0.15)', marginBottom: '1.25rem' }}>
                 <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-dark)', lineHeight: 1.5 }}>
-                  Pick up <strong>Thursday {formatDateLabel(selectedWeek.pickupDate)}</strong> · Return by <strong>Wednesday {formatDateLabel(selectedWeek.returnBy)}</strong>, {info.returnWindow}
+                  Pick up <strong>{formatDateLabel(selectedWeek.pickupDate)}</strong> · Return by <strong>{formatDateLabel(selectedWeek.returnBy)}</strong>, {info.returnWindow}
                 </p>
               </div>
             )}
