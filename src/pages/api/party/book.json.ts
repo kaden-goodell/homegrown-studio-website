@@ -23,7 +23,7 @@ async function persistParty(bookingId: string, body: BookRequest): Promise<strin
     craftName: body.craft?.name ?? 'Craft party',
     startIso: body.startTime,
     durationMinutes: body.durationMinutes ?? null,
-    hostName: `${body.customer.firstName} ${body.customer.lastName}`.trim(),
+    hostName: [body.customer.firstName, body.customer.lastName].filter(Boolean).join(' '),
     hostEmail: body.customer.email,
     guestCount: Math.floor(body.people ?? 0),
     title: null,
@@ -64,9 +64,9 @@ interface BookRequest {
   people: number
   customer: {
     firstName: string
-    lastName: string
+    lastName?: string
     email: string
-    phone: string
+    phone?: string
   }
   paymentToken: string
 }
@@ -91,7 +91,7 @@ export const POST: APIRoute = async ({ request }) => {
   if (!body.paymentToken) {
     return errorResponse('Missing payment information', 400)
   }
-  if (!body.customer?.email || !body.customer?.firstName || !body.customer?.lastName) {
+  if (!body.customer?.email || !body.customer?.firstName) {
     return errorResponse('Name and email are required', 400)
   }
   if (!body.craft?.id || body.craft.perHeadCents == null) {

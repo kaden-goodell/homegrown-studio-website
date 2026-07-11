@@ -14,7 +14,7 @@ import {
   type PartyStepId,
 } from '@lib/party-steps'
 import { googleCalendarUrl, buildIcs, icsDataUrl, partyWaiverUrl, partyInviteUrl } from '@lib/party-share'
-import { formatWhen as formatWhenCT } from '@lib/studio-time'
+import { formatTime, formatSlotLabel } from '@lib/studio-time'
 import { waiverContent } from '@config/waiver-content'
 import { saveRecentParty } from '@lib/recent-party'
 import {
@@ -65,18 +65,6 @@ interface Slot {
 
 /** Flat studio rental fee (in cents), independent of guest count — single-sourced from config. */
 const BASE_FEE_CENTS = partyConfig.basePriceCents
-
-function formatTime(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-}
-
-/** "Sat, Aug 8 · 12:00 PM" for the summary chip. */
-function formatSlotLabel(iso: string): string {
-  const d = new Date(iso)
-  const datePart = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-  return `${datePart} · ${formatTime(iso)}`
-}
 
 /** "Sat, Aug 15" from a local YYYY-MM-DD string (built locally to avoid a UTC day shift). */
 function formatDateLabel(ymd: string): string {
@@ -158,6 +146,15 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
 
+  // Discard guard
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const dirty = !!selectedCraft || !!selectedSlot || !!firstName.trim() || !!email.trim()
+
+  function requestClose() {
+    if (completed || !dirty) return onClose()
+    setConfirmDiscard(true)
+  }
+
   // Payment / completion
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -170,6 +167,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [partyTitle, setPartyTitle] = useState('')
   const [inviteCopied, setInviteCopied] = useState(false)
   const paymentFormRef = useRef<PaymentFormRef>(null)
+  const dialogRef = useRef<HTMLDivElement>(null)
 
   // Email capture when no dates are open (dead-end rescue).
   const [notifyEmail, setNotifyEmail] = useState('')
@@ -184,6 +182,25 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   useEffect(() => {
     trackWizardStarted('party')
   }, [])
+
+  // Focus the dialog card on mount so screen readers announce it and Escape works immediately.
+  useEffect(() => {
+    dialogRef.current?.focus()
+  }, [])
+
+  // Escape key → requestClose (guard is inside requestClose)
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') requestClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [dirty, completed])
+
+  // Once booking completes, dismiss any stale discard prompt.
+  useEffect(() => {
+    if (completed) setConfirmDiscard(false)
+  }, [completed])
 
   // Keep the saved-invitation pointer in sync with the party name the host
   // types on the confirmation screen, so returning to it shows the right title.
@@ -238,6 +255,26 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
   // Load only the dates that actually have bookable party times, so the picker
   // offers real options instead of letting the user land on a closed/booked day.
+  async function loadAvailableDates() {
+    if (!info) return
+    setLoadingDates(true)
+    setDatesError(null)
+    try {
+      const res = await fetch('/api/party/available-dates.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serviceVariationId: info.variationId }),
+      })
+      if (!res.ok) throw new Error()
+      const json = await res.json()
+      setAvailableDates((json.data ?? json).dates ?? [])
+    } catch {
+      setDatesError('Could not load available dates.')
+    } finally {
+      setLoadingDates(false)
+    }
+  }
+
   useEffect(() => {
     if (!info) return
     let cancelled = false
@@ -382,6 +419,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     setSelectedSlot(null)
     setAvailableSlots([])
     setSlotsError(null)
+    setSlotMissed(false)
     if (!date || !info) return
 
     setLoadingSlots(true)
@@ -434,7 +472,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           people,
           customer: {
             firstName: firstName.trim(),
-            lastName: lastName.trim() || firstName.trim(),
+            lastName: lastName.trim(),
             email: email.trim(),
             phone: phone.trim(),
           },
@@ -667,7 +705,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             {
               bookingId,
               craftName: selectedCraft.name,
-              slotLabel: formatWhenCT(slotStart) + ' CT',
+              slotLabel: formatSlotLabel(slotStart),
               startIso: slotStart,
               title: partyTitle.trim() || undefined,
             },
@@ -1090,7 +1128,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 padding: '0.625rem 0.875rem',
                 marginBottom: '1rem',
               }}>
-                That time was just booked — these are still open.
+                {availableSlots.length === 0
+                  ? 'That time was just booked and this date is now full — pick another date.'
+                  : 'That time was just booked — these are still open.'}
               </p>
             )}
             <div style={{ marginBottom: '1.5rem' }}>
@@ -1101,7 +1141,14 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               {loadingDates && (
                 <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Loading available dates…</p>
               )}
-              {datesError && <p style={{ fontSize: '0.8125rem', color: '#dc2626' }}>{datesError}</p>}
+              {datesError && (
+                <div style={{ marginBottom: '0.75rem' }}>
+                  <p style={{ fontSize: '0.8125rem', color: '#dc2626', marginBottom: '0.5rem' }}>{datesError}</p>
+                  <button type="button" onClick={loadAvailableDates} style={{ ...primaryButtonStyle(true), width: 'auto', padding: '0.5rem 1rem', fontSize: '0.8125rem' }}>
+                    Try again
+                  </button>
+                </div>
+              )}
               {!loadingDates && !datesError && availableDates.length === 0 && (
                 <div>
                   <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.75rem' }}>
@@ -1408,10 +1455,15 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         backdropFilter: 'blur(4px)',
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget && !completed) onClose()
+        if (e.target === e.currentTarget) requestClose()
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Book a Party"
+        tabIndex={-1}
         style={{
           width: '100%',
           maxWidth: sheetMode ? 'none' : '40rem',
@@ -1425,6 +1477,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           border: '1px solid rgba(255, 255, 255, 0.6)',
           borderRadius: sheetMode ? '1.25rem 1.25rem 0 0' : '1.25rem',
           boxShadow: '0 24px 80px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(150, 112, 91, 0.08)',
+          outline: 'none',
         }}
       >
         {/* Header */}
@@ -1439,7 +1492,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Close"
             style={{
               background: 'none',
@@ -1536,6 +1589,59 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             <span style={{ fontSize: '0.875rem' }}>&larr;</span>
             Back
           </button>
+        )}
+
+        {/* Discard guard bar — shown above step content when user tries to close mid-flow */}
+        {confirmDiscard && (
+          <div style={{
+            marginBottom: '1.25rem',
+            padding: '0.875rem 1rem',
+            borderRadius: '0.75rem',
+            background: 'rgba(254, 243, 199, 0.9)',
+            border: '1px solid rgba(180, 83, 9, 0.25)',
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: '0.75rem',
+          }}>
+            <span style={{ flex: 1, fontSize: '0.875rem', fontWeight: 500, color: '#92400e' }}>
+              Close and lose your progress?
+            </span>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button
+                type="button"
+                onClick={() => setConfirmDiscard(false)}
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '0.625rem',
+                  border: '1px solid var(--color-primary)',
+                  background: 'var(--color-primary)',
+                  color: '#fff',
+                  fontSize: '0.8125rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                Keep booking
+              </button>
+              <button
+                type="button"
+                onClick={onClose}
+                style={{
+                  padding: '0.5rem 1rem',
+                  borderRadius: '0.625rem',
+                  border: '1px solid rgba(150, 112, 91, 0.3)',
+                  background: 'transparent',
+                  color: 'var(--color-dark)',
+                  fontSize: '0.8125rem',
+                  fontWeight: 500,
+                  cursor: 'pointer',
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
         )}
 
         {/* Step content with transition */}

@@ -201,6 +201,30 @@ describe('POST /api/party/book.json', () => {
     expect(res.status).not.toBe(400)
   })
 
+  // ── (5b) empty lastName passes validation — no last-name duplication
+  it('accepts an empty lastName (only firstName + email required)', async () => {
+    const body = makeBody({ customer: { firstName: 'Alice', lastName: '', email: 'alice@example.com', phone: '' } })
+    const ctx = createMockContext(body)
+    const res = await POST(ctx)
+
+    // Should NOT be a 400 validation error — lastName is optional
+    expect(res.status).not.toBe(400)
+    // findOrCreate must have been called with the actual (empty) lastName, not a duplicate of firstName
+    expect(mockFindOrCreate).toHaveBeenCalledWith(
+      expect.objectContaining({ givenName: 'Alice', familyName: '' })
+    )
+  })
+
+  // ── (5c) missing lastName passes validation
+  it('accepts a missing lastName', async () => {
+    const { lastName: _omitted, ...customerNoLastName } = makeBody().customer
+    const body = makeBody({ customer: customerNoLastName })
+    const ctx = createMockContext(body)
+    const res = await POST(ctx)
+
+    expect(res.status).not.toBe(400)
+  })
+
   // ── (6) order-total mismatch → cancelBooking called, 500, card not charged + date released
   it('cancels booking and returns 500 on order total mismatch', async () => {
     const booking = makeMockBooking('booking-mismatch')
