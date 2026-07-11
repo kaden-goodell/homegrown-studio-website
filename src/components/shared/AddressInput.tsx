@@ -19,10 +19,15 @@ interface AddressInputProps {
   apiKey?: string
 }
 
-// Studio-centric bias: suggestions favor the Huntsville/Madison area first
-// (kits are pickup-only, so parties cluster nearby). 50 km is Google's MAX
-// circle radius — anything larger 400s the whole request.
-const BIAS = { latitude: 34.6993, longitude: -86.7483, radius: 50_000 }
+// Hard restriction, not a soft bias: Google ignores locationBias on short
+// inputs and suggests from anywhere, which reads as garbage. Kits are
+// pickup-only, so suggestions come ONLY from this box around the greater
+// Huntsville/Madison metro (Decatur→Fayetteville TN, Athens→Scottsboro-ish).
+// Farther addresses can always be typed by hand.
+const RESTRICTION = {
+  low: { latitude: 34.35, longitude: -87.35 },
+  high: { latitude: 35.15, longitude: -86.25 },
+}
 
 const MIN_CHARS = 4
 const DEBOUNCE_MS = 250
@@ -63,7 +68,7 @@ export default function AddressInput({ value, onChange, placeholder, style, apiK
             input: value.trim(),
             sessionToken: sessionRef.current,
             includedRegionCodes: ['us'],
-            locationBias: { circle: { center: { latitude: BIAS.latitude, longitude: BIAS.longitude }, radius: BIAS.radius } },
+            locationRestriction: { rectangle: RESTRICTION },
           }),
         })
         if (!res.ok) throw new Error()
