@@ -366,6 +366,8 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
   const quoteTotal = craftTotal + assemblyFee + (hasTheme ? packageCents + depositCents : 0)
   const dueToday = hasTheme ? depositCents : assemblyFee
   const balanceDue = Math.max(0, quoteTotal - dueToday)
+  /** What the party actually costs — the refundable deposit is not a cost. */
+  const partyTotal = quoteTotal - (hasTheme ? depositCents : 0)
 
   const selectedWeek = weeks.find((w) => w.partyDate === selectedDate) ?? null
 
@@ -493,15 +495,17 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
     transition: 'background 0.2s ease, border-color 0.2s ease',
   })
 
-  // Receipt order: the party (crafts, package) up top, fixed fees LAST so they
-  // sit against the totals they explain — and the line charged today (deposit
-  // for themed, assembly for crafts-only) lands right above "Due today".
+  // Receipt philosophy (Kaden's wife's call, refined): three product lines,
+  // no "fee" language — "Packed & party-ready" is what they buy, not labor we
+  // bill. The refundable deposit is NOT a cost, so it lives OUTSIDE the party
+  // total: the headline number no longer includes money that comes back.
   function renderSummaryRows() {
     const dueTodayTag = (
       <span style={{ marginLeft: '0.4rem', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--color-primary)' }}>
         due today
       </span>
     )
+    const partyTotal = craftTotal + assemblyFee + (hasTheme ? packageCents : 0)
     return (
       <>
         {selectedCraft && (
@@ -517,12 +521,16 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
           </div>
         )}
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
-          <span>Kit assembly{!hasTheme && dueTodayTag}</span>
+          <span>Packed &amp; party-ready{!hasTheme && dueTodayTag}</span>
           <span>{formatPrice(assemblyFee)}</span>
         </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '0.5rem', marginBottom: hasTheme ? '0.375rem' : 0 }}>
+          <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)' }}>Party total</span>
+          <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>{formatPrice(partyTotal)}</span>
+        </div>
         {hasTheme && selectedTier && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
-            <span>Rental deposit (refundable){dueTodayTag}</span>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+            <span>Refundable deposit{dueTodayTag}</span>
             <span>{formatPrice(depositCents)}</span>
           </div>
         )}
@@ -764,7 +772,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
               </div>
               <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: '0.5rem' }}>
                 Kits are for {minGuests}–{maxGuests} guests. We box a craft for each — you can nudge the exact count with us before pickup.
-                A one-time {formatPrice(assemblyFee)} assembly fee covers packing everything.
+                A flat {formatPrice(assemblyFee)} covers boxing, labels, and prep for the whole kit.
               </p>
             </div>
 
@@ -970,13 +978,13 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             {/* Order summary — full quote, then the deposit split. */}
             <div style={{ padding: '1rem 1.25rem', borderRadius: '0.75rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(150, 112, 91, 0.08)', marginBottom: '1rem' }}>
               {renderSummaryRows()}
-              {/* One hero number — the $50. Everything else is a whisper. */}
+              {/* One hero number — the deposit. Everything else is a whisper. */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '0.625rem' }}>
                 <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Due today</span>
                 <span style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-dark)' }}>{formatPrice(dueToday)}</span>
               </div>
               <p style={{ margin: '0.3rem 0 0', fontSize: '0.75rem', color: 'var(--color-muted)', textAlign: 'right' }}>
-                {formatPrice(balanceDue)} at pickup · {formatPrice(quoteTotal)} total
+                {formatPrice(balanceDue)} at pickup{hasTheme ? ' · deposit comes back with the plates' : ''}
               </p>
             </div>
 
@@ -1126,7 +1134,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             {selectedDate && <span style={chipStyle}>{formatDateLabel(selectedDate)}</span>}
             {displayStep !== 'pay' && (
               <span style={{ ...chipStyle, marginLeft: 'auto', background: 'rgba(150, 112, 91, 0.12)', fontWeight: 600 }}>
-                {formatPrice(dueToday)} today{selectedCraft ? <> · {formatPrice(quoteTotal)} total</> : null}
+                {formatPrice(dueToday)} today{selectedCraft ? <> · {formatPrice(partyTotal)} party</> : null}
               </span>
             )}
           </div>
