@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro'
 import { staffAuthorized } from '@lib/staff-auth'
 import { getPartyRecord } from '@lib/party-store'
-import { listWaiversByParty } from '@lib/waiver-store'
+import { listWaiversByParty, markDuplicateChildren } from '@lib/waiver-store'
 import { getCheckin, toPublicCheckin } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 
@@ -24,13 +24,17 @@ export const GET: APIRoute = async ({ request, url }) => {
     if (!party) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 })
 
     const waivers = await listWaiversByParty(partyId)
+
+    // Sort by signedAt ascending so "first" == earlier RSVP for duplicate detection.
+    waivers.sort((a, b) => a.signedAt.localeCompare(b.signedAt))
+
     const households = await Promise.all(
       waivers.map(async (w) => ({
         recordId: w.id,
         signer: `${w.adult.firstName} ${w.adult.lastName}`.trim(),
         phone: w.adult.phone,
         email: w.adult.email,
-        children: w.minors.map((m) => ({ name: m.name, allergies: m.allergies || '' })),
+        children: w.minors.map((m) => ({ name: m.name, allergies: m.allergies || '', duplicateOf: undefined as string | undefined })),
         childCount: w.minors.length,
         adultAllergies: w.adult.allergies || '',
         emergency: w.emergency,
@@ -41,9 +45,15 @@ export const GET: APIRoute = async ({ request, url }) => {
         checkin: toPublicCheckin(await getCheckin(partyId, w.id)),
       })),
     )
+
+    // Flag children whose name appears in an earlier household; subtract the
+    // duplicate count from the headcount so staff see the real number.
+    const duplicateKids = markDuplicateChildren(households)
+
+    // Re-sort by signer name for display after duplicate detection.
     households.sort((a, b) => a.signer.localeCompare(b.signer))
 
-    const people = households.reduce((n, h) => n + 1 + h.childCount, 0)
+    const people = households.reduce((n, h) => n + 1 + h.childCount, 0) - duplicateKids
 
     return new Response(
       JSON.stringify({

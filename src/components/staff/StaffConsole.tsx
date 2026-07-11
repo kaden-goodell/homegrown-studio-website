@@ -31,7 +31,7 @@ interface Household {
   signer: string
   phone: string
   email: string
-  children: { name: string; allergies: string }[]
+  children: { name: string; allergies: string; duplicateOf?: string }[]
   childCount: number
   adultAllergies: string
   emergency: { name: string; phone: string; relationship: string }
@@ -102,12 +102,12 @@ function Badge({ tone, children }: { tone: 'alert' | 'muted'; children: React.Re
 }
 
 type PersonState = 'here' | 'out' | 'absent'
-interface Person { id: string; icon: string; name: string; sub: string; allergies: string; isChild: boolean }
+interface Person { id: string; icon: string; name: string; sub: string; allergies: string; isChild: boolean; duplicateOf?: string }
 
 function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; post: (recordId: string, extra: any) => Promise<{ error?: string; oneTimeCode?: string }> }) {
   const people: Person[] = [
     { id: 'adult', icon: '👤', name: h.signer, sub: 'adult', allergies: h.adultAllergies, isChild: false },
-    ...h.children.map((c, i) => ({ id: `child:${i}`, icon: '🧒', name: c.name, sub: '', allergies: c.allergies, isChild: true })),
+    ...h.children.map((c, i) => ({ id: `child:${i}`, icon: '🧒', name: c.name, sub: '', allergies: c.allergies, isChild: true, duplicateOf: c.duplicateOf })),
   ]
   const presence = h.checkin.presence || {}
   const expected = h.checkin.expected
@@ -125,8 +125,12 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
   const status: Status = herePeople.length > 0 ? 'in' : anyPresence ? 'out' : 'wait'
 
   // Check-in selection (absent people) defaults to who RSVP'd; expandable at the door.
+  // Duplicate kids (already on another family's RSVP) default to unchecked.
   const [selIn, setSelIn] = useState<Record<string, boolean>>(() =>
-    Object.fromEntries(people.map((p) => [p.id, expected ? expected.includes(p.id) : true])),
+    Object.fromEntries(people.map((p) => [
+      p.id,
+      p.duplicateOf ? false : (expected ? expected.includes(p.id) : true),
+    ])),
   )
   // Checkout selection (present people) defaults to everyone here.
   const [selOut, setSelOut] = useState<Record<string, boolean>>({})
@@ -214,6 +218,7 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
               <span style={{ fontSize: '0.95rem' }}>{p.icon}</span>
               <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9375rem' }}>{p.name}</span>
               {p.sub && <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{p.sub}</span>}
+              {p.duplicateOf && <Badge tone="muted">also on {p.duplicateOf}’s RSVP</Badge>}
               {stateLabel(p, st)}
               <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '0.3rem', flexWrap: 'wrap' }}>
                 {p.allergies && <Badge tone="alert">⚠ {p.allergies}</Badge>}

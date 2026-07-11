@@ -98,26 +98,83 @@ export function newWaiverId(): string {
 }
 
 // ---- Per-party RSVP index ----
-// A small blob per party holding the list of waiver record ids signed for it.
+// A small blob per party holding the list of { recordId, contactKey } objects.
+// Supports legacy bare-string entries for backward compatibility.
 // Read-modify-write; a party has few guests so contention is negligible.
 
 function partyIndexKey(partyId: string): string {
   return `party-index-${partyId}`
 }
 
-export async function addWaiverToPartyIndex(partyId: string, recordId: string): Promise<void> {
+/** Parse index entries, upgrading legacy bare-string ids to the object shape. */
+async function readIndexEntries(key: string): Promise<{ recordId: string; contactKey: string }[]> {
+  const raw = await rawGet(key)
+  return raw
+    ? JSON.parse(raw).map((e: any) =>
+        typeof e === 'string' ? { recordId: e, contactKey: '' } : e,
+      )
+    : []
+}
+
+/** Derive a stable contact key from a waiver record. Falls back to record id if no contact info. */
+function contactKeyOf(r: WaiverRecord): string {
+  const email = r.adult.email.trim().toLowerCase()
+  if (email) return `e:${email}`
+  const digits = r.adult.phone.replace(/\D/g, '').slice(-10)
+  return digits ? `p:${digits}` : `r:${r.id}`
+}
+
+/**
+ * Add-or-replace this household's entry in the party index (re-RSVP = edit).
+ * Same contact key → the previous entry is removed and the new one inserted.
+ * Returns the replaced record id (null if this is the first RSVP for this contact).
+ */
+export async function upsertWaiverInPartyIndex(
+  partyId: string,
+  record: WaiverRecord,
+): Promise<{ replacedRecordId: string | null }> {
   const key = partyIndexKey(partyId)
-  const existing = await rawGet(key)
-  const ids: string[] = existing ? JSON.parse(existing) : []
-  if (!ids.includes(recordId)) ids.push(recordId)
-  await rawSet(key, JSON.stringify(ids))
+  const entries = await readIndexEntries(key)
+  const ck = contactKeyOf(record)
+  const prev = entries.find((e) => e.contactKey === ck && e.recordId !== record.id)
+  const next = entries.filter((e) => e.contactKey !== ck && e.recordId !== record.id)
+  next.push({ recordId: record.id, contactKey: ck })
+  await rawSet(key, JSON.stringify(next))
+  return { replacedRecordId: prev?.recordId ?? null }
 }
 
 export async function listWaiversByParty(partyId: string): Promise<WaiverRecord[]> {
-  const existing = await rawGet(partyIndexKey(partyId))
-  const ids: string[] = existing ? JSON.parse(existing) : []
-  const records = await Promise.all(ids.map(getWaiverRecord))
+  const entries = await readIndexEntries(partyIndexKey(partyId))
+  const records = await Promise.all(entries.map((e) => getWaiverRecord(e.recordId)))
   return records.filter((r): r is WaiverRecord => r !== null)
+}
+
+// ---- Duplicate-child detection ----
+
+/**
+ * Flag children whose normalized name appears in an EARLIER household too.
+ * Mutates the children objects in place by setting `duplicateOf` to the first
+ * signer's name. Returns the number of duplicates found.
+ */
+export function markDuplicateChildren<
+  T extends { signer: string; children: { name: string; duplicateOf?: string }[] },
+>(households: T[]): number {
+  const seen = new Map<string, string>() // normalized name → first signer
+  let duplicates = 0
+  for (const h of households) {
+    for (const c of h.children) {
+      const k = c.name.trim().toLowerCase().replace(/\s+/g, ' ')
+      if (!k) continue
+      const first = seen.get(k)
+      if (first) {
+        c.duplicateOf = first
+        duplicates++
+      } else {
+        seen.set(k, h.signer)
+      }
+    }
+  }
+  return duplicates
 }
 
 // ---- Contact index (returning-customer lookup) ----

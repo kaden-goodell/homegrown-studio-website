@@ -16,18 +16,20 @@ vi.mock('@lib/party-store', () => ({
 
 vi.mock('@lib/checkin-store', () => ({
   setExpected: vi.fn().mockResolvedValue(undefined),
+  getCheckin: vi.fn().mockResolvedValue({ presence: {}, pickupCodeHash: null, expected: null, pickedUpBy: null, confirmedPickup: [], events: [] }),
+  setCheckin: vi.fn().mockResolvedValue(undefined),
 }))
 
 const mockSaveWaiverRecord = vi.fn().mockResolvedValue(undefined)
 const mockGetWaiverRecord = vi.fn()
-const mockAddWaiverToPartyIndex = vi.fn().mockResolvedValue(undefined)
+const mockUpsertWaiverInPartyIndex = vi.fn().mockResolvedValue({ replacedRecordId: null })
 const mockIndexWaiverByContact = vi.fn().mockResolvedValue(undefined)
 const mockNewWaiverId = vi.fn().mockReturnValue('wvr_test_abc')
 
 vi.mock('@lib/waiver-store', () => ({
   saveWaiverRecord: (...args: any[]) => mockSaveWaiverRecord(...args),
   getWaiverRecord: (...args: any[]) => mockGetWaiverRecord(...args),
-  addWaiverToPartyIndex: (...args: any[]) => mockAddWaiverToPartyIndex(...args),
+  upsertWaiverInPartyIndex: (...args: any[]) => mockUpsertWaiverInPartyIndex(...args),
   indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
   newWaiverId: () => mockNewWaiverId(),
 }))
@@ -111,11 +113,15 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
     // Re-mock after resetModules
     vi.mock('@lib/rate-limit', () => ({ rateLimited: vi.fn().mockReturnValue(false) }))
     vi.mock('@lib/reuse-token', () => ({ verifyReuseToken: vi.fn().mockReturnValue(true) }))
-    vi.mock('@lib/checkin-store', () => ({ setExpected: vi.fn().mockResolvedValue(undefined) }))
+    vi.mock('@lib/checkin-store', () => ({
+      setExpected: vi.fn().mockResolvedValue(undefined),
+      getCheckin: vi.fn().mockResolvedValue({ presence: {}, pickupCodeHash: null, expected: null, pickedUpBy: null, confirmedPickup: [], events: [] }),
+      setCheckin: vi.fn().mockResolvedValue(undefined),
+    }))
     vi.mock('@lib/waiver-store', () => ({
       saveWaiverRecord: (...args: any[]) => mockSaveWaiverRecord(...args),
       getWaiverRecord: (...args: any[]) => mockGetWaiverRecord(...args),
-      addWaiverToPartyIndex: (...args: any[]) => mockAddWaiverToPartyIndex(...args),
+      upsertWaiverInPartyIndex: (...args: any[]) => mockUpsertWaiverInPartyIndex(...args),
       indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
       newWaiverId: () => mockNewWaiverId(),
     }))
@@ -133,7 +139,7 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
     }))
 
     mockSaveWaiverRecord.mockResolvedValue(undefined)
-    mockAddWaiverToPartyIndex.mockResolvedValue(undefined)
+    mockUpsertWaiverInPartyIndex.mockResolvedValue({ replacedRecordId: null })
     mockIndexWaiverByContact.mockResolvedValue(undefined)
     mockNewWaiverId.mockReturnValue('wvr_test_abc')
 

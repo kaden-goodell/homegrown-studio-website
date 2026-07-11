@@ -6,11 +6,11 @@ import {
   saveWaiverRecord,
   getWaiverRecord,
   newWaiverId,
-  addWaiverToPartyIndex,
+  upsertWaiverInPartyIndex,
   indexWaiverByContact,
   type WaiverRecord,
 } from '@lib/waiver-store'
-import { setExpected } from '@lib/checkin-store'
+import { setExpected, getCheckin, setCheckin } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { verifyReuseToken } from '@lib/reuse-token'
@@ -59,7 +59,22 @@ async function persistWaiver(record: WaiverRecord): Promise<void> {
   }
   if (record.partyId) {
     try {
-      await addWaiverToPartyIndex(record.partyId, record.id)
+      const { replacedRecordId } = await upsertWaiverInPartyIndex(record.partyId, record)
+      if (replacedRecordId) {
+        // Migrate live check-in state so a mid-party re-sign doesn't orphan
+        // presence or pickup codes. Person ids are positional (adult, child:0, …)
+        // — if the household edited its kid list the mapping can shift; acceptable,
+        // staff verify at the door. The old checkin blob is orphaned but harmless:
+        // its recordId is gone from the party index.
+        try {
+          const old = await getCheckin(record.partyId, replacedRecordId)
+          if (Object.keys(old.presence).length > 0 || old.pickupCodeHash) {
+            await setCheckin(record.partyId, record.id, old)
+          }
+        } catch (err) {
+          logger.error('Checkin migration failed on re-RSVP', { error: String(err) })
+        }
+      }
     } catch (err) {
       logger.error('Party index failed (signature saved)', { id: record.id, error: String(err) })
     }
