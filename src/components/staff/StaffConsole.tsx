@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { formatWhen, formatTime } from '@lib/studio-time'
+import { formatCents } from '@lib/utils'
+import { kitConfig } from '@config/kit.config'
+import { kitThemes } from '@config/kit-content'
+import { addDays } from '@lib/kit-dates'
 
 interface PartyRow {
   bookingId: string
@@ -10,6 +14,8 @@ interface PartyRow {
   guestCount: number
   rsvpHouseholds: number
   rsvpPeople: number
+  /** Selected in-studio themed-table name (K10), or null. Staff-display only. */
+  themeName: string | null
 }
 
 interface Presence {
@@ -334,8 +340,178 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
   )
 }
 
+// ─── Kits phase ──────────────────────────────────────────────────────────────
+
+interface KitOrder {
+  orderId: string
+  reference: string
+  createdAt: string
+  contact: { name: string; email: string; phone: string; address: string }
+  crafts: { craftId: string; name: string; qty: number; perHeadCents: number }[]
+  guests: number
+  theme?: { themeId: string; ledgerThemeId: string; serves: number; packagePriceCents: number; depositCents: number }
+  partyDate: string
+  pickupDate: string
+  returnBy: string
+  weekKey: string
+  totalChargedCents: number
+  depositRefund?: { amountCents: number; refundId: string; at: string }
+  status: 'upcoming' | 'out' | 'returned' | 'cancelled' | 'forfeited'
+  events: { at: string; action: string; note?: string; byStaff?: string; amountCents?: number }[]
+}
+interface KitBuckets {
+  pickupToday: KitOrder[]
+  awaiting: KitOrder[]
+  missedPickup: KitOrder[]
+  out: KitOrder[]
+  dueBackToday: KitOrder[]
+  overdue: KitOrder[]
+  recentlySettled: KitOrder[]
+}
+interface RadarRow { themeId: string; weekKey: string; committed: number; owned: number }
+
+const STATUS_LABEL: Record<KitOrder['status'], string> = {
+  upcoming: 'Upcoming', out: 'Out', returned: 'Returned', cancelled: 'Cancelled', forfeited: 'Forfeited',
+}
+
+/** YYYY-MM-DD → "Thu, Jul 16" (local calendar arithmetic, no tz shift). */
+function fmtDay(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+function kitStudioToday(): string {
+  return new Date().toLocaleDateString('en-CA', { timeZone: kitConfig.timezone })
+}
+function themeDisplay(themeId?: string): string {
+  if (!themeId) return ''
+  return kitThemes.find((t) => t.id === themeId)?.displayName ?? themeId
+}
+
+const KIT_RETURN = '/api/staff/kit-return.json'
+const KIT_CANCEL = '/api/staff/kit-cancel.json'
+
+function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: string, body: any) => Promise<{ error?: string }> }) {
+  // Inline panels only — no native dialogs (house rule).
+  const [panel, setPanel] = useState<'none' | 'return' | 'withhold' | 'forfeit' | 'cancel'>('none')
+  const [withheld, setWithheld] = useState('') // dollars, staff-entered
+  const [note, setNote] = useState('')
+  const [err, setErr] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  const isThemed = !!order.theme
+  const deposit = order.theme?.depositCents ?? 0
+  const withheldCents = Math.round((parseFloat(withheld) || 0) * 100)
+  const withholdValid = withheldCents >= 1 && withheldCents <= deposit
+  const partialRefund = Math.max(0, deposit - withheldCents)
+
+  // Cancel refund preview (server recomputes authoritatively).
+  const freeCancel = kitStudioToday() <= addDays(order.pickupDate, -kitConfig.leadTimeDays)
+  const cancelRefund = freeCancel ? order.totalChargedCents : Math.max(0, order.totalChargedCents - kitConfig.assemblyFeeCents)
+
+  // Undo is only honest before a refund goes out (matches kit-return semantics).
+  const canUndo = isThemed && !order.depositRefund && (order.status === 'forfeited' || order.status === 'returned')
+
+  async function run(path: string, body: any) {
+    setErr(null); setBusy(true)
+    const r = await onAction(path, body)
+    setBusy(false)
+    if (r.error) setErr(r.error)
+    else setPanel('none') // success re-fetches buckets; this card unmounts
+  }
+
+  const statusTone = order.status === 'forfeited' ? '#b91c1c' : order.status === 'out' ? 'rgb(180,120,20)' : 'var(--color-muted)'
+
+  return (
+    <div style={{ ...card, background: 'rgba(255,255,255,0.85)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <span style={{ fontWeight: 700, color: 'var(--color-dark)' }}>{order.contact.name}</span>
+        <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: statusTone }}>{STATUS_LABEL[order.status]}</span>
+          <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>#{order.reference}</span>
+        </span>
+      </div>
+
+      <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.4rem' }}>
+        {isThemed && <Badge tone="muted">🎀 {themeDisplay(order.theme!.themeId)} · serves {order.theme!.serves}</Badge>}
+        {!isThemed && <Badge tone="muted">Crafts only</Badge>}
+        <Badge tone="muted">👥 {order.guests}</Badge>
+        {order.crafts.map((c) => <Badge key={c.craftId} tone="muted">{c.name} ×{c.qty}</Badge>)}
+      </div>
+
+      <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.5rem 0 0' }}>
+        <a href={`tel:${order.contact.phone}`} style={{ color: 'var(--color-primary)', textDecoration: 'none' }}>📞 {order.contact.phone}</a>
+        {order.contact.address ? <> · 📍 {order.contact.address}</> : null}
+      </p>
+      <p style={{ fontSize: '0.8125rem', color: 'var(--color-dark)', margin: '0.35rem 0 0' }}>
+        <strong>Pick up</strong> {fmtDay(order.pickupDate)} · <strong>Party</strong> {fmtDay(order.partyDate)}
+        {isThemed && <> · <strong>Return by</strong> {fmtDay(order.returnBy)}, {kitConfig.returnWindow}</>}
+      </p>
+      <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.2rem 0 0' }}>
+        Charged {formatCents(order.totalChargedCents)}
+        {order.depositRefund
+          ? ` · deposit ${formatCents(order.depositRefund.amountCents)} refunded ${fmtDay(order.depositRefund.at.slice(0, 10))}`
+          : isThemed ? ` · deposit ${formatCents(deposit)} held` : ' · no deposit'}
+      </p>
+
+      {err && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginTop: '0.5rem', fontWeight: 600 }}>{err}</p>}
+
+      {/* ── Actions by status ── */}
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.7rem', alignItems: 'center' }}>
+        {order.status === 'upcoming' && panel !== 'cancel' && (
+          <>
+            <button type="button" disabled={busy} onClick={() => run(KIT_RETURN, { orderId: order.orderId, action: 'pickup' })} style={btn(true)}>Mark picked up</button>
+            <button type="button" disabled={busy} onClick={() => setPanel('cancel')} style={{ ...btn(), color: '#b91c1c', borderColor: 'rgba(185,28,28,0.35)' }}>Cancel + refund</button>
+          </>
+        )}
+        {order.status === 'upcoming' && panel === 'cancel' && (
+          <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+              Cancel and refund {formatCents(cancelRefund)}?{freeCancel ? '' : ` (${formatCents(kitConfig.assemblyFeeCents)} assembly fee kept)`}
+            </span>
+            <button type="button" disabled={busy} onClick={() => run(KIT_CANCEL, { orderId: order.orderId })} style={{ ...btn(), color: '#b91c1c', borderColor: 'rgba(185,28,28,0.35)' }}>Confirm cancel</button>
+            <button type="button" disabled={busy} onClick={() => setPanel('none')} style={btn()}>Keep</button>
+          </span>
+        )}
+
+        {order.status === 'out' && panel === 'none' && (
+          <button type="button" disabled={busy} onClick={() => setPanel('return')} style={btn(true)}>Check in return</button>
+        )}
+        {order.status === 'out' && panel === 'return' && (
+          <>
+            <button type="button" disabled={busy} onClick={() => run(KIT_RETURN, { orderId: order.orderId, action: 'complete' })} style={btn(true)}>Complete — refund {formatCents(deposit)}</button>
+            <button type="button" disabled={busy} onClick={() => { setWithheld(''); setNote(''); setPanel('withhold') }} style={btn()}>Withhold…</button>
+            <button type="button" disabled={busy} onClick={() => { setNote(''); setPanel('forfeit') }} style={{ ...btn(), color: '#b91c1c', borderColor: 'rgba(185,28,28,0.35)' }}>Forfeit</button>
+            <button type="button" disabled={busy} onClick={() => setPanel('none')} style={btn()}>Back</button>
+          </>
+        )}
+        {order.status === 'out' && panel === 'withhold' && (
+          <span style={{ display: 'flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <input value={withheld} onChange={(e) => setWithheld(e.target.value)} placeholder="Withhold $" inputMode="decimal" style={{ ...field, width: '6rem' }} />
+            <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Reason (required)" style={{ ...field, flex: '1 1 10rem' }} />
+            <button type="button" disabled={busy || !withholdValid || !note.trim()} onClick={() => run(KIT_RETURN, { orderId: order.orderId, action: 'partial', withheldCents, note: note.trim() })} style={{ ...btn(true), opacity: !withholdValid || !note.trim() ? 0.5 : 1 }}>Refund {formatCents(partialRefund)}</button>
+            <button type="button" disabled={busy} onClick={() => setPanel('return')} style={btn()}>Back</button>
+          </span>
+        )}
+        {order.status === 'out' && panel === 'forfeit' && (
+          <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Forfeit the whole {formatCents(deposit)} deposit? No refund.</span>
+            <button type="button" disabled={busy} onClick={() => run(KIT_RETURN, { orderId: order.orderId, action: 'forfeit', note: note.trim() || undefined })} style={{ ...btn(), color: '#b91c1c', borderColor: 'rgba(185,28,28,0.35)' }}>Confirm forfeit</button>
+            <button type="button" disabled={busy} onClick={() => setPanel('return')} style={btn()}>Back</button>
+          </span>
+        )}
+
+        {canUndo && (
+          <button type="button" disabled={busy} onClick={() => run(KIT_RETURN, { orderId: order.orderId, action: 'undo' })} style={btn()}>Undo</button>
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function StaffConsole() {
-  const [phase, setPhase] = useState<'checking' | 'login' | 'parties' | 'roster'>('checking')
+  const [phase, setPhase] = useState<'checking' | 'login' | 'parties' | 'roster' | 'kits'>('checking')
+  const [kitBuckets, setKitBuckets] = useState<KitBuckets | null>(null)
+  const [radar, setRadar] = useState<RadarRow[]>([])
   const [passcode, setPasscode] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
   const [parties, setParties] = useState<PartyRow[]>([])
@@ -366,6 +542,39 @@ export default function StaffConsole() {
     setPasscode(''); await loadParties()
   }
   async function logout() { await fetch('/api/staff/login.json', { method: 'DELETE' }); setRoster(null); setParties([]); setPhase('login') }
+
+  async function loadKits() {
+    try {
+      setNetError(null)
+      const res = await fetch('/api/staff/kits.json', { cache: 'no-store' })
+      if (res.status === 401) { setPhase('login'); return }
+      const json = await res.json()
+      setKitBuckets(json.data.buckets)
+      setRadar(json.data.radar ?? [])
+      setPhase('kits')
+    } catch {
+      setNetError('Couldn’t reach the studio server — check wifi and tap Retry.')
+    }
+  }
+
+  /** POST a kit action, then re-fetch so orders re-bucket. Returns any error. */
+  async function kitAction(path: string, body: any): Promise<{ error?: string }> {
+    // A refund that POSTed fine but failed to refresh must never read as "not saved" —
+    // staff would retry a money action that already happened.
+    let posted = false
+    try {
+      const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) return { error: json?.error ?? 'Something went wrong.' }
+      posted = true
+      await loadKits()
+      return {}
+    } catch {
+      return posted
+        ? { error: 'Saved — but the list couldn’t refresh. Tap Kits again to reload.' }
+        : { error: 'Couldn’t save — check wifi and try again.' }
+    }
+  }
 
   async function openParty(bookingId: string) {
     try {
@@ -439,7 +648,7 @@ export default function StaffConsole() {
   const netErrorBanner = netError && (
     <div style={{ background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '0.6rem', padding: '0.7rem 0.9rem', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
       <span style={{ flex: 1, fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{netError}</span>
-      <button type="button" onClick={phase === 'roster' && roster ? () => openParty(roster.party.bookingId) : loadParties} style={btn()}>Retry</button>
+      <button type="button" onClick={phase === 'kits' ? loadKits : phase === 'roster' && roster ? () => openParty(roster.party.bookingId) : loadParties} style={btn()}>Retry</button>
     </div>
   )
 
@@ -448,20 +657,76 @@ export default function StaffConsole() {
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', margin: 0 }}>Parties</h2>
-          <button type="button" onClick={logout} style={btn()}>Log out</button>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button type="button" onClick={loadKits} style={btn()}>Kits</button>
+            <button type="button" onClick={logout} style={btn()}>Log out</button>
+          </div>
         </div>
         {netErrorBanner}
         {parties.length === 0 && !netError && <p style={{ color: 'var(--color-muted)' }}>No parties yet.</p>}
         {parties.map((p) => (
           <button key={p.bookingId} type="button" onClick={() => openParty(p.bookingId)} style={{ ...card, background: 'rgba(255,255,255,0.85)', width: '100%', textAlign: 'left', cursor: 'pointer', display: 'block' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.35rem' }}>
-              <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{p.title || `${p.craftName} Party`}</span>
+              <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{p.title || `${p.craftName} Party`}</span>
+                {p.themeName && <Badge tone="muted">🎀 {p.themeName}</Badge>}
+              </span>
               <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{formatWhen(p.startIso)}</span>
             </div>
             <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
               Host: {p.hostName} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl on file)
             </p>
           </button>
+        ))}
+      </div>
+    )
+  }
+
+  if (phase === 'kits') {
+    // Operational order: what needs doing soonest comes first.
+    const sections: [keyof KitBuckets, string][] = [
+      ['pickupToday', 'Pickup today'],
+      ['dueBackToday', 'Due back today'],
+      ['overdue', 'Overdue'],
+      ['missedPickup', 'Missed pickup'],
+      ['awaiting', 'Awaiting pickup'],
+      ['out', 'Out'],
+      ['recentlySettled', 'Recently settled'],
+    ]
+    const empty = kitBuckets && sections.every(([k]) => kitBuckets[k].length === 0)
+    return (
+      <div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '0.5rem', flexWrap: 'wrap' }}>
+          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', margin: 0 }}>Kits</h2>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button type="button" onClick={() => setPhase('parties')} style={btn()}>← Parties</button>
+            <button type="button" onClick={loadKits} style={btn()}>↻ Refresh</button>
+            <button type="button" onClick={logout} style={btn()}>Log out</button>
+          </div>
+        </div>
+        {netErrorBanner}
+
+        {/* Radar first — over-committed weeks need a human, now. */}
+        {radar.length > 0 && (
+          <div style={{ background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.35)', borderRadius: '0.8rem', padding: '0.8rem 1rem', marginBottom: '1rem' }}>
+            <strong style={{ color: '#b91c1c', fontSize: '0.9rem' }}>⚠ Over-committed weeks</strong>
+            {radar.map((r) => (
+              <p key={`${r.themeId}-${r.weekKey}`} style={{ fontSize: '0.8125rem', color: '#b91c1c', margin: '0.35rem 0 0' }}>
+                Week of {fmtDay(r.weekKey)}: {themeDisplay(r.themeId)} committed {r.committed}/{r.owned} — call somebody.
+              </p>
+            ))}
+          </div>
+        )}
+
+        {empty && !netError && <p style={{ color: 'var(--color-muted)' }}>No kit orders yet.</p>}
+
+        {kitBuckets && sections.map(([key, label]) => kitBuckets[key].length > 0 && (
+          <section key={key} style={{ marginBottom: '1.2rem' }}>
+            <h3 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', fontSize: '1rem', margin: '0 0 0.6rem' }}>
+              {label} <span style={{ color: 'var(--color-muted)', fontWeight: 400 }}>({kitBuckets[key].length})</span>
+            </h3>
+            {kitBuckets[key].map((o) => <KitOrderCard key={o.orderId} order={o} onAction={kitAction} />)}
+          </section>
         ))}
       </div>
     )
