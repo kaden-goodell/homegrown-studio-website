@@ -13,7 +13,7 @@ import {
   prevStep,
   type PartyStepId,
 } from '@lib/party-steps'
-import { googleCalendarUrl, buildIcs, icsDataUrl, partyWaiverUrl, partyInviteUrl, partyInviteMailto } from '@lib/party-share'
+import { googleCalendarUrl, buildIcs, icsDataUrl, partyWaiverUrl, partyInviteUrl, partyInviteMailto, partyInviteIcsUrl } from '@lib/party-share'
 import { formatTime, formatSlotLabel } from '@lib/studio-time'
 import { waiverContent } from '@config/waiver-content'
 import { saveRecentParty } from '@lib/recent-party'
@@ -844,6 +844,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                   typeof window !== 'undefined' ? window.location.origin : '',
                 ),
                 title: partyTitle.trim() || undefined,
+                icsUrl: partyInviteIcsUrl(bookingId, typeof window !== 'undefined' ? window.location.origin : ''),
               })}
               style={{ ...chipStyle, textDecoration: 'none', cursor: 'pointer', padding: '0.5rem 0.9rem' }}
             >

@@ -4,7 +4,7 @@ export const prerender = false
 import Layout from '@layouts/Layout.astro'
 import { inviteContent as c } from '@config/invite-content'
 import { partyConfig } from '@config/party.config'
-import { googleCalendarUrl, buildIcs, icsDataUrl, addMinutesIso } from '@lib/party-share'
+import { googleCalendarUrl, buildIcs, icsDataUrl, addMinutesIso, partyInviteIcsUrl } from '@lib/party-share'
 import { getPartyRecord, type PartyRecord } from '@lib/party-store'
 import { formatWhen } from '@lib/studio-time'
 
@@ -59,7 +59,12 @@ if (start && !isPast) {
     details: `We're making ${craft} at Homegrown Studio.\n\nInvitation & RSVP: ${Astro.url.href}`,
     location: c.where,
   }
-  calendar = { google: googleCalendarUrl(event), ics: icsDataUrl(buildIcs(event)) }
+  // Prefer the hosted .ics (works from email clients and every browser) when
+  // the party record resolved; the data-URL is the fallback for param-only links.
+  calendar = {
+    google: googleCalendarUrl(event),
+    ics: record ? partyInviteIcsUrl(partyId, Astro.url.origin) : icsDataUrl(buildIcs(event)),
+  }
 }
 ---
 

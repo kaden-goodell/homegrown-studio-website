@@ -104,11 +104,17 @@ export function addMinutesIso(startIso: string, minutes: number): string {
   return new Date(new Date(startIso).getTime() + minutes * 60_000).toISOString()
 }
 
+/** Guest-facing downloadable calendar file for a party (served by the API). */
+export function partyInviteIcsUrl(bookingId: string, origin: string): string {
+  return `${origin}/api/party/invite.ics?party=${encodeURIComponent(bookingId)}`
+}
+
 /**
  * mailto: link that opens the host's mail app with a ready-to-send invitation
  * — subject and body pre-filled, guests land on the invite/RSVP page. The host
  * just adds addresses and hits send. Plain text only (mailto bodies can't
- * carry HTML), structured to mirror the invitation page's details.
+ * carry HTML or attachments — the calendar ride-along is a hosted .ics link),
+ * structured to mirror the invitation page's details.
  */
 export function partyInviteMailto(input: {
   craftName: string
@@ -117,6 +123,8 @@ export function partyInviteMailto(input: {
   title?: string
   /** Venue line; defaults to the studio address. */
   where?: string
+  /** Hosted .ics link (mailto can't attach files) — added as a body line. */
+  icsUrl?: string
 }): string {
   const subject = input.title ? `You’re invited — ${input.title}!` : 'You’re invited to a craft party!'
   const body = [
@@ -132,6 +140,7 @@ export function partyInviteMailto(input: {
     '',
     'Details + a quick RSVP (takes about a minute):',
     input.inviteUrl,
+    ...(input.icsUrl ? ['', `📅 Add it to your calendar: ${input.icsUrl}`] : []),
     '',
     'Hope you can make it!',
   ].join('\n')

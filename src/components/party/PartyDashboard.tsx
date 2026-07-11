@@ -4,6 +4,7 @@ import { partyContent } from '@config/party-content'
 import {
   partyInviteUrl,
   partyInviteMailto,
+  partyInviteIcsUrl,
   partyWaiverUrl,
   googleCalendarUrl,
   buildIcs,
@@ -187,7 +188,13 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
           <a href={googleCalendarUrl(calEvent)} target="_blank" rel="noopener noreferrer" style={chip}>📅 Google Calendar</a>
           <a href={icsDataUrl(buildIcs(calEvent))} download="homegrown-party.ics" style={chip}>📅 Apple / Outlook</a>
           <a
-            href={partyInviteMailto({ craftName: party.craftName, slotLabel, inviteUrl, title: party.title || undefined })}
+            href={partyInviteMailto({
+              craftName: party.craftName,
+              slotLabel,
+              inviteUrl,
+              title: party.title || undefined,
+              icsUrl: partyInviteIcsUrl(bookingId, origin),
+            })}
             style={chip}
           >
             ✉️ Email your guests

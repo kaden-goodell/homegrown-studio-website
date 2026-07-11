@@ -6,7 +6,7 @@
  */
 import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
-import { partyInviteMailto } from '@lib/party-share'
+import { partyInviteMailto, partyInviteIcsUrl } from '@lib/party-share'
 
 const logger = createLogger('email')
 
@@ -114,7 +114,7 @@ export async function sendPartyConfirmationEmail(input: {
   <p style="${MUTED}">Manage details and see who&rsquo;s RSVP&rsquo;d &mdash; keep this link.</p>
   <p style="margin:14px 0 2px;font-size:14px;color:#3d3630;">Invitation link to share with your guests:</p>
   <p style="margin:0 0 6px;"><a href="${esc(input.inviteUrl)}" style="color:#96705B;font-size:13px;word-break:break-all;">${esc(input.inviteUrl)}</a></p>
-  <p style="margin:6px 0 2px;"><a href="${esc(partyInviteMailto({ craftName: input.craftName, slotLabel: input.slotLabel, inviteUrl: input.inviteUrl }))}" style="color:#96705B;font-size:14px;font-weight:600;">&#9993;&#65039; Email your guests</a></p>
+  <p style="margin:6px 0 2px;"><a href="${esc(partyInviteMailto({ craftName: input.craftName, slotLabel: input.slotLabel, inviteUrl: input.inviteUrl, icsUrl: input.bookingRef ? partyInviteIcsUrl(input.bookingRef, new URL(input.inviteUrl).origin) : undefined }))}" style="color:#96705B;font-size:14px;font-weight:600;">&#9993;&#65039; Email your guests</a></p>
   <p style="${MUTED}">Opens a ready-to-send invitation &mdash; just add addresses.</p>
   ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="color:#96705B;font-size:14px;font-weight:600;">&#128197; Add to Google Calendar</a></p><p style="${MUTED}">Apple or Outlook? Open the attached invite (.ics).</p>` : ''}
   ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#96705B;font-size:13px;">View your receipt</a></p>` : ''}
