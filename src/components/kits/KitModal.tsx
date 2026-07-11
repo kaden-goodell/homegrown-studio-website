@@ -917,6 +917,9 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                 placeholder="Where the party's happening — in case we need to rescue our plates 😄"
                 style={inputStyle}
               />
+              <p style={{ margin: '0.35rem 0 0', fontSize: '0.72rem', color: 'var(--color-muted)' }}>
+                The party can be anywhere — pickup and return happen at our Madison studio.
+              </p>
             </div>
 
             {/* Order summary — full quote, then the deposit split. */}

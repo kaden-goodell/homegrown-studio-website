@@ -22,11 +22,14 @@ interface AddressInputProps {
 // Hard restriction, not a soft bias: Google ignores locationBias on short
 // inputs and suggests from anywhere, which reads as garbage. Kits are
 // pickup-only, so suggestions come ONLY from this box around the greater
-// Huntsville/Madison metro (Decatur→Fayetteville TN, Athens→Scottsboro-ish).
-// Farther addresses can always be typed by hand.
+// Huntsville/Madison metro. Sized to hold the ENTIRE city limits (not just
+// downtown) of the corner towns: Decatur, Athens, Fayetteville TN, and
+// Scottsboro incl. its eastern river side (Goose Pond ~-85.88). This box
+// shapes SUGGESTIONS only — it is not a business rule; any address can still
+// be typed by hand.
 const RESTRICTION = {
-  low: { latitude: 34.35, longitude: -87.35 },
-  high: { latitude: 35.15, longitude: -86.25 },
+  low: { latitude: 34.3, longitude: -87.4 },
+  high: { latitude: 35.3, longitude: -85.75 },
 }
 
 const MIN_CHARS = 4
