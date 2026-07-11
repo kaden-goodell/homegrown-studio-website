@@ -187,8 +187,8 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
     }
     if (expected == null) return null
     return expected.includes(p.id)
-      ? <span style={{ fontSize: '0.7rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>RSVP’d</span>
-      : <span style={{ fontSize: '0.7rem', color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>didn’t RSVP</span>
+      ? <span style={{ fontSize: '0.7rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>crafting</span>
+      : <span style={{ fontSize: '0.7rem', color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>not crafting</span>
   }
 
   // Big, obvious check box on the left of a person row (or a spacer to keep alignment).
@@ -453,7 +453,7 @@ export default function StaffConsole() {
               <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{formatWhen(p.startIso)}</span>
             </div>
             <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
-              Host: {p.hostName} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl)
+              Host: {p.hostName} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl on file)
             </p>
           </button>
         ))}
@@ -488,7 +488,7 @@ export default function StaffConsole() {
         <p style={{ color: 'var(--color-dark)', fontWeight: 600, margin: '0.3rem 0 0' }}>{formatWhen(roster.party.startIso)}</p>
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginTop: '0.6rem' }}>
           <Badge tone="muted">👥 {roster.summary.households} RSVP’d</Badge>
-          <Badge tone="muted">🗓 {coming} expected</Badge>
+          <Badge tone="muted">🗓 {coming} crafting</Badge>
           <Badge tone="muted">✓ {here} here now</Badge>
           {allergyCount > 0 && <Badge tone="alert">⚠ {allergyCount} with allergies</Badge>}
         </div>

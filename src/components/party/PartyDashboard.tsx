@@ -191,17 +191,17 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
         <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '0.75rem', flexWrap: 'wrap' }}>
             <h2 style={{ fontSize: '1.0625rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', margin: 0 }}>
-              Who's coming
+              Who’s crafting
             </h2>
             <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-              Booked for {party.guestCount} · {summary.people} RSVP'd so far
+              Booked for {party.guestCount} · {summary.people} crafting so far
             </span>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
             <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>
               <strong style={{ color: 'var(--color-dark)' }}>{summary.households}</strong>{' '}
               {summary.households === 1 ? 'group' : 'groups'} ·{' '}
-              <strong style={{ color: 'var(--color-dark)' }}>{summary.people}</strong> coming
+              <strong style={{ color: 'var(--color-dark)' }}>{summary.people}</strong> crafting
             </span>
             <button
               type="button"
@@ -223,10 +223,12 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
             {households.map((h, i) => {
               const adultComing = h.attending.includes('adult')
               const comingKids = h.children.filter((_, ci) => h.attending.includes(`child:${ci}`))
-              const notComing = [
-                ...(adultComing ? [] : [h.signer.split(' ')[0]]),
-                ...h.children.filter((_, ci) => !h.attending.includes(`child:${ci}`)).map((c) => c.name.split(' ')[0]),
-              ]
+              // Kids on the waiver who aren't crafting. The signing adult is
+              // deliberately excluded — "not crafting" doesn't mean absent (they
+              // may be there watching), and the host doesn't need that detail.
+              const notComing = h.children
+                .filter((_, ci) => !h.attending.includes(`child:${ci}`))
+                .map((c) => c.name.split(' ')[0])
               const allergyLines = [
                 ...(adultComing && h.adultAllergies ? [`${h.signer.split(' ')[0]}: ${h.adultAllergies}`] : []),
                 ...comingKids.filter((c) => c.allergies).map((c) => `${c.name.split(' ')[0]}: ${c.allergies}`),
@@ -252,7 +254,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
                   )}
                   {notComing.length > 0 && (
                     <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0.25rem 0 0', fontStyle: 'italic' }}>
-                      Not this time: {notComing.join(', ')}
+                      Not crafting: {notComing.join(', ')}
                     </p>
                   )}
                   {allergyLines.map((line) => (
