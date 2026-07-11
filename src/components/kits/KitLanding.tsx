@@ -278,71 +278,9 @@ export default function KitLanding() {
           Build your kit
         </button>
         <p style={{ margin: '0.6rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-          Or browse the tables and crafts below — tapping one starts your kit with it.
+          Or browse the crafts and tables below — tapping one starts your kit with it.
         </p>
       </div>
-
-      {/* Theme gallery — the styled tables. Stocked ones are the pitch; the rest
-          take a waitlist email. */}
-      {info.themes.length > 0 && (
-        <div style={{ marginBottom: '3.5rem' }}>
-          <h2 style={{ fontSize: '1.5rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', textAlign: 'center', marginBottom: '0.5rem' }}>
-            Pick Your Table
-          </h2>
-          <p style={{ textAlign: 'center', fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0 0 1.75rem' }}>
-            A styled, photograph-worthy table — or skip it and just take the crafts home.
-          </p>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(17rem, 1fr))', gap: '1.5rem' }}>
-            {stockedThemes.map((theme) => {
-              const from = fromPrice(theme.tiers)
-              return (
-                <button
-                  key={theme.id}
-                  type="button"
-                  onClick={() => openModal({ themeId: theme.id })}
-                  style={{
-                    display: 'flex',
-                    flexDirection: 'column',
-                    textAlign: 'left',
-                    padding: 0,
-                    borderRadius: '1rem',
-                    overflow: 'hidden',
-                    border: '1px solid rgba(150, 112, 91, 0.15)',
-                    background: 'rgba(255, 255, 255, 0.9)',
-                    cursor: 'pointer',
-                    transition: 'box-shadow 0.25s ease, transform 0.25s ease',
-                  }}
-                  onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 14px 32px rgba(150,112,91,0.18)'; e.currentTarget.style.transform = 'translateY(-3px)' }}
-                  onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}
-                >
-                  <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: schemeGradient(theme.scheme) }}>
-                    {theme.photo ? (
-                      <img src={theme.photo} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
-                    ) : (
-                      <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 600, color: 'rgba(90,70,55,0.65)', textAlign: 'center', padding: '0 1rem' }}>{theme.displayName}</span>
-                    )}
-                    {from != null && (
-                      <span style={{ position: 'absolute', top: '0.75rem', right: '0.75rem', background: 'rgba(255,255,255,0.94)', borderRadius: '2rem', padding: '0.28rem 0.7rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-dark)', boxShadow: '0 1px 5px rgba(0,0,0,0.12)' }}>
-                        From {priceCompact(from)}
-                      </span>
-                    )}
-                  </div>
-                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1, padding: '1rem 1.125rem 1.25rem' }}>
-                    <span style={{ fontSize: '1.0625rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)' }}>{theme.displayName}</span>
-                    <p style={{ margin: '0.4rem 0 0', fontSize: '0.8125rem', lineHeight: 1.5, color: 'var(--color-muted)' }}>{theme.tagline}</p>
-                    <span style={{ marginTop: 'auto', paddingTop: '0.85rem', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-primary)' }}>
-                      Build this kit →
-                    </span>
-                  </div>
-                </button>
-              )
-            })}
-            {waitlistThemes.map((theme) => (
-              <WaitlistCard key={theme.id} theme={theme} />
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* Craft gallery — every guest makes one. */}
       {crafts.length > 0 && (
@@ -414,6 +352,68 @@ export default function KitLanding() {
               </button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Theme gallery — the styled tables. Stocked ones are the pitch; the rest
+          take a waitlist email. */}
+      {info.themes.length > 0 && (
+        <div style={{ marginBottom: '3.5rem' }}>
+          <h2 style={{ fontSize: '1.5rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', textAlign: 'center', marginBottom: '0.5rem' }}>
+            Pick Your Table
+          </h2>
+          <p style={{ textAlign: 'center', fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0 0 1.75rem' }}>
+            A styled, photograph-worthy table — or skip it and just take the crafts home.
+          </p>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(17rem, 1fr))', gap: '1.5rem' }}>
+            {stockedThemes.map((theme) => {
+              const from = fromPrice(theme.tiers)
+              return (
+                <button
+                  key={theme.id}
+                  type="button"
+                  onClick={() => openModal({ themeId: theme.id })}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    textAlign: 'left',
+                    padding: 0,
+                    borderRadius: '1rem',
+                    overflow: 'hidden',
+                    border: '1px solid rgba(150, 112, 91, 0.15)',
+                    background: 'rgba(255, 255, 255, 0.9)',
+                    cursor: 'pointer',
+                    transition: 'box-shadow 0.25s ease, transform 0.25s ease',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 14px 32px rgba(150,112,91,0.18)'; e.currentTarget.style.transform = 'translateY(-3px)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}
+                >
+                  <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: schemeGradient(theme.scheme) }}>
+                    {theme.photo ? (
+                      <img src={theme.photo} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                    ) : (
+                      <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 600, color: 'rgba(90,70,55,0.65)', textAlign: 'center', padding: '0 1rem' }}>{theme.displayName}</span>
+                    )}
+                    {from != null && (
+                      <span style={{ position: 'absolute', top: '0.75rem', right: '0.75rem', background: 'rgba(255,255,255,0.94)', borderRadius: '2rem', padding: '0.28rem 0.7rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-dark)', boxShadow: '0 1px 5px rgba(0,0,0,0.12)' }}>
+                        From {priceCompact(from)}
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', flex: 1, padding: '1rem 1.125rem 1.25rem' }}>
+                    <span style={{ fontSize: '1.0625rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)' }}>{theme.displayName}</span>
+                    <p style={{ margin: '0.4rem 0 0', fontSize: '0.8125rem', lineHeight: 1.5, color: 'var(--color-muted)' }}>{theme.tagline}</p>
+                    <span style={{ marginTop: 'auto', paddingTop: '0.85rem', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-primary)' }}>
+                      Build this kit →
+                    </span>
+                  </div>
+                </button>
+              )
+            })}
+            {waitlistThemes.map((theme) => (
+              <WaitlistCard key={theme.id} theme={theme} />
+            ))}
+          </div>
         </div>
       )}
 

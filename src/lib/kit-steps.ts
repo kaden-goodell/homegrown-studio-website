@@ -1,11 +1,11 @@
 /**
  * Pure step-flow model for the take-home kit modal.
  *
- * The canonical order is build → craft → when → pay, where "build" is one
+ * The canonical order is craft → build → when → pay, where "build" is one
  * combined step: guest count and the optional themed table, chosen together
  * (the guest count picks the package tier, the tier prices the tables — they
- * belong on one screen). The build step LEADS because the landing page leads
- * with the tables — the modal tells the same story in the same order. A craft
+ * belong on one screen). Crafts LEAD because the landing page leads with the
+ * craft gallery — the modal tells the same story in the same order. A craft
  * chosen from the gallery (a ?craft= deeplink or a landing-card click) arrives
  * already settled and drops out of the flow, so the progress indicator counts
  * only the steps the user will actually see. A theme picked from a landing
@@ -20,7 +20,7 @@ export interface FlowInput {
   craftSettled: boolean
 }
 
-const ORDER: KitStepId[] = ['build', 'craft', 'when', 'pay']
+const ORDER: KitStepId[] = ['craft', 'build', 'when', 'pay']
 
 const LABELS: Record<KitStepId, string> = {
   craft: 'Crafts',

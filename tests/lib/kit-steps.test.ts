@@ -9,8 +9,8 @@ import {
 } from '@lib/kit-steps'
 
 describe('visibleSteps', () => {
-  it('full flow leads with the build step (tables first, matching the landing)', () => {
-    expect(visibleSteps({ craftSettled: false })).toEqual(['build', 'craft', 'when', 'pay'])
+  it('full flow leads with crafts (matching the landing page order)', () => {
+    expect(visibleSteps({ craftSettled: false })).toEqual(['craft', 'build', 'when', 'pay'])
   })
 
   it('drops the craft step when a craft is preselected', () => {

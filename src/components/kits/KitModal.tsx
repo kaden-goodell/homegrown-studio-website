@@ -107,10 +107,10 @@ function isValidEmail(email: string): boolean {
 }
 
 export default function KitModal({ onClose, initialCraftId, initialThemeId }: KitModalProps) {
-  const [currentStep, setCurrentStep] = useState<KitStepId>('build')
+  const [currentStep, setCurrentStep] = useState<KitStepId>('craft')
   const [visible, setVisible] = useState(true)
-  const [displayStep, setDisplayStep] = useState<KitStepId>('build')
-  const prevStepRef = useRef<KitStepId>('build')
+  const [displayStep, setDisplayStep] = useState<KitStepId>('craft')
+  const prevStepRef = useRef<KitStepId>('craft')
 
   // Small screens get a full-height bottom sheet instead of a floating card.
   const [sheetMode, setSheetMode] = useState(false)
