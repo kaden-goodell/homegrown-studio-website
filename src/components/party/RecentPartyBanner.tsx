@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { loadRecentParty, clearRecentParty, hostPartyUrl, type RecentParty } from '@lib/recent-party'
 
 /**
- * Sticky top banner that lets a host return to their most recent booking's
- * invitation (same-device, from localStorage). Rendered at the very top of the
- * page — above the hero — so it's the first thing a returning host sees.
+ * Floating banner that lets a host return to their most recent booking's
+ * invitation (same-device, from localStorage). Sticks just below the site
+ * header (which is itself sticky at 4.5rem tall — see Header.astro) so the
+ * two ride together as the page scrolls.
  */
 export default function RecentPartyBanner() {
   const [recent, setRecent] = useState<RecentParty | null>(null)
@@ -19,8 +20,10 @@ export default function RecentPartyBanner() {
     <div
       style={{
         position: 'sticky',
-        top: 0,
-        zIndex: 60,
+        // Pin at the sticky header's bottom edge (header height = 4.5rem),
+        // below its z-index (50) so the header always wins any overlap.
+        top: '4.5rem',
+        zIndex: 40,
         width: '100%',
         background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
         color: '#fff',
