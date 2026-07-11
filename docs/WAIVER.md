@@ -110,7 +110,9 @@ My payment includes a rental of those pieces, not a purchase.
 contents card and order confirmation (the Wednesday following my pickup, during the posted
 drop-off window, or any earlier open business day). If I do not, I understand my refundable
 deposit will be withheld, and the Studio reserves the right to recover the reasonable replacement
-value of unreturned pieces.
+value of unreturned pieces. If pieces remain unreturned after the return-by date, I agree the
+Studio may contact me to arrange retrieval from the address I provided with my order, and that a
+retrieval fee stated at checkout may be deducted from my deposit.
 
 (c) **Condition and cleaning.** I will clean all food-contact pieces before returning them. The
 Studio inspects and sanitizes every piece on return; pieces returned damaged beyond normal wear,
