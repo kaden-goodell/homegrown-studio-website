@@ -4,10 +4,57 @@ export const prerender = false
 import Layout from '@layouts/Layout.astro'
 import WaiverFlow from '@components/waiver/WaiverFlow'
 import { waiverContent } from '@config/waiver-content'
+import { getPartyRecord } from '@lib/party-store'
+import { formatWhen } from '@lib/studio-time'
 
-const partyId = Astro.url.searchParams.get('party') ?? undefined
+const rawPartyId = Astro.url.searchParams.get('party') ?? undefined
 const { page } = waiverContent
-const subline = partyId ? page.partySubline : page.subline
+const subline = rawPartyId ? page.partySubline : page.subline
+
+// When a party param is present, resolve it server-side.
+// Four outcomes:
+//   1. found + not past  → pass partyId + partyLabel
+//   2. found + past      → block RSVP with a notice, no partyId
+//   3. returned null     → unrecognised id — show warning, no partyId (prevents ghost RSVPs)
+//   4. threw             → transient storage error — keep partyId, no partyLabel
+
+type PartyOutcome =
+  | { kind: 'ok';      partyId: string; partyLabel: string }
+  | { kind: 'past';    notice: string }
+  | { kind: 'unknown'; notice: string }
+  | { kind: 'error';   partyId: string }
+  | { kind: 'none' }
+
+let outcome: PartyOutcome = { kind: 'none' }
+
+if (rawPartyId) {
+  try {
+    const record = await getPartyRecord(rawPartyId)
+    if (record === null) {
+      // Genuinely unknown party id — bad/stale link.
+      outcome = {
+        kind: 'unknown',
+        notice: 'That party link wasn’t recognized — ask your host for a fresh invitation. You can still sign the general agreement below.',
+      }
+    } else {
+      const isPast = new Date(record.startIso).getTime() + 24 * 3600_000 < Date.now()
+      if (isPast) {
+        outcome = { kind: 'past', notice: 'This party has already happened.' }
+      } else {
+        const label = `${record.title ?? record.craftName + ' Party'} · ${formatWhen(record.startIso)} CT`
+        outcome = { kind: 'ok', partyId: rawPartyId, partyLabel: label }
+      }
+    }
+  } catch {
+    // Transient storage error — keep partyId so a valid RSVP link still works;
+    // sign.json re-validates anyway. No partyLabel since we have no record.
+    outcome = { kind: 'error', partyId: rawPartyId }
+  }
+}
+
+const flowPartyId   = outcome.kind === 'ok' ? outcome.partyId   : outcome.kind === 'error' ? outcome.partyId   : undefined
+const flowPartyLabel = outcome.kind === 'ok' ? outcome.partyLabel : undefined
+const noticeText    = outcome.kind === 'unknown' || outcome.kind === 'past' ? (outcome as { notice: string }).notice : null
 ---
 
 <Layout
@@ -27,6 +74,25 @@ const subline = partyId ? page.partySubline : page.subline
       </p>
     </div>
 
-    <WaiverFlow client:load partyId={partyId} />
+    {noticeText && (
+      <div
+        style="
+          background: rgba(217, 119, 6, 0.08);
+          border: 1px solid rgba(217, 119, 6, 0.28);
+          border-radius: 0.875rem;
+          padding: 0.9rem 1.15rem;
+          margin-bottom: 1.5rem;
+          font-size: 0.9375rem;
+          color: var(--color-dark);
+          line-height: 1.5;
+          backdrop-filter: blur(8px);
+          -webkit-backdrop-filter: blur(8px);
+        "
+      >
+        {noticeText}
+      </div>
+    )}
+
+    <WaiverFlow client:load partyId={flowPartyId} partyLabel={flowPartyLabel} />
   </section>
 </Layout>

@@ -4,6 +4,9 @@ import { waiverContent } from '@config/waiver-content'
 interface Props {
   /** Present when opened from a party guest link — /waiver?party={bookingId} */
   partyId?: string
+  /** Human-readable label shown to the guest so they can see which party their
+   *  signature attaches to. Derived server-side from the party record. */
+  partyLabel?: string
 }
 
 interface MinorRow {
@@ -57,7 +60,31 @@ const cardStyle: React.CSSProperties = {
   marginBottom: '1.25rem',
 }
 
-export default function WaiverFlow({ partyId }: Props) {
+/** Pill shown above the flow content so guests can confirm which party they're RSVPing to. */
+function PartyLabelChip({ label }: { label: string }) {
+  return (
+    <div
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: '0.4rem',
+        padding: '0.4rem 0.9rem',
+        borderRadius: '999px',
+        background: 'rgba(150, 112, 91, 0.10)',
+        border: '1px solid rgba(150, 112, 91, 0.22)',
+        fontSize: '0.8125rem',
+        fontWeight: 600,
+        color: 'var(--color-dark)',
+        marginBottom: '1.25rem',
+      }}
+    >
+      <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>RSVP'ing to:</span>
+      <span>{label}</span>
+    </div>
+  )
+}
+
+export default function WaiverFlow({ partyId, partyLabel }: Props) {
   const { form, confirmation, legalSections } = waiverContent
 
   const [firstName, setFirstName] = useState('')
@@ -345,7 +372,9 @@ export default function WaiverFlow({ partyId }: Props) {
   // Step 0 — returning-customer lookup.
   if (mode === 'lookup') {
     return (
-      <div style={{ ...cardStyle, maxWidth: '30rem', margin: '0 auto' }}>
+      <div style={{ maxWidth: '30rem', margin: '0 auto' }}>
+        {partyLabel && <PartyLabelChip label={partyLabel} />}
+        <div style={{ ...cardStyle, marginBottom: 0 }}>
         <h2 style={sectionHeadingStyle}>Been here before?</h2>
         <p style={sectionNoteStyle}>
           Enter your email or phone and we’ll pull up your agreement — no need to fill it out again.
@@ -385,6 +414,7 @@ export default function WaiverFlow({ partyId }: Props) {
         >
           First time here? Fill out the form →
         </button>
+        </div>
       </div>
     )
   }
@@ -403,7 +433,9 @@ export default function WaiverFlow({ partyId }: Props) {
       : ''
 
     return (
-      <div style={{ ...cardStyle, maxWidth: '30rem', margin: '0 auto', textAlign: 'center' }}>
+      <div style={{ maxWidth: '30rem', margin: '0 auto' }}>
+        {partyLabel && <PartyLabelChip label={partyLabel} />}
+        <div style={{ ...cardStyle, marginBottom: 0, textAlign: 'center' }}>
         <h2 style={{ ...sectionHeadingStyle, fontSize: '1.375rem' }}>Welcome back, {returning.firstName}! 🎉</h2>
         <p style={{ ...sectionNoteStyle, maxWidth: '24rem', margin: '0.25rem auto 1.25rem' }}>
           Your participation agreement is already on file — you don’t need to sign again.
@@ -502,12 +534,14 @@ export default function WaiverFlow({ partyId }: Props) {
         >
           Adding a new child, or something changed? Update your agreement →
         </button>
+        </div>
       </div>
     )
   }
 
   return (
     <div>
+      {partyLabel && <PartyLabelChip label={partyLabel} />}
       {formNotice && (
         <div
           style={{

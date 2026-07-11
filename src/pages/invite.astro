@@ -5,14 +5,35 @@ import Layout from '@layouts/Layout.astro'
 import { inviteContent as c } from '@config/invite-content'
 import { partyConfig } from '@config/party.config'
 import { googleCalendarUrl, buildIcs, icsDataUrl, addMinutesIso } from '@lib/party-share'
+import { getPartyRecord, type PartyRecord } from '@lib/party-store'
+import { formatWhen } from '@lib/studio-time'
 
-// All party details ride in the share link — no backend lookup needed.
 const params = Astro.url.searchParams
 const partyId = params.get('party') ?? ''
-const craft = params.get('craft') ?? ''
-const when = params.get('when') ?? ''
-const title = params.get('title') ?? ''
-const start = params.get('start') ?? ''
+
+// Attempt a server-side lookup when a party id is present; server data beats
+// query params. Falls back to query params for old/mangled links.
+let record: PartyRecord | null = null
+let lookupFailed = false
+if (partyId) {
+  try {
+    record = await getPartyRecord(partyId)
+  } catch {
+    lookupFailed = true
+  }
+}
+
+// Derive display values — server record wins; query params are the fallback.
+const craft = record ? record.craftName : (params.get('craft') ?? '')
+const when  = record ? formatWhen(record.startIso) + ' CT' : (params.get('when') ?? '')
+const start = record ? record.startIso : (params.get('start') ?? '')
+const title = record ? (record.title ?? params.get('title') ?? '') : (params.get('title') ?? '')
+
+// Past-party guard: if we have a record and the party ended >24 h ago, show a
+// friendly closed state instead of the RSVP CTA.
+const isPast = record
+  ? new Date(record.startIso).getTime() + 24 * 3600_000 < Date.now()
+  : false
 
 const hasDetails = Boolean(partyId && craft && when)
 const headline = hasDetails
@@ -30,7 +51,7 @@ const details = [
 
 // Build calendar links when we have a start time, so guests can add the party.
 let calendar: { google: string; ics: string } | null = null
-if (start) {
+if (start && !isPast) {
   const event = {
     title: title ? `${title} — Homegrown Studio` : `${craft} Party — Homegrown Studio`,
     startIso: start,
@@ -104,61 +125,84 @@ if (start) {
         class="mt-8"
         style="border-top: 1px solid rgba(150,112,91,0.14); padding-top: 1.75rem;"
       >
-        {hasDetails && (
-          <>
-            <h2 class="font-heading font-semibold text-lg" style="color: var(--color-dark);">
-              {c.rsvp.heading}
-            </h2>
-            <p class="text-sm mt-2 max-w-md mx-auto" style="color: var(--color-muted);">
-              {c.rsvp.body}
+        {isPast ? (
+          /* Past-party state: friendly closed message, no RSVP CTA */
+          <div>
+            <p class="text-base max-w-md mx-auto" style="color: var(--color-muted); margin-bottom: 1.25rem;">
+              This party has already happened — hope it was a good one! Come craft with us any time.
             </p>
-          </>
-        )}
-        <a
-          href={waiverHref}
-          class="inline-block mt-5"
-          style="
-            padding: 0.9rem 1.75rem;
-            border-radius: 0.875rem;
-            background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
-            color: #fff;
-            font-size: 1rem;
-            font-weight: 600;
-            text-decoration: none;
-            box-shadow: 0 10px 24px rgba(150,112,91,0.24);
-          "
-        >
-          {ctaLabel}
-        </a>
-        {hasDetails && (
-          <p class="text-xs mt-4 max-w-xs mx-auto" style="color: var(--color-muted);">
-            {c.rsvp.footnote}
-          </p>
-        )}
-
-        {calendar && (
-          <div class="mt-7" style="border-top: 1px solid rgba(150,112,91,0.14); padding-top: 1.5rem;">
-            <p class="text-xs uppercase tracking-wide font-semibold mb-3" style="color: var(--color-primary);">
-              {c.calendar.heading}
-            </p>
-            <div class="flex flex-wrap gap-2 justify-center">
-              <a
-                href={calendar.google}
-                target="_blank"
-                rel="noopener noreferrer"
-                style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(150,112,91,0.08); border: 1px solid rgba(150,112,91,0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
-              >
-                {c.calendar.google}
-              </a>
-              <a
-                href={calendar.ics}
-                download="homegrown-party.ics"
-                style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(150,112,91,0.08); border: 1px solid rgba(150,112,91,0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
-              >
-                {c.calendar.apple}
-              </a>
-            </div>
+            <a
+              href="/book"
+              style="
+                display: inline-block;
+                font-size: 0.9375rem;
+                font-weight: 600;
+                color: var(--color-primary);
+                text-decoration: none;
+              "
+            >
+              See parties &amp; crafts →
+            </a>
           </div>
+        ) : (
+          <>
+            {hasDetails && (
+              <>
+                <h2 class="font-heading font-semibold text-lg" style="color: var(--color-dark);">
+                  {c.rsvp.heading}
+                </h2>
+                <p class="text-sm mt-2 max-w-md mx-auto" style="color: var(--color-muted);">
+                  {c.rsvp.body}
+                </p>
+              </>
+            )}
+            <a
+              href={waiverHref}
+              class="inline-block mt-5"
+              style="
+                padding: 0.9rem 1.75rem;
+                border-radius: 0.875rem;
+                background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+                color: #fff;
+                font-size: 1rem;
+                font-weight: 600;
+                text-decoration: none;
+                box-shadow: 0 10px 24px rgba(150,112,91,0.24);
+              "
+            >
+              {ctaLabel}
+            </a>
+            {hasDetails && (
+              <p class="text-xs mt-4 max-w-xs mx-auto" style="color: var(--color-muted);">
+                {c.rsvp.footnote}
+              </p>
+            )}
+
+            {calendar && (
+              <div class="mt-7" style="border-top: 1px solid rgba(150,112,91,0.14); padding-top: 1.5rem;">
+                <p class="text-xs uppercase tracking-wide font-semibold mb-3" style="color: var(--color-primary);">
+                  {c.calendar.heading}
+                </p>
+                <div class="flex flex-wrap gap-2 justify-center">
+                  <a
+                    href={calendar.google}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(150,112,91,0.08); border: 1px solid rgba(150,112,91,0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
+                  >
+                    {c.calendar.google}
+                  </a>
+                  <a
+                    href={calendar.ics}
+                    download="homegrown-party.ics"
+                    style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(150,112,91,0.08); border: 1px solid rgba(150,112,91,0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
+                  >
+                    {c.calendar.apple}
+                  </a>
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
     </div>
