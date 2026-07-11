@@ -50,7 +50,8 @@ export interface KitOrderRecord {
   reference: string // short human ref (party-store pattern)
   createdAt: string // ISO
   contact: { name: string; email: string; phone: string; address: string }
-  crafts: { craftId: string; name: string; qty: number; perHeadCents: number }[]
+  /** `personalized` crafts are made to order — staff collect names/details before assembly. */
+  crafts: { craftId: string; name: string; qty: number; perHeadCents: number; personalized?: boolean }[]
   guests: number
   /** Absent for crafts-only orders (no rental deposit, no return tracking). */
   theme?: { themeId: string; ledgerThemeId: string; serves: number; packagePriceCents: number; depositCents: number }

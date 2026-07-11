@@ -38,6 +38,8 @@ interface KitOrderRequest {
   partyDate: string
   contact: { name: string; email: string; phone: string; address: string }
   rentalTermsAccepted?: boolean
+  /** Required when any craft is personalized (made-to-order, non-refundable). */
+  personalizedAck?: boolean
   paymentToken: string
 }
 
@@ -215,7 +217,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // Resolve crafts against the live catalog — the charged price NEVER comes from
   // the client. A client-sent price that disagrees means a stale (or tampered)
   // page: refuse rather than charge an amount the customer wasn't shown.
-  let resolvedCrafts: { craftId: string; name: string; perHeadCents: number }[]
+  let resolvedCrafts: { craftId: string; name: string; perHeadCents: number; personalized?: boolean }[]
   try {
     const catalog = await fetchPartyCrafts()
     const missing = crafts.find((c) => !catalog.some((k) => k.id === c.craftId))
@@ -231,11 +233,17 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     }
     resolvedCrafts = crafts.map((c) => {
       const k = catalog.find((kk) => kk.id === c.craftId)!
-      return { craftId: k.id, name: k.name, perHeadCents: k.perHeadCents }
+      return { craftId: k.id, name: k.name, perHeadCents: k.perHeadCents, personalized: k.personalized || undefined }
     })
   } catch (err) {
     logger.error('Craft catalog lookup failed', { error: String(err) })
     return errorResponse("We couldn't verify craft pricing. Your card was not charged — please try again.", 502)
+  }
+
+  // Made-to-order crafts bind the customer to a non-refundable commitment —
+  // the acknowledgment is enforced HERE (catalog truth), not just in the UI.
+  if (resolvedCrafts.some((c) => c.personalized) && !body.personalizedAck) {
+    return errorResponse('Please confirm the made-to-order terms for personalized crafts.', 400)
   }
 
   // --- Reserve → charge → confirm (LR-1 book-before-charge for the theme week) ---
@@ -464,7 +472,7 @@ function buildRecord(input: {
   paymentId: string
   reference: string
   contact: KitOrderRequest['contact']
-  crafts: KitOrderRequest['crafts']
+  crafts: { craftId: string; name: string; perHeadCents: number; personalized?: boolean }[]
   guests: number
   theme?: ResolvedTheme
   partyDate: string
@@ -485,7 +493,7 @@ function buildRecord(input: {
       phone: input.contact.phone,
       address: input.contact.address.trim(),
     },
-    crafts: input.crafts.map((c) => ({ craftId: c.craftId, name: c.name, qty: input.guests, perHeadCents: c.perHeadCents })),
+    crafts: input.crafts.map((c) => ({ craftId: c.craftId, name: c.name, qty: input.guests, perHeadCents: c.perHeadCents, personalized: c.personalized })),
     guests: input.guests,
     theme: input.theme
       ? {

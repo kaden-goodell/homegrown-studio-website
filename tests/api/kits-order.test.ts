@@ -277,6 +277,26 @@ describe('POST /api/kits/order.json', () => {
     expect(await getWeekClaims('gilded', WEEK_KEY)).toHaveLength(0)
   })
 
+  it('rejects a personalized craft without the made-to-order acknowledgment, 400 pre-charge', async () => {
+    mockFetchPartyCrafts.mockResolvedValue([
+      { id: 'craft-1', name: 'Tote Bag', perHeadCents: 2000, perHeadMaxCents: 2000, description: '', imageUrl: null, personalized: true, popular: false },
+    ])
+    const res = await POST(ctx(makeBody()))
+    expect(res.status).toBe(400)
+    expect((await res.json()).detail).toMatch(/made-to-order/)
+    expect(mockCreateOrder).not.toHaveBeenCalled()
+    expect(await getWeekClaims('gilded', WEEK_KEY)).toHaveLength(0)
+  })
+
+  it('accepts a personalized craft WITH the acknowledgment and stamps the record', async () => {
+    mockFetchPartyCrafts.mockResolvedValue([
+      { id: 'craft-1', name: 'Tote Bag', perHeadCents: 2000, perHeadMaxCents: 2000, description: '', imageUrl: null, personalized: true, popular: false },
+    ])
+    const res = await POST(ctx(makeBody({ personalizedAck: true })))
+    expect(res.status).toBe(200)
+    expect(mockCreateKitOrder.mock.calls[0][0].crafts[0].personalized).toBe(true)
+  })
+
   it('rejects a craft id that is not in the catalog with 400', async () => {
     const res = await POST(ctx(makeBody({ crafts: [{ craftId: 'not-a-craft', name: 'Fake', perHeadCents: 2000 }] })))
     expect(res.status).toBe(400)

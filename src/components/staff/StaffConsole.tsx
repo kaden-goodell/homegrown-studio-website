@@ -347,7 +347,7 @@ interface KitOrder {
   reference: string
   createdAt: string
   contact: { name: string; email: string; phone: string; address: string }
-  crafts: { craftId: string; name: string; qty: number; perHeadCents: number }[]
+  crafts: { craftId: string; name: string; qty: number; perHeadCents: number; personalized?: boolean }[]
   guests: number
   theme?: { themeId: string; ledgerThemeId: string; serves: number; packagePriceCents: number; depositCents: number }
   partyDate: string
@@ -451,7 +451,11 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
         {isThemed && <Badge tone="muted">🎀 {themeDisplay(order.theme!.themeId)} · serves {order.theme!.serves}</Badge>}
         {!isThemed && <Badge tone="muted">Crafts only</Badge>}
         <Badge tone="muted">👥 {order.guests}</Badge>
-        {order.crafts.map((c) => <Badge key={c.craftId} tone="muted">{c.name} ×{c.qty}</Badge>)}
+        {order.crafts.map((c) => (
+          <Badge key={c.craftId} tone={c.personalized ? 'alert' : 'muted'}>
+            {c.personalized ? '✏️ ' : ''}{c.name} ×{c.qty}{c.personalized ? ' — collect names!' : ''}
+          </Badge>
+        ))}
       </div>
 
       <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.5rem 0 0' }}>
@@ -791,7 +795,11 @@ export default function StaffConsole() {
                       </span>
                     </div>
                     <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.35rem' }}>
-                      {o.crafts.map((c) => <Badge key={c.craftId} tone="muted">{c.name} ×{c.qty}</Badge>)}
+                      {o.crafts.map((c) => (
+                        <Badge key={c.craftId} tone={c.personalized ? 'alert' : 'muted'}>
+                          {c.personalized ? '✏️ ' : ''}{c.name} ×{c.qty}
+                        </Badge>
+                      ))}
                       {o.theme
                         ? <Badge tone="muted">🎀 {themeDisplay(o.theme.themeId)} · serves {o.theme.serves}</Badge>
                         : <Badge tone="muted">Crafts only</Badge>}

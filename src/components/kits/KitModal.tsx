@@ -27,6 +27,7 @@ interface Craft {
   perHeadMaxCents?: number
   description?: string
   imageUrl?: string | null
+  personalized?: boolean
   popular?: boolean
 }
 
@@ -138,6 +139,10 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
 
   // Selections
   const [selectedCraft, setSelectedCraft] = useState<Craft | null>(null)
+  // Personalized crafts are made to order — the non-refundable acknowledgment
+  // must be re-confirmed per craft (mirrors PartyModal).
+  const [ackPersonalized, setAckPersonalized] = useState(false)
+  useEffect(() => { setAckPersonalized(false) }, [selectedCraft?.id])
   const [guests, setGuests] = useState<number>(10)
   // null = undecided; 'none' = crafts-only; otherwise a theme id.
   const [themeChoice, setThemeChoice] = useState<string | 'none' | null>(null)
@@ -226,8 +231,10 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
     if (completed) setConfirmDiscard(false)
   }, [completed])
 
-  // Craft preselected from a landing card → drop the craft step.
-  const craftSettled = !!initialCraftId && !!selectedCraft && selectedCraft.id === initialCraftId
+  // Craft preselected from a landing card → drop the craft step — UNLESS it's
+  // personalized: the made-to-order acknowledgment lives on that step.
+  const craftSettled =
+    !!initialCraftId && !!selectedCraft && selectedCraft.id === initialCraftId && !selectedCraft.personalized
   const steps = useMemo(() => visibleSteps({ craftSettled }), [craftSettled])
 
   // Keep the current step valid as settled steps drop out.
@@ -406,6 +413,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             address: address.trim(),
           },
           rentalTermsAccepted: hasTheme ? rentalTermsAccepted : undefined,
+          personalizedAck: selectedCraft.personalized ? ackPersonalized : undefined,
           paymentToken: token,
         }),
       })
@@ -676,7 +684,44 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                 )
               })}
             </div>
-            <button type="button" onClick={goNext} disabled={!selectedCraft} style={primaryButtonStyle(!!selectedCraft)}>
+            {selectedCraft?.personalized && (
+              <div
+                style={{
+                  marginBottom: '1.5rem',
+                  padding: '1rem 1.125rem',
+                  borderRadius: '0.75rem',
+                  border: '1px solid rgba(180, 83, 9, 0.35)',
+                  background: 'rgba(251, 191, 36, 0.12)',
+                }}
+              >
+                <p style={{ margin: 0, fontSize: '0.875rem', fontWeight: 600, color: '#92400e' }}>
+                  Heads up — this craft is made to order
+                </p>
+                <p style={{ margin: '0.35rem 0 0.75rem', fontSize: '0.8125rem', lineHeight: 1.5, color: '#92400e' }}>
+                  This craft is personalized and made to order for your group. Once your items are made, they can&rsquo;t
+                  be changed or refunded. We&rsquo;ll email you after booking to collect names and personalization
+                  details before your kit is assembled.
+                </p>
+                <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={ackPersonalized}
+                    onChange={(e) => setAckPersonalized(e.target.checked)}
+                    style={{ marginTop: '0.15rem', width: '1rem', height: '1rem', flexShrink: 0, cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: '0.8125rem', fontWeight: 500, color: 'var(--color-dark)' }}>
+                    I understand these items are made to order and are non-refundable once made.
+                  </span>
+                </label>
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={goNext}
+              disabled={!selectedCraft || (!!selectedCraft.personalized && !ackPersonalized)}
+              style={primaryButtonStyle(!!selectedCraft && (!selectedCraft.personalized || ackPersonalized))}
+            >
               Continue
             </button>
           </div>
