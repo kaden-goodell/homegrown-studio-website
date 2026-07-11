@@ -21,14 +21,18 @@ export const kitConfig = {
   retrievalFeeCents: 2500,
   timezone: 'America/Chicago',
   square: {
-    // Filled by scripts/seed-kits.ts output; empty string = kits API returns 503 (not seeded yet).
-    assemblyItemId: '',
-    assemblyVariationId: '',
-    packageItemId: '',
-    depositItemId: '',
+    // Seeded 2026-07-11 by scripts/seed-kits.ts (idempotent — re-run after price/theme edits).
+    assemblyItemId: 'EBNQG4CCE7MSIMB46XLPEX6Q',
+    assemblyVariationId: '55KMJXR64K5KQ6DQ7ND6PTFO',
+    packageItemId: 'WPHWAZ4KMBWFQDLIZMJZBV3B',
+    depositItemId: 'UWYGIKNJ2S2QPF2RVX7FANLW',
     /** themeId -> { tierServes -> variationId } */
-    packageVariations: {} as Record<string, Record<number, string>>,
+    packageVariations: {
+      'gilded': { 10: 'A37CUKG2PWIK5V6S2PXE2ZJD', 15: '44BTSJOQIPMN6SBVUK3Q5EZH', 20: '2F2GAE2ICW7IKZVTYEDXBSPP' },
+      'prism': { 10: '5KDVKBTS3DC2G5WJYWOBWAAI', 15: 'O5RIATOPVNARTSA7S6NZAWIQ', 20: 'ZBHSPDA4KKY4U4K62BO5CN7R' },
+      'sweet-sixteen': { 10: 'QLTWFALFUYBMKUXGSUVB2BTL', 15: 'AYCOZL4CNEIMDDLD2ICNI2OH', 20: 'V45PVQT7CDTRS6C4JDFWRRVD' },
+    } as Record<string, Record<number, string>>,
     /** serves -> deposit variation id */
-    depositVariations: {} as Record<number, string>,
+    depositVariations: { 10: 'ZP6ZYPUZ44R4SP2XWTYZV6TE', 15: 'NEOM4WKIYS6QTDCFBDKVXZCB', 20: 'YLLVFK73DTVWODC3ETAFEGAF' } as Record<number, string>,
   },
 } as const
