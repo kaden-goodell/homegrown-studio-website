@@ -9,8 +9,8 @@ import {
 } from '@lib/kit-steps'
 
 describe('visibleSteps', () => {
-  it('full flow when nothing is preselected — guests and theme share one build step', () => {
-    expect(visibleSteps({ craftSettled: false })).toEqual(['craft', 'build', 'when', 'pay'])
+  it('full flow leads with the build step (tables first, matching the landing)', () => {
+    expect(visibleSteps({ craftSettled: false })).toEqual(['build', 'craft', 'when', 'pay'])
   })
 
   it('drops the craft step when a craft is preselected', () => {

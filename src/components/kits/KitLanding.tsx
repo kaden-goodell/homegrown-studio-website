@@ -435,6 +435,11 @@ export default function KitLanding() {
         >
           Build your kit
         </button>
+        {/* Cross-sell — /book runs the mirror-image teaser pointing here. */}
+        <p style={{ margin: '0.75rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
+          Rather party at the studio?{' '}
+          <a href="/book" style={{ color: 'var(--color-primary)', fontWeight: 600 }}>Book a party →</a>
+        </p>
       </div>
 
       {modalOpen && <KitModal onClose={closeModal} initialCraftId={initialCraftId} initialThemeId={initialThemeId} />}

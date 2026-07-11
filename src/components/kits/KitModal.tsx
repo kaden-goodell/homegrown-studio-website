@@ -107,10 +107,10 @@ function isValidEmail(email: string): boolean {
 }
 
 export default function KitModal({ onClose, initialCraftId, initialThemeId }: KitModalProps) {
-  const [currentStep, setCurrentStep] = useState<KitStepId>('craft')
+  const [currentStep, setCurrentStep] = useState<KitStepId>('build')
   const [visible, setVisible] = useState(true)
-  const [displayStep, setDisplayStep] = useState<KitStepId>('craft')
-  const prevStepRef = useRef<KitStepId>('craft')
+  const [displayStep, setDisplayStep] = useState<KitStepId>('build')
+  const prevStepRef = useRef<KitStepId>('build')
 
   // Small screens get a full-height bottom sheet instead of a floating card.
   const [sheetMode, setSheetMode] = useState(false)
@@ -199,6 +199,27 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
   }, [dirty, completed, confirmDiscard])
+
+  // Focus trap: Tab cycles within the dialog instead of escaping to the page.
+  function trapFocus(e: React.KeyboardEvent) {
+    if (e.key !== 'Tab') return
+    const root = dialogRef.current
+    if (!root) return
+    const focusables = [...root.querySelectorAll<HTMLElement>(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    )].filter((el) => !el.hasAttribute('disabled') && el.offsetParent !== null)
+    if (!focusables.length) return
+    const first = focusables[0]
+    const last = focusables[focusables.length - 1]
+    const active = document.activeElement
+    if (e.shiftKey && (active === first || active === root)) {
+      e.preventDefault()
+      last.focus()
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault()
+      first.focus()
+    }
+  }
 
   useEffect(() => {
     if (completed) setConfirmDiscard(false)
@@ -592,7 +613,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
           <div>
             <label style={{ ...labelStyle, marginBottom: '0.75rem' }}>Choose a Craft</label>
             <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0 0 0.875rem' }}>
-              Every guest makes one — we box exactly enough for your headcount. One {formatPrice(assemblyFee)} assembly fee covers packing the whole kit.
+              Every guest makes one — we box exactly enough for your headcount.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '1.5rem' }}>
               {info.crafts.map((craft) => {
@@ -689,6 +710,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
               </div>
               <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: '0.5rem' }}>
                 Kits are for {minGuests}–{maxGuests} guests. We box a craft for each — you can nudge the exact count with us before pickup.
+                A one-time {formatPrice(assemblyFee)} assembly fee covers packing everything.
               </p>
             </div>
 
@@ -819,7 +841,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                         <span style={{ fontSize: '0.72rem', color: 'var(--color-muted)' }}>
                           {open
                             ? <>pick up {formatDayChip(wk.pickupDate)} · return {formatDayChip(wk.returnBy)}</>
-                            : `${selectedTheme?.displayName ?? 'That table'} is fully booked this week`}
+                            : <>{selectedTheme?.displayName ?? 'That table'} is fully booked this week — <a href="/book" style={{ color: 'var(--color-primary)', fontWeight: 600 }}>party at the studio?</a></>}
                         </span>
                       </div>
                       {open && (
@@ -991,6 +1013,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
         aria-modal="true"
         aria-label="Build a Kit"
         tabIndex={-1}
+        onKeyDown={trapFocus}
         style={{
           width: '100%',
           maxWidth: sheetMode ? 'none' : '40rem',
@@ -1041,7 +1064,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
         {/* Selection summary chips + live total. No price surprises at the end:
             the running "Due today" figure travels with the customer from the
             first choice on (it already includes the assembly fee). */}
-        {!completed && (selectedCraft || hasTheme) && (
+        {!completed && (selectedCraft || themeChoice !== null) && (
           <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.5rem', marginBottom: '1.25rem' }}>
             {selectedCraft && (
               <span style={{ ...chipStyle, paddingLeft: selectedCraft.imageUrl ? '0.3rem' : '0.75rem' }}>
@@ -1052,9 +1075,9 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             <span style={chipStyle}>{guests} guests</span>
             {selectedTheme && <span style={chipStyle}>{selectedTheme.displayName}</span>}
             {selectedDate && <span style={chipStyle}>{formatDateLabel(selectedDate)}</span>}
-            {selectedCraft && displayStep !== 'pay' && (
+            {displayStep !== 'pay' && (
               <span style={{ ...chipStyle, marginLeft: 'auto', background: 'rgba(150, 112, 91, 0.12)', fontWeight: 600 }}>
-                {formatPrice(dueToday)} today · {formatPrice(quoteTotal)} total
+                {formatPrice(dueToday)} today{selectedCraft ? <> · {formatPrice(quoteTotal)} total</> : null}
               </span>
             )}
           </div>
