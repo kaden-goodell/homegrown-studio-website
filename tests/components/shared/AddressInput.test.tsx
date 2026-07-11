@@ -9,11 +9,13 @@ function Harness({ apiKey }: { apiKey?: string }) {
   return <AddressInput value={value} onChange={setValue} apiKey={apiKey} placeholder="Party address" />
 }
 
-function suggestionsResponse(texts: string[]) {
+function suggestionsResponse(texts: string[], distances?: (number | undefined)[]) {
   return {
     ok: true,
     json: async () => ({
-      suggestions: texts.map((t) => ({ placePrediction: { text: { text: t } } })),
+      suggestions: texts.map((t, i) => ({
+        placePrediction: { text: { text: t }, ...(distances?.[i] != null ? { distanceMeters: distances[i] } : {}) },
+      })),
     }),
   } as Response
 }
@@ -60,6 +62,23 @@ describe('AddressInput', () => {
     // Picking must not trigger a follow-up fetch for the picked value.
     await act(async () => { await vi.advanceTimersByTimeAsync(1000) })
     expect(fetchSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('re-ranks suggestions nearest-to-studio first (Google order is not distance order)', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      suggestionsResponse(
+        ['Far Ave, Fayetteville, TN', 'Near St, Madison, AL', 'Mid Rd, Athens, AL'],
+        [52_000, 3_000, 21_000],
+      )
+    )
+    render(<Harness apiKey="test-key" />)
+    fireEvent.change(screen.getByPlaceholderText('Party address'), { target: { value: TYPE } })
+    await act(async () => { await vi.advanceTimersByTimeAsync(300) })
+    // Request carries the studio origin so Google returns distances at all.
+    const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string)
+    expect(body.origin).toBeTruthy()
+    const options = screen.getAllByRole('option').map((el) => el.textContent)
+    expect(options).toEqual(['Near St, Madison, AL', 'Mid Rd, Athens, AL', 'Far Ave, Fayetteville, TN'])
   })
 
   it('does not fetch below the minimum input length', async () => {

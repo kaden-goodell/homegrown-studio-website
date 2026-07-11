@@ -32,6 +32,12 @@ const RESTRICTION = {
   high: { latitude: 35.3, longitude: -85.75 },
 }
 
+// The bias INSIDE the box: Google forbids locationBias alongside
+// locationRestriction, but `origin` returns each suggestion's distance from
+// the studio, and we re-rank nearest-first ourselves (Google's native order
+// happily puts Fayetteville above Hartselle otherwise).
+const ORIGIN = { latitude: 34.6993, longitude: -86.7483 }
+
 const MIN_CHARS = 4
 const DEBOUNCE_MS = 250
 
@@ -72,13 +78,17 @@ export default function AddressInput({ value, onChange, placeholder, style, apiK
             sessionToken: sessionRef.current,
             includedRegionCodes: ['us'],
             locationRestriction: { rectangle: RESTRICTION },
+            origin: ORIGIN,
           }),
         })
         if (!res.ok) throw new Error()
         const json = await res.json()
         const texts: string[] = (json.suggestions ?? [])
-          .map((s: any) => s.placePrediction?.text?.text)
-          .filter((t: unknown): t is string => typeof t === 'string')
+          .map((s: any) => s.placePrediction)
+          .filter((p: any) => typeof p?.text?.text === 'string')
+          .sort((a: any, b: any) =>
+            (a.distanceMeters ?? Number.MAX_SAFE_INTEGER) - (b.distanceMeters ?? Number.MAX_SAFE_INTEGER))
+          .map((p: any) => p.text.text as string)
         setSuggestions(texts)
         setOpen(texts.length > 0)
         setHighlighted(-1)
