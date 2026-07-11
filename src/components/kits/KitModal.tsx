@@ -130,8 +130,6 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
 
   // Guest bounds and package sizes come from the server (kit.config via
   // service-info) — the fallbacks only cover the pre-fetch render.
-  const minGuests = info?.minGuests ?? 10
-  const maxGuests = info?.maxGuests ?? 20
   const tierSizes = useMemo(
     () => (info?.tierSizes?.length ? [...info.tierSizes].sort((a, b) => a - b) : [10, 15, 20]),
     [info],
@@ -260,10 +258,11 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
   }
   useEffect(() => { loadServiceInfo() }, [])
 
-  // Guest count starts at the server minimum once it's known.
+  // Kits come in tier sizes only — snap any stale guest count to a real size.
   useEffect(() => {
-    if (info) setGuests((g) => Math.min(Math.max(g, info.minGuests), info.maxGuests))
-  }, [info])
+    if (info) setGuests((g) => (tierSizes.includes(g) ? g : tierSizes[0]))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info, tierSizes])
 
   // Preselect a craft from the gallery.
   useEffect(() => {
@@ -363,7 +362,10 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
   const assemblyFee = info?.assemblyFeeCents ?? 0
   const packageCents = selectedTier?.packagePriceCents ?? 0
   const depositCents = selectedTier?.depositCents ?? 0
-  const quoteTotal = craftTotal + assemblyFee + (hasTheme ? packageCents + depositCents : 0)
+  // Themed packages CONTAIN packing/prep (kit-side price); only crafts-only
+  // kits carry the flat packing charge — which doubles as their booking
+  // deposit. MUST mirror the server's quoteFor in api/kits/order.json.
+  const quoteTotal = craftTotal + (hasTheme ? packageCents + depositCents : assemblyFee)
   const dueToday = hasTheme ? depositCents : assemblyFee
   const balanceDue = Math.max(0, quoteTotal - dueToday)
   /** What the party actually costs — the refundable deposit is not a cost. */
@@ -505,7 +507,6 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
         due today
       </span>
     )
-    const partyTotal = craftTotal + assemblyFee + (hasTheme ? packageCents : 0)
     return (
       <>
         {selectedCraft && (
@@ -516,14 +517,16 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
         )}
         {hasTheme && selectedTier && (
           <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
-            <span>{selectedTheme?.displayName} — serves {selectedTier.serves}</span>
+            <span>{selectedTheme?.displayName} — serves {selectedTier.serves}, packed &amp; party-ready</span>
             <span>{formatPrice(packageCents)}</span>
           </div>
         )}
-        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
-          <span>Packed &amp; party-ready{!hasTheme && dueTodayTag}</span>
-          <span>{formatPrice(assemblyFee)}</span>
-        </div>
+        {!hasTheme && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
+            <span>Packed &amp; party-ready{dueTodayTag}</span>
+            <span>{formatPrice(assemblyFee)}</span>
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '0.5rem', marginBottom: hasTheme ? '0.375rem' : 0 }}>
           <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)' }}>Party total</span>
           <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>{formatPrice(partyTotal)}</span>
@@ -741,45 +744,22 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
         return (
           <div>
             <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ ...labelStyle, marginBottom: '0.5rem' }}>How many guests?</label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.875rem' }}>
+              <label style={{ ...labelStyle, marginBottom: '0.5rem' }}>What size party?</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
                 {tierSizes.map((n) => (
-                  <button key={n} type="button" onClick={() => setGuests(n)} style={{ ...pillButtonStyle(guests === n), minWidth: '3.25rem', padding: '0.625rem 0.75rem' }}>
-                    {n}
+                  <button key={n} type="button" onClick={() => setGuests(n)} style={{ ...pillButtonStyle(guests === n), minWidth: '6.5rem', padding: '0.75rem 1rem' }}>
+                    Serves {n}
                   </button>
                 ))}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <button
-                  type="button"
-                  aria-label="Fewer guests"
-                  onClick={() => setGuests(Math.max(minGuests, guests - 1))}
-                  disabled={guests <= minGuests}
-                  style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.5rem', border: '1px solid rgba(150, 112, 91, 0.15)', background: 'rgba(255, 255, 255, 0.8)', fontSize: '1.25rem', cursor: guests <= minGuests ? 'default' : 'pointer', opacity: guests <= minGuests ? 0.3 : 1, color: 'var(--color-dark)' }}
-                >
-                  &minus;
-                </button>
-                <span style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--color-dark)', minWidth: '2rem', textAlign: 'center' }}>{guests}</span>
-                <button
-                  type="button"
-                  aria-label="More guests"
-                  onClick={() => setGuests(Math.min(maxGuests, guests + 1))}
-                  disabled={guests >= maxGuests}
-                  style={{ width: '2.5rem', height: '2.5rem', borderRadius: '0.5rem', border: '1px solid rgba(150, 112, 91, 0.15)', background: 'rgba(255, 255, 255, 0.8)', fontSize: '1.25rem', cursor: guests >= maxGuests ? 'default' : 'pointer', opacity: guests >= maxGuests ? 0.3 : 1, color: 'var(--color-dark)' }}
-                >
-                  +
-                </button>
-              </div>
               <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: '0.5rem' }}>
-                Kits are for {minGuests}–{maxGuests} guests. We box a craft for each — you can nudge the exact count with us before pickup.
-                A flat {formatPrice(assemblyFee)} covers boxing, labels, and prep for the whole kit.
+                Kits come in three sizes — pick the one that fits your group. Every guest gets a craft, and extras are yours to keep.
               </p>
             </div>
 
             <label style={{ ...labelStyle, marginBottom: '0.25rem' }}>Add a Themed Table?</label>
             <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0 0 1rem' }}>
               A styled, photograph-worthy table that comes packed and labeled — or skip it and just take the crafts.
-              {guests !== tierGuests && <> Packages come in sizes of {tierSizes.join(' / ')}, so {guests} guests get the serves-{tierGuests} set.</>}
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', marginBottom: '1.25rem' }}>
               {info.themes.filter((t) => t.stocked).map((theme) => {
@@ -842,7 +822,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
               >
                 <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>No themed table — just crafts</span>
                 <p style={{ margin: '0.15rem 0 0', fontSize: '0.78rem', color: 'var(--color-muted)', lineHeight: 1.4 }}>
-                  Just the crafts, boxed for your group. Nothing to return.
+                  Just the crafts, boxed for your group. Nothing to return. Adds a flat {formatPrice(assemblyFee)} packed-&amp;-party-ready charge — it doubles as your booking deposit.
                 </p>
               </div>
             </div>
@@ -1129,7 +1109,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                 {selectedCraft.name}
               </span>
             )}
-            <span style={chipStyle}>{guests} guests</span>
+            <span style={chipStyle}>Serves {guests}</span>
             {selectedTheme && <span style={chipStyle}>{selectedTheme.displayName}</span>}
             {selectedDate && <span style={chipStyle}>{formatDateLabel(selectedDate)}</span>}
             {displayStep !== 'pay' && (

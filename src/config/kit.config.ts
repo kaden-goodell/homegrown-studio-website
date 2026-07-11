@@ -3,15 +3,19 @@ export const kitConfig = {
   /** Assembly fee, always charged, one per order. */
   assemblyFeeCents: 5000,
   /** Package tiers offered at launch. Tier price + deposit by tier size. */
+  // Two package prices per tier, on purpose:
+  //  - packagePriceCents: the IN-STUDIO themed-table add-on (party flow +
+  //    shared Square variations) — staff set the table, no packing happens.
+  //  - kitPackagePriceCents: the TAKE-HOME price, $50 higher — packing/labels/
+  //    prep folded in so the kit receipt carries no separate service line
+  //    (Kaden + wife, 2026-07-11 late: "include it in the cost").
   // Deposit scales with the tableware lent (~$15/setting replacement): losing
   // a serves-20 costs ~$300 in settings AND a third of a theme's fleet, so the
-  // return incentive grows with kit size. (Kaden flattened to $50 on 07-11,
-  // then reinstated tiers the same evening once the exposure math was on the
-  // table.) Re-run scripts/seed-kits.ts after editing these.
+  // return incentive grows with kit size.
   tiers: [
-    { serves: 10, packagePriceCents: 7500, depositCents: 5000 },
-    { serves: 15, packagePriceCents: 10000, depositCents: 7500 },
-    { serves: 20, packagePriceCents: 12500, depositCents: 10000 },
+    { serves: 10, packagePriceCents: 7500, kitPackagePriceCents: 12500, depositCents: 5000 },
+    { serves: 15, packagePriceCents: 10000, kitPackagePriceCents: 15000, depositCents: 7500 },
+    { serves: 20, packagePriceCents: 12500, kitPackagePriceCents: 17500, depositCents: 10000 },
   ],
   minGuests: 10,
   /** Max guests when a package is selected (largest tier). Crafts-only orders share the cap for assembly sanity. */

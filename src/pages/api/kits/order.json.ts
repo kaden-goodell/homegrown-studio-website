@@ -115,6 +115,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (guests > kitConfig.maxGuests) {
     return errorResponse(`Kits are limited to ${kitConfig.maxGuests} guests`, 400)
   }
+  // Kits come in tier sizes only (10/15/20) — crafts-only included. One box
+  // size per tier keeps assembly, pricing, and the receipt clean.
+  if (!kitConfig.tiers.some((t) => t.serves === guests)) {
+    return errorResponse(
+      `Kits come in sizes of ${kitConfig.tiers.map((t) => t.serves).join(', ')} guests`,
+      400,
+    )
+  }
 
   const contact = body.contact ?? ({} as KitOrderRequest['contact'])
   if (!contact.name?.trim() || !EMAIL_RE.test(contact.email ?? '')) {
@@ -162,7 +170,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       displayName: t.displayName,
       ledgerThemeId: t.ledgerThemeId ?? t.id,
       serves,
-      packagePriceCents: tier.packagePriceCents,
+      // Take-home price: packing/prep folded in (in-studio parties pay the
+      // lower packagePriceCents through their own flow).
+      packagePriceCents: tier.kitPackagePriceCents,
       depositCents: tier.depositCents,
       packageVariationId,
       depositVariationId,
@@ -174,14 +184,15 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const locationId = siteConfig.providers.payment.config.locationId
   const reference = generateReference()
 
-  // Deposit-only model: $50 books the week, everything else settles on the POS
-  // at pickup. For a themed kit today's charge IS the refundable rental deposit
-  // (so the return flow can refund the very payment we hold); for crafts-only
-  // it's the assembly fee (which the late-cancel policy already keeps).
+  // Deposit-only model: the deposit books the week, everything else settles on
+  // the POS at pickup. Themed kits charge the refundable rental deposit today
+  // (so the return flow can refund the very payment we hold) and their package
+  // price already CONTAINS packing/prep — no separate assembly charge. Crafts-
+  // only kits charge the flat packing fee today (which the late-cancel policy
+  // already keeps).
   const quoteFor = (craftList: { perHeadCents: number }[]) =>
     craftList.reduce((s, c) => s + c.perHeadCents * guests, 0) +
-    kitConfig.assemblyFeeCents +
-    (theme ? theme.packagePriceCents + theme.depositCents : 0)
+    (theme ? theme.packagePriceCents + theme.depositCents : kitConfig.assemblyFeeCents)
   const dueTodayCents = theme ? theme.depositCents : kitConfig.assemblyFeeCents
 
   // Dev-only: skip Square + the ledger claim entirely and return a synthetic

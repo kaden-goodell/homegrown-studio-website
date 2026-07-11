@@ -33,7 +33,9 @@ export const GET: APIRoute = async () => {
       tiers: t.stocked
         ? kitConfig.tiers.map((tier) => ({
             serves: tier.serves,
-            packagePriceCents: tier.packagePriceCents,
+            // The KIT price (prep folded in) — in-studio parties use their own
+            // service-info with the lower packagePriceCents.
+            packagePriceCents: tier.kitPackagePriceCents,
             depositCents: tier.depositCents,
           }))
         : [],

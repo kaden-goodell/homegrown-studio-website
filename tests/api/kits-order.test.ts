@@ -28,9 +28,9 @@ vi.mock('@config/kit.config', () => ({
   kitConfig: {
     assemblyFeeCents: 5000,
     tiers: [
-      { serves: 10, packagePriceCents: 7500, depositCents: 5000 },
-      { serves: 15, packagePriceCents: 10000, depositCents: 7500 },
-      { serves: 20, packagePriceCents: 12500, depositCents: 10000 },
+      { serves: 10, packagePriceCents: 7500, kitPackagePriceCents: 12500, depositCents: 5000 },
+      { serves: 15, packagePriceCents: 10000, kitPackagePriceCents: 15000, depositCents: 7500 },
+      { serves: 20, packagePriceCents: 12500, kitPackagePriceCents: 17500, depositCents: 10000 },
     ],
     minGuests: 10,
     maxGuests: 20,
@@ -240,6 +240,13 @@ describe('POST /api/kits/order.json', () => {
   it('rejects guests above the max with 400', async () => {
     const res = await POST(ctx(makeBody({ guests: 25, theme: undefined })))
     expect(res.status).toBe(400)
+    expect(mockCreateOrder).not.toHaveBeenCalled()
+  })
+
+  it('rejects a non-tier guest count (kits come in sizes of 5) with 400', async () => {
+    const res = await POST(ctx(makeBody({ guests: 12, theme: undefined })))
+    expect(res.status).toBe(400)
+    expect((await res.json()).detail).toMatch(/sizes of 10, 15, 20/)
     expect(mockCreateOrder).not.toHaveBeenCalled()
   })
 
