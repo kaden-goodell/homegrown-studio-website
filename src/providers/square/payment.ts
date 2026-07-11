@@ -5,6 +5,7 @@ import type {
   Discount,
   Order,
   Payment,
+  Refund,
   PaymentClientConfig,
 } from '../interfaces/payment'
 import type { SquareConfig } from '../../config/site.config'
@@ -94,6 +95,7 @@ export class SquarePaymentProvider implements PaymentProvider {
 
     return {
       id: order.id!,
+      version: order.version!,
       lineItems: params.lineItems,
       discounts: params.discounts ?? [],
       totalAmount: Number(order.totalMoney!.amount!),
@@ -139,6 +141,58 @@ export class SquarePaymentProvider implements PaymentProvider {
       status: PAYMENT_STATUS_MAP[payment.status as string] ?? 'pending',
       receiptUrl: payment.receiptUrl ?? undefined,
     }
+  }
+
+  async refundPayment(input: {
+    paymentId: string
+    amountCents: number
+    idempotencyKey: string
+    reason?: string
+  }): Promise<Refund> {
+    logger.info('Refunding payment', {
+      paymentId: input.paymentId,
+      amountCents: input.amountCents,
+    })
+
+    const response = await this.client.refunds.refundPayment({
+      idempotencyKey: input.idempotencyKey,
+      paymentId: input.paymentId,
+      amountMoney: {
+        amount: BigInt(input.amountCents),
+        currency: 'USD',
+      },
+      reason: input.reason,
+    })
+
+    const refund = response.refund!
+
+    logger.info('Payment refunded', { refundId: refund.id, status: refund.status })
+
+    return {
+      id: refund.id!,
+      paymentId: refund.paymentId!,
+      amountCents: Number(refund.amountMoney!.amount!),
+      status: String(refund.status),
+    }
+  }
+
+  async cancelOrder(input: {
+    orderId: string
+    version: number
+    locationId: string
+  }): Promise<void> {
+    logger.info('Cancelling order', { orderId: input.orderId, version: input.version })
+
+    await this.client.orders.update({
+      orderId: input.orderId,
+      order: {
+        locationId: input.locationId,
+        version: input.version,
+        state: 'CANCELED',
+      },
+    })
+
+    logger.info('Order cancelled', { orderId: input.orderId })
   }
 
   getClientConfig(): PaymentClientConfig {

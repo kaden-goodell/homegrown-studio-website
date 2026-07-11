@@ -3,12 +3,17 @@ import type {
   PaymentClientConfig,
   Order,
   Payment,
+  Refund,
   LineItem,
   Discount,
 } from '../interfaces/payment'
 
 export class MockPaymentProvider implements PaymentProvider {
   private nextId = 1
+
+  /** Records of calls, for test assertions. */
+  refundCalls: { paymentId: string; amountCents: number; idempotencyKey: string; reason?: string }[] = []
+  cancelOrderCalls: { orderId: string; version: number; locationId: string }[] = []
 
   private generateId(prefix: string): string {
     return `${prefix}-${this.nextId++}`
@@ -37,6 +42,7 @@ export class MockPaymentProvider implements PaymentProvider {
 
     return {
       id: this.generateId('mock-order'),
+      version: 1,
       lineItems: params.lineItems,
       discounts,
       totalAmount: total,
@@ -69,6 +75,26 @@ export class MockPaymentProvider implements PaymentProvider {
       status: 'completed',
       receiptUrl: `https://mock-receipt.example.com/${id}`,
     }
+  }
+
+  async refundPayment(input: {
+    paymentId: string
+    amountCents: number
+    idempotencyKey: string
+    reason?: string
+  }): Promise<Refund> {
+    this.refundCalls.push({ ...input })
+
+    return {
+      id: this.generateId('mock-refund'),
+      paymentId: input.paymentId,
+      amountCents: input.amountCents,
+      status: 'COMPLETED',
+    }
+  }
+
+  async cancelOrder(input: { orderId: string; version: number; locationId: string }): Promise<void> {
+    this.cancelOrderCalls.push({ ...input })
   }
 
   getClientConfig(): PaymentClientConfig {

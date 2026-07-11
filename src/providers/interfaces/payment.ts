@@ -15,11 +15,19 @@ export interface Discount {
 
 export interface Order {
   id: string
+  version: number              // Square order version; required to update/cancel
   lineItems: LineItem[]
   discounts: Discount[]
   totalAmount: number          // cents
   currency: string
   status: 'draft' | 'open' | 'completed' | 'cancelled'
+}
+
+export interface Refund {
+  id: string
+  paymentId: string
+  amountCents: number
+  status: string
 }
 
 export interface Payment {
@@ -51,6 +59,16 @@ export interface PaymentProvider {
     currency: string
     buyerEmailAddress?: string
   }): Promise<Payment>
+
+  refundPayment(input: {
+    paymentId: string
+    amountCents: number
+    idempotencyKey: string
+    reason?: string
+  }): Promise<Refund>
+
+  /** Void an order after a failed charge (kits: no orphaned orders). */
+  cancelOrder(input: { orderId: string; version: number; locationId: string }): Promise<void>
 
   getClientConfig(): PaymentClientConfig
 }
