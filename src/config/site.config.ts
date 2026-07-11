@@ -244,7 +244,7 @@ export const siteConfig: SiteConfig = {
       types: partyTypes,
     },
     kits: {
-      enabled: false,
+      enabled: true,
     },
     programs: {
       enabled: false,

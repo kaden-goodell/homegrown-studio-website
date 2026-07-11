@@ -5,8 +5,8 @@ export const kitConfig = {
   /** Package tiers offered at launch. Tier price + deposit by tier size. */
   tiers: [
     { serves: 10, packagePriceCents: 7500, depositCents: 5000 },
-    { serves: 15, packagePriceCents: 10000, depositCents: 7500 },
-    { serves: 20, packagePriceCents: 12500, depositCents: 10000 },
+    { serves: 15, packagePriceCents: 10000, depositCents: 5000 },
+    { serves: 20, packagePriceCents: 12500, depositCents: 5000 },
   ],
   minGuests: 10,
   /** Max guests when a package is selected (largest tier). Crafts-only orders share the cap for assembly sanity. */
