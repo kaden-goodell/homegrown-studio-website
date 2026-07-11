@@ -41,6 +41,9 @@ export interface SiteConfig {
       enabled: boolean
       types: EventTypeConfig[]
     }
+    kits: {
+      enabled: boolean
+    }
     programs: {
       enabled: boolean
       types: ProgramConfig[]
@@ -239,6 +242,9 @@ export const siteConfig: SiteConfig = {
     parties: {
       enabled: true,
       types: partyTypes,
+    },
+    kits: {
+      enabled: false,
     },
     programs: {
       enabled: false,

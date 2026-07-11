@@ -1,0 +1,55 @@
+export interface KitTheme {
+  id: string            // stable slug, used in kitConfig.square.packageVariations keys
+  displayName: string
+  tagline: string
+  scheme: string        // 'gold' | 'rainbow' | ... (styling hook)
+  photo: string         // placeholder until Kaden's real shots
+  /** Stocked themes are bookable; others render as waitlist cards (notify-me). */
+  stocked: boolean
+  /** Weekly settings ledger inputs (stocked themes only). */
+  ownedSettings: number
+  heroSets: number
+  /** Contents card lists (draft — Kaden refines in NEEDS-FROM-KADEN). */
+  keeps: string[]       // consumables the customer keeps
+  returns: string[]     // rental pieces that come back
+  /** Styling variant of another theme: shares that theme's ledger (same physical tableware). */
+  ledgerThemeId?: string
+}
+
+export const kitThemes: KitTheme[] = [
+  {
+    id: 'gilded', displayName: 'The Gilded Table', tagline: 'Warm gold, candlelight, and celebration',
+    scheme: 'gold', photo: '/images/party-hero.jpg', stocked: true, ownedSettings: 45, heroSets: 3,
+    keeps: ['Napkins', 'Candles'], returns: ['Liberty-print plates', 'Cake stand', 'Trays', 'Candle holders'],
+  },
+  {
+    id: 'prism', displayName: 'The Prism Table', tagline: 'Every color invited',
+    scheme: 'rainbow', photo: '/images/party-hero.jpg', stocked: true, ownedSettings: 45, heroSets: 3,
+    keeps: ['Napkins', 'Candles'], returns: ['Liberty-print plates', 'Cake stand', 'Trays', 'Candle holders'],
+  },
+  {
+    id: 'sweet-sixteen', displayName: 'The Sweet Sixteen', tagline: 'Sixteen only happens once',
+    scheme: 'sweet-sixteen', photo: '/images/party-hero.jpg', stocked: true, ownedSettings: 0, heroSets: 0,
+    keeps: ['Napkins', 'Candles', 'Sweet-sixteen details'], returns: ['Liberty-print plates', 'Cake stand', 'Trays', 'Candle holders'],
+    ledgerThemeId: 'gilded', // styling variant: consumes Gilded's tableware
+  },
+  { id: 'sterling', displayName: 'The Sterling Table', tagline: 'Polished, cool, and effortlessly elegant', scheme: 'silver', photo: '/images/party-hero.jpg', stocked: false, ownedSettings: 0, heroSets: 0, keeps: [], returns: [] },
+  { id: 'bluebell', displayName: 'The Bluebell Table', tagline: 'Fresh blues straight out of an English garden', scheme: 'blue', photo: '/images/party-hero.jpg', stocked: false, ownedSettings: 0, heroSets: 0, keeps: [], returns: [] },
+  { id: 'linen', displayName: 'The Linen Table', tagline: 'Soft naturals for gatherings that glow quietly', scheme: 'neutral', photo: '/images/party-hero.jpg', stocked: false, ownedSettings: 0, heroSets: 0, keeps: [], returns: [] },
+]
+
+export const kitContent = {
+  hero: {
+    eyebrow: 'Take-Home Party Kits',
+    headline: 'The party, boxed and beautiful',
+    subline: 'Crafts for everyone, a styled table worth photographing, and nothing to plan. Pick up Thursday — we take it from there.',
+  },
+  howItWorks: [
+    { n: '1', title: 'Order a week ahead', text: 'Kits need 7 days of love and assembly.' },
+    { n: '2', title: 'Pick up Thursday', text: 'Everything packed, styled, and labeled — crafts, table, the works.' },
+    { n: '3', title: 'Party, then return the pretties', text: 'Keep the crafts and consumables. Rental pieces come home to us by Wednesday, 4–6 PM.' },
+  ],
+  depositLine: 'Fully refunded when the rental pieces come home clean by Wednesday.',
+  earlyDropLine: 'Need a different drop-off time? Reach out and we’ll try — no promises we can make anything work.',
+  faq: [] as { q: string; a: string }[], // TODO(Kaden): kit FAQ copy
+} as const
