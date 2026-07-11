@@ -134,3 +134,84 @@ export async function sendPartyConfirmationEmail(input: {
       : [],
   })
 }
+
+export async function sendKitConfirmationEmail(input: {
+  to: string; hostName: string; reference: string
+  crafts: { name: string; qty: number }[]
+  themeName?: string
+  /** What the customer keeps vs. rental pieces that come home to us. */
+  keeps?: string[]; returns?: string[]
+  /** The three dates, pre-formatted for display (party day, pickup Thursday, return-by Wednesday). */
+  partyDate: string; pickupDate: string; returnBy: string; returnWindow: string
+  earlyDropLine: string
+  /** Refundable rental deposit, if a themed package was ordered. */
+  depositCents?: number; totalChargedCents: number; receiptUrl: string | null
+}): Promise<{ sent: boolean }> {
+  const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
+  const total = dollars(input.totalChargedCents)
+  const craftLines = input.crafts.map((c) => `${c.name} × ${c.qty}`)
+  const keeps = input.keeps ?? []
+  const returns = input.returns ?? []
+  const depositLine = input.depositCents
+    ? `Your ${dollars(input.depositCents)} deposit is fully refunded when the rental pieces come home clean by Wednesday.`
+    : ''
+
+  const text = [
+    `Your kit is booked, ${input.hostName}!`,
+    `${craftLines.join(', ')}${input.themeName ? ` · ${input.themeName}` : ''}`,
+    ``,
+    `The three dates to remember:`,
+    `Party: ${input.partyDate}`,
+    `Pick up: Thursday ${input.pickupDate}`,
+    `Return by: Wednesday ${input.returnBy}, ${input.returnWindow}`,
+    ``,
+    ...(keeps.length ? [`Yours to keep:`, ...keeps.map((k) => `  • ${k}`), ``] : []),
+    ...(returns.length ? [`Comes home to us (rental pieces):`, ...returns.map((r) => `  • ${r}`), ``] : []),
+    ...(depositLine ? [depositLine, ``] : []),
+    `Drop the rental pieces back Wednesday, ${input.returnWindow}.`,
+    input.earlyDropLine,
+    ``,
+    `Total paid today: ${total}.`,
+    ...(input.receiptUrl ? [``, `Receipt: ${input.receiptUrl}`] : []),
+    ``,
+    `Homegrown Studio · 525 Hughes Rd Ste F, Madison, AL · Booking ref ${input.reference}`,
+  ].join('\n')
+
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  // Brand primary ≈ #96705B; email-safe inline styles matching the party email.
+  const P = 'margin:0 0 6px;font-size:14px;color:#3d3630;line-height:1.5'
+  const MUTED = 'margin:0 0 6px;font-size:13px;color:#8a7f75;line-height:1.5'
+  const listHtml = (items: string[]) =>
+    `<ul style="margin:0 0 10px;padding:0 0 0 18px;font-size:14px;color:#3d3630;line-height:1.6;">${items
+      .map((i) => `<li>${esc(i)}</li>`)
+      .join('')}</ul>`
+  // The three dates as a bold, scannable block — the thing hosts forget.
+  const dateRow = (label: string, value: string) =>
+    `<tr><td style="padding:4px 12px 4px 0;font-size:13px;color:#8a7f75;white-space:nowrap;">${esc(label)}</td><td style="padding:4px 0;font-size:15px;font-weight:700;color:#3d3630;">${esc(value)}</td></tr>`
+  const html = `
+<div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#96705B;font-weight:700;">Homegrown Studio</p>
+  <h1 style="margin:0 0 2px;font-size:22px;color:#3d3630;">Your kit is booked!</h1>
+  <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#3d3630;">${esc(craftLines.join(', '))}${input.themeName ? ` &middot; ${esc(input.themeName)}` : ''}</p>
+  <p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700;">The three dates</p>
+  <table style="border-collapse:collapse;margin:0 0 16px;">${dateRow('Party', input.partyDate)}${dateRow('Pick up', `Thursday ${input.pickupDate}`)}${dateRow('Return by', `Wednesday ${input.returnBy}, ${input.returnWindow}`)}</table>
+  ${keeps.length ? `<p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700;">Yours to keep</p>${listHtml(keeps)}` : ''}
+  ${returns.length ? `<p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700;">Comes home to us</p>${listHtml(returns)}` : ''}
+  ${depositLine ? `<p style="${P}"><strong>${esc(depositLine)}</strong></p>` : ''}
+  <p style="${P}">Drop the rental pieces back Wednesday, ${esc(input.returnWindow)}.</p>
+  <p style="${MUTED}">${esc(input.earlyDropLine)}</p>
+  <p style="${P}"><strong>Total paid today: ${esc(total)}.</strong></p>
+  ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#96705B;font-size:13px;">View your receipt</a></p>` : ''}
+  <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
+  <p style="margin:0;font-size:12px;color:#8a7f75;">Homegrown Studio &middot; 525 Hughes Rd Ste F, Madison, AL &middot; Booking ref ${esc(input.reference)}</p>
+</div>`
+
+  // Unique subject with the pickup date + reference (house rule): keeps Gmail
+  // from threading repeat bookings and trimming "duplicate" content.
+  return sendEmail({
+    to: input.to,
+    subject: `Your kit is booked — pickup Thursday ${input.pickupDate} (${input.reference})`,
+    html,
+    text,
+  })
+}
