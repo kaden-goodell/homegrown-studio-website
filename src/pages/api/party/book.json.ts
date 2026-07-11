@@ -63,6 +63,8 @@ interface BookRequest {
     perHeadCents: number
     /** Catalog description — rides into the confirmation email only. */
     description?: string
+    /** Catalog image — rides into the confirmation email only. */
+    imageUrl?: string
   }
   people: number
   customer: {
@@ -117,6 +119,16 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
   const locationId = siteConfig.providers.booking.config.locationId
 
+  // Craft image for the confirmation email: absolute http(s) only; site-relative
+  // paths resolve against this deployment's origin. Anything else is dropped.
+  const requestOrigin = new URL(request.url).origin
+  const rawImage = String(body.craft.imageUrl ?? '')
+  const craftImageUrl = /^https?:\/\//.test(rawImage)
+    ? rawImage
+    : rawImage.startsWith('/')
+      ? `${requestOrigin}${rawImage}`
+      : ''
+
   let bookingIdForLog: string | undefined
 
   // Dev-only: skip Square entirely and return a synthetic confirmation so the
@@ -137,6 +149,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           hostName: body.customer.firstName,
           craftName: body.craft.name,
           craftDescription: String(body.craft.description ?? '').slice(0, 2000),
+          craftImageUrl,
           slotLabel: bypassSlotLabel,
           hostPageUrl: `${bypassOrigin}/party/${encodeURIComponent(bookingId)}?key=${encodeURIComponent(hostToken)}`,
           inviteUrl: partyInviteUrl(
@@ -328,6 +341,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       hostName: body.customer.firstName,
       craftName: body.craft.name,
       craftDescription: String(body.craft.description ?? '').slice(0, 2000),
+      craftImageUrl,
       slotLabel,
       hostPageUrl,
       inviteUrl,

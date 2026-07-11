@@ -44,7 +44,7 @@ export async function sendEmail(input: { to: string; subject: string; html: stri
 }
 
 export async function sendPartyConfirmationEmail(input: {
-  to: string; hostName: string; craftName: string; craftDescription?: string; slotLabel: string
+  to: string; hostName: string; craftName: string; craftDescription?: string; craftImageUrl?: string; slotLabel: string
   hostPageUrl: string; inviteUrl: string; totalChargedCents: number; receiptUrl: string | null
 }): Promise<{ sent: boolean }> {
   const fee = `$${(input.totalChargedCents / 100).toFixed(2).replace(/\.00$/, '')}`
@@ -83,6 +83,7 @@ export async function sendPartyConfirmationEmail(input: {
   <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#96705B;font-weight:700;">Homegrown Studio</p>
   <h1 style="margin:0 0 2px;font-size:22px;color:#3d3630;">You&rsquo;re booked!</h1>
   <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#3d3630;">${esc(input.craftName)} &middot; ${esc(input.slotLabel)}</p>
+  ${input.craftImageUrl ? `<img src="${esc(input.craftImageUrl)}" alt="${esc(input.craftName)}" width="552" style="display:block;width:100%;max-width:552px;border-radius:12px;margin:0 0 14px;" />` : ''}
   ${descriptionHtml ? `<p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700;">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
   <p style="${P}"><strong>Studio fee paid today: ${esc(fee)}.</strong> Crafts are paid at the studio based on who comes.</p>
   <div style="margin:18px 0 6px;">
