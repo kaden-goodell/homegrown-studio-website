@@ -150,7 +150,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       { bookingId, craftName: body.craft.name, slotLabel: bypassSlotLabel, startIso: body.startTime },
       bypassOrigin,
     )
-    // Host's calendar event — token-free details (the invite link is shareable).
+    // Host's calendar event — token-free details ON PURPOSE: hosts often invite
+    // guests via this very calendar event, and the party-page URL is the key to
+    // the whole roster. The email itself carries the private link instead.
     const bypassCalEvent = {
       title: `${body.craft.name} — Party at Homegrown Studio`,
       startIso: body.startTime,

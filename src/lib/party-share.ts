@@ -107,22 +107,33 @@ export function addMinutesIso(startIso: string, minutes: number): string {
 /**
  * mailto: link that opens the host's mail app with a ready-to-send invitation
  * — subject and body pre-filled, guests land on the invite/RSVP page. The host
- * just adds addresses and hits send.
+ * just adds addresses and hits send. Plain text only (mailto bodies can't
+ * carry HTML), structured to mirror the invitation page's details.
  */
 export function partyInviteMailto(input: {
   craftName: string
   slotLabel: string
   inviteUrl: string
   title?: string
+  /** Venue line; defaults to the studio address. */
+  where?: string
 }): string {
   const subject = input.title ? `You’re invited — ${input.title}!` : 'You’re invited to a craft party!'
   const body = [
-    `You’re invited! We’re making ${input.craftName} at Homegrown Studio — ${input.slotLabel}.`,
+    'Hi!',
     '',
-    'Everything you need (details + a quick RSVP) is here:',
+    input.title
+      ? `You’re invited to ${input.title} at Homegrown Studio!`
+      : 'You’re invited to a private craft party at Homegrown Studio!',
+    '',
+    `🎨 We’re making: ${input.craftName}`,
+    `🗓 When: ${input.slotLabel}`,
+    `📍 Where: ${input.where ?? 'Homegrown Studio · 525 Hughes Rd Ste F, Madison, AL'}`,
+    '',
+    'Details + a quick RSVP (takes about a minute):',
     input.inviteUrl,
     '',
-    'See you there!',
+    'Hope you can make it!',
   ].join('\n')
   return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 }
