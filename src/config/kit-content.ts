@@ -45,7 +45,7 @@ export const kitContent = {
     subline: 'Crafts for everyone, a styled table worth photographing, and nothing to plan. Pick up Thursday — we take it from there.',
   },
   howItWorks: [
-    { n: '1', title: 'Book with a $50 deposit', text: 'Kits need 7 days of love and assembly — $50 holds your week, the rest at pickup.' },
+    { n: '1', title: 'Book with a small deposit', text: 'Kits need 7 days of love and assembly — from $50 holds your week, the rest at pickup.' },
     { n: '2', title: 'Pick up Thursday', text: 'Everything packed, styled, and labeled — crafts, table, the works. Settle the balance when you grab it.' },
     { n: '3', title: 'Party, then return the pretties', text: 'Keep the crafts and consumables. Rental pieces come home to us by Wednesday, 4–6 PM.' },
   ],
@@ -55,7 +55,7 @@ export const kitContent = {
    *  full agreement rides along with the pickup paperwork. */
   rentalTermsBrief: [
     'The rental pieces (your kit lists them) come home to us by Wednesday, 4–6 PM.',
-    'Your $50 deposit is refunded in full when they’re back, clean and complete.',
+    'Your deposit is refunded in full when they’re back, clean and complete.',
     'Missing, damaged, or dirty pieces may be deducted from the deposit.',
     'If we have to come collect the pieces, a $25 retrieval fee comes out of the deposit.',
   ],

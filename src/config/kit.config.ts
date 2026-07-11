@@ -3,10 +3,15 @@ export const kitConfig = {
   /** Assembly fee, always charged, one per order. */
   assemblyFeeCents: 5000,
   /** Package tiers offered at launch. Tier price + deposit by tier size. */
+  // Deposit scales with the tableware lent (~$15/setting replacement): losing
+  // a serves-20 costs ~$300 in settings AND a third of a theme's fleet, so the
+  // return incentive grows with kit size. (Kaden flattened to $50 on 07-11,
+  // then reinstated tiers the same evening once the exposure math was on the
+  // table.) Re-run scripts/seed-kits.ts after editing these.
   tiers: [
     { serves: 10, packagePriceCents: 7500, depositCents: 5000 },
-    { serves: 15, packagePriceCents: 10000, depositCents: 5000 },
-    { serves: 20, packagePriceCents: 12500, depositCents: 5000 },
+    { serves: 15, packagePriceCents: 10000, depositCents: 7500 },
+    { serves: 20, packagePriceCents: 12500, depositCents: 10000 },
   ],
   minGuests: 10,
   /** Max guests when a package is selected (largest tier). Crafts-only orders share the cap for assembly sanity. */
