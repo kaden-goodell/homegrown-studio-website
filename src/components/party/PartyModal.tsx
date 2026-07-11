@@ -468,6 +468,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             id: selectedCraft.id,
             name: selectedCraft.name,
             perHeadCents: selectedCraft.perHeadCents,
+            description: selectedCraft.description ?? '',
           },
           people,
           customer: {

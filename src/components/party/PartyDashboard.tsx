@@ -3,12 +3,14 @@ import { partyConfig } from '@config/party.config'
 import { partyContent } from '@config/party-content'
 import {
   partyInviteUrl,
+  partyWaiverUrl,
   googleCalendarUrl,
   buildIcs,
   icsDataUrl,
   addMinutesIso,
 } from '@lib/party-share'
 import { inviteContent } from '@config/invite-content'
+import { waiverContent } from '@config/waiver-content'
 import { formatWhen } from '@lib/studio-time'
 
 interface Props {
@@ -183,6 +185,9 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
           </button>
           <a href={googleCalendarUrl(calEvent)} target="_blank" rel="noopener noreferrer" style={chip}>📅 Google Calendar</a>
           <a href={icsDataUrl(buildIcs(calEvent))} download="homegrown-party.ics" style={chip}>📅 Apple / Outlook</a>
+          <a href={partyWaiverUrl(bookingId, origin)} target="_blank" rel="noopener noreferrer" style={chip}>
+            {waiverContent.handoff.hostCta}
+          </a>
         </div>
       </div>
 

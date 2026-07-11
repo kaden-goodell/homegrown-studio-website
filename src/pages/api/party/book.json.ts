@@ -61,6 +61,8 @@ interface BookRequest {
     id: string
     name: string
     perHeadCents: number
+    /** Catalog description — rides into the confirmation email only. */
+    description?: string
   }
   people: number
   customer: {
@@ -185,7 +187,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         customerId: customer.id,
         eventType: 'party',
         guestCount: people,
-        specialRequests: JSON.stringify({ craft: body.craft }),
+        // Description deliberately excluded — Square note fields have length
+        // caps; the description only rides into the confirmation email.
+        specialRequests: JSON.stringify({ craft: { id: body.craft.id, name: body.craft.name, perHeadCents: body.craft.perHeadCents } }),
         teamMemberId: partyConfig.square.defaultTeamMemberId,
         serviceVariationId: body.serviceVariationId,
         serviceVariationVersion: body.serviceVariationVersion,
@@ -298,6 +302,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       to: body.customer.email,
       hostName: body.customer.firstName,
       craftName: body.craft.name,
+      craftDescription: String(body.craft.description ?? '').slice(0, 2000),
       slotLabel,
       hostPageUrl,
       inviteUrl,

@@ -44,13 +44,16 @@ export async function sendEmail(input: { to: string; subject: string; html: stri
 }
 
 export async function sendPartyConfirmationEmail(input: {
-  to: string; hostName: string; craftName: string; slotLabel: string
+  to: string; hostName: string; craftName: string; craftDescription?: string; slotLabel: string
   hostPageUrl: string; inviteUrl: string; totalChargedCents: number; receiptUrl: string | null
 }): Promise<{ sent: boolean }> {
   const fee = `$${(input.totalChargedCents / 100).toFixed(2).replace(/\.00$/, '')}`
+  // Craft description: keep the guest's paragraph breaks, drop stray CRs.
+  const description = (input.craftDescription ?? '').replace(/\r/g, '').trim()
   const text = [
     `You're booked! ${input.craftName} · ${input.slotLabel}`,
     ``,
+    ...(description ? [`About your craft:`, ...description.split('\n'), ``] : []),
     `Studio fee paid today: ${fee}. Crafts are paid at the studio based on who comes.`,
     ``,
     `Your party page (manage details + see who's RSVP'd — keep this link):`,

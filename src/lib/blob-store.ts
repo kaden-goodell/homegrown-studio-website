@@ -54,7 +54,12 @@ export function makeKvStore(
     if (blobStore !== undefined) return blobStore
     try {
       const { getStore } = await import('@netlify/blobs')
-      const store = getStore(storeName)
+      // Strong consistency is required: the CAS write loops (setIfMatch) read an
+      // etag first, and rosters are read immediately after an RSVP writes. With
+      // the default eventual consistency, a stale read makes a conditional write
+      // lose every retry (RSVPs silently vanish from rosters) and a just-signed
+      // guest doesn't appear on refresh. Slight read-latency cost — right trade.
+      const store = getStore({ name: storeName, consistency: 'strong' })
       await store.get('__probe__') // throws outside Netlify → fs fallback
       blobStore = store
     } catch {
