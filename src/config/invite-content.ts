@@ -11,7 +11,7 @@ export const inviteContent = {
   /** {title} is the party name the host sets (e.g. "Ari’s 7th Birthday"). */
   headlineWithTitle: 'You’re invited to {title}!',
   headlineDefault: 'You’re invited to a craft party!',
-  subline: 'A private party at Homegrown Studio — good people, good music, and something handmade to take home.',
+  subline: 'A private party at Homegrown Studio — the whole studio, your favorite people, and something handmade to take home.',
 
   /** Labels for the detail chips. Values come from the invite link. */
   labels: {
