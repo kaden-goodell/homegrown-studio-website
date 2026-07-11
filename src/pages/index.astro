@@ -4,111 +4,189 @@ export const prerender = true
 import Layout from '@layouts/StaticLayout.astro'
 import { siteConfig } from '@config/site.config'
 import Newsletter from '@components/shared/Newsletter'
-
-const features = siteConfig.features
+import UpcomingWorkshops from '@components/home/UpcomingWorkshops'
 
 const offerings = [
-  features.parties.enabled && {
-    title: 'Private Parties',
-    description: 'The whole studio for your people — birthdays, girls’ nights, showers, team nights, or just because.',
-    href: '/book',
-    icon: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8.25v-1.5m0 1.5c-1.355 0-2.697.056-4.024.166C6.845 8.51 6 9.473 6 10.608v2.513m6-4.871c1.355 0 2.697.056 4.024.166C17.155 8.51 18 9.473 18 10.608v2.513M15 8.25v-1.5m-6 1.5v-1.5m12 9.75-1.5.75a3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0 3.354 3.354 0 0 0-3 0 3.354 3.354 0 0 1-3 0L3 16.5m15-3.379a48.474 48.474 0 0 0-6-.371c-2.032 0-4.034.126-6 .371m12 0c.39.049.777.102 1.163.16 1.07.16 1.837 1.094 1.837 2.175v5.169c0 .621-.504 1.125-1.125 1.125H4.125A1.125 1.125 0 0 1 3 20.625v-5.17c0-1.08.768-2.014 1.837-2.174A47.78 47.78 0 0 1 6 13.12M12.265 3.11a.375.375 0 1 1-.53.53.375.375 0 0 1 .53-.53Z" /></svg>`,
-    primary: false,
+  {
+    title: 'Open Studio',
+    price: 'Crafts from $15 · no booking needed',
+    description: 'Walk in during open hours, pick a craft from the menu, and make it yours. Pay per craft — that’s it.',
+    href: '/open-studio',
+    cta: 'How it works',
+    image: '/images/home/open-studio.jpg',
+    alt: 'Craft supplies laid out on a studio table',
   },
-  features.workshops && {
-    title: 'Creative Workshops',
-    description: 'Hands-on crafting sessions for all skill levels.',
+  {
+    title: 'Workshops',
+    price: 'From $30 a seat',
+    description: 'Guided sessions with everything included. Come solo or bring a friend — all skill levels, ages 8+.',
     href: '/workshops',
-    icon: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10"><path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42" /></svg>`,
-    primary: false,
+    cta: 'Browse workshops',
+    image: '/images/home/workshops.jpg',
+    alt: 'A workshop table set for a guided craft session',
   },
-  features.programs?.enabled && {
-    title: 'Programs',
-    description: 'Camps, classes, and creative experiences that run for days or weeks.',
-    href: '/programs',
-    icon: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10"><path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" /></svg>`,
-    primary: false,
+  {
+    title: 'Private Parties',
+    price: 'Whole studio · from $300',
+    description: 'The whole room for your people — birthdays, girls’ nights, showers, team nights, or just because.',
+    href: '/book',
+    cta: 'Plan your party',
+    image: '/images/home/parties.jpg',
+    alt: 'A party table set with crafts at Homegrown Studio',
   },
-  features.gallery && {
-    title: 'Our Gallery',
-    description: 'Browse creations from our studio.',
-    href: '/gallery',
-    icon: `<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-10 h-10"><path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" /></svg>`,
-    primary: false,
+  {
+    title: 'Take-Home Kits',
+    price: 'Coming soon',
+    description: 'The party-in-a-box: a themed craft kit for your crew, at your place. Gold, silver, rainbow, and more.',
+    href: null,
+    cta: 'On the way',
+    image: '/images/home/take-home.jpg',
+    alt: 'A boxed take-home craft kit',
   },
-].filter(Boolean) as { title: string; description: string; href: string; icon: string; primary: boolean }[]
+]
 
-const ctaText = features.parties.enabled ? 'Book a Party' : 'Browse Workshops'
-const ctaHref = features.parties.enabled ? '/book' : '/workshops'
+const steps = [
+  { n: '1', title: 'Pick your thing', text: 'A craft off the menu, a workshop seat, or the whole studio.' },
+  { n: '2', title: 'Pick your time', text: 'Walk in, grab a seat online, or choose your party slot — takes about a minute.' },
+  { n: '3', title: 'Show up and make', text: 'Everything’s set up when you arrive. We handle the rest.' },
+]
 
+const showOpeningBanner = new Date() < new Date(siteConfig.openingDate + 'T00:00:00-05:00')
+const openingLabel = new Date(siteConfig.openingDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
 const testimonials = siteConfig.testimonials?.items ?? []
 ---
 
-<Layout title="Home">
-  <!-- Hero — full viewport, text pops on frosted glass -->
-  <section class="relative flex flex-col items-center justify-center px-4" style="min-height: calc(100vh - 4.5rem);">
-    <div class="relative z-10 max-w-3xl mx-auto text-center">
-      <!-- Glass panel behind hero text -->
-      <div class="glass-strong rounded-3xl px-8 py-14 sm:px-14 sm:py-20">
-<h1 class="fade-in font-heading font-bold mb-6 text-5xl sm:text-6xl lg:text-7xl" style="color: var(--color-dark); letter-spacing: -0.01em;">
-          {siteConfig.tagline}
-        </h1>
-        <p class="fade-in text-lg sm:text-xl leading-relaxed mb-10 mx-auto" style="color: var(--color-muted); max-width: 34ch;">
-          Handcrafted workshops, private parties, and creative experiences for all ages
-        </p>
-        <a
-          href={ctaHref}
-          class="fade-in cta-glow inline-block rounded-full px-12 py-4 text-white font-semibold text-lg no-underline"
-          style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); box-shadow: 0 8px 30px rgba(150, 112, 91, 0.3);"
-        >
-          {ctaText}
+<Layout title="Home" description="Homegrown Studio — walk-in crafting, workshops, and private parties in Madison, AL. Everyone welcome, ages 8+.">
+  {showOpeningBanner && (
+    <div id="opening-banner" class="text-center px-4 py-2.5 text-sm font-medium" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white;">
+      Grand opening {openingLabel} — <a href="/book" class="underline font-semibold" style="color: white;">now booking opening-month parties</a>
+    </div>
+  )}
+  {showOpeningBanner && (
+    <script is:inline define:vars={{ openingDate: siteConfig.openingDate }}>
+      // Page is prerendered; without this, a stale build would keep announcing the
+      // opening after Sept 1 until the next production deploy. Self-hide at runtime.
+      if (new Date() >= new Date(openingDate + 'T00:00:00-05:00')) {
+        document.getElementById('opening-banner')?.remove()
+      }
+    </script>
+  )}
+
+  <!-- Hero -->
+  <section class="relative flex flex-col items-center justify-center px-4 pt-16 pb-12 sm:pt-24">
+    <div class="relative z-10 max-w-4xl mx-auto text-center">
+      <h1 class="fade-in font-heading font-bold text-4xl sm:text-6xl lg:text-7xl" style="color: var(--color-dark); letter-spacing: -0.01em;">
+        Make something you&rsquo;ll actually keep
+      </h1>
+      <p class="fade-in text-lg sm:text-xl leading-relaxed mt-6 mx-auto" style="color: var(--color-muted); max-width: 44ch;">
+        A craft studio in Madison, Alabama — walk in and craft, join a workshop, or take over the whole place for a party.
+      </p>
+      <div class="fade-in mt-8 flex flex-wrap justify-center gap-3">
+        <a href="/book" class="cta-glow inline-block rounded-full px-10 py-4 text-white font-semibold text-lg no-underline" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); box-shadow: 0 8px 30px rgba(150, 112, 91, 0.3);">
+          Book a Party
+        </a>
+        <a href="/workshops" class="inline-block rounded-full px-10 py-4 font-semibold text-lg no-underline glass" style="color: var(--color-dark);">
+          Browse Workshops
         </a>
       </div>
-    </div>
-    <!-- Scroll chevron -->
-    <div class="absolute bottom-8 left-1/2 -translate-x-1/2 scroll-hint">
-      <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor" class="w-7 h-7 sm:w-9 sm:h-9" style="color: var(--color-primary);">
-        <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
-      </svg>
+      <p class="fade-in mt-6 text-sm font-medium" style="color: var(--color-muted);">
+        Walk-ins welcome Thu&ndash;Sun · 525 Hughes Rd, Madison, AL · Ages 8+
+      </p>
+      <img
+        src="/images/party-hero.jpg"
+        alt="A craft table set up at Homegrown Studio"
+        class="fade-in mt-10 mx-auto rounded-2xl w-full max-w-4xl object-cover"
+        style="aspect-ratio: 21 / 9; box-shadow: 0 24px 60px rgba(150, 112, 91, 0.18);"
+      />
     </div>
   </section>
 
-  <!-- Offerings — glass cards, flowing into page -->
+  <!-- Offerings -->
   <section class="py-12 sm:py-16 px-4 relative z-10">
     <div class="max-w-5xl mx-auto">
       <div class="text-center mb-10 fade-in">
-        <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Explore</p>
-        <h2 class="text-3xl sm:text-4xl lg:text-5xl font-heading font-bold" style="color: var(--color-dark);">What We Offer</h2>
+        <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Four ways to craft</p>
+        <h2 class="text-3xl sm:text-4xl lg:text-5xl font-heading font-bold" style="color: var(--color-dark);">Pick your kind of day</h2>
       </div>
-
       <div class="grid gap-5 grid-cols-1 sm:grid-cols-2">
-        {offerings.map((item) => (
-          <a
-            href={item.href}
-            class="group block rounded-2xl overflow-hidden hover-card glass no-underline"
-          >
-            <div class="p-8">
-              <div class="mb-6 inline-flex items-center justify-center w-14 h-14 rounded-xl transition-all duration-300 group-hover:scale-110" style="color: var(--color-primary); background: rgba(150, 112, 91, 0.08);" set:html={item.icon} />
-              <h3 class="text-xl font-heading font-bold mb-3 transition-colors duration-300" style="color: var(--color-dark);">
-                {item.title}
-              </h3>
-              <p class="text-sm leading-relaxed" style="color: var(--color-muted);">
-                {item.description}
-              </p>
-              <div class="mt-6 flex items-center gap-2 text-sm font-medium transition-all duration-300 group-hover:gap-3" style="color: var(--color-primary);">
-                <span>Explore</span>
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-                </svg>
+        {offerings.map((item) => {
+          const Tag = item.href ? 'a' : 'div'
+          return (
+            <Tag href={item.href ?? undefined} class:list={['group block rounded-2xl overflow-hidden glass no-underline', item.href && 'hover-card']}>
+              <img src={item.image} alt={item.alt} loading="lazy" class="w-full object-cover" style="aspect-ratio: 16 / 9;" />
+              <div class="p-7">
+                <div class="flex items-baseline justify-between gap-3">
+                  <h3 class="text-xl font-heading font-bold" style="color: var(--color-dark);">{item.title}</h3>
+                  <span class="text-xs font-semibold whitespace-nowrap" style="color: var(--color-primary);">{item.price}</span>
+                </div>
+                <p class="mt-3 text-sm leading-relaxed" style="color: var(--color-muted);">{item.description}</p>
+                <div class="mt-5 flex items-center gap-2 text-sm font-medium transition-all duration-300 group-hover:gap-3" style={`color: ${item.href ? 'var(--color-primary)' : 'var(--color-muted)'};`}>
+                  <span>{item.cta}</span>
+                  {item.href && (
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-4 h-4">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+                    </svg>
+                  )}
+                </div>
               </div>
+            </Tag>
+          )
+        })}
+      </div>
+    </div>
+  </section>
+
+  <!-- How it works -->
+  <section class="py-12 sm:py-16 px-4">
+    <div class="max-w-5xl mx-auto">
+      <div class="text-center mb-10 fade-in">
+        <h2 class="text-3xl sm:text-4xl font-heading font-bold" style="color: var(--color-dark);">Easy as one, two, craft</h2>
+      </div>
+      <div class="grid gap-5 sm:grid-cols-3">
+        {steps.map((s) => (
+          <div class="glass rounded-2xl p-8 text-center fade-in">
+            <div class="mx-auto mb-4 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent));">
+              {s.n}
             </div>
-          </a>
+            <h3 class="font-heading font-bold text-lg mb-2" style="color: var(--color-dark);">{s.title}</h3>
+            <p class="text-sm leading-relaxed" style="color: var(--color-muted);">{s.text}</p>
+          </div>
         ))}
       </div>
     </div>
   </section>
 
-  <!-- Testimonials -->
+  <!-- Upcoming workshops (live from Square; hides itself if none) -->
+  <UpcomingWorkshops client:visible />
+
+  <!-- Visit us -->
+  <section class="py-12 sm:py-16 px-4">
+    <div class="glass-strong rounded-2xl max-w-4xl mx-auto px-8 py-12 sm:px-14 text-center fade-in">
+      <h2 class="text-3xl sm:text-4xl font-heading font-bold mb-6" style="color: var(--color-dark);">Come see us</h2>
+      <p class="text-base font-medium" style="color: var(--color-dark);">
+        {siteConfig.address.street}, {siteConfig.address.city}, {siteConfig.address.state} {siteConfig.address.zip}
+      </p>
+      <div class="mt-5 flex flex-wrap justify-center gap-x-10 gap-y-3">
+        {siteConfig.hours.map((h) => (
+          <div>
+            <span class="block text-sm font-semibold" style="color: var(--color-dark);">{h.days}</span>
+            <span class="block text-sm" style="color: var(--color-muted);">{h.time}</span>
+          </div>
+        ))}
+      </div>
+      <a
+        href={`https://maps.google.com/?q=${encodeURIComponent(`${siteConfig.name}, ${siteConfig.address.street}, ${siteConfig.address.city}, ${siteConfig.address.state} ${siteConfig.address.zip}`)}`}
+        target="_blank"
+        rel="noopener"
+        class="inline-block mt-7 rounded-full px-8 py-3 text-sm font-semibold no-underline glass"
+        style="color: var(--color-primary);"
+      >
+        Get directions →
+      </a>
+    </div>
+  </section>
+
+  <!-- Testimonials (hidden until real ones exist) -->
   {testimonials.length > 0 && (
     <section class="py-12 sm:py-16 px-4">
       <div class="max-w-5xl mx-auto">
@@ -118,7 +196,6 @@ const testimonials = siteConfig.testimonials?.items ?? []
             {siteConfig.testimonials?.heading || 'What Our Guests Say'}
           </h2>
         </div>
-
         <div class="grid gap-6 md:grid-cols-3">
           {testimonials.map((t) => (
             <blockquote class="glass rounded-2xl p-8 sm:p-10 hover-card" style="display: flex; flex-direction: column; justify-content: space-between;">
@@ -142,7 +219,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
   )}
 
   <!-- Newsletter -->
-  {features.newsletter && (
+  {siteConfig.features.newsletter && (
     <section class="py-12 sm:py-16 px-4">
       <div class="glass rounded-2xl max-w-2xl mx-auto px-8 py-14 sm:px-14">
         <Newsletter client:visible />
@@ -150,4 +227,3 @@ const testimonials = siteConfig.testimonials?.items ?? []
     </section>
   )}
 </Layout>
-
