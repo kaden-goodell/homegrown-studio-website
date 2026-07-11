@@ -9,15 +9,4 @@ const about = defineCollection({
   }),
 })
 
-const gallery = defineCollection({
-  loader: glob({ pattern: '**/*.md', base: './src/content/gallery' }),
-  schema: z.object({
-    title: z.string(),
-    caption: z.string(),
-    image: z.string(),
-    order: z.number().optional(),
-    tags: z.array(z.string()).optional(),
-  }),
-})
-
-export const collections = { about, gallery }
+export const collections = { about }
