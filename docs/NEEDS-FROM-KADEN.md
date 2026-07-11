@@ -60,3 +60,12 @@ Note: Gmail app passwords require 2-Step Verification to be enabled on the accou
 - "Most loved" / "Most popular" craft badges — needs real booking data
 - Occasion tags per craft ("girls' night favorite") — needs your call per craft
 - Testimonial band on /book — needs real quotes
+
+## Take-Home Kits (feature built, flag OFF — flip `features.kits.enabled` in `src/config/site.config.ts` to launch)
+
+- **Theme photos** (`src/config/kit-content.ts` → each theme's `photo`) — all six themes currently use the party-hero placeholder. Drop real files and update paths; no other code changes.
+- **Kit FAQ copy** (`src/config/kit-content.ts` → `kitContent.faq`) — empty array = section hidden. Fill with q/a pairs when ready.
+- **Per-theme box contents refinement** (`src/config/kit-content.ts` → each theme's `keeps` / `returns` arrays) — current lists are the draft from 2026-07-11 (cake stand, napkins, plates, candles + holders, trays). These drive the contents card and the staff return checklist.
+- **Theme names/prices tweaks** — names and tier prices ($75/$100/$125) were drafted by Claude with your blessing to adjust; edit `kit-content.ts` + `kit.config.ts` and re-run `scripts/seed-kits.ts` (idempotent) if you change them.
+- **Rental agreement §6a** (`docs/WAIVER.md`) — with the attorney alongside the v3 review; includes the "return it clean" clause and retrieval-fee language. Blocking for LAUNCH, not for build.
+- **Physical inventory purchase** — Gilded + Prism at 60 settings each (ledger sells 45), 3 hero sets each; Sweet Sixteen shares Gilded's tableware and needs only its own consumables/staging.

@@ -6,8 +6,10 @@ import PartyLanding from '@components/party/PartyLanding'
 import RecentPartyBanner from '@components/party/RecentPartyBanner'
 import PartyFaq from '@components/party/PartyFaq.astro'
 import { partyContent } from '@config/party-content'
+import { siteConfig } from '@config/site.config'
 
 const { hero, deposit } = partyContent
+const kitsLive = siteConfig.features.kits.enabled
 ---
 
 <Layout title="Book a Party">
@@ -57,12 +59,24 @@ const { hero, deposit } = partyContent
     </div>
     <PartyLanding client:load />
     <div class="glass rounded-2xl px-8 py-10 sm:px-12 text-center mt-16 fade-in">
-      <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Coming Soon</p>
+      <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">
+        {kitsLive ? 'New' : 'Coming Soon'}
+      </p>
       <h2 class="text-2xl sm:text-3xl font-heading font-bold mb-3" style="color: var(--color-dark);">Take-Home Party Kits</h2>
       <p class="text-base max-w-xl mx-auto leading-relaxed" style="color: var(--color-muted);">
-        Want the party without booking the studio? We&rsquo;re boxing up themed craft kits — gold, silver, rainbow, and more —
-        so you can host at home. Join the newsletter and you&rsquo;ll be the first to know.
+        {kitsLive
+          ? 'Want the party without booking the studio? A themed craft kit for your crew, styled table and all — pick up Thursday, host at home.'
+          : 'Want the party without booking the studio? We’re boxing up themed craft kits — gold, silver, rainbow, and more — so you can host at home. Join the newsletter and you’ll be the first to know.'}
       </p>
+      {kitsLive && (
+        <a
+          href="/kits"
+          class="inline-block mt-6 rounded-xl px-8 py-3.5 text-sm font-semibold text-white no-underline"
+          style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); box-shadow: 0 4px 15px rgba(150, 112, 91, 0.25);"
+        >
+          Build your kit
+        </a>
+      )}
     </div>
     <PartyFaq />
   </section>

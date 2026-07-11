@@ -36,12 +36,13 @@ const offerings = [
   },
   {
     title: 'Take-Home Kits',
-    price: 'Coming soon',
     description: 'The party-in-a-box: a themed craft kit for your crew, at your place. Gold, silver, rainbow, and more.',
-    href: null,
-    cta: 'On the way',
     image: '/images/home/take-home.jpg',
     alt: 'A boxed take-home craft kit',
+    // Flips live with the kits feature — no copy edits needed at launch.
+    ...(siteConfig.features.kits.enabled
+      ? { price: 'Kits from $200', href: '/kits', cta: 'Build your kit' }
+      : { price: 'Coming soon', href: null, cta: 'On the way' }),
   },
 ]
 
