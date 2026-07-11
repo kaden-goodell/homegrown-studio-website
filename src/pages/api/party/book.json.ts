@@ -67,9 +67,10 @@ interface BookRequest {
   people: number
   customer: {
     firstName: string
-    lastName?: string
+    lastName: string
     email: string
-    phone?: string
+    /** Required — the studio's day-of contact channel for the host. */
+    phone: string
   }
   paymentToken: string
 }
@@ -97,8 +98,11 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!body.paymentToken) {
     return errorResponse('Missing payment information', 400)
   }
-  if (!body.customer?.email || !body.customer?.firstName) {
-    return errorResponse('Name and email are required', 400)
+  if (!body.customer?.email || !body.customer?.firstName?.trim() || !body.customer?.lastName?.trim()) {
+    return errorResponse('Full name and email are required', 400)
+  }
+  if ((body.customer?.phone ?? '').replace(/\D/g, '').length < 10) {
+    return errorResponse('A phone number is required — it’s how we reach you on party day', 400)
   }
   if (!body.craft?.id || body.craft.perHeadCents == null) {
     return errorResponse('Missing craft selection', 400)

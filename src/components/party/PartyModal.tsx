@@ -433,12 +433,18 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     }
   }
 
-  const infoValid = !!firstName.trim() && isValidEmail(email.trim())
+  // Full name + both contact channels: the confirmation email carries the
+  // host's party-page link, and phone is how the studio reaches a host day-of.
+  const infoValid =
+    !!firstName.trim() &&
+    !!lastName.trim() &&
+    isValidEmail(email.trim()) &&
+    phone.replace(/\D/g, '').length >= 10
 
   async function handlePay(walletToken?: string) {
     if (processing || !info || !selectedSlot || !selectedCraft) return
     if (!infoValid) {
-      setError('Add your name and email above first — we need them for your confirmation.')
+      setError('Add your full name, email, and phone above first — we need them for your confirmation and to reach you on party day.')
       return
     }
 
@@ -1362,7 +1368,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 <input type="text" autoComplete="given-name" value={firstName} onChange={(e) => setFirstName(e.target.value)} style={inputStyle} />
               </div>
               <div>
-                <label style={labelStyle}>Last Name</label>
+                <label style={labelStyle}>Last Name *</label>
                 <input type="text" autoComplete="family-name" value={lastName} onChange={(e) => setLastName(e.target.value)} style={inputStyle} />
               </div>
             </div>
@@ -1371,7 +1377,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               <input type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} style={inputStyle} />
             </div>
             <div style={{ marginBottom: '1.25rem' }}>
-              <label style={labelStyle}>Phone</label>
+              <label style={labelStyle}>Phone *</label>
               <input type="tel" autoComplete="tel" value={phone} onChange={(e) => setPhone(e.target.value)} style={inputStyle} />
             </div>
 
@@ -1402,7 +1408,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               wallet={{ amount: (deposit / 100).toFixed(2), label: 'Homegrown Studio — party studio fee', bnpl: true }}
               onWalletToken={(token) => handlePay(token)}
               canPayWithWallet={() =>
-                infoValid ? null : 'Add your name and email above first — we need them for your confirmation.'
+                infoValid ? null : 'Add your full name, email, and phone above first — we need them for your confirmation and to reach you on party day.'
               }
             />
 
