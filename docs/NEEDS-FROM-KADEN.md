@@ -6,7 +6,7 @@ the field is filled — fill it and the feature appears, no code changes needed.
 
 ## Legal review required before Sept 1 opening
 
-- **Attorney review of Participation Agreement v2 §4(c) supervision language** (`src/config/waiver-content.ts`) before the Sept 1 opening — the text now states parties are not drop-off and requires a designated responsible adult for unaccompanied minors. Note: the version was bumped v1→v2; when the exact LLC legal name lands (existing TODO), that edit will require v3.
+- **Attorney review of Participation Agreement v2 §4(c) supervision language** (`src/config/waiver-content.ts`) before the Sept 1 opening — the text now states parties are not drop-off and requires a designated responsible adult for unaccompanied minors. Note: version is now **v3** — the legal entity (Goodell Holdings, LLC d/b/a Homegrown Studio) landed 2026-07-10, so the attorney should review the v3 text as a whole.
 
 ## Security environment variable (before Sept 1 opening)
 

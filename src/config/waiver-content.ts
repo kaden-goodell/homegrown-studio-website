@@ -17,7 +17,7 @@ export interface WaiverSection {
   body: string[]
 }
 
-const legalEntityName = 'Homegrown Studio' // TODO(Kaden): exact LLC legal name, e.g. "Homegrown Studio LLC"
+const legalEntityName = 'Goodell Holdings, LLC' // registered entity; d/b/a Homegrown Studio (confirmed by Kaden 2026-07-10)
 const businessAddress = '525 Hughes Rd Ste F, Madison, Alabama 35758'
 const adultAge = 19
 
@@ -28,7 +28,7 @@ export const waiverContent = {
    * be re-verified if this text is rolled back. Attorney review required before
    * deploying changes (see docs/NEEDS-FROM-KADEN.md).
    */
-  version: 'v2',
+  version: 'v3', // v3: legal entity name set to Goodell Holdings, LLC (the name renders inside legalSections §opening)
   legalEntityName,
   businessAddress,
   /** Months a signature stays valid before re-signing is required. */
