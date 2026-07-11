@@ -484,7 +484,15 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
     transition: 'background 0.2s ease, border-color 0.2s ease',
   })
 
+  // Receipt order: the party (crafts, package) up top, fixed fees LAST so they
+  // sit against the totals they explain — and the line charged today (deposit
+  // for themed, assembly for crafts-only) lands right above "Due today".
   function renderSummaryRows() {
+    const dueTodayTag = (
+      <span style={{ marginLeft: '0.4rem', fontSize: '0.65rem', fontWeight: 700, letterSpacing: '0.04em', textTransform: 'uppercase', color: 'var(--color-primary)' }}>
+        due today
+      </span>
+    )
     return (
       <>
         {selectedCraft && (
@@ -493,21 +501,21 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             <span>{formatPrice(craftTotal)}</span>
           </div>
         )}
+        {hasTheme && selectedTier && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
+            <span>{selectedTheme?.displayName} — serves {selectedTier.serves}</span>
+            <span>{formatPrice(packageCents)}</span>
+          </div>
+        )}
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
-          <span>Kit assembly</span>
+          <span>Kit assembly{!hasTheme && dueTodayTag}</span>
           <span>{formatPrice(assemblyFee)}</span>
         </div>
         {hasTheme && selectedTier && (
-          <>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
-              <span>{selectedTheme?.displayName} — serves {selectedTier.serves}</span>
-              <span>{formatPrice(packageCents)}</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
-              <span>Rental deposit (refundable)</span>
-              <span>{formatPrice(depositCents)}</span>
-            </div>
-          </>
+          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '0.375rem' }}>
+            <span>Rental deposit (refundable){dueTodayTag}</span>
+            <span>{formatPrice(depositCents)}</span>
+          </div>
         )}
         <div style={{ height: '0.25rem' }} />
       </>
@@ -915,20 +923,14 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             {/* Order summary — full quote, then the deposit split. */}
             <div style={{ padding: '1rem 1.25rem', borderRadius: '0.75rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(150, 112, 91, 0.08)', marginBottom: '1rem' }}>
               {renderSummaryRows()}
+              {/* One hero number — the $50. Everything else is a whisper. */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '0.625rem' }}>
-                <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Total</span>
-                <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>{formatPrice(quoteTotal)}</span>
+                <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Due today</span>
+                <span style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-dark)' }}>{formatPrice(dueToday)}</span>
               </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.375rem' }}>
-                <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>
-                  Due today {hasTheme ? '(your refundable deposit)' : '(kit assembly)'}
-                </span>
-                <span style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--color-dark)' }}>{formatPrice(dueToday)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '0.25rem' }}>
-                <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Due at pickup (Thursday, card or cash)</span>
-                <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-muted)' }}>{formatPrice(balanceDue)}</span>
-              </div>
+              <p style={{ margin: '0.3rem 0 0', fontSize: '0.75rem', color: 'var(--color-muted)', textAlign: 'right' }}>
+                {formatPrice(balanceDue)} at pickup · {formatPrice(quoteTotal)} total
+              </p>
             </div>
 
             {/* Rental terms — inline and in full view, only when a table (with
