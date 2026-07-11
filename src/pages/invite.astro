@@ -14,12 +14,11 @@ const partyId = params.get('party') ?? ''
 // Attempt a server-side lookup when a party id is present; server data beats
 // query params. Falls back to query params for old/mangled links.
 let record: PartyRecord | null = null
-let lookupFailed = false
 if (partyId) {
   try {
     record = await getPartyRecord(partyId)
   } catch {
-    lookupFailed = true
+    /* transient lookup failure — fall back to query params below */
   }
 }
 

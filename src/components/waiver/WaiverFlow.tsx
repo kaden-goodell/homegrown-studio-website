@@ -78,7 +78,7 @@ function PartyLabelChip({ label }: { label: string }) {
         marginBottom: '1.25rem',
       }}
     >
-      <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>RSVP'ing to:</span>
+      <span style={{ color: 'var(--color-primary)', fontWeight: 700 }}>RSVP’ing to:</span>
       <span>{label}</span>
     </div>
   )
