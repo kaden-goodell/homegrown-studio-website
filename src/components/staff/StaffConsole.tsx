@@ -505,7 +505,19 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
         )}
 
         {order.status === 'out' && panel === 'none' && (
-          <button type="button" disabled={busy} onClick={() => setPanel('return')} style={btn(true)}>Check in return</button>
+          <>
+            <button type="button" disabled={busy} onClick={() => setPanel('return')} style={btn(true)}>Check in return</button>
+            {/* One-tap prefilled reminder text — at launch volume a human text
+                beats a cron job, and it reads personal instead of automated. */}
+            <a
+              href={`sms:${order.contact.phone.replace(/[^+\d]/g, '')}?&body=${encodeURIComponent(
+                `Hi ${order.contact.name.split(' ')[0]}! Homegrown Studio here — friendly reminder that your kit's rental pieces come home to us by ${fmtDay(order.returnBy)}, ${kitConfig.returnWindow}. Reply here if the window won't work and we'll figure something out!`
+              )}`}
+              style={{ ...btn(), textDecoration: 'none', display: 'inline-block' }}
+            >
+              💬 Text reminder
+            </a>
+          </>
         )}
         {order.status === 'out' && panel === 'return' && (
           <>

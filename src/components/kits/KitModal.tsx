@@ -605,6 +605,9 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0.6rem 0 0', fontStyle: 'italic' }}>
               {kitContent.depositLine}
             </p>
+            <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0.4rem 0 0' }}>
+              {kitContent.earlyDropLine}
+            </p>
           </div>
         )}
 

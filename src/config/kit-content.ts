@@ -58,7 +58,9 @@ export const kitContent = {
     'Your deposit is refunded in full when they’re back, clean and complete.',
     'Missing, damaged, or dirty pieces may be deducted from the deposit.',
     'If we have to come collect the pieces, the deposit is forfeited.',
+    'Window won’t work? Text us at (256) 464-1710 before Wednesday — we’d much rather flex than keep a deposit.',
   ],
-  earlyDropLine: 'Need a different drop-off time? Reach out and we’ll try — no promises we can make anything work.',
+  /** The human escape hatch — early drops AND running-late panic both land here. */
+  earlyDropLine: 'Need a different drop-off time, or running late? Text us at (256) 464-1710 — we’d much rather work something out than keep a deposit.',
   faq: [] as { q: string; a: string }[], // TODO(Kaden): kit FAQ copy
 } as const
