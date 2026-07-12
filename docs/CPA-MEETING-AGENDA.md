@@ -1,21 +1,29 @@
-# CPA Meeting Agenda — Goodell Holdings LLC d/b/a Homegrown Studio
+# CPA Briefing — Goodell Holdings LLC d/b/a Homegrown Studio
 
-Prepared 2026-07-12. Studio opens **Sept 1, 2026** (Madison, AL). Two-member LLC
-(Kaden Scott Goodell + Catherine Page Goodell, 50/50, member-managed). EIN
-41-3490804 (CP-575A issued 2026-01-09). Revenue is already flowing pre-opening
-(workshops, party bookings); take-home kit rentals launch with the studio.
+Prepared 2026-07-12, revised same day: this is a BRIEFING, not an audit — the
+CPA has only been told "we're starting a business" and handled the S-corp
+filing. Most of what's below he's hearing for the first time; the goal of the
+meeting is to hand him the full picture and agree who owns what.
 
-## 1. Entity & elections — resolve the contradiction first
+Facts: Studio opens **Sept 1, 2026** (Madison, AL). Two-member LLC (Kaden
+Scott Goodell + Catherine Page Goodell, 50/50, member-managed). EIN 41-3490804
+(CP-575A issued 2026-01-09). **S-corp election filed** (per Kaden). Revenue is
+already flowing pre-opening (workshops, party bookings); take-home kit rentals
+launch with the studio.
 
-- [ ] **Was Form 2553 (S-corp election) actually filed and accepted?** The
-  Operating Agreement §5.3 *claims* S-corp treatment, but the IRS CP-575A
-  expects **Form 1065** (partnership default for a 2-member LLC). One of these
-  is wrong. Ask for the CP261 acceptance letter or the filed 2553.
-- [ ] If S-corp is real: the annual return is **1120-S**, members must take
-  **reasonable W-2 salaries** once working the business, and losses are limited
-  to stock/loan basis — **entity-level debt does NOT give basis in an S-corp**
-  (it does in a partnership). Year 1 has buildout debt + likely losses: make him
-  justify S-corp vs. leaving it a partnership *on paper, with numbers*.
+## 1. Entity & election — confirm the paperwork landed
+
+- [ ] The 2553 was filed — **ask for the IRS CP261 acceptance letter** (or
+  confirmation it arrived). Elections do bounce on signature/date technicalities;
+  worth 30 seconds to know it stuck. Note: the CP-575A lists Form 1065 because
+  it predates the election — once accepted, the annual return is **1120-S**
+  (due 3/15/2027).
+- [ ] S-corp obligations to plan now: members must take **reasonable W-2
+  salaries** once actively working the business (when should that start —
+  Sept 1?), and losses are limited to stock/loan basis — **entity-level debt
+  does NOT create basis in an S-corp**. If buildout is being financed, ask how
+  he wants it structured (member loans vs. entity debt) so year-1 losses stay
+  deductible.
 - [ ] **Operating Agreement name typo**: OA says "Goodell Holding LLC" (no S)
   throughout; IRS and AL SoS say "Goodell Holding**s** LLC." Get it amended
   before a bank/lender/registrar cross-checks.
@@ -92,16 +100,21 @@ taxability answers only he/ALDOR can give:
   retrievals — deduction hygiene.
 - [ ] Beer/wine license costs (~$834/yr) + dram-shop insurance when they land.
 
-## 6. "Is my CPA slipping?" — how to tell
+## 6. What to walk out of the meeting with
 
-A CPA carrying this correctly would have ALREADY, unprompted: confirmed the
-2553 status in writing; put the 7/31 941 on your calendar; told you about the
-AL BPT rule at formation; asked how you're paying the moms before you designed
-the comp plan; and raised rental tax the moment you said "we rent out
-tableware." In the meeting, the instant-answer tests are: **"Did we file a
-2553?" · "What's due July 31?" · "Do I owe Alabama Business Privilege Tax?" ·
-"Is my workshop revenue taxable?"** Hesitation on two or more of those — or
-answers that start with "let me check" on all four — is your answer. The
-follow-ups that keep him honest: everything above **in writing**, a filing
-calendar for the next 12 months, and a fixed-fee quote for payroll + sales-tax
-setup so scope is his problem, not yours.
+Since he's being briefed for the first time, judge him on what happens AFTER
+this meeting, not before it. Ask for four deliverables, in writing:
+
+1. **Election status confirmed** (CP261 in hand or a plan to chase it).
+2. **A 12-month filing calendar** — every federal/state/local deadline that
+   applies to this business, owned by him.
+3. **Ownership of the registration stack**: AL withholding, SUI, sales tax
+   (state + city + county), rental tax account if needed, BPT — who files
+   which, by when.
+4. **A fixed-fee quote** for payroll setup + sales/rental-tax setup + year-1
+   return, so scope is his problem.
+
+The fair "is he the right CPA for this stage" test: a good one will hear
+"we rent out tableware and pay staff partly in store credit" and *light up
+with questions*. If the response to this whole briefing is "sounds fine,
+see you at tax time" — that's when you know.
