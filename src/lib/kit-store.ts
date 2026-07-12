@@ -35,6 +35,7 @@ export type KitEventAction =
   | 'forfeit'
   | 'cancel'
   | 'undo'
+  | 'reminder'
 
 export interface KitEvent {
   at: string // ISO

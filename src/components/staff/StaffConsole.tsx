@@ -405,6 +405,7 @@ function themeDisplay(themeId?: string): string {
 
 const KIT_RETURN = '/api/staff/kit-return.json'
 const KIT_CANCEL = '/api/staff/kit-cancel.json'
+const KIT_REMIND = '/api/staff/kit-remind.json'
 
 function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: string, body: any) => Promise<{ error?: string }> }) {
   // Inline panels only — no native dialogs (house rule).
@@ -504,21 +505,24 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
           </span>
         )}
 
-        {order.status === 'out' && panel === 'none' && (
-          <>
-            <button type="button" disabled={busy} onClick={() => setPanel('return')} style={btn(true)}>Check in return</button>
-            {/* One-tap prefilled reminder text — at launch volume a human text
-                beats a cron job, and it reads personal instead of automated. */}
-            <a
-              href={`sms:${order.contact.phone.replace(/[^+\d]/g, '')}?&body=${encodeURIComponent(
-                `Hi ${order.contact.name.split(' ')[0]}! Homegrown Studio here — friendly reminder that your kit's rental pieces come home to us by ${fmtDay(order.returnBy)}, ${kitConfig.returnWindow}. Reply here if the window won't work and we'll figure something out!`
-              )}`}
-              style={{ ...btn(), textDecoration: 'none', display: 'inline-block' }}
-            >
-              💬 Text reminder
-            </a>
-          </>
-        )}
+        {order.status === 'out' && panel === 'none' && (() => {
+          // One-tap reminder, sent server-side FROM the business Quo number —
+          // customers see (256) 464-1710, not a staff member's personal cell.
+          const lastReminder = [...order.events].reverse().find((e) => e.action === 'reminder')
+          return (
+            <>
+              <button type="button" disabled={busy} onClick={() => setPanel('return')} style={btn(true)}>Check in return</button>
+              <button type="button" disabled={busy} onClick={() => run(KIT_REMIND, { orderId: order.orderId })} style={btn()}>
+                💬 Text reminder
+              </button>
+              {lastReminder && (
+                <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+                  reminded {fmtDay(lastReminder.at.slice(0, 10))}
+                </span>
+              )}
+            </>
+          )
+        })()}
         {order.status === 'out' && panel === 'return' && (
           <>
             <button type="button" disabled={busy} onClick={() => run(KIT_RETURN, { orderId: order.orderId, action: 'complete' })} style={btn(true)}>Complete — refund {formatCents(deposit)}</button>

@@ -19,6 +19,14 @@ fields stay hidden until filled — no code changes needed to "turn them on."
 
 ## 🟡 Do when ready (feature upgrades itself, nothing broken meanwhile)
 
+4a. **Quo API key for reminder texts** — the staff console's "💬 Text reminder"
+   button sends the return-reminder FROM (256) 464-1710 via the Quo API; until
+   configured it politely says to text manually. Steps: Quo → workspace
+   settings → API (needs Owner/Admin) → create key; confirm prepaid credits
+   exist (~$0.01/text) and US carrier registration is complete. Then set in
+   Netlify env + local `.env`:
+   `QUO_API_KEY=<key>` and `QUO_FROM_NUMBER=+12564641710`.
+
 4. ~~Address autocomplete key~~ **DONE 2026-07-11** — `PUBLIC_GOOGLE_PLACES_KEY`
    set in Netlify + local `.env`, verified live (suggestions + selection working
    end-to-end). Key is from the *second* Google project (…W2gbrU); the first
