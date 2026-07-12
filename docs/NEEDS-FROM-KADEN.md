@@ -19,13 +19,14 @@ fields stay hidden until filled — no code changes needed to "turn them on."
 
 ## 🟡 Do when ready (feature upgrades itself, nothing broken meanwhile)
 
-4a. **Quo API key for reminder texts** — the staff console's "💬 Text reminder"
-   button sends the return-reminder FROM (256) 464-1710 via the Quo API; until
-   configured it politely says to text manually. Steps: Quo → workspace
-   settings → API (needs Owner/Admin) → create key; confirm prepaid credits
-   exist (~$0.01/text) and US carrier registration is complete. Then set in
-   Netlify env + local `.env`:
-   `QUO_API_KEY=<key>` and `QUO_FROM_NUMBER=+12564641710`.
+4a. **Quo reminder texts — key DONE, carrier registration PENDING.**
+   `QUO_API_KEY` + `QUO_FROM_NUMBER` are set in Netlify + `.env` (verified
+   against the API 2026-07-12). ⚠️ But the number reports
+   `messaging: US restricted` — **US carrier registration (A2P/10DLC) is not
+   complete**, so API texts will fail until it is. Go to Quo → Settings →
+   Trust Center → US messaging registration and submit Goodell Holdings, LLC
+   (+ EIN); approval takes days. Also confirm prepaid credits (~$0.01/text).
+   The "💬 Text reminder" button fails politely until then.
 
 4. ~~Address autocomplete key~~ **DONE 2026-07-11** — `PUBLIC_GOOGLE_PLACES_KEY`
    set in Netlify + local `.env`, verified live (suggestions + selection working
