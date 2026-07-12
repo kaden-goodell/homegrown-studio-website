@@ -57,7 +57,7 @@ export const kitContent = {
     'The rental pieces (your kit lists them) come home to us by Wednesday, 4–6 PM.',
     'Your deposit is refunded in full when they’re back, clean and complete.',
     'Missing, damaged, or dirty pieces may be deducted from the deposit.',
-    'If we have to come collect the pieces, a $25 retrieval fee comes out of the deposit.',
+    'If we have to come collect the pieces, the deposit is forfeited.',
   ],
   earlyDropLine: 'Need a different drop-off time? Reach out and we’ll try — no promises we can make anything work.',
   faq: [] as { q: string; a: string }[], // TODO(Kaden): kit FAQ copy

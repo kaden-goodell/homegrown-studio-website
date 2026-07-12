@@ -37,7 +37,6 @@ vi.mock('@config/kit.config', () => ({
     leadTimeDays: 7,
     bookingWindowDays: 90,
     returnWindow: '4–6 PM',
-    retrievalFeeCents: 2500,
     timezone: 'America/Chicago',
     square: {
       assemblyItemId: 'assembly-item',

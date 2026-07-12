@@ -26,8 +26,10 @@ export const kitConfig = {
   bookingWindowDays: 90,
   /** Wednesday drop-off window (display only). */
   returnWindow: '4–6 PM',
-  /** Deducted from deposit if we have to go get the pieces (agreement §6a(b)). */
-  retrievalFeeCents: 2500,
+  // Retrieval policy (agreement §6a(b)): if we have to go get the pieces, the
+  // deposit forfeits IN FULL — a flat fee priced retrieval as cheap valet
+  // service. No config number needed; staff soften case-by-case via the
+  // partial-withhold flow.
   timezone: 'America/Chicago',
   square: {
     // Seeded 2026-07-11 by scripts/seed-kits.ts (idempotent — re-run after price/theme edits).

@@ -111,8 +111,11 @@ contents card and order confirmation (the Wednesday following my pickup, during 
 drop-off window, or any earlier open business day). If I do not, I understand my refundable
 deposit will be withheld, and the Studio reserves the right to recover the reasonable replacement
 value of unreturned pieces. If pieces remain unreturned after the return-by date, I agree the
-Studio may contact me to arrange retrieval from the address I provided with my order, and that a
-retrieval fee stated at checkout may be deducted from my deposit.
+Studio may contact me to arrange retrieval from the address I provided with my order, and that if
+the Studio must collect the pieces, my deposit is forfeited in full. (Revised 2026-07-12 from a
+flat $25 retrieval fee — a small fee priced retrieval as a cheap valet service and undercut the
+Wednesday return window; forfeiture scales with kit size via the tiered deposit. Counsel: same
+liquidated-damages framing question as the rest of §6a.)
 
 (c) **Condition and cleaning.** I will clean all food-contact pieces before returning them. The
 Studio inspects and sanitizes every piece on return; pieces returned damaged beyond normal wear,
