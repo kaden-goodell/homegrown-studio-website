@@ -244,7 +244,9 @@ export const siteConfig: SiteConfig = {
       types: partyTypes,
     },
     kits: {
-      enabled: true,
+      // Paused for the pre-booking launch (2026-07-18) — core flows first.
+      // Flip back on with the photos deploy once parties/workshops are proven live.
+      enabled: false,
     },
     programs: {
       enabled: false,
