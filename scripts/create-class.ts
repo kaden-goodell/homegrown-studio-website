@@ -144,41 +144,66 @@ async function createItem(name: string): Promise<any> {
   const cents = Math.round(Number(priceArg) * 100)
   if (!Number.isFinite(cents)) fail(`Invalid --price "${priceArg}".`)
   console.log(`  creating CLASS_TICKET item "${name}" at $${(cents / 100).toFixed(2)}...`)
-  const resp: any = await client.catalog.batchUpsert({
-    idempotencyKey: `create-class-item-${name}-${Date.now()}`,
-    batches: [
-      {
-        objects: [
-          {
-            type: 'ITEM',
-            id: '#item',
-            itemData: {
-              name,
-              description: descriptionArg ?? undefined,
-              productType: 'CLASS_TICKET',
-              categories: [{ id: WORKSHOP_CATEGORY_ID, ordinal: BigInt(0) }],
-              reportingCategory: { id: WORKSHOP_CATEGORY_ID },
-              variations: [
-                {
-                  type: 'ITEM_VARIATION',
-                  id: '#var',
-                  itemVariationData: {
-                    itemId: '#item',
-                    name: 'Regular',
-                    pricingType: 'FIXED_PRICING',
-                    priceMoney: { amount: BigInt(cents), currency: 'USD' },
+  // Raw REST call: the v44 SDK's request validation rejects the undocumented
+  // CLASS_TICKET product type before the request is even sent (see
+  // square-sdk-v44-shapes memory) — the API itself accepts it fine.
+  const httpResp = await fetch('https://connect.squareup.com/v2/catalog/batch-upsert', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+      'Square-Version': '2025-01-23',
+    },
+    body: JSON.stringify({
+      idempotency_key: `create-class-item-${name}-${Date.now()}`,
+      batches: [
+        {
+          objects: [
+            {
+              type: 'ITEM',
+              id: '#item',
+              item_data: {
+                name,
+                description: descriptionArg ?? undefined,
+                product_type: 'CLASS_TICKET',
+                categories: [{ id: WORKSHOP_CATEGORY_ID, ordinal: 0 }],
+                reporting_category: { id: WORKSHOP_CATEGORY_ID },
+                variations: [
+                  {
+                    type: 'ITEM_VARIATION',
+                    id: '#var',
+                    item_variation_data: {
+                      item_id: '#item',
+                      name: 'Regular',
+                      pricing_type: 'FIXED_PRICING',
+                      price_money: { amount: cents, currency: 'USD' },
+                    },
                   },
-                },
-              ],
+                ],
+              },
             },
-          },
-        ],
-      },
-    ],
+          ],
+        },
+      ],
+    }),
   })
-  const created = (resp?.objects ?? []).find((o: any) => o.type === 'ITEM')
-  if (!created) fail('Item creation did not return an ITEM object.')
-  return created
+  const resp: any = await httpResp.json()
+  if (!httpResp.ok) fail(`Item creation failed (${httpResp.status}): ${JSON.stringify(resp.errors ?? resp)}`)
+  // Raw REST returns snake_case — normalize the bits main() reads (id,
+  // itemData.name, variations[].id/version) to the SDK's camelCase shape.
+  const createdRaw = (resp?.objects ?? []).find((o: any) => o.type === 'ITEM')
+  if (!createdRaw) fail('Item creation did not return an ITEM object.')
+  return {
+    id: createdRaw.id,
+    type: 'ITEM',
+    itemData: {
+      name: createdRaw.item_data?.name,
+      variations: (createdRaw.item_data?.variations ?? []).map((v: any) => ({
+        id: v.id,
+        version: v.version,
+      })),
+    },
+  }
 }
 
 async function main() {

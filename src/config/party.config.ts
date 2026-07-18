@@ -20,8 +20,11 @@ export const partyConfig = {
     /** Marker category — the (single) craft tagged here shows the "Most popular"
      *  badge. Manage from Square Dashboard or `scripts/set-popular-craft.ts`. */
     popularCategoryId: 'N2ZDEPFKYME52I7OQYSFIDWN',
-    /** Non-bookable Open Studio display item (flow='display'). TODO: rebuild — old TEST item was deleted. */
-    openStudioItemId: '3ACHZ6GJKU4SVCF6RN3QJZE4',
+    /** Non-bookable Open Studio display item (flow='display', windows in the
+     *  programDates custom attribute). Currently the TEST item created
+     *  2026-07-18 for pre-launch flow testing (windows = Jul 23–Aug 2 open
+     *  hours) — swap for a real item with Sept windows before grand opening. */
+    openStudioItemId: 'AVJKOK4G7EOZUXF5ANIPF7AY',
     /** Default team member the whole-room booking is assigned to (Kaden). */
     defaultTeamMemberId: 'TMeIN-kxF-ZVhTVj',
   },
