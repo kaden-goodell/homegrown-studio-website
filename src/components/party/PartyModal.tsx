@@ -745,8 +745,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             )}
             <p style={{ fontSize: '0.72rem', fontStyle: 'italic', color: 'var(--color-muted)', margin: '0.35rem 0 0' }}>
               {hasPriceRange
-                ? 'Your exact piece and price are chosen and paid at the studio.'
-                : `Craft cost (~${formatPrice(craftEstimate)}) is an estimate — you pay it at the studio for your final guest count, confirmed a week before (${partyConfig.minGuests}-craft minimum).`}
+                ? 'Your exact piece and price are chosen and paid at the studio, based on who attends.'
+                : `Craft cost (~${formatPrice(craftEstimate)}) is an estimate — you pay it at the studio on the day, based on who attends (${partyConfig.minGuests}-craft minimum).`}
             </p>
           </>
         )}
@@ -1422,7 +1422,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: '0.5rem' }}>
                 {people >= partyConfig.maxGuests
                   ? `Maximum ${partyConfig.maxGuests} guests per booking.`
-                  : `Parties are for ${partyConfig.minGuests}–${partyConfig.maxGuests} guests with a ${partyConfig.minGuests}-craft minimum. This is just an estimate — you'll confirm your final count a week before the party, and that's what you pay for.`}
+                  : `Parties are for ${partyConfig.minGuests}–${partyConfig.maxGuests} guests with a ${partyConfig.minGuests}-craft minimum. This is just an estimate — you'll pay for crafts at the studio based on who actually comes.`}
               </p>
             </div>
 

@@ -23,7 +23,8 @@ export const policyWindows = {
   partyFullRefundDays: 14,
   /** Minimum notice to reschedule a party, in hours. */
   partyRescheduleNoticeHours: 48,
-  /** Final headcount locks this many days before the party. */
+  /** We confirm the expected headcount this many days before the party — for
+   *  prep only; billing is on actual attendance with the minGuests floor. */
   partyHeadcountLockDays: 7,
   /** Workshop cancellations this many hours (or more) ahead → full refund. */
   workshopRefundHours: 48,
@@ -66,16 +67,17 @@ export const policySections: PolicySection[] = [
           `If you reschedule from inside the ${W.partyFullRefundDays}-day window, the studio fee becomes studio credit rather than refundable.`,
       },
       {
-        heading: `Final headcount locks ${W.partyHeadcountLockDays} days before`,
+        heading: 'Guest count and craft charges',
         body:
-          `We confirm your final guest count ${W.partyHeadcountLockDays} days before the party so we can prep stations and materials. ` +
-          `Per-person craft charges are based on that locked count (${partyConfig.minGuests}-craft minimum). ` +
-          'Day-of additions are welcome when supplies allow; the count can’t go down after it locks.',
+          `We’ll confirm your expected headcount about ${W.partyHeadcountLockDays} days before the party so we can prep stations and materials — ` +
+          `but crafts are charged at the studio for whoever actually comes, with a ${partyConfig.minGuests}-craft minimum. ` +
+          'Plan for 15 and 13 make it? You pay for 13. Beyond the minimum, a friend who can’t make it never costs you anything, ' +
+          'and day-of additions are welcome when supplies allow.',
       },
       {
         heading: 'No-shows',
         body:
-          'If your party doesn’t show, the studio fee is forfeited — no refund or credit. We prepped the studio and held the date for you.',
+          'If your party doesn’t show up at all, the studio fee is forfeited — no refund or credit. We prepped the studio and held the date for you.',
       },
       {
         heading: 'Personalized crafts',
@@ -132,7 +134,7 @@ export const policySections: PolicySection[] = [
 export const checkoutPolicySummary = {
   party:
     `Free reschedule with ${W.partyRescheduleNoticeHours}h notice · full refund ${W.partyFullRefundDays}+ days out · ` +
-    `studio credit inside ${W.partyFullRefundDays} days · headcount locks ${W.partyHeadcountLockDays} days before`,
+    `studio credit inside ${W.partyFullRefundDays} days · crafts billed for who comes (${partyConfig.minGuests} minimum)`,
   workshop:
     `Full refund ${W.workshopRefundHours}+ hours out · studio credit or free seat transfer inside ${W.workshopRefundHours} hours`,
 } as const

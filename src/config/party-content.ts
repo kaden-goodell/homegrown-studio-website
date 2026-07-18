@@ -47,12 +47,12 @@ export const partyContent = {
       'The only fully private craft-party studio in Madison — no shared tables, no strangers, no other parties in the room.',
     holdLine: `${FEE} holds your date — that’s all that’s due today.`,
     perPersonExample: { guests: 12 }, // "~$17/person for the room" is computed from this
-    noShowLine: `Crafts are paid at the studio for your final guest count, which you confirm a week before the party (${partyConfig.minGuests}-craft minimum) — today’s number is just an estimate.`,
+    noShowLine: `Crafts are paid at the studio for whoever actually comes (${partyConfig.minGuests}-craft minimum) — beyond that, a friend who can’t make it never costs you a thing.`,
   },
 
   trust: {
     securedBy: 'Payments secured by Square',
-    nothingElseDue: 'Nothing else is due today. Crafts are paid at the studio, based on your final guest count.',
+    nothingElseDue: 'Nothing else is due today. Crafts are paid at the studio, based on who comes.',
     /**
      * Point-of-sale summary of the reschedule/cancellation terms. Derived from
      * policyWindows (HOM-78) — the /policies page is the source of truth; keep
@@ -77,7 +77,7 @@ export const partyContent = {
     },
     {
       q: 'What if some guests can’t make it?',
-      a: `Your booking-day guest count is just an estimate. We confirm your final headcount ${LOCK_DAYS} days before the party — that’s the count you pay crafts for at the studio (${partyConfig.minGuests}-craft minimum). Extra friends can usually join day-of if supplies allow, but the count can’t go down inside the final week — that’s when we prep your stations and materials.`,
+      a: `You pay for crafts for the people who actually come, with a ${partyConfig.minGuests}-craft minimum (parties are for groups of ${partyConfig.minGuests} or more). Beyond the minimum, your guest count is just an estimate — no-shows never cost you anything. We’ll check in about ${LOCK_DAYS} days before the party to confirm your expected headcount so we can prep.`,
     },
     {
       q: 'How long is a party and how many people can I bring?',
@@ -85,7 +85,7 @@ export const partyContent = {
     },
     {
       q: 'Is there a minimum party size?',
-      a: `Yes — parties are for groups of ${partyConfig.minGuests} or more, with a ${partyConfig.minGuests}-craft minimum settled at the studio. Whatever headcount you confirm the week before (minimum ${partyConfig.minGuests}) is what you’re charged for.`,
+      a: `Yes — parties are for groups of ${partyConfig.minGuests} or more, with a ${partyConfig.minGuests}-craft minimum settled at the studio. If fewer guests end up making it on the day, the ${partyConfig.minGuests}-craft minimum still applies.`,
     },
     {
       q: 'Who are parties for?',
@@ -121,7 +121,7 @@ export const partyContent = {
     },
     {
       q: 'Do adults or non-guests have to pay?',
-      a: 'Everyone who makes a craft pays the per-person price — adults, friends, siblings, anyone crafting. Crafts aren’t shareable. Just count crafters in your confirmed headcount: someone who only comes to watch and cheer doesn’t count and costs nothing.',
+      a: 'Everyone who makes a craft pays the per-person price — adults, friends, siblings, anyone crafting. Crafts aren’t shareable, and it’s all settled at the studio based on who actually crafts, so someone who just comes to watch and cheer costs nothing.',
     },
   ] satisfies FaqEntry[],
 

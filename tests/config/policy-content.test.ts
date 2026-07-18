@@ -34,14 +34,20 @@ describe('policy content (HOM-78 canonical spec)', () => {
     }
   })
 
-  it('party section covers refund, credit, reschedule anchoring, headcount lock, and no-show', () => {
+  it('party section covers refund, credit, reschedule anchoring, attendance billing, and no-show', () => {
     const parties = policySections.find((s) => s.id === POLICY_ANCHORS.parties)!
     const text = parties.rules.map((r) => `${r.heading} ${r.body}`).join(' ')
     expect(text).toContain('Full refund')
     expect(text).toContain('studio credit')
     expect(text).toMatch(/original party date/i)
-    expect(text).toMatch(/can’t go down after it locks/i)
-    expect(text).toMatch(/forfeited/i)
+    // Billing is on ACTUAL attendance with the 10-craft floor (Kaden 2026-07-18):
+    // planned 15, 13 come → pay 13; 8 come → pay 10. The week-before check-in
+    // is for prep only — never a binding "locked count."
+    expect(text).toMatch(/whoever actually comes/i)
+    expect(text).toMatch(/10-craft minimum/)
+    expect(text).not.toMatch(/locked count|can’t go down/i)
+    // Forfeiture is for the WHOLE party not showing, not individual no-shows.
+    expect(text).toMatch(/doesn’t show up at all.*forfeited/i)
   })
 
   it('workshop section covers our-cancellation with customer choice', () => {
@@ -54,7 +60,7 @@ describe('policy content (HOM-78 canonical spec)', () => {
   it('checkout summaries quote the same windows as policyWindows', () => {
     expect(checkoutPolicySummary.party).toContain(`${policyWindows.partyFullRefundDays}`)
     expect(checkoutPolicySummary.party).toContain(`${policyWindows.partyRescheduleNoticeHours}h`)
-    expect(checkoutPolicySummary.party).toContain(`${policyWindows.partyHeadcountLockDays}`)
+    expect(checkoutPolicySummary.party).toMatch(/who comes/i)
     expect(checkoutPolicySummary.workshop).toContain(`${policyWindows.workshopRefundHours}`)
   })
 
@@ -66,11 +72,13 @@ describe('policy content (HOM-78 canonical spec)', () => {
     // The point-of-sale summary must quote the real windows, not stale ones.
     expect(partyContent.trust.reschedulePolicy).toContain(`${policyWindows.partyRescheduleNoticeHours} hours`)
     expect(partyContent.trust.reschedulePolicy).toContain(`${policyWindows.partyFullRefundDays}+ days`)
-    // The old (pre-HOM-78) terms must not resurface anywhere in party copy.
+    // The old (pre-HOM-78) refund terms must not resurface anywhere in party
+    // copy. ("Pay for who comes" is CORRECT — attendance billing was confirmed
+    // 2026-07-18 after a misread of the no-show answer briefly replaced it.)
     const allCopy = JSON.stringify(partyContent)
     expect(allCopy).not.toMatch(/isn’t refundable/)
-    expect(allCopy).not.toMatch(/no-shows never cost/i)
-    expect(allCopy).not.toMatch(/based on who comes/i)
+    expect(allCopy).toMatch(/who actually come/i)
+    expect(allCopy).not.toMatch(/locked count|final headcount \d+ days|count can’t go down/i)
     // Cancel/reschedule FAQ reflects full-refund-then-credit, anchored to the original date.
     const cancelFaq = partyContent.faq.find((f) => f.q.includes('cancel or reschedule'))!
     expect(cancelFaq.a).toMatch(/fully refunded/i)

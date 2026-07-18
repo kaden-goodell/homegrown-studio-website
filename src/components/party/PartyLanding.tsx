@@ -352,7 +352,7 @@ export default function PartyLanding() {
             { step: '1', text: 'Pick your craft and a date' },
             { step: '2', text: 'Tell us roughly how many guests' },
             { step: '3', text: `Pay the $${FEE_DOLLARS} studio fee — the date is yours` },
-            { step: '4', text: 'Confirm your final count the week before, pay for crafts at the studio' },
+            { step: '4', text: 'Guests pay for crafts at the studio, based on who comes' },
           ].map(({ step, text }) => (
             <div key={step} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.875rem 1.25rem', borderRadius: '0.75rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(150, 112, 91, 0.08)' }}>
               <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '1.75rem', height: '1.75rem', borderRadius: '50%', background: 'rgba(150, 112, 91, 0.12)', color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.8125rem', flexShrink: 0 }}>
