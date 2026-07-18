@@ -69,8 +69,8 @@ export async function sendPartyConfirmationEmail(input: {
   // Craft description: keep the guest's paragraph breaks, drop stray CRs.
   const description = (input.craftDescription ?? '').replace(/\r/g, '').trim()
   const costLine = perPerson
-    ? `Studio fee paid today: ${fee}. ${input.craftName} is ${perPerson} per person, paid at the studio for whoever crafts.`
-    : `Studio fee paid today: ${fee}. Crafts are paid at the studio based on who comes.`
+    ? `Studio fee paid today: ${fee}. ${input.craftName} is ${perPerson} per person, paid at the studio for your final guest count (we'll confirm it with you the week before).`
+    : `Studio fee paid today: ${fee}. Crafts are paid at the studio for your final guest count — we'll confirm it with you the week before.`
   const text = [
     `You're booked! ${input.craftName} · ${input.slotLabel}`,
     ``,
@@ -107,7 +107,7 @@ export async function sendPartyConfirmationEmail(input: {
   <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#3d3630;">${esc(input.craftName)} &middot; ${esc(input.slotLabel)}</p>
   ${input.craftImageUrl ? `<img src="${esc(input.craftImageUrl)}" alt="${esc(input.craftName)}" width="552" style="display:block;width:100%;max-width:552px;border-radius:12px;margin:0 0 14px;" />` : ''}
   ${descriptionHtml ? `<p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700;">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
-  <p style="${P}"><strong>Studio fee paid today: ${esc(fee)}.</strong>${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio based on who comes.'}</p>
+  <p style="${P}"><strong>Studio fee paid today: ${esc(fee)}.</strong>${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for your final guest count (we&rsquo;ll confirm it with you the week before).` : ' Crafts are paid at the studio for your final guest count &mdash; we&rsquo;ll confirm it with you the week before.'}</p>
   <div style="margin:18px 0 6px;">
     <a href="${esc(input.hostPageUrl)}" style="display:inline-block;padding:11px 22px;background:#96705B;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">Your party page &rarr;</a>
   </div>

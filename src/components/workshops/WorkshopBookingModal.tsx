@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { CLASS_BOOKING_APP_ID } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
+import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
 import { waiverContent } from '@config/waiver-content'
 import type { WorkshopData } from './WorkshopExplorer'
 import DetailsStep from '@components/shared/DetailsStep'
@@ -56,6 +57,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
   const [completed, setCompleted] = useState(false)
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
   const [bookingId, setBookingId] = useState<string | null>(null)
+  const [agreedToPolicy, setAgreedToPolicy] = useState(false)
   const paymentFormRef = useRef<PaymentFormRef>(null)
 
   // Cap seats at the class's remaining capacity AND the studio-wide event cap (30).
@@ -106,6 +108,10 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
   async function handlePay() {
     // Prevent double-submit
     if (processing) return
+    if (!agreedToPolicy) {
+      setError('Please agree to the booking & cancellation policy to continue.')
+      return
+    }
 
     setError(null)
     setProcessing(true)
@@ -488,6 +494,37 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
               <PaymentForm ref={paymentFormRef} applicationIdOverride={CLASS_BOOKING_APP_ID} environmentOverride="production" />
             </div>
 
+            {/* Booking terms — required before payment. */}
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.5rem',
+                cursor: 'pointer',
+                marginTop: '1rem',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={agreedToPolicy}
+                onChange={(e) => setAgreedToPolicy(e.target.checked)}
+                style={{ marginTop: '0.15rem', width: '1rem', height: '1rem', flexShrink: 0, cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: '0.8125rem', color: 'var(--color-dark)', lineHeight: 1.5 }}>
+                I agree to the{' '}
+                <a
+                  href={`${POLICY_PATH}#${POLICY_ANCHORS.workshops}`}
+                  target="_blank"
+                  rel="noopener"
+                  style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'underline' }}
+                >
+                  booking &amp; cancellation policy
+                </a>
+                .{' '}
+                <span style={{ color: 'var(--color-muted)' }}>{checkoutPolicySummary.workshop}.</span>
+              </span>
+            </label>
+
             {error && (
               <p style={{ fontSize: '0.875rem', color: '#dc2626', marginTop: '0.75rem' }}>{error}</p>
             )}
@@ -495,12 +532,12 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
             <button
               type="button"
               onClick={handlePay}
-              disabled={processing}
+              disabled={processing || !agreedToPolicy}
               style={{
                 width: '100%',
                 marginTop: '1.25rem',
                 padding: '0.875rem',
-                background: processing
+                background: processing || !agreedToPolicy
                   ? 'rgba(150, 112, 91, 0.4)'
                   : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
                 color: '#fff',
@@ -508,7 +545,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                 borderRadius: '0.75rem',
                 fontSize: '0.875rem',
                 fontWeight: 600,
-                cursor: processing ? 'default' : 'pointer',
+                cursor: processing || !agreedToPolicy ? 'default' : 'pointer',
                 opacity: processing ? 0.7 : 1,
                 transition: 'box-shadow 0.3s ease, transform 0.3s ease',
               }}

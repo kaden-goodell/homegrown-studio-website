@@ -61,6 +61,7 @@ const { street, city, state, zip } = siteConfig.address
           <a href={item.href} class="footer-link">{item.label}</a>
         ))}
         <a href="/waiver" class="footer-link">Waiver</a>
+        <a href="/policies" class="footer-link">Policies</a>
         <a href={`https://maps.google.com/?q=${encodeURIComponent(`${siteConfig.name}, ${street}, ${city}, ${state} ${zip}`)}`} class="footer-link" rel="noopener" target="_blank">Directions</a>
       </nav>
 

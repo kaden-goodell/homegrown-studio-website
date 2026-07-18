@@ -4,6 +4,7 @@ import type { PaymentFormRef } from '@components/checkout/PaymentForm'
 import { craftBreakdown, craftTotalCents } from '@lib/party-pricing'
 import { partyConfig } from '@config/party.config'
 import { partyContent } from '@config/party-content'
+import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
 import { partyStartsForDate } from '@lib/party-slots'
 import {
   visibleSteps,
@@ -140,6 +141,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [selectedCraft, setSelectedCraft] = useState<Craft | null>(null)
   const [expandedCraft, setExpandedCraft] = useState<string | null>(null)
   const [ackPersonalized, setAckPersonalized] = useState(false)
+  const [agreedToPolicy, setAgreedToPolicy] = useState(false)
 
   // Selecting a craft resets the personalized acknowledgment (must re-confirm per craft).
   const selectCraft = (craft: Craft) => {
@@ -491,6 +493,10 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       setError('Add your full name, email, and phone above first — we need them for your confirmation and to reach you on party day.')
       return
     }
+    if (!agreedToPolicy) {
+      setError('Please agree to the booking & cancellation policy to continue.')
+      return
+    }
 
     setError(null)
     setProcessing(true)
@@ -739,8 +745,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             )}
             <p style={{ fontSize: '0.72rem', fontStyle: 'italic', color: 'var(--color-muted)', margin: '0.35rem 0 0' }}>
               {hasPriceRange
-                ? 'Your exact piece and price are chosen and paid at the studio, based on who attends.'
-                : `Craft cost (~${formatPrice(craftEstimate)}) is an estimate — you pay it at the studio on the day, based on who attends (${partyConfig.minGuests}-craft minimum).`}
+                ? 'Your exact piece and price are chosen and paid at the studio.'
+                : `Craft cost (~${formatPrice(craftEstimate)}) is an estimate — you pay it at the studio for your final guest count, confirmed a week before (${partyConfig.minGuests}-craft minimum).`}
             </p>
           </>
         )}
@@ -1416,7 +1422,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: '0.5rem' }}>
                 {people >= partyConfig.maxGuests
                   ? `Maximum ${partyConfig.maxGuests} guests per booking.`
-                  : `Parties are for ${partyConfig.minGuests}–${partyConfig.maxGuests} guests with a ${partyConfig.minGuests}-craft minimum. This is just an estimate — you'll pay for crafts at the studio based on who actually comes.`}
+                  : `Parties are for ${partyConfig.minGuests}–${partyConfig.maxGuests} guests with a ${partyConfig.minGuests}-craft minimum. This is just an estimate — you'll confirm your final count a week before the party, and that's what you pay for.`}
               </p>
             </div>
 
@@ -1554,6 +1560,37 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               </div>
             </div>
 
+            {/* Booking terms — required before any payment path (card or wallet). */}
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '0.5rem',
+                cursor: 'pointer',
+                marginBottom: '1rem',
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={agreedToPolicy}
+                onChange={(e) => setAgreedToPolicy(e.target.checked)}
+                style={{ marginTop: '0.15rem', width: '1rem', height: '1rem', flexShrink: 0, cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: '0.8125rem', color: 'var(--color-dark)', lineHeight: 1.5 }}>
+                I agree to the{' '}
+                <a
+                  href={`${POLICY_PATH}#${POLICY_ANCHORS.parties}`}
+                  target="_blank"
+                  rel="noopener"
+                  style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'underline' }}
+                >
+                  booking &amp; cancellation policy
+                </a>
+                .{' '}
+                <span style={{ color: 'var(--color-muted)' }}>{checkoutPolicySummary.party}.</span>
+              </span>
+            </label>
+
             {/* Party charges go through the standard Payments API, so the SDK runs
                 under OUR application (from client-config) — required for Apple Pay,
                 whose domain registration is tied to our app. The CLASS_BOOKING_APP_ID
@@ -1563,9 +1600,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               environmentOverride="production"
               wallet={{ amount: (deposit / 100).toFixed(2), label: 'Homegrown Studio — party studio fee', bnpl: true }}
               onWalletToken={(token) => handlePay(token)}
-              canPayWithWallet={() =>
-                infoValid ? null : 'Add your full name, email, and phone above first — we need them for your confirmation and to reach you on party day.'
-              }
+              canPayWithWallet={() => {
+                if (!infoValid) return 'Add your full name, email, and phone above first — we need them for your confirmation and to reach you on party day.'
+                if (!agreedToPolicy) return 'Please agree to the booking & cancellation policy above first.'
+                return null
+              }}
             />
 
             {error && (
@@ -1575,12 +1614,12 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             <button
               type="button"
               onClick={() => handlePay()}
-              disabled={processing || !infoValid}
+              disabled={processing || !infoValid || !agreedToPolicy}
               style={{
                 width: '100%',
                 marginTop: '1.25rem',
                 padding: '0.875rem',
-                background: processing || !infoValid
+                background: processing || !infoValid || !agreedToPolicy
                   ? 'rgba(150, 112, 91, 0.4)'
                   : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
                 color: '#fff',
@@ -1588,7 +1627,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 borderRadius: '0.75rem',
                 fontSize: '0.875rem',
                 fontWeight: 600,
-                cursor: processing || !infoValid ? 'default' : 'pointer',
+                cursor: processing || !infoValid || !agreedToPolicy ? 'default' : 'pointer',
                 opacity: processing ? 0.7 : 1,
                 transition: 'box-shadow 0.3s ease, transform 0.3s ease',
               }}

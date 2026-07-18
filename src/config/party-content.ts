@@ -13,9 +13,15 @@ export interface FaqEntry {
 }
 
 import { partyConfig } from './party.config'
+import { policyWindows } from './policy-content'
 
 /** "$300" — every mention of the studio fee derives from partyConfig.basePriceCents. */
 const FEE = `$${partyConfig.basePriceCents / 100}`
+
+/** Policy windows (HOM-78) — all cancellation copy derives from these. */
+const REFUND_DAYS = policyWindows.partyFullRefundDays
+const RESCHED_HOURS = policyWindows.partyRescheduleNoticeHours
+const LOCK_DAYS = policyWindows.partyHeadcountLockDays
 
 export const partyContent = {
   hero: {
@@ -38,21 +44,19 @@ export const partyContent = {
   deposit: {
     holdLine: `${FEE} holds your date — that’s all that’s due today.`,
     perPersonExample: { guests: 12 }, // "~$17/person for the room" is computed from this
-    noShowLine: `Crafts are paid at the studio for whoever actually comes (${partyConfig.minGuests}-craft minimum) — beyond that, a friend who can’t make it never costs you a thing.`,
+    noShowLine: `Crafts are paid at the studio for your final guest count, which you confirm a week before the party (${partyConfig.minGuests}-craft minimum) — today’s number is just an estimate.`,
   },
 
   trust: {
     securedBy: 'Payments secured by Square',
-    nothingElseDue: 'Nothing else is due today. Crafts are paid at the studio, based on who comes.',
+    nothingElseDue: 'Nothing else is due today. Crafts are paid at the studio, based on your final guest count.',
     /**
-     * Point-of-sale summary of the reschedule/cancellation terms. Keep it in
-     * sync with the fuller FAQ answer below and the eventual policy page
-     * (HOM-108) — the FAQ is the source of truth. Empty string hides the line.
-     * The bare "free reschedule 7 days" line oversold it; this states the fee
-     * terms too so the checkout matches the actual policy.
+     * Point-of-sale summary of the reschedule/cancellation terms. Derived from
+     * policyWindows (HOM-78) — the /policies page is the source of truth; keep
+     * this line and the FAQ answer consistent with it. Empty string hides the line.
      */
     reschedulePolicy:
-      'Free reschedule up to 7 days out. The studio fee isn’t refundable, but cancel 2+ weeks ahead and it becomes store credit.' as string,
+      `Free reschedule with ${RESCHED_HOURS} hours’ notice. Cancel ${REFUND_DAYS}+ days out for a full refund — closer in, your fee becomes studio credit that never expires.` as string,
   },
 
   /** Business number (Quo, set up Jul 2026). Empty = every "text us" element is hidden. */
@@ -70,7 +74,7 @@ export const partyContent = {
     },
     {
       q: 'What if some guests can’t make it?',
-      a: `You pay for crafts for the people who actually come, with a ${partyConfig.minGuests}-craft minimum (parties are for groups of ${partyConfig.minGuests} or more). Beyond the minimum, your guest count is just an estimate — no-shows never cost you anything.`,
+      a: `Your booking-day guest count is just an estimate. We confirm your final headcount ${LOCK_DAYS} days before the party — that’s the count you pay crafts for at the studio (${partyConfig.minGuests}-craft minimum). Extra friends can usually join day-of if supplies allow, but the count can’t go down inside the final week — that’s when we prep your stations and materials.`,
     },
     {
       q: 'How long is a party and how many people can I bring?',
@@ -78,7 +82,7 @@ export const partyContent = {
     },
     {
       q: 'Is there a minimum party size?',
-      a: `Yes — parties are for groups of ${partyConfig.minGuests} or more, with a ${partyConfig.minGuests}-craft minimum settled at the studio. If fewer guests end up making it on the day, the ${partyConfig.minGuests}-craft minimum still applies.`,
+      a: `Yes — parties are for groups of ${partyConfig.minGuests} or more, with a ${partyConfig.minGuests}-craft minimum settled at the studio. Whatever headcount you confirm the week before (minimum ${partyConfig.minGuests}) is what you’re charged for.`,
     },
     {
       q: 'Who are parties for?',
@@ -97,16 +101,24 @@ export const partyContent = {
       a: 'A dessert or sweet treat and water — that’s the menu! Treat time is optional and runs about 20–30 minutes (plenty of guests just keep crafting right through it), so keep it simple. Please bring your own plates, napkins, and utensils — we don’t provide paper goods.',
     },
     {
+      q: 'Can we bring wine or other alcohol?',
+      a: 'No outside alcohol, please — Alabama law doesn’t allow it in our studio. We’re pursuing a beer & wine license so guests can enjoy a drink here once it’s issued.',
+    },
+    {
+      q: 'Can you do a character theme (Bluey, princesses, superheroes)?',
+      a: 'We can’t use trademarked characters in our crafts or decor — those belong to their studios. What we can do: match your party’s colors and vibe, and you’re welcome to bring your own character decorations for the tables.',
+    },
+    {
       q: 'Can I decorate the studio for my party?',
       a: 'Yes — minimal decorations are welcome. You’ll have 30 minutes before your start time to set up while we reset the studio from the previous party. Just plan to take your decorations down afterward and leave the space the way you found it.',
     },
     {
       q: 'What happens if I need to cancel or reschedule?',
-      a: 'Rescheduling is free up to 7 days before your party. The studio fee isn’t refundable, but if you cancel at least 2 weeks out we’ll convert it to store credit. Parties take planning on both ends — that window gives another group time to book the date, send invites, and get RSVPs.',
+      a: `Cancel ${REFUND_DAYS} or more days before your party and the studio fee is fully refunded. Inside ${REFUND_DAYS} days it converts to studio credit that never expires. Rescheduling is free with ${RESCHED_HOURS} hours’ notice — just know refund eligibility counts from your original date, so rescheduling doesn’t restart the clock. The full details live on our policies page.`,
     },
     {
       q: 'Do adults or non-guests have to pay?',
-      a: 'Everyone who makes a craft pays the per-person price — adults, friends, siblings, anyone crafting. Crafts aren’t shareable, and it’s all settled at the studio based on who actually crafts, so someone who just comes to watch and cheer costs nothing.',
+      a: 'Everyone who makes a craft pays the per-person price — adults, friends, siblings, anyone crafting. Crafts aren’t shareable. Just count crafters in your confirmed headcount: someone who only comes to watch and cheer doesn’t count and costs nothing.',
     },
   ] satisfies FaqEntry[],
 
