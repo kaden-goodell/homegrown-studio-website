@@ -332,6 +332,9 @@ export default function PartyLanding() {
         <h3 style={{ fontSize: '1.125rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.5rem' }}>
           The Whole Studio Is Yours
         </h3>
+        <p style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--color-dark)', lineHeight: 1.6, margin: '0 0 0.5rem' }}>
+          {partyContent.deposit.positioningLine}
+        </p>
         <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, margin: 0 }}>
           {partyContent.deposit.holdLine} For a party of {partyContent.deposit.perPersonExample.guests},
           that&rsquo;s about ${PER_PERSON_EXAMPLE} a person for a completely private studio.

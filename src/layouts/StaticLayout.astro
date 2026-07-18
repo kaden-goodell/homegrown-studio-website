@@ -3,6 +3,7 @@ import { ViewTransitions } from 'astro:transitions'
 import { siteConfig } from '@config/site.config'
 import Header from '@components/shared/Header.astro'
 import Footer from '@components/shared/Footer.astro'
+import Analytics from '@components/shared/Analytics.astro'
 import Shimmer from '@components/shared/Shimmer'
 import '@styles/global.css'
 import '@styles/textures.css'
@@ -71,5 +72,6 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     </main>
     <Footer transition:persist />
     <script>import '@lib/fade-in'</script>
+    <Analytics />
   </body>
 </html>

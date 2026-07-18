@@ -39,3 +39,4 @@ src/lib/*.json
 captures/
 *.har
 docs/alcohol-license/
+docs/filings/

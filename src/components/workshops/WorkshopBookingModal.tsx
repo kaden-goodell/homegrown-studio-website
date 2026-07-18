@@ -10,6 +10,14 @@ import CouponInput from '@components/checkout/CouponInput'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
 import type { LineItem, Discount } from '@providers/interfaces/payment'
+import {
+  trackWizardStarted,
+  trackPaymentStarted,
+  trackPaymentCompleted,
+  trackPaymentFailed,
+  trackBookingCompleted,
+  trackWorkshopSeatBooked,
+} from '@lib/analytics'
 
 interface WorkshopBookingModalProps {
   workshop: WorkshopData
@@ -69,6 +77,11 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
     return () => { document.body.style.overflow = '' }
   }, [])
 
+  // Funnel start — once per modal open.
+  useEffect(() => {
+    trackWizardStarted('workshop')
+  }, [])
+
   // Step transition
   useEffect(() => {
     if (step !== prevStep.current) {
@@ -115,6 +128,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
 
     setError(null)
     setProcessing(true)
+    trackPaymentStarted(total / 100)
 
     try {
       // Step 1: Tokenize card
@@ -151,7 +165,11 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
       setReceiptUrl(bookData.data.receiptUrl ?? null)
       setBookingId(bookData.data.bookingId ?? null)
       setCompleted(true)
+      trackPaymentCompleted(total / 100)
+      trackWorkshopSeatBooked(workshop.name, total / 100)
+      trackBookingCompleted('workshop')
     } catch (err) {
+      trackPaymentFailed(err instanceof Error ? err.message : 'unknown')
       setError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.')
     } finally {
       setProcessing(false)

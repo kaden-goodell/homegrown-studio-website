@@ -29,9 +29,9 @@ export const partyContent = {
     headline: 'Throw a party they’ll actually remember',
     occasions: 'Birthdays · Girls’ nights · Showers · Team nights · Just because',
     subline:
-      'The whole studio, just your people. Pick a craft, pick a date, and come make something together.',
+      'A completely private studio — your group is the only group in the room. Pick a craft, pick a date, and come make something together.',
     valueTrio: [
-      'The whole studio is yours',
+      'Fully private — the studio is yours',
       `${partyConfig.durationMinutes} minutes of making`,
       `${partyConfig.minGuests}–${partyConfig.maxGuests} guests`,
     ],
@@ -42,6 +42,9 @@ export const partyContent = {
 
   /** How the studio fee is framed everywhere: value first, fee second. */
   deposit: {
+    /** The private-room differentiator (HOM-161) — leads the value band on /book. */
+    positioningLine:
+      'The only fully private craft-party studio in Madison — no shared tables, no strangers, no other parties in the room.',
     holdLine: `${FEE} holds your date — that’s all that’s due today.`,
     perPersonExample: { guests: 12 }, // "~$17/person for the room" is computed from this
     noShowLine: `Crafts are paid at the studio for your final guest count, which you confirm a week before the party (${partyConfig.minGuests}-craft minimum) — today’s number is just an estimate.`,

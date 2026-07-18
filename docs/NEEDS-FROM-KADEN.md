@@ -19,6 +19,15 @@ fields stay hidden until filled — no code changes needed to "turn them on."
 
 ## 🟡 Do when ready (feature upgrades itself, nothing broken meanwhile)
 
+3a. **GA4 measurement ID** (HOM-150, before ad spend ~Aug 18) — create a GA4
+   property at [analytics.google.com](https://analytics.google.com) for
+   homegrowncraftstudio.com, then set `PUBLIC_GA4_ID=G-XXXXXXXXXX` in Netlify.
+   The site loads gtag + fires booking/purchase conversion events the moment the
+   var exists — no deploy needed beyond the one that ships this code. Then in
+   GA4: mark `purchase` (and optionally `booking_completed`) as key events, and
+   link Google Ads (HOM-41) to import them. Meta pixel still pending the ads
+   account (HOM-40).
+
 4a. **Quo reminder texts — key DONE, carrier registration PENDING.**
    `QUO_API_KEY` + `QUO_FROM_NUMBER` are set in Netlify + `.env` (verified
    against the API 2026-07-12). ⚠️ But the number reports
@@ -66,5 +75,6 @@ fields stay hidden until filled — no code changes needed to "turn them on."
 live) · `LOOKUP_SIGNING_SECRET` · `SQUARE_ACCESS_TOKEN`/`SQUARE_ENVIRONMENT` ·
 Apple Pay domain verified · business phone (256) 464-1710 in modal + footer ·
 footer address · party FAQ (10 answers + JSON-LD) · reschedule promise ·
-`features.kits.enabled = true` (kits are live-on-merge, including nav, teasers,
-and the party themed-table step).
+`features.kits.enabled` — **flipped to FALSE 2026-07-18** for the pre-booking
+launch (core flows first); flip back with the photos deploy once parties +
+workshops are proven live.
