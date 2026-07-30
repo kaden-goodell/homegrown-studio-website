@@ -1,9 +1,18 @@
 # CPA Briefing — Goodell Holdings LLC d/b/a Homegrown Studio
 
-Prepared 2026-07-12, revised same day: this is a BRIEFING, not an audit — the
-CPA has only been told "we're starting a business" and handled the S-corp
+Prepared 2026-07-12, **updated 2026-07-29**: this is a BRIEFING, not an audit —
+the CPA has only been told "we're starting a business" and handled the S-corp
 filing. Most of what's below he's hearing for the first time; the goal of the
 meeting is to hand him the full picture and agree who owns what.
+
+**What Kaden has already done himself (brief, then hand over):** MAT
+registration SUBMITTED 7/29 (conf. b756mt — state sales tax + ONE SPOT locals +
+payroll withholding; sales begins 9/1, withholding begins 8/1; tobacco-retail
+flag YES; NAICS 611610); $25k sales-tax surety bond PAID (#66477468, $348,
+2-yr); SUTA registration at labor.alabama.gov in progress; Square Payroll
+chosen (auto-files 941/940/W-2/AL withholding/SUTA) with NEXT pay-as-you-go
+WC quote pending; consolidated filing calendar drafted at
+`docs/FILING-CALENDAR.md`. First payroll ~8/21, ~8 part-time employees.
 
 Facts: Studio opens **Sept 1, 2026** (Madison, AL). Two-member LLC (Kaden
 Scott Goodell + Catherine Page Goodell, 50/50, member-managed). EIN 41-3490804
@@ -18,6 +27,11 @@ launch with the studio.
   worth 30 seconds to know it stuck. Note: the CP-575A lists Form 1065 because
   it predates the election — once accepted, the annual return is **1120-S**
   (due 3/15/2027).
+  **⚠️ 7/29 evidence check: no 2553 copy and no CP261 exists anywhere in
+  kaden@homegrowncraftstudio.com, and the Feb "confirm 2553" task never
+  closed.** This is now question #1 of the meeting: produce the CP261 or a
+  file copy of the 2553, else call the IRS business line (800-829-4933) to
+  verify the election — they can mail Letter 385C confirming status.
 - [ ] S-corp obligations to plan now: members must take **reasonable W-2
   salaries** once actively working the business (when should that start —
   Sept 1?), and losses are limited to stock/loan basis — **entity-level debt
@@ -30,9 +44,11 @@ launch with the studio.
 
 ## 2. Deadlines on the calendar right now
 
-- [ ] **Form 941 due 2026-07-31** (printed on the CP-575A). No payroll has run —
-  is a zero-wage return required, or is the account not yet "started"? He
-  should answer this instantly.
+- [ ] **Form 941 due 2026-07-31 — THIS WEEK.** (Printed on the CP-575A.) No
+  payroll has run — is a zero-wage return required, or is the account not yet
+  "started"? He should answer this instantly. If a Q2 zero-wage return is
+  needed, he files it now; don't let this one wait for the full meeting —
+  send it as a one-line email today.
 - [ ] **Alabama Business Privilege Tax** — was an initial return (BPT-IN)
   required within 2½ months of the Jan 2026 formation, under the post-2024
   rules (≤$100 exemption)? Was anything filed? (Test question — he should know
@@ -43,8 +59,11 @@ launch with the studio.
 
 ## 3. Payroll — must be running by Sept 1 (6–10 workers)
 
-- [ ] Register **AL withholding account + AL DOL unemployment (SUI) account**
-  before Square Payroll onboarding. Who does it — him or us?
+- [ ] ~~Register AL withholding + SUI~~ **DONE/IN FLIGHT (Kaden, 7/29)**:
+  withholding registered via MAT (R-number expected ~Aug 3–5; commence date
+  8/1); SUTA at labor.alabama.gov in progress (UC account #, 2.7%
+  new-employer rate). Brief him on both account numbers when they land —
+  he needs them for anything he files.
 - [ ] **"Studio Crew" comp structure needs his sign-off**: W-2 at $7.25/hr cash
   **plus** store-credit top-up (~$12–15/hr equivalent) loaded as promotional
   gift cards. The credit is **taxable wages** — how does he want it run through
@@ -54,7 +73,15 @@ launch with the studio.
   LLC members count even if members opt out via Form WC15. We cross 5
   immediately. Policy in place before first shift.
 - [ ] If S-corp (see #1): reasonable-comp payroll for Kaden + Catherine —
-  amounts, start date.
+  amounts, start date. Proposed split to sanity-check with him: **weight
+  Catherine's salary higher, Kaden's minimal** — Kaden's Social Security wage
+  base is already maxed by his W-2 job, so employer-side 6.2% on his studio
+  salary is pure cost with no benefit accrual.
+- [ ] **Family comp architecture** (parked for CPA sign-off): kids working via
+  a family-management company (FICA-exempt wages under 18 paid by a
+  parent-owned entity — does that structure survive an S-corp parent?);
+  moms at $7.25 cash + store-credit top-up (see crew item above);
+  assistants at $12 + 50% discount (is the discount a taxable fringe?).
 
 ## 4. Sales / rental / amusement tax — the messy one, needs actual rulings
 
@@ -83,10 +110,17 @@ taxability answers only he/ALDOR can give:
   income when kept.
 - [ ] **Gift cards / crew credit** — no tax at load, tax at redemption:
   confirm, and confirm Square is set up that way.
-- [ ] **Local registrations**: ALDOR/MAT covers state + which locals? City of
-  Madison and Madison County may need separate sales-tax registrations, plus
-  county privilege license (Probate/License Commissioner) and city business
-  license. Which of these has he actually filed?
+- [ ] ~~Local registrations~~ **DONE (Kaden, 7/29)**: MAT registration covers
+  state sales tax + ONE SPOT local filing (Madison City + Madison County ride
+  the same monthly MAT return). City/county **business licenses** still pending
+  the certificate of occupancy (mid-Aug). Brief him; he owns nothing here
+  except confirming the setup is right.
+- [ ] **Tobacco micro-retail** (new since July): cigar-rolling classes sell
+  ~2 lbs/yr of leaf under Goodell Holdings (ABC tobacco permit in progress;
+  $25k ALDOR bond paid). Questions: how is raw leaf classified for OTP tax
+  (per-cigar vs smoking-tobacco-by-weight vs wrapper rates); can we get
+  annual/de minimis filing at ~$2–4/yr of tax; or should we only source
+  AL-taxed leaf and skip the account entirely?
 
 ## 5. Books & year-1 accounting
 
@@ -98,7 +132,24 @@ taxability answers only he/ALDOR can give:
   §179/de minimis safe harbor per-item?).
 - [ ] Square processing fees, Netlify/software, phone (Quo), mileage for kit
   retrievals — deduction hygiene.
-- [ ] Beer/wine license costs (~$834/yr) + dram-shop insurance when they land.
+- [ ] Insurance premiums already paid/quoted: bond $348 (2-yr — amortize?),
+  property ~$866/yr, GL ~$1,800/yr — deduction timing.
+
+## 5b. NEW ENTITY he hasn't heard about — the liquor LLC
+
+On our insurance agent's advice, the **alcohol side moves to a separate LLC**
+(to be formed; attorney engagement pending). The CPA needs to know before it
+exists, not after:
+
+- [ ] New EIN, own books, own return — and its own S-corp/disregarded-entity
+  election decision (probably NOT S-corp if it's thin — his call).
+- [ ] **Inter-entity mechanics**: ABC requires lessee = licensee, so NewCo
+  needs a sublease from Goodell Holdings for 525 Hughes Rd — that's rent
+  income/expense between related entities. Plus cost-sharing for staff who
+  pour at events. How does he want related-party charges papered?
+- [ ] Does NewCo need its own ALDOR sales-tax account + bond? (We believe yes.)
+- [ ] Beer/wine license costs (~$834/yr) + dram-shop insurance land on NewCo
+  when they come.
 
 ## 6. What to walk out of the meeting with
 
@@ -107,7 +158,8 @@ this meeting, not before it. Ask for four deliverables, in writing:
 
 1. **Election status confirmed** (CP261 in hand or a plan to chase it).
 2. **A 12-month filing calendar** — every federal/state/local deadline that
-   applies to this business, owned by him.
+   applies to this business, owned by him. Hand him our draft
+   (`docs/FILING-CALENDAR.md`) and ask him to correct/complete/own it.
 3. **Ownership of the registration stack**: AL withholding, SUI, sales tax
    (state + city + county), rental tax account if needed, BPT — who files
    which, by when.
