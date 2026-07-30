@@ -7,12 +7,16 @@ fields stay hidden until filled — no code changes needed to "turn them on."
 ## 🔴 Blocking before launch (Sept 1)
 
 0. **Insurance stack (status as of 7/29 — bond ✅ paid; everything else pending):**
-   - [ ] **Workers' comp** — no application exists anywhere yet. Quote BOTH ways:
-     Square Payroll's pay-as-you-go partner (fits the crew plan; premium tracks
-     actual payroll) and Peck-Glasgow. Must be in force before the crew's FIRST
-     TRAINING HOUR (~mid-Aug), not Sept 1. Disclose the store-credit top-up
-     (counts in the payroll basis); you + Catherine can opt out via WC15 but
-     still count toward the 5-employee trigger.
+   - [ ] **Workers' comp — DECIDED 7/29: Square Payroll pay-as-you-go (NEXT
+     Insurance)** so premium auto-tracks actual payroll. Setup chain, in order:
+     (1) register AL withholding + AL DOL unemployment accounts, (2) activate
+     Square Payroll, (3) Dashboard → Payroll → Benefits → Workers' Comp → Get
+     Started (NEXT uploads a policy to sign in 1–2 business days). Must be IN
+     FORCE before the crew's FIRST TRAINING HOUR (~mid-Aug). ⚠️ The store-credit
+     top-up must run through payroll as an IMPUTED-INCOME earning code — that's
+     what makes NEXT's auto-calc (and the W-2s) correct; same setup the CPA
+     needs anyway. You + Catherine: opt out via WC15, but you still count
+     toward the 5-employee trigger. Agent gets an FYI-not-a-quote in the email.
    - [ ] **Bind the GL** ($1,800/yr CSU quote) — before binding, get the
      forms/exclusions list in writing and confirm: affirmative **abuse &
      molestation** coverage (E&S kid venues often exclude it), cosmetics/
