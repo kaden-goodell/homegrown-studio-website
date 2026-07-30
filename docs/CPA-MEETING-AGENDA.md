@@ -9,7 +9,7 @@ meeting is to hand him the full picture and agree who owns what.
 registration SUBMITTED 7/29 (conf. b756mt — state sales tax + ONE SPOT locals +
 payroll withholding; sales begins 9/1, withholding begins 8/1; tobacco-retail
 flag YES; NAICS 611610); $25k sales-tax surety bond PAID (#66477468, $348,
-2-yr); SUTA registration at labor.alabama.gov in progress; Square Payroll
+2-yr); SUTA registration at labor.alabama.gov NOT YET STARTED; Square Payroll
 chosen (auto-files 941/940/W-2/AL withholding/SUTA) with NEXT pay-as-you-go
 WC quote pending; consolidated filing calendar drafted at
 `docs/FILING-CALENDAR.md`. First payroll ~8/21, ~8 part-time employees.
@@ -61,9 +61,10 @@ launch with the studio.
 
 - [ ] ~~Register AL withholding + SUI~~ **DONE/IN FLIGHT (Kaden, 7/29)**:
   withholding registered via MAT (R-number expected ~Aug 3–5; commence date
-  8/1); SUTA at labor.alabama.gov in progress (UC account #, 2.7%
-  new-employer rate). Brief him on both account numbers when they land —
-  he needs them for anything he files.
+  8/1); **SUTA at labor.alabama.gov NOT YET STARTED — Kaden's next task**
+  (gives UC account # at 2.7% new-employer rate; required for Square Payroll
+  onboarding alongside the withholding R-number). Brief him on both account
+  numbers when they land — he needs them for anything he files.
 - [ ] **"Studio Crew" comp structure needs his sign-off**: W-2 at $7.25/hr cash
   **plus** store-credit top-up (~$12–15/hr equivalent) loaded as promotional
   gift cards. The credit is **taxable wages** — how does he want it run through
