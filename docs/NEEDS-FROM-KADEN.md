@@ -6,6 +6,32 @@ fields stay hidden until filled — no code changes needed to "turn them on."
 
 ## 🔴 Blocking before launch (Sept 1)
 
+0. **Insurance stack (status as of 7/29 — bond ✅ paid; everything else pending):**
+   - [ ] **Workers' comp** — no application exists anywhere yet. Quote BOTH ways:
+     Square Payroll's pay-as-you-go partner (fits the crew plan; premium tracks
+     actual payroll) and Peck-Glasgow. Must be in force before the crew's FIRST
+     TRAINING HOUR (~mid-Aug), not Sept 1. Disclose the store-credit top-up
+     (counts in the payroll basis); you + Catherine can opt out via WC15 but
+     still count toward the 5-employee trigger.
+   - [ ] **Bind the GL** ($1,800/yr CSU quote) — before binding, get the
+     forms/exclusions list in writing and confirm: affirmative **abuse &
+     molestation** coverage (E&S kid venues often exclude it), cosmetics/
+     products treatment (take-home face creams), and offsite events.
+   - [ ] **Madison Stargate LLC as additional insured** + COI to landlord
+     (lease covenant — currently out of compliance).
+   - [ ] **Liquor liability ≥$100k** — gates the ABC beer/wine license.
+     **DECIDED 7/29: liquor license + liability go on a SEPARATE LLC** (agent's
+     recommendation, Kaden agreed — unblocks the main business). NewCo needs:
+     own EIN/OA/bank, sublease or concession agreement for 525 Hughes Rd (ABC
+     matches lessee↔licensee exactly), possibly its own ALDOR sales-tax
+     license/bond, and cross additional-insured with Homegrown's GL. Tell the
+     attorney + CPA the entity exists.
+   - [ ] **Hired & non-owned auto** if "car stuff" involves vehicles — GL never
+     covers auto.
+   - [ ] **Confirm the property policy actually BOUND** (quote said eff 7/28 —
+     "this is not a policy"); ask in writing whether kit tableware is covered
+     while rented out in customers' homes.
+
 1. **Set `STAFF_PASSCODE` in the Netlify environment** — verified MISSING 2026-07-11.
    Auth fails closed (no security risk), but the staff console — kits board,
    party check-in, rosters — cannot log in on the deployed site until this is set.
