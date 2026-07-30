@@ -61,10 +61,11 @@ launch with the studio.
 
 - [ ] ~~Register AL withholding + SUI~~ **DONE/IN FLIGHT (Kaden, 7/29)**:
   withholding registered via MAT (R-number expected ~Aug 3–5; commence date
-  8/1); **SUTA at labor.alabama.gov NOT YET STARTED — Kaden's next task**
-  (gives UC account # at 2.7% new-employer rate; required for Square Payroll
-  onboarding alongside the withholding R-number). Brief him on both account
-  numbers when they land — he needs them for anything he files.
+  8/1); **SUTA at labor.alabama.gov is CALENDAR-BLOCKED until first payday**
+  — the SR-2 rejects future first-wage dates, so it files on ~8/21 (tracked
+  as HOM-164; gives UC account # at 2.7% new-employer rate; Square Payroll
+  takes it late with no consequence — first UC report isn't due until 10/31).
+  Brief him on both account numbers when they land.
 - [ ] **"Studio Crew" comp structure needs his sign-off**: W-2 at $7.25/hr cash
   **plus** store-credit top-up (~$12–15/hr equivalent) loaded as promotional
   gift cards. The credit is **taxable wages** — how does he want it run through
