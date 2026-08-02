@@ -230,7 +230,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // page: refuse rather than charge an amount the customer wasn't shown.
   let resolvedCrafts: { craftId: string; name: string; perHeadCents: number; personalized?: boolean }[]
   try {
-    const catalog = await fetchPartyCrafts()
+    // includeTest: the staff $1 smoke-test order must still price-resolve.
+    const catalog = await fetchPartyCrafts({ includeTest: true })
     const missing = crafts.find((c) => !catalog.some((k) => k.id === c.craftId))
     if (missing) {
       return errorResponse('That craft isn’t available anymore — refresh and pick again.', 400)

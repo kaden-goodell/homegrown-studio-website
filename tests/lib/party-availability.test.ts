@@ -212,3 +212,28 @@ describe('isStartOpen', () => {
     expect(result).toBe(true)
   })
 })
+
+// ── Booking-opens clamp ───────────────────────────────────────────────────────
+// No party may be offered or booked before partyConfig.bookingOpensDate
+// (2026-09-01) — the studio has no certificate of occupancy before opening.
+describe('bookingOpensDate clamp', () => {
+  it('offers no starts before opening day', async () => {
+    const { partyStartsForDate } = await import('@lib/party-slots')
+    expect(partyStartsForDate('2026-08-22')).toEqual([]) // Saturday pre-opening
+    expect(partyStartsForDate('2026-08-31')).toEqual([]) // day before opening
+  })
+
+  it('offers starts on/after opening day per the weekday schedule', async () => {
+    const { partyStartsForDate } = await import('@lib/party-slots')
+    expect(partyStartsForDate('2026-09-05').length).toBeGreaterThan(0) // first Saturday
+  })
+
+  it('range queries exclude pre-opening dates entirely', async () => {
+    const { partyStartsInRange } = await import('@lib/party-slots')
+    const starts = partyStartsInRange('2026-08-01T00:00:00.000Z', '2026-09-30T23:59:59.000Z')
+    expect(starts.length).toBeGreaterThan(0)
+    for (const iso of starts) {
+      expect(new Date(iso).getTime()).toBeGreaterThanOrEqual(new Date('2026-09-01T00:00:00-05:00').getTime())
+    }
+  })
+})

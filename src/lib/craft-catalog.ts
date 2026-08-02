@@ -24,7 +24,15 @@ export interface CatalogCraft {
   popular: boolean
 }
 
-export async function fetchPartyCrafts(): Promise<CatalogCraft[]> {
+/** Staff-only smoke-test items ("TEST — Dollar Craft") share the real category;
+ *  they must never appear in customer-facing menus. */
+export function isTestCraft(name: string | undefined | null): boolean {
+  return (name ?? '').trim().toUpperCase().startsWith('TEST')
+}
+
+export async function fetchPartyCrafts(
+  opts: { includeTest?: boolean } = {},
+): Promise<CatalogCraft[]> {
   const client = createSquareClient(siteConfig.providers.catalog.config as SquareConfig)
 
   const craftItems: any[] = []
@@ -35,6 +43,7 @@ export async function fetchPartyCrafts(): Promise<CatalogCraft[]> {
       (c: any) => c.id === partyConfig.square.partyCraftCategoryId
     )
     if (!inCat) continue
+    if (!opts.includeTest && isTestCraft(o.itemData?.name)) continue
     craftItems.push(o)
     for (const id of o.itemData?.imageIds ?? []) imageIds.add(id)
   }

@@ -6,7 +6,7 @@ import { fetchPartyCrafts } from '@lib/craft-catalog'
 
 const logger = createLogger('api:kits:service-info')
 
-export const GET: APIRoute = async () => {
+export const GET: APIRoute = async ({ url }) => {
   const startTime = Date.now()
 
   // Unseeded → no package catalog yet. Distinct 503 so the UI can show an
@@ -19,7 +19,8 @@ export const GET: APIRoute = async () => {
   }
 
   try {
-    const crafts = await fetchPartyCrafts()
+    // includeTest=1 is the staff smoke-test lane — surfaces TEST— items.
+    const crafts = await fetchPartyCrafts({ includeTest: url.searchParams.get('includeTest') === '1' })
 
     // Every theme is surfaced; the UI renders waitlist (non-stocked) ones as
     // notify-me cards. Only stocked themes carry buyable tiers.

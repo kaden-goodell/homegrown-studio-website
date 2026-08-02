@@ -176,7 +176,8 @@ export default function KitLanding() {
   async function loadInfo() {
     setStatus('loading')
     try {
-      const res = await fetch('/api/kits/service-info.json', { cache: 'no-store' })
+      const testLane = new URLSearchParams(window.location.search).get('test') === '1'
+      const res = await fetch(`/api/kits/service-info.json${testLane ? '?includeTest=1' : ''}`, { cache: 'no-store' })
       if (res.status === 503) {
         setStatus('seeding')
         return

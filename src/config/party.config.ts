@@ -43,6 +43,11 @@ export const partyConfig = {
   durationMinutes: 90,
   /** How many days ahead the date picker offers bookable party dates. */
   bookingWindowDays: 45,
+  /** Earliest bookable party date (YYYY-MM-DD, studio-local). The studio can't
+   *  host events before the grand opening (no certificate of occupancy), so no
+   *  date before this is offered OR accepted — enforced in partyStartsForDate,
+   *  which also backs the book endpoint's server-side slot re-verify. */
+  bookingOpensDate: '2026-09-01',
   /** Cleanup gap between back-to-back parties, and before the evening workshop. */
   cleanupBufferMinutes: 60,
   /** Studio timezone for interpreting slot start times. */

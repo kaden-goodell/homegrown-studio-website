@@ -248,7 +248,9 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
   async function loadServiceInfo() {
     setInfoError(null)
     try {
-      const res = await fetch('/api/kits/service-info.json', { cache: 'no-store' })
+      // ?test=1 on the page URL = staff smoke-test lane (shows TEST— crafts).
+      const testLane = new URLSearchParams(window.location.search).get('test') === '1'
+      const res = await fetch(`/api/kits/service-info.json${testLane ? '?includeTest=1' : ''}`, { cache: 'no-store' })
       if (!res.ok) throw new Error('Failed to load kit details.')
       const json = await res.json()
       setInfo((json.data ?? json) as KitServiceInfo)

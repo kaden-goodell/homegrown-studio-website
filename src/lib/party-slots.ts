@@ -68,6 +68,8 @@ function occupancyMs(): number {
 
 /** Offered party start ISO timestamps for a local calendar date (YYYY-MM-DD). */
 export function partyStartsForDate(ymd: string): string[] {
+  // No parties before opening day — YYYY-MM-DD strings compare lexically.
+  if (ymd < partyConfig.bookingOpensDate) return []
   const [y, m, d] = ymd.split('-').map(Number)
   const weekday = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()
   const cfg = partyDays[weekday]

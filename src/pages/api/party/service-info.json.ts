@@ -6,10 +6,13 @@ import { kitConfig } from '@config/kit.config'
 import { kitThemes } from '@config/kit-content'
 import { createLogger } from '@lib/logger'
 import type { SquareConfig } from '@config/site.config'
+import { isTestCraft } from '@lib/craft-catalog'
 
 const logger = createLogger('api:party:service-info')
 
-export const GET: APIRoute = async () => {
+export const GET: APIRoute = async ({ url }) => {
+  // includeTest=1 is the staff smoke-test lane — surfaces TEST— items.
+  const includeTest = url.searchParams.get('includeTest') === '1'
   const startTime = Date.now()
   try {
     const client = createSquareClient(
@@ -52,6 +55,7 @@ export const GET: APIRoute = async () => {
         (c: any) => c.id === partyConfig.square.partyCraftCategoryId
       )
       if (!inCat) continue
+      if (!includeTest && isTestCraft(o.itemData?.name)) continue
       craftItems.push(o)
       for (const id of o.itemData?.imageIds ?? []) imageIds.add(id)
     }
