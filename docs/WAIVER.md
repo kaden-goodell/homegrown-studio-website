@@ -9,8 +9,8 @@ record which text was agreed to.
 Written to Alabama enforceability: the adult release names ordinary negligence expressly, is
 conspicuous, and carves out willful/wanton conduct; minors are handled through parental
 indemnification (a parent cannot waive a child's own claims in Alabama — *J.T. v. Monster
-Mountain*, 754 F. Supp. 2d 1323 (M.D. Ala. 2010)). Counsel review is tracked in HOM-98; the
-"Notes for counsel" appendix below flags the open decisions.
+Mountain*, 754 F. Supp. 2d 1323 (M.D. Ala. 2010)). Counsel review is tracked in HOM-98; a
+short "For counsel" note at the bottom flags the three clauses we'd examine first.
 
 ---
 
@@ -180,72 +180,10 @@ timestamp, IP, and agreement version hash (stored with each record).
 
 ---
 
-## Notes for counsel (HOM-98 consult)
+## For counsel
 
-Open decisions and context — not part of the customer-facing text.
-
-1. **LLC legal name FILLED (2026-08-03): "Goodell Holdings LLC"** (no comma — matches AL SoS
-   001-227-528 and the IRS CP-575A). Note the Operating Agreement carries a typo ("Goodell
-   Holding") — amendment is agenda item HOM-145; verify the lease's rendering while amending.
-2. **Age of majority = 19 in Alabama** (Ala. Code §26-1-1) — "adult" is 19+ throughout; confirm
-   handling of 18-year-olds.
-3. **§4(b) parental indemnification** is the *Monster Mountain* gap-filler (the court left
-   parental indemnity open in Alabama) — the clause most needing your judgment on scope and the
-   defense/fee-shifting language.
-4. **Deliberately omitted, for your call:** an arbitration clause / class-action waiver, and a
-   **jury-trial waiver** (the local Hammer & Stain template uses one — weigh vs. arbitration).
-5. **Drop-off addendum** (custody transfer, authorized-pickup list, supervision terms) is not
-   written yet — it is gated on the DHR determination (HOM-99) of whether/how a for-profit
-   drop-off program is lawful in Alabama, since its terms depend on that answer.
-6. **E-sign presentation** (HOM-103): full text scrollable before the accept control; no
-   pre-checked boxes; typed-name signature + timestamp + IP + version hash retained; annual
-   re-sign. Confirm this meets your conspicuousness expectations.
-7. **§6a kit-rental addendum (NEW, 2026-07-11 — unreviewed draft).** Take-home party kits rent
-   premium tableware (Liberty-print plates, cake stands) with a $50 refundable deposit; business
-   decisions already made: no per-piece replacement billing (deposit withholding + manual
-   recovery only), no stored payment method, deposit forfeit is staff-confirmed. Questions for
-   you: (i) is "reserves the right to recover reasonable replacement value" the right strength
-   without a liquidated-damages schedule, (ii) does the off-premises use of craft materials by
-   minors at a customer's home need its own release language beyond §6a(e), (iii) any bailment
-   framing you'd prefer for the rental relationship, (iv) deferred question of Alabama
-   rental/lease tax on the tableware-rental component of package pricing.
-
-8. **Take-home products clause — DRAFTED as §6b above (2026-08-03), review and strengthen.**
-   Context: the GL policy (CSU quote 1047343542) **excludes products/completed-operations
-   coverage** (CG2104); Kaden sells take-home consumables (tallow skin balms, candles) with the
-   risk managed contractually — §6b is the ONLY backstop, so strength-of-language matters more
-   than usual. Specific asks: (i) is the §6b(e) AS-IS/implied-warranty disclaimer conspicuous
-   enough as rendered, and does it need UCC §2-316 magic-words tuning? (ii) does §6b(d)'s
-   assumption-of-risk-for-ordinary-negligence hold for a CONSUMED/APPLIED product the way it
-   does for activities? (iii) anything needed for products given to minors (e.g., a kid's candle
-   in a take-home kit)? Regulatory labeling side is separate (HOM-146, MoCRA/CPSIA).
-
-9. **Offsite events — BOTH PIECES DRAFTED (2026-08-03), review.** Context: the GL carries
-   CSGA4102 (designated-premises limitation), so offsite events run on the HOST's insurance
-   (agent-confirmed; ~$100 one-day policies cover craft fairs where an organizer demands our
-   certificate). What's drafted:
-   (a) the main release is now **location-agnostic** (§2 final sentence + §3 scope) — applied
-   in v4 of the live text;
-   (b) `docs/OFFSITE-EVENT-AGREEMENT.md` — one-page host agreement (host insurance
-   representation, ≥20-guest additional-insured certificate, participant-waiver requirement,
-   host hold-harmless with willful/wanton carve-out). Its own counsel-questions list is at the
-   bottom of that file. Market precedent: mobile paint-party operators (Paint Your Poison) use
-   host-assumes-liability + hold-harmless; ours adds the participant-waiver and AI mechanics.
-10. **Cigar events added to §2 (2026-08-03)**: activities list now names 21+ cigar-rolling with
-   raw tobacco leaf, and the risk list includes tobacco/nicotine exposure. Confirm nothing more
-   is needed given no on-premises smoking (participants take cigars home).
-
-### How we compare to peer craft-studio waivers (reviewed 2026-07-10)
-Our text is **stronger than the local market leader's** on the points that matter for kids:
-- **Hammer & Stain** (the Huntsville studio's actual corporate FL template, used for their 3-hr
-  ages-6–12 drop-off camp): never uses the word "negligence" (may not bar a negligence claim
-  under Alabama's strict construction); has only a parent-signature line, no purpose-built minor
-  indemnification; no emergency medical authorization; no Alabama governing-law clause. Worth
-  borrowing from them: their thorough third-party **alcohol clause** (now reflected in our §6)
-  and their **jury-trial waiver** (a counsel decision — see note 4).
-- **AR Workshop** (national franchise; runs "Kids Night Out — no parents allowed"): uses the
-  same adult-release-plus-parental-indemnification structure we do, and spells out serious
-  injury/death (now reflected in our §2). Validates the approach.
-- **Krafty Shack** (TX drop-off camp): posts a "not a licensed daycare" line — helpful for
-  expectation-setting but NOT a licensing exemption; the Alabama licensing question (HOM-99)
-  governs regardless.
+Three things we'd flag ourselves: (1) **§6b products** — there is no products liability
+coverage behind it, so it's the clause that most needs strength; (2) **§4(b) parental
+indemnification** — our Alabama minor-waiver workaround (*Monster Mountain*); (3) the **§5
+host indemnity in the separate Offsite Event Agreement**. Beyond that, redline whatever you'd
+redline. Deliberately omitted for your judgment: arbitration / jury-trial waiver.
