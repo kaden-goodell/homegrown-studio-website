@@ -17,7 +17,7 @@ export interface WaiverSection {
   body: string[]
 }
 
-const legalEntityName = 'Goodell Holdings, LLC' // registered entity; d/b/a Homegrown Studio (confirmed by Kaden 2026-07-10)
+const legalEntityName = 'Goodell Holdings LLC' // registered entity; d/b/a Homegrown Studio (confirmed by Kaden 2026-07-10)
 const businessAddress = '525 Hughes Rd Ste F, Madison, Alabama 35758'
 const adultAge = 19
 
@@ -28,7 +28,7 @@ export const waiverContent = {
    * be re-verified if this text is rolled back. Attorney review required before
    * deploying changes (see docs/NEEDS-FROM-KADEN.md).
    */
-  version: 'v3', // v3: legal entity name set to Goodell Holdings, LLC (the name renders inside legalSections §opening)
+  version: 'v4', // v4 (2026-08-03): location-agnostic scope (§2–3), cigar-rolling added to activities (§2), new §6b handmade/take-home products assumption of risk (GL excludes products coverage — this clause is the backstop)
   legalEntityName,
   businessAddress,
   /** Months a signature stays valid before re-signing is required. */
@@ -114,14 +114,14 @@ export const waiverContent = {
     {
       heading: '2. Activities and acknowledgment of risks',
       body: [
-        'The Studio offers craft activities including, without limitation: painting, pottery and glazing, candle-making, use of heat tools (hot glue guns, wax melters, heat presses, irons), sharp implements (scissors, needles, blades, carving tools), adhesives, paints, dyes, glazes, and other craft materials; and, at designated events, service of beer and wine to guests 21 or older.',
-        'I understand that these activities involve inherent risks that cannot be eliminated even with reasonable care, including but not limited to: burns; cuts and puncture wounds; allergic or skin reactions to materials; eye injury; slips, trips, and falls; damage to clothing or personal property; and, for craft items taken home, risks arising from their later use — up to and including serious bodily injury and, in rare circumstances, death. I have had the opportunity to ask questions about these risks. I voluntarily choose to participate, and to allow the minors listed on this form to participate, with full knowledge of these risks, and I assume all such risks for myself.',
+        'The Studio offers craft activities including, without limitation: painting, pottery and glazing, candle-making, use of heat tools (hot glue guns, wax melters, heat presses, irons), sharp implements (scissors, needles, blades, carving tools), adhesives, paints, dyes, glazes, and other craft materials; at designated 21-and-over events, cigar-rolling instruction using raw tobacco leaf; and, at designated events, service of beer and wine to guests 21 or older. Studio activities may take place at the Studio’s premises or at off-site events the Studio conducts at other locations, and this Agreement applies to Studio activities wherever they are conducted.',
+        'I understand that these activities involve inherent risks that cannot be eliminated even with reasonable care, including but not limited to: burns; cuts and puncture wounds; allergic or skin reactions to materials; eye injury; slips, trips, and falls; exposure to tobacco leaf and nicotine at 21-and-over cigar events; damage to clothing or personal property; and, for craft items taken home, risks arising from their later use — up to and including serious bodily injury and, in rare circumstances, death. I have had the opportunity to ask questions about these risks. I voluntarily choose to participate, and to allow the minors listed on this form to participate, with full knowledge of these risks, and I assume all such risks for myself.',
       ],
     },
     {
       heading: '3. Release of my own claims',
       body: [
-        'In consideration of the Studio permitting me and the listed minors to participate in its activities, I, for myself and my heirs, executors, administrators, and assigns, hereby RELEASE, WAIVE, AND FOREVER DISCHARGE the Studio, its members, owners, managers, employees, instructors, agents, and landlord (together, the "Released Parties") from any and all claims, demands, damages, actions, or causes of action of any kind that I may have, whether now known or unknown, arising out of or related to my presence at the Studio or my participation in its activities, including claims for personal injury, property damage, or wrongful death, AND INCLUDING CLAIMS ARISING FROM THE ORDINARY NEGLIGENCE OF ANY RELEASED PARTY.',
+        'In consideration of the Studio permitting me and the listed minors to participate in its activities, I, for myself and my heirs, executors, administrators, and assigns, hereby RELEASE, WAIVE, AND FOREVER DISCHARGE the Studio, its members, owners, managers, employees, instructors, agents, and landlord (together, the "Released Parties") from any and all claims, demands, damages, actions, or causes of action of any kind that I may have, whether now known or unknown, arising out of or related to my presence at the Studio or at any Studio-conducted event, my participation in Studio activities wherever conducted (including off-site events), or my use of items or products obtained from the Studio, including claims for personal injury, property damage, or wrongful death, AND INCLUDING CLAIMS ARISING FROM THE ORDINARY NEGLIGENCE OF ANY RELEASED PARTY.',
         'This release does not extend to injuries caused by the willful or wanton conduct of a Released Party, and nothing in this Agreement waives rights that cannot be waived under Alabama law.',
       ],
     },
@@ -145,6 +145,17 @@ export const waiverContent = {
       body: [
         'I agree, for myself and the listed minors, to follow the Studio’s safety instructions and posted rules; to use tools and materials only as directed; and that the Studio may decline or discontinue participation of any person for safety reasons, with a refund of unused fees as the Studio’s sole obligation.',
         'At events where the Studio serves beer or wine: alcohol is served only to guests 21 or older who present valid identification; I am responsible for my own conduct and decisions while under the influence; I acknowledge that other guests present may consume alcohol and I accept that risk; no outside alcohol may be brought in, and no open container may leave the premises; and the Studio may refuse or discontinue service at its discretion. I agree to hold the Released Parties harmless for any injury or damage arising from the consumption of alcohol, whether by me or by other guests.',
+      ],
+    },
+    {
+      heading: '6b. Handmade and take-home products',
+      body: [
+        'The Studio sells small-batch handmade goods, including candles and topical products such as tallow-based skin balms. As to any such product that I purchase or receive:',
+        '(a) I understand these products are handmade in small batches, are not evaluated or approved by the FDA, and are sold without any medical or therapeutic claims.',
+        '(b) An ingredient list is provided with each topical product. I am responsible for reviewing it for allergens and sensitivities before use, for myself and for anyone in my household.',
+        '(c) I will apply any topical product to a small test area first, and I will discontinue use immediately if irritation or any reaction occurs.',
+        '(d) I ASSUME ALL RISK arising from the decision to use, apply, consume, or burn any product obtained from the Studio, and the release and indemnification provisions of this Agreement apply in full to such use, including claims arising from a Released Party’s ordinary negligence in the making of the product.',
+        '(e) To the fullest extent permitted by Alabama law, products are provided AS IS, and all implied warranties, including merchantability and fitness for a particular purpose, are disclaimed.',
       ],
     },
     {

@@ -16,7 +16,7 @@ Mountain*, 754 F. Supp. 2d 1323 (M.D. Ala. 2010)). Counsel review is tracked in 
 
 ## PARTICIPATION AGREEMENT, RELEASE OF LIABILITY, ASSUMPTION OF RISK, AND INDEMNIFICATION
 
-**[EXACT LLC LEGAL NAME]** d/b/a Homegrown Studio ("**the Studio**"), 525 Hughes Rd Ste F,
+**Goodell Holdings LLC** d/b/a Homegrown Studio ("**the Studio**"), 525 Hughes Rd Ste F,
 Madison, Alabama 35758.
 
 **READ THIS AGREEMENT CAREFULLY BEFORE SIGNING. IT AFFECTS YOUR LEGAL RIGHTS, INCLUDES A RELEASE
@@ -32,12 +32,16 @@ parent or legal guardian.
 The Studio offers craft activities including, without limitation: painting, pottery and
 glazing, candle-making, use of heat tools (hot glue guns, wax melters, heat presses, irons),
 sharp implements (scissors, needles, blades, carving tools), adhesives, paints, dyes, glazes,
-and other craft materials; and, at designated events, service of beer and wine to guests 21 or
-older.
+and other craft materials; at designated 21-and-over events, cigar-rolling instruction using
+raw tobacco leaf; and, at designated events, service of beer and wine to guests 21 or older.
+Studio activities may take place at the Studio's premises or at off-site events the Studio
+conducts at other locations, and this Agreement applies to Studio activities wherever they are
+conducted.
 
 I understand that these activities involve inherent risks that cannot be eliminated even with
 reasonable care, including but not limited to: burns; cuts and puncture wounds; allergic or
-skin reactions to materials; eye injury; slips, trips, and falls; damage to clothing or
+skin reactions to materials; eye injury; slips, trips, and falls; exposure to tobacco leaf and
+nicotine at 21-and-over cigar events; damage to clothing or
 personal property; and, for craft items taken home, risks arising from their later use — up to
 and including serious bodily injury and, in rare circumstances, death. I have had the
 opportunity to ask questions about these risks. I voluntarily choose to participate, and to
@@ -50,9 +54,11 @@ activities, I, for myself and my heirs, executors, administrators, and assigns, 
 WAIVE, AND FOREVER DISCHARGE the Studio, its members, owners, managers, employees, instructors,
 agents, and landlord (together, the "Released Parties") from any and all claims, demands,
 damages, actions, or causes of action of any kind that I may have, whether now known or unknown,
-arising out of or related to my presence at the Studio or my participation in its activities,
-including claims for personal injury, property damage, or wrongful death, AND INCLUDING CLAIMS
-ARISING FROM THE ORDINARY NEGLIGENCE OF ANY RELEASED PARTY.
+arising out of or related to my presence at the Studio or at any Studio-conducted event, my
+participation in Studio activities wherever conducted (including off-site events), or my use of
+items or products obtained from the Studio, including claims for personal injury, property
+damage, or wrongful death, AND INCLUDING CLAIMS ARISING FROM THE ORDINARY NEGLIGENCE OF ANY
+RELEASED PARTY.
 
 This release does not extend to injuries caused by the willful or wanton conduct of a Released
 Party, and nothing in this Agreement waives rights that cannot be waived under Alabama law.
@@ -103,7 +109,7 @@ other guests.
 accepted at kit checkout.*
 
 (a) **Ownership.** Serving pieces, cake stands, décor, and any items identified as "returns to
-the Studio" on my kit's contents card remain the property of Goodell Holdings, LLC at all times.
+the Studio" on my kit's contents card remain the property of Goodell Holdings LLC at all times.
 My payment includes a rental of those pieces, not a purchase.
 
 (b) **Return.** I will return all rental pieces to the Studio by the return-by date stated on my
@@ -128,6 +134,28 @@ exposed to conditions likely to damage them.
 (e) **No liability transfer.** Nothing in this section limits or modifies the release,
 assumption of risk, or indemnification provisions above, which apply to my use of all kit
 contents, including craft materials, at my own premises.
+
+### 6b. Handmade and take-home products (added 2026-08-03, v4)
+The Studio sells small-batch handmade goods, including candles and topical products such as
+tallow-based skin balms. As to any such product that I purchase or receive:
+
+(a) I understand these products are handmade in small batches, are not evaluated or approved by
+the FDA, and are sold without any medical or therapeutic claims.
+
+(b) An ingredient list is provided with each topical product. I am responsible for reviewing it
+for allergens and sensitivities before use, for myself and for anyone in my household.
+
+(c) I will apply any topical product to a small test area first, and I will discontinue use
+immediately if irritation or any reaction occurs.
+
+(d) I ASSUME ALL RISK arising from the decision to use, apply, consume, or burn any product
+obtained from the Studio, and the release and indemnification provisions of this Agreement
+apply in full to such use, including claims arising from a Released Party's ordinary negligence
+in the making of the product.
+
+(e) To the fullest extent permitted by Alabama law, products are provided AS IS, and all
+implied warranties, including merchantability and fitness for a particular purpose, are
+disclaimed.
 
 ### 7. General terms
 This Agreement is the entire agreement between me and the Studio regarding its subject matter; it
@@ -156,8 +184,9 @@ timestamp, IP, and agreement version hash (stored with each record).
 
 Open decisions and context — not part of the customer-facing text.
 
-1. **Exact LLC legal name** must replace the placeholder and match the lease, insurance
-   certificate, sales-tax account, and EIN exactly.
+1. **LLC legal name FILLED (2026-08-03): "Goodell Holdings LLC"** (no comma — matches AL SoS
+   001-227-528 and the IRS CP-575A). Note the Operating Agreement carries a typo ("Goodell
+   Holding") — amendment is agenda item HOM-145; verify the lease's rendering while amending.
 2. **Age of majority = 19 in Alabama** (Ala. Code §26-1-1) — "adult" is 19+ throughout; confirm
    handling of 18-year-olds.
 3. **§4(b) parental indemnification** is the *Monster Mountain* gap-filler (the court left
@@ -181,30 +210,30 @@ Open decisions and context — not part of the customer-facing text.
    framing you'd prefer for the rental relationship, (iv) deferred question of Alabama
    rental/lease tax on the tableware-rental component of package pricing.
 
-8. **Take-home products clause (NEW, 2026-08-03 — needed for launch).** The bound GL policy
-   (Cincinnati Specialty quote 1047343542) **excludes products/completed-operations coverage**
-   (CG2104), and Kaden has decided to sell take-home consumables (tallow face creams, candles,
-   craft goods) with the risk managed contractually rather than by insurance. Please draft or
-   bless language to the effect of: purchaser is an adult; topical/cosmetic products are made in
-   small batches and provided with an ingredient list; **purchaser assumes responsibility for
-   products they choose to apply** (patch-test advisory; discontinue on irritation); no medical
-   claims made; liability for product use released/indemnified to the extent Alabama allows.
-   Context: an assumption-of-risk clause is the ONLY backstop here — there is no products
-   coverage behind it — so strength-of-language matters more than usual. Related: HOM-146
-   (MoCRA/CPSIA product-law check) covers the regulatory labeling side.
+8. **Take-home products clause — DRAFTED as §6b above (2026-08-03), review and strengthen.**
+   Context: the GL policy (CSU quote 1047343542) **excludes products/completed-operations
+   coverage** (CG2104); Kaden sells take-home consumables (tallow skin balms, candles) with the
+   risk managed contractually — §6b is the ONLY backstop, so strength-of-language matters more
+   than usual. Specific asks: (i) is the §6b(e) AS-IS/implied-warranty disclaimer conspicuous
+   enough as rendered, and does it need UCC §2-316 magic-words tuning? (ii) does §6b(d)'s
+   assumption-of-risk-for-ordinary-negligence hold for a CONSUMED/APPLIED product the way it
+   does for activities? (iii) anything needed for products given to minors (e.g., a kid's candle
+   in a take-home kit)? Regulatory labeling side is separate (HOM-146, MoCRA/CPSIA).
 
-9. **Offsite events (NEW, 2026-08-03).** The GL quote carries CSGA4102 (Limitation of
-   Coverage to Designated Premises), so offsite events may have no insurance behind them.
-   Kaden's chosen structure (mirrors the alcohol approach — the other party's insurance
-   stands behind the risk):
-   (a) make the main release **location-agnostic** — "activities wherever conducted,
-   including off-site events" — so the standard waiver travels;
-   (b) draft a one-page **Offsite Event Agreement** for hosts: host confirms its own
-   premises/liability coverage, holds Goodell Holdings harmless for venue conditions and
-   event claims (except what Alabama won't allow us to shift), and for sizable events names
-   Goodell Holdings LLC as **additional insured** on the host's policy for the event date;
-   (c) craft shows/fairs are the unsolved case (organizers demand OUR certificate) —
-   handled per-event via one-day policies or a CSU answer, not by this agreement.
+9. **Offsite events — BOTH PIECES DRAFTED (2026-08-03), review.** Context: the GL carries
+   CSGA4102 (designated-premises limitation), so offsite events run on the HOST's insurance
+   (agent-confirmed; ~$100 one-day policies cover craft fairs where an organizer demands our
+   certificate). What's drafted:
+   (a) the main release is now **location-agnostic** (§2 final sentence + §3 scope) — applied
+   in v4 of the live text;
+   (b) `docs/OFFSITE-EVENT-AGREEMENT.md` — one-page host agreement (host insurance
+   representation, ≥20-guest additional-insured certificate, participant-waiver requirement,
+   host hold-harmless with willful/wanton carve-out). Its own counsel-questions list is at the
+   bottom of that file. Market precedent: mobile paint-party operators (Paint Your Poison) use
+   host-assumes-liability + hold-harmless; ours adds the participant-waiver and AI mechanics.
+10. **Cigar events added to §2 (2026-08-03)**: activities list now names 21+ cigar-rolling with
+   raw tobacco leaf, and the risk list includes tobacco/nicotine exposure. Confirm nothing more
+   is needed given no on-premises smoking (participants take cigars home).
 
 ### How we compare to peer craft-studio waivers (reviewed 2026-07-10)
 Our text is **stronger than the local market leader's** on the points that matter for kids:
