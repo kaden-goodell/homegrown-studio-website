@@ -181,6 +181,18 @@ Open decisions and context — not part of the customer-facing text.
    framing you'd prefer for the rental relationship, (iv) deferred question of Alabama
    rental/lease tax on the tableware-rental component of package pricing.
 
+8. **Take-home products clause (NEW, 2026-08-03 — needed for launch).** The bound GL policy
+   (Cincinnati Specialty quote 1047343542) **excludes products/completed-operations coverage**
+   (CG2104), and Kaden has decided to sell take-home consumables (tallow face creams, candles,
+   craft goods) with the risk managed contractually rather than by insurance. Please draft or
+   bless language to the effect of: purchaser is an adult; topical/cosmetic products are made in
+   small batches and provided with an ingredient list; **purchaser assumes responsibility for
+   products they choose to apply** (patch-test advisory; discontinue on irritation); no medical
+   claims made; liability for product use released/indemnified to the extent Alabama allows.
+   Context: an assumption-of-risk clause is the ONLY backstop here — there is no products
+   coverage behind it — so strength-of-language matters more than usual. Related: HOM-146
+   (MoCRA/CPSIA product-law check) covers the regulatory labeling side.
+
 ### How we compare to peer craft-studio waivers (reviewed 2026-07-10)
 Our text is **stronger than the local market leader's** on the points that matter for kids:
 - **Hammer & Stain** (the Huntsville studio's actual corporate FL template, used for their 3-hr
