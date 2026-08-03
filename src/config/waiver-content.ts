@@ -28,7 +28,7 @@ export const waiverContent = {
    * be re-verified if this text is rolled back. Attorney review required before
    * deploying changes (see docs/NEEDS-FROM-KADEN.md).
    */
-  version: 'v4', // v4 (2026-08-03): location-agnostic scope (§2–3), cigar-rolling added to activities (§2), new §6b handmade/take-home products assumption of risk (GL excludes products coverage — this clause is the backstop)
+  version: 'v1', // v1 = the LAUNCH text (2026-08-03; attorney redline pending, HOM-98). Numbering reset from draft-era v4: no production signature ever recorded an earlier version, so v1 starts the permanent series. On every bump: archive the full text to docs/waiver-versions/vN.md (records store version + SHA-256 hash; the archive keeps the text itself readable without git archaeology).
   legalEntityName,
   businessAddress,
   /** Months a signature stays valid before re-signing is required. */
