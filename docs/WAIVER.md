@@ -193,6 +193,19 @@ Open decisions and context — not part of the customer-facing text.
    coverage behind it — so strength-of-language matters more than usual. Related: HOM-146
    (MoCRA/CPSIA product-law check) covers the regulatory labeling side.
 
+9. **Offsite events (NEW, 2026-08-03).** The GL quote carries CSGA4102 (Limitation of
+   Coverage to Designated Premises), so offsite events may have no insurance behind them.
+   Kaden's chosen structure (mirrors the alcohol approach — the other party's insurance
+   stands behind the risk):
+   (a) make the main release **location-agnostic** — "activities wherever conducted,
+   including off-site events" — so the standard waiver travels;
+   (b) draft a one-page **Offsite Event Agreement** for hosts: host confirms its own
+   premises/liability coverage, holds Goodell Holdings harmless for venue conditions and
+   event claims (except what Alabama won't allow us to shift), and for sizable events names
+   Goodell Holdings LLC as **additional insured** on the host's policy for the event date;
+   (c) craft shows/fairs are the unsolved case (organizers demand OUR certificate) —
+   handled per-event via one-day policies or a CSU answer, not by this agreement.
+
 ### How we compare to peer craft-studio waivers (reviewed 2026-07-10)
 Our text is **stronger than the local market leader's** on the points that matter for kids:
 - **Hammer & Stain** (the Huntsville studio's actual corporate FL template, used for their 3-hr
