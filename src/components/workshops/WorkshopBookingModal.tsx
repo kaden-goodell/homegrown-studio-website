@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { CLASS_BOOKING_APP_ID } from '@config/site.config'
+import { CLASS_BOOKING_APP_ID } from '@config/class-booking.config'
 import { partyConfig } from '@config/party.config'
 import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
 import { waiverContent } from '@config/waiver-content'

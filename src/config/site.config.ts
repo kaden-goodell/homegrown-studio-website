@@ -160,7 +160,11 @@ const providerMode = env.PROVIDER_MODE || 'mock'
 // PROVIDER_MODE is a deploy misconfiguration, not a fallback.
 // ALLOW_MOCK_PROVIDER=1 is the local escape hatch for `npm run build` without
 // Square creds — never set it in Netlify.
-if (env.PROD && providerMode === 'mock' && !env.ALLOW_MOCK_PROVIDER) {
+// Server-only guard: in a browser bundle PROVIDER_MODE is always invisible
+// (server env), so throwing there would kill island hydration, not catch a
+// misconfig. Client components must not import this module anyway — use a
+// client-safe config module (see class-booking.config.ts).
+if (typeof window === 'undefined' && env.PROD && providerMode === 'mock' && !env.ALLOW_MOCK_PROVIDER) {
   throw new Error('PROVIDER_MODE is unset/mock in a production build — set PROVIDER_MODE=square in the Netlify environment (or ALLOW_MOCK_PROVIDER=1 for a local build).')
 }
 
@@ -397,4 +401,4 @@ export function validateConfig(config: SiteConfig): void {
  * Used by WorkshopBookingModal and the reservations PaymentStep.
  * Set unconditionally so mock/dev mode still passes it to PaymentForm.
  */
-export const CLASS_BOOKING_APP_ID = 'sq0idp-0WpGrONcXfCcfav3Lkd9Jg'
+export { CLASS_BOOKING_APP_ID } from './class-booking.config'
