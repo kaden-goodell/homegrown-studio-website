@@ -42,3 +42,27 @@ describe('groupEventsByDay', () => {
     expect(days[0].events[0].href).toBe('/book?date=2026-07-18')
   })
 })
+
+
+// Server runs in UTC (Netlify) — studio-local rendering must not depend on the
+// process timezone. 6 PM CDT = 23:00 UTC same day; 8 PM CDT = 01:00 UTC NEXT day.
+describe('buildCalendarEvents — studio timezone', () => {
+  it('renders workshop times and dates in America/Chicago regardless of server TZ', async () => {
+    const { buildCalendarEvents } = await import('@components/calendar/calendar-view-model')
+    const events = buildCalendarEvents(
+      [
+        { id: 'w1', name: 'Evening 6pm', startAt: '2026-08-21T23:00:00.000Z', endAt: '2026-08-22T02:00:00.000Z', durationMinutes: 180, priceCents: 3000, seatsLeft: 10 },
+        { id: 'w2', name: 'Evening 8pm', startAt: '2026-08-22T01:00:00.000Z', endAt: '2026-08-22T03:00:00.000Z', durationMinutes: 120, priceCents: 3000, seatsLeft: 10 },
+      ] as any,
+      [],
+      [],
+      [],
+    )
+    const w1 = events.find((e: any) => e.id?.includes('w1') || e.title?.includes('6pm'))
+    const w2 = events.find((e: any) => e.id?.includes('w2') || e.title?.includes('8pm'))
+    expect(w1?.startTime).toBe('18:00')
+    expect(w1?.date).toBe('2026-08-21')
+    expect(w2?.startTime).toBe('20:00') // NOT 01:00
+    expect(w2?.date).toBe('2026-08-21') // NOT the UTC next day
+  })
+})

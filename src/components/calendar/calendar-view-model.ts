@@ -22,23 +22,26 @@ export interface CalendarEvent {
   href?: string
 }
 
-/** Format a UTC-ish ISO datetime's wall-clock time as local HH:MM. */
+/** Format an ISO datetime's STUDIO-local (America/Chicago) time as HH:MM.
+ *  Must not use Date#getHours(): this runs in the API route, where the server
+ *  clock is UTC — a 6 PM CDT workshop would render "23:00" (and evening events
+ *  would land on the next calendar day). */
 function isoToLocalHHMM(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return ''
-  const hh = String(d.getHours()).padStart(2, '0')
-  const mm = String(d.getMinutes()).padStart(2, '0')
-  return `${hh}:${mm}`
+  return new Intl.DateTimeFormat('en-GB', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'America/Chicago',
+  }).format(d)
 }
 
-/** Local YYYY-MM-DD from an ISO datetime. */
+/** Studio-local (America/Chicago) YYYY-MM-DD from an ISO datetime. */
 function isoToLocalDate(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return iso.split('T')[0] ?? iso
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${y}-${m}-${day}`
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(d)
 }
 
 /** A human-friendly local time for a party start, e.g. "2:00 PM". */
