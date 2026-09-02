@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { siteConfig } from '@config/site.config'
@@ -87,6 +88,7 @@ function generateReference(): string {
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
+  if (!bookingsOpen(request)) return bookingsClosedResponse()
   // Not seeded yet → no catalog ids to build line items from.
   if (!kitConfig.square.packageItemId) {
     return errorResponse('Kits are not available yet', 503)

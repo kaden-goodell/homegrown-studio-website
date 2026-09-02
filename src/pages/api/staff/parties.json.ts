@@ -21,6 +21,7 @@ export const GET: APIRoute = async ({ request }) => {
         startIso: p.startIso,
         title: p.title,
         hostName: p.hostName,
+        hostPhone: p.hostPhone ?? null,
         guestCount: p.guestCount,
         themeName: p.theme?.displayName ?? null,
         rsvpHouseholds: waivers.length,

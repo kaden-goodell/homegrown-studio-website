@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
@@ -44,6 +45,7 @@ async function persistParty(bookingId: string, body: BookRequest, theme?: Resolv
     durationMinutes: body.durationMinutes ?? null,
     hostName: [body.customer.firstName, body.customer.lastName].filter(Boolean).join(' '),
     hostEmail: body.customer.email,
+    hostPhone: body.customer.phone,
     guestCount: Math.floor(body.people ?? 0),
     title: null,
     dropOff: false, // host-party default; PNO drop-off events would set true
@@ -108,6 +110,7 @@ function studioToday(): string {
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
+  if (!bookingsOpen(request)) return bookingsClosedResponse()
   if (rateLimited(`party-book:${clientAddress}`, 5, 60_000)) {
     return errorResponse('Too many booking attempts — give it a minute.', 429)
   }

@@ -50,7 +50,7 @@ interface Household {
 }
 
 interface Roster {
-  party: { bookingId: string; craftName: string; startIso: string; title: string | null; hostName: string; guestCount: number; dropOff: boolean }
+  party: { bookingId: string; craftName: string; startIso: string; title: string | null; hostName: string; hostPhone: string | null; guestCount: number; dropOff: boolean }
   summary: { households: number; people: number }
   households: Household[]
 }
@@ -727,7 +727,7 @@ export default function StaffConsole() {
               <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{formatWhen(p.startIso)}</span>
             </div>
             <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
-              Host: {p.hostName} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl on file)
+              Host: {p.hostName}{p.hostPhone ? ` · ${p.hostPhone}` : ''} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl on file)
             </p>
           </button>
         ))}

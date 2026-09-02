@@ -7,9 +7,18 @@ import RecentPartyBanner from '@components/party/RecentPartyBanner'
 import PartyFaq from '@components/party/PartyFaq.astro'
 import { partyContent } from '@config/party-content'
 import { siteConfig } from '@config/site.config'
+import { envBookingsOpen, previewToken, hasValidPreviewCookie, previewQueryMatches, previewCookieName } from '@lib/bookings-gate'
 
 const { hero, deposit } = partyContent
 const kitsLive = siteConfig.features.kits.enabled
+
+// Pre-opening gate: hide the live booking flow from the public; owner can preview
+// with ?preview=<PREVIEW_TOKEN> (drops a cookie that unlocks this browser).
+const _previewMatch = previewQueryMatches(Astro.url)
+if (_previewMatch) {
+  Astro.cookies.set(previewCookieName, previewToken(), { path: '/', httpOnly: true, sameSite: 'lax', maxAge: 60 * 60 * 24 * 30 })
+}
+const bookingsOpen = envBookingsOpen() || _previewMatch || hasValidPreviewCookie(Astro.request)
 ---
 
 <Layout title="Book a Party">
@@ -49,15 +58,39 @@ const kitsLive = siteConfig.features.kits.enabled
       <p class="mt-6 text-sm font-semibold" style="color: var(--color-dark);">
         {deposit.holdLine}
       </p>
-      <a
-        href="#open-dates"
-        class="inline-block mt-5 rounded-xl px-8 py-3.5 text-sm font-semibold text-white transition-shadow"
-        style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); box-shadow: 0 4px 15px rgba(150, 112, 91, 0.25);"
-      >
-        See open dates
-      </a>
+      {bookingsOpen && (
+        <a
+          href="#open-dates"
+          class="inline-block mt-5 rounded-xl px-8 py-3.5 text-sm font-semibold text-white transition-shadow"
+          style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); box-shadow: 0 4px 15px rgba(150, 112, 91, 0.25);"
+        >
+          See open dates
+        </a>
+      )}
     </div>
-    <PartyLanding client:load />
+    {bookingsOpen ? (
+      <PartyLanding client:load />
+    ) : (
+      <div
+        class="text-center max-w-xl mx-auto rounded-2xl px-8 py-14"
+        style="background: rgba(150, 112, 91, 0.06); border: 1px solid rgba(150, 112, 91, 0.14);"
+      >
+        <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Opening Soon</p>
+        <h2 class="text-2xl sm:text-3xl font-heading font-bold" style="color: var(--color-dark);">
+          Online booking opens closer to our grand opening
+        </h2>
+        <p class="mt-4 text-base" style="color: var(--color-muted);">
+          We’re putting the finishing touches on the studio. Follow along and you’ll be the first to know when party dates open.
+        </p>
+        <a
+          href="/calendar"
+          class="inline-block mt-6 rounded-xl px-8 py-3.5 text-sm font-semibold text-white"
+          style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); box-shadow: 0 4px 15px rgba(150, 112, 91, 0.25);"
+        >
+          See what’s on
+        </a>
+      </div>
+    )}
     <div class="glass rounded-2xl px-8 py-10 sm:px-12 text-center mt-16 fade-in">
       <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">
         {kitsLive ? 'New' : 'Coming Soon'}

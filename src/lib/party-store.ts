@@ -23,6 +23,9 @@ export interface PartyRecord {
   durationMinutes: number | null
   hostName: string
   hostEmail: string
+  /** Host's phone — the studio's day-of contact channel. Added 2026-09; older
+   *  records predate this field, so consumers must tolerate it being absent. */
+  hostPhone?: string
   guestCount: number
   title: string | null
   /**

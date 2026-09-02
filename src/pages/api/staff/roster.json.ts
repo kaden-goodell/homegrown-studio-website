@@ -73,6 +73,7 @@ export const GET: APIRoute = async ({ request, url }) => {
             startIso: party.startIso,
             title: party.title,
             hostName: party.hostName,
+            hostPhone: party.hostPhone ?? null,
             guestCount: party.guestCount,
             dropOff: party.dropOff,
           },
