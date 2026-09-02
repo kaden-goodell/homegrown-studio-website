@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
@@ -10,6 +11,7 @@ const logger = createLogger('api:party:available-dates')
 const DAY_MS = 86_400_000
 
 export const POST: APIRoute = async ({ request }) => {
+  if (!bookingsOpen(request)) return bookingsClosedResponse()
   const startTime = Date.now()
   try {
     const body = await request.json()
