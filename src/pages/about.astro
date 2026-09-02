@@ -14,6 +14,16 @@ const rendered = await Promise.all(
     return { entry, Content }
   })
 )
+
+// Opening date comes from the single source (site.config → src/config/opening.ts).
+// Shown only until we open; formatted here so no page/copy hard-codes the date.
+const showOpening = new Date() < new Date(siteConfig.openingDate + 'T00:00:00-05:00')
+const openingLabel = new Date(siteConfig.openingDate + 'T12:00:00').toLocaleDateString('en-US', {
+  weekday: 'long',
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+})
 ---
 
 <Layout title="About">
@@ -24,6 +34,11 @@ const rendered = await Promise.all(
       <h1 class="text-4xl md:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">
         About {siteConfig.name}
       </h1>
+      {showOpening && (
+        <p class="mt-4 text-sm font-semibold tracking-wide" style="color: var(--color-primary);">
+          Opening {openingLabel}
+        </p>
+      )}
     </div>
 
     {rendered.map(({ entry, Content }) => (
