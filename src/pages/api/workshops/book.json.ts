@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
 
@@ -13,6 +14,7 @@ const CLASSES_API_BASE = 'https://app.squareup.com/appointments/api/buyer/classe
  * 3. Complete booking with payment token (charges + confirms atomically)
  */
 export const POST: APIRoute = async ({ request }) => {
+  if (!bookingsOpen(request)) return bookingsClosedResponse()
   const logger = createLogger('api:workshops:book')
 
   let body: any

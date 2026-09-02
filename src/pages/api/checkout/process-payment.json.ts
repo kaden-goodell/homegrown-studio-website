@@ -1,9 +1,11 @@
 import type { APIRoute } from 'astro'
+import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import { providers } from '@config/providers'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 
 export const POST: APIRoute = async ({ request }) => {
+  if (!bookingsOpen(request)) return bookingsClosedResponse()
   const logger = createLogger('api:checkout:process-payment')
   const startTime = Date.now()
   try {

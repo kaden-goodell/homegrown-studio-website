@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { siteConfig } from '@config/site.config'
@@ -81,6 +82,7 @@ interface BookRequest {
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
+  if (!bookingsOpen(request)) return bookingsClosedResponse()
   if (rateLimited(`party-book:${clientAddress}`, 5, 60_000)) {
     return errorResponse('Too many booking attempts — give it a minute.', 429)
   }
