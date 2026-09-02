@@ -9,4 +9,4 @@
  * (The narrative sentence in src/content/about/story.md is hand-written prose
  *  and is the one spot that still needs a manual edit — markdown can't import.)
  */
-export const OPENING_DATE = '2026-10-16'
+export const OPENING_DATE = '2026-10-15'
