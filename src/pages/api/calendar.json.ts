@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { bookingsOpen } from '@lib/bookings-gate'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { createSquareClient } from '@providers/square/client'
@@ -22,7 +23,15 @@ const logger = createLogger('api:calendar')
  * parties. Scoped to one month so each Square availability query stays under
  * Square's 32-day range cap.
  */
-export const GET: APIRoute = async ({ url }) => {
+export const GET: APIRoute = async ({ url, request }) => {
+  // Pre-opening: the studio has nothing scheduled yet, so "What's On" is empty
+  // (and must not advertise bookable pre-opening dates). Repopulates on reopen.
+  if (!bookingsOpen(request)) {
+    return new Response(JSON.stringify({ events: [] }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+    })
+  }
   const month = url.searchParams.get('month') // YYYY-MM
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
     return new Response(JSON.stringify({ error: 'month=YYYY-MM required' }), { status: 400 })
