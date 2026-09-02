@@ -121,7 +121,7 @@ export const GET: APIRoute = async ({ url, request }) => {
     events.unshift({
       id: 'grand-opening',
       kind: 'event',
-      title: '🎉 Grand Opening',
+      title: '🎉 Grand Opening (tentative)',
       date: OPENING_DATE,
       bookable: false,
     })
