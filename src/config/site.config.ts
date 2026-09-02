@@ -1,3 +1,5 @@
+import { OPENING_DATE } from './opening'
+
 export interface SiteConfig {
   name: string
   tagline: string
@@ -215,7 +217,7 @@ export const siteConfig: SiteConfig = {
     { days: 'Saturday', time: '9 AM – 9 PM' },
     { days: 'Sunday', time: '2 – 8 PM' },
   ],
-  openingDate: '2026-09-01',
+  openingDate: OPENING_DATE,
   theme: {
     colors: {
       primary: '#96705B',

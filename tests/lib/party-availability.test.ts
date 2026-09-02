@@ -214,26 +214,44 @@ describe('isStartOpen', () => {
 })
 
 // ── Booking-opens clamp ───────────────────────────────────────────────────────
-// No party may be offered or booked before partyConfig.bookingOpensDate
-// (2026-09-01) — the studio has no certificate of occupancy before opening.
+// No party may be offered or booked before partyConfig.bookingOpensDate — the
+// studio has no certificate of occupancy before opening. Derived from config
+// (single source of truth), so these survive opening-date changes.
 describe('bookingOpensDate clamp', () => {
-  it('offers no starts before opening day', async () => {
+  const DAY = 86_400_000
+  const ymd = (ms: number) => new Date(ms).toISOString().slice(0, 10)
+  const isPartyWeekday = (ms: number) => [0, 6].includes(new Date(ms).getUTCDay()) // Sun/Sat
+
+  it('offers no starts on a party weekday before opening', async () => {
     const { partyStartsForDate } = await import('@lib/party-slots')
-    expect(partyStartsForDate('2026-08-22')).toEqual([]) // Saturday pre-opening
-    expect(partyStartsForDate('2026-08-31')).toEqual([]) // day before opening
+    const { partyConfig } = await import('@config/party.config')
+    const openMs = new Date(partyConfig.bookingOpensDate + 'T12:00:00Z').getTime()
+    // walk back to the last Sat/Sun strictly before opening — a real party day,
+    // so an empty result proves the clamp (not just a non-party weekday).
+    let ms = openMs - DAY
+    for (let i = 0; i < 8 && !isPartyWeekday(ms); i++) ms -= DAY
+    expect(partyStartsForDate(ymd(ms))).toEqual([])
   })
 
-  it('offers starts on/after opening day per the weekday schedule', async () => {
+  it('offers starts on the first party weekday on/after opening', async () => {
     const { partyStartsForDate } = await import('@lib/party-slots')
-    expect(partyStartsForDate('2026-09-05').length).toBeGreaterThan(0) // first Saturday
+    const { partyConfig } = await import('@config/party.config')
+    let ms = new Date(partyConfig.bookingOpensDate + 'T12:00:00Z').getTime()
+    for (let i = 0; i < 8 && !isPartyWeekday(ms); i++) ms += DAY
+    expect(partyStartsForDate(ymd(ms)).length).toBeGreaterThan(0)
   })
 
   it('range queries exclude pre-opening dates entirely', async () => {
     const { partyStartsInRange } = await import('@lib/party-slots')
-    const starts = partyStartsInRange('2026-08-01T00:00:00.000Z', '2026-09-30T23:59:59.000Z')
+    const { partyConfig } = await import('@config/party.config')
+    const opens = partyConfig.bookingOpensDate
+    const openMidnight = new Date(opens + 'T00:00:00Z').getTime()
+    const starts = partyStartsInRange(
+      new Date(openMidnight - 30 * DAY).toISOString(),
+      new Date(openMidnight + 30 * DAY).toISOString(),
+    )
     expect(starts.length).toBeGreaterThan(0)
-    for (const iso of starts) {
-      expect(new Date(iso).getTime()).toBeGreaterThanOrEqual(new Date('2026-09-01T00:00:00-05:00').getTime())
-    }
+    const openLocalMs = new Date(opens + 'T00:00:00-05:00').getTime()
+    for (const iso of starts) expect(new Date(iso).getTime()).toBeGreaterThanOrEqual(openLocalMs)
   })
 })
