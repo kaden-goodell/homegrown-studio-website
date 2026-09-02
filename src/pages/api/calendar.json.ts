@@ -1,5 +1,6 @@
 import type { APIRoute } from 'astro'
 import { bookingsOpen } from '@lib/bookings-gate'
+import { OPENING_DATE } from '@config/opening'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { createSquareClient } from '@providers/square/client'
@@ -24,14 +25,6 @@ const logger = createLogger('api:calendar')
  * Square's 32-day range cap.
  */
 export const GET: APIRoute = async ({ url, request }) => {
-  // Pre-opening: the studio has nothing scheduled yet, so "What's On" is empty
-  // (and must not advertise bookable pre-opening dates). Repopulates on reopen.
-  if (!bookingsOpen(request)) {
-    return new Response(JSON.stringify({ events: [] }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
-    })
-  }
   const month = url.searchParams.get('month') // YYYY-MM
   if (!month || !/^\d{4}-\d{2}$/.test(month)) {
     return new Response(JSON.stringify({ error: 'month=YYYY-MM required' }), { status: 400 })
@@ -110,7 +103,29 @@ export const GET: APIRoute = async ({ url, request }) => {
     partyBooked.map((b) => b.startAt)
   ).map((startAt) => ({ startAt }))
 
-  const events = buildCalendarEvents(workshops, openStudioWindows, partyAvailable, partyBooked)
+  // The calendar stays viewable pre-opening (marketing "What's On"), but:
+  //  - nothing before opening day is shown, and
+  //  - schedule-generated "party available" booking slots are withheld until
+  //    bookings actually open, so we never advertise a bookable slot the gate
+  //    would then refuse. Real created content (workshops, open studio, booked
+  //    parties) still shows. A Grand Opening marker anchors the opening month.
+  const includePartySlots = bookingsOpen(request)
+  const built = buildCalendarEvents(
+    workshops,
+    openStudioWindows,
+    includePartySlots ? partyAvailable : [],
+    partyBooked,
+  )
+  const events = built.filter((e) => e.date >= OPENING_DATE)
+  if (month === OPENING_DATE.slice(0, 7)) {
+    events.unshift({
+      id: 'grand-opening',
+      kind: 'event',
+      title: '🎉 Grand Opening',
+      date: OPENING_DATE,
+      bookable: false,
+    })
+  }
   return new Response(JSON.stringify({ events }), {
     status: 200,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=60' },
