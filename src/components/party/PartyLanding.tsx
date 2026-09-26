@@ -121,7 +121,7 @@ export default function PartyLanding() {
 
   async function shareCraft(craft: Craft) {
     const url = craftShareUrl(craft.id, window.location.origin)
-    const text = `Look at this — we could make ${craft.name} at Homegrown Studio! 🎨`
+    const text = `Look at this — we could make ${craft.name} at Hometown Studio! 🎨`
     if (navigator.share) {
       try {
         await navigator.share({ text, url })

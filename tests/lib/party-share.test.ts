@@ -9,11 +9,11 @@ import {
 } from '@lib/party-share'
 
 const EVENT = {
-  title: 'Junk Journaling Party — Homegrown Studio',
+  title: 'Junk Journaling Party — Hometown Studio',
   startIso: '2026-07-11T16:30:00.000Z',
   endIso: '2026-07-11T18:00:00.000Z',
-  details: 'Private party at Homegrown Studio. homegrowncraftstudio.com',
-  location: 'Homegrown Studio',
+  details: 'Private party at Hometown Studio. homegrowncraftstudio.com',
+  location: 'Hometown Studio',
 }
 
 describe('googleCalendarUrl', () => {
@@ -21,8 +21,8 @@ describe('googleCalendarUrl', () => {
     const url = googleCalendarUrl(EVENT)
     expect(url).toContain('https://calendar.google.com/calendar/render?action=TEMPLATE')
     expect(url).toContain('dates=20260711T163000Z%2F20260711T180000Z')
-    expect(url).toContain('text=Junk+Journaling+Party+%E2%80%94+Homegrown+Studio')
-    expect(url).toContain('location=Homegrown+Studio')
+    expect(url).toContain('text=Junk+Journaling+Party+%E2%80%94+Hometown+Studio')
+    expect(url).toContain('location=Hometown+Studio')
   })
 })
 
@@ -33,7 +33,7 @@ describe('buildIcs', () => {
     expect(ics).toContain('BEGIN:VEVENT')
     expect(ics).toContain('DTSTART:20260711T163000Z')
     expect(ics).toContain('DTEND:20260711T180000Z')
-    expect(ics).toContain('SUMMARY:Junk Journaling Party — Homegrown Studio')
+    expect(ics).toContain('SUMMARY:Junk Journaling Party — Hometown Studio')
     expect(ics).toContain('Line one\\nWith\\, comma\\; semicolon')
     expect(ics).toContain('END:VCALENDAR')
   })
@@ -65,7 +65,7 @@ describe('partyInviteText', () => {
   it('mentions the craft, studio, and date', () => {
     const text = partyInviteText({ craftName: 'Junk Journaling', slotLabel: 'Sat, Jul 11 · 11:30 AM' })
     expect(text).toContain('Junk Journaling')
-    expect(text).toContain('Homegrown Studio')
+    expect(text).toContain('Hometown Studio')
     expect(text).toContain('Sat, Jul 11 · 11:30 AM')
   })
 })

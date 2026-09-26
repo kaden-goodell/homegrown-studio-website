@@ -18,7 +18,7 @@ export const mockEventTypes: EventType[] = [
   {
     id: 'party-group',
     name: 'Group Craft Night',
-    description: 'Gather your people for a private craft night at Homegrown Studio — pick a project, pick a date, and make something together. Bring a treat to share if you like — we handle the crafting.',
+    description: 'Gather your people for a private craft night at Hometown Studio — pick a project, pick a date, and make something together. Bring a treat to share if you like — we handle the crafting.',
     category: 'party',
     duration: 90,
     baseCapacity: 10,

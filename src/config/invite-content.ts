@@ -11,7 +11,7 @@ export const inviteContent = {
   /** {title} is the party name the host sets (e.g. "Ari’s 7th Birthday"). */
   headlineWithTitle: 'You’re invited to {title}!',
   headlineDefault: 'You’re invited to a craft party!',
-  subline: 'A private party at Homegrown Studio — the whole studio, your favorite people, and something handmade to take home.',
+  subline: 'A private party at Hometown Studio — the whole studio, your favorite people, and something handmade to take home.',
 
   /** Labels for the detail chips. Values come from the invite link. */
   labels: {
@@ -20,7 +20,7 @@ export const inviteContent = {
     where: 'Where',
   },
 
-  where: 'Homegrown Studio · 525 Hughes Rd Ste F, Madison, AL',
+  where: 'Hometown Studio · 525 Hughes Rd Ste F, Madison, AL',
 
   rsvp: {
     heading: 'One quick thing before you come',
@@ -37,7 +37,7 @@ export const inviteContent = {
 
   /** Shown if the link is missing its details. */
   fallback: {
-    headline: 'You’re invited to Homegrown Studio!',
+    headline: 'You’re invited to Hometown Studio!',
     cta: '✍️ Sign your participation agreement',
   },
 }

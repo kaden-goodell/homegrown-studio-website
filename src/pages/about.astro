@@ -8,13 +8,6 @@ import { getCollection, render } from 'astro:content'
 const aboutEntries = await getCollection('about')
 aboutEntries.sort((a, b) => (a.data.order ?? 99) - (b.data.order ?? 99))
 
-const rendered = await Promise.all(
-  aboutEntries.map(async (entry) => {
-    const { Content } = await render(entry)
-    return { entry, Content }
-  })
-)
-
 // Opening date comes from the single source (site.config → src/config/opening.ts).
 // Shown only until we open; formatted here so no page/copy hard-codes the date.
 const showOpening = new Date() < new Date(siteConfig.openingDate + 'T00:00:00-05:00')
@@ -24,6 +17,32 @@ const openingLabel = new Date(siteConfig.openingDate + 'T12:00:00').toLocaleDate
   day: 'numeric',
   year: 'numeric',
 })
+// Prose form used inside the story ("October 16, 2026") — same single source.
+const openingProse = new Date(siteConfig.openingDate + 'T12:00:00').toLocaleDateString('en-US', {
+  month: 'long',
+  day: 'numeric',
+  year: 'numeric',
+})
+
+// Story entries may reference {{openingDate}}; substitute it so the prose never
+// hard-codes the date. Entries with the token are plain-prose paragraphs and are
+// rendered as such; everything else goes through the normal markdown renderer.
+const rendered = await Promise.all(
+  aboutEntries.map(async (entry) => {
+    const body = entry.body ?? ''
+    if (body.includes('{{openingDate}}')) {
+      const paragraphs = body
+        .replace(/<!--[\s\S]*?-->/g, '')
+        .replaceAll('{{openingDate}}', openingProse)
+        .split(/\n\s*\n/)
+        .map((p) => p.trim())
+        .filter(Boolean)
+      return { entry, Content: null, paragraphs }
+    }
+    const { Content } = await render(entry)
+    return { entry, Content, paragraphs: null }
+  })
+)
 ---
 
 <Layout title="About">
@@ -41,14 +60,14 @@ const openingLabel = new Date(siteConfig.openingDate + 'T12:00:00').toLocaleDate
       )}
     </div>
 
-    {rendered.map(({ entry, Content }) => (
+    {rendered.map(({ entry, Content, paragraphs }) => (
       <article class="mb-16 fade-in">
         <div class="glass rounded-2xl px-8 py-10 sm:px-12 sm:py-12">
           <h2 class="text-2xl md:text-3xl font-heading font-bold mb-6" style="color: var(--color-dark);">
             {entry.data.title}
           </h2>
           <div class="prose prose-lg max-w-none leading-relaxed [&>p]:mb-6" style="color: var(--color-text); line-height: 1.9;">
-            <Content />
+            {paragraphs ? paragraphs.map((p) => <p>{p}</p>) : Content && <Content />}
           </div>
         </div>
       </article>

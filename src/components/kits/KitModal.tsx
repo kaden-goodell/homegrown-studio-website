@@ -1003,7 +1003,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             <PaymentForm
               ref={paymentFormRef}
               environmentOverride="production"
-              wallet={{ amount: (dueToday / 100).toFixed(2), label: 'Homegrown Kit Deposit' }}
+              wallet={{ amount: (dueToday / 100).toFixed(2), label: 'Hometown Kit Deposit' }}
               onWalletToken={(token) => handlePay(token)}
               canPayWithWallet={() => (payValid ? null : 'Add your name, email, phone, and party address above first — and accept the rental terms if you added a table.')}
             />

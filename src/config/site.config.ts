@@ -201,7 +201,7 @@ const partyTypes: EventTypeConfig[] = [
 ]
 
 export const siteConfig: SiteConfig = {
-  name: 'Homegrown Studio',
+  name: 'Hometown Studio',
   tagline: 'Create. Celebrate. Connect.',
   logo: '/images/logo.svg',
   contactEmail: 'contact@homegrowncraftstudio.com', // real Workspace alias; hello@ does not exist
@@ -378,7 +378,7 @@ export const siteConfig: SiteConfig = {
   },
   email: {
     fromAddress: 'contact@homegrowncraftstudio.com', // display-only; actual SMTP sender is GMAIL_USER
-    fromName: 'Homegrown Studio',
+    fromName: 'Hometown Studio',
   },
   nav: [
     { label: 'Open Studio', href: '/open-studio' },

@@ -52,11 +52,11 @@ const details = [
 let calendar: { google: string; ics: string } | null = null
 if (start && !isPast) {
   const event = {
-    title: title ? `${title} — Homegrown Studio` : `${craft} Party — Homegrown Studio`,
+    title: title ? `${title} — Hometown Studio` : `${craft} Party — Hometown Studio`,
     startIso: start,
     endIso: addMinutesIso(start, partyConfig.durationMinutes),
     // Invitee's calendar event links back to the invitation / RSVP page.
-    details: `We're making ${craft} at Homegrown Studio.\n\nInvitation & RSVP: ${Astro.url.href}`,
+    details: `We're making ${craft} at Hometown Studio.\n\nInvitation & RSVP: ${Astro.url.href}`,
     location: c.where,
   }
   // Prefer the hosted .ics (works from email clients and every browser) when
@@ -70,7 +70,7 @@ if (start && !isPast) {
 
 <Layout
   title="You're Invited"
-  description={hasDetails ? `${craft} · ${when} · at Homegrown Studio. Tap to RSVP.` : "You're invited to a craft party at Homegrown Studio."}
+  description={hasDetails ? `${craft} · ${when} · at Hometown Studio. Tap to RSVP.` : "You're invited to a craft party at Hometown Studio."}
   ogTitle={headline}
 >
   <section class="max-w-xl mx-auto px-4 sm:px-6 py-24">
@@ -198,7 +198,7 @@ if (start && !isPast) {
                   </a>
                   <a
                     href={calendar.ics}
-                    download="homegrown-party.ics"
+                    download="hometown-party.ics"
                     style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(150,112,91,0.08); border: 1px solid rgba(150,112,91,0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
                   >
                     {c.calendar.apple}

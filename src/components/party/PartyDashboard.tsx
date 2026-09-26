@@ -143,10 +143,10 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
     origin,
   )
   const calEvent = {
-    title: heading + ' — Homegrown Studio',
+    title: heading + ' — Hometown Studio',
     startIso: party.startIso,
     endIso: addMinutesIso(party.startIso, party.durationMinutes ?? partyConfig.durationMinutes),
-    details: `Your private party at Homegrown Studio.\n\nInvitation link for guests: ${inviteUrl}`,
+    details: `Your private party at Hometown Studio.\n\nInvitation link for guests: ${inviteUrl}`,
     location: inviteContent.where,
   }
 
@@ -186,7 +186,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
             {copied ? '✓ Link copied!' : '💌 Invite your guests'}
           </button>
           <a href={googleCalendarUrl(calEvent)} target="_blank" rel="noopener noreferrer" style={chip}>📅 Google Calendar</a>
-          <a href={icsDataUrl(buildIcs(calEvent))} download="homegrown-party.ics" style={chip}>📅 Apple / Outlook</a>
+          <a href={icsDataUrl(buildIcs(calEvent))} download="hometown-party.ics" style={chip}>📅 Apple / Outlook</a>
           <a
             href={partyInviteMailto({
               craftName: party.craftName,

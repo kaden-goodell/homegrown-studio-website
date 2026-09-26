@@ -17,7 +17,7 @@ export interface WaiverSection {
   body: string[]
 }
 
-const legalEntityName = 'Goodell Holdings LLC' // registered entity; d/b/a Homegrown Studio (confirmed by Kaden 2026-07-10)
+const legalEntityName = 'Goodell Holdings LLC' // registered entity; d/b/a Hometown Studio (entity confirmed by Kaden 2026-07-10; trade name changed 2026-09-26)
 const businessAddress = '525 Hughes Rd Ste F, Madison, Alabama 35758'
 const adultAge = 19
 
@@ -28,7 +28,7 @@ export const waiverContent = {
    * be re-verified if this text is rolled back. Attorney review required before
    * deploying changes (see docs/NEEDS-FROM-KADEN.md).
    */
-  version: 'v1', // v1 = the LAUNCH text (2026-08-03; attorney redline pending, HOM-98). Numbering reset from draft-era v4: no production signature ever recorded an earlier version, so v1 starts the permanent series. On every bump: archive the full text to docs/waiver-versions/vN.md (records store version + SHA-256 hash; the archive keeps the text itself readable without git archaeology).
+  version: 'v2', // v2 (2026-09-26) = v1 text with the trade name changed to Hometown Studio (rebrand after a cease-and-desist; entity unchanged). v1 = the LAUNCH text (2026-08-03; attorney redline pending, HOM-98). Numbering reset from draft-era v4: no production signature ever recorded an earlier version, so v1 starts the permanent series. On every bump: archive the full text to docs/waiver-versions/vN.md (records store version + SHA-256 hash; the archive keeps the text itself readable without git archaeology).
   legalEntityName,
   businessAddress,
   /** Months a signature stays valid before re-signing is required. */
@@ -42,7 +42,7 @@ export const waiverContent = {
     subline:
       "One quick signature covers you and your own kids for a full year of studio visits, workshops, and parties. Every adult signs their own.",
     partySubline:
-      "You’re invited to a party at Homegrown Studio! One quick signature covers you and your own kids for the event — and a full year of visits after. Every adult signs their own.",
+      "You’re invited to a party at Hometown Studio! One quick signature covers you and your own kids for the event — and a full year of visits after. Every adult signs their own.",
   },
 
   form: {
@@ -101,7 +101,7 @@ export const waiverContent = {
     {
       heading: 'Participation Agreement, Release of Liability, Assumption of Risk, and Indemnification',
       body: [
-        `${legalEntityName} d/b/a Homegrown Studio ("the Studio"), ${businessAddress}.`,
+        `${legalEntityName} d/b/a Hometown Studio ("the Studio"), ${businessAddress}.`,
         'READ THIS AGREEMENT CAREFULLY BEFORE SIGNING. It affects your legal rights, includes a release of liability and an agreement to indemnify the Studio, and applies to all of your visits for twelve (12) months from the date signed.',
       ],
     },

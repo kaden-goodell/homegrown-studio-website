@@ -1,4 +1,4 @@
-# Homegrown Studio — Participation Agreement
+# Hometown Studio — Participation Agreement
 
 Canonical text of the studio's liability waiver. The live copy is rendered by the app from
 `src/config/waiver-content.ts` (the `/waiver` page and the booking flows) — this file mirrors
@@ -16,7 +16,7 @@ short "For counsel" note at the bottom flags the three clauses we'd examine firs
 
 ## PARTICIPATION AGREEMENT, RELEASE OF LIABILITY, ASSUMPTION OF RISK, AND INDEMNIFICATION
 
-**Goodell Holdings LLC** d/b/a Homegrown Studio ("**the Studio**"), 525 Hughes Rd Ste F,
+**Goodell Holdings LLC** d/b/a Hometown Studio ("**the Studio**"), 525 Hughes Rd Ste F,
 Madison, Alabama 35758.
 
 **READ THIS AGREEMENT CAREFULLY BEFORE SIGNING. IT AFFECTS YOUR LEGAL RIGHTS, INCLUDES A RELEASE

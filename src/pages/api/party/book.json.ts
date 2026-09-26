@@ -213,10 +213,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     // guests via this very calendar event, and the party-page URL is the key to
     // the whole roster. The email itself carries the private link instead.
     const bypassCalEvent = {
-      title: `${body.craft.name} — Party at Homegrown Studio`,
+      title: `${body.craft.name} — Party at Hometown Studio`,
       startIso: body.startTime,
       endIso: addMinutesIso(body.startTime, body.durationMinutes),
-      details: `Your private party at Homegrown Studio.\n\nInvitation link for guests: ${bypassInviteUrl}`,
+      details: `Your private party at Hometown Studio.\n\nInvitation link for guests: ${bypassInviteUrl}`,
       location: inviteContent.where,
     }
     const { sent: bypassEmailSent } = hostToken
@@ -498,10 +498,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     )
     // Host's calendar event — token-free details (the invite link is shareable).
     const calEvent = {
-      title: `${body.craft.name} — Party at Homegrown Studio`,
+      title: `${body.craft.name} — Party at Hometown Studio`,
       startIso: body.startTime,
       endIso: addMinutesIso(body.startTime, body.durationMinutes),
-      details: `Your private party at Homegrown Studio.\n\nInvitation link for guests: ${inviteUrl}`,
+      details: `Your private party at Hometown Studio.\n\nInvitation link for guests: ${inviteUrl}`,
       location: inviteContent.where,
     }
 

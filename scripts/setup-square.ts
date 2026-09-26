@@ -105,7 +105,7 @@ async function setupWebhooks() {
 
     await (client as any).webhookSubscriptions.create({
       subscription: {
-        name: 'Homegrown Studio Booking Events',
+        name: 'Hometown Studio Booking Events',
         notificationUrl: webhookUrl,
         eventTypes: WEBHOOK_EVENTS,
         apiVersion: '2024-01-18',

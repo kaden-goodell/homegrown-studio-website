@@ -3,7 +3,7 @@
 ## Team
 
 ```yaml
-name: Homegrown
+name: Hometown
 platform: claude
 git-host: github          # github | gitlab | bitbucket
 ticket-system: none

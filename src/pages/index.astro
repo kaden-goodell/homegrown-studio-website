@@ -32,7 +32,7 @@ const offerings = [
     href: '/book',
     cta: 'Plan your party',
     image: '/images/home/parties.jpg',
-    alt: 'A party table set with crafts at Homegrown Studio',
+    alt: 'A party table set with crafts at Hometown Studio',
   },
   {
     title: 'Take-Home Kits',
@@ -57,7 +57,7 @@ const openingLabel = new Date(siteConfig.openingDate + 'T12:00:00').toLocaleDate
 const testimonials = siteConfig.testimonials?.items ?? []
 ---
 
-<Layout title="Home" description="Homegrown Studio — walk-in crafting, workshops, and private parties in Madison, AL. Everyone welcome, ages 8+.">
+<Layout title="Home" description="Hometown Studio — walk-in crafting, workshops, and private parties in Madison, AL. Everyone welcome, ages 8+.">
   {showOpeningBanner && (
     <div id="opening-banner" class="text-center px-4 py-2.5 text-sm font-medium" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white;">
       Tentative grand opening {openingLabel} — <a href="/book" class="underline font-semibold" style="color: white;">see what’s coming</a>
@@ -95,7 +95,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
       </p>
       <img
         src="/images/party-hero.jpg"
-        alt="A craft table set up at Homegrown Studio"
+        alt="A craft table set up at Hometown Studio"
         class="fade-in mt-10 mx-auto rounded-2xl w-full max-w-4xl object-cover"
         style="aspect-ratio: 21 / 9; box-shadow: 0 24px 60px rgba(150, 112, 91, 0.18);"
       />

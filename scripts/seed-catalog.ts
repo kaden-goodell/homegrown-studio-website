@@ -205,7 +205,7 @@ const items: ItemDef[] = [
   // === Party category items (for add-on lookup) ===
   {
     name: 'Kids Party',
-    description: 'Celebrate your child\'s special day with a hands-on craft birthday party at Homegrown Studio! Each guest creates two custom art projects guided by a dedicated party host.',
+    description: 'Celebrate your child\'s special day with a hands-on craft birthday party at Hometown Studio! Each guest creates two custom art projects guided by a dedicated party host.',
     category: 'birthday',
     durationMinutes: 120,
     variations: [{ name: 'Base Package (up to 12 kids)', priceAmount: 40000 }],
@@ -214,7 +214,7 @@ const items: ItemDef[] = [
   },
   {
     name: 'Adult Workshop Party',
-    description: 'Gather your friends for a private craft night at Homegrown Studio! A dedicated instructor guides you step by step, so no experience is needed. Complimentary wine, beer, and a charcuterie spread are included.',
+    description: 'Gather your friends for a private craft night at Hometown Studio! A dedicated instructor guides you step by step, so no experience is needed. Complimentary wine, beer, and a charcuterie spread are included.',
     category: 'party',
     durationMinutes: 150,
     variations: [{ name: 'Base Package (up to 12 guests)', priceAmount: 40000 }],

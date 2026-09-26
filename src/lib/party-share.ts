@@ -42,7 +42,7 @@ export function buildIcs(ev: CalendarEventInput): string {
   return [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
-    'PRODID:-//Homegrown Studio//Party Booking//EN',
+    'PRODID:-//Hometown Studio//Party Booking//EN',
     'BEGIN:VEVENT',
     `UID:${uid}`,
     `DTSTAMP:${compactUtc(ev.startIso)}`,
@@ -67,7 +67,7 @@ export function craftShareUrl(craftId: string, origin: string): string {
 
 /** Invite text the host shares with her guests after booking. */
 export function partyInviteText(input: { craftName: string; slotLabel: string }): string {
-  return `You're invited! We're making ${input.craftName} at Homegrown Studio — ${input.slotLabel}. 🎨`
+  return `You're invited! We're making ${input.craftName} at Hometown Studio — ${input.slotLabel}. 🎨`
 }
 
 /**
@@ -131,12 +131,12 @@ export function partyInviteMailto(input: {
     'Hi!',
     '',
     input.title
-      ? `You’re invited to ${input.title} at Homegrown Studio!`
-      : 'You’re invited to a private craft party at Homegrown Studio!',
+      ? `You’re invited to ${input.title} at Hometown Studio!`
+      : 'You’re invited to a private craft party at Hometown Studio!',
     '',
     `🎨 We’re making: ${input.craftName}`,
     `🗓 When: ${input.slotLabel}`,
-    `📍 Where: ${input.where ?? 'Homegrown Studio · 525 Hughes Rd Ste F, Madison, AL'}`,
+    `📍 Where: ${input.where ?? 'Hometown Studio · 525 Hughes Rd Ste F, Madison, AL'}`,
     '',
     'Details + a quick RSVP (takes about a minute):',
     input.inviteUrl,

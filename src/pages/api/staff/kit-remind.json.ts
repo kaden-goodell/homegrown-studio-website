@@ -56,7 +56,7 @@ export const POST: APIRoute = async ({ request }) => {
 
   const firstName = order.contact.name.trim().split(/\s+/)[0] || 'there'
   const content =
-    `Hi ${firstName}! Homegrown Studio here — friendly reminder that your kit's rental pieces ` +
+    `Hi ${firstName}! Hometown Studio here — friendly reminder that your kit's rental pieces ` +
     `come home to us by ${formatDay(order.returnBy)}, ${kitConfig.returnWindow}. ` +
     `Reply here if the window won't work and we'll figure something out!`
 

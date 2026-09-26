@@ -799,13 +799,13 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         : ''
     const calendarEvent = slotStart && slotEnd
       ? {
-          title: `${selectedCraft ? `${selectedCraft.name} — ` : ''}Party at Homegrown Studio`,
+          title: `${selectedCraft ? `${selectedCraft.name} — ` : ''}Party at Hometown Studio`,
           startIso: slotStart,
           endIso: slotEnd,
           details: confirmInviteUrl
-            ? `Your private party at Homegrown Studio.\n\nInvitation link for guests: ${confirmInviteUrl}`
-            : 'Private party at Homegrown Studio. homegrowncraftstudio.com',
-          location: 'Homegrown Studio',
+            ? `Your private party at Hometown Studio.\n\nInvitation link for guests: ${confirmInviteUrl}`
+            : 'Private party at Hometown Studio. homegrowncraftstudio.com',
+          location: 'Hometown Studio',
         }
       : null
 
@@ -892,7 +892,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               </a>
               <a
                 href={icsDataUrl(buildIcs(calendarEvent))}
-                download="homegrown-party.ics"
+                download="hometown-party.ics"
                 style={{ ...chipStyle, textDecoration: 'none', cursor: 'pointer', padding: '0.5rem 0.9rem' }}
               >
                 📅 Apple / Outlook
@@ -1600,7 +1600,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             <PaymentForm
               ref={paymentFormRef}
               environmentOverride="production"
-              wallet={{ amount: (deposit / 100).toFixed(2), label: 'Homegrown Studio — party studio fee', bnpl: true }}
+              wallet={{ amount: (deposit / 100).toFixed(2), label: 'Hometown Studio — party studio fee', bnpl: true }}
               onWalletToken={(token) => handlePay(token)}
               canPayWithWallet={() => {
                 if (!infoValid) return 'Add your full name, email, and phone above first — we need them for your confirmation and to reach you on party day.'

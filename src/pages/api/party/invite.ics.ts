@@ -42,10 +42,10 @@ export const GET: APIRoute = async ({ url, clientAddress }) => {
     origin,
   )
   const ics = buildIcs({
-    title: `${party.title ?? `${party.craftName} Party`} — Homegrown Studio`,
+    title: `${party.title ?? `${party.craftName} Party`} — Hometown Studio`,
     startIso: party.startIso,
     endIso: addMinutesIso(party.startIso, party.durationMinutes ?? partyConfig.durationMinutes),
-    details: `We’re making ${party.craftName} at Homegrown Studio.\n\nInvitation & RSVP: ${inviteUrl}`,
+    details: `We’re making ${party.craftName} at Hometown Studio.\n\nInvitation & RSVP: ${inviteUrl}`,
     location: inviteContent.where,
   })
 
@@ -53,7 +53,7 @@ export const GET: APIRoute = async ({ url, clientAddress }) => {
     status: 200,
     headers: {
       'Content-Type': 'text/calendar; charset=utf-8',
-      'Content-Disposition': 'attachment; filename="homegrown-party.ics"',
+      'Content-Disposition': 'attachment; filename="hometown-party.ics"',
       'Cache-Control': 'public, max-age=300',
     },
   })
