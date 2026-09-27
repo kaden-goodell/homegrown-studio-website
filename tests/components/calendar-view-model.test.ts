@@ -86,7 +86,7 @@ describe('groupEventsByDay', () => {
     expect(days[0].events[0].title).not.toMatch(/🎉/)
   })
 
-  it('orders a day: bookable workshops by start, then party times, then everything else by start', () => {
+  it('orders a day by start time, earliest first, with party times at their first open slot', () => {
     const days = groupEventsByDay(
       [
         ev({ id: 'booked', kind: 'party-booked', bookable: false, startTime: '14:00' }),
@@ -99,24 +99,47 @@ describe('groupEventsByDay', () => {
       '2026-07-11'
     )
     expect(days[0].events.map((e) => e.id)).toEqual([
-      'w-early',
-      'w-late',
-      'party-available-agg-2026-07-18',
-      'studio',
-      'booked',
+      'party-available-agg-2026-07-18', // 9:00 AM, its earliest open slot
+      'studio', // 10:00 AM
+      'booked', // 2:00 PM
+      'w-early', // 4:00 PM
+      'w-late', // 7:00 PM
     ])
   })
 
-  it('sorts a workshop that cannot be booked with everything else', () => {
+  it('treats every kind of row the same: only the start time decides', () => {
     const days = groupEventsByDay(
       [
         ev({ id: 'w-closed', kind: 'workshop', bookable: false, startTime: '10:00' }),
-        ev({ id: 'p1', kind: 'party-available', startTime: '09:00' }),
         ev({ id: 'w-open', kind: 'workshop', startTime: '19:00' }),
+        ev({ id: 'p1', kind: 'party-available', startTime: '14:00' }),
       ],
       '2026-07-11'
     )
-    expect(days[0].events.map((e) => e.id)).toEqual(['w-open', 'p1', 'w-closed'])
+    expect(days[0].events.map((e) => e.id)).toEqual(['w-closed', 'p1', 'w-open'])
+  })
+
+  it('puts the party first when it starts at the same time as something else', () => {
+    const days = groupEventsByDay(
+      [
+        ev({ id: 'w', kind: 'workshop', startTime: '16:30' }),
+        ev({ id: 'p1', kind: 'party-available', startTime: '16:30' }),
+      ],
+      '2026-07-11'
+    )
+    expect(days[0].events.map((e) => e.id)).toEqual(['p1', 'w'])
+  })
+
+  it('leads the day with a row that has no time, such as the Grand Opening', () => {
+    const days = groupEventsByDay(
+      [
+        ev({ id: 'w', kind: 'workshop', startTime: '19:00' }),
+        ev({ id: 'opening', kind: 'event', bookable: false, startTime: undefined }),
+        ev({ id: 'p1', kind: 'party-available', startTime: '09:00' }),
+      ],
+      '2026-07-11'
+    )
+    expect(days[0].events.map((e) => e.id)).toEqual(['opening', 'p1', 'w'])
   })
 })
 

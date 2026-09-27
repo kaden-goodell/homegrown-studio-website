@@ -74,10 +74,11 @@ export interface SiteConfig {
   }
   nav?: NavItem[]
   /**
-   * Studio hours, displayed in footer / Open Studio / homepage. Until walk-ins
-   * start (OPEN_STUDIO_START_DATE) these are labelled "Studio hours", because
-   * the studio is open for booked workshops and parties only; after that they
-   * are the walk-in hours. They must cover every scheduled workshop.
+   * Walk-in hours, displayed in footer / Open Studio / homepage. Until walk-ins
+   * start (OPEN_STUDIO_START_DATE) the door opens only for booked workshops
+   * and parties (Kaden, 27 Sep 2026), so they are labelled "Walk-in hours from
+   * December" and the copy points to the calendar. They must cover every
+   * scheduled workshop.
    */
   hours: { days: string; time: string }[]
   /** Grand-opening date (ISO). Drives the pre-launch banner; remove after opening. */

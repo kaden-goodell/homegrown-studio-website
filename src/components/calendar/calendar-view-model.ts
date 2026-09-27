@@ -261,17 +261,23 @@ export interface DayGroup {
   events: CalendarEvent[]
 }
 
-const byStart = (a: CalendarEvent, b: CalendarEvent) => (a.startTime ?? '').localeCompare(b.startTime ?? '')
-const isBookableWorkshop = (e: CalendarEvent) => e.kind === 'workshop' && e.bookable
 const isPartyTime = (e: CalendarEvent) => e.kind === 'party-available'
+const isParty = (e: CalendarEvent) => e.kind === 'party-available' || e.kind === 'party-booked'
+
+/**
+ * Earliest first. A row with no time (an all-day marker such as the Grand
+ * Opening) leads the day. When two rows start together, the party goes first.
+ */
+const byStart = (a: CalendarEvent, b: CalendarEvent) =>
+  (a.startTime ?? '').localeCompare(b.startTime ?? '') || Number(isParty(b)) - Number(isParty(a))
 
 /**
  * List-view shape: upcoming days only (>= today), ascending, with each day's
  * party-available slots collapsed to a single "Private party times" entry
  * (mirrors the month grid's aggregation — detail lives on /book).
  *
- * Within a day (HOM-179): bookable workshops first, in time order, then the
- * party entry, then everything else in time order.
+ * Within a day: by start time, earliest at the top (Kaden, 27 Sep 2026).
+ * The party entry takes the time of its earliest open slot.
  */
 export function groupEventsByDay(events: CalendarEvent[], today: string): DayGroup[] {
   const byDate = new Map<string, CalendarEvent[]>()
@@ -284,9 +290,8 @@ export function groupEventsByDay(events: CalendarEvent[], today: string): DayGro
   return [...byDate.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, dayEvents]) => {
-      const workshops = dayEvents.filter(isBookableWorkshop).sort(byStart)
       const partySlots = dayEvents.filter(isPartyTime).sort(byStart)
-      const rest = dayEvents.filter((e) => !isBookableWorkshop(e) && !isPartyTime(e)).sort(byStart)
+      const rest = dayEvents.filter((e) => !isPartyTime(e))
       const party: CalendarEvent[] = []
       if (partySlots.length > 0) {
         const collapsed = partySlots.length > 1
@@ -302,6 +307,6 @@ export function groupEventsByDay(events: CalendarEvent[], today: string): DayGro
           }),
         })
       }
-      return { date, events: [...workshops, ...party, ...rest] }
+      return { date, events: [...party, ...rest].sort(byStart) }
     })
 }

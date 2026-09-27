@@ -117,11 +117,12 @@ describe('WhatsOnCalendar list rows (HOM-179)', () => {
     expect(meta).toHaveStyle({ color: 'var(--color-text)' })
   })
 
-  it('orders the day: workshops, then party times, then everything else by start', async () => {
+  it('orders the day by start time, earliest at the top', async () => {
     render(<WhatsOnCalendar />)
     const first = await rowFor('Fall Earring Bar')
     const titles = Array.from(first.parentElement!.children).map((row) => row.firstElementChild!.firstElementChild!.textContent)
-    expect(titles).toEqual(['Fall Earring Bar', 'Private party times', 'Open Studio', 'Booked · private party'])
+    // 9:00 party times (party first on a tie), 9:00 open studio, 1:00 booked party, 7:00 workshop
+    expect(titles).toEqual(['Private party times', 'Open Studio', 'Booked · private party', 'Fall Earring Bar'])
   })
 
   it('shows no emoji on party rows', async () => {

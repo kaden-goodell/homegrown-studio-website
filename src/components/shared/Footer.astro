@@ -83,7 +83,7 @@ const { street, city, state, zip } = siteConfig.address
           </a>
         )}
         <div class="footer-hours">
-          <span class="footer-hours-label" data-walkin="before" hidden={walkInOpen}>Studio hours · walk-ins start in December</span>
+          <span class="footer-hours-label" data-walkin="before" hidden={walkInOpen}>Walk-in hours from December · by booking until then</span>
           <span class="footer-hours-label" data-walkin="after" hidden={!walkInOpen}>Walk-in hours</span>
           {siteConfig.hours.map((h) => (
             <span class="footer-address">{h.days}: {h.time}</span>

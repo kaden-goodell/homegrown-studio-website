@@ -185,7 +185,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
         {siteConfig.address.street}, {siteConfig.address.city}, {siteConfig.address.state} {siteConfig.address.zip}
       </p>
       <p class="mt-5 text-xs font-bold uppercase" style="color: var(--color-dark); letter-spacing: 0.14em;">
-        <span data-walkin="before" hidden={walkInOpen}>Studio hours</span>
+        <span data-walkin="before" hidden={walkInOpen}>Walk-in hours from December</span>
         <span data-walkin="after" hidden={!walkInOpen}>Walk-in hours</span>
       </p>
       <div class="mt-3 flex flex-wrap justify-center gap-x-10 gap-y-3">
@@ -197,7 +197,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
         ))}
       </div>
       <p class="mt-4 text-sm" style="color: var(--color-muted);">
-        <span data-walkin="before" hidden={walkInOpen}>Open for booked workshops and parties. Walk-ins start {OPEN_STUDIO_START_LABEL}.</span>
+        <span data-walkin="before" hidden={walkInOpen}>Until then we open for booked workshops and parties only. <a href="/calendar" class="underline" style="color: var(--color-dark);">See what&rsquo;s on</a> before you come by.</span>
         <span data-walkin="after" hidden={!walkInOpen}>Workshops and parties may run outside these times.</span>
       </p>
       <a
