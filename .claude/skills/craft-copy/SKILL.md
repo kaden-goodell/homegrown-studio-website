@@ -51,21 +51,26 @@ Claude Code can't generate images; hand Kaden a prompt to paste into ChatGPT, th
 
 The approved look is **tight on the product, looking down ~45°, tabletop-only background**. His first rejection was a straight-on shot showing the wall/window/room: "want less of the environment and more of the actual thing."
 
+**The real studio (verified 9/27 from Instagram @homegrown_creativestudio + Photos):** tables are **blonde birch/maple butcher block** (warm, light, yellowish — NOT oak, NOT grey); supplies live in **wooden compartment bins**; tools sit in **blush-pink plastic trays**; spindle-back wooden chairs; warm cream walls; a glass-block wall. The brand palette is **bright and saturated** — rainbow pony beads, hot pink/purple/turquoise, rust/orange, red-white-blue — on that warm wood. It is NOT muted pastel. Photos are real, casual phone shots, a little maximalist.
+
 Template — swap the bracketed parts, keep the rest:
 
 ```
 Photorealistic casual iPhone photo, 4:3 landscape. [THE FINISHED CRAFT,
-described concretely: size, materials, colors — blush pink, cream, sage
-green palette] — visibly handmade, with [small real imperfections: paper
-edges, tiny wrinkles, uneven spacing] so it looks made by a 10-year-old,
-not factory-produced. Camera high, looking down at about a 45-degree angle
-so we see [the top AND the decorated front/side that is the actual craft].
+described concretely: size, materials, colors — bright, saturated craft
+colors, e.g. hot pink, purple, turquoise, rust orange, sunny yellow] —
+visibly handmade, with [small real imperfections: uneven spacing, a loose
+thread, a slightly crooked piece] so it looks made by a real person, not
+factory-produced. Camera high, looking down at about a 45-degree angle so
+we see [the top AND the decorated front/side that is the actual craft].
 Close in: the craft fills about 60% of the frame, centered with a little
-breathing room. The background is ONLY the light oak tabletop — no wall,
-no window, no plants, no horizon line. At the edges of the frame, softly
-out of focus: [2–3 of the actual supplies used, e.g. foam brush tip, torn
-paper scraps]. Soft natural window light, shallow depth of field,
-true-to-life colors. No text, no logos, no people, no hands.
+breathing room. The background is ONLY a warm blonde birch butcher-block
+tabletop — light yellowish wood with visible grain — no wall, no window,
+no plants, no horizon line. At the edges of the frame, softly out of
+focus: [2–3 of the actual supplies used] and the corner of a blush-pink
+plastic craft tray. Bright, even natural light, shallow depth of field,
+true-to-life saturated colors, subtle phone-camera grain. No text, no
+logos, no people, no hands.
 ```
 
 Rules: never fully top-down if the craft's side is the point; say what's NOT included (e.g. "no saucer") so the image doesn't over-promise; no brand logos or trademarked characters; subject must survive a tiny thumbnail crop (modal summary chip). ChatGPT returns 1448×1086 PNG — already 4:3; convert to JPEG (`sips -s format jpeg`) before upload.
