@@ -10,3 +10,12 @@
  *  and is the one spot that still needs a manual edit — markdown can't import.)
  */
 export const OPENING_DATE = '2026-10-16'
+
+/**
+ * Open Studio (walk-in) starts later than the grand opening — the first weeks
+ * are parties, workshops, and events only. Before this date /open-studio and
+ * the homepage say walk-in hours haven't started. Same rule: change it here only.
+ * Label is what the copy says until the exact day is confirmed.
+ */
+export const OPEN_STUDIO_START_DATE = '2026-12-03'
+export const OPEN_STUDIO_START_LABEL = 'the first week of December'

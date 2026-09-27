@@ -381,9 +381,9 @@ export const siteConfig: SiteConfig = {
     fromName: 'Hometown Studio',
   },
   nav: [
-    { label: 'Open Studio', href: '/open-studio' },
-    { label: 'Workshops', href: '/workshops' },
     { label: 'Parties', href: '/book' },
+    { label: 'Workshops', href: '/workshops' },
+    { label: 'Open Studio', href: '/open-studio' },
     { label: "What's On", href: '/calendar' },
     { label: 'About', href: '/about' },
   ],
