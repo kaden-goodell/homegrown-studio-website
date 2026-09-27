@@ -12,11 +12,12 @@ export interface FaqEntry {
   a: string
 }
 
+import { formatMoney } from '@lib/money'
 import { partyConfig } from './party.config'
 import { policyWindows } from './policy-content'
 
 /** "$300" — every mention of the studio fee derives from partyConfig.basePriceCents. */
-const FEE = `$${partyConfig.basePriceCents / 100}`
+const FEE = formatMoney(partyConfig.basePriceCents)
 
 /** Policy windows (HOM-78) — all cancellation copy derives from these. */
 const REFUND_DAYS = policyWindows.partyFullRefundDays
@@ -25,7 +26,7 @@ const LOCK_DAYS = policyWindows.partyHeadcountLockDays
 
 export const partyContent = {
   hero: {
-    eyebrow: 'Private Parties',
+    eyebrow: 'Private parties',
     headline: 'Throw a party they’ll actually remember',
     occasions: 'Birthdays · Girls’ nights · Showers · Team nights · Just because',
     subline:
@@ -46,7 +47,8 @@ export const partyContent = {
     positioningLine:
       'The only fully private craft-party studio in Madison — no shared tables, no strangers, no other parties in the room.',
     holdLine: `${FEE} holds your date — that’s all that’s due today.`,
-    perPersonExample: { guests: 12 }, // "~$17/person for the room" is computed from this
+    /** Party size for the worked example on /book: the studio fee split across this many guests. */
+    perPersonExample: { guests: 12 },
     noShowLine: `Crafts are paid at the studio for whoever actually comes (${partyConfig.minGuests}-craft minimum) — beyond that, a friend who can’t make it never costs you a thing.`,
   },
 
@@ -73,7 +75,7 @@ export const partyContent = {
   faq: [
     {
       q: 'How much does a party cost?',
-      a: `A flat ${FEE} studio fee reserves the entire studio for your group — that’s all you pay when you book. Each guest’s craft is paid at the studio on the day, priced per person by the craft you choose (most are $15–$40).`,
+      a: `A flat ${FEE} studio fee reserves the entire studio for your group — that’s all you pay when you book. Each guest’s craft is paid at the studio on the day. Each craft has its own per-person price, shown when you pick one.`,
     },
     {
       q: 'What if some guests can’t make it?',
@@ -108,8 +110,8 @@ export const partyContent = {
       a: 'No outside alcohol, please — Alabama law doesn’t allow it in our studio. We’re pursuing a beer & wine license so guests can enjoy a drink here once it’s issued.',
     },
     {
-      q: 'Can you do a character theme (Bluey, princesses, superheroes)?',
-      a: 'We can’t use trademarked characters in our crafts or decor — those belong to their studios. What we can do: match your party’s colors and vibe, and you’re welcome to bring your own character decorations for the tables.',
+      q: 'Can you do a theme?',
+      a: 'Yes. We can match your party’s colors and vibe, whatever the occasion. The one thing we can’t do is put trademarked characters or logos on our crafts or decor, since those belong to their owners. You’re welcome to bring your own themed decorations for the tables.',
     },
     {
       q: 'Can I decorate the studio for my party?',

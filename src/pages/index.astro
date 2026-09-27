@@ -3,18 +3,23 @@ export const prerender = true
 
 import Layout from '@layouts/StaticLayout.astro'
 import { siteConfig } from '@config/site.config'
+import { partyConfig } from '@config/party.config'
+import { formatMoney } from '@lib/money'
 import { OPEN_STUDIO_START_DATE, OPEN_STUDIO_START_LABEL } from '@config/opening'
 const walkInOpen = new Date() >= new Date(OPEN_STUDIO_START_DATE + 'T00:00:00-06:00')
 import Newsletter from '@components/shared/Newsletter'
 import UpcomingWorkshops from '@components/home/UpcomingWorkshops'
 
+// Prices here come from config. This page is built ahead of time and never
+// asks Square, so anything priced in Square (crafts, workshop seats) is
+// described without a number.
 const offerings = [
   {
-    title: 'Open Studio',
+    title: 'Open studio',
     tone: 'tone-studio',
     // Shown until walk-ins start, then `priceAfter` takes over (see data-walkin in Footer.astro).
     price: `Walk-in hours begin ${OPEN_STUDIO_START_LABEL}`,
-    priceAfter: 'Crafts from $15 · no booking needed',
+    priceAfter: 'Pay per craft · no booking needed',
     description: 'Walk in during open hours, pick a craft from the menu, and make it yours. Pay per craft — that’s it.',
     href: '/open-studio',
     cta: 'How it works',
@@ -24,7 +29,7 @@ const offerings = [
   {
     title: 'Workshops',
     tone: 'tone-workshop',
-    price: 'From $30 a seat',
+    price: 'Priced per seat',
     description: 'Guided sessions with everything included. Come solo or bring a friend — all skill levels, ages 8+.',
     href: '/workshops',
     cta: 'Browse workshops',
@@ -32,9 +37,9 @@ const offerings = [
     alt: 'A workshop table set for a guided craft session',
   },
   {
-    title: 'Private Parties',
+    title: 'Private parties',
     tone: 'tone-party',
-    price: 'Whole studio · from $300',
+    price: `Whole studio · from ${formatMoney(partyConfig.basePriceCents)}`,
     description: 'The whole room for your people — birthdays, girls’ nights, showers, team nights, or just because.',
     href: '/book',
     cta: 'Plan your party',
@@ -42,14 +47,14 @@ const offerings = [
     alt: 'A party table set with crafts at Hometown Studio',
   },
   {
-    title: 'Take-Home Kits',
+    title: 'Take-home kits',
     tone: 'tone-kit',
     description: 'The party-in-a-box: a themed craft kit for your crew, at your place. Gold, silver, rainbow, and more.',
     image: '/images/home/take-home.jpg',
     alt: 'A boxed take-home craft kit',
     // Flips live with the kits feature — no copy edits needed at launch.
     ...(siteConfig.features.kits.enabled
-      ? { price: 'Kits from $200', href: '/kits', cta: 'Build your kit' }
+      ? { price: 'Priced by kit size', href: '/kits', cta: 'Build your kit' }
       : { price: 'Coming soon', href: null, cta: 'On the way' }),
   },
 ]
@@ -74,7 +79,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
   {showOpeningBanner && (
     <script is:inline define:vars={{ openingDate: siteConfig.openingDate }}>
       // Page is prerendered; without this, a stale build would keep announcing the
-      // opening after Sept 1 until the next production deploy. Self-hide at runtime.
+      // opening after opening day until the next production deploy. Self-hide at runtime.
       if (new Date() >= new Date(openingDate + 'T00:00:00-05:00')) {
         document.getElementById('opening-banner')?.remove()
       }
@@ -197,7 +202,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
         ))}
       </div>
       <p class="mt-4 text-sm" style="color: var(--color-muted);">
-        <span data-walkin="before" hidden={walkInOpen}>Until then we open for booked workshops and parties only. <a href="/calendar" class="underline" style="color: var(--color-dark);">See what&rsquo;s on</a> before you come by.</span>
+        <span data-walkin="before" hidden={walkInOpen}>Until then we open for booked workshops and parties only. <a href="/calendar" class="underline" style="color: var(--color-dark);">See the calendar</a> before you come by.</span>
         <span data-walkin="after" hidden={!walkInOpen}>Workshops and parties may run outside these times.</span>
       </p>
       <a
@@ -218,7 +223,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
         <div class="text-center mb-10 fade-in">
           <p class="eyebrow mb-3">Testimonials</p>
           <h2 class="text-3xl sm:text-4xl lg:text-5xl font-heading font-bold" style="color: var(--color-dark);">
-            {siteConfig.testimonials?.heading || 'What Our Guests Say'}
+            {siteConfig.testimonials?.heading || 'What our guests say'}
           </h2>
         </div>
         <div class="grid gap-6 md:grid-cols-3">

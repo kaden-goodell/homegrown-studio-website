@@ -100,6 +100,57 @@ describe('colour contrast', () => {
     expect(tokens['--color-primary-rgb']).toBe(channels)
   })
 
+  // The header has no ground of its own: its text sits on the page's cream,
+  // except a filled button, which brings its own background. The footer is a
+  // band with its own ground (.site-footer's background), and its text sits on that.
+  // Every text colour they declare is read from the component itself, so a new
+  // or changed colour is checked without anyone remembering to list it here.
+  for (const name of ['Footer', 'Header']) {
+    describe(`${name.toLowerCase()} text`, () => {
+      const source = readFileSync(resolve(__dirname, `../../src/components/shared/${name}.astro`), 'utf8')
+      const style = source.slice(source.indexOf('<style>'), source.indexOf('</style>'))
+      const declared = [...style.matchAll(/([^{}]+)\{([^{}]*)\}/g)].flatMap(([, selector, body]) => {
+        const colour = body.match(/(?<![-\w])color\s*:\s*([^;]+);/)?.[1].trim()
+        if (!colour) return []
+        const ground = body.match(/(?<![-\w])background(?:-color)?\s*:\s*([^;]+);/)?.[1].trim()
+        return [{ selector: selector.replace(/\/\*[\s\S]*?\*\//g, '').trim(), colour, ground }]
+      })
+      const token = (value: string) => value.match(/^var\((--[a-z0-9-]+)\)$/)?.[1]
+      // A band's own ground, if the component is one.
+      const band = style.match(/\.site-(?:footer|header)\s*\{([^}]*)\}/)?.[1].match(/(?<![-\w])background(?:-color)?\s*:\s*var\((--[a-z0-9-]+)\)/)?.[1]
+
+      it('declares its text colours', () => {
+        expect(declared.length).toBeGreaterThan(3)
+      })
+
+      it('sets no colour in the markup, where this test cannot see it', () => {
+        const markup = source.slice(0, source.indexOf('<style>'))
+        expect(markup).not.toMatch(/style="[^"]*color/)
+      })
+
+      for (const { selector, colour, ground } of declared) {
+        it(`${selector} is readable (4.5:1)`, () => {
+          const fg = token(colour)
+          const bg = ground ? token(ground) : (band ?? '--color-background')
+          expect(fg, `${selector} colour "${colour}" must be a token`).toBeTruthy()
+          expect(bg, `${selector} background "${ground}" must be a token`).toBeTruthy()
+          expect(contrast(fg!, bg!)).toBeGreaterThanOrEqual(4.5)
+          // On the page's own ground, the text also has to read on the sand
+          // band that can sit behind it.
+          if (!ground && !band) expect(contrast(fg!, '--color-sand')).toBeGreaterThanOrEqual(4.5)
+        })
+      }
+    })
+  }
+
+  it('the footer’s small print reads on the dark band', () => {
+    const footer = readFileSync(resolve(__dirname, '../../src/components/shared/Footer.astro'), 'utf8')
+    const copyright = footer.match(/\.footer-copyright\s*\{([^}]*)\}/)?.[1] ?? ''
+    expect(copyright).toMatch(/color:\s*var\(--color-on-dark-muted\)/)
+    expect(contrast('--color-on-dark-muted', '--color-dark')).toBeGreaterThanOrEqual(4.5)
+    expect(contrast('--color-on-dark', '--color-dark')).toBeGreaterThanOrEqual(4.5)
+  })
+
   it('the old gradient button is gone from the site', () => {
     const { execSync } = require('child_process')
     const out = execSync(

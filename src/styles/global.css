@@ -20,6 +20,10 @@
   --color-muted: #6f635b;
   --color-dark: #3d3229;
   --color-line: rgba(var(--color-primary-rgb), 0.16);
+  /* Text on the dark band (the footer). */
+  --color-on-dark: #faf8f5;
+  --color-on-dark-muted: #d9cfc4;
+  --color-line-on-dark: rgba(250, 248, 245, 0.18);
   --color-field-border: #9a8a7d;
   --color-error: #b42318;
 

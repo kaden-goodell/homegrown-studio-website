@@ -173,7 +173,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
       {/* Party header */}
       <div style={{ ...card, textAlign: 'center' }}>
         <p className="eyebrow tone-party" style={{ marginBottom: '0.5rem' }}>
-          Your Party
+          Your party
         </p>
         <h1 style={{ fontSize: '1.75rem', fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0 }}>
           {heading}
@@ -183,10 +183,10 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'center', marginTop: '1.1rem' }}>
           <button type="button" onClick={shareInvite} style={chip}>
-            {copied ? '✓ Link copied!' : '💌 Invite your guests'}
+            {copied ? 'Link copied' : 'Invite your guests'}
           </button>
-          <a href={googleCalendarUrl(calEvent)} target="_blank" rel="noopener noreferrer" style={chip}>📅 Google Calendar</a>
-          <a href={icsDataUrl(buildIcs(calEvent))} download="hometown-party.ics" style={chip}>📅 Apple / Outlook</a>
+          <a href={googleCalendarUrl(calEvent)} target="_blank" rel="noopener noreferrer" style={chip}>Google Calendar</a>
+          <a href={icsDataUrl(buildIcs(calEvent))} download="hometown-party.ics" style={chip}>Apple / Outlook</a>
           <a
             href={partyInviteMailto({
               craftName: party.craftName,
@@ -197,7 +197,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
             })}
             style={chip}
           >
-            ✉️ Email your guests
+            Email your guests
           </a>
           <a href={partyWaiverUrl(bookingId, origin)} target="_blank" rel="noopener noreferrer" style={chip}>
             {waiverContent.handoff.hostCta}
@@ -228,7 +228,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
               style={{ ...chip, fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
               aria-label="Refresh roster"
             >
-              ↻ Refresh
+              Refresh
             </button>
           </div>
         </div>
@@ -241,8 +241,8 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
           <div style={{ marginTop: '1rem', display: 'grid', gap: '0.6rem' }}>
             {households.map((h, i) => {
               const adultComing = h.attending.includes('adult')
-              const comingKids = h.children.filter((_, ci) => h.attending.includes(`child:${ci}`))
-              // Kids on the waiver who aren't crafting. The signing adult is
+              const comingGuests = h.children.filter((_, ci) => h.attending.includes(`child:${ci}`))
+              // Guests on the waiver who aren't crafting. The signing adult is
               // deliberately excluded — "not crafting" doesn't mean absent (they
               // may be there watching), and the host doesn't need that detail.
               const notComing = h.children
@@ -250,11 +250,11 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
                 .map((c) => c.name.split(' ')[0])
               const allergyLines = [
                 ...(adultComing && h.adultAllergies ? [`${h.signer.split(' ')[0]}: ${h.adultAllergies}`] : []),
-                ...comingKids.filter((c) => c.allergies).map((c) => `${c.name.split(' ')[0]}: ${c.allergies}`),
+                ...comingGuests.filter((c) => c.allergies).map((c) => `${c.name.split(' ')[0]}: ${c.allergies}`),
               ]
               const first = h.signer.split(' ')[0]
-              const rowSummary = comingKids.length > 0
-                ? `${adultComing ? `${first} + ` : ''}${comingKids.length} ${comingKids.length === 1 ? 'kid' : 'kids'}`
+              const rowSummary = comingGuests.length > 0
+                ? `${adultComing ? `${first} + ` : ''}${comingGuests.length} ${comingGuests.length === 1 ? 'guest' : 'guests'}`
                 : adultComing
                   ? `just ${first}`
                   : '—'
@@ -266,9 +266,9 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
                       {rowSummary}
                     </span>
                   </div>
-                  {comingKids.length > 0 && (
+                  {comingGuests.length > 0 && (
                     <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.25rem 0 0' }}>
-                      {comingKids.map((c) => c.name).join(', ')}
+                      {comingGuests.map((c) => c.name).join(', ')}
                     </p>
                   )}
                   {notComing.length > 0 && (
@@ -277,8 +277,8 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
                     </p>
                   )}
                   {allergyLines.map((line) => (
-                    <p key={line} style={{ fontSize: '0.75rem', color: '#b91c1c', margin: '0.35rem 0 0', fontWeight: 600 }}>
-                      ⚠ {line}
+                    <p key={line} style={{ fontSize: '0.75rem', color: 'var(--color-error)', margin: '0.35rem 0 0', fontWeight: 600 }}>
+                      Allergy: {line}
                     </p>
                   ))}
                 </div>

@@ -376,8 +376,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
     if (loading) {
       return (
-        <div className="space-y-3">
-          <h3 className="text-lg font-semibold text-gray-900">Payment</h3>
+        <div className="space-y-3" role="group" aria-label="Payment">
           <div className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-400">
             Loading payment form...
           </div>
@@ -409,15 +408,14 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
     if (isMockMode) {
       return (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold text-gray-900">Payment</h3>
+        <div className="space-y-3" role="group" aria-label="Payment">
+          {/* Local development only. The badge sits inside the stand-in card
+              field it describes; the step around it is already titled Payment. */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-500">
+            <span>Card number placeholder (Square Web Payments SDK)</span>
             <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">
-              Test Mode
+              Test mode
             </span>
-          </div>
-          <div className="rounded-md border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-500">
-            Card number placeholder (Square Web Payments SDK)
           </div>
         </div>
       )
@@ -426,9 +424,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     const anyWalletReady = applePayReady || googlePayReady || afterpayReady
 
     return (
-      <div className="space-y-3">
-        <h3 className="text-lg font-semibold text-gray-900">Payment</h3>
-
+      <div className="space-y-3" role="group" aria-label="Payment">
         {applePayReady && (
           <>
             {/* Apple's <apple-pay-button> custom element (registered by
