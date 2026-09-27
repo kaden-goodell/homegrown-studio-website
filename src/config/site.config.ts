@@ -377,7 +377,7 @@ export const siteConfig: SiteConfig = {
     items: [],
   },
   email: {
-    fromAddress: 'contact@ourhometownstudio.com', // display-only; actual SMTP sender is GMAIL_USER
+    fromAddress: 'contact@ourhometownstudio.com', // From header; must be a verified Gmail "Send mail as" alias of GMAIL_USER
     fromName: 'Hometown Studio',
   },
   nav: [

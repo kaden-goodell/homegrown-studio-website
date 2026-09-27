@@ -37,7 +37,9 @@ export async function sendEmail(input: {
       })
     }
     await _transport.sendMail({
-      from: `"${siteConfig.email.fromName}" <${c.user}>`,
+      // From = the public contact address. Gmail honors it only if it's a verified
+      // "Send mail as" alias of GMAIL_USER; otherwise Gmail rewrites From to GMAIL_USER.
+      from: `"${siteConfig.email.fromName}" <${siteConfig.email.fromAddress}>`,
       to: input.to, subject: input.subject, html: input.html, text: input.text,
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     })
