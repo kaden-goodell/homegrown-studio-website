@@ -23,6 +23,12 @@ describe('toWorkshopData', () => {
     expect(data.date).toBe('2026-06-10')
   })
 
+  it('uses the studio-local (America/Chicago) day, not the UTC day, for evening classes', () => {
+    // 7pm CDT on Fri Oct 16 is 00:00Z on Sat Oct 17 — must render as the 16th.
+    const data = toWorkshopData({ ...SAMPLE, startAt: '2026-10-17T00:00:00Z' })
+    expect(data.date).toBe('2026-10-16')
+  })
+
   it('derives endTime by adding durationMinutes to startAt', () => {
     const data = toWorkshopData(SAMPLE)
     const end = new Date(data.endTime)
