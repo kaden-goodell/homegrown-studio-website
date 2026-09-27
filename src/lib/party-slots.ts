@@ -66,10 +66,48 @@ function occupancyMs(): number {
   return (partyConfig.durationMinutes + partyConfig.cleanupBufferMinutes) * 60_000
 }
 
-/** Offered party start ISO timestamps for a local calendar date (YYYY-MM-DD). */
-export function partyStartsForDate(ymd: string): string[] {
-  // No parties before opening day — YYYY-MM-DD strings compare lexically.
-  if (ymd < partyConfig.bookingOpensDate) return []
+/** Studio-local YYYY-MM-DD, `days` after the studio's today. */
+function studioDatePlus(days: number, now: Date): string {
+  const [y, m, d] = localDate(now.toISOString()).split('-').map(Number)
+  const shifted = new Date(Date.UTC(y, m - 1, d + days, 12))
+  return shifted.toISOString().slice(0, 10)
+}
+
+/**
+ * The dates a party can be booked for today, both ends included
+ * (studio-local YYYY-MM-DD). THE single rule for "which dates are on offer":
+ *   - not before opening day
+ *   - not with less than `minLeadDays` notice
+ *   - not further ahead than `bookingWindowDays`
+ */
+export function bookableDates(now: Date = new Date()): { first: string; last: string } {
+  const soonest = studioDatePlus(partyConfig.minLeadDays, now)
+  return {
+    // YYYY-MM-DD strings compare lexically.
+    first: soonest > partyConfig.bookingOpensDate ? soonest : partyConfig.bookingOpensDate,
+    last: studioDatePlus(partyConfig.bookingWindowDays, now),
+  }
+}
+
+/** Why a date is or isn't on offer. The server uses this to explain a refusal. */
+export function bookableOn(
+  ymd: string,
+  now: Date = new Date(),
+): 'ok' | 'before_opening' | 'too_soon' | 'too_far' {
+  if (ymd < partyConfig.bookingOpensDate) return 'before_opening'
+  const { first, last } = bookableDates(now)
+  if (ymd < first) return 'too_soon'
+  if (ymd > last) return 'too_far'
+  return 'ok'
+}
+
+/**
+ * Offered party start ISO timestamps for a local calendar date (YYYY-MM-DD).
+ * Empty for any date outside bookableDates(): this is the one choke point
+ * behind availability, the dates list, the calendar and the server's re-check.
+ */
+export function partyStartsForDate(ymd: string, now: Date = new Date()): string[] {
+  if (bookableOn(ymd, now) !== 'ok') return []
   const [y, m, d] = ymd.split('-').map(Number)
   const weekday = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()
   const cfg = partyDays[weekday]
@@ -89,7 +127,7 @@ export function partyStartsForDate(ymd: string): string[] {
 }
 
 /** All offered party starts whose start falls within [startIso, endIso], sorted. */
-export function partyStartsInRange(startIso: string, endIso: string): string[] {
+export function partyStartsInRange(startIso: string, endIso: string, now: Date = new Date()): string[] {
   const startMs = new Date(startIso).getTime()
   const endMs = new Date(endIso).getTime()
   const seen = new Set<string>()
@@ -98,7 +136,7 @@ export function partyStartsInRange(startIso: string, endIso: string): string[] {
     const ymd = localDate(new Date(Math.min(t, endMs)).toISOString())
     if (seen.has(ymd)) continue
     seen.add(ymd)
-    for (const iso of partyStartsForDate(ymd)) {
+    for (const iso of partyStartsForDate(ymd, now)) {
       const ms = new Date(iso).getTime()
       if (ms >= startMs && ms <= endMs) out.push(iso)
     }

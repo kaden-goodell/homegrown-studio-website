@@ -12,6 +12,7 @@ import { kitThemes } from '@config/kit-content'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { savePartyRecord, getPartyRecord, newHostToken, type PartyRecord } from '@lib/party-store'
 import { isStartOpen, studioDateOf, bookingHeldBy } from '@lib/party-availability'
+import { bookableOn } from '@lib/party-slots'
 import { attemptKey, chargeOutcomeOf, isAttemptId, squareErrorCodes, type CheckoutErrorCode } from '@lib/checkout-attempt'
 import { partyMessages } from '@lib/checkout-messages'
 import { alertOwners } from '@lib/owner-alert'
@@ -166,6 +167,19 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
   if (people > partyConfig.maxGuests) {
     return errorResponse(`Bookings are limited to ${partyConfig.maxGuests} guests`, 400)
+  }
+
+  // The date must be one we offer today: not before opening, not with too
+  // little notice, not past the booking window. Said plainly, before anything
+  // is looked up or held.
+  if (Number.isNaN(Date.parse(String(body.startTime)))) return errorResponse('Missing party time information', 400)
+  const offered = bookableOn(studioDateOf(body.startTime))
+  if (offered !== 'ok') {
+    const detail =
+      offered === 'too_soon'
+        ? `Parties need ${partyConfig.minLeadDays} days’ notice, so that date is too soon to book. Nothing was charged. Pick a later date.`
+        : partyMessages.not_open
+    return errorResponse(detail, 409, 'not_open')
   }
 
   // Resolve the optional themed-table add-on server-side (client sends only

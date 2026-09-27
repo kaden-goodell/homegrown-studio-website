@@ -236,9 +236,11 @@ describe('bookingOpensDate clamp', () => {
   it('offers starts on the first party weekday on/after opening', async () => {
     const { partyStartsForDate } = await import('@lib/party-slots')
     const { partyConfig } = await import('@config/party.config')
-    let ms = new Date(partyConfig.bookingOpensDate + 'T12:00:00Z').getTime()
+    const openMs = new Date(partyConfig.bookingOpensDate + 'T12:00:00Z').getTime()
+    let ms = openMs
     for (let i = 0; i < 8 && !isPartyWeekday(ms); i++) ms += DAY
-    expect(partyStartsForDate(ymd(ms)).length).toBeGreaterThan(0)
+    // Asked ten days before opening, so the date is inside the booking window.
+    expect(partyStartsForDate(ymd(ms), new Date(openMs - 10 * DAY)).length).toBeGreaterThan(0)
   })
 
   it('range queries exclude pre-opening dates entirely', async () => {
@@ -249,6 +251,8 @@ describe('bookingOpensDate clamp', () => {
     const starts = partyStartsInRange(
       new Date(openMidnight - 30 * DAY).toISOString(),
       new Date(openMidnight + 30 * DAY).toISOString(),
+      // Asked ten days before opening, so the weeks after it are inside the window.
+      new Date(openMidnight - 10 * DAY),
     )
     expect(starts.length).toBeGreaterThan(0)
     const openLocalMs = new Date(opens + 'T00:00:00-05:00').getTime()

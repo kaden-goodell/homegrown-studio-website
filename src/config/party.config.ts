@@ -43,8 +43,19 @@ export const partyConfig = {
   guestQuickPicks: [10, 15, 20, 25],
   /** Party length shown to the customer. */
   durationMinutes: 90,
-  /** How many days ahead the date picker offers bookable party dates. */
+  /**
+   * How far ahead a party can be booked, in days from today (studio-local).
+   * Stays at 45 while the studio is new, so plans can change without
+   * cancelling on anyone (Kaden, 27 Sep 2026). Enforced in partyStartsForDate,
+   * so the calendar, the date list, the panel and the server all agree.
+   */
   bookingWindowDays: 45,
+  /**
+   * The least notice a party needs, in days: a party on the 20th can be booked
+   * up to and including the 15th. Gives time to order supplies (Kaden, 27 Sep
+   * 2026). Enforced in the same place as the window.
+   */
+  minLeadDays: 5,
   /** Earliest bookable party date (YYYY-MM-DD, studio-local). The studio can't
    *  host events before the grand opening (no certificate of occupancy), so no
    *  date before this is offered OR accepted — enforced in partyStartsForDate,

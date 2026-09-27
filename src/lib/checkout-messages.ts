@@ -32,7 +32,7 @@ export const partyMessages: Record<CheckoutErrorCode, string> = {
   slot_taken: 'That time was just booked by someone else. Nothing was charged. Pick another time.',
   sold_out: 'That time was just booked by someone else. Nothing was charged. Pick another time.',
   already_booked: 'You’re already booked for this time. Check your email for the confirmation.',
-  not_open: 'That date isn’t open for booking yet. Nothing was charged.',
+  not_open: 'That date isn’t open for booking yet. Nothing was charged. Pick one of the dates shown.',
   unavailable: `Something went wrong on our end and nothing was charged. Please try again, or ${TEXT_US}.`,
   unknown_outcome: UNKNOWN_OUTCOME_MESSAGE,
 }

@@ -12,6 +12,14 @@ vi.mock('@lib/party-availability', () => ({
   bookingHeldBy: (...args: any[]) => mockBookingHeldBy(...args),
 }))
 
+// Which dates are on offer depends on today's date; the tests here are about
+// what happens once a date IS on offer, so that answer is set per test.
+const mockBookableOn = vi.fn()
+vi.mock('@lib/party-slots', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@lib/party-slots')>()),
+  bookableOn: (...args: any[]) => mockBookableOn(...args),
+}))
+
 // Owner alerts go out by text; never from a test.
 const mockAlertOwners = vi.fn()
 vi.mock('@lib/owner-alert', () => ({
@@ -179,6 +187,7 @@ describe('POST /api/party/book.json', () => {
     mockCreateOrder.mockResolvedValue(makeMockOrder())
     mockProcessPayment.mockResolvedValue(makeMockPayment())
     mockFindOrderPayment.mockResolvedValue(null)
+    mockBookableOn.mockReturnValue('ok')
     mockNotify.mockResolvedValue(undefined)
 
     mockClaimWeek.mockResolvedValue('ok')
@@ -193,6 +202,44 @@ describe('POST /api/party/book.json', () => {
 
     const mod = await import('@pages/api/party/book.json')
     POST = mod.POST
+  })
+
+  // ── Dates that are not on offer (HOM-182, HOM-187) ────────────────────────
+  describe('a date that is not on offer', () => {
+    async function refused(reason: string) {
+      mockBookableOn.mockReturnValue(reason)
+      const res = await POST(createMockContext(makeBody()))
+      expect(res.status).toBe(409)
+      const json = await res.json()
+      expect(json.code).toBe('not_open')
+      expect(json.detail).toMatch(/nothing was charged/i)
+      // Refused before anything is looked up, held or charged.
+      expect(isStartOpen).not.toHaveBeenCalled()
+      expect(mockFindOrCreate).not.toHaveBeenCalled()
+      expect(mockCreateBooking).not.toHaveBeenCalled()
+      expect(mockProcessPayment).not.toHaveBeenCalled()
+      return json
+    }
+
+    it('refuses a date past the booking window', async () => {
+      const json = await refused('too_far')
+      expect(json.detail).toMatch(/isn’t open for booking yet/)
+    })
+
+    it('refuses a date with too little notice, and says how much is needed', async () => {
+      const json = await refused('too_soon')
+      expect(json.detail).toContain(`${partyConfig.minLeadDays} days’ notice`)
+    })
+
+    it('refuses a date before opening day', async () => {
+      await refused('before_opening')
+    })
+
+    it('refuses a start time that is not a date at all', async () => {
+      const res = await POST(createMockContext(makeBody({ startTime: 'next saturday' })))
+      expect(res.status).toBe(400)
+      expect(mockCreateBooking).not.toHaveBeenCalled()
+    })
   })
 
   // ── Retries and honest outcomes (HOM-172) ─────────────────────────────────
