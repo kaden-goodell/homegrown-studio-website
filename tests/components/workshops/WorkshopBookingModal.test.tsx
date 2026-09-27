@@ -473,6 +473,7 @@ describe('WorkshopBookingModal — confirmation', () => {
     await pay()
     fireEvent.click(await screen.findByRole('button', { name: 'Done' }))
     expect(onBooked).toHaveBeenCalledTimes(1)
+    expect(onBooked).toHaveBeenCalledWith(1) // the seats bought
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 })

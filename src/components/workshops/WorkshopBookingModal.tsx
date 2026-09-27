@@ -30,8 +30,8 @@ import {
 interface WorkshopBookingModalProps {
   workshop: WorkshopData
   onClose: () => void
-  /** Called once a booking has gone through, so the list can show current seat counts. */
-  onBooked?: () => void
+  /** Called once a booking has gone through, with the seats bought, so the list can show what is left. */
+  onBooked?: (seats: number) => void
 }
 
 type Step = 'details' | 'pay'
@@ -110,7 +110,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   }
 
   function finish() {
-    onBooked?.()
+    onBooked?.(seats)
     onClose()
   }
 

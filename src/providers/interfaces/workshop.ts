@@ -37,9 +37,14 @@ export interface SeatBooking {
 }
 
 export interface WorkshopProvider {
-  /** Returns active workshops with availableCapacity > 0, sorted by startAt ascending */
+  /**
+   * Returns active workshops that have not started yet, sorted by startAt
+   * ascending. Sold-out workshops (availableCapacity 0) are INCLUDED, so pages
+   * can show them as "Sold out"; they leave the list when their start time
+   * passes. Callers that need seats must check availableCapacity themselves.
+   */
   listWorkshops(): Promise<Workshop[]>
-  /** Returns a single workshop by id (or null). Does NOT apply the capacity filter. */
+  /** Returns a single workshop by id (or null), sold out or not. */
   getWorkshop(id: string): Promise<Workshop | null>
 
   /**

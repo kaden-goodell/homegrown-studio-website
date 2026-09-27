@@ -9,6 +9,8 @@ import { partyConfig } from '@config/party.config'
 import { OPENING_DATE } from '@config/opening'
 import { longDate, workshopNotifyContext } from '@lib/notify-context'
 import { summarize } from '@lib/seo'
+import { formatMoney } from '@lib/money'
+import { canBeBooked } from '@lib/workshop-rules'
 import { siteConfig } from '@config/site.config'
 import type { Workshop } from '@providers/interfaces/workshop'
 
@@ -45,10 +47,11 @@ if (/^[A-Za-z0-9_-]{6,64}$/.test(wantedId)) {
 }
 const { lookingAt, interest } = workshopNotifyContext(tapped, partyConfig.timezone)
 
-const price = tapped ? `$${(tapped.priceCents / 100).toFixed(tapped.priceCents % 100 === 0 ? 0 : 2)}` : ''
+// A workshop with no price yet is "Coming soon": its preview names no price.
+const price = tapped && canBeBooked(tapped.priceCents) ? formatMoney(tapped.priceCents, tapped.priceCurrency) : ''
 const preview = tapped
   ? {
-      ogTitle: `${lookingAt} · ${price} | ${siteName}`,
+      ogTitle: `${[lookingAt, price].filter(Boolean).join(' · ')} | ${siteName}`,
       description: summarize(tapped.description) || undefined,
       ogImage: tapped.imageUrl,
       shareUrl: `/workshops?w=${encodeURIComponent(tapped.id)}`,

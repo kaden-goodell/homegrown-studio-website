@@ -52,9 +52,9 @@ const FIXTURES: Workshop[] = [
 
 export class MockWorkshopProvider implements WorkshopProvider {
   async listWorkshops(): Promise<Workshop[]> {
+    const now = Date.now()
     return FIXTURES
-      .filter((w) => w.availableCapacity > 0)
-      .slice()
+      .filter((w) => new Date(w.startAt).getTime() > now)
       .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
   }
 

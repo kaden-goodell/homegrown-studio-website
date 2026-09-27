@@ -133,13 +133,19 @@ export class SquareWorkshopProvider implements WorkshopProvider {
     logger.info('Seats released', { bookingId })
   }
 
+  /**
+   * Every upcoming workshop, soonest first. A workshop with no seats left
+   * stays in the list (pages show it as "Sold out") until its start time
+   * passes; then it goes, like any other.
+   */
   async listWorkshops(): Promise<Workshop[]> {
     if (!this.config.locationId) {
       return []
     }
     const all = await this.fetchAll()
+    const now = Date.now()
     return all
-      .filter((w) => w.availableCapacity > 0)
+      .filter((w) => new Date(w.startAt).getTime() > now)
       .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
   }
 
