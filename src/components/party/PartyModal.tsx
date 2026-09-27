@@ -1037,7 +1037,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         return (
           <div>
             <label style={{ ...labelStyle, marginBottom: '0.75rem' }}>Choose a Craft</label>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.875rem', marginBottom: '1.5rem' }}>
+            {/* Desktop: two-up grid so the picker isn't a skinny tower; mobile sheet stays single column. */}
+            <div style={{ display: 'grid', gridTemplateColumns: sheetMode ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: '0.875rem', marginBottom: '1.5rem', alignItems: 'start' }}>
               {info.crafts.map((craft) => {
                 const active = selectedCraft?.id === craft.id
                 const expanded = expandedCraft === craft.id
@@ -1670,7 +1671,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         tabIndex={-1}
         style={{
           width: '100%',
-          maxWidth: sheetMode ? 'none' : '40rem',
+          maxWidth: sheetMode ? 'none' : '56rem',
           maxHeight: sheetMode ? '94dvh' : '90vh',
           overflow: 'auto',
           margin: sheetMode ? 0 : '1rem',
