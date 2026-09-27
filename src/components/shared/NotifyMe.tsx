@@ -35,6 +35,7 @@ export default function NotifyMe({
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState('')
+  const [emailSent, setEmailSent] = useState(false)
 
   function fail(message: string) {
     setError(message)
@@ -59,6 +60,8 @@ export default function NotifyMe({
         body: JSON.stringify({ email: value, interest }),
       })
       if (res.ok) {
+        const data = await res.json().catch(() => null)
+        setEmailSent(data?.data?.emailSent === true)
         trackNotifyMe(interest)
         setStatus('done')
         return
@@ -74,6 +77,11 @@ export default function NotifyMe({
     return (
       <p role="status" style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--craft-green-ink)', margin: 0 }}>
         {successText}
+        {emailSent && (
+          <span style={{ display: 'block', marginTop: '0.25rem', fontWeight: 400, color: 'var(--color-text)' }}>
+            We’ve sent a confirmation to {email.trim()}.
+          </span>
+        )}
       </p>
     )
   }

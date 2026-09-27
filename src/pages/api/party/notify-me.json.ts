@@ -3,6 +3,12 @@ import { providers } from '@config/providers'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { alertOwners } from '@lib/owner-alert'
+import { sendSignupConfirmationEmail } from '@lib/email'
+import { signupPromise } from '@lib/signup-promise'
+import { remember } from '@lib/short-memory'
+import { longDate } from '@lib/notify-context'
+import { OPENING_DATE } from '@config/opening'
+import { partyConfig } from '@config/party.config'
 
 const logger = createLogger('api:party:notify-me')
 
@@ -17,8 +23,12 @@ const json = (body: unknown, status: number) =>
  * Deliberately NOT behind the bookings gate — it is what the closed pages use.
  *
  * The sign-up is kept in the customer record (email, plus a note saying what
- * they wanted), and the owners are told by text and by Slack so a person can
- * follow up. An alert failing never fails the sign-up.
+ * they wanted), the owners are told by text and by Slack so a person can
+ * follow up, and the visitor gets one email confirming what they will hear
+ * about. An alert or the email failing never fails the sign-up.
+ *
+ * The LATER email ("booking is open", "a seat opened") is not sent from here:
+ * nothing on the site sends it automatically yet.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (rateLimited(`notify-me:${clientAddress}`, 5, 10 * 60_000)) {
@@ -67,5 +77,42 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
   // Lost only if it was neither saved nor put in front of a person.
   if (!saved && !ownerTold) return json({ error: 'Signup failed' }, 500)
-  return json({ data: { ok: true } }, 200)
+
+  // Tell them they're on the list, and what for. Never confirm a sign-up that was lost.
+  let emailSent = false
+  try {
+    emailSent = (await sendSignupConfirmationEmail({ to: email, ...(await promiseFor(interest)), opensOn: openingDay() })).sent
+  } catch (err) {
+    logger.error('Sign-up confirmation email failed (sign-up still saved)', {
+      email,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+  return json({ data: { ok: true, emailSent } }, 200)
+}
+
+/** "Friday, October 16" until the studio has opened; nothing after. */
+function openingDay(): string | undefined {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: partyConfig.timezone })
+  return today < OPENING_DATE ? longDate(OPENING_DATE) : undefined
+}
+
+/**
+ * A workshop is named in the email only if we list one by that name. If the
+ * list can't be had in a couple of seconds, the email does without the name.
+ */
+async function promiseFor(interest: string) {
+  let workshopNames: string[] = []
+  if (/^workshop(-soon|-waitlist)?:/.test(interest)) {
+    try {
+      const list = await Promise.race([
+        remember('workshops:list', 30_000, () => providers.workshop.listWorkshops()),
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('slow')), 2500)),
+      ])
+      workshopNames = list.map((w) => w.name)
+    } catch {
+      /* no name, then */
+    }
+  }
+  return signupPromise(interest, { workshopNames, timeZone: partyConfig.timezone })
 }

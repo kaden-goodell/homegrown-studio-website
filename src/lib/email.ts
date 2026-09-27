@@ -179,6 +179,59 @@ export async function sendPartyConfirmationEmail(input: {
 }
 
 /**
+ * Confirms a "tell me when…" sign-up, straight away. It says what they will
+ * hear about and nothing else: no offers, no mailing list.
+ *
+ * Every word of it is ours. Nothing the visitor typed is repeated in it, so
+ * the form can't be used to send someone else a message.
+ */
+export async function sendSignupConfirmationEmail(input: {
+  to: string
+  /** Completes "We'll email you …" (see signup-promise.ts). */
+  when: string
+  also?: string
+  /** "Friday, October 16", while the studio has yet to open. */
+  opensOn?: string
+}): Promise<{ sent: boolean }> {
+  const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
+  const phone = siteConfig.contactPhone
+  const promise = `We'll email you ${input.when}. That's the only email this sign-up will send you.`
+  const opening = input.opensOn ? `Hometown Studio opens ${input.opensOn} at ${address}.` : `You'll find us at ${address}.`
+  const mistake = "Didn't sign up? Someone may have typed your address by mistake, and you can ignore this email."
+
+  const text = [
+    `You're on the list.`,
+    ``,
+    promise,
+    ...(input.also ? [input.also] : []),
+    ``,
+    opening,
+    ...(phone ? [`Questions? Text us at ${phone}.`] : []),
+    ``,
+    mistake,
+    ``,
+    `Hometown Studio · ${address}`,
+  ].join('\n')
+
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const P = 'margin:0 0 10px;font-size:15px;color:#3d3630;line-height:1.55'
+  const MUTED = 'margin:0 0 6px;font-size:13px;color:#6f635b;line-height:1.5'
+  const html = `
+<div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
+  <h1 style="margin:0 0 14px;font-size:22px;color:#3d3630;">You&rsquo;re on the list</h1>
+  <p style="${P}">${esc(promise)}</p>
+  ${input.also ? `<p style="${P}">${esc(input.also)}</p>` : ''}
+  <p style="${P}">${esc(opening)}</p>
+  ${phone ? `<p style="${P}">Questions? Text us at <strong>${esc(phone)}</strong>.</p>` : ''}
+  <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
+  <p style="${MUTED}">${esc(mistake)}</p>
+  <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}</p>
+</div>`
+  return sendEmail({ to: input.to, subject: `You're on the list at Hometown Studio`, html, text })
+}
+
+/**
  * Workshop seat confirmation. Ours, not Square's: it carries what the customer
  * needs to turn up (when, where, the agreement to sign) in the studio's voice.
  */
