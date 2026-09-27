@@ -2,7 +2,7 @@ import 'dotenv/config'
 import { SquareClient, SquareEnvironment } from 'square'
 
 /**
- * Add (or update) a party craft as a catalog ITEM in the "Party Crafts" category.
+ * Add (or update) a party craft as a catalog ITEM in the "Crafts" category.
  * Crafts carry a name, a per-head price, and a description — the party booking
  * flow lists these as craft choices and shows the description in an accordion.
  * Attach an image afterward with:
@@ -53,7 +53,7 @@ async function main() {
     return (r.idMappings ?? []).find((m: any) => m.clientObjectId === '#c')?.objectId
   }
 
-  const craftCatId = await findOrCreateCategory('Party Crafts')
+  const craftCatId = await findOrCreateCategory('Crafts')
   // Personalized crafts are tagged with a marker category the booking UI reads.
   const categories = [{ id: craftCatId }]
   if (personalized) categories.push({ id: await findOrCreateCategory('Personalized') })

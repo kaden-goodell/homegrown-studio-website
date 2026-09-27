@@ -2,7 +2,7 @@
  * Party + Open Studio configuration.
  *
  * Party is a bookable APPOINTMENTS_SERVICE ($300 flat studio fee) + a per-head
- * craft cost. Crafts are catalog ITEMS in the "Party Crafts" category (each with
+ * craft cost. Crafts are catalog ITEMS in the "Crafts" category (each with
  * a name, per-head price, description, and optional image), created via
  * `scripts/seed-party.ts` + `scripts/add-party-craft.ts`.
  *
