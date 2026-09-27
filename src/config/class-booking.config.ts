@@ -11,3 +11,10 @@
  * ID is rejected — see square-class-bookings memory).
  */
 export const CLASS_BOOKING_APP_ID = 'sq0idp-0WpGrONcXfCcfav3Lkd9Jg'
+
+/**
+ * The most seats one booking can take. The booking panel and the server both
+ * read this, so the panel can never offer a number the server will refuse.
+ * Bigger groups book a private party instead.
+ */
+export const MAX_SEATS_PER_BOOKING = 20

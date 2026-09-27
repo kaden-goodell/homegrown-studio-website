@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
-import { CLASS_BOOKING_APP_ID } from '@config/class-booking.config'
-import { partyConfig } from '@config/party.config'
+import { CLASS_BOOKING_APP_ID, MAX_SEATS_PER_BOOKING } from '@config/class-booking.config'
+import { newAttemptId } from '@lib/checkout-attempt'
+import { messageForFailure, outcomeUnknown, workshopMessages, UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
 import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
 import { waiverContent } from '@config/waiver-content'
 import type { WorkshopData } from './WorkshopExplorer'
@@ -63,8 +64,19 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
   const [completed, setCompleted] = useState(false)
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
   const [bookingId, setBookingId] = useState<string | null>(null)
+  const [emailSent, setEmailSent] = useState(false)
   const [agreedToPolicy, setAgreedToPolicy] = useState(false)
+  const [paymentReady, setPaymentReady] = useState(false)
   const paymentFormRef = useRef<PaymentFormRef>(null)
+
+  // One attempt ID per checkout. While we don't know how a try ended (dropped
+  // connection, "we're not sure"), a retry sends the same ID, so the server
+  // can never charge twice for it. Changing the number of seats, or a plain
+  // "nothing was charged", starts a new one.
+  const attemptId = useRef(newAttemptId())
+  useEffect(() => {
+    attemptId.current = newAttemptId()
+  }, [seats])
 
   // Discard guard (same pattern as PartyModal): once they've started booking,
   // closing asks first — seats are first-come and people bail by accident.
@@ -87,8 +99,9 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
     if (completed) setConfirmDiscard(false)
   }, [completed])
 
-  // Cap seats at the class's remaining capacity AND the studio-wide event cap (30).
-  const maxSeats = Math.min(workshop.remainingSeats ?? partyConfig.maxGuests, partyConfig.maxGuests)
+  // Cap seats at what's left in the class and at the most one booking can
+  // hold. The server reads the same limit, so it never refuses a number offered here.
+  const maxSeats = Math.min(workshop.remainingSeats ?? MAX_SEATS_PER_BOOKING, MAX_SEATS_PER_BOOKING)
 
   // Body scroll lock
   useEffect(() => {
@@ -154,30 +167,46 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
       }
 
       // Step 2: Book + pay on server
-      const bookRes = await fetch('/api/workshops/book.json', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          classScheduleId: workshop.classScheduleId,
-          startAt: workshop.startTime,
-          customer: {
-            givenName: firstName.trim(),
-            familyName: lastName.trim() || firstName.trim(),
-            email: email.trim(),
-          },
-          seats,
-          paymentToken: token,
-        }),
-      })
+      let bookRes: Response
+      try {
+        bookRes = await fetch('/api/workshops/book.json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            attemptId: attemptId.current,
+            workshopId: workshop.id,
+            classScheduleId: workshop.classScheduleId,
+            startAt: workshop.startTime,
+            customer: {
+              givenName: firstName.trim(),
+              familyName: lastName.trim(),
+              email: email.trim(),
+              ...(phone.trim() ? { phone: phone.trim() } : {}),
+            },
+            seats,
+            paymentToken: token,
+          }),
+        })
+      } catch {
+        // The request left and nothing came back. It may have gone through.
+        throw new Error(UNKNOWN_OUTCOME_MESSAGE)
+      }
 
       if (!bookRes.ok) {
         const errData = await bookRes.json().catch(() => null)
-        throw new Error(errData?.detail ?? 'Booking failed. Your card was not charged.')
+        const failure = { status: bookRes.status, body: errData }
+        // We were told plainly what happened (declined, class full…): that
+        // attempt is over, and the next try is a new one.
+        if (!outcomeUnknown(failure)) attemptId.current = newAttemptId()
+        throw new Error(messageForFailure(failure, workshopMessages))
       }
 
-      const bookData = await bookRes.json()
+      const bookData = await bookRes.json().catch(() => null)
+      // A success we can't read is still not a failure we can vouch for.
+      if (!bookData?.data) throw new Error(UNKNOWN_OUTCOME_MESSAGE)
       setReceiptUrl(bookData.data.receiptUrl ?? null)
       setBookingId(bookData.data.bookingId ?? null)
+      setEmailSent(bookData.data.emailSent === true)
       setCompleted(true)
       trackPaymentCompleted(total / 100)
       trackWorkshopSeatBooked(workshop.name, total / 100)
@@ -218,8 +247,10 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
             Booking Confirmed
           </h3>
           <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, maxWidth: '24rem', margin: '0 auto' }}>
-            {seats} seat{seats > 1 ? 's' : ''} reserved for <strong>{workshop.name}</strong>.
-            A confirmation has been sent to <strong>{email}</strong>.
+            {seats} seat{seats > 1 ? 's' : ''} reserved for <strong>{workshop.name}</strong>.{' '}
+            {emailSent
+              ? <>A confirmation is on its way to <strong>{email}</strong>.</>
+              : 'We couldn’t send your confirmation email, so please take a screenshot of this page.'}
           </p>
           {receiptUrl && (
             <a
@@ -392,7 +423,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
         )
 
       case 2: {
-        const infoValid = firstName.trim() && email.trim()
+        const infoValid = firstName.trim() && lastName.trim() && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
         return (
           <div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
@@ -419,7 +450,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: 'var(--color-dark)', marginBottom: '0.375rem' }}>
-                  Last Name
+                  Last Name *
                 </label>
                 <input
                   type="text"
@@ -519,7 +550,12 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
             />
 
             <div style={{ marginTop: '1rem' }}>
-              <PaymentForm ref={paymentFormRef} applicationIdOverride={CLASS_BOOKING_APP_ID} environmentOverride="production" />
+              <PaymentForm
+                ref={paymentFormRef}
+                applicationIdOverride={CLASS_BOOKING_APP_ID}
+                environmentOverride="production"
+                onReadyChange={setPaymentReady}
+              />
             </div>
 
             {/* Booking terms — required before payment. */}
@@ -554,31 +590,36 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
             </label>
 
             {error && (
-              <p style={{ fontSize: '0.875rem', color: '#dc2626', marginTop: '0.75rem' }}>{error}</p>
+              <p role="alert" style={{ fontSize: '0.9375rem', color: 'var(--color-error)', marginTop: '0.75rem', lineHeight: 1.5 }}>{error}</p>
             )}
 
+            {/* Only ever off while working or while the card field loads, and it
+                says which. An unticked policy box is explained on tap instead. */}
             <button
               type="button"
               onClick={handlePay}
-              disabled={processing || !agreedToPolicy}
+              disabled={processing || !paymentReady}
               style={{
                 width: '100%',
                 marginTop: '1.25rem',
                 padding: '0.875rem',
-                background: processing || !agreedToPolicy
+                background: processing || !paymentReady
                   ? 'rgba(var(--color-primary-rgb), 0.4)'
                   : 'var(--color-button)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '0.75rem',
-                fontSize: '0.875rem',
+                fontSize: '1rem',
                 fontWeight: 600,
-                cursor: processing || !agreedToPolicy ? 'default' : 'pointer',
-                opacity: processing ? 0.7 : 1,
-                transition: 'box-shadow 0.3s ease, transform 0.3s ease',
+                cursor: processing || !paymentReady ? 'default' : 'pointer',
+                transition: 'background-color 0.2s ease',
               }}
             >
-              {processing ? 'Processing...' : `Pay ${formatPrice(total, workshop.currency)}`}
+              {processing
+                ? 'Processing…'
+                : !paymentReady
+                  ? 'Loading payment form…'
+                  : `Pay ${formatPrice(total, workshop.currency)}`}
             </button>
           </div>
         )

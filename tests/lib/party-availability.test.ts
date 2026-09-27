@@ -255,3 +255,66 @@ describe('bookingOpensDate clamp', () => {
     for (const iso of starts) expect(new Date(iso).getTime()).toBeGreaterThanOrEqual(openLocalMs)
   })
 })
+
+// ── bookingHeldBy: whose booking is sitting on this time? ─────────────────────
+describe('bookingHeldBy', () => {
+  // 2:00 PM Central on Sat 7 Aug 2027 (daylight time)
+  const START = '2027-08-07T19:00:00.000Z'
+
+  function booking(overrides: Record<string, any> = {}) {
+    return {
+      id: 'bk-1',
+      status: 'confirmed',
+      customerId: 'cust-1',
+      slot: { startAt: START, serviceVariationId: 'var-party' },
+      ...overrides,
+    }
+  }
+
+  async function heldBy(customerId: string, serviceVariationId?: string) {
+    const { bookingHeldBy } = await import('@lib/party-availability')
+    return bookingHeldBy(START, customerId, serviceVariationId)
+  }
+
+  it('finds the customer’s own live booking at that exact time', async () => {
+    mockListBookings.mockResolvedValue([booking()])
+    expect((await heldBy('cust-1', 'var-party'))?.id).toBe('bk-1')
+  })
+
+  it('looks across the whole studio day, in studio time', async () => {
+    mockListBookings.mockResolvedValue([])
+    await heldBy('cust-1')
+    const { startIso, endIso } = studioDayUtcRange('2027-08-07')
+    expect(mockListBookings).toHaveBeenCalledWith({ startDate: startIso, endDate: endIso, locationId: 'test-location' })
+  })
+
+  it('does not match someone else’s booking', async () => {
+    mockListBookings.mockResolvedValue([booking({ customerId: 'cust-2' })])
+    expect(await heldBy('cust-1', 'var-party')).toBeNull()
+  })
+
+  it('does not match a cancelled booking', async () => {
+    mockListBookings.mockResolvedValue([booking({ status: 'cancelled' })])
+    expect(await heldBy('cust-1', 'var-party')).toBeNull()
+  })
+
+  it('does not match the customer’s booking at a different time that day', async () => {
+    mockListBookings.mockResolvedValue([booking({ slot: { startAt: '2027-08-07T21:30:00.000Z', serviceVariationId: 'var-party' } })])
+    expect(await heldBy('cust-1', 'var-party')).toBeNull()
+  })
+
+  it('does not match a different kind of booking at that time', async () => {
+    mockListBookings.mockResolvedValue([booking({ slot: { startAt: START, serviceVariationId: 'var-other' } })])
+    expect(await heldBy('cust-1', 'var-party')).toBeNull()
+  })
+
+  it('matches the same instant written with a different offset', async () => {
+    mockListBookings.mockResolvedValue([booking({ slot: { startAt: '2027-08-07T14:00:00-05:00', serviceVariationId: 'var-party' } })])
+    expect((await heldBy('cust-1', 'var-party'))?.id).toBe('bk-1')
+  })
+
+  it('finds nothing without a customer', async () => {
+    mockListBookings.mockResolvedValue([booking({ customerId: '' })])
+    expect(await heldBy('')).toBeNull()
+  })
+})

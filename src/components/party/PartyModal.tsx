@@ -18,6 +18,8 @@ import { googleCalendarUrl, buildIcs, icsDataUrl, partyWaiverUrl, partyInviteUrl
 import { formatTime, formatSlotLabel } from '@lib/studio-time'
 import { waiverContent } from '@config/waiver-content'
 import { saveRecentParty } from '@lib/recent-party'
+import { newAttemptId } from '@lib/checkout-attempt'
+import { messageForFailure, outcomeUnknown, partyMessages, UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
 import {
   trackWizardStarted,
   trackWizardStepCompleted,
@@ -187,6 +189,16 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [inviteCopied, setInviteCopied] = useState(false)
   const paymentFormRef = useRef<PaymentFormRef>(null)
   const dialogRef = useRef<HTMLDivElement>(null)
+  const [paymentReady, setPaymentReady] = useState(false)
+
+  // One attempt ID per checkout. While we don't know how a try ended (dropped
+  // connection, "we're not sure"), a retry sends the same ID, so the server can
+  // recognise its own earlier booking and never book or charge twice. Changing
+  // what is being booked, or a plain "nothing was charged", starts a new one.
+  const attemptId = useRef(newAttemptId())
+  useEffect(() => {
+    attemptId.current = newAttemptId()
+  }, [selectedSlot?.startAt, selectedCraft?.id, people, selectedTheme?.id])
 
   // Email capture when no dates are open (dead-end rescue).
   const [notifyEmail, setNotifyEmail] = useState('')
@@ -514,10 +526,13 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         }
       }
 
-      const bookRes = await fetch('/api/party/book.json', {
+      let bookRes: Response
+      try {
+        bookRes = await fetch('/api/party/book.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          attemptId: attemptId.current,
           startTime: selectedSlot.startAt,
           serviceVariationId: info.variationId,
           serviceVariationVersion: info.variationVersion,
@@ -544,14 +559,24 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             : {}),
           paymentToken: token,
         }),
-      })
+        })
+      } catch {
+        // The request left and nothing came back. It may have gone through.
+        throw new Error(UNKNOWN_OUTCOME_MESSAGE)
+      }
 
       if (!bookRes.ok) {
         const errData = await bookRes.json().catch(() => null)
-        throw new Error(errData?.detail ?? 'Booking failed.')
+        const failure = { status: bookRes.status, body: errData }
+        // We were told plainly what happened (declined, time taken…): that
+        // attempt is over, and the next try is a new one.
+        if (!outcomeUnknown(failure)) attemptId.current = newAttemptId()
+        throw new Error(messageForFailure(failure, partyMessages))
       }
 
-      const json = await bookRes.json()
+      const json = await bookRes.json().catch(() => null)
+      // A success we can't read is still not a failure we can vouch for.
+      if (!json) throw new Error(UNKNOWN_OUTCOME_MESSAGE)
       const data = json.data ?? json
       setReceiptUrl(data.receiptUrl ?? null)
       setTotalCharged(typeof data.totalCharged === 'number' ? data.totalCharged : deposit)
@@ -1608,34 +1633,41 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 if (!agreedToPolicy) return 'Please agree to the booking & cancellation policy above first.'
                 return null
               }}
+              onReadyChange={setPaymentReady}
             />
 
             {error && (
-              <p style={{ fontSize: '0.875rem', color: '#dc2626', marginTop: '0.75rem' }}>{error}</p>
+              <p role="alert" style={{ fontSize: '0.9375rem', color: 'var(--color-error)', marginTop: '0.75rem', lineHeight: 1.5 }}>{error}</p>
             )}
 
+            {/* Only ever off while working or while the card field loads, and it
+                says which. Missing details or an unticked policy box are
+                explained on tap (see handlePay) instead of greying the button out. */}
             <button
               type="button"
               onClick={() => handlePay()}
-              disabled={processing || !infoValid || !agreedToPolicy}
+              disabled={processing || !paymentReady}
               style={{
                 width: '100%',
                 marginTop: '1.25rem',
                 padding: '0.875rem',
-                background: processing || !infoValid || !agreedToPolicy
+                background: processing || !paymentReady
                   ? 'rgba(var(--color-primary-rgb), 0.4)'
                   : 'var(--color-button)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '0.75rem',
-                fontSize: '0.875rem',
+                fontSize: '1rem',
                 fontWeight: 600,
-                cursor: processing || !infoValid || !agreedToPolicy ? 'default' : 'pointer',
-                opacity: processing ? 0.7 : 1,
-                transition: 'box-shadow 0.3s ease, transform 0.3s ease',
+                cursor: processing || !paymentReady ? 'default' : 'pointer',
+                transition: 'background-color 0.2s ease',
               }}
             >
-              {processing ? 'Processing...' : `Pay ${formatPrice(deposit)} & reserve your date`}
+              {processing
+                ? 'Processing…'
+                : !paymentReady
+                  ? 'Loading payment form…'
+                  : `Pay ${formatPrice(deposit)} & reserve your date`}
             </button>
 
             {renderTrustBlock()}

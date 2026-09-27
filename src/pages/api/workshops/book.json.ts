@@ -1,184 +1,259 @@
 import type { APIRoute } from 'astro'
+import { randomUUID } from 'node:crypto'
 import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
-import { siteConfig } from '@config/site.config'
+import { rateLimited } from '@lib/rate-limit'
+import { providers } from '@config/providers'
+import { partyConfig } from '@config/party.config'
+import { MAX_SEATS_PER_BOOKING } from '@config/class-booking.config'
+import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
+import { inviteContent } from '@config/invite-content'
+import { formatRange } from '@config/hours'
+import { asSeatBookingError } from '@lib/errors'
+import { attemptKey, classifyClassBookingError, isAttemptId, type CheckoutErrorCode } from '@lib/checkout-attempt'
+import { workshopMessages } from '@lib/checkout-messages'
+import { alertOwners } from '@lib/owner-alert'
+import { sendWorkshopConfirmationEmail } from '@lib/email'
+import { buildIcs, googleCalendarUrl, addMinutesIso } from '@lib/party-share'
+import { formatSlotLabel } from '@lib/studio-time'
+import { summarize } from '@lib/seo'
+import type { SeatReservation, Workshop } from '@providers/interfaces/workshop'
 
-const CLASSES_API_BASE = 'https://app.squareup.com/appointments/api/buyer/classes'
+const logger = createLogger('api:workshops:book')
+const TZ = partyConfig.timezone
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /**
- * Workshop booking via Square's buyer-facing classes API.
+ * Book and pay for workshop seats.
  *
- * Flow:
- * 1. Resolve/create customer
- * 2. Create pending class booking (reserves seat)
- * 3. Complete booking with payment token (charges + confirms atomically)
+ *   1. find or create the customer
+ *   2. hold the seats            (nothing charged)
+ *   3. charge and confirm        (one step: both happen or neither)
+ *   4. send our confirmation email
+ *
+ * Every failure ends in one of three honest answers (see checkout-attempt.ts):
+ * known not charged, charged, or unknown. If the charge is refused, the held
+ * seats are let go so the customer's own failed try can't make the class look
+ * full. If the charge gets no answer, the seats stay held and the owners are
+ * told, because the customer may have paid.
  */
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!bookingsOpen(request)) return bookingsClosedResponse()
-  const logger = createLogger('api:workshops:book')
+  if (rateLimited(`workshop-book:${clientAddress}`, 5, 60_000)) {
+    return fail(429, 'unavailable', 'That’s a lot of attempts in a row. Give it a minute, then try again.')
+  }
 
   let body: any
   try {
     body = await request.json()
   } catch {
-    return errorResponse('Invalid request body', 400)
+    return fail(400, 'invalid')
   }
 
-  const { classScheduleId, startAt, customer, seats, paymentToken, verificationToken } = body
+  const { classScheduleId, startAt, customer, paymentToken, verificationToken } = body ?? {}
+  if (!classScheduleId || !startAt || Number.isNaN(Date.parse(String(startAt)))) return fail(400, 'invalid')
+  if (!paymentToken) return fail(400, 'invalid')
 
-  if (!classScheduleId || !startAt) {
-    return errorResponse('Missing class information', 400)
-  }
-  if (!paymentToken) {
-    return errorResponse('Missing payment information', 400)
-  }
-  if (!customer?.email || !customer?.givenName) {
-    return errorResponse('Name and email are required', 400)
+  const givenName = String(customer?.givenName ?? '').trim()
+  const familyName = String(customer?.familyName ?? '').trim()
+  const email = String(customer?.email ?? '').trim()
+  const phone = String(customer?.phone ?? '').trim()
+  if (!givenName || !familyName) return fail(400, 'invalid', 'Add your first and last name.')
+  if (!EMAIL_RE.test(email)) return fail(400, 'invalid', 'That email doesn’t look right. Check for typos.')
+
+  const seats = Number(body.seats ?? 1)
+  if (!Number.isInteger(seats) || seats < 1) return fail(400, 'invalid')
+  if (seats > MAX_SEATS_PER_BOOKING) {
+    return fail(400, 'invalid', `One booking can hold up to ${MAX_SEATS_PER_BOOKING} seats. For a bigger group, book a private party.`)
   }
 
-  const seatCount = Math.max(1, Math.min(seats ?? 1, 20))
-  const locationId = siteConfig.providers.booking.config.locationId
-  const config = siteConfig.providers.booking.config as import('@config/site.config').SquareConfig
+  // Older cached pages may not send one; then every request is its own attempt.
+  const attemptId = isAttemptId(body.attemptId) ? body.attemptId : randomUUID()
 
+  // ── 1. Customer ───────────────────────────────────────────────────────────
+  let customerId: string | undefined
   try {
-    // Step 1: Resolve customer
-    const { createSquareClient } = await import('@providers/square/client')
-    const client = createSquareClient(config)
-
-    let customerId: string
-    const searchRes = await client.customers.search({
-      query: { filter: { emailAddress: { exact: customer.email } } },
-    })
-    const existing = (searchRes as any).customers ?? []
-    if (existing.length > 0) {
-      customerId = existing[0].id
-    } else {
-      const res = await client.customers.create({
-        givenName: customer.givenName,
-        familyName: customer.familyName,
-        emailAddress: customer.email,
-      })
-      customerId = ((res as any).customer ?? res).id
-    }
-
-    logger.info('Customer resolved', { customerId, email: customer.email })
-
-    // Step 2: Create booking
-    const createRes = await fetch(
-      `${CLASSES_API_BASE}/class_bookings?unit_token=${locationId}`,
-      {
-        method: 'POST',
-        headers: buyerHeaders(),
-        body: JSON.stringify({
-          class_schedule_id: classScheduleId,
-          start_at: startAt,
-          customer: {
-            given_name: customer.givenName,
-            family_name: customer.familyName,
-            email_address: customer.email,
-          },
-          quantity: seatCount,
-        }),
-      },
-    )
-
-    if (!createRes.ok) {
-      const text = await createRes.text()
-      logger.error('Booking creation failed', { status: createRes.status, error: text })
-      return errorResponse(`Booking failed: ${text}`, createRes.status)
-    }
-
-    const createData = await createRes.json()
-    const classBooking = createData.class_booking
-    const bookingId = classBooking.id
-
-    // The contact_token from the booking response is what /complete expects as customer_id
-    // This is different from the Customers API ID
-    const contactToken = classBooking.customer?.contact_token ?? classBooking.contact_token
-
-    logger.info('Booking created', {
-      bookingId,
-      orderId: classBooking.order_id,
-      contactToken,
-      customerId,
-      customerObj: JSON.stringify(classBooking.customer),
-    })
-
-    // Step 3: Complete with payment
-    const completeBody: any = {
-      class_booking: {
-        id: bookingId,
-        class_schedule_id: classScheduleId,
-        customer_id: contactToken || customerId,
-      },
-      payment_source_id: paymentToken,
-      idempotency_key: crypto.randomUUID(),
-    }
-    if (verificationToken) {
-      completeBody.verification_token = verificationToken
-    }
-
-    logger.info('Calling /complete', {
-      bookingId,
-      customerIdUsed: contactToken || customerId,
-      paymentTokenPrefix: paymentToken?.substring(0, 20),
-      hasVerificationToken: !!verificationToken,
-      completeBody: JSON.stringify(completeBody),
-    })
-
-    const completeRes = await fetch(
-      `${CLASSES_API_BASE}/class_bookings/${bookingId}/complete?unit_token=${locationId}`,
-      {
-        method: 'POST',
-        headers: buyerHeaders(),
-        body: JSON.stringify(completeBody),
-      },
-    )
-
-    if (!completeRes.ok) {
-      const text = await completeRes.text()
-      logger.error('Completion failed', { bookingId, status: completeRes.status, error: text })
-      return errorResponse(`Payment failed: ${text}`, completeRes.status)
-    }
-
-    const completed = (await completeRes.json()).class_booking
-
-    logger.info('Booking completed', {
-      bookingId: completed.id,
-      status: completed.status,
-      orderId: completed.order_id,
-    })
-
-    return new Response(JSON.stringify({
-      data: {
-        bookingId: completed.id,
-        orderId: completed.order_id,
-        status: completed.status,
-        receiptUrl: completed.order?.receipt_url ?? null,
-      },
-    }), {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' },
-    })
-  } catch (error) {
-    const msg = error instanceof Error ? error.message : String(error)
-    logger.error('Unexpected error', { error: msg })
-    return errorResponse('An unexpected error occurred. Your card was not charged.', 500)
+    const found = await providers.customer.findOrCreate({ email, givenName, familyName, ...(phone ? { phone } : {}) })
+    customerId = found.id
+  } catch (err) {
+    // Not fatal: the booking service keeps its own contact for the customer.
+    logger.error('Customer lookup failed — continuing', { error: err instanceof Error ? err.message : String(err) })
   }
-}
 
-function buyerHeaders() {
-  return {
-    'Content-Type': 'application/json',
-    'Accept': 'application/json',
-    'Origin': 'https://book.squareup.com',
-    'Referer': 'https://book.squareup.com/',
+  // ── 2. Hold the seats ─────────────────────────────────────────────────────
+  let reservation: SeatReservation
+  try {
+    reservation = await providers.workshop.reserveSeats({
+      scheduleId: String(classScheduleId),
+      startAt: String(startAt),
+      seats,
+      customer: { givenName, familyName, email },
+    })
+  } catch (err) {
+    const seatError = asSeatBookingError(err)
+    const raw = seatError?.raw ?? String(err)
+    const code = seatError?.kind === 'refused' ? classifyClassBookingError(raw, 'create') : 'unavailable'
+    logger.error('Could not hold seats', { code, raw: raw.slice(0, 500) })
+    return fail(code === 'sold_out' || code === 'already_booked' ? 409 : 502, code)
   }
-}
 
-function errorResponse(detail: string, status: number) {
+  // ── 3. Charge and confirm ─────────────────────────────────────────────────
+  let booked
+  try {
+    booked = await providers.workshop.payForSeats({
+      reservation,
+      scheduleId: String(classScheduleId),
+      paymentToken: String(paymentToken),
+      verificationToken: verificationToken ? String(verificationToken) : undefined,
+      idempotencyKey: attemptKey(attemptId, 'pay'),
+      fallbackCustomerId: customerId,
+    })
+  } catch (err) {
+    const seatError = asSeatBookingError(err)
+    const refused = seatError?.kind === 'refused'
+    const raw = seatError?.raw ?? String(err)
+
+    if (refused) {
+      // The service said no, so nothing was charged. Let the seats go.
+      const code = classifyClassBookingError(raw, 'complete')
+      logger.error('Seat payment refused — releasing seats', { bookingId: reservation.bookingId, code, raw: raw.slice(0, 500) })
+      try {
+        await providers.workshop.releaseSeats(reservation.bookingId)
+      } catch (releaseErr) {
+        logger.error('HELD SEATS NOT RELEASED after a refused payment', {
+          bookingId: reservation.bookingId,
+          error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+        })
+      }
+      return fail(code === 'card_declined' ? 402 : code === 'sold_out' || code === 'already_booked' ? 409 : 502, code)
+    }
+
+    // No answer. The charge may have gone through: keep the seats, tell a person.
+    logger.error('SEAT PAYMENT OUTCOME UNKNOWN — seats kept, needs a person', {
+      bookingId: reservation.bookingId,
+      attemptId,
+      raw: raw.slice(0, 500),
+    })
+    await alertOwners(
+      `Workshop payment unclear: ${givenName} ${familyName} (${email}${phone ? `, ${phone}` : ''}), ${seats} seat${seats === 1 ? '' : 's'}, ${formatSlotLabel(String(startAt))}. Check Square for the payment, then confirm with them or cancel booking ${reservation.bookingId}.`,
+    ).catch(() => undefined)
+    return fail(502, 'unknown_outcome')
+  }
+
+  // ── Paid and confirmed. Nothing below may turn this into a failure. ────────
+  let emailSent = false
+  try {
+    emailSent = await sendConfirmation({
+      request,
+      bookingId: booked.bookingId,
+      workshopId: typeof body.workshopId === 'string' ? body.workshopId : '',
+      scheduleId: String(classScheduleId),
+      startAt: String(startAt),
+      seats,
+      email,
+      givenName,
+      receiptUrl: booked.receiptUrl,
+    })
+  } catch (err) {
+    logger.error('Workshop confirmation email failed (booking still confirmed)', {
+      bookingId: booked.bookingId,
+      error: err instanceof Error ? err.message : String(err),
+    })
+  }
+
   return new Response(
-    JSON.stringify({ error: 'Unable to book workshop', detail }),
-    { status, headers: { 'Content-Type': 'application/json' } },
+    JSON.stringify({
+      data: {
+        bookingId: booked.bookingId,
+        orderId: booked.orderId,
+        status: booked.status,
+        receiptUrl: booked.receiptUrl,
+        emailSent,
+      },
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
+  )
+}
+
+/** "19:00" in studio time, for the shared range formatter. */
+function studioClock(iso: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso))
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00'
+  return `${get('hour')}:${get('minute')}`
+}
+
+async function lookUp(workshopId: string, scheduleId: string, startAt: string): Promise<Workshop | null> {
+  const find = async () => {
+    if (workshopId) {
+      const byId = await providers.workshop.getWorkshop(workshopId)
+      if (byId && byId.scheduleId === scheduleId) return byId
+    }
+    const t = new Date(startAt).getTime()
+    const all = await providers.workshop.listWorkshops()
+    return all.find((w) => w.scheduleId === scheduleId && new Date(w.startAt).getTime() === t) ?? null
+  }
+  // The customer is waiting on the confirmation screen: don't hold them for a slow lookup.
+  return Promise.race([find(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000))])
+}
+
+async function sendConfirmation(input: {
+  request: Request
+  bookingId: string
+  workshopId: string
+  scheduleId: string
+  startAt: string
+  seats: number
+  email: string
+  givenName: string
+  receiptUrl: string | null
+}): Promise<boolean> {
+  const workshop = await lookUp(input.workshopId, input.scheduleId, input.startAt).catch(() => null)
+  // Without the workshop's own details we can't write a useful email. Say so
+  // on the confirmation screen (emailSent: false) rather than send a vague one.
+  if (!workshop) {
+    logger.error('Workshop not found for confirmation email', { bookingId: input.bookingId, scheduleId: input.scheduleId })
+    return false
+  }
+
+  const origin = new URL(input.request.url).origin
+  const endIso = addMinutesIso(workshop.startAt, workshop.durationMinutes)
+  const waiverUrl = `${origin}/waiver?workshop=${encodeURIComponent(input.bookingId)}`
+  const workshopUrl = `${origin}/workshops?w=${encodeURIComponent(workshop.id)}`
+  const calendarEvent = {
+    title: `${workshop.name} at Hometown Studio`,
+    startIso: workshop.startAt,
+    endIso,
+    details: `Your workshop at Hometown Studio.\n\nSign the participation agreement before you come: ${waiverUrl}`,
+    location: inviteContent.where,
+  }
+
+  const { sent } = await sendWorkshopConfirmationEmail({
+    to: input.email,
+    firstName: input.givenName,
+    workshopName: workshop.name,
+    summary: summarize(workshop.description, 280),
+    imageUrl: workshop.imageUrl,
+    whenLabel: formatSlotLabel(workshop.startAt),
+    timeRange: formatRange(studioClock(workshop.startAt), studioClock(endIso)),
+    seats: input.seats,
+    totalChargedCents: workshop.priceCents * input.seats,
+    receiptUrl: input.receiptUrl,
+    waiverUrl,
+    workshopUrl,
+    directionsUrl: `https://maps.google.com/?q=${encodeURIComponent('Hometown Studio, 525 Hughes Rd, Suite F, Madison, AL 35758')}`,
+    policyLine: checkoutPolicySummary.workshop,
+    policyUrl: `${origin}${POLICY_PATH}#${POLICY_ANCHORS.workshops}`,
+    googleCalendarUrl: googleCalendarUrl(calendarEvent),
+    icsContent: buildIcs(calendarEvent),
+    bookingRef: input.bookingId,
+  })
+  return sent
+}
+
+/** A plain sentence for the customer, plus a code the booking panel can act on. */
+function fail(status: number, code: CheckoutErrorCode, detail?: string) {
+  return new Response(
+    JSON.stringify({ error: 'Unable to book workshop', code, detail: detail ?? workshopMessages[code] }),
+    { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
   )
 }

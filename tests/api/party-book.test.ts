@@ -4,10 +4,18 @@ import { partyConfig } from '@config/party.config'
 // --- Module mocks set up before any import ---
 
 // Mock party-availability so we can control isStartOpen per test
+const mockBookingHeldBy = vi.fn()
 vi.mock('@lib/party-availability', () => ({
   isStartOpen: vi.fn().mockResolvedValue(true),
   openPartyStarts: vi.fn().mockResolvedValue([]),
   studioDateOf: vi.fn().mockReturnValue('2026-09-01'),
+  bookingHeldBy: (...args: any[]) => mockBookingHeldBy(...args),
+}))
+
+// Owner alerts go out by text; never from a test.
+const mockAlertOwners = vi.fn()
+vi.mock('@lib/owner-alert', () => ({
+  alertOwners: (...args: any[]) => mockAlertOwners(...args),
 }))
 
 // Mock email so no real SMTP calls are made
@@ -48,6 +56,7 @@ const mockCancelBooking = vi.fn()
 const mockFindOrCreate = vi.fn()
 const mockCreateOrder = vi.fn()
 const mockProcessPayment = vi.fn()
+const mockFindOrderPayment = vi.fn()
 const mockNotify = vi.fn()
 
 vi.mock('@config/providers', () => ({
@@ -59,6 +68,7 @@ vi.mock('@config/providers', () => ({
     payment: {
       createOrder: (...args: any[]) => mockCreateOrder(...args),
       processPayment: (...args: any[]) => mockProcessPayment(...args),
+      findOrderPayment: (...args: any[]) => mockFindOrderPayment(...args),
     },
     customer: {
       findOrCreate: (...args: any[]) => mockFindOrCreate(...args),
@@ -168,6 +178,7 @@ describe('POST /api/party/book.json', () => {
     mockCancelBooking.mockResolvedValue(undefined)
     mockCreateOrder.mockResolvedValue(makeMockOrder())
     mockProcessPayment.mockResolvedValue(makeMockPayment())
+    mockFindOrderPayment.mockResolvedValue(null)
     mockNotify.mockResolvedValue(undefined)
 
     mockClaimWeek.mockResolvedValue('ok')
@@ -175,11 +186,269 @@ describe('POST /api/party/book.json', () => {
     mockReleaseWeekClaim.mockResolvedValue(undefined)
     mockListKitOrders.mockResolvedValue([])
     mockGetPartyRecord.mockResolvedValue(null)
+    mockBookingHeldBy.mockResolvedValue(null)
+    mockAlertOwners.mockResolvedValue({ attempted: 2, sent: 2 })
 
     await enableThemedTables()
 
     const mod = await import('@pages/api/party/book.json')
     POST = mod.POST
+  })
+
+  // ── Retries and honest outcomes (HOM-172) ─────────────────────────────────
+  describe('one attempt, however many times it is sent', () => {
+    const ATTEMPT = '3f2b8a0e-5c1d-4e7a-9b3c-0a1b2c3d4e5f'
+    const OTHER_ATTEMPT = '9c1d7e2a-0b3f-4a6c-8d5e-1f2a3b4c5d6e'
+
+    it('gives the booking, the order and the charge keys made from the attempt ID', async () => {
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+      expect(res.status).toBe(200)
+      expect(mockCreateBooking.mock.calls[0][0].idempotencyKey).toBe(`${ATTEMPT}:book`)
+      expect(mockCreateOrder.mock.calls[0][0].idempotencyKey).toBe(`${ATTEMPT}:order`)
+      expect(mockProcessPayment.mock.calls[0][0].idempotencyKey).toBe(`${ATTEMPT}:pay`)
+    })
+
+    it('sends the same keys when the same attempt is sent again', async () => {
+      await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+      await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+      expect(mockProcessPayment.mock.calls[0][0].idempotencyKey).toBe(mockProcessPayment.mock.calls[1][0].idempotencyKey)
+      expect(mockCreateOrder.mock.calls[0][0].idempotencyKey).toBe(mockCreateOrder.mock.calls[1][0].idempotencyKey)
+    })
+
+    it('records the attempt on the booking so a retry can recognise it', async () => {
+      await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+      expect(mockCreateBooking.mock.calls[0][0].specialRequests).toContain(ATTEMPT)
+    })
+
+    it('still works when the browser sends no attempt ID, with a key of its own', async () => {
+      const res = await POST(createMockContext(makeBody()))
+      expect(res.status).toBe(200)
+      expect(mockProcessPayment.mock.calls[0][0].idempotencyKey).toMatch(/^[0-9a-f-]{36}:pay$/)
+    })
+
+    it('ignores an attempt ID that is not one', async () => {
+      await POST(createMockContext(makeBody({ attemptId: '../../etc/passwd' })))
+      expect(mockProcessPayment.mock.calls[0][0].idempotencyKey).toMatch(/^[0-9a-f-]{36}:pay$/)
+    })
+
+    /** The time is taken, by this customer's own earlier try of the same checkout. */
+    function firstTryHoldsTheTime() {
+      isStartOpen.mockResolvedValue(false)
+      mockBookingHeldBy.mockResolvedValue({
+        ...makeMockBooking('booking-first-try'),
+        customerNote: JSON.stringify({ attempt: ATTEMPT, craft: { id: 'craft-1' } }),
+      })
+      mockGetPartyRecord.mockResolvedValue({ bookingId: 'booking-first-try', hostToken: 'token-from-first-try' })
+    }
+    /** What Square answers when a key comes back with a different request (a re-typed card). */
+    const keyReused = () =>
+      Object.assign(new Error('Status code: 400'), { statusCode: 400, errors: [{ code: 'IDEMPOTENCY_KEY_REUSED' }] })
+
+    it('confirms a retried checkout that was already paid, WITHOUT charging the re-typed card', async () => {
+      firstTryHoldsTheTime()
+      mockFindOrderPayment.mockResolvedValue({ ...makeMockPayment(), id: 'pay-first-try' })
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT, paymentToken: 'cnon:typed-again' })))
+
+      expect(res.status).toBe(200)
+      const { data } = await res.json()
+      expect(data.bookingId).toBe('booking-first-try')
+      // The link already in their confirmation email keeps working.
+      expect(data.hostToken).toBe('token-from-first-try')
+      expect(data.receiptUrl).toBe('https://receipt.example.com/pay-1')
+      expect(mockCreateBooking).not.toHaveBeenCalled()
+      // Same order key as the first try, so Square hands back the same order…
+      expect(mockCreateOrder.mock.calls[0][0].idempotencyKey).toBe(`${ATTEMPT}:order`)
+      expect(mockFindOrderPayment).toHaveBeenCalledWith('order-1')
+      // …which is already paid. No second charge.
+      expect(mockProcessPayment).not.toHaveBeenCalled()
+      expect(mockCancelBooking).not.toHaveBeenCalled()
+    })
+
+    it('charges a retried checkout whose first try never paid, on the booking it already made', async () => {
+      firstTryHoldsTheTime()
+      mockFindOrderPayment.mockResolvedValue(null)
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+
+      expect(res.status).toBe(200)
+      expect((await res.json()).data.bookingId).toBe('booking-first-try')
+      expect(mockCreateBooking).not.toHaveBeenCalled()
+      expect(mockProcessPayment).toHaveBeenCalledTimes(1)
+      expect(mockProcessPayment.mock.calls[0][0].idempotencyKey).toBe(`${ATTEMPT}:pay`)
+    })
+
+    it('does not charge a retried checkout when it cannot find out whether the first try paid', async () => {
+      firstTryHoldsTheTime()
+      mockFindOrderPayment.mockRejectedValue(new TypeError('fetch failed'))
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+
+      expect(res.status).toBe(502)
+      const json = await res.json()
+      expect(json.code).toBe('unknown_outcome')
+      expect(json.detail).not.toMatch(/not charged|nothing was charged/i)
+      expect(mockProcessPayment).not.toHaveBeenCalled()
+      expect(mockCancelBooking).not.toHaveBeenCalled()
+    })
+
+    it('never reads "key already used" as a declined card: it keeps the date and says it is not sure', async () => {
+      mockCreateBooking.mockResolvedValue(makeMockBooking('booking-key-reused'))
+      mockProcessPayment.mockRejectedValue(keyReused())
+      mockFindOrderPayment.mockResolvedValue(null)
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+
+      expect(res.status).toBe(502)
+      const json = await res.json()
+      expect(json.code).toBe('unknown_outcome')
+      expect(json.detail).not.toMatch(/declined|not charged|nothing was charged/i)
+      expect(mockCancelBooking).not.toHaveBeenCalled()
+      expect(mockAlertOwners).toHaveBeenCalledTimes(1)
+    })
+
+    it('confirms when the key was already used and the order turns out to be paid', async () => {
+      mockCreateBooking.mockResolvedValue(makeMockBooking('booking-paid-earlier'))
+      mockProcessPayment.mockRejectedValue(keyReused())
+      mockFindOrderPayment.mockResolvedValue(makeMockPayment())
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+
+      expect(res.status).toBe(200)
+      expect((await res.json()).data.bookingId).toBe('booking-paid-earlier')
+      expect(mockCancelBooking).not.toHaveBeenCalled()
+      expect(mockAlertOwners).not.toHaveBeenCalled()
+    })
+
+    it('confirms when the charge got no answer but the order turns out to be paid', async () => {
+      mockProcessPayment.mockRejectedValue(new TypeError('fetch failed'))
+      mockFindOrderPayment.mockResolvedValue(makeMockPayment())
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+
+      expect(res.status).toBe(200)
+      expect(mockAlertOwners).not.toHaveBeenCalled()
+    })
+
+    it('does not ask whether the order is paid after a plain decline', async () => {
+      mockProcessPayment.mockRejectedValue(
+        Object.assign(new Error('Status code: 400'), { statusCode: 400, errors: [{ code: 'CARD_DECLINED' }] }),
+      )
+      await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+      expect(mockFindOrderPayment).not.toHaveBeenCalled()
+    })
+
+    it('takes no money for a booking that comes back already cancelled', async () => {
+      mockCreateBooking.mockResolvedValue({ ...makeMockBooking('booking-released-earlier'), status: 'cancelled' })
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+
+      expect(res.status).toBe(502)
+      const json = await res.json()
+      expect(json.code).toBe('unavailable')
+      expect(mockCreateOrder).not.toHaveBeenCalled()
+      expect(mockProcessPayment).not.toHaveBeenCalled()
+    })
+
+    it('never charges again for a time the customer already holds from another checkout', async () => {
+      isStartOpen.mockResolvedValue(false)
+      mockBookingHeldBy.mockResolvedValue({
+        ...makeMockBooking('booking-earlier'),
+        customerNote: JSON.stringify({ attempt: OTHER_ATTEMPT }),
+      })
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+
+      expect(res.status).toBe(409)
+      const json = await res.json()
+      expect(json.code).toBe('already_booked')
+      expect(json.detail).toMatch(/already booked/i)
+      expect(json.detail).not.toMatch(/not charged|nothing was charged/i)
+      expect(mockCreateOrder).not.toHaveBeenCalled()
+      expect(mockProcessPayment).not.toHaveBeenCalled()
+    })
+
+    it('says the time was taken, and nothing charged, when someone else holds it', async () => {
+      isStartOpen.mockResolvedValue(false)
+      mockBookingHeldBy.mockResolvedValue(null)
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+
+      expect(res.status).toBe(409)
+      const json = await res.json()
+      expect(json.code).toBe('slot_taken')
+      expect(json.detail).toMatch(/nothing was charged/i)
+      expect(mockProcessPayment).not.toHaveBeenCalled()
+    })
+
+    it('releases the date and says so when Square refuses the card', async () => {
+      mockCreateBooking.mockResolvedValue(makeMockBooking('booking-declined'))
+      mockProcessPayment.mockRejectedValue(
+        Object.assign(new Error('Status code: 400'), { statusCode: 400, errors: [{ code: 'CARD_DECLINED' }] }),
+      )
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+
+      expect(res.status).toBe(402)
+      const json = await res.json()
+      expect(json.code).toBe('card_declined')
+      expect(json.detail).toMatch(/declined/i)
+      expect(json.detail).not.toMatch(/CARD_DECLINED|Status code/)
+      expect(mockCancelBooking).toHaveBeenCalledWith('booking-declined', expect.anything())
+      expect(mockAlertOwners).not.toHaveBeenCalled()
+    })
+
+    it('keeps the date and does not claim "not charged" when the charge got no answer', async () => {
+      mockCreateBooking.mockResolvedValue(makeMockBooking('booking-unclear'))
+      mockProcessPayment.mockRejectedValue(new TypeError('fetch failed'))
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+
+      expect(res.status).toBe(502)
+      const json = await res.json()
+      expect(json.code).toBe('unknown_outcome')
+      expect(json.detail).toMatch(/not sure/i)
+      expect(json.detail).not.toMatch(/not charged|nothing was charged|fetch failed/i)
+      // The customer may have paid: the date stays theirs until a person checks.
+      expect(mockCancelBooking).not.toHaveBeenCalled()
+      expect(mockAlertOwners).toHaveBeenCalledTimes(1)
+      expect(mockAlertOwners.mock.calls[0][0]).toContain('alice@example.com')
+      expect(mockAlertOwners.mock.calls[0][0]).toContain('booking-unclear')
+    })
+
+    it('treats a Square outage during the charge as unknown, not as a decline', async () => {
+      mockProcessPayment.mockRejectedValue(Object.assign(new Error('Status code: 503'), { statusCode: 503 }))
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+
+      expect((await res.json()).code).toBe('unknown_outcome')
+      expect(mockCancelBooking).not.toHaveBeenCalled()
+    })
+
+    it('says "not charged" when it failed before any charge was attempted', async () => {
+      mockCreateOrder.mockRejectedValue(new Error('Square 500'))
+
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+
+      const json = await res.json()
+      expect(json.code).toBe('unavailable')
+      expect(json.detail).toMatch(/not charged/i)
+      expect(mockProcessPayment).not.toHaveBeenCalled()
+      expect(mockCancelBooking).toHaveBeenCalled()
+    })
+
+    it('labels a validation failure so the panel can tell it apart', async () => {
+      const res = await POST(createMockContext(makeBody({ customer: { firstName: 'A', lastName: '', email: 'a@b.co', phone: '2565551234' } })))
+      expect(res.status).toBe(400)
+      expect((await res.json()).code).toBe('invalid')
+    })
+
+    it('a booking that succeeds still succeeds if the owner alert or email fails', async () => {
+      sendPartyConfirmationEmail.mockResolvedValue({ sent: false })
+      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
+      expect(res.status).toBe(200)
+      expect((await res.json()).data.emailSent).toBe(false)
+    })
   })
 
   // ── (1) slot not open → 409, processPayment never called ─────────────────
