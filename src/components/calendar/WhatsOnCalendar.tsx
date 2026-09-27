@@ -2,6 +2,21 @@ import { useState, useMemo, useEffect } from 'react'
 import type { CSSProperties } from 'react'
 import { groupEventsByDay } from './calendar-view-model'
 import type { CalendarEvent } from './calendar-view-model'
+import { OPENING_DATE } from '@config/opening'
+
+/** Months the flat list view loads at once; "Show more" adds one at a time. */
+const LIST_MONTHS_INITIAL = 3
+
+function monthKey(y: number, m: number) {
+  return `${y}-${String(m + 1).padStart(2, '0')}`
+}
+
+async function fetchMonth(key: string): Promise<CalendarEvent[]> {
+  const res = await fetch(`/api/calendar.json?month=${key}`)
+  if (!res.ok) throw new Error(`calendar fetch failed: ${res.status}`)
+  const data: { events?: CalendarEvent[] } = await res.json()
+  return Array.isArray(data?.events) ? data.events : []
+}
 
 interface WhatsOnCalendarProps {
   /**
@@ -144,13 +159,45 @@ function pillStyle(active: boolean): CSSProperties {
 
 export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnCalendarProps) {
   const now = new Date()
-  const [year, setYear] = useState(now.getFullYear())
-  const [month, setMonth] = useState(now.getMonth())
+  // Pre-opening, there's nothing before opening month — start the month grid there.
+  const opening = new Date(OPENING_DATE + 'T12:00:00')
+  const start = now < opening ? opening : now
+  const [year, setYear] = useState(start.getFullYear())
+  const [month, setMonth] = useState(start.getMonth())
   const [selectedDay, setSelectedDay] = useState<number | null>(null)
   const [view, setView] = useState<'list' | 'month'>('list')
   const [compact, setCompact] = useState(false)
   const [events, setEvents] = useState<CalendarEvent[]>(initialEvents)
   const [loading, setLoading] = useState(false)
+  // Flat list view: everything upcoming across the next N months, not month-scoped.
+  const [listMonths, setListMonths] = useState(LIST_MONTHS_INITIAL)
+  const [listEvents, setListEvents] = useState<CalendarEvent[]>(initialEvents)
+  const [listLoading, setListLoading] = useState(false)
+
+  useEffect(() => {
+    if (view !== 'list') return
+    let cancelled = false
+    const keys: string[] = []
+    for (let i = 0; i < listMonths; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
+      keys.push(monthKey(d.getFullYear(), d.getMonth()))
+    }
+    setListLoading(true)
+    Promise.all(keys.map((k) => fetchMonth(k).catch(() => [] as CalendarEvent[])))
+      .then((chunks) => {
+        if (cancelled) return
+        const seen = new Set<string>()
+        const merged = chunks.flat().filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)))
+        setListEvents(merged)
+      })
+      .finally(() => {
+        if (!cancelled) setListLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, listMonths])
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 549px)')
@@ -164,17 +211,13 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
   // changes. `month` is 0-indexed, so the API param is built as YYYY-MM with a
   // 1-based, zero-padded month. Errors keep whatever events we already have.
   useEffect(() => {
+    if (view !== 'month') return
     let cancelled = false
-    const monthParam = `${year}-${String(month + 1).padStart(2, '0')}`
     setLoading(true)
-    fetch(`/api/calendar.json?month=${monthParam}`)
-      .then((res) => {
-        if (!res.ok) throw new Error(`calendar fetch failed: ${res.status}`)
-        return res.json()
-      })
-      .then((data: { events?: CalendarEvent[] }) => {
+    fetchMonth(monthKey(year, month))
+      .then((evs) => {
         if (cancelled) return
-        setEvents(Array.isArray(data?.events) ? data.events : [])
+        setEvents(evs)
       })
       .catch(() => {
         // Keep showing whatever we have; don't crash.
@@ -185,7 +228,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
     return () => {
       cancelled = true
     }
-  }, [year, month])
+  }, [view, year, month])
 
   const eventsByDay = useMemo(() => {
     const map = new Map<number, CalendarEvent[]>()
@@ -200,8 +243,8 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
     return map
   }, [events, year, month])
 
-  // List view: upcoming days for the fetched month, party slots collapsed.
-  const dayGroups = useMemo(() => groupEventsByDay(events, todayISO()), [events])
+  // List view: every upcoming day across the loaded months, party slots collapsed.
+  const dayGroups = useMemo(() => groupEventsByDay(listEvents, todayISO()), [listEvents])
 
   const { firstDay, daysInMonth } = getMonthData(year, month)
 
@@ -248,11 +291,13 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
 
   return (
     <div>
-      {/* Month nav — controls both list and month views */}
+      {/* Month nav — month view only (the list is a flat upcoming feed) */}
+      {view === 'month' && (
       <div style={{
         display: 'flex',
         alignItems: 'center',
-        justifyContent: 'space-between',
+        justifyContent: 'center',
+        gap: '1.25rem',
         marginBottom: '1.25rem',
       }}>
         <button
@@ -262,15 +307,16 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: '2.25rem',
-            height: '2.25rem',
-            fontSize: '1.25rem',
-            color: 'var(--color-muted)',
-            background: 'none',
-            border: 'none',
-            borderRadius: '0.5rem',
+            width: '2.5rem',
+            height: '2.5rem',
+            fontSize: '1.5rem',
+            lineHeight: 1,
+            color: 'var(--color-dark)',
+            background: 'rgba(255,255,255,0.85)',
+            border: '1px solid rgba(150,112,91,0.35)',
+            borderRadius: '9999px',
             cursor: 'pointer',
-            transition: 'color 0.2s ease',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
           }}
         >
           &lsaquo;
@@ -284,7 +330,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
           fontFamily: 'var(--font-heading)',
           color: 'var(--color-dark)',
         }}>
-          {formatMonthYear(year, month)}
+          <span style={{ minWidth: '9rem', textAlign: 'center' }}>{formatMonthYear(year, month)}</span>
           {loading && (
             <span style={{
               fontSize: '0.6875rem',
@@ -304,20 +350,22 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            width: '2.25rem',
-            height: '2.25rem',
-            fontSize: '1.25rem',
-            color: 'var(--color-muted)',
-            background: 'none',
-            border: 'none',
-            borderRadius: '0.5rem',
+            width: '2.5rem',
+            height: '2.5rem',
+            fontSize: '1.5rem',
+            lineHeight: 1,
+            color: 'var(--color-dark)',
+            background: 'rgba(255,255,255,0.85)',
+            border: '1px solid rgba(150,112,91,0.35)',
+            borderRadius: '9999px',
             cursor: 'pointer',
-            transition: 'color 0.2s ease',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
           }}
         >
           &rsaquo;
         </button>
       </div>
+      )}
 
       {/* View toggle */}
       <div style={{ display: 'flex', justifyContent: 'center', gap: '0.5rem', marginBottom: '1.5rem' }}>
@@ -562,13 +610,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '44rem', margin: '0 auto' }}>
           {dayGroups.length === 0 && (
             <p style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '3rem 0' }}>
-              Nothing else on this month —{' '}
-              <button
-                onClick={nextMonth}
-                style={{ color: 'var(--color-primary)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit' }}
-              >
-                peek at next month
-              </button>
+              {listLoading ? 'Loading…' : 'Nothing scheduled yet — check back soon.'}
             </p>
           )}
           {dayGroups.map((day) => (
@@ -618,13 +660,14 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
             </div>
           ))}
 
-          {/* Always offer a way forward — the list is month-scoped by the fetch. */}
+          {/* Extend the window one month at a time. */}
           <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
             <button
-              onClick={nextMonth}
-              style={{ color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.9375rem', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit' }}
+              onClick={() => setListMonths((n) => n + 1)}
+              disabled={listLoading}
+              style={{ color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.9375rem', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', opacity: listLoading ? 0.6 : 1 }}
             >
-              Peek at next month →
+              {listLoading ? 'Loading…' : 'Show more →'}
             </button>
           </div>
         </div>
