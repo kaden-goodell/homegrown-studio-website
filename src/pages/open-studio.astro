@@ -19,7 +19,7 @@ const steps = [
 <Layout title="Open Studio" description="Walk-in crafting at Hometown Studio — no booking needed. Pick a craft, grab a seat, pay per craft.">
   <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-28">
     <div class="text-center mb-16 fade-in">
-      <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Open Studio</p>
+      <p class="eyebrow tone-studio mb-3">Open Studio</p>
       <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">
         Just walk in and make something
       </h1>
@@ -27,7 +27,7 @@ const steps = [
         No booking, no studio fee — pick a craft from the menu and pay for what you make. Ages 8+, everyone welcome.
       </p>
       {!walkInOpen && (
-        <p class="mt-5 inline-block rounded-full px-5 py-2 text-sm font-semibold" style="background: rgba(150,112,91,0.10); color: var(--color-primary);">
+        <p class="mt-5 inline-block rounded-full px-5 py-2 text-sm font-semibold" style="background: var(--tone-studio-soft); color: var(--tone-studio-ink);">
           Walk-in hours begin {OPEN_STUDIO_START_LABEL} — until then, <a href="/workshops" class="underline">grab a workshop seat</a> or <a href="/book" class="underline">book a party</a>.
         </p>
       )}
@@ -37,7 +37,7 @@ const steps = [
     <div class="grid gap-5 sm:grid-cols-3 mb-16">
       {steps.map((s) => (
         <div class="glass rounded-2xl p-8 text-center fade-in">
-          <div class="mx-auto mb-4 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent));">
+          <div class="mx-auto mb-4 w-10 h-10 rounded-full flex items-center justify-center font-bold" style="background: var(--tone-studio-soft); color: var(--tone-studio-ink);">
             {s.n}
           </div>
           <h3 class="font-heading font-bold text-lg mb-2" style="color: var(--color-dark);">{s.title}</h3>

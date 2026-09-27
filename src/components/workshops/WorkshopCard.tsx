@@ -48,21 +48,19 @@ export default function WorkshopCard({ workshop, onBook }: WorkshopCardProps) {
     <div
       className="group relative rounded-2xl overflow-hidden transition-all duration-400"
       style={{
-        background: 'linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0.9) 100%)',
-        backdropFilter: 'blur(20px) saturate(1.3)',
-        WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
-        border: '1px solid rgba(255, 255, 255, 0.5)',
-        boxShadow: '0 4px 16px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -1px 0 rgba(150, 112, 91, 0.06)',
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-line)',
+        boxShadow: '0 4px 16px rgba(var(--color-primary-rgb), 0.08), 0 10px 40px rgba(var(--color-primary-rgb), 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.6), inset 0 -1px 0 rgba(var(--color-primary-rgb), 0.06)',
       }}
       onMouseEnter={(e) => {
         const el = e.currentTarget as HTMLElement
         el.style.transform = 'translateY(-4px) scale(1.02)'
-        el.style.boxShadow = '0 20px 40px rgba(150, 112, 91, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8)'
+        el.style.boxShadow = '0 20px 40px rgba(var(--color-primary-rgb), 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8)'
       }}
       onMouseLeave={(e) => {
         const el = e.currentTarget as HTMLElement
         el.style.transform = ''
-        el.style.boxShadow = '0 4px 16px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(150, 112, 91, 0.04)'
+        el.style.boxShadow = '0 4px 16px rgba(var(--color-primary-rgb), 0.08), 0 10px 40px rgba(var(--color-primary-rgb), 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(var(--color-primary-rgb), 0.04)'
       }}
     >
       <div className="p-7">
@@ -70,7 +68,7 @@ export default function WorkshopCard({ workshop, onBook }: WorkshopCardProps) {
         <div className="flex items-start justify-between mb-4">
           <span
             className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider px-3 py-1.5 rounded-full"
-            style={{ background: 'rgba(150, 112, 91, 0.08)', color: 'var(--color-primary)' }}
+            style={{ background: 'var(--tone-workshop-soft)', color: 'var(--tone-workshop-ink)' }}
           >
             {shortDateStr}
           </span>
@@ -85,7 +83,7 @@ export default function WorkshopCard({ workshop, onBook }: WorkshopCardProps) {
             className="mb-5 rounded-xl overflow-hidden"
             style={{
               aspectRatio: '16 / 9',
-              backgroundColor: 'rgba(150, 112, 91, 0.06)',
+              backgroundColor: 'rgba(var(--color-primary-rgb), 0.06)',
             }}
           >
             <img
@@ -120,7 +118,7 @@ export default function WorkshopCard({ workshop, onBook }: WorkshopCardProps) {
             {timeRange}
           </span>
           <span>{workshop.duration} min</span>
-          <span className="font-medium whitespace-nowrap text-right" style={{ color: 'var(--color-accent)', minHeight: '1em' }}>
+          <span className="font-medium whitespace-nowrap text-right" style={{ color: 'var(--tone-workshop-ink)', minHeight: '1em' }}>
             {workshop.remainingSeats !== null ? `${workshop.remainingSeats} seats remaining` : ''}
           </span>
         </div>
@@ -130,19 +128,19 @@ export default function WorkshopCard({ workshop, onBook }: WorkshopCardProps) {
           onClick={() => onBook?.(workshop)}
           className="block w-full text-center rounded-xl px-6 py-3.5 text-white font-semibold text-sm transition-all duration-300"
           style={{
-            background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
-            boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
+            background: 'var(--color-button)',
+            boxShadow: '0 4px 15px rgba(var(--color-primary-rgb), 0.2)',
             border: 'none',
             cursor: 'pointer',
           }}
           onMouseEnter={(e) => {
             const el = e.currentTarget as HTMLElement
-            el.style.boxShadow = '0 8px 25px rgba(150, 112, 91, 0.35)'
+            el.style.boxShadow = '0 8px 25px rgba(var(--color-primary-rgb), 0.35)'
             el.style.transform = 'translateY(-1px)'
           }}
           onMouseLeave={(e) => {
             const el = e.currentTarget as HTMLElement
-            el.style.boxShadow = '0 4px 15px rgba(150, 112, 91, 0.2)'
+            el.style.boxShadow = '0 4px 15px rgba(var(--color-primary-rgb), 0.2)'
             el.style.transform = ''
           }}
         >

@@ -20,7 +20,7 @@ const bookingsOpen = envBookingsOpen() || _previewMatch || hasValidPreviewCookie
 <Layout title="Workshops">
   <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-28">
     <div class="text-center mb-16 fade-in">
-      <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Upcoming</p>
+      <p class="eyebrow tone-workshop mb-3">Upcoming</p>
       <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">Workshops</h1>
       <p class="text-lg mt-4 max-w-xl mx-auto" style="color: var(--color-muted);">
         Guided crafting sessions, everything included — grab a seat before they fill up. Want the full picture? <a href="/calendar" class="underline" style="color: var(--color-primary);">See what's on</a>.
@@ -31,9 +31,9 @@ const bookingsOpen = envBookingsOpen() || _previewMatch || hasValidPreviewCookie
     ) : (
       <div
         class="text-center max-w-xl mx-auto rounded-2xl px-8 py-14"
-        style="background: rgba(150, 112, 91, 0.06); border: 1px solid rgba(150, 112, 91, 0.14);"
+        style="background: rgba(var(--color-primary-rgb), 0.06); border: 1px solid rgba(var(--color-primary-rgb), 0.14);"
       >
-        <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Opening Soon</p>
+        <p class="eyebrow tone-workshop mb-3">Opening Soon</p>
         <h2 class="text-2xl sm:text-3xl font-heading font-bold" style="color: var(--color-dark);">
           Workshop booking opens closer to our grand opening
         </h2>
@@ -42,8 +42,7 @@ const bookingsOpen = envBookingsOpen() || _previewMatch || hasValidPreviewCookie
         </p>
         <a
           href="/calendar"
-          class="inline-block mt-6 rounded-xl px-8 py-3.5 text-sm font-semibold text-white"
-          style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); box-shadow: 0 4px 15px rgba(150, 112, 91, 0.25);"
+          class="btn btn-primary mt-6"
         >
           See what’s on
         </a>
@@ -53,7 +52,7 @@ const bookingsOpen = envBookingsOpen() || _previewMatch || hasValidPreviewCookie
     <!-- Adult nights positioning band (HOM-161) — evergreen copy, no invented listings. -->
     <div class="max-w-2xl mx-auto mt-20 text-center fade-in">
       <div class="glass rounded-2xl px-8 py-10 sm:px-12">
-        <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">
+        <p class="eyebrow tone-workshop mb-3">
           Not just for kids
         </p>
         <h2 class="text-2xl md:text-3xl font-heading font-bold mb-4" style="color: var(--color-dark);">

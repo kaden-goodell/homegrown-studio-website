@@ -172,7 +172,7 @@ export default function AddressInput({ value, onChange, placeholder, style, apiK
             padding: '0.25rem',
             listStyle: 'none',
             borderRadius: '0.75rem',
-            border: '1px solid rgba(150, 112, 91, 0.2)',
+            border: '1px solid rgba(var(--color-primary-rgb), 0.2)',
             background: '#fff',
             boxShadow: '0 12px 32px rgba(0, 0, 0, 0.14)',
             maxHeight: '14rem',
@@ -192,7 +192,7 @@ export default function AddressInput({ value, onChange, placeholder, style, apiK
                 fontSize: '0.8125rem',
                 color: 'var(--color-dark)',
                 cursor: 'pointer',
-                background: i === highlighted ? 'rgba(150, 112, 91, 0.1)' : 'transparent',
+                background: i === highlighted ? 'rgba(var(--color-primary-rgb), 0.1)' : 'transparent',
               }}
             >
               {text}

@@ -37,13 +37,13 @@ function WorkshopSkeleton() {
             borderRadius: '1rem',
             overflow: 'hidden',
             background: 'rgba(255, 255, 255, 0.6)',
-            border: '1px solid rgba(150, 112, 91, 0.08)',
+            border: '1px solid rgba(var(--color-primary-rgb), 0.08)',
           }}
         >
-          <div className="animate-pulse" style={{ height: '10rem', background: 'rgba(150, 112, 91, 0.08)' }} />
+          <div className="animate-pulse" style={{ height: '10rem', background: 'rgba(var(--color-primary-rgb), 0.08)' }} />
           <div style={{ padding: '1rem' }}>
-            <div className="animate-pulse" style={{ height: '1rem', width: '70%', background: 'rgba(150, 112, 91, 0.12)', borderRadius: '0.25rem', marginBottom: '0.6rem' }} />
-            <div className="animate-pulse" style={{ height: '0.75rem', width: '40%', background: 'rgba(150, 112, 91, 0.08)', borderRadius: '0.25rem' }} />
+            <div className="animate-pulse" style={{ height: '1rem', width: '70%', background: 'rgba(var(--color-primary-rgb), 0.12)', borderRadius: '0.25rem', marginBottom: '0.6rem' }} />
+            <div className="animate-pulse" style={{ height: '0.75rem', width: '40%', background: 'rgba(var(--color-primary-rgb), 0.08)', borderRadius: '0.25rem' }} />
           </div>
         </div>
       ))}

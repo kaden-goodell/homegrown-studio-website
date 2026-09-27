@@ -43,6 +43,15 @@ if (siteConfig.features.kits.enabled || import.meta.env.DEV) {
 // Normalize trailing slash so /programs/ matches nav href "/programs".
 // Astro can serve some routes with a trailing slash even when others don't
 // (depends on prerender + adapter), so exact-string match was fragile.
+/** Craft colour for each offering's nav link (defined in global.css). */
+const TONE_BY_HREF: Record<string, string> = {
+  '/book': 'tone-party',
+  '/workshops': 'tone-workshop',
+  '/open-studio': 'tone-studio',
+  '/calendar': 'tone-event',
+  '/kits': 'tone-kit',
+}
+
 const rawPath = Astro.url.pathname
 const currentPath = rawPath.length > 1 && rawPath.endsWith('/') ? rawPath.slice(0, -1) : rawPath
 ---
@@ -67,6 +76,7 @@ const currentPath = rawPath.length > 1 && rawPath.endsWith('/') ? rawPath.slice(
             href={item.href}
             class:list={[
               'header-link',
+              TONE_BY_HREF[item.href],
               currentPath === item.href && 'is-active',
             ]}
           >
@@ -78,6 +88,11 @@ const currentPath = rawPath.length > 1 && rawPath.endsWith('/') ? rawPath.slice(
 
     {siteConfig.navCta && (
       <a href={siteConfig.navCta.href} class="header-cta">{siteConfig.navCta.label}</a>
+    )}
+
+    {/* Mobile: booking button stays in view beside the menu */}
+    {siteConfig.navCta && (
+      <a href={siteConfig.navCta.href} class="header-cta-mobile">Book</a>
     )}
 
     {/* Mobile menu */}
@@ -100,6 +115,7 @@ const currentPath = rawPath.length > 1 && rawPath.endsWith('/') ? rawPath.slice(
                 href={item.href}
                 class:list={[
                   'mobile-link',
+                  TONE_BY_HREF[item.href],
                   currentPath === item.href && 'is-active',
                 ]}
               >
@@ -130,10 +146,10 @@ const currentPath = rawPath.length > 1 && rawPath.endsWith('/') ? rawPath.slice(
   }
 
   .header-root.scrolled {
-    background: rgba(250, 248, 245, 0.6);
-    backdrop-filter: blur(24px) saturate(1.4);
-    -webkit-backdrop-filter: blur(24px) saturate(1.4);
-    box-shadow: 0 1px 0 rgba(150, 112, 91, 0.08);
+    background: rgba(250, 248, 245, 0.92);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 1px 0 rgba(var(--color-primary-rgb), 0.08);
   }
 
   .header-nav {
@@ -193,19 +209,37 @@ const currentPath = rawPath.length > 1 && rawPath.endsWith('/') ? rawPath.slice(
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: white;
+    color: var(--color-button-text);
     text-decoration: none;
-    background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
-    box-shadow: 0 4px 15px rgba(150, 112, 91, 0.25);
-    transition: box-shadow 0.3s ease, transform 0.3s ease;
+    background: var(--color-button);
+    box-shadow: 0 2px 10px rgba(var(--color-primary-rgb), 0.22);
+    transition: background-color 0.2s ease, box-shadow 0.2s ease;
   }
-  .header-cta:hover { box-shadow: 0 6px 20px rgba(150, 112, 91, 0.35); transform: translateY(-1px); text-decoration: none; }
+  .header-cta:hover { background: var(--color-button-hover); text-decoration: none; }
   @media (min-width: 768px) { .header-cta { display: inline-block; } }
+
+  /* Phones: a compact booking button that never hides in the menu */
+  .header-cta-mobile {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.5rem;
+    margin-left: auto;
+    margin-right: 0.75rem;
+    padding: 0.4rem 1.1rem;
+    border-radius: 9999px;
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--color-button-text);
+    text-decoration: none;
+    background: var(--color-button);
+  }
+  .header-cta-mobile:hover { background: var(--color-button-hover); text-decoration: none; }
+  @media (min-width: 768px) { .header-cta-mobile { display: none; } }
 
   .header-link {
     position: relative;
     font-size: 0.8125rem;
-    font-weight: 400;
+    font-weight: 500;
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-muted);
@@ -228,8 +262,9 @@ const currentPath = rawPath.length > 1 && rawPath.endsWith('/') ? rawPath.slice(
     bottom: -2px;
     left: 0;
     width: 100%;
-    height: 1px;
-    background: var(--color-primary);
+    height: 2px;
+    border-radius: 2px;
+    background: var(--tone, var(--color-primary));
     transform: scaleX(0);
     transform-origin: right center;
     transition: transform 0.4s cubic-bezier(0.25, 0.1, 0, 1);
@@ -289,7 +324,7 @@ const currentPath = rawPath.length > 1 && rawPath.endsWith('/') ? rawPath.slice(
     background: rgba(250, 248, 245, 0.92);
     backdrop-filter: blur(32px) saturate(1.4);
     -webkit-backdrop-filter: blur(32px) saturate(1.4);
-    border-bottom: 1px solid rgba(150, 112, 91, 0.08);
+    border-bottom: 1px solid rgba(var(--color-primary-rgb), 0.08);
     opacity: 0;
     visibility: hidden;
     transform: translateY(-8px);
@@ -319,7 +354,7 @@ const currentPath = rawPath.length > 1 && rawPath.endsWith('/') ? rawPath.slice(
     text-transform: uppercase;
     color: var(--color-muted);
     text-decoration: none;
-    border-bottom: 1px solid rgba(150, 112, 91, 0.06);
+    border-bottom: 1px solid rgba(var(--color-primary-rgb), 0.06);
     transition: color 0.3s ease;
   }
   .mobile-link:hover {

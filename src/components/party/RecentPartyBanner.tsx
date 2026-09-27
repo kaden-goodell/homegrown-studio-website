@@ -25,9 +25,9 @@ export default function RecentPartyBanner() {
         top: '4.5rem',
         zIndex: 40,
         width: '100%',
-        background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+        background: 'var(--color-dark)',
         color: '#fff',
-        boxShadow: '0 4px 16px rgba(150, 112, 91, 0.22)',
+        boxShadow: '0 4px 16px rgba(var(--color-primary-rgb), 0.22)',
       }}
     >
       <div

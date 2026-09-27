@@ -11,6 +11,7 @@ import UpcomingWorkshops from '@components/home/UpcomingWorkshops'
 const offerings = [
   {
     title: 'Open Studio',
+    tone: 'tone-studio',
     price: walkInOpen ? 'Crafts from $15 · no booking needed' : `Walk-in hours begin ${OPEN_STUDIO_START_LABEL}`,
     description: 'Walk in during open hours, pick a craft from the menu, and make it yours. Pay per craft — that’s it.',
     href: '/open-studio',
@@ -20,6 +21,7 @@ const offerings = [
   },
   {
     title: 'Workshops',
+    tone: 'tone-workshop',
     price: 'From $30 a seat',
     description: 'Guided sessions with everything included. Come solo or bring a friend — all skill levels, ages 8+.',
     href: '/workshops',
@@ -29,6 +31,7 @@ const offerings = [
   },
   {
     title: 'Private Parties',
+    tone: 'tone-party',
     price: 'Whole studio · from $300',
     description: 'The whole room for your people — birthdays, girls’ nights, showers, team nights, or just because.',
     href: '/book',
@@ -38,6 +41,7 @@ const offerings = [
   },
   {
     title: 'Take-Home Kits',
+    tone: 'tone-kit',
     description: 'The party-in-a-box: a themed craft kit for your crew, at your place. Gold, silver, rainbow, and more.',
     image: '/images/home/take-home.jpg',
     alt: 'A boxed take-home craft kit',
@@ -61,7 +65,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
 
 <Layout title="Home" description="Hometown Studio — walk-in crafting, workshops, and private parties in Madison, AL. Everyone welcome, ages 8+.">
   {showOpeningBanner && (
-    <div id="opening-banner" class="text-center px-4 py-2.5 text-sm font-medium" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white;">
+    <div id="opening-banner" class="text-center px-4 py-2.5 text-sm font-medium" style="background: var(--color-dark); color: white;">
       Tentative grand opening {openingLabel} — <a href="/book" class="underline font-semibold" style="color: white;">see what’s coming</a>
     </div>
   )}
@@ -85,10 +89,10 @@ const testimonials = siteConfig.testimonials?.items ?? []
         A craft studio in Madison, Alabama — walk in and craft, join a workshop, or take over the whole place for a party.
       </p>
       <div class="fade-in mt-8 flex flex-wrap justify-center gap-3">
-        <a href="/book" class="cta-glow inline-block rounded-full px-10 py-4 text-white font-semibold text-lg no-underline" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); box-shadow: 0 8px 30px rgba(150, 112, 91, 0.3);">
+        <a href="/book" class="btn btn-primary btn-lg">
           Book a Party
         </a>
-        <a href="/workshops" class="inline-block rounded-full px-10 py-4 font-semibold text-lg no-underline glass" style="color: var(--color-dark);">
+        <a href="/workshops" class="btn btn-secondary btn-lg">
           Browse Workshops
         </a>
       </div>
@@ -99,7 +103,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
         src="/images/party-hero.jpg"
         alt="A craft table set up at Hometown Studio"
         class="fade-in mt-10 mx-auto rounded-2xl w-full max-w-4xl object-cover"
-        style="aspect-ratio: 21 / 9; box-shadow: 0 24px 60px rgba(150, 112, 91, 0.18);"
+        style="aspect-ratio: 21 / 9; box-shadow: 0 24px 60px rgba(var(--color-primary-rgb), 0.18);"
       />
     </div>
   </section>
@@ -108,19 +112,19 @@ const testimonials = siteConfig.testimonials?.items ?? []
   <section class="py-12 sm:py-16 px-4 relative z-10">
     <div class="max-w-5xl mx-auto">
       <div class="text-center mb-10 fade-in">
-        <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Four ways to craft</p>
+        <p class="eyebrow mb-3">Four ways to craft</p>
         <h2 class="text-3xl sm:text-4xl lg:text-5xl font-heading font-bold" style="color: var(--color-dark);">Pick your kind of day</h2>
       </div>
       <div class="grid gap-5 grid-cols-1 sm:grid-cols-2">
         {offerings.map((item) => {
           const Tag = item.href ? 'a' : 'div'
           return (
-            <Tag href={item.href ?? undefined} class:list={['group block rounded-2xl overflow-hidden glass no-underline', item.href && 'hover-card']}>
+            <Tag href={item.href ?? undefined} class:list={['group block rounded-2xl overflow-hidden no-underline', item.tone, item.href && 'hover-card']} style="background: var(--color-surface); border: 1px solid var(--color-line);">
               <img src={item.image} alt={item.alt} loading="lazy" class="w-full object-cover" style="aspect-ratio: 16 / 9;" />
               <div class="p-7">
-                <div class="flex items-baseline justify-between gap-3">
+                <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                   <h3 class="text-xl font-heading font-bold" style="color: var(--color-dark);">{item.title}</h3>
-                  <span class="text-xs font-semibold whitespace-nowrap" style="color: var(--color-primary);">{item.price}</span>
+                  <span class="chip">{item.price}</span>
                 </div>
                 <p class="mt-3 text-sm leading-relaxed" style="color: var(--color-muted);">{item.description}</p>
                 <div class="mt-5 flex items-center gap-2 text-sm font-medium transition-all duration-300 group-hover:gap-3" style={`color: ${item.href ? 'var(--color-primary)' : 'var(--color-muted)'};`}>
@@ -148,7 +152,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
       <div class="grid gap-5 sm:grid-cols-3">
         {steps.map((s) => (
           <div class="glass rounded-2xl p-8 text-center fade-in">
-            <div class="mx-auto mb-4 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent));">
+            <div class="mx-auto mb-4 w-10 h-10 rounded-full flex items-center justify-center font-bold" style="background: var(--color-sand); color: var(--color-dark);">
               {s.n}
             </div>
             <h3 class="font-heading font-bold text-lg mb-2" style="color: var(--color-dark);">{s.title}</h3>
@@ -194,7 +198,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
     <section class="py-12 sm:py-16 px-4">
       <div class="max-w-5xl mx-auto">
         <div class="text-center mb-10 fade-in">
-          <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Testimonials</p>
+          <p class="eyebrow mb-3">Testimonials</p>
           <h2 class="text-3xl sm:text-4xl lg:text-5xl font-heading font-bold" style="color: var(--color-dark);">
             {siteConfig.testimonials?.heading || 'What Our Guests Say'}
           </h2>
@@ -206,7 +210,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
                 &ldquo;{t.quote}&rdquo;
               </p>
               <footer class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent));">
+                <div class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs" style="background: var(--color-sand); color: var(--color-dark);">
                   {t.name.charAt(0)}
                 </div>
                 <div>

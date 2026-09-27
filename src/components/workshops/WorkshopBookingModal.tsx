@@ -252,8 +252,8 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                 display: 'inline-block',
                 padding: '0.6rem 1.1rem',
                 borderRadius: '0.75rem',
-                background: 'rgba(150, 112, 91, 0.1)',
-                border: '1px solid rgba(150, 112, 91, 0.2)',
+                background: 'rgba(var(--color-primary-rgb), 0.1)',
+                border: '1px solid rgba(var(--color-primary-rgb), 0.2)',
                 color: 'var(--color-primary)',
                 fontSize: '0.875rem',
                 fontWeight: 600,
@@ -311,7 +311,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                     width: '2.5rem',
                     height: '2.5rem',
                     borderRadius: '0.5rem',
-                    border: '1px solid rgba(150, 112, 91, 0.15)',
+                    border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
                     background: 'rgba(255, 255, 255, 0.8)',
                     fontSize: '1.25rem',
                     cursor: seats <= 1 ? 'default' : 'pointer',
@@ -332,7 +332,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                     width: '2.5rem',
                     height: '2.5rem',
                     borderRadius: '0.5rem',
-                    border: '1px solid rgba(150, 112, 91, 0.15)',
+                    border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
                     background: 'rgba(255, 255, 255, 0.8)',
                     fontSize: '1.25rem',
                     cursor: seats >= maxSeats ? 'default' : 'pointer',
@@ -359,7 +359,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
               justifyContent: 'space-between',
               alignItems: 'baseline',
               padding: '1rem 0',
-              borderTop: '1px solid rgba(150, 112, 91, 0.08)',
+              borderTop: '1px solid rgba(var(--color-primary-rgb), 0.08)',
               marginBottom: '1.5rem',
             }}>
               <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Total</span>
@@ -374,22 +374,22 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
               style={{
                 width: '100%',
                 padding: '0.875rem',
-                background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                background: 'var(--color-button)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '0.75rem',
                 fontSize: '0.875rem',
                 fontWeight: 600,
                 cursor: 'pointer',
-                boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
+                boxShadow: '0 4px 15px rgba(var(--color-primary-rgb), 0.2)',
                 transition: 'box-shadow 0.3s ease, transform 0.3s ease',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 25px rgba(150, 112, 91, 0.35)'
+                e.currentTarget.style.boxShadow = '0 8px 25px rgba(var(--color-primary-rgb), 0.35)'
                 e.currentTarget.style.transform = 'translateY(-1px)'
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(150, 112, 91, 0.2)'
+                e.currentTarget.style.boxShadow = '0 4px 15px rgba(var(--color-primary-rgb), 0.2)'
                 e.currentTarget.style.transform = 'none'
               }}
             >
@@ -415,7 +415,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                     width: '100%',
                     padding: '0.75rem 1rem',
                     borderRadius: '0.75rem',
-                    border: '1px solid rgba(150, 112, 91, 0.15)',
+                    border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
                     background: 'rgba(255, 255, 255, 0.8)',
                     fontSize: '0.875rem',
                     color: 'var(--color-text)',
@@ -436,7 +436,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                     width: '100%',
                     padding: '0.75rem 1rem',
                     borderRadius: '0.75rem',
-                    border: '1px solid rgba(150, 112, 91, 0.15)',
+                    border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
                     background: 'rgba(255, 255, 255, 0.8)',
                     fontSize: '0.875rem',
                     color: 'var(--color-text)',
@@ -458,7 +458,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                   width: '100%',
                   padding: '0.75rem 1rem',
                   borderRadius: '0.75rem',
-                  border: '1px solid rgba(150, 112, 91, 0.15)',
+                  border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
                   background: 'rgba(255, 255, 255, 0.8)',
                   fontSize: '0.875rem',
                   color: 'var(--color-text)',
@@ -479,7 +479,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                   width: '100%',
                   padding: '0.75rem 1rem',
                   borderRadius: '0.75rem',
-                  border: '1px solid rgba(150, 112, 91, 0.15)',
+                  border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
                   background: 'rgba(255, 255, 255, 0.8)',
                   fontSize: '0.875rem',
                   color: 'var(--color-text)',
@@ -497,8 +497,8 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                 width: '100%',
                 padding: '0.875rem',
                 background: infoValid
-                  ? 'linear-gradient(135deg, var(--color-primary), var(--color-accent))'
-                  : 'rgba(150, 112, 91, 0.2)',
+                  ? 'var(--color-button)'
+                  : 'rgba(var(--color-primary-rgb), 0.2)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '0.75rem',
@@ -577,8 +577,8 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                 marginTop: '1.25rem',
                 padding: '0.875rem',
                 background: processing || !agreedToPolicy
-                  ? 'rgba(150, 112, 91, 0.4)'
-                  : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                  ? 'rgba(var(--color-primary-rgb), 0.4)'
+                  : 'var(--color-button)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '0.75rem',
@@ -623,12 +623,10 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
           overflow: 'auto',
           margin: '1rem',
           padding: '2.5rem',
-          background: 'linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0.9) 100%)',
-          backdropFilter: 'blur(32px) saturate(1.4)',
-          WebkitBackdropFilter: 'blur(32px) saturate(1.4)',
-          border: '1px solid rgba(255, 255, 255, 0.6)',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-line)',
           borderRadius: '1.25rem',
-          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(150, 112, 91, 0.08)',
+          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(var(--color-primary-rgb), 0.08)',
         }}
       >
         {/* Header */}
@@ -676,7 +674,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                 {step + 1} / {STEP_LABELS.length}
               </span>
             </div>
-            <div style={{ height: '2px', background: 'rgba(150, 112, 91, 0.1)', borderRadius: '1px', overflow: 'hidden' }}>
+            <div style={{ height: '2px', background: 'rgba(var(--color-primary-rgb), 0.1)', borderRadius: '1px', overflow: 'hidden' }}>
               <div
                 role="progressbar"
                 aria-valuenow={step + 1}
@@ -685,7 +683,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                 style={{
                   height: '100%',
                   width: `${progress}%`,
-                  background: 'linear-gradient(90deg, var(--color-primary), var(--color-accent))',
+                  background: 'var(--color-primary)',
                   borderRadius: '1px',
                   transition: 'width 0.5s cubic-bezier(0.25, 0.1, 0, 1)',
                 }}
@@ -770,7 +768,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                     padding: '0.7rem 1rem',
                     borderRadius: '0.75rem',
                     border: 'none',
-                    background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                    background: 'var(--color-button)',
                     color: '#fff',
                     fontSize: '0.875rem',
                     fontWeight: 600,
@@ -786,7 +784,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
                     flex: 1,
                     padding: '0.7rem 1rem',
                     borderRadius: '0.75rem',
-                    border: '1px solid rgba(150, 112, 91, 0.3)',
+                    border: '1px solid rgba(var(--color-primary-rgb), 0.3)',
                     background: 'transparent',
                     color: 'var(--color-muted)',
                     fontSize: '0.875rem',

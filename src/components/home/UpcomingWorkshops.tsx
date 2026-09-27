@@ -51,7 +51,7 @@ export default function UpcomingWorkshops() {
     <section style={{ padding: '3rem 1rem' }}>
       <div style={{ maxWidth: '64rem', margin: '0 auto' }}>
         <div style={{ textAlign: 'center', marginBottom: '2.5rem' }}>
-          <p className="uppercase" style={{ letterSpacing: '0.2em', fontSize: '0.75rem', fontWeight: 600, marginBottom: '0.75rem', color: 'var(--color-accent)' }}>
+          <p className="eyebrow tone-workshop" style={{ marginBottom: '0.75rem' }}>
             Coming Up
           </p>
           <h2 className="font-heading" style={{ fontSize: 'clamp(1.875rem, 4vw, 3rem)', fontWeight: 700, color: 'var(--color-dark)' }}>

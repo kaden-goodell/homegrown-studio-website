@@ -153,8 +153,8 @@ export default function DateRangePicker({
             onClick={() => openFor('start')}
             style={{
               ...fieldStyle,
-              borderColor: open && picking === 'start' ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.12)',
-              boxShadow: open && picking === 'start' ? '0 0 0 3px rgba(150, 112, 91, 0.1)' : 'none',
+              borderColor: open && picking === 'start' ? 'var(--color-primary)' : 'rgba(var(--color-primary-rgb), 0.12)',
+              boxShadow: open && picking === 'start' ? '0 0 0 3px rgba(var(--color-primary-rgb), 0.1)' : 'none',
             }}
           >
             <span style={{ color: startDate ? 'var(--color-dark)' : 'var(--color-muted)' }}>
@@ -171,8 +171,8 @@ export default function DateRangePicker({
             onClick={() => openFor('end')}
             style={{
               ...fieldStyle,
-              borderColor: open && picking === 'end' ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.12)',
-              boxShadow: open && picking === 'end' ? '0 0 0 3px rgba(150, 112, 91, 0.1)' : 'none',
+              borderColor: open && picking === 'end' ? 'var(--color-primary)' : 'rgba(var(--color-primary-rgb), 0.12)',
+              boxShadow: open && picking === 'end' ? '0 0 0 3px rgba(var(--color-primary-rgb), 0.1)' : 'none',
             }}
           >
             <span style={{ color: endDate ? 'var(--color-dark)' : 'var(--color-muted)' }}>
@@ -187,7 +187,7 @@ export default function DateRangePicker({
       {open && (
         <div style={inline ? {
           background: 'rgba(255, 255, 255, 0.6)',
-          border: '1px solid rgba(150, 112, 91, 0.08)',
+          border: '1px solid rgba(var(--color-primary-rgb), 0.08)',
           borderRadius: '1rem',
           padding: '1.25rem',
         } : {
@@ -200,9 +200,9 @@ export default function DateRangePicker({
           background: 'rgba(255, 255, 255, 0.95)',
           backdropFilter: 'blur(24px)',
           WebkitBackdropFilter: 'blur(24px)',
-          border: '1px solid rgba(150, 112, 91, 0.1)',
+          border: '1px solid rgba(var(--color-primary-rgb), 0.1)',
           borderRadius: '1rem',
-          boxShadow: '0 12px 48px rgba(150, 112, 91, 0.12)',
+          boxShadow: '0 12px 48px rgba(var(--color-primary-rgb), 0.12)',
           padding: '1.25rem',
           animation: 'calendarIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
         }}>
@@ -297,16 +297,16 @@ export default function DateRangePicker({
                     fontSize: '0.8125rem',
                     fontWeight: selected ? 600 : 400,
                     color: disabled
-                      ? 'rgba(150, 112, 91, 0.25)'
+                      ? 'rgba(var(--color-primary-rgb), 0.25)'
                       : selected
                         ? '#fff'
                         : inRange
                           ? 'var(--color-dark)'
                           : 'var(--color-text)',
                     background: selected
-                      ? 'linear-gradient(135deg, var(--color-primary), var(--color-accent))'
+                      ? 'var(--color-button)'
                       : inRange
-                        ? 'rgba(150, 112, 91, 0.08)'
+                        ? 'rgba(var(--color-primary-rgb), 0.08)'
                         : 'transparent',
                     border: 'none',
                     borderRadius: selected ? '0.5rem' : inRange ? '0.25rem' : '0.5rem',
@@ -315,13 +315,13 @@ export default function DateRangePicker({
                   }}
                   onMouseEnter={(e) => {
                     if (!disabled && !selected) {
-                      e.currentTarget.style.background = 'rgba(150, 112, 91, 0.1)'
+                      e.currentTarget.style.background = 'rgba(var(--color-primary-rgb), 0.1)'
                       e.currentTarget.style.transform = 'scale(1.1)'
                     }
                   }}
                   onMouseLeave={(e) => {
                     if (!disabled && !selected) {
-                      e.currentTarget.style.background = inRange ? 'rgba(150, 112, 91, 0.08)' : 'transparent'
+                      e.currentTarget.style.background = inRange ? 'rgba(var(--color-primary-rgb), 0.08)' : 'transparent'
                       e.currentTarget.style.transform = 'none'
                     }
                   }}
@@ -386,7 +386,7 @@ const fieldStyle: React.CSSProperties = {
   background: 'rgba(255, 255, 255, 0.85)',
   backdropFilter: 'blur(16px)',
   WebkitBackdropFilter: 'blur(16px)',
-  border: '1px solid rgba(150, 112, 91, 0.12)',
+  border: '1px solid rgba(var(--color-primary-rgb), 0.12)',
   borderRadius: '0.75rem',
   cursor: 'pointer',
   transition: 'border-color 0.3s ease, box-shadow 0.3s ease',

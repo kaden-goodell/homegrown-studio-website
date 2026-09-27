@@ -445,7 +445,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
   const primaryButtonStyle = (enabled: boolean): React.CSSProperties => ({
     width: '100%',
     padding: '0.875rem',
-    background: enabled ? 'linear-gradient(135deg, var(--color-primary), var(--color-accent))' : 'rgba(150, 112, 91, 0.2)',
+    background: enabled ? 'var(--color-button)' : 'rgba(var(--color-primary-rgb), 0.2)',
     color: '#fff',
     border: 'none',
     borderRadius: '0.75rem',
@@ -453,14 +453,14 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
     fontWeight: 600,
     cursor: enabled ? 'pointer' : 'default',
     opacity: enabled ? 1 : 0.5,
-    boxShadow: enabled ? '0 4px 15px rgba(150, 112, 91, 0.2)' : 'none',
+    boxShadow: enabled ? '0 4px 15px rgba(var(--color-primary-rgb), 0.2)' : 'none',
     transition: 'box-shadow 0.3s ease, transform 0.3s ease',
   })
   const inputStyle: React.CSSProperties = {
     width: '100%',
     padding: '0.75rem 1rem',
     borderRadius: '0.75rem',
-    border: '1px solid rgba(150, 112, 91, 0.15)',
+    border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
     background: 'rgba(255, 255, 255, 0.8)',
     fontSize: '0.875rem',
     color: 'var(--color-text)',
@@ -480,8 +480,8 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
     gap: '0.4rem',
     padding: '0.35rem 0.75rem',
     borderRadius: '2rem',
-    background: 'rgba(150, 112, 91, 0.08)',
-    border: '1px solid rgba(150, 112, 91, 0.14)',
+    background: 'rgba(var(--color-primary-rgb), 0.08)',
+    border: '1px solid rgba(var(--color-primary-rgb), 0.14)',
     fontSize: '0.75rem',
     fontWeight: 500,
     color: 'var(--color-dark)',
@@ -490,8 +490,8 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
   const pillButtonStyle = (active: boolean): React.CSSProperties => ({
     padding: '0.625rem 0.5rem',
     borderRadius: '0.625rem',
-    border: active ? '1px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.15)',
-    background: active ? 'rgba(150, 112, 91, 0.12)' : 'rgba(255, 255, 255, 0.8)',
+    border: active ? '1px solid var(--color-primary)' : '1px solid rgba(var(--color-primary-rgb), 0.15)',
+    background: active ? 'rgba(var(--color-primary-rgb), 0.12)' : 'rgba(255, 255, 255, 0.8)',
     fontSize: '0.8125rem',
     fontWeight: active ? 600 : 500,
     color: 'var(--color-dark)',
@@ -529,7 +529,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             <span>{formatPrice(assemblyFee)}</span>
           </div>
         )}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '0.5rem', marginBottom: hasTheme ? '0.375rem' : 0 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(var(--color-primary-rgb), 0.08)', paddingTop: '0.5rem', marginBottom: hasTheme ? '0.375rem' : 0 }}>
           <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)' }}>Party total</span>
           <span style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>{formatPrice(partyTotal)}</span>
         </div>
@@ -553,7 +553,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
     const returns = hasTheme ? kitThemes.find((t) => t.id === themeChoice)?.returns ?? [] : []
 
     const DateRow = ({ label, value }: { label: string; value: string }) => (
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem', padding: '0.6rem 0', borderBottom: '1px solid rgba(150, 112, 91, 0.1)' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '1rem', padding: '0.6rem 0', borderBottom: '1px solid rgba(var(--color-primary-rgb), 0.1)' }}>
         <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{label}</span>
         <span style={{ fontSize: '0.9375rem', fontWeight: 700, color: 'var(--color-dark)', textAlign: 'right' }}>{value}</span>
       </div>
@@ -575,7 +575,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
         </p>
 
         {/* The three dates — the whole rhythm of a kit. */}
-        <div style={{ maxWidth: '22rem', margin: '1.5rem auto 0', textAlign: 'left', padding: '0.5rem 1rem', borderRadius: '0.875rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(150, 112, 91, 0.1)' }}>
+        <div style={{ maxWidth: '22rem', margin: '1.5rem auto 0', textAlign: 'left', padding: '0.5rem 1rem', borderRadius: '0.875rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(var(--color-primary-rgb), 0.1)' }}>
           {partyDateLabel && <DateRow label="Your party" value={partyDateLabel} />}
           {pickupLabel && <DateRow label="Pick up (Thursday)" value={pickupLabel} />}
           {returnLabel && <DateRow label={`Return by (Wed, ${returnWindow})`} value={returnLabel} />}
@@ -661,15 +661,15 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                     onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedCraft(craft) } }}
                     style={{
                       borderRadius: '0.875rem',
-                      border: active ? '2px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.18)',
-                      background: active ? 'rgba(150, 112, 91, 0.08)' : 'rgba(255, 255, 255, 0.85)',
+                      border: active ? '2px solid var(--color-primary)' : '1px solid rgba(var(--color-primary-rgb), 0.18)',
+                      background: active ? 'rgba(var(--color-primary-rgb), 0.08)' : 'rgba(255, 255, 255, 0.85)',
                       overflow: 'hidden',
                       cursor: 'pointer',
                       transition: 'background 0.2s ease, border-color 0.2s ease',
                     }}
                   >
                     {craft.imageUrl && (
-                      <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', background: 'rgba(150, 112, 91, 0.06)' }}>
+                      <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', background: 'rgba(var(--color-primary-rgb), 0.06)' }}>
                         <img src={craft.imageUrl} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                         {active && (
                           <span aria-hidden style={{ position: 'absolute', top: '0.625rem', right: '0.625rem', width: '1.5rem', height: '1.5rem', borderRadius: '999px', background: 'var(--color-primary)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.8rem', boxShadow: '0 1px 4px rgba(0,0,0,0.25)' }}>✓</span>
@@ -681,8 +681,8 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                         <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>
                           {craft.name}
                           {craft.popular && (
-                            <span style={{ marginLeft: '0.5rem', verticalAlign: 'middle', display: 'inline-block', background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))', color: '#fff', borderRadius: '2rem', padding: '0.15rem 0.55rem', fontSize: '0.65rem', fontWeight: 700 }}>
-                              ♥ Most popular
+                            <span style={{ marginLeft: '0.5rem', verticalAlign: 'middle', display: 'inline-block', background: 'var(--craft-marigold-soft)', color: 'var(--craft-marigold-ink)', borderRadius: '2rem', padding: '0.15rem 0.55rem', fontSize: '0.65rem', fontWeight: 700 }}>
+                              Our pick
                             </span>
                           )}
                         </span>
@@ -784,13 +784,13 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                       alignItems: 'center',
                       padding: '0.75rem',
                       borderRadius: '0.875rem',
-                      border: active ? '2px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.18)',
-                      background: active ? 'rgba(150, 112, 91, 0.08)' : 'rgba(255, 255, 255, 0.85)',
+                      border: active ? '2px solid var(--color-primary)' : '1px solid rgba(var(--color-primary-rgb), 0.18)',
+                      background: active ? 'rgba(var(--color-primary-rgb), 0.08)' : 'rgba(255, 255, 255, 0.85)',
                       cursor: 'pointer',
                       transition: 'background 0.2s ease, border-color 0.2s ease',
                     }}
                   >
-                    <div style={{ width: '4rem', height: '4rem', borderRadius: '0.6rem', overflow: 'hidden', flexShrink: 0, background: 'linear-gradient(135deg, rgba(150,112,91,0.10), rgba(198,167,142,0.20))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div style={{ width: '4rem', height: '4rem', borderRadius: '0.6rem', overflow: 'hidden', flexShrink: 0, background: 'linear-gradient(135deg, rgba(var(--color-primary-rgb),0.10), rgba(198,167,142,0.20))', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                       {theme.photo
                         ? <img src={theme.photo} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                         : <span aria-hidden style={{ fontSize: '1.25rem' }}>🎀</span>}
@@ -819,8 +819,8 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                 style={{
                   padding: '0.875rem 1rem',
                   borderRadius: '0.875rem',
-                  border: themeChoice === 'none' ? '2px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.18)',
-                  background: themeChoice === 'none' ? 'rgba(150, 112, 91, 0.08)' : 'rgba(255, 255, 255, 0.85)',
+                  border: themeChoice === 'none' ? '2px solid var(--color-primary)' : '1px solid rgba(var(--color-primary-rgb), 0.18)',
+                  background: themeChoice === 'none' ? 'rgba(var(--color-primary-rgb), 0.08)' : 'rgba(255, 255, 255, 0.85)',
                   cursor: 'pointer',
                   transition: 'background 0.2s ease, border-color 0.2s ease',
                 }}
@@ -875,7 +875,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                       key={wk.pickupDate}
                       style={{
                         borderRadius: '0.875rem',
-                        border: containsSelection ? '2px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.15)',
+                        border: containsSelection ? '2px solid var(--color-primary)' : '1px solid rgba(var(--color-primary-rgb), 0.15)',
                         background: 'rgba(255, 255, 255, 0.75)',
                         padding: '0.75rem 0.875rem',
                         opacity: open ? 1 : 0.55,
@@ -961,10 +961,10 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             </div>
 
             {/* Order summary — full quote, then the deposit split. */}
-            <div style={{ padding: '1rem 1.25rem', borderRadius: '0.75rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(150, 112, 91, 0.08)', marginBottom: '1rem' }}>
+            <div style={{ padding: '1rem 1.25rem', borderRadius: '0.75rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(var(--color-primary-rgb), 0.08)', marginBottom: '1rem' }}>
               {renderSummaryRows()}
               {/* One hero number — the deposit. Everything else is a whisper. */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '0.625rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(var(--color-primary-rgb), 0.08)', paddingTop: '0.625rem' }}>
                 <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Due today</span>
                 <span style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-dark)' }}>{formatPrice(dueToday)}</span>
               </div>
@@ -977,7 +977,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                 returnable pieces) is added. The customer must be able to READ
                 what the checkbox binds them to, right here. */}
             {hasTheme && (
-              <div style={{ padding: '0.875rem 1rem', borderRadius: '0.75rem', background: 'rgba(150, 112, 91, 0.05)', border: '1px solid rgba(150, 112, 91, 0.12)', marginBottom: '1.25rem' }}>
+              <div style={{ padding: '0.875rem 1rem', borderRadius: '0.75rem', background: 'rgba(var(--color-primary-rgb), 0.05)', border: '1px solid rgba(var(--color-primary-rgb), 0.12)', marginBottom: '1.25rem' }}>
                 <p style={{ margin: '0 0 0.5rem', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)' }}>Rental terms, in brief</p>
                 <ul style={{ margin: '0 0 0.75rem', paddingLeft: '1.1rem', display: 'flex', flexDirection: 'column', gap: '0.25rem' }}>
                   {kitContent.rentalTermsBrief.map((t) => (
@@ -1018,7 +1018,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                 width: '100%',
                 marginTop: '1.25rem',
                 padding: '0.875rem',
-                background: processing || !payValid ? 'rgba(150, 112, 91, 0.4)' : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                background: processing || !payValid ? 'rgba(var(--color-primary-rgb), 0.4)' : 'var(--color-button)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '0.75rem',
@@ -1063,12 +1063,10 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
           overflow: 'auto',
           margin: sheetMode ? 0 : '1rem',
           padding: sheetMode ? '1.5rem 1.25rem 2rem' : '2.5rem',
-          background: 'linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0.9) 100%)',
-          backdropFilter: 'blur(32px) saturate(1.4)',
-          WebkitBackdropFilter: 'blur(32px) saturate(1.4)',
-          border: '1px solid rgba(255, 255, 255, 0.6)',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-line)',
           borderRadius: sheetMode ? '1.25rem 1.25rem 0 0' : '1.25rem',
-          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(150, 112, 91, 0.08)',
+          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(var(--color-primary-rgb), 0.08)',
           outline: 'none',
         }}
       >
@@ -1091,13 +1089,13 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
               </span>
               <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>Step {stepIdx + 1} of {steps.length}</span>
             </div>
-            <div style={{ height: '2px', background: 'rgba(150, 112, 91, 0.1)', borderRadius: '1px', overflow: 'hidden' }}>
+            <div style={{ height: '2px', background: 'rgba(var(--color-primary-rgb), 0.1)', borderRadius: '1px', overflow: 'hidden' }}>
               <div
                 role="progressbar"
                 aria-valuenow={stepIdx + 1}
                 aria-valuemin={1}
                 aria-valuemax={steps.length}
-                style={{ height: '100%', width: `${progress}%`, background: 'linear-gradient(90deg, var(--color-primary), var(--color-accent))', borderRadius: '1px', transition: 'width 0.5s cubic-bezier(0.25, 0.1, 0, 1)' }}
+                style={{ height: '100%', width: `${progress}%`, background: 'var(--color-primary)', borderRadius: '1px', transition: 'width 0.5s cubic-bezier(0.25, 0.1, 0, 1)' }}
               />
             </div>
           </nav>
@@ -1118,7 +1116,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             {selectedTheme && <span style={chipStyle}>{selectedTheme.displayName}</span>}
             {selectedDate && <span style={chipStyle}>{formatDateLabel(selectedDate)}</span>}
             {displayStep !== 'pay' && (
-              <span style={{ ...chipStyle, marginLeft: 'auto', background: 'rgba(150, 112, 91, 0.12)', fontWeight: 600 }}>
+              <span style={{ ...chipStyle, marginLeft: 'auto', background: 'rgba(var(--color-primary-rgb), 0.12)', fontWeight: 600 }}>
                 {formatPrice(dueToday)} today{selectedCraft ? <> · {formatPrice(partyTotal)} party</> : null}
               </span>
             )}
@@ -1152,10 +1150,10 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
               <p style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>Close and lose your progress?</p>
               <p style={{ margin: '0.4rem 0 1.1rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Your selections aren&rsquo;t saved yet.</p>
               <div style={{ display: 'flex', gap: '0.6rem' }}>
-                <button type="button" onClick={() => setConfirmDiscard(false)} autoFocus style={{ flex: 1.4, padding: '0.7rem 1rem', borderRadius: '0.75rem', border: 'none', background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}>
+                <button type="button" onClick={() => setConfirmDiscard(false)} autoFocus style={{ flex: 1.4, padding: '0.7rem 1rem', borderRadius: '0.75rem', border: 'none', background: 'var(--color-button)', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}>
                   Keep building
                 </button>
-                <button type="button" onClick={onClose} style={{ flex: 1, padding: '0.7rem 1rem', borderRadius: '0.75rem', border: '1px solid rgba(150, 112, 91, 0.3)', background: 'transparent', color: 'var(--color-muted)', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer' }}>
+                <button type="button" onClick={onClose} style={{ flex: 1, padding: '0.7rem 1rem', borderRadius: '0.75rem', border: '1px solid rgba(var(--color-primary-rgb), 0.3)', background: 'transparent', color: 'var(--color-muted)', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer' }}>
                   Close
                 </button>
               </div>

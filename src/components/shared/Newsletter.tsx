@@ -93,11 +93,11 @@ export default function Newsletter({ variant = 'light' }: NewsletterProps) {
             style={{
               background: isDark
                 ? 'linear-gradient(135deg, var(--color-accent), var(--color-secondary))'
-                : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                : 'var(--color-button)',
               color: isDark ? 'var(--color-dark, #3d3229)' : 'white',
               boxShadow: isDark
                 ? '0 4px 15px rgba(212, 165, 116, 0.3)'
-                : '0 4px 15px rgba(150, 112, 91, 0.25)',
+                : '0 4px 15px rgba(var(--color-primary-rgb), 0.25)',
             }}
           >
             {status === 'loading' ? 'Subscribing...' : 'Subscribe'}

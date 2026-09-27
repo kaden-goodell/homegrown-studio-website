@@ -107,8 +107,8 @@ const { street, city, state, zip } = siteConfig.address
     background: linear-gradient(
       90deg,
       transparent,
-      rgba(150, 112, 91, 0.15) 20%,
-      rgba(150, 112, 91, 0.15) 80%,
+      rgba(var(--color-primary-rgb), 0.15) 20%,
+      rgba(var(--color-primary-rgb), 0.15) 80%,
       transparent
     );
   }
@@ -202,7 +202,7 @@ const { street, city, state, zip } = siteConfig.address
     text-align: center;
     font-size: 0.6875rem;
     letter-spacing: 0.04em;
-    color: rgba(150, 112, 91, 0.35);
+    color: rgba(var(--color-primary-rgb), 0.35);
     padding-bottom: 2.5rem;
   }
 </style>

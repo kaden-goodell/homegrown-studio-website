@@ -76,7 +76,7 @@ export default function DetailsStep({
                 letterSpacing: '0.05em',
                 padding: '0.375rem 0.75rem',
                 borderRadius: '9999px',
-                background: 'rgba(150, 112, 91, 0.08)',
+                background: 'rgba(var(--color-primary-rgb), 0.08)',
                 color: 'var(--color-primary)',
               }}
             >
@@ -110,8 +110,8 @@ export default function DetailsStep({
           color: 'white',
           fontWeight: 600,
           fontSize: '0.875rem',
-          background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
-          boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
+          background: 'var(--color-button)',
+          boxShadow: '0 4px 15px rgba(var(--color-primary-rgb), 0.2)',
           border: 'none',
           cursor: 'pointer',
           transition: 'all 0.3s ease',

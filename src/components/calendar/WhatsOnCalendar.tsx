@@ -28,13 +28,33 @@ interface WhatsOnCalendarProps {
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
 
-// Color-coding by event kind. Reuses the studio palette (primary/accent),
-// plus an inviting green for bookable parties and a muted grey for reserved ones.
+// Colour-coding by event kind. Each offering carries its craft colour from
+// global.css (the same one its page label uses), so pink always means party
+// and denim always means workshop. Three roles per kind:
+//   KIND_COLORS = dots and edges (never text; the base colours are too light)
+//   KIND_SOFT   = chip backgrounds
+//   KIND_INK    = text
 const KIND_COLORS: Record<CalendarEvent['kind'], string> = {
-  workshop: 'var(--color-primary)',
-  'open-studio': 'var(--color-accent)',
-  event: '#7c9a6b',
-  'party-available': '#5a8a4a',
+  workshop: 'var(--tone-workshop)',
+  'open-studio': 'var(--tone-studio)',
+  event: 'var(--tone-event)',
+  'party-available': 'var(--tone-party)',
+  'party-booked': 'var(--color-muted)',
+}
+
+const KIND_SOFT: Record<CalendarEvent['kind'], string> = {
+  workshop: 'var(--tone-workshop-soft)',
+  'open-studio': 'var(--tone-studio-soft)',
+  event: 'var(--tone-event-soft)',
+  'party-available': 'var(--tone-party-soft)',
+  'party-booked': 'var(--color-sand)',
+}
+
+const KIND_INK: Record<CalendarEvent['kind'], string> = {
+  workshop: 'var(--tone-workshop-ink)',
+  'open-studio': 'var(--tone-studio-ink)',
+  event: 'var(--tone-event-ink)',
+  'party-available': 'var(--tone-party-ink)',
   'party-booked': 'var(--color-muted)',
 }
 
@@ -157,14 +177,12 @@ function eventHref(e: CalendarEvent): string | null {
 function pillStyle(active: boolean): CSSProperties {
   return active
     ? {
-        background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+        background: 'var(--color-dark)',
         color: 'white',
-        boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
       }
     : {
-        background: 'rgba(255, 255, 255, 0.75)',
-        backdropFilter: 'blur(12px)',
-        border: '1px solid rgba(150, 112, 91, 0.06)',
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-line)',
         color: 'var(--color-text)',
       }
 }
@@ -325,7 +343,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
             lineHeight: 1,
             color: 'var(--color-dark)',
             background: 'rgba(255,255,255,0.85)',
-            border: '1px solid rgba(150,112,91,0.35)',
+            border: '1px solid rgba(var(--color-primary-rgb),0.35)',
             borderRadius: '9999px',
             cursor: 'pointer',
             boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
@@ -368,7 +386,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
             lineHeight: 1,
             color: 'var(--color-dark)',
             background: 'rgba(255,255,255,0.85)',
-            border: '1px solid rgba(150,112,91,0.35)',
+            border: '1px solid rgba(var(--color-primary-rgb),0.35)',
             borderRadius: '9999px',
             cursor: 'pointer',
             boxShadow: '0 1px 4px rgba(0,0,0,0.06)',
@@ -401,13 +419,11 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
 
       {view === 'month' && (
       <div style={{
-        background: 'linear-gradient(135deg, rgba(255,255,255,0.88) 0%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0.85) 100%)',
-        backdropFilter: 'blur(20px) saturate(1.3)',
-        WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
-        border: '1px solid rgba(255, 255, 255, 0.5)',
+        background: 'var(--color-surface)',
+        border: '1px solid var(--color-line)',
         borderRadius: '1rem',
         padding: '1.5rem',
-        boxShadow: '0 4px 16px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(150, 112, 91, 0.04)',
+        boxShadow: '0 4px 16px rgba(var(--color-primary-rgb), 0.08), 0 10px 40px rgba(var(--color-primary-rgb), 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(var(--color-primary-rgb), 0.04)',
       }}>
       {/* Day headers */}
       <div style={{
@@ -422,7 +438,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
             fontWeight: 700,
             letterSpacing: '0.08em',
             textTransform: 'uppercase',
-            color: OPEN_WEEKDAYS.has(i) ? 'var(--color-dark)' : 'rgba(150, 112, 91, 0.45)',
+            color: OPEN_WEEKDAYS.has(i) ? 'var(--color-dark)' : 'rgba(var(--color-primary-rgb), 0.45)',
             padding: '0.25rem 0 0.5rem',
           }}>
             {d}
@@ -442,8 +458,8 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
         display: 'grid',
         gridTemplateColumns: 'repeat(7, 1fr)',
         gap: '1px',
-        background: 'rgba(150, 112, 91, 0.14)',
-        border: '1px solid rgba(150, 112, 91, 0.14)',
+        background: 'rgba(var(--color-primary-rgb), 0.14)',
+        border: '1px solid rgba(var(--color-primary-rgb), 0.14)',
         borderRadius: '0.75rem',
         overflow: 'hidden',
         opacity: loading ? 0.5 : 1,
@@ -463,7 +479,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
           const isSelected = selectedDay === day
           const chips = aggregatePartySlots(dayEvents)
           const cellBg = isSelected
-            ? 'rgba(150, 112, 91, 0.10)'
+            ? 'rgba(var(--color-primary-rgb), 0.10)'
             : isPast
               ? 'rgba(255,255,255,0.45)'
               : isOpenDay
@@ -493,15 +509,15 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                 background: cellBg,
                 // Closed weekdays get a faint diagonal hatch so "nothing here" reads as "closed".
                 backgroundImage: !isOpenDay && !isPast
-                  ? 'repeating-linear-gradient(135deg, rgba(150,112,91,0.045) 0 2px, transparent 2px 9px)'
+                  ? 'repeating-linear-gradient(135deg, rgba(var(--color-primary-rgb),0.045) 0 2px, transparent 2px 9px)'
                   : undefined,
-                boxShadow: isSelected ? 'inset 0 0 0 2px var(--color-primary)' : isToday ? 'inset 0 0 0 2px rgba(150,112,91,0.45)' : 'none',
+                boxShadow: isSelected ? 'inset 0 0 0 2px var(--color-primary)' : isToday ? 'inset 0 0 0 2px rgba(var(--color-primary-rgb),0.45)' : 'none',
                 opacity: isPast ? 0.55 : 1,
                 cursor: hasEvents ? 'pointer' : 'default',
                 transition: 'background 0.15s ease, box-shadow 0.15s ease',
               }}
               onMouseEnter={(e) => {
-                if (hasEvents && !isSelected) e.currentTarget.style.background = 'rgba(150, 112, 91, 0.07)'
+                if (hasEvents && !isSelected) e.currentTarget.style.background = 'rgba(var(--color-primary-rgb), 0.07)'
               }}
               onMouseLeave={(e) => {
                 if (hasEvents && !isSelected) e.currentTarget.style.background = cellBg
@@ -518,7 +534,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                 borderRadius: '9999px',
                 fontSize: '0.75rem',
                 fontWeight: isToday || hasEvents ? 700 : 500,
-                color: isToday ? '#fff' : hasEvents ? 'var(--color-dark)' : 'rgba(150, 112, 91, 0.5)',
+                color: isToday ? '#fff' : hasEvents ? 'var(--color-dark)' : 'rgba(var(--color-primary-rgb), 0.5)',
                 background: isToday ? 'var(--color-primary)' : 'transparent',
               }}>
                 {day}
@@ -545,7 +561,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                       lineHeight: 1.25,
                       fontWeight: 500,
                       color: 'var(--color-dark)',
-                      background: `color-mix(in srgb, ${color} 14%, white)`,
+                      background: KIND_SOFT[e.kind],
                       borderLeft: `3px solid ${color}`,
                       borderRadius: '4px',
                       padding: '3px 6px',
@@ -557,7 +573,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                     }
                     const inner = (
                       <>
-                        {time && <span style={{ flexShrink: 0, fontSize: '0.625rem', fontWeight: 700, color, letterSpacing: '0.02em' }}>{time}</span>}
+                        {time && <span style={{ flexShrink: 0, fontSize: '0.625rem', fontWeight: 700, color: KIND_INK[e.kind], letterSpacing: '0.02em' }}>{time}</span>}
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</span>
                       </>
                     )
@@ -607,7 +623,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
               fontSize: '0.6875rem',
               fontWeight: 600,
               color: 'var(--color-dark)',
-              background: `color-mix(in srgb, ${KIND_COLORS[kind]} 14%, white)`,
+              background: KIND_SOFT[kind],
               borderLeft: `3px solid ${KIND_COLORS[kind]}`,
               borderRadius: '4px',
               padding: '3px 8px',
@@ -625,8 +641,8 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
           }}>
             <span style={{
               width: '14px', height: '14px', borderRadius: '3px',
-              border: '1px solid rgba(150,112,91,0.2)',
-              backgroundImage: 'repeating-linear-gradient(135deg, rgba(150,112,91,0.12) 0 2px, transparent 2px 5px)',
+              border: '1px solid rgba(var(--color-primary-rgb),0.2)',
+              backgroundImage: 'repeating-linear-gradient(135deg, rgba(var(--color-primary-rgb),0.12) 0 2px, transparent 2px 5px)',
             }} />
             Closed Mon–Wed
           </span>
@@ -667,7 +683,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                         {trimTime(e.startTime)}
                       </span>
                       <span style={{ fontSize: '0.9375rem', color: 'var(--color-dark)', flex: 1 }}>{e.title}</span>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: KIND_COLORS[e.kind], flexShrink: 0 }}>{KIND_LABELS[e.kind]}</span>
+                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: KIND_INK[e.kind], flexShrink: 0 }}>{KIND_LABELS[e.kind]}</span>
                     </>
                   )
                   return href ? (
@@ -675,7 +691,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                       key={e.id}
                       href={href}
                       style={rowStyle}
-                      onMouseEnter={(ev) => (ev.currentTarget.style.background = 'rgba(150,112,91,0.06)')}
+                      onMouseEnter={(ev) => (ev.currentTarget.style.background = 'rgba(var(--color-primary-rgb),0.06)')}
                       onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}
                     >
                       {inner}
@@ -723,11 +739,10 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                 display: 'flex',
                 alignItems: 'center',
                 gap: '0.75rem',
-                background: 'rgba(255, 255, 255, 0.75)',
-                backdropFilter: 'blur(12px)',
+                background: 'var(--color-surface)',
                 border: clickable
-                  ? `1px solid ${KIND_COLORS[e.kind]}33`
-                  : '1px solid rgba(150, 112, 91, 0.06)',
+                  ? `1px solid color-mix(in srgb, ${KIND_COLORS[e.kind]} 35%, transparent)`
+                  : '1px solid var(--color-line)',
                 borderRadius: '0.75rem',
                 padding: '0.9rem 1.1rem',
                 textDecoration: 'none',
@@ -770,7 +785,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                       flexShrink: 0,
                       fontSize: e.kind === 'party-available' ? '0.8125rem' : '1.1rem',
                       fontWeight: e.kind === 'party-available' ? 600 : 400,
-                      color: KIND_COLORS[e.kind],
+                      color: KIND_INK[e.kind],
                     }} aria-hidden="true">
                       {e.kind === 'party-available' ? 'Book ›' : '›'}
                     </span>

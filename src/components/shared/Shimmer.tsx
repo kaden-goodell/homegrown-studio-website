@@ -13,11 +13,15 @@ interface Particle {
 }
 
 const COLORS = ['#c8943c', '#b8860b', '#daa520', '#cd853f', '#d4a040']
+// 120 particles on a laptop-sized screen, scaled by area so a phone gets the
+// same density rather than the same count squeezed into a fifth of the space.
 const PARTICLES_PER_SCREEN = 120
+const REFERENCE_AREA = 1440 * 900
+const MIN_PARTICLES = 25
 
 function createParticles(width: number, height: number): Particle[] {
-  const screens = (height / window.innerHeight) || 1
-  const count = Math.round(PARTICLES_PER_SCREEN * screens)
+  const scaled = Math.round(PARTICLES_PER_SCREEN * ((width * height) / REFERENCE_AREA))
+  const count = Math.max(MIN_PARTICLES, Math.min(PARTICLES_PER_SCREEN * 1.5, scaled))
   return Array.from({ length: count }, () => {
     const angle = Math.random() * Math.PI * 2
     const drift = 3 + Math.random() * 7 // 3-10 px/sec gentle drift
@@ -79,7 +83,13 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
     let paused = false
 
     function draw(time: number) {
-      if (paused) { animId = requestAnimationFrame(draw); return }
+      // Hold still while the tab is hidden or a booking panel is open (panels
+      // lock page scroll), so nothing moves behind a form.
+      if (paused || document.body.style.overflow === 'hidden') {
+        lastTime = 0
+        animId = requestAnimationFrame(draw)
+        return
+      }
       const dt = lastTime ? (time - lastTime) / 1000 : 0.016
       lastTime = time
 
@@ -124,9 +134,15 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
     function onVisChange() { paused = document.hidden }
     document.addEventListener('visibilitychange', onVisChange)
 
+    // Phones fire resize whenever the address bar shows or hides. Only lay the
+    // particles out again when the width really changes.
+    let laidOutWidth = window.innerWidth
     function onResize() {
       resize()
-      particles = createParticles(window.innerWidth, window.innerHeight)
+      if (Math.abs(window.innerWidth - laidOutWidth) > 100) {
+        laidOutWidth = window.innerWidth
+        particles = createParticles(window.innerWidth, window.innerHeight)
+      }
     }
     window.addEventListener('resize', onResize)
 
@@ -147,7 +163,8 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
         position: 'fixed',
         inset: 0,
         pointerEvents: 'none',
-        zIndex: 0,
+        // Behind everything, so glitter never crosses text or a form.
+        zIndex: -1,
       }}
     />
   )

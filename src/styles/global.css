@@ -3,13 +3,67 @@
 @tailwind utilities;
 
 :root {
-  --color-primary: #96705B;
+  /* Brand brown. Dark enough for text and button fills (7.4:1 on white).
+     --color-primary-rgb is the same colour as channels, for tints and
+     shadows: rgba(var(--color-primary-rgb), 0.08). Change both together. */
+  --color-primary: #7a4a2e;
+  --color-primary-rgb: 122, 74, 46;
+  --color-primary-hover: #643b23;
+  /* Decoration only (rules, fills, glitter). Too light for text. */
   --color-secondary: #c4a882;
   --color-accent: #d4a574;
   --color-background: #faf8f5;
-  --color-text: #374151;
-  --color-muted: #6b7280;
+  --color-surface: #ffffff;
+  --color-sand: #f3ede6;
+  /* Warm neutrals, chosen to sit on the cream ground. */
+  --color-text: #4a403a;
+  --color-muted: #6f635b;
   --color-dark: #3d3229;
+  --color-line: rgba(var(--color-primary-rgb), 0.16);
+  --color-field-border: #9a8a7d;
+
+  /* The one filled button. Reserved for booking and paying. */
+  --color-button: var(--color-primary);
+  --color-button-hover: var(--color-primary-hover);
+  --color-button-text: #ffffff;
+
+  /* Craft colours, taken from what's on the tables. One per offering.
+     base = dots, rules, markers (never text)
+     soft = chip and band backgrounds
+     ink  = text on soft or on the cream ground (all 5.3:1 or better) */
+  --craft-pink: #e8638c;
+  --craft-pink-soft: #fce8ee;
+  --craft-pink-ink: #9b2c55;
+  --craft-denim: #3e5c8a;
+  --craft-denim-soft: #e6ecf5;
+  --craft-denim-ink: #2e4770;
+  --craft-green: #5e8c6a;
+  --craft-green-soft: #e6f0e8;
+  --craft-green-ink: #35603f;
+  --craft-marigold: #e3a72f;
+  --craft-marigold-soft: #fbf0d6;
+  --craft-marigold-ink: #7a5200;
+  --craft-teal: #2f9c9a;
+  --craft-teal-soft: #e0f1f0;
+  --craft-teal-ink: #1f6b6b;
+
+  /* Which craft colour belongs to which offering. */
+  --tone-party: var(--craft-pink);
+  --tone-party-soft: var(--craft-pink-soft);
+  --tone-party-ink: var(--craft-pink-ink);
+  --tone-workshop: var(--craft-denim);
+  --tone-workshop-soft: var(--craft-denim-soft);
+  --tone-workshop-ink: var(--craft-denim-ink);
+  --tone-studio: var(--craft-green);
+  --tone-studio-soft: var(--craft-green-soft);
+  --tone-studio-ink: var(--craft-green-ink);
+  --tone-event: var(--craft-marigold);
+  --tone-event-soft: var(--craft-marigold-soft);
+  --tone-event-ink: var(--craft-marigold-ink);
+  --tone-kit: var(--craft-teal);
+  --tone-kit-soft: var(--craft-teal-soft);
+  --tone-kit-ink: var(--craft-teal-ink);
+
   --font-heading: 'Playfair Display', serif;
   --font-body: 'Inter', sans-serif;
   --radius-sm: 4px;
@@ -100,6 +154,144 @@ img {
   padding: 0 1.5rem;
 }
 
+/* Keyboard focus, visible everywhere. */
+:where(a, button, input, select, textarea, [role='button'], [tabindex]):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* Buttons. Three levels; the filled one is for booking and paying only. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-height: 3rem;
+  padding: 0.75rem 1.75rem;
+  border-radius: 0.75rem;
+  border: 1.5px solid transparent;
+  font-family: var(--font-body);
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.2;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+.btn:hover {
+  text-decoration: none;
+}
+.btn-primary {
+  background: var(--color-button);
+  color: var(--color-button-text);
+  box-shadow: 0 2px 10px rgba(var(--color-primary-rgb), 0.22);
+}
+.btn-primary:hover {
+  background: var(--color-button-hover);
+}
+.btn-primary:active {
+  box-shadow: none;
+}
+.btn-secondary {
+  background: transparent;
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+}
+.btn-secondary:hover {
+  background: rgba(var(--color-primary-rgb), 0.07);
+}
+.btn-quiet {
+  min-height: 0;
+  padding: 0.25rem 0;
+  background: none;
+  color: var(--color-primary);
+  border-radius: 0.25rem;
+}
+.btn-quiet:hover {
+  text-decoration: underline;
+}
+.btn-lg {
+  min-height: 3.5rem;
+  padding: 1rem 2.25rem;
+  font-size: 1.0625rem;
+}
+
+/* The small label above a page or section title. Each offering carries its
+   own craft colour: a bead in the base colour, the words in the ink. */
+.eyebrow {
+  --eyebrow-bead: var(--color-accent);
+  --eyebrow-ink: var(--color-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--eyebrow-ink);
+}
+.eyebrow::before {
+  content: '';
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: var(--eyebrow-bead);
+  flex: none;
+}
+.tone-party {
+  --eyebrow-bead: var(--tone-party);
+  --eyebrow-ink: var(--tone-party-ink);
+  --tone: var(--tone-party);
+  --tone-soft: var(--tone-party-soft);
+  --tone-ink: var(--tone-party-ink);
+}
+.tone-workshop {
+  --eyebrow-bead: var(--tone-workshop);
+  --eyebrow-ink: var(--tone-workshop-ink);
+  --tone: var(--tone-workshop);
+  --tone-soft: var(--tone-workshop-soft);
+  --tone-ink: var(--tone-workshop-ink);
+}
+.tone-studio {
+  --eyebrow-bead: var(--tone-studio);
+  --eyebrow-ink: var(--tone-studio-ink);
+  --tone: var(--tone-studio);
+  --tone-soft: var(--tone-studio-soft);
+  --tone-ink: var(--tone-studio-ink);
+}
+.tone-event {
+  --eyebrow-bead: var(--tone-event);
+  --eyebrow-ink: var(--tone-event-ink);
+  --tone: var(--tone-event);
+  --tone-soft: var(--tone-event-soft);
+  --tone-ink: var(--tone-event-ink);
+}
+.tone-kit {
+  --eyebrow-bead: var(--tone-kit);
+  --eyebrow-ink: var(--tone-kit-ink);
+  --tone: var(--tone-kit);
+  --tone-soft: var(--tone-kit-soft);
+  --tone-ink: var(--tone-kit-ink);
+}
+
+/* Small tag: date chips, "Our pick", prices over photos. Takes its colour
+   from the nearest .tone-* class; falls back to the brand brown on sand. */
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 9999px;
+  background: var(--tone-soft, var(--color-sand));
+  color: var(--tone-ink, var(--color-dark));
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
 /* Glass morphism utility */
 .glass {
   background: linear-gradient(
@@ -112,10 +304,10 @@ img {
   -webkit-backdrop-filter: blur(20px) saturate(1.35);
   border: 1px solid rgba(255, 255, 255, 0.5);
   box-shadow:
-    0 4px 16px rgba(150, 112, 91, 0.08),
-    0 10px 40px rgba(150, 112, 91, 0.06),
+    0 4px 16px rgba(var(--color-primary-rgb), 0.08),
+    0 10px 40px rgba(var(--color-primary-rgb), 0.06),
     inset 0 1px 0 rgba(255, 255, 255, 0.6),
-    inset 0 -1px 0 rgba(150, 112, 91, 0.06);
+    inset 0 -1px 0 rgba(var(--color-primary-rgb), 0.06);
 }
 
 .glass-strong {
@@ -129,8 +321,8 @@ img {
   -webkit-backdrop-filter: blur(24px) saturate(1.45);
   border: 1px solid rgba(255, 255, 255, 0.6);
   box-shadow:
-    0 4px 16px rgba(150, 112, 91, 0.1),
-    0 14px 48px rgba(150, 112, 91, 0.07),
+    0 4px 16px rgba(var(--color-primary-rgb), 0.1),
+    0 14px 48px rgba(var(--color-primary-rgb), 0.07),
     inset 0 1px 0 rgba(255, 255, 255, 0.7),
-    inset 0 -1px 0 rgba(150, 112, 91, 0.06);
+    inset 0 -1px 0 rgba(var(--color-primary-rgb), 0.06);
 }

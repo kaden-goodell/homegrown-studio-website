@@ -25,7 +25,7 @@ const inputStyle: React.CSSProperties = {
   width: '100%',
   padding: '0.65rem 0.85rem',
   borderRadius: '0.625rem',
-  border: '1px solid rgba(150, 112, 91, 0.25)',
+  border: '1px solid rgba(var(--color-primary-rgb), 0.25)',
   background: 'rgba(255, 255, 255, 0.85)',
   fontSize: '0.9375rem',
   color: 'var(--color-dark)',
@@ -59,10 +59,10 @@ const cardStyle: React.CSSProperties = {
   background: 'rgba(255, 255, 255, 0.72)',
   backdropFilter: 'blur(14px)',
   WebkitBackdropFilter: 'blur(14px)',
-  border: '1px solid rgba(150, 112, 91, 0.16)',
+  border: '1px solid rgba(var(--color-primary-rgb), 0.16)',
   borderRadius: '1.25rem',
   padding: '1.5rem',
-  boxShadow: '0 18px 44px rgba(150, 112, 91, 0.12)',
+  boxShadow: '0 18px 44px rgba(var(--color-primary-rgb), 0.12)',
   marginBottom: '1.25rem',
 }
 
@@ -76,8 +76,8 @@ function PartyLabelChip({ label }: { label: string }) {
         gap: '0.4rem',
         padding: '0.4rem 0.9rem',
         borderRadius: '999px',
-        background: 'rgba(150, 112, 91, 0.10)',
-        border: '1px solid rgba(150, 112, 91, 0.22)',
+        background: 'rgba(var(--color-primary-rgb), 0.10)',
+        border: '1px solid rgba(var(--color-primary-rgb), 0.22)',
         fontSize: '0.8125rem',
         fontWeight: 600,
         color: 'var(--color-dark)',
@@ -188,8 +188,8 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }:
               alignItems: 'flex-start',
               padding: '0.55rem 0.8rem',
               borderRadius: '0.75rem',
-              border: `1px solid ${signerPresent === opt.value ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.2)'}`,
-              background: signerPresent === opt.value ? 'rgba(150, 112, 91, 0.08)' : 'transparent',
+              border: `1px solid ${signerPresent === opt.value ? 'var(--color-primary)' : 'rgba(var(--color-primary-rgb), 0.2)'}`,
+              background: signerPresent === opt.value ? 'rgba(var(--color-primary-rgb), 0.08)' : 'transparent',
               marginBottom: '0.45rem',
               cursor: 'pointer',
               fontSize: '0.875rem',
@@ -434,8 +434,8 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }:
             maxWidth: '22rem',
             margin: '0 auto',
             textAlign: 'left',
-            background: 'rgba(150, 112, 91, 0.06)',
-            border: '1px solid rgba(150, 112, 91, 0.12)',
+            background: 'rgba(var(--color-primary-rgb), 0.06)',
+            border: '1px solid rgba(var(--color-primary-rgb), 0.12)',
             borderRadius: '0.875rem',
             padding: '1rem 1.25rem',
           }}
@@ -485,7 +485,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }:
             padding: '0.8rem',
             borderRadius: '0.875rem',
             border: 'none',
-            background: contact.trim() && !lookupBusy ? 'var(--color-primary)' : 'rgba(150,112,91,0.35)',
+            background: contact.trim() && !lookupBusy ? 'var(--color-primary)' : 'rgba(var(--color-primary-rgb),0.35)',
             color: '#fff',
             fontSize: '1rem',
             fontWeight: 600,
@@ -528,7 +528,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }:
           ]
           const comingCount = roster.filter((r) => attending[r.id]).length
           return (
-            <div style={{ background: 'rgba(150,112,91,0.06)', border: '1px solid rgba(150,112,91,0.12)', borderRadius: '0.875rem', padding: '0.85rem 1rem', textAlign: 'left', maxWidth: '22rem', margin: '0 auto 1.1rem' }}>
+            <div style={{ background: 'rgba(var(--color-primary-rgb),0.06)', border: '1px solid rgba(var(--color-primary-rgb),0.12)', borderRadius: '0.875rem', padding: '0.85rem 1rem', textAlign: 'left', maxWidth: '22rem', margin: '0 auto 1.1rem' }}>
               <p style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-primary)', margin: '0 0 0.5rem' }}>
                 {partyId ? 'Who’s coming?' : 'On file for your household'}
               </p>
@@ -581,7 +581,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }:
                   padding: '0.85rem',
                   borderRadius: '0.875rem',
                   border: 'none',
-                  background: disabled ? 'rgba(150,112,91,0.35)' : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                  background: disabled ? 'rgba(var(--color-primary-rgb),0.35)' : 'var(--color-button)',
                   color: '#fff',
                   fontSize: '1rem',
                   fontWeight: 600,
@@ -637,7 +637,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }:
           style={{
             maxHeight: '20rem',
             overflowY: 'auto',
-            border: '1px solid rgba(150, 112, 91, 0.18)',
+            border: '1px solid rgba(var(--color-primary-rgb), 0.18)',
             borderRadius: '0.75rem',
             padding: '1rem 1.1rem',
             background: 'rgba(255, 255, 255, 0.9)',
@@ -691,7 +691,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }:
         <h2 style={sectionHeadingStyle}>{form.minorsHeading}</h2>
         <p style={sectionNoteStyle}>{form.minorsNote}</p>
         {minors.map((minor, i) => (
-          <div key={i} style={{ border: '1px solid rgba(150,112,91,0.14)', borderRadius: '0.75rem', padding: '0.85rem', marginBottom: '0.75rem', background: 'rgba(150,112,91,0.03)' }}>
+          <div key={i} style={{ border: '1px solid rgba(var(--color-primary-rgb),0.14)', borderRadius: '0.75rem', padding: '0.85rem', marginBottom: '0.75rem', background: 'rgba(var(--color-primary-rgb),0.03)' }}>
             <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-end', flexWrap: 'wrap' }}>
               <div style={{ flex: '2 1 12rem' }}>
                 <label style={labelStyle} htmlFor={`wv-minor-name-${i}`}>Child’s full name</label>
@@ -705,7 +705,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }:
                 type="button"
                 aria-label={`Remove ${minor.name || 'child'}`}
                 onClick={() => setMinors((rows) => rows.filter((_, idx) => idx !== i))}
-                style={{ border: '1px solid rgba(150, 112, 91, 0.25)', background: 'transparent', color: 'var(--color-muted)', borderRadius: '0.625rem', padding: '0.6rem 0.8rem', cursor: 'pointer', fontSize: '0.875rem' }}
+                style={{ border: '1px solid rgba(var(--color-primary-rgb), 0.25)', background: 'transparent', color: 'var(--color-muted)', borderRadius: '0.625rem', padding: '0.6rem 0.8rem', cursor: 'pointer', fontSize: '0.875rem' }}
               >
                 ✕
               </button>
@@ -720,8 +720,8 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }:
           type="button"
           onClick={() => setMinors((rows) => [...rows, { name: '', dob: '', allergies: '' }])}
           style={{
-            border: '1px dashed rgba(150, 112, 91, 0.4)',
-            background: 'rgba(150, 112, 91, 0.05)',
+            border: '1px dashed rgba(var(--color-primary-rgb), 0.4)',
+            background: 'rgba(var(--color-primary-rgb), 0.05)',
             color: 'var(--color-primary)',
             borderRadius: '0.75rem',
             padding: '0.6rem 1rem',
@@ -790,8 +790,8 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }:
               alignItems: 'flex-start',
               padding: '0.7rem 0.85rem',
               borderRadius: '0.75rem',
-              border: `1px solid ${photoConsent === opt.value ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.2)'}`,
-              background: photoConsent === opt.value ? 'rgba(150, 112, 91, 0.08)' : 'transparent',
+              border: `1px solid ${photoConsent === opt.value ? 'var(--color-primary)' : 'rgba(var(--color-primary-rgb), 0.2)'}`,
+              background: photoConsent === opt.value ? 'rgba(var(--color-primary-rgb), 0.08)' : 'transparent',
               marginBottom: '0.5rem',
               cursor: 'pointer',
               fontSize: '0.875rem',
@@ -874,7 +874,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }:
             fontFamily: 'var(--font-heading)',
             fontSize: '1.125rem',
             fontStyle: 'italic',
-            borderColor: signature && !signatureMatches ? 'rgba(220, 38, 38, 0.5)' : 'rgba(150, 112, 91, 0.25)',
+            borderColor: signature && !signatureMatches ? 'rgba(220, 38, 38, 0.5)' : 'rgba(var(--color-primary-rgb), 0.25)',
           }}
           value={signature}
           onChange={(e) => setSignature(e.target.value)}
@@ -928,7 +928,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }:
             padding: '0.85rem',
             borderRadius: '0.875rem',
             border: 'none',
-            background: canSubmit ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.35)',
+            background: canSubmit ? 'var(--color-primary)' : 'rgba(var(--color-primary-rgb), 0.35)',
             color: '#fff',
             fontSize: '1rem',
             fontWeight: 600,

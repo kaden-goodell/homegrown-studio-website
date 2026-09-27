@@ -219,13 +219,17 @@ export const siteConfig: SiteConfig = {
   ],
   openingDate: OPENING_DATE,
   theme: {
+    // These six override the matching tokens in src/styles/global.css (the
+    // layouts inject them). Craft colours and button tokens live in global.css.
+    // Before the Sept 2026 restyle: primary #96705B, text #374151, muted #6b7280.
+    // If you change `primary`, change --color-primary-rgb in global.css to match.
     colors: {
-      primary: '#96705B',
+      primary: '#7a4a2e',
       secondary: '#c4a882',
       accent: '#d4a574',
       background: '#faf8f5',
-      text: '#374151',
-      muted: '#6b7280',
+      text: '#4a403a',
+      muted: '#6f635b',
     },
     fonts: {
       heading: 'Playfair Display',

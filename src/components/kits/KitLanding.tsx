@@ -69,7 +69,7 @@ const SCHEME_GRADIENTS: Record<string, string> = {
   'sweet-sixteen': 'linear-gradient(135deg, rgba(235,140,180,0.30), rgba(250,210,225,0.5))',
 }
 function schemeGradient(scheme: string): string {
-  return SCHEME_GRADIENTS[scheme] ?? 'linear-gradient(135deg, rgba(150,112,91,0.10), rgba(198,167,142,0.20))'
+  return SCHEME_GRADIENTS[scheme] ?? 'linear-gradient(135deg, rgba(var(--color-primary-rgb),0.10), rgba(198,167,142,0.20))'
 }
 
 /** One waitlist card's email capture — shares the party notify-me endpoint.
@@ -103,7 +103,7 @@ function WaitlistCard({ theme }: { theme: Theme }) {
         flexDirection: 'column',
         borderRadius: '1rem',
         overflow: 'hidden',
-        border: '1px solid rgba(150, 112, 91, 0.15)',
+        border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
         background: 'rgba(255, 255, 255, 0.7)',
         opacity: 0.72,
       }}
@@ -122,7 +122,7 @@ function WaitlistCard({ theme }: { theme: Theme }) {
         <span style={{ fontSize: '1.0625rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)' }}>{theme.displayName}</span>
         <p style={{ margin: '0.35rem 0 0.85rem', fontSize: '0.8125rem', lineHeight: 1.5, color: 'var(--color-muted)' }}>{theme.tagline}</p>
         {state === 'done' ? (
-          <span style={{ marginTop: 'auto', fontSize: '0.8125rem', fontWeight: 600, color: 'rgb(34, 197, 94)' }}>
+          <span style={{ marginTop: 'auto', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--craft-green-ink)' }}>
             ✓ You&rsquo;re on the list
           </span>
         ) : (
@@ -132,7 +132,7 @@ function WaitlistCard({ theme }: { theme: Theme }) {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@example.com"
-              style={{ flex: 1, minWidth: 0, padding: '0.5rem 0.7rem', borderRadius: '0.6rem', border: '1px solid rgba(150, 112, 91, 0.2)', background: 'rgba(255,255,255,0.9)', fontSize: '0.8125rem', color: 'var(--color-dark)', outline: 'none', boxSizing: 'border-box' }}
+              style={{ flex: 1, minWidth: 0, padding: '0.5rem 0.7rem', borderRadius: '0.6rem', border: '1px solid rgba(var(--color-primary-rgb), 0.2)', background: 'rgba(255,255,255,0.9)', fontSize: '0.8125rem', color: 'var(--color-dark)', outline: 'none', boxSizing: 'border-box' }}
             />
             <button
               type="button"
@@ -142,7 +142,7 @@ function WaitlistCard({ theme }: { theme: Theme }) {
                 padding: '0.5rem 0.85rem',
                 borderRadius: '0.6rem',
                 border: 'none',
-                background: isValidEmail(email.trim()) && state !== 'sending' ? 'linear-gradient(135deg, var(--color-primary), var(--color-accent))' : 'rgba(150, 112, 91, 0.3)',
+                background: isValidEmail(email.trim()) && state !== 'sending' ? 'var(--color-button)' : 'rgba(var(--color-primary-rgb), 0.3)',
                 color: '#fff',
                 fontSize: '0.8125rem',
                 fontWeight: 600,
@@ -246,7 +246,7 @@ export default function KitLanding() {
         <button
           type="button"
           onClick={loadInfo}
-          style={{ padding: '0.75rem 1.5rem', borderRadius: '0.75rem', border: 'none', background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}
+          style={{ padding: '0.75rem 1.5rem', borderRadius: '0.75rem', border: 'none', background: 'var(--color-button)', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}
         >
           Try again
         </button>
@@ -266,14 +266,14 @@ export default function KitLanding() {
           onClick={() => openModal()}
           style={{
             padding: '0.9rem 2.25rem',
-            background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+            background: 'var(--color-button)',
             color: '#fff',
             border: 'none',
             borderRadius: '0.75rem',
             fontSize: '1rem',
             fontWeight: 600,
             cursor: 'pointer',
-            boxShadow: '0 4px 15px rgba(150, 112, 91, 0.25)',
+            boxShadow: '0 4px 15px rgba(var(--color-primary-rgb), 0.25)',
           }}
         >
           Build your kit
@@ -305,26 +305,26 @@ export default function KitLanding() {
                   padding: 0,
                   borderRadius: '1rem',
                   overflow: 'hidden',
-                  border: '1px solid rgba(150, 112, 91, 0.15)',
+                  border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
                   background: 'rgba(255, 255, 255, 0.9)',
                   cursor: 'pointer',
                   transition: 'box-shadow 0.25s ease, transform 0.25s ease',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 14px 32px rgba(150,112,91,0.18)'; e.currentTarget.style.transform = 'translateY(-3px)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 14px 32px rgba(var(--color-primary-rgb),0.18)'; e.currentTarget.style.transform = 'translateY(-3px)' }}
                 onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}
               >
-                <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, rgba(150,112,91,0.10), rgba(198,167,142,0.20))' }}>
+                <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, rgba(var(--color-primary-rgb),0.10), rgba(198,167,142,0.20))' }}>
                   {craft.imageUrl ? (
                     <img src={craft.imageUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                   ) : (
-                    <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 600, color: 'rgba(150,112,91,0.55)', textAlign: 'center', padding: '0 1rem' }}>{craft.name}</span>
+                    <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 600, color: 'rgba(var(--color-primary-rgb),0.55)', textAlign: 'center', padding: '0 1rem' }}>{craft.name}</span>
                   )}
                   <span style={{ position: 'absolute', top: '0.75rem', right: '0.75rem', background: 'rgba(255,255,255,0.94)', borderRadius: '2rem', padding: '0.28rem 0.7rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-dark)', boxShadow: '0 1px 5px rgba(0,0,0,0.12)' }}>
                     {perPersonLabel(craft.perHeadCents, craft.perHeadMaxCents)}/person
                   </span>
                   {craft.popular && (
-                    <span style={{ position: 'absolute', bottom: '0.75rem', left: '0.75rem', background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))', color: '#fff', borderRadius: '2rem', padding: '0.3rem 0.75rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.02em', boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}>
-                      ♥ Most popular
+                    <span style={{ position: 'absolute', bottom: '0.75rem', left: '0.75rem', background: 'var(--craft-marigold-soft)', color: 'var(--craft-marigold-ink)', borderRadius: '2rem', padding: '0.3rem 0.75rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.02em', boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}>
+                      Our pick
                     </span>
                   )}
                 </div>
@@ -347,7 +347,7 @@ export default function KitLanding() {
               <button
                 type="button"
                 onClick={() => setShowAllCrafts(true)}
-                style={{ padding: '0.65rem 1.5rem', borderRadius: '999px', border: '1px solid rgba(150, 112, 91, 0.3)', background: 'rgba(255, 255, 255, 0.9)', color: 'var(--color-dark)', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}
+                style={{ padding: '0.65rem 1.5rem', borderRadius: '999px', border: '1px solid rgba(var(--color-primary-rgb), 0.3)', background: 'rgba(255, 255, 255, 0.9)', color: 'var(--color-dark)', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}
               >
                 Show all {crafts.length} crafts ↓
               </button>
@@ -381,12 +381,12 @@ export default function KitLanding() {
                     padding: 0,
                     borderRadius: '1rem',
                     overflow: 'hidden',
-                    border: '1px solid rgba(150, 112, 91, 0.15)',
+                    border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
                     background: 'rgba(255, 255, 255, 0.9)',
                     cursor: 'pointer',
                     transition: 'box-shadow 0.25s ease, transform 0.25s ease',
                   }}
-                  onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 14px 32px rgba(150,112,91,0.18)'; e.currentTarget.style.transform = 'translateY(-3px)' }}
+                  onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 14px 32px rgba(var(--color-primary-rgb),0.18)'; e.currentTarget.style.transform = 'translateY(-3px)' }}
                   onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}
                 >
                   <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: schemeGradient(theme.scheme) }}>
@@ -424,14 +424,14 @@ export default function KitLanding() {
           onClick={() => openModal()}
           style={{
             padding: '0.9rem 2.25rem',
-            background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+            background: 'var(--color-button)',
             color: '#fff',
             border: 'none',
             borderRadius: '0.75rem',
             fontSize: '1rem',
             fontWeight: 600,
             cursor: 'pointer',
-            boxShadow: '0 4px 15px rgba(150, 112, 91, 0.25)',
+            boxShadow: '0 4px 15px rgba(var(--color-primary-rgb), 0.25)',
           }}
         >
           Build your kit

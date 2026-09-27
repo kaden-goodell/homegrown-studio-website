@@ -639,8 +639,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     width: '100%',
     padding: '0.875rem',
     background: enabled
-      ? 'linear-gradient(135deg, var(--color-primary), var(--color-accent))'
-      : 'rgba(150, 112, 91, 0.2)',
+      ? 'var(--color-button)'
+      : 'rgba(var(--color-primary-rgb), 0.2)',
     color: '#fff',
     border: 'none',
     borderRadius: '0.75rem',
@@ -648,7 +648,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     fontWeight: 600,
     cursor: enabled ? 'pointer' : 'default',
     opacity: enabled ? 1 : 0.5,
-    boxShadow: enabled ? '0 4px 15px rgba(150, 112, 91, 0.2)' : 'none',
+    boxShadow: enabled ? '0 4px 15px rgba(var(--color-primary-rgb), 0.2)' : 'none',
     transition: 'box-shadow 0.3s ease, transform 0.3s ease',
   })
 
@@ -656,7 +656,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     width: '100%',
     padding: '0.75rem 1rem',
     borderRadius: '0.75rem',
-    border: '1px solid rgba(150, 112, 91, 0.15)',
+    border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
     background: 'rgba(255, 255, 255, 0.8)',
     fontSize: '0.875rem',
     color: 'var(--color-text)',
@@ -678,8 +678,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     gap: '0.4rem',
     padding: '0.35rem 0.75rem',
     borderRadius: '2rem',
-    background: 'rgba(150, 112, 91, 0.08)',
-    border: '1px solid rgba(150, 112, 91, 0.14)',
+    background: 'rgba(var(--color-primary-rgb), 0.08)',
+    border: '1px solid rgba(var(--color-primary-rgb), 0.14)',
     fontSize: '0.75rem',
     fontWeight: 500,
     color: 'var(--color-dark)',
@@ -689,8 +689,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const pillButtonStyle = (active: boolean): React.CSSProperties => ({
     padding: '0.625rem 0.5rem',
     borderRadius: '0.625rem',
-    border: active ? '1px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.15)',
-    background: active ? 'rgba(150, 112, 91, 0.12)' : 'rgba(255, 255, 255, 0.8)',
+    border: active ? '1px solid var(--color-primary)' : '1px solid rgba(var(--color-primary-rgb), 0.15)',
+    background: active ? 'rgba(var(--color-primary-rgb), 0.12)' : 'rgba(255, 255, 255, 0.8)',
     fontSize: '0.8125rem',
     fontWeight: active ? 600 : 500,
     color: 'var(--color-dark)',
@@ -704,8 +704,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     gap: '0.1rem',
     padding: '0.625rem 0.75rem',
     borderRadius: '0.625rem',
-    border: active ? '1px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.15)',
-    background: active ? 'rgba(150, 112, 91, 0.12)' : 'rgba(255, 255, 255, 0.8)',
+    border: active ? '1px solid var(--color-primary)' : '1px solid rgba(var(--color-primary-rgb), 0.15)',
+    background: active ? 'rgba(var(--color-primary-rgb), 0.12)' : 'rgba(255, 255, 255, 0.8)',
     cursor: 'pointer',
     textAlign: 'left',
     transition: 'background 0.2s ease, border-color 0.2s ease',
@@ -868,7 +868,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 width: '100%',
                 padding: '0.55rem 0.75rem',
                 borderRadius: '0.625rem',
-                border: '1px solid rgba(150, 112, 91, 0.25)',
+                border: '1px solid rgba(var(--color-primary-rgb), 0.25)',
                 background: 'rgba(255, 255, 255, 0.85)',
                 fontSize: '0.9375rem',
                 color: 'var(--color-dark)',
@@ -944,7 +944,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               marginTop: '1rem',
               padding: '0.7rem 1.4rem',
               borderRadius: '0.875rem',
-              background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+              background: 'var(--color-button)',
               color: '#fff',
               fontSize: '0.9375rem',
               fontWeight: 600,
@@ -969,7 +969,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 width: '1.375rem',
                 height: '1.375rem',
                 borderRadius: '50%',
-                background: 'rgba(150, 112, 91, 0.12)',
+                background: 'rgba(var(--color-primary-rgb), 0.12)',
                 color: 'var(--color-primary)',
                 fontSize: '0.6875rem',
                 fontWeight: 600,
@@ -1057,15 +1057,15 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                     }}
                     style={{
                       borderRadius: '0.875rem',
-                      border: active ? '2px solid var(--color-primary)' : '1px solid rgba(150, 112, 91, 0.18)',
-                      background: active ? 'rgba(150, 112, 91, 0.08)' : 'rgba(255, 255, 255, 0.85)',
+                      border: active ? '2px solid var(--color-primary)' : '1px solid rgba(var(--color-primary-rgb), 0.18)',
+                      background: active ? 'rgba(var(--color-primary-rgb), 0.08)' : 'rgba(255, 255, 255, 0.85)',
                       overflow: 'hidden',
                       cursor: 'pointer',
                       transition: 'background 0.2s ease, border-color 0.2s ease',
                     }}
                   >
                     {craft.imageUrl && (
-                      <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', background: 'rgba(150, 112, 91, 0.06)' }}>
+                      <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', background: 'rgba(var(--color-primary-rgb), 0.06)' }}>
                         <img
                           src={craft.imageUrl}
                           alt=""
@@ -1101,8 +1101,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                         <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>
                           {craft.name}
                           {craft.popular && (
-                            <span style={{ marginLeft: '0.5rem', verticalAlign: 'middle', display: 'inline-block', background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))', color: '#fff', borderRadius: '2rem', padding: '0.15rem 0.55rem', fontSize: '0.65rem', fontWeight: 700 }}>
-                              ♥ Most popular
+                            <span style={{ marginLeft: '0.5rem', verticalAlign: 'middle', display: 'inline-block', background: 'var(--craft-marigold-soft)', color: 'var(--craft-marigold-ink)', borderRadius: '2rem', padding: '0.15rem 0.55rem', fontSize: '0.65rem', fontWeight: 700 }}>
+                              Our pick
                             </span>
                           )}
                         </span>
@@ -1259,7 +1259,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                     the moment new dates open up.
                   </p>
                   {notifyState === 'done' ? (
-                    <p style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'rgb(34, 197, 94)' }}>
+                    <p style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--craft-green-ink)' }}>
                       ✓ You&rsquo;re on the list — we&rsquo;ll email you when dates open.
                     </p>
                   ) : (
@@ -1384,7 +1384,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                     width: '2.5rem',
                     height: '2.5rem',
                     borderRadius: '0.5rem',
-                    border: '1px solid rgba(150, 112, 91, 0.15)',
+                    border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
                     background: 'rgba(255, 255, 255, 0.8)',
                     fontSize: '1.25rem',
                     cursor: people <= partyConfig.minGuests ? 'default' : 'pointer',
@@ -1406,7 +1406,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                     width: '2.5rem',
                     height: '2.5rem',
                     borderRadius: '0.5rem',
-                    border: '1px solid rgba(150, 112, 91, 0.15)',
+                    border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
                     background: 'rgba(255, 255, 255, 0.8)',
                     fontSize: '1.25rem',
                     cursor: people >= partyConfig.maxGuests ? 'default' : 'pointer',
@@ -1432,11 +1432,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             {/* Live total breakdown */}
             <div style={{
               padding: '1rem 0',
-              borderTop: '1px solid rgba(150, 112, 91, 0.08)',
+              borderTop: '1px solid rgba(var(--color-primary-rgb), 0.08)',
               marginBottom: '1.5rem',
             }}>
               {renderSummaryRows()}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '0.625rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(var(--color-primary-rgb), 0.08)', paddingTop: '0.625rem' }}>
                 <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Due today</span>
                 <span style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--color-dark)' }}>
                   {formatPrice(deposit)}
@@ -1551,11 +1551,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               padding: '1rem 1.25rem',
               borderRadius: '0.75rem',
               background: 'rgba(255, 255, 255, 0.6)',
-              border: '1px solid rgba(150, 112, 91, 0.08)',
+              border: '1px solid rgba(var(--color-primary-rgb), 0.08)',
               marginBottom: '1rem',
             }}>
               {renderSummaryRows()}
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(150, 112, 91, 0.08)', paddingTop: '0.625rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', borderTop: '1px solid rgba(var(--color-primary-rgb), 0.08)', paddingTop: '0.625rem' }}>
                 <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Due today</span>
                 <span style={{ fontSize: '1.125rem', fontWeight: 600, color: 'var(--color-dark)' }}>
                   {formatPrice(deposit)}
@@ -1623,8 +1623,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 marginTop: '1.25rem',
                 padding: '0.875rem',
                 background: processing || !infoValid || !agreedToPolicy
-                  ? 'rgba(150, 112, 91, 0.4)'
-                  : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                  ? 'rgba(var(--color-primary-rgb), 0.4)'
+                  : 'var(--color-button)',
                 color: '#fff',
                 border: 'none',
                 borderRadius: '0.75rem',
@@ -1676,12 +1676,10 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           overflow: 'auto',
           margin: sheetMode ? 0 : '1rem',
           padding: sheetMode ? '1.5rem 1.25rem 2rem' : '2.5rem',
-          background: 'linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0.9) 100%)',
-          backdropFilter: 'blur(32px) saturate(1.4)',
-          WebkitBackdropFilter: 'blur(32px) saturate(1.4)',
-          border: '1px solid rgba(255, 255, 255, 0.6)',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-line)',
           borderRadius: sheetMode ? '1.25rem 1.25rem 0 0' : '1.25rem',
-          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(150, 112, 91, 0.08)',
+          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(var(--color-primary-rgb), 0.08)',
           outline: 'none',
         }}
       >
@@ -1730,7 +1728,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 Step {stepIdx + 1} of {steps.length}
               </span>
             </div>
-            <div style={{ height: '2px', background: 'rgba(150, 112, 91, 0.1)', borderRadius: '1px', overflow: 'hidden' }}>
+            <div style={{ height: '2px', background: 'rgba(var(--color-primary-rgb), 0.1)', borderRadius: '1px', overflow: 'hidden' }}>
               <div
                 role="progressbar"
                 aria-valuenow={stepIdx + 1}
@@ -1739,7 +1737,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 style={{
                   height: '100%',
                   width: `${progress}%`,
-                  background: 'linear-gradient(90deg, var(--color-primary), var(--color-accent))',
+                  background: 'var(--color-primary)',
                   borderRadius: '1px',
                   transition: 'width 0.5s cubic-bezier(0.25, 0.1, 0, 1)',
                 }}
@@ -1846,7 +1844,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                     padding: '0.7rem 1rem',
                     borderRadius: '0.75rem',
                     border: 'none',
-                    background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                    background: 'var(--color-button)',
                     color: '#fff',
                     fontSize: '0.875rem',
                     fontWeight: 600,
@@ -1862,7 +1860,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                     flex: 1,
                     padding: '0.7rem 1rem',
                     borderRadius: '0.75rem',
-                    border: '1px solid rgba(150, 112, 91, 0.3)',
+                    border: '1px solid rgba(var(--color-primary-rgb), 0.3)',
                     background: 'transparent',
                     color: 'var(--color-muted)',
                     fontSize: '0.875rem',

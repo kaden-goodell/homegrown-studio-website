@@ -56,16 +56,16 @@ interface Roster {
 }
 
 const card: React.CSSProperties = {
-  border: '1px solid rgba(150,112,91,0.16)',
+  border: '1px solid rgba(var(--color-primary-rgb),0.16)',
   borderRadius: '1rem',
   padding: '1rem 1.1rem',
-  boxShadow: '0 8px 24px rgba(150,112,91,0.08)',
+  boxShadow: '0 8px 24px rgba(var(--color-primary-rgb),0.08)',
   marginBottom: '0.9rem',
 }
 const btn = (primary = false): React.CSSProperties => ({
   padding: '0.55rem 0.9rem',
   borderRadius: '0.625rem',
-  border: primary ? 'none' : '1px solid rgba(150,112,91,0.3)',
+  border: primary ? 'none' : '1px solid rgba(var(--color-primary-rgb),0.3)',
   background: primary ? 'var(--color-primary)' : 'transparent',
   color: primary ? '#fff' : 'var(--color-dark)',
   fontSize: '0.8125rem',
@@ -75,7 +75,7 @@ const btn = (primary = false): React.CSSProperties => ({
 const field: React.CSSProperties = {
   padding: '0.5rem 0.7rem',
   borderRadius: '0.5rem',
-  border: '1px solid rgba(150,112,91,0.3)',
+  border: '1px solid rgba(var(--color-primary-rgb),0.3)',
   fontSize: '0.875rem',
 }
 
@@ -83,7 +83,7 @@ type Status = 'wait' | 'in' | 'out'
 
 function StatusPill({ status, hereCount, total }: { status: Status; hereCount: number; total: number }) {
   const map = {
-    wait: { bg: 'rgba(150,112,91,0.12)', fg: 'var(--color-muted)', icon: '○', label: 'Not arrived' },
+    wait: { bg: 'rgba(var(--color-primary-rgb),0.12)', fg: 'var(--color-muted)', icon: '○', label: 'Not arrived' },
     in: { bg: 'rgba(34,197,94,0.16)', fg: 'rgb(21,128,61)', icon: '●', label: `${hereCount} of ${total} here` },
     out: { bg: 'rgba(120,120,120,0.14)', fg: '#555', icon: '✓', label: 'All picked up' },
   }[status]
@@ -162,7 +162,7 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
   const selectedOut = herePeople.filter((p) => selOut[p.id] !== false).map((p) => p.id)
   const checkingOutChild = selectedOut.some((id) => id.startsWith('child:'))
 
-  const border = status === 'in' ? 'rgb(34,197,94)' : status === 'out' ? 'rgba(120,120,120,0.4)' : 'rgba(150,112,91,0.3)'
+  const border = status === 'in' ? 'rgb(34,197,94)' : status === 'out' ? 'rgba(120,120,120,0.4)' : 'rgba(var(--color-primary-rgb),0.3)'
   const bg = status === 'in' ? 'rgba(34,197,94,0.04)' : status === 'out' ? 'rgba(120,120,120,0.04)' : 'rgba(255,255,255,0.85)'
 
   async function act(extra: any) {
@@ -243,7 +243,7 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
         {people.map((p) => {
           const st = stateOf(p.id)
           return (
-            <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0', borderTop: '1px solid rgba(150,112,91,0.1)', flexWrap: 'wrap', opacity: st === 'out' ? 0.6 : 1, cursor: st === 'out' ? 'default' : 'pointer' }}>
+            <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0', borderTop: '1px solid rgba(var(--color-primary-rgb),0.1)', flexWrap: 'wrap', opacity: st === 'out' ? 0.6 : 1, cursor: st === 'out' ? 'default' : 'pointer' }}>
               {leftBox(p, st)}
               <span style={{ fontSize: '0.95rem' }}>{p.icon}</span>
               <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9375rem' }}>{p.name}</span>
@@ -275,7 +275,7 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
 
       {/* Pickup code — shown ONCE */}
       {dropOff && oneTimeCode && (
-        <div style={{ marginTop: '0.7rem', background: 'rgba(150,112,91,0.1)', border: '1px solid rgba(150,112,91,0.4)', borderRadius: '0.6rem', padding: '0.7rem 0.8rem', textAlign: 'center' }}>
+        <div style={{ marginTop: '0.7rem', background: 'rgba(var(--color-primary-rgb),0.1)', border: '1px solid rgba(var(--color-primary-rgb),0.4)', borderRadius: '0.6rem', padding: '0.7rem 0.8rem', textAlign: 'center' }}>
           <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)', fontWeight: 700 }}>Pickup code — give to parent now</span>
           <div style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '0.25em', color: 'var(--color-dark)', margin: '0.1rem 0' }}>{oneTimeCode}</div>
           <p style={{ fontSize: '0.7rem', color: 'var(--color-muted)', margin: '0 0 0.5rem' }}>Won’t be shown again — it collects any of their kids. Make sure the parent has it.</p>
@@ -297,7 +297,7 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
 
       {/* Check-out — one code for the family, pick who's leaving now */}
       {herePeople.length > 0 && (
-        <div style={{ marginTop: '0.8rem', borderTop: '1px solid rgba(150,112,91,0.12)', paddingTop: '0.7rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+        <div style={{ marginTop: '0.8rem', borderTop: '1px solid rgba(var(--color-primary-rgb),0.12)', paddingTop: '0.7rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
           {dropOff && checkingOutChild && (
             <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Pickup code" inputMode="numeric" style={{ ...field, width: '6.5rem' }} />
           )}
@@ -325,7 +325,7 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
 
       {/* Check-in — pick who's here (RSVP pre-selected), add late arrivals anytime */}
       {absentPeople.length > 0 && (
-        <div style={{ marginTop: '0.7rem', borderTop: herePeople.length > 0 ? '1px solid rgba(150,112,91,0.12)' : 'none', paddingTop: herePeople.length > 0 ? '0.7rem' : 0 }}>
+        <div style={{ marginTop: '0.7rem', borderTop: herePeople.length > 0 ? '1px solid rgba(var(--color-primary-rgb),0.12)' : 'none', paddingTop: herePeople.length > 0 ? '0.7rem' : 0 }}>
           <button
             type="button"
             disabled={selectedIn.length === 0}
@@ -802,7 +802,7 @@ export default function StaffConsole() {
                 </div>
 
                 {assembly.orders.map((o) => (
-                  <div key={o.orderId} style={{ borderTop: '1px solid rgba(150,112,91,0.12)', marginTop: '0.7rem', paddingTop: '0.6rem' }}>
+                  <div key={o.orderId} style={{ borderTop: '1px solid rgba(var(--color-primary-rgb),0.12)', marginTop: '0.7rem', paddingTop: '0.6rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9rem' }}>{o.contact.name}</span>
                       <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>

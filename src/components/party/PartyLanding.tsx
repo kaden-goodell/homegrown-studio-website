@@ -167,11 +167,11 @@ export default function PartyLanding() {
                   flexDirection: 'column',
                   borderRadius: '1rem',
                   overflow: 'hidden',
-                  border: '1px solid rgba(150, 112, 91, 0.15)',
+                  border: '1px solid rgba(var(--color-primary-rgb), 0.15)',
                   background: 'rgba(255, 255, 255, 0.9)',
                   transition: 'box-shadow 0.25s ease, transform 0.25s ease',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 14px 32px rgba(150,112,91,0.18)'; e.currentTarget.style.transform = 'translateY(-3px)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = '0 14px 32px rgba(var(--color-primary-rgb),0.18)'; e.currentTarget.style.transform = 'translateY(-3px)' }}
                 onMouseLeave={(e) => { e.currentTarget.style.boxShadow = 'none'; e.currentTarget.style.transform = 'none' }}
               >
                 <button
@@ -189,18 +189,18 @@ export default function PartyLanding() {
                   }}
                 >
                   {/* Image (or a tasteful placeholder) — fixed 4:3 so every card aligns */}
-                  <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, rgba(150,112,91,0.10), rgba(198,167,142,0.20))' }}>
+                  <div style={{ position: 'relative', width: '100%', aspectRatio: '4 / 3', overflow: 'hidden', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, rgba(var(--color-primary-rgb),0.10), rgba(198,167,142,0.20))' }}>
                     {craft.imageUrl ? (
                       <img src={craft.imageUrl} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
                     ) : (
-                      <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 600, color: 'rgba(150,112,91,0.55)', textAlign: 'center', padding: '0 1rem' }}>{craft.name}</span>
+                      <span style={{ fontFamily: 'var(--font-heading)', fontSize: '1.25rem', fontWeight: 600, color: 'rgba(var(--color-primary-rgb),0.55)', textAlign: 'center', padding: '0 1rem' }}>{craft.name}</span>
                     )}
                     <span style={{ position: 'absolute', top: '0.75rem', right: '0.75rem', background: 'rgba(255,255,255,0.94)', borderRadius: '2rem', padding: '0.28rem 0.7rem', fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-dark)', boxShadow: '0 1px 5px rgba(0,0,0,0.12)' }}>
                       {perPersonLabel(craft.perHeadCents, craft.perHeadMaxCents)}/person
                     </span>
                     {craft.popular && (
-                      <span style={{ position: 'absolute', bottom: '0.75rem', left: '0.75rem', background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))', color: '#fff', borderRadius: '2rem', padding: '0.3rem 0.75rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.02em', boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}>
-                        ♥ Most popular
+                      <span style={{ position: 'absolute', bottom: '0.75rem', left: '0.75rem', background: 'var(--craft-marigold-soft)', color: 'var(--craft-marigold-ink)', borderRadius: '2rem', padding: '0.3rem 0.75rem', fontSize: '0.72rem', fontWeight: 700, letterSpacing: '0.02em', boxShadow: '0 2px 8px rgba(0,0,0,0.18)' }}>
+                        Our pick
                       </span>
                     )}
                   </div>
@@ -253,7 +253,7 @@ export default function PartyLanding() {
                 style={{
                   padding: '0.65rem 1.5rem',
                   borderRadius: '999px',
-                  border: '1px solid rgba(150, 112, 91, 0.3)',
+                  border: '1px solid rgba(var(--color-primary-rgb), 0.3)',
                   background: 'rgba(255, 255, 255, 0.9)',
                   color: 'var(--color-dark)',
                   fontSize: '0.875rem',
@@ -287,7 +287,7 @@ export default function PartyLanding() {
                 style={{
                   padding: '0.6rem 1rem',
                   borderRadius: '2rem',
-                  border: '1px solid rgba(150, 112, 91, 0.2)',
+                  border: '1px solid rgba(var(--color-primary-rgb), 0.2)',
                   background: 'rgba(255, 255, 255, 0.85)',
                   fontSize: '0.8125rem',
                   fontWeight: 600,
@@ -295,8 +295,8 @@ export default function PartyLanding() {
                   cursor: 'pointer',
                   transition: 'background 0.2s ease, border-color 0.2s ease',
                 }}
-                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-primary)'; e.currentTarget.style.background = 'rgba(150, 112, 91, 0.08)' }}
-                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(150, 112, 91, 0.2)'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.85)' }}
+                onMouseEnter={(e) => { e.currentTarget.style.borderColor = 'var(--color-primary)'; e.currentTarget.style.background = 'rgba(var(--color-primary-rgb), 0.08)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.borderColor = 'rgba(var(--color-primary-rgb), 0.2)'; e.currentTarget.style.background = 'rgba(255, 255, 255, 0.85)' }}
               >
                 {formatDateLabel(d)}
               </button>
@@ -328,7 +328,7 @@ export default function PartyLanding() {
       </div>
 
       {/* Value band — the deposit reframed as what it buys */}
-      <div style={{ maxWidth: '34rem', margin: '0 auto 3.5rem', textAlign: 'center', padding: '2rem', borderRadius: '1rem', background: 'rgba(34, 197, 94, 0.06)', border: '1px solid rgba(34, 197, 94, 0.15)' }}>
+      <div style={{ maxWidth: '34rem', margin: '0 auto 3.5rem', textAlign: 'center', padding: '2rem', borderRadius: '1rem', background: 'var(--tone-party-soft)', border: '1px solid color-mix(in srgb, var(--tone-party) 25%, transparent)' }}>
         <h3 style={{ fontSize: '1.125rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.5rem' }}>
           The Whole Studio Is Yours
         </h3>
@@ -354,8 +354,8 @@ export default function PartyLanding() {
             { step: '3', text: `Pay the $${FEE_DOLLARS} studio fee — the date is yours` },
             { step: '4', text: 'Guests pay for crafts at the studio, based on who comes' },
           ].map(({ step, text }) => (
-            <div key={step} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.875rem 1.25rem', borderRadius: '0.75rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(150, 112, 91, 0.08)' }}>
-              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '1.75rem', height: '1.75rem', borderRadius: '50%', background: 'rgba(150, 112, 91, 0.12)', color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.8125rem', flexShrink: 0 }}>
+            <div key={step} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.875rem 1.25rem', borderRadius: '0.75rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(var(--color-primary-rgb), 0.08)' }}>
+              <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '1.75rem', height: '1.75rem', borderRadius: '50%', background: 'rgba(var(--color-primary-rgb), 0.12)', color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.8125rem', flexShrink: 0 }}>
                 {step}
               </span>
               <span style={{ fontWeight: 500, color: 'var(--color-dark)', fontSize: '0.875rem' }}>{text}</span>
@@ -376,8 +376,8 @@ export default function PartyLanding() {
           background: 'rgba(255, 255, 255, 0.92)',
           backdropFilter: 'blur(16px)',
           WebkitBackdropFilter: 'blur(16px)',
-          borderTop: '1px solid rgba(150, 112, 91, 0.12)',
-          boxShadow: '0 -6px 24px rgba(150, 112, 91, 0.10)',
+          borderTop: '1px solid rgba(var(--color-primary-rgb), 0.12)',
+          boxShadow: '0 -6px 24px rgba(var(--color-primary-rgb), 0.10)',
         }}>
           <button
             type="button"
@@ -385,14 +385,14 @@ export default function PartyLanding() {
             style={{
               width: '100%',
               padding: '0.875rem',
-              background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+              background: 'var(--color-button)',
               color: '#fff',
               border: 'none',
               borderRadius: '0.75rem',
               fontSize: '0.9375rem',
               fontWeight: 600,
               cursor: 'pointer',
-              boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
+              boxShadow: '0 4px 15px rgba(var(--color-primary-rgb), 0.2)',
             }}
           >
             {`Book your date — $${FEE_DOLLARS} holds it`}

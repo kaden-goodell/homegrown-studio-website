@@ -50,7 +50,7 @@ export default function SessionSelectStep() {
               alignItems: 'center',
               padding: '1rem 1.25rem',
               background: selected
-                ? 'linear-gradient(135deg, rgba(150, 112, 91, 0.1) 0%, rgba(150, 112, 91, 0.05) 100%)'
+                ? 'linear-gradient(135deg, rgba(var(--color-primary-rgb), 0.1) 0%, rgba(var(--color-primary-rgb), 0.05) 100%)'
                 : 'linear-gradient(135deg, rgba(255,255,255,0.6) 0%, rgba(255,255,255,0.35) 50%, rgba(255,255,255,0.5) 100%)',
               backdropFilter: 'blur(20px) saturate(1.3)',
               WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
@@ -60,7 +60,7 @@ export default function SessionSelectStep() {
               borderRadius: '0.75rem',
               cursor: closed ? 'not-allowed' : 'pointer',
               opacity: closed ? 0.5 : 1,
-              boxShadow: '0 4px 16px rgba(150, 112, 91, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7)',
+              boxShadow: '0 4px 16px rgba(var(--color-primary-rgb), 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7)',
               transition: 'all 0.3s ease',
               textAlign: 'left',
             }}
@@ -108,7 +108,7 @@ export default function SessionSelectStep() {
         style={{
           marginTop: '0.5rem',
           padding: '0.875rem',
-          background: selectedSessions.length > 0 ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.3)',
+          background: selectedSessions.length > 0 ? 'var(--color-primary)' : 'rgba(var(--color-primary-rgb), 0.3)',
           color: '#fff',
           border: 'none',
           borderRadius: '0.75rem',

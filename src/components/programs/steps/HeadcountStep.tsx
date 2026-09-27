@@ -39,7 +39,7 @@ export default function HeadcountStep() {
             padding: '0.75rem 1rem',
             background: 'rgba(255, 255, 255, 0.75)',
             backdropFilter: 'blur(12px)',
-            border: '1px solid rgba(150, 112, 91, 0.1)',
+            border: '1px solid rgba(var(--color-primary-rgb), 0.1)',
             borderRadius: '0.75rem',
             fontSize: '1rem',
             color: 'var(--color-dark)',

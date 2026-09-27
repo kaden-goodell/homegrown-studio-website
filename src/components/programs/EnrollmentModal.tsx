@@ -123,12 +123,10 @@ function ModalContent({ program, onClose }: EnrollmentModalProps) {
           overflow: 'auto',
           margin: '1rem',
           padding: '2.5rem',
-          background: 'linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0.9) 100%)',
-          backdropFilter: 'blur(32px) saturate(1.4)',
-          WebkitBackdropFilter: 'blur(32px) saturate(1.4)',
-          border: '1px solid rgba(255, 255, 255, 0.6)',
+          background: 'var(--color-surface)',
+          border: '1px solid var(--color-line)',
           borderRadius: '1.25rem',
-          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(150, 112, 91, 0.08)',
+          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(var(--color-primary-rgb), 0.08)',
         }}
       >
         {/* Header */}
@@ -176,7 +174,7 @@ function ModalContent({ program, onClose }: EnrollmentModalProps) {
                 {state.currentStep + 1} / {stepLabels.length}
               </span>
             </div>
-            <div style={{ height: '2px', background: 'rgba(150, 112, 91, 0.1)', borderRadius: '1px', overflow: 'hidden' }}>
+            <div style={{ height: '2px', background: 'rgba(var(--color-primary-rgb), 0.1)', borderRadius: '1px', overflow: 'hidden' }}>
               <div
                 role="progressbar"
                 aria-valuenow={state.currentStep + 1}
@@ -185,7 +183,7 @@ function ModalContent({ program, onClose }: EnrollmentModalProps) {
                 style={{
                   height: '100%',
                   width: `${progress}%`,
-                  background: 'linear-gradient(90deg, var(--color-primary), var(--color-accent))',
+                  background: 'var(--color-primary)',
                   borderRadius: '1px',
                   transition: 'width 0.5s cubic-bezier(0.25, 0.1, 0, 1)',
                 }}

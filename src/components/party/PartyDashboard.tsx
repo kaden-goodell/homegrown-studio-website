@@ -47,10 +47,10 @@ const card: React.CSSProperties = {
   background: 'rgba(255,255,255,0.72)',
   backdropFilter: 'blur(14px)',
   WebkitBackdropFilter: 'blur(14px)',
-  border: '1px solid rgba(150,112,91,0.16)',
+  border: '1px solid rgba(var(--color-primary-rgb),0.16)',
   borderRadius: '1.25rem',
   padding: '1.5rem',
-  boxShadow: '0 18px 44px rgba(150,112,91,0.12)',
+  boxShadow: '0 18px 44px rgba(var(--color-primary-rgb),0.12)',
   marginBottom: '1.25rem',
 }
 
@@ -60,8 +60,8 @@ const chip: React.CSSProperties = {
   gap: '0.4rem',
   padding: '0.5rem 0.9rem',
   borderRadius: '999px',
-  background: 'rgba(150,112,91,0.08)',
-  border: '1px solid rgba(150,112,91,0.16)',
+  background: 'rgba(var(--color-primary-rgb),0.08)',
+  border: '1px solid rgba(var(--color-primary-rgb),0.16)',
   color: 'var(--color-dark)',
   fontSize: '0.8125rem',
   fontWeight: 600,
@@ -172,7 +172,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
     <div>
       {/* Party header */}
       <div style={{ ...card, textAlign: 'center' }}>
-        <p className="uppercase" style={{ letterSpacing: '0.2em', fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-accent)', marginBottom: '0.5rem' }}>
+        <p className="eyebrow tone-party" style={{ marginBottom: '0.5rem' }}>
           Your Party
         </p>
         <h1 style={{ fontSize: '1.75rem', fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0 }}>
@@ -259,7 +259,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
                   ? `just ${first}`
                   : '—'
               return (
-                <div key={i} style={{ padding: '0.85rem 1rem', borderRadius: '0.875rem', background: 'rgba(150,112,91,0.05)', border: '1px solid rgba(150,112,91,0.12)' }}>
+                <div key={i} style={{ padding: '0.85rem 1rem', borderRadius: '0.875rem', background: 'rgba(var(--color-primary-rgb),0.05)', border: '1px solid rgba(var(--color-primary-rgb),0.12)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.35rem' }}>
                     <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9375rem' }}>{h.signer}</span>
                     <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
