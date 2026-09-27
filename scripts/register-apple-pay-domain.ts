@@ -9,12 +9,12 @@ import { SquareClient, SquareEnvironment } from 'square'
  * Usage:
  *   npx tsx scripts/register-apple-pay-domain.ts [domain]
  *
- * Defaults to homegrowncraftstudio.com. Requires the PRODUCTION
+ * Defaults to ourhometownstudio.com. Requires the PRODUCTION
  * SQUARE_ACCESS_TOKEN in .env. Square hosts the Apple domain-verification
  * file automatically for Netlify-served domains after registration.
  */
 
-const domain = process.argv[2] ?? 'homegrowncraftstudio.com'
+const domain = process.argv[2] ?? 'ourhometownstudio.com'
 
 const client = new SquareClient({
   token: process.env.SQUARE_ACCESS_TOKEN!,

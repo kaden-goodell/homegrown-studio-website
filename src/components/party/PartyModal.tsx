@@ -804,7 +804,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           endIso: slotEnd,
           details: confirmInviteUrl
             ? `Your private party at Hometown Studio.\n\nInvitation link for guests: ${confirmInviteUrl}`
-            : 'Private party at Hometown Studio. homegrowncraftstudio.com',
+            : 'Private party at Hometown Studio. ourhometownstudio.com',
           location: 'Hometown Studio',
         }
       : null

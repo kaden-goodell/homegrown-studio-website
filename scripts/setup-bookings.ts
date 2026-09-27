@@ -38,7 +38,7 @@ async function main() {
       teamMember: {
         givenName: 'Studio',
         familyName: 'Host',
-        emailAddress: 'host@homegrowncraftstudio.com',
+        emailAddress: 'host@ourhometownstudio.com',
         status: 'ACTIVE',
         assignedLocations: {
           assignmentType: 'EXPLICIT_LOCATIONS',

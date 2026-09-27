@@ -11,3 +11,16 @@
     Access-Control-Allow-Origin = "*"
     Access-Control-Allow-Methods = "GET, POST, OPTIONS"
     Access-Control-Allow-Headers = "Content-Type"
+
+# Rebrand (Sep 2026): the old domain stays live only to forward people to the new one.
+[[redirects]]
+  from = "https://homegrowncraftstudio.com/*"
+  to = "https://ourhometownstudio.com/:splat"
+  status = 301
+  force = true
+
+[[redirects]]
+  from = "https://www.homegrowncraftstudio.com/*"
+  to = "https://ourhometownstudio.com/:splat"
+  status = 301
+  force = true

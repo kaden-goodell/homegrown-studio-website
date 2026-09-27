@@ -12,7 +12,7 @@ const EVENT = {
   title: 'Junk Journaling Party — Hometown Studio',
   startIso: '2026-07-11T16:30:00.000Z',
   endIso: '2026-07-11T18:00:00.000Z',
-  details: 'Private party at Hometown Studio. homegrowncraftstudio.com',
+  details: 'Private party at Hometown Studio. ourhometownstudio.com',
   location: 'Hometown Studio',
 }
 
@@ -52,8 +52,8 @@ describe('icsDataUrl', () => {
 
 describe('craftShareUrl', () => {
   it('deep-links a craft on /book', () => {
-    expect(craftShareUrl('ABC123', 'https://homegrowncraftstudio.com')).toBe(
-      'https://homegrowncraftstudio.com/book?craft=ABC123'
+    expect(craftShareUrl('ABC123', 'https://ourhometownstudio.com')).toBe(
+      'https://ourhometownstudio.com/book?craft=ABC123'
     )
   })
   it('encodes ids', () => {

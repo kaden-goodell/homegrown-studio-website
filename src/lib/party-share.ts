@@ -38,7 +38,7 @@ function icsEscape(text: string): string {
 
 export function buildIcs(ev: CalendarEventInput): string {
   // Deterministic UID so the same booking never duplicates in a calendar.
-  const uid = `party-${compactUtc(ev.startIso)}@homegrowncraftstudio.com`
+  const uid = `party-${compactUtc(ev.startIso)}@ourhometownstudio.com`
   return [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',

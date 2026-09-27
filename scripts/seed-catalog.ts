@@ -362,7 +362,7 @@ const items: ItemDef[] = [
       totalHours: 3.5,
       pricePerHead: 22500,
       maxCapacity: 12,
-      instructorEmail: 'instructor@homegrowncraftstudio.com',
+      instructorEmail: 'instructor@ourhometownstudio.com',
     },
   },
   {
@@ -383,7 +383,7 @@ const items: ItemDef[] = [
       totalHours: 3,
       pricePerHead: 45000,
       maxCapacity: 10,
-      instructorEmail: 'instructor@homegrowncraftstudio.com',
+      instructorEmail: 'instructor@ourhometownstudio.com',
     },
   },
   {
@@ -405,7 +405,7 @@ const items: ItemDef[] = [
       totalHours: 3,
       pricePerHead: 17500,
       maxCapacity: 12,
-      instructorEmail: 'instructor@homegrowncraftstudio.com',
+      instructorEmail: 'instructor@ourhometownstudio.com',
     },
   },
 ]

@@ -61,7 +61,7 @@ Site runs at http://localhost:4321
 
 ### Netlify Site Info
 - Site name: `iridescent-croissant-494fc3`
-- Custom domain: `homegrowncraftstudio.com`
+- Custom domain: `ourhometownstudio.com` (rebrand 9/27/2026; old `homegrowncraftstudio.com` redirects)
 - Netlify URL: `https://iridescent-croissant-494fc3.netlify.app`
 
 ### Environment Variables (set in Netlify dashboard)
