@@ -68,6 +68,27 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
   const [agreedToPolicy, setAgreedToPolicy] = useState(false)
   const paymentFormRef = useRef<PaymentFormRef>(null)
 
+  // Discard guard (same pattern as PartyModal): once they've started booking,
+  // closing asks first — seats are first-come and people bail by accident.
+  const [confirmDiscard, setConfirmDiscard] = useState(false)
+  const dirty = step > 0 || !!firstName.trim() || !!email.trim()
+  function requestClose() {
+    if (completed || !dirty) return onClose()
+    setConfirmDiscard(true)
+  }
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Escape') return
+      if (confirmDiscard) setConfirmDiscard(false)
+      else requestClose()
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [dirty, completed, confirmDiscard])
+  useEffect(() => {
+    if (completed) setConfirmDiscard(false)
+  }, [completed])
+
   // Cap seats at the class's remaining capacity AND the studio-wide event cap (30).
   const maxSeats = Math.min(workshop.remainingSeats ?? partyConfig.maxGuests, partyConfig.maxGuests)
 
@@ -112,7 +133,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
 
   function handleBack() {
     if (step === 0) {
-      onClose()
+      requestClose()
     } else {
       setStep(step - 1)
     }
@@ -591,7 +612,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
         backdropFilter: 'blur(4px)',
       }}
       onClick={(e) => {
-        if (e.target === e.currentTarget && !completed) onClose()
+        if (e.target === e.currentTarget && !completed) requestClose()
       }}
     >
       <div
@@ -622,7 +643,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="Close"
             style={{
               background: 'none',
@@ -697,6 +718,87 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
             <span style={{ fontSize: '0.875rem' }}>&larr;</span>
             Back
           </button>
+        )}
+
+        {/* Discard prompt — sits above the step content, no native dialogs */}
+        {confirmDiscard && !completed && (
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-label="Leave without your seat?"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setConfirmDiscard(false)
+            }}
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 110,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              background: 'rgba(0, 0, 0, 0.35)',
+              backdropFilter: 'blur(2px)',
+            }}
+          >
+            <div
+              style={{
+                width: 'calc(100% - 3rem)',
+                maxWidth: '22rem',
+                padding: '1.5rem 1.5rem 1.25rem',
+                borderRadius: '1rem',
+                background: 'linear-gradient(135deg, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0.92) 100%)',
+                border: '1px solid rgba(255, 255, 255, 0.6)',
+                boxShadow: '0 24px 60px rgba(0, 0, 0, 0.25)',
+                textAlign: 'center',
+              }}
+            >
+              <p style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                Leave without your seat?
+              </p>
+              <p style={{ margin: '0.4rem 0 1.1rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+                {workshop.remainingSeats !== null
+                  ? `${workshop.remainingSeats} seat${workshop.remainingSeats === 1 ? '' : 's'} left for ${workshop.name} — nothing's saved until you pay.`
+                  : `Nothing's saved until you pay.`}
+              </p>
+              <div style={{ display: 'flex', gap: '0.6rem' }}>
+                <button
+                  type="button"
+                  onClick={() => setConfirmDiscard(false)}
+                  autoFocus
+                  style={{
+                    flex: 1.4,
+                    padding: '0.7rem 1rem',
+                    borderRadius: '0.75rem',
+                    border: 'none',
+                    background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                    color: '#fff',
+                    fontSize: '0.875rem',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Keep my seat
+                </button>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  style={{
+                    flex: 1,
+                    padding: '0.7rem 1rem',
+                    borderRadius: '0.75rem',
+                    border: '1px solid rgba(150, 112, 91, 0.3)',
+                    background: 'transparent',
+                    color: 'var(--color-muted)',
+                    fontSize: '0.875rem',
+                    fontWeight: 500,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Leave
+                </button>
+              </div>
+            </div>
+          </div>
         )}
 
         {/* Step content with transition */}
