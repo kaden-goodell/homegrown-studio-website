@@ -7,7 +7,7 @@ import { createSquareClient } from '@providers/square/client'
 import { partyConfig } from '@config/party.config'
 import type { SquareConfig } from '@config/site.config'
 import { parseOpenStudioWindows } from '@lib/open-studio'
-import { partyStartsInRange, removeBooked } from '@lib/party-slots'
+import { localDate, localToUtcISO, partyStartsInRange, removeBooked } from '@lib/party-slots'
 import {
   buildCalendarEvents,
   type PartyAvailabilitySlot,
@@ -30,8 +30,15 @@ export const GET: APIRoute = async ({ url, request }) => {
     return new Response(JSON.stringify({ error: 'month=YYYY-MM required' }), { status: 400 })
   }
 
-  const monthStart = new Date(`${month}-01T00:00:00Z`)
-  const monthEnd = new Date(Date.UTC(monthStart.getUTCFullYear(), monthStart.getUTCMonth() + 1, 0, 23, 59, 59))
+  // The month is a STUDIO-LOCAL month (America/Chicago), not a UTC one: 7 PM
+  // CDT on Oct 31 is already Nov 1 in UTC. Range queries run from local
+  // midnight on the 1st to the last instant before the next month's, and
+  // membership is decided on each event's local YYYY-MM-DD.
+  const [y, m] = month.split('-').map(Number)
+  const nextMonth = m === 12 ? `${y + 1}-01` : `${y}-${String(m + 1).padStart(2, '0')}`
+  const monthStart = new Date(localToUtcISO(`${month}-01`, '00:00'))
+  const monthEnd = new Date(new Date(localToUtcISO(`${nextMonth}-01`, '00:00')).getTime() - 1)
+  const inMonth = (iso: string) => localDate(iso).startsWith(month)
   const now = new Date()
   const locationId = siteConfig.providers.booking.config.locationId || ''
 
@@ -39,10 +46,7 @@ export const GET: APIRoute = async ({ url, request }) => {
   let workshops: any[] = []
   try {
     const all = await providers.workshop.listWorkshops()
-    workshops = all.filter((w: any) => {
-      const t = new Date(w.startAt).getTime()
-      return t >= monthStart.getTime() && t <= monthEnd.getTime()
-    })
+    workshops = all.filter((w: any) => inMonth(w.startAt))
   } catch (err) {
     logger.error('workshops fetch failed', { error: err instanceof Error ? err.message : String(err) })
   }
@@ -82,7 +86,11 @@ export const GET: APIRoute = async ({ url, request }) => {
         locationId,
       })
       for (const b of bookings) {
-        if (b.status !== 'cancelled' && b.slot?.serviceVariationId === partyVariationId) {
+        if (
+          b.status !== 'cancelled' &&
+          b.slot?.serviceVariationId === partyVariationId &&
+          inMonth(b.slot.startAt)
+        ) {
           partyBooked.push({ startAt: b.slot.startAt })
         }
       }
@@ -101,7 +109,9 @@ export const GET: APIRoute = async ({ url, request }) => {
   const partyAvailable: PartyAvailabilitySlot[] = removeBooked(
     monthStarts,
     partyBooked.map((b) => b.startAt)
-  ).map((startAt) => ({ startAt }))
+  )
+    .filter(inMonth)
+    .map((startAt) => ({ startAt }))
 
   // The calendar stays viewable pre-opening (marketing "What's On"), but:
   //  - nothing before opening day is shown (no stale pre-opening dates), and
@@ -117,7 +127,7 @@ export const GET: APIRoute = async ({ url, request }) => {
     includePartySlots ? partyAvailable : [],
     partyBooked,
   )
-  const events = built.filter((e) => e.date >= OPENING_DATE)
+  const events = built.filter((e) => e.date >= OPENING_DATE && e.date.startsWith(month))
   if (month === OPENING_DATE.slice(0, 7)) {
     events.unshift({
       id: 'grand-opening',

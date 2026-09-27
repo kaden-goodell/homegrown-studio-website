@@ -1,6 +1,12 @@
 import { useState, useMemo, useEffect } from 'react'
 import type { CSSProperties } from 'react'
-import { groupEventsByDay } from './calendar-view-model'
+import {
+  formatClock,
+  formatTimeRange,
+  groupEventsByDay,
+  listRowAction,
+  listRowMeta,
+} from './calendar-view-model'
 import type { CalendarEvent } from './calendar-view-model'
 import { OPENING_DATE } from '@config/opening'
 
@@ -68,7 +74,7 @@ const KIND_LABELS: Record<CalendarEvent['kind'], string> = {
 
 /**
  * Collapse a day's individual party-available slots into ONE inviting chip for
- * the month grid ("🎉 4 party times open" → /book with the date preselected).
+ * the month grid ("4 party times open" → /book with the date preselected).
  * The selected-day detail below the grid still lists each time individually.
  */
 function aggregatePartySlots(dayEvents: CalendarEvent[]): CalendarEvent[] {
@@ -79,7 +85,7 @@ function aggregatePartySlots(dayEvents: CalendarEvent[]): CalendarEvent[] {
   const aggregate: CalendarEvent = {
     id: `party-available-agg-${date}`,
     kind: 'party-available',
-    title: `🎉 ${partySlots.length} party times open`,
+    title: `${partySlots.length} party times open`,
     date,
     startTime: partySlots[0].startTime,
     bookable: true,
@@ -107,10 +113,9 @@ function formatMonthYear(year: number, month: number) {
   })
 }
 
-/** Display-format an "HH:MM" 24h string as 12-hour, e.g. "13:00" → "1:00 PM". */
 /** "7:00 PM" → "7pm", "4:30 PM" → "4:30pm" — compact prefix for grid chips. */
 function chipTime(t?: string) {
-  const full = trimTime(t)
+  const full = formatClock(t)
   const m = full.match(/^(\d{1,2}):(\d{2}) (AM|PM)$/)
   if (!m) return ''
   return `${m[1]}${m[2] === '00' ? '' : ':' + m[2]}${m[3].toLowerCase()}`
@@ -120,27 +125,11 @@ function chipTime(t?: string) {
 // look like missing data. (0 = Sunday.)
 const OPEN_WEEKDAYS = new Set([0, 4, 5, 6])
 
-function trimTime(t?: string) {
-  if (!t) return ''
-  const m = t.match(/^(\d{1,2}):(\d{2})$/)
-  if (!m) return t
-  const h = Number(m[1])
-  const suffix = h >= 12 ? 'PM' : 'AM'
-  const hour12 = h % 12 === 0 ? 12 : h % 12
-  return `${hour12}:${m[2]} ${suffix}`
-}
-
-function timeRange(e: CalendarEvent) {
-  if (!e.startTime) return ''
-  if (!e.endTime) return trimTime(e.startTime)
-  return `${trimTime(e.startTime)}–${trimTime(e.endTime)}`
-}
-
-/** Label shown in a selected-day row, e.g. "Open Studio · 9:00–18:00 (walk-in)". */
+/** Label shown in a selected-day row, e.g. "Open Studio · 9 AM–6 PM (walk-in)". */
 function eventLine(e: CalendarEvent) {
   // Party events carry their own descriptive titles already (time / "Reserved").
   if (e.kind === 'party-available' || e.kind === 'party-booked') return e.title
-  const range = timeRange(e)
+  const range = formatTimeRange(e.startTime, e.endTime)
   const base = range ? `${e.title} · ${range}` : e.title
   if (e.kind === 'open-studio') return `${base} (walk-in)`
   return base
@@ -162,15 +151,14 @@ function formatDayHeading(date: string): string {
 }
 
 /**
- * Where a list-view row links. CalendarEvent.href is already correct per kind
- * (workshop → /workshops?w=<realId>, collapsed party summary → /book?date=<date>
- * from groupEventsByDay). Do NOT build /workshops?w=${e.id} — event ids are
- * prefixed ("workshop-<id>") and would break the deeplink matcher.
+ * Line two of a list row, set so it only ever wraps between items: spaces
+ * inside an item don't break, and the "·" stays at the end of a line.
  */
-function eventHref(e: CalendarEvent): string | null {
-  if (e.kind === 'party-booked') return null // sold out — informational only
-  if (e.kind === 'open-studio') return '/open-studio'
-  return e.href ?? null
+function rowMetaText(e: CalendarEvent): string {
+  return listRowMeta(e)
+    .split(' · ')
+    .map((part) => part.replace(/ /g, ' '))
+    .join(' · ')
 }
 
 /** List|Month toggle pill (inlined; WorkshopExplorer's original is being removed). */
@@ -550,7 +538,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
               ) : (
                 <>
                   {chips.slice(0, 4).map((e) => {
-                    const clickable = e.bookable && !!e.href
+                    const clickable = !!e.href
                     const color = KIND_COLORS[e.kind]
                     const time = e.kind === 'event' ? '' : chipTime(e.startTime)
                     const chipStyle: CSSProperties = {
@@ -660,30 +648,44 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
             </p>
           )}
           {dayGroups.map((day) => (
-            <div key={day.date} className="glass" style={{ borderRadius: '1rem', padding: '1.25rem 1.5rem' }}>
+            <div key={day.date} className="glass" style={{ borderRadius: '1rem', padding: compact ? '1rem' : '1.25rem 1.5rem' }}>
               <p className="font-heading" style={{ fontWeight: 700, color: 'var(--color-dark)', marginBottom: '0.75rem' }}>
                 {formatDayHeading(day.date)}
               </p>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
                 {day.events.map((e) => {
-                  const href = eventHref(e)
+                  // CalendarEvent.href is already correct per kind (workshop →
+                  // /workshops?w=<realId>, party → /book?date=… or ?start=…). Do NOT
+                  // build /workshops?w=${e.id} — event ids are prefixed
+                  // ("workshop-<id>") and would break the deeplink matcher.
+                  const href = e.href
+                  const action = listRowAction(e)
                   const rowStyle: CSSProperties = {
                     display: 'flex',
                     alignItems: 'center',
                     gap: '0.75rem',
+                    minHeight: '2.75rem', // 44px tap target
                     textDecoration: 'none',
-                    padding: '0.5rem 0.75rem',
+                    padding: compact ? '0.5rem' : '0.5rem 0.75rem',
                     borderRadius: '0.625rem',
                     transition: 'background 0.2s ease',
                   }
                   const inner = (
                     <>
-                      <span style={{ width: '0.5rem', height: '0.5rem', borderRadius: '9999px', background: KIND_COLORS[e.kind], flexShrink: 0 }} />
-                      <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-muted)', width: '5.5rem', flexShrink: 0 }}>
-                        {trimTime(e.startTime)}
-                      </span>
-                      <span style={{ fontSize: '0.9375rem', color: 'var(--color-dark)', flex: 1 }}>{e.title}</span>
-                      <span style={{ fontSize: '0.75rem', fontWeight: 600, color: KIND_INK[e.kind], flexShrink: 0 }}>{KIND_LABELS[e.kind]}</span>
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <span style={{ display: 'block', fontSize: '0.9375rem', fontWeight: 600, lineHeight: 1.3, color: 'var(--color-dark)' }}>
+                          {e.title}
+                        </span>
+                        <span style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', marginTop: '0.125rem', fontSize: '0.8125rem', lineHeight: 1.4, color: 'var(--color-text)' }}>
+                          <span aria-hidden="true" style={{ width: '0.5rem', height: '0.5rem', marginTop: '0.35em', borderRadius: '9999px', background: KIND_COLORS[e.kind], flexShrink: 0 }} />
+                          <span style={{ minWidth: 0 }}>{rowMetaText(e)}</span>
+                        </span>
+                      </div>
+                      {action && (
+                        <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: '0.875rem', fontWeight: 600, color: KIND_INK[e.kind] }}>
+                          {action}
+                        </span>
+                      )}
                     </>
                   )
                   return href ? (
@@ -734,7 +736,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
           </p>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
             {selectedEvents.map((e) => {
-              const clickable = e.bookable && !!e.href
+              const clickable = !!e.href
               const rowStyle = {
                 display: 'flex',
                 alignItems: 'center',
