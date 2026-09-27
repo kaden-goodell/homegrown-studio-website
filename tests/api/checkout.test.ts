@@ -70,17 +70,19 @@ describe('checkout API routes', () => {
     expect(body.data.status).toBe('failed')
   })
 
-  it('POST /validate-coupon.json with WELCOME10 returns valid=true', async () => {
+  // Both live codes are switched off: no checkout sends a discount to the charge.
+  it.each(['WELCOME10', 'SPRING25'])('POST /validate-coupon.json with %s returns valid=false (inactive)', async (code) => {
     const ctx = createMockContext({
       method: 'POST',
       url: 'http://localhost/api/checkout/validate-coupon.json',
-      body: { code: 'WELCOME10' },
+      body: { code },
     })
     const response = await validateCoupon(ctx)
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.data).toBeDefined()
-    expect(body.data.valid).toBe(true)
+    expect(body.data.valid).toBe(false)
+    expect(body.data.error).toBe('Coupon is no longer active')
   })
 
   it('POST /validate-coupon.json with FAKECODE returns valid=false', async () => {

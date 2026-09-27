@@ -6,10 +6,9 @@ import { waiverContent } from '@config/waiver-content'
 import type { WorkshopData } from './WorkshopExplorer'
 import DetailsStep from '@components/shared/DetailsStep'
 import OrderSummary from '@components/checkout/OrderSummary'
-import CouponInput from '@components/checkout/CouponInput'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
-import type { LineItem, Discount } from '@providers/interfaces/payment'
+import type { LineItem } from '@providers/interfaces/payment'
 import {
   trackWizardStarted,
   trackPaymentStarted,
@@ -59,7 +58,6 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
 
   // Booking
   const [seats, setSeats] = useState(1)
-  const [discount, setDiscount] = useState<Discount | null>(null)
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [completed, setCompleted] = useState(false)
@@ -121,13 +119,8 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
     quantity: seats,
     pricePerUnit: workshop.price,
   }]
-  const subtotal = lineItems.reduce((sum, item) => sum + item.pricePerUnit * item.quantity, 0)
-  const discountAmount = discount
-    ? discount.type === 'percent'
-      ? Math.round((subtotal * discount.value) / 100)
-      : discount.value
-    : 0
-  const total = subtotal - discountAmount
+  // No discounts here: the server charges seats × seat price, so that's what we show.
+  const total = workshop.price * seats
 
   const progress = completed ? 100 : (step / (STEP_LABELS.length - 1)) * 100
 
@@ -520,14 +513,10 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
           <div>
             <OrderSummary
               lineItems={lineItems}
-              discount={discount}
+              discount={null}
               total={total}
               currency={workshop.currency}
             />
-
-            <div style={{ marginTop: '1rem' }}>
-              <CouponInput onApply={(code, d) => setDiscount(d)} />
-            </div>
 
             <div style={{ marginTop: '1rem' }}>
               <PaymentForm ref={paymentFormRef} applicationIdOverride={CLASS_BOOKING_APP_ID} environmentOverride="production" />
