@@ -1,7 +1,8 @@
 import type { Workshop } from '@providers/interfaces/workshop'
 import type { OpenStudioWindow } from '@lib/open-studio'
 import { localDate, localHour } from '@lib/party-slots'
-import { canBeBooked } from '@lib/workshop-rules'
+import { canBeBooked, seatsLeftLabel } from '@lib/workshop-rules'
+import { formatMoney } from '@lib/money'
 
 /**
  * A normalized event rendered on the read-only "What's On" calendar.
@@ -202,22 +203,11 @@ export function formatTimeRange(start?: string, end?: string): string {
 /** Cents → "$35" for whole dollars, "$32.50" otherwise. Empty when there is no price. */
 export function formatPrice(cents?: number, currency: string = 'USD'): string {
   if (!cents || cents < 0) return ''
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
-    maximumFractionDigits: 2,
-  }).format(cents / 100)
+  return formatMoney(cents, currency)
 }
 
-/** Scarcity only: seats are mentioned once this few remain. */
-const SEATS_LEFT_THRESHOLD = 8
-
-/** "3 seats left" / "1 seat left" when 8 or fewer remain, otherwise empty. */
-export function seatsLeftLabel(remaining?: number): string {
-  if (!remaining || remaining < 1 || remaining > SEATS_LEFT_THRESHOLD) return ''
-  return remaining === 1 ? '1 seat left' : `${remaining} seats left`
-}
+// One wording for seat counts, shared with the workshop cards.
+export { seatsLeftLabel }
 
 /**
  * Line two of a list row, under the title:
