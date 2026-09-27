@@ -1,12 +1,12 @@
 import 'dotenv/config'
 
 /**
- * Update the description (and optionally price) of a CLASS_TICKET workshop item.
+ * Update the description, name, and/or price of a CLASS_TICKET workshop item.
  * Uses raw REST because the v44 SDK's request validation rejects CLASS_TICKET
  * (the API accepts it — see scripts/create-class.ts).
  *
  * Usage:
- *   npx tsx scripts/update-class-description.ts --item <itemId> --description "..." [--price 40]
+ *   npx tsx scripts/update-class-description.ts --item <itemId> [--name "..."] [--description "..."] [--price 40]
  */
 
 const token = process.env.SQUARE_ACCESS_TOKEN!
@@ -15,8 +15,9 @@ const flag = (n: string) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? 
 const itemId = flag('item')
 const description = flag('description')
 const price = flag('price')
-if (!itemId || (!description && !price)) {
-  console.error('Usage: update-class-description.ts --item <id> --description "..." [--price <dollars>]')
+const name = flag('name')
+if (!itemId || (!description && !price && !name)) {
+  console.error('Usage: update-class-description.ts --item <id> [--name "..."] [--description "..."] [--price <dollars>]')
   process.exit(1)
 }
 
@@ -27,6 +28,7 @@ async function main() {
   const obj = got.object
   if (!obj || obj.item_data?.product_type !== 'CLASS_TICKET') { console.error('Not a CLASS_TICKET item:', JSON.stringify(got).slice(0, 300)); process.exit(1) }
   const item_data: any = { ...obj.item_data }
+  if (name) item_data.name = name
   if (description) { item_data.description_html = `<p>${description.replace(/\n\n+/g, '</p><p>').replace(/\n/g, '<br>')}</p>`; delete item_data.description; delete item_data.description_plaintext }
   if (price) {
     const cents = Math.round(Number(price) * 100)
