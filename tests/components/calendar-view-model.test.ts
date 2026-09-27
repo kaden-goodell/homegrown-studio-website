@@ -321,7 +321,7 @@ describe('listRowMeta', () => {
   it('reads the event\'s own line, with no time, when it has one (the Grand Opening)', () => {
     const e = ev({
       kind: 'event',
-      title: 'Grand Opening (tentative)',
+      title: 'Grand Opening',
       detail: 'Doors open. Come see the studio.',
       bookable: false,
       href: '/',

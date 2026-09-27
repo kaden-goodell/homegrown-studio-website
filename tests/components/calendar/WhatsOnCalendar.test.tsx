@@ -64,7 +64,7 @@ const calls = () => (globalThis.fetch as any).mock.calls.map((c: any[]) => Strin
 const GRAND_OPENING: CalendarEvent = {
   id: 'grand-opening',
   kind: 'event',
-  title: 'Grand Opening (tentative)',
+  title: 'Grand Opening',
   detail: 'Doors open. Come see the studio.',
   date: '2026-10-16',
   bookable: false,
@@ -188,10 +188,10 @@ describe('WhatsOnCalendar list rows (HOM-179)', () => {
   it('makes the Grand Opening a tappable row: title, then "Doors open. Come see the studio."', async () => {
     stubCalendarApi([GRAND_OPENING])
     render(<WhatsOnCalendar />)
-    const row = await rowFor('Grand Opening (tentative)')
+    const row = await rowFor('Grand Opening')
     expect(row.tagName).toBe('A')
     expect(row).toHaveAttribute('href', '/')
-    expect(spaced(row.textContent)).toBe('Grand Opening (tentative)Doors open. Come see the studio.')
+    expect(spaced(row.textContent)).toBe('Grand OpeningDoors open. Come see the studio.')
   })
 
   it('pads the day card 1.25rem/1.5rem on wide screens and 1rem under 550px', async () => {
@@ -260,7 +260,7 @@ describe('WhatsOnCalendar month view', () => {
     stubCalendarApi([GRAND_OPENING])
     render(<WhatsOnCalendar />)
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
-    const chip = await screen.findByTitle('Grand Opening (tentative)')
+    const chip = await screen.findByTitle('Grand Opening')
     expect(chip.tagName).toBe('A')
     expect(chip).toHaveAttribute('href', '/')
   })
@@ -277,7 +277,7 @@ describe('WhatsOnCalendar month view', () => {
     stubCalendarApi([GRAND_OPENING, EVENTS[0]])
     render(<WhatsOnCalendar />)
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
-    const event = await screen.findByTitle('Grand Opening (tentative)')
+    const event = await screen.findByTitle('Grand Opening')
     const party = await screen.findByTitle('Party available · 9:00 AM')
     expect(event.style.borderLeft).toBe('3px solid var(--tone-event)')
     expect(party.style.borderLeft).toBe('3px solid var(--tone-party)')
@@ -338,7 +338,7 @@ describe('WhatsOnCalendar filters (HOM-192)', () => {
 
   const chip = (name: string) => screen.getByRole('button', { name })
   const listTitles = () =>
-    ['Fall Earring Bar', 'Private party times', '1 party booked', 'Open Studio', 'Grand Opening (tentative)'].filter(
+    ['Fall Earring Bar', 'Private party times', '1 party booked', 'Open Studio', 'Grand Opening'].filter(
       (t) => screen.queryByText(t) !== null
     )
 
@@ -382,7 +382,7 @@ describe('WhatsOnCalendar filters (HOM-192)', () => {
     expect(screen.queryByTitle('Open Studio')).toBeNull()
     expect(screen.queryByTitle('4 party times open')).toBeNull()
     expect(screen.queryByTitle('1 party booked')).toBeNull()
-    expect(screen.queryByTitle('Grand Opening (tentative)')).toBeNull()
+    expect(screen.queryByTitle('Grand Opening')).toBeNull()
 
     fireEvent.click(chip('Party dates'))
     expect(screen.queryByTitle('Fall Earring Bar')).toBeNull()

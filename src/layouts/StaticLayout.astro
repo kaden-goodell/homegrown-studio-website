@@ -72,7 +72,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     </style>
   </head>
   <body class={textureClass}>
-    <Shimmer enabled={siteConfig.theme.animations.particles} client:load transition:persist />
+    <Shimmer enabled={siteConfig.theme.animations.particles} client:idle transition:persist />
     <Header transition:persist />
     <main transition:animate="fade">
       <slot />

@@ -356,7 +356,7 @@ describe('Shimmer', () => {
 })
 
 describe('where the glitter is mounted', () => {
-  it.each(['src/layouts/Layout.astro'])('%s loads it when the browser is idle, never before the page is usable', async (path) => {
+  it.each(['src/layouts/Layout.astro', 'src/layouts/StaticLayout.astro'])('%s loads it when the browser is idle, never before the page is usable', async (path) => {
     const { readFileSync } = await import('fs')
     const { resolve } = await import('path')
     const layout = readFileSync(resolve(__dirname, '../../..', path), 'utf8')

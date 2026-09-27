@@ -207,7 +207,7 @@ describe('GET /api/calendar.json', () => {
     expect(row).toEqual({
       id: 'grand-opening',
       kind: 'event',
-      title: 'Grand Opening (tentative)',
+      title: 'Grand Opening',
       detail: 'Doors open. Come see the studio.',
       date: '2026-10-16',
       bookable: false,
