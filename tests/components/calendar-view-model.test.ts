@@ -1,12 +1,14 @@
 import { describe, it, expect } from 'vitest'
 import {
   buildCalendarEvents,
+  collapseBookedParties,
   formatClock,
   formatPrice,
   formatTimeRange,
   groupEventsByDay,
   listRowAction,
   listRowMeta,
+  matchesFilter,
   seatsLeftLabel,
 } from '@components/calendar/calendar-view-model'
 import type { CalendarEvent } from '@components/calendar/calendar-view-model'
@@ -101,7 +103,7 @@ describe('groupEventsByDay', () => {
     expect(days[0].events.map((e) => e.id)).toEqual([
       'party-available-agg-2026-07-18', // 9:00 AM, its earliest open slot
       'studio', // 10:00 AM
-      'booked', // 2:00 PM
+      'party-booked-agg-2026-07-18', // 2:00 PM, the one booked party
       'w-early', // 4:00 PM
       'w-late', // 7:00 PM
     ])
@@ -128,6 +130,48 @@ describe('groupEventsByDay', () => {
       '2026-07-11'
     )
     expect(days[0].events.map((e) => e.id)).toEqual(['p1', 'w'])
+  })
+
+  it('collapses booked parties into one row per day, at the earliest one\'s time', () => {
+    const days = groupEventsByDay(
+      [
+        ev({ id: 'b2', kind: 'party-booked', bookable: false, title: 'Booked · private party', startTime: '14:00' }),
+        ev({ id: 'b1', kind: 'party-booked', bookable: false, title: 'Booked · private party', startTime: '09:00' }),
+        ev({ id: 'b3', kind: 'party-booked', bookable: false, title: 'Booked · private party', startTime: '16:30' }),
+        ev({ id: 'w', kind: 'workshop', startTime: '19:00' }),
+      ],
+      '2026-07-11'
+    )
+    expect(days[0].events.map((e) => e.id)).toEqual(['party-booked-agg-2026-07-18', 'w'])
+    const row = days[0].events[0]
+    expect(row).toMatchObject({
+      kind: 'party-booked',
+      title: '3 parties booked',
+      bookedCount: 3,
+      startTime: '09:00',
+      bookable: false,
+    })
+    expect(row.href).toBeUndefined()
+  })
+
+  it('says "1 party booked" for a single booked party', () => {
+    const days = groupEventsByDay(
+      [ev({ id: 'b1', kind: 'party-booked', bookable: false, title: 'Booked · private party', startTime: '13:00' })],
+      '2026-07-11'
+    )
+    expect(days[0].events).toHaveLength(1)
+    expect(days[0].events[0]).toMatchObject({ title: '1 party booked', bookedCount: 1, startTime: '13:00' })
+  })
+
+  it('keeps booked parties on different days apart', () => {
+    const days = groupEventsByDay(
+      [
+        ev({ id: 'b1', kind: 'party-booked', bookable: false, date: '2026-07-18', startTime: '13:00' }),
+        ev({ id: 'b2', kind: 'party-booked', bookable: false, date: '2026-07-19', startTime: '14:00' }),
+      ],
+      '2026-07-11'
+    )
+    expect(days.map((d) => d.events.map((e) => e.title))).toEqual([['1 party booked'], ['1 party booked']])
   })
 
   it('leads the day with a row that has no time, such as the Grand Opening', () => {
@@ -260,13 +304,42 @@ describe('listRowMeta', () => {
   })
 
   it('shows just the start time for a booked party', () => {
-    const e = ev({ kind: 'party-booked', title: 'Booked · private party', bookable: false, startTime: '14:00' })
+    const e = ev({ kind: 'party-booked', title: '1 party booked', bookedCount: 1, bookable: false, startTime: '14:00' })
     expect(listRowMeta(e)).toBe('2:00 PM')
   })
 
-  it('reads "Event" for a timeless marker such as the Grand Opening', () => {
-    const e = ev({ kind: 'event', title: '🎉 Grand Opening (tentative)', bookable: false })
+  it('reads "from {earliest}" when several parties are booked that day', () => {
+    const e = ev({ kind: 'party-booked', title: '3 parties booked', bookedCount: 3, bookable: false, startTime: '09:00' })
+    expect(listRowMeta(e)).toBe('from 9:00 AM')
+  })
+
+  it('reads "Event" for a marker with nothing else to say', () => {
+    const e = ev({ kind: 'event', title: 'Holiday market', bookable: false })
     expect(listRowMeta(e)).toBe('Event')
+  })
+
+  it('reads the event\'s own line, with no time, when it has one (the Grand Opening)', () => {
+    const e = ev({
+      kind: 'event',
+      title: 'Grand Opening (tentative)',
+      detail: 'Doors open. Come see the studio.',
+      bookable: false,
+      href: '/',
+    })
+    expect(listRowMeta(e)).toBe('Doors open. Come see the studio.')
+  })
+
+  it('reads "Sold out" after the price when no seats are left', () => {
+    const e = ev({
+      startTime: '19:00',
+      endTime: '21:00',
+      price: 3500,
+      currency: 'USD',
+      remainingSeats: 0,
+      soldOut: true,
+      bookable: false,
+    })
+    expect(listRowMeta(e)).toBe('Workshop · 7–9 PM · $35 · Sold out')
   })
 })
 
@@ -385,5 +458,81 @@ describe('a workshop with no price yet', () => {
     const [e] = buildCalendarEvents([workshop()], [])
     expect(e.comingSoon).toBeUndefined()
     expect(listRowAction(e)).toBe('Book ›')
+  })
+})
+
+describe('a workshop with no seats left (HOM-190)', () => {
+  it('stays on the calendar, marked sold out, and leads to its own panel on the workshops page', () => {
+    const [e] = buildCalendarEvents([workshop({ availableCapacity: 0 })], [])
+    expect(e).toMatchObject({
+      kind: 'workshop',
+      soldOut: true,
+      bookable: false,
+      href: '/workshops?w=w1',
+      remainingSeats: 0,
+    })
+    expect(e.comingSoon).toBeUndefined()
+  })
+
+  it('reads "Workshop · 7–9 PM · $35 · Sold out" with no booking cue', () => {
+    const [e] = buildCalendarEvents([workshop({ availableCapacity: 0 })], [])
+    expect(listRowMeta(e)).toBe('Workshop · 7–9 PM · $35 · Sold out')
+    expect(listRowAction(e)).toBeNull()
+  })
+
+  it('is "Coming soon", not "Sold out", when it has no price either', () => {
+    const [e] = buildCalendarEvents([workshop({ priceCents: 0, availableCapacity: 0 })], [])
+    expect(e).toMatchObject({ comingSoon: true, bookable: false, href: '/workshops' })
+    expect(e.soldOut).toBeUndefined()
+    expect(listRowMeta(e)).toBe('Workshop · 7–9 PM · Coming soon')
+  })
+
+  it('does not mark a workshop with seats as sold out', () => {
+    const [e] = buildCalendarEvents([workshop({ availableCapacity: 1 })], [])
+    expect(e.soldOut).toBeUndefined()
+    expect(e.bookable).toBe(true)
+  })
+})
+
+describe('matchesFilter (HOM-192)', () => {
+  const rows = [
+    ev({ id: 'w', kind: 'workshop' }),
+    ev({ id: 'pa', kind: 'party-available' }),
+    ev({ id: 'pb', kind: 'party-booked', bookable: false }),
+    ev({ id: 'os', kind: 'open-studio', bookable: false }),
+    ev({ id: 'go', kind: 'event', bookable: false }),
+  ]
+  const shown = (filter: Parameters<typeof matchesFilter>[1]) =>
+    rows.filter((e) => matchesFilter(e, filter)).map((e) => e.id)
+
+  it('"Everything" shows every kind of row', () => {
+    expect(shown('all')).toEqual(['w', 'pa', 'pb', 'os', 'go'])
+  })
+
+  it('"Workshops" shows workshops only', () => {
+    expect(shown('workshops')).toEqual(['w'])
+  })
+
+  it('"Party dates" shows open party times and booked parties, nothing else', () => {
+    expect(shown('parties')).toEqual(['pa', 'pb'])
+  })
+})
+
+describe('collapseBookedParties', () => {
+  it('turns a day\'s booked parties into one entry and leaves the rest alone', () => {
+    const out = collapseBookedParties([
+      ev({ id: 'b1', kind: 'party-booked', bookable: false, startTime: '09:00' }),
+      ev({ id: 'b2', kind: 'party-booked', bookable: false, startTime: '11:30' }),
+      ev({ id: 'b3', kind: 'party-booked', bookable: false, startTime: '14:00' }),
+      ev({ id: 'b4', kind: 'party-booked', bookable: false, startTime: '16:30' }),
+      ev({ id: 'w', kind: 'workshop', startTime: '19:00' }),
+    ])
+    expect(out.map((e) => e.title)).toEqual(['4 parties booked', 'T'])
+    expect(out[0]).toMatchObject({ id: 'party-booked-agg-2026-07-18', startTime: '09:00', bookedCount: 4 })
+  })
+
+  it('returns the day unchanged when no party is booked', () => {
+    const day = [ev({ id: 'w', kind: 'workshop', startTime: '19:00' })]
+    expect(collapseBookedParties(day)).toEqual(day)
   })
 })

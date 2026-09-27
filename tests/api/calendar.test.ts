@@ -201,6 +201,32 @@ describe('GET /api/calendar.json', () => {
     expect(ids((await getMonth('2026-11')).body)).not.toContain('grand-opening')
   })
 
+  it('makes the Grand Opening a tappable row with its own line and no emoji (HOM-192)', async () => {
+    const { body } = await getMonth('2026-10')
+    const row = body.events.find((e: any) => e.id === 'grand-opening')
+    expect(row).toEqual({
+      id: 'grand-opening',
+      kind: 'event',
+      title: 'Grand Opening (tentative)',
+      detail: 'Doors open. Come see the studio.',
+      date: '2026-10-16',
+      bookable: false,
+      // The homepage has no #opening anchor, so the row leads to the top of it.
+      href: '/',
+    })
+    expect(row.startTime).toBeUndefined()
+  })
+
+  it('keeps a sold-out workshop on the calendar, marked sold out (HOM-190)', async () => {
+    mockListWorkshops.mockResolvedValue([workshop({ availableCapacity: 0 })])
+    const { body } = await getMonth('2026-10')
+    expect(body.events.find((e: any) => e.id === 'workshop-w1')).toMatchObject({
+      soldOut: true,
+      bookable: false,
+      href: '/workshops?w=w1',
+    })
+  })
+
   describe('speed: several months in one request', () => {
     async function get(query: string, headers: Record<string, string> = {}) {
       const url = new URL(`http://localhost/api/calendar.json?${query}`)

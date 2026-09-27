@@ -158,9 +158,12 @@ export const GET: APIRoute = async ({ url, request }) => {
     events.unshift({
       id: 'grand-opening',
       kind: 'event',
-      title: '🎉 Grand Opening (tentative)',
+      title: 'Grand Opening (tentative)',
+      detail: 'Doors open. Come see the studio.',
       date: OPENING_DATE,
+      // Not bookable, but tappable: it leads to the homepage.
       bookable: false,
+      href: '/',
     })
   }
   return new Response(JSON.stringify({ events, ...(failed ? { incomplete: true } : {}) }), {

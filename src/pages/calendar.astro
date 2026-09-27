@@ -19,7 +19,7 @@ const bookingsOpen = envBookingsOpen() || previewQueryMatches(Astro.url) || hasV
       <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">Coming up at the studio</h1>
       <p class="text-lg mt-4 max-w-xl mx-auto" style="color: var(--color-muted);">
         {bookingsOpen
-          ? 'Workshops and open party dates. Tap anything to book it.'
+          ? 'Workshops and open party dates. Tap one to book it.'
           : 'Here’s what’s coming. Booking opens with our grand opening, and you can ask to be told the day it does.'}
       </p>
     </div>

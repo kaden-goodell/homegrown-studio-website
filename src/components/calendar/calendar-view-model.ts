@@ -1,7 +1,7 @@
 import type { Workshop } from '@providers/interfaces/workshop'
 import type { OpenStudioWindow } from '@lib/open-studio'
 import { localDate, localHour } from '@lib/party-slots'
-import { canBeBooked, seatsLeftLabel } from '@lib/workshop-rules'
+import { canBeBooked, isSoldOut, seatsLeftLabel } from '@lib/workshop-rules'
 import { formatMoney } from '@lib/money'
 
 /**
@@ -26,8 +26,14 @@ export interface CalendarEvent {
   remainingSeats?: number
   /** Workshops: no price yet, so not for sale. Shown as "Coming soon". */
   comingSoon?: boolean
+  /** Workshops: priced, but no seats left. Shown as "Sold out". Never set with `comingSoon`. */
+  soldOut?: boolean
   /** List-view party row: how many party starts are open that day. */
   openCount?: number
+  /** Collapsed booked-party row: how many parties are booked that day. */
+  bookedCount?: number
+  /** Events: line two in its own words, in place of "Event · time". */
+  detail?: string
   /** Whether this event can be acted on (links to a booking flow). */
   bookable: boolean
   /** Where tapping the event goes: a booking deeplink (workshop modal, party
@@ -99,6 +105,8 @@ export function buildCalendarEvents(
     const start = new Date(w.startAt)
     const end = new Date(start.getTime() + w.durationMinutes * 60_000)
     const forSale = canBeBooked(w.priceCents)
+    // "Coming soon" (no price) wins over "Sold out" when both apply.
+    const soldOut = forSale && isSoldOut(w.availableCapacity)
     events.push({
       id: `workshop-${w.id}`,
       kind: 'workshop',
@@ -110,8 +118,10 @@ export function buildCalendarEvents(
       currency: w.priceCurrency,
       remainingSeats: w.availableCapacity,
       ...(forSale ? {} : { comingSoon: true }),
-      bookable: forSale,
+      ...(soldOut ? { soldOut: true } : {}),
+      bookable: forSale && !soldOut,
       // Not for sale yet: the row leads to the workshops page, not a booking panel.
+      // Sold out: it still leads to its own panel, which says so.
       href: forSale ? `/workshops?w=${encodeURIComponent(w.id)}` : '/workshops',
     })
   }
@@ -211,10 +221,11 @@ export { seatsLeftLabel }
 
 /**
  * Line two of a list row, under the title:
- *   workshop        "Workshop · 7–9 PM · $35 · 3 seats left"
+ *   workshop        "Workshop · 7–9 PM · $35 · 3 seats left" (or "· Sold out", or "· Coming soon")
  *   party-available "4 open · from 9:00 AM"
  *   open-studio     "Walk-in · 4–9 PM"
- * Kinds whose title already names them (booked party) show just the time.
+ *   party-booked    "2:00 PM" for one party, "from 9:00 AM" for several
+ *   event           its own `detail` when it has one, otherwise "Event · time"
  */
 export function listRowMeta(e: CalendarEvent): string {
   const parts: string[] = []
@@ -222,7 +233,7 @@ export function listRowMeta(e: CalendarEvent): string {
     case 'workshop':
       parts.push('Workshop', formatTimeRange(e.startTime, e.endTime))
       if (e.comingSoon) parts.push('Coming soon')
-      else parts.push(formatPrice(e.price, e.currency), seatsLeftLabel(e.remainingSeats))
+      else parts.push(formatPrice(e.price, e.currency), e.soldOut ? 'Sold out' : seatsLeftLabel(e.remainingSeats))
       break
     case 'party-available':
       parts.push(`${e.openCount ?? 1} open`, e.startTime ? `from ${formatClock(e.startTime)}` : '')
@@ -231,10 +242,12 @@ export function listRowMeta(e: CalendarEvent): string {
       parts.push('Walk-in', formatTimeRange(e.startTime, e.endTime))
       break
     case 'party-booked':
-      parts.push(formatTimeRange(e.startTime, e.endTime))
+      if ((e.bookedCount ?? 1) > 1) parts.push(e.startTime ? `from ${formatClock(e.startTime)}` : '')
+      else parts.push(formatTimeRange(e.startTime, e.endTime))
       break
     case 'event':
-      parts.push('Event', formatTimeRange(e.startTime, e.endTime))
+      if (e.detail) parts.push(e.detail)
+      else parts.push('Event', formatTimeRange(e.startTime, e.endTime))
       break
   }
   return parts.filter(Boolean).join(' · ')
@@ -254,8 +267,28 @@ export interface DayGroup {
   events: CalendarEvent[]
 }
 
+/** The filter chips above the calendar. */
+export type CalendarFilter = 'all' | 'workshops' | 'parties'
+
+export const CALENDAR_FILTERS: { id: CalendarFilter; label: string }[] = [
+  { id: 'all', label: 'Everything' },
+  { id: 'workshops', label: 'Workshops' },
+  { id: 'parties', label: 'Party dates' },
+]
+
 const isPartyTime = (e: CalendarEvent) => e.kind === 'party-available'
-const isParty = (e: CalendarEvent) => e.kind === 'party-available' || e.kind === 'party-booked'
+const isBookedParty = (e: CalendarEvent) => e.kind === 'party-booked'
+const isParty = (e: CalendarEvent) => isPartyTime(e) || isBookedParty(e)
+
+/**
+ * Whether a row shows under a filter. The Grand Opening and Open Studio show
+ * under "Everything" only.
+ */
+export function matchesFilter(e: CalendarEvent, filter: CalendarFilter): boolean {
+  if (filter === 'workshops') return e.kind === 'workshop'
+  if (filter === 'parties') return isParty(e)
+  return true
+}
 
 /**
  * Earliest first. A row with no time (an all-day marker such as the Grand
@@ -264,13 +297,39 @@ const isParty = (e: CalendarEvent) => e.kind === 'party-available' || e.kind ===
 const byStart = (a: CalendarEvent, b: CalendarEvent) =>
   (a.startTime ?? '').localeCompare(b.startTime ?? '') || Number(isParty(b)) - Number(isParty(a))
 
+/** "1 party booked" / "3 parties booked" */
+export function bookedPartiesLabel(count: number): string {
+  return count === 1 ? '1 party booked' : `${count} parties booked`
+}
+
+/**
+ * One day's events with its booked parties collapsed to a single entry,
+ * "3 parties booked", at the time of the earliest one. It is not tappable.
+ * Used by the list and by the month grid, where four booked parties would
+ * otherwise push an evening workshop out of the cell. In start-time order.
+ */
+export function collapseBookedParties(dayEvents: CalendarEvent[]): CalendarEvent[] {
+  const booked = dayEvents.filter(isBookedParty).sort(byStart)
+  if (booked.length === 0) return dayEvents
+  const { href: _notTappable, ...earliest } = booked[0]
+  const summary: CalendarEvent = {
+    ...earliest,
+    id: `party-booked-agg-${earliest.date}`,
+    title: bookedPartiesLabel(booked.length),
+    bookedCount: booked.length,
+    bookable: false,
+  }
+  return [...dayEvents.filter((e) => !isBookedParty(e)), summary].sort(byStart)
+}
+
 /**
  * List-view shape: upcoming days only (>= today), ascending, with each day's
  * party-available slots collapsed to a single "Private party times" entry
- * (mirrors the month grid's aggregation — detail lives on /book).
+ * (mirrors the month grid's aggregation — detail lives on /book) and its
+ * booked parties collapsed to a single "3 parties booked" entry.
  *
  * Within a day: by start time, earliest at the top (Kaden, 27 Sep 2026).
- * The party entry takes the time of its earliest open slot.
+ * Each party entry takes the time of its earliest slot.
  */
 export function groupEventsByDay(events: CalendarEvent[], today: string): DayGroup[] {
   const byDate = new Map<string, CalendarEvent[]>()
@@ -300,6 +359,6 @@ export function groupEventsByDay(events: CalendarEvent[], today: string): DayGro
           }),
         })
       }
-      return { date, events: [...party, ...rest].sort(byStart) }
+      return { date, events: collapseBookedParties([...party, ...rest]).sort(byStart) }
     })
 }
