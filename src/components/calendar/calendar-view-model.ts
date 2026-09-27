@@ -155,7 +155,13 @@ export interface DayGroup {
  * List-view shape: upcoming days only (>= today), ascending, with each day's
  * party-available slots collapsed to a single "N party times open" entry
  * (mirrors the month grid's aggregation — detail lives on /book).
+ *
+ * Within a day, the party entry is listed FIRST (Kaden, 2026-09-27: parties
+ * are the headline product), then everything else in time order.
  */
+const isParty = (e: CalendarEvent) => e.kind === 'party-available' || e.kind === 'party-booked'
+const partiesFirst = (evs: CalendarEvent[]) => [...evs.filter(isParty), ...evs.filter((e) => !isParty(e))]
+
 export function groupEventsByDay(events: CalendarEvent[], today: string): DayGroup[] {
   const byDate = new Map<string, CalendarEvent[]>()
   for (const e of events) {
@@ -168,7 +174,7 @@ export function groupEventsByDay(events: CalendarEvent[], today: string): DayGro
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([date, dayEvents]) => {
       const partySlots = dayEvents.filter((e) => e.kind === 'party-available')
-      if (partySlots.length <= 1) return { date, events: dayEvents }
+      if (partySlots.length <= 1) return { date, events: partiesFirst(dayEvents) }
       const rest = dayEvents.filter((e) => e.kind !== 'party-available')
       const summary: CalendarEvent = {
         ...partySlots[0],
@@ -178,6 +184,6 @@ export function groupEventsByDay(events: CalendarEvent[], today: string): DayGro
         // the collapsed row must link date-scoped, matching aggregatePartySlots.
         href: `/book?date=${encodeURIComponent(date)}`,
       }
-      return { date, events: [...rest, summary] }
+      return { date, events: [summary, ...partiesFirst(rest)] }
     })
 }

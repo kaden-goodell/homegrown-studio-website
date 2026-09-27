@@ -41,6 +41,30 @@ describe('groupEventsByDay', () => {
     // slot-specific href — same convention as the month grid's aggregation.
     expect(days[0].events[0].href).toBe('/book?date=2026-07-18')
   })
+
+  it('lists the party entry before workshops within a day, workshops still in time order', () => {
+    const days = groupEventsByDay(
+      [
+        ev({ id: 'w1', date: '2026-07-18', kind: 'workshop', startTime: '2026-07-18T16:00:00Z' }),
+        ev({ id: 'p1', date: '2026-07-18', kind: 'party-available', startTime: '2026-07-18T19:00:00Z' }),
+        ev({ id: 'p2', date: '2026-07-18', kind: 'party-available', startTime: '2026-07-18T21:00:00Z' }),
+        ev({ id: 'w2', date: '2026-07-18', kind: 'workshop', startTime: '2026-07-18T23:00:00Z' }),
+      ],
+      '2026-07-11'
+    )
+    expect(days[0].events.map((e) => e.kind)).toEqual(['party-available', 'workshop', 'workshop'])
+    expect(days[0].events.slice(1).map((e) => e.id)).toEqual(['w1', 'w2'])
+
+    // A day with a single party slot: still first.
+    const single = groupEventsByDay(
+      [
+        ev({ id: 'w1', date: '2026-07-19', kind: 'workshop', startTime: '2026-07-19T16:00:00Z' }),
+        ev({ id: 'p1', date: '2026-07-19', kind: 'party-available', startTime: '2026-07-19T19:00:00Z' }),
+      ],
+      '2026-07-11'
+    )
+    expect(single[0].events.map((e) => e.id)).toEqual(['p1', 'w1'])
+  })
 })
 
 
