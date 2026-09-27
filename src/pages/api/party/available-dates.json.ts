@@ -49,9 +49,25 @@ export const POST: APIRoute = async ({ request }) => {
       }
     }
 
-    const dates = Array.from(
-      new Set(removeBooked(starts, bookedStarts).map((s) => localDate(s)))
-    ).sort()
+    // The open times ride along with each date, so picking a date in the
+    // panel shows its times at once instead of waiting on a second request.
+    const durationMinutes = partyConfig.durationMinutes
+    const times: Record<string, { startAt: string; endAt: string; durationMinutes: number }[]> = {}
+    for (const startAt of removeBooked(starts, bookedStarts)) {
+      const date = localDate(startAt)
+      ;(times[date] ??= []).push({
+        startAt,
+        endAt: new Date(new Date(startAt).getTime() + durationMinutes * 60_000).toISOString(),
+        durationMinutes,
+      })
+    }
+    const dates = Object.keys(times).sort()
+
+    // Dates we offer that have no time left: shown as "Booked", so a customer
+    // can tell "taken" from "not offered".
+    const bookedDates = Array.from(new Set(starts.map((s) => localDate(s))))
+      .filter((d) => !times[d])
+      .sort()
 
     logger.info('Party available-dates complete', {
       duration_ms: Date.now() - startTime,
@@ -60,8 +76,8 @@ export const POST: APIRoute = async ({ request }) => {
     })
 
     return new Response(
-      JSON.stringify({ data: { dates } }),
-      { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=120, s-maxage=300' } }
+      JSON.stringify({ data: { dates, times, bookedDates, windowDays } }),
+      { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
     )
   } catch (error) {
     logger.error('Party available-dates failed', {

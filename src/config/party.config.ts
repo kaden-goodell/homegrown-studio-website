@@ -43,6 +43,8 @@ export const partyConfig = {
   guestQuickPicks: [10, 15, 20, 25],
   /** Party length shown to the customer. */
   durationMinutes: 90,
+  /** How early a host may arrive to set up, in minutes (Kaden, 27 Sep 2026). */
+  hostArrivalMinutesEarly: 30,
   /**
    * How far ahead a party can be booked, in days from today (studio-local).
    * Stays at 45 while the studio is new, so plans can change without

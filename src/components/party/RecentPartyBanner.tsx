@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { loadRecentParty, clearRecentParty, hostPartyUrl, type RecentParty } from '@lib/recent-party'
+import { loadRecentParty, clearRecentParty, hostPartyUrl, RECENT_PARTY_EVENT, type RecentParty } from '@lib/recent-party'
 
 /**
  * Floating banner that lets a host return to their most recent booking's
@@ -11,7 +11,11 @@ export default function RecentPartyBanner() {
   const [recent, setRecent] = useState<RecentParty | null>(null)
 
   useEffect(() => {
-    setRecent(loadRecentParty())
+    // On load, and again whenever a booking is made or cleared on this page.
+    const read = () => setRecent(loadRecentParty())
+    read()
+    window.addEventListener(RECENT_PARTY_EVENT, read)
+    return () => window.removeEventListener(RECENT_PARTY_EVENT, read)
   }, [])
 
   if (!recent) return null
@@ -43,7 +47,7 @@ export default function RecentPartyBanner() {
         }}
       >
         <span style={{ fontSize: '0.9375rem', fontWeight: 500 }}>
-          🎉 Your {recent.craftName} party is booked for {recent.slotLabel}.
+          Your {recent.craftName} party is booked for {recent.slotLabel}.
         </span>
         <a
           href={hostPartyUrl(recent, window.location.origin)}

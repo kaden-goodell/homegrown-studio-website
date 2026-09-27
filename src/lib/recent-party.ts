@@ -18,9 +18,21 @@ export interface RecentParty {
 
 const KEY = 'hg:recent-party'
 
+/** Sent on the window whenever the saved party changes, so the banner can follow without a reload. */
+export const RECENT_PARTY_EVENT = 'hometown:recent-party'
+
+function announce(): void {
+  try {
+    window.dispatchEvent(new CustomEvent(RECENT_PARTY_EVENT))
+  } catch {
+    /* no window (server) — nothing to tell */
+  }
+}
+
 export function saveRecentParty(p: RecentParty): void {
   try {
     localStorage.setItem(KEY, JSON.stringify(p))
+    announce()
   } catch {
     /* storage unavailable (private mode / disabled) — non-fatal */
   }
@@ -46,6 +58,7 @@ export function loadRecentParty(): RecentParty | null {
 export function clearRecentParty(): void {
   try {
     localStorage.removeItem(KEY)
+    announce()
   } catch {
     /* non-fatal */
   }

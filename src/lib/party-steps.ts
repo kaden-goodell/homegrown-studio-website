@@ -1,21 +1,18 @@
 /**
  * Pure step-flow model for the party booking modal.
  *
- * The canonical order is craft → when → who → pay. Steps that arrive already
- * settled (a craft chosen from the gallery, an exact slot from a calendar
- * deeplink) are removed from the flow entirely, so the progress indicator
- * counts only steps the user will actually see.
+ * The canonical order is craft → when → who → pay. An exact time that arrives
+ * from a calendar link is already settled, so that step is removed and the
+ * progress indicator counts only steps the customer will see.
  *
- * A preselected PERSONALIZED craft is NOT settled — its non-refundable
- * acknowledgment lives on the craft step, so the caller keeps that step by
- * passing craftSettled: false.
+ * The craft step is ALWAYS shown, even when a craft was chosen on the page or
+ * came in a shared link: it is where the full description can be read and the
+ * choice changed. The craft arrives selected, so it costs one tap.
  */
 
 export type PartyStepId = 'craft' | 'when' | 'who' | 'theme' | 'pay'
 
 export interface FlowInput {
-  /** Craft preselected AND requires no acknowledgment — drop the craft step. */
-  craftSettled: boolean
   /** A ?start deeplink matched a real available slot — drop the when step. */
   slotSettled: boolean
   /** Themed tables exist for this booking (feature live + stocked). Absent/false drops the step. */
@@ -26,15 +23,14 @@ const ORDER: PartyStepId[] = ['craft', 'when', 'who', 'theme', 'pay']
 
 const LABELS: Record<PartyStepId, string> = {
   craft: 'Craft',
-  when: 'Date & Time',
+  when: 'Date and time',
   who: 'Guests',
-  theme: 'Themed Table',
-  pay: 'Details & Payment',
+  theme: 'Themed table',
+  pay: 'Your details and payment',
 }
 
 export function visibleSteps(input: FlowInput): PartyStepId[] {
   return ORDER.filter((id) => {
-    if (id === 'craft' && input.craftSettled) return false
     if (id === 'when' && input.slotSettled) return false
     if (id === 'theme' && !input.themesAvailable) return false
     return true
