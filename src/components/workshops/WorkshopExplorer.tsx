@@ -4,6 +4,7 @@ import { jsonLdString, workshopEventsJsonLd } from '@lib/seo'
 import { SITE_URL } from '@config/site-url'
 import WorkshopCard from './WorkshopCard'
 import WorkshopBookingModal from './WorkshopBookingModal'
+import { canBeBooked } from '@lib/workshop-rules'
 
 export interface WorkshopData {
   id: string
@@ -18,6 +19,8 @@ export interface WorkshopData {
   duration: number
   price: number
   currency: string
+  /** No price yet: shown as "Coming soon", cannot be booked. */
+  comingSoon?: boolean
   remainingSeats: number | null
   classScheduleId?: string
   classScheduleInstanceId?: string
@@ -100,12 +103,17 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
     const id = new URLSearchParams(window.location.search).get('w')
     if (!id) return
     const target = workshops.find((w) => w.id === id)
-    if (target) setBookingWorkshop(target)
+    // A link to a workshop that isn't for sale yet shows the list, not a booking panel.
+    if (target && canBeBooked(target.price)) setBookingWorkshop(target)
   }, [workshops])
 
   const sorted = [...workshops].sort(
     (a, b) => a.date.localeCompare(b.date) || a.startTime.localeCompare(b.startTime)
   )
+
+  // Google is told only about workshops that can be bought: a class with no
+  // price yet would otherwise be listed as a free event.
+  const forSale = sorted.filter((w) => canBeBooked(w.price))
 
   return (
     <div>
@@ -138,10 +146,10 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
       )}
 
       {/* The same workshops, described for search engines. Only what is on the page. */}
-      {sorted.length > 0 && (
+      {forSale.length > 0 && (
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: jsonLdString(workshopEventsJsonLd(sorted, STUDIO, STUDIO_TZ)) }}
+          dangerouslySetInnerHTML={{ __html: jsonLdString(workshopEventsJsonLd(forSale, STUDIO, STUDIO_TZ)) }}
         />
       )}
 

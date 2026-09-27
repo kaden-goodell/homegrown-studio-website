@@ -31,6 +31,7 @@ export type CheckoutErrorCode =
   | 'slot_taken'
   | 'sold_out'
   | 'already_booked'
+  | 'not_open'
   | 'unavailable'
   | 'unknown_outcome'
 

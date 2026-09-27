@@ -1,5 +1,6 @@
 import type { Workshop } from '@providers/interfaces/workshop'
 import type { WorkshopData } from './WorkshopExplorer'
+import { canBeBooked } from '@lib/workshop-rules'
 
 /**
  * Build the UI view-model from a domain Workshop.
@@ -32,6 +33,7 @@ export function toWorkshopData(w: Workshop): WorkshopData {
     duration: w.durationMinutes,
     price: w.priceCents,
     currency: w.priceCurrency,
+    comingSoon: !canBeBooked(w.priceCents),
     remainingSeats: w.availableCapacity,
     classScheduleId: w.scheduleId,
     classScheduleInstanceId: w.id,

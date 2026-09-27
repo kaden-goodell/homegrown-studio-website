@@ -1,6 +1,7 @@
 import type { Workshop } from '@providers/interfaces/workshop'
 import type { OpenStudioWindow } from '@lib/open-studio'
 import { localDate, localHour } from '@lib/party-slots'
+import { canBeBooked } from '@lib/workshop-rules'
 
 /**
  * A normalized event rendered on the read-only "What's On" calendar.
@@ -22,6 +23,8 @@ export interface CalendarEvent {
   currency?: string
   /** Workshops: seats still open. */
   remainingSeats?: number
+  /** Workshops: no price yet, so not for sale. Shown as "Coming soon". */
+  comingSoon?: boolean
   /** List-view party row: how many party starts are open that day. */
   openCount?: number
   /** Whether this event can be acted on (links to a booking flow). */
@@ -94,6 +97,7 @@ export function buildCalendarEvents(
   for (const w of workshops) {
     const start = new Date(w.startAt)
     const end = new Date(start.getTime() + w.durationMinutes * 60_000)
+    const forSale = canBeBooked(w.priceCents)
     events.push({
       id: `workshop-${w.id}`,
       kind: 'workshop',
@@ -104,8 +108,10 @@ export function buildCalendarEvents(
       price: w.priceCents,
       currency: w.priceCurrency,
       remainingSeats: w.availableCapacity,
-      bookable: true,
-      href: `/workshops?w=${encodeURIComponent(w.id)}`,
+      ...(forSale ? {} : { comingSoon: true }),
+      bookable: forSale,
+      // Not for sale yet: the row leads to the workshops page, not a booking panel.
+      href: forSale ? `/workshops?w=${encodeURIComponent(w.id)}` : '/workshops',
     })
   }
 
@@ -224,12 +230,9 @@ export function listRowMeta(e: CalendarEvent): string {
   const parts: string[] = []
   switch (e.kind) {
     case 'workshop':
-      parts.push(
-        'Workshop',
-        formatTimeRange(e.startTime, e.endTime),
-        formatPrice(e.price, e.currency),
-        seatsLeftLabel(e.remainingSeats)
-      )
+      parts.push('Workshop', formatTimeRange(e.startTime, e.endTime))
+      if (e.comingSoon) parts.push('Coming soon')
+      else parts.push(formatPrice(e.price, e.currency), seatsLeftLabel(e.remainingSeats))
       break
     case 'party-available':
       parts.push(`${e.openCount ?? 1} open`, e.startTime ? `from ${formatClock(e.startTime)}` : '')

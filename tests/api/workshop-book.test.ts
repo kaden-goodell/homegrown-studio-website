@@ -173,14 +173,59 @@ describe('POST /api/workshops/book.json', () => {
       expect((await res.json()).data.emailSent).toBe(true)
       expect(mockSendEmail.mock.calls[0][0].workshopName).toBe('Kinusaiga')
     })
+  })
 
-    it('sends nothing rather than something vague when the workshop cannot be found', async () => {
+  describe('a workshop that is not for sale', () => {
+    async function refused(res: Response, code: string) {
+      const json = await res.json()
+      expect(json.code).toBe(code)
+      expect(json.detail).not.toMatch(TECHNICAL)
+      // Nothing held, nothing charged, nobody told it went through.
+      expect(mockReserve).not.toHaveBeenCalled()
+      expect(mockPay).not.toHaveBeenCalled()
+      expect(mockSendEmail).not.toHaveBeenCalled()
+      return json
+    }
+
+    it('refuses a workshop with a price of zero: there are no free workshops', async () => {
+      mockGetWorkshop.mockResolvedValue({ ...workshop, priceCents: 0 })
+      const res = await POST(ctx(body()))
+      expect(res.status).toBe(409)
+      const json = await refused(res, 'not_open')
+      expect(json.detail).toMatch(/isn’t open for booking yet/)
+      expect(json.detail).toMatch(/nothing was charged/i)
+    })
+
+    it.each([
+      ['no price at all', undefined],
+      ['a price that is not a number', 'free'],
+      ['a negative price', -500],
+    ])('refuses a workshop with %s', async (_name, priceCents) => {
+      mockGetWorkshop.mockResolvedValue({ ...workshop, priceCents })
+      await refused(await POST(ctx(body())), 'not_open')
+    })
+
+    it('refuses when the workshop cannot be found, because it cannot check the price', async () => {
       mockGetWorkshop.mockResolvedValue(null)
       mockListWorkshops.mockResolvedValue([])
       const res = await POST(ctx(body()))
-      expect(res.status).toBe(200)
-      expect((await res.json()).data.emailSent).toBe(false)
-      expect(mockSendEmail).not.toHaveBeenCalled()
+      expect(res.status).toBe(502)
+      await refused(res, 'unavailable')
+    })
+
+    it('refuses when the lookup itself fails', async () => {
+      mockGetWorkshop.mockRejectedValue(new Error('Square Classes API error: 503'))
+      const res = await POST(ctx(body()))
+      expect(res.status).toBe(502)
+      await refused(res, 'unavailable')
+    })
+
+    it('does not trust the id it was sent: the schedule must match too', async () => {
+      // A priced workshop's id, sent with another class's schedule.
+      mockGetWorkshop.mockResolvedValue(workshop)
+      mockListWorkshops.mockResolvedValue([{ ...workshop, id: 'other', scheduleId: 'clssch_free', priceCents: 0 }])
+      const res = await POST(ctx(body({ classScheduleId: 'clssch_free' })))
+      await refused(res, 'not_open')
     })
   })
 

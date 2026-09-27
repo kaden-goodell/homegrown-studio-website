@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent } from '@testing-library/react'
 import WorkshopCard from '@components/workshops/WorkshopCard'
 
 function makeWorkshop(overrides: Partial<Parameters<typeof WorkshopCard>[0]['workshop']> = {}) {
@@ -52,5 +52,38 @@ describe('WorkshopCard', () => {
     const { container } = render(<WorkshopCard workshop={makeWorkshop({ remainingSeats: 0 })} />)
 
     expect(container.innerHTML).toBe('')
+  })
+})
+
+describe('WorkshopCard — a workshop with no price yet', () => {
+  it('says "Coming soon" and shows no price, no seats and no way to book', () => {
+    render(<WorkshopCard workshop={makeWorkshop({ price: 0 })} />)
+
+    expect(screen.getByText('Coming soon')).toBeInTheDocument()
+    expect(screen.queryByText('$0.00')).toBeNull()
+    expect(screen.queryByText(/seats remaining/)).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Book Seat' })).toBeNull()
+  })
+
+  it('offers to tell them when booking opens, and asks for an email only after they tap', () => {
+    render(<WorkshopCard workshop={makeWorkshop({ price: 0 })} />)
+    expect(screen.queryByLabelText('Email address')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Tell me when booking opens' }))
+
+    expect(screen.getByLabelText('Email address')).toBeInTheDocument()
+  })
+
+  it('never calls onBook', () => {
+    const onBook = vi.fn()
+    render(<WorkshopCard workshop={makeWorkshop({ price: 0 })} onBook={onBook} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Tell me when booking opens' }))
+    expect(onBook).not.toHaveBeenCalled()
+  })
+
+  it('leaves a priced workshop exactly as it was', () => {
+    render(<WorkshopCard workshop={makeWorkshop()} />)
+    expect(screen.getByRole('button', { name: 'Book Seat' })).toBeInTheDocument()
+    expect(screen.queryByText('Coming soon')).toBeNull()
   })
 })

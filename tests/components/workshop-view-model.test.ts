@@ -61,3 +61,12 @@ describe('toWorkshopData', () => {
     expect(toWorkshopData(withImage).imageUrl).toBe('/images/workshops/glass-fusing.jpg')
   })
 })
+
+describe('toWorkshopData — coming soon', () => {
+  it('marks a workshop with no price as coming soon', () => {
+    expect(toWorkshopData({ ...SAMPLE, priceCents: 0 }).comingSoon).toBe(true)
+  })
+  it('does not mark a priced workshop', () => {
+    expect(toWorkshopData(SAMPLE).comingSoon).toBe(false)
+  })
+})

@@ -1,4 +1,7 @@
+import { useState } from 'react'
 import type { WorkshopData } from './WorkshopExplorer'
+import NotifyMe from '@components/shared/NotifyMe'
+import { canBeBooked } from '@lib/workshop-rules'
 
 export interface WorkshopCardProps {
   workshop: WorkshopData
@@ -42,7 +45,10 @@ export default function WorkshopCard({ workshop, onBook }: WorkshopCardProps) {
   const dateStr = formatDate(workshop.date)
   const shortDateStr = formatShortDate(workshop.date)
   const timeRange = `${formatTime(workshop.startTime)} - ${formatTime(workshop.endTime)}`
-  const price = formatPrice(workshop.price, workshop.currency)
+  // No price yet means it is not for sale: "Coming soon", and no way to book.
+  const comingSoon = !canBeBooked(workshop.price)
+  const price = comingSoon ? '' : formatPrice(workshop.price, workshop.currency)
+  const [asking, setAsking] = useState(false)
 
   return (
     <div
@@ -72,7 +78,11 @@ export default function WorkshopCard({ workshop, onBook }: WorkshopCardProps) {
           >
             {shortDateStr}
           </span>
-          <span className="text-xl font-bold" style={{ color: 'var(--color-dark, #3d3229)' }}>{price}</span>
+          {comingSoon ? (
+            <span className="chip tone-event">Coming soon</span>
+          ) : (
+            <span className="text-xl font-bold" style={{ color: 'var(--color-dark, #3d3229)' }}>{price}</span>
+          )}
         </div>
 
         <h3 className="text-xl font-bold mb-2" style={{ fontFamily: 'var(--font-heading)', color: 'var(--color-dark, #3d3229)' }}>
@@ -119,11 +129,24 @@ export default function WorkshopCard({ workshop, onBook }: WorkshopCardProps) {
           </span>
           <span>{workshop.duration} min</span>
           <span className="font-medium whitespace-nowrap text-right" style={{ color: 'var(--tone-workshop-ink)', minHeight: '1em' }}>
-            {workshop.remainingSeats !== null ? `${workshop.remainingSeats} seats remaining` : ''}
+            {!comingSoon && workshop.remainingSeats !== null ? `${workshop.remainingSeats} seats remaining` : ''}
           </span>
         </div>
 
-        <button
+        {comingSoon && !asking && (
+          <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setAsking(true)}>
+            Tell me when booking opens
+          </button>
+        )}
+        {comingSoon && asking && (
+          <NotifyMe
+            interest={`workshop-soon:${workshop.name.slice(0, 50)} ${workshop.date}`}
+            buttonLabel="Tell me when booking opens"
+            note="One email when this workshop opens for booking. Nothing else."
+            successText="Got it. We’ll email you when this one opens."
+          />
+        )}
+        {!comingSoon && <button
           type="button"
           onClick={() => onBook?.(workshop)}
           className="block w-full text-center rounded-xl px-6 py-3.5 text-white font-semibold text-sm transition-all duration-300"
@@ -145,7 +168,7 @@ export default function WorkshopCard({ workshop, onBook }: WorkshopCardProps) {
           }}
         >
           Book Seat
-        </button>
+        </button>}
       </div>
     </div>
   )

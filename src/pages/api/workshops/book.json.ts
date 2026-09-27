@@ -17,6 +17,7 @@ import { sendWorkshopConfirmationEmail } from '@lib/email'
 import { buildIcs, googleCalendarUrl, addMinutesIso } from '@lib/party-share'
 import { formatSlotLabel } from '@lib/studio-time'
 import { summarize } from '@lib/seo'
+import { canBeBooked } from '@lib/workshop-rules'
 import type { SeatReservation, Workshop } from '@providers/interfaces/workshop'
 
 const logger = createLogger('api:workshops:book')
@@ -26,7 +27,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 /**
  * Book and pay for workshop seats.
  *
- *   1. find or create the customer
+ *   1. look the workshop up, and find or create the customer
+ *      (a workshop with no price is not for sale and is refused here)
  *   2. hold the seats            (nothing charged)
  *   3. charge and confirm        (one step: both happen or neither)
  *   4. send our confirmation email
@@ -70,14 +72,34 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // Older cached pages may not send one; then every request is its own attempt.
   const attemptId = isAttemptId(body.attemptId) ? body.attemptId : randomUUID()
 
-  // ── 1. Customer ───────────────────────────────────────────────────────────
+  // ── 1. The workshop and the customer, looked up together ───────────────────
+  const [workshopLookup, customerLookup] = await Promise.allSettled([
+    lookUp(typeof body.workshopId === 'string' ? body.workshopId : '', String(classScheduleId), String(startAt)),
+    providers.customer.findOrCreate({ email, givenName, familyName, ...(phone ? { phone } : {}) }),
+  ])
+
+  // The workshop must be one we can see, with a price. If we can't tell, we
+  // don't sell: nothing has been held or charged at this point.
+  if (workshopLookup.status === 'rejected' || !workshopLookup.value) {
+    logger.error('Workshop not found before booking — refusing', {
+      scheduleId: String(classScheduleId),
+      startAt: String(startAt),
+      ...(workshopLookup.status === 'rejected' ? { error: String(workshopLookup.reason) } : {}),
+    })
+    return fail(502, 'unavailable')
+  }
+  const workshop = workshopLookup.value
+  if (!canBeBooked(workshop.priceCents)) {
+    logger.error('Refused a booking for a workshop with no price', { workshopId: workshop.id, name: workshop.name })
+    return fail(409, 'not_open')
+  }
+
   let customerId: string | undefined
-  try {
-    const found = await providers.customer.findOrCreate({ email, givenName, familyName, ...(phone ? { phone } : {}) })
-    customerId = found.id
-  } catch (err) {
+  if (customerLookup.status === 'fulfilled') {
+    customerId = customerLookup.value.id
+  } else {
     // Not fatal: the booking service keeps its own contact for the customer.
-    logger.error('Customer lookup failed — continuing', { error: err instanceof Error ? err.message : String(err) })
+    logger.error('Customer lookup failed — continuing', { error: String(customerLookup.reason) })
   }
 
   // ── 2. Hold the seats ─────────────────────────────────────────────────────
@@ -146,9 +168,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     emailSent = await sendConfirmation({
       request,
       bookingId: booked.bookingId,
-      workshopId: typeof body.workshopId === 'string' ? body.workshopId : '',
-      scheduleId: String(classScheduleId),
-      startAt: String(startAt),
+      workshop,
       seats,
       email,
       givenName,
@@ -192,28 +212,20 @@ async function lookUp(workshopId: string, scheduleId: string, startAt: string): 
     const all = await providers.workshop.listWorkshops()
     return all.find((w) => w.scheduleId === scheduleId && new Date(w.startAt).getTime() === t) ?? null
   }
-  // The customer is waiting on the confirmation screen: don't hold them for a slow lookup.
-  return Promise.race([find(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000))])
+  // Runs before anything is held or charged. A lookup that hangs is a refusal, not a wait.
+  return Promise.race([find(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))])
 }
 
 async function sendConfirmation(input: {
   request: Request
   bookingId: string
-  workshopId: string
-  scheduleId: string
-  startAt: string
+  workshop: Workshop
   seats: number
   email: string
   givenName: string
   receiptUrl: string | null
 }): Promise<boolean> {
-  const workshop = await lookUp(input.workshopId, input.scheduleId, input.startAt).catch(() => null)
-  // Without the workshop's own details we can't write a useful email. Say so
-  // on the confirmation screen (emailSent: false) rather than send a vague one.
-  if (!workshop) {
-    logger.error('Workshop not found for confirmation email', { bookingId: input.bookingId, scheduleId: input.scheduleId })
-    return false
-  }
+  const { workshop } = input
 
   const origin = new URL(input.request.url).origin
   const endIso = addMinutesIso(workshop.startAt, workshop.durationMinutes)

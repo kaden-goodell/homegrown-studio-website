@@ -368,3 +368,22 @@ describe('buildCalendarEvents — studio timezone', () => {
     expect(w2?.date).toBe('2026-08-21') // NOT the UTC next day
   })
 })
+
+describe('a workshop with no price yet', () => {
+  it('is on the calendar but cannot be booked from it', () => {
+    const [e] = buildCalendarEvents([workshop({ priceCents: 0 })], [])
+    expect(e).toMatchObject({ kind: 'workshop', comingSoon: true, bookable: false, href: '/workshops' })
+  })
+
+  it('reads "Coming soon" where the price would be, with no booking cue', () => {
+    const [e] = buildCalendarEvents([workshop({ priceCents: 0 })], [])
+    expect(listRowMeta(e).replaceAll('\u00a0', ' ')).toBe('Workshop · 7–9 PM · Coming soon')
+    expect(listRowAction(e)).toBeNull()
+  })
+
+  it('leaves a priced workshop bookable', () => {
+    const [e] = buildCalendarEvents([workshop()], [])
+    expect(e.comingSoon).toBeUndefined()
+    expect(listRowAction(e)).toBe('Book ›')
+  })
+})

@@ -21,6 +21,7 @@ export const workshopMessages: Record<CheckoutErrorCode, string> = {
   slot_taken: 'The last seat was just taken. Nothing was charged.',
   sold_out: 'The last seat was just taken. Nothing was charged.',
   already_booked: 'You already have a seat in this workshop. Check your email for the confirmation.',
+  not_open: 'This workshop isn’t open for booking yet. Nothing was charged.',
   unavailable: `Something went wrong on our end and nothing was charged. Please try again, or ${TEXT_US}.`,
   unknown_outcome: UNKNOWN_OUTCOME_MESSAGE,
 }
@@ -31,6 +32,7 @@ export const partyMessages: Record<CheckoutErrorCode, string> = {
   slot_taken: 'That time was just booked by someone else. Nothing was charged. Pick another time.',
   sold_out: 'That time was just booked by someone else. Nothing was charged. Pick another time.',
   already_booked: 'You’re already booked for this time. Check your email for the confirmation.',
+  not_open: 'That date isn’t open for booking yet. Nothing was charged.',
   unavailable: `Something went wrong on our end and nothing was charged. Please try again, or ${TEXT_US}.`,
   unknown_outcome: UNKNOWN_OUTCOME_MESSAGE,
 }
