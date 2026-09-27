@@ -51,7 +51,7 @@ Claude Code can't generate images; hand Kaden a prompt to paste into ChatGPT, th
 
 The approved look is **tight on the product, looking down ~45°, tabletop-only background**. His first rejection was a straight-on shot showing the wall/window/room: "want less of the environment and more of the actual thing."
 
-**The real studio (verified 9/27 from Instagram @homegrown_creativestudio + Photos):** tables are **blonde birch/maple butcher block** (warm, light, yellowish — NOT oak, NOT grey); supplies live in **wooden compartment bins**; tools sit in **blush-pink plastic trays**; spindle-back wooden chairs; warm cream walls; a glass-block wall. The brand palette is **bright and saturated** — rainbow pony beads, hot pink/purple/turquoise, rust/orange, red-white-blue — on that warm wood. It is NOT muted pastel. Photos are real, casual phone shots, a little maximalist.
+**The real studio (verified 9/27 from Instagram @homegrown_creativestudio + Photos):** tables are **honey-blonde OAK** — the classic 2000s golden-oak look, visible oak grain, warm and yellowish (Kaden confirmed 9/27; NOT grey, NOT dark); supplies live in **wooden compartment bins**; tools sit in **blush-pink plastic trays**; spindle-back wooden chairs; warm cream walls; a glass-block wall. The brand palette is **bright and saturated** — rainbow pony beads, hot pink/purple/turquoise, rust/orange, red-white-blue — on that warm wood. It is NOT muted pastel. Photos are real, casual phone shots, a little maximalist.
 
 Template — swap the bracketed parts, keep the rest:
 
@@ -64,8 +64,8 @@ thread, a slightly crooked piece] so it looks made by a real person, not
 factory-produced. Camera high, looking down at about a 45-degree angle so
 we see [the top AND the decorated front/side that is the actual craft].
 Close in: the craft fills about 60% of the frame, centered with a little
-breathing room. The background is ONLY a warm blonde birch butcher-block
-tabletop — light yellowish wood with visible grain — no wall, no window,
+breathing room. The background is ONLY a warm honey-blonde oak tabletop —
+classic golden oak with visible grain — no wall, no window,
 no plants, no horizon line. At the edges of the frame, softly out of
 focus: [2–3 of the actual supplies used] and the corner of a blush-pink
 plastic craft tray. Bright, even natural light, shallow depth of field,
