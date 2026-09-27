@@ -171,7 +171,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [slotSettled, setSlotSettled] = useState(false)
   /** The time they wanted has gone. Says so on the date step. */
   const [slotMissed, setSlotMissed] = useState(false)
-  const [askingLater, setAskingLater] = useState(false)
+  /**
+   * The date step is one of two things at a time, never both: picking one of
+   * the open dates, or asking to be told when a later date opens.
+   */
+  const [whenMode, setWhenMode] = useState<'pick' | 'later'>('pick')
   const [laterMonth, setLaterMonth] = useState('')
 
   // Craft
@@ -445,6 +449,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     const prev = prevStep(currentStep, steps)
     setStepProblem('')
     setError(null)
+    setWhenMode('pick')
     if (prev) setCurrentStep(prev)
   }
 
@@ -505,6 +510,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     setSelectedSlot(null)
     setSlotSettled(false) // brings the date step back if a link had removed it
     setSlotMissed(true)
+    setWhenMode('pick')
     setCurrentStep('when')
     if (!info) return
     loadAvailableDates(info.variationId)
@@ -924,13 +930,46 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     )
   }
 
+  /** Someone planning past the booking window: one email, and nothing to pick. */
+  function renderLaterView() {
+    const months = laterMonths(6)
+    return (
+      <div>
+        <p style={sectionLabel}>Planning something later?</p>
+        <p style={{ ...helpText, marginBottom: '1rem' }}>
+          We open dates {partyConfig.bookingWindowDays} days ahead. Leave your email and we’ll tell you the day your date opens.
+        </p>
+        <div className="field" style={{ maxWidth: '26rem', margin: '0 auto 0.75rem' }}>
+          <label className="field-label" htmlFor={`${formId}-later`}>
+            Month you have in mind <span className="field-optional">(optional)</span>
+          </label>
+          <select id={`${formId}-later`} name="month" className="field-input" value={laterMonth} onChange={(e) => setLaterMonth(e.target.value)}>
+            <option value="">Not sure yet</option>
+            {months.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <NotifyMe
+          interest={laterMonth ? `party-later:${laterMonth}` : 'party-later'}
+          buttonLabel="Tell me when it opens"
+          note="One message the day your date opens. Nothing else."
+          successText="Got it. We’ll tell you the day your date opens."
+        />
+      </div>
+    )
+  }
+
   function renderWhenStep() {
+    if (whenMode === 'later') return renderLaterView()
+
     // How many times this day offers, against how many are still open.
     const offered = selectedDate ? partyStartsForDate(selectedDate).length : 0
     const someBooked = !loadingSlots && !slotsError && availableSlots.length > 0 && offered > availableSlots.length
     const onOffer = bookableDates()
     const allDates = [...availableDates, ...bookedDates.filter((d) => d >= onOffer.first && d <= onOffer.last)].sort()
-    const months = laterMonths(6)
 
     return (
       <div>
@@ -1025,38 +1064,22 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           </div>
         )}
 
-        {/* The window, said plainly, with a way in for someone planning further out. */}
-        {!loadingDates && !datesError && (
+        {/* The window, said plainly, with a way out for someone planning further ahead.
+            It leads to its own view: a date is either picked here or asked about there. */}
+        {!loadingDates && !datesError && availableDates.length > 0 && (
           <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--color-line)' }}>
             <p style={helpText}>We open dates {partyConfig.bookingWindowDays} days ahead.</p>
-            {!askingLater ? (
-              <button type="button" className="btn btn-quiet" style={{ width: 'auto', minHeight: '2.75rem' }} onClick={() => setAskingLater(true)}>
-                Planning something later?
-              </button>
-            ) : (
-              <div style={{ marginTop: '0.75rem' }}>
-                <p style={{ ...helpText, marginBottom: '0.75rem' }}>Leave your email and we’ll tell you the day your date opens.</p>
-                <div className="field" style={{ maxWidth: '26rem', margin: '0 auto 0.75rem' }}>
-                  <label className="field-label" htmlFor={`${formId}-later`}>
-                    Month you have in mind <span className="field-optional">(optional)</span>
-                  </label>
-                  <select id={`${formId}-later`} name="month" className="field-input" value={laterMonth} onChange={(e) => setLaterMonth(e.target.value)}>
-                    <option value="">Not sure yet</option>
-                    {months.map((m) => (
-                      <option key={m.value} value={m.value}>
-                        {m.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <NotifyMe
-                  interest={laterMonth ? `party-later:${laterMonth}` : 'party-later'}
-                  buttonLabel="Tell me when it opens"
-                  note="One message the day your date opens. Nothing else."
-                  successText="Got it. We’ll tell you the day your date opens."
-                />
-              </div>
-            )}
+            <button
+              type="button"
+              className="btn btn-quiet"
+              style={{ width: 'auto', minHeight: '2.75rem' }}
+              onClick={() => {
+                setStepProblem('')
+                setWhenMode('later')
+              }}
+            >
+              Planning something later?
+            </button>
           </div>
         )}
       </div>
@@ -1300,6 +1323,12 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         )}
       </>
     )
+  } else if (currentStep === 'when' && whenMode === 'later') {
+    footer = (
+      <button type="button" className="btn btn-secondary" onClick={() => setWhenMode('pick')}>
+        Back to open dates
+      </button>
+    )
   } else {
     const cameFromLink = currentStep === 'craft' && !!initialCraftId && selectedCraft?.id === initialCraftId
     footer = (
@@ -1321,7 +1350,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     <BookingPanel
       title="Book a party"
       onRequestClose={requestClose}
-      stepKey={completed ? 'confirmed' : currentStep}
+      stepKey={completed ? 'confirmed' : currentStep === 'when' ? `when-${whenMode}` : currentStep}
       stepName={completed || !info ? undefined : stepLabel(currentStep)}
       stepNumber={stepIdx + 1}
       stepCount={steps.length}
@@ -1337,12 +1366,23 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 {selectedCraft.name}
               </span>
             )}
-            {selectedSlot && <span style={chipStyle}>{formatSlotLabel(selectedSlot.startAt)}</span>}
+            {selectedSlot && !(currentStep === 'when' && whenMode === 'later') && (
+              <span style={chipStyle}>{formatSlotLabel(selectedSlot.startAt)}</span>
+            )}
             {stepIdx > stepIndex('who', steps) && <span style={chipStyle}>About {people} guests</span>}
           </div>
         ) : undefined
       }
-      onBack={!completed && info && stepIdx > 0 && !processing ? goBack : undefined}
+      onBack={
+        completed || !info || processing
+          ? undefined
+          : currentStep === 'when' && whenMode === 'later'
+            ? // From the "later" view, Back means back to the dates, not back a step.
+              () => setWhenMode('pick')
+            : stepIdx > 0
+              ? goBack
+              : undefined
+      }
       footer={footer}
       leavePrompt={
         askToLeave && !completed

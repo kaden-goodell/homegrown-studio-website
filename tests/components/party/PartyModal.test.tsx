@@ -244,15 +244,75 @@ describe('PartyModal — dates and times', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('Pick a start time to continue.')
   })
 
-  it('states the booking window and gives later planners a way in', async () => {
+  it('states the booking window', async () => {
     open()
     await toWhen()
     expect(screen.getByText('We open dates 45 days ahead.')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Planning something later?' }))
-    const month = screen.getByLabelText('Month you have in mind (optional)') as HTMLSelectElement
-    // The months after the window (which ends 11 Nov 2026).
-    expect(Array.from(month.options).map((o) => o.value).slice(0, 3)).toEqual(['', '2026-12', '2027-01'])
-    expect(screen.getByLabelText('Email address')).toBeInTheDocument()
+  })
+
+  describe('planning something later', () => {
+    async function toLater() {
+      await toWhen()
+      fireEvent.click(screen.getByRole('button', { name: 'Planning something later?' }))
+    }
+
+    it('is its own view: the date picker is not on screen with it', async () => {
+      open()
+      await toLater()
+      expect(screen.getByLabelText('Email address')).toBeInTheDocument()
+      expect(screen.queryByRole('group', { name: 'Dates' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Sat, Oct 17' })).toBeNull()
+      expect(screen.queryByText('Choose a date')).toBeNull()
+    })
+
+    it('offers no Continue: there is nothing to continue to', async () => {
+      open()
+      await toLater()
+      expect(screen.queryByRole('button', { name: 'Continue' })).toBeNull()
+      expect(screen.getByRole('button', { name: 'Back to open dates' })).toBeInTheDocument()
+    })
+
+    it('offers the months after the booking window', async () => {
+      open()
+      await toLater()
+      const month = screen.getByLabelText('Month you have in mind (optional)') as HTMLSelectElement
+      // The window ends 11 Nov 2026.
+      expect(Array.from(month.options).map((o) => o.value).slice(0, 3)).toEqual(['', '2026-12', '2027-01'])
+    })
+
+    it('goes back to the open dates, with a date chosen earlier still chosen', async () => {
+      open()
+      await toWhen()
+      fireEvent.click(screen.getByRole('button', { name: 'Sat, Oct 17' }))
+      fireEvent.click(screen.getByRole('button', { name: '2:00 PM' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Planning something later?' }))
+
+      // While asking about a later date, no time is shown as chosen.
+      expect(screen.queryByText('Sat, Oct 17 · 2:00 PM CT')).toBeNull()
+
+      fireEvent.click(screen.getByRole('button', { name: 'Back to open dates' }))
+      expect(screen.getByRole('button', { name: '2:00 PM' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByText('Sat, Oct 17 · 2:00 PM CT')).toBeInTheDocument()
+      expect(screen.queryByLabelText('Email address')).toBeNull()
+    })
+
+    it('Back returns to the open dates, not to the craft step', async () => {
+      open()
+      await toLater()
+      fireEvent.click(screen.getByRole('button', { name: /^←?\s*Back$/ }))
+      expect(screen.getByRole('group', { name: 'Dates' })).toBeInTheDocument()
+      expect(screen.getByText('Date and time')).toBeInTheDocument()
+    })
+
+    it('is not offered twice: when every date is booked, that sign-up is the only one', async () => {
+      answers['available-dates'] = { body: { data: { dates: [], bookedDates: [SAT], times: {} } } }
+      open()
+      await pickCraft()
+      next()
+      await screen.findByText(/Every party date in the next 45 days is booked/)
+      expect(screen.queryByRole('button', { name: 'Planning something later?' })).toBeNull()
+      expect(screen.getAllByLabelText('Email address')).toHaveLength(1)
+    })
   })
 
   it('offers an email sign-up when every date is booked', async () => {
