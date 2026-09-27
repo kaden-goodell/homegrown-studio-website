@@ -40,6 +40,7 @@ export class SquarePaymentProvider implements PaymentProvider {
     lineItems: LineItem[]
     discounts?: Discount[]
     fulfillment?: { type: 'PICKUP'; pickupAt: string; recipientName: string }
+    idempotencyKey?: string
   }): Promise<Order> {
     logger.info('Creating order', {
       locationId: params.locationId,
@@ -94,6 +95,7 @@ export class SquarePaymentProvider implements PaymentProvider {
       : undefined
 
     const response = await this.client.orders.create({
+      ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
       order: {
         locationId: params.locationId,
         customerId: params.customerId,
@@ -124,6 +126,7 @@ export class SquarePaymentProvider implements PaymentProvider {
     amount: number
     currency: string
     buyerEmailAddress?: string
+    idempotencyKey?: string
   }): Promise<Payment> {
     logger.info('Processing payment', {
       orderId: params.orderId,
@@ -132,7 +135,7 @@ export class SquarePaymentProvider implements PaymentProvider {
 
     const response = await this.client.payments.create({
       sourceId: params.paymentToken,
-      idempotencyKey: crypto.randomUUID(),
+      idempotencyKey: params.idempotencyKey ?? crypto.randomUUID(),
       amountMoney: {
         amount: BigInt(params.amount),
         currency: params.currency as any,
@@ -155,6 +158,28 @@ export class SquarePaymentProvider implements PaymentProvider {
       status: PAYMENT_STATUS_MAP[payment.status as string] ?? 'pending',
       receiptUrl: payment.receiptUrl ?? undefined,
     }
+  }
+
+  async findOrderPayment(orderId: string): Promise<Payment | null> {
+    const response = await this.client.orders.get({ orderId })
+    const order = ((response as any)?.order ?? response) as any
+    // A paid order lists what paid it; each entry carries the payment's id.
+    for (const tender of order?.tenders ?? []) {
+      const paymentId = tender?.paymentId ?? tender?.id
+      if (!paymentId) continue
+      const paymentResponse = await this.client.payments.get({ paymentId })
+      const payment = ((paymentResponse as any)?.payment ?? paymentResponse) as any
+      if (payment?.status !== 'COMPLETED') continue
+      logger.info('Order already paid', { orderId, paymentId })
+      return {
+        id: payment.id ?? paymentId,
+        orderId,
+        amount: Number(payment.amountMoney?.amount ?? 0),
+        status: 'completed',
+        receiptUrl: payment.receiptUrl ?? undefined,
+      }
+    }
+    return null
   }
 
   async refundPayment(input: {

@@ -86,6 +86,21 @@ describe('MockPaymentProvider', () => {
     })
   })
 
+  describe('findOrderPayment', () => {
+    it('finds the payment once an order has been paid, and nothing before', async () => {
+      const provider = new MockPaymentProvider()
+      expect(await provider.findOrderPayment('order-a')).toBeNull()
+      const paid = await provider.processPayment({ orderId: 'order-a', paymentToken: 'tok', amount: 30000, currency: 'USD' })
+      expect(await provider.findOrderPayment('order-a')).toEqual(paid)
+    })
+
+    it('does not count a failed payment', async () => {
+      const provider = new MockPaymentProvider()
+      await provider.processPayment({ orderId: 'order-b', paymentToken: 'FAIL', amount: 30000, currency: 'USD' })
+      expect(await provider.findOrderPayment('order-b')).toBeNull()
+    })
+  })
+
   describe('getClientConfig', () => {
     it('returns sandbox config', () => {
       const config = provider.getClientConfig()

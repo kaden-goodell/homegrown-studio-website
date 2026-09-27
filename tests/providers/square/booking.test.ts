@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { SquareBookingProvider } from '@providers/square/booking'
+import { SquareBookingProvider, rangesOfAtMost } from '@providers/square/booking'
 import type { SquareConfig } from '@config/site.config'
 
 const mockSearchAvailability = vi.fn()
@@ -8,6 +8,7 @@ const mockCancel = vi.fn()
 const mockGet = vi.fn()
 const mockBulkUpsert = vi.fn()
 const mockCustomAttrGet = vi.fn()
+const mockList = vi.fn()
 
 vi.mock('square', () => ({
   SquareClient: class MockSquareClient {
@@ -16,6 +17,7 @@ vi.mock('square', () => ({
       create: mockCreate,
       cancel: mockCancel,
       get: mockGet,
+      list: mockList,
       customAttributes: {
         // Square SDK v44: the bookings custom-attributes batch write is named
         // `batchUpsert` (request type BulkUpsertBookingCustomAttributesRequest).
@@ -420,6 +422,107 @@ describe('SquareBookingProvider', () => {
       mockGet.mockRejectedValue(new Error('Not found'))
 
       await expect(provider.getBooking('BK999')).rejects.toThrow('Not found')
+    })
+  })
+
+  describe('listBookings', () => {
+    const DAY = 24 * 60 * 60 * 1000
+    /** Square's list answers with something you iterate. */
+    const page = (items: any[]) => ({
+      async *[Symbol.asyncIterator]() {
+        yield* items
+      },
+    })
+    const sqBooking = (id: string, startAt: string, status = 'ACCEPTED') => ({
+      id,
+      status,
+      startAt,
+      locationId: 'LOC123',
+      customerId: 'cust-1',
+      version: 0,
+      appointmentSegments: [{ durationMinutes: 150, serviceVariationId: 'SVC1', teamMemberId: 'TEAM1' }],
+    })
+    const daysAsked = (call: any[]) => (Date.parse(call[0].startAtMax) - Date.parse(call[0].startAtMin)) / DAY
+
+    it('asks once for a whole calendar month, the longest range Square accepts', async () => {
+      mockList.mockResolvedValue(page([sqBooking('b1', '2026-10-17T19:00:00Z')]))
+
+      const bookings = await provider.listBookings({ startDate: '2026-10-01T05:00:00.000Z', endDate: '2026-11-01T04:59:59.999Z', locationId: 'LOC123' })
+
+      expect(mockList).toHaveBeenCalledTimes(1)
+      expect(mockList).toHaveBeenCalledWith({ locationId: 'LOC123', startAtMin: '2026-10-01T05:00:00.000Z', startAtMax: '2026-11-01T04:59:59.999Z' })
+      expect(bookings.map((b) => b.id)).toEqual(['b1'])
+    })
+
+    it('splits the 45-day party window into pieces Square accepts, and joins the answers', async () => {
+      mockList
+        .mockResolvedValueOnce(page([sqBooking('early', '2026-10-17T19:00:00Z')]))
+        .mockResolvedValueOnce(page([sqBooking('late', '2026-11-07T19:00:00Z')]))
+      const start = '2026-09-27T21:00:00.000Z'
+      const end = new Date(Date.parse(start) + 45 * DAY).toISOString()
+
+      const bookings = await provider.listBookings({ startDate: start, endDate: end, locationId: 'LOC123' })
+
+      expect(mockList).toHaveBeenCalledTimes(2)
+      for (const call of mockList.mock.calls) expect(daysAsked(call)).toBeLessThanOrEqual(31)
+      // No gap and no overlap: the second piece starts where the first ends.
+      expect(mockList.mock.calls[0][0].startAtMin).toBe(start)
+      expect(mockList.mock.calls[1][0].startAtMin).toBe(mockList.mock.calls[0][0].startAtMax)
+      expect(mockList.mock.calls[1][0].startAtMax).toBe(end)
+      expect(bookings.map((b) => b.id)).toEqual(['early', 'late'])
+    })
+
+    it('counts a booking once when it comes back in two pieces', async () => {
+      mockList
+        .mockResolvedValueOnce(page([sqBooking('on-the-line', '2026-10-27T21:00:00Z')]))
+        .mockResolvedValueOnce(page([sqBooking('on-the-line', '2026-10-27T21:00:00Z')]))
+      const start = '2026-09-27T21:00:00.000Z'
+
+      const bookings = await provider.listBookings({ startDate: start, endDate: new Date(Date.parse(start) + 45 * DAY).toISOString(), locationId: 'LOC123' })
+
+      expect(bookings).toHaveLength(1)
+    })
+
+    it('leaves out cancelled bookings and carries the note and version', async () => {
+      mockList.mockResolvedValue(
+        page([
+          { ...sqBooking('kept', '2026-10-17T19:00:00Z'), customerNote: '{"attempt":"abc"}', version: 3 },
+          sqBooking('gone', '2026-10-18T19:00:00Z', 'CANCELLED_BY_SELLER'),
+        ]),
+      )
+
+      const bookings = await provider.listBookings({ startDate: '2026-10-17T05:00:00.000Z', endDate: '2026-10-19T04:59:59.999Z', locationId: 'LOC123' })
+
+      expect(bookings).toHaveLength(1)
+      expect(bookings[0]).toMatchObject({ id: 'kept', customerNote: '{"attempt":"abc"}', version: 3 })
+    })
+
+    it('fails as a whole if any piece fails, so a caller never trusts half a list', async () => {
+      mockList.mockResolvedValueOnce(page([])).mockRejectedValueOnce(new Error('Status code: 500'))
+      const start = '2026-09-27T21:00:00.000Z'
+      await expect(
+        provider.listBookings({ startDate: start, endDate: new Date(Date.parse(start) + 45 * DAY).toISOString(), locationId: 'LOC123' }),
+      ).rejects.toThrow()
+    })
+  })
+
+  describe('rangesOfAtMost', () => {
+    it('returns the range untouched when it is short enough', () => {
+      expect(rangesOfAtMost('2026-10-17T05:00:00.000Z', '2026-10-18T04:59:59.999Z', 31)).toEqual([
+        ['2026-10-17T05:00:00.000Z', '2026-10-18T04:59:59.999Z'],
+      ])
+    })
+
+    it('covers a long range end to end in pieces of at most the limit', () => {
+      const pieces = rangesOfAtMost('2026-01-01T00:00:00.000Z', '2026-04-11T00:00:00.000Z', 31) // 100 days
+      expect(pieces).toHaveLength(4)
+      expect(pieces[0][0]).toBe('2026-01-01T00:00:00.000Z')
+      expect(pieces[3][1]).toBe('2026-04-11T00:00:00.000Z')
+      for (let i = 1; i < pieces.length; i++) expect(pieces[i][0]).toBe(pieces[i - 1][1])
+    })
+
+    it('passes an empty or backwards range through for the backend to judge', () => {
+      expect(rangesOfAtMost('2026-10-02T00:00:00.000Z', '2026-10-01T00:00:00.000Z', 31)).toHaveLength(1)
     })
   })
 })

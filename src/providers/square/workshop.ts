@@ -1,7 +1,8 @@
-import type { Workshop, WorkshopProvider } from '../interfaces/workshop'
+import type { SeatBooking, SeatReservation, Workshop, WorkshopProvider } from '../interfaces/workshop'
 import type { SquareConfig } from '../../config/site.config'
 import { createSquareClient } from './client'
 import { createLogger } from '../../lib/logger'
+import { SeatBookingError } from '../../lib/errors'
 
 const logger = createLogger('square-workshop')
 const CLASSES_API_BASE = 'https://app.squareup.com/appointments/api/buyer/classes'
@@ -14,8 +15,123 @@ function formatDateWithOffset(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}:${String(date.getSeconds()).padStart(2, '0')}.${String(date.getMilliseconds()).padStart(3, '0')}${sign}${hours}:${minutes}`
 }
 
+/** Square's customer-facing classes service only answers requests that look like its own booking page. */
+const BUYER_HEADERS = {
+  'Content-Type': 'application/json',
+  'Accept': 'application/json',
+  'Origin': 'https://book.squareup.com',
+  'Referer': 'https://book.squareup.com/',
+}
+
 export class SquareWorkshopProvider implements WorkshopProvider {
   constructor(private config: SquareConfig) {}
+
+  private classesUrl(path: string): string {
+    return `${CLASSES_API_BASE}${path}?unit_token=${this.config.locationId}`
+  }
+
+  async reserveSeats(params: {
+    scheduleId: string
+    startAt: string
+    seats: number
+    customer: { givenName: string; familyName: string; email: string }
+  }): Promise<SeatReservation> {
+    let res: Response
+    try {
+      res = await fetch(this.classesUrl('/class_bookings'), {
+        method: 'POST',
+        headers: BUYER_HEADERS,
+        body: JSON.stringify({
+          class_schedule_id: params.scheduleId,
+          start_at: params.startAt,
+          customer: {
+            given_name: params.customer.givenName,
+            family_name: params.customer.familyName,
+            email_address: params.customer.email,
+          },
+          quantity: params.seats,
+        }),
+      })
+    } catch (err) {
+      throw new SeatBookingError('square', 'reserve', 'no_answer', err instanceof Error ? err.message : String(err))
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      logger.error('Seat reservation refused', { status: res.status, error: text })
+      throw new SeatBookingError('square', 'reserve', 'refused', text, res.status)
+    }
+    const booking = (await res.json()).class_booking
+    logger.info('Seats reserved', { bookingId: booking.id, orderId: booking.order_id })
+    return {
+      bookingId: booking.id,
+      // /complete expects this contact token as its customer_id, NOT the
+      // Customers API id (see the square-class-bookings notes).
+      contactToken: booking.customer?.contact_token ?? booking.contact_token ?? null,
+      orderId: booking.order_id ?? null,
+    }
+  }
+
+  async payForSeats(params: {
+    reservation: SeatReservation
+    scheduleId: string
+    paymentToken: string
+    verificationToken?: string
+    idempotencyKey: string
+    fallbackCustomerId?: string
+  }): Promise<SeatBooking> {
+    const { reservation } = params
+    let res: Response
+    try {
+      res = await fetch(this.classesUrl(`/class_bookings/${reservation.bookingId}/complete`), {
+        method: 'POST',
+        headers: BUYER_HEADERS,
+        body: JSON.stringify({
+          class_booking: {
+            id: reservation.bookingId,
+            class_schedule_id: params.scheduleId,
+            customer_id: reservation.contactToken || params.fallbackCustomerId,
+          },
+          payment_source_id: params.paymentToken,
+          idempotency_key: params.idempotencyKey,
+          ...(params.verificationToken ? { verification_token: params.verificationToken } : {}),
+        }),
+      })
+    } catch (err) {
+      // The request left and nothing came back: the charge may have happened.
+      throw new SeatBookingError('square', 'pay', 'no_answer', err instanceof Error ? err.message : String(err))
+    }
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      logger.error('Seat payment not completed', { bookingId: reservation.bookingId, status: res.status, error: text })
+      // A 4xx is Square saying no. A 5xx is Square failing, mid-charge for all we know.
+      // One 4xx is not a plain "no": a reused idempotency key means an earlier
+      // request used it, and says nothing about whether that one charged.
+      const keySeenBefore = /idempoten/i.test(text)
+      const kind =
+        !keySeenBefore && res.status >= 400 && res.status < 500 && res.status !== 408 ? 'refused' : 'no_answer'
+      throw new SeatBookingError('square', 'pay', kind, text, res.status)
+    }
+    const done = (await res.json()).class_booking
+    logger.info('Seats paid and confirmed', { bookingId: done.id, status: done.status, orderId: done.order_id })
+    return {
+      bookingId: done.id,
+      orderId: done.order_id ?? null,
+      status: done.status,
+      receiptUrl: done.order?.receipt_url ?? null,
+    }
+  }
+
+  async releaseSeats(bookingId: string): Promise<void> {
+    const res = await fetch(this.classesUrl(`/class_bookings/${bookingId}/cancel`), {
+      method: 'POST',
+      headers: BUYER_HEADERS,
+    })
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`Seat release refused: ${res.status} ${text.slice(0, 200)}`)
+    }
+    logger.info('Seats released', { bookingId })
+  }
 
   async listWorkshops(): Promise<Workshop[]> {
     if (!this.config.locationId) {

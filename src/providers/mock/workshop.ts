@@ -1,4 +1,5 @@
-import type { Workshop, WorkshopProvider } from '../interfaces/workshop'
+import type { SeatBooking, SeatReservation, Workshop, WorkshopProvider } from '../interfaces/workshop'
+import { SeatBookingError } from '../../lib/errors'
 
 const NOW = Date.now()
 const HOUR = 60 * 60 * 1000
@@ -60,4 +61,30 @@ export class MockWorkshopProvider implements WorkshopProvider {
   async getWorkshop(id: string): Promise<Workshop | null> {
     return FIXTURES.find((w) => w.id === id) ?? null
   }
+
+  private nextId = 1
+
+  async reserveSeats(params: { scheduleId: string; seats: number }): Promise<SeatReservation> {
+    const workshop = FIXTURES.find((w) => w.scheduleId === params.scheduleId)
+    if (workshop && workshop.availableCapacity < params.seats) {
+      throw new SeatBookingError('mock', 'reserve', 'refused', 'Not enough seats available', 409)
+    }
+    const n = this.nextId++
+    return { bookingId: `mock-seat-${n}`, contactToken: `mock-contact-${n}`, orderId: `mock-order-${n}` }
+  }
+
+  /** Payment token 'FAIL' is refused, like the mock payment provider. */
+  async payForSeats(params: { reservation: SeatReservation; paymentToken: string }): Promise<SeatBooking> {
+    if (params.paymentToken === 'FAIL') {
+      throw new SeatBookingError('mock', 'pay', 'refused', 'Card declined', 402)
+    }
+    return {
+      bookingId: params.reservation.bookingId,
+      orderId: params.reservation.orderId,
+      status: 'accepted',
+      receiptUrl: null,
+    }
+  }
+
+  async releaseSeats(_bookingId: string): Promise<void> {}
 }

@@ -10,6 +10,8 @@ import type {
 
 export class MockPaymentProvider implements PaymentProvider {
   private nextId = 1
+  /** Completed payments by order, so findOrderPayment can answer. */
+  private paid = new Map<string, Payment>()
 
   /** Records of calls, for test assertions. */
   refundCalls: { paymentId: string; amountCents: number; idempotencyKey: string; reason?: string }[] = []
@@ -69,13 +71,19 @@ export class MockPaymentProvider implements PaymentProvider {
       }
     }
 
-    return {
+    const payment: Payment = {
       id,
       orderId: params.orderId,
       amount: params.amount,
       status: 'completed',
       receiptUrl: `https://mock-receipt.example.com/${id}`,
     }
+    this.paid.set(params.orderId, payment)
+    return payment
+  }
+
+  async findOrderPayment(orderId: string): Promise<Payment | null> {
+    return this.paid.get(orderId) ?? null
   }
 
   async refundPayment(input: {
