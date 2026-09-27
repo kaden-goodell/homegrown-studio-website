@@ -58,6 +58,17 @@ describe('WorkshopExplorer', () => {
     ])
   })
 
+  it('describes each listed workshop to search engines', () => {
+    const { container } = render(<WorkshopExplorer workshops={mockWorkshops} />)
+    const block = container.querySelector('script[type="application/ld+json"]')
+    expect(block).not.toBeNull()
+    const events = JSON.parse(block!.textContent ?? '[]')
+    expect(events).toHaveLength(2)
+    expect(events[0]).toMatchObject({ '@type': 'Event', name: 'Candle Making' })
+    expect(events[0].offers.url).toBe('https://ourhometownstudio.com/workshops?w=1')
+    expect(events[0].offers.price).toBe('45.00')
+  })
+
   it('shows the empty-state copy when there are no workshops', async () => {
     // No SSR list → the component fetches; make the fetch return an empty list.
     vi.stubGlobal(
@@ -67,6 +78,10 @@ describe('WorkshopExplorer', () => {
     render(<WorkshopExplorer />)
 
     expect(await screen.findByText(/New workshops are on the way/i)).toBeInTheDocument()
+    // Never a promise without a way to act on it: the empty state takes an email.
+    expect(screen.getByLabelText('Email address')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Tell me when they’re posted' })).toBeInTheDocument()
+    expect(screen.queryByText(/newsletter/i)).not.toBeInTheDocument()
   })
 
   it('opens the booking modal when a ?w=<id> deeplink is present', () => {

@@ -1,4 +1,5 @@
 import { OPENING_DATE } from './opening'
+import { STUDIO_HOURS, formatHours } from './hours'
 
 export interface SiteConfig {
   name: string
@@ -72,7 +73,12 @@ export interface SiteConfig {
     items: { quote: string; name: string; detail: string }[]
   }
   nav?: NavItem[]
-  /** Public walk-in hours, displayed in footer / Open Studio / homepage. */
+  /**
+   * Studio hours, displayed in footer / Open Studio / homepage. Until walk-ins
+   * start (OPEN_STUDIO_START_DATE) these are labelled "Studio hours", because
+   * the studio is open for booked workshops and parties only; after that they
+   * are the walk-in hours. They must cover every scheduled workshop.
+   */
   hours: { days: string; time: string }[]
   /** Grand-opening date (ISO). Drives the pre-launch banner; remove after opening. */
   openingDate: string
@@ -212,11 +218,8 @@ export const siteConfig: SiteConfig = {
     state: 'AL',
     zip: '35758',
   },
-  hours: [
-    { days: 'Thursday & Friday', time: '4 – 9 PM' },
-    { days: 'Saturday', time: '9 AM – 9 PM' },
-    { days: 'Sunday', time: '2 – 8 PM' },
-  ],
+  // Edit the hours in ./hours.ts; this is the display form of that list.
+  hours: formatHours(STUDIO_HOURS),
   openingDate: OPENING_DATE,
   theme: {
     // These six override the matching tokens in src/styles/global.css (the

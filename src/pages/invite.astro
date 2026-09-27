@@ -72,6 +72,8 @@ if (start && !isPast) {
   title="You're Invited"
   description={hasDetails ? `${craft} · ${when} · at Hometown Studio. Tap to RSVP.` : "You're invited to a craft party at Hometown Studio."}
   ogTitle={headline}
+  shareUrl={Astro.url.pathname + Astro.url.search}
+  noindex
 >
   <section class="max-w-xl mx-auto px-4 sm:px-6 py-24">
     <div

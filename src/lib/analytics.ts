@@ -70,3 +70,8 @@ export function trackWorkshopSeatBooked(workshopName: string, price: number): vo
 export function trackNewsletterSubscribed(): void {
   capture('newsletter_subscribed')
 }
+
+/** A "tell me when…" sign-up. `interest` says what they were looking at. */
+export function trackNotifyMe(interest: string): void {
+  capture('notify_me_signup', { interest })
+}

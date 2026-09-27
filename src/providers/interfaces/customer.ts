@@ -19,7 +19,11 @@ export interface CustomerProvider {
     phone?: string
   }): Promise<Customer>
 
-  subscribe(email: string): Promise<void>
+  /**
+   * Keep an email-only contact. `note` (optional) is one dated line saying what
+   * they asked to hear about; it is added to the record's notes, newest first.
+   */
+  subscribe(email: string, note?: string): Promise<void>
 
   /**
    * Append a line to the customer's note field (newest first). Used for

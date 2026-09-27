@@ -21,6 +21,7 @@
   --color-dark: #3d3229;
   --color-line: rgba(var(--color-primary-rgb), 0.16);
   --color-field-border: #9a8a7d;
+  --color-error: #b42318;
 
   /* The one filled button. Reserved for booking and paying. */
   --color-button: var(--color-primary);
@@ -154,6 +155,11 @@ img {
   padding: 0 1.5rem;
 }
 
+/* `hidden` always wins, even over a display utility class. */
+[hidden] {
+  display: none !important;
+}
+
 /* Keyboard focus, visible everywhere. */
 :where(a, button, input, select, textarea, [role='button'], [tabindex]):focus-visible {
   outline: 2px solid var(--color-primary);
@@ -218,10 +224,10 @@ img {
 }
 
 /* The small label above a page or section title. Each offering carries its
-   own craft colour: a bead in the base colour, the words in the ink. */
+   own craft colour: a bead in the base colour, the words in the ink. The
+   colour comes from the nearest .tone-* class, on the label itself or on
+   anything around it. */
 .eyebrow {
-  --eyebrow-bead: var(--color-accent);
-  --eyebrow-ink: var(--color-primary);
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -230,50 +236,56 @@ img {
   font-weight: 700;
   letter-spacing: 0.18em;
   text-transform: uppercase;
-  color: var(--eyebrow-ink);
+  color: var(--tone-ink, var(--color-primary));
 }
 .eyebrow::before {
   content: '';
   width: 0.5rem;
   height: 0.5rem;
   border-radius: 9999px;
-  background: var(--eyebrow-bead);
+  background: var(--tone, var(--color-accent));
   flex: none;
 }
 .tone-party {
-  --eyebrow-bead: var(--tone-party);
-  --eyebrow-ink: var(--tone-party-ink);
   --tone: var(--tone-party);
   --tone-soft: var(--tone-party-soft);
   --tone-ink: var(--tone-party-ink);
 }
 .tone-workshop {
-  --eyebrow-bead: var(--tone-workshop);
-  --eyebrow-ink: var(--tone-workshop-ink);
   --tone: var(--tone-workshop);
   --tone-soft: var(--tone-workshop-soft);
   --tone-ink: var(--tone-workshop-ink);
 }
 .tone-studio {
-  --eyebrow-bead: var(--tone-studio);
-  --eyebrow-ink: var(--tone-studio-ink);
   --tone: var(--tone-studio);
   --tone-soft: var(--tone-studio-soft);
   --tone-ink: var(--tone-studio-ink);
 }
 .tone-event {
-  --eyebrow-bead: var(--tone-event);
-  --eyebrow-ink: var(--tone-event-ink);
   --tone: var(--tone-event);
   --tone-soft: var(--tone-event-soft);
   --tone-ink: var(--tone-event-ink);
 }
 .tone-kit {
-  --eyebrow-bead: var(--tone-kit);
-  --eyebrow-ink: var(--tone-kit-ink);
   --tone: var(--tone-kit);
   --tone-soft: var(--tone-kit-soft);
   --tone-ink: var(--tone-kit-ink);
+}
+
+/* The "not yet" panel: booking closed, kits coming, nothing listed. */
+.notice-panel {
+  max-width: 36rem;
+  margin-inline: auto;
+  padding: 2.5rem 1.5rem;
+  border-radius: 1rem;
+  background: var(--tone-soft, var(--color-sand));
+  border: 1px solid color-mix(in srgb, var(--tone, var(--color-primary)) 22%, transparent);
+  text-align: center;
+}
+@media (min-width: 640px) {
+  .notice-panel {
+    padding: 3rem 2.5rem;
+  }
 }
 
 /* Small tag: date chips, "Our pick", prices over photos. Takes its colour

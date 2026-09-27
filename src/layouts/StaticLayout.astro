@@ -4,6 +4,7 @@ import { siteConfig } from '@config/site.config'
 import Header from '@components/shared/Header.astro'
 import Footer from '@components/shared/Footer.astro'
 import Analytics from '@components/shared/Analytics.astro'
+import SeoHead from '@components/shared/SeoHead.astro'
 import Shimmer from '@components/shared/Shimmer'
 import '@styles/global.css'
 import '@styles/textures.css'
@@ -11,12 +12,20 @@ import '@styles/animations.css'
 
 interface Props {
   title?: string
+  /** The whole title, used as is (the homepage leads with the business name). */
+  fullTitle?: string
   description?: string
+  /** Link-preview overrides. Default to the page title and the branded image. */
+  ogTitle?: string
+  ogImage?: string
+  /** Path and query a shared link should keep, e.g. "/workshops?w=abc". */
+  shareUrl?: string
+  /** Keep the page out of search results. */
+  noindex?: boolean
+  /** Extra structured data for this page. */
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[]
 }
 
-const { title, description } = Astro.props
-const pageTitle = title ? `${title} | ${siteConfig.name}` : siteConfig.name
-const pageDescription = description || siteConfig.tagline
 const { colors, fonts, textures } = siteConfig.theme
 const textureClass = `texture-${textures.background}`
 
@@ -28,9 +37,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content={pageDescription} />
-    <link rel="icon" type="image/png" href="/favicon.png" />
-    <title>{pageTitle}</title>
+    <SeoHead {...Astro.props} />
     <ViewTransitions />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

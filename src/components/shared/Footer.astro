@@ -1,5 +1,6 @@
 ---
 import { siteConfig } from '@config/site.config'
+import { OPEN_STUDIO_START_DATE } from '@config/opening'
 
 interface NavItem {
   label: string
@@ -36,6 +37,12 @@ if (siteConfig.features.kits.enabled || import.meta.env.DEV) {
     ...navItems.slice(partiesIdx + 1),
   ]
 }
+
+// Walk-ins start later than the grand opening. Copy that depends on it is
+// rendered both ways, tagged data-walkin="before" | "after", and the script at
+// the bottom shows the right one. Build time picks the default; the script
+// corrects it on the day, so prerendered pages don't need a deploy to switch.
+const walkInOpen = new Date() >= new Date(OPEN_STUDIO_START_DATE + 'T00:00:00-06:00')
 
 const currentYear = new Date().getFullYear()
 const { street, city, state, zip } = siteConfig.address
@@ -76,6 +83,8 @@ const { street, city, state, zip } = siteConfig.address
           </a>
         )}
         <div class="footer-hours">
+          <span class="footer-hours-label" data-walkin="before" hidden={walkInOpen}>Studio hours · walk-ins start in December</span>
+          <span class="footer-hours-label" data-walkin="after" hidden={!walkInOpen}>Walk-in hours</span>
           {siteConfig.hours.map((h) => (
             <span class="footer-address">{h.days}: {h.time}</span>
           ))}
@@ -90,6 +99,14 @@ const { street, city, state, zip } = siteConfig.address
     </p>
   </div>
 </footer>
+
+<script is:inline data-astro-rerun define:vars={{ walkInStart: OPEN_STUDIO_START_DATE }}>
+  // Central time, standard offset: walk-ins start in December.
+  var walkInOpen = new Date() >= new Date(walkInStart + 'T00:00:00-06:00')
+  document.querySelectorAll('[data-walkin]').forEach(function (el) {
+    el.hidden = (el.getAttribute('data-walkin') === 'after') !== walkInOpen
+  })
+</script>
 
 <style>
   .site-footer {
@@ -196,13 +213,19 @@ const { street, city, state, zip } = siteConfig.address
   }
 
   .footer-hours { display: flex; flex-direction: column; gap: 0.25rem; align-items: inherit; }
+  .footer-hours-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    color: var(--color-dark);
+  }
 
   /* Copyright */
   .footer-copyright {
     text-align: center;
     font-size: 0.6875rem;
     letter-spacing: 0.04em;
-    color: rgba(var(--color-primary-rgb), 0.35);
+    color: var(--color-muted);
     padding-bottom: 2.5rem;
   }
 </style>

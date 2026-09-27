@@ -7,6 +7,10 @@ import RecentPartyBanner from '@components/party/RecentPartyBanner'
 import PartyFaq from '@components/party/PartyFaq.astro'
 import { partyContent } from '@config/party-content'
 import { siteConfig } from '@config/site.config'
+import { partyConfig } from '@config/party.config'
+import { OPENING_DATE } from '@config/opening'
+import NotifyMe from '@components/shared/NotifyMe'
+import { longDate, partyNotifyContext } from '@lib/notify-context'
 import { envBookingsOpen, previewToken, hasValidPreviewCookie, previewQueryMatches, previewCookieName } from '@lib/bookings-gate'
 
 const { hero, deposit } = partyContent
@@ -19,9 +23,19 @@ if (_previewMatch) {
   Astro.cookies.set(previewCookieName, previewToken(), { path: '/', httpOnly: true, sameSite: 'lax', maxAge: 60 * 60 * 24 * 30 })
 }
 const bookingsOpen = envBookingsOpen() || _previewMatch || hasValidPreviewCookie(Astro.request)
+
+// While booking is closed the page offers a "tell me when it opens" sign-up.
+// If the visitor arrived from the calendar or a shared link, say back to them
+// what they were looking at, and pass it along with their email.
+const openingLabel = longDate(OPENING_DATE)
+const studioFee = `$${(partyConfig.basePriceCents / 100).toFixed(0)}`
+const { lookingAt, interest } = partyNotifyContext(Astro.url.searchParams, partyConfig.timezone)
 ---
 
-<Layout title="Book a Party">
+<Layout
+  title="Private Craft Parties"
+  description={`The whole studio, just your group. ${studioFee} holds your date, then pay per craft for whoever comes. Book online in a few minutes.`}
+>
   <RecentPartyBanner client:load />
   <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-28">
     <div class="text-center mb-16 fade-in">
@@ -56,7 +70,7 @@ const bookingsOpen = envBookingsOpen() || _previewMatch || hasValidPreviewCookie
         ))}
       </div>
       <p class="mt-6 text-sm font-semibold" style="color: var(--color-dark);">
-        {deposit.holdLine}
+        {bookingsOpen ? deposit.holdLine : `${studioFee} holds a date once booking opens.`}
       </p>
       {bookingsOpen && (
         <a
@@ -70,23 +84,23 @@ const bookingsOpen = envBookingsOpen() || _previewMatch || hasValidPreviewCookie
     {bookingsOpen ? (
       <PartyLanding client:load />
     ) : (
-      <div
-        class="text-center max-w-xl mx-auto rounded-2xl px-8 py-14"
-        style="background: rgba(var(--color-primary-rgb), 0.06); border: 1px solid rgba(var(--color-primary-rgb), 0.14);"
-      >
-        <p class="eyebrow tone-party mb-3">Opening Soon</p>
+      <div class="notice-panel tone-party" id="notify">
+        <p class="eyebrow mb-3">Opening soon</p>
         <h2 class="text-2xl sm:text-3xl font-heading font-bold" style="color: var(--color-dark);">
-          Online booking opens closer to our grand opening
+          Booking opens with our grand opening, planned for {openingLabel}
         </h2>
-        <p class="mt-4 text-base" style="color: var(--color-muted);">
-          We’re putting the finishing touches on the studio. Follow along and you’ll be the first to know when party dates open.
+        <p class="mt-4 mb-6 text-base" style="color: var(--color-text);">
+          {lookingAt && <Fragment>You were looking at <strong>{lookingAt}</strong>. </Fragment>}
+          Leave your email and we’ll send one message the day party dates open.
         </p>
-        <a
-          href="/calendar"
-          class="btn btn-primary mt-6"
-        >
-          See what’s on
-        </a>
+        <NotifyMe
+          client:load
+          interest={interest}
+          successText="Got it. We’ll email you the day party dates open."
+        />
+        <p class="mt-6 text-sm">
+          <a href="/calendar" class="underline" style="color: var(--color-primary);">See the calendar</a>
+        </p>
       </div>
     )}
     <div class="glass rounded-2xl px-8 py-10 sm:px-12 text-center mt-16 fade-in">
@@ -97,8 +111,19 @@ const bookingsOpen = envBookingsOpen() || _previewMatch || hasValidPreviewCookie
       <p class="text-base max-w-xl mx-auto leading-relaxed" style="color: var(--color-muted);">
         {kitsLive
           ? 'Want the party without booking the studio? A themed craft kit for your crew, styled table and all — pick up Thursday, host at home.'
-          : 'Want the party without booking the studio? We’re boxing up themed craft kits — gold, silver, rainbow, and more — so you can host at home. Join the newsletter and you’ll be the first to know.'}
+          : 'Want the party without booking the studio? We’re boxing up themed craft kits — gold, silver, rainbow, and more — so you can host at home. Leave your email and we’ll tell you when they’re ready.'}
       </p>
+      {!kitsLive && (
+        <div class="mt-6 tone-kit">
+          <NotifyMe
+            client:visible
+            interest="kits"
+            buttonLabel="Tell me when kits are ready"
+            note="One email when kits launch. Nothing else."
+            successText="Got it. We’ll email you when kits are ready."
+          />
+        </div>
+      )}
       {kitsLive && (
         <a
           href="/kits"

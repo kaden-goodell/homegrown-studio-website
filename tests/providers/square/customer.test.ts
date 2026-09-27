@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockSearch = vi.fn()
 const mockCreate = vi.fn()
+const mockGet = vi.fn()
+const mockUpdate = vi.fn()
 
 vi.mock('square', () => {
   return {
@@ -9,6 +11,8 @@ vi.mock('square', () => {
       customers = {
         search: mockSearch,
         create: mockCreate,
+        get: mockGet,
+        update: mockUpdate,
       }
       constructor(_opts: any) {}
     },
@@ -224,6 +228,32 @@ describe('SquareCustomerProvider', () => {
 
       expect(mockSearch).toHaveBeenCalled()
       expect(mockCreate).not.toHaveBeenCalled()
+    })
+
+    it('stores what they asked about on a new record', async () => {
+      mockSearch.mockResolvedValue({ customers: [] })
+      mockCreate.mockResolvedValue({ customer: { id: 'sq-sub-2' } })
+
+      await provider.subscribe('ada@example.com', '2026-09-27 Asked to be told: workshop:Kinusaiga 2026-10-16')
+
+      expect(mockCreate).toHaveBeenCalledWith({
+        emailAddress: 'ada@example.com',
+        note: '2026-09-27 Asked to be told: workshop:Kinusaiga 2026-10-16',
+      })
+    })
+
+    it('adds what they asked about to a record that already exists, newest first', async () => {
+      mockSearch.mockResolvedValue({ customers: [{ id: 'sq-existing', emailAddress: 'ada@example.com' }] })
+      mockGet.mockResolvedValue({ customer: { id: 'sq-existing', note: '2026-09-01 Booked a party' } })
+      mockUpdate.mockResolvedValue({})
+
+      await provider.subscribe('ada@example.com', '2026-09-27 Asked to be told: kits')
+
+      expect(mockCreate).not.toHaveBeenCalled()
+      expect(mockUpdate).toHaveBeenCalledWith({
+        customerId: 'sq-existing',
+        note: '2026-09-27 Asked to be told: kits\n2026-09-01 Booked a party',
+      })
     })
   })
 })

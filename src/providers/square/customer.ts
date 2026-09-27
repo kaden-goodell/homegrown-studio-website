@@ -91,7 +91,7 @@ export class SquareCustomerProvider implements CustomerProvider {
     }
   }
 
-  async subscribe(email: string): Promise<void> {
+  async subscribe(email: string, note?: string): Promise<void> {
     // Search for existing customer first, only create if not found
     const searchResult = await this.client.customers.search({
       query: {
@@ -101,14 +101,18 @@ export class SquareCustomerProvider implements CustomerProvider {
       },
     })
 
-    if (searchResult.customers && searchResult.customers.length > 0) {
+    const existing = searchResult.customers?.[0]
+    if (existing) {
       logger.info('Customer already exists for subscription', { email })
+      // Keep what they asked about on the record they already have.
+      if (note && existing.id) await this.appendNote(existing.id, note)
       return
     }
 
-    // Create a minimal customer record for newsletter subscription
+    // Create a minimal customer record for the sign-up
     await this.client.customers.create({
       emailAddress: email,
+      ...(note ? { note: note.slice(0, 4000) } : {}),
     })
     logger.info('Subscribed customer', { email })
   }

@@ -1,0 +1,8 @@
+# Invite, host and waiver pages are kept out of search with a "noindex" tag
+# instead of being blocked here, so their link previews still work when shared.
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /staff
+
+Sitemap: https://ourhometownstudio.com/sitemap.xml

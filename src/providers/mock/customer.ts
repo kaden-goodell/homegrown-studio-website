@@ -34,7 +34,7 @@ export class MockCustomerProvider implements CustomerProvider {
     return customer
   }
 
-  async subscribe(_email: string): Promise<void> {}
+  async subscribe(_email: string, _note?: string): Promise<void> {}
 
   async appendNote(customerId: string, line: string): Promise<void> {
     const notes = this.notes.get(customerId) ?? []

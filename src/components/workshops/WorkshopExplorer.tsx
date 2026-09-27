@@ -1,4 +1,7 @@
 import { useState, useEffect } from 'react'
+import NotifyMe from '@components/shared/NotifyMe'
+import { jsonLdString, workshopEventsJsonLd } from '@lib/seo'
+import { SITE_URL } from '@config/site-url'
 import WorkshopCard from './WorkshopCard'
 import WorkshopBookingModal from './WorkshopBookingModal'
 
@@ -19,6 +22,15 @@ export interface WorkshopData {
   classScheduleId?: string
   classScheduleInstanceId?: string
   teamMemberId?: string
+}
+
+const STUDIO_TZ = 'America/Chicago'
+/** Where workshops happen. Kept here (not read from site.config) because this
+ *  file ships to the browser and site.config must not. */
+const STUDIO = {
+  name: 'Hometown Studio',
+  url: SITE_URL,
+  address: { street: '525 Hughes Rd, Suite F', city: 'Madison', state: 'AL', zip: '35758' },
 }
 
 export interface WorkshopExplorerProps {
@@ -104,9 +116,17 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
           <p className="font-heading" style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-dark)' }}>
             New workshops are on the way
           </p>
-          <p style={{ marginTop: '0.5rem', fontSize: '0.9375rem', color: 'var(--color-muted)' }}>
-            Join the newsletter and you&rsquo;ll hear about them first — or{' '}
-            <a href="/calendar" style={{ color: 'var(--color-primary)', textDecoration: 'underline' }}>see what else is on</a>.
+          <p style={{ margin: '0.5rem 0 1.5rem', fontSize: '0.9375rem', color: 'var(--color-muted)' }}>
+            Leave your email and we&rsquo;ll tell you when the next ones are posted.
+          </p>
+          <NotifyMe
+            interest="workshops:new-dates"
+            buttonLabel="Tell me when they’re posted"
+            note="One email when new workshops go up. Nothing else."
+            successText="Got it. We’ll email you when new workshops are posted."
+          />
+          <p style={{ marginTop: '1.5rem', fontSize: '0.875rem' }}>
+            <a href="/calendar" style={{ color: 'var(--color-primary)', textDecoration: 'underline' }}>See the calendar</a>
           </p>
         </div>
       ) : (
@@ -115,6 +135,14 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
             <WorkshopCard key={w.id} workshop={w} onBook={setBookingWorkshop} />
           ))}
         </div>
+      )}
+
+      {/* The same workshops, described for search engines. Only what is on the page. */}
+      {sorted.length > 0 && (
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: jsonLdString(workshopEventsJsonLd(sorted, STUDIO, STUDIO_TZ)) }}
+        />
       )}
 
       {bookingWorkshop && (
