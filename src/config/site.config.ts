@@ -384,7 +384,7 @@ export const siteConfig: SiteConfig = {
     { label: 'Parties', href: '/book' },
     { label: 'Workshops', href: '/workshops' },
     { label: 'Open Studio', href: '/open-studio' },
-    { label: "What's On", href: '/calendar' },
+    { label: 'Calendar', href: '/calendar' },
     { label: 'About', href: '/about' },
   ],
   navCta: { label: 'Book a Party', href: '/book' },

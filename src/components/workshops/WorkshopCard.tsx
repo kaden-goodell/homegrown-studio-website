@@ -5,11 +5,12 @@ export interface WorkshopCardProps {
   onBook?: (workshop: WorkshopData) => void
 }
 
+// Card date: "Saturday, October 17" — no year (it's on the badge and obvious),
+// so it fits on one line next to the time.
 function formatDate(iso: string): string {
   const d = new Date(iso + 'T00:00:00')
   return d.toLocaleDateString('en-US', {
     weekday: 'long',
-    year: 'numeric',
     month: 'long',
     day: 'numeric',
   })
@@ -107,20 +108,21 @@ export default function WorkshopCard({ workshop, onBook }: WorkshopCardProps) {
           </p>
         )}
 
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs mb-6" style={{ color: 'var(--color-muted)' }}>
-          <span>{dateStr}</span>
-          <span className="flex items-center gap-1">
+        {/* Fixed two-line meta block so every card is the same height and the
+            Book button always lines up across the grid (long weekday names
+            used to wrap the time onto a second row). */}
+        <div className="grid text-xs mb-6" style={{ gridTemplateColumns: '1fr auto', rowGap: '0.25rem', columnGap: '1rem', color: 'var(--color-muted)' }}>
+          <span className="truncate">{dateStr}</span>
+          <span className="flex items-center gap-1 whitespace-nowrap">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor" className="w-3.5 h-3.5">
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
             </svg>
             {timeRange}
           </span>
           <span>{workshop.duration} min</span>
-          {workshop.remainingSeats !== null && (
-            <span className="ml-auto font-medium" style={{ color: 'var(--color-accent)' }}>
-              {workshop.remainingSeats} seats remaining
-            </span>
-          )}
+          <span className="font-medium whitespace-nowrap text-right" style={{ color: 'var(--color-accent)', minHeight: '1em' }}>
+            {workshop.remainingSeats !== null ? `${workshop.remainingSeats} seats remaining` : ''}
+          </span>
         </div>
 
         <button

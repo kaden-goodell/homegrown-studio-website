@@ -24,7 +24,7 @@ describe('WorkshopCard', () => {
     render(<WorkshopCard workshop={makeWorkshop()} />)
 
     expect(screen.getByText('Intro to Pottery')).toBeInTheDocument()
-    expect(screen.getByText(/April 15, 2026/)).toBeInTheDocument()
+    expect(screen.getByText(/April 15$/)).toBeInTheDocument() // no year on cards
     expect(screen.getByText(/2:00 PM - 3:30 PM/)).toBeInTheDocument()
     expect(screen.getByText('$45.00')).toBeInTheDocument()
     expect(screen.getByText('90 min')).toBeInTheDocument()
