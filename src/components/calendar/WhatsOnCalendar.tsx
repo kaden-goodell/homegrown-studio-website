@@ -88,6 +88,18 @@ function formatMonthYear(year: number, month: number) {
 }
 
 /** Display-format an "HH:MM" 24h string as 12-hour, e.g. "13:00" → "1:00 PM". */
+/** "7:00 PM" → "7pm", "4:30 PM" → "4:30pm" — compact prefix for grid chips. */
+function chipTime(t?: string) {
+  const full = trimTime(t)
+  const m = full.match(/^(\d{1,2}):(\d{2}) (AM|PM)$/)
+  if (!m) return ''
+  return `${m[1]}${m[2] === '00' ? '' : ':' + m[2]}${m[3].toLowerCase()}`
+}
+
+// Studio is open Thu–Sun; Mon–Wed cells read as "closed" so empty days don't
+// look like missing data. (0 = Sunday.)
+const OPEN_WEEKDAYS = new Set([0, 4, 5, 6])
+
 function trimTime(t?: string) {
   if (!t) return ''
   const m = t.match(/^(\d{1,2}):(\d{2})$/)
@@ -400,42 +412,69 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
       {/* Day headers */}
       <div style={{
         display: 'grid',
-        gridTemplateColumns: compact ? 'repeat(7, 1fr)' : 'repeat(7, minmax(4.5rem, 1fr))',
-        gap: '2px',
+        gridTemplateColumns: 'repeat(7, 1fr)',
         marginBottom: '0.5rem',
       }}>
-        {DAY_NAMES.map((d) => (
+        {DAY_NAMES.map((d, i) => (
           <div key={d} style={{
             textAlign: 'center',
             fontSize: '0.6875rem',
-            fontWeight: 500,
-            letterSpacing: '0.05em',
-            color: 'var(--color-muted)',
-            padding: '0.25rem 0',
+            fontWeight: 700,
+            letterSpacing: '0.08em',
+            textTransform: 'uppercase',
+            color: OPEN_WEEKDAYS.has(i) ? 'var(--color-dark)' : 'rgba(150, 112, 91, 0.45)',
+            padding: '0.25rem 0 0.5rem',
           }}>
             {d}
           </div>
         ))}
       </div>
 
-      {/* Day grid */}
+      {/* Day grid — 1px gaps over a hairline background = ruled cells */}
+      {(() => {
+        const todayStr = todayISO()
+        const monthStr = `${year}-${String(month + 1).padStart(2, '0')}`
+        // Pad the tail so the last row is full and the rule lines close cleanly.
+        const padded = [...cells]
+        while (padded.length % 7 !== 0) padded.push(null)
+        return (
       <div style={{
         display: 'grid',
-        gridTemplateColumns: compact ? 'repeat(7, 1fr)' : 'repeat(7, minmax(4.5rem, 1fr))',
-        gap: compact ? '2px' : '4px',
+        gridTemplateColumns: 'repeat(7, 1fr)',
+        gap: '1px',
+        background: 'rgba(150, 112, 91, 0.14)',
+        border: '1px solid rgba(150, 112, 91, 0.14)',
+        borderRadius: '0.75rem',
+        overflow: 'hidden',
         opacity: loading ? 0.5 : 1,
         transition: 'opacity 0.2s ease',
       }}>
-        {cells.map((day, i) => {
-          if (day === null) return <div key={`empty-${i}`} />
+        {padded.map((day, i) => {
+          const weekday = i % 7
+          const isOpenDay = OPEN_WEEKDAYS.has(weekday)
+          if (day === null) {
+            return <div key={`empty-${i}`} style={{ background: 'rgba(255,255,255,0.35)', minHeight: compact ? '2.75rem' : '6rem' }} />
+          }
+          const dateStr = `${monthStr}-${String(day).padStart(2, '0')}`
+          const isPast = dateStr < todayStr
+          const isToday = dateStr === todayStr
           const dayEvents = eventsByDay.get(day) ?? []
           const hasEvents = dayEvents.length > 0
           const isSelected = selectedDay === day
+          const chips = aggregatePartySlots(dayEvents)
+          const cellBg = isSelected
+            ? 'rgba(150, 112, 91, 0.10)'
+            : isPast
+              ? 'rgba(255,255,255,0.45)'
+              : isOpenDay
+                ? 'rgba(255,255,255,0.92)'
+                : 'rgba(255,255,255,0.6)'
           return (
             <div
               key={day}
-              role="button"
+              role={hasEvents ? 'button' : undefined}
               tabIndex={hasEvents ? 0 : -1}
+              aria-label={hasEvents ? `${dateStr}, ${chips.length} item${chips.length === 1 ? '' : 's'}` : undefined}
               onClick={() => handleDayClick(day)}
               onKeyDown={(ev) => {
                 if (hasEvents && (ev.key === 'Enter' || ev.key === ' ')) {
@@ -444,99 +483,82 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                 }
               }}
               style={{
-                width: '100%',
-                minHeight: compact ? '2.5rem' : '5.5rem',
+                position: 'relative',
+                minHeight: compact ? '2.75rem' : '6rem',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: compact ? 'center' : 'stretch',
-                justifyContent: compact ? 'center' : 'flex-start',
-                padding: compact ? '0.25rem' : '0.25rem 0.3rem',
-                fontSize: '0.8125rem',
-                fontWeight: isSelected ? 600 : 400,
-                color: isSelected
-                  ? '#fff'
-                  : hasEvents
-                    ? 'var(--color-dark)'
-                    : 'rgba(150, 112, 91, 0.3)',
-                background: isSelected
-                  ? 'linear-gradient(135deg, var(--color-primary), var(--color-accent))'
-                  : 'transparent',
-                border: 'none',
-                borderRadius: '0.5rem',
+                gap: '2px',
+                padding: compact ? '0.3rem 0.15rem' : '0.4rem 0.35rem',
+                background: cellBg,
+                // Closed weekdays get a faint diagonal hatch so "nothing here" reads as "closed".
+                backgroundImage: !isOpenDay && !isPast
+                  ? 'repeating-linear-gradient(135deg, rgba(150,112,91,0.045) 0 2px, transparent 2px 9px)'
+                  : undefined,
+                boxShadow: isSelected ? 'inset 0 0 0 2px var(--color-primary)' : isToday ? 'inset 0 0 0 2px rgba(150,112,91,0.45)' : 'none',
+                opacity: isPast ? 0.55 : 1,
                 cursor: hasEvents ? 'pointer' : 'default',
-                transition: 'background 0.2s ease',
-                textAlign: compact ? 'center' : 'left',
+                transition: 'background 0.15s ease, box-shadow 0.15s ease',
               }}
               onMouseEnter={(e) => {
-                if (hasEvents && !isSelected) {
-                  e.currentTarget.style.background = 'rgba(150, 112, 91, 0.08)'
-                }
+                if (hasEvents && !isSelected) e.currentTarget.style.background = 'rgba(150, 112, 91, 0.07)'
               }}
               onMouseLeave={(e) => {
-                if (hasEvents && !isSelected) {
-                  e.currentTarget.style.background = 'transparent'
-                }
+                if (hasEvents && !isSelected) e.currentTarget.style.background = cellBg
               }}
             >
               <span style={{
-                fontSize: '0.6875rem',
-                fontWeight: 500,
-                marginBottom: '0.125rem',
+                alignSelf: compact ? 'center' : 'flex-start',
+                display: 'inline-flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                minWidth: '1.5rem',
+                height: '1.5rem',
+                padding: '0 0.3rem',
+                borderRadius: '9999px',
+                fontSize: '0.75rem',
+                fontWeight: isToday || hasEvents ? 700 : 500,
+                color: isToday ? '#fff' : hasEvents ? 'var(--color-dark)' : 'rgba(150, 112, 91, 0.5)',
+                background: isToday ? 'var(--color-primary)' : 'transparent',
               }}>
                 {day}
               </span>
               {compact ? (
                 hasEvents && (
-                  <span style={{ display: 'flex', gap: '2px', justifyContent: 'center' }}>
-                    {Array.from(new Set(dayEvents.map((e) => e.kind))).slice(0, 5).map((kind) => (
-                      <span
-                        key={kind}
-                        style={{
-                          display: 'block',
-                          width: '5px',
-                          height: '5px',
-                          borderRadius: '50%',
-                          background: isSelected ? 'rgba(255,255,255,0.85)' : KIND_COLORS[kind],
-                        }}
-                      />
+                  <span style={{ display: 'flex', gap: '3px', justifyContent: 'center' }}>
+                    {Array.from(new Set(dayEvents.map((e) => e.kind))).slice(0, 4).map((kind) => (
+                      <span key={kind} style={{ display: 'block', width: '6px', height: '6px', borderRadius: '50%', background: KIND_COLORS[kind] }} />
                     ))}
                   </span>
                 )
               ) : (
                 <>
-                  {aggregatePartySlots(dayEvents).slice(0, 5).map((e) => {
+                  {chips.slice(0, 4).map((e) => {
                     const clickable = e.bookable && !!e.href
-                    const chipStyle = {
+                    const color = KIND_COLORS[e.kind]
+                    const time = e.kind === 'event' ? '' : chipTime(e.startTime)
+                    const chipStyle: CSSProperties = {
                       display: 'flex',
-                      alignItems: 'center',
-                      gap: '3px',
-                      fontSize: '0.625rem',
-                      lineHeight: 1.3,
+                      alignItems: 'baseline',
+                      gap: '0.3rem',
+                      fontSize: '0.6875rem',
+                      lineHeight: 1.25,
                       fontWeight: 500,
-                      color: isSelected ? 'rgba(255,255,255,0.85)' : 'var(--color-primary)',
+                      color: 'var(--color-dark)',
+                      background: `color-mix(in srgb, ${color} 14%, white)`,
+                      borderLeft: `3px solid ${color}`,
+                      borderRadius: '4px',
+                      padding: '3px 6px',
                       overflow: 'hidden',
-                      textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
-                      marginBottom: '2px',
-                      textDecoration: clickable ? 'underline' : 'none',
-                      textDecorationColor: clickable ? `${KIND_COLORS[e.kind]}66` : undefined,
-                      textUnderlineOffset: '2px',
+                      textDecoration: 'none',
                       cursor: clickable ? 'pointer' : 'default',
-                    } as const
-                    const chipInner = (
+                      transition: 'filter 0.15s ease',
+                    }
+                    const inner = (
                       <>
-                        <span
-                          style={{
-                            flexShrink: 0,
-                            width: '5px',
-                            height: '5px',
-                            borderRadius: '50%',
-                            background: isSelected ? 'rgba(255,255,255,0.85)' : KIND_COLORS[e.kind],
-                          }}
-                        />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {e.title}
-                        </span>
+                        {time && <span style={{ flexShrink: 0, fontSize: '0.625rem', fontWeight: 700, color, letterSpacing: '0.02em' }}>{time}</span>}
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</span>
                       </>
                     )
                     return clickable ? (
@@ -546,21 +568,18 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                         title={e.title}
                         onClick={(ev) => ev.stopPropagation()}
                         style={chipStyle}
+                        onMouseEnter={(ev) => (ev.currentTarget.style.filter = 'brightness(0.95)')}
+                        onMouseLeave={(ev) => (ev.currentTarget.style.filter = 'none')}
                       >
-                        {chipInner}
+                        {inner}
                       </a>
                     ) : (
-                      <span key={e.id} title={e.title} style={chipStyle}>
-                        {chipInner}
-                      </span>
+                      <span key={e.id} title={e.title} style={chipStyle}>{inner}</span>
                     )
                   })}
-                  {aggregatePartySlots(dayEvents).length > 5 && (
-                    <span style={{
-                      fontSize: '0.5625rem',
-                      color: isSelected ? 'rgba(255,255,255,0.6)' : 'var(--color-muted)',
-                    }}>
-                      +{aggregatePartySlots(dayEvents).length - 5} more
+                  {chips.length > 4 && (
+                    <span style={{ fontSize: '0.625rem', fontWeight: 600, color: 'var(--color-muted)', paddingLeft: '6px' }}>
+                      +{chips.length - 4} more
                     </span>
                   )}
                 </>
@@ -569,37 +588,48 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
           )
         })}
       </div>
+        )
+      })()}
 
-      {/* Legend */}
+      {/* Legend — pills that match the chips, plus the closed-day key */}
       {monthKinds.length > 0 && (
         <div style={{
           display: 'flex',
           flexWrap: 'wrap',
-          gap: '1rem',
-          marginTop: '1.25rem',
-          paddingTop: '1rem',
-          borderTop: '1px solid rgba(150, 112, 91, 0.08)',
+          alignItems: 'center',
+          gap: '0.5rem',
+          marginTop: '1rem',
         }}>
           {monthKinds.map((kind) => (
             <span key={kind} style={{
-              display: 'flex',
+              display: 'inline-flex',
               alignItems: 'center',
-              gap: '0.4rem',
               fontSize: '0.6875rem',
-              fontWeight: 500,
-              letterSpacing: '0.04em',
-              textTransform: 'uppercase' as const,
-              color: 'var(--color-muted)',
+              fontWeight: 600,
+              color: 'var(--color-dark)',
+              background: `color-mix(in srgb, ${KIND_COLORS[kind]} 14%, white)`,
+              borderLeft: `3px solid ${KIND_COLORS[kind]}`,
+              borderRadius: '4px',
+              padding: '3px 8px',
             }}>
-              <span style={{
-                width: '8px',
-                height: '8px',
-                borderRadius: '50%',
-                background: KIND_COLORS[kind],
-              }} />
               {KIND_LABELS[kind]}
             </span>
           ))}
+          <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.4rem',
+            fontSize: '0.6875rem',
+            color: 'var(--color-muted)',
+            marginLeft: 'auto',
+          }}>
+            <span style={{
+              width: '14px', height: '14px', borderRadius: '3px',
+              border: '1px solid rgba(150,112,91,0.2)',
+              backgroundImage: 'repeating-linear-gradient(135deg, rgba(150,112,91,0.12) 0 2px, transparent 2px 5px)',
+            }} />
+            Closed Mon–Wed
+          </span>
         </div>
       )}
       </div>
