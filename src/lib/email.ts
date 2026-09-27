@@ -54,15 +54,29 @@ export async function sendPartyConfirmationEmail(input: {
   to: string; hostName: string; craftName: string; craftDescription?: string; craftImageUrl?: string; slotLabel: string
   /** Per-person craft price in cents; max set when the craft has a price range. */
   perHeadCents?: number; perHeadMaxCents?: number
-  hostPageUrl: string; inviteUrl: string; totalChargedCents: number; receiptUrl: string | null
+  /**
+   * The host's private party page. Null when it could not be set up: the email
+   * then says so and gives the number to text. It never links somewhere else
+   * in its place.
+   */
+  hostPageUrl: string | null
+  inviteUrl: string; totalChargedCents: number; receiptUrl: string | null
   /** Add-to-calendar: a Google Calendar link for the body + ICS content attached for Apple/Outlook. */
   googleCalendarUrl?: string; icsContent?: string
   /** Booking id — shown as a footer reference (also keeps repeated test emails from Gmail-trimming). */
   bookingRef?: string
+  /** What a host needs to turn up. All from config, none typed here. */
+  arriveEarlyMinutes?: number
+  minGuests?: number
+  /** One sentence on refunds for THIS date (see refund-lines.ts). */
+  refundLine?: string
+  directionsUrl?: string
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const fee = dollars(input.totalChargedCents)
-  // "$25" or "$30–$40" per person, matching the booking modal's label.
+  const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
+  const phone = siteConfig.contactPhone
+  // "$25" or "$30–$40" per person, matching the booking panel's label.
   const perPerson = input.perHeadCents
     ? input.perHeadMaxCents && input.perHeadMaxCents > input.perHeadCents
       ? `${dollars(input.perHeadCents)}–${dollars(input.perHeadMaxCents)}`
@@ -73,29 +87,44 @@ export async function sendPartyConfirmationEmail(input: {
   const costLine = perPerson
     ? `Studio fee paid today: ${fee}. ${input.craftName} is ${perPerson} per person, paid at the studio for whoever crafts.`
     : `Studio fee paid today: ${fee}. Crafts are paid at the studio based on who comes.`
+  const arriveLine = input.arriveEarlyMinutes ? `Arrive up to ${input.arriveEarlyMinutes} minutes early to set up.` : ''
+  const headcountLine = `About a week before, we'll text you to check your headcount. It's for our prep only: you pay for who comes${input.minGuests ? `, minimum ${input.minGuests}` : ''}.`
+  const noPageLine = `Your party page is being set up. ${phone ? `Text us at ${phone} and we'll send you the link.` : "We'll send you the link."}`
+
   const text = [
     `You're booked! ${input.craftName} · ${input.slotLabel}`,
+    ``,
+    `Where: Hometown Studio, ${address}`,
+    ...(input.directionsUrl ? [`Directions: ${input.directionsUrl}`] : []),
+    ...(arriveLine ? [arriveLine] : []),
     ``,
     ...(description ? [`About your craft:`, ...description.split('\n'), ``] : []),
     costLine,
     ``,
-    `Your party page (manage details + see who's RSVP'd — keep this link):`,
-    input.hostPageUrl,
+    ...(input.hostPageUrl
+      ? [`Your party page (see who's coming and manage the details; keep this link):`, input.hostPageUrl]
+      : [noPageLine]),
     ``,
     `Invitation link to share with your guests:`,
     input.inviteUrl,
-    ...(input.googleCalendarUrl ? [``, `Add to Google Calendar: ${input.googleCalendarUrl}`, `Apple/Outlook: open the attached invite (.ics)`] : []),
-    ...(input.receiptUrl ? [``, `Receipt: ${input.receiptUrl}`] : []),
     ``,
-    `Hometown Studio · 525 Hughes Rd Ste F, Madison, AL`,
+    headcountLine,
+    ...(input.refundLine ? [``, `Changing plans: ${input.refundLine}`] : []),
+    ...(input.googleCalendarUrl ? [``, `Add to Google Calendar: ${input.googleCalendarUrl}`, `Apple or Outlook: open the attached invite (.ics)`] : []),
+    ...(input.receiptUrl ? [``, `Receipt: ${input.receiptUrl}`] : []),
+    ...(phone ? [``, `Questions? Text us at ${phone}.`] : []),
+    ``,
+    `Hometown Studio · ${address}`,
   ].join('\n')
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
   // Structured HTML with explicit inline margins — email clients give bare <p>
   // tags fat default margins, so a line-by-line conversion reads double-spaced.
-  // Brand primary ≈ #7a4a2e; email-safe (no CSS vars, no external styles).
+  // Brand primary #7a4a2e; email-safe (no CSS vars, no external styles).
   const P = 'margin:0 0 6px;font-size:14px;color:#3d3630;line-height:1.5'
-  const MUTED = 'margin:0 0 6px;font-size:13px;color:#8a7f75;line-height:1.5'
+  const MUTED = 'margin:0 0 6px;font-size:13px;color:#6f635b;line-height:1.5'
+  const LABEL = 'margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7a4a2e;font-weight:700;'
+  const LINK = 'color:#7a4a2e;font-weight:600;'
   const descriptionHtml = description
     ? description
         .split(/\n{2,}/)
@@ -108,20 +137,32 @@ export async function sendPartyConfirmationEmail(input: {
   <h1 style="margin:0 0 2px;font-size:22px;color:#3d3630;">You&rsquo;re booked!</h1>
   <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#3d3630;">${esc(input.craftName)} &middot; ${esc(input.slotLabel)}</p>
   ${input.craftImageUrl ? `<img src="${esc(input.craftImageUrl)}" alt="${esc(input.craftName)}" width="552" style="display:block;width:100%;max-width:552px;border-radius:12px;margin:0 0 14px;" />` : ''}
-  ${descriptionHtml ? `<p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
+  <p style="${LABEL}">Where</p>
+  <p style="${P}">Hometown Studio, ${esc(address)}${input.directionsUrl ? `<br /><a href="${esc(input.directionsUrl)}" style="${LINK}font-size:13px;">Get directions</a>` : ''}</p>
+  ${arriveLine ? `<p style="${P}">${esc(arriveLine)}</p>` : ''}
+  <div style="height:10px;"></div>
+  ${descriptionHtml ? `<p style="${LABEL}">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
   <p style="${P}"><strong>Studio fee paid today: ${esc(fee)}.</strong>${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio based on who comes.'}</p>
-  <div style="margin:18px 0 6px;">
+  ${
+    input.hostPageUrl
+      ? `<div style="margin:18px 0 6px;">
     <a href="${esc(input.hostPageUrl)}" style="display:inline-block;padding:11px 22px;background:#7a4a2e;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">Your party page &rarr;</a>
   </div>
-  <p style="${MUTED}">Manage details and see who&rsquo;s RSVP&rsquo;d &mdash; keep this link.</p>
+  <p style="${MUTED}">See who&rsquo;s coming and manage the details. Keep this link.</p>`
+      : `<p style="${P}margin-top:14px;">${esc(noPageLine)}</p>`
+  }
   <p style="margin:14px 0 2px;font-size:14px;color:#3d3630;">Invitation link to share with your guests:</p>
   <p style="margin:0 0 6px;"><a href="${esc(input.inviteUrl)}" style="color:#7a4a2e;font-size:13px;word-break:break-all;">${esc(input.inviteUrl)}</a></p>
-  <p style="margin:6px 0 2px;"><a href="${esc(partyInviteMailto({ craftName: input.craftName, slotLabel: input.slotLabel, inviteUrl: input.inviteUrl, icsUrl: input.bookingRef ? partyInviteIcsUrl(input.bookingRef, new URL(input.inviteUrl).origin) : undefined }))}" style="color:#7a4a2e;font-size:14px;font-weight:600;">&#9993;&#65039; Email your guests</a></p>
-  <p style="${MUTED}">Opens a ready-to-send invitation &mdash; just add addresses.</p>
-  ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="color:#7a4a2e;font-size:14px;font-weight:600;">&#128197; Add to Google Calendar</a></p><p style="${MUTED}">Apple or Outlook? Open the attached invite (.ics).</p>` : ''}
+  <p style="margin:6px 0 2px;"><a href="${esc(partyInviteMailto({ craftName: input.craftName, slotLabel: input.slotLabel, inviteUrl: input.inviteUrl, icsUrl: input.bookingRef ? partyInviteIcsUrl(input.bookingRef, new URL(input.inviteUrl).origin) : undefined }))}" style="${LINK}font-size:14px;">Email your guests</a></p>
+  <p style="${MUTED}">Opens a ready-to-send invitation. Just add addresses.</p>
+  <p style="${LABEL}margin-top:14px;">Before the party</p>
+  <p style="${P}">${esc(headcountLine)}</p>
+  ${input.refundLine ? `<p style="${LABEL}margin-top:10px;">Changing plans</p><p style="${P}">${esc(input.refundLine)}</p>` : ''}
+  ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="${LINK}font-size:14px;">Add to Google Calendar</a></p><p style="${MUTED}">Apple or Outlook: open the attached invite.</p>` : ''}
   ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#7a4a2e;font-size:13px;">View your receipt</a></p>` : ''}
+  ${phone ? `<p style="${P}margin-top:14px;">Questions? Text us at <strong>${esc(phone)}</strong>.</p>` : ''}
   <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
-  <p style="margin:0;font-size:12px;color:#8a7f75;">Hometown Studio &middot; 525 Hughes Rd Ste F, Madison, AL${input.bookingRef ? ` &middot; Booking ref ${esc(input.bookingRef)}` : ''}</p>
+  <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}${input.bookingRef ? ` &middot; Booking ref ${esc(input.bookingRef)}` : ''}</p>
 </div>`
   const safeCraftName = input.craftName.replace(/[\r\n]+/g, ' ')
   // Slot in the subject: more useful at a glance, and unique subjects keep

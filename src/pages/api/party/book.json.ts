@@ -13,6 +13,8 @@ import { paymentBypassEnabled } from '@lib/dev-flags'
 import { savePartyRecord, getPartyRecord, newHostToken, type PartyRecord } from '@lib/party-store'
 import { isStartOpen, studioDateOf, bookingHeldBy } from '@lib/party-availability'
 import { bookableOn } from '@lib/party-slots'
+import { partyRefundLine } from '@lib/refund-lines'
+import { STUDIO_DIRECTIONS_URL } from '@config/studio-address'
 import { attemptKey, chargeOutcomeOf, isAttemptId, squareErrorCodes, type CheckoutErrorCode } from '@lib/checkout-attempt'
 import { partyMessages } from '@lib/checkout-messages'
 import { alertOwners } from '@lib/owner-alert'
@@ -629,9 +631,16 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const hostToken = await persistParty(booking.id, body, theme)
 
     const origin = new URL(request.url).origin
+    // No party page (the record could not be saved): say so, and tell a person.
+    // The email must never point somewhere else in its place.
     const hostPageUrl = hostToken
       ? `${origin}/party/${encodeURIComponent(booking.id)}?key=${encodeURIComponent(hostToken)}`
-      : `${origin}/book`
+      : null
+    if (!hostToken) {
+      await alertOwners(
+        `Party booked and paid, but its party page could not be set up: ${body.customer.firstName} ${body.customer.lastName} (${body.customer.email}, ${body.customer.phone}), ${formatSlotLabel(body.startTime)}, booking ${booking.id}. They were told to text us for the link.`,
+      ).catch(() => undefined)
+    }
     const slotLabel = formatSlotLabel(body.startTime)
     const inviteUrl = partyInviteUrl(
       { bookingId: booking.id, craftName: body.craft.name, slotLabel, startIso: body.startTime },
@@ -662,6 +671,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       googleCalendarUrl: googleCalendarUrl(calEvent),
       icsContent: buildIcs(calEvent),
       bookingRef: booking.id,
+      arriveEarlyMinutes: partyConfig.hostArrivalMinutesEarly,
+      minGuests: partyConfig.minGuests,
+      refundLine: partyRefundLine(body.startTime),
+      directionsUrl: STUDIO_DIRECTIONS_URL,
     })
 
     return new Response(
