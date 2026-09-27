@@ -172,6 +172,16 @@ export class SquareWorkshopProvider implements WorkshopProvider {
       limit: 50,
     }
 
+    // The photos come from the catalog, a separate lookup. Start it now so it
+    // runs alongside the class search instead of after it.
+    const imagesLookup = this.fetchWorkshopImageMap().catch((err) => {
+      logger.error('Failed to join workshop images from catalog', {
+        error: err instanceof Error ? err.message : String(err),
+      })
+      // Workshops still render without images.
+      return new Map<string, { card?: string; flyer?: string }>()
+    })
+
     const response = await fetch(
       `${CLASSES_API_BASE}/class_schedule_instances/search?unit_token=${locationId}`,
       {
@@ -219,19 +229,12 @@ export class SquareWorkshopProvider implements WorkshopProvider {
     // Join images from paired CLASS_TICKET catalog items by name match.
     // Square auto-creates a catalog item for every class added via the
     // Appointments UI; that catalog item is where workshop images live.
-    try {
-      const nameToImages = await this.fetchWorkshopImageMap()
-      for (const w of workshops) {
-        const imgs = nameToImages.get(w.name.toLowerCase())
-        if (!imgs) continue
-        if (imgs.card) w.imageUrl = imgs.card
-        if (imgs.flyer) w.flyerUrl = imgs.flyer
-      }
-    } catch (err) {
-      logger.error('Failed to join workshop images from catalog', {
-        error: err instanceof Error ? err.message : String(err),
-      })
-      // Continue — workshops still render without images.
+    const nameToImages = await imagesLookup
+    for (const w of workshops) {
+      const imgs = nameToImages.get(w.name.toLowerCase())
+      if (!imgs) continue
+      if (imgs.card) w.imageUrl = imgs.card
+      if (imgs.flyer) w.flyerUrl = imgs.flyer
     }
 
     return workshops

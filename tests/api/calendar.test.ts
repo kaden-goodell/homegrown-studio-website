@@ -33,6 +33,7 @@ vi.mock('@config/opening', async (importOriginal) => ({
 }))
 
 import { GET } from '@pages/api/calendar.json'
+import { forgetAll } from '@lib/short-memory'
 
 function workshop(over: Record<string, unknown> = {}) {
   return {
@@ -70,6 +71,7 @@ describe('GET /api/calendar.json', () => {
     // Only Date is faked: the handler awaits real promises.
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-09-27T17:00:00.000Z'))
+    forgetAll()
     mockListWorkshops.mockReset().mockResolvedValue([])
     mockGetEventTypes.mockReset().mockResolvedValue([])
     mockListBookings.mockReset().mockResolvedValue([])
@@ -197,5 +199,108 @@ describe('GET /api/calendar.json', () => {
   it('shows the Grand Opening marker in the opening month only', async () => {
     expect(ids((await getMonth('2026-10')).body)).toContain('grand-opening')
     expect(ids((await getMonth('2026-11')).body)).not.toContain('grand-opening')
+  })
+
+  describe('speed: several months in one request', () => {
+    async function get(query: string, headers: Record<string, string> = {}) {
+      const url = new URL(`http://localhost/api/calendar.json?${query}`)
+      const request = new Request(url, { headers })
+      const response = await GET({ request, url, params: {}, redirect: () => new Response(), locals: {} } as any)
+      return { response, body: await response.json() }
+    }
+
+    it('returns every month asked for, asking Square each question once', async () => {
+      mockListWorkshops.mockResolvedValue([
+        workshop({ id: 'oct', startAt: '2026-10-24T00:00:00.000Z' }),
+        workshop({ id: 'nov', startAt: '2026-11-14T01:00:00.000Z' }),
+        workshop({ id: 'dec', startAt: '2026-12-05T01:00:00.000Z' }),
+        workshop({ id: 'jan', startAt: '2027-01-09T01:00:00.000Z' }),
+      ])
+
+      const { body } = await get('month=2026-10&months=3')
+
+      const workshops = body.events.filter((e: any) => e.kind === 'workshop').map((e: any) => e.id)
+      expect(workshops).toEqual(['workshop-oct', 'workshop-nov', 'workshop-dec'])
+      expect(mockListWorkshops).toHaveBeenCalledTimes(1)
+      expect(mockGetEventTypes).toHaveBeenCalledTimes(1)
+      expect(mockListBookings).toHaveBeenCalledTimes(1)
+      // One bookings question covering all three studio-local months.
+      expect(mockListBookings.mock.calls[0][0]).toMatchObject({
+        startDate: '2026-10-01T05:00:00.000Z',
+        endDate: '2027-01-01T05:59:59.999Z',
+      })
+      expect(ids(body)).toContain('grand-opening')
+    })
+
+    it('crosses the year end', async () => {
+      mockListWorkshops.mockResolvedValue([workshop({ id: 'jan', startAt: '2027-01-09T01:00:00.000Z' })])
+      const { body } = await get('month=2026-12&months=2')
+      expect(ids(body)).toContain('workshop-jan')
+    })
+
+    it('caps how many months one request can ask for', async () => {
+      await get('month=2026-10&months=500')
+      const asked = mockListBookings.mock.calls[0][0]
+      expect(asked.endDate).toBe('2027-04-01T04:59:59.999Z') // six months
+    })
+
+    it('treats a nonsense count as one month', async () => {
+      await get('month=2026-10&months=lots')
+      expect(mockListBookings.mock.calls[0][0].endDate).toBe('2026-11-01T04:59:59.999Z')
+    })
+
+    it('answers a second request from what it already holds', async () => {
+      await get('month=2026-10')
+      await get('month=2026-11')
+      expect(mockListWorkshops).toHaveBeenCalledTimes(1)
+      expect(mockGetEventTypes).toHaveBeenCalledTimes(1)
+      // Bookings change with every sale: always asked.
+      expect(mockListBookings).toHaveBeenCalledTimes(2)
+    })
+
+    it('asks again once what it holds is older than its limit', async () => {
+      await get('month=2026-10')
+      vi.setSystemTime(new Date('2026-09-27T17:01:05.000Z'))
+      await get('month=2026-10')
+      expect(mockListWorkshops).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('caching', () => {
+    async function headersFor(headers: Record<string, string> = {}) {
+      const url = new URL('http://localhost/api/calendar.json?month=2026-10')
+      const request = new Request(url, { headers })
+      const response = await GET({ request, url, params: {}, redirect: () => new Response(), locals: {} } as any)
+      return { response, body: await response.json() }
+    }
+
+    it('lets the edge answer the public, fresh for a minute and refreshed behind the scenes after', async () => {
+      const { response } = await headersFor()
+      expect(response.headers.get('Cache-Control')).toBe('public, max-age=60')
+      expect(response.headers.get('Netlify-CDN-Cache-Control')).toBe('public, durable, max-age=60, stale-while-revalidate=600')
+      expect(response.headers.get('Netlify-Vary')).toBe('query,cookie=hg_preview')
+    })
+
+    it('never stores or shares what the owner sees with the preview cookie', async () => {
+      const { response } = await headersFor({ cookie: 'other=1; hg_preview=secret' })
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+      expect(response.headers.get('Netlify-CDN-Cache-Control')).toBeNull()
+    })
+
+    it('never caches a calendar that is missing something because a lookup failed', async () => {
+      mockListWorkshops.mockRejectedValue(new Error('Square 503'))
+      const { response, body } = await headersFor()
+      expect(response.status).toBe(200)
+      expect(body.incomplete).toBe(true)
+      expect(response.headers.get('Cache-Control')).toBe('private, no-store')
+    })
+
+    it('does not remember a failure: the next request asks Square again', async () => {
+      mockListWorkshops.mockRejectedValueOnce(new Error('Square 503')).mockResolvedValue([workshop()])
+      await headersFor()
+      const { body } = await headersFor()
+      expect(body.incomplete).toBeUndefined()
+      expect(ids(body)).toContain('workshop-w1')
+    })
   })
 })

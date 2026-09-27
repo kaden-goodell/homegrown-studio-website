@@ -304,22 +304,29 @@ export class SquareBookingProvider implements BookingProvider {
     // Square refuses a range longer than 31 days ("Time range can be at most
     // 31 days in length"). Callers ask for what they need (the party window is
     // 45 days), so longer ranges are fetched in pieces and joined here.
+    // The pieces are asked for at the same time; if any fails, the whole
+    // lookup fails, so a caller never trusts half a list.
+    const pieces = await Promise.all(
+      rangesOfAtMost(params.startDate, params.endDate, MAX_LIST_RANGE_DAYS).map(async ([from, to]) => {
+        const response = await this.client.bookings.list({
+          locationId: params.locationId,
+          startAtMin: from,
+          startAtMax: to,
+        })
+        // v44: bookings.list returns a paginator (items in async iteration / .data),
+        // NOT a plain { bookings: [] }. Iterate to collect all bookings.
+        const found: any[] = []
+        for await (const b of response as any) found.push(b)
+        return found
+      }),
+    )
     const sqBookings: any[] = []
     const seen = new Set<string>()
-    for (const [from, to] of rangesOfAtMost(params.startDate, params.endDate, MAX_LIST_RANGE_DAYS)) {
-      const response = await this.client.bookings.list({
-        locationId: params.locationId,
-        startAtMin: from,
-        startAtMax: to,
-      })
-      // v44: bookings.list returns a paginator (items in async iteration / .data),
-      // NOT a plain { bookings: [] }. Iterate to collect all bookings.
-      for await (const b of response as any) {
-        // A booking starting exactly on a boundary comes back in both pieces.
-        if (b?.id && seen.has(b.id)) continue
-        if (b?.id) seen.add(b.id)
-        sqBookings.push(b)
-      }
+    for (const b of pieces.flat()) {
+      // A booking starting exactly on a boundary comes back in both pieces.
+      if (b?.id && seen.has(b.id)) continue
+      if (b?.id) seen.add(b.id)
+      sqBookings.push(b)
     }
 
     // Filter out cancelled bookings

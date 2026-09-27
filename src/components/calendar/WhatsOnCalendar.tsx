@@ -17,11 +17,50 @@ function monthKey(y: number, m: number) {
   return `${y}-${String(m + 1).padStart(2, '0')}`
 }
 
-async function fetchMonth(key: string): Promise<CalendarEvent[]> {
-  const res = await fetch(`/api/calendar.json?month=${key}`)
+/**
+ * Months already fetched during this visit. Switching between the list and the
+ * month grid, or paging back to a month already seen, shows at once instead of
+ * asking the server again. Entries go stale after a minute.
+ */
+const FRESH_MS = 60_000
+const fetched = new Map<string, { at: number; events: CalendarEvent[] }>()
+
+function held(key: string): CalendarEvent[] | null {
+  const hit = fetched.get(key)
+  return hit && Date.now() - hit.at < FRESH_MS ? hit.events : null
+}
+
+/** "2026-10", 3 → ["2026-10", "2026-11", "2026-12"] */
+function keysFrom(first: string, count: number): string[] {
+  const [y, m] = first.split('-').map(Number)
+  return Array.from({ length: count }, (_, i) => {
+    const d = new Date(y, m - 1 + i, 1)
+    return monthKey(d.getFullYear(), d.getMonth())
+  })
+}
+
+/** One request for `count` months in a row, remembered month by month. */
+async function fetchMonths(first: string, count: number): Promise<void> {
+  const res = await fetch(`/api/calendar.json?month=${first}${count > 1 ? `&months=${count}` : ''}`)
   if (!res.ok) throw new Error(`calendar fetch failed: ${res.status}`)
-  const data: { events?: CalendarEvent[] } = await res.json()
-  return Array.isArray(data?.events) ? data.events : []
+  const data: { events?: CalendarEvent[]; incomplete?: boolean } = await res.json()
+  const events = Array.isArray(data?.events) ? data.events : []
+  const at = Date.now()
+  for (const key of keysFrom(first, count)) {
+    fetched.set(key, { at, events: events.filter((e) => e.date.startsWith(key)) })
+  }
+}
+
+async function fetchMonth(key: string): Promise<CalendarEvent[]> {
+  const already = held(key)
+  if (already) return already
+  await fetchMonths(key, 1)
+  return fetched.get(key)?.events ?? []
+}
+
+/** Forget what was fetched. For tests. */
+export function forgetFetchedMonths(): void {
+  fetched.clear()
 }
 
 interface WhatsOnCalendarProps {
@@ -190,23 +229,36 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
   // Flat list view: everything upcoming across the next N months, not month-scoped.
   const [listMonths, setListMonths] = useState(LIST_MONTHS_INITIAL)
   const [listEvents, setListEvents] = useState<CalendarEvent[]>(initialEvents)
-  const [listLoading, setListLoading] = useState(false)
+  // Starts true: the first thing on screen is "loading", never "nothing scheduled".
+  const [listLoading, setListLoading] = useState(true)
 
   useEffect(() => {
     if (view !== 'list') return
     let cancelled = false
-    const keys: string[] = []
-    for (let i = 0; i < listMonths; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1)
-      keys.push(monthKey(d.getFullYear(), d.getMonth()))
+    // Nothing happens before opening month, so the list starts there too.
+    const keys = keysFrom(monthKey(start.getFullYear(), start.getMonth()), listMonths)
+    const show = () => {
+      const seen = new Set<string>()
+      setListEvents(
+        keys
+          .flatMap((k) => fetched.get(k)?.events ?? [])
+          .filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true))),
+      )
+    }
+    // Ask only for the months not already held, in ONE request.
+    const firstMissing = keys.findIndex((k) => held(k) === null)
+    if (firstMissing === -1) {
+      show()
+      setListLoading(false)
+      return
     }
     setListLoading(true)
-    Promise.all(keys.map((k) => fetchMonth(k).catch(() => [] as CalendarEvent[])))
-      .then((chunks) => {
-        if (cancelled) return
-        const seen = new Set<string>()
-        const merged = chunks.flat().filter((e) => (seen.has(e.id) ? false : (seen.add(e.id), true)))
-        setListEvents(merged)
+    fetchMonths(keys[firstMissing], keys.length - firstMissing)
+      .catch(() => {
+        // Keep showing whatever we have; don't crash.
+      })
+      .then(() => {
+        if (!cancelled) show()
       })
       .finally(() => {
         if (!cancelled) setListLoading(false)
@@ -231,6 +283,13 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
   useEffect(() => {
     if (view !== 'month') return
     let cancelled = false
+    const already = held(monthKey(year, month))
+    if (already) {
+      // Seen a moment ago (the list loads the first months): show it at once.
+      setEvents(already)
+      setLoading(false)
+      return
+    }
     setLoading(true)
     fetchMonth(monthKey(year, month))
       .then((evs) => {
@@ -642,9 +701,25 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
       {/* List view: upcoming day cards, party slots collapsed */}
       {view === 'list' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', maxWidth: '44rem', margin: '0 auto' }}>
-          {dayGroups.length === 0 && (
+          {dayGroups.length === 0 && listLoading && (
+            <div role="status" aria-label="Loading the calendar">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  aria-hidden="true"
+                  className="glass"
+                  style={{ borderRadius: '1rem', padding: compact ? '1rem' : '1.25rem 1.5rem', marginBottom: '1rem', opacity: 1 - i * 0.25 }}
+                >
+                  <div style={{ height: '1rem', width: '9rem', borderRadius: '0.25rem', background: 'var(--color-line)', marginBottom: '1rem' }} />
+                  <div style={{ height: '0.875rem', width: '60%', borderRadius: '0.25rem', background: 'var(--color-line)', marginBottom: '0.5rem' }} />
+                  <div style={{ height: '0.75rem', width: '40%', borderRadius: '0.25rem', background: 'var(--color-line)' }} />
+                </div>
+              ))}
+            </div>
+          )}
+          {dayGroups.length === 0 && !listLoading && (
             <p style={{ textAlign: 'center', color: 'var(--color-muted)', padding: '3rem 0' }}>
-              {listLoading ? 'Loading…' : 'Nothing scheduled yet — check back soon.'}
+              Nothing scheduled yet — check back soon.
             </p>
           )}
           {dayGroups.map((day) => (

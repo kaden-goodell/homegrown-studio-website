@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within, fireEvent } from '@testing-library/react'
-import WhatsOnCalendar from '@components/calendar/WhatsOnCalendar'
+import WhatsOnCalendar, { forgetFetchedMonths } from '@components/calendar/WhatsOnCalendar'
 import type { CalendarEvent } from '@components/calendar/calendar-view-model'
 
 // Pin the opening date so the month grid opens on October 2026 whatever the real one becomes.
@@ -61,6 +61,7 @@ describe('WhatsOnCalendar list rows (HOM-179)', () => {
     vi.setSystemTime(new Date('2026-10-01T17:00:00.000Z'))
     stubMatchMedia(false)
     stubCalendarApi()
+    forgetFetchedMonths()
   })
 
   afterEach(() => {
@@ -158,6 +159,7 @@ describe('WhatsOnCalendar month view', () => {
     vi.setSystemTime(new Date('2026-10-01T17:00:00.000Z'))
     stubMatchMedia(false)
     stubCalendarApi()
+    forgetFetchedMonths()
   })
 
   afterEach(() => {
@@ -178,5 +180,57 @@ describe('WhatsOnCalendar month view', () => {
 
     const booked = await screen.findByTitle('Booked · private party')
     expect(booked.tagName).toBe('SPAN')
+  })
+})
+
+describe('WhatsOnCalendar loading', () => {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-01T17:00:00.000Z'))
+    stubMatchMedia(false)
+    stubCalendarApi()
+    forgetFetchedMonths()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+  })
+
+  const calls = () => (globalThis.fetch as any).mock.calls.map((c: any[]) => String(c[0]))
+
+  it('asks for the whole list in one request', async () => {
+    render(<WhatsOnCalendar />)
+    await rowFor('Fall Earring Bar')
+    expect(calls()).toEqual(['/api/calendar.json?month=2026-10&months=3'])
+  })
+
+  it('says it is loading before anything arrives, never "nothing scheduled"', () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
+    render(<WhatsOnCalendar />)
+    expect(screen.getByRole('status', { name: 'Loading the calendar' })).toBeInTheDocument()
+    expect(screen.queryByText(/Nothing scheduled yet/)).toBeNull()
+  })
+
+  it('says nothing is scheduled only once it knows', async () => {
+    stubCalendarApi([])
+    render(<WhatsOnCalendar />)
+    expect(await screen.findByText(/Nothing scheduled yet/)).toBeInTheDocument()
+  })
+
+  it('opens the month grid from what the list already fetched, without asking again', async () => {
+    render(<WhatsOnCalendar />)
+    await rowFor('Fall Earring Bar')
+    fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+    expect(await screen.findByTitle('Open Studio')).toBeInTheDocument()
+    expect(calls()).toHaveLength(1)
+  })
+
+  it('"Show more" asks only for the month it does not have', async () => {
+    render(<WhatsOnCalendar />)
+    await rowFor('Fall Earring Bar')
+    fireEvent.click(screen.getByRole('button', { name: /Show more/ }))
+    await vi.waitFor(() => expect(calls()).toHaveLength(2))
+    expect(calls()[1]).toBe('/api/calendar.json?month=2027-01')
   })
 })
