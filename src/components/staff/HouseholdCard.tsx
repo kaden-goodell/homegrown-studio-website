@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { formatTime, formatMonthDay, formatMonthYear } from '@lib/studio-time'
-import { card, btn, field, Badge } from '@components/staff/ui'
+import { card, btn, Badge } from '@components/staff/ui'
+import PickupPanel from '@components/staff/PickupPanel'
 import type { EventKind } from '@lib/events'
 
 export interface Presence {
@@ -13,15 +14,29 @@ export interface AuthorizedPickupEntry {
   phone: string
 }
 
+/** Who collected one person, and when/which day (HOM-214). */
+export interface Released {
+  name: string
+  at: string
+  day: string
+}
+
 export interface Checkin {
   /** Person ids the family said are coming (RSVP). null = unspecified. */
   expected: string[] | null
   /** person id → presence, scoped to the roster's currently-selected day. */
   presence: Record<string, Presence>
+  /** @deprecated legacy free-text note — see `releasedTo`. */
   pickedUpBy: string | null
   confirmedPickup: AuthorizedPickupEntry[]
   notAuthorized: string
   hasPickupCode: boolean
+  /** Consecutive wrong pickup-code attempts (HOM-214) — drives "N tries left". */
+  codeAttempts: number
+  /** True once 5 wrong attempts have locked code entry (HOM-214). */
+  locked: boolean
+  /** Who collected each already-released person, and when (HOM-214). */
+  releasedTo: Record<string, Released>
 }
 
 export interface Household {
@@ -62,7 +77,7 @@ function StatusPill({ status, hereCount, total }: { status: Status; hereCount: n
 }
 
 type PersonState = 'here' | 'out' | 'absent'
-interface Person { id: string; icon: string; name: string; sub: string; allergies: string; medications?: string; isChild: boolean; duplicateOf?: string }
+export interface Person { id: string; icon: string; name: string; sub: string; allergies: string; medications?: string; isChild: boolean; duplicateOf?: string }
 
 /**
  * One household's card on the roster: signer, phone, each person with a
@@ -83,7 +98,7 @@ export default function HouseholdCard({
   kind: EventKind
   id: string
   day: string
-  post: (recordId: string, extra: any) => Promise<{ error?: string; oneTimeCode?: string }>
+  post: (recordId: string, extra: any) => Promise<{ error?: string; oneTimeCode?: string; smsFailed?: boolean }>
 }) {
   const people: Person[] = [
     { id: 'adult', icon: '👤', name: h.signer, sub: 'adult', allergies: h.adultAllergies, isChild: false },
@@ -116,16 +131,19 @@ export default function HouseholdCard({
   )
   // Checkout selection (present people) defaults to everyone here.
   const [selOut, setSelOut] = useState<Record<string, boolean>>({})
-  const [code, setCode] = useState('')
-  const [collectedBy, setCollectedBy] = useState('')
   const [err, setErr] = useState<string | null>(null)
-  const [oneTimeCode, setOneTimeCode] = useState<string | null>(null)
   const [sendState, setSendState] = useState<'idle' | 'busy' | 'sent' | 'failed'>('idle')
+  // The freshly-issued pickup code (HOM-214): shown once, then hidden. Lives
+  // here (not PickupPanel) because it's first set by the CHECK-IN action
+  // above, and again by PickupPanel's own "Re-send code" — both write into
+  // this same reveal so there's only ever one code on screen at a time.
+  const [revealCode, setRevealCode] = useState<string | null>(null)
+  const [smsFailed, setSmsFailed] = useState(false)
   // When the server retires the code (Reset, or the last child picked up), drop
   // any displayed plaintext — it's dead, and handing it to a parent would fail
   // at checkout.
   useEffect(() => {
-    if (!h.checkin.hasPickupCode) setOneTimeCode(null)
+    if (!h.checkin.hasPickupCode) setRevealCode(null)
   }, [h.checkin.hasPickupCode])
   // Two-tap reset guard
   const [resetPending, setResetPending] = useState(false)
@@ -148,7 +166,7 @@ export default function HouseholdCard({
     setErr(null)
     const r = await post(h.recordId, { day, ...extra })
     if (r.error) setErr(r.error)
-    else if (r.oneTimeCode) setOneTimeCode(r.oneTimeCode)
+    else if (r.oneTimeCode) { setRevealCode(r.oneTimeCode); setSmsFailed(!!r.smsFailed) }
   }
 
   async function sendLink() {
@@ -184,9 +202,12 @@ export default function HouseholdCard({
       return <span style={{ fontSize: '0.78rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>● here {pr ? formatTime(pr.inAt) : ''}</span>
     }
     if (st === 'out') {
+      const releasedTo = h.checkin.releasedTo?.[p.id]
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-          <span style={{ fontSize: '0.78rem', color: '#666', fontWeight: 700, whiteSpace: 'nowrap' }}>✓ left {pr?.outAt ? formatTime(pr.outAt) : ''}</span>
+          <span style={{ fontSize: '0.78rem', color: '#666', fontWeight: 700, whiteSpace: 'nowrap' }}>
+            ✓ left {pr?.outAt ? formatTime(pr.outAt) : ''}{releasedTo?.name ? ` · ${releasedTo.name}` : ''}
+          </span>
           <button type="button" onClick={() => act({ action: 'undo-pickup', personIds: [p.id] })} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}>Undo</button>
         </span>
       )
@@ -296,44 +317,26 @@ export default function HouseholdCard({
         </div>
       )}
 
-      {/* Pickup code — shown ONCE */}
-      {dropOff && oneTimeCode && (
-        <div style={{ marginTop: '0.7rem', background: 'rgba(150,112,91,0.1)', border: '1px solid rgba(150,112,91,0.4)', borderRadius: '0.6rem', padding: '0.7rem 0.8rem', textAlign: 'center' }}>
-          <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)', fontWeight: 700 }}>Pickup code — give to parent now</span>
-          <div style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '0.25em', color: 'var(--color-dark)', margin: '0.1rem 0' }}>{oneTimeCode}</div>
-          <p style={{ fontSize: '0.7rem', color: 'var(--color-muted)', margin: '0 0 0.5rem' }}>Won’t be shown again — it collects any of their kids. Make sure the parent has it.</p>
-          <button type="button" onClick={() => setOneTimeCode(null)} style={btn(true)}>Parent has it — hide</button>
-        </div>
-      )}
-      {dropOff && status === 'in' && !oneTimeCode && (
-        <div style={{ marginTop: '0.6rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          {h.checkin.hasPickupCode && (
-            <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>🔒 Pickup code issued (hidden)</span>
-          )}
-          <button type="button" onClick={() => act({ action: 'reissue-code' })} style={btn()}>
-            {h.checkin.hasPickupCode ? 'Re-issue code' : 'Issue pickup code'}
-          </button>
-        </div>
-      )}
-
       {err && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginTop: '0.5rem', fontWeight: 600 }}>{err}</p>}
 
-      {/* Check-out — one code for the family, pick who's leaving now */}
+      {/* Check-out — chips/code/override for drop-off, simple "collected by" otherwise (HOM-214) */}
       {herePeople.length > 0 && (
-        <div style={{ marginTop: '0.8rem', borderTop: '1px solid rgba(150,112,91,0.12)', paddingTop: '0.7rem', display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          {dropOff && checkingOutChild && (
-            <input value={code} onChange={(e) => setCode(e.target.value)} placeholder="Pickup code" inputMode="numeric" style={{ ...field, width: '6.5rem' }} />
-          )}
-          <input value={collectedBy} onChange={(e) => setCollectedBy(e.target.value)} placeholder="Collected by (optional)" style={{ ...field, flex: '1 1 8rem' }} />
-          <button
-            type="button"
-            disabled={selectedOut.length === 0}
-            onClick={() => act({ action: 'pickup', personIds: selectedOut, code: code.trim(), pickedUpBy: collectedBy.trim() })}
-            style={{ ...btn(true), opacity: selectedOut.length === 0 ? 0.5 : 1 }}
-          >
-            Check out ({selectedOut.length})
-          </button>
-          {/* Two-tap reset guard — no native confirm dialog */}
+        <PickupPanel
+          h={h}
+          dropOff={dropOff}
+          day={day}
+          selectedOut={selectedOut}
+          checkingOutChild={checkingOutChild}
+          post={post}
+          revealCode={revealCode}
+          smsFailed={smsFailed}
+          onCodeIssued={(codeVal, failed) => { setRevealCode(codeVal); setSmsFailed(failed) }}
+        />
+      )}
+
+      {/* Reset — clears this family's whole day; two-tap guard, no native confirm */}
+      {herePeople.length > 0 && (
+        <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'flex-end' }}>
           {resetPending ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
               <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Really reset? Clears this family’s arrival times.</span>

@@ -98,6 +98,9 @@ export const GET: APIRoute = async ({ request, url }) => {
             confirmedPickup: pub.confirmedPickup,
             notAuthorized: pub.notAuthorized,
             hasPickupCode: pub.hasPickupCode,
+            codeAttempts: pub.codeAttempts,
+            locked: pub.locked,
+            releasedTo: pub.releasedTo,
           },
         }
       }),

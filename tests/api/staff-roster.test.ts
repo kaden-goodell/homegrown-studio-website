@@ -50,7 +50,18 @@ function makeWaiver(overrides: Record<string, any> = {}) {
 }
 
 function emptyCheckin() {
-  return { expected: null, days: {}, pickedUpBy: null, confirmedPickup: [], notAuthorized: '', pickupCodeHash: null, events: [] }
+  return {
+    expected: null,
+    days: {},
+    pickedUpBy: null,
+    confirmedPickup: [],
+    notAuthorized: '',
+    pickupCodeHash: null,
+    codeAttempts: 0,
+    lockedAt: null,
+    releasedTo: {},
+    events: [],
+  }
 }
 
 function ctx(query: string) {

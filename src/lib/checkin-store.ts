@@ -42,9 +42,29 @@ export interface DayState {
 /** Append-only record of every custody action taken for this family. */
 export interface CheckinEvent {
   at: string // ISO
-  action: 'checkin' | 'undo-checkin' | 'pickup' | 'pickup-denied' | 'undo-pickup' | 'reissue-code' | 'set-pickup'
+  action:
+    | 'checkin'
+    | 'undo-checkin'
+    | 'pickup'
+    | 'pickup-denied'
+    | 'undo-pickup'
+    | 'reissue-code'
+    | 'set-pickup'
+    | 'code-sent'
+    | 'pickup-override'
+    | 'locked'
+    | 'unlocked'
   personIds: string[]
+  /** @deprecated legacy free-text "collected by" note. New pickup/
+   *  pickup-override events write `collectedBy` instead (HOM-214). */
   pickedUpBy?: string
+  /** Who actually collected, on a `pickup`/`pickup-override` event (HOM-214). */
+  collectedBy?: string
+  /** Whether staff confirmed photo ID for an unlisted collector (HOM-214). */
+  idChecked?: boolean
+  /** Structured reason on a `pickup-override` (the radio choice) or a
+   *  `pickup-denied` (e.g. `'not-authorized'`, `'code-mismatch'`) — HOM-214. */
+  reason?: string
   note?: string
   /** Which staff member took the action. Absent on legacy events. */
   by?: By
@@ -65,7 +85,8 @@ export interface CheckinState {
    *  independently. Never read directly outside this module — use
    *  `presenceOn`/`childStillHere`. */
   days: Record<string, DayState>
-  /** Optional free-text note of who collected (the code is the real gate). */
+  /** @deprecated free-text note of who collected — legacy only. New releases
+   *  write a structured entry into `releasedTo` instead (HOM-214). */
   pickedUpBy: string | null
   /** Staff-confirmed authorized pickup people (drop-off events). Seeded once,
    *  at first child check-in, from the RSVP's pickup override if the
@@ -79,6 +100,19 @@ export interface CheckinState {
    *  across every day of the event (HOM-213); see `checkin.json.ts` for the
    *  retirement rule. */
   pickupCodeHash: string | null
+  /** Consecutive wrong-code attempts since the last correct code or the last
+   *  fresh code issue (HOM-214). Resets to 0 on a correct code, on
+   *  `reissue-code`, or on a `pickup-override`. */
+  codeAttempts: number
+  /** ISO timestamp of the 5th wrong attempt, or `null` when not locked. While
+   *  set, `pickup` refuses every code (right or wrong) — only
+   *  `pickup-override` can release a child. Cleared by `pickup-override` or
+   *  by issuing a fresh code (HOM-214). */
+  lockedAt: string | null
+  /** Who actually walked out with each person, and when/which day — one
+   *  entry per released person id, overwritten if they're re-released after
+   *  an undo (HOM-214). The structured replacement for legacy `pickedUpBy`. */
+  releasedTo: Record<string, { name: string; at: string; day: string }>
   /** Append-only audit log of all custody events. Never exposed to clients. */
   events: CheckinEvent[]
 }
@@ -95,6 +129,13 @@ export interface PublicCheckin {
   confirmedPickup: AuthorizedPickup[]
   notAuthorized: string
   hasPickupCode: boolean
+  /** Consecutive wrong-code attempts so far — drives the "N tries left" UI
+   *  (HOM-214). */
+  codeAttempts: number
+  /** Whether the family is currently locked out of code entry (HOM-214). */
+  locked: boolean
+  /** Who collected each already-released person, and when (HOM-214). */
+  releasedTo: Record<string, { name: string; at: string; day: string }>
 }
 
 export function toPublicCheckin(s: CheckinState): PublicCheckin {
@@ -107,6 +148,9 @@ export function toPublicCheckin(s: CheckinState): PublicCheckin {
     confirmedPickup: s.confirmedPickup,
     notAuthorized: s.notAuthorized,
     hasPickupCode: !!s.pickupCodeHash,
+    codeAttempts: s.codeAttempts,
+    locked: !!s.lockedAt,
+    releasedTo: s.releasedTo,
   }
 }
 
@@ -138,7 +182,18 @@ function key(eventKey: string, recordId: string): string {
 }
 
 function emptyState(): CheckinState {
-  return { expected: null, days: {}, pickedUpBy: null, confirmedPickup: [], notAuthorized: '', pickupCodeHash: null, events: [] }
+  return {
+    expected: null,
+    days: {},
+    pickedUpBy: null,
+    confirmedPickup: [],
+    notAuthorized: '',
+    pickupCodeHash: null,
+    codeAttempts: 0,
+    lockedAt: null,
+    releasedTo: {},
+    events: [],
+  }
 }
 
 /**
@@ -196,6 +251,10 @@ export function normalize(raw: any, firstDay?: string): CheckinState {
       : [],
     notAuthorized: typeof raw?.notAuthorized === 'string' ? raw.notAuthorized : '',
     pickupCodeHash: typeof raw?.pickupCodeHash === 'string' ? raw.pickupCodeHash : null,
+    codeAttempts: typeof raw?.codeAttempts === 'number' && raw.codeAttempts >= 0 ? raw.codeAttempts : 0,
+    lockedAt: typeof raw?.lockedAt === 'string' ? raw.lockedAt : null,
+    releasedTo:
+      raw?.releasedTo && typeof raw.releasedTo === 'object' && !Array.isArray(raw.releasedTo) ? raw.releasedTo : {},
     events: Array.isArray(raw?.events) ? raw.events : [],
   }
 }

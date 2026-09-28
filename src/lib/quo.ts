@@ -32,6 +32,17 @@ export function toE164(phone: string): string | null {
   return null
 }
 
+/** The one-time family pickup code, texted to the signer at first child
+ *  check-in and on every `reissue-code` (HOM-214). Never logged — this is
+ *  the only place the plaintext code appears outside the response body. */
+export const pickupCodeText = (title: string, code: string, kids: string[]): string =>
+  `Hometown Studio pickup code for ${title}: ${code}. Whoever collects ${kids.join(' & ')} needs this code. Reply STOP to opt out.`
+
+/** Pickup confirmation texted to the signer after a child is released
+ *  (HOM-214) — so the parent always learns who walked out with their kid. */
+export const pickedUpText = (kids: string[], by: string, when: string): string =>
+  `${kids.join(' & ')} picked up by ${by} at ${when} — Hometown Studio.`
+
 /** Send one SMS. Throws on transport/API failure; callers decide severity. */
 export async function sendQuoText(input: { to: string; content: string }): Promise<void> {
   const to = toE164(input.to)

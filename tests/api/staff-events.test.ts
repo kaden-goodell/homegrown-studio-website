@@ -23,7 +23,18 @@ function ctx(query: string) {
 }
 
 function emptyCheckin(): CheckinState {
-  return { expected: null, days: {}, pickedUpBy: null, confirmedPickup: [], notAuthorized: '', pickupCodeHash: null, events: [] }
+  return {
+    expected: null,
+    days: {},
+    pickedUpBy: null,
+    confirmedPickup: [],
+    notAuthorized: '',
+    pickupCodeHash: null,
+    codeAttempts: 0,
+    lockedAt: null,
+    releasedTo: {},
+    events: [],
+  }
 }
 
 /** Build a CheckinState with presence for one day (HOM-213 — `hereNow` is

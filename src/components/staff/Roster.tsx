@@ -102,7 +102,7 @@ export default function Roster({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, id])
 
-  async function post(recordId: string, extra: any): Promise<{ error?: string; oneTimeCode?: string }> {
+  async function post(recordId: string, extra: any): Promise<{ error?: string; oneTimeCode?: string; smsFailed?: boolean }> {
     if (!data) return {}
     try {
       const res = await fetch('/api/staff/checkin.json', {
@@ -120,9 +120,12 @@ export default function Roster({
         confirmedPickup: json.data.checkin.confirmedPickup,
         notAuthorized: json.data.checkin.notAuthorized,
         hasPickupCode: json.data.checkin.hasPickupCode,
+        codeAttempts: json.data.checkin.codeAttempts ?? 0,
+        locked: !!json.data.checkin.locked,
+        releasedTo: json.data.checkin.releasedTo ?? {},
       }
       setData((d) => d && { ...d, households: d.households.map((hh) => (hh.recordId === recordId ? { ...hh, checkin: checkinForCard } : hh)) })
-      return { oneTimeCode: json.data.oneTimeCode }
+      return { oneTimeCode: json.data.oneTimeCode, smsFailed: json.data.smsFailed }
     } catch {
       return { error: 'Couldn’t save — check wifi and try again.' }
     }
