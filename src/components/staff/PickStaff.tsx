@@ -1,10 +1,5 @@
 import type { CSSProperties } from 'react'
-
-export interface PickStaffMember {
-  id: string
-  name: string
-  role: 'owner' | 'crew'
-}
+import type { StaffMember } from '@lib/staff-auth'
 
 const card: CSSProperties = {
   border: '1px solid rgba(150,112,91,0.16)',
@@ -33,14 +28,19 @@ export default function PickStaff({
   staff,
   busy,
   error,
+  showBack,
   onPick,
   onBack,
 }: {
-  staff: PickStaffMember[]
+  staff: StaffMember[]
   busy: boolean
   error: string | null
+  /** Only true when the pick attempt itself was rejected (401 — stale/changed
+   *  passcode). A rate limit (429) or a storage hiccup (503) isn't an auth
+   *  problem, so re-entering the passcode wouldn't help — don't offer it. */
+  showBack: boolean
   onPick: (staffId: string) => void
-  /** Re-enter the passcode — the escape hatch if a pick attempt 401s (rate limit, stale passcode). */
+  /** Re-enter the passcode — the escape hatch when a pick attempt 401s. */
   onBack: () => void
 }) {
   return (
@@ -51,10 +51,15 @@ export default function PickStaff({
       <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '1rem' }}>Pick your name to sign in.</p>
       {error && (
         <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginBottom: '0.6rem' }}>
-          {error}{' '}
-          <button type="button" onClick={onBack} style={{ background: 'none', border: 'none', color: '#b91c1c', textDecoration: 'underline', cursor: 'pointer', font: 'inherit', padding: 0 }}>
-            Re-enter passcode
-          </button>
+          {error}
+          {showBack && (
+            <>
+              {' '}
+              <button type="button" onClick={onBack} style={{ background: 'none', border: 'none', color: '#b91c1c', textDecoration: 'underline', cursor: 'pointer', font: 'inherit', padding: 0 }}>
+                Re-enter passcode
+              </button>
+            </>
+          )}
         </p>
       )}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(8rem, 1fr))', gap: '0.6rem' }}>

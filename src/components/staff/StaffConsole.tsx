@@ -4,14 +4,9 @@ import { formatCents } from '@lib/utils'
 import { kitConfig } from '@config/kit.config'
 import { kitThemes } from '@config/kit-content'
 import { addDays } from '@lib/kit-dates'
-import PickStaff, { type PickStaffMember } from '@components/staff/PickStaff'
+import PickStaff from '@components/staff/PickStaff'
 import StaffHeader from '@components/staff/StaffHeader'
-
-interface Me {
-  id: string
-  name: string
-  role: 'owner' | 'crew'
-}
+import type { StaffMember } from '@lib/staff-auth'
 
 interface PartyRow {
   bookingId: string
@@ -570,10 +565,11 @@ export default function StaffConsole() {
   const [assembly, setAssembly] = useState<KitAssembly | null>(null)
   const [passcode, setPasscode] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
-  const [staffRoster, setStaffRoster] = useState<PickStaffMember[]>([])
-  const [me, setMe] = useState<Me | null>(null)
+  const [staffRoster, setStaffRoster] = useState<StaffMember[]>([])
+  const [me, setMe] = useState<StaffMember | null>(null)
   const [pickBusy, setPickBusy] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
+  const [pickAuthFailed, setPickAuthFailed] = useState(false)
   const [parties, setParties] = useState<PartyRow[]>([])
   const [roster, setRoster] = useState<Roster | null>(null)
   const [netError, setNetError] = useState<string | null>(null)
@@ -614,6 +610,7 @@ export default function StaffConsole() {
   async function doPick(staffId: string) {
     setPickBusy(true)
     setPickError(null)
+    setPickAuthFailed(false)
     try {
       const res = await fetch('/api/staff/pick.json', {
         method: 'POST',
@@ -623,6 +620,9 @@ export default function StaffConsole() {
       const json = await res.json().catch(() => null)
       if (!res.ok) {
         setPickError(json?.error ?? 'Couldn’t sign in.')
+        // Only a 401 (stale/changed passcode) is fixed by re-entering it —
+        // a 429 (rate limit) or 503 (storage hiccup) isn't an auth problem.
+        setPickAuthFailed(res.status === 401)
         setPickBusy(false)
         return
       }
@@ -638,6 +638,7 @@ export default function StaffConsole() {
   /** Back to the name grid without re-entering the passcode. */
   function switchStaff() {
     setPickError(null)
+    setPickAuthFailed(false)
     setPhase('pick')
   }
 
@@ -758,7 +759,16 @@ export default function StaffConsole() {
   }
 
   if (phase === 'pick') {
-    return <PickStaff staff={staffRoster} busy={pickBusy} error={pickError} onPick={doPick} onBack={() => { setPickError(null); setPhase('login') }} />
+    return (
+      <PickStaff
+        staff={staffRoster}
+        busy={pickBusy}
+        error={pickError}
+        showBack={pickAuthFailed}
+        onPick={doPick}
+        onBack={() => { setPickError(null); setPickAuthFailed(false); setPhase('login') }}
+      />
+    )
   }
 
   if (!me) return null // 'today' / 'roster' / 'kits' all require a picked identity
@@ -809,13 +819,10 @@ export default function StaffConsole() {
     const empty = kitBuckets && sections.every(([k]) => kitBuckets[k].length === 0)
     return (
       <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '0.5rem', flexWrap: 'wrap' }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', margin: 0 }}>Kits</h2>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button type="button" onClick={() => setPhase('today')} style={btn()}>← Today</button>
-            <button type="button" onClick={() => loadKits()} style={btn()}>↻ Refresh</button>
-            <button type="button" onClick={logout} style={btn()}>Log out</button>
-          </div>
+        <StaffHeader title="Kits" staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onLogout={logout} />
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
+          <button type="button" onClick={() => setPhase('today')} style={btn()}>← Today</button>
+          <button type="button" onClick={() => loadKits()} style={btn()}>↻ Refresh</button>
         </div>
         {netErrorBanner}
 
@@ -919,6 +926,7 @@ export default function StaffConsole() {
 
   return (
     <div>
+      <StaffHeader title="Roster" staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onLogout={logout} />
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <button type="button" onClick={() => setPhase('today')} style={btn()}>← All parties</button>
         <button type="button" onClick={refreshRoster} style={btn()}>↻ Refresh</button>
