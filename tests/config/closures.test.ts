@@ -3,10 +3,10 @@ import { closures, closureOn, studioOpenOn, daysOf, reopensOn, type Closure } fr
 import { bookableOn, partyStartsForDate, partyStartsInRange } from '@lib/party-slots'
 
 const HALLOWEEN: Closure = { from: '2026-10-30', to: '2026-11-01', name: 'Halloween weekend', holiday: 'halloween' }
-const CHRISTMAS: Closure = { from: '2026-12-21', to: '2026-12-27', name: 'Christmas week', holiday: 'christmas' }
+const CHRISTMAS: Closure = { from: '2026-12-21', to: '2027-01-01', name: 'the Christmas holidays', holiday: 'christmas' }
 
 describe('the list of closed days', () => {
-  it('closes Friday to Sunday of Halloween weekend, and the week of Christmas', () => {
+  it('closes Friday to Sunday of Halloween weekend, and 21 December to New Year\'s Day', () => {
     expect(closures).toContainEqual(HALLOWEEN)
     expect(closures).toContainEqual(CHRISTMAS)
   })
@@ -59,16 +59,17 @@ describe('where a closure shows on the calendar', () => {
     expect(daysOf(HALLOWEEN)).toEqual(['2026-10-30', '2026-10-31', '2026-11-01'])
     expect(daysOf(CHRISTMAS)).toEqual([
       '2026-12-21', '2026-12-22', '2026-12-23', '2026-12-24', '2026-12-25', '2026-12-26', '2026-12-27',
+      '2026-12-28', '2026-12-29', '2026-12-30', '2026-12-31', '2027-01-01',
     ])
   })
 
   it('names the first open day after it', () => {
     expect(reopensOn(HALLOWEEN)).toBe('2026-11-05') // Thu
-    expect(reopensOn(CHRISTMAS)).toBe('2026-12-31') // Thu
+    expect(reopensOn(CHRISTMAS)).toBe('2027-01-02') // Sat
   })
 
   it('skips a second closure that follows straight on', () => {
-    const list = [CHRISTMAS, { from: '2026-12-28', to: '2027-01-03', name: 'New Year' }]
+    const list = [CHRISTMAS, { from: '2027-01-02', to: '2027-01-03', name: 'New Year' }]
     expect(reopensOn(CHRISTMAS, list)).toBe('2027-01-07')
   })
 })
@@ -88,6 +89,8 @@ describe('party dates on a closed day', () => {
     expect(partyStartsForDate('2026-11-01', beforeHalloween)).toEqual([])
     expect(partyStartsForDate('2026-12-26', beforeChristmas)).toEqual([])
     expect(partyStartsForDate('2026-12-27', beforeChristmas)).toEqual([])
+    // Open again on Saturday 2 January.
+    expect(partyStartsForDate('2027-01-02', beforeChristmas).length).toBe(4)
   })
 
   it('still offers the weekends either side', () => {

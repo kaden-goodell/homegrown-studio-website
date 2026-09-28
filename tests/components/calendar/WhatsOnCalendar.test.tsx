@@ -323,7 +323,7 @@ describe('WhatsOnCalendar month view', () => {
       expect(cell.style.backgroundImage).toContain('--holiday-halloween')
     })
 
-    it('stripes every day of Christmas week like a candy cane, with or without a row on it', async () => {
+    it('stripes every day of the Christmas holidays like a candy cane, with or without a row on it', async () => {
       vi.setSystemTime(new Date('2026-12-01T17:00:00.000Z'))
       stubCalendarApi([])
       render(<WhatsOnCalendar />)
@@ -333,7 +333,7 @@ describe('WhatsOnCalendar month view', () => {
       const striped = Array.from(document.querySelectorAll<HTMLElement>('div')).filter((d) =>
         d.style.backgroundImage.includes('--holiday-christmas'),
       )
-      expect(striped.map((d) => d.textContent?.trim().slice(0, 2))).toEqual(['21', '22', '23', '24', '25', '26', '27'])
+      expect(striped.map((d) => d.textContent?.trim().slice(0, 2))).toEqual(['21', '22', '23', '24', '25', '26', '27', '28', '29', '30', '31'])
     })
 
     it('shows in the list in the holiday\'s colours, with the day it reopens', async () => {

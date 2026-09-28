@@ -22,9 +22,10 @@ export interface Closure {
 export type Holiday = 'halloween' | 'christmas'
 
 export const closures: Closure[] = [
-  // Kaden, 27 Sep 2026: closed Friday to Sunday of Halloween weekend, and the week of Christmas.
+  // Kaden, 27 Sep 2026: closed Friday to Sunday of Halloween weekend, and from
+  // 21 December to New Year's Day, opening again on Saturday 2 January.
   { from: '2026-10-30', to: '2026-11-01', name: 'Halloween weekend', holiday: 'halloween' },
-  { from: '2026-12-21', to: '2026-12-27', name: 'Christmas week', holiday: 'christmas' },
+  { from: '2026-12-21', to: '2027-01-01', name: 'the Christmas holidays', holiday: 'christmas' },
 ]
 
 /** The studio opens Thursday to Sunday (0 = Sunday). */
