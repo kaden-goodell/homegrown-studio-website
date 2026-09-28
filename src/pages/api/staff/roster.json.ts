@@ -3,6 +3,7 @@ import { staffAuthorized } from '@lib/staff-auth'
 import { getPartyRecord } from '@lib/party-store'
 import { getEvent } from '@lib/events'
 import { listWaiversByParty, markDuplicateChildren } from '@lib/waiver-store'
+import { getRsvp } from '@lib/rsvp-store'
 import { getCheckin, toPublicCheckin } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 
@@ -35,24 +36,30 @@ export const GET: APIRoute = async ({ request, url }) => {
     waivers.sort((a, b) => a.signedAt.localeCompare(b.signedAt))
 
     const households = await Promise.all(
-      waivers.map(async (w) => ({
-        recordId: w.id,
-        signer: `${w.adult.firstName} ${w.adult.lastName}`.trim(),
-        phone: w.adult.phone,
-        email: w.adult.email,
-        // dob is used only for duplicate matching (same kid on two waivers must
-        // share a birthdate; two kids sharing a name must not merge) and is
-        // stripped before the response.
-        children: w.minors.map((m) => ({ name: m.name, dob: m.dob, allergies: m.allergies || '', duplicateOf: undefined as string | undefined })),
-        childCount: w.minors.length,
-        adultAllergies: w.adult.allergies || '',
-        emergency: w.emergency,
-        authorizedPickup: w.authorizedPickup || '',
-        responsibleAdult: w.responsibleAdult || '',
-        photoConsent: w.photoConsent,
-        signedAt: w.signedAt,
-        checkin: toPublicCheckin(await getCheckin(partyId, w.id)),
-      })),
+      waivers.map(async (w) => {
+        // RSVP records now carry who's actually with the household at this
+        // party; the waiver's own field is a legacy fallback for records
+        // signed before RSVPs existed (HOM-210).
+        const rsvp = await getRsvp('party', partyId, w.id)
+        return {
+          recordId: w.id,
+          signer: `${w.adult.firstName} ${w.adult.lastName}`.trim(),
+          phone: w.adult.phone,
+          email: w.adult.email,
+          // dob is used only for duplicate matching (same kid on two waivers must
+          // share a birthdate; two kids sharing a name must not merge) and is
+          // stripped before the response.
+          children: w.minors.map((m) => ({ name: m.name, dob: m.dob, allergies: m.allergies || '', duplicateOf: undefined as string | undefined })),
+          childCount: w.minors.length,
+          adultAllergies: w.adult.allergies || '',
+          emergency: w.emergency,
+          authorizedPickup: w.authorizedPickup || '',
+          responsibleAdult: rsvp?.responsibleAdult ?? w.responsibleAdult ?? '',
+          photoConsent: w.photoConsent,
+          signedAt: w.signedAt,
+          checkin: toPublicCheckin(await getCheckin(partyId, w.id)),
+        }
+      }),
     )
 
     // Flag children who appear (same name + birthdate) in an earlier household;

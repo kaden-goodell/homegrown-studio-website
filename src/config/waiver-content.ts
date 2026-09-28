@@ -21,6 +21,31 @@ const legalEntityName = 'Goodell Holdings LLC' // registered entity; d/b/a Homet
 const businessAddress = '525 Hughes Rd Ste F, Madison, Alabama 35758'
 const adultAge = 19
 
+/**
+ * Earliest agreement version whose text is legally equivalent to the current
+ * one. A returning household whose on-file signature predates this version
+ * can no longer one-tap RSVP (HOM-210) — the reuse path forces a full
+ * re-sign instead of cloning the old signature forward. Bump this forward
+ * only when a `legalSections` change is SUBSTANTIVE; an administrative-only
+ * bump (e.g. v1→v2, the 2026-09-26 rebrand) leaves it where it is. Mirrored
+ * verbatim in `docs/waiver-versions/README.md` as `substantiveSince: v1` —
+ * keep the two in sync.
+ */
+export const substantiveSince = 'v1'
+
+/**
+ * Compare two 'vN' version strings by their numeric suffix. An unparsable or
+ * missing version sorts before every real version, so a record with no
+ * readable version forces a re-sign rather than silently passing.
+ */
+export function compareVersions(a: string, b: string): number {
+  const num = (v: string): number => {
+    const m = /^v(\d+)$/.exec(v ?? '')
+    return m ? Number(m[1]) : -Infinity
+  }
+  return num(a) - num(b)
+}
+
 export const waiverContent = {
   /**
    * Bump on any legalSections change (v1 → v2 …). Stored with every signature.
@@ -76,6 +101,11 @@ export const waiverContent = {
     responsibleAdultNote:
       'Every child needs an adult at the party — tell us who to look for (e.g. “Grandma Sue”).',
   },
+
+  /** Shown (client) and returned verbatim (server, as the 409 body) when a
+   *  returning household's signature predates a substantive agreement change
+   *  and must be re-signed in full — see `substantiveSince` above. */
+  mustResignNotice: "We've updated the agreement — please read and sign again.",
 
   confirmation: {
     headline: 'You’re all set!',

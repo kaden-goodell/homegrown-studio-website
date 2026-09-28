@@ -10,10 +10,6 @@ vi.mock('@lib/reuse-token', () => ({
   verifyReuseToken: vi.fn().mockReturnValue(true),
 }))
 
-vi.mock('@lib/party-store', () => ({
-  getPartyRecord: vi.fn().mockResolvedValue(null),
-}))
-
 vi.mock('@lib/checkin-store', () => ({
   setExpected: vi.fn().mockResolvedValue(undefined),
   getCheckin: vi.fn().mockResolvedValue({ presence: {}, pickupCodeHash: null, expected: null, pickedUpBy: null, confirmedPickup: [], events: [] }),
@@ -22,7 +18,6 @@ vi.mock('@lib/checkin-store', () => ({
 
 const mockSaveWaiverRecord = vi.fn().mockResolvedValue(undefined)
 const mockGetWaiverRecord = vi.fn()
-const mockUpsertWaiverInPartyIndex = vi.fn().mockResolvedValue({ replacedRecordId: null })
 const mockUpsertWaiverInEventIndex = vi.fn().mockResolvedValue({ replacedRecordId: null })
 const mockIndexWaiverByContact = vi.fn().mockResolvedValue(undefined)
 const mockNewWaiverId = vi.fn().mockReturnValue('wvr_test_abc')
@@ -30,10 +25,21 @@ const mockNewWaiverId = vi.fn().mockReturnValue('wvr_test_abc')
 vi.mock('@lib/waiver-store', () => ({
   saveWaiverRecord: (...args: any[]) => mockSaveWaiverRecord(...args),
   getWaiverRecord: (...args: any[]) => mockGetWaiverRecord(...args),
-  upsertWaiverInPartyIndex: (...args: any[]) => mockUpsertWaiverInPartyIndex(...args),
   upsertWaiverInEventIndex: (...args: any[]) => mockUpsertWaiverInEventIndex(...args),
   indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
   newWaiverId: () => mockNewWaiverId(),
+}))
+
+const mockUpsertRsvp = vi.fn()
+
+vi.mock('@lib/rsvp-store', () => ({
+  upsertRsvp: (...args: any[]) => mockUpsertRsvp(...args),
+}))
+
+const mockGetEvent = vi.fn()
+
+vi.mock('@lib/events', () => ({
+  getEvent: (...args: any[]) => mockGetEvent(...args),
 }))
 
 vi.mock('@config/providers', () => ({
@@ -42,21 +48,42 @@ vi.mock('@config/providers', () => ({
       findOrCreate: vi.fn().mockResolvedValue({ id: 'cust-1', email: 'alice@example.com', givenName: 'Alice', familyName: 'Test' }),
       appendNote: vi.fn().mockResolvedValue(undefined),
     },
-    workshop: {
-      listWorkshops: vi.fn().mockResolvedValue([]),
-      getWorkshop: vi.fn().mockResolvedValue(null),
-    },
   },
 }))
 
 // --- Helpers ---
 
 const NOW = '2026-09-01T18:00:00.000Z'
-const FUTURE_PARTY_ISO = '2026-09-05T14:00:00.000Z'
-// Far enough out to outlive normal test-suite date rot — this file's whole
-// approach to "the future" is fragile (see the pre-existing FUTURE_PARTY_ISO
-// failures below); Task 3 rewrites this file with proper clock control.
-const FUTURE_WORKSHOP_ISO = '2036-09-05T18:00:00.000Z'
+// Far-future fixed dates so this file can't rot the way the old
+// FUTURE_PARTY_ISO constant did — `getEvent` is mocked directly (Task 3), so
+// nothing here depends on real party/workshop storage or today's date.
+const FUTURE_PARTY_ISO = '2099-01-01T14:00:00.000Z'
+const FUTURE_WORKSHOP_ISO = '2099-01-05T18:00:00.000Z'
+
+function partyEvent(overrides: Record<string, any> = {}) {
+  return {
+    kind: 'party',
+    id: 'party-123',
+    title: 'Test Party',
+    startIso: FUTURE_PARTY_ISO,
+    days: ['2099-01-01'],
+    dropOff: false,
+    ...overrides,
+  }
+}
+
+function workshopEvent(overrides: Record<string, any> = {}) {
+  return {
+    kind: 'workshop',
+    id: 'wkbk-abc123',
+    title: 'Test Workshop',
+    startIso: FUTURE_WORKSHOP_ISO,
+    days: ['2099-01-05'],
+    dropOff: false,
+    seats: 5,
+    ...overrides,
+  }
+}
 
 function makeAdultBody(overrides: Record<string, any> = {}) {
   return {
@@ -81,7 +108,7 @@ function makeAdultBody(overrides: Record<string, any> = {}) {
   }
 }
 
-function makeReuseSource() {
+function makeReuseSource(overrides: Record<string, any> = {}) {
   return {
     id: 'wvr_source_abc',
     agreementVersion: 'v2',
@@ -94,11 +121,10 @@ function makeReuseSource() {
     authorizedPickup: '',
     photoConsent: true,
     signature: 'Alice Test',
-    partyId: null,
-    responsibleAdult: null,
     squareCustomerId: null,
     ip: null,
     userAgent: null,
+    ...overrides,
   }
 }
 
@@ -113,7 +139,7 @@ function createMockContext(body: any, url = 'http://localhost/api/waiver/sign.js
 
 // --- Tests ---
 
-describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
+describe('POST /api/waiver/sign.json', () => {
   let POST: any
 
   beforeEach(async () => {
@@ -131,46 +157,103 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
     vi.mock('@lib/waiver-store', () => ({
       saveWaiverRecord: (...args: any[]) => mockSaveWaiverRecord(...args),
       getWaiverRecord: (...args: any[]) => mockGetWaiverRecord(...args),
-      upsertWaiverInPartyIndex: (...args: any[]) => mockUpsertWaiverInPartyIndex(...args),
       upsertWaiverInEventIndex: (...args: any[]) => mockUpsertWaiverInEventIndex(...args),
       indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
       newWaiverId: () => mockNewWaiverId(),
     }))
+    vi.mock('@lib/rsvp-store', () => ({ upsertRsvp: (...args: any[]) => mockUpsertRsvp(...args) }))
+    vi.mock('@lib/events', () => ({ getEvent: (...args: any[]) => mockGetEvent(...args) }))
     vi.mock('@config/providers', () => ({
       providers: {
         customer: {
           findOrCreate: vi.fn().mockResolvedValue({ id: 'cust-1', email: 'alice@test.com', givenName: 'Alice', familyName: 'Test' }),
           appendNote: vi.fn().mockResolvedValue(undefined),
         },
-        workshop: {
-          listWorkshops: vi.fn().mockResolvedValue([
-            { scheduleId: 'wkbk-abc123', name: 'Test Workshop', startAt: FUTURE_WORKSHOP_ISO, availableCapacity: 5 },
-          ]),
-          getWorkshop: vi.fn().mockResolvedValue(null),
-        },
       },
-    }))
-    // Mock party-store to return a valid future party (normal, not drop-off)
-    vi.mock('@lib/party-store', () => ({
-      getPartyRecord: vi.fn().mockResolvedValue({ startIso: FUTURE_PARTY_ISO, bookingId: 'party-123', dropOff: false }),
     }))
 
     mockSaveWaiverRecord.mockResolvedValue(undefined)
-    mockUpsertWaiverInPartyIndex.mockResolvedValue({ replacedRecordId: null })
     mockUpsertWaiverInEventIndex.mockResolvedValue({ replacedRecordId: null })
     mockIndexWaiverByContact.mockResolvedValue(undefined)
     mockNewWaiverId.mockReturnValue('wvr_test_abc')
+    mockUpsertRsvp.mockResolvedValue({
+      id: 'rsv_test_abc',
+      waiverId: 'wvr_test_abc',
+      event: { kind: 'party', id: 'party-123' },
+      attending: ['adult'],
+      responsibleAdult: null,
+      addendumVersion: null,
+      addendumSha256: null,
+      at: NOW,
+      firstAt: NOW,
+      ip: null,
+      userAgent: null,
+    })
+    mockGetEvent.mockImplementation(async (kind: string, id: string) => {
+      if (kind === 'party' && id === 'party-123') return partyEvent()
+      if (kind === 'workshop' && id === 'wkbk-abc123') return workshopEvent()
+      return null
+    })
 
     const mod = await import('@pages/api/waiver/sign.json')
     POST = mod.POST
   })
 
-  describe('fresh-form path — party RSVP with kids only, no signer', () => {
+  describe('fresh sign — writes a signature AND an RSVP in an event context', () => {
+    it('party context: saves the WaiverRecord and calls upsertRsvp with the attending list', async () => {
+      const body = makeAdultBody({ partyId: 'party-123' })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+
+      // saveWaiverRecord is called twice: once to persist the signature, and
+      // again by attachSquare's best-effort re-save with squareCustomerId —
+      // pre-existing behavior, unchanged by this task.
+      expect(mockSaveWaiverRecord).toHaveBeenCalled()
+      expect(mockUpsertRsvp).toHaveBeenCalledTimes(1)
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          waiverId: 'wvr_test_abc',
+          event: { kind: 'party', id: 'party-123' },
+          attending: ['adult'],
+        }),
+      )
+      // The new WaiverRecord itself no longer carries partyId/context/responsibleAdult.
+      const saved = mockSaveWaiverRecord.mock.calls[0][0]
+      expect(saved.partyId).toBeUndefined()
+      expect(saved.context).toBeUndefined()
+      expect(saved.responsibleAdult).toBeUndefined()
+    })
+
+    it('no event context (walk-in): saves the WaiverRecord but never calls upsertRsvp', async () => {
+      const body = makeAdultBody({ partyId: null })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      expect(mockSaveWaiverRecord).toHaveBeenCalled()
+      expect(mockUpsertRsvp).not.toHaveBeenCalled()
+    })
+
+    it('responsible-adult is stored on the RSVP, not the WaiverRecord', async () => {
+      const body = makeAdultBody({
+        partyId: 'party-123',
+        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
+        attending: ['child:0'],
+        responsibleAdult: 'Grandma Sue',
+      })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(
+        expect.objectContaining({ responsibleAdult: 'Grandma Sue', attending: ['child:0'] }),
+      )
+    })
+
     it('returns 400 when kids are attending but adult is not and no responsibleAdult given', async () => {
       const body = makeAdultBody({
         partyId: 'party-123',
         minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
-        attending: ['child:0'], // kids only, adult NOT coming
+        attending: ['child:0'],
         responsibleAdult: '',
       })
       const ctx = createMockContext(body)
@@ -178,36 +261,16 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
       expect(res.status).toBe(400)
       const json = await res.json()
       expect(json.error).toMatch(/needs an adult at the party/i)
-    })
-
-    it('returns 200 when kids are attending but adult is not, and responsibleAdult is provided', async () => {
-      const body = makeAdultBody({
-        partyId: 'party-123',
-        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
-        attending: ['child:0'], // kids only, adult NOT coming
-        responsibleAdult: 'Grandma Sue',
-      })
-      const ctx = createMockContext(body)
-      const res = await POST(ctx)
-      expect(res.status).toBe(200)
-      const json = await res.json()
-      expect(json.data).toBeDefined()
-      // Confirm responsibleAdult was stored
-      const savedRecord = mockSaveWaiverRecord.mock.calls[0]?.[0]
-      expect(savedRecord?.responsibleAdult).toBe('Grandma Sue')
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+      expect(mockUpsertRsvp).not.toHaveBeenCalled()
     })
 
     it('skips the responsible-adult requirement for studio-run drop-off events', async () => {
-      const partyStore = await import('@lib/party-store')
-      vi.mocked(partyStore.getPartyRecord).mockResolvedValueOnce({
-        startIso: FUTURE_PARTY_ISO,
-        bookingId: 'party-123',
-        dropOff: true, // camp/PNO — its own check-in + pickup-code procedures govern
-      } as any)
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
       const body = makeAdultBody({
         partyId: 'party-123',
         minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
-        attending: ['child:0'], // kids only, adult NOT coming — fine at a drop-off event
+        attending: ['child:0'],
         responsibleAdult: '',
       })
       const ctx = createMockContext(body)
@@ -216,14 +279,41 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
     })
   })
 
-  describe('reuse path — party RSVP with kids only, no signer', () => {
+  describe('reuse (returning-customer) path — RSVP only, no new signature', () => {
+    it('does not call saveWaiverRecord, and calls upsertRsvp with the source waiverId', async () => {
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      const body = {
+        reuseRecordId: 'wvr_source_abc',
+        reuseToken: 'valid-token',
+        partyId: 'party-123',
+        attending: ['adult', 'child:0'],
+        responsibleAdult: '',
+      }
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      const json = await res.json()
+      expect(json.data.waiverId).toBe('wvr_source_abc')
+      expect(json.data.rsvpId).toBeDefined()
+
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          waiverId: 'wvr_source_abc',
+          event: { kind: 'party', id: 'party-123' },
+          attending: ['adult', 'child:0'],
+          responsibleAdult: null,
+        }),
+      )
+    })
+
     it('returns 400 when kids are attending but adult is not and no responsibleAdult given', async () => {
       mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
       const body = {
         reuseRecordId: 'wvr_source_abc',
         reuseToken: 'valid-token',
         partyId: 'party-123',
-        attending: ['child:0'], // kids only, adult NOT coming
+        attending: ['child:0'],
         responsibleAdult: '',
       }
       const ctx = createMockContext(body)
@@ -231,9 +321,10 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
       expect(res.status).toBe(400)
       const json = await res.json()
       expect(json.error).toMatch(/needs an adult at the party/i)
+      expect(mockUpsertRsvp).not.toHaveBeenCalled()
     })
 
-    it('returns 200 when kids are attending but adult is not, and responsibleAdult is provided', async () => {
+    it('returns 200 and stores responsibleAdult on the RSVP when provided', async () => {
       mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
       const body = {
         reuseRecordId: 'wvr_source_abc',
@@ -245,27 +336,118 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
       const ctx = createMockContext(body)
       const res = await POST(ctx)
       expect(res.status).toBe(200)
-      const json = await res.json()
-      expect(json.data).toBeDefined()
-      const savedRecord = mockSaveWaiverRecord.mock.calls[0]?.[0]
-      expect(savedRecord?.responsibleAdult).toBe('Uncle Bob')
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(expect.objectContaining({ responsibleAdult: 'Uncle Bob' }))
     })
-  })
 
-  describe('workshop context — signs with workshopId, indexes under event-index-workshop:', () => {
-    it('returns 200 and records context.kind=workshop when workshopId is provided', async () => {
-      const body = makeAdultBody({ workshopId: 'wkbk-abc123', partyId: null })
+    it('with no event context, re-confirms coverage without writing any RSVP', async () => {
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      const body = { reuseRecordId: 'wvr_source_abc', reuseToken: 'valid-token' }
       const ctx = createMockContext(body)
       const res = await POST(ctx)
       expect(res.status).toBe(200)
       const json = await res.json()
-      expect(json.data).toBeDefined()
-      // context should be set
+      expect(json.data.waiverId).toBe('wvr_source_abc')
+      expect(mockUpsertRsvp).not.toHaveBeenCalled()
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('forced re-sign (mustResign) — HOM-210', () => {
+    it('returns 409 mustResign when the source record predates substantiveSince', async () => {
+      vi.doMock('@config/waiver-content', async (importOriginal) => {
+        const actual: any = await importOriginal()
+        return { ...actual, substantiveSince: 'v3' }
+      })
+      vi.resetModules()
+      // Re-establish every mock after resetModules (vi.doMock isn't hoisted,
+      // so this describe block re-imports its own fully-mocked instance).
+      vi.mock('@lib/rate-limit', () => ({ rateLimited: vi.fn().mockReturnValue(false) }))
+      vi.mock('@lib/reuse-token', () => ({ verifyReuseToken: vi.fn().mockReturnValue(true) }))
+      vi.mock('@lib/checkin-store', () => ({
+        setExpected: vi.fn().mockResolvedValue(undefined),
+        getCheckin: vi.fn().mockResolvedValue({ presence: {}, pickupCodeHash: null, expected: null, pickedUpBy: null, confirmedPickup: [], events: [] }),
+        mutateCheckin: vi.fn().mockResolvedValue(undefined),
+      }))
+      vi.mock('@lib/waiver-store', () => ({
+        saveWaiverRecord: (...args: any[]) => mockSaveWaiverRecord(...args),
+        getWaiverRecord: (...args: any[]) => mockGetWaiverRecord(...args),
+        upsertWaiverInEventIndex: (...args: any[]) => mockUpsertWaiverInEventIndex(...args),
+        indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
+        newWaiverId: () => mockNewWaiverId(),
+      }))
+      vi.mock('@lib/rsvp-store', () => ({ upsertRsvp: (...args: any[]) => mockUpsertRsvp(...args) }))
+      vi.mock('@lib/events', () => ({ getEvent: (...args: any[]) => mockGetEvent(...args) }))
+      vi.mock('@config/providers', () => ({
+        providers: {
+          customer: {
+            findOrCreate: vi.fn().mockResolvedValue({ id: 'cust-1' }),
+            appendNote: vi.fn().mockResolvedValue(undefined),
+          },
+        },
+      }))
+
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource({ agreementVersion: 'v2' }))
+      mockGetEvent.mockImplementation(async (kind: string, id: string) => {
+        if (kind === 'party' && id === 'party-123') return partyEvent()
+        return null
+      })
+
+      const mod = await import('@pages/api/waiver/sign.json')
+      const body = {
+        reuseRecordId: 'wvr_source_abc',
+        reuseToken: 'valid-token',
+        partyId: 'party-123',
+        attending: ['adult'],
+        responsibleAdult: '',
+      }
+      const ctx = createMockContext(body)
+      const res = await mod.POST(ctx)
+      expect(res.status).toBe(409)
+      const json = await res.json()
+      expect(json.mustResign).toBe(true)
+      expect(mockUpsertRsvp).not.toHaveBeenCalled()
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+
+      vi.doUnmock('@config/waiver-content')
+    })
+  })
+
+  describe('workshop context — RSVP attaches to the class, not the per-seat booking', () => {
+    it('fresh sign: event.kind is workshop, keyed by classScheduleId, and stores ref.bookingId', async () => {
+      const body = makeAdultBody({ workshopId: 'wkbk-abc123', partyId: null, booking: 'seat-booking-1' })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      const json = await res.json()
       expect(json.data.context).toEqual({ kind: 'workshop', id: 'wkbk-abc123' })
-      // partyId should be null
       expect(json.data.partyId).toBeNull()
-      // upsertWaiverInEventIndex should have been called with kind='workshop'
-      expect(mockUpsertWaiverInEventIndex).toHaveBeenCalledWith('workshop', 'wkbk-abc123', expect.any(Object))
+
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          event: { kind: 'workshop', id: 'wkbk-abc123' },
+          ref: { bookingId: 'seat-booking-1' },
+        }),
+      )
+      expect(mockUpsertWaiverInEventIndex).toHaveBeenCalledWith('workshop', 'wkbk-abc123', expect.any(Object), expect.any(String))
+    })
+
+    it('two households booking two different seats both attach to the same class', async () => {
+      const bodyA = makeAdultBody({ workshopId: 'wkbk-abc123', partyId: null, booking: 'seat-1', adult: { firstName: 'Mom', lastName: 'A', email: 'mom@test.com', phone: '2565551111', dob: '1985-01-01' }, signature: 'Mom A' })
+      mockNewWaiverId.mockReturnValueOnce('wvr_mom')
+      const resA = await POST(createMockContext(bodyA))
+      expect(resA.status).toBe(200)
+
+      const bodyB = makeAdultBody({ workshopId: 'wkbk-abc123', partyId: null, booking: 'seat-2', adult: { firstName: 'Dad', lastName: 'B', email: 'dad@test.com', phone: '2565552222', dob: '1985-01-01' }, signature: 'Dad B' })
+      mockNewWaiverId.mockReturnValueOnce('wvr_dad')
+      const resB = await POST(createMockContext(bodyB))
+      expect(resB.status).toBe(200)
+
+      expect(mockUpsertRsvp).toHaveBeenCalledTimes(2)
+      const events = mockUpsertRsvp.mock.calls.map((c) => c[0].event)
+      expect(events).toEqual([
+        { kind: 'workshop', id: 'wkbk-abc123' },
+        { kind: 'workshop', id: 'wkbk-abc123' },
+      ])
     })
 
     it('returns 400 when both partyId and workshopId are provided', async () => {

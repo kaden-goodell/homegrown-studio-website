@@ -128,27 +128,70 @@ describe('upsertWaiverInPartyIndex (fs mode)', () => {
     expect(ids).toEqual(['wvr_legacy_1', 'wvr_legacy_2'])
   })
 
-  // (d) Mixed index (some legacy strings, some new objects) lists all records.
-  it('mixed legacy strings and new objects lists all records', async () => {
+  // (d) Mixed index (legacy strings, legacy {recordId} objects, AND current
+  // {waiverId, rsvpId} objects) lists all records — every shape this blob
+  // has ever held must keep working (HOM-210).
+  it('mixed legacy strings, legacy {recordId} objects, and current {waiverId,rsvpId} objects lists all records', async () => {
     const partyId = `party-${Date.now()}`
     const r1 = makeRecord({ id: 'wvr_old', partyId })
     const r2 = makeRecord({ id: 'wvr_new', partyId, email: 'new@example.com' })
+    const r3 = makeRecord({ id: 'wvr_newest', partyId, email: 'newest@example.com' })
 
     await mod.saveWaiverRecord(r1)
     await mod.saveWaiverRecord(r2)
+    await mod.saveWaiverRecord(r3)
 
-    // Write a mixed index.
+    // Write a mixed index covering all three shapes.
     const { makeKvStore } = await import('@lib/blob-store')
     const kv = makeKvStore('waivers', 'waivers')
     await kv.set(
       `party-index-${partyId}`,
-      JSON.stringify(['wvr_old', { recordId: 'wvr_new', contactKey: 'e:new@example.com' }]),
+      JSON.stringify([
+        'wvr_old',
+        { recordId: 'wvr_new', contactKey: 'e:new@example.com' },
+        { waiverId: 'wvr_newest', contactKey: 'e:newest@example.com', rsvpId: 'rsv_abc123' },
+      ]),
     )
 
     const waivers = await mod.listWaiversByParty(partyId)
-    expect(waivers).toHaveLength(2)
+    expect(waivers).toHaveLength(3)
     const ids = waivers.map((w) => w.id).sort()
-    expect(ids).toEqual(['wvr_new', 'wvr_old'])
+    expect(ids).toEqual(['wvr_new', 'wvr_newest', 'wvr_old'])
+  })
+})
+
+// ─── EventIndexEntry.rsvpId round-trip ───────────────────────────────────────
+
+describe('upsertWaiverInEventIndex — rsvpId', () => {
+  let mod: typeof import('@lib/waiver-store')
+
+  beforeEach(async () => {
+    mod = await import('@lib/waiver-store')
+  })
+
+  it('defaults rsvpId to null when not passed', async () => {
+    const partyId = `party-rsvp-default-${Date.now()}`
+    const r1 = makeRecord({ id: 'wvr_norsvp', partyId })
+    await mod.saveWaiverRecord(r1)
+    await mod.upsertWaiverInEventIndex('party', partyId, r1)
+
+    const { makeKvStore } = await import('@lib/blob-store')
+    const kv = makeKvStore('waivers', 'waivers')
+    const raw = JSON.parse((await kv.get(`party-index-${partyId}`))!)
+    expect(raw[0].rsvpId).toBeNull()
+  })
+
+  it('stores and round-trips a passed rsvpId', async () => {
+    const partyId = `party-rsvp-set-${Date.now()}`
+    const r1 = makeRecord({ id: 'wvr_withrsvp', partyId })
+    await mod.saveWaiverRecord(r1)
+    await mod.upsertWaiverInEventIndex('party', partyId, r1, 'rsv_test_1')
+
+    const { makeKvStore } = await import('@lib/blob-store')
+    const kv = makeKvStore('waivers', 'waivers')
+    const raw = JSON.parse((await kv.get(`party-index-${partyId}`))!)
+    expect(raw[0].waiverId).toBe('wvr_withrsvp')
+    expect(raw[0].rsvpId).toBe('rsv_test_1')
   })
 })
 

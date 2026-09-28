@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { waiverContent } from '@config/waiver-content'
+import { formatCalendarDate } from '@lib/studio-time'
 
 interface Props {
   /** Present when opened from a party guest link — /waiver?party={bookingId} */
@@ -17,6 +18,9 @@ interface Props {
    *  the party/workshop event. Skips the responsible-adult question (drop-off
    *  programs have their own check-in + pickup-code procedures). */
   dropOff?: boolean
+  /** Present when opened from a workshop confirmation — the per-seat Square
+   *  booking id, carried through to the RSVP as `ref.bookingId`. */
+  booking?: string
 }
 
 interface MinorRow {
@@ -94,7 +98,7 @@ function PartyLabelChip({ label }: { label: string }) {
   )
 }
 
-export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle: _eventTitle, dropOff }: Props) {
+export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle: _eventTitle, dropOff, booking }: Props) {
   const { form, confirmation, legalSections } = waiverContent
 
   const [firstName, setFirstName] = useState('')
@@ -124,7 +128,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const [mode, setMode] = useState<'lookup' | 'returning' | 'form'>('lookup')
   const [contact, setContact] = useState('')
   const [lookupBusy, setLookupBusy] = useState(false)
-  const [returning, setReturning] = useState<{ recordId: string; reuseToken: string; firstName: string; kids: string[]; validUntil: string } | null>(null)
+  const [returning, setReturning] = useState<{ recordId: string; reuseToken: string; firstName: string; kids: string[]; validUntil: string; signedAt: string } | null>(null)
   // Friendly heads-up shown atop the form (e.g. a lapsed agreement was found).
   const [formNotice, setFormNotice] = useState<string | null>(null)
   // RSVP "who's coming" for the returning-household path: person id → coming?
@@ -133,6 +137,10 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   // crafting. `false` = not coming; missing key defaults to coming.
   const [formAttending, setFormAttending] = useState<Record<string, boolean>>({})
   const formComing = (id: string) => formAttending[id] !== false
+
+  // Any event context RSVPs; only parties ask the responsible-adult question
+  // (workshops have no drop-off/responsible-adult concept server-side).
+  const hasEvent = !!(partyId || workshopId)
 
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
   const signatureMatches =
@@ -296,6 +304,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           signature: signature.trim(),
           partyId: partyId ?? null,
           workshopId: workshopId ?? null,
+          booking: booking ?? null,
           // Who's making a craft — watchers come free and aren't counted here.
           attending: ['adult', ...minors.map((_, i) => `child:${i}`)].filter(formComing),
           responsibleAdult: kidsWithoutSigner ? effectiveResponsibleAdult(fullName) : '',
@@ -326,9 +335,17 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       const json = await res.json().catch(() => null)
       if (!res.ok) {
         setError(json?.error ?? 'Something went wrong — please try again.')
+      } else if (json?.data?.mustResign) {
+        // The agreement changed since they last signed (HOM-210) — no
+        // one-tap reuse; open the full form prefilled with what we have.
+        setFirstName(json.data.firstName ?? '')
+        if (c.includes('@')) setEmail(c)
+        else setPhone(c)
+        setFormNotice(waiverContent.mustResignNotice)
+        setMode('form')
       } else if (json?.data?.found) {
         const kids: string[] = json.data.kids ?? []
-        setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids, validUntil: json.data.validUntil ?? '' })
+        setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids, validUntil: json.data.validUntil ?? '', signedAt: json.data.signedAt ?? '' })
         // Default everyone in the household to "coming"; they can uncheck below.
         setAttending(Object.fromEntries(['adult', ...kids.map((_, i) => `child:${i}`)].map((id) => [id, true])))
         setMode('returning')
@@ -372,6 +389,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           reuseToken: returning.reuseToken,
           partyId: partyId ?? null,
           workshopId: workshopId ?? null,
+          booking: booking ?? null,
           attending: Object.entries(attending).filter(([, coming]) => coming).map(([id]) => id),
           responsibleAdult: returningKidsWithoutSigner ? effectiveResponsibleAdult(returning.firstName) : '',
         }),
@@ -382,6 +400,16 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         setReturning(null)
         setMode('lookup')
         setError('Your session expired — enter your email or phone again to continue.')
+        return
+      }
+      if (res.status === 409 && json?.mustResign) {
+        // The agreement changed since this household last signed — open the
+        // full form prefilled with what we have (defense in depth: the
+        // lookup step should already have routed them here directly).
+        setFirstName(returning.firstName)
+        setReturning(null)
+        setFormNotice(waiverContent.mustResignNotice)
+        setMode('form')
         return
       }
       if (!res.ok) throw new Error(json?.error ?? 'Something went wrong — please try again.')
@@ -523,7 +551,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         <h2 style={{ ...sectionHeadingStyle, fontSize: '1.375rem' }}>Welcome back, {returning.firstName}! 🎉</h2>
         <p style={{ ...sectionNoteStyle, maxWidth: '24rem', margin: '0.25rem auto 1.25rem' }}>
           Your participation agreement is already on file — you don’t need to sign again.
-          {partyId ? ' Just tell us who’s coming.' : ''}
+          {hasEvent ? ' Just tell us who’s coming.' : ''}
         </p>
         {(() => {
           const roster = [
@@ -534,14 +562,14 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           return (
             <div style={{ background: 'rgba(150,112,91,0.06)', border: '1px solid rgba(150,112,91,0.12)', borderRadius: '0.875rem', padding: '0.85rem 1rem', textAlign: 'left', maxWidth: '22rem', margin: '0 auto 1.1rem' }}>
               <p style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', color: 'var(--color-primary)', margin: '0 0 0.5rem' }}>
-                {partyId ? 'Who’s coming?' : 'On file for your household'}
+                {hasEvent ? 'Who’s coming?' : 'On file for your household'}
               </p>
               {roster.map((r) => (
                 <label
                   key={r.id}
-                  style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.4rem 0', cursor: partyId ? 'pointer' : 'default', fontSize: '0.9375rem', color: 'var(--color-dark)' }}
+                  style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.4rem 0', cursor: hasEvent ? 'pointer' : 'default', fontSize: '0.9375rem', color: 'var(--color-dark)' }}
                 >
-                  {partyId && (
+                  {hasEvent && (
                     <input
                       type="checkbox"
                       checked={!!attending[r.id]}
@@ -551,12 +579,12 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
                   <span>{r.label}</span>
                 </label>
               ))}
-              {partyId && (
+              {hasEvent && (
                 <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0.5rem 0 0' }}>
                   Someone can still be added at the door if plans change.
                 </p>
               )}
-              {partyId && comingCount === 0 && (
+              {hasEvent && comingCount === 0 && (
                 <p style={{ fontSize: '0.8125rem', color: 'rgb(185,28,28)', margin: '0.4rem 0 0', fontWeight: 600 }}>
                   Pick at least one person who’s coming.
                 </p>
@@ -564,11 +592,16 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
             </div>
           )
         })()}
+        {returning.signedAt && (
+          <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', maxWidth: '22rem', margin: '0 auto 1.1rem' }}>
+            Your agreement signed {formatCalendarDate(returning.signedAt)} still covers everyone here.
+          </p>
+        )}
         {returningKidsWithoutSigner && (
           <div style={{ maxWidth: '22rem', margin: '0 auto 1rem' }}>{presenceBlock('wv-ret')}</div>
         )}
         {error && <p style={{ color: 'rgb(185,28,28)', fontSize: '0.875rem', marginBottom: '0.75rem' }}>{error}</p>}
-        {partyId ? (
+        {hasEvent ? (
           (() => {
             const noneComing = !Object.values(attending).some(Boolean)
             const needsAdult =

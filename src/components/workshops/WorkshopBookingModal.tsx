@@ -245,7 +245,7 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
           )}
           <div style={{ marginTop: '1.25rem' }}>
             <a
-              href={bookingId ? `/waiver?workshop=${encodeURIComponent(bookingId)}` : '/waiver'}
+              href={bookingId && workshop.classScheduleId ? `/waiver?workshop=${encodeURIComponent(workshop.classScheduleId)}&booking=${encodeURIComponent(bookingId)}` : '/waiver'}
               target="_blank"
               rel="noopener noreferrer"
               style={{

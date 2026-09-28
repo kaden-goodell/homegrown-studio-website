@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { getPartyRecord, hostTokenValid } from '@lib/party-store'
 import { listWaiversByParty, markDuplicateChildren } from '@lib/waiver-store'
+import { getRsvp } from '@lib/rsvp-store'
 import { getCheckin } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 
@@ -41,8 +42,12 @@ export const GET: APIRoute = async ({ url }) => {
         waivers.map(async (w) => {
           const allIds = ['adult', ...w.minors.map((_, i) => `child:${i}`)]
           const checkin = await getCheckin(partyId, w.id)
-          // "Who's coming" the group selected at RSVP; default to the whole household.
-          const attending = checkin.expected ?? allIds
+          const rsvp = await getRsvp('party', partyId, w.id)
+          // "Who's coming" the group selected at RSVP; the RsvpRecord is the
+          // current source of truth, falling back to the legacy checkin
+          // "expected" mirror for households that RSVP'd before it existed
+          // (HOM-210), then to the whole household.
+          const attending = rsvp ? (rsvp.attending ?? allIds) : (checkin.expected ?? allIds)
           return {
             signer: `${w.adult.firstName} ${w.adult.lastName}`.trim(),
             children: w.minors.map((m) => ({

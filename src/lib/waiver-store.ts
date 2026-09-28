@@ -47,12 +47,24 @@ export interface WaiverRecord {
   authorizedPickup: string
   photoConsent: boolean
   signature: string
-  /** Legacy field — kept as a mirror of context.id when kind==='party'. */
-  partyId: string | null
-  /** Structured event context. Optional-tolerant on parse (legacy records omit it). */
-  context: { kind: EventKind; id: string } | null
-  /** Adult who will be with the child(ren) at the party if the signer is not attending. */
-  responsibleAdult: string | null
+  /**
+   * @deprecated Legacy mirror of context.id when kind==='party'. Never set on
+   * new records (HOM-210) — a signature no longer carries its event; that
+   * link lives in the event index + `RsvpRecord` (@lib/rsvp-store) instead.
+   * Kept optional so old records still parse.
+   */
+  partyId?: string | null
+  /**
+   * @deprecated Structured event context. Never set on new records — see
+   * `partyId`. Optional-tolerant on parse (legacy records omit it).
+   */
+  context?: { kind: EventKind; id: string } | null
+  /**
+   * @deprecated Adult who will be with the child(ren) if the signer isn't
+   * attending. Never set on new records — this is now per-RSVP, not
+   * per-signature (see `RsvpRecord.responsibleAdult`).
+   */
+  responsibleAdult?: string | null
   squareCustomerId: string | null
   ip: string | null
   userAgent: string | null
@@ -62,6 +74,8 @@ export interface WaiverRecord {
 export interface HouseholdOnFile {
   recordId: string
   validUntil: string
+  signedAt: string
+  agreementVersion: string
   firstName: string
   lastName: string
   email: string
@@ -134,14 +148,38 @@ export function contextOf(r: WaiverRecord): { kind: EventKind; id: string } | nu
   return r.context ?? (r.partyId ? { kind: 'party', id: r.partyId } : null)
 }
 
-/** Parse index entries, upgrading legacy bare-string ids to the object shape. */
-async function readIndexEntries(key: string): Promise<{ recordId: string; contactKey: string }[]> {
+/** The shape callers outside this module get back — enough to join against
+ *  `@lib/rsvp-store` (`getRsvp(kind, id, waiverId)`) for "who's coming". */
+export interface EventIndexEntry {
+  waiverId: string
+  rsvpId: string | null
+}
+
+/** Internal storage shape — adds the contact key used to dedupe re-signs by
+ *  the same household (never exposed outside this module). */
+interface StoredIndexEntry extends EventIndexEntry {
+  contactKey: string
+}
+
+/**
+ * Normalize one raw stored entry onto the current shape. Accepts every shape
+ * this blob has ever held: a bare string id (oldest), `{recordId, contactKey}`
+ * (pre-RSVP), and `{waiverId, contactKey, rsvpId}` (current).
+ */
+function normalizeIndexEntry(e: any): StoredIndexEntry {
+  if (typeof e === 'string') return { waiverId: e, contactKey: '', rsvpId: null }
+  if ('recordId' in e) return { waiverId: e.recordId, contactKey: e.contactKey ?? '', rsvpId: e.rsvpId ?? null }
+  return { waiverId: e.waiverId, contactKey: e.contactKey ?? '', rsvpId: e.rsvpId ?? null }
+}
+
+function parseIndexEntries(raw: string): StoredIndexEntry[] {
+  return JSON.parse(raw).map(normalizeIndexEntry)
+}
+
+/** Parse index entries, upgrading every legacy shape to the current one. */
+async function readIndexEntries(key: string): Promise<StoredIndexEntry[]> {
   const raw = await rawGet(key)
-  return raw
-    ? JSON.parse(raw).map((e: any) =>
-        typeof e === 'string' ? { recordId: e, contactKey: '' } : e,
-      )
-    : []
+  return raw ? parseIndexEntries(raw) : []
 }
 
 /** Derive a stable contact key from a waiver record. Falls back to record id if no contact info. */
@@ -167,22 +205,19 @@ export async function upsertWaiverInEventIndex(
   kind: EventKind,
   id: string,
   record: WaiverRecord,
+  rsvpId: string | null = null,
 ): Promise<{ replacedRecordId: string | null }> {
   const key = indexKeyFor(kind, id)
   const ck = contactKeyOf(record)
 
   for (let attempt = 0; attempt < 3; attempt++) {
     const { value, etag } = await rawGetWithMeta(key)
-    const entries: { recordId: string; contactKey: string }[] = value
-      ? JSON.parse(value).map((e: any) =>
-          typeof e === 'string' ? { recordId: e, contactKey: '' } : e,
-        )
-      : []
-    const prev = entries.find((e) => e.contactKey === ck && e.recordId !== record.id)
-    const next = entries.filter((e) => e.contactKey !== ck && e.recordId !== record.id)
-    next.push({ recordId: record.id, contactKey: ck })
+    const entries: StoredIndexEntry[] = value ? parseIndexEntries(value) : []
+    const prev = entries.find((e) => e.contactKey === ck && e.waiverId !== record.id)
+    const next = entries.filter((e) => e.contactKey !== ck && e.waiverId !== record.id)
+    next.push({ waiverId: record.id, contactKey: ck, rsvpId })
     if (await kv.setIfMatch(key, JSON.stringify(next), etag, value !== null)) {
-      return { replacedRecordId: prev?.recordId ?? null }
+      return { replacedRecordId: prev?.waiverId ?? null }
     }
     // Lost the CAS race — retry
   }
@@ -191,7 +226,7 @@ export async function upsertWaiverInEventIndex(
 
 export async function listWaiversByEvent(kind: EventKind, id: string): Promise<WaiverRecord[]> {
   const entries = await readIndexEntries(indexKeyFor(kind, id))
-  const records = await Promise.all(entries.map((e) => getWaiverRecord(e.recordId)))
+  const records = await Promise.all(entries.map((e) => getWaiverRecord(e.waiverId)))
   return records.filter((r): r is WaiverRecord => r !== null)
 }
 
@@ -256,6 +291,8 @@ function householdFrom(r: WaiverRecord): HouseholdOnFile {
   return {
     recordId: r.id,
     validUntil: r.validUntil,
+    signedAt: r.signedAt,
+    agreementVersion: r.agreementVersion,
     firstName: r.adult.firstName,
     lastName: r.adult.lastName,
     email: r.adult.email,

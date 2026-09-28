@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { lookupHouseholdEntry } from '@lib/waiver-store'
 import { rateLimited } from '@lib/rate-limit'
 import { issueReuseToken } from '@lib/reuse-token'
+import { substantiveSince, compareVersions } from '@config/waiver-content'
 
 export const prerender = false
 
@@ -12,7 +13,10 @@ export const prerender = false
  * DOBs) are never returned to the browser; they're reused server-side by record
  * id at RSVP time, so typing a stranger's email can't harvest their details.
  *
- * POST { contact }  →  { found, firstName?, kids?, validUntil?, recordId?, reuseToken? }
+ * POST { contact }  →  { found, firstName?, kids?, validUntil?, recordId?, signedAt?, reuseToken? }
+ *   or, when the agreement text has changed substantively since they last
+ *   signed (HOM-210): { found: true, mustResign: true, firstName } — no
+ *   token, no recordId; the client opens the full form instead.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (rateLimited(`lookup:${clientAddress}`, 10, 60_000)) {
@@ -42,6 +46,16 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     )
   }
 
+  // The agreement text has changed substantively since this household last
+  // signed (HOM-210) — no one-tap reuse; the client opens the full form.
+  // Only the first name goes back, same privacy rule as the normal "found" case.
+  if (compareVersions(h.agreementVersion, substantiveSince) < 0) {
+    return new Response(
+      JSON.stringify({ data: { found: true, mustResign: true, firstName: h.firstName } }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    )
+  }
+
   return new Response(
     JSON.stringify({
       data: {
@@ -50,6 +64,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         firstName: h.firstName,
         kids: h.minors.map((m) => m.name.split(' ')[0]),
         validUntil: h.validUntil,
+        signedAt: h.signedAt,
         reuseToken: issueReuseToken(h.recordId),
       },
     }),

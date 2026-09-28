@@ -9,6 +9,9 @@ import { formatWhen } from '@lib/studio-time'
 
 const rawPartyId = Astro.url.searchParams.get('party') ?? undefined
 const rawWorkshopId = !rawPartyId ? (Astro.url.searchParams.get('workshop') ?? undefined) : undefined
+// The per-seat Square booking id (workshops only) — carried through to the
+// RSVP as `ref.bookingId` so staff can trace a signature to its seat.
+const rawBooking = rawWorkshopId ? (Astro.url.searchParams.get('booking') ?? undefined) : undefined
 const { page } = waiverContent
 const subline = rawPartyId ? page.partySubline : page.subline
 
@@ -101,6 +104,6 @@ const noticeText     = outcome.kind === 'unknown' || outcome.kind === 'past' ? (
       </div>
     )}
 
-    <WaiverFlow client:load partyId={flowPartyId} partyLabel={flowPartyLabel} workshopId={flowWorkshopId} eventTitle={flowEventTitle} dropOff={flowDropOff} />
+    <WaiverFlow client:load partyId={flowPartyId} partyLabel={flowPartyLabel} workshopId={flowWorkshopId} eventTitle={flowEventTitle} dropOff={flowDropOff} booking={rawBooking} />
   </section>
 </Layout>

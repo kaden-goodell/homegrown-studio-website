@@ -46,6 +46,17 @@ export function formatSlotLabel(iso: string): string {
   return `${datePart} · ${formatTime(iso)} CT`
 }
 
+/** "September 28, 2026" — long calendar date, studio-local. For copy like
+ *  "your agreement signed {date}..." where only the day matters, not time. */
+export function formatCalendarDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    timeZone: TZ,
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  })
+}
+
 /** "Sat, Aug 8, 12:00 PM" — dashboard/console rows (no CT suffix). */
 export function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString('en-US', {
