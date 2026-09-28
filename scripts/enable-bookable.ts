@@ -13,8 +13,11 @@ async function main() {
   // Get all our catalog items
   const items: any[] = []
   for await (const obj of await client.catalog.list({ types: 'ITEM' })) {
-    // Skip the default Square Appointments items (haircuts etc.)
-    const name = obj.itemData?.name ?? ''
+    // Skip the default Square Appointments items (haircuts etc.). Cast to
+    // `any` — the SDK's `CatalogObject` is a discriminated union keyed on
+    // `type` and TS can't narrow it from a plain `for await` (see
+    // square-sdk-v44-shapes memory).
+    const name = (obj as any).itemData?.name ?? ''
     if (['Women\'s haircut', 'Color treatment', 'Men\'s haircut', 'Shampoo style'].includes(name)) {
       continue
     }

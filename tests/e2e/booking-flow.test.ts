@@ -15,7 +15,9 @@ const mockFindOrCreate = vi.fn()
 const mockNotificationSend = vi.fn()
 const mockGetAvailableCapacity = vi.fn()
 const mockGetClientConfig = vi.fn()
-const mockListWorkshops = vi.fn(async () => [])
+// Explicit `any[]` return type — an untyped `[]` default infers `never[]`,
+// which then rejects every `mockResolvedValueOnce([{...}])` below.
+const mockListWorkshops = vi.fn(async (): Promise<any[]> => [])
 const mockGetWorkshop = vi.fn(async () => null)
 
 vi.mock('@config/providers', () => ({

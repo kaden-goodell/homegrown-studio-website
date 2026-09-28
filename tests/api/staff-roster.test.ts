@@ -16,6 +16,7 @@ vi.mock('@lib/events', () => ({
   getEvent: (...a: any[]) => mockGetEvent(...a),
   eventKey: (kind: string, id: string) => (kind === 'party' ? id : `${kind}:${id}`),
   resolveEventDay: (event: any, requested: string | null) => mockResolveEventDay(event, requested),
+  EVENT_KIND_RE: /^(party|workshop)$/,
 }))
 
 const mockListWaiversByEvent = vi.fn()

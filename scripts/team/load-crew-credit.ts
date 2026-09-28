@@ -25,7 +25,7 @@ async function giftCardFor(member: { id: string; name: string; email?: string })
   if (!member.email) throw new Error(`${member.name} has no email — cannot attach a gift card`)
   // 1. find-or-create the customer by email
   const found: any = await client.customers.search({
-    query: { filter: { emailAddress: { exact: member.email } } }, limit: 1,
+    query: { filter: { emailAddress: { exact: member.email } } }, limit: 1n, // v44: this endpoint's `limit` is a bigint
   })
   let customerId = found.customers?.[0]?.id
   if (!customerId) {
@@ -81,7 +81,9 @@ async function main() {
   console.log(`Period ${from} → ${to} @ $${rate}/hr credit — ${crew.length} crew member(s)\n`)
 
   for (const member of crew) {
-    const key = ledgerKey(member.id, from, to)
+    // Non-null: `from`/`to` are validated above, but that guard's narrowing
+    // doesn't reach into this nested function (a known TS limitation).
+    const key = ledgerKey(member.id, from!, to!)
     if (ledger[key]) { console.log(`= ${member.name}: already loaded $${(ledger[key].cents / 100).toFixed(2)} on ${ledger[key].loadedAt}`); continue }
 
     const tcs: any = await client.labor.searchTimecards({

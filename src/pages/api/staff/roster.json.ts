@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { staffAuthorized } from '@lib/staff-auth'
-import { getEvent, eventKey, resolveEventDay } from '@lib/events'
+import { getEvent, eventKey, resolveEventDay, EVENT_KIND_RE } from '@lib/events'
 import { listWaiversByEvent, markDuplicateChildren, normalizeAuthorizedPickup } from '@lib/waiver-store'
 import { getRsvp } from '@lib/rsvp-store'
 import { getCheckin, toPublicCheckin, presenceOn } from '@lib/checkin-store'
@@ -10,7 +10,7 @@ export const prerender = false
 
 const logger = createLogger('api:staff:roster')
 
-const KIND_RE = /^(party|workshop)$/
+const KIND_RE = EVENT_KIND_RE
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 const DROP_OFF_CAP = 12
 

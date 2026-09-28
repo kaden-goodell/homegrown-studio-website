@@ -15,6 +15,13 @@ import type { By } from '@lib/staff-auth'
 
 export type EventKind = 'party' | 'workshop' | 'program'
 
+/** Shared kind-param validator for every staff surface that resolves an
+ *  event (checkin, roster, print). Rejects 'program' — `getEvent` has no
+ *  resolver for it yet (see above) — so a stray `?kind=program` fails the
+ *  same way everywhere instead of only where someone remembered to exclude
+ *  it. Widen this (and `getEvent`) together when Programs land. */
+export const EVENT_KIND_RE = /^(party|workshop)$/
+
 export interface StudioEvent {
   kind: EventKind
   id: string

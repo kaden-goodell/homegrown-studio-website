@@ -15,8 +15,6 @@ const KIND_RE = /^(party|workshop)$/
 const json = (body: unknown, status: number) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
-const DEFAULT_ORIGIN = 'https://ourhometownstudio.com'
-
 /**
  * Staff-only: text a household the drop-off addendum link when the roster
  * card shows "Addendum not signed" (HOM-213). Best-effort — an unconfigured
@@ -41,8 +39,7 @@ export const POST: APIRoute = async ({ request }) => {
 
     if (!quoConfigured()) return json({ data: { sent: false } }, 200)
 
-    const origin = (siteConfig as { url?: string }).url || DEFAULT_ORIGIN
-    const link = `${origin}/waiver?${kind}=${encodeURIComponent(id)}`
+    const link = `${siteConfig.url}/waiver?${kind}=${encodeURIComponent(id)}`
     const content = `Hometown Studio: please read and accept the drop-off addendum before ${event.title}: ${link}`
 
     try {

@@ -103,15 +103,33 @@ in Linear HOM-99 (licensing) and HOM-114 (safeguards).
 - **Hard cap: 12 children per event.** (This is the licensing decision — do not exceed 12.)
 - Staff to at least **1 adult per 6 kids, minimum 2 adults** — so 2 adults up to 12 kids.
 
-**Check-in / check-out:**
-- Every child signs in on arrival; the signing parent's waiver (with medical authorization
-  + emergency contact + allergies) is on file before the child is left.
-- Maintain an **authorized-pickup list**; release a child only to a listed adult. If you
-  don't recognize the person, check photo ID against the list.
-- The signing parent also accepts the **Drop-off Program Addendum** (HOM-211) at
-  registration — it's what governs this section's pickup-code release and the **$1/minute
-  late fee after a 15-minute grace period**. (Full rewrite of this section covered in a
-  later ticket.)
+**Check-in / check-out — how the iPad actually walks you through it:**
+- **The Today screen (front desk) answers one of three questions** the moment you type a
+  name or phone: **GOOD TO GO** (waiver's on file and current — "Check in to Open Studio",
+  or walk them to the roster for a party/PNO), **EXPIRED** (waiver's stale), or **NOT ON
+  FILE**. Expired or not on file both get the same two buttons — "Show QR" (they sign on
+  their own phone) or "Sign on this iPad."
+- **Drop-off is a setting on the event, not a separate mode.** Tap the gear (Event
+  settings) on the roster to see or change it, and the multi-day dates — don't guess from
+  the event name or how it sounds.
+- **Check-in texts the pickup code.** Tap "Check in (n)" on the roster; for a drop-off event
+  this sends the family's pickup code by text the moment their first kid checks in. The
+  signing parent accepted the **Drop-off Program Addendum** (HOM-211) at registration — it's
+  what governs everything below.
+- **Pickup is chip + code.** The person collecting shows up on the "Who's collecting?"
+  chips. Known person + correct code → "Check out (n)." Someone not on the chip list →
+  tick "Not on the list — I checked their photo ID" first, then check out. No code on
+  hand, or it's been typed wrong five times (locked) → "Override…": pick a reason (Called
+  the parent — verified / Parent is here in person / Other) and say what happened. **You
+  never decide whether to trust someone — the screen does**, off the chip and the code;
+  Override is how you tell it you verified some other way, not a way around it.
+- **May-not-collect is absolute.** A name on the "may NOT collect" list never gets the
+  child released to them, correct code or not — call the parent instead, full stop.
+- **Late pickup:** 15-minute grace period past the posted end time, then **$1/minute**.
+  Call the parent, then the emergency contact, right at the 15-minute mark.
+- Code got lost, or needs to change hands? "Re-send code" on the pickup panel.
+- **Before any drop-off event, "🖨 Print" the roster.** Wifi drops happen, and the printed
+  sheet carries every allergy, emergency contact, and pickup name you'd need without it.
 
 **Mandatory reporting:**
 - Every staffer is a **mandated reporter** (Ala. Code §26-14-3). If you suspect abuse or
@@ -119,7 +137,13 @@ in Linear HOM-99 (licensing) and HOM-114 (safeguards).
   enforcement. Good-faith reports are legally protected. Failure to report is a misdemeanor.
 
 **Incident handling:**
-- First aid → call the parent → 🚑 on the iPad → print the parent note.
+- First aid → call the parent → **🚑 Incident** (top of every staff screen, any screen you're
+  on) → fill it in → **Save incident** → **Print note** and send it home with the kid.
+
+**Never delete a record.** Check-ins, pickups, overrides, incidents — that history is what
+protects you and the family later. Something's wrong or changed? Add a note, or an Override
+with the real reason — don't erase what's there. Need the whole story on a family? Open
+**History** on their card.
 
 ## 6. What this costs
 

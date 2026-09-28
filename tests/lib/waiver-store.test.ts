@@ -281,9 +281,14 @@ describe('markDuplicateChildren', () => {
     mod = await import('@lib/waiver-store')
   })
 
+  // Explicit type so TS knows `duplicateOf` can be read back after
+  // `markDuplicateChildren` mutates it — an untyped literal infers a
+  // `children` shape with no `duplicateOf` key at all (not even absent-optional).
+  type TestHousehold = { signer: string; children: { name: string; dob?: string; duplicateOf?: string }[] }
+
   // (e) Flags second occurrence of the same name, case/whitespace-insensitive.
   it('flags the second occurrence of "Emma Rivera" (case/whitespace-insensitive)', () => {
-    const households = [
+    const households: TestHousehold[] = [
       { signer: 'Alice Rivera', children: [{ name: 'Emma Rivera' }] },
       { signer: 'Carlos Rivera', children: [{ name: '  Emma   Rivera  ' }] },
     ]
@@ -294,7 +299,7 @@ describe('markDuplicateChildren', () => {
   })
 
   it('flags the same name ONLY when the birthdate matches (same kid on two waivers)', () => {
-    const households = [
+    const households: TestHousehold[] = [
       { signer: 'Mom Silver', children: [{ name: 'Bob Silver', dob: '2017-06-01' }] },
       { signer: 'Dad Silver', children: [{ name: 'Bob Silver', dob: '2017-06-01' }] },
     ]
@@ -304,7 +309,7 @@ describe('markDuplicateChildren', () => {
   })
 
   it('does NOT flag two different kids who share a name (different birthdates)', () => {
-    const households = [
+    const households: TestHousehold[] = [
       { signer: 'Family One', children: [{ name: 'Bob Silver', dob: '2015-02-10' }] },
       { signer: 'Family Two', children: [{ name: 'Bob Silver', dob: '2018-11-30' }] },
     ]
@@ -315,7 +320,7 @@ describe('markDuplicateChildren', () => {
   })
 
   it('leaves distinct child names unflagged', () => {
-    const households = [
+    const households: TestHousehold[] = [
       { signer: 'Parent A', children: [{ name: 'Liam' }] },
       { signer: 'Parent B', children: [{ name: 'Sophia' }] },
     ]
@@ -326,7 +331,7 @@ describe('markDuplicateChildren', () => {
   })
 
   it('returns correct duplicate count when multiple duplicates exist', () => {
-    const households = [
+    const households: TestHousehold[] = [
       { signer: 'H1', children: [{ name: 'Emma' }, { name: 'Liam' }] },
       { signer: 'H2', children: [{ name: 'Emma' }] }, // dup
       { signer: 'H3', children: [{ name: 'Liam' }, { name: 'Emma' }] }, // both dups (Liam first seen in H1, Emma first seen in H1)
@@ -339,7 +344,7 @@ describe('markDuplicateChildren', () => {
   })
 
   it('ignores empty child names', () => {
-    const households = [
+    const households: TestHousehold[] = [
       { signer: 'Parent A', children: [{ name: '' }] },
       { signer: 'Parent B', children: [{ name: '' }] },
     ]
@@ -557,7 +562,7 @@ describe('upsertWaiverInEventIndex — CAS retry on setIfMatch false', () => {
       const prev = entries.find((e) => e.contactKey === ck && e.recordId !== record.id)
       const next = entries.filter((e) => e.contactKey !== ck && e.recordId !== record.id)
       next.push({ recordId: record.id, contactKey: ck })
-      if (await kv.setIfMatch(indexKey, JSON.stringify(next), etag)) {
+      if (await kv.setIfMatch(indexKey, JSON.stringify(next), etag, value !== null)) {
         replacedRecordId = prev?.recordId ?? null
         break
       }

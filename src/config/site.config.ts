@@ -1,9 +1,13 @@
 import { OPENING_DATE } from './opening'
+import { SITE_URL } from './class-booking.config'
 
 export interface SiteConfig {
   name: string
   tagline: string
   logo: string
+  /** Canonical site origin, no trailing slash (e.g. for building absolute
+   *  links in texts/emails/print pages). */
+  url: string
   contactEmail: string
   /** Owners who get an immediate copy of every incident report (HOM-215).
    *  Catherine's address is her Workspace login, assumed from the 9/27/2026
@@ -82,7 +86,9 @@ export interface SiteConfig {
   openingDate: string
   /** Header call-to-action button (rendered as a pill, not a text link). */
   navCta: { label: string; href: string }
-  email?: {
+  /** From header for transactional email (see `@lib/email`) — always set below;
+   *  not optional, since every caller (sendEmail) relies on it being present. */
+  email: {
     fromAddress: string
     fromName: string
   }
@@ -208,6 +214,7 @@ export const siteConfig: SiteConfig = {
   name: 'Hometown Studio',
   tagline: 'Create. Celebrate. Connect.',
   logo: '/images/logo.svg',
+  url: SITE_URL,
   contactEmail: 'contact@ourhometownstudio.com', // real Workspace alias; hello@ does not exist
   ownerEmails: ['kaden@ourhometownstudio.com', 'catherine@ourhometownstudio.com'],
   contactPhone: '(256) 464-1710',

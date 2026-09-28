@@ -12,7 +12,9 @@ async function main() {
   // 1. Check booking profile
   console.log('=== Booking Profile ===')
   try {
-    const profile = await client.bookings.businessBookingProfile.get()
+    // `businessBookingProfile` isn't on the v44 SDK's typed `BookingsClient` —
+    // cast to `any` (see square-sdk-v44-shapes memory).
+    const profile = await (client.bookings as any).businessBookingProfile.get()
     console.log('Profile:', JSON.stringify(profile, null, 2))
   } catch (e: any) {
     console.log('Profile error:', e.message || JSON.stringify(e))

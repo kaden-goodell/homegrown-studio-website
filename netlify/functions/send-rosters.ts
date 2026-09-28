@@ -1,5 +1,4 @@
 import type { Config, Context } from '@netlify/functions'
-import { Resend } from 'resend'
 
 // Program session config — duplicated from site config since Netlify functions
 // can't import from the Astro src directory easily
@@ -77,15 +76,13 @@ function buildRosterHtml(
 }
 
 export default async (req: Request, context: Context) => {
-  const resendKey = process.env.RESEND_API_KEY
-  if (!resendKey) {
-    console.log('RESEND_API_KEY not set, skipping roster emails')
-    return new Response('No API key', { status: 200 })
-  }
-
-  const siteUrl = process.env.URL || 'http://localhost:4321'
-  const resend = new Resend(resendKey)
-
+  // Unimplemented skeleton (Programs are hidden — `features.programs.enabled`
+  // is false) — never finished the Resend integration the plan called for,
+  // and the studio's actual email pipeline (booking/waiver copies, incident
+  // notes) runs on Gmail via `@lib/email` instead. See
+  // docs/plans/2026-07-10-post-audit-fixes-plan.md. Revive this on the Gmail
+  // pipeline, not Resend, if/when Programs ship.
+  //
   // TODO: In production, fetch programs config and orders from Square API.
   // For now, this is a skeleton that demonstrates the pattern.
   // The actual implementation would:

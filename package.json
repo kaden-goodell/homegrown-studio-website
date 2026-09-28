@@ -7,7 +7,8 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:waiver": "npx tsx scripts/gen-waiver-doc.ts"
   },
   "dependencies": {
     "@astrojs/netlify": "^6.6.4",

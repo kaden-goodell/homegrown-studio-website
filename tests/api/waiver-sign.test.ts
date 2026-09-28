@@ -255,6 +255,18 @@ describe('POST /api/waiver/sign.json', () => {
       expect(mockUpsertRsvp).not.toHaveBeenCalled()
     })
 
+    it('fails closed (503, nothing saved) when getEvent throws on a party lookup (HOM-219 M10)', async () => {
+      mockGetEvent.mockRejectedValueOnce(new Error('Blobs outage'))
+      const body = makeAdultBody({ partyId: 'party-123' })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(503)
+      const json = await res.json()
+      expect(json.error).toMatch(/couldn.t reach storage/i)
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+      expect(mockUpsertRsvp).not.toHaveBeenCalled()
+    })
+
     it('responsible-adult is stored on the RSVP, not the WaiverRecord', async () => {
       const body = makeAdultBody({
         partyId: 'party-123',

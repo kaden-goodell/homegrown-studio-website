@@ -39,10 +39,14 @@ fields stay hidden until filled — no code changes needed to "turn them on."
 1. **Set `STAFF_PASSCODE` in the Netlify environment** — verified MISSING 2026-07-11.
    Auth fails closed (no security risk), but the staff console — kits board,
    party check-in, rosters — cannot log in on the deployed site until this is set.
-2. **Attorney review of Participation Agreement v3** (`src/config/waiver-content.ts`),
-   including the new **kit-rental addendum §6a** (`docs/WAIVER.md`) — return-clean
-   clause, deposit withholding, $25 retrieval fee. Entity: Goodell Holdings, LLC
-   d/b/a Homegrown Studio.
+2. **Attorney redline of `docs/waiver-versions/v2.md` + `addendum-a1.md`** — the
+   exact text customers sign (`docs/WAIVER.md` is a generated mirror of the same
+   text; don't send that, send the archived versions so a later text change can't
+   silently invalidate the redline). Three questions to put to counsel specifically:
+   (1) §4(b) indemnity — does our Alabama minor-waiver workaround hold up post
+   *Monster Mountain*? (2) §6b products — how much can we strengthen it with no
+   products-liability coverage behind it? (3) arbitration / jury-trial waiver —
+   in or out, your call (deliberately omitted so far).
 3. **Physical kit inventory purchase** — Gilded + Prism at 60 settings each
    (ledger sells 45), 3 hero sets each; Sweet Sixteen shares Gilded's tableware,
    needs only its own consumables/staging.
@@ -109,4 +113,6 @@ Apple Pay domain verified · business phone (256) 464-1710 in modal + footer ·
 footer address · party FAQ (10 answers + JSON-LD) · reschedule promise ·
 `features.kits.enabled` — **flipped to FALSE 2026-07-18** for the pre-booking
 launch (core flows first); flip back with the photos deploy once parties +
-workshops are proven live.
+workshops are proven live. `ARCHIVE_TO` — optional, defaults to
+`kaden@ourhometownstudio.com`; only needed in Netlify if the weekly self-archive
+(HOM-217) should land somewhere else.

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import QRCode from 'qrcode'
+import { SITE_URL } from '@config/class-booking.config'
 
-const WAIVER_URL = 'https://ourhometownstudio.com/waiver'
+const WAIVER_URL = `${SITE_URL}/waiver`
 
 /**
  * "Show QR" — a guest scans this on their own phone to sign the agreement
