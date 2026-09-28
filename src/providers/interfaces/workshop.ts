@@ -23,6 +23,11 @@ export interface Workshop {
 export interface WorkshopProvider {
   /** Returns active workshops with availableCapacity > 0, sorted by startAt ascending */
   listWorkshops(): Promise<Workshop[]>
-  /** Returns a single workshop by id (or null). Does NOT apply the capacity filter. */
+  /**
+   * Returns a single workshop by scheduleId OR instance id (or null). Does NOT
+   * apply the capacity filter — staff surfaces resolve an event by its
+   * classScheduleId and a SOLD-OUT class is exactly the one that still needs a
+   * roster, a print sheet and a check-in gate.
+   */
   getWorkshop(id: string): Promise<Workshop | null>
 }

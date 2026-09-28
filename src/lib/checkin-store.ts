@@ -105,6 +105,11 @@ export interface CheckinState {
   /** Anyone flagged as NOT allowed to collect this household's child(ren) —
    *  same seed source/timing as `confirmedPickup` (HOM-212). '' when none. */
   notAuthorized: string
+  /** True once the seed above has run (or been superseded by a staff edit).
+   *  Seeding is ONE-SHOT: without this flag, staff removing an unsafe
+   *  collector from `confirmedPickup` was silently undone by the next
+   *  check-in, which re-seeded the list straight back from the waiver. */
+  pickupSeeded: boolean
   /** SHA-256 of the ONE family pickup code — never the plaintext. Persists
    *  across every day of the event (HOM-213); see `checkin.json.ts` for the
    *  retirement rule. */
@@ -197,6 +202,7 @@ function emptyState(): CheckinState {
     pickedUpBy: null,
     confirmedPickup: [],
     notAuthorized: '',
+    pickupSeeded: false,
     pickupCodeHash: null,
     codeAttempts: 0,
     lockedAt: null,
@@ -259,6 +265,9 @@ export function normalize(raw: any, firstDay?: string): CheckinState {
       ? raw.confirmedPickup.map(normalizePickupEntry).filter((p: AuthorizedPickup | null): p is AuthorizedPickup => p !== null)
       : [],
     notAuthorized: typeof raw?.notAuthorized === 'string' ? raw.notAuthorized : '',
+    // Absent on pre-fix blobs → false, so a household mid-event still gets its
+    // one seed; the flag is set the first time the seed block runs.
+    pickupSeeded: raw?.pickupSeeded === true,
     pickupCodeHash: typeof raw?.pickupCodeHash === 'string' ? raw.pickupCodeHash : null,
     codeAttempts: typeof raw?.codeAttempts === 'number' && raw.codeAttempts >= 0 ? raw.codeAttempts : 0,
     lockedAt: typeof raw?.lockedAt === 'string' ? raw.lockedAt : null,

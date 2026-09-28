@@ -12,6 +12,9 @@ import type { Workshop } from '@providers/interfaces/workshop'
 import { getEventMeta, type EventMeta } from '@lib/event-meta'
 import { studioDate } from '@lib/studio-time'
 import type { By } from '@lib/staff-auth'
+import { createLogger } from '@lib/logger'
+
+const logger = createLogger('events')
 
 export type EventKind = 'party' | 'workshop' | 'program'
 
@@ -51,10 +54,11 @@ async function cachedWorkshopList(): Promise<Workshop[]> {
 
 /**
  * Find a workshop by its classScheduleId. `listWorkshops()` filters out sold-
- * out classes, so try the provider's `getWorkshop` first (it skips that
- * filter) — it's optional on the interface and some implementations key it
- * by the instance id rather than the schedule id, so this is a best-effort;
- * the cached active list is the reliable fallback either way.
+ * out classes — and a full class is exactly the one staff most need a roster
+ * for — so ask the provider's `getWorkshop` first: it skips that filter and
+ * matches on either the schedule id or the instance id. The cached active
+ * list stays as the fallback for a provider that doesn't implement it (or
+ * throws).
  */
 async function findWorkshop(id: string): Promise<Workshop | null> {
   try {
@@ -109,17 +113,54 @@ export async function getEvent(kind: EventKind, id: string): Promise<StudioEvent
   return null
 }
 
-export async function listEvents({ from, to }: { from: string; to: string }): Promise<StudioEvent[]> {
-  const [parties, workshops] = await Promise.all([listParties(), cachedWorkshopList()])
+/** Whether each source system answered on this call. */
+export interface EventSources {
+  parties: 'ok' | 'error'
+  workshops: 'ok' | 'error'
+}
+
+export interface EventListing {
+  events: StudioEvent[]
+  sources: EventSources
+}
+
+/**
+ * Every event in a date window, from both source systems.
+ *
+ * The two sources are fetched INDEPENDENTLY: Square's Classes API going down
+ * (or just timing out) must not take today's parties off the staff console
+ * with it — the door screen is the one place that has to keep working when
+ * the internet is flaky. A source that failed comes back as
+ * `sources.workshops === 'error'` so the caller can say so in one line rather
+ * than blanking the whole list.
+ */
+export async function listEvents({ from, to }: { from: string; to: string }): Promise<EventListing> {
+  const [partiesResult, workshopsResult] = await Promise.allSettled([listParties(), cachedWorkshopList()])
+
+  if (partiesResult.status === 'rejected') {
+    logger.error('Party source unavailable', { error: String(partiesResult.reason) })
+  }
+  if (workshopsResult.status === 'rejected') {
+    logger.error('Workshop source unavailable', { error: String(workshopsResult.reason) })
+  }
+
+  const parties = partiesResult.status === 'fulfilled' ? partiesResult.value : []
+  const workshops = workshopsResult.status === 'fulfilled' ? workshopsResult.value : []
 
   const events = await Promise.all([
     ...parties.map(async (p) => partyEvent(p.bookingId, p, await getEventMeta('party', p.bookingId))),
     ...workshops.map(async (w) => workshopEvent(w.scheduleId, w, await getEventMeta('workshop', w.scheduleId))),
   ])
 
-  return events
-    .filter((e) => e.days.some((d) => d >= from && d <= to))
-    .sort((a, b) => a.startIso.localeCompare(b.startIso))
+  return {
+    events: events
+      .filter((e) => e.days.some((d) => d >= from && d <= to))
+      .sort((a, b) => a.startIso.localeCompare(b.startIso)),
+    sources: {
+      parties: partiesResult.status === 'fulfilled' ? 'ok' : 'error',
+      workshops: workshopsResult.status === 'fulfilled' ? 'ok' : 'error',
+    },
+  }
 }
 
 /** Storage key for an event: parties stay bare (legacy checkin/waiver-index

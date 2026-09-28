@@ -31,7 +31,10 @@ const NOT_ON_LIST_MSG = "Not on the list — tick 'I checked their photo ID' or 
 const NOT_AUTHORIZED_MSG = 'That name is on the may-NOT-collect list. Do not release. Call the parent.'
 const LOCKED_MSG = 'Locked after 5 wrong codes — use Override.'
 const CODE_MISMATCH_MSG = 'Pickup code doesn’t match. Verify with the parent.'
-const NO_CODE_MSG = 'No pickup code was ever issued for this family — use "Re-send code" first.'
+// Names the button the console actually shows in this state — with no code on
+// file, `PickupPanel` renders "Issue pickup code", never "Re-send code".
+const NO_CODE_MSG = 'No pickup code has been issued for this family — use "Issue pickup code" first.'
+const NO_EVENT_MSG = 'Couldn’t confirm this event — refresh the roster and try again.'
 
 /** First name only — what the pickup-code / pickup-confirmation texts use
  *  when naming the kid(s) involved, so a text doesn't read a whole legal name. */
@@ -149,7 +152,16 @@ export const POST: APIRoute = async ({ request }) => {
     logger.error('Event/waiver lookup failed', { error: String(err) })
     return new Response(JSON.stringify({ error: 'Couldn’t reach storage — check wifi and try again.' }), { status: 503 })
   }
-  const dropOff = !!studioEvent?.dropOff
+  // A `null` event is NOT "a non-drop-off event" — it's an event we couldn't
+  // resolve. Falling through with `dropOff = false` silently disabled the
+  // entire pickup gate (no code, no collector match, no may-NOT-collect
+  // check) and would hand a child to whoever asked. Refuse every action until
+  // staff can see the event again.
+  if (!studioEvent) {
+    logger.error('Event could not be resolved — refusing action', { kind, id, action })
+    return new Response(JSON.stringify({ error: NO_EVENT_MSG }), { status: 404 })
+  }
+  const dropOff = !!studioEvent.dropOff
   const signerName = waiverRecord ? `${waiverRecord.adult.firstName} ${waiverRecord.adult.lastName}`.trim() : ''
   const signerPhone = waiverRecord?.adult.phone ?? ''
 
@@ -214,15 +226,23 @@ export const POST: APIRoute = async ({ request }) => {
             // override (set on the returning-household RSVP screen when the
             // on-file signature had no pickup rows, HOM-212) wins over the
             // signature's own fields when present. Event-scoped, not per-day.
-            if (state.confirmedPickup.length === 0) {
-              const rsvp = await getRsvp(kind as EventKind, id, recordId)
-              if (rsvp?.pickup) {
-                state.confirmedPickup = normalizeAuthorizedPickup(rsvp.pickup.authorizedPickup)
-                state.notAuthorized = rsvp.pickup.notAuthorized || ''
-              } else {
-                state.confirmedPickup = waiverRecord ? normalizeAuthorizedPickup(waiverRecord.authorizedPickup) : []
-                state.notAuthorized = waiverRecord?.notAuthorized || ''
+            //
+            // ONE-SHOT, gated on `pickupSeeded` rather than on the list being
+            // empty: staff who delete an unsafe collector leave an empty list
+            // behind, and re-seeding it from the waiver on the next check-in
+            // put that person straight back on the authorized list.
+            if (!state.pickupSeeded) {
+              if (state.confirmedPickup.length === 0) {
+                const rsvp = await getRsvp(kind as EventKind, id, recordId)
+                if (rsvp?.pickup) {
+                  state.confirmedPickup = normalizeAuthorizedPickup(rsvp.pickup.authorizedPickup)
+                  state.notAuthorized = rsvp.pickup.notAuthorized || ''
+                } else {
+                  state.confirmedPickup = waiverRecord ? normalizeAuthorizedPickup(waiverRecord.authorizedPickup) : []
+                  state.notAuthorized = waiverRecord?.notAuthorized || ''
+                }
               }
+              state.pickupSeeded = true
             }
             if (!state.pickupCodeHash) {
               oneTimeCode = newCode()
@@ -297,6 +317,9 @@ export const POST: APIRoute = async ({ request }) => {
           // 'set-pickup' previously logged nothing about the edit itself.
           const before = state.confirmedPickup.map((p) => p.name).join(', ') || '(none)'
           state.confirmedPickup = normalizeAuthorizedPickup(body?.confirmedPickup)
+          // A staff edit IS the seed from here on — never re-derive from the
+          // waiver again, even if they cleared the list to empty.
+          state.pickupSeeded = true
           const after = state.confirmedPickup.map((p) => p.name).join(', ') || '(none)'
           state.events.push({ at: nowIso, action: 'set-pickup', personIds: [], note: `${before} → ${after}`, day, by })
           break
@@ -416,6 +439,7 @@ export const POST: APIRoute = async ({ request }) => {
             return
           }
 
+          const wasLocked = !!state.lockedAt
           for (const id of ids) {
             dayState.presence[id] = { ...dayState.presence[id], outAt: nowIso }
             state.releasedTo[id] = { name: collectedBy, at: nowIso, day }
@@ -428,6 +452,12 @@ export const POST: APIRoute = async ({ request }) => {
           if (!childStillHere(state, day) && isLastEventDay(studioEvent, day)) state.pickupCodeHash = null
           const note = reasonCode === 'other' ? `other: ${reasonText}` : reasonCode
           state.events.push({ at: nowIso, action: 'pickup-override', personIds: ids, collectedBy, idChecked, reason: reasonCode, note, day, by })
+          // An override silently lifted an active lockout — log it the same
+          // way `reissue-code` and `undo-checkin` do, so the audit trail never
+          // has a lock that just disappears.
+          if (wasLocked) {
+            state.events.push({ at: nowIso, action: 'unlocked', personIds: [], note: 'cleared by override', day, by })
+          }
           break
         }
 

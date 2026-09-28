@@ -41,6 +41,21 @@ describe('SquareWorkshopProvider', () => {
     expect(sold!.availableCapacity).toBe(0)
   })
 
+  it('getWorkshop resolves a sold-out class by its scheduleId too (C2)', async () => {
+    const provider = new SquareWorkshopProvider(config)
+    const sold = await provider.getWorkshop('sched-B')
+    expect(sold).not.toBeNull()
+    expect(sold!.id).toBe('inst-2')
+    expect(sold!.availableCapacity).toBe(0)
+  })
+
+  it('getWorkshop picks the earliest occurrence when a scheduleId covers several', async () => {
+    const provider = new SquareWorkshopProvider(config)
+    const w = await provider.getWorkshop('sched-A')
+    expect(w!.id).toBe('inst-1')
+    expect(w!.startAt).toBe('2026-06-10T17:00:00Z')
+  })
+
   it('getWorkshop returns null for unknown id', async () => {
     const provider = new SquareWorkshopProvider(config)
     expect(await provider.getWorkshop('nope')).toBeNull()

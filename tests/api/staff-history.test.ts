@@ -23,6 +23,7 @@ function emptyCheckin(): CheckinState {
     pickedUpBy: null,
     confirmedPickup: [],
     notAuthorized: '',
+    pickupSeeded: false,
     pickupCodeHash: null,
     codeAttempts: 0,
     lockedAt: null,

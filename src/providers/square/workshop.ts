@@ -27,10 +27,23 @@ export class SquareWorkshopProvider implements WorkshopProvider {
       .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
   }
 
+  /**
+   * By classScheduleId OR classScheduleInstanceId, over the UNFILTERED list —
+   * a sold-out class still has a roster to run (HOM staff surfaces pass the
+   * schedule id). An exact instance id wins; a schedule id that covers several
+   * dated occurrences resolves to the earliest one, which is the same
+   * occurrence `listWorkshops` would surface.
+   */
   async getWorkshop(id: string): Promise<Workshop | null> {
     if (!this.config.locationId) return null
     const all = await this.fetchAll()
-    return all.find((w) => w.id === id) ?? null
+    const instance = all.find((w) => w.id === id)
+    if (instance) return instance
+    return (
+      all
+        .filter((w) => w.scheduleId === id)
+        .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())[0] ?? null
+    )
   }
 
   private async fetchAll(): Promise<Workshop[]> {

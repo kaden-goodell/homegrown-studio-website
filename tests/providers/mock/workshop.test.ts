@@ -28,6 +28,14 @@ describe('MockWorkshopProvider', () => {
     expect(workshop!.availableCapacity).toBe(0)
   })
 
+  it('getWorkshop resolves a sold-out class by its scheduleId too (C2)', async () => {
+    const provider = new MockWorkshopProvider()
+    const workshop = await provider.getWorkshop('mock-sched-3')
+    expect(workshop).not.toBeNull()
+    expect(workshop!.id).toBe('mock-sold-out-1')
+    expect(workshop!.availableCapacity).toBe(0)
+  })
+
   it('getWorkshop returns null for unknown id', async () => {
     const provider = new MockWorkshopProvider()
     expect(await provider.getWorkshop('does-not-exist')).toBeNull()

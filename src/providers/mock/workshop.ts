@@ -57,7 +57,15 @@ export class MockWorkshopProvider implements WorkshopProvider {
       .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
   }
 
+  /** By scheduleId or instance id, over the UNFILTERED fixtures — mirrors the
+   *  Square provider so a sold-out class still resolves (C2). */
   async getWorkshop(id: string): Promise<Workshop | null> {
-    return FIXTURES.find((w) => w.id === id) ?? null
+    const instance = FIXTURES.find((w) => w.id === id)
+    if (instance) return instance
+    return (
+      FIXTURES
+        .filter((w) => w.scheduleId === id)
+        .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())[0] ?? null
+    )
   }
 }

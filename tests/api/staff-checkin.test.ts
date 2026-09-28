@@ -50,6 +50,7 @@ function emptyState(): CheckinState {
     lockedAt: null,
     releasedTo: {},
     events: [],
+    pickupSeeded: false,
   }
 }
 
@@ -551,5 +552,101 @@ describe('POST /api/staff/checkin.json — pickup completion, fix round 1 addend
     const res = await dropOffPost({ action: 'pickup', personIds: ['adult'] })
     expect(res.status).toBe(200)
     expect(state.releasedTo.adult).toBeUndefined()
+  })
+})
+
+// ─── Final fix wave ───────────────────────────────────────────────────────
+
+describe('POST /api/staff/checkin.json — unresolvable event (C1)', () => {
+  it('refuses a pickup outright when the event cannot be resolved — never falls back to dropOff=false', async () => {
+    mockGetEvent.mockResolvedValue(null)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    state.days['2026-09-05'] = { presence: { 'child:0': { inAt: '2026-09-05T14:00:00.000Z', outAt: null } } }
+
+    const res = await dropOffPost({ action: 'pickup', personIds: ['child:0'] })
+    expect(res.status).toBe(404)
+    expect((await res.json()).error).toBe('Couldn’t confirm this event — refresh the roster and try again.')
+    // The child is still on-site and nothing was written.
+    expect(state.days['2026-09-05'].presence['child:0'].outAt).toBeNull()
+    expect(state.events).toHaveLength(0)
+    expect(mockMutate).not.toHaveBeenCalled()
+  })
+
+  it('refuses every other action too, before any mutation', async () => {
+    mockGetEvent.mockResolvedValue(null)
+    for (const action of ['checkin', 'undo-checkin', 'pickup-override', 'undo-pickup', 'reissue-code', 'set-pickup']) {
+      const res = await dropOffPost({ action, personIds: ['child:0'], reason: 'called-parent', collectedBy: 'X' })
+      expect(res.status).toBe(404)
+    }
+    expect(mockMutate).not.toHaveBeenCalled()
+  })
+})
+
+describe('POST /api/staff/checkin.json — pickup seeding is one-shot (I1)', () => {
+  it('clearing an unsafe collector with set-pickup is not undone by the next check-in', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+
+    // First check-in seeds the waiver's pickup people.
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    expect(state.confirmedPickup.map((p) => p.name)).toEqual(['Grandma Rivera'])
+
+    // Staff remove the collector who must not have the child.
+    await dropOffPost({ action: 'set-pickup', confirmedPickup: [] })
+    expect(state.confirmedPickup).toEqual([])
+
+    // The next check-in (a sibling, or day 2) must NOT re-seed from the waiver.
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    expect(state.confirmedPickup).toEqual([])
+  })
+
+  it('a legacy state with no pickupSeeded flag still seeds once, then stops', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    delete (state as any).pickupSeeded
+
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    expect(state.confirmedPickup.map((p) => p.name)).toEqual(['Grandma Rivera'])
+    expect(state.pickupSeeded).toBe(true)
+
+    await dropOffPost({ action: 'set-pickup', confirmedPickup: [] })
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    expect(state.confirmedPickup).toEqual([])
+  })
+})
+
+describe('POST /api/staff/checkin.json — override audit + copy', () => {
+  it('M2: a pickup-override that clears a lock logs unlocked with "cleared by override"', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    state.lockedAt = new Date().toISOString()
+    state.codeAttempts = 5
+
+    const res = await dropOffPost({ action: 'pickup-override', personIds: ['child:0'], collectedBy: 'Grandma Rivera', reason: 'parent-present' })
+    expect(res.status).toBe(200)
+    const unlocked = state.events.find((e) => e.action === 'unlocked')!
+    expect(unlocked).toBeTruthy()
+    expect(unlocked.note).toBe('cleared by override')
+  })
+
+  it('M2: an override with no lock in place logs no unlocked event', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+
+    const res = await dropOffPost({ action: 'pickup-override', personIds: ['child:0'], collectedBy: 'Grandma Rivera', reason: 'parent-present' })
+    expect(res.status).toBe(200)
+    expect(state.events.some((e) => e.action === 'unlocked')).toBe(false)
+  })
+
+  it('I3: the no-code message names the button that is actually on screen', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    state.days['2026-09-05'] = { presence: { 'child:0': { inAt: '2026-09-05T14:00:00.000Z', outAt: null } } }
+
+    const res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code: '1234', collectedBy: 'Grandma Rivera', idChecked: true })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('No pickup code has been issued for this family — use "Issue pickup code" first.')
   })
 })
