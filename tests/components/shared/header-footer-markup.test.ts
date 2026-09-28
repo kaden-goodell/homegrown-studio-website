@@ -97,11 +97,17 @@ describe('tap targets', () => {
     expect(footer.slice(footer.indexOf('<footer'), footer.indexOf('</footer>'))).not.toMatch(/class="[^"]*\bbtn\b/)
   })
 
-  it('is laid out from the left in columns, never centred or pushed to the right', () => {
-    for (const r of rules(footer)) {
-      expect(r.body, r.selector).not.toMatch(/text-align:\s*(center|right)/)
-      expect(r.body, r.selector).not.toMatch(/align-items:\s*flex-end/)
-    }
+  it('sets Visit at the left, Hours in the middle and Contact at the right, side by side only', () => {
+    const wide = footer.match(/@media \(min-width: 720px\) \{([\s\S]*?)\n  \}/)?.[1] ?? ''
+    expect(wide).toMatch(/grid-template-columns:\s*1fr auto 1fr/)
+    expect(wide).toMatch(/\.footer-column-middle\s*\{[^}]*align-items:\s*center/)
+    expect(wide).toMatch(/\.footer-column-end\s*\{[^}]*align-items:\s*flex-end/)
+    // Stacked on a phone, everything reads from the left.
+    const narrow = footer.replace(/@media \(min-width: 720px\) \{[\s\S]*?\n  \}/, '')
+    expect(narrow).not.toMatch(/text-align:\s*(center|right)/)
+    expect(narrow).not.toMatch(/align-items:\s*flex-end/)
+    // The side-by-side rules come after the base column rule, or they would lose to it.
+    expect(footer.indexOf('.footer-column-middle {')).toBeGreaterThan(footer.indexOf('.footer-column {'))
   })
 
   it('never lets the studio\'s name wrap onto two lines', () => {

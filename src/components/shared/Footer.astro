@@ -67,7 +67,7 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
         <a href={directionsUrl} class="footer-link" rel="noopener" target="_blank">Get directions</a>
       </div>
 
-      <div class="footer-column">
+      <div class="footer-column footer-column-middle">
         <h2 class="footer-heading">Hours</h2>
         <dl class="footer-hours">
           {siteConfig.hours.map((h) => (
@@ -82,7 +82,7 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
         </p>
       </div>
 
-      <div class="footer-column">
+      <div class="footer-column footer-column-end">
         <h2 class="footer-heading">Contact</h2>
         {siteConfig.contactPhone && (
           <a href={`sms:${phoneDigits}`} class="footer-link">Text us at {siteConfig.contactPhone}</a>
@@ -168,18 +168,28 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
     padding: 2rem 0 2.25rem;
   }
 
-  @media (min-width: 720px) {
-    .footer-columns {
-      grid-template-columns: 1fr 1.15fr 1.25fr;
-      gap: 3rem;
-    }
-  }
-
   .footer-column {
     display: flex;
     flex-direction: column;
     align-items: flex-start;
     min-width: 0;
+  }
+
+  /* Side by side: Visit sits at the left edge, Hours in the middle, Contact
+     at the right edge. Equal outer columns keep Hours truly centred. */
+  @media (min-width: 720px) {
+    .footer-columns {
+      grid-template-columns: 1fr auto 1fr;
+      gap: 3rem;
+    }
+    .footer-column-middle {
+      align-items: center;
+      text-align: center;
+    }
+    .footer-column-end {
+      align-items: flex-end;
+      text-align: right;
+    }
   }
 
   .footer-heading {
@@ -238,8 +248,9 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
   /* Hours */
   .footer-hours {
     margin: 0;
-    width: 100%;
-    max-width: 17rem;
+    width: 17rem;
+    max-width: 100%;
+    text-align: left;
   }
 
   .footer-hours-row {
