@@ -139,7 +139,7 @@ export default function PaymentStep() {
             <span>-{formatPrice(discountAmount)}</span>
           </div>
         )}
-        <div style={{ borderTop: '1px solid rgba(150, 112, 91, 0.08)', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+        <div style={{ borderTop: '1px solid rgba(var(--color-primary-rgb), 0.08)', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>
           <span>Total</span>
           <span>{formatPrice(total)}</span>
         </div>
@@ -159,7 +159,7 @@ export default function PaymentStep() {
         disabled={processing}
         style={{
           padding: '0.875rem',
-          background: processing ? 'rgba(150, 112, 91, 0.5)' : 'var(--color-primary)',
+          background: processing ? 'rgba(var(--color-primary-rgb), 0.5)' : 'var(--color-primary)',
           color: '#fff',
           border: 'none',
           borderRadius: '0.75rem',

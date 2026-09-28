@@ -4,17 +4,17 @@ import type { CSSProperties, ReactNode } from 'react'
  *  (Today, roster, kits) draws from these instead of a CSS framework. */
 
 export const card: CSSProperties = {
-  border: '1px solid rgba(150,112,91,0.16)',
+  border: '1px solid rgba(var(--color-primary-rgb),0.16)',
   borderRadius: '1rem',
   padding: '1rem 1.1rem',
-  boxShadow: '0 8px 24px rgba(150,112,91,0.08)',
+  boxShadow: '0 8px 24px rgba(var(--color-primary-rgb),0.08)',
   marginBottom: '0.9rem',
 }
 
 export const btn = (primary = false): CSSProperties => ({
   padding: '0.55rem 0.9rem',
   borderRadius: '0.625rem',
-  border: primary ? 'none' : '1px solid rgba(150,112,91,0.3)',
+  border: primary ? 'none' : '1px solid rgba(var(--color-primary-rgb),0.3)',
   background: primary ? 'var(--color-primary)' : 'transparent',
   color: primary ? '#fff' : 'var(--color-dark)',
   fontSize: '0.8125rem',
@@ -25,7 +25,7 @@ export const btn = (primary = false): CSSProperties => ({
 export const field: CSSProperties = {
   padding: '0.5rem 0.7rem',
   borderRadius: '0.5rem',
-  border: '1px solid rgba(150,112,91,0.3)',
+  border: '1px solid rgba(var(--color-primary-rgb),0.3)',
   fontSize: '0.875rem',
 }
 

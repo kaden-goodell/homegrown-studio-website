@@ -13,5 +13,14 @@
 export const CLASS_BOOKING_APP_ID = 'sq0idp-0WpGrONcXfCcfav3Lkd9Jg'
 
 /** Canonical site origin, no trailing slash — re-exported as `siteConfig.url`
- *  for server code; imported directly here by anything client-hydrated. */
-export const SITE_URL = 'https://ourhometownstudio.com'
+ *  for server code, and here for anything client-hydrated that already imports
+ *  from this module. One definition, in `site-url.ts`, which is also
+ *  import-free and so equally safe in the browser. */
+export { SITE_URL } from './site-url'
+
+/**
+ * The most seats one booking can take. The booking panel and the server both
+ * read this, so the panel can never offer a number the server will refuse.
+ * Bigger groups book a private party instead.
+ */
+export const MAX_SEATS_PER_BOOKING = 20

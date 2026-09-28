@@ -3,14 +3,14 @@
     "type": "percent",
     "value": 10,
     "description": "10% off your first booking",
-    "active": true,
+    "active": false,
     "expiresAt": "2026-12-31"
   },
   "SPRING25": {
     "type": "fixed",
     "value": 2500,
     "description": "$25 off",
-    "active": true,
+    "active": false,
     "expiresAt": null
   },
   "EXPIRED99": {

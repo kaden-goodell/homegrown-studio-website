@@ -19,6 +19,11 @@ function creds() {
   return user && pass ? { user, pass } : null
 }
 
+/** Whether email can be sent at all. The scheduled sign-up emails check this before promising anything. */
+export function emailReady(): boolean {
+  return creds() !== null
+}
+
 let _transport: any = null
 
 export async function sendEmail(input: {
@@ -70,7 +75,13 @@ export async function sendPartyConfirmationEmail(input: {
   to: string; hostName: string; craftName: string; craftDescription?: string; craftImageUrl?: string; slotLabel: string
   /** Per-person craft price in cents; max set when the craft has a price range. */
   perHeadCents?: number; perHeadMaxCents?: number
-  hostPageUrl: string; inviteUrl: string; totalChargedCents: number; receiptUrl: string | null
+  /**
+   * The host's private party page. Null when it could not be set up: the email
+   * then says so and gives the number to text. It never links somewhere else
+   * in its place.
+   */
+  hostPageUrl: string | null
+  inviteUrl: string; totalChargedCents: number; receiptUrl: string | null
   /** Add-to-calendar: a Google Calendar link for the body + ICS content attached for Apple/Outlook. */
   googleCalendarUrl?: string; icsContent?: string
   /** Booking id — shown as a footer reference (also keeps repeated test emails from Gmail-trimming). */
@@ -79,10 +90,18 @@ export async function sendPartyConfirmationEmail(input: {
    *  Precomputed by the caller (a `lookupHouseholdEntry` hit) — omitted when
    *  no signature is on file for this contact (HOM-216). */
   agreementLine?: string
+  /** What a host needs to turn up. All from config, none typed here. */
+  arriveEarlyMinutes?: number
+  minGuests?: number
+  /** One sentence on refunds for THIS date (see refund-lines.ts). */
+  refundLine?: string
+  directionsUrl?: string
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const fee = dollars(input.totalChargedCents)
-  // "$25" or "$30–$40" per person, matching the booking modal's label.
+  const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
+  const phone = siteConfig.contactPhone
+  // "$25" or "$30–$40" per person, matching the booking panel's label.
   const perPerson = input.perHeadCents
     ? input.perHeadMaxCents && input.perHeadMaxCents > input.perHeadCents
       ? `${dollars(input.perHeadCents)}–${dollars(input.perHeadMaxCents)}`
@@ -93,30 +112,45 @@ export async function sendPartyConfirmationEmail(input: {
   const costLine = perPerson
     ? `Studio fee paid today: ${fee}. ${input.craftName} is ${perPerson} per person, paid at the studio for whoever crafts.`
     : `Studio fee paid today: ${fee}. Crafts are paid at the studio based on who comes.`
+  const arriveLine = input.arriveEarlyMinutes ? `Arrive up to ${input.arriveEarlyMinutes} minutes early to set up.` : ''
+  const headcountLine = `About a week before, we'll text you to check your headcount. It's for our prep only: you pay for who comes${input.minGuests ? `, minimum ${input.minGuests}` : ''}.`
+  const noPageLine = `Your party page is being set up. ${phone ? `Text us at ${phone} and we'll send you the link.` : "We'll send you the link."}`
+
   const text = [
     `You're booked! ${input.craftName} · ${input.slotLabel}`,
+    ``,
+    `Where: Hometown Studio, ${address}`,
+    ...(input.directionsUrl ? [`Directions: ${input.directionsUrl}`] : []),
+    ...(arriveLine ? [arriveLine] : []),
     ``,
     ...(description ? [`About your craft:`, ...description.split('\n'), ``] : []),
     costLine,
     ``,
-    `Your party page (manage details + see who's RSVP'd — keep this link):`,
-    input.hostPageUrl,
+    ...(input.hostPageUrl
+      ? [`Your party page (see who's coming and manage the details; keep this link):`, input.hostPageUrl]
+      : [noPageLine]),
     ``,
     `Invitation link to share with your guests:`,
     input.inviteUrl,
-    ...(input.googleCalendarUrl ? [``, `Add to Google Calendar: ${input.googleCalendarUrl}`, `Apple/Outlook: open the attached invite (.ics)`] : []),
+    ``,
+    headcountLine,
+    ...(input.refundLine ? [``, `Changing plans: ${input.refundLine}`] : []),
+    ...(input.googleCalendarUrl ? [``, `Add to Google Calendar: ${input.googleCalendarUrl}`, `Apple or Outlook: open the attached invite (.ics)`] : []),
     ...(input.receiptUrl ? [``, `Receipt: ${input.receiptUrl}`] : []),
     ...(input.agreementLine ? [``, input.agreementLine] : []),
+    ...(phone ? [``, `Questions? Text us at ${phone}.`] : []),
     ``,
-    `Hometown Studio · 525 Hughes Rd Ste F, Madison, AL`,
+    `Hometown Studio · ${address}`,
   ].join('\n')
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
   // Structured HTML with explicit inline margins — email clients give bare <p>
   // tags fat default margins, so a line-by-line conversion reads double-spaced.
-  // Brand primary ≈ #96705B; email-safe (no CSS vars, no external styles).
+  // Brand primary #7a4a2e; email-safe (no CSS vars, no external styles).
   const P = 'margin:0 0 6px;font-size:14px;color:#3d3630;line-height:1.5'
-  const MUTED = 'margin:0 0 6px;font-size:13px;color:#8a7f75;line-height:1.5'
+  const MUTED = 'margin:0 0 6px;font-size:13px;color:#6f635b;line-height:1.5'
+  const LABEL = 'margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7a4a2e;font-weight:700;'
+  const LINK = 'color:#7a4a2e;font-weight:600;'
   const descriptionHtml = description
     ? description
         .split(/\n{2,}/)
@@ -125,25 +159,37 @@ export async function sendPartyConfirmationEmail(input: {
     : ''
   const html = `
 <div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#96705B;font-weight:700;">Hometown Studio</p>
+  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
   <h1 style="margin:0 0 2px;font-size:22px;color:#3d3630;">You&rsquo;re booked!</h1>
   <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#3d3630;">${esc(input.craftName)} &middot; ${esc(input.slotLabel)}</p>
   ${input.craftImageUrl ? `<img src="${esc(input.craftImageUrl)}" alt="${esc(input.craftName)}" width="552" style="display:block;width:100%;max-width:552px;border-radius:12px;margin:0 0 14px;" />` : ''}
-  ${descriptionHtml ? `<p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700;">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
+  <p style="${LABEL}">Where</p>
+  <p style="${P}">Hometown Studio, ${esc(address)}${input.directionsUrl ? `<br /><a href="${esc(input.directionsUrl)}" style="${LINK}font-size:13px;">Get directions</a>` : ''}</p>
+  ${arriveLine ? `<p style="${P}">${esc(arriveLine)}</p>` : ''}
+  <div style="height:10px;"></div>
+  ${descriptionHtml ? `<p style="${LABEL}">About your craft</p>${descriptionHtml}<div style="height:10px;"></div>` : ''}
   <p style="${P}"><strong>Studio fee paid today: ${esc(fee)}.</strong>${perPerson ? ` ${esc(input.craftName)} is <strong>${esc(perPerson)} per person</strong>, paid at the studio for whoever crafts.` : ' Crafts are paid at the studio based on who comes.'}</p>
-  <div style="margin:18px 0 6px;">
-    <a href="${esc(input.hostPageUrl)}" style="display:inline-block;padding:11px 22px;background:#96705B;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">Your party page &rarr;</a>
+  ${
+    input.hostPageUrl
+      ? `<div style="margin:18px 0 6px;">
+    <a href="${esc(input.hostPageUrl)}" style="display:inline-block;padding:11px 22px;background:#7a4a2e;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">Your party page &rarr;</a>
   </div>
-  <p style="${MUTED}">Manage details and see who&rsquo;s RSVP&rsquo;d &mdash; keep this link.</p>
+  <p style="${MUTED}">See who&rsquo;s coming and manage the details. Keep this link.</p>`
+      : `<p style="${P}margin-top:14px;">${esc(noPageLine)}</p>`
+  }
   <p style="margin:14px 0 2px;font-size:14px;color:#3d3630;">Invitation link to share with your guests:</p>
-  <p style="margin:0 0 6px;"><a href="${esc(input.inviteUrl)}" style="color:#96705B;font-size:13px;word-break:break-all;">${esc(input.inviteUrl)}</a></p>
-  <p style="margin:6px 0 2px;"><a href="${esc(partyInviteMailto({ craftName: input.craftName, slotLabel: input.slotLabel, inviteUrl: input.inviteUrl, icsUrl: input.bookingRef ? partyInviteIcsUrl(input.bookingRef, new URL(input.inviteUrl).origin) : undefined }))}" style="color:#96705B;font-size:14px;font-weight:600;">&#9993;&#65039; Email your guests</a></p>
-  <p style="${MUTED}">Opens a ready-to-send invitation &mdash; just add addresses.</p>
-  ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="color:#96705B;font-size:14px;font-weight:600;">&#128197; Add to Google Calendar</a></p><p style="${MUTED}">Apple or Outlook? Open the attached invite (.ics).</p>` : ''}
-  ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#96705B;font-size:13px;">View your receipt</a></p>` : ''}
+  <p style="margin:0 0 6px;"><a href="${esc(input.inviteUrl)}" style="color:#7a4a2e;font-size:13px;word-break:break-all;">${esc(input.inviteUrl)}</a></p>
+  <p style="margin:6px 0 2px;"><a href="${esc(partyInviteMailto({ craftName: input.craftName, slotLabel: input.slotLabel, inviteUrl: input.inviteUrl, icsUrl: input.bookingRef ? partyInviteIcsUrl(input.bookingRef, new URL(input.inviteUrl).origin) : undefined }))}" style="${LINK}font-size:14px;">Email your guests</a></p>
+  <p style="${MUTED}">Opens a ready-to-send invitation. Just add addresses.</p>
+  <p style="${LABEL}margin-top:14px;">Before the party</p>
+  <p style="${P}">${esc(headcountLine)}</p>
+  ${input.refundLine ? `<p style="${LABEL}margin-top:10px;">Changing plans</p><p style="${P}">${esc(input.refundLine)}</p>` : ''}
+  ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="${LINK}font-size:14px;">Add to Google Calendar</a></p><p style="${MUTED}">Apple or Outlook: open the attached invite.</p>` : ''}
+  ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#7a4a2e;font-size:13px;">View your receipt</a></p>` : ''}
   ${input.agreementLine ? `<p style="${MUTED}">${esc(input.agreementLine)}</p>` : ''}
+  ${phone ? `<p style="${P}margin-top:14px;">Questions? Text us at <strong>${esc(phone)}</strong>.</p>` : ''}
   <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
-  <p style="margin:0;font-size:12px;color:#8a7f75;">Hometown Studio &middot; 525 Hughes Rd Ste F, Madison, AL${input.bookingRef ? ` &middot; Booking ref ${esc(input.bookingRef)}` : ''}</p>
+  <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}${input.bookingRef ? ` &middot; Booking ref ${esc(input.bookingRef)}` : ''}</p>
 </div>`
   const safeCraftName = input.craftName.replace(/[\r\n]+/g, ' ')
   // Slot in the subject: more useful at a glance, and unique subjects keep
@@ -155,6 +201,222 @@ export async function sendPartyConfirmationEmail(input: {
     text,
     attachments: input.icsContent
       ? [{ filename: 'hometown-party.ics', content: input.icsContent, contentType: 'text/calendar; method=PUBLISH' }]
+      : [],
+  })
+}
+
+/**
+ * Confirms a "tell me when…" sign-up, straight away. It says what they will
+ * hear about and nothing else: no offers, no mailing list.
+ *
+ * Every word of it is ours. Nothing the visitor typed is repeated in it, so
+ * the form can't be used to send someone else a message.
+ */
+export async function sendSignupConfirmationEmail(input: {
+  to: string
+  /** Completes "We'll email you …" (see signup-promise.ts). */
+  when: string
+  also?: string
+  /** "Friday, October 16", while the studio has yet to open. */
+  opensOn?: string
+}): Promise<{ sent: boolean }> {
+  const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
+  const phone = siteConfig.contactPhone
+  const promise = `We'll email you ${input.when}. That's the only email this sign-up will send you.`
+  const opening = input.opensOn ? `Hometown Studio opens ${input.opensOn} at ${address}.` : `You'll find us at ${address}.`
+  const mistake = "Didn't sign up? Someone may have typed your address by mistake, and you can ignore this email."
+
+  const text = [
+    `You're on the list.`,
+    ``,
+    promise,
+    ...(input.also ? [input.also] : []),
+    ``,
+    opening,
+    ...(phone ? [`Questions? Text us at ${phone}.`] : []),
+    ``,
+    mistake,
+    ``,
+    `Hometown Studio · ${address}`,
+  ].join('\n')
+
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const P = 'margin:0 0 10px;font-size:15px;color:#3d3630;line-height:1.55'
+  const MUTED = 'margin:0 0 6px;font-size:13px;color:#6f635b;line-height:1.5'
+  const html = `
+<div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
+  <h1 style="margin:0 0 14px;font-size:22px;color:#3d3630;">You&rsquo;re on the list</h1>
+  <p style="${P}">${esc(promise)}</p>
+  ${input.also ? `<p style="${P}">${esc(input.also)}</p>` : ''}
+  <p style="${P}">${esc(opening)}</p>
+  ${phone ? `<p style="${P}">Questions? Text us at <strong>${esc(phone)}</strong>.</p>` : ''}
+  <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
+  <p style="${MUTED}">${esc(mistake)}</p>
+  <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}</p>
+</div>`
+  return sendEmail({ to: input.to, subject: `You're on the list at Hometown Studio`, html, text })
+}
+
+/**
+ * The email a sign-up was promised: the thing they asked about has happened.
+ * One email covers everything that came due for them at once. Each item has
+ * its own button, which goes straight to what they signed up for.
+ */
+export async function sendSignupNewsEmail(input: {
+  to: string
+  items: { headline: string; lines: string[]; path: string; linkLabel: string }[]
+  /** "https://ourhometownstudio.com" */
+  siteUrl: string
+}): Promise<{ sent: boolean }> {
+  if (input.items.length === 0) return { sent: false }
+  const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
+  const phone = siteConfig.contactPhone
+  const url = (path: string) => `${input.siteUrl.replace(/\/$/, '')}${path}`
+  const one = input.items.length === 1
+  const opener = one ? 'You asked us to tell you when this happened. It has.' : 'You asked us to tell you about these. Here they are.'
+  const why = 'You are getting this because you left your email at ourhometownstudio.com and asked to be told. We will not email you about this again.'
+
+  const text = [
+    opener,
+    ``,
+    ...input.items.flatMap((item) => [item.headline, ...item.lines, `${item.linkLabel}: ${url(item.path)}`, ``]),
+    ...(phone ? [`Questions? Text us at ${phone}.`, ``] : []),
+    why,
+    ``,
+    `Hometown Studio · ${address}`,
+  ].join('\n')
+
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const P = 'margin:0 0 10px;font-size:15px;color:#3d3630;line-height:1.55'
+  const MUTED = 'margin:0 0 6px;font-size:13px;color:#6f635b;line-height:1.5'
+  const BUTTON =
+    'display:inline-block;margin:6px 0 0;padding:12px 22px;border-radius:9999px;background:#7a4a2e;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none'
+  const blocks = input.items
+    .map(
+      (item) => `
+  <div style="margin:0 0 22px;">
+    <h1 style="margin:0 0 8px;font-size:22px;color:#3d3630;">${esc(item.headline)}</h1>
+    ${item.lines.map((line) => `<p style="${P}">${esc(line)}</p>`).join('\n    ')}
+    <a href="${esc(url(item.path))}" style="${BUTTON}">${esc(item.linkLabel)}</a>
+  </div>`,
+    )
+    .join('')
+  const html = `
+<div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
+  <p style="${MUTED};margin-bottom:14px;">${esc(opener)}</p>${blocks}
+  ${phone ? `<p style="${P}">Questions? Text us at <strong>${esc(phone)}</strong>.</p>` : ''}
+  <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
+  <p style="${MUTED}">${esc(why)}</p>
+  <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}</p>
+</div>`
+  const subject = one ? `${input.items[0].headline} at Hometown Studio` : 'What you asked about is open at Hometown Studio'
+  return sendEmail({ to: input.to, subject, html, text })
+}
+
+/**
+ * Workshop seat confirmation. Ours, not Square's: it carries what the customer
+ * needs to turn up (when, where, the agreement to sign) in the studio's voice.
+ */
+export async function sendWorkshopConfirmationEmail(input: {
+  to: string
+  firstName: string
+  workshopName: string
+  /** First paragraph of the workshop's description, already plain text. */
+  summary?: string
+  imageUrl?: string
+  /** "Fri, Oct 16 · 7:00 PM CT" */
+  whenLabel: string
+  /** "7:00 – 9:00 PM" */
+  timeRange: string
+  seats: number
+  totalChargedCents: number
+  receiptUrl: string | null
+  /** Participation agreement, carrying the booking id. Forwardable to companions. */
+  waiverUrl: string
+  /** Link back to this workshop, for bringing a friend. */
+  workshopUrl: string
+  directionsUrl: string
+  /** One-line refund terms, from policy-content. */
+  policyLine: string
+  policyUrl: string
+  googleCalendarUrl?: string
+  icsContent?: string
+  bookingRef?: string
+}): Promise<{ sent: boolean }> {
+  const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
+  const paid = dollars(input.totalChargedCents)
+  const seatWord = input.seats === 1 ? '1 seat' : `${input.seats} seats`
+  const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
+  const phone = siteConfig.contactPhone
+  const summary = (input.summary ?? '').replace(/\r/g, '').trim()
+
+  const text = [
+    `You're booked, ${input.firstName}! ${input.workshopName}`,
+    ``,
+    `When: ${input.whenLabel} (${input.timeRange})`,
+    `Where: Hometown Studio, ${address}`,
+    `Directions: ${input.directionsUrl}`,
+    `Seats: ${seatWord}, ${paid} paid`,
+    ``,
+    ...(summary ? [summary, ``] : []),
+    `Before you come: sign the participation agreement. It takes a minute.`,
+    input.waiverUrl,
+    ...(input.seats > 1 ? [`Coming with friends? Forward them that link so they can sign before they arrive.`] : []),
+    ``,
+    `Everything you need is here when you arrive. Just bring yourself.`,
+    ...(input.googleCalendarUrl ? [``, `Add to Google Calendar: ${input.googleCalendarUrl}`, `Apple/Outlook: open the attached invite (.ics)`] : []),
+    ``,
+    `Know someone who'd love this? ${input.workshopUrl}`,
+    ``,
+    `Changing plans: ${input.policyLine}. Details: ${input.policyUrl}`,
+    ...(input.receiptUrl ? [``, `Receipt: ${input.receiptUrl}`] : []),
+    ``,
+    `Questions? Text us at ${phone}.`,
+    `Hometown Studio · ${address}`,
+  ].join('\n')
+
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const P = 'margin:0 0 6px;font-size:14px;color:#3d3630;line-height:1.5'
+  const MUTED = 'margin:0 0 6px;font-size:13px;color:#6f635b;line-height:1.5'
+  const LABEL = 'margin:0 0 2px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7a4a2e;font-weight:700;'
+  const LINK = 'color:#7a4a2e;font-size:14px;font-weight:600;'
+  const html = `
+<div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
+  <h1 style="margin:0 0 2px;font-size:22px;color:#3d3630;">You&rsquo;re booked, ${esc(input.firstName)}!</h1>
+  <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#3d3630;">${esc(input.workshopName)}</p>
+  ${input.imageUrl ? `<img src="${esc(input.imageUrl)}" alt="${esc(input.workshopName)}" width="552" style="display:block;width:100%;max-width:552px;border-radius:12px;margin:0 0 14px;" />` : ''}
+  <p style="${LABEL}">When</p>
+  <p style="${P}"><strong>${esc(input.whenLabel)}</strong> &middot; ${esc(input.timeRange)}</p>
+  <p style="${LABEL}margin-top:10px;">Where</p>
+  <p style="${P}">Hometown Studio, ${esc(address)}<br /><a href="${esc(input.directionsUrl)}" style="${LINK}font-size:13px;">Get directions</a></p>
+  <p style="${LABEL}margin-top:10px;">Your booking</p>
+  <p style="${P}">${esc(seatWord)} &middot; <strong>${esc(paid)} paid</strong></p>
+  ${summary ? `<p style="${MUTED}margin-top:10px;">${esc(summary)}</p>` : ''}
+  <div style="margin:18px 0 6px;">
+    <a href="${esc(input.waiverUrl)}" style="display:inline-block;padding:11px 22px;background:#7a4a2e;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">Sign the participation agreement &rarr;</a>
+  </div>
+  <p style="${MUTED}">It takes a minute, and saves you doing it at the door.${input.seats > 1 ? ' Coming with friends? Forward them this email so they can sign too.' : ''}</p>
+  <p style="${P}margin-top:12px;">Everything you need is here when you arrive. Just bring yourself.</p>
+  ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="${LINK}">Add to Google Calendar</a></p><p style="${MUTED}">Apple or Outlook: open the attached invite.</p>` : ''}
+  <p style="margin:14px 0 2px;font-size:14px;color:#3d3630;">Know someone who&rsquo;d love this?</p>
+  <p style="margin:0 0 6px;"><a href="${esc(input.workshopUrl)}" style="color:#7a4a2e;font-size:13px;word-break:break-all;">${esc(input.workshopUrl)}</a></p>
+  <p style="${MUTED}margin-top:14px;"><strong>Changing plans:</strong> ${esc(input.policyLine)}. <a href="${esc(input.policyUrl)}" style="color:#7a4a2e;">Full policy</a></p>
+  ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#7a4a2e;font-size:13px;">View your receipt</a></p>` : ''}
+  <p style="${P}margin-top:14px;">Questions? Text us at <strong>${esc(phone)}</strong>.</p>
+  <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
+  <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}${input.bookingRef ? ` &middot; Booking ref ${esc(input.bookingRef)}` : ''}</p>
+</div>`
+  const safeName = input.workshopName.replace(/[\r\n]+/g, ' ')
+  return sendEmail({
+    to: input.to,
+    subject: `You're booked — ${safeName}, ${input.whenLabel}`,
+    html,
+    text,
+    attachments: input.icsContent
+      ? [{ filename: 'hometown-workshop.ics', content: input.icsContent, contentType: 'text/calendar; method=PUBLISH' }]
       : [],
   })
 }
@@ -213,7 +475,7 @@ export async function sendKitConfirmationEmail(input: {
   ].join('\n')
 
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
-  // Brand primary ≈ #96705B; email-safe inline styles matching the party email.
+  // Brand primary ≈ #7a4a2e; email-safe inline styles matching the party email.
   const P = 'margin:0 0 6px;font-size:14px;color:#3d3630;line-height:1.5'
   const MUTED = 'margin:0 0 6px;font-size:13px;color:#8a7f75;line-height:1.5'
   const listHtml = (items: string[]) =>
@@ -225,19 +487,19 @@ export async function sendKitConfirmationEmail(input: {
     `<tr><td style="padding:4px 12px 4px 0;font-size:13px;color:#8a7f75;white-space:nowrap;">${esc(label)}</td><td style="padding:4px 0;font-size:15px;font-weight:700;color:#3d3630;">${esc(value)}</td></tr>`
   const html = `
 <div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#96705B;font-weight:700;">Hometown Studio</p>
+  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
   <h1 style="margin:0 0 2px;font-size:22px;color:#3d3630;">Your kit is booked!</h1>
   <p style="margin:0 0 16px;font-size:15px;font-weight:600;color:#3d3630;">${esc(craftLines.join(', '))}${input.themeName ? ` &middot; ${esc(input.themeName)}` : ''}</p>
-  <p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700;">The three dates</p>
+  <p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">The three dates</p>
   <table style="border-collapse:collapse;margin:0 0 16px;">${dateRow('Party', input.partyDate)}${dateRow('Pick up', `Thursday ${input.pickupDate}`)}${dateRow('Return by', `Wednesday ${input.returnBy}, ${input.returnWindow}`)}</table>
-  ${keeps.length ? `<p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700;">Yours to keep</p>${listHtml(keeps)}` : ''}
-  ${returns.length ? `<p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700;">Comes home to us</p>${listHtml(returns)}` : ''}
+  ${keeps.length ? `<p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Yours to keep</p>${listHtml(keeps)}` : ''}
+  ${returns.length ? `<p style="margin:0 0 4px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Comes home to us</p>${listHtml(returns)}` : ''}
   ${depositLine ? `<p style="${P}"><strong>${esc(depositLine)}</strong></p>` : ''}
   <p style="${P}">Drop the rental pieces back Wednesday, ${esc(input.returnWindow)}.</p>
   <p style="${MUTED}">${esc(input.earlyDropLine)}</p>
   <p style="${P}"><strong>Paid today: ${esc(total)}.</strong></p>
   ${balanceLine ? `<p style="${P}">${esc(balanceLine)}</p>` : ''}
-  ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#96705B;font-size:13px;">View your receipt</a></p>` : ''}
+  ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#7a4a2e;font-size:13px;">View your receipt</a></p>` : ''}
   ${input.agreementLine ? `<p style="${MUTED}">${esc(input.agreementLine)}</p>` : ''}
   <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
   <p style="margin:0;font-size:12px;color:#8a7f75;">Hometown Studio &middot; 525 Hughes Rd Ste F, Madison, AL &middot; Booking ref ${esc(input.reference)}</p>
@@ -302,10 +564,10 @@ export async function sendIncidentEmail(input: {
 
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   const P = 'margin:0 0 10px;font-size:14px;color:#3d3630;line-height:1.5;white-space:pre-wrap'
-  const LABEL = 'margin:0 0 2px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700'
+  const LABEL = 'margin:0 0 2px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7a4a2e;font-weight:700'
   const html = `
 <div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
-  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#96705B;font-weight:700;">Hometown Studio</p>
+  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
   <h1 style="margin:0 0 2px;font-size:22px;color:#3d3630;">🚑 Incident report</h1>
   <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#3d3630;">${esc(whoLabel)}</p>
   <p style="margin:0 0 16px;font-size:13px;color:#8a7f75;">${esc(input.eventLabel)} &middot; ${esc(whenLabel)} &middot; filed by ${esc(input.by.name)}</p>

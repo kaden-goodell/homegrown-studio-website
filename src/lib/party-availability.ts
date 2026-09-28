@@ -13,6 +13,7 @@ import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
 import { partyStartsForDate, removeBooked } from '@lib/party-slots'
 import { studioDayUtcRange } from '@lib/studio-time'
+import type { BookingWithMetadata } from '@providers/interfaces/booking'
 
 /** Studio-local YYYY-MM-DD for any ISO instant. */
 export function studioDateOf(iso: string): string {
@@ -50,6 +51,37 @@ export async function openPartyStarts(date: string, serviceVariationId?: string)
     .map((b) => b.slot.startAt)
 
   return removeBooked(candidates, bookedStarts)
+}
+
+/**
+ * The live booking this customer already holds at exactly this start, if any.
+ *
+ * Used when a checkout is retried: the time looks taken, and the question is
+ * whether it was taken by this very customer's earlier attempt. Looked up in
+ * the booking system itself; nothing is remembered on our side.
+ */
+export async function bookingHeldBy(
+  startIso: string,
+  customerId: string,
+  serviceVariationId?: string,
+): Promise<BookingWithMetadata | null> {
+  if (!providers.booking.listBookings || !customerId) return null
+  const { startIso: from, endIso: to } = studioDayUtcRange(studioDateOf(startIso))
+  const bookings = await providers.booking.listBookings({
+    startDate: from,
+    endDate: to,
+    locationId: siteConfig.providers.booking.config.locationId || '',
+  })
+  const t = new Date(startIso).getTime()
+  return (
+    bookings.find(
+      (b) =>
+        b.status !== 'cancelled' &&
+        b.customerId === customerId &&
+        new Date(b.slot.startAt).getTime() === t &&
+        (!serviceVariationId || b.slot?.serviceVariationId === serviceVariationId),
+    ) ?? null
+  )
 }
 
 /**

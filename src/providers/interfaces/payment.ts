@@ -52,6 +52,8 @@ export interface PaymentProvider {
     discounts?: Discount[]
     /** Optional pickup fulfillment (kits are picked up in-studio, not shipped). */
     fulfillment?: { type: 'PICKUP'; pickupAt: string; recipientName: string }
+    /** Makes the create safe to repeat (see BookingDetails.idempotencyKey). */
+    idempotencyKey?: string
   }): Promise<Order>
 
   processPayment(params: {
@@ -60,7 +62,22 @@ export interface PaymentProvider {
     amount: number
     currency: string
     buyerEmailAddress?: string
+    /**
+     * Makes the charge safe to repeat: sending the very same request again
+     * returns the original payment and never charges twice. A retry with a
+     * NEW payment token under the same key is refused by the backend, not
+     * replayed, so callers ask findOrderPayment() what happened first.
+     * Omitted → a fresh key per call.
+     */
+    idempotencyKey?: string
   }): Promise<Payment>
+
+  /**
+   * The completed payment on this order, or null if it has not been paid.
+   * This is how a retried checkout learns whether its first try went through:
+   * the backend is asked, nothing is remembered on our side.
+   */
+  findOrderPayment(orderId: string): Promise<Payment | null>
 
   refundPayment(input: {
     paymentId: string

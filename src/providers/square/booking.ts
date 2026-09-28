@@ -11,6 +11,28 @@ import { createSquareClient } from './client'
 
 const logger = createLogger('square-booking')
 
+/**
+ * The longest range Square lists bookings for in one request. Checked against
+ * the live account 27 Sep 2026: exactly 31 days is accepted, a second more is
+ * refused ("Time range can be at most 31 days in length").
+ */
+const MAX_LIST_RANGE_DAYS = 31
+
+/** Split [startIso, endIso] into consecutive ranges no longer than `days`. */
+export function rangesOfAtMost(startIso: string, endIso: string, days: number): [string, string][] {
+  const end = new Date(endIso).getTime()
+  const step = days * 24 * 60 * 60 * 1000
+  const ranges: [string, string][] = []
+  let from = new Date(startIso).getTime()
+  if (!(end > from)) return [[startIso, endIso]]
+  while (from < end) {
+    const to = Math.min(from + step, end)
+    ranges.push([new Date(from).toISOString(), new Date(to).toISOString()])
+    from = to
+  }
+  return ranges
+}
+
 function mapStatus(squareStatus: string): Booking['status'] {
   switch (squareStatus) {
     case 'ACCEPTED':
@@ -132,6 +154,7 @@ export class SquareBookingProvider implements BookingProvider {
     }
 
     const response = await this.client.bookings.create({
+      ...(details.idempotencyKey ? { idempotencyKey: details.idempotencyKey } : {}),
       booking: bookingPayload,
     } as any)
 
@@ -278,16 +301,33 @@ export class SquareBookingProvider implements BookingProvider {
       endDate: params.endDate,
     })
 
-    const response = await this.client.bookings.list({
-      locationId: params.locationId,
-      startAtMin: params.startDate,
-      startAtMax: params.endDate,
-    })
-
-    // v44: bookings.list returns a paginator (items in async iteration / .data),
-    // NOT a plain { bookings: [] }. Iterate to collect all bookings.
+    // Square refuses a range longer than 31 days ("Time range can be at most
+    // 31 days in length"). Callers ask for what they need (the party window is
+    // 45 days), so longer ranges are fetched in pieces and joined here.
+    // The pieces are asked for at the same time; if any fails, the whole
+    // lookup fails, so a caller never trusts half a list.
+    const pieces = await Promise.all(
+      rangesOfAtMost(params.startDate, params.endDate, MAX_LIST_RANGE_DAYS).map(async ([from, to]) => {
+        const response = await this.client.bookings.list({
+          locationId: params.locationId,
+          startAtMin: from,
+          startAtMax: to,
+        })
+        // v44: bookings.list returns a paginator (items in async iteration / .data),
+        // NOT a plain { bookings: [] }. Iterate to collect all bookings.
+        const found: any[] = []
+        for await (const b of response as any) found.push(b)
+        return found
+      }),
+    )
     const sqBookings: any[] = []
-    for await (const b of response as any) sqBookings.push(b)
+    const seen = new Set<string>()
+    for (const b of pieces.flat()) {
+      // A booking starting exactly on a boundary comes back in both pieces.
+      if (b?.id && seen.has(b.id)) continue
+      if (b?.id) seen.add(b.id)
+      sqBookings.push(b)
+    }
 
     // Filter out cancelled bookings
     const activeBookings = sqBookings.filter(
@@ -333,6 +373,8 @@ export class SquareBookingProvider implements BookingProvider {
         customerId: sqBooking.customerId ?? '',
         eventType,
         createdAt: sqBooking.createdAt ?? '',
+        version: typeof sqBooking.version === 'number' ? sqBooking.version : undefined,
+        customerNote: sqBooking.customerNote ?? undefined,
         partyTable,
         dedicatedHost,
         giftCardId,

@@ -86,10 +86,10 @@ describe('policy content (HOM-78 canonical spec)', () => {
     expect(cancelFaq.a).toMatch(/original date/i)
   })
 
-  it('party FAQ covers the no-outside-alcohol and no-branded-characters questions', () => {
+  it('party FAQ covers the no-outside-alcohol and theme (no trademarked characters) questions', () => {
     const alcohol = partyContent.faq.find((f) => /alcohol/i.test(f.q))
     expect(alcohol?.a).toMatch(/No outside alcohol/i)
-    const characters = partyContent.faq.find((f) => /character/i.test(f.q))
-    expect(characters?.a).toMatch(/trademarked/i)
+    const theme = partyContent.faq.find((f) => /theme/i.test(f.q))
+    expect(theme?.a).toMatch(/trademarked/i)
   })
 })

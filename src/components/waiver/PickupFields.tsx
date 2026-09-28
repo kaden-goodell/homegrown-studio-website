@@ -61,7 +61,7 @@ export default function PickupFields({ rows, onRowsChange, notAuthorized, onNotA
             type="button"
             aria-label={`Remove ${row.name || 'this pickup person'}`}
             onClick={() => removeRow(i)}
-            style={{ border: '1px solid rgba(150, 112, 91, 0.25)', background: 'transparent', color: 'var(--color-muted)', borderRadius: '0.625rem', padding: '0.6rem 0.8rem', cursor: 'pointer', fontSize: '0.875rem' }}
+            style={{ border: '1px solid rgba(var(--color-primary-rgb), 0.25)', background: 'transparent', color: 'var(--color-muted)', borderRadius: '0.625rem', padding: '0.6rem 0.8rem', cursor: 'pointer', fontSize: '0.875rem' }}
           >
             ✕
           </button>
@@ -72,8 +72,8 @@ export default function PickupFields({ rows, onRowsChange, notAuthorized, onNotA
           type="button"
           onClick={addRow}
           style={{
-            border: '1px dashed rgba(150, 112, 91, 0.4)',
-            background: 'rgba(150, 112, 91, 0.05)',
+            border: '1px dashed rgba(var(--color-primary-rgb), 0.4)',
+            background: 'rgba(var(--color-primary-rgb), 0.05)',
             color: 'var(--color-primary)',
             borderRadius: '0.75rem',
             padding: '0.5rem 0.9rem',

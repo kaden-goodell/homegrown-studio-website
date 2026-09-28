@@ -1,4 +1,4 @@
-import type { Customer, CustomerProvider } from '@providers/interfaces/customer'
+import type { Customer, CustomerNote, CustomerProvider } from '@providers/interfaces/customer'
 import type { SquareConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
 import { createSquareClient } from './client'
@@ -91,7 +91,7 @@ export class SquareCustomerProvider implements CustomerProvider {
     }
   }
 
-  async subscribe(email: string): Promise<void> {
+  async subscribe(email: string, note?: string): Promise<void> {
     // Search for existing customer first, only create if not found
     const searchResult = await this.client.customers.search({
       query: {
@@ -101,16 +101,30 @@ export class SquareCustomerProvider implements CustomerProvider {
       },
     })
 
-    if (searchResult.customers && searchResult.customers.length > 0) {
+    const existing = searchResult.customers?.[0]
+    if (existing) {
       logger.info('Customer already exists for subscription', { email })
+      // Keep what they asked about on the record they already have.
+      if (note && existing.id) await this.appendNote(existing.id, note)
       return
     }
 
-    // Create a minimal customer record for newsletter subscription
+    // Create a minimal customer record for the sign-up
     await this.client.customers.create({
       emailAddress: email,
+      ...(note ? { note: note.slice(0, 4000) } : {}),
     })
     logger.info('Subscribed customer', { email })
+  }
+
+  async listWithNotes(): Promise<CustomerNote[]> {
+    const found: CustomerNote[] = []
+    // v44: customers.list returns a paginator; iterating it walks every page.
+    const pages = await this.client.customers.list({ limit: 100, sortField: 'DEFAULT', sortOrder: 'ASC' })
+    for await (const c of pages as AsyncIterable<any>) {
+      if (c?.id && c.emailAddress && c.note) found.push({ id: c.id, email: c.emailAddress, note: c.note })
+    }
+    return found
   }
 
   async appendNote(customerId: string, line: string): Promise<void> {

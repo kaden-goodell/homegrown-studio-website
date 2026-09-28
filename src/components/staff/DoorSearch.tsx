@@ -99,7 +99,7 @@ function ResultCard({ h, onCheckedIn, onShowQr }: { h: HouseholdMatch; onChecked
           <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.6rem' }}>{allergyChips}</div>
         )}
 
-        <div style={{ marginTop: '0.9rem', borderTop: '1px solid rgba(150,112,91,0.12)', paddingTop: '0.8rem' }}>
+        <div style={{ marginTop: '0.9rem', borderTop: '1px solid rgba(var(--color-primary-rgb),0.12)', paddingTop: '0.8rem' }}>
           {checkedIn && (
             <p style={{ margin: '0 0 0.5rem', fontSize: '0.8125rem', color: 'rgb(21,128,61)', fontWeight: 700 }}>✓ Checked in to Open Studio today</p>
           )}

@@ -62,7 +62,7 @@ type Status = 'wait' | 'in' | 'out'
 
 function StatusPill({ status, hereCount, total }: { status: Status; hereCount: number; total: number }) {
   const map = {
-    wait: { bg: 'rgba(150,112,91,0.12)', fg: 'var(--color-muted)', icon: '○', label: 'Not arrived' },
+    wait: { bg: 'rgba(var(--color-primary-rgb),0.12)', fg: 'var(--color-muted)', icon: '○', label: 'Not arrived' },
     in: { bg: 'rgba(34,197,94,0.16)', fg: 'rgb(21,128,61)', icon: '●', label: `${hereCount} of ${total} here` },
     out: { bg: 'rgba(120,120,120,0.14)', fg: '#555', icon: '✓', label: 'All picked up' },
   }[status]
@@ -158,7 +158,7 @@ export default function HouseholdCard({
   const selectedOut = herePeople.filter((p) => selOut[p.id] !== false).map((p) => p.id)
   const checkingOutChild = selectedOut.some((pid) => pid.startsWith('child:'))
 
-  const border = status === 'in' ? 'rgb(34,197,94)' : status === 'out' ? 'rgba(120,120,120,0.4)' : 'rgba(150,112,91,0.3)'
+  const border = status === 'in' ? 'rgb(34,197,94)' : status === 'out' ? 'rgba(120,120,120,0.4)' : 'rgba(var(--color-primary-rgb),0.3)'
   const bg = status === 'in' ? 'rgba(34,197,94,0.04)' : status === 'out' ? 'rgba(120,120,120,0.04)' : 'rgba(255,255,255,0.85)'
 
   async function act(extra: any) {
@@ -286,7 +286,7 @@ export default function HouseholdCard({
         {people.map((p) => {
           const st = stateOf(p.id)
           return (
-            <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0', borderTop: '1px solid rgba(150,112,91,0.1)', flexWrap: 'wrap', opacity: st === 'out' ? 0.6 : 1, cursor: st === 'out' ? 'default' : 'pointer' }}>
+            <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0', borderTop: '1px solid rgba(var(--color-primary-rgb),0.1)', flexWrap: 'wrap', opacity: st === 'out' ? 0.6 : 1, cursor: st === 'out' ? 'default' : 'pointer' }}>
               {leftBox(p, st)}
               <span style={{ fontSize: '0.95rem' }}>{p.icon}</span>
               <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9375rem' }}>{p.name}</span>
@@ -359,7 +359,7 @@ export default function HouseholdCard({
 
       {/* Check-in — pick who's here (RSVP pre-selected), add late arrivals anytime */}
       {absentPeople.length > 0 && (
-        <div style={{ marginTop: '0.7rem', borderTop: herePeople.length > 0 ? '1px solid rgba(150,112,91,0.12)' : 'none', paddingTop: herePeople.length > 0 ? '0.7rem' : 0 }}>
+        <div style={{ marginTop: '0.7rem', borderTop: herePeople.length > 0 ? '1px solid rgba(var(--color-primary-rgb),0.12)' : 'none', paddingTop: herePeople.length > 0 ? '0.7rem' : 0 }}>
           <button
             type="button"
             disabled={selectedIn.length === 0}

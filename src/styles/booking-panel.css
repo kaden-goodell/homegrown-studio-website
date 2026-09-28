@@ -1,0 +1,71 @@
+/* Form fields and buttons inside the booking panels (parties and workshops).
+   Kept beside the panels so both flows share one look. */
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.375rem;
+  min-width: 0;
+}
+.field-label {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--color-dark);
+}
+.field-optional {
+  font-weight: 400;
+  color: var(--color-text);
+}
+.field-input {
+  width: 100%;
+  min-height: 3rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.75rem;
+  border: 1.5px solid var(--color-field-border);
+  background: var(--color-surface);
+  color: var(--color-dark);
+  /* 16px keeps iPhones from zooming the page when a field is tapped. */
+  font-size: 1rem;
+  font-family: var(--font-body);
+}
+.field-input[aria-invalid='true'] {
+  border-color: var(--color-error);
+}
+.field-error {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  color: var(--color-error);
+}
+
+/* Every control in a panel shows where the keyboard is. */
+.booking-panel :where(a, button, input, select, textarea, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* First and last name sit side by side, and stack on a narrow phone. */
+.field-pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr));
+  gap: 1rem;
+}
+
+.booking-panel .btn {
+  width: 100%;
+}
+.booking-panel .btn[disabled] {
+  background: rgba(var(--color-primary-rgb), 0.45);
+  border-color: transparent;
+  color: #fff;
+  box-shadow: none;
+  cursor: default;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .booking-panel,
+  .booking-panel * {
+    transition: none !important;
+    animation: none !important;
+  }
+}

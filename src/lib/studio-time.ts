@@ -6,6 +6,7 @@
  */
 import { partyConfig } from '@config/party.config'
 import { localDate, localToUtcISO } from '@lib/party-slots'
+import { formatTimeRange } from '@components/calendar/calendar-view-model'
 
 const TZ = partyConfig.timezone // 'America/Chicago'
 
@@ -34,6 +35,39 @@ export function formatTime(iso: string): string {
   })
 }
 
+/** "Sat, Aug 8" — studio-local day. */
+export function formatDay(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    timeZone: TZ,
+  })
+}
+
+/** "Aug 8" — studio-local day, for a button, a short sentence, or the
+ *  door-search GOOD TO GO line. */
+export function formatMonthDay(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: TZ })
+}
+
+/** "19:00" — studio-local wall clock. */
+export function studioClock(iso: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso))
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00'
+  return `${get('hour')}:${get('minute')}`
+}
+
+/** "7–9 PM", "9:00 AM–12:30 PM" — studio-local, the one format used site-wide. */
+export function formatTimeSpan(startIso: string, endIso: string): string {
+  return formatTimeRange(studioClock(startIso), studioClock(endIso))
+}
+
+/** "Fri, Oct 16 · 7–9 PM" */
+export function formatDayAndSpan(startIso: string, endIso: string): string {
+  return `${formatDay(startIso)} · ${formatTimeSpan(startIso, endIso)}`
+}
+
 /** "Sat, Aug 8 · 12:00 PM CT" — slot labels on booking UI. */
 export function formatSlotLabel(iso: string): string {
   const d = new Date(iso)
@@ -55,11 +89,6 @@ export function formatCalendarDate(iso: string): string {
     day: 'numeric',
     year: 'numeric',
   })
-}
-
-/** "Aug 3" — short month+day, studio-local. Door-search GOOD TO GO line. */
-export function formatMonthDay(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: TZ })
 }
 
 /** "Aug 3, 2025" — short month+day+year, studio-local. Door-search EXPIRED line. */

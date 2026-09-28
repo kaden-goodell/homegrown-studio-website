@@ -6,7 +6,7 @@ const inputStyle: React.CSSProperties = {
   padding: '0.75rem 1rem',
   background: 'rgba(255, 255, 255, 0.75)',
   backdropFilter: 'blur(12px)',
-  border: '1px solid rgba(150, 112, 91, 0.1)',
+  border: '1px solid rgba(var(--color-primary-rgb), 0.1)',
   borderRadius: '0.75rem',
   fontSize: '0.875rem',
   color: 'var(--color-dark)',
@@ -77,7 +77,7 @@ export default function ParentInfoStep() {
         onClick={handleContinue}
         style={{
           padding: '0.875rem',
-          background: isValid ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.3)',
+          background: isValid ? 'var(--color-primary)' : 'rgba(var(--color-primary-rgb), 0.3)',
           color: '#fff',
           border: 'none',
           borderRadius: '0.75rem',

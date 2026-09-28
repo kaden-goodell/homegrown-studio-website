@@ -1,16 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SquareWorkshopProvider } from '@providers/square/workshop'
 
-const NOW = Date.now()
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
 
-// Dates are computed relative to "now" (not hardcoded) so this fixture never
-// rots into the past as real time marches on.
-const FUTURE_1 = new Date(NOW + 2 * DAY).toISOString()
-const FUTURE_SOLD_OUT = new Date(NOW + 3 * DAY).toISOString()
-const FUTURE_2 = new Date(NOW + 4 * DAY).toISOString()
-const STARTED_2H_AGO = new Date(NOW - 2 * HOUR).toISOString()
+// The clock is pinned (see beforeEach), so the fixture's dates can be written
+// out plainly and still never rot into the past as real time marches on.
+const NOW = new Date('2026-06-01T12:00:00Z').getTime()
+const FUTURE_1 = '2026-06-10T17:00:00Z'
+const FUTURE_SOLD_OUT = '2026-06-05T19:00:00Z'
+const FUTURE_2 = '2026-06-12T17:00:00Z'
+const STARTED_2H_AGO = '2026-06-01T10:00:00Z'
 
 const FIXTURE_RESPONSE = {
   class_schedule_instances: [
@@ -35,18 +35,46 @@ const config = { locationId: 'LOC123', accessToken: 'x', environment: 'sandbox',
 
 describe('SquareWorkshopProvider', () => {
   beforeEach(() => {
+    // Before every class in the fixture. Only the clock is faked, so requests still resolve.
+    vi.useFakeTimers({ toFake: ['Date'], now: new Date(NOW) })
     vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify(FIXTURE_RESPONSE), { status: 200 })))
   })
-  afterEach(() => { vi.unstubAllGlobals() })
+  afterEach(() => {
+    vi.unstubAllGlobals()
+    vi.useRealTimers()
+  })
 
-  it('listWorkshops returns Workshop[] sorted by startAt ascending and filters availableCapacity === 0', async () => {
+  it('listWorkshops returns Workshop[] sorted by startAt ascending', async () => {
     const provider = new SquareWorkshopProvider(config)
     const workshops = await provider.listWorkshops()
-    expect(workshops.map(w => w.id)).toEqual(['inst-1', 'inst-3'])
-    expect(workshops[0].priceCents).toBe(6500)
-    expect(workshops[0].priceCurrency).toBe('USD')
-    expect(workshops[0].scheduleId).toBe('sched-A')
-    expect(workshops[0].name).toBe('Glass Fusing')
+    expect(workshops.map(w => w.id)).toEqual(['inst-2', 'inst-1', 'inst-3'])
+    expect(workshops[1].priceCents).toBe(6500)
+    expect(workshops[1].priceCurrency).toBe('USD')
+    expect(workshops[1].scheduleId).toBe('sched-A')
+    expect(workshops[1].name).toBe('Glass Fusing')
+  })
+
+  it('listWorkshops keeps a sold-out workshop, with zero seats', async () => {
+    const provider = new SquareWorkshopProvider(config)
+    const sold = (await provider.listWorkshops()).find((w) => w.id === 'inst-2')
+    expect(sold).toBeDefined()
+    expect(sold!.name).toBe('Candle Pouring')
+    expect(sold!.availableCapacity).toBe(0)
+  })
+
+  it('listWorkshops drops a workshop, sold out or not, once its start time has passed', async () => {
+    const provider = new SquareWorkshopProvider(config)
+
+    // One minute before the sold-out class starts: still listed.
+    vi.setSystemTime(new Date('2026-06-05T18:59:00Z'))
+    expect((await provider.listWorkshops()).map(w => w.id)).toEqual(['inst-2', 'inst-1', 'inst-3'])
+
+    // The moment it starts: gone.
+    vi.setSystemTime(new Date('2026-06-05T19:00:00Z'))
+    expect((await provider.listWorkshops()).map(w => w.id)).toEqual(['inst-1', 'inst-3'])
+
+    vi.setSystemTime(new Date('2026-06-10T17:00:01Z'))
+    expect((await provider.listWorkshops()).map(w => w.id)).toEqual(['inst-3'])
   })
 
   it('getWorkshop returns a workshop by id even when sold out', async () => {

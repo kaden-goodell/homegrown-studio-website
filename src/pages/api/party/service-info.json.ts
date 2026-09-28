@@ -45,7 +45,7 @@ export const GET: APIRoute = async ({ url }) => {
     const variationId = variation.id as string
     const variationVersion = Number(variation.version ?? 0)
 
-    // Crafts are catalog ITEMS in the Party Crafts category. Each carries a
+    // Crafts are catalog ITEMS in the Crafts category. Each carries a
     // per-head price (its variation), a description, and an optional image.
     const craftItems: any[] = []
     const imageIds = new Set<string>()

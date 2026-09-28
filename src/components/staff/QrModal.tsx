@@ -54,7 +54,7 @@ export default function QrModal({ onClose }: { onClose: () => void }) {
         <p style={{ margin: '0 0 1rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
           Point your phone’s camera here — signs the agreement on your own device.
         </p>
-        <div style={{ background: '#fff', border: '1px solid rgba(150,112,91,0.16)', borderRadius: '0.75rem', padding: '0.75rem', minHeight: '12rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ background: '#fff', border: '1px solid rgba(var(--color-primary-rgb),0.16)', borderRadius: '0.75rem', padding: '0.75rem', minHeight: '12rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           {svg ? (
             <div style={{ width: '100%', maxWidth: '11rem' }} dangerouslySetInnerHTML={{ __html: svg }} />
           ) : (

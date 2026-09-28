@@ -1,10 +1,14 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
+import { trackNewsletterSubscribed } from '@lib/analytics'
 
 interface NewsletterProps {
   variant?: 'light' | 'dark'
+  /** Before opening day the one thing visitors want to hear is "booking is open". */
+  preOpening?: boolean
 }
 
-export default function Newsletter({ variant = 'light' }: NewsletterProps) {
+export default function Newsletter({ variant = 'light', preOpening = false }: NewsletterProps) {
+  const fieldId = useId()
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [message, setMessage] = useState('')
@@ -21,8 +25,9 @@ export default function Newsletter({ variant = 'light' }: NewsletterProps) {
         body: JSON.stringify({ email }),
       })
       if (res.ok) {
+        trackNewsletterSubscribed()
         setStatus('success')
-        setMessage('Thanks for subscribing!')
+        setMessage(preOpening ? 'Got it. You’ll hear from us the day booking opens.' : 'Thanks for subscribing!')
         setEmail('')
       } else {
         setStatus('error')
@@ -37,11 +42,8 @@ export default function Newsletter({ variant = 'light' }: NewsletterProps) {
   return (
     <div className="max-w-xl mx-auto text-center">
       <p
-        className="uppercase text-xs font-semibold mb-3"
-        style={{
-          letterSpacing: '0.2em',
-          color: isDark ? 'var(--color-accent)' : 'var(--color-accent)',
-        }}
+        className={isDark ? 'uppercase text-xs font-semibold mb-3' : 'eyebrow mb-3'}
+        style={isDark ? { letterSpacing: '0.2em', color: 'var(--color-accent)' } : undefined}
       >
         Newsletter
       </p>
@@ -52,7 +54,7 @@ export default function Newsletter({ variant = 'light' }: NewsletterProps) {
           color: isDark ? 'var(--color-background)' : 'var(--color-dark, #3d3229)',
         }}
       >
-        Stay Inspired
+        {preOpening ? 'Be first to know when booking opens' : 'Stay Inspired'}
       </h2>
       <p
         className="mb-10 text-base"
@@ -60,7 +62,9 @@ export default function Newsletter({ variant = 'light' }: NewsletterProps) {
           color: isDark ? 'rgba(250, 248, 245, 0.6)' : 'var(--color-muted)',
         }}
       >
-        Get workshop announcements, creative tips, and exclusive offers.
+        {preOpening
+          ? 'One email the day dates go on sale, then new workshops now and then.'
+          : 'Get workshop announcements, creative tips, and exclusive offers.'}
       </p>
 
       {status === 'success' ? (
@@ -72,17 +76,21 @@ export default function Newsletter({ variant = 'light' }: NewsletterProps) {
         </p>
       ) : (
         <form onSubmit={handleSubmit} className="flex flex-col sm:flex-row gap-3">
+          <label htmlFor={fieldId} className="sr-only">Email address</label>
           <input
+            id={fieldId}
+            name="email"
             type="email"
+            inputMode="email"
+            autoComplete="email"
             required
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="your@email.com"
             className="flex-1 px-5 py-3.5 rounded-xl text-base focus:outline-none focus:ring-2 transition-all"
             style={{
-              background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.8)',
-              backdropFilter: 'blur(12px)',
-              border: isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1px solid rgba(255, 255, 255, 0.4)',
+              background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'var(--color-surface)',
+              border: isDark ? '1px solid rgba(255, 255, 255, 0.15)' : '1.5px solid var(--color-field-border)',
               color: isDark ? '#faf8f5' : 'var(--color-text)',
             }}
           />
@@ -93,11 +101,11 @@ export default function Newsletter({ variant = 'light' }: NewsletterProps) {
             style={{
               background: isDark
                 ? 'linear-gradient(135deg, var(--color-accent), var(--color-secondary))'
-                : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+                : 'var(--color-button)',
               color: isDark ? 'var(--color-dark, #3d3229)' : 'white',
               boxShadow: isDark
                 ? '0 4px 15px rgba(212, 165, 116, 0.3)'
-                : '0 4px 15px rgba(150, 112, 91, 0.25)',
+                : '0 4px 15px rgba(var(--color-primary-rgb), 0.25)',
             }}
           >
             {status === 'loading' ? 'Subscribing...' : 'Subscribe'}

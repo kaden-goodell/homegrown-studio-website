@@ -7,7 +7,7 @@ const ENDPOINT = '/api/staff/event-meta.json'
 const btn = (primary = false): React.CSSProperties => ({
   padding: '0.55rem 0.9rem',
   borderRadius: '0.625rem',
-  border: primary ? 'none' : '1px solid rgba(150,112,91,0.3)',
+  border: primary ? 'none' : '1px solid rgba(var(--color-primary-rgb),0.3)',
   background: primary ? 'var(--color-primary)' : 'transparent',
   color: primary ? '#fff' : 'var(--color-dark)',
   fontSize: '0.8125rem',
@@ -21,8 +21,8 @@ const chip: React.CSSProperties = {
   gap: '0.35rem',
   padding: '0.3rem 0.6rem',
   borderRadius: '999px',
-  background: 'rgba(150,112,91,0.1)',
-  border: '1px solid rgba(150,112,91,0.25)',
+  background: 'rgba(var(--color-primary-rgb),0.1)',
+  border: '1px solid rgba(var(--color-primary-rgb),0.25)',
   fontSize: '0.8125rem',
   color: 'var(--color-dark)',
 }
@@ -229,7 +229,7 @@ export default function EventSettingsSheet({
                 type="date"
                 value={newDay}
                 onChange={(e) => setNewDay(e.target.value)}
-                style={{ padding: '0.4rem 0.6rem', borderRadius: '0.5rem', border: '1px solid rgba(150,112,91,0.3)', fontSize: '0.85rem' }}
+                style={{ padding: '0.4rem 0.6rem', borderRadius: '0.5rem', border: '1px solid rgba(var(--color-primary-rgb),0.3)', fontSize: '0.85rem' }}
               />
               <button type="button" onClick={addDay} disabled={busy || !newDay} style={{ ...btn(true), opacity: busy || !newDay ? 0.5 : 1 }}>Add</button>
               <button type="button" onClick={() => { setAddingDay(false); setNewDay('') }} style={btn()}>Cancel</button>

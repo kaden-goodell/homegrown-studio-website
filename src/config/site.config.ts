@@ -1,5 +1,6 @@
 import { OPENING_DATE } from './opening'
-import { SITE_URL } from './class-booking.config'
+import { SITE_URL } from './site-url'
+import { STUDIO_HOURS, formatHours } from './hours'
 
 export interface SiteConfig {
   name: string
@@ -80,7 +81,13 @@ export interface SiteConfig {
     items: { quote: string; name: string; detail: string }[]
   }
   nav?: NavItem[]
-  /** Public walk-in hours, displayed in footer / Open Studio / homepage. */
+  /**
+   * Walk-in hours, displayed in footer / Open Studio / homepage. Until walk-ins
+   * start (OPEN_STUDIO_START_DATE) the door opens only for booked workshops
+   * and parties (Kaden, 27 Sep 2026), so they are labelled "Walk-in hours from
+   * December" and the copy points to the calendar. They must cover every
+   * scheduled workshop.
+   */
   hours: { days: string; time: string }[]
   /** Grand-opening date (ISO). Drives the pre-launch banner; remove after opening. */
   openingDate: string
@@ -224,20 +231,21 @@ export const siteConfig: SiteConfig = {
     state: 'AL',
     zip: '35758',
   },
-  hours: [
-    { days: 'Thursday & Friday', time: '4 – 9 PM' },
-    { days: 'Saturday', time: '9 AM – 9 PM' },
-    { days: 'Sunday', time: '2 – 8 PM' },
-  ],
+  // Edit the hours in ./hours.ts; this is the display form of that list.
+  hours: formatHours(STUDIO_HOURS),
   openingDate: OPENING_DATE,
   theme: {
+    // These six override the matching tokens in src/styles/global.css (the
+    // layouts inject them). Craft colours and button tokens live in global.css.
+    // Before the Sept 2026 restyle: primary #96705B, text #374151, muted #6b7280.
+    // If you change `primary`, change --color-primary-rgb in global.css to match.
     colors: {
-      primary: '#96705B',
+      primary: '#7a4a2e',
       secondary: '#c4a882',
       accent: '#d4a574',
       background: '#faf8f5',
-      text: '#374151',
-      muted: '#6b7280',
+      text: '#4a403a',
+      muted: '#6f635b',
     },
     fonts: {
       heading: 'Playfair Display',

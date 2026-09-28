@@ -1,0 +1,25 @@
+---
+export const prerender = true
+
+import Layout from '@layouts/StaticLayout.astro'
+---
+
+<Layout title="Page not found" description="That page isn't here. Find workshops, private parties and the calendar at Hometown Studio." noindex>
+  <section class="max-w-3xl mx-auto px-4 sm:px-6 py-24 text-center">
+    <p class="eyebrow mb-3">Page not found</p>
+    <h1 class="text-4xl sm:text-5xl font-heading font-bold" style="color: var(--color-dark);">
+      That page isn’t here
+    </h1>
+    <p class="text-lg mt-4 max-w-xl mx-auto" style="color: var(--color-muted);">
+      The link may be old, or the address may have a typo. Here’s where most people are headed.
+    </p>
+    <div class="mt-8 flex flex-wrap justify-center gap-3">
+      <a href="/book" class="btn btn-primary">Book a party</a>
+      <a href="/workshops" class="btn btn-secondary">See workshops</a>
+      <a href="/calendar" class="btn btn-secondary">See the calendar</a>
+    </div>
+    <p class="mt-8 text-sm" style="color: var(--color-muted);">
+      Or go to the <a href="/" class="underline" style="color: var(--color-primary);">home page</a>.
+    </p>
+  </section>
+</Layout>

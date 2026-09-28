@@ -72,6 +72,8 @@ if (start && !isPast) {
   title="You're Invited"
   description={hasDetails ? `${craft} · ${when} · at Hometown Studio. Tap to RSVP.` : "You're invited to a craft party at Hometown Studio."}
   ogTitle={headline}
+  shareUrl={Astro.url.pathname + Astro.url.search}
+  noindex
 >
   <section class="max-w-xl mx-auto px-4 sm:px-6 py-24">
     <div
@@ -80,14 +82,14 @@ if (start && !isPast) {
         background: rgba(255,255,255,0.75);
         backdrop-filter: blur(14px);
         -webkit-backdrop-filter: blur(14px);
-        border: 1px solid rgba(150,112,91,0.16);
+        border: 1px solid rgba(var(--color-primary-rgb),0.16);
         border-radius: 1.5rem;
-        box-shadow: 0 24px 60px rgba(150,112,91,0.16);
+        box-shadow: 0 24px 60px rgba(var(--color-primary-rgb),0.16);
         padding: 2.5rem 1.75rem;
         text-align: center;
       "
     >
-      <p class="uppercase tracking-[0.25em] text-xs font-semibold mb-4" style="color: var(--color-accent);">
+      <p class="eyebrow tone-party mb-4">
         {c.eyebrow}
       </p>
       <h1 class="text-3xl sm:text-4xl font-heading font-bold" style="color: var(--color-dark);">
@@ -106,8 +108,8 @@ if (start && !isPast) {
                 gap: 0.85rem;
                 align-items: baseline;
                 padding: 0.75rem 1rem;
-                background: rgba(150,112,91,0.06);
-                border: 1px solid rgba(150,112,91,0.12);
+                background: rgba(var(--color-primary-rgb),0.06);
+                border: 1px solid rgba(var(--color-primary-rgb),0.12);
                 border-radius: 0.875rem;
               "
             >
@@ -127,7 +129,7 @@ if (start && !isPast) {
 
       <div
         class="mt-8"
-        style="border-top: 1px solid rgba(150,112,91,0.14); padding-top: 1.75rem;"
+        style="border-top: 1px solid rgba(var(--color-primary-rgb),0.14); padding-top: 1.75rem;"
       >
         {isPast ? (
           /* Past-party state: friendly closed message, no RSVP CTA */
@@ -166,12 +168,12 @@ if (start && !isPast) {
               style="
                 padding: 0.9rem 1.75rem;
                 border-radius: 0.875rem;
-                background: linear-gradient(135deg, var(--color-primary), var(--color-accent));
+                background: var(--color-button);
                 color: #fff;
                 font-size: 1rem;
                 font-weight: 600;
                 text-decoration: none;
-                box-shadow: 0 10px 24px rgba(150,112,91,0.24);
+                box-shadow: 0 10px 24px rgba(var(--color-primary-rgb),0.24);
               "
             >
               {ctaLabel}
@@ -183,7 +185,7 @@ if (start && !isPast) {
             )}
 
             {calendar && (
-              <div class="mt-7" style="border-top: 1px solid rgba(150,112,91,0.14); padding-top: 1.5rem;">
+              <div class="mt-7" style="border-top: 1px solid rgba(var(--color-primary-rgb),0.14); padding-top: 1.5rem;">
                 <p class="text-xs uppercase tracking-wide font-semibold mb-3" style="color: var(--color-primary);">
                   {c.calendar.heading}
                 </p>
@@ -192,14 +194,14 @@ if (start && !isPast) {
                     href={calendar.google}
                     target="_blank"
                     rel="noopener noreferrer"
-                    style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(150,112,91,0.08); border: 1px solid rgba(150,112,91,0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
+                    style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(var(--color-primary-rgb),0.08); border: 1px solid rgba(var(--color-primary-rgb),0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
                   >
                     {c.calendar.google}
                   </a>
                   <a
                     href={calendar.ics}
                     download="hometown-party.ics"
-                    style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(150,112,91,0.08); border: 1px solid rgba(150,112,91,0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
+                    style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(var(--color-primary-rgb),0.08); border: 1px solid rgba(var(--color-primary-rgb),0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
                   >
                     {c.calendar.apple}
                   </a>

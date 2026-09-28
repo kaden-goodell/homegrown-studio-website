@@ -3,15 +3,23 @@ export const prerender = true
 
 import Layout from '@layouts/StaticLayout.astro'
 import { siteConfig } from '@config/site.config'
+import { partyConfig } from '@config/party.config'
+import { formatMoney } from '@lib/money'
 import { OPEN_STUDIO_START_DATE, OPEN_STUDIO_START_LABEL } from '@config/opening'
 const walkInOpen = new Date() >= new Date(OPEN_STUDIO_START_DATE + 'T00:00:00-06:00')
 import Newsletter from '@components/shared/Newsletter'
 import UpcomingWorkshops from '@components/home/UpcomingWorkshops'
 
+// Prices here come from config. This page is built ahead of time and never
+// asks Square, so anything priced in Square (crafts, workshop seats) is
+// described without a number.
 const offerings = [
   {
-    title: 'Open Studio',
-    price: walkInOpen ? 'Crafts from $15 · no booking needed' : `Walk-in hours begin ${OPEN_STUDIO_START_LABEL}`,
+    title: 'Open studio',
+    tone: 'tone-studio',
+    // Shown until walk-ins start, then `priceAfter` takes over (see data-walkin in Footer.astro).
+    price: `Walk-in hours begin ${OPEN_STUDIO_START_LABEL}`,
+    priceAfter: 'Pay per craft · no booking needed',
     description: 'Walk in during open hours, pick a craft from the menu, and make it yours. Pay per craft — that’s it.',
     href: '/open-studio',
     cta: 'How it works',
@@ -20,7 +28,8 @@ const offerings = [
   },
   {
     title: 'Workshops',
-    price: 'From $30 a seat',
+    tone: 'tone-workshop',
+    price: 'Priced per seat',
     description: 'Guided sessions with everything included. Come solo or bring a friend — all skill levels, ages 8+.',
     href: '/workshops',
     cta: 'Browse workshops',
@@ -28,8 +37,9 @@ const offerings = [
     alt: 'A workshop table set for a guided craft session',
   },
   {
-    title: 'Private Parties',
-    price: 'Whole studio · from $300',
+    title: 'Private parties',
+    tone: 'tone-party',
+    price: `Whole studio · from ${formatMoney(partyConfig.basePriceCents)}`,
     description: 'The whole room for your people — birthdays, girls’ nights, showers, team nights, or just because.',
     href: '/book',
     cta: 'Plan your party',
@@ -37,13 +47,14 @@ const offerings = [
     alt: 'A party table set with crafts at Hometown Studio',
   },
   {
-    title: 'Take-Home Kits',
+    title: 'Take-home kits',
+    tone: 'tone-kit',
     description: 'The party-in-a-box: a themed craft kit for your crew, at your place. Gold, silver, rainbow, and more.',
     image: '/images/home/take-home.jpg',
     alt: 'A boxed take-home craft kit',
     // Flips live with the kits feature — no copy edits needed at launch.
     ...(siteConfig.features.kits.enabled
-      ? { price: 'Kits from $200', href: '/kits', cta: 'Build your kit' }
+      ? { price: 'Priced by kit size', href: '/kits', cta: 'Build your kit' }
       : { price: 'Coming soon', href: null, cta: 'On the way' }),
   },
 ]
@@ -59,16 +70,16 @@ const openingLabel = new Date(siteConfig.openingDate + 'T12:00:00').toLocaleDate
 const testimonials = siteConfig.testimonials?.items ?? []
 ---
 
-<Layout title="Home" description="Hometown Studio — walk-in crafting, workshops, and private parties in Madison, AL. Everyone welcome, ages 8+.">
+<Layout fullTitle="Hometown Studio | Craft Studio in Madison, AL">
   {showOpeningBanner && (
-    <div id="opening-banner" class="text-center px-4 py-2.5 text-sm font-medium" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); color: white;">
-      Tentative grand opening {openingLabel} — <a href="/book" class="underline font-semibold" style="color: white;">see what’s coming</a>
+    <div id="opening-banner" class="text-center px-4 py-2.5 text-sm font-medium" style="background: var(--color-dark); color: white;">
+      Tentative grand opening {openingLabel} — <a href="/calendar" class="underline font-semibold" style="color: white;">see what’s coming</a>
     </div>
   )}
   {showOpeningBanner && (
     <script is:inline define:vars={{ openingDate: siteConfig.openingDate }}>
       // Page is prerendered; without this, a stale build would keep announcing the
-      // opening after Sept 1 until the next production deploy. Self-hide at runtime.
+      // opening after opening day until the next production deploy. Self-hide at runtime.
       if (new Date() >= new Date(openingDate + 'T00:00:00-05:00')) {
         document.getElementById('opening-banner')?.remove()
       }
@@ -85,21 +96,23 @@ const testimonials = siteConfig.testimonials?.items ?? []
         A craft studio in Madison, Alabama — walk in and craft, join a workshop, or take over the whole place for a party.
       </p>
       <div class="fade-in mt-8 flex flex-wrap justify-center gap-3">
-        <a href="/book" class="cta-glow inline-block rounded-full px-10 py-4 text-white font-semibold text-lg no-underline" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); box-shadow: 0 8px 30px rgba(150, 112, 91, 0.3);">
+        <a href="/book" class="btn btn-primary btn-lg">
           Book a Party
         </a>
-        <a href="/workshops" class="inline-block rounded-full px-10 py-4 font-semibold text-lg no-underline glass" style="color: var(--color-dark);">
+        <a href="/workshops" class="btn btn-secondary btn-lg">
           Browse Workshops
         </a>
       </div>
       <p class="fade-in mt-6 text-sm font-medium" style="color: var(--color-muted);">
-        Walk-ins welcome Thu&ndash;Sun · 525 Hughes Rd, Madison, AL · Ages 8+
+        <span data-walkin="before" hidden={walkInOpen}>Workshops and private parties by booking · walk-ins start in December</span>
+        <span data-walkin="after" hidden={!walkInOpen}>Walk-ins welcome Thu&ndash;Sun</span>
+        {' '}· {siteConfig.address.street.replace(/,.*$/, '')}, {siteConfig.address.city}, {siteConfig.address.state} · Ages 8+
       </p>
       <img
         src="/images/party-hero.jpg"
         alt="A craft table set up at Hometown Studio"
         class="fade-in mt-10 mx-auto rounded-2xl w-full max-w-4xl object-cover"
-        style="aspect-ratio: 21 / 9; box-shadow: 0 24px 60px rgba(150, 112, 91, 0.18);"
+        style="aspect-ratio: 21 / 9; box-shadow: 0 24px 60px rgba(var(--color-primary-rgb), 0.18);"
       />
     </div>
   </section>
@@ -108,19 +121,26 @@ const testimonials = siteConfig.testimonials?.items ?? []
   <section class="py-12 sm:py-16 px-4 relative z-10">
     <div class="max-w-5xl mx-auto">
       <div class="text-center mb-10 fade-in">
-        <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Four ways to craft</p>
+        <p class="eyebrow mb-3">Four ways to craft</p>
         <h2 class="text-3xl sm:text-4xl lg:text-5xl font-heading font-bold" style="color: var(--color-dark);">Pick your kind of day</h2>
       </div>
       <div class="grid gap-5 grid-cols-1 sm:grid-cols-2">
         {offerings.map((item) => {
           const Tag = item.href ? 'a' : 'div'
           return (
-            <Tag href={item.href ?? undefined} class:list={['group block rounded-2xl overflow-hidden glass no-underline', item.href && 'hover-card']}>
+            <Tag href={item.href ?? undefined} class:list={['group block rounded-2xl overflow-hidden no-underline', item.tone, item.href && 'hover-card']} style="background: var(--color-surface); border: 1px solid var(--color-line);">
               <img src={item.image} alt={item.alt} loading="lazy" class="w-full object-cover" style="aspect-ratio: 16 / 9;" />
               <div class="p-7">
-                <div class="flex items-baseline justify-between gap-3">
+                <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
                   <h3 class="text-xl font-heading font-bold" style="color: var(--color-dark);">{item.title}</h3>
-                  <span class="text-xs font-semibold whitespace-nowrap" style="color: var(--color-primary);">{item.price}</span>
+                  {item.priceAfter ? (
+                    <Fragment>
+                      <span class="chip" data-walkin="before" hidden={walkInOpen}>{item.price}</span>
+                      <span class="chip" data-walkin="after" hidden={!walkInOpen}>{item.priceAfter}</span>
+                    </Fragment>
+                  ) : (
+                    <span class="chip">{item.price}</span>
+                  )}
                 </div>
                 <p class="mt-3 text-sm leading-relaxed" style="color: var(--color-muted);">{item.description}</p>
                 <div class="mt-5 flex items-center gap-2 text-sm font-medium transition-all duration-300 group-hover:gap-3" style={`color: ${item.href ? 'var(--color-primary)' : 'var(--color-muted)'};`}>
@@ -148,7 +168,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
       <div class="grid gap-5 sm:grid-cols-3">
         {steps.map((s) => (
           <div class="glass rounded-2xl p-8 text-center fade-in">
-            <div class="mx-auto mb-4 w-10 h-10 rounded-full flex items-center justify-center text-white font-bold" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent));">
+            <div class="mx-auto mb-4 w-10 h-10 rounded-full flex items-center justify-center font-bold" style="background: var(--color-sand); color: var(--color-dark);">
               {s.n}
             </div>
             <h3 class="font-heading font-bold text-lg mb-2" style="color: var(--color-dark);">{s.title}</h3>
@@ -169,7 +189,11 @@ const testimonials = siteConfig.testimonials?.items ?? []
       <p class="text-base font-medium" style="color: var(--color-dark);">
         {siteConfig.address.street}, {siteConfig.address.city}, {siteConfig.address.state} {siteConfig.address.zip}
       </p>
-      <div class="mt-5 flex flex-wrap justify-center gap-x-10 gap-y-3">
+      <p class="mt-5 text-xs font-bold uppercase" style="color: var(--color-dark); letter-spacing: 0.14em;">
+        <span data-walkin="before" hidden={walkInOpen}>Walk-in hours from December</span>
+        <span data-walkin="after" hidden={!walkInOpen}>Walk-in hours</span>
+      </p>
+      <div class="mt-3 flex flex-wrap justify-center gap-x-10 gap-y-3">
         {siteConfig.hours.map((h) => (
           <div>
             <span class="block text-sm font-semibold" style="color: var(--color-dark);">{h.days}</span>
@@ -177,12 +201,15 @@ const testimonials = siteConfig.testimonials?.items ?? []
           </div>
         ))}
       </div>
+      <p class="mt-4 text-sm" style="color: var(--color-muted);">
+        <span data-walkin="before" hidden={walkInOpen}>Until then we open for booked workshops and parties only. <a href="/calendar" class="underline" style="color: var(--color-dark);">See the calendar</a> before you come by.</span>
+        <span data-walkin="after" hidden={!walkInOpen}>Workshops and parties may run outside these times.</span>
+      </p>
       <a
         href={`https://maps.google.com/?q=${encodeURIComponent(`${siteConfig.name}, ${siteConfig.address.street}, ${siteConfig.address.city}, ${siteConfig.address.state} ${siteConfig.address.zip}`)}`}
         target="_blank"
         rel="noopener"
-        class="inline-block mt-7 rounded-full px-8 py-3 text-sm font-semibold no-underline glass"
-        style="color: var(--color-primary);"
+        class="btn btn-secondary mt-7"
       >
         Get directions →
       </a>
@@ -194,9 +221,9 @@ const testimonials = siteConfig.testimonials?.items ?? []
     <section class="py-12 sm:py-16 px-4">
       <div class="max-w-5xl mx-auto">
         <div class="text-center mb-10 fade-in">
-          <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Testimonials</p>
+          <p class="eyebrow mb-3">Testimonials</p>
           <h2 class="text-3xl sm:text-4xl lg:text-5xl font-heading font-bold" style="color: var(--color-dark);">
-            {siteConfig.testimonials?.heading || 'What Our Guests Say'}
+            {siteConfig.testimonials?.heading || 'What our guests say'}
           </h2>
         </div>
         <div class="grid gap-6 md:grid-cols-3">
@@ -206,7 +233,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
                 &ldquo;{t.quote}&rdquo;
               </p>
               <footer class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-xs" style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent));">
+                <div class="w-9 h-9 rounded-full flex items-center justify-center font-bold text-xs" style="background: var(--color-sand); color: var(--color-dark);">
                   {t.name.charAt(0)}
                 </div>
                 <div>
@@ -225,7 +252,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
   {siteConfig.features.newsletter && (
     <section class="py-12 sm:py-16 px-4">
       <div class="glass rounded-2xl max-w-2xl mx-auto px-8 py-14 sm:px-14">
-        <Newsletter client:visible />
+        <Newsletter client:visible preOpening={showOpeningBanner} />
       </div>
     </section>
   )}

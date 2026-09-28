@@ -2,11 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockOrdersCreate = vi.fn()
 const mockPaymentsCreate = vi.fn()
+const mockOrdersGet = vi.fn()
+const mockPaymentsGet = vi.fn()
 
 vi.mock('square', () => ({
   SquareClient: class MockSquareClient {
-    orders = { create: mockOrdersCreate }
-    payments = { create: mockPaymentsCreate }
+    orders = { create: mockOrdersCreate, get: mockOrdersGet }
+    payments = { create: mockPaymentsCreate, get: mockPaymentsGet }
     constructor(_opts: any) {}
   },
   SquareEnvironment: { Production: 'production', Sandbox: 'sandbox' },
@@ -238,6 +240,43 @@ describe('SquarePaymentProvider', () => {
       })
 
       expect(result.status).toBe('pending')
+    })
+  })
+
+  describe('findOrderPayment', () => {
+    it('returns the completed payment a paid order points to', async () => {
+      // The shape of a real paid order: the tender carries the payment's id.
+      mockOrdersGet.mockResolvedValue({
+        order: { id: 'order-1', state: 'COMPLETED', tenders: [{ id: 'pay-9', paymentId: 'pay-9', type: 'CARD' }] },
+      })
+      mockPaymentsGet.mockResolvedValue({
+        payment: { id: 'pay-9', status: 'COMPLETED', orderId: 'order-1', amountMoney: { amount: BigInt(30000), currency: 'USD' }, receiptUrl: 'https://squareup.com/receipt/pay-9' },
+      })
+
+      const payment = await provider.findOrderPayment('order-1')
+
+      expect(mockOrdersGet).toHaveBeenCalledWith({ orderId: 'order-1' })
+      expect(mockPaymentsGet).toHaveBeenCalledWith({ paymentId: 'pay-9' })
+      expect(payment).toEqual({ id: 'pay-9', orderId: 'order-1', amount: 30000, status: 'completed', receiptUrl: 'https://squareup.com/receipt/pay-9' })
+    })
+
+    it('returns null for an order nobody has paid', async () => {
+      mockOrdersGet.mockResolvedValue({ order: { id: 'order-1', state: 'OPEN' } })
+      expect(await provider.findOrderPayment('order-1')).toBeNull()
+      expect(mockPaymentsGet).not.toHaveBeenCalled()
+    })
+
+    it('does not count a payment that failed or is still pending', async () => {
+      mockOrdersGet.mockResolvedValue({ order: { id: 'order-1', tenders: [{ id: 'pay-1' }, { id: 'pay-2' }] } })
+      mockPaymentsGet
+        .mockResolvedValueOnce({ payment: { id: 'pay-1', status: 'FAILED' } })
+        .mockResolvedValueOnce({ payment: { id: 'pay-2', status: 'PENDING' } })
+      expect(await provider.findOrderPayment('order-1')).toBeNull()
+    })
+
+    it('lets a failed lookup be seen as a failure, never as "not paid"', async () => {
+      mockOrdersGet.mockRejectedValue(new Error('Status code: 503'))
+      await expect(provider.findOrderPayment('order-1')).rejects.toThrow()
     })
   })
 

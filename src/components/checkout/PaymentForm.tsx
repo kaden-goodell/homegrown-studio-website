@@ -1,3 +1,4 @@
+import { PAYMENT_FORM_UNAVAILABLE } from '@lib/checkout-messages'
 import {
   createElement,
   forwardRef,
@@ -45,6 +46,9 @@ interface PaymentFormProps {
    *  block (shown to the user), or null to proceed — prevents "approve in the
    *  wallet, then hit a form validation error" whiplash. */
   canPayWithWallet?: () => string | null
+  /** Told when the card field becomes usable (or stops being), so the panel
+   *  never offers Pay before there is a card field to pay with. */
+  onReadyChange?: (ready: boolean) => void
 }
 
 interface ClientConfig {
@@ -112,7 +116,7 @@ type WalletInstance = {
 }
 
 const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
-  function PaymentForm({ applicationIdOverride, environmentOverride, wallet, onWalletToken, canPayWithWallet }: PaymentFormProps, ref) {
+  function PaymentForm({ applicationIdOverride, environmentOverride, wallet, onWalletToken, canPayWithWallet, onReadyChange }: PaymentFormProps, ref) {
     const [config, setConfig] = useState<ClientConfig | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -121,6 +125,8 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     const [googlePayReady, setGooglePayReady] = useState(false)
     const [afterpayReady, setAfterpayReady] = useState(false)
     const [walletError, setWalletError] = useState<string | null>(null)
+    // Bumped by "Try again" to run the whole set-up once more.
+    const [attempt, setAttempt] = useState(0)
 
     const cardRef = useRef<CardInstance | null>(null)
     const applePayRef = useRef<WalletInstance | null>(null)
@@ -163,7 +169,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
       return () => {
         cancelled = true
       }
-    }, [])
+    }, [attempt])
 
     // Load Square SDK and initialize card when config is available and not mock
     const effectiveEnvironment = environmentOverride || config?.environment || 'sandbox'
@@ -175,7 +181,6 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
       async function initSquare() {
         try {
-          console.log('[PaymentForm] initSquare', { effectiveAppId, locationId: config!.locationId, environment: effectiveEnvironment })
           await loadSquareScript(effectiveEnvironment)
 
           if (cancelled) return
@@ -185,7 +190,6 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
             throw new Error('Square SDK not available after script load')
           }
 
-          console.log('[PaymentForm] Square.payments()', { appId: effectiveAppId, locationId: config!.locationId })
           const payments = Square.payments(effectiveAppId, config!.locationId)
           paymentsRef.current = payments
           const card = await payments.card()
@@ -213,7 +217,6 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
                 total: { amount: wallet.amount, label: wallet.label },
               })
             } catch (err) {
-              console.log('[PaymentForm] paymentRequest unavailable', err)
             }
 
             if (paymentRequest) {
@@ -227,7 +230,6 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
                   setApplePayReady(true)
                 }
               } catch (err) {
-                console.log('[PaymentForm] Apple Pay unavailable', err)
               }
 
               try {
@@ -240,7 +242,6 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
                   setGooglePayReady(true)
                 }
               } catch (err) {
-                console.log('[PaymentForm] Google Pay unavailable', err)
               }
             }
 
@@ -263,7 +264,6 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
                   setAfterpayReady(true)
                 }
               } catch (err) {
-                console.log('[PaymentForm] Afterpay unavailable', err)
               }
             }
           }
@@ -289,7 +289,14 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           }
         }
       }
-    }, [config, isMockMode, effectiveEnvironment])
+    }, [config, isMockMode, effectiveEnvironment, attempt])
+
+    // The panel's Pay button waits on this. The stand-in form used in local
+    // development has no card field to wait for.
+    const ready = !loading && !error && (isMockMode ? !!config || !!applicationIdOverride : sdkReady)
+    useEffect(() => {
+      onReadyChange?.(ready)
+    }, [ready])
 
     async function tokenizeWallet(instance: WalletInstance | null, name: string) {
       if (!instance || !onWalletToken) return
@@ -301,7 +308,6 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
       setWalletError(null)
       try {
         const result = await instance.tokenize()
-        console.log(`[PaymentForm] ${name} tokenize:`, { status: result.status, hasToken: !!result.token })
         if (result.status === 'OK' && result.token) {
           onWalletToken(result.token)
           return
@@ -325,9 +331,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
         throw new Error('Payment card not initialized')
       }
 
-      console.log('[PaymentForm] tokenize() calling card.tokenize()')
       const result = await card.tokenize()
-      console.log('[PaymentForm] tokenize() result:', { status: result.status, hasToken: !!result.token, tokenPrefix: result.token?.substring(0, 20), errors: result.errors })
 
       if (result.status === 'OK' && result.token) {
         return result.token
@@ -341,7 +345,6 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
       const token = await tokenize()
 
       if (isMockMode || !paymentsRef.current) {
-        console.log('[PaymentForm] skipping verifyBuyer (mock or no payments)', { isMockMode, hasPayments: !!paymentsRef.current })
         return { token }
       }
 
@@ -356,10 +359,8 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           phone: buyerDetails.phone,
         },
       }
-      console.log('[PaymentForm] verifyBuyer() calling with:', { tokenPrefix: token.substring(0, 20), ...verifyDetails })
       try {
         const verificationResult = await paymentsRef.current.verifyBuyer(token, verifyDetails)
-        console.log('[PaymentForm] verifyBuyer() result:', { hasToken: !!verificationResult?.token, tokenPrefix: verificationResult?.token?.substring(0, 20) })
 
         if (!verificationResult?.token) {
           throw new Error('Card verification failed. Please try again.')
@@ -367,7 +368,6 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
         return { token, verificationToken: verificationResult.token }
       } catch (err) {
-        console.error('[PaymentForm] verifyBuyer() error:', err)
         throw err
       }
     }, [tokenize, isMockMode])
@@ -376,8 +376,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
     if (loading) {
       return (
-        <div className="space-y-3">
-          <h3 className="text-lg font-semibold text-gray-900">Payment</h3>
+        <div className="space-y-3" role="group" aria-label="Payment">
           <div className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-400">
             Loading payment form...
           </div>
@@ -386,27 +385,37 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     }
 
     if (error) {
+      // `error` holds the technical reason; the customer gets a plain sentence
+      // and a way to try again.
       return (
-        <div className="space-y-3">
-          <h3 className="text-lg font-semibold text-gray-900">Payment</h3>
-          <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </div>
+        <div role="alert" style={{ borderRadius: '0.75rem', border: '1px solid var(--color-error)', background: 'var(--color-surface)', padding: '1rem', display: 'flex', flexDirection: 'column', gap: '0.75rem', alignItems: 'flex-start' }}>
+          <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>{PAYMENT_FORM_UNAVAILABLE}</p>
+          <button
+            type="button"
+            className="btn btn-secondary"
+            onClick={() => {
+              setError(null)
+              setLoading(true)
+              setSdkReady(false)
+              setAttempt((n) => n + 1)
+            }}
+          >
+            Try again
+          </button>
         </div>
       )
     }
 
     if (isMockMode) {
       return (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <h3 className="text-lg font-semibold text-gray-900">Payment</h3>
+        <div className="space-y-3" role="group" aria-label="Payment">
+          {/* Local development only. The badge sits inside the stand-in card
+              field it describes; the step around it is already titled Payment. */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-500">
+            <span>Card number placeholder (Square Web Payments SDK)</span>
             <span className="rounded bg-yellow-100 px-2 py-0.5 text-xs font-medium text-yellow-800">
-              Test Mode
+              Test mode
             </span>
-          </div>
-          <div className="rounded-md border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-500">
-            Card number placeholder (Square Web Payments SDK)
           </div>
         </div>
       )
@@ -415,9 +424,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     const anyWalletReady = applePayReady || googlePayReady || afterpayReady
 
     return (
-      <div className="space-y-3">
-        <h3 className="text-lg font-semibold text-gray-900">Payment</h3>
-
+      <div className="space-y-3" role="group" aria-label="Payment">
         {applePayReady && (
           <>
             {/* Apple's <apple-pay-button> custom element (registered by

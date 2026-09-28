@@ -36,16 +36,16 @@ export default function ProgramCard({ program, onEnroll }: ProgramCardProps) {
         WebkitBackdropFilter: 'blur(20px) saturate(1.3)',
         border: '1px solid rgba(255, 255, 255, 0.5)',
         borderRadius: '1rem',
-        boxShadow: '0 4px 16px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(150, 112, 91, 0.04)',
+        boxShadow: '0 4px 16px rgba(var(--color-primary-rgb), 0.08), 0 10px 40px rgba(var(--color-primary-rgb), 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(var(--color-primary-rgb), 0.04)',
         transition: 'transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
       }}
       onMouseEnter={(e) => {
         e.currentTarget.style.transform = 'translateY(-4px) scale(1.01)'
-        e.currentTarget.style.boxShadow = '0 20px 40px rgba(150, 112, 91, 0.12)'
+        e.currentTarget.style.boxShadow = '0 20px 40px rgba(var(--color-primary-rgb), 0.12)'
       }}
       onMouseLeave={(e) => {
         e.currentTarget.style.transform = 'none'
-        e.currentTarget.style.boxShadow = '0 4px 16px rgba(150, 112, 91, 0.08), 0 10px 40px rgba(150, 112, 91, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(150, 112, 91, 0.04)'
+        e.currentTarget.style.boxShadow = '0 4px 16px rgba(var(--color-primary-rgb), 0.08), 0 10px 40px rgba(var(--color-primary-rgb), 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.7), inset 0 -1px 0 rgba(var(--color-primary-rgb), 0.04)'
       }}
     >
       {/* Schedule badge */}
@@ -112,7 +112,7 @@ export default function ProgramCard({ program, onEnroll }: ProgramCardProps) {
         alignItems: 'baseline',
         marginBottom: '1.25rem',
         paddingTop: '0.75rem',
-        borderTop: '1px solid rgba(150, 112, 91, 0.08)',
+        borderTop: '1px solid rgba(var(--color-primary-rgb), 0.08)',
       }}>
         <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
           {sessionSummary}
@@ -135,22 +135,22 @@ export default function ProgramCard({ program, onEnroll }: ProgramCardProps) {
         style={{
           width: '100%',
           padding: '0.875rem',
-          background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
+          background: 'var(--color-button)',
           color: '#fff',
           border: 'none',
           borderRadius: '0.75rem',
           fontSize: '0.875rem',
           fontWeight: 600,
           cursor: 'pointer',
-          boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
+          boxShadow: '0 4px 15px rgba(var(--color-primary-rgb), 0.2)',
           transition: 'box-shadow 0.3s ease, transform 0.3s ease',
         }}
         onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = '0 8px 25px rgba(150, 112, 91, 0.35)'
+          e.currentTarget.style.boxShadow = '0 8px 25px rgba(var(--color-primary-rgb), 0.35)'
           e.currentTarget.style.transform = 'translateY(-1px)'
         }}
         onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = '0 4px 15px rgba(150, 112, 91, 0.2)'
+          e.currentTarget.style.boxShadow = '0 4px 15px rgba(var(--color-primary-rgb), 0.2)'
           e.currentTarget.style.transform = 'none'
         }}
       >

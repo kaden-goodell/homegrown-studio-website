@@ -236,9 +236,11 @@ describe('bookingOpensDate clamp', () => {
   it('offers starts on the first party weekday on/after opening', async () => {
     const { partyStartsForDate } = await import('@lib/party-slots')
     const { partyConfig } = await import('@config/party.config')
-    let ms = new Date(partyConfig.bookingOpensDate + 'T12:00:00Z').getTime()
+    const openMs = new Date(partyConfig.bookingOpensDate + 'T12:00:00Z').getTime()
+    let ms = openMs
     for (let i = 0; i < 8 && !isPartyWeekday(ms); i++) ms += DAY
-    expect(partyStartsForDate(ymd(ms)).length).toBeGreaterThan(0)
+    // Asked ten days before opening, so the date is inside the booking window.
+    expect(partyStartsForDate(ymd(ms), new Date(openMs - 10 * DAY)).length).toBeGreaterThan(0)
   })
 
   it('range queries exclude pre-opening dates entirely', async () => {
@@ -249,9 +251,74 @@ describe('bookingOpensDate clamp', () => {
     const starts = partyStartsInRange(
       new Date(openMidnight - 30 * DAY).toISOString(),
       new Date(openMidnight + 30 * DAY).toISOString(),
+      // Asked ten days before opening, so the weeks after it are inside the window.
+      new Date(openMidnight - 10 * DAY),
     )
     expect(starts.length).toBeGreaterThan(0)
     const openLocalMs = new Date(opens + 'T00:00:00-05:00').getTime()
     for (const iso of starts) expect(new Date(iso).getTime()).toBeGreaterThanOrEqual(openLocalMs)
+  })
+})
+
+// ── bookingHeldBy: whose booking is sitting on this time? ─────────────────────
+describe('bookingHeldBy', () => {
+  // 2:00 PM Central on Sat 7 Aug 2027 (daylight time)
+  const START = '2027-08-07T19:00:00.000Z'
+
+  function booking(overrides: Record<string, any> = {}) {
+    return {
+      id: 'bk-1',
+      status: 'confirmed',
+      customerId: 'cust-1',
+      slot: { startAt: START, serviceVariationId: 'var-party' },
+      ...overrides,
+    }
+  }
+
+  async function heldBy(customerId: string, serviceVariationId?: string) {
+    const { bookingHeldBy } = await import('@lib/party-availability')
+    return bookingHeldBy(START, customerId, serviceVariationId)
+  }
+
+  it('finds the customer’s own live booking at that exact time', async () => {
+    mockListBookings.mockResolvedValue([booking()])
+    expect((await heldBy('cust-1', 'var-party'))?.id).toBe('bk-1')
+  })
+
+  it('looks across the whole studio day, in studio time', async () => {
+    mockListBookings.mockResolvedValue([])
+    await heldBy('cust-1')
+    const { startIso, endIso } = studioDayUtcRange('2027-08-07')
+    expect(mockListBookings).toHaveBeenCalledWith({ startDate: startIso, endDate: endIso, locationId: 'test-location' })
+  })
+
+  it('does not match someone else’s booking', async () => {
+    mockListBookings.mockResolvedValue([booking({ customerId: 'cust-2' })])
+    expect(await heldBy('cust-1', 'var-party')).toBeNull()
+  })
+
+  it('does not match a cancelled booking', async () => {
+    mockListBookings.mockResolvedValue([booking({ status: 'cancelled' })])
+    expect(await heldBy('cust-1', 'var-party')).toBeNull()
+  })
+
+  it('does not match the customer’s booking at a different time that day', async () => {
+    mockListBookings.mockResolvedValue([booking({ slot: { startAt: '2027-08-07T21:30:00.000Z', serviceVariationId: 'var-party' } })])
+    expect(await heldBy('cust-1', 'var-party')).toBeNull()
+  })
+
+  it('does not match a different kind of booking at that time', async () => {
+    mockListBookings.mockResolvedValue([booking({ slot: { startAt: START, serviceVariationId: 'var-other' } })])
+    expect(await heldBy('cust-1', 'var-party')).toBeNull()
+  })
+
+  it('matches the same instant written with a different offset', async () => {
+    mockListBookings.mockResolvedValue([booking({ slot: { startAt: '2027-08-07T14:00:00-05:00', serviceVariationId: 'var-party' } })])
+    expect((await heldBy('cust-1', 'var-party'))?.id).toBe('bk-1')
+  })
+
+  it('finds nothing without a customer', async () => {
+    mockListBookings.mockResolvedValue([booking({ customerId: '' })])
+    expect(await heldBy('')).toBeNull()
   })
 })

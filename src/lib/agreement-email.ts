@@ -57,7 +57,7 @@ function ageFromDob(dob: string, now: Date): number {
 
 const P = 'margin:0 0 8px;font-size:14px;color:#3d3630;line-height:1.55'
 const MUTED = 'margin:0 0 8px;font-size:12px;color:#8a7f75;line-height:1.5'
-const EYEBROW = 'margin:0 0 2px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700'
+const EYEBROW = 'margin:0 0 2px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#7a4a2e;font-weight:700'
 
 function renderSectionsHtml(sections: WaiverSection[]): string {
   return sections
@@ -143,7 +143,7 @@ export function buildAgreementCopy(input: BuildAgreementCopyInput): { subject: s
   <p style="${EYEBROW}">Hometown Studio</p>
   <h1 style="margin:0 0 10px;font-size:20px;color:#3d3630;">Your participation agreement</h1>
   <p style="${P}">Hi ${esc(firstName)}, here's your copy to keep.</p>
-  <p style="margin:0 0 4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#96705B;">This covers</p>
+  <p style="margin:0 0 4px;font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:#7a4a2e;">This covers</p>
   ${coveredHtml}
   <p style="${P}">Signed ${esc(signedDate)} &middot; Valid through ${esc(validDate)} &middot; Agreement ${esc(record.agreementVersion)}</p>
   ${renderSectionsHtml(waiverContent.legalSections)}

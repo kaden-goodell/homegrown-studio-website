@@ -3,7 +3,7 @@ import { SquareClient, SquareEnvironment } from 'square'
 
 /**
  * Seed the REAL party infrastructure in Square (replaces the old TEST data):
- *   - a "Party Crafts" category (crafts live here as items, joined by category)
+ *   - a "Crafts" category (crafts live here as items, joined by category)
  *   - the "Whole Studio Party" bookable APPOINTMENTS_SERVICE ($200 flat, 2h)
  *
  * Idempotent: re-running finds existing objects by name instead of duplicating.
@@ -26,18 +26,18 @@ async function findByName(type: 'CATEGORY' | 'ITEM', name: string): Promise<any 
 }
 
 async function main() {
-  // 1. Party Crafts category (find or create)
-  let craftCat = await findByName('CATEGORY', 'Party Crafts')
+  // 1. Crafts category (find or create)
+  let craftCat = await findByName('CATEGORY', 'Crafts')
   if (!craftCat) {
     const r: any = await client.catalog.batchUpsert({
       idempotencyKey: `seed-party-craftcat-${Date.now()}`,
-      batches: [{ objects: [{ type: 'CATEGORY', id: '#c', categoryData: { name: 'Party Crafts' } }] }],
+      batches: [{ objects: [{ type: 'CATEGORY', id: '#c', categoryData: { name: 'Crafts' } }] }],
     })
     const id = (r.idMappings ?? []).find((m: any) => m.clientObjectId === '#c')?.objectId
     craftCat = { id }
-    console.log('created category: Party Crafts')
+    console.log('created category: Crafts')
   } else {
-    console.log('found existing category: Party Crafts')
+    console.log('found existing category: Crafts')
   }
 
   const partyCat = await findByName('CATEGORY', 'Party')

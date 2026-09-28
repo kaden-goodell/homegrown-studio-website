@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { dropOffAddendum } from '@config/waiver-content'
 
 // --- Module mocks set up before any import ---
@@ -156,6 +156,12 @@ describe('POST /api/waiver/sign.json', () => {
   let POST: any
 
   beforeEach(async () => {
+    // The endpoint compares the party time with the real clock. Pin "now" to
+    // just before FUTURE_PARTY_ISO so these don't expire with the calendar.
+    // Date only — the handler's async work still runs on real timers.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(NOW))
+
     vi.clearAllMocks()
     vi.resetModules()
 
@@ -218,6 +224,10 @@ describe('POST /api/waiver/sign.json', () => {
 
     const mod = await import('@pages/api/waiver/sign.json')
     POST = mod.POST
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
   })
 
   describe('fresh sign — writes a signature AND an RSVP in an event context', () => {

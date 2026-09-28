@@ -22,6 +22,11 @@ export interface BookingDetails {
   serviceVariationId?: string  // Square service variation ID
   serviceVariationVersion?: number
   durationMinutes?: number     // booking duration
+  /**
+   * Makes the create safe to repeat: the backend answers a repeated key with
+   * the booking it already made instead of making another.
+   */
+  idempotencyKey?: string
 }
 
 export interface Booking {
@@ -32,6 +37,8 @@ export interface Booking {
   eventType: string
   createdAt: string
   version?: number
+  /** The note saved with the booking (the party flow keeps its craft and attempt ID here). */
+  customerNote?: string
 }
 
 export interface BookingWithMetadata extends Booking {

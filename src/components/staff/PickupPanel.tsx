@@ -160,10 +160,10 @@ export default function PickupPanel({
   }
 
   return (
-    <div style={{ marginTop: '0.8rem', borderTop: '1px solid rgba(150,112,91,0.12)', paddingTop: '0.7rem' }}>
+    <div style={{ marginTop: '0.8rem', borderTop: '1px solid rgba(var(--color-primary-rgb),0.12)', paddingTop: '0.7rem' }}>
       {/* Pickup code — shown ONCE, right after it's issued or resent */}
       {dropOff && revealCode && (
-        <div style={{ marginBottom: '0.7rem', background: 'rgba(150,112,91,0.1)', border: '1px solid rgba(150,112,91,0.4)', borderRadius: '0.6rem', padding: '0.7rem 0.8rem', textAlign: 'center' }}>
+        <div style={{ marginBottom: '0.7rem', background: 'rgba(var(--color-primary-rgb),0.1)', border: '1px solid rgba(var(--color-primary-rgb),0.4)', borderRadius: '0.6rem', padding: '0.7rem 0.8rem', textAlign: 'center' }}>
           <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)', fontWeight: 700 }}>Pickup code — give to parent now</span>
           <div style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '0.25em', color: 'var(--color-dark)', margin: '0.1rem 0' }}>{revealCode}</div>
           <p style={{ fontSize: '0.7rem', color: smsFailed ? '#b91c1c' : 'var(--color-muted)', fontWeight: smsFailed ? 700 : 400, margin: '0 0 0.5rem' }}>

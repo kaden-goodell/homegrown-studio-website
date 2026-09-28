@@ -25,13 +25,13 @@ const schema = {
       class="text-center font-heading font-semibold mb-6"
       style="font-size: 1.5rem; color: var(--color-dark);"
     >
-      Good to Know
+      Good to know
     </h2>
     <div class="flex flex-col gap-2">
       {answered.map((f) => (
         <details
           class="faq-item"
-          style="border-radius: 0.75rem; background: rgba(255,255,255,0.6); border: 1px solid rgba(150,112,91,0.08); overflow: hidden;"
+          style="border-radius: 0.75rem; background: rgba(255,255,255,0.6); border: 1px solid rgba(var(--color-primary-rgb),0.08); overflow: hidden;"
         >
           <summary
             style="cursor: pointer; padding: 1rem 1.25rem; font-weight: 600; font-size: 0.9375rem; color: var(--color-dark); list-style: none; display: flex; justify-content: space-between; align-items: center; gap: 1rem;"

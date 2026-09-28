@@ -2,15 +2,15 @@ import type { CSSProperties } from 'react'
 import type { StaffMember } from '@lib/staff-auth'
 
 const card: CSSProperties = {
-  border: '1px solid rgba(150,112,91,0.16)',
+  border: '1px solid rgba(var(--color-primary-rgb),0.16)',
   borderRadius: '1rem',
   padding: '1.1rem 1.2rem',
-  boxShadow: '0 8px 24px rgba(150,112,91,0.08)',
+  boxShadow: '0 8px 24px rgba(var(--color-primary-rgb),0.08)',
 }
 const tile: CSSProperties = {
   padding: '1.1rem 0.8rem',
   borderRadius: '0.75rem',
-  border: '1px solid rgba(150,112,91,0.3)',
+  border: '1px solid rgba(var(--color-primary-rgb),0.3)',
   background: 'rgba(255,255,255,0.85)',
   color: 'var(--color-dark)',
   fontSize: '1rem',

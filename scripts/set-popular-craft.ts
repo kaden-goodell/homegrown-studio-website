@@ -23,7 +23,7 @@ const targetName = flag('name')
 const clearOnly = argv.includes('--clear')
 
 const CATEGORY_NAME = 'Most Popular'
-const PARTY_CRAFTS_CATEGORY = 'Party Crafts'
+const PARTY_CRAFTS_CATEGORY = 'Crafts'
 
 if (!targetName && !clearOnly) {
   console.error('Usage: set-popular-craft.ts --name "<craft name>" | --clear')

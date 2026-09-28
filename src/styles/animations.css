@@ -19,7 +19,7 @@
 .hover-card:hover {
   transform: translateY(-4px) scale(1.02);
   box-shadow:
-    0 20px 40px rgba(150, 112, 91, 0.12),
+    0 20px 40px rgba(var(--color-primary-rgb), 0.12),
     0 0 0 1px rgba(212, 165, 116, 0.15);
 }
 
@@ -30,7 +30,7 @@
 
 .hover-lift:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(150, 112, 91, 0.1);
+  box-shadow: 0 8px 24px rgba(var(--color-primary-rgb), 0.1);
 }
 
 .hover-glow {
@@ -51,7 +51,7 @@
 .cta-glow:hover {
   transform: translateY(-3px) scale(1.03);
   box-shadow:
-    0 8px 30px rgba(150, 112, 91, 0.35),
+    0 8px 30px rgba(var(--color-primary-rgb), 0.35),
     0 0 0 2px rgba(212, 165, 116, 0.2);
 }
 

@@ -247,12 +247,12 @@ export default function IncidentSheet({
                     placeholder="Find on the roster…"
                     style={{ ...field, width: '100%', boxSizing: 'border-box', marginBottom: '0.5rem' }}
                   />
-                  <div style={{ maxHeight: '10rem', overflowY: 'auto', border: '1px solid rgba(150,112,91,0.2)', borderRadius: '0.6rem' }}>
+                  <div style={{ maxHeight: '10rem', overflowY: 'auto', border: '1px solid rgba(var(--color-primary-rgb),0.2)', borderRadius: '0.6rem' }}>
                     {visiblePeople.length === 0 && (
                       <p style={{ margin: 0, padding: '0.5rem 0.7rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>No match.</p>
                     )}
                     {visiblePeople.map((p) => (
-                      <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.7rem', borderBottom: '1px solid rgba(150,112,91,0.08)', cursor: 'pointer' }}>
+                      <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.7rem', borderBottom: '1px solid rgba(var(--color-primary-rgb),0.08)', cursor: 'pointer' }}>
                         <input type="checkbox" checked={!!selected[p.key]} onChange={() => toggle(p.key)} style={{ width: '1.1rem', height: '1.1rem', accentColor: 'var(--color-primary)' }} />
                         <span style={{ fontSize: '0.875rem', color: 'var(--color-dark)' }}>{p.name}</span>
                       </label>

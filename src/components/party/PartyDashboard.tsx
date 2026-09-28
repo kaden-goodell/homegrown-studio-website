@@ -47,10 +47,10 @@ const card: React.CSSProperties = {
   background: 'rgba(255,255,255,0.72)',
   backdropFilter: 'blur(14px)',
   WebkitBackdropFilter: 'blur(14px)',
-  border: '1px solid rgba(150,112,91,0.16)',
+  border: '1px solid rgba(var(--color-primary-rgb),0.16)',
   borderRadius: '1.25rem',
   padding: '1.5rem',
-  boxShadow: '0 18px 44px rgba(150,112,91,0.12)',
+  boxShadow: '0 18px 44px rgba(var(--color-primary-rgb),0.12)',
   marginBottom: '1.25rem',
 }
 
@@ -60,8 +60,8 @@ const chip: React.CSSProperties = {
   gap: '0.4rem',
   padding: '0.5rem 0.9rem',
   borderRadius: '999px',
-  background: 'rgba(150,112,91,0.08)',
-  border: '1px solid rgba(150,112,91,0.16)',
+  background: 'rgba(var(--color-primary-rgb),0.08)',
+  border: '1px solid rgba(var(--color-primary-rgb),0.16)',
   color: 'var(--color-dark)',
   fontSize: '0.8125rem',
   fontWeight: 600,
@@ -172,8 +172,8 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
     <div>
       {/* Party header */}
       <div style={{ ...card, textAlign: 'center' }}>
-        <p className="uppercase" style={{ letterSpacing: '0.2em', fontSize: '0.7rem', fontWeight: 700, color: 'var(--color-accent)', marginBottom: '0.5rem' }}>
-          Your Party
+        <p className="eyebrow tone-party" style={{ marginBottom: '0.5rem' }}>
+          Your party
         </p>
         <h1 style={{ fontSize: '1.75rem', fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0 }}>
           {heading}
@@ -183,10 +183,10 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'center', marginTop: '1.1rem' }}>
           <button type="button" onClick={shareInvite} style={chip}>
-            {copied ? '✓ Link copied!' : '💌 Invite your guests'}
+            {copied ? 'Link copied' : 'Invite your guests'}
           </button>
-          <a href={googleCalendarUrl(calEvent)} target="_blank" rel="noopener noreferrer" style={chip}>📅 Google Calendar</a>
-          <a href={icsDataUrl(buildIcs(calEvent))} download="hometown-party.ics" style={chip}>📅 Apple / Outlook</a>
+          <a href={googleCalendarUrl(calEvent)} target="_blank" rel="noopener noreferrer" style={chip}>Google Calendar</a>
+          <a href={icsDataUrl(buildIcs(calEvent))} download="hometown-party.ics" style={chip}>Apple / Outlook</a>
           <a
             href={partyInviteMailto({
               craftName: party.craftName,
@@ -197,7 +197,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
             })}
             style={chip}
           >
-            ✉️ Email your guests
+            Email your guests
           </a>
           <a href={partyWaiverUrl(bookingId, origin)} target="_blank" rel="noopener noreferrer" style={chip}>
             {waiverContent.handoff.hostCta}
@@ -228,7 +228,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
               style={{ ...chip, fontSize: '0.75rem', padding: '0.3rem 0.65rem' }}
               aria-label="Refresh roster"
             >
-              ↻ Refresh
+              Refresh
             </button>
           </div>
         </div>
@@ -241,8 +241,8 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
           <div style={{ marginTop: '1rem', display: 'grid', gap: '0.6rem' }}>
             {households.map((h, i) => {
               const adultComing = h.attending.includes('adult')
-              const comingKids = h.children.filter((_, ci) => h.attending.includes(`child:${ci}`))
-              // Kids on the waiver who aren't crafting. The signing adult is
+              const comingGuests = h.children.filter((_, ci) => h.attending.includes(`child:${ci}`))
+              // Guests on the waiver who aren't crafting. The signing adult is
               // deliberately excluded — "not crafting" doesn't mean absent (they
               // may be there watching), and the host doesn't need that detail.
               const notComing = h.children
@@ -250,25 +250,25 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
                 .map((c) => c.name.split(' ')[0])
               const allergyLines = [
                 ...(adultComing && h.adultAllergies ? [`${h.signer.split(' ')[0]}: ${h.adultAllergies}`] : []),
-                ...comingKids.filter((c) => c.allergies).map((c) => `${c.name.split(' ')[0]}: ${c.allergies}`),
+                ...comingGuests.filter((c) => c.allergies).map((c) => `${c.name.split(' ')[0]}: ${c.allergies}`),
               ]
               const first = h.signer.split(' ')[0]
-              const rowSummary = comingKids.length > 0
-                ? `${adultComing ? `${first} + ` : ''}${comingKids.length} ${comingKids.length === 1 ? 'kid' : 'kids'}`
+              const rowSummary = comingGuests.length > 0
+                ? `${adultComing ? `${first} + ` : ''}${comingGuests.length} ${comingGuests.length === 1 ? 'guest' : 'guests'}`
                 : adultComing
                   ? `just ${first}`
                   : '—'
               return (
-                <div key={i} style={{ padding: '0.85rem 1rem', borderRadius: '0.875rem', background: 'rgba(150,112,91,0.05)', border: '1px solid rgba(150,112,91,0.12)' }}>
+                <div key={i} style={{ padding: '0.85rem 1rem', borderRadius: '0.875rem', background: 'rgba(var(--color-primary-rgb),0.05)', border: '1px solid rgba(var(--color-primary-rgb),0.12)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.35rem' }}>
                     <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9375rem' }}>{h.signer}</span>
                     <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
                       {rowSummary}
                     </span>
                   </div>
-                  {comingKids.length > 0 && (
+                  {comingGuests.length > 0 && (
                     <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.25rem 0 0' }}>
-                      {comingKids.map((c) => c.name).join(', ')}
+                      {comingGuests.map((c) => c.name).join(', ')}
                     </p>
                   )}
                   {notComing.length > 0 && (
@@ -277,8 +277,8 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
                     </p>
                   )}
                   {allergyLines.map((line) => (
-                    <p key={line} style={{ fontSize: '0.75rem', color: '#b91c1c', margin: '0.35rem 0 0', fontWeight: 600 }}>
-                      ⚠ {line}
+                    <p key={line} style={{ fontSize: '0.75rem', color: 'var(--color-error)', margin: '0.35rem 0 0', fontWeight: 600 }}>
+                      Allergy: {line}
                     </p>
                   ))}
                 </div>

@@ -1,17 +1,25 @@
-import { useState, useEffect, useRef } from 'react'
-import { CLASS_BOOKING_APP_ID } from '@config/class-booking.config'
-import { partyConfig } from '@config/party.config'
+import { useEffect, useId, useRef, useState, type FormEvent } from 'react'
+import { CLASS_BOOKING_APP_ID, MAX_SEATS_PER_BOOKING } from '@config/class-booking.config'
 import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
-import { waiverContent } from '@config/waiver-content'
+import { STUDIO_ADDRESS, STUDIO_ADDRESS_LINE, STUDIO_DIRECTIONS_URL } from '@config/studio-address'
+import { newAttemptId } from '@lib/checkout-attempt'
+import { messageForFailure, outcomeUnknown, workshopMessages, UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
+import { contactStarted, EMPTY_CONTACT, type Contact } from '@lib/contact-rules'
+import { formatMoney } from '@lib/money'
+import { googleCalendarUrl, buildIcs, icsDataUrl } from '@lib/party-share'
+import { workshopRefundLine } from '@lib/refund-lines'
+import { formatDayAndSpan } from '@lib/studio-time'
+import { seatsLeftLabel } from '@lib/workshop-rules'
 import type { WorkshopData } from './WorkshopExplorer'
-import DetailsStep from '@components/shared/DetailsStep'
-import OrderSummary from '@components/checkout/OrderSummary'
-import CouponInput from '@components/checkout/CouponInput'
+import BookingPanel from '@components/shared/BookingPanel'
+import BookingConfirmed, { ConfirmedBlock } from '@components/shared/BookingConfirmed'
+import ContactFields, { type ContactFieldsHandle } from '@components/shared/ContactFields'
+import ShareLink from '@components/shared/ShareLink'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
-import type { LineItem, Discount } from '@providers/interfaces/payment'
 import {
   trackWizardStarted,
+  trackWizardStepCompleted,
   trackPaymentStarted,
   trackPaymentCompleted,
   trackPaymentFailed,
@@ -22,128 +30,105 @@ import {
 interface WorkshopBookingModalProps {
   workshop: WorkshopData
   onClose: () => void
+  /** Called once a booking has gone through, with the seats bought, so the list can show what is left. */
+  onBooked?: (seats: number) => void
 }
 
-const STEP_LABELS = ['Details', 'Seats', 'Your Info', 'Payment']
+type Step = 'details' | 'pay'
+const STEP_NAMES: Record<Step, string> = { details: 'Details', pay: 'Your details and payment' }
 
-function formatDate(iso: string): string {
-  const d = new Date(iso + 'T00:00:00')
-  return d.toLocaleDateString('en-US', {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
-  })
-}
+const POLICY_UNTICKED = 'Tick the box to agree to the booking and cancellation policy.'
 
-function formatTime(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-}
-
-function formatPrice(cents: number, currency: string): string {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(cents / 100)
-}
-
-export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBookingModalProps) {
-  const [step, setStep] = useState(0)
-  const [visible, setVisible] = useState(true)
-  const [displayStep, setDisplayStep] = useState(0)
-  const prevStep = useRef(0)
-
-  // Contact info
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
-
-  // Booking
+/**
+ * Booking a workshop seat, in two steps:
+ *   1. Details: what it is, when, how many seats.
+ *   2. Your details and payment.
+ * The workshop's name, date, seats and total stay in view throughout.
+ */
+export default function WorkshopBookingModal({ workshop, onClose, onBooked }: WorkshopBookingModalProps) {
+  const [step, setStep] = useState<Step>('details')
   const [seats, setSeats] = useState(1)
-  const [discount, setDiscount] = useState<Discount | null>(null)
+  const [contact, setContact] = useState<Contact>(EMPTY_CONTACT)
+  const [agreedToPolicy, setAgreedToPolicy] = useState(false)
+  const [policyProblem, setPolicyProblem] = useState(false)
+
   const [processing, setProcessing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [paymentReady, setPaymentReady] = useState(false)
   const [completed, setCompleted] = useState(false)
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
   const [bookingId, setBookingId] = useState<string | null>(null)
-  const [agreedToPolicy, setAgreedToPolicy] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
+  const [askToLeave, setAskToLeave] = useState(false)
+
   const paymentFormRef = useRef<PaymentFormRef>(null)
+  const contactRef = useRef<ContactFieldsHandle>(null)
+  const policyRef = useRef<HTMLInputElement>(null)
+  const formId = useId()
+  const policyErrorId = useId()
 
-  // Discard guard (same pattern as PartyModal): once they've started booking,
-  // closing asks first — seats are first-come and people bail by accident.
-  const [confirmDiscard, setConfirmDiscard] = useState(false)
-  const dirty = step > 0 || !!firstName.trim() || !!email.trim()
-  function requestClose() {
-    if (completed || !dirty) return onClose()
-    setConfirmDiscard(true)
-  }
+  // One attempt ID per checkout. While we don't know how a try ended (dropped
+  // connection, "we're not sure"), a retry sends the same ID, so the server
+  // can never charge twice for it. Changing the number of seats, or a plain
+  // "nothing was charged", starts a new one.
+  const attemptId = useRef(newAttemptId())
   useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key !== 'Escape') return
-      if (confirmDiscard) setConfirmDiscard(false)
-      else requestClose()
-    }
-    document.addEventListener('keydown', handleKeyDown)
-    return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [dirty, completed, confirmDiscard])
-  useEffect(() => {
-    if (completed) setConfirmDiscard(false)
-  }, [completed])
+    attemptId.current = newAttemptId()
+  }, [seats])
 
-  // Cap seats at the class's remaining capacity AND the studio-wide event cap (30).
-  const maxSeats = Math.min(workshop.remainingSeats ?? partyConfig.maxGuests, partyConfig.maxGuests)
-
-  // Body scroll lock
-  useEffect(() => {
-    document.body.style.overflow = 'hidden'
-    return () => { document.body.style.overflow = '' }
-  }, [])
-
-  // Funnel start — once per modal open.
   useEffect(() => {
     trackWizardStarted('workshop')
   }, [])
 
-  // Step transition
+  // The address always names the open workshop, so it can be copied and sent.
   useEffect(() => {
-    if (step !== prevStep.current) {
-      setVisible(false)
-      const timer = setTimeout(() => {
-        setDisplayStep(step)
-        prevStep.current = step
-        setVisible(true)
-      }, 200)
-      return () => clearTimeout(timer)
+    const url = new URL(window.location.href)
+    const before = url.searchParams.get('w')
+    if (before !== workshop.id) {
+      url.searchParams.set('w', workshop.id)
+      window.history.replaceState(window.history.state, '', url)
     }
-  }, [step])
-
-  const lineItems: LineItem[] = [{
-    name: workshop.name,
-    quantity: seats,
-    pricePerUnit: workshop.price,
-  }]
-  const subtotal = lineItems.reduce((sum, item) => sum + item.pricePerUnit * item.quantity, 0)
-  const discountAmount = discount
-    ? discount.type === 'percent'
-      ? Math.round((subtotal * discount.value) / 100)
-      : discount.value
-    : 0
-  const total = subtotal - discountAmount
-
-  const progress = completed ? 100 : (step / (STEP_LABELS.length - 1)) * 100
-
-  function handleBack() {
-    if (step === 0) {
-      requestClose()
-    } else {
-      setStep(step - 1)
+    return () => {
+      const after = new URL(window.location.href)
+      after.searchParams.delete('w')
+      window.history.replaceState(window.history.state, '', after)
     }
+  }, [workshop.id])
+
+  // The most seats on offer: what's left in the class, and never more than one booking can hold.
+  const maxSeats = Math.max(1, Math.min(workshop.remainingSeats ?? MAX_SEATS_PER_BOOKING, MAX_SEATS_PER_BOOKING))
+  const cappedByBooking = (workshop.remainingSeats ?? Infinity) > MAX_SEATS_PER_BOOKING
+  const total = workshop.price * seats
+  const when = formatDayAndSpan(workshop.startTime, workshop.endTime)
+  const seatWord = `${seats} seat${seats === 1 ? '' : 's'}`
+
+  // Closing asks first only once there is something to lose.
+  const started = seats !== 1 || contactStarted(contact)
+  function requestClose() {
+    if (completed || !started) return onClose()
+    setAskToLeave(true)
   }
 
-  async function handlePay() {
-    // Prevent double-submit
-    if (processing) return
+  function finish() {
+    onBooked?.(seats)
+    onClose()
+  }
+
+  async function handlePay(e?: FormEvent) {
+    e?.preventDefault()
+    if (processing || !paymentReady) return
+
+    // Say what's missing, field by field, and go to the first one.
+    const contactOk = contactRef.current?.check() ?? false
     if (!agreedToPolicy) {
-      setError('Please agree to the booking & cancellation policy to continue.')
+      setPolicyProblem(true)
+      if (contactOk) {
+        policyRef.current?.focus()
+        policyRef.current?.scrollIntoView?.({ block: 'center' })
+      }
+    }
+    if (!contactOk || !agreedToPolicy) {
+      setError(null)
       return
     }
 
@@ -152,691 +137,390 @@ export default function WorkshopBookingModal({ workshop, onClose }: WorkshopBook
     trackPaymentStarted(total / 100)
 
     try {
-      // Step 1: Tokenize card
       let token: string
       try {
         token = await paymentFormRef.current!.tokenize()
-      } catch (tokenErr) {
-        throw new Error('Could not process your card. Please check your details and try again.')
+      } catch {
+        throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
       }
 
-      // Step 2: Book + pay on server
-      const bookRes = await fetch('/api/workshops/book.json', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          classScheduleId: workshop.classScheduleId,
-          startAt: workshop.startTime,
-          customer: {
-            givenName: firstName.trim(),
-            familyName: lastName.trim() || firstName.trim(),
-            email: email.trim(),
-          },
-          seats,
-          paymentToken: token,
-        }),
-      })
+      let bookRes: Response
+      try {
+        bookRes = await fetch('/api/workshops/book.json', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            attemptId: attemptId.current,
+            workshopId: workshop.id,
+            classScheduleId: workshop.classScheduleId,
+            startAt: workshop.startTime,
+            customer: {
+              givenName: contact.firstName.trim(),
+              familyName: contact.lastName.trim(),
+              email: contact.email.trim(),
+              ...(contact.phone.trim() ? { phone: contact.phone.trim() } : {}),
+            },
+            seats,
+            paymentToken: token,
+          }),
+        })
+      } catch {
+        // The request left and nothing came back. It may have gone through.
+        throw new Error(UNKNOWN_OUTCOME_MESSAGE)
+      }
 
       if (!bookRes.ok) {
         const errData = await bookRes.json().catch(() => null)
-        throw new Error(errData?.detail ?? 'Booking failed. Your card was not charged.')
+        const failure = { status: bookRes.status, body: errData }
+        // We were told plainly what happened (declined, class full…): that
+        // attempt is over, and the next try is a new one.
+        if (!outcomeUnknown(failure)) attemptId.current = newAttemptId()
+        throw new Error(messageForFailure(failure, workshopMessages))
       }
 
-      const bookData = await bookRes.json()
+      const bookData = await bookRes.json().catch(() => null)
+      // A success we can't read is still not a failure we can vouch for.
+      if (!bookData?.data) throw new Error(UNKNOWN_OUTCOME_MESSAGE)
       setReceiptUrl(bookData.data.receiptUrl ?? null)
       setBookingId(bookData.data.bookingId ?? null)
+      setEmailSent(bookData.data.emailSent === true)
+      setAskToLeave(false)
       setCompleted(true)
       trackPaymentCompleted(total / 100)
       trackWorkshopSeatBooked(workshop.name, total / 100)
       trackBookingCompleted('workshop')
     } catch (err) {
       trackPaymentFailed(err instanceof Error ? err.message : 'unknown')
-      setError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.')
+      setError(err instanceof Error ? err.message : workshopMessages.unavailable)
     } finally {
       setProcessing(false)
     }
   }
 
-  function renderStep() {
-    if (completed) {
-      return (
-        <div style={{ textAlign: 'center', padding: '1rem 0' }}>
-          <div style={{
-            width: '3rem',
-            height: '3rem',
-            margin: '0 auto 1.25rem',
-            borderRadius: '50%',
-            background: 'rgba(34, 197, 94, 0.1)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: '1.5rem',
-            color: 'rgb(34, 197, 94)',
-          }}>
-            &#10003;
-          </div>
-          <h3 style={{
-            fontSize: '1.25rem',
-            fontFamily: 'var(--font-heading)',
-            fontWeight: 600,
-            color: 'var(--color-dark)',
-            marginBottom: '0.75rem',
-          }}>
-            Booking Confirmed
-          </h3>
-          <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, maxWidth: '24rem', margin: '0 auto' }}>
-            {seats} seat{seats > 1 ? 's' : ''} reserved for <strong>{workshop.name}</strong>.
-            A confirmation has been sent to <strong>{email}</strong>.
-          </p>
-          {receiptUrl && (
-            <a
-              href={receiptUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: 'inline-block',
-                marginTop: '1rem',
-                fontSize: '0.875rem',
-                color: 'var(--color-primary)',
-              }}
-            >
-              View Receipt
-            </a>
-          )}
-          <div style={{ marginTop: '1.25rem' }}>
-            <a
-              href={bookingId && workshop.classScheduleId ? `/waiver?workshop=${encodeURIComponent(workshop.classScheduleId)}&booking=${encodeURIComponent(bookingId)}` : '/waiver'}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{
-                display: 'inline-block',
-                padding: '0.6rem 1.1rem',
-                borderRadius: '0.75rem',
-                background: 'rgba(150, 112, 91, 0.1)',
-                border: '1px solid rgba(150, 112, 91, 0.2)',
-                color: 'var(--color-primary)',
-                fontSize: '0.875rem',
-                fontWeight: 600,
-                textDecoration: 'none',
-              }}
-            >
-              {waiverContent.handoff.workshopCta}
-            </a>
-          </div>
-        </div>
-      )
+  // ── Confirmation ──────────────────────────────────────────────────────────
+  function renderConfirmation() {
+    const origin = window.location.origin
+    // The waiver resolves the class by its SCHEDULE id; the per-seat booking
+    // id rides along as `booking` so staff can trace a signature to its seat.
+    const waiverUrl =
+      bookingId && workshop.classScheduleId
+        ? `${origin}/waiver?workshop=${encodeURIComponent(workshop.classScheduleId)}&booking=${encodeURIComponent(bookingId)}`
+        : `${origin}/waiver`
+    const workshopUrl = `${origin}/workshops?w=${encodeURIComponent(workshop.id)}`
+    const calendarEvent = {
+      title: `${workshop.name} at ${STUDIO_ADDRESS.name}`,
+      startIso: workshop.startTime,
+      endIso: workshop.endTime,
+      details: `Your workshop at ${STUDIO_ADDRESS.name}.\n\nSign the participation agreement before you come: ${waiverUrl}`,
+      location: `${STUDIO_ADDRESS.name}, ${STUDIO_ADDRESS_LINE}`,
     }
-
-    switch (displayStep) {
-      case 0: {
-        const detailsTags = [
-          { label: formatDate(workshop.date) },
-          { label: `${formatTime(workshop.startTime)} - ${formatTime(workshop.endTime)}` },
-          { label: `${workshop.duration} min` },
-          { label: `${formatPrice(workshop.price, workshop.currency)} / seat` },
-          ...(workshop.remainingSeats !== null ? [{ label: `${workshop.remainingSeats} seats left` }] : []),
-        ]
-        return (
-          <DetailsStep
-            imageUrl={workshop.flyerUrl ?? workshop.imageUrl}
-            imageAspect={workshop.flyerUrl ? 'natural' : 'card'}
-            title={workshop.name}
-            description={workshop.description}
-            tags={detailsTags}
-            onContinue={() => setStep(1)}
-          />
-        )
-      }
-
-      case 1:
-        return (
-          <div>
-            {/* Seat selector */}
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{
-                display: 'block',
-                fontSize: '0.8125rem',
-                fontWeight: 500,
-                color: 'var(--color-dark)',
-                marginBottom: '0.5rem',
-              }}>
-                Number of Seats
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
-                <button
-                  type="button"
-                  onClick={() => setSeats(Math.max(1, seats - 1))}
-                  disabled={seats <= 1}
-                  style={{
-                    width: '2.5rem',
-                    height: '2.5rem',
-                    borderRadius: '0.5rem',
-                    border: '1px solid rgba(150, 112, 91, 0.15)',
-                    background: 'rgba(255, 255, 255, 0.8)',
-                    fontSize: '1.25rem',
-                    cursor: seats <= 1 ? 'default' : 'pointer',
-                    opacity: seats <= 1 ? 0.3 : 1,
-                    color: 'var(--color-dark)',
-                  }}
-                >
-                  &minus;
-                </button>
-                <span style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--color-dark)', minWidth: '2rem', textAlign: 'center' }}>
-                  {seats}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setSeats(Math.min(maxSeats, seats + 1))}
-                  disabled={seats >= maxSeats}
-                  style={{
-                    width: '2.5rem',
-                    height: '2.5rem',
-                    borderRadius: '0.5rem',
-                    border: '1px solid rgba(150, 112, 91, 0.15)',
-                    background: 'rgba(255, 255, 255, 0.8)',
-                    fontSize: '1.25rem',
-                    cursor: seats >= maxSeats ? 'default' : 'pointer',
-                    opacity: seats >= maxSeats ? 0.3 : 1,
-                    color: 'var(--color-dark)',
-                  }}
-                >
-                  +
-                </button>
-                <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-                  {formatPrice(workshop.price, workshop.currency)} / seat
-                </span>
-              </div>
-              {workshop.remainingSeats !== null && (
-                <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', marginTop: '0.5rem' }}>
-                  {workshop.remainingSeats} seats remaining
-                </p>
-              )}
+    return (
+      <BookingConfirmed
+        heading="You’re booked"
+        what={
+          <>
+            {seatWord} for <strong>{workshop.name}</strong>, {formatMoney(total, workshop.currency)} paid.
+          </>
+        }
+        email={contact.email.trim()}
+        emailSent={emailSent}
+      >
+        <div style={{ marginTop: '1.25rem' }}>
+          <ConfirmedBlock label="When">
+            <strong>{when}</strong>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 1rem', marginTop: '0.25rem' }}>
+              <a href={googleCalendarUrl(calendarEvent)} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }}>
+                Add to Google Calendar
+              </a>
+              <a href={icsDataUrl(buildIcs(calendarEvent))} download="hometown-workshop.ics" className="btn btn-quiet" style={{ width: 'auto' }}>
+                Apple or Outlook
+              </a>
             </div>
+          </ConfirmedBlock>
 
-            {/* Total */}
-            <div style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'baseline',
-              padding: '1rem 0',
-              borderTop: '1px solid rgba(150, 112, 91, 0.08)',
-              marginBottom: '1.5rem',
-            }}>
-              <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Total</span>
-              <span style={{ fontSize: '1.25rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-                {formatPrice(workshop.price * seats, workshop.currency)}
-              </span>
+          <ConfirmedBlock label="Where">
+            {STUDIO_ADDRESS.name}, {STUDIO_ADDRESS_LINE}
+            <div>
+              <a href={STUDIO_DIRECTIONS_URL} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }}>
+                Get directions
+              </a>
             </div>
+          </ConfirmedBlock>
 
-            <button
-              type="button"
-              onClick={() => setStep(2)}
-              style={{
-                width: '100%',
-                padding: '0.875rem',
-                background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '0.75rem',
-                fontSize: '0.875rem',
-                fontWeight: 600,
-                cursor: 'pointer',
-                boxShadow: '0 4px 15px rgba(150, 112, 91, 0.2)',
-                transition: 'box-shadow 0.3s ease, transform 0.3s ease',
-              }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.boxShadow = '0 8px 25px rgba(150, 112, 91, 0.35)'
-                e.currentTarget.style.transform = 'translateY(-1px)'
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.boxShadow = '0 4px 15px rgba(150, 112, 91, 0.2)'
-                e.currentTarget.style.transform = 'none'
-              }}
-            >
-              Continue
-            </button>
-          </div>
-        )
-
-      case 2: {
-        const infoValid = firstName.trim() && email.trim()
-        return (
-          <div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: 'var(--color-dark)', marginBottom: '0.375rem' }}>
-                  First Name *
-                </label>
-                <input
-                  type="text"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem 1rem',
-                    borderRadius: '0.75rem',
-                    border: '1px solid rgba(150, 112, 91, 0.15)',
-                    background: 'rgba(255, 255, 255, 0.8)',
-                    fontSize: '0.875rem',
-                    color: 'var(--color-text)',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                  }}
+          <ConfirmedBlock label="Before you come">
+            <p style={{ margin: '0 0 0.625rem' }}>Sign the participation agreement. It takes a minute, and saves doing it at the door.</p>
+            <a href={waiverUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
+              Sign the agreement
+            </a>
+            {seats > 1 && (
+              <div style={{ marginTop: '0.875rem' }}>
+                <p style={{ margin: '0 0 0.5rem' }}>Coming with friends? Send them this link so they can sign before they arrive.</p>
+                <ShareLink
+                  url={waiverUrl}
+                  label="Send the link"
+                  shareTitle={`${workshop.name} at ${STUDIO_ADDRESS.name}`}
+                  shareText={`I booked us into ${workshop.name}, ${when}. Sign this before we go:`}
                 />
               </div>
-              <div>
-                <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: 'var(--color-dark)', marginBottom: '0.375rem' }}>
-                  Last Name
-                </label>
-                <input
-                  type="text"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                  style={{
-                    width: '100%',
-                    padding: '0.75rem 1rem',
-                    borderRadius: '0.75rem',
-                    border: '1px solid rgba(150, 112, 91, 0.15)',
-                    background: 'rgba(255, 255, 255, 0.8)',
-                    fontSize: '0.875rem',
-                    color: 'var(--color-text)',
-                    outline: 'none',
-                    boxSizing: 'border-box',
-                  }}
-                />
-              </div>
-            </div>
-            <div style={{ marginBottom: '1rem' }}>
-              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: 'var(--color-dark)', marginBottom: '0.375rem' }}>
-                Email *
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.75rem 1rem',
-                  borderRadius: '0.75rem',
-                  border: '1px solid rgba(150, 112, 91, 0.15)',
-                  background: 'rgba(255, 255, 255, 0.8)',
-                  fontSize: '0.875rem',
-                  color: 'var(--color-text)',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-            <div style={{ marginBottom: '1.5rem' }}>
-              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: 'var(--color-dark)', marginBottom: '0.375rem' }}>
-                Phone
-              </label>
-              <input
-                type="tel"
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '0.75rem 1rem',
-                  borderRadius: '0.75rem',
-                  border: '1px solid rgba(150, 112, 91, 0.15)',
-                  background: 'rgba(255, 255, 255, 0.8)',
-                  fontSize: '0.875rem',
-                  color: 'var(--color-text)',
-                  outline: 'none',
-                  boxSizing: 'border-box',
-                }}
-              />
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setStep(3)}
-              disabled={!infoValid}
-              style={{
-                width: '100%',
-                padding: '0.875rem',
-                background: infoValid
-                  ? 'linear-gradient(135deg, var(--color-primary), var(--color-accent))'
-                  : 'rgba(150, 112, 91, 0.2)',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '0.75rem',
-                fontSize: '0.875rem',
-                fontWeight: 600,
-                cursor: infoValid ? 'pointer' : 'default',
-                opacity: infoValid ? 1 : 0.5,
-                transition: 'box-shadow 0.3s ease, transform 0.3s ease',
-              }}
-            >
-              Continue to Payment
-            </button>
-          </div>
-        )
-      }
-
-      case 3:
-        return (
-          <div>
-            <OrderSummary
-              lineItems={lineItems}
-              discount={discount}
-              total={total}
-              currency={workshop.currency}
-            />
-
-            <div style={{ marginTop: '1rem' }}>
-              <CouponInput onApply={(code, d) => setDiscount(d)} />
-            </div>
-
-            <div style={{ marginTop: '1rem' }}>
-              <PaymentForm ref={paymentFormRef} applicationIdOverride={CLASS_BOOKING_APP_ID} environmentOverride="production" />
-            </div>
-
-            {/* Booking terms — required before payment. */}
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'flex-start',
-                gap: '0.5rem',
-                cursor: 'pointer',
-                marginTop: '1rem',
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={agreedToPolicy}
-                onChange={(e) => setAgreedToPolicy(e.target.checked)}
-                style={{ marginTop: '0.15rem', width: '1rem', height: '1rem', flexShrink: 0, cursor: 'pointer' }}
-              />
-              <span style={{ fontSize: '0.8125rem', color: 'var(--color-dark)', lineHeight: 1.5 }}>
-                I agree to the{' '}
-                <a
-                  href={`${POLICY_PATH}#${POLICY_ANCHORS.workshops}`}
-                  target="_blank"
-                  rel="noopener"
-                  style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'underline' }}
-                >
-                  booking &amp; cancellation policy
-                </a>
-                .{' '}
-                <span style={{ color: 'var(--color-muted)' }}>{checkoutPolicySummary.workshop}.</span>
-              </span>
-            </label>
-
-            {error && (
-              <p style={{ fontSize: '0.875rem', color: '#dc2626', marginTop: '0.75rem' }}>{error}</p>
             )}
+          </ConfirmedBlock>
 
-            <button
-              type="button"
-              onClick={handlePay}
-              disabled={processing || !agreedToPolicy}
-              style={{
-                width: '100%',
-                marginTop: '1.25rem',
-                padding: '0.875rem',
-                background: processing || !agreedToPolicy
-                  ? 'rgba(150, 112, 91, 0.4)'
-                  : 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
-                color: '#fff',
-                border: 'none',
-                borderRadius: '0.75rem',
-                fontSize: '0.875rem',
-                fontWeight: 600,
-                cursor: processing || !agreedToPolicy ? 'default' : 'pointer',
-                opacity: processing ? 0.7 : 1,
-                transition: 'box-shadow 0.3s ease, transform 0.3s ease',
-              }}
-            >
-              {processing ? 'Processing...' : `Pay ${formatPrice(total, workshop.currency)}`}
-            </button>
-          </div>
-        )
+          <ConfirmedBlock label="Changing plans">{workshopRefundLine()}</ConfirmedBlock>
 
-      default:
-        return null
-    }
+          <ConfirmedBlock label="Bring a friend">
+            <p style={{ margin: '0 0 0.5rem' }}>Know someone who’d love this? Send them the workshop.</p>
+            <ShareLink
+              url={workshopUrl}
+              label="Share this workshop"
+              shareTitle={`${workshop.name} at ${STUDIO_ADDRESS.name}`}
+              shareText={`I’m going to ${workshop.name}, ${when}. Come with me:`}
+            />
+          </ConfirmedBlock>
+
+          {receiptUrl && (
+            <ConfirmedBlock label="Receipt">
+              <a href={receiptUrl} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }}>
+                View your receipt
+              </a>
+            </ConfirmedBlock>
+          )}
+        </div>
+      </BookingConfirmed>
+    )
   }
 
-  return (
-    <div
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 100,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0, 0, 0, 0.4)',
-        backdropFilter: 'blur(4px)',
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget && !completed) requestClose()
-      }}
-    >
-      <div
-        style={{
-          width: '100%',
-          maxWidth: '40rem',
-          maxHeight: '90vh',
-          overflow: 'auto',
-          margin: '1rem',
-          padding: '2.5rem',
-          background: 'linear-gradient(135deg, rgba(255,255,255,0.92) 0%, rgba(255,255,255,0.85) 50%, rgba(255,255,255,0.9) 100%)',
-          backdropFilter: 'blur(32px) saturate(1.4)',
-          WebkitBackdropFilter: 'blur(32px) saturate(1.4)',
-          border: '1px solid rgba(255, 255, 255, 0.6)',
-          borderRadius: '1.25rem',
-          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.15), 0 8px 24px rgba(150, 112, 91, 0.08)',
-        }}
-      >
-        {/* Header */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-          <h2 style={{
-            fontSize: '1.25rem',
-            fontFamily: 'var(--font-heading)',
-            fontWeight: 600,
-            color: 'var(--color-dark)',
-          }}>
-            Book Seat
-          </h2>
-          <button
-            type="button"
-            onClick={requestClose}
-            aria-label="Close"
+  // ── Step 1: details and seats ─────────────────────────────────────────────
+  function renderDetails() {
+    const paragraphs = workshop.description.split(/\n\s*\n|\n/).map((p) => p.trim()).filter(Boolean)
+    const photo = workshop.flyerUrl ?? workshop.imageUrl
+    const seatsLeft = seatsLeftLabel(workshop.remainingSeats)
+    const counterButton = {
+      width: '2.75rem',
+      height: '2.75rem',
+      borderRadius: '0.75rem',
+      border: '1.5px solid var(--color-field-border)',
+      background: 'var(--color-surface)',
+      fontSize: '1.375rem',
+      lineHeight: 1,
+      color: 'var(--color-dark)',
+      cursor: 'pointer',
+    } as const
+    return (
+      <div>
+        {photo && (
+          <img
+            src={photo}
+            alt={workshop.name}
             style={{
-              background: 'none',
-              border: 'none',
-              fontSize: '1.5rem',
-              color: 'var(--color-muted)',
-              cursor: 'pointer',
-              padding: '0.25rem',
-              lineHeight: 1,
+              display: 'block',
+              width: '100%',
+              // A tall flyer must not push everything else off the screen.
+              maxHeight: '16rem',
+              objectFit: workshop.flyerUrl ? 'contain' : 'cover',
+              borderRadius: '0.75rem',
+              background: 'var(--color-sand)',
+              marginBottom: '1rem',
             }}
-          >
-            &times;
-          </button>
-        </div>
-
-        {/* Progress bar */}
-        {!completed && (
-          <nav aria-label="Booking progress" style={{ marginBottom: '2rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: '0.5rem' }}>
-              <span style={{
-                fontSize: '0.8125rem',
-                fontWeight: 500,
-                letterSpacing: '0.06em',
-                textTransform: 'uppercase',
-                color: 'var(--color-dark)',
-              }}>
-                {STEP_LABELS[step]}
-              </span>
-              <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
-                {step + 1} / {STEP_LABELS.length}
-              </span>
-            </div>
-            <div style={{ height: '2px', background: 'rgba(150, 112, 91, 0.1)', borderRadius: '1px', overflow: 'hidden' }}>
-              <div
-                role="progressbar"
-                aria-valuenow={step + 1}
-                aria-valuemin={1}
-                aria-valuemax={STEP_LABELS.length}
-                style={{
-                  height: '100%',
-                  width: `${progress}%`,
-                  background: 'linear-gradient(90deg, var(--color-primary), var(--color-accent))',
-                  borderRadius: '1px',
-                  transition: 'width 0.5s cubic-bezier(0.25, 0.1, 0, 1)',
-                }}
-              />
-            </div>
-          </nav>
+          />
         )}
+        {paragraphs.map((p, i) => (
+          <p key={i} style={{ margin: '0 0 0.75rem', fontSize: '0.9375rem', lineHeight: 1.6, color: 'var(--color-text)' }}>
+            {p}
+          </p>
+        ))}
 
-        {/* Back button */}
-        {!completed && (
-          <button
-            type="button"
-            onClick={handleBack}
-            style={{
-              marginBottom: '1.25rem',
-              fontSize: '0.8125rem',
-              color: 'var(--color-muted)',
-              background: 'none',
-              border: 'none',
-              cursor: 'pointer',
-              padding: 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '0.375rem',
-              transition: 'color 0.3s ease',
-            }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--color-dark)')}
-            onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--color-muted)')}
-          >
-            <span style={{ fontSize: '0.875rem' }}>&larr;</span>
-            Back
-          </button>
-        )}
-
-        {/* Discard prompt — sits above the step content, no native dialogs */}
-        {confirmDiscard && !completed && (
-          <div
-            role="alertdialog"
-            aria-modal="true"
-            aria-label="Leave without your seat?"
-            onClick={(e) => {
-              if (e.target === e.currentTarget) setConfirmDiscard(false)
-            }}
-            style={{
-              position: 'fixed',
-              inset: 0,
-              zIndex: 110,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: 'rgba(0, 0, 0, 0.35)',
-              backdropFilter: 'blur(2px)',
-            }}
-          >
-            <div
-              style={{
-                width: 'calc(100% - 3rem)',
-                maxWidth: '22rem',
-                padding: '1.5rem 1.5rem 1.25rem',
-                borderRadius: '1rem',
-                background: 'linear-gradient(135deg, rgba(255,255,255,0.97) 0%, rgba(255,255,255,0.92) 100%)',
-                border: '1px solid rgba(255, 255, 255, 0.6)',
-                boxShadow: '0 24px 60px rgba(0, 0, 0, 0.25)',
-                textAlign: 'center',
-              }}
-            >
-              <p style={{ margin: 0, fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-                Leave without your seat?
+        <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--color-line)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+            <div>
+              <p id={`${formId}-seats`} style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                Seats
               </p>
-              <p style={{ margin: '0.4rem 0 1.1rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-                {workshop.remainingSeats !== null
-                  ? `${workshop.remainingSeats} seat${workshop.remainingSeats === 1 ? '' : 's'} left for ${workshop.name} — nothing's saved until you pay.`
-                  : `Nothing's saved until you pay.`}
+              <p style={{ margin: '0.125rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>
+                {formatMoney(workshop.price, workshop.currency)} per seat
+                {seatsLeft && ` · ${seatsLeft}`}
               </p>
-              <div style={{ display: 'flex', gap: '0.6rem' }}>
-                <button
-                  type="button"
-                  onClick={() => setConfirmDiscard(false)}
-                  autoFocus
-                  style={{
-                    flex: 1.4,
-                    padding: '0.7rem 1rem',
-                    borderRadius: '0.75rem',
-                    border: 'none',
-                    background: 'linear-gradient(135deg, var(--color-primary), var(--color-accent))',
-                    color: '#fff',
-                    fontSize: '0.875rem',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Keep my seat
-                </button>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  style={{
-                    flex: 1,
-                    padding: '0.7rem 1rem',
-                    borderRadius: '0.75rem',
-                    border: '1px solid rgba(150, 112, 91, 0.3)',
-                    background: 'transparent',
-                    color: 'var(--color-muted)',
-                    fontSize: '0.875rem',
-                    fontWeight: 500,
-                    cursor: 'pointer',
-                  }}
-                >
-                  Leave
-                </button>
-              </div>
+            </div>
+            <div role="group" aria-labelledby={`${formId}-seats`} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <button
+                type="button"
+                aria-label="Fewer seats"
+                onClick={() => setSeats((n) => Math.max(1, n - 1))}
+                disabled={seats <= 1}
+                style={{ ...counterButton, opacity: seats <= 1 ? 0.35 : 1, cursor: seats <= 1 ? 'default' : 'pointer' }}
+              >
+                <span aria-hidden="true">&minus;</span>
+              </button>
+              <span aria-live="polite" aria-atomic="true" style={{ minWidth: '2rem', textAlign: 'center', fontSize: '1.25rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                <span style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>{seatWord}</span>
+                <span aria-hidden="true">{seats}</span>
+              </span>
+              <button
+                type="button"
+                aria-label="More seats"
+                onClick={() => setSeats((n) => Math.min(maxSeats, n + 1))}
+                disabled={seats >= maxSeats}
+                style={{ ...counterButton, opacity: seats >= maxSeats ? 0.35 : 1, cursor: seats >= maxSeats ? 'default' : 'pointer' }}
+              >
+                <span aria-hidden="true">+</span>
+              </button>
             </div>
           </div>
-        )}
+          {seats >= maxSeats && (
+            <p role="status" style={{ margin: '0.625rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>
+              {cappedByBooking ? (
+                <>
+                  One booking holds up to {MAX_SEATS_PER_BOOKING} seats. For a bigger group,{' '}
+                  <a href="/book" style={{ color: 'var(--color-primary)', fontWeight: 600 }}>
+                    book a private party
+                  </a>
+                  .
+                </>
+              ) : (
+                `That’s every seat left in this workshop.`
+              )}
+            </p>
+          )}
+        </div>
+      </div>
+    )
+  }
 
-        {/* Step content with transition */}
-        <div
-          style={{
-            opacity: visible ? 1 : 0,
-            transform: visible ? 'translateY(0)' : 'translateY(12px)',
-            transition: 'opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
-          }}
-        >
-          {renderStep()}
+  // ── Step 2: contact details and payment ───────────────────────────────────
+  function renderPay() {
+    return (
+      <form id={formId} onSubmit={handlePay} noValidate>
+        <ContactFields ref={contactRef} value={contact} onChange={setContact} phoneRequired={false} disabled={processing} />
+
+        <div style={{ margin: '1.25rem 0', padding: '0.875rem 1rem', borderRadius: '0.75rem', background: 'var(--color-sand)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
+            <span>
+              {workshop.name}, {seatWord} × {formatMoney(workshop.price, workshop.currency)}
+            </span>
+            <strong>{formatMoney(total, workshop.currency)}</strong>
+          </div>
         </div>
 
-        {/* Done button on completion */}
-        {completed && (
-          <button
-            type="button"
-            onClick={onClose}
-            style={{
-              marginTop: '1.5rem',
-              width: '100%',
-              padding: '0.875rem',
-              background: 'var(--color-primary)',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '0.75rem',
-              fontSize: '0.875rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              transition: 'filter 0.3s ease',
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.filter = 'brightness(0.9)' }}
-            onMouseLeave={(e) => { e.currentTarget.style.filter = 'none' }}
-          >
-            Done
-          </button>
+        <PaymentForm
+          ref={paymentFormRef}
+          applicationIdOverride={CLASS_BOOKING_APP_ID}
+          environmentOverride="production"
+          onReadyChange={setPaymentReady}
+        />
+
+        <div style={{ marginTop: '1rem' }}>
+          <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer', minHeight: '2.75rem' }}>
+            <input
+              ref={policyRef}
+              type="checkbox"
+              name="agree-to-policy"
+              checked={agreedToPolicy}
+              onChange={(e) => {
+                setAgreedToPolicy(e.target.checked)
+                if (e.target.checked) setPolicyProblem(false)
+              }}
+              aria-invalid={policyProblem ? true : undefined}
+              aria-describedby={policyProblem ? policyErrorId : undefined}
+              style={{ marginTop: '0.2rem', width: '1.25rem', height: '1.25rem', flexShrink: 0, cursor: 'pointer', accentColor: 'var(--color-primary)' }}
+            />
+            <span style={{ fontSize: '0.9375rem', color: 'var(--color-dark)', lineHeight: 1.5 }}>
+              I agree to the{' '}
+              <a
+                href={`${POLICY_PATH}#${POLICY_ANCHORS.workshops}`}
+                target="_blank"
+                rel="noopener"
+                style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'underline' }}
+              >
+                booking and cancellation policy
+              </a>
+              . <span style={{ color: 'var(--color-text)' }}>{checkoutPolicySummary.workshop}.</span>
+            </span>
+          </label>
+          {policyProblem && (
+            <p id={policyErrorId} role="alert" className="field-error" style={{ marginTop: '0.375rem' }}>
+              {POLICY_UNTICKED}
+            </p>
+          )}
+        </div>
+
+        {error && (
+          <p role="alert" className="field-error" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5 }}>
+            {error}
+          </p>
         )}
-      </div>
-    </div>
+      </form>
+    )
+  }
+
+  // ── What's pinned to the bottom ───────────────────────────────────────────
+  let footer
+  if (completed) {
+    footer = (
+      <button type="button" className="btn btn-primary" onClick={finish}>
+        Done
+      </button>
+    )
+  } else if (step === 'details') {
+    footer = (
+      <button
+        type="button"
+        className="btn btn-primary"
+        onClick={() => {
+          trackWizardStepCompleted('details')
+          setStep('pay')
+        }}
+      >
+        Continue · {formatMoney(total, workshop.currency)}
+      </button>
+    )
+  } else {
+    footer = (
+      <>
+        {/* Only ever off while working or while the card field loads, and it says which. */}
+        <button type="submit" form={formId} className="btn btn-primary" disabled={processing || !paymentReady}>
+          {processing ? 'Processing…' : !paymentReady ? 'Loading payment form…' : `Pay ${formatMoney(total, workshop.currency)}`}
+        </button>
+        <p style={{ margin: '0.5rem 0 0', textAlign: 'center', fontSize: '0.8125rem', lineHeight: 1.4, color: 'var(--color-text)' }}>
+          {workshopRefundLine()}
+        </p>
+      </>
+    )
+  }
+
+  const seatsLeft = workshop.remainingSeats
+  return (
+    <BookingPanel
+      title={workshop.name}
+      onRequestClose={completed ? finish : requestClose}
+      stepKey={completed ? 'confirmed' : step}
+      stepName={completed ? undefined : STEP_NAMES[step]}
+      stepNumber={step === 'details' ? 1 : 2}
+      stepCount={2}
+      summary={
+        completed ? undefined : (
+          <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
+            {when} · {seatWord} · <strong>{formatMoney(total, workshop.currency)}</strong>
+          </p>
+        )
+      }
+      onBack={!completed && step === 'pay' && !processing ? () => setStep('details') : undefined}
+      footer={footer}
+      leavePrompt={
+        askToLeave && !completed
+          ? {
+              title: 'Leave without booking?',
+              body:
+                seatsLeft !== null && seatsLeftLabel(seatsLeft)
+                  ? `${seatsLeftLabel(seatsLeft)} in ${workshop.name}. Nothing is saved until you pay.`
+                  : 'Nothing is saved until you pay.',
+              keepLabel: 'Keep booking',
+              leaveLabel: 'Close',
+              onKeep: () => setAskToLeave(false),
+              onLeave: onClose,
+            }
+          : null
+      }
+    >
+      {completed ? renderConfirmation() : step === 'details' ? renderDetails() : renderPay()}
+    </BookingPanel>
   )
 }

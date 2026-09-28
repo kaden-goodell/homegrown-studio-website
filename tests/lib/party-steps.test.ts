@@ -10,38 +10,16 @@ import {
 
 describe('visibleSteps', () => {
   it('full flow when nothing is preselected', () => {
-    expect(visibleSteps({ craftSettled: false, slotSettled: false })).toEqual([
-      'craft',
-      'when',
-      'who',
-      'pay',
-    ])
+    expect(visibleSteps({ slotSettled: false })).toEqual(['craft', 'when', 'who', 'pay'])
   })
 
-  it('drops the craft step when a non-personalized craft is preselected', () => {
-    expect(visibleSteps({ craftSettled: true, slotSettled: false })).toEqual([
-      'when',
-      'who',
-      'pay',
-    ])
+  it('always keeps the craft step: it is where the description is read and the choice changed', () => {
+    expect(visibleSteps({ slotSettled: false })[0]).toBe('craft')
+    expect(visibleSteps({ slotSettled: true })[0]).toBe('craft')
   })
 
-  it('drops the when step when a slot deeplink matched', () => {
-    expect(visibleSteps({ craftSettled: false, slotSettled: true })).toEqual([
-      'craft',
-      'who',
-      'pay',
-    ])
-  })
-
-  it('drops both when craft and slot are settled', () => {
-    expect(visibleSteps({ craftSettled: true, slotSettled: true })).toEqual(['who', 'pay'])
-  })
-
-  it('keeps the craft step for personalized preselections (craftSettled=false)', () => {
-    // A personalized craft is preselected but NOT settled — the acknowledgment
-    // checkbox lives on the craft step, so the caller passes craftSettled: false.
-    expect(visibleSteps({ craftSettled: false, slotSettled: false })).toContain('craft')
+  it('drops the when step when a calendar link carried an exact, open time', () => {
+    expect(visibleSteps({ slotSettled: true })).toEqual(['craft', 'who', 'pay'])
   })
 })
 
@@ -69,27 +47,27 @@ describe('navigation', () => {
 describe('stepLabel', () => {
   it('labels every step', () => {
     expect(stepLabel('craft')).toBe('Craft')
-    expect(stepLabel('when')).toBe('Date & Time')
+    expect(stepLabel('when')).toBe('Date and time')
     expect(stepLabel('who')).toBe('Guests')
-    expect(stepLabel('theme')).toBe('Themed Table')
-    expect(stepLabel('pay')).toBe('Details & Payment')
+    expect(stepLabel('theme')).toBe('Themed table')
+    expect(stepLabel('pay')).toBe('Your details and payment')
   })
 })
 
 describe('themed-table step', () => {
   it('is absent by default (feature off / no stocked themes)', () => {
-    expect(visibleSteps({ craftSettled: false, slotSettled: false })).toEqual(['craft', 'when', 'who', 'pay'])
+    expect(visibleSteps({ slotSettled: false })).toEqual(['craft', 'when', 'who', 'pay'])
   })
 
   it('appears between guests and pay when themes are available', () => {
-    expect(visibleSteps({ craftSettled: false, slotSettled: false, themesAvailable: true })).toEqual([
+    expect(visibleSteps({ slotSettled: false, themesAvailable: true })).toEqual([
       'craft', 'when', 'who', 'theme', 'pay',
     ])
   })
 
-  it('composes with settled craft/slot drops', () => {
-    expect(visibleSteps({ craftSettled: true, slotSettled: true, themesAvailable: true })).toEqual([
-      'who', 'theme', 'pay',
+  it('composes with a settled time', () => {
+    expect(visibleSteps({ slotSettled: true, themesAvailable: true })).toEqual([
+      'craft', 'who', 'theme', 'pay',
     ])
   })
 })

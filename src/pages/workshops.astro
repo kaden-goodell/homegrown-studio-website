@@ -3,6 +3,18 @@ export const prerender = false
 
 import Layout from '@layouts/Layout.astro'
 import WorkshopExplorer from '@components/workshops/WorkshopExplorer'
+import NotifyMe from '@components/shared/NotifyMe'
+import { providers } from '@config/providers'
+import { partyConfig } from '@config/party.config'
+import { OPENING_DATE } from '@config/opening'
+import { longDate, workshopNotifyContext } from '@lib/notify-context'
+import { summarize } from '@lib/seo'
+import { formatMoney } from '@lib/money'
+import { canBeBooked } from '@lib/workshop-rules'
+import { siteConfig } from '@config/site.config'
+import type { Workshop } from '@providers/interfaces/workshop'
+
+const siteName = siteConfig.name
 import { envBookingsOpen, previewToken, hasValidPreviewCookie, previewQueryMatches, previewCookieName } from '@lib/bookings-gate'
 
 // Workshops are fetched client-side (via /api/workshops.json) so this page renders
@@ -15,53 +27,86 @@ if (_previewMatch) {
   Astro.cookies.set(previewCookieName, previewToken(), { path: '/', httpOnly: true, sameSite: 'lax', maxAge: 60 * 60 * 24 * 30 })
 }
 const bookingsOpen = envBookingsOpen() || _previewMatch || hasValidPreviewCookie(Astro.request)
+
+// A link to one workshop (?w=<id>, from the calendar or a shared link) should
+// preview as that workshop, and while booking is closed the sign-up panel
+// should name it. The lookup gets a short leash so a slow Square call can
+// never hold up the page; on any failure both fall back to the page defaults.
+const openingLabel = longDate(OPENING_DATE)
+let tapped: Workshop | null = null
+const wantedId = Astro.url.searchParams.get('w') ?? ''
+if (/^[A-Za-z0-9_-]{6,64}$/.test(wantedId)) {
+  try {
+    tapped = await Promise.race([
+      providers.workshop.getWorkshop(wantedId),
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 1500)),
+    ])
+  } catch {
+    tapped = null
+  }
+}
+const { lookingAt, interest } = workshopNotifyContext(tapped, partyConfig.timezone)
+
+// A workshop with no price yet is "Coming soon": its preview names no price.
+const price = tapped && canBeBooked(tapped.priceCents) ? formatMoney(tapped.priceCents, tapped.priceCurrency) : ''
+const preview = tapped
+  ? {
+      ogTitle: `${[lookingAt, price].filter(Boolean).join(' · ')} | ${siteName}`,
+      description: summarize(tapped.description) || undefined,
+      ogImage: tapped.imageUrl,
+      shareUrl: `/workshops?w=${encodeURIComponent(tapped.id)}`,
+    }
+  : {}
 ---
 
-<Layout title="Workshops">
+<Layout
+  title="Craft Workshops"
+  description="Guided craft workshops in Madison, AL. Materials and teaching included. See dates and book a seat."
+  {...preview}
+>
   <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-28">
     <div class="text-center mb-16 fade-in">
-      <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Upcoming</p>
+      <p class="eyebrow tone-workshop mb-3">Upcoming</p>
       <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">Workshops</h1>
       <p class="text-lg mt-4 max-w-xl mx-auto" style="color: var(--color-muted);">
-        Guided crafting sessions, everything included — grab a seat before they fill up. Want the full picture? <a href="/calendar" class="underline" style="color: var(--color-primary);">See what's on</a>.
+        Guided craft workshops. Materials and teaching included. <a href="/calendar" class="underline" style="color: var(--color-primary);">See the calendar</a>.
       </p>
     </div>
     {bookingsOpen ? (
       <WorkshopExplorer client:load />
     ) : (
-      <div
-        class="text-center max-w-xl mx-auto rounded-2xl px-8 py-14"
-        style="background: rgba(150, 112, 91, 0.06); border: 1px solid rgba(150, 112, 91, 0.14);"
-      >
-        <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">Opening Soon</p>
+      <div class="notice-panel tone-workshop" id="notify">
+        <p class="eyebrow mb-3">Opening soon</p>
         <h2 class="text-2xl sm:text-3xl font-heading font-bold" style="color: var(--color-dark);">
-          Workshop booking opens closer to our grand opening
+          Booking opens with our grand opening, planned for {openingLabel}
         </h2>
-        <p class="mt-4 text-base" style="color: var(--color-muted);">
-          We’re almost ready. Check back soon — the first classes will be posted here.
+        <p class="mt-4 mb-6 text-base" style="color: var(--color-text);">
+          {lookingAt && <Fragment>You were looking at <strong>{lookingAt}</strong>. </Fragment>}
+          Leave your email and we’ll send one message the day seats go on sale.
         </p>
-        <a
-          href="/calendar"
-          class="inline-block mt-6 rounded-xl px-8 py-3.5 text-sm font-semibold text-white"
-          style="background: linear-gradient(135deg, var(--color-primary), var(--color-accent)); box-shadow: 0 4px 15px rgba(150, 112, 91, 0.25);"
-        >
-          See what’s on
-        </a>
+        <NotifyMe
+          client:load
+          interest={interest}
+          successText="Got it. We’ll email you the day seats go on sale."
+        />
+        <p class="mt-6 text-sm">
+          <a href="/calendar" class="underline" style="color: var(--color-primary);">See the calendar</a>
+        </p>
       </div>
     )}
 
-    <!-- Adult nights positioning band (HOM-161) — evergreen copy, no invented listings. -->
+    <!-- Who workshops are for — evergreen copy, no invented listings. -->
     <div class="max-w-2xl mx-auto mt-20 text-center fade-in">
-      <div class="glass rounded-2xl px-8 py-10 sm:px-12">
-        <p class="uppercase tracking-[0.2em] text-xs font-semibold mb-3" style="color: var(--color-accent);">
-          Not just for kids
+      <div class="glass rounded-2xl px-8 py-10 sm:px-12 tone-workshop">
+        <p class="eyebrow mb-3">
+          For everyone, ages 8 and up
         </p>
         <h2 class="text-2xl md:text-3xl font-heading font-bold mb-4" style="color: var(--color-dark);">
-          Workshops for adults, too
+          Bring someone, or come on your own
         </h2>
         <p class="text-base" style="color: var(--color-muted); line-height: 1.8;">
-          Bring a friend, bring your mom, or come by yourself. Every workshop includes
-          the materials and the teaching, so you just show up. New dates go up on the
+          Come with a friend, your mom, or by yourself. Materials and teaching are
+          included, so you just show up. New dates go up on the
           <a href="/calendar" class="underline" style="color: var(--color-primary);">calendar</a> as we add them.
         </p>
       </div>

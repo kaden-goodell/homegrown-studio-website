@@ -1,0 +1,88 @@
+---
+/**
+ * Everything in <head> that describes the page to the outside world: title,
+ * description, icons, the canonical address, link previews, and the business
+ * details Google reads. Used by BOTH layouts so they cannot drift apart
+ * (the static layout used to have no link-preview tags at all).
+ */
+import { siteConfig } from '@config/site.config'
+import { STUDIO_HOURS } from '@config/hours'
+import { OPEN_STUDIO_START_DATE } from '@config/opening'
+import { SITE_URL, DEFAULT_SHARE_IMAGE, SHARE_IMAGE_WIDTH, SHARE_IMAGE_HEIGHT } from '@config/site-url'
+import { absoluteUrl, canonicalUrl, jsonLdString, localBusinessJsonLd, pageTitle } from '@lib/seo'
+
+interface Props {
+  /** Becomes "{title} | Hometown Studio". */
+  title?: string
+  /** The whole title, used as is. For the homepage, which leads with the name. */
+  fullTitle?: string
+  description?: string
+  /** Link-preview overrides. Default to the page title and the branded image. */
+  ogTitle?: string
+  ogImage?: string
+  /**
+   * Path and query a shared link should keep, e.g. "/workshops?w=abc". Link
+   * previews are built from og:url, so a page whose content depends on its
+   * query must say so here or every share collapses to the plain page.
+   */
+  shareUrl?: string
+  /** Keep the page out of search results (staff, host and invite pages). */
+  noindex?: boolean
+  /** Extra structured data for this page. */
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[]
+}
+
+const { title, fullTitle, description, ogTitle, ogImage, shareUrl, noindex = false, jsonLd } = Astro.props
+
+const SITE_DESCRIPTION =
+  'Hands-on craft studio in Madison, Alabama. Join a workshop or book the whole studio for a private party. Ages 8 and up.'
+
+const resolvedTitle = fullTitle ?? pageTitle(title, siteConfig.name)
+const resolvedDescription = description || SITE_DESCRIPTION
+const shareTitle = ogTitle || resolvedTitle
+const usingDefaultImage = !ogImage
+const shareImage = absoluteUrl(ogImage || DEFAULT_SHARE_IMAGE, SITE_URL)
+const canonical = canonicalUrl(Astro.url.pathname, SITE_URL)
+const previewUrl = shareUrl ? absoluteUrl(shareUrl, SITE_URL) : canonical
+
+// Published hours tell Google "walk in", so they are held back until walk-ins start.
+const walkInOpen = new Date() >= new Date(OPEN_STUDIO_START_DATE + 'T00:00:00-06:00')
+const business = localBusinessJsonLd({
+  name: siteConfig.name,
+  description: SITE_DESCRIPTION,
+  url: SITE_URL,
+  phone: siteConfig.contactPhone,
+  email: siteConfig.contactEmail,
+  address: siteConfig.address,
+  image: DEFAULT_SHARE_IMAGE,
+  hours: walkInOpen ? STUDIO_HOURS : undefined,
+})
+const extra = jsonLd ? (Array.isArray(jsonLd) ? jsonLd : [jsonLd]) : []
+---
+
+<meta name="description" content={resolvedDescription} />
+<title>{resolvedTitle}</title>
+<link rel="canonical" href={canonical} />
+{noindex && <meta name="robots" content="noindex, nofollow" />}
+
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+<link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+
+{/* Link previews: what shows when the page is texted or posted. */}
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content={siteConfig.name} />
+<meta property="og:url" content={previewUrl} />
+<meta property="og:title" content={shareTitle} />
+<meta property="og:description" content={resolvedDescription} />
+<meta property="og:image" content={shareImage} />
+{usingDefaultImage && <meta property="og:image:width" content={String(SHARE_IMAGE_WIDTH)} />}
+{usingDefaultImage && <meta property="og:image:height" content={String(SHARE_IMAGE_HEIGHT)} />}
+<meta property="og:image:alt" content={shareTitle} />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={shareTitle} />
+<meta name="twitter:description" content={resolvedDescription} />
+<meta name="twitter:image" content={shareImage} />
+
+{!noindex && <script type="application/ld+json" is:inline set:html={jsonLdString(business)} />}
+{extra.map((item) => <script type="application/ld+json" is:inline set:html={jsonLdString(item)} />)}

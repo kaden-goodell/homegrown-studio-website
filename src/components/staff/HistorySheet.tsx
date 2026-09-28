@@ -94,7 +94,7 @@ export default function HistorySheet({
 
         <div style={{ marginTop: '0.7rem' }}>
           {sorted.map((e, i) => (
-            <div key={i} style={{ borderTop: i === 0 ? 'none' : '1px solid rgba(150,112,91,0.12)', padding: '0.65rem 0' }}>
+            <div key={i} style={{ borderTop: i === 0 ? 'none' : '1px solid rgba(var(--color-primary-rgb),0.12)', padding: '0.65rem 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 700, color: 'var(--color-dark)', fontSize: '0.875rem' }}>{ACTION_LABEL[e.action] ?? e.action}</span>
                 <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>{formatWhen(e.at)}</span>

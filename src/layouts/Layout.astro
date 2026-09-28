@@ -4,6 +4,7 @@ import { siteConfig } from '@config/site.config'
 import Header from '@components/shared/Header.astro'
 import Footer from '@components/shared/Footer.astro'
 import Analytics from '@components/shared/Analytics.astro'
+import SeoHead from '@components/shared/SeoHead.astro'
 import Shimmer from '@components/shared/Shimmer'
 import '@styles/global.css'
 import '@styles/textures.css'
@@ -11,12 +12,18 @@ import '@styles/animations.css'
 
 interface Props {
   title?: string
+  /** The whole title, used as is (the homepage leads with the business name). */
+  fullTitle?: string
   description?: string
-  /** Social-share overrides. Default to the page title/description. */
+  /** Link-preview overrides. Default to the page title and the branded image. */
   ogTitle?: string
   ogImage?: string
-  /** Keep this page out of search engines (staff-only tools, internal pages). */
+  /** Path and query a shared link should keep, e.g. "/workshops?w=abc". */
+  shareUrl?: string
+  /** Keep the page out of search results. */
   noindex?: boolean
+  /** Extra structured data for this page. */
+  jsonLd?: Record<string, unknown> | Record<string, unknown>[]
   /**
    * Drop the marketing chrome — no header/nav, no footer, no shimmer — and
    * keep only the global styles, fonts and theme tokens. For staff tools on
@@ -27,11 +34,7 @@ interface Props {
   bare?: boolean
 }
 
-const { title, description, ogTitle, ogImage, noindex, bare } = Astro.props
-const pageTitle = title ? `${title} | ${siteConfig.name}` : siteConfig.name
-const pageDescription = description || siteConfig.tagline
-const shareTitle = ogTitle || pageTitle
-const shareImage = ogImage || '/images/party-hero.jpg'
+const { bare } = Astro.props
 const { colors, fonts, textures } = siteConfig.theme
 const textureClass = `texture-${textures.background}`
 
@@ -43,20 +46,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content={pageDescription} />
-    {noindex && <meta name="robots" content="noindex,nofollow" />}
-    <link rel="icon" type="image/png" href="/favicon.png" />
-    <title>{pageTitle}</title>
-    {/* Link-preview (OpenGraph + Twitter) — makes shared invites unfurl richly. */}
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content={siteConfig.name} />
-    <meta property="og:title" content={shareTitle} />
-    <meta property="og:description" content={pageDescription} />
-    <meta property="og:image" content={shareImage} />
-    <meta name="twitter:card" content="summary_large_image" />
-    <meta name="twitter:title" content={shareTitle} />
-    <meta name="twitter:description" content={pageDescription} />
-    <meta name="twitter:image" content={shareImage} />
+    <SeoHead {...Astro.props} />
     <ViewTransitions />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -91,7 +81,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     </style>
   </head>
   <body class={bare ? undefined : textureClass}>
-    {!bare && <Shimmer enabled={siteConfig.theme.animations.particles} client:load transition:persist />}
+    {!bare && <Shimmer enabled={siteConfig.theme.animations.particles} client:idle transition:persist />}
     {!bare && <Header transition:persist />}
     {/* `transition:animate` tags <main> with a view-transition-name, and the
         UA stylesheet gives tagged elements `contain: layout` — which makes

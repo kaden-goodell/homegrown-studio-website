@@ -494,7 +494,7 @@ export default function StaffConsole() {
                 </div>
 
                 {assembly.orders.map((o) => (
-                  <div key={o.orderId} style={{ borderTop: '1px solid rgba(150,112,91,0.12)', marginTop: '0.7rem', paddingTop: '0.6rem' }}>
+                  <div key={o.orderId} style={{ borderTop: '1px solid rgba(var(--color-primary-rgb),0.12)', marginTop: '0.7rem', paddingTop: '0.6rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9rem' }}>{o.contact.name}</span>
                       <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
