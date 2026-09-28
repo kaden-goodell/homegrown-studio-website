@@ -19,7 +19,15 @@ export const GET: APIRoute = async ({ request, url }) => {
   if (!DATE_RE.test(date)) return new Response(JSON.stringify({ error: 'Missing/invalid date' }), { status: 400 })
 
   try {
-    const events = await listEvents({ from: date, to: date })
+    const { events, sources } = await listEvents({ from: date, to: date })
+    // Both source systems down is a real outage — say so. One down still
+    // returns the other's events, with `sources` telling the console which
+    // half of the list it's missing (F2): a Square hiccup must not blank
+    // today's parties off the door screen.
+    if (sources.parties === 'error' && sources.workshops === 'error') {
+      logger.error('Events load failed — both sources unavailable', { date })
+      return new Response(JSON.stringify({ error: 'Couldn’t reach storage — check wifi and try again.' }), { status: 503 })
+    }
     const withCounts = await Promise.all(
       events.map(async (e) => {
         const rsvps = await listRsvpsByEvent(e.kind, e.id)
@@ -30,7 +38,7 @@ export const GET: APIRoute = async ({ request, url }) => {
         return { ...e, rsvpCount: rsvps.length, hereNow }
       }),
     )
-    return new Response(JSON.stringify({ data: { events: withCounts } }), {
+    return new Response(JSON.stringify({ data: { events: withCounts, sources } }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })

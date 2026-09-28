@@ -7,6 +7,9 @@ vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed }))
 const mockListEvents = vi.fn()
 vi.mock('@lib/events', () => ({ listEvents: (...a: any[]) => mockListEvents(...a), eventKey: (kind: string, id: string) => (kind === 'party' ? id : `${kind}:${id}`) }))
 
+/** `listEvents` now reports per-source health alongside the rows (F2). */
+const listing = (events: any[], sources: any = { parties: 'ok', workshops: 'ok' }) => ({ events, sources })
+
 const mockListRsvpsByEvent = vi.fn()
 vi.mock('@lib/rsvp-store', () => ({ listRsvpsByEvent: (...a: any[]) => mockListRsvpsByEvent(...a) }))
 
@@ -29,6 +32,7 @@ function emptyCheckin(): CheckinState {
     pickedUpBy: null,
     confirmedPickup: [],
     notAuthorized: '',
+    pickupSeeded: false,
     pickupCodeHash: null,
     codeAttempts: 0,
     lockedAt: null,
@@ -66,15 +70,15 @@ describe('GET /api/staff/events.json', () => {
   })
 
   it('passes date as both from and to to listEvents', async () => {
-    mockListEvents.mockResolvedValue([])
+    mockListEvents.mockResolvedValue(listing([]))
     await GET(ctx('?date=2026-10-20'))
     expect(mockListEvents).toHaveBeenCalledWith({ from: '2026-10-20', to: '2026-10-20' })
   })
 
   it('attaches rsvpCount from listRsvpsByEvent and hereNow from checkin presence', async () => {
-    mockListEvents.mockResolvedValue([
+    mockListEvents.mockResolvedValue(listing([
       { kind: 'party', id: 'party-1', title: 'Rivera Party', startIso: '2026-10-20T18:00:00.000Z', days: ['2026-10-20'], dropOff: false },
-    ])
+    ]))
     mockListRsvpsByEvent.mockResolvedValue([
       { waiverId: 'wvr_1', event: { kind: 'party', id: 'party-1' } },
       { waiverId: 'wvr_2', event: { kind: 'party', id: 'party-1' } },
@@ -94,9 +98,9 @@ describe('GET /api/staff/events.json', () => {
   })
 
   it('a checked-out person does not count toward hereNow', async () => {
-    mockListEvents.mockResolvedValue([
+    mockListEvents.mockResolvedValue(listing([
       { kind: 'workshop', id: 'ws-1', title: 'Pottery', startIso: '2026-10-20T18:00:00.000Z', days: ['2026-10-20'], dropOff: false },
-    ])
+    ]))
     mockListRsvpsByEvent.mockResolvedValue([{ waiverId: 'wvr_1', event: { kind: 'workshop', id: 'ws-1' } }])
     mockGetCheckin.mockResolvedValue(checkinOn('2026-10-20', { adult: { inAt: 'x', outAt: 'y' } }))
 
@@ -107,9 +111,9 @@ describe('GET /api/staff/events.json', () => {
   })
 
   it('hereNow only counts presence on the requested date, not other days of a multi-day event (HOM-213)', async () => {
-    mockListEvents.mockResolvedValue([
+    mockListEvents.mockResolvedValue(listing([
       { kind: 'workshop', id: 'ws-camp', title: 'Camp', startIso: '2026-10-20T18:00:00.000Z', days: ['2026-10-20', '2026-10-21'], dropOff: true },
-    ])
+    ]))
     mockListRsvpsByEvent.mockResolvedValue([{ waiverId: 'wvr_1', event: { kind: 'workshop', id: 'ws-camp' } }])
     // Present on day 2, but the request below is for day 1.
     mockGetCheckin.mockResolvedValue(checkinOn('2026-10-21', { 'child:0': { inAt: 'x', outAt: null } }))
@@ -121,6 +125,26 @@ describe('GET /api/staff/events.json', () => {
 
   it('returns 503 on a storage error', async () => {
     mockListEvents.mockRejectedValue(new Error('boom'))
+    const res = await GET(ctx('?date=2026-10-20'))
+    expect(res.status).toBe(503)
+  })
+
+  it('F2: one source down still returns the other source’s events, with sources reported', async () => {
+    mockListEvents.mockResolvedValue(
+      listing(
+        [{ kind: 'party', id: 'party-1', title: 'Rivera Party', startIso: '2026-10-20T18:00:00.000Z', days: ['2026-10-20'], dropOff: false }],
+        { parties: 'ok', workshops: 'error' },
+      ),
+    )
+    const res = await GET(ctx('?date=2026-10-20'))
+    expect(res.status).toBe(200)
+    const json = await res.json()
+    expect(json.data.events.map((e: any) => e.id)).toEqual(['party-1'])
+    expect(json.data.sources).toEqual({ parties: 'ok', workshops: 'error' })
+  })
+
+  it('F2: both sources down is a real outage — 503', async () => {
+    mockListEvents.mockResolvedValue(listing([], { parties: 'error', workshops: 'error' }))
     const res = await GET(ctx('?date=2026-10-20'))
     expect(res.status).toBe(503)
   })

@@ -2,12 +2,14 @@ import { useEffect, useState } from 'react'
 import { card, btn, Badge } from '@components/staff/ui'
 import { formatTime, formatCalendarDay } from '@lib/studio-time'
 import { addDays } from '@lib/kit-dates'
-import type { EventKind, StudioEvent } from '@lib/events'
+import type { EventKind, EventSources, StudioEvent } from '@lib/events'
 
 interface EventRow extends StudioEvent {
   rsvpCount: number
   hereNow: number
 }
+
+const SOURCE_LABEL: Record<keyof EventSources, string> = { parties: 'Parties', workshops: 'Workshops' }
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
 
@@ -27,6 +29,9 @@ export default function EventList({
   const [cursor, setCursor] = useState(date)
   const [events, setEvents] = useState<EventRow[]>([])
   const [error, setError] = useState<string | null>(null)
+  // Which source systems failed on the last successful load (F2) — one of
+  // them being down is a one-line note, not a red wall.
+  const [downSources, setDownSources] = useState<(keyof EventSources)[]>([])
   const [loading, setLoading] = useState(false)
 
   async function load(d: string) {
@@ -35,10 +40,13 @@ export default function EventList({
     try {
       const res = await fetch(`/api/staff/events.json?date=${d}`, { cache: 'no-store' })
       const json = await res.json().catch(() => null)
-      if (!res.ok) { setError(json?.error ?? 'Couldn’t load events.'); return }
+      if (!res.ok) { setError(json?.error ?? 'Couldn’t load events.'); setDownSources([]); return }
       setEvents(json.data.events)
+      const sources: Partial<EventSources> = json.data.sources ?? {}
+      setDownSources((Object.keys(SOURCE_LABEL) as (keyof EventSources)[]).filter((s) => sources[s] === 'error'))
     } catch {
       setError('Couldn’t reach storage — check wifi and try again.')
+      setDownSources([])
     } finally {
       setLoading(false)
     }
@@ -64,7 +72,22 @@ export default function EventList({
         </div>
       )}
 
-      {!loading && !error && events.length === 0 && (
+      {/* One source down — the rest of the list is real, so say what's missing
+          in one quiet line instead of blanking the day (F2). */}
+      {!error && downSources.length > 0 && (
+        <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0 0 0.6rem', fontWeight: 600 }}>
+          {downSources.map((s) => SOURCE_LABEL[s]).join(' and ')} unavailable right now —{' '}
+          <button
+            type="button"
+            onClick={() => load(cursor)}
+            style={{ ...btn(), padding: '0.15rem 0.45rem', fontSize: '0.78125rem' }}
+          >
+            Retry
+          </button>
+        </p>
+      )}
+
+      {!loading && !error && events.length === 0 && downSources.length === 0 && (
         <p style={{ color: 'var(--color-muted)' }}>
           {isToday ? 'Nothing scheduled today — walk-ins only.' : 'Nothing scheduled — walk-ins only.'}
         </p>
