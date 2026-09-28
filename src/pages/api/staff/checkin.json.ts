@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro'
 import { randomInt, createHash } from 'node:crypto'
 import { staffAuthorized, byOf } from '@lib/staff-auth'
-import { getEvent, eventKey, resolveEventDay, isLastEventDay, type EventKind } from '@lib/events'
+import { getEvent, eventKey, resolveEventDay, isLastEventDay, EVENT_KIND_RE, type EventKind } from '@lib/events'
 import { getWaiverRecord, normalizeAuthorizedPickup, type AuthorizedPickup, type WaiverRecord } from '@lib/waiver-store'
 import { getRsvp } from '@lib/rsvp-store'
 import { mutateCheckin, toPublicCheckin, childStillHere, type CheckinState } from '@lib/checkin-store'
@@ -16,7 +16,7 @@ export const prerender = false
 const hashCode = (code: string) => createHash('sha256').update('pickup:' + code).digest('hex')
 const newCode = () => String(randomInt(1000, 10000))
 
-const KIND_RE = /^(party|workshop|program)$/
+const KIND_RE = EVENT_KIND_RE
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 const OVERRIDE_REASON_RE = /^(called-parent|parent-present|other)$/
 
@@ -75,14 +75,29 @@ function normalizeForMatch(s: string): string {
     .replace(/\s+/g, ' ')
 }
 
-/** Substring match, either direction, on the normalized names — the
- *  may-NOT-collect gate (HOM-214). Free text on both sides, so this is
- *  deliberately fuzzy rather than an exact-name match. */
+/**
+ * Whole-word fuzzy match on the normalized names — the may-NOT-collect gate
+ * (HOM-214). Matches when the normalized strings are equal outright, or when
+ * every WORD of the shorter name is also a whole word in the longer one.
+ * Deliberately word-boundary rather than plain substring (fix round 1
+ * addendum, finding 8): a raw substring check let 'patrick smith'.includes
+ * ('rick') refuse a legitimate "Rick" forever. Word tokens fix that
+ * ("rick" is not a whole word in "patrick smith") while still catching the
+ * cases that matter: "rick smith" vs "Rick  Smith" (whitespace only), "R
+ * Smith" vs "R. Smith" (punctuation only), and a surname-only entry like
+ * "Smith" against a full "Rick Smith" — staff who only wrote down the last
+ * name still meant to block that whole family, so a bare surname keeps
+ * refusing on purpose.
+ */
 function fuzzyMatchesNotAuthorized(name: string, notAuthorized: string): boolean {
   const n = normalizeForMatch(name)
   const na = normalizeForMatch(notAuthorized)
   if (!n || !na) return false
-  return na.includes(n) || n.includes(na)
+  if (n === na) return true
+  const nWords = n.split(' ')
+  const naWords = na.split(' ')
+  const [shorter, longer] = nWords.length <= naWords.length ? [nWords, naWords] : [naWords, nWords]
+  return shorter.every((w) => longer.includes(w))
 }
 
 /**
@@ -212,7 +227,9 @@ export const POST: APIRoute = async ({ request }) => {
             if (!state.pickupCodeHash) {
               oneTimeCode = newCode()
               state.pickupCodeHash = hashCode(oneTimeCode)
-              state.events.push({ at: nowIso, action: 'code-sent', personIds: [], day, by })
+              // 'code-sent' is logged AFTER the SMS is actually attempted
+              // (fix round 1 addendum, finding 5) — see the post-mutation
+              // SMS block below.
             }
           }
           break
@@ -243,13 +260,15 @@ export const POST: APIRoute = async ({ request }) => {
           state.lockedAt = null
           state.events.push({ at: nowIso, action: 'reissue-code', personIds: [], note: isRotation ? 'rotated' : 'first issue', reason, day, by })
           if (wasLocked) state.events.push({ at: nowIso, action: 'unlocked', personIds: [], day, by })
-          state.events.push({ at: nowIso, action: 'code-sent', personIds: [], day, by })
+          // 'code-sent' is logged AFTER the SMS is actually attempted (fix
+          // round 1 addendum, finding 5) — see the post-mutation SMS block.
           break
         }
 
         case 'undo-checkin': {
           const ids = asIds(body?.personIds)
           const prevPresence = JSON.stringify(dayState.presence)
+          const wasLocked = !!state.lockedAt
           if (ids.length === 0) dayState.presence = {}
           else for (const id of ids) delete dayState.presence[id]
           const clearedIds = ids.length === 0 ? Object.keys(JSON.parse(prevPresence)) : ids
@@ -264,13 +283,24 @@ export const POST: APIRoute = async ({ request }) => {
             state.lockedAt = null
           }
           state.events.push({ at: nowIso, action: 'undo-checkin', personIds: clearedIds, note: `cleared: ${prevPresence}`, day, by })
+          // A Reset can silently clear an active lockout (fix round 1
+          // addendum, finding 6) — log it so the audit trail shows the lock
+          // was lifted and why, same as reissue-code's own 'unlocked' event.
+          if (wasLocked && !state.lockedAt) {
+            state.events.push({ at: nowIso, action: 'unlocked', personIds: [], note: 'reset via undo-checkin', day, by })
+          }
           break
         }
 
-        case 'set-pickup':
+        case 'set-pickup': {
+          // Log what actually changed (fix round 1 addendum, finding 7) —
+          // 'set-pickup' previously logged nothing about the edit itself.
+          const before = state.confirmedPickup.map((p) => p.name).join(', ') || '(none)'
           state.confirmedPickup = normalizeAuthorizedPickup(body?.confirmedPickup)
-          state.events.push({ at: nowIso, action: 'set-pickup', personIds: [], day, by })
+          const after = state.confirmedPickup.map((p) => p.name).join(', ') || '(none)'
+          state.events.push({ at: nowIso, action: 'set-pickup', personIds: [], note: `${before} → ${after}`, day, by })
           break
+        }
 
         case 'pickup': {
           const ids = asIds(body?.personIds).filter((id) => dayState.presence[id] && !dayState.presence[id].outAt)
@@ -333,7 +363,10 @@ export const POST: APIRoute = async ({ request }) => {
 
           for (const id of ids) {
             dayState.presence[id] = { ...dayState.presence[id], outAt: nowIso }
-            state.releasedTo[id] = { name: collectedBy, at: nowIso, day }
+            // Adults/non-drop-off leave `collectedBy` optional (§8) — don't
+            // write a placeholder "who collected" entry when no one gave a
+            // name (fix round 1 addendum, finding 9).
+            if (collectedBy) state.releasedTo[id] = { name: collectedBy, at: nowIso, day }
           }
           if (dropOff && ids.some(isChild)) {
             releasedKidIds = ids.filter(isChild)
@@ -409,7 +442,9 @@ export const POST: APIRoute = async ({ request }) => {
           if (dropOff && childStillHere(state, day) && !state.pickupCodeHash) {
             oneTimeCode = newCode()
             state.pickupCodeHash = hashCode(oneTimeCode)
-            state.events.push({ at: nowIso, action: 'code-sent', personIds: [], day, by })
+            // 'code-sent' is logged AFTER the SMS is actually attempted
+            // (fix round 1 addendum, finding 5) — see the post-mutation
+            // SMS block below.
           }
           state.events.push({ at: nowIso, action: 'undo-pickup', personIds: targets, day, by })
           break
@@ -450,6 +485,7 @@ export const POST: APIRoute = async ({ request }) => {
   // check-in/pickup succeed, just with `smsFailed: true` (HOM-214).
   let smsFailed = false
   if (oneTimeCode) {
+    let codeSendFailed = false
     try {
       await sendQuoText({
         to: signerPhone,
@@ -457,7 +493,28 @@ export const POST: APIRoute = async ({ request }) => {
       })
     } catch (err) {
       logger.error('Pickup-code text failed', { error: err instanceof Error ? err.message : String(err) })
+      codeSendFailed = true
       smsFailed = true
+    }
+    // Log the send AFTER it's actually attempted, with the true outcome
+    // (fix round 1 addendum, finding 5) — logging it inside the mutation
+    // above would claim a text went out even when Quo just threw. A second
+    // small append is safe here: it can't double-log on a retry, since
+    // mutateCheckin re-reads fresh state per attempt and only ever commits
+    // once.
+    try {
+      await mutateCheckin(evKey, recordId, (s) => {
+        s.events.push({
+          at: new Date().toISOString(),
+          action: 'code-sent',
+          personIds: [],
+          day,
+          by,
+          ...(codeSendFailed ? { note: 'send failed' } : {}),
+        })
+      })
+    } catch (err) {
+      logger.error('Failed to log code-sent event', { error: err instanceof Error ? err.message : String(err) })
     }
   }
   if (releasedKidIds.length > 0) {

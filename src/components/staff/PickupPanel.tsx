@@ -73,6 +73,9 @@ export default function PickupPanel({
   const showIdCheckbox = gated && collectedBy.trim() !== '' && !known
   const attemptsLeft = Math.max(0, 5 - h.checkin.codeAttempts)
   const locked = h.checkin.locked
+  // fix round 1 addendum, finding 10: the button's own required-collectedBy
+  // check, mirrored here so it's disabled before the server ever sees it.
+  const overrideDisabled = !collectedBy.trim() || !overrideReason || (overrideReason === 'other' && overrideText.trim().length < 5)
 
   function reset() {
     setCode('')
@@ -343,6 +346,20 @@ export default function PickupPanel({
               <button type="button" onClick={() => setOverrideOpen(false)} aria-label="Close" style={{ ...btn(), padding: '0.3rem 0.55rem' }}>✕</button>
             </div>
 
+            {/* Who's collecting — prefilled from the panel's chip/text, but
+                editable here too (fix round 1 addendum, finding 10): opening
+                Override before ever picking a chip left this blank with no
+                way to fill it in, so "Release without code" always 400'd. */}
+            <div style={{ marginTop: '0.8rem' }}>
+              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.3rem' }}>Who’s collecting?</label>
+              <input
+                value={collectedBy}
+                onChange={(e) => setCollectedBy(e.target.value)}
+                placeholder="Name"
+                style={{ ...field, width: '100%', boxSizing: 'border-box' }}
+              />
+            </div>
+
             <div style={{ marginTop: '0.8rem', display: 'flex', flexDirection: 'column', gap: '0.55rem' }}>
               {OVERRIDE_REASONS.map((r) => (
                 <label key={r.value} style={{ display: 'flex', alignItems: 'flex-start', gap: '0.5rem', fontSize: '0.875rem', color: 'var(--color-dark)', cursor: 'pointer' }}>
@@ -372,7 +389,7 @@ export default function PickupPanel({
 
             <button
               type="button"
-              disabled={busy || !overrideReason || (overrideReason === 'other' && overrideText.trim().length < 5)}
+              disabled={busy || overrideDisabled}
               onClick={doOverride}
               style={{
                 width: '100%',
@@ -385,7 +402,7 @@ export default function PickupPanel({
                 fontSize: '0.875rem',
                 fontWeight: 700,
                 cursor: 'pointer',
-                opacity: !overrideReason || (overrideReason === 'other' && overrideText.trim().length < 5) ? 0.5 : 1,
+                opacity: overrideDisabled ? 0.5 : 1,
               }}
             >
               Release without code

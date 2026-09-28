@@ -429,3 +429,127 @@ describe('POST /api/staff/checkin.json — pickup completion, fix round 1', () =
     expect(state.days['2026-09-05'].presence['child:0'].outAt).toBeFalsy()
   })
 })
+
+// ─── HOM-214 fix round 1 addendum (findings 5–9) ──────────────────────────
+
+describe('POST /api/staff/checkin.json — pickup completion, fix round 1 addendum', () => {
+  it('finding 5: a failed code text logs code-sent with note "send failed"', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    mockSendQuoText.mockRejectedValueOnce(new Error('Quo down'))
+
+    const res = await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    expect(res.status).toBe(200)
+    const codeSent = state.events.find((e) => e.action === 'code-sent')!
+    expect(codeSent.note).toBe('send failed')
+  })
+
+  it('finding 5: a successful code text logs code-sent with no failure note', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    const codeSent = state.events.find((e) => e.action === 'code-sent')!
+    expect(codeSent.note).toBeUndefined()
+  })
+
+  it('finding 6: a Reset (undo-checkin) that clears an active lock logs unlocked', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    state.lockedAt = new Date().toISOString()
+    state.codeAttempts = 5
+
+    const res = await dropOffPost({ action: 'undo-checkin' })
+    expect(res.status).toBe(200)
+    expect(state.lockedAt).toBeNull()
+    const unlocked = state.events.find((e) => e.action === 'unlocked')!
+    expect(unlocked.note).toBe('reset via undo-checkin')
+  })
+
+  it('finding 6: undo-checkin logs no unlocked event when there was no lock to clear', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+
+    const res = await dropOffPost({ action: 'undo-checkin' })
+    expect(res.status).toBe(200)
+    expect(state.events.some((e) => e.action === 'unlocked')).toBe(false)
+  })
+
+  it('finding 7: set-pickup logs the before → after names', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] }) // seeds confirmedPickup = [Grandma Rivera]
+
+    const res = await dropOffPost({
+      action: 'set-pickup',
+      confirmedPickup: [{ name: 'Grandma Rivera', phone: '2565550100' }, { name: 'Uncle Joe', phone: '' }],
+    })
+    expect(res.status).toBe(200)
+    const ev = state.events.find((e) => e.action === 'set-pickup')!
+    expect(ev.note).toBe('Grandma Rivera → Grandma Rivera, Uncle Joe')
+  })
+
+  it('finding 7: set-pickup logs "(none)" when the list is cleared to empty', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+
+    const res = await dropOffPost({ action: 'set-pickup', confirmedPickup: [] })
+    expect(res.status).toBe(200)
+    const ev = state.events.find((e) => e.action === 'set-pickup')!
+    expect(ev.note).toBe('Grandma Rivera → (none)')
+  })
+
+  it('finding 8: a legitimate name is not refused just because it is a substring of the may-not-collect name', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ notAuthorized: 'Patrick Smith' }))
+    const ci = await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    const code = (await ci.json()).data.oneTimeCode
+
+    const res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code, collectedBy: 'Rick', idChecked: true })
+    expect(res.status).toBe(200)
+  })
+
+  it('finding 8: "rick smith" still matches "Rick  Smith" (whitespace-only difference)', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ notAuthorized: 'Rick  Smith' }))
+    const ci = await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    const code = (await ci.json()).data.oneTimeCode
+
+    const res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code, collectedBy: 'rick smith', idChecked: true })
+    expect(res.status).toBe(400)
+  })
+
+  it('finding 8: "R Smith" still matches "R. Smith" (punctuation-only difference)', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ notAuthorized: 'R. Smith' }))
+    const ci = await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    const code = (await ci.json()).data.oneTimeCode
+
+    const res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code, collectedBy: 'R Smith', idChecked: true })
+    expect(res.status).toBe(400)
+  })
+
+  it('finding 8: a bare surname on the may-not-collect line still refuses a full matching name', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ notAuthorized: 'Smith' }))
+    const ci = await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    const code = (await ci.json()).data.oneTimeCode
+
+    const res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code, collectedBy: 'Rick Smith', idChecked: true })
+    expect(res.status).toBe(400)
+    expect(state.days['2026-09-05'].presence['child:0'].outAt).toBeFalsy()
+  })
+
+  it('finding 9: releasing an adult with no collectedBy writes no releasedTo entry', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    state.days['2026-09-05'] = { presence: { adult: { inAt: '2026-09-05T14:00:00.000Z', outAt: null } } }
+
+    const res = await dropOffPost({ action: 'pickup', personIds: ['adult'] })
+    expect(res.status).toBe(200)
+    expect(state.releasedTo.adult).toBeUndefined()
+  })
+})
