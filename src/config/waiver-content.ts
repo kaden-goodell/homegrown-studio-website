@@ -89,6 +89,10 @@ export const waiverContent = {
     agreementNote: 'Please read the full agreement below before checking the box.',
     releaseCheckboxLabel:
       'I have read and agree to the Participation Agreement above, including the release of liability and the indemnification for my listed children.',
+    /** Second checkbox, shown only for drop-off events with minors attending
+     *  (HOM-211) — never pre-checked, never merged with `releaseCheckboxLabel`. */
+    addendumCheckboxLabel:
+      'I have read and agree to the Drop-off Program Addendum for the minors I am registering.',
     signatureLabel: 'Type your full name to sign',
     signatureNote: 'Typing your name here acts as your legal signature.',
     submitLabel: 'Sign the agreement',
@@ -202,6 +206,79 @@ export const waiverContent = {
 /** Canonical serialization of the legal text — the string that gets hashed into records. */
 export function serializeAgreement(): string {
   return waiverContent.legalSections
+    .map((s) => `## ${s.heading}\n${s.body.join('\n')}`)
+    .join('\n\n')
+}
+
+/**
+ * Supplements Agreement §4(c) for studio-run drop-off programs (camps, kids'
+ * workshops, Parents' Night Out) — audit finding C3 (HOM-211): §4(c) disclaims
+ * supervision while staff are in fact supervising at these events. Attorney
+ * has approved the addendum approach (this text has not itself had attorney
+ * redline — treat the same way as the base agreement re: docs/NEEDS-FROM-KADEN.md).
+ * Shown + accepted only when a drop-off event has a minor attending
+ * (`@lib/addendum`'s `addendumRequired`) — separately versioned and hashed
+ * from the main agreement so a change here doesn't force every household to
+ * re-sign the base Participation Agreement.
+ *
+ * Bump `version` (a1 → a2 …) on ANY change to `sections`, same rule as
+ * `waiverContent.version` — archive the new text to
+ * docs/waiver-versions/addendum-aN.md and recompute docs/waiver-versions/hashes.json
+ * in the same commit (see docs/waiver-versions/README.md).
+ */
+export const dropOffAddendum = {
+  version: 'a1',
+  title: 'Drop-off Program Addendum',
+  sections: [
+    {
+      heading: 'Preamble',
+      body: [
+        "This addendum applies when I register a listed minor for a designated Studio drop-off program (for example, a camp, a kids' workshop, or Parents' Night Out). The Participation Agreement remains in full effect; §4(c) is supplemented as follows for that program only.",
+      ],
+    },
+    {
+      heading: '1. Supervision',
+      body: [
+        "During the program's posted hours, Studio staff supervise participating minors in the Studio's craft space. Supervision is group supervision of a structured craft activity; it is not medical care or one-on-one care.",
+      ],
+    },
+    {
+      heading: '2. Drop-off and pickup',
+      body: [
+        'I will check each minor in with Studio staff at drop-off. Each minor will be released only (a) to me, or (b) to an adult I have named as authorized, who presents the pickup code issued at check-in and, if not personally known to staff, photo identification. If the person collecting my child cannot provide the code, the Studio will attempt to reach me at the phone number on file before releasing the child, and may decline release until it does. I will tell the Studio in writing of anyone who may NOT collect my child, and I will provide a copy of any court order that restricts custody or contact.',
+      ],
+    },
+    {
+      heading: '3. Late pickup',
+      body: [
+        'Programs end at the posted time. If a minor has not been collected 15 minutes after the end time, the Studio will call me and then my emergency contact, and a late fee of $1 per minute applies from the end of the grace period.',
+      ],
+    },
+    {
+      heading: '4. Health',
+      body: [
+        "I have disclosed all allergies, medical conditions and medications relevant to my child's safety. The Studio does not administer medication; a minor who needs medication during the program must be able to self-administer, or I will arrange to come in. I will not bring a child who is ill, and the Studio may ask me to collect a child who becomes ill or whose behavior is unsafe for the group.",
+      ],
+    },
+    {
+      heading: '5. Emergencies',
+      body: [
+        'The medical authorization in §5 of the Participation Agreement applies. Staff will call me as soon as practical after any injury or incident and will give me a written note of what happened.',
+      ],
+    },
+    {
+      heading: '6. Program terms',
+      body: [
+        'Capacity is limited to 12 minors with at least two adult staff present. The Studio may cancel a program for insufficient enrollment or staffing, with a full refund as its sole obligation.',
+      ],
+    },
+  ] satisfies WaiverSection[],
+}
+
+/** Canonical serialization of the addendum text — same scheme as
+ *  `serializeAgreement()`, so `addendum-a1.md` is derivable from this. */
+export function serializeAddendum(): string {
+  return dropOffAddendum.sections
     .map((s) => `## ${s.heading}\n${s.body.join('\n')}`)
     .join('\n\n')
 }

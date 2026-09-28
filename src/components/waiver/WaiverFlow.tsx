@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { waiverContent } from '@config/waiver-content'
+import { waiverContent, dropOffAddendum } from '@config/waiver-content'
 import { formatCalendarDate } from '@lib/studio-time'
 
 interface Props {
@@ -70,6 +70,17 @@ const sectionNoteStyle: React.CSSProperties = {
   lineHeight: 1.5,
 }
 
+/** Scrollable legal-text box — shared by the agreement and the drop-off
+ *  addendum so they read as the same kind of thing. */
+const scrollBoxStyle: React.CSSProperties = {
+  maxHeight: '20rem',
+  overflowY: 'auto',
+  border: '1px solid rgba(150, 112, 91, 0.18)',
+  borderRadius: '0.75rem',
+  padding: '1rem 1.1rem',
+  background: 'rgba(255, 255, 255, 0.9)',
+}
+
 const cardStyle: React.CSSProperties = {
   background: 'rgba(255, 255, 255, 0.72)',
   backdropFilter: 'blur(14px)',
@@ -79,6 +90,55 @@ const cardStyle: React.CSSProperties = {
   padding: '1.5rem',
   boxShadow: '0 18px 44px rgba(150, 112, 91, 0.12)',
   marginBottom: '1.25rem',
+}
+
+/** Drop-off Program Addendum card — full text + its own unchecked checkbox
+ *  (HOM-211). Rendered identically on the fresh-form path (after the main
+ *  agreement) and the returning-RSVP path (above the roster); never
+ *  pre-checked, never merged with the release checkbox. */
+function AddendumCard({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  const { form } = waiverContent
+  return (
+    <div style={cardStyle}>
+      <h2 style={sectionHeadingStyle}>{dropOffAddendum.title}</h2>
+      <div style={scrollBoxStyle}>
+        {dropOffAddendum.sections.map((section) => (
+          <div key={section.heading} style={{ marginBottom: '1rem' }}>
+            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-dark)', margin: '0 0 0.35rem' }}>
+              {section.heading}
+            </h3>
+            {section.body.map((para, i) => (
+              <p key={i} style={{ fontSize: '0.8125rem', color: 'var(--color-dark)', lineHeight: 1.6, margin: '0 0 0.5rem' }}>
+                {para}
+              </p>
+            ))}
+          </div>
+        ))}
+      </div>
+      <label
+        style={{
+          display: 'flex',
+          gap: '0.65rem',
+          alignItems: 'flex-start',
+          fontSize: '0.875rem',
+          color: 'var(--color-dark)',
+          lineHeight: 1.5,
+          cursor: 'pointer',
+          marginTop: '1rem',
+        }}
+      >
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+          style={{ marginTop: '0.2rem' }}
+        />
+        <span>
+          <strong>{form.addendumCheckboxLabel}</strong>
+        </span>
+      </label>
+    </div>
+  )
 }
 
 /** Pill shown above the flow content so guests can confirm which party they're RSVPing to. */
@@ -121,6 +181,9 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const [adultAllergies, setAdultAllergies] = useState('')
   const [photoConsent, setPhotoConsent] = useState<boolean | null>(null)
   const [agreeRelease, setAgreeRelease] = useState(false)
+  // Drop-off Program Addendum checkbox (HOM-211) — separate from agreeRelease,
+  // shown only when a drop-off event has a minor attending.
+  const [agreeAddendum, setAgreeAddendum] = useState(false)
   const [signature, setSignature] = useState('')
   const [responsibleAdult, setResponsibleAdult] = useState('')
   // Kids crafting without the signer on the list: is the signer still coming
@@ -181,6 +244,11 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const effectiveResponsibleAdult = (signerName: string) =>
     signerPresent === true ? `${signerName} (there, not crafting)` : responsibleAdult.trim()
 
+  // Drop-off Program Addendum (HOM-211): required only when the event is a
+  // drop-off program AND a minor is actually attending — mirrors the
+  // server's `addendumRequired`. Adult-only drop-off attendance never needs it.
+  const addendumNeededFresh = !!dropOff && minors.some((_, i) => formComing(`child:${i}`))
+
   // Same rule for the returning path (needed at payload-build scope).
   const returningKidsWithoutSigner =
     !!partyId &&
@@ -189,6 +257,10 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     returning.kids.length > 0 &&
     attending['adult'] === false &&
     returning.kids.some((_, i) => !!attending[`child:${i}`])
+
+  // Same addendum rule as the fresh path, evaluated against the returning
+  // household's roster instead of the freshly-typed minors list.
+  const addendumNeededReturning = !!dropOff && !!returning && returning.kids.some((_, i) => !!attending[`child:${i}`])
 
   /** One gentle question when kids are crafting and the signer isn't: are you
    *  still coming (watching), or is another adult bringing them? The name input
@@ -274,9 +346,10 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       m.push("the adult who’ll be with your child at the party")
     }
     if (!agreeRelease) m.push('the checkbox agreeing to the terms')
+    if (addendumNeededFresh && !agreeAddendum) m.push('the Drop-off Program Addendum checkbox')
     if (!signatureMatches) m.push('your typed signature (must match your name exactly)')
     return m
-  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, signatureMatches, partyId, formAttending, kidsWithoutSigner, signerPresent, responsibleAdult])
+  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, addendumNeededFresh, agreeAddendum, signatureMatches, partyId, formAttending, kidsWithoutSigner, signerPresent, responsibleAdult])
 
   const canSubmit = missing.length === 0 && !submitting
 
@@ -310,6 +383,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           adultAllergies: adultAllergies.trim(),
           photoConsent,
           agreeRelease,
+          agreeAddendum,
           signature: signature.trim(),
           partyId: partyId ?? null,
           workshopId: workshopId ?? null,
@@ -401,6 +475,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           booking: booking ?? null,
           attending: Object.entries(attending).filter(([, coming]) => coming).map(([id]) => id),
           responsibleAdult: returningKidsWithoutSigner ? effectiveResponsibleAdult(returning.firstName) : '',
+          agreeAddendum,
         }),
       })
       const json = await res.json().catch(() => null)
@@ -442,7 +517,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     setMinors([])
     setEmergencyName(''); setEmergencyPhone(''); setEmergencyRelationship('')
     setAuthorizedPickup(''); setAdultAllergies('')
-    setPhotoConsent(null); setAgreeRelease(false); setSignature('')
+    setPhotoConsent(null); setAgreeRelease(false); setAgreeAddendum(false); setSignature('')
     setResponsibleAdult(''); setSignerPresent(null)
     setError(null); setFormNotice(null); setDone(null)
     try {
@@ -640,6 +715,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     return (
       <div style={{ maxWidth: '30rem', margin: '0 auto' }}>
         {partyLabel && <PartyLabelChip label={partyLabel} />}
+        {addendumNeededReturning && <AddendumCard checked={agreeAddendum} onChange={setAgreeAddendum} />}
         <div style={{ ...cardStyle, marginBottom: 0, textAlign: 'center' }}>
         <h2 style={{ ...sectionHeadingStyle, fontSize: '1.375rem' }}>Welcome back, {returning.firstName}! 🎉</h2>
         <p style={{ ...sectionNoteStyle, maxWidth: '24rem', margin: '0.25rem auto 1.25rem' }}>
@@ -700,7 +776,8 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
             const needsAdult =
               returningKidsWithoutSigner &&
               (signerPresent === null || (signerPresent === false && !responsibleAdult.trim()))
-            const disabled = submitting || noneComing || needsAdult
+            const needsAddendum = addendumNeededReturning && !agreeAddendum
+            const disabled = submitting || noneComing || needsAdult || needsAddendum
             return (
               <button
                 type="button"
@@ -780,16 +857,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       <div style={cardStyle}>
         <h2 style={sectionHeadingStyle}>{form.agreementHeading}</h2>
         <p style={sectionNoteStyle}>{form.agreementNote}</p>
-        <div
-          style={{
-            maxHeight: '20rem',
-            overflowY: 'auto',
-            border: '1px solid rgba(150, 112, 91, 0.18)',
-            borderRadius: '0.75rem',
-            padding: '1rem 1.1rem',
-            background: 'rgba(255, 255, 255, 0.9)',
-          }}
-        >
+        <div style={scrollBoxStyle}>
           {legalSections.map((section) => (
             <div key={section.heading} style={{ marginBottom: '1rem' }}>
               <h3 style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-dark)', margin: '0 0 0.35rem' }}>
@@ -804,6 +872,10 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           ))}
         </div>
       </div>
+
+      {/* Drop-off Program Addendum — only for drop-off events with a minor
+          attending; its own card, its own checkbox (HOM-211). */}
+      {addendumNeededFresh && <AddendumCard checked={agreeAddendum} onChange={setAgreeAddendum} />}
 
       {/* About you */}
       <div style={cardStyle}>

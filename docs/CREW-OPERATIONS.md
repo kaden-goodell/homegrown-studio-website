@@ -108,6 +108,10 @@ in Linear HOM-99 (licensing) and HOM-114 (safeguards).
   + emergency contact + allergies) is on file before the child is left.
 - Maintain an **authorized-pickup list**; release a child only to a listed adult. If you
   don't recognize the person, check photo ID against the list.
+- The signing parent also accepts the **Drop-off Program Addendum** (HOM-211) at
+  registration — it's what governs this section's pickup-code release and the **$1/minute
+  late fee after a 15-minute grace period**. (Full rewrite of this section covered in a
+  later ticket.)
 
 **Mandatory reporting:**
 - Every staffer is a **mandated reporter** (Ala. Code §26-14-3). If you suspect abuse or

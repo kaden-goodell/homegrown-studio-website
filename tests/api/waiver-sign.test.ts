@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { dropOffAddendum } from '@config/waiver-content'
 
 // --- Module mocks set up before any import ---
 
@@ -272,10 +273,129 @@ describe('POST /api/waiver/sign.json', () => {
         minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
         attending: ['child:0'],
         responsibleAdult: '',
+        agreeAddendum: true,
       })
       const ctx = createMockContext(body)
       const res = await POST(ctx)
       expect(res.status).toBe(200)
+    })
+  })
+
+  describe('drop-off addendum (HOM-211)', () => {
+    it('drop-off event + a minor attending + no addendum acceptance → 400, nothing written', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      const body = makeAdultBody({
+        partyId: 'party-123',
+        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
+        attending: ['adult', 'child:0'],
+        agreeAddendum: false,
+      })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(400)
+      const json = await res.json()
+      expect(json.error).toMatch(/Drop-off Program Addendum/i)
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+      expect(mockUpsertRsvp).not.toHaveBeenCalled()
+    })
+
+    it('drop-off event + a minor attending + addendum accepted → RSVP carries addendumVersion/addendumSha256, response echoes addendumAccepted', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      const body = makeAdultBody({
+        partyId: 'party-123',
+        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
+        attending: ['adult', 'child:0'],
+        agreeAddendum: true,
+      })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          addendumVersion: dropOffAddendum.version,
+          addendumSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+      )
+      const [rsvpArgs] = mockUpsertRsvp.mock.calls[0]
+      const json = await res.json()
+      expect(json.data.addendumAccepted).toEqual({
+        version: dropOffAddendum.version,
+        sha256: rsvpArgs.addendumSha256,
+      })
+    })
+
+    it('non-drop-off event ignores agreeAddendum entirely — no error, no addendum fields written', async () => {
+      const body = makeAdultBody({
+        partyId: 'party-123',
+        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
+        attending: ['adult', 'child:0'],
+        agreeAddendum: false,
+      })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(
+        expect.objectContaining({ addendumVersion: null, addendumSha256: null }),
+      )
+      const json = await res.json()
+      expect(json.data.addendumAccepted).toBeNull()
+    })
+
+    it('drop-off event but no minor attending (adult-only) skips the requirement', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      const body = makeAdultBody({
+        partyId: 'party-123',
+        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
+        attending: ['adult'],
+        agreeAddendum: false,
+      })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(
+        expect.objectContaining({ addendumVersion: null, addendumSha256: null }),
+      )
+    })
+
+    it('returning path also enforces it: drop-off + minor attending + no addendum acceptance → 400', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      const body = {
+        reuseRecordId: 'wvr_source_abc',
+        reuseToken: 'valid-token',
+        partyId: 'party-123',
+        attending: ['adult', 'child:0'],
+        responsibleAdult: '',
+        agreeAddendum: false,
+      }
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(400)
+      const json = await res.json()
+      expect(json.error).toMatch(/Drop-off Program Addendum/i)
+      expect(mockUpsertRsvp).not.toHaveBeenCalled()
+    })
+
+    it('returning path with addendum accepted writes the addendum fields on the RSVP', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      const body = {
+        reuseRecordId: 'wvr_source_abc',
+        reuseToken: 'valid-token',
+        partyId: 'party-123',
+        attending: ['adult', 'child:0'],
+        responsibleAdult: '',
+        agreeAddendum: true,
+      }
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          addendumVersion: dropOffAddendum.version,
+          addendumSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
+        }),
+      )
     })
   })
 
