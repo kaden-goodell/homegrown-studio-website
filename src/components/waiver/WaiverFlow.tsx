@@ -242,12 +242,15 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const effectiveResponsibleAdult = (signerName: string) =>
     signerPresent === true ? `${signerName} (there, not crafting)` : responsibleAdult.trim()
 
-  // Drop-off Program Addendum (HOM-211): required only when the event is a
-  // drop-off program AND a minor is actually attending — mirrors the
-  // server's `addendumRequired`. Adult-only drop-off attendance never needs it.
-  const addendumNeededFresh = !!dropOff && minors.some((_, i) => formComing(`child:${i}`))
-
-  // Same rule for the returning path (needed at payload-build scope).
+  // Drop-off Program Addendum (HOM-211) on the fresh path: required whenever
+  // the event is drop-off, full stop — deliberately stricter client-side
+  // than the server's minors-only `addendumRequired` (an adult-only
+  // drop-off registration never needs it server-side, but always showing/
+  // requiring it here is harmless and avoids the card popping in/out as
+  // minors are added or removed).
+  //
+  // Same "needs a minor attending" rule for the returning path (left as-is —
+  // it already sits above the roster, so there's no fold-visibility issue).
   const returningKidsWithoutSigner =
     !!partyId &&
     !dropOff &&
@@ -348,7 +351,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       m.push("the adult who’ll be with your child at the party")
     }
     if (!agreeRelease) m.push('the checkbox agreeing to the terms')
-    if (addendumNeededFresh && !agreeAddendum) m.push('the Drop-off Program Addendum checkbox')
+    if (dropOff && !agreeAddendum) m.push('the Drop-off Program Addendum checkbox')
     if (dropOff && pickupRows.some((r) => r.name.trim() && r.name.trim().length < 2)) {
       m.push('a full name (2+ characters) for each pickup person')
     }
@@ -357,7 +360,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     }
     if (!signatureMatches) m.push('your typed signature (must match your name exactly)')
     return m
-  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, addendumNeededFresh, agreeAddendum, signatureMatches, partyId, formAttending, kidsWithoutSigner, signerPresent, responsibleAdult, dropOff, pickupRows])
+  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, agreeAddendum, signatureMatches, partyId, formAttending, kidsWithoutSigner, signerPresent, responsibleAdult, dropOff, pickupRows])
 
   const canSubmit = missing.length === 0 && !submitting
 
@@ -911,10 +914,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         </div>
       </div>
 
-      {/* Drop-off Program Addendum — only for drop-off events with a minor
-          attending; its own card, its own checkbox (HOM-211). */}
-      {addendumNeededFresh && <AddendumCard checked={agreeAddendum} onChange={setAgreeAddendum} />}
-
       {/* About you */}
       <div style={cardStyle}>
         <h2 style={sectionHeadingStyle}>{form.adultHeading}</h2>
@@ -1130,6 +1129,15 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           {kidsWithoutSigner && presenceBlock('wv')}
         </div>
       )}
+
+      {/* Drop-off Program Addendum (HOM-211) — its own card, its own
+          checkbox. Rendered whenever the event is drop-off, regardless of
+          whether a minor has been added yet (a Task 5 review fix: gating on
+          minors.some(formComing) made it invisible on first load and popped
+          it in below the fold once a child was added). Sits immediately
+          above the assent/signature card — the last thing before the
+          release checkbox. */}
+      {dropOff && <AddendumCard checked={agreeAddendum} onChange={setAgreeAddendum} />}
 
       {/* Assent + signature */}
       <div style={cardStyle}>
