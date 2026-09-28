@@ -106,6 +106,24 @@ describe('GET /api/staff/coverage.json', () => {
     expect(h.validUntil).toBe('2099-01-01T00:00:00.000Z')
   })
 
+  it('includes a contactHint (phone last-4) to disambiguate namesakes in a multi-match list', async () => {
+    mockLookupHouseholdsByName.mockResolvedValue([
+      household({ recordId: 'wvr_a', firstName: 'Sam', phone: '2565550142' }),
+      household({ recordId: 'wvr_b', firstName: 'Sam', phone: '2565559911' }),
+    ])
+    const res = await GET(ctx('?q=rivera'))
+    const json = await res.json()
+    expect(json.data.households[0].contactHint).toBe('••• 0142')
+    expect(json.data.households[1].contactHint).toBe('••• 9911')
+  })
+
+  it('falls back to email for contactHint when there is no phone', async () => {
+    mockLookupHouseholdEntry.mockResolvedValue(household({ phone: '', email: 'sam@example.com' }))
+    const res = await GET(ctx('?q=sam@example.com'))
+    const json = await res.json()
+    expect(json.data.households[0].contactHint).toBe('sam@example.com')
+  })
+
   it('EXPIRED: covered is false for a lapsed agreement', async () => {
     mockLookupHouseholdEntry.mockResolvedValue(household({ validUntil: '2020-01-01T00:00:00.000Z' }))
     const res = await GET(ctx('?q=2565550142'))

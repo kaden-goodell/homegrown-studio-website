@@ -15,6 +15,9 @@ interface HouseholdMatch {
   recordId: string
   firstName: string
   lastName: string
+  /** Phone last-4 or email — lets the crew tell apart two different
+   *  households that happen to share a full name. */
+  contactHint: string
   signedAt: string
   agreementVersion: string
   validUntil: string
@@ -241,7 +244,10 @@ export default function DoorSearch({ onCheckedIn }: { onCheckedIn: () => void })
                 onClick={() => setSelectedId(h.recordId)}
                 style={{ ...card, background: 'rgba(255,255,255,0.85)', width: '100%', textAlign: 'left', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', minHeight: '2.75rem' }}
               >
-                <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{h.firstName} {h.lastName}</span>
+                <span>
+                  <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{h.firstName} {h.lastName}</span>
+                  {h.contactHint && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--color-muted)' }}>{h.contactHint}</span>}
+                </span>
                 <span style={{ fontSize: '0.75rem', color: h.covered ? 'rgb(21,128,61)' : 'rgb(180,120,20)', fontWeight: 700 }}>
                   {h.covered ? 'good to go' : 'expired'}
                 </span>

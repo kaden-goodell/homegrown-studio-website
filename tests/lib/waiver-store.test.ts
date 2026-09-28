@@ -412,6 +412,41 @@ describe('indexWaiverByContact — last-name index', () => {
     expect(matches).toHaveLength(1)
     expect(matches[0].recordId).toBe(newer.id)
   })
+
+  // Fix round 1: two DIFFERENT customers sharing the exact same full name
+  // must both come back — dedupe is by contact identity, never by the name
+  // string, or the second household becomes unreachable by search.
+  it('two different customers with the same full name but different emails both come back', async () => {
+    const last = `Rivera${Date.now()}`
+    const alice = makeRecord({ id: `wvr_namesake_a_${Date.now()}`, lastName: last, firstName: 'Sam', email: `sam-a-${Date.now()}@example.com` })
+    const bob = makeRecord({ id: `wvr_namesake_b_${Date.now()}`, lastName: last, firstName: 'Sam', email: `sam-b-${Date.now()}@example.com` })
+
+    await mod.saveWaiverRecord(alice)
+    await mod.indexWaiverByContact(alice)
+    await mod.saveWaiverRecord(bob)
+    await mod.indexWaiverByContact(bob)
+
+    const found = await mod.lookupHouseholdsByName(last)
+    const ids = found.map((h) => h.recordId).sort()
+    expect(ids).toEqual([alice.id, bob.id].sort())
+  })
+
+  it('the same contact re-signing under the same name still collapses to their newest record (via email, not name)', async () => {
+    const last = `Same${Date.now()}`
+    const email = `same-${Date.now()}@example.com`
+    const older = makeRecord({ id: `wvr_same_old_${Date.now()}`, lastName: last, firstName: 'Sam', email })
+    older.signedAt = new Date(Date.now() - 1e9).toISOString()
+    const newer = { ...older, id: `wvr_same_new_${Date.now()}`, signedAt: new Date().toISOString() }
+
+    await mod.saveWaiverRecord(older)
+    await mod.indexWaiverByContact(older)
+    await mod.saveWaiverRecord(newer)
+    await mod.indexWaiverByContact(newer)
+
+    const found = await mod.lookupHouseholdsByName(last)
+    expect(found).toHaveLength(1)
+    expect(found[0].recordId).toBe(newer.id)
+  })
 })
 
 // ─── upsertWaiverInEventIndex CAS retry ──────────────────────────────────────

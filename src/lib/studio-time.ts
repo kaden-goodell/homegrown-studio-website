@@ -72,13 +72,16 @@ export function formatMonthYear(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: TZ })
 }
 
-/** "Sat, Oct 17" — calendar date display from a YYYY-MM-DD string. Pure local
- *  calendar math (no timezone conversion) — the input is already a
- *  studio-local date, so constructing a local Date from its parts and
- *  formatting without a timeZone option is correct on any host machine. */
+/** "Sat Oct 17" (no comma — matches the Today header's exact wording) —
+ *  calendar date display from a YYYY-MM-DD string. Pure local calendar math
+ *  (no timezone conversion) — the input is already a studio-local date, so
+ *  constructing a local Date from its parts and formatting without a
+ *  timeZone option is correct on any host machine. */
 export function formatCalendarDay(ymd: string): string {
   const [y, m, d] = ymd.split('-').map(Number)
-  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  return new Date(y, m - 1, d)
+    .toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    .replace(',', '')
 }
 
 /** "Sat, Aug 8, 12:00 PM" — dashboard/console rows (no CT suffix). */

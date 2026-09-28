@@ -9,6 +9,15 @@ export const prerender = false
 
 const logger = createLogger('api:staff:coverage')
 
+/** "••• 0142" (phone last-4) or the email if there's no phone — a
+ *  disambiguator for the multi-match picker when a last-name search returns
+ *  two different households that happen to share a full name. */
+function contactHint(h: HouseholdOnFile): string {
+  const digits = h.phone.replace(/\D/g, '')
+  if (digits.length >= 4) return `••• ${digits.slice(-4)}`
+  return h.email || ''
+}
+
 /**
  * GET ?q=phone|email|last-name → { households: [...] } — the door check for
  * walk-ins, workshops, and Open Studio (HOM-208). A phone or email resolves
@@ -44,6 +53,7 @@ export const GET: APIRoute = async ({ request, url }) => {
     recordId: h.recordId,
     firstName: h.firstName,
     lastName: h.lastName,
+    contactHint: contactHint(h),
     signedAt: h.signedAt,
     agreementVersion: h.agreementVersion,
     validUntil: h.validUntil,

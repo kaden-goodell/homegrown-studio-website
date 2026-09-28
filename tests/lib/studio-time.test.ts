@@ -61,8 +61,8 @@ describe('formatMonthYear', () => {
 })
 
 describe('formatCalendarDay', () => {
-  it('renders "Sat, Aug 8" for a YYYY-MM-DD studio-local date', () => {
-    expect(formatCalendarDay('2026-08-08')).toBe('Sat, Aug 8')
+  it('renders "Sat Aug 8" (no comma) for a YYYY-MM-DD studio-local date', () => {
+    expect(formatCalendarDay('2026-08-08')).toBe('Sat Aug 8')
   })
 })
 

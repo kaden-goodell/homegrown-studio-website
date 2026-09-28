@@ -355,21 +355,31 @@ export async function indexWaiverByName(record: WaiverRecord): Promise<void> {
  * Every household on file whose last name matches (normalized). A household
  * that has re-signed more than once collapses to its most recent record so
  * staff see one row per household, not one per re-sign.
+ *
+ * Dedupes by CONTACT IDENTITY (`contactKeyOf` — normalized email, else
+ * last-10 phone, else record id), never by the name string: two different
+ * customers who happen to share a full name ("Sam Rivera") are different
+ * households and MUST both come back, or the second one becomes unreachable
+ * by name search — a kids'-safety lookup, not a display nicety. Results are
+ * sorted newest-signed-first so a re-picked list reads sensibly.
  */
 export async function lookupHouseholdsByName(lastName: string): Promise<HouseholdOnFile[]> {
   const raw = await rawGet(nameIndexKey(lastName))
   if (!raw) return []
   const entries: NameIndexEntry[] = JSON.parse(raw)
-  const latest = new Map<string, HouseholdOnFile>()
+  const latest = new Map<string, { record: WaiverRecord; household: HouseholdOnFile }>()
   for (const e of entries) {
     const record = await getWaiverRecord(e.recordId)
     if (!record) continue
-    const h = householdFrom(record)
-    const dedupeKey = `${h.firstName.trim().toLowerCase()}|${h.lastName.trim().toLowerCase()}`
+    const dedupeKey = contactKeyOf(record)
     const prev = latest.get(dedupeKey)
-    if (!prev || new Date(h.signedAt).getTime() > new Date(prev.signedAt).getTime()) latest.set(dedupeKey, h)
+    if (!prev || record.signedAt > prev.record.signedAt) {
+      latest.set(dedupeKey, { record, household: householdFrom(record) })
+    }
   }
   return [...latest.values()]
+    .sort((a, b) => b.record.signedAt.localeCompare(a.record.signedAt))
+    .map((v) => v.household)
 }
 
 /** Latest household on file for an email or phone, only if still valid at `now`. */
