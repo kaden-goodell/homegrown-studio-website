@@ -54,6 +54,7 @@ export interface CheckinEvent {
     | 'pickup-override'
     | 'locked'
     | 'unlocked'
+    | 'incident'
   personIds: string[]
   /** @deprecated legacy free-text "collected by" note. New pickup/
    *  pickup-override events write `collectedBy` instead (HOM-214). */
@@ -71,6 +72,9 @@ export interface CheckinEvent {
   /** Studio-local day (YYYY-MM-DD) this action applied to (HOM-213). Absent
    *  on events recorded before multi-day rosters existed. */
   day?: string
+  /** On an `incident` action, the `IncidentRecord.id` this entry cross-
+   *  references (HOM-215) — the full report lives in `incident-store`. */
+  incidentId?: string
 }
 
 export interface CheckinState {

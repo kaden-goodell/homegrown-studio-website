@@ -6,6 +6,7 @@ import { card, btn, field, Badge } from '@components/staff/ui'
 import { formatWhen, studioDate } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
 import type { EventKind, StudioEvent } from '@lib/events'
+import type { IncidentRecord } from '@lib/incident-store'
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
 const DROP_OFF_CAP = 12
@@ -53,6 +54,8 @@ export default function Roster({
   const [stale, setStale] = useState(false)
   const [query, setQuery] = useState('')
   const [eventSettingsOpen, setEventSettingsOpen] = useState(false)
+  const [incidents, setIncidents] = useState<IncidentRecord[]>([])
+  const [incidentsOpen, setIncidentsOpen] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // The last day we asked the server for — used by `refresh`/the poll so they
   // keep showing whatever day staff is looking at, not silently jump to
@@ -102,6 +105,17 @@ export default function Roster({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, id])
 
+  // Incident badge (HOM-215) — loaded once per event, independent of the
+  // roster poll; a silent miss just means the badge doesn't show this tick.
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/staff/incidents.json?kind=${kind}&id=${encodeURIComponent(id)}`, { cache: 'no-store' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => { if (!cancelled && json) setIncidents(json.data.incidents ?? []) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [kind, id])
+
   async function post(recordId: string, extra: any): Promise<{ error?: string; oneTimeCode?: string; smsFailed?: boolean }> {
     if (!data) return {}
     try {
@@ -111,20 +125,28 @@ export default function Roster({
         body: JSON.stringify({ kind, id, recordId, day: data.day, ...extra }),
       })
       const json = await res.json().catch(() => null)
-      if (!res.ok) return { error: json?.error ?? 'Something went wrong.' }
-      const respDay = typeof json.data.day === 'string' ? json.data.day : data.day
-      const checkinForCard: Checkin = {
-        expected: json.data.checkin.expected,
-        presence: json.data.checkin.days?.[respDay]?.presence ?? {},
-        pickedUpBy: json.data.checkin.pickedUpBy,
-        confirmedPickup: json.data.checkin.confirmedPickup,
-        notAuthorized: json.data.checkin.notAuthorized,
-        hasPickupCode: json.data.checkin.hasPickupCode,
-        codeAttempts: json.data.checkin.codeAttempts ?? 0,
-        locked: !!json.data.checkin.locked,
-        releasedTo: json.data.checkin.releasedTo ?? {},
+      // A pickup-denial/lock response (HOM-214 fix round 1) carries the
+      // household's live checkin state too — top-level, not under `data`,
+      // same as every other error body in this endpoint — so the tries-left/
+      // locked UI updates immediately instead of waiting for the 30s poll.
+      const checkinPayload = json?.data?.checkin ?? json?.checkin
+      const dayPayload = json?.data?.day ?? json?.day
+      if (checkinPayload) {
+        const respDay = typeof dayPayload === 'string' ? dayPayload : data.day
+        const checkinForCard: Checkin = {
+          expected: checkinPayload.expected,
+          presence: checkinPayload.days?.[respDay]?.presence ?? {},
+          pickedUpBy: checkinPayload.pickedUpBy,
+          confirmedPickup: checkinPayload.confirmedPickup,
+          notAuthorized: checkinPayload.notAuthorized,
+          hasPickupCode: checkinPayload.hasPickupCode,
+          codeAttempts: checkinPayload.codeAttempts ?? 0,
+          locked: !!checkinPayload.locked,
+          releasedTo: checkinPayload.releasedTo ?? {},
+        }
+        setData((d) => d && { ...d, households: d.households.map((hh) => (hh.recordId === recordId ? { ...hh, checkin: checkinForCard } : hh)) })
       }
-      setData((d) => d && { ...d, households: d.households.map((hh) => (hh.recordId === recordId ? { ...hh, checkin: checkinForCard } : hh)) })
+      if (!res.ok) return { error: json?.error ?? 'Something went wrong.' }
       return { oneTimeCode: json.data.oneTimeCode, smsFailed: json.data.smsFailed }
     } catch {
       return { error: 'Couldn’t save — check wifi and try again.' }
@@ -172,7 +194,7 @@ export default function Roster({
 
   return (
     <div>
-      <StaffHeader title="Roster" staff={staff} onSwitch={onSwitch} onKits={onKits} onLogout={onLogout} />
+      <StaffHeader title="Roster" staff={staff} onSwitch={onSwitch} onKits={onKits} onLogout={onLogout} event={event} households={data.households} day={data.day} />
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <button type="button" onClick={onBack} style={btn()}>← Today</button>
         <button type="button" onClick={refresh} style={btn()}>↻ Refresh</button>
@@ -234,6 +256,15 @@ export default function Roster({
           {data.capWarning && (
             <Badge tone="alert" wrap>⚠ {data.summary.childrenHereNow} kids checked in — cap is {DROP_OFF_CAP}</Badge>
           )}
+          {incidents.length > 0 && (
+            <button
+              type="button"
+              onClick={() => setIncidentsOpen(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.5rem', borderRadius: '0.5rem', fontSize: '0.7rem', fontWeight: 700, background: 'rgba(185,28,28,0.1)', color: '#b91c1c', border: '1px solid rgba(185,28,28,0.3)', cursor: 'pointer' }}
+            >
+              🚑 Incidents ({incidents.length})
+            </button>
+          )}
         </div>
       </div>
 
@@ -243,6 +274,38 @@ export default function Roster({
           onSaved={applyEventSettings}
           onClose={() => setEventSettingsOpen(false)}
         />
+      )}
+
+      {incidentsOpen && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Incidents for this event"
+          onClick={(e) => { if (e.target === e.currentTarget) setIncidentsOpen(false) }}
+          style={{ position: 'fixed', inset: 0, zIndex: 125, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,0,0,0.35)', padding: '1rem' }}
+        >
+          <div style={{ width: '100%', maxWidth: '28rem', maxHeight: '85vh', overflowY: 'auto', padding: '1.25rem', borderRadius: '1rem', background: 'rgba(255,255,255,0.98)', boxShadow: '0 24px 60px rgba(0,0,0,0.25)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.8rem' }}>
+              <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)' }}>🚑 Incidents · {event.title}</h3>
+              <button type="button" onClick={() => setIncidentsOpen(false)} aria-label="Close" style={{ ...btn(), padding: '0.35rem 0.6rem' }}>✕</button>
+            </div>
+            {incidents.map((inc) => (
+              <div key={inc.id} style={{ ...card, background: 'rgba(255,255,255,0.85)' }}>
+                <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+                  {formatWhen(inc.at)} · {inc.who.length ? inc.who.map((w) => w.name).join(', ') : 'Unnamed'} · filed by {inc.by.name}
+                </p>
+                <p style={{ margin: '0.4rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)' }}>{inc.what}</p>
+                {inc.firstAid && <p style={{ margin: '0.3rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}><strong style={{ color: 'var(--color-dark)' }}>First aid:</strong> {inc.firstAid}</p>}
+                <p style={{ margin: '0.3rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+                  {inc.parentNotified.how === 'not-yet' ? 'Parent not yet notified' : `Parent notified (${inc.parentNotified.how}${inc.parentNotified.at ? `, ${formatWhen(inc.parentNotified.at)}` : ''})`}
+                </p>
+                <a href={`/staff/incident-print?id=${encodeURIComponent(inc.id)}`} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', marginTop: '0.5rem', ...btn(), textDecoration: 'none' }}>
+                  🖨 Print note
+                </a>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {/* Search */}

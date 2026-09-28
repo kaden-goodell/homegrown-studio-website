@@ -1,0 +1,113 @@
+---
+export const prerender = false
+
+import { staffAuthorized } from '@lib/staff-auth'
+import { getIncident } from '@lib/incident-store'
+import { formatWhen } from '@lib/studio-time'
+import { siteConfig } from '@config/site.config'
+
+// Staff-authed server-side (HOM-215), same pattern as `print.astro` — a
+// printable parent copy must never be reachable without the staff cookie.
+if (!staffAuthorized(Astro.request)) {
+  return new Response('Unauthorized — sign in at /staff first.', { status: 401 })
+}
+
+const id = (Astro.url.searchParams.get('id') ?? '').trim()
+const incident = id ? await getIncident(id) : null
+
+// First name only — this is the parent's take-home copy, not a full record.
+const childFirstName = incident?.who[0]?.name.split(' ')[0] ?? ''
+const calledLine = incident && incident.parentNotified.how !== 'not-yet' && incident.parentNotified.at
+  ? `We called you at ${formatWhen(incident.parentNotified.at)}.`
+  : null
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="robots" content="noindex,nofollow" />
+    <title>Incident note | {siteConfig.name}</title>
+    <style>
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      body {
+        font-family: -apple-system, Helvetica, Arial, sans-serif;
+        margin: 0;
+        padding: 1.5rem;
+        color: #1f2937;
+        background: #fff;
+        max-width: 680px;
+      }
+      header { margin-bottom: 1.2rem; }
+      h1 { font-size: 1.4rem; margin: 0 0 0.2rem; }
+      .meta { color: #4b5563; font-size: 0.9rem; margin: 0; }
+      .no-print button {
+        padding: 0.5rem 0.9rem;
+        border-radius: 0.5rem;
+        border: 1px solid #96705B;
+        background: #96705B;
+        color: #fff;
+        font-weight: 600;
+        font-size: 0.875rem;
+        cursor: pointer;
+        margin-top: 0.8rem;
+      }
+      section { margin: 1.1rem 0; }
+      .label { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; color: #96705B; font-weight: 700; margin: 0 0 0.2rem; }
+      .value { font-size: 1rem; margin: 0; white-space: pre-wrap; }
+      .sig-line { margin-top: 2.5rem; border-top: 1px solid #1f2937; width: 60%; padding-top: 0.3rem; font-size: 0.85rem; color: #4b5563; }
+      .contact { margin-top: 1.5rem; font-size: 0.85rem; color: #4b5563; }
+      .empty { color: #6b7280; padding: 2rem 0; text-align: center; }
+
+      @media print {
+        .no-print { display: none; }
+        body { padding: 0.25in; }
+        @page { size: letter; margin: 0.5in; }
+      }
+    </style>
+  </head>
+  <body>
+    {!incident ? (
+      <p class="empty">Couldn’t find that incident report.</p>
+    ) : (
+      <>
+        <header>
+          <h1>Incident note{childFirstName ? ` — ${childFirstName}` : ''}</h1>
+          <p class="meta">{siteConfig.name} · {siteConfig.contactPhone}</p>
+          <p class="meta">{formatWhen(incident.at)}</p>
+          <div class="no-print">
+            <button type="button" id="print-btn">🖨 Print</button>
+          </div>
+        </header>
+
+        <section>
+          <p class="label">What happened</p>
+          <p class="value">{incident.what}</p>
+        </section>
+
+        <section>
+          <p class="label">First aid given</p>
+          <p class="value">{incident.firstAid || '(none noted)'}</p>
+        </section>
+
+        {calledLine && (
+          <section>
+            <p class="value"><strong>{calledLine}</strong></p>
+          </section>
+        )}
+
+        <div class="sig-line">Staff signature — {incident.by.name}</div>
+
+        <p class="contact">
+          Questions? {siteConfig.contactEmail} · {siteConfig.contactPhone}
+        </p>
+      </>
+    )}
+
+    <script>
+      document.getElementById('print-btn')?.addEventListener('click', () => window.print())
+    </script>
+  </body>
+</html>

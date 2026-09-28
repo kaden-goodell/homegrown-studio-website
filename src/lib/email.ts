@@ -8,6 +8,7 @@ import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
 import { partyInviteMailto, partyInviteIcsUrl } from '@lib/party-share'
 import { buildAgreementCopy, type BuildAgreementCopyInput } from '@lib/agreement-email'
+import { formatWhen } from '@lib/studio-time'
 
 const logger = createLogger('email')
 
@@ -243,6 +244,83 @@ export async function sendKitConfirmationEmail(input: {
   return sendEmail({
     to: input.to,
     subject: `Your kit is booked — pickup Thursday ${input.pickupDate} (${input.reference})`,
+    html,
+    text,
+  })
+}
+
+const NOTIFIED_LABEL: Record<'phone' | 'in-person' | 'text' | 'not-yet', string> = {
+  phone: 'By phone', 'in-person': 'In person', text: 'By text', 'not-yet': 'Not yet',
+}
+
+/**
+ * Immediate copy to the owners of every incident report (HOM-215) — sent to
+ * every address in `siteConfig.ownerEmails` on one email (comma-joined `to`).
+ * Non-fatal on failure: the caller (`incident.json.ts`) logs it and reports
+ * `emailed: false` rather than blocking the save.
+ */
+export async function sendIncidentEmail(input: {
+  to: string[]
+  who: string[] // names, for the subject line
+  eventLabel: string // event title, or 'Open Studio'
+  at: string // ISO — when it happened
+  reportedAt: string // ISO — when the report was filed
+  by: { name: string } // reporter
+  what: string
+  firstAid: string
+  witnesses: string
+  parentNotified: { at: string | null; by: string; how: 'phone' | 'in-person' | 'text' | 'not-yet' }
+  followUp: string
+}): Promise<{ sent: boolean }> {
+  const whoLabel = input.who.length > 0 ? input.who.join(', ') : 'Unnamed'
+  const whenLabel = formatWhen(input.at)
+  const notifiedLine = input.parentNotified.how === 'not-yet'
+    ? 'Parent not yet notified.'
+    : `Parent notified ${NOTIFIED_LABEL[input.parentNotified.how].toLowerCase()}${input.parentNotified.at ? ` at ${formatWhen(input.parentNotified.at)}` : ''} by ${input.parentNotified.by}.`
+
+  const text = [
+    `Incident report — ${whoLabel}`,
+    `${input.eventLabel} · ${whenLabel}`,
+    `Filed by ${input.by.name}`,
+    ``,
+    `What happened:`,
+    input.what,
+    ``,
+    `First aid given:`,
+    input.firstAid || '(none noted)',
+    ``,
+    `Witnesses: ${input.witnesses || '(none noted)'}`,
+    notifiedLine,
+    ...(input.followUp ? [``, `Follow-up needed:`, input.followUp] : []),
+    ``,
+    `Hometown Studio · 525 Hughes Rd Ste F, Madison, AL`,
+  ].join('\n')
+
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const P = 'margin:0 0 10px;font-size:14px;color:#3d3630;line-height:1.5;white-space:pre-wrap'
+  const LABEL = 'margin:0 0 2px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:#96705B;font-weight:700'
+  const html = `
+<div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#96705B;font-weight:700;">Hometown Studio</p>
+  <h1 style="margin:0 0 2px;font-size:22px;color:#3d3630;">🚑 Incident report</h1>
+  <p style="margin:0 0 4px;font-size:15px;font-weight:600;color:#3d3630;">${esc(whoLabel)}</p>
+  <p style="margin:0 0 16px;font-size:13px;color:#8a7f75;">${esc(input.eventLabel)} &middot; ${esc(whenLabel)} &middot; filed by ${esc(input.by.name)}</p>
+  <p style="${LABEL}">What happened</p>
+  <p style="${P}">${esc(input.what)}</p>
+  <p style="${LABEL}">First aid given</p>
+  <p style="${P}">${esc(input.firstAid || '(none noted)')}</p>
+  <p style="${LABEL}">Witnesses</p>
+  <p style="${P}">${esc(input.witnesses || '(none noted)')}</p>
+  <p style="${LABEL}">Parent notified</p>
+  <p style="${P}">${esc(notifiedLine)}</p>
+  ${input.followUp ? `<p style="${LABEL}">Follow-up needed</p><p style="${P}">${esc(input.followUp)}</p>` : ''}
+  <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
+  <p style="margin:0;font-size:12px;color:#8a7f75;">Hometown Studio &middot; 525 Hughes Rd Ste F, Madison, AL</p>
+</div>`
+
+  return sendEmail({
+    to: input.to.join(', '),
+    subject: `Incident report — ${whoLabel} — ${input.eventLabel} — ${whenLabel}`,
     html,
     text,
   })

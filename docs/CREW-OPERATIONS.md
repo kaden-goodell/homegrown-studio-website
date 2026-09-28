@@ -119,9 +119,7 @@ in Linear HOM-99 (licensing) and HOM-114 (safeguards).
   enforcement. Good-faith reports are legally protected. Failure to report is a misdemeanor.
 
 **Incident handling:**
-- Any injury: give first aid, contact the parent, document what happened (time, what, who
-  witnessed). The waiver's medical-treatment authorization covers emergency care if the
-  parent is unreachable.
+- First aid → call the parent → 🚑 on the iPad → print the parent note.
 
 ## 6. What this costs
 
