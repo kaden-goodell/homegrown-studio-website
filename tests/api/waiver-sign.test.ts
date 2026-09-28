@@ -32,15 +32,20 @@ vi.mock('@lib/waiver-store', () => ({
 }))
 
 const mockUpsertRsvp = vi.fn()
+const mockGetRsvp = vi.fn().mockResolvedValue(null)
 
 vi.mock('@lib/rsvp-store', () => ({
   upsertRsvp: (...args: any[]) => mockUpsertRsvp(...args),
+  getRsvp: (...args: any[]) => mockGetRsvp(...args),
 }))
 
 const mockGetEvent = vi.fn()
 
 vi.mock('@lib/events', () => ({
   getEvent: (...args: any[]) => mockGetEvent(...args),
+  // Concurrent Task 7 work extracted the "already happened" cutoff into this
+  // shared helper — every event here is a fixed future date, so it's always false.
+  isEventPast: () => false,
 }))
 
 vi.mock('@config/providers', () => ({
@@ -163,8 +168,11 @@ describe('POST /api/waiver/sign.json', () => {
       indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
       newWaiverId: () => mockNewWaiverId(),
     }))
-    vi.mock('@lib/rsvp-store', () => ({ upsertRsvp: (...args: any[]) => mockUpsertRsvp(...args) }))
-    vi.mock('@lib/events', () => ({ getEvent: (...args: any[]) => mockGetEvent(...args) }))
+    vi.mock('@lib/rsvp-store', () => ({
+      upsertRsvp: (...args: any[]) => mockUpsertRsvp(...args),
+      getRsvp: (...args: any[]) => mockGetRsvp(...args),
+    }))
+    vi.mock('@lib/events', () => ({ getEvent: (...args: any[]) => mockGetEvent(...args), isEventPast: () => false }))
     vi.mock('@config/providers', () => ({
       providers: {
         customer: {
@@ -178,6 +186,7 @@ describe('POST /api/waiver/sign.json', () => {
     mockUpsertWaiverInEventIndex.mockResolvedValue({ replacedRecordId: null })
     mockIndexWaiverByContact.mockResolvedValue(undefined)
     mockNewWaiverId.mockReturnValue('wvr_test_abc')
+    mockGetRsvp.mockResolvedValue(null)
     mockUpsertRsvp.mockResolvedValue({
       id: 'rsv_test_abc',
       waiverId: 'wvr_test_abc',
@@ -496,8 +505,11 @@ describe('POST /api/waiver/sign.json', () => {
         indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
         newWaiverId: () => mockNewWaiverId(),
       }))
-      vi.mock('@lib/rsvp-store', () => ({ upsertRsvp: (...args: any[]) => mockUpsertRsvp(...args) }))
-      vi.mock('@lib/events', () => ({ getEvent: (...args: any[]) => mockGetEvent(...args) }))
+      vi.mock('@lib/rsvp-store', () => ({
+        upsertRsvp: (...args: any[]) => mockUpsertRsvp(...args),
+        getRsvp: (...args: any[]) => mockGetRsvp(...args),
+      }))
+      vi.mock('@lib/events', () => ({ getEvent: (...args: any[]) => mockGetEvent(...args), isEventPast: () => false }))
       vi.mock('@config/providers', () => ({
         providers: {
           customer: {
@@ -663,6 +675,33 @@ describe('POST /api/waiver/sign.json', () => {
       const res = await POST(ctx)
       expect(res.status).toBe(200)
     })
+
+    // Fix round 1 (HOM-212): reject over-length text instead of silently
+    // truncating — a 300-char medical note or a 200-char custody note
+    // getting quietly cut off is exactly the kind of thing that should be
+    // loud, not silent.
+    it('rejects notAuthorized over 200 characters', async () => {
+      const body = makeAdultBody({ notAuthorized: 'x'.repeat(201) })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(400)
+      const json = await res.json()
+      expect(json.error).toMatch(/under 200 characters/i)
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+    })
+
+    it('rejects medications over 300 characters', async () => {
+      const body = makeAdultBody({
+        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '', medications: 'x'.repeat(301) }],
+        attending: ['adult', 'child:0'],
+      })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(400)
+      const json = await res.json()
+      expect(json.error).toMatch(/under 300 characters/i)
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+    })
   })
 
   describe('reuse RSVP pickupUpdate (HOM-212)', () => {
@@ -711,6 +750,76 @@ describe('POST /api/waiver/sign.json', () => {
       const res = await POST(ctx)
       expect(res.status).toBe(400)
       expect(mockUpsertRsvp).not.toHaveBeenCalled()
+    })
+
+    // Fix round 1 (HOM-212): upsertRsvp fully replaces the record, so a
+    // re-RSVP (e.g. just changing headcount) that sends NO pickupUpdate must
+    // never silently erase a pickup override saved on an earlier RSVP.
+    it('re-RSVP with no pickupUpdate carries forward the existing RSVP pickup', async () => {
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      mockGetRsvp.mockResolvedValue({
+        id: 'rsv_prev',
+        waiverId: 'wvr_source_abc',
+        event: { kind: 'party', id: 'party-123' },
+        pickup: { authorizedPickup: [{ name: 'Grandma Rivera', phone: '2565551234' }], notAuthorized: 'Bio dad' },
+      })
+      const body = {
+        reuseRecordId: 'wvr_source_abc',
+        reuseToken: 'valid-token',
+        partyId: 'party-123',
+        attending: ['adult', 'child:0'],
+        responsibleAdult: '',
+        // no pickupUpdate — just re-confirming who's coming
+      }
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pickup: { authorizedPickup: [{ name: 'Grandma Rivera', phone: '2565551234' }], notAuthorized: 'Bio dad' },
+        }),
+      )
+    })
+
+    it('re-RSVP WITH a pickupUpdate replaces the prior pickup rather than merging it', async () => {
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      mockGetRsvp.mockResolvedValue({
+        id: 'rsv_prev',
+        waiverId: 'wvr_source_abc',
+        event: { kind: 'party', id: 'party-123' },
+        pickup: { authorizedPickup: [{ name: 'Grandma Rivera', phone: '2565551234' }], notAuthorized: 'Bio dad' },
+      })
+      const body = {
+        reuseRecordId: 'wvr_source_abc',
+        reuseToken: 'valid-token',
+        partyId: 'party-123',
+        attending: ['adult', 'child:0'],
+        pickupUpdate: { authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: '' },
+      }
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pickup: { authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: '' },
+        }),
+      )
+    })
+
+    it('a fresh reuse RSVP (no prior RSVP on file) with no pickupUpdate omits pickup entirely', async () => {
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      mockGetRsvp.mockResolvedValue(null)
+      const body = {
+        reuseRecordId: 'wvr_source_abc',
+        reuseToken: 'valid-token',
+        partyId: 'party-123',
+        attending: ['adult', 'child:0'],
+      }
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      const [rsvpArgs] = mockUpsertRsvp.mock.calls[0]
+      expect(rsvpArgs.pickup).toBeUndefined()
     })
   })
 })

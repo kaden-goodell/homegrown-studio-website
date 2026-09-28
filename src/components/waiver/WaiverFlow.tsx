@@ -432,7 +432,10 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       const res = await fetch('/api/waiver/lookup.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contact: c }),
+        // partyId/workshopId let the server check whether an existing RSVP's
+        // pickup override already covers THIS event (fix round 1) — without
+        // them hasPickup could only ever see the signature's own fields.
+        body: JSON.stringify({ contact: c, partyId: partyId ?? null, workshopId: workshopId ?? null }),
       })
       const json = await res.json().catch(() => null)
       if (!res.ok) {
@@ -448,6 +451,15 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       } else if (json?.data?.found) {
         const kids: string[] = json.data.kids ?? []
         setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids, validUntil: json.data.validUntil ?? '', signedAt: json.data.signedAt ?? '', hasPickup: !!json.data.hasPickup })
+        // Defensive prefill (fix round 1): if the compact pickup block ever
+        // does render for a household that already has an override on file,
+        // start it from that data instead of blank — an edit, not a replace.
+        if (json.data.pickup) {
+          setReturningPickupRows(
+            (json.data.pickup.authorizedPickup ?? []).map((p: { name: string; phone: string }) => ({ name: p.name, phone: p.phone })),
+          )
+          setReturningNotAuthorized(json.data.pickup.notAuthorized ?? '')
+        }
         // Default everyone in the household to "coming"; they can uncheck below.
         setAttending(Object.fromEntries(['adult', ...kids.map((_, i) => `child:${i}`)].map((id) => [id, true])))
         setMode('returning')

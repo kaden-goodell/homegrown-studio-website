@@ -1,8 +1,12 @@
 import type { APIRoute } from 'astro'
 import { lookupHouseholdEntry, normalizeAuthorizedPickup } from '@lib/waiver-store'
+import { getRsvp } from '@lib/rsvp-store'
 import { rateLimited } from '@lib/rate-limit'
 import { issueReuseToken } from '@lib/reuse-token'
 import { substantiveSince, compareVersions } from '@config/waiver-content'
+import { createLogger } from '@lib/logger'
+
+const logger = createLogger('api:waiver:lookup')
 
 export const prerender = false
 
@@ -13,15 +17,22 @@ export const prerender = false
  * DOBs) are never returned to the browser; they're reused server-side by record
  * id at RSVP time, so typing a stranger's email can't harvest their details.
  *
- * POST { contact }  →  { found, firstName?, kids?, validUntil?, recordId?, signedAt?, reuseToken?, hasPickup? }
+ * POST { contact, partyId?, workshopId? } → { found, firstName?, kids?, validUntil?, recordId?, signedAt?, reuseToken?, hasPickup?, pickup? }
  *   or, when the agreement text has changed substantively since they last
  *   signed (HOM-210): { found: true, mustResign: true, firstName } — no
  *   token, no recordId; the client opens the full form instead.
  *
- * `hasPickup` (HOM-212) is the one exception to "no sensitive fields returned"
- * above — just a boolean saying whether the on-file signature already has an
- * authorized-pickup row, so the client can decide whether to show the
- * compact "Who may pick up?" block on the RSVP screen. It carries no names.
+ * `hasPickup`/`pickup` (HOM-212) are the one exception to "no sensitive
+ * fields returned" above. `hasPickup` considers BOTH the signature's own
+ * `authorizedPickup` AND — when the caller passes `partyId`/`workshopId` —
+ * an existing RSVP's `pickup` override for that specific event (a household
+ * that filled the compact "Who may pick up?" block on an earlier RSVP must
+ * see it reported as already-on-file, not asked again with a blank block —
+ * fix round 1). `pickup` (the actual rows) is only included when `hasPickup`
+ * is true, so the client can prefill an edit rather than replace what's
+ * already there; the reuseToken issued in the same response already
+ * authorizes writing a new RSVP for this household, so returning the current
+ * pickup state alongside it is not a larger exposure than the token itself.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (rateLimited(`lookup:${clientAddress}`, 10, 60_000)) {
@@ -33,6 +44,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!contact) {
     return new Response(JSON.stringify({ error: 'Enter an email or phone number.' }), { status: 400 })
   }
+  const partyId = typeof body?.partyId === 'string' && body.partyId.trim() ? body.partyId.trim() : null
+  const workshopId = typeof body?.workshopId === 'string' && body.workshopId.trim() ? body.workshopId.trim() : null
 
   const h = await lookupHouseholdEntry(contact)
   if (!h) {
@@ -61,6 +74,24 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     )
   }
 
+  // Effective pickup for this lookup: an existing RSVP's override for the
+  // SPECIFIC event being looked up wins over the signature's own fields —
+  // same rule sign.json.ts's handleReuse uses when carrying it forward.
+  // Best-effort: an RSVP-store hiccup falls back to the signature alone
+  // rather than failing the whole lookup.
+  let pickup = { authorizedPickup: normalizeAuthorizedPickup(h.authorizedPickup), notAuthorized: h.notAuthorized || '' }
+  if (partyId || workshopId) {
+    const kind = partyId ? 'party' : 'workshop'
+    const id = (partyId ?? workshopId)!
+    try {
+      const rsvp = await getRsvp(kind, id, h.recordId)
+      if (rsvp?.pickup) pickup = rsvp.pickup
+    } catch (err) {
+      logger.error('RSVP pickup lookup failed — falling back to the signature', { error: String(err) })
+    }
+  }
+  const hasPickup = pickup.authorizedPickup.length > 0
+
   return new Response(
     JSON.stringify({
       data: {
@@ -71,7 +102,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         validUntil: h.validUntil,
         signedAt: h.signedAt,
         reuseToken: issueReuseToken(h.recordId),
-        hasPickup: normalizeAuthorizedPickup(h.authorizedPickup).length > 0,
+        hasPickup,
+        ...(hasPickup ? { pickup } : {}),
       },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },

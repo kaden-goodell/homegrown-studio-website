@@ -11,13 +11,12 @@ import {
   type WaiverRecord,
   type AuthorizedPickup,
 } from '@lib/waiver-store'
-import { upsertRsvp, type RsvpRecord } from '@lib/rsvp-store'
+import { upsertRsvp, getRsvp, type RsvpRecord } from '@lib/rsvp-store'
 import { setExpected, getCheckin, mutateCheckin } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { verifyReuseToken } from '@lib/reuse-token'
-import { getEvent, type EventKind as StudioEventKind, type StudioEvent } from '@lib/events'
-import { studioDate } from '@lib/studio-time'
+import { getEvent, isEventPast, type EventKind as StudioEventKind, type StudioEvent } from '@lib/events'
 import { addendumRequired, currentAddendum } from '@lib/addendum'
 
 export const prerender = false
@@ -136,7 +135,10 @@ function parsePickupInput(raw: any): { err: Response | null; data: PickupInput }
       return { err: bad('Pickup phone numbers need at least 10 digits.'), data: empty }
     }
   }
-  const notAuthorized = String(raw?.notAuthorized ?? '').trim().slice(0, 200)
+  const notAuthorized = String(raw?.notAuthorized ?? '').trim()
+  if (notAuthorized.length > 200) {
+    return { err: bad("That's a bit long — please keep it under 200 characters."), data: empty }
+  }
   return { err: null, data: { authorizedPickup, notAuthorized } }
 }
 
@@ -176,7 +178,8 @@ async function indexEventRsvp(kind: SignableEventKind, id: string, record: Waive
     if (replacedRecordId && kind === 'party') {
       try {
         const old = await getCheckin(id, replacedRecordId)
-        if (Object.keys(old.presence).length > 0 || old.pickupCodeHash) {
+        const hadAnyPresence = Object.values(old.days).some((d) => Object.keys(d.presence).length > 0)
+        if (hadAnyPresence || old.pickupCodeHash) {
           await mutateCheckin(id, record.id, (s) => { Object.assign(s, old) })
         }
       } catch (err) {
@@ -252,12 +255,6 @@ async function attachSquare(record: WaiverRecord): Promise<void> {
   }
 }
 
-/** Calendar day (studio-local) one day before `ymd`. */
-function ymdMinusOne(ymd: string): string {
-  const [y, m, d] = ymd.split('-').map(Number)
-  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)
-}
-
 /**
  * Validate that a party/workshop event link (via `getEvent`) is real and not
  * already past. Returns `{ event }` when kind/id are absent (general
@@ -282,8 +279,7 @@ async function validateEvent(
     return { err: bad("We couldn't find that event link.", 404), event: null }
   }
   // A full studio day of grace past the event's last day before it's "past".
-  const cutoff = ymdMinusOne(studioDate(now.toISOString()))
-  if (event.days.every((d) => d < cutoff)) {
+  if (isEventPast(event, now)) {
     return { err: bad('That event has already happened.', 410), event: null }
   }
   return { err: null, event }
@@ -373,6 +369,15 @@ async function handleReuse(
   const validIds = new Set(['adult', ...source.minors.map((_, i) => `child:${i}`)])
   const resolvedIds = resolveAttending(attendingRaw, validIds)
 
+  // A re-RSVP (e.g. just changing headcount) with no pickupUpdate must never
+  // silently erase a pickup override saved on an earlier RSVP for this same
+  // event — upsertRsvp fully replaces the record, so carry the existing
+  // pickup forward when the client didn't send a new one (fix round 1).
+  if (!pickup) {
+    const existingRsvp = await getRsvp(eventKind, eventId, source.id)
+    if (existingRsvp?.pickup) pickup = existingRsvp.pickup
+  }
+
   const raErr = checkResponsibleAdult(partyId, dropOff, resolvedIds, responsibleAdult)
   if (raErr) return raErr
 
@@ -441,12 +446,15 @@ async function handleFresh(
     name: String(m?.name ?? '').trim(),
     dob: String(m?.dob ?? '').trim(),
     allergies: String(m?.allergies ?? '').trim(),
-    medications: String(m?.medications ?? '').trim().slice(0, 300),
+    medications: String(m?.medications ?? '').trim(),
   }))
   for (const m of minors) {
     if (!m.name || !DATE_RE.test(m.dob)) return bad('Each child needs a name and date of birth.')
     if (yearsBetween(m.dob, now) >= waiverContent.adultAge) {
       return bad(`${m.name} is ${waiverContent.adultAge} or older and needs to sign their own agreement.`)
+    }
+    if (m.medications.length > 300) {
+      return bad("That's a bit long — please keep it under 300 characters.")
     }
   }
 
