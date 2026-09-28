@@ -10,6 +10,7 @@
  */
 import { createLogger } from '@lib/logger'
 import { makeKvStore } from '@lib/blob-store'
+import type { By } from '@lib/staff-auth'
 
 const logger = createLogger('checkin-store')
 const kv = makeKvStore('checkins', 'checkins')
@@ -32,6 +33,8 @@ export interface CheckinEvent {
   personIds: string[]
   pickedUpBy?: string
   note?: string
+  /** Which staff member took the action. Absent on legacy events. */
+  by?: By
 }
 
 export interface CheckinState {

@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { KitOrderRecord } from '@lib/kit-store'
 
 // --- Module mocks (hoisted) ---
-let authed = true
-vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed }))
+let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 't', name: 'Test', role: 'crew' }
+vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed, byOf: (m: any) => ({ id: m.id, name: m.name }) }))
 
 const mockRefund = vi.fn()
 vi.mock('@config/providers', () => ({
@@ -57,14 +57,14 @@ let POST: any
 beforeEach(async () => {
   vi.clearAllMocks()
   vi.resetModules()
-  authed = true
+  authed = { id: 't', name: 'Test', role: 'crew' }
   mockRefund.mockResolvedValue({ id: 'ref-1', paymentId: 'pay_1', amountCents: 0, status: 'COMPLETED' })
   POST = (await import('@pages/api/staff/kit-return.json')).POST
 })
 
 describe('POST /api/staff/kit-return.json', () => {
   it('rejects an unauthenticated caller', async () => {
-    authed = false
+    authed = null
     record = makeOrder()
     const res = await POST(ctx({ orderId: 'ord_1', action: 'complete' }))
     expect(res.status).toBe(401)

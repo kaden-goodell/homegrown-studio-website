@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { KitOrderRecord } from '@lib/kit-store'
 
-let authed = true
-vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed }))
+let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 't', name: 'Test', role: 'crew' }
+vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed, byOf: (m: any) => ({ id: m.id, name: m.name }) }))
 
 let configured = true
 const mockSend = vi.fn()
@@ -56,7 +56,7 @@ let POST: any
 beforeEach(async () => {
   vi.clearAllMocks()
   vi.resetModules()
-  authed = true
+  authed = { id: 't', name: 'Test', role: 'crew' }
   configured = true
   record = makeOrder()
   mockSend.mockResolvedValue(undefined)
@@ -68,7 +68,7 @@ afterEach(() => vi.useRealTimers())
 
 describe('POST /api/staff/kit-remind.json', () => {
   it('rejects an unauthenticated caller', async () => {
-    authed = false
+    authed = null
     expect((await POST(ctx({ orderId: 'ord_1' }))).status).toBe(401)
   })
 
@@ -79,8 +79,8 @@ describe('POST /api/staff/kit-remind.json', () => {
     expect(mockSend).not.toHaveBeenCalled()
   })
 
-  it('sends the reminder with name, return day, and window, and logs the event', async () => {
-    const res = await POST(ctx({ orderId: 'ord_1', byStaff: 'catherine' }))
+  it('sends the reminder with name, return day, and window, and logs the event stamped with the signed-in staffer', async () => {
+    const res = await POST(ctx({ orderId: 'ord_1' }))
     expect(res.status).toBe(200)
     const { to, content } = mockSend.mock.calls[0][0]
     expect(to).toBe('(256) 555-0123')
@@ -89,7 +89,7 @@ describe('POST /api/staff/kit-remind.json', () => {
     expect(content).toContain('4–6 PM')
     const last = record!.events.at(-1)!
     expect(last.action).toBe('reminder')
-    expect(last.byStaff).toBe('catherine')
+    expect(last.by).toEqual({ id: 't', name: 'Test' })
   })
 
   it('rejects a non-checked-out order with 409', async () => {

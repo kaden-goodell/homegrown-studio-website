@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { KitOrderRecord } from '@lib/kit-store'
 
-let authed = true
-vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed }))
+let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 't', name: 'Test', role: 'crew' }
+vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed, byOf: (m: any) => ({ id: m.id, name: m.name }) }))
 
 // Keep the real kitOrderToLedgerRecord; only stub listKitOrders (no real kv).
 const mockList = vi.fn<() => Promise<KitOrderRecord[]>>()
@@ -40,7 +40,7 @@ let GET: any
 beforeEach(async () => {
   vi.clearAllMocks()
   vi.resetModules()
-  authed = true
+  authed = { id: 't', name: 'Test', role: 'crew' }
   vi.useFakeTimers()
   vi.setSystemTime(new Date('2026-07-16T12:00:00.000Z')) // studio today = 2026-07-16
   GET = (await import('@pages/api/staff/kits.json')).GET
@@ -49,7 +49,7 @@ afterEach(() => vi.useRealTimers())
 
 describe('GET /api/staff/kits.json', () => {
   it('rejects an unauthenticated caller', async () => {
-    authed = false
+    authed = null
     mockList.mockResolvedValue([])
     expect((await GET(ctx())).status).toBe(401)
   })

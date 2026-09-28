@@ -16,6 +16,7 @@
 import { createLogger } from '@lib/logger'
 import { makeKvStore, type KvStore } from '@lib/blob-store'
 import { availabilityFor, CLAIM_TTL_MS, type WeekClaim, type LedgerRecord } from '@lib/kit-ledger'
+import type { By } from '@lib/staff-auth'
 
 const logger = createLogger('kit-store')
 
@@ -41,7 +42,8 @@ export interface KitEvent {
   at: string // ISO
   action: KitEventAction
   note?: string
-  byStaff?: string
+  /** Which staff member took the action. Absent on legacy events. */
+  by?: By
   amountCents?: number
 }
 

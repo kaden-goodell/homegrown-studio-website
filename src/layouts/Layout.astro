@@ -15,9 +15,11 @@ interface Props {
   /** Social-share overrides. Default to the page title/description. */
   ogTitle?: string
   ogImage?: string
+  /** Keep this page out of search engines (staff-only tools, internal pages). */
+  noindex?: boolean
 }
 
-const { title, description, ogTitle, ogImage } = Astro.props
+const { title, description, ogTitle, ogImage, noindex } = Astro.props
 const pageTitle = title ? `${title} | ${siteConfig.name}` : siteConfig.name
 const pageDescription = description || siteConfig.tagline
 const shareTitle = ogTitle || pageTitle
@@ -34,6 +36,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="description" content={pageDescription} />
+    {noindex && <meta name="robots" content="noindex,nofollow" />}
     <link rel="icon" type="image/png" href="/favicon.png" />
     <title>{pageTitle}</title>
     {/* Link-preview (OpenGraph + Twitter) — makes shared invites unfurl richly. */}

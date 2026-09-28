@@ -6,7 +6,8 @@ export const prerender = false
 
 /** Staff-only: flip a party's drop-off flag. POST { party, dropOff } */
 export const POST: APIRoute = async ({ request }) => {
-  if (!staffAuthorized(request)) {
+  const staff = staffAuthorized(request)
+  if (!staff) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   }
   const body = await request.json().catch(() => null)

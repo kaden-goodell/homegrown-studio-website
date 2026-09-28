@@ -4,6 +4,14 @@ import { formatCents } from '@lib/utils'
 import { kitConfig } from '@config/kit.config'
 import { kitThemes } from '@config/kit-content'
 import { addDays } from '@lib/kit-dates'
+import PickStaff, { type PickStaffMember } from '@components/staff/PickStaff'
+import StaffHeader from '@components/staff/StaffHeader'
+
+interface Me {
+  id: string
+  name: string
+  role: 'owner' | 'crew'
+}
 
 interface PartyRow {
   bookingId: string
@@ -359,7 +367,7 @@ interface KitOrder {
   balanceDueCents?: number
   depositRefund?: { amountCents: number; refundId: string; at: string }
   status: 'upcoming' | 'out' | 'returned' | 'cancelled' | 'forfeited'
-  events: { at: string; action: string; note?: string; byStaff?: string; amountCents?: number }[]
+  events: { at: string; action: string; note?: string; by?: { id: string; name: string }; amountCents?: number }[]
 }
 interface KitBuckets {
   pickupToday: KitOrder[]
@@ -556,18 +564,26 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
 }
 
 export default function StaffConsole() {
-  const [phase, setPhase] = useState<'checking' | 'login' | 'parties' | 'roster' | 'kits'>('checking')
+  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'today' | 'roster' | 'kits'>('checking')
   const [kitBuckets, setKitBuckets] = useState<KitBuckets | null>(null)
   const [radar, setRadar] = useState<RadarRow[]>([])
   const [assembly, setAssembly] = useState<KitAssembly | null>(null)
   const [passcode, setPasscode] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
+  const [staffRoster, setStaffRoster] = useState<PickStaffMember[]>([])
+  const [me, setMe] = useState<Me | null>(null)
+  const [pickBusy, setPickBusy] = useState(false)
+  const [pickError, setPickError] = useState<string | null>(null)
   const [parties, setParties] = useState<PartyRow[]>([])
   const [roster, setRoster] = useState<Roster | null>(null)
   const [netError, setNetError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
   const [query, setQuery] = useState('')
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  // The passcode lives only in memory for the length of this browser session —
+  // "Switch" reuses it to re-pick an identity without asking again. A page
+  // reload always starts back at the passcode screen (pick.json re-verifies it).
+  const passcodeRef = useRef('')
 
   async function loadParties() {
     try {
@@ -576,20 +592,64 @@ export default function StaffConsole() {
       if (res.status === 401) { setPhase('login'); return }
       const json = await res.json()
       setParties(json.data.parties)
-      setPhase('parties')
+      setPhase('today')
     } catch {
       setNetError('Couldn’t reach the studio server — check wifi and tap Retry.')
     }
   }
-  useEffect(() => { loadParties() }, [])
+  useEffect(() => { setPhase('login') }, [])
 
   async function doLogin() {
     setLoginError(null)
     const res = await fetch('/api/staff/login.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ passcode }) })
     if (!res.ok) { setLoginError((await res.json().catch(() => null))?.error ?? 'Login failed.'); return }
-    setPasscode(''); await loadParties()
+    const json = await res.json()
+    passcodeRef.current = passcode
+    setStaffRoster(json.data.staff)
+    setPasscode('')
+    setPickError(null)
+    setPhase('pick')
   }
-  async function logout() { await fetch('/api/staff/login.json', { method: 'DELETE' }); setRoster(null); setParties([]); setPhase('login') }
+
+  async function doPick(staffId: string) {
+    setPickBusy(true)
+    setPickError(null)
+    try {
+      const res = await fetch('/api/staff/pick.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passcode: passcodeRef.current, staffId }),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        setPickError(json?.error ?? 'Couldn’t sign in.')
+        setPickBusy(false)
+        return
+      }
+      setMe(json.data.staff)
+      setPickBusy(false)
+      await loadParties()
+    } catch {
+      setPickError('Couldn’t reach the studio server — check wifi and try again.')
+      setPickBusy(false)
+    }
+  }
+
+  /** Back to the name grid without re-entering the passcode. */
+  function switchStaff() {
+    setPickError(null)
+    setPhase('pick')
+  }
+
+  async function logout() {
+    await fetch('/api/staff/login.json', { method: 'DELETE' })
+    passcodeRef.current = ''
+    setMe(null)
+    setStaffRoster([])
+    setRoster(null)
+    setParties([])
+    setPhase('login')
+  }
 
   /** `assemblyWeek`: a Thursday to view, `null` to snap back to the current
    *  week, omitted to stay on whichever week is on screen (action refreshes). */
@@ -697,7 +757,13 @@ export default function StaffConsole() {
     )
   }
 
-  // Network error banner (shown in parties and roster phases)
+  if (phase === 'pick') {
+    return <PickStaff staff={staffRoster} busy={pickBusy} error={pickError} onPick={doPick} onBack={() => { setPickError(null); setPhase('login') }} />
+  }
+
+  if (!me) return null // 'today' / 'roster' / 'kits' all require a picked identity
+
+  // Network error banner (shown in today and roster phases)
   const netErrorBanner = netError && (
     <div style={{ background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '0.6rem', padding: '0.7rem 0.9rem', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
       <span style={{ flex: 1, fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{netError}</span>
@@ -705,16 +771,10 @@ export default function StaffConsole() {
     </div>
   )
 
-  if (phase === 'parties') {
+  if (phase === 'today') {
     return (
       <div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
-          <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', margin: 0 }}>Parties</h2>
-          <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button type="button" onClick={() => loadKits()} style={btn()}>Kits</button>
-            <button type="button" onClick={logout} style={btn()}>Log out</button>
-          </div>
-        </div>
+        <StaffHeader title="Today" staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onLogout={logout} />
         {netErrorBanner}
         {parties.length === 0 && !netError && <p style={{ color: 'var(--color-muted)' }}>No parties yet.</p>}
         {parties.map((p) => (
@@ -752,7 +812,7 @@ export default function StaffConsole() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', gap: '0.5rem', flexWrap: 'wrap' }}>
           <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', margin: 0 }}>Kits</h2>
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button type="button" onClick={() => setPhase('parties')} style={btn()}>← Parties</button>
+            <button type="button" onClick={() => setPhase('today')} style={btn()}>← Today</button>
             <button type="button" onClick={() => loadKits()} style={btn()}>↻ Refresh</button>
             <button type="button" onClick={logout} style={btn()}>Log out</button>
           </div>
@@ -860,7 +920,7 @@ export default function StaffConsole() {
   return (
     <div>
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <button type="button" onClick={() => setPhase('parties')} style={btn()}>← All parties</button>
+        <button type="button" onClick={() => setPhase('today')} style={btn()}>← All parties</button>
         <button type="button" onClick={refreshRoster} style={btn()}>↻ Refresh</button>
         {stale && <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>⚠ Roster may be stale</span>}
       </div>

@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { staffAuthorized } from '@lib/staff-auth'
+import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { getKitOrder, mutateKitOrder, type KitOrderRecord } from '@lib/kit-store'
 import { quoConfigured, sendQuoText } from '@lib/quo'
 import { kitConfig } from '@config/kit.config'
@@ -27,12 +27,14 @@ const REMIND_COOLDOWN_MS = 20 * 60 * 60 * 1000 // one nudge per day is plenty
 
 /**
  * Staff-only: text the customer a return reminder FROM the business Quo
- * number. POST { orderId, byStaff? }. Human-triggered on purpose — no cron,
+ * number. POST { orderId }. Human-triggered on purpose — no cron,
  * no TCPA-automation questions, staff pick the moment. The send lands in the
  * order's custody log, and a 20h cooldown stops double-taps from double-texting.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!staffAuthorized(request)) return json({ error: 'Unauthorized' }, 401)
+  const staff = staffAuthorized(request)
+  if (!staff) return json({ error: 'Unauthorized' }, 401)
+  const by = byOf(staff)
 
   if (!quoConfigured()) {
     return json({ error: 'Quo texting isn’t configured (set QUO_API_KEY + QUO_FROM_NUMBER) — text them manually for now.' }, 503)
@@ -40,7 +42,6 @@ export const POST: APIRoute = async ({ request }) => {
 
   const body = await request.json().catch(() => null)
   const orderId = typeof body?.orderId === 'string' ? body.orderId.trim() : ''
-  const byStaff = typeof body?.byStaff === 'string' ? body.byStaff.trim() || undefined : undefined
   if (!orderId) return json({ error: 'Missing orderId' }, 400)
 
   const order = await getKitOrder(orderId)
@@ -68,7 +69,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const updated = await mutateKitOrder(orderId, (o) => {
-    o.events.push({ at: new Date().toISOString(), action: 'reminder', byStaff, note: 'return reminder texted via Quo' })
+    o.events.push({ at: new Date().toISOString(), action: 'reminder', by, note: 'return reminder texted via Quo' })
   })
   return json({ data: { order: publicOrder(updated) } }, 200)
 }

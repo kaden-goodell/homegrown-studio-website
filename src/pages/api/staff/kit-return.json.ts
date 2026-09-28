@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { staffAuthorized } from '@lib/staff-auth'
+import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { providers } from '@config/providers'
 import { getKitOrder, mutateKitOrder, type KitOrderRecord } from '@lib/kit-store'
 import { createLogger } from '@lib/logger'
@@ -14,7 +14,7 @@ const json = (body: unknown, status: number) =>
 
 /**
  * Staff-only kit check-in / pickup console (LR-4).
- * POST { orderId, action, withheldCents?, note?, byStaff? }
+ * POST { orderId, action, withheldCents?, note? }
  *   pickup   — hand the kit over. Themed orders go 'out' (starts the return
  *              clock); crafts-only orders settle immediately ('returned', no
  *              deposit, no return tracking).
@@ -28,12 +28,13 @@ const json = (body: unknown, status: number) =>
  * double-refunds.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!staffAuthorized(request)) return json({ error: 'Unauthorized' }, 401)
+  const staff = staffAuthorized(request)
+  if (!staff) return json({ error: 'Unauthorized' }, 401)
+  const by = byOf(staff)
 
   const body = await request.json().catch(() => null)
   const orderId = str(body?.orderId)
   const action = str(body?.action)
-  const byStaff = str(body?.byStaff) || undefined
   if (!orderId) return json({ error: 'Missing orderId' }, 400)
 
   const order = await getKitOrder(orderId)
@@ -55,7 +56,7 @@ export const POST: APIRoute = async ({ request }) => {
           o.events.push({
             at: nowIso,
             action: 'pickup',
-            byStaff,
+            by,
             note: o.balanceDueCents ? `balance collected on POS at pickup` : undefined,
             amountCents: o.balanceDueCents || undefined,
           })
@@ -100,7 +101,7 @@ export const POST: APIRoute = async ({ request }) => {
             at: nowIso,
             action: action === 'complete' ? 'return-complete' : 'return-partial',
             note,
-            byStaff,
+            by,
             amountCents: refundAmount,
           })
         })
@@ -113,7 +114,7 @@ export const POST: APIRoute = async ({ request }) => {
         const updated = await mutateKitOrder(orderId, (o) => {
           if (o.status !== 'out') return
           o.status = 'forfeited'
-          o.events.push({ at: nowIso, action: 'forfeit', note: str(body?.note) || undefined, byStaff, amountCents: 0 })
+          o.events.push({ at: nowIso, action: 'forfeit', note: str(body?.note) || undefined, by, amountCents: 0 })
         })
         return json({ data: { order: publicOrder(updated) } }, 200)
       }
@@ -133,7 +134,7 @@ export const POST: APIRoute = async ({ request }) => {
         const updated = await mutateKitOrder(orderId, (o) => {
           if (o.depositRefund) return
           o.status = 'out' // its pre-mistake value — matters for the overdue ledger clause
-          o.events.push({ at: nowIso, action: 'undo', byStaff })
+          o.events.push({ at: nowIso, action: 'undo', by })
         })
         return json({ data: { order: publicOrder(updated) } }, 200)
       }

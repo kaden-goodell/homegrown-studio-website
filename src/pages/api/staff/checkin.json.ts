@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { randomInt, createHash } from 'node:crypto'
-import { staffAuthorized } from '@lib/staff-auth'
+import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { getEvent } from '@lib/events'
 import { getWaiverRecord } from '@lib/waiver-store'
 import { mutateCheckin, toPublicCheckin, type CheckinState } from '@lib/checkin-store'
@@ -42,9 +42,11 @@ function childStillHere(state: CheckinState): boolean {
  *   reissue-code: {}  — rotate the pickup code (only for drop-off events; works even if no code was issued yet)
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!staffAuthorized(request)) {
+  const staff = staffAuthorized(request)
+  if (!staff) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   }
+  const by = byOf(staff)
   const body = await request.json().catch(() => null)
   const party = typeof body?.party === 'string' ? body.party : ''
   const recordId = typeof body?.recordId === 'string' ? body.recordId : ''
@@ -110,7 +112,7 @@ export const POST: APIRoute = async ({ request }) => {
               state.pickupCodeHash = hashCode(oneTimeCode)
             }
           }
-          state.events.push({ at: nowIso, action: 'checkin', personIds: ids })
+          state.events.push({ at: nowIso, action: 'checkin', personIds: ids, by })
           break
         }
 
@@ -118,7 +120,7 @@ export const POST: APIRoute = async ({ request }) => {
           // Guard: pickup codes only apply to drop-off events.
           if (!dropOff) {
             denyReason = 'Pickup codes only apply to drop-off events.'
-            state.events.push({ at: nowIso, action: 'reissue-code', personIds: [], note: 'denied: not a drop-off event' })
+            state.events.push({ at: nowIso, action: 'reissue-code', personIds: [], note: 'denied: not a drop-off event', by })
             return
           }
           // Works whether or not a code already exists — fixes the dead-end when
@@ -128,7 +130,7 @@ export const POST: APIRoute = async ({ request }) => {
           const isRotation = !!state.pickupCodeHash
           oneTimeCode = newCode()
           state.pickupCodeHash = hashCode(oneTimeCode)
-          state.events.push({ at: nowIso, action: 'reissue-code', personIds: [], note: isRotation ? 'rotated' : 'first issue' })
+          state.events.push({ at: nowIso, action: 'reissue-code', personIds: [], note: isRotation ? 'rotated' : 'first issue', by })
           break
         }
 
@@ -143,13 +145,13 @@ export const POST: APIRoute = async ({ request }) => {
             state.pickedUpBy = null
           }
           const clearedIds = ids.length === 0 ? Object.keys(JSON.parse(prevPresence)) : ids
-          state.events.push({ at: nowIso, action: 'undo-checkin', personIds: clearedIds, note: `cleared: ${prevPresence}` })
+          state.events.push({ at: nowIso, action: 'undo-checkin', personIds: clearedIds, note: `cleared: ${prevPresence}`, by })
           break
         }
 
         case 'set-pickup':
           state.confirmedPickup = asIds(body?.confirmedPickup)
-          state.events.push({ at: nowIso, action: 'set-pickup', personIds: [] })
+          state.events.push({ at: nowIso, action: 'set-pickup', personIds: [], by })
           break
 
         case 'pickup': {
@@ -165,12 +167,12 @@ export const POST: APIRoute = async ({ request }) => {
             const code = typeof body?.code === 'string' ? body.code.trim() : ''
             if (!state.pickupCodeHash) {
               denyReason = 'No pickup code was ever issued for this family — use "Issue pickup code" first.'
-              state.events.push({ at: nowIso, action: 'pickup-denied', personIds: ids, note: 'no code issued' })
+              state.events.push({ at: nowIso, action: 'pickup-denied', personIds: ids, note: 'no code issued', by })
               return
             }
             if (hashCode(code) !== state.pickupCodeHash) {
               denyReason = 'Pickup code doesn’t match. Verify with the parent.'
-              state.events.push({ at: nowIso, action: 'pickup-denied', personIds: ids, note: 'code mismatch' })
+              state.events.push({ at: nowIso, action: 'pickup-denied', personIds: ids, note: 'code mismatch', by })
               return
             }
           }
@@ -181,7 +183,7 @@ export const POST: APIRoute = async ({ request }) => {
           if (pickedUpBy) state.pickedUpBy = pickedUpBy
           // Once every child has been collected, the family code is spent.
           if (dropOff && !childStillHere(state)) state.pickupCodeHash = null
-          state.events.push({ at: nowIso, action: 'pickup', personIds: ids, ...(pickedUpBy ? { pickedUpBy } : {}) })
+          state.events.push({ at: nowIso, action: 'pickup', personIds: ids, ...(pickedUpBy ? { pickedUpBy } : {}), by })
           break
         }
 
@@ -196,7 +198,7 @@ export const POST: APIRoute = async ({ request }) => {
             oneTimeCode = newCode()
             state.pickupCodeHash = hashCode(oneTimeCode)
           }
-          state.events.push({ at: nowIso, action: 'undo-pickup', personIds: targets })
+          state.events.push({ at: nowIso, action: 'undo-pickup', personIds: targets, by })
           break
         }
       }

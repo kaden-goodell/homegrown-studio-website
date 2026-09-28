@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { staffAuthorized } from '@lib/staff-auth'
+import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { providers } from '@config/providers'
 import { getKitOrder, mutateKitOrder, releaseWeekClaim, type KitOrderRecord } from '@lib/kit-store'
 import { addDays } from '@lib/kit-dates'
@@ -20,7 +20,7 @@ function studioToday(): string {
 
 /**
  * Staff-only kit cancellation.
- * POST { orderId, byStaff? }
+ * POST { orderId }
  * Precondition: status === 'upcoming' (a picked-up/returned/cancelled order is
  * rejected with 409; the missed-pickup bucket is still 'upcoming', so those
  * cancel through here too). Policy refund: full charge if we're still ≥ lead
@@ -33,11 +33,12 @@ function studioToday(): string {
  * when the week was claimed pre-order).
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!staffAuthorized(request)) return json({ error: 'Unauthorized' }, 401)
+  const staff = staffAuthorized(request)
+  if (!staff) return json({ error: 'Unauthorized' }, 401)
+  const by = byOf(staff)
 
   const body = await request.json().catch(() => null)
   const orderId = str(body?.orderId)
-  const byStaff = str(body?.byStaff) || undefined
   if (!orderId) return json({ error: 'Missing orderId' }, 400)
 
   const order = await getKitOrder(orderId)
@@ -72,7 +73,7 @@ export const POST: APIRoute = async ({ request }) => {
         at: nowIso,
         action: 'cancel',
         amountCents: refundAmount,
-        byStaff,
+        by,
         note: freeCancel ? 'full refund' : 'assembly fee withheld',
       })
     })
