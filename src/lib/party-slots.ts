@@ -9,6 +9,7 @@
  * workshop slot clear). See `partyDays` in party.config.ts.
  */
 import { partyConfig, partyDays } from '../config/party.config'
+import { closureOn } from '../config/closures'
 
 const DAY_MS = 86_400_000
 
@@ -79,6 +80,7 @@ function studioDatePlus(days: number, now: Date): string {
  *   - not before opening day
  *   - not with less than `minLeadDays` notice
  *   - not further ahead than `bookingWindowDays`
+ * A day inside that span can still be closed (see closures.ts): bookableOn says so.
  */
 export function bookableDates(now: Date = new Date()): { first: string; last: string } {
   const soonest = studioDatePlus(partyConfig.minLeadDays, now)
@@ -93,8 +95,9 @@ export function bookableDates(now: Date = new Date()): { first: string; last: st
 export function bookableOn(
   ymd: string,
   now: Date = new Date(),
-): 'ok' | 'before_opening' | 'too_soon' | 'too_far' {
+): 'ok' | 'before_opening' | 'closed' | 'too_soon' | 'too_far' {
   if (ymd < partyConfig.bookingOpensDate) return 'before_opening'
+  if (closureOn(ymd)) return 'closed'
   const { first, last } = bookableDates(now)
   if (ymd < first) return 'too_soon'
   if (ymd > last) return 'too_far'

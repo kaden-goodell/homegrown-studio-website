@@ -192,8 +192,46 @@ describe('GET /api/calendar.json', () => {
     const parties = body.events.filter((e: any) => e.kind === 'party-available')
     expect(parties.length).toBeGreaterThan(0)
     for (const p of parties) expect(p.date.startsWith('2026-11')).toBe(true)
-    // Sunday 1 Nov is the day the clocks change; its first party is still 1:00 PM.
-    expect(parties[0]).toMatchObject({ date: '2026-11-01', startTime: '13:00' })
+    // The first weekend of November is closed (Halloween), so the month starts on the 7th,
+    // the first Saturday after the clocks change; its first party is still 9:00 AM.
+    expect(parties[0]).toMatchObject({ date: '2026-11-07', startTime: '09:00' })
+  })
+
+  it('offers no party time on a day the studio has closed', async () => {
+    const october = (await getMonth('2026-10')).body.events.filter((e: any) => e.kind === 'party-available')
+    expect(october.map((e: any) => e.date)).not.toContain('2026-10-31')
+    const november = (await getMonth('2026-11')).body.events.filter((e: any) => e.kind === 'party-available')
+    expect(november.map((e: any) => e.date)).not.toContain('2026-11-01')
+  })
+
+  it('says the studio is closed on every day of a closure, in the holiday\'s colours', async () => {
+    const closedIn = async (month: string) =>
+      (await getMonth(month)).body.events.filter((e: any) => String(e.id).startsWith('closed-'))
+
+    const october = await closedIn('2026-10')
+    expect(october.map((e: any) => e.date)).toEqual(['2026-10-30', '2026-10-31'])
+    expect(october[0]).toEqual({
+      id: 'closed-2026-10-30',
+      kind: 'event',
+      title: 'Closed for Halloween weekend',
+      detail: 'We reopen Thursday, November 5.',
+      date: '2026-10-30',
+      bookable: false,
+      holiday: 'halloween',
+    })
+    // The Sunday falls in November, and shows there.
+    expect((await closedIn('2026-11')).map((e: any) => e.date)).toEqual(['2026-11-01'])
+  })
+
+  it('closes the whole of Christmas week, not one day of it', async () => {
+    const { body } = await getMonth('2026-12')
+    const rows = body.events.filter((e: any) => String(e.id).startsWith('closed-'))
+    expect(rows.map((e: any) => e.date)).toEqual([
+      '2026-12-21', '2026-12-22', '2026-12-23', '2026-12-24', '2026-12-25', '2026-12-26', '2026-12-27',
+    ])
+    for (const row of rows) {
+      expect(row).toMatchObject({ title: 'Closed for Christmas week', detail: 'We reopen Thursday, December 31.', holiday: 'christmas' })
+    }
   })
 
   it('shows the Grand Opening marker in the opening month only', async () => {

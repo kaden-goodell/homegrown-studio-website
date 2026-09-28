@@ -284,11 +284,73 @@ describe('WhatsOnCalendar month view', () => {
     expect(event.style.background).not.toBe(party.style.background)
   })
 
-  it('always shows the "Closed Mon–Wed" key, even for a month with nothing in it', async () => {
+  describe('a day closed for a holiday', () => {
+    const HALLOWEEN: CalendarEvent = {
+      id: 'closed-2026-10-31',
+      kind: 'event',
+      title: 'Closed for Halloween weekend',
+      detail: 'We reopen Thursday, November 5.',
+      date: '2026-10-31',
+      bookable: false,
+      holiday: 'halloween',
+    }
+
+    async function cellFor(title: string): Promise<HTMLElement> {
+      const chip = await screen.findByTitle(title)
+      return chip.parentElement!
+    }
+
+    it('wears the holiday\'s colours on its chip, not the usual event colour', async () => {
+      stubCalendarApi([HALLOWEEN])
+      render(<WhatsOnCalendar />)
+      fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+      const chip = await screen.findByTitle('Closed for Halloween weekend')
+      expect(chip.style.borderLeft).toBe('3px solid var(--holiday-halloween)')
+      expect(chip.style.background).toBe('var(--holiday-halloween-soft)')
+      // The whole name shows: it runs to a second line instead of being cut.
+      expect(chip.style.whiteSpace).toBe('normal')
+    })
+
+    it('stripes the day, and keeps the stripes when the day is hovered', async () => {
+      stubCalendarApi([HALLOWEEN])
+      render(<WhatsOnCalendar />)
+      fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+      const cell = await cellFor('Closed for Halloween weekend')
+      expect(cell.style.backgroundImage).toContain('--holiday-halloween')
+      fireEvent.mouseEnter(cell)
+      expect(cell.style.backgroundImage).toContain('--holiday-halloween')
+      fireEvent.mouseLeave(cell)
+      expect(cell.style.backgroundImage).toContain('--holiday-halloween')
+    })
+
+    it('stripes every day of Christmas week like a candy cane, with or without a row on it', async () => {
+      vi.setSystemTime(new Date('2026-12-01T17:00:00.000Z'))
+      stubCalendarApi([])
+      render(<WhatsOnCalendar />)
+      // The month view opens on the current month once the opening month has passed.
+      fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+      expect(await screen.findByText('December 2026')).toBeInTheDocument()
+      const striped = Array.from(document.querySelectorAll<HTMLElement>('div')).filter((d) =>
+        d.style.backgroundImage.includes('--holiday-christmas'),
+      )
+      expect(striped.map((d) => d.textContent?.trim().slice(0, 2))).toEqual(['21', '22', '23', '24', '25', '26', '27'])
+    })
+
+    it('shows in the list in the holiday\'s colours, with the day it reopens', async () => {
+      stubCalendarApi([HALLOWEEN])
+      render(<WhatsOnCalendar />)
+      const row = await rowFor('Closed for Halloween weekend')
+      expect(row.textContent).toContain('We reopen Thursday, November 5.')
+      expect(row.style.backgroundImage).toContain('--holiday-halloween')
+      expect(row.tagName).toBe('DIV')
+    })
+  })
+
+  it('always shows the "Closed" key, even for a month with nothing in it', async () => {
     stubCalendarApi([])
     render(<WhatsOnCalendar />)
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
-    expect(await screen.findByText('Closed Mon–Wed')).toBeInTheDocument()
+    expect(await screen.findByText("Closed")).toBeInTheDocument()
   })
 
   it('disables "Previous month" on the opening month and enables it after', async () => {

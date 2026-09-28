@@ -180,7 +180,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const detail =
       offered === 'too_soon'
         ? `Parties need ${partyConfig.minLeadDays} days’ notice, so that date is too soon to book. Nothing was charged. Pick a later date.`
-        : partyMessages.not_open
+        : offered === 'closed'
+          ? 'The studio is closed on that date, so it can’t be booked. Nothing was charged. Pick another date.'
+          : partyMessages.not_open
     return errorResponse(detail, 409, 'not_open')
   }
 

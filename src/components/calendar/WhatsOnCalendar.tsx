@@ -12,6 +12,7 @@ import {
 } from './calendar-view-model'
 import type { CalendarEvent, CalendarFilter } from './calendar-view-model'
 import { OPENING_DATE } from '@config/opening'
+import { OPEN_WEEKDAYS, closureOn, studioOpenOn, type Holiday } from '@config/closures'
 
 /** Months the flat list view loads at once; "Show more" adds one at a time. */
 const LIST_MONTHS_INITIAL = 3
@@ -120,6 +121,20 @@ const KIND_INK: Record<CalendarEvent['kind'], string> = {
   'party-booked': 'var(--color-muted)',
 }
 
+/** A holiday closure wears the holiday's colours; everything else, its kind's. */
+const colorOf = (e: CalendarEvent) => (e.holiday ? `var(--holiday-${e.holiday})` : KIND_COLORS[e.kind])
+const softOf = (e: CalendarEvent) => (e.holiday ? `var(--holiday-${e.holiday}-soft)` : KIND_SOFT[e.kind])
+const inkOf = (e: CalendarEvent) => (e.holiday ? `var(--holiday-${e.holiday}-ink)` : KIND_INK[e.kind])
+
+/** Stripes for a day closed for a holiday: pumpkin orange, or a candy cane. */
+const HOLIDAY_STRIPES: Record<Holiday, string> = {
+  halloween:
+    'repeating-linear-gradient(135deg, color-mix(in srgb, var(--holiday-halloween) 30%, white) 0 7px, color-mix(in srgb, var(--holiday-halloween) 12%, white) 7px 14px)',
+  christmas:
+    'repeating-linear-gradient(135deg, color-mix(in srgb, var(--holiday-christmas) 38%, white) 0 7px, white 7px 14px)',
+}
+const CLOSED_HATCH = 'repeating-linear-gradient(135deg, rgba(var(--color-primary-rgb),0.045) 0 2px, transparent 2px 9px)'
+
 const KIND_LABELS: Record<CalendarEvent['kind'], string> = {
   workshop: 'Workshop',
   'open-studio': 'Open Studio',
@@ -177,9 +192,6 @@ function chipTime(t?: string) {
   return `${m[1]}${m[2] === '00' ? '' : ':' + m[2]}${m[3].toLowerCase()}`
 }
 
-// Studio is open Thu–Sun; Mon–Wed cells read as "closed" so empty days don't
-// look like missing data. (0 = Sunday.)
-const OPEN_WEEKDAYS = new Set([0, 4, 5, 6])
 
 /** Label shown in a selected-day row, e.g. "Open Studio · 9 AM–6 PM (walk-in)". */
 function eventLine(e: CalendarEvent) {
@@ -711,12 +723,13 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
         transition: 'opacity 0.2s ease',
       }}>
         {padded.map((day, i) => {
-          const weekday = i % 7
-          const isOpenDay = OPEN_WEEKDAYS.has(weekday)
           if (day === null) {
             return <div key={`empty-${i}`} style={{ background: 'rgba(255,255,255,0.35)', minHeight: compact ? '2.75rem' : '6rem' }} />
           }
           const dateStr = `${monthStr}-${String(day).padStart(2, '0')}`
+          // Closed: the usual Mon–Wed, and any day the studio has closed (see closures.ts).
+          const isOpenDay = studioOpenOn(dateStr)
+          const holiday = closureOn(dateStr)?.holiday
           const isPast = dateStr < todayStr
           const isToday = dateStr === todayStr
           const dayEvents = eventsByDay.get(day) ?? []
@@ -751,21 +764,21 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                 alignItems: compact ? 'center' : 'stretch',
                 gap: '2px',
                 padding: compact ? '0.3rem 0.15rem' : '0.4rem 0.35rem',
-                background: cellBg,
+                // Colour only: the shorthand would wipe the stripes below.
+                backgroundColor: cellBg,
                 // Closed weekdays get a faint diagonal hatch so "nothing here" reads as "closed".
-                backgroundImage: !isOpenDay && !isPast
-                  ? 'repeating-linear-gradient(135deg, rgba(var(--color-primary-rgb),0.045) 0 2px, transparent 2px 9px)'
-                  : undefined,
+                // A day closed for a holiday wears its stripes instead.
+                backgroundImage: holiday ? HOLIDAY_STRIPES[holiday] : !isOpenDay && !isPast ? CLOSED_HATCH : undefined,
                 boxShadow: isSelected ? 'inset 0 0 0 2px var(--color-primary)' : isToday ? 'inset 0 0 0 2px rgba(var(--color-primary-rgb),0.45)' : 'none',
                 opacity: isPast ? 0.55 : 1,
                 cursor: hasEvents ? 'pointer' : 'default',
                 transition: 'background 0.15s ease, box-shadow 0.15s ease',
               }}
               onMouseEnter={(e) => {
-                if (hasEvents && !isSelected) e.currentTarget.style.background = 'rgba(var(--color-primary-rgb), 0.07)'
+                if (hasEvents && !isSelected) e.currentTarget.style.backgroundColor = 'rgba(var(--color-primary-rgb), 0.07)'
               }}
               onMouseLeave={(e) => {
-                if (hasEvents && !isSelected) e.currentTarget.style.background = cellBg
+                if (hasEvents && !isSelected) e.currentTarget.style.backgroundColor = cellBg
               }}
             >
               <span style={{
@@ -802,7 +815,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                 <>
                   {chips.slice(0, 4).map((e) => {
                     const clickable = !!e.href
-                    const color = KIND_COLORS[e.kind]
+                    const color = colorOf(e)
                     const time = e.kind === 'event' ? '' : chipTime(e.startTime)
                     const chipStyle: CSSProperties = {
                       display: 'flex',
@@ -812,20 +825,21 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                       lineHeight: 1.25,
                       fontWeight: 500,
                       color: 'var(--color-dark)',
-                      background: KIND_SOFT[e.kind],
+                      background: softOf(e),
                       borderLeft: `3px solid ${color}`,
                       borderRadius: '4px',
                       padding: '3px 6px',
                       overflow: 'hidden',
-                      whiteSpace: 'nowrap',
+                      // A closure is the only thing on its day: let its name run to a second line.
+                      whiteSpace: e.holiday ? 'normal' : 'nowrap',
                       textDecoration: 'none',
                       cursor: clickable ? 'pointer' : 'default',
                       transition: 'filter 0.15s ease',
                     }
                     const inner = (
                       <>
-                        {time && <span style={{ flexShrink: 0, fontSize: '0.625rem', fontWeight: 700, color: KIND_INK[e.kind], letterSpacing: '0.02em' }}>{time}</span>}
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</span>
+                        {time && <span style={{ flexShrink: 0, fontSize: '0.625rem', fontWeight: 700, color: inkOf(e), letterSpacing: '0.02em' }}>{time}</span>}
+                        <span style={e.holiday ? undefined : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</span>
                       </>
                     )
                     return clickable ? (
@@ -894,7 +908,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
             border: '1px solid rgba(var(--color-primary-rgb),0.2)',
             backgroundImage: 'repeating-linear-gradient(135deg, rgba(var(--color-primary-rgb),0.12) 0 2px, transparent 2px 5px)',
           }} />
-          Closed Mon–Wed
+          Closed
         </span>
       </div>
       </div>
@@ -954,6 +968,13 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                     padding: compact ? '0.5rem' : '0.5rem 0.75rem',
                     borderRadius: '0.625rem',
                     transition: 'background 0.2s ease',
+                    // A holiday closure: a band of its stripes down the left, its soft colour behind the words.
+                    ...(e.holiday
+                      ? {
+                          paddingLeft: '1.25rem',
+                          backgroundImage: `linear-gradient(90deg, transparent 0.5rem, ${softOf(e)} 0.5rem), ${HOLIDAY_STRIPES[e.holiday]}`,
+                        }
+                      : {}),
                   }
                   const inner = (
                     <>
@@ -962,12 +983,12 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                           {e.title}
                         </span>
                         <span style={{ display: 'flex', alignItems: 'flex-start', gap: '0.4rem', marginTop: '0.125rem', fontSize: '0.8125rem', lineHeight: 1.4, color: 'var(--color-text)' }}>
-                          <span aria-hidden="true" style={{ width: '0.5rem', height: '0.5rem', marginTop: '0.35em', borderRadius: '9999px', background: KIND_COLORS[e.kind], flexShrink: 0 }} />
+                          <span aria-hidden="true" style={{ width: '0.5rem', height: '0.5rem', marginTop: '0.35em', borderRadius: '9999px', background: colorOf(e), flexShrink: 0 }} />
                           <span style={{ minWidth: 0 }}>{rowMetaText(e)}</span>
                         </span>
                       </div>
                       {action && (
-                        <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: '0.875rem', fontWeight: 600, color: KIND_INK[e.kind] }}>
+                        <span style={{ flexShrink: 0, whiteSpace: 'nowrap', fontSize: '0.875rem', fontWeight: 600, color: inkOf(e) }}>
                           {action}
                         </span>
                       )}
@@ -1040,7 +1061,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                 gap: '0.75rem',
                 background: 'var(--color-surface)',
                 border: clickable
-                  ? `1px solid color-mix(in srgb, ${KIND_COLORS[e.kind]} 35%, transparent)`
+                  ? `1px solid color-mix(in srgb, ${colorOf(e)} 35%, transparent)`
                   : '1px solid var(--color-line)',
                 borderRadius: '0.75rem',
                 padding: '0.9rem 1.1rem',
@@ -1056,7 +1077,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                     width: '10px',
                     height: '10px',
                     borderRadius: '50%',
-                    background: KIND_COLORS[e.kind],
+                    background: colorOf(e),
                   }} />
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <span style={{
@@ -1084,7 +1105,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                       flexShrink: 0,
                       fontSize: e.kind === 'party-available' ? '0.8125rem' : '1.1rem',
                       fontWeight: e.kind === 'party-available' ? 600 : 400,
-                      color: KIND_INK[e.kind],
+                      color: inkOf(e),
                     }} aria-hidden="true">
                       {e.kind === 'party-available' ? 'Book ›' : '›'}
                     </span>

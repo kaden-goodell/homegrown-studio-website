@@ -1,6 +1,8 @@
 import type { APIRoute } from 'astro'
 import { bookingsOpen } from '@lib/bookings-gate'
 import { OPENING_DATE } from '@config/opening'
+import { closures, daysOf, reopensOn } from '@config/closures'
+import { longDate } from '@lib/notify-context'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { createSquareClient } from '@providers/square/client'
@@ -165,6 +167,23 @@ export const GET: APIRoute = async ({ url, request }) => {
       bookable: false,
       href: '/',
     })
+  }
+  // Days the studio has closed: a row on every one of them, so a whole
+  // closed week reads as a whole closed week.
+  for (const closure of closures) {
+    const reopens = `We reopen ${longDate(reopensOn(closure))}.`
+    for (const day of daysOf(closure)) {
+      if (day < OPENING_DATE || !inRange(day)) continue
+      events.push({
+        id: `closed-${day}`,
+        kind: 'event',
+        title: `Closed for ${closure.name}`,
+        detail: reopens,
+        date: day,
+        bookable: false,
+        ...(closure.holiday ? { holiday: closure.holiday } : {}),
+      })
+    }
   }
   return new Response(JSON.stringify({ events, ...(failed ? { incomplete: true } : {}) }), {
     status: 200,

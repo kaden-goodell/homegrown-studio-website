@@ -69,6 +69,15 @@
   --tone-kit-soft: var(--craft-teal-soft);
   --tone-kit-ink: var(--craft-teal-ink);
 
+  /* Holidays the studio closes for: the calendar dresses up. Pumpkin orange
+     for Halloween, candy-cane red for Christmas. */
+  --holiday-halloween: #e8761c;
+  --holiday-halloween-soft: #fdebd9;
+  --holiday-halloween-ink: #8a3f00;
+  --holiday-christmas: #c8283c;
+  --holiday-christmas-soft: #fbe6e8;
+  --holiday-christmas-ink: #8f1626;
+
   --font-heading: 'Playfair Display', serif;
   --font-body: 'Inter', sans-serif;
   --radius-sm: 4px;

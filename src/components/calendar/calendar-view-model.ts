@@ -34,6 +34,8 @@ export interface CalendarEvent {
   bookedCount?: number
   /** Events: line two in its own words, in place of "Event · time". */
   detail?: string
+  /** A closure for a holiday: shown in that holiday's colours. */
+  holiday?: 'halloween' | 'christmas'
   /** Whether this event can be acted on (links to a booking flow). */
   bookable: boolean
   /** Where tapping the event goes: a booking deeplink (workshop modal, party

@@ -36,7 +36,9 @@ afterEach(() => vi.useRealTimers())
 describe('POST /api/party/available-dates.json', () => {
   it('offers only dates inside the booking window', async () => {
     const { data } = await ask()
-    expect(data.dates).toEqual(['2026-10-17', '2026-10-18', '2026-10-24', '2026-10-25', '2026-10-31', '2026-11-01', '2026-11-07', '2026-11-08'])
+    // Halloween weekend (Oct 30 to Nov 1) is closed, so it is not offered.
+    expect(data.dates).toEqual(['2026-10-17', '2026-10-18', '2026-10-24', '2026-10-25', '2026-11-07', '2026-11-08'])
+    expect(data.bookedDates).toEqual([])
     expect(data.windowDays).toBe(45)
   })
 

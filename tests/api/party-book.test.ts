@@ -235,6 +235,11 @@ describe('POST /api/party/book.json', () => {
       await refused('before_opening')
     })
 
+    it('refuses a day the studio has closed, and says so', async () => {
+      const json = await refused('closed')
+      expect(json.detail).toMatch(/studio is closed on that date/)
+    })
+
     it('refuses a start time that is not a date at all', async () => {
       const res = await POST(createMockContext(makeBody({ startTime: 'next saturday' })))
       expect(res.status).toBe(400)
