@@ -57,6 +57,30 @@ export function formatCalendarDate(iso: string): string {
   })
 }
 
+/** "Aug 3" — short month+day, studio-local. Door-search GOOD TO GO line. */
+export function formatMonthDay(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: TZ })
+}
+
+/** "Aug 3, 2025" — short month+day+year, studio-local. Door-search EXPIRED line. */
+export function formatMonthDayYear(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: TZ })
+}
+
+/** "Aug 2027" — short month+year, studio-local. "valid through" summary. */
+export function formatMonthYear(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', year: 'numeric', timeZone: TZ })
+}
+
+/** "Sat, Oct 17" — calendar date display from a YYYY-MM-DD string. Pure local
+ *  calendar math (no timezone conversion) — the input is already a
+ *  studio-local date, so constructing a local Date from its parts and
+ *  formatting without a timeZone option is correct on any host machine. */
+export function formatCalendarDay(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 /** "Sat, Aug 8, 12:00 PM" — dashboard/console rows (no CT suffix). */
 export function formatWhen(iso: string): string {
   return new Date(iso).toLocaleString('en-US', {

@@ -347,6 +347,73 @@ describe('markDuplicateChildren', () => {
   })
 })
 
+// ─── last-name index (door search, HOM-208) ──────────────────────────────────
+
+describe('indexWaiverByContact — last-name index', () => {
+  let mod: typeof import('@lib/waiver-store')
+
+  beforeEach(async () => {
+    mod = await import('@lib/waiver-store')
+  })
+
+  it('after indexing a record, lookupHouseholdsByName finds it by trimmed/lowercased last name', async () => {
+    const r = makeRecord({ id: `wvr_rivera_${Date.now()}`, lastName: 'Rivera', email: `rivera-${Date.now()}@example.com` })
+    await mod.saveWaiverRecord(r)
+    await mod.indexWaiverByContact(r)
+
+    const found = await mod.lookupHouseholdsByName('  rivera ')
+    expect(found.map((h) => h.recordId)).toContain(r.id)
+  })
+
+  it('normalizes accented last names to the same key (RIVÉRA === Rivera)', async () => {
+    const r = makeRecord({ id: `wvr_accent_${Date.now()}`, lastName: 'Rivera', email: `accent-${Date.now()}@example.com` })
+    await mod.saveWaiverRecord(r)
+    await mod.indexWaiverByContact(r)
+
+    const found = await mod.lookupHouseholdsByName('RIVÉRA')
+    expect(found.map((h) => h.recordId)).toContain(r.id)
+  })
+
+  it('is idempotent — indexing the same record twice does not duplicate the entry', async () => {
+    const last = `Solo${Date.now()}`
+    const r = makeRecord({ id: `wvr_solo_${Date.now()}`, lastName: last, email: `solo-${Date.now()}@example.com` })
+    await mod.saveWaiverRecord(r)
+    await mod.indexWaiverByContact(r)
+    await mod.indexWaiverByContact(r)
+
+    const found = await mod.lookupHouseholdsByName(last)
+    expect(found.filter((h) => h.recordId === r.id)).toHaveLength(1)
+  })
+
+  it('a household with no last name is skipped without error', async () => {
+    const r = makeRecord({ id: `wvr_nolast_${Date.now()}`, lastName: '', email: `nolast-${Date.now()}@example.com` })
+    await mod.saveWaiverRecord(r)
+    await expect(mod.indexWaiverByContact(r)).resolves.not.toThrow()
+  })
+
+  it('an unknown last name returns an empty list', async () => {
+    const found = await mod.lookupHouseholdsByName(`Nobody${Date.now()}`)
+    expect(found).toEqual([])
+  })
+
+  it('collapses repeat signings by the same person to their most recent record', async () => {
+    const last = `Repeat${Date.now()}`
+    const older = makeRecord({ id: `wvr_repeat_old_${Date.now()}`, lastName: last, firstName: 'Sam', email: `repeat-${Date.now()}@example.com` })
+    older.signedAt = new Date(Date.now() - 1e9).toISOString()
+    const newer = { ...older, id: `wvr_repeat_new_${Date.now()}`, signedAt: new Date().toISOString() }
+
+    await mod.saveWaiverRecord(older)
+    await mod.indexWaiverByContact(older)
+    await mod.saveWaiverRecord(newer)
+    await mod.indexWaiverByContact(newer)
+
+    const found = await mod.lookupHouseholdsByName(last)
+    const matches = found.filter((h) => h.firstName === 'Sam' && h.lastName === last)
+    expect(matches).toHaveLength(1)
+    expect(matches[0].recordId).toBe(newer.id)
+  })
+})
+
 // ─── upsertWaiverInEventIndex CAS retry ──────────────────────────────────────
 
 describe('upsertWaiverInEventIndex — CAS retry on setIfMatch false', () => {

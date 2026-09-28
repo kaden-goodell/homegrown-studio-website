@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { waiverContent } from '@config/waiver-content'
 import { formatCalendarDate } from '@lib/studio-time'
 
@@ -21,6 +21,13 @@ interface Props {
   /** Present when opened from a workshop confirmation — the per-seat Square
    *  booking id, carried through to the RSVP as `ref.bookingId`. */
   booking?: string
+  /** True on the shared staff iPad (`/waiver?kiosk=1`, HOM-209) — skips the
+   *  returning-customer lookup, shows a disclosure bar, and swaps the
+   *  confirmation for a minimal "hand it back" screen that auto-returns. */
+  kiosk?: boolean
+  /** Same-origin path to auto-return to after signing in kiosk mode.
+   *  Pre-validated server-side (`@lib/safe-return`) — trusted as-is here. */
+  returnTo?: string
 }
 
 interface MinorRow {
@@ -98,7 +105,7 @@ function PartyLabelChip({ label }: { label: string }) {
   )
 }
 
-export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle: _eventTitle, dropOff, booking }: Props) {
+export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle: _eventTitle, dropOff, booking, kiosk = false, returnTo = '/staff' }: Props) {
   const { form, confirmation, legalSections } = waiverContent
 
   const [firstName, setFirstName] = useState('')
@@ -124,8 +131,10 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const [done, setDone] = useState<{ covered: string[]; validUntil: string } | null>(null)
 
   // Returning-customer lookup: start on the lookup step; fall through to the
-  // full form for new/expired households.
-  const [mode, setMode] = useState<'lookup' | 'returning' | 'form'>('lookup')
+  // full form for new/expired households. Kiosk mode skips straight to the
+  // full form — the crew already checked coverage on the Today screen, and a
+  // shared device must never show one guest another guest's household.
+  const [mode, setMode] = useState<'lookup' | 'returning' | 'form'>(kiosk ? 'form' : 'lookup')
   const [contact, setContact] = useState('')
   const [lookupBusy, setLookupBusy] = useState(false)
   const [returning, setReturning] = useState<{ recordId: string; reuseToken: string; firstName: string; kids: string[]; validUntil: string; signedAt: string } | null>(null)
@@ -422,6 +431,90 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     }
   }
 
+  /**
+   * Kiosk hand-back: navigate to `returnTo` and, in the same breath, clear
+   * every bit of what was typed — belt and suspenders alongside
+   * `history.replaceState` so a back-navigation from the next page can never
+   * land on this filled-in state (HOM-209 — a shared iPad, next guest up).
+   */
+  function kioskReturn() {
+    setFirstName(''); setLastName(''); setEmail(''); setPhone(''); setDob('')
+    setMinors([])
+    setEmergencyName(''); setEmergencyPhone(''); setEmergencyRelationship('')
+    setAuthorizedPickup(''); setAdultAllergies('')
+    setPhotoConsent(null); setAgreeRelease(false); setSignature('')
+    setResponsibleAdult(''); setSignerPresent(null)
+    setError(null); setFormNotice(null); setDone(null)
+    try {
+      history.replaceState(null, '', returnTo)
+    } catch {
+      // ignore — location.replace below still gets us there
+    }
+    location.replace(returnTo)
+  }
+
+  // 20s auto-return from the kiosk done screen (or an immediate tap on Done).
+  useEffect(() => {
+    if (!kiosk || !done) return
+    const t = setTimeout(kioskReturn, 20_000)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kiosk, done])
+
+  if (done && kiosk) {
+    const validDate = new Date(done.validUntil).toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric',
+    })
+    return (
+      <div style={{ ...cardStyle, textAlign: 'center', padding: '2.5rem 1.5rem' }}>
+        <div
+          style={{
+            width: '3.5rem',
+            height: '3.5rem',
+            margin: '0 auto 1.25rem',
+            borderRadius: '50%',
+            background: 'rgba(34, 197, 94, 0.12)',
+            color: 'rgb(22, 163, 74)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.75rem',
+            fontWeight: 700,
+          }}
+        >
+          ✓
+        </div>
+        <h2 style={{ ...sectionHeadingStyle, fontSize: '1.375rem', marginBottom: '0.5rem' }}>
+          Done — hand the iPad back
+        </h2>
+        <p style={{ ...sectionNoteStyle, maxWidth: '22rem', margin: '0 auto 0.5rem' }}>
+          {firstName.trim() ? `Thanks, ${firstName.trim()}!` : 'Thanks!'}
+        </p>
+        <p style={{ ...sectionNoteStyle, maxWidth: '22rem', margin: '0 auto 1.5rem' }}>
+          Valid through <strong>{validDate}</strong>.
+        </p>
+        <button
+          type="button"
+          onClick={kioskReturn}
+          style={{
+            padding: '0.85rem 2rem',
+            borderRadius: '0.875rem',
+            border: 'none',
+            background: 'var(--color-primary)',
+            color: '#fff',
+            fontSize: '1rem',
+            fontWeight: 600,
+            cursor: 'pointer',
+          }}
+        >
+          Done
+        </button>
+      </div>
+    )
+  }
+
   if (done) {
     const validDate = new Date(done.validUntil).toLocaleDateString('en-US', {
       month: 'long',
@@ -647,7 +740,24 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   }
 
   return (
-    <div>
+    <form onSubmit={(e) => e.preventDefault()} autoComplete={kiosk ? 'off' : undefined}>
+      {kiosk && (
+        <div
+          style={{
+            background: 'rgba(150, 112, 91, 0.08)',
+            border: '1px solid rgba(150, 112, 91, 0.2)',
+            borderRadius: '0.75rem',
+            padding: '0.65rem 1rem',
+            marginBottom: '1.25rem',
+            fontSize: '0.8125rem',
+            color: 'var(--color-dark)',
+            lineHeight: 1.5,
+            textAlign: 'center',
+          }}
+        >
+          Signing on the studio iPad — your details are only saved to your agreement, not to this device.
+        </div>
+      )}
       {partyLabel && <PartyLabelChip label={partyLabel} />}
       {formNotice && (
         <div
@@ -976,6 +1086,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           {submitting ? form.submittingLabel : form.submitLabel}
         </button>
       </div>
-    </div>
+    </form>
   )
 }

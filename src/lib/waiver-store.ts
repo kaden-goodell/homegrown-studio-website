@@ -311,6 +311,65 @@ export async function indexWaiverByContact(record: WaiverRecord): Promise<void> 
   await rawSet(emailKey(record.adult.email), summary)
   const pk = phoneKey(record.adult.phone)
   if (pk) await rawSet(pk, summary)
+  await indexWaiverByName(record)
+}
+
+// ---- Last-name index (staff door search, HOM-208) ----
+// Points a normalized last name at every waiver record ever signed under it,
+// so staff can search "rivera" at the door and page through matches. Not
+// deduped by contact at write time (a re-sign just appends another entry) —
+// lookupHouseholdsByName collapses those back to one row per household.
+
+/** Case/whitespace/diacritic-insensitive key for last-name matching. */
+function normalizeName(s: string): string {
+  return s.trim().toLowerCase().normalize('NFD').replace(/\p{M}/gu, '').replace(/\s+/g, ' ')
+}
+
+function nameIndexKey(lastName: string): string {
+  return `contact-name-${normalizeName(lastName)}`
+}
+
+interface NameIndexEntry {
+  recordId: string
+  firstName: string
+}
+
+/**
+ * Add this record's signer to the last-name index. Idempotent per recordId —
+ * safe to call from both the live persist path (via indexWaiverByContact)
+ * and the one-off backfill script for records written before this index
+ * existed (scripts/backfill-name-index.ts).
+ */
+export async function indexWaiverByName(record: WaiverRecord): Promise<void> {
+  const last = record.adult.lastName?.trim()
+  if (!last) return
+  const key = nameIndexKey(last)
+  const raw = await rawGet(key)
+  const entries: NameIndexEntry[] = raw ? JSON.parse(raw) : []
+  if (entries.some((e) => e.recordId === record.id)) return
+  entries.push({ recordId: record.id, firstName: record.adult.firstName })
+  await rawSet(key, JSON.stringify(entries))
+}
+
+/**
+ * Every household on file whose last name matches (normalized). A household
+ * that has re-signed more than once collapses to its most recent record so
+ * staff see one row per household, not one per re-sign.
+ */
+export async function lookupHouseholdsByName(lastName: string): Promise<HouseholdOnFile[]> {
+  const raw = await rawGet(nameIndexKey(lastName))
+  if (!raw) return []
+  const entries: NameIndexEntry[] = JSON.parse(raw)
+  const latest = new Map<string, HouseholdOnFile>()
+  for (const e of entries) {
+    const record = await getWaiverRecord(e.recordId)
+    if (!record) continue
+    const h = householdFrom(record)
+    const dedupeKey = `${h.firstName.trim().toLowerCase()}|${h.lastName.trim().toLowerCase()}`
+    const prev = latest.get(dedupeKey)
+    if (!prev || new Date(h.signedAt).getTime() > new Date(prev.signedAt).getTime()) latest.set(dedupeKey, h)
+  }
+  return [...latest.values()]
 }
 
 /** Latest household on file for an email or phone, only if still valid at `now`. */

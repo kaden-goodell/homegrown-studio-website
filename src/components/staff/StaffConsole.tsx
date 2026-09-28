@@ -7,21 +7,10 @@ import { addDays } from '@lib/kit-dates'
 import PickStaff from '@components/staff/PickStaff'
 import StaffHeader from '@components/staff/StaffHeader'
 import EventSettingsSheet from '@components/staff/EventSettingsSheet'
+import Today from '@components/staff/Today'
+import { card, btn, field, Badge } from '@components/staff/ui'
 import type { StaffMember } from '@lib/staff-auth'
-import type { StudioEvent } from '@lib/events'
-
-interface PartyRow {
-  bookingId: string
-  craftName: string
-  startIso: string
-  title: string | null
-  hostName: string
-  guestCount: number
-  rsvpHouseholds: number
-  rsvpPeople: number
-  /** Selected in-studio themed-table name (K10), or null. Staff-display only. */
-  themeName: string | null
-}
+import type { StudioEvent, EventKind } from '@lib/events'
 
 interface Presence {
   inAt: string
@@ -60,30 +49,6 @@ interface Roster {
   households: Household[]
 }
 
-const card: React.CSSProperties = {
-  border: '1px solid rgba(150,112,91,0.16)',
-  borderRadius: '1rem',
-  padding: '1rem 1.1rem',
-  boxShadow: '0 8px 24px rgba(150,112,91,0.08)',
-  marginBottom: '0.9rem',
-}
-const btn = (primary = false): React.CSSProperties => ({
-  padding: '0.55rem 0.9rem',
-  borderRadius: '0.625rem',
-  border: primary ? 'none' : '1px solid rgba(150,112,91,0.3)',
-  background: primary ? 'var(--color-primary)' : 'transparent',
-  color: primary ? '#fff' : 'var(--color-dark)',
-  fontSize: '0.8125rem',
-  fontWeight: 600,
-  cursor: 'pointer',
-})
-const field: React.CSSProperties = {
-  padding: '0.5rem 0.7rem',
-  borderRadius: '0.5rem',
-  border: '1px solid rgba(150,112,91,0.3)',
-  fontSize: '0.875rem',
-}
-
 type Status = 'wait' | 'in' | 'out'
 
 function StatusPill({ status, hereCount, total }: { status: Status; hereCount: number; total: number }) {
@@ -95,17 +60,6 @@ function StatusPill({ status, hereCount, total }: { status: Status; hereCount: n
   return (
     <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.28rem 0.7rem', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 700, background: map.bg, color: map.fg, whiteSpace: 'nowrap' }}>
       {map.icon} {map.label}
-    </span>
-  )
-}
-
-function Badge({ tone, wrap, children }: { tone: 'alert' | 'muted'; wrap?: boolean; children: React.ReactNode }) {
-  const t = tone === 'alert'
-    ? { bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c', bd: 'rgba(185,28,28,0.3)' }
-    : { bg: 'rgba(90,90,90,0.08)', fg: '#4b5563', bd: 'rgba(90,90,90,0.22)' }
-  return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.5rem', borderRadius: '0.5rem', fontSize: '0.7rem', fontWeight: 700, background: t.bg, color: t.fg, border: `1px solid ${t.bd}`, whiteSpace: wrap ? 'normal' : 'nowrap' }}>
-      {children}
     </span>
   )
 }
@@ -572,8 +526,10 @@ export default function StaffConsole() {
   const [pickBusy, setPickBusy] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
   const [pickAuthFailed, setPickAuthFailed] = useState(false)
-  const [parties, setParties] = useState<PartyRow[]>([])
   const [roster, setRoster] = useState<Roster | null>(null)
+  /** Non-party roster target — Task 7 replaces this with a real workshop
+   *  roster; until then Today's rows for those kinds land here. */
+  const [rosterPlaceholder, setRosterPlaceholder] = useState<{ title: string } | null>(null)
   const [netError, setNetError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
   const [query, setQuery] = useState('')
@@ -584,19 +540,25 @@ export default function StaffConsole() {
   // reload always starts back at the passcode screen (pick.json re-verifies it).
   const passcodeRef = useRef('')
 
-  async function loadParties() {
-    try {
-      setNetError(null)
-      const res = await fetch('/api/staff/parties.json', { cache: 'no-store' })
-      if (res.status === 401) { setPhase('login'); return }
-      const json = await res.json()
-      setParties(json.data.parties)
-      setPhase('today')
-    } catch {
-      setNetError('Couldn’t reach the studio server — check wifi and tap Retry.')
-    }
-  }
-  useEffect(() => { setPhase('login') }, [])
+  // Recover the signed-in staffer from the identity cookie on mount, so a
+  // page reload lands back on Today instead of dropping to the passcode
+  // screen. No cookie (or an expired one) falls through to login.
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/staff/me.json', { cache: 'no-store' })
+        if (res.ok) {
+          const json = await res.json()
+          setMe(json.data.staff)
+          setPhase('today')
+          return
+        }
+      } catch {
+        // fall through to login
+      }
+      setPhase('login')
+    })()
+  }, [])
 
   async function doLogin() {
     setLoginError(null)
@@ -631,18 +593,21 @@ export default function StaffConsole() {
       }
       setMe(json.data.staff)
       setPickBusy(false)
-      await loadParties()
+      setPhase('today')
     } catch {
       setPickError('Couldn’t reach the studio server — check wifi and try again.')
       setPickBusy(false)
     }
   }
 
-  /** Back to the name grid without re-entering the passcode. */
+  /** Back to the name grid without re-entering the passcode. Only works if
+   *  the passcode is still in memory (this browser session logged in the
+   *  normal way) — a session recovered from the cookie after a reload never
+   *  saw the passcode, so Switch falls back to asking for it again. */
   function switchStaff() {
     setPickError(null)
     setPickAuthFailed(false)
-    setPhase('pick')
+    setPhase(passcodeRef.current ? 'pick' : 'login')
   }
 
   async function logout() {
@@ -651,7 +616,7 @@ export default function StaffConsole() {
     setMe(null)
     setStaffRoster([])
     setRoster(null)
-    setParties([])
+    setRosterPlaceholder(null)
     setPhase('login')
   }
 
@@ -703,6 +668,19 @@ export default function StaffConsole() {
       setPhase('roster')
     } catch {
       setNetError('Couldn’t reach the studio server — check wifi and tap Retry.')
+    }
+  }
+
+  /** Today/EventList's row tap — routes a party to the real roster; every
+   *  other kind gets a placeholder until Task 7 builds their roster. */
+  function openRoster(e: { kind: EventKind; id: string; title: string }) {
+    if (e.kind === 'party') {
+      setRosterPlaceholder(null)
+      openParty(e.id)
+    } else {
+      setRoster(null)
+      setRosterPlaceholder({ title: e.title })
+      setPhase('roster')
     }
   }
 
@@ -776,36 +754,18 @@ export default function StaffConsole() {
 
   if (!me) return null // 'today' / 'roster' / 'kits' all require a picked identity
 
-  // Network error banner (shown in today and roster phases)
+  // Network error banner (shown in roster and kits phases — Today owns its
+  // own error handling per-section since its data comes from several
+  // independent fetches, not one).
   const netErrorBanner = netError && (
     <div style={{ background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '0.6rem', padding: '0.7rem 0.9rem', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
       <span style={{ flex: 1, fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{netError}</span>
-      <button type="button" onClick={phase === 'kits' ? () => loadKits() : phase === 'roster' && roster ? () => openParty(roster.party.bookingId) : loadParties} style={btn()}>Retry</button>
+      <button type="button" onClick={phase === 'kits' ? () => loadKits() : roster ? () => openParty(roster.party.bookingId) : () => setPhase('today')} style={btn()}>Retry</button>
     </div>
   )
 
   if (phase === 'today') {
-    return (
-      <div>
-        <StaffHeader title="Today" staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onLogout={logout} />
-        {netErrorBanner}
-        {parties.length === 0 && !netError && <p style={{ color: 'var(--color-muted)' }}>No parties yet.</p>}
-        {parties.map((p) => (
-          <button key={p.bookingId} type="button" onClick={() => openParty(p.bookingId)} style={{ ...card, background: 'rgba(255,255,255,0.85)', width: '100%', textAlign: 'left', cursor: 'pointer', display: 'block' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.35rem' }}>
-              <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-                <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{p.title || `${p.craftName} Party`}</span>
-                {p.themeName && <Badge tone="muted">🎀 {p.themeName}</Badge>}
-              </span>
-              <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{formatWhen(p.startIso)}</span>
-            </div>
-            <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
-              Host: {p.hostName}{p.hostPhone ? ` · ${p.hostPhone}` : ''} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl on file)
-            </p>
-          </button>
-        ))}
-      </div>
-    )
+    return <Today staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onLogout={logout} onOpenRoster={openRoster} />
   }
 
   if (phase === 'kits') {
@@ -911,7 +871,23 @@ export default function StaffConsole() {
     )
   }
 
-  if (!roster) return null
+  if (!roster) {
+    // Non-party kinds (workshops, programs) don't have a real roster yet —
+    // Task 7 builds it. Show the event's title and a plain back button.
+    if (rosterPlaceholder) {
+      return (
+        <div>
+          <StaffHeader title="Roster" staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onLogout={logout} />
+          <button type="button" onClick={() => { setRosterPlaceholder(null); setPhase('today') }} style={{ ...btn(), marginBottom: '1rem' }}>← Today</button>
+          <div style={{ ...card, background: 'rgba(255,255,255,0.85)', textAlign: 'center' }}>
+            <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: '0 0 0.5rem' }}>{rosterPlaceholder.title}</h2>
+            <p style={{ color: 'var(--color-muted)', margin: 0 }}>Workshop rosters land with the next update.</p>
+          </div>
+        </div>
+      )
+    }
+    return null
+  }
   const here = roster.households.reduce((n, h) => n + Object.values(h.checkin.presence || {}).filter((p) => !p.outAt).length, 0)
   const coming = roster.households.reduce((n, h) => n + (h.checkin.expected ? h.checkin.expected.length : 1 + h.children.length), 0)
   const allergyCount = roster.households.reduce((n, h) => n + (h.adultAllergies ? 1 : 0) + h.children.filter((c) => c.allergies).length, 0)
@@ -931,7 +907,7 @@ export default function StaffConsole() {
     <div>
       <StaffHeader title="Roster" staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onLogout={logout} />
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <button type="button" onClick={() => setPhase('today')} style={btn()}>← All parties</button>
+        <button type="button" onClick={() => setPhase('today')} style={btn()}>← Today</button>
         <button type="button" onClick={refreshRoster} style={btn()}>↻ Refresh</button>
         {stale && <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>⚠ Roster may be stale</span>}
       </div>

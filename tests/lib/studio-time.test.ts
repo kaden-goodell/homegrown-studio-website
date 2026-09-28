@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest'
-import { formatTime, formatSlotLabel, formatWhen, studioDayUtcRange } from '@lib/studio-time'
+import {
+  formatTime,
+  formatSlotLabel,
+  formatWhen,
+  studioDayUtcRange,
+  formatMonthDay,
+  formatMonthDayYear,
+  formatMonthYear,
+  formatCalendarDay,
+} from '@lib/studio-time'
 import { localToUtcISO } from '@lib/party-slots'
 
 /**
@@ -30,6 +39,30 @@ describe('formatWhen', () => {
     expect(result).toContain('Aug')
     expect(result).toContain('8')
     expect(result).toContain('12:00 PM')
+  })
+})
+
+describe('formatMonthDay', () => {
+  it('renders "Aug 8" for noon CDT instant', () => {
+    expect(formatMonthDay(NOON_CDT_UTC)).toBe('Aug 8')
+  })
+})
+
+describe('formatMonthDayYear', () => {
+  it('renders "Aug 8, 2026" for noon CDT instant', () => {
+    expect(formatMonthDayYear(NOON_CDT_UTC)).toBe('Aug 8, 2026')
+  })
+})
+
+describe('formatMonthYear', () => {
+  it('renders "Aug 2026" for noon CDT instant', () => {
+    expect(formatMonthYear(NOON_CDT_UTC)).toBe('Aug 2026')
+  })
+})
+
+describe('formatCalendarDay', () => {
+  it('renders "Sat, Aug 8" for a YYYY-MM-DD studio-local date', () => {
+    expect(formatCalendarDay('2026-08-08')).toBe('Sat, Aug 8')
   })
 })
 

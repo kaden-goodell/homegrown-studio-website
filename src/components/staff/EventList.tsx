@@ -1,0 +1,100 @@
+import { useEffect, useState } from 'react'
+import { card, btn, Badge } from '@components/staff/ui'
+import { formatTime, formatCalendarDay } from '@lib/studio-time'
+import { addDays } from '@lib/kit-dates'
+import type { EventKind, StudioEvent } from '@lib/events'
+
+interface EventRow extends StudioEvent {
+  rsvpCount: number
+  hereNow: number
+}
+
+const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
+
+/**
+ * Today's (or any day's) scheduled events — parties, workshops, programs —
+ * with a date stepper so staff can peek at tomorrow's roster ahead of time
+ * (HOM-208 §6). Tapping a row opens its roster.
+ */
+export default function EventList({
+  date,
+  onOpenRoster,
+}: {
+  /** The actual studio-local "today" — used only to label the stepper. */
+  date: string
+  onOpenRoster: (e: { kind: EventKind; id: string; title: string }) => void
+}) {
+  const [cursor, setCursor] = useState(date)
+  const [events, setEvents] = useState<EventRow[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  async function load(d: string) {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/staff/events.json?date=${d}`, { cache: 'no-store' })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) { setError(json?.error ?? 'Couldn’t load events.'); return }
+      setEvents(json.data.events)
+    } catch {
+      setError('Couldn’t reach storage — check wifi and try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load(cursor) }, [cursor])
+
+  const isToday = cursor === date
+  const label = isToday ? 'Today' : formatCalendarDay(cursor)
+
+  return (
+    <div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
+        <button type="button" onClick={() => setCursor((c) => addDays(c, -1))} aria-label="Previous day" style={{ ...btn(), minWidth: '2.75rem', minHeight: '2.75rem' }}>‹</button>
+        <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', fontSize: '1rem' }}>{label}</h3>
+        <button type="button" onClick={() => setCursor((c) => addDays(c, 1))} aria-label="Next day" style={{ ...btn(), minWidth: '2.75rem', minHeight: '2.75rem' }}>›</button>
+      </div>
+
+      {error && (
+        <div style={{ background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '0.6rem', padding: '0.7rem 0.9rem', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
+          <span style={{ flex: 1, fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{error}</span>
+          <button type="button" onClick={() => load(cursor)} style={btn()}>Retry</button>
+        </div>
+      )}
+
+      {!loading && !error && events.length === 0 && (
+        <p style={{ color: 'var(--color-muted)' }}>
+          {isToday ? 'Nothing scheduled today — walk-ins only.' : 'Nothing scheduled — walk-ins only.'}
+        </p>
+      )}
+
+      {events.map((e) => {
+        const dayIndex = e.days.indexOf(cursor)
+        const multiDay = e.days.length > 1
+        return (
+          <button
+            key={`${e.kind}:${e.id}`}
+            type="button"
+            onClick={() => onOpenRoster({ kind: e.kind, id: e.id, title: e.title })}
+            style={{ ...card, background: 'rgba(255,255,255,0.85)', width: '100%', textAlign: 'left', cursor: 'pointer', display: 'block', minHeight: '2.75rem' }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', flexWrap: 'wrap', gap: '0.35rem' }}>
+              <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <span aria-hidden="true">{ICON[e.kind]}</span>
+                <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{e.title}</span>
+                {e.dropOff && <Badge tone="alert">DROP-OFF</Badge>}
+                {multiDay && <Badge tone="muted">Day {dayIndex + 1} of {e.days.length}</Badge>}
+              </span>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{formatTime(e.startIso)}</span>
+            </div>
+            <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
+              <strong style={{ color: 'var(--color-dark)' }}>{e.rsvpCount}</strong> RSVP’d · <strong style={{ color: 'var(--color-dark)' }}>{e.hereNow}</strong> here
+            </p>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
