@@ -30,7 +30,12 @@ export interface PartyRecord {
   title: string | null
   /**
    * Drop-off event (parents leave). Turns on staff pickup verification: a
-   * confirmed pickup list + a pickup code + dropdown check-out. Parties are never drop-off (a responsible adult stays with each child); only studio-run drop-off events (camps, PNO) set this, via the staff console.
+   * confirmed pickup list + a pickup code + dropdown check-out. Parties are
+   * never drop-off (a responsible adult stays with each child); only
+   * studio-run drop-off events (camps, PNO) set this. Read-only here now —
+   * the staff console writes drop-off via the `event-meta` overlay
+   * (`@lib/event-meta`); this field is a fallback `getEvent` reads for old
+   * records written before that store existed.
    */
   dropOff: boolean
   /**
@@ -60,15 +65,6 @@ export async function getPartyRecord(bookingId: string): Promise<PartyRecord | n
 /** Constant-ish check that the supplied token matches the party's host token. */
 export function hostTokenValid(record: PartyRecord | null, token: string | null | undefined): boolean {
   return !!record && !!token && token === record.hostToken
-}
-
-/** Flip the drop-off flag on a party (staff console). */
-export async function updatePartyDropOff(bookingId: string, dropOff: boolean): Promise<PartyRecord | null> {
-  const record = await getPartyRecord(bookingId)
-  if (!record) return null
-  const updated = { ...record, dropOff }
-  await savePartyRecord(updated)
-  return updated
 }
 
 /** All party records (for the staff console). Newest first. */

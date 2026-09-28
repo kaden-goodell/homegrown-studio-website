@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { staffAuthorized } from '@lib/staff-auth'
 import { getPartyRecord } from '@lib/party-store'
+import { getEvent } from '@lib/events'
 import { listWaiversByParty, markDuplicateChildren } from '@lib/waiver-store'
 import { getCheckin, toPublicCheckin } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
@@ -22,6 +23,11 @@ export const GET: APIRoute = async ({ request, url }) => {
   try {
     const party = await getPartyRecord(partyId)
     if (!party) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 })
+
+    // dropOff and days now live on the event-meta overlay, not the raw party
+    // record — go through getEvent so a flip from the settings sheet shows
+    // up here (party.dropOff is a stale read-only fallback for old data).
+    const event = await getEvent('party', partyId)
 
     const waivers = await listWaiversByParty(partyId)
 
@@ -75,7 +81,7 @@ export const GET: APIRoute = async ({ request, url }) => {
             hostName: party.hostName,
             hostPhone: party.hostPhone ?? null,
             guestCount: party.guestCount,
-            dropOff: party.dropOff,
+            dropOff: event?.dropOff ?? party.dropOff,
           },
           summary: { households: households.length, people },
           households: responseHouseholds,

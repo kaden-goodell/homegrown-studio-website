@@ -4,63 +4,65 @@ export const prerender = false
 import Layout from '@layouts/Layout.astro'
 import WaiverFlow from '@components/waiver/WaiverFlow'
 import { waiverContent } from '@config/waiver-content'
-import { getPartyRecord } from '@lib/party-store'
+import { getEvent, type StudioEvent } from '@lib/events'
 import { formatWhen } from '@lib/studio-time'
 
 const rawPartyId = Astro.url.searchParams.get('party') ?? undefined
-const rawWorkshopId = Astro.url.searchParams.get('workshop') ?? undefined
+const rawWorkshopId = !rawPartyId ? (Astro.url.searchParams.get('workshop') ?? undefined) : undefined
 const { page } = waiverContent
 const subline = rawPartyId ? page.partySubline : page.subline
 
-// When a party param is present, resolve it server-side.
-// Four outcomes:
-//   1. found + not past  → pass partyId + partyLabel
-//   2. found + past      → block RSVP with a notice, no partyId
-//   3. returned null     → unrecognised id — show warning, no partyId (prevents ghost RSVPs)
-//   4. threw             → transient storage error — keep partyId, no partyLabel
+// When a party or workshop param is present, resolve it server-side (party
+// takes precedence if somehow both are given). Four outcomes:
+//   1. found + not past  → pass id + label
+//   2. found + past      → block RSVP with a notice, no id
+//   3. returned null     → unrecognised id — show warning, no id (prevents ghost RSVPs)
+//   4. threw             → transient storage error — keep id, no label
 
-type PartyOutcome =
-  | { kind: 'ok';      partyId: string; partyLabel: string; dropOff: boolean }
+type EventOutcome =
+  | { kind: 'ok';      id: string; label: string; dropOff: boolean }
   | { kind: 'past';    notice: string }
   | { kind: 'unknown'; notice: string }
-  | { kind: 'error';   partyId: string }
+  | { kind: 'error';   id: string }
   | { kind: 'none' }
 
-let outcome: PartyOutcome = { kind: 'none' }
+const rawId = rawPartyId ?? rawWorkshopId
+const eventKind = rawPartyId ? 'party' as const : rawWorkshopId ? 'workshop' as const : null
+let outcome: EventOutcome = { kind: 'none' }
 
-if (rawPartyId) {
+if (eventKind && rawId) {
   try {
-    const record = await getPartyRecord(rawPartyId)
-    if (record === null) {
-      // Genuinely unknown party id — bad/stale link.
+    const event: StudioEvent | null = await getEvent(eventKind, rawId)
+    if (event === null) {
+      // Genuinely unknown id — bad/stale link.
       outcome = {
         kind: 'unknown',
-        notice: 'That party link wasn’t recognized — ask your host for a fresh invitation. You can still sign the general agreement below.',
+        notice: eventKind === 'party'
+          ? 'That party link wasn’t recognized — ask your host for a fresh invitation. You can still sign the general agreement below.'
+          : 'That link wasn’t recognized — ask the studio for a fresh link. You can still sign the general agreement below.',
       }
     } else {
-      const isPast = new Date(record.startIso).getTime() + 24 * 3600_000 < Date.now()
+      const isPast = new Date(event.startIso).getTime() + 24 * 3600_000 < Date.now()
       if (isPast) {
-        outcome = { kind: 'past', notice: 'This party has already happened.' }
+        outcome = { kind: 'past', notice: 'This event has already happened.' }
       } else {
-        const label = `${record.title ?? record.craftName + ' Party'} · ${formatWhen(record.startIso)} CT`
-        outcome = { kind: 'ok', partyId: rawPartyId, partyLabel: label, dropOff: !!record.dropOff }
+        const label = `${event.title} · ${formatWhen(event.startIso)} CT`
+        outcome = { kind: 'ok', id: rawId, label, dropOff: event.dropOff }
       }
     }
   } catch {
-    // Transient storage error — keep partyId so a valid RSVP link still works;
-    // sign.json re-validates anyway. No partyLabel since we have no record.
-    outcome = { kind: 'error', partyId: rawPartyId }
+    // Transient storage error — keep the id so a valid RSVP link still works;
+    // sign.json re-validates anyway. No label since we have no record.
+    outcome = { kind: 'error', id: rawId }
   }
 }
 
-const flowPartyId   = outcome.kind === 'ok' ? outcome.partyId   : outcome.kind === 'error' ? outcome.partyId   : undefined
-const flowPartyLabel = outcome.kind === 'ok' ? outcome.partyLabel : undefined
-const flowDropOff   = outcome.kind === 'ok' ? outcome.dropOff : undefined
-const noticeText    = outcome.kind === 'unknown' || outcome.kind === 'past' ? (outcome as { notice: string }).notice : null
-
-// Workshop param — when present (and no party param), pass workshopId through directly.
-// No server-side validation needed: workshop bookings live in Square.
-const flowWorkshopId = !rawPartyId && rawWorkshopId ? rawWorkshopId : undefined
+const flowPartyId    = eventKind === 'party' && (outcome.kind === 'ok' || outcome.kind === 'error') ? outcome.id : undefined
+const flowWorkshopId = eventKind === 'workshop' && (outcome.kind === 'ok' || outcome.kind === 'error') ? outcome.id : undefined
+const flowPartyLabel = eventKind === 'party' && outcome.kind === 'ok' ? outcome.label : undefined
+const flowEventTitle = eventKind === 'workshop' && outcome.kind === 'ok' ? outcome.label : undefined
+const flowDropOff    = outcome.kind === 'ok' ? outcome.dropOff : undefined
+const noticeText     = outcome.kind === 'unknown' || outcome.kind === 'past' ? (outcome as { notice: string }).notice : null
 ---
 
 <Layout
@@ -99,6 +101,6 @@ const flowWorkshopId = !rawPartyId && rawWorkshopId ? rawWorkshopId : undefined
       </div>
     )}
 
-    <WaiverFlow client:load partyId={flowPartyId} partyLabel={flowPartyLabel} workshopId={flowWorkshopId} dropOff={flowDropOff} />
+    <WaiverFlow client:load partyId={flowPartyId} partyLabel={flowPartyLabel} workshopId={flowWorkshopId} eventTitle={flowEventTitle} dropOff={flowDropOff} />
   </section>
 </Layout>

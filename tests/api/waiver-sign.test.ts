@@ -42,6 +42,10 @@ vi.mock('@config/providers', () => ({
       findOrCreate: vi.fn().mockResolvedValue({ id: 'cust-1', email: 'alice@example.com', givenName: 'Alice', familyName: 'Test' }),
       appendNote: vi.fn().mockResolvedValue(undefined),
     },
+    workshop: {
+      listWorkshops: vi.fn().mockResolvedValue([]),
+      getWorkshop: vi.fn().mockResolvedValue(null),
+    },
   },
 }))
 
@@ -49,6 +53,10 @@ vi.mock('@config/providers', () => ({
 
 const NOW = '2026-09-01T18:00:00.000Z'
 const FUTURE_PARTY_ISO = '2026-09-05T14:00:00.000Z'
+// Far enough out to outlive normal test-suite date rot — this file's whole
+// approach to "the future" is fragile (see the pre-existing FUTURE_PARTY_ISO
+// failures below); Task 3 rewrites this file with proper clock control.
+const FUTURE_WORKSHOP_ISO = '2036-09-05T18:00:00.000Z'
 
 function makeAdultBody(overrides: Record<string, any> = {}) {
   return {
@@ -133,6 +141,12 @@ describe('POST /api/waiver/sign.json — responsible adult enforcement', () => {
         customer: {
           findOrCreate: vi.fn().mockResolvedValue({ id: 'cust-1', email: 'alice@test.com', givenName: 'Alice', familyName: 'Test' }),
           appendNote: vi.fn().mockResolvedValue(undefined),
+        },
+        workshop: {
+          listWorkshops: vi.fn().mockResolvedValue([
+            { scheduleId: 'wkbk-abc123', name: 'Test Workshop', startAt: FUTURE_WORKSHOP_ISO, availableCapacity: 5 },
+          ]),
+          getWorkshop: vi.fn().mockResolvedValue(null),
         },
       },
     }))

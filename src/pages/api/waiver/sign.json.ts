@@ -15,7 +15,8 @@ import { setExpected, getCheckin, mutateCheckin } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { verifyReuseToken } from '@lib/reuse-token'
-import { getPartyRecord } from '@lib/party-store'
+import { getEvent, type EventKind as StudioEventKind, type StudioEvent } from '@lib/events'
+import { studioDate } from '@lib/studio-time'
 
 export const prerender = false
 
@@ -129,32 +130,41 @@ async function attachSquare(record: WaiverRecord): Promise<void> {
   }
 }
 
+/** Calendar day (studio-local) one day before `ymd`. */
+function ymdMinusOne(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)
+}
+
 /**
- * Validate that partyId refers to a real, not-yet-ended party.
- * Returns null if valid (or partyId is absent), or a Response to return
- * immediately if invalid. Swallows transient storage errors to avoid blocking
- * legit RSVPs on a blip.
+ * Validate that a party/workshop event link (via `getEvent`) is real and not
+ * already past. Returns `{ event }` when kind/id are absent (general
+ * agreement, no event context) or when the event checks out. Unlike the old
+ * party-only check, a storage error FAILS CLOSED (503) rather than letting
+ * the RSVP through unvalidated (HOM-219 M10).
  */
-async function validateParty(
-  partyId: string | null,
+async function validateEvent(
+  kind: StudioEventKind | null,
+  id: string | null,
   now: Date,
-): Promise<{ err: Response | null; dropOff: boolean }> {
-  if (!partyId) return { err: null, dropOff: false }
+): Promise<{ err: Response | null; event: StudioEvent | null }> {
+  if (!kind || !id) return { err: null, event: null }
+  let event: StudioEvent | null
   try {
-    const party = await getPartyRecord(partyId)
-    if (!party) {
-      return { err: bad("This party link doesn't look right — ask your host to re-share the invitation.", 404), dropOff: false }
-    }
-    if (new Date(party.startIso).getTime() + 24 * 3600_000 < now.getTime()) {
-      return { err: bad("This party has already happened — nothing to RSVP to, but thanks for checking!", 410), dropOff: false }
-    }
-    return { err: null, dropOff: !!party.dropOff }
+    event = await getEvent(kind, id)
   } catch (err) {
-    logger.error('Party validation error — proceeding without it', { partyId, error: String(err) })
-    // Unknown dropOff on a storage blip: treat as a normal party (enforce the
-    // responsible-adult rule) — failing toward supervision is the safe side.
-    return { err: null, dropOff: false }
+    logger.error('Event validation error — failing closed', { kind, id, error: String(err) })
+    return { err: bad("Couldn't reach storage — try again.", 503), event: null }
   }
+  if (!event) {
+    return { err: bad("We couldn't find that event link.", 404), event: null }
+  }
+  // A full studio day of grace past the event's last day before it's "past".
+  const cutoff = ymdMinusOne(studioDate(now.toISOString()))
+  if (event.days.every((d) => d < cutoff)) {
+    return { err: bad('That event has already happened.', 410), event: null }
+  }
+  return { err: null, event }
 }
 
 /**
@@ -196,8 +206,10 @@ async function handleReuse(
     return bad("That session expired — look yourself up again to RSVP.", 401)
   }
 
-  const { err: partyErr, dropOff } = await validateParty(partyId, now)
-  if (partyErr) return partyErr
+  const eventKind: StudioEventKind | null = partyId ? 'party' : workshopId ? 'workshop' : null
+  const { err: eventErr, event } = await validateEvent(eventKind, partyId ?? workshopId, now)
+  if (eventErr) return eventErr
+  const dropOff = !!event?.dropOff
 
   const source = await getWaiverRecord(reuseId)
   if (!source) return bad("We couldn't find your agreement — please fill out the form.")
@@ -322,8 +334,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       return bad(`To sign, type your name exactly as entered above: “${fullName}”.`)
     }
 
-    const { err: partyErr, dropOff } = await validateParty(partyId, now)
-    if (partyErr) return partyErr
+    const eventKind: StudioEventKind | null = partyId ? 'party' : workshopId ? 'workshop' : null
+    const { err: eventErr, event } = await validateEvent(eventKind, partyId ?? workshopId, now)
+    if (eventErr) return eventErr
+    const dropOff = !!event?.dropOff
 
     // Resolve attending ids for the fresh path to enforce the responsible-adult rule.
     const freshValidIds = new Set(['adult', ...minors.map((_, i) => `child:${i}`)])

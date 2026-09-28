@@ -6,7 +6,9 @@ import { kitThemes } from '@config/kit-content'
 import { addDays } from '@lib/kit-dates'
 import PickStaff from '@components/staff/PickStaff'
 import StaffHeader from '@components/staff/StaffHeader'
+import EventSettingsSheet from '@components/staff/EventSettingsSheet'
 import type { StaffMember } from '@lib/staff-auth'
+import type { StudioEvent } from '@lib/events'
 
 interface PartyRow {
   bookingId: string
@@ -575,6 +577,7 @@ export default function StaffConsole() {
   const [netError, setNetError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
   const [query, setQuery] = useState('')
+  const [eventSettingsOpen, setEventSettingsOpen] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   // The passcode lives only in memory for the length of this browser session —
   // "Switch" reuses it to re-pick an identity without asking again. A page
@@ -721,14 +724,14 @@ export default function StaffConsole() {
       pollRef.current = setInterval(() => { refreshRoster() }, 30_000)
     } else {
       if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null }
+      setEventSettingsOpen(false)
     }
     return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
   }, [phase, roster?.party.bookingId])
 
-  async function setDropOff(on: boolean) {
-    if (!roster) return
-    const res = await fetch('/api/staff/party.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ party: roster.party.bookingId, dropOff: on }) })
-    if (res.ok) setRoster({ ...roster, party: { ...roster.party, dropOff: on } })
+  /** Merge a saved event-settings change (drop-off / days) back into the roster. */
+  function applyEventSettings(saved: StudioEvent) {
+    setRoster((r) => r && r.party.bookingId === saved.id ? { ...r, party: { ...r.party, dropOff: saved.dropOff } } : r)
   }
 
   async function post(recordId: string, extra: any): Promise<{ error?: string; oneTimeCode?: string }> {
@@ -933,7 +936,16 @@ export default function StaffConsole() {
         {stale && <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>⚠ Roster may be stale</span>}
       </div>
       {netErrorBanner}
-      <div style={{ ...card, background: 'rgba(255,255,255,0.85)', textAlign: 'center' }}>
+      <div style={{ ...card, background: 'rgba(255,255,255,0.85)', textAlign: 'center', position: 'relative' }}>
+        <button
+          type="button"
+          onClick={() => setEventSettingsOpen(true)}
+          aria-label="Event settings"
+          title="Event settings"
+          style={{ ...btn(), position: 'absolute', top: '0.7rem', right: '0.7rem', padding: '0.35rem 0.55rem' }}
+        >
+          ⚙
+        </button>
         <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0 }}>{roster.party.title || `${roster.party.craftName} Party`}</h2>
         <p style={{ color: 'var(--color-dark)', fontWeight: 600, margin: '0.3rem 0 0' }}>{formatWhen(roster.party.startIso)}</p>
         <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginTop: '0.6rem' }}>
@@ -944,12 +956,24 @@ export default function StaffConsole() {
           {noPhotoGroups > 0 && (
             <Badge tone="alert" wrap>🚫 No group photos — {noPhotoGroups} {noPhotoGroups === 1 ? 'group' : 'groups'} opted out</Badge>
           )}
+          {roster.party.dropOff && <Badge tone="alert">🔑 Drop-off event</Badge>}
         </div>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', marginTop: '0.7rem', fontSize: '0.8125rem', color: 'var(--color-dark)', cursor: 'pointer' }}>
-          <input type="checkbox" checked={roster.party.dropOff} onChange={(e) => setDropOff(e.target.checked)} />
-          Drop-off event (studio-run only — camps/PNO; parties are not drop-off)
-        </label>
       </div>
+
+      {eventSettingsOpen && (
+        <EventSettingsSheet
+          event={{
+            kind: 'party',
+            id: roster.party.bookingId,
+            title: roster.party.title || `${roster.party.craftName} Party`,
+            startIso: roster.party.startIso,
+            days: [],
+            dropOff: roster.party.dropOff,
+          }}
+          onSaved={applyEventSettings}
+          onClose={() => setEventSettingsOpen(false)}
+        />
+      )}
 
       {/* Search */}
       <input

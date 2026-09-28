@@ -9,9 +9,13 @@ interface Props {
   partyLabel?: string
   /** Present when opened from a workshop confirmation — /waiver?workshop={bookingId} */
   workshopId?: string
+  /** Human-readable label for a workshop event (title + when), resolved
+   *  server-side via `getEvent('workshop', id)` — the workshop counterpart
+   *  to `partyLabel`. Unused for now; a later step surfaces it in the flow. */
+  eventTitle?: string
   /** True for studio-run drop-off events (camps/PNO) — resolved server-side from
-   *  the party record. Skips the responsible-adult question (drop-off programs
-   *  have their own check-in + pickup-code procedures). */
+   *  the party/workshop event. Skips the responsible-adult question (drop-off
+   *  programs have their own check-in + pickup-code procedures). */
   dropOff?: boolean
 }
 
@@ -90,7 +94,7 @@ function PartyLabelChip({ label }: { label: string }) {
   )
 }
 
-export default function WaiverFlow({ partyId, partyLabel, workshopId, dropOff }: Props) {
+export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle: _eventTitle, dropOff }: Props) {
   const { form, confirmation, legalSections } = waiverContent
 
   const [firstName, setFirstName] = useState('')

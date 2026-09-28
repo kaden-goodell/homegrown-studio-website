@@ -5,9 +5,15 @@
  * without an explicit timeZone option, or out-of-state viewers will see wrong times.
  */
 import { partyConfig } from '@config/party.config'
-import { localToUtcISO } from '@lib/party-slots'
+import { localDate, localToUtcISO } from '@lib/party-slots'
 
 const TZ = partyConfig.timezone // 'America/Chicago'
+
+/** Studio-local calendar date (YYYY-MM-DD) — the day math behind the unified
+ *  event model (`@lib/events`): which day(s) an event appears on. */
+export function studioDate(iso: string): string {
+  return localDate(iso, TZ)
+}
 
 /** Advance a YYYY-MM-DD string by one calendar day. */
 function nextDay(ymd: string): string {

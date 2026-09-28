@@ -92,10 +92,20 @@ export function makeKvStore(
     return asDirUrl(base)
   }
 
+  // Build the file path by hand rather than `new URL(relative, base)`: a key
+  // containing a colon (e.g. event-meta's `event-meta-{kind}:{id}`) parses as
+  // an absolute URL with its own scheme under WHATWG relative resolution,
+  // silently discarding `base` and blowing up downstream with "The URL must
+  // be of scheme file".
+  async function fsPath(key: string): Promise<string> {
+    const { fileURLToPath } = await import('node:url')
+    return `${fileURLToPath(await fsDir())}${key}.json`
+  }
+
   async function fsRead(key: string): Promise<string | null> {
     try {
       const { readFile } = await import('node:fs/promises')
-      return await readFile(new URL(`${key}.json`, await fsDir()), 'utf8')
+      return await readFile(await fsPath(key), 'utf8')
     } catch {
       return null
     }
@@ -103,9 +113,8 @@ export function makeKvStore(
 
   async function fsWrite(key: string, json: string): Promise<void> {
     const { mkdir, writeFile } = await import('node:fs/promises')
-    const dir = await fsDir()
-    await mkdir(dir, { recursive: true })
-    await writeFile(new URL(`${key}.json`, dir), json, 'utf8')
+    await mkdir(await fsDir(), { recursive: true })
+    await writeFile(await fsPath(key), json, 'utf8')
   }
 
   return {
