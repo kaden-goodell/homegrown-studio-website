@@ -8,19 +8,52 @@ vi.mock('@lib/party-store', () => ({
   listParties: (...a: any[]) => (mockListParties as any)(...a),
 }))
 
+// Computed relative to "now" (not hardcoded) so these never rot into the
+// future/past as real time marches on.
+const { TODAY, STARTED_2H_AGO_ISO, CAMP_STARTED_3D_AGO_ISO } = vi.hoisted(() => {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return {
+    TODAY: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
+    STARTED_2H_AGO_ISO: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+    CAMP_STARTED_3D_AGO_ISO: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+  }
+})
+
 // Two workshops: one bookable, one SOLD OUT. `listWorkshops` filters the full
 // one out (that's Square's own behavior) — only `getWorkshop` can see it, so
-// this fixture is what C2 is about.
+// this fixture is what C2 is about. `listAllWorkshops` is the wide,
+// unfiltered listing `cachedWorkshopList` now prefers (HOM in-progress fix).
 const mockListWorkshops = vi.fn()
 const mockGetWorkshop = vi.fn()
+const mockListAllWorkshops = vi.fn()
 vi.mock('@config/providers', () => ({
-  providers: { workshop: { listWorkshops: (...a: any[]) => mockListWorkshops(...a), getWorkshop: (...a: any[]) => mockGetWorkshop(...a) } },
+  providers: {
+    workshop: {
+      listWorkshops: (...a: any[]) => mockListWorkshops(...a),
+      getWorkshop: (...a: any[]) => mockGetWorkshop(...a),
+      listAllWorkshops: (...a: any[]) => mockListAllWorkshops(...a),
+    },
+  },
 }))
-vi.mock('@lib/event-meta', () => ({ getEventMeta: vi.fn(async (_kind: string, id: string) => id === 'cs1' ? { dropOff: true, days: ['2026-10-20', '2026-10-21', '2026-10-22'], updatedAt: '', by: { id: 'k', name: 'K' }, history: [] } : null) }))
+vi.mock('@lib/event-meta', () => ({
+  getEventMeta: vi.fn(async (_kind: string, id: string) => {
+    if (id === 'cs1') return { dropOff: true, days: ['2026-10-20', '2026-10-21', '2026-10-22'], updatedAt: '', by: { id: 'k', name: 'K' }, history: [] }
+    if (id === 'cs-camp') return { dropOff: false, days: [TODAY], updatedAt: '', by: { id: 'k', name: 'K' }, history: [] }
+    return null
+  }),
+}))
 
 const WORKSHOPS = [
   { id: 'inst-cs1', scheduleId: 'cs1', name: 'Macramé', startAt: '2026-10-21T04:30:00.000Z', availableCapacity: 8 },
   { id: 'inst-pno', scheduleId: 'cs-pno', name: 'Parents Night Out', startAt: '2026-10-23T23:00:00.000Z', availableCapacity: 0 },
+  // Already in progress, no event-meta override — resolves via getEvent and
+  // is listed via `listAllWorkshops` even though it started in the past.
+  { id: 'inst-started', scheduleId: 'cs-started', name: 'Pottery Wheel', startAt: STARTED_2H_AGO_ISO, availableCapacity: 4 },
+  // A multi-day camp we're on a later day of — event-meta says `days`
+  // includes today, so it's listed on today even though startAt is 3 days
+  // in the past.
+  { id: 'inst-camp', scheduleId: 'cs-camp', name: 'Summer Camp', startAt: CAMP_STARTED_3D_AGO_ISO, availableCapacity: 2 },
 ]
 
 let getEvent: typeof import('@lib/events').getEvent
@@ -34,6 +67,7 @@ beforeEach(async () => {
   vi.resetModules()
   mockListParties.mockResolvedValue([partyFixture])
   mockListWorkshops.mockImplementation(async () => WORKSHOPS.filter((w) => w.availableCapacity > 0))
+  mockListAllWorkshops.mockImplementation(async () => WORKSHOPS)
   mockGetWorkshop.mockImplementation(async (id: string) => WORKSHOPS.find((w) => w.id === id || w.scheduleId === id) ?? null)
   ;({ getEvent, listEvents, eventKey } = await import('@lib/events'))
 })
@@ -70,6 +104,32 @@ describe('events', () => {
     const e = await getEvent('workshop', 'cs1')
     expect(e).toMatchObject({ id: 'cs1', title: 'Macramé' })
   })
+
+  it('a class that already started (no meta) still resolves via getEvent, on today', async () => {
+    const e = await getEvent('workshop', 'cs-started')
+    expect(e).toMatchObject({ kind: 'workshop', id: 'cs-started', title: 'Pottery Wheel', days: [TODAY] })
+  })
+
+  it('a class that already started is listed on today by listEvents (staff Today list)', async () => {
+    const { events } = await listEvents({ from: TODAY, to: TODAY })
+    expect(events.map((e) => e.id)).toContain('cs-started')
+  })
+
+  it('a multi-day camp on a later day still resolves and lists on today via its event-meta days', async () => {
+    const e = await getEvent('workshop', 'cs-camp')
+    expect(e).toMatchObject({ kind: 'workshop', id: 'cs-camp', days: [TODAY] })
+    const { events } = await listEvents({ from: TODAY, to: TODAY })
+    expect(events.map((x) => x.id)).toContain('cs-camp')
+  })
+
+  it('listEvents prefers listAllWorkshops (wide) over listWorkshops (future-only public) when both exist', async () => {
+    mockListAllWorkshops.mockImplementation(async () => [
+      { id: 'inst-only-in-all', scheduleId: 'cs-only-in-all', name: 'Wide-only', startAt: STARTED_2H_AGO_ISO, availableCapacity: 1 },
+    ])
+    const { events } = await listEvents({ from: TODAY, to: TODAY })
+    expect(events.map((e) => e.id)).toEqual(['cs-only-in-all'])
+    expect(mockListWorkshops).not.toHaveBeenCalled()
+  })
 })
 
 describe('listEvents source isolation (F2)', () => {
@@ -80,7 +140,7 @@ describe('listEvents source isolation (F2)', () => {
   })
 
   it('a Square outage still returns the parties, flagged workshops: error', async () => {
-    mockListWorkshops.mockRejectedValue(new Error('fetch failed'))
+    mockListAllWorkshops.mockRejectedValue(new Error('fetch failed'))
     const { events, sources } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
     expect(events.map((e) => e.id)).toEqual(['p1'])
     expect(sources).toEqual({ parties: 'ok', workshops: 'error' })
@@ -95,7 +155,7 @@ describe('listEvents source isolation (F2)', () => {
 
   it('both sources down returns nothing and flags both', async () => {
     mockListParties.mockRejectedValue(new Error('blobs down'))
-    mockListWorkshops.mockRejectedValue(new Error('fetch failed'))
+    mockListAllWorkshops.mockRejectedValue(new Error('fetch failed'))
     const { events, sources } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
     expect(events).toEqual([])
     expect(sources).toEqual({ parties: 'error', workshops: 'error' })

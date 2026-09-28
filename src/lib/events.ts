@@ -45,9 +45,16 @@ export interface StudioEvent {
 let workshopCache: { at: number; list: Workshop[] } | null = null
 const WORKSHOP_CACHE_MS = 60_000
 
+/**
+ * Prefers `listAllWorkshops` (no capacity or future-only filter) over
+ * `listWorkshops` (the public, future-only listing) — staff surfaces need to
+ * see an in-progress or multi-day-in-the-past class in a day's listing, not
+ * just resolve one by id. A provider that doesn't implement it (mock today)
+ * is treated as already returning such a list.
+ */
 async function cachedWorkshopList(): Promise<Workshop[]> {
   if (workshopCache && Date.now() - workshopCache.at < WORKSHOP_CACHE_MS) return workshopCache.list
-  const list = await providers.workshop.listWorkshops()
+  const list = await (providers.workshop.listAllWorkshops?.() ?? providers.workshop.listWorkshops())
   workshopCache = { at: Date.now(), list }
   return list
 }

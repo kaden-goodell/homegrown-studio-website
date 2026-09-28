@@ -6,6 +6,14 @@ import { createLogger } from '../../lib/logger'
 const logger = createLogger('square-workshop')
 const CLASSES_API_BASE = 'https://app.squareup.com/appointments/api/buyer/classes'
 
+// How far back `fetchAll()` looks for class schedule instances. Must cover
+// both "the class started earlier today" (so staff can still check kids OUT
+// of an in-progress Parents' Night Out — HOM checkin) and a multi-day camp
+// we're on day 2-5 of. Square returns at most 50 instances per page and the
+// studio runs a handful of classes a week, so a 7-day lookback is cheap.
+const LOOKBACK_HOURS = 24 * 7
+const HOUR_MS = 60 * 60 * 1000
+
 function formatDateWithOffset(date: Date): string {
   const offset = -date.getTimezoneOffset()
   const sign = offset >= 0 ? '+' : '-'
@@ -21,9 +29,14 @@ export class SquareWorkshopProvider implements WorkshopProvider {
     if (!this.config.locationId) {
       return []
     }
-    const all = await this.fetchAll()
+    const all = await this.listAllWorkshops()
+    const now = Date.now()
+    // Public listing stays future-only: `listAllWorkshops` also returns
+    // classes that already started (so staff can resolve/list them — see
+    // LOOKBACK_HOURS below), which must not leak onto the public /workshops
+    // page.
     return all
-      .filter((w) => w.availableCapacity > 0)
+      .filter((w) => w.availableCapacity > 0 && new Date(w.startAt).getTime() >= now)
       .sort((a, b) => new Date(a.startAt).getTime() - new Date(b.startAt).getTime())
   }
 
@@ -36,7 +49,7 @@ export class SquareWorkshopProvider implements WorkshopProvider {
    */
   async getWorkshop(id: string): Promise<Workshop | null> {
     if (!this.config.locationId) return null
-    const all = await this.fetchAll()
+    const all = await this.listAllWorkshops()
     const instance = all.find((w) => w.id === id)
     if (instance) return instance
     return (
@@ -46,9 +59,19 @@ export class SquareWorkshopProvider implements WorkshopProvider {
     )
   }
 
+  /** Every active class in the lookback/forward window — no capacity or
+   *  future-only filter. Backs `getWorkshop`, `listWorkshops`, and staff
+   *  surfaces (`@lib/events`) that need to list, not just resolve, an
+   *  in-progress or multi-day class. */
+  async listAllWorkshops(): Promise<Workshop[]> {
+    if (!this.config.locationId) return []
+    return this.fetchAll()
+  }
+
   private async fetchAll(): Promise<Workshop[]> {
     const locationId = this.config.locationId
     const now = new Date()
+    const startDate = new Date(now.getTime() - LOOKBACK_HOURS * HOUR_MS)
     const endDate = new Date()
     endDate.setFullYear(endDate.getFullYear() + 1)
 
@@ -59,7 +82,7 @@ export class SquareWorkshopProvider implements WorkshopProvider {
         filter: {
           location_id: locationId,
           starting_at: {
-            start_at: formatDateWithOffset(now),
+            start_at: formatDateWithOffset(startDate),
             end_at: formatDateWithOffset(endDate),
           },
           status: 'CLASS_SCHEDULE_ACTIVE',
