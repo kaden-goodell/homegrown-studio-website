@@ -4,9 +4,13 @@ vi.mock('@lib/rate-limit', () => ({ rateLimited: vi.fn().mockReturnValue(false) 
 vi.mock('@lib/reuse-token', () => ({ issueReuseToken: vi.fn().mockReturnValue('token-abc') }))
 
 const mockLookupHouseholdEntry = vi.fn()
-vi.mock('@lib/waiver-store', () => ({
-  lookupHouseholdEntry: (...args: any[]) => mockLookupHouseholdEntry(...args),
-}))
+vi.mock('@lib/waiver-store', async (importOriginal) => {
+  const actual: any = await importOriginal()
+  return {
+    ...actual,
+    lookupHouseholdEntry: (...args: any[]) => mockLookupHouseholdEntry(...args),
+  }
+})
 
 function makeHousehold(overrides: Record<string, any> = {}) {
   return {
@@ -45,7 +49,10 @@ describe('POST /api/waiver/lookup.json — forced re-sign (HOM-210)', () => {
     vi.resetModules()
     vi.mock('@lib/rate-limit', () => ({ rateLimited: vi.fn().mockReturnValue(false) }))
     vi.mock('@lib/reuse-token', () => ({ issueReuseToken: vi.fn().mockReturnValue('token-abc') }))
-    vi.mock('@lib/waiver-store', () => ({ lookupHouseholdEntry: (...args: any[]) => mockLookupHouseholdEntry(...args) }))
+    vi.mock('@lib/waiver-store', async (importOriginal) => {
+      const actual: any = await importOriginal()
+      return { ...actual, lookupHouseholdEntry: (...args: any[]) => mockLookupHouseholdEntry(...args) }
+    })
     vi.mock('@config/waiver-content', async (importOriginal) => {
       const actual: any = await importOriginal()
       return { ...actual, substantiveSince: 'v3' }
@@ -71,5 +78,23 @@ describe('POST /api/waiver/lookup.json — forced re-sign (HOM-210)', () => {
     expect(json.data.mustResign).toBeUndefined()
     expect(json.data.reuseToken).toBe('token-abc')
     expect(json.data.signedAt).toBe('2026-01-01T00:00:00.000Z')
+  })
+
+  // HOM-212 — hasPickup lets the RSVP screen decide whether to show the
+  // compact "Who may pick up?" block, without ever sending names/phones.
+  it('hasPickup is true when the on-file signature already has a pickup row', async () => {
+    mockLookupHouseholdEntry.mockResolvedValue(
+      makeHousehold({ agreementVersion: 'v3', authorizedPickup: [{ name: 'Grandma Rivera', phone: '' }] }),
+    )
+    const res = await POST(createMockContext({ contact: 'alice@test.com' }))
+    const json = await res.json()
+    expect(json.data.hasPickup).toBe(true)
+  })
+
+  it('hasPickup is false (and legacy empty-string authorizedPickup normalizes fine) when there is none', async () => {
+    mockLookupHouseholdEntry.mockResolvedValue(makeHousehold({ agreementVersion: 'v3', authorizedPickup: '' }))
+    const res = await POST(createMockContext({ contact: 'alice@test.com' }))
+    const json = await res.json()
+    expect(json.data.hasPickup).toBe(false)
   })
 })

@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { staffAuthorized } from '@lib/staff-auth'
 import { getPartyRecord } from '@lib/party-store'
 import { getEvent } from '@lib/events'
-import { listWaiversByParty, markDuplicateChildren } from '@lib/waiver-store'
+import { listWaiversByParty, markDuplicateChildren, normalizeAuthorizedPickup } from '@lib/waiver-store'
 import { getRsvp } from '@lib/rsvp-store'
 import { getCheckin, toPublicCheckin } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
@@ -41,6 +41,14 @@ export const GET: APIRoute = async ({ request, url }) => {
         // party; the waiver's own field is a legacy fallback for records
         // signed before RSVPs existed (HOM-210).
         const rsvp = await getRsvp('party', partyId, w.id)
+        // A returning household's RSVP-time pickup override (HOM-212 — filled
+        // on the RSVP screen when the on-file signature had no pickup rows)
+        // wins over the signature's own fields when present — same rule
+        // checkin.json.ts uses to seed the door state.
+        const authorizedPickup = rsvp?.pickup
+          ? normalizeAuthorizedPickup(rsvp.pickup.authorizedPickup)
+          : normalizeAuthorizedPickup(w.authorizedPickup)
+        const notAuthorized = rsvp?.pickup?.notAuthorized || w.notAuthorized || ''
         return {
           recordId: w.id,
           signer: `${w.adult.firstName} ${w.adult.lastName}`.trim(),
@@ -49,11 +57,18 @@ export const GET: APIRoute = async ({ request, url }) => {
           // dob is used only for duplicate matching (same kid on two waivers must
           // share a birthdate; two kids sharing a name must not merge) and is
           // stripped before the response.
-          children: w.minors.map((m) => ({ name: m.name, dob: m.dob, allergies: m.allergies || '', duplicateOf: undefined as string | undefined })),
+          children: w.minors.map((m) => ({
+            name: m.name,
+            dob: m.dob,
+            allergies: m.allergies || '',
+            medications: m.medications || '',
+            duplicateOf: undefined as string | undefined,
+          })),
           childCount: w.minors.length,
           adultAllergies: w.adult.allergies || '',
           emergency: w.emergency,
-          authorizedPickup: w.authorizedPickup || '',
+          authorizedPickup,
+          notAuthorized,
           responsibleAdult: rsvp?.responsibleAdult ?? w.responsibleAdult ?? '',
           photoConsent: w.photoConsent,
           signedAt: w.signedAt,

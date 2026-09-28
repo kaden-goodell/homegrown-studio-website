@@ -22,7 +22,7 @@ function fillMinimalForm(container: HTMLElement) {
   set('wv-last', 'Rivera')
   set('wv-email', 'sarah@example.com')
   set('wv-phone', '2565550142')
-  set('wv-dob', '1990-01-01')
+  set('wv-dob', '01/01/1990')
   set('wv-em-name', 'Bob Rivera')
   set('wv-em-phone', '2565559999')
   fireEvent.click(screen.getByText(waiverContent.form.photoNo))

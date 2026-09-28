@@ -17,13 +17,19 @@ interface Presence {
   outAt: string | null
 }
 
+interface AuthorizedPickup {
+  name: string
+  phone: string
+}
+
 interface Checkin {
   /** Person ids the family said are coming (RSVP). null = unspecified. */
   expected: string[] | null
   /** person id → presence. Missing = never arrived. */
   presence: Record<string, Presence>
   pickedUpBy: string | null
-  confirmedPickup: string[]
+  confirmedPickup: AuthorizedPickup[]
+  notAuthorized: string
   hasPickupCode: boolean
 }
 
@@ -32,11 +38,12 @@ interface Household {
   signer: string
   phone: string
   email: string
-  children: { name: string; allergies: string; duplicateOf?: string }[]
+  children: { name: string; allergies: string; medications: string; duplicateOf?: string }[]
   childCount: number
   adultAllergies: string
   emergency: { name: string; phone: string; relationship: string }
-  authorizedPickup: string
+  authorizedPickup: AuthorizedPickup[]
+  notAuthorized: string
   responsibleAdult: string
   photoConsent: boolean
   signedAt: string
@@ -65,12 +72,12 @@ function StatusPill({ status, hereCount, total }: { status: Status; hereCount: n
 }
 
 type PersonState = 'here' | 'out' | 'absent'
-interface Person { id: string; icon: string; name: string; sub: string; allergies: string; isChild: boolean; duplicateOf?: string }
+interface Person { id: string; icon: string; name: string; sub: string; allergies: string; medications?: string; isChild: boolean; duplicateOf?: string }
 
 function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; post: (recordId: string, extra: any) => Promise<{ error?: string; oneTimeCode?: string }> }) {
   const people: Person[] = [
     { id: 'adult', icon: '👤', name: h.signer, sub: 'adult', allergies: h.adultAllergies, isChild: false },
-    ...h.children.map((c, i) => ({ id: `child:${i}`, icon: '🧒', name: c.name, sub: '', allergies: c.allergies, isChild: true, duplicateOf: c.duplicateOf })),
+    ...h.children.map((c, i) => ({ id: `child:${i}`, icon: '🧒', name: c.name, sub: '', allergies: c.allergies, medications: c.medications, isChild: true, duplicateOf: c.duplicateOf })),
   ]
   const presence = h.checkin.presence || {}
   const expected = h.checkin.expected
@@ -211,6 +218,7 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
               {stateLabel(p, st)}
               <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '0.3rem', flexWrap: 'wrap' }}>
                 {p.allergies && <Badge tone="alert" wrap>⚠ {p.allergies}</Badge>}
+                {p.medications && <Badge tone="muted" wrap>💊 {p.medications}</Badge>}
               </span>
             </label>
           )
@@ -226,10 +234,18 @@ function HouseholdCard({ h, dropOff, post }: { h: Household; dropOff: boolean; p
           <strong style={{ color: 'var(--color-dark)' }}>With:</strong> {h.responsibleAdult}
         </p>
       )}
-      {dropOff && (
-        <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.15rem 0 0' }}>
-          <strong style={{ color: 'var(--color-dark)' }}>Pickup:</strong> {h.authorizedPickup || '— not provided —'}
+      {dropOff && h.notAuthorized && (
+        <p style={{ fontSize: '0.8125rem', color: '#b91c1c', fontWeight: 700, margin: '0.5rem 0 0', background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '0.5rem', padding: '0.4rem 0.6rem' }}>
+          ⛔ May NOT collect: {h.notAuthorized}
         </p>
+      )}
+      {dropOff && (
+        <div style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.4rem 0 0' }}>
+          <strong style={{ color: 'var(--color-dark)' }}>Pickup:</strong>{' '}
+          {h.authorizedPickup.length > 0
+            ? h.authorizedPickup.map((p) => (p.phone ? `${p.name} · ${p.phone}` : p.name)).join(', ')
+            : '— not provided —'}
+        </div>
       )}
 
       {/* Pickup code — shown ONCE */}

@@ -16,7 +16,7 @@ function makeRecord(overrides: Partial<{
   phone: string
   firstName: string
   lastName: string
-  minors: Array<{ name: string; dob: string; allergies: string }>
+  minors: Array<{ name: string; dob: string; allergies: string; medications?: string }>
 }> = {}): import('@lib/waiver-store').WaiverRecord {
   return {
     id: overrides.id ?? 'wvr_test_001',
@@ -32,9 +32,10 @@ function makeRecord(overrides: Partial<{
       dob: '1990-01-01',
       allergies: '',
     },
-    minors: overrides.minors ?? [],
+    minors: (overrides.minors ?? []).map((m) => ({ medications: '', ...m })),
     emergency: { name: 'Bob', phone: '2565559999', relationship: 'Spouse' },
-    authorizedPickup: '',
+    authorizedPickup: [],
+    notAuthorized: '',
     photoConsent: true,
     signature: 'Alice Test',
     partyId: overrides.partyId ?? 'party-abc',
@@ -446,6 +447,52 @@ describe('indexWaiverByContact — last-name index', () => {
     const found = await mod.lookupHouseholdsByName(last)
     expect(found).toHaveLength(1)
     expect(found[0].recordId).toBe(newer.id)
+  })
+})
+
+// ─── normalizeAuthorizedPickup (HOM-212) ────────────────────────────────────
+
+describe('normalizeAuthorizedPickup', () => {
+  let mod: typeof import('@lib/waiver-store')
+
+  beforeEach(async () => {
+    mod = await import('@lib/waiver-store')
+  })
+
+  it('splits a legacy free-text string on commas/"and" into {name, phone:""} entries', () => {
+    const result = mod.normalizeAuthorizedPickup('Grandma Rivera, Uncle Joe and Aunt Sue')
+    expect(result).toEqual([
+      { name: 'Grandma Rivera', phone: '' },
+      { name: 'Uncle Joe', phone: '' },
+      { name: 'Aunt Sue', phone: '' },
+    ])
+  })
+
+  it('passes an array of {name, phone} through, trimmed', () => {
+    const result = mod.normalizeAuthorizedPickup([
+      { name: '  Grandma Rivera  ', phone: ' 2565551234 ' },
+      { name: 'Uncle Joe', phone: '' },
+    ])
+    expect(result).toEqual([
+      { name: 'Grandma Rivera', phone: '2565551234' },
+      { name: 'Uncle Joe', phone: '' },
+    ])
+  })
+
+  it('drops entries with an empty/blank name', () => {
+    const result = mod.normalizeAuthorizedPickup([{ name: '', phone: '2565551234' }, { name: '   ', phone: '' }])
+    expect(result).toEqual([])
+  })
+
+  it('returns [] for null, numbers, and other garbage', () => {
+    expect(mod.normalizeAuthorizedPickup(null)).toEqual([])
+    expect(mod.normalizeAuthorizedPickup(undefined)).toEqual([])
+    expect(mod.normalizeAuthorizedPickup(123)).toEqual([])
+    expect(mod.normalizeAuthorizedPickup({})).toEqual([])
+  })
+
+  it('returns [] for an empty string', () => {
+    expect(mod.normalizeAuthorizedPickup('')).toEqual([])
   })
 })
 

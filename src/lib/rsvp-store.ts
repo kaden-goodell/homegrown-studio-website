@@ -11,6 +11,7 @@ import { createLogger } from '@lib/logger'
 import { makeKvStore } from '@lib/blob-store'
 import type { EventKind } from '@lib/events'
 import type { By } from '@lib/staff-auth'
+import type { AuthorizedPickup } from '@lib/waiver-store'
 
 const logger = createLogger('rsvp-store')
 const kv = makeKvStore('rsvps', 'rsvps')
@@ -24,6 +25,14 @@ export interface RsvpRecord {
   responsibleAdult: string | null
   addendumVersion: string | null // filled by the drop-off addendum ticket
   addendumSha256: string | null
+  /**
+   * Set only on the returning-household RSVP path (HOM-212), when the
+   * on-file signature has no pickup info and the guest fills the compact
+   * "Who may pick up?" block on the RSVP screen. Overrides the signature's
+   * own `authorizedPickup`/`notAuthorized` for this event — the signature
+   * itself is never mutated (HOM-210). `null`/absent when not set.
+   */
+  pickup?: { authorizedPickup: AuthorizedPickup[]; notAuthorized: string } | null
   at: string
   firstAt: string // preserved across re-RSVPs — when this household first RSVP'd to this event
   ip: string | null

@@ -9,6 +9,7 @@ import {
   upsertWaiverInEventIndex,
   indexWaiverByContact,
   type WaiverRecord,
+  type AuthorizedPickup,
 } from '@lib/waiver-store'
 import { upsertRsvp, type RsvpRecord } from '@lib/rsvp-store'
 import { setExpected, getCheckin, mutateCheckin } from '@lib/checkin-store'
@@ -108,6 +109,37 @@ function okCovered(source: WaiverRecord): Response {
   )
 }
 
+/** Cleaned `authorizedPickup`/`notAuthorized` shared by the fresh-sign body
+ *  and a reuse RSVP's `pickupUpdate` (HOM-212). */
+type PickupInput = { authorizedPickup: AuthorizedPickup[]; notAuthorized: string }
+
+/**
+ * Validate + normalize authorized-pickup rows and the "may NOT collect" note
+ * (HOM-212). Up to 3 rows, each name ≥2 chars, phone ≥10 digits when given.
+ * Drop-off events do NOT require a row — the signer may be the sole collector.
+ */
+function parsePickupInput(raw: any): { err: Response | null; data: PickupInput } {
+  const empty: PickupInput = { authorizedPickup: [], notAuthorized: '' }
+  const rowsInput: unknown[] = Array.isArray(raw?.authorizedPickup) ? raw.authorizedPickup : []
+  if (rowsInput.length > 3) {
+    return { err: bad('You can list up to 3 people for pickup.'), data: empty }
+  }
+  const authorizedPickup = rowsInput.map((p: any) => ({
+    name: String(p?.name ?? '').trim(),
+    phone: String(p?.phone ?? '').trim(),
+  }))
+  for (const p of authorizedPickup) {
+    if (p.name.length < 2) {
+      return { err: bad('Each pickup name needs at least 2 characters.'), data: empty }
+    }
+    if (p.phone && p.phone.replace(/\D/g, '').length < 10) {
+      return { err: bad('Pickup phone numbers need at least 10 digits.'), data: empty }
+    }
+  }
+  const notAuthorized = String(raw?.notAuthorized ?? '').trim().slice(0, 200)
+  return { err: null, data: { authorizedPickup, notAuthorized } }
+}
+
 function yearsBetween(dobIso: string, now: Date): number {
   const dob = new Date(`${dobIso}T00:00:00`)
   let years = now.getFullYear() - dob.getFullYear()
@@ -197,10 +229,18 @@ async function attachSquare(record: WaiverRecord): Promise<void> {
       record.adult.allergies ? `${record.adult.firstName}: ${record.adult.allergies}` : '',
       ...record.minors.map((m) => (m.allergies ? `${m.name}: ${m.allergies}` : '')),
     ].filter(Boolean)
+    const medicationLines = record.minors
+      .map((m) => (m.medications ? `${m.name}: ${m.medications}` : ''))
+      .filter(Boolean)
+    const pickupNames = record.authorizedPickup
+      .map((p) => (p.phone ? `${p.name} (${p.phone})` : p.name))
+      .join(', ')
     const safety = [
       allergyLines.length ? `Allergies — ${allergyLines.join('; ')}` : 'Allergies: none noted',
+      medicationLines.length ? `Medications — ${medicationLines.join('; ')}` : '',
       `Emergency: ${record.emergency.name} ${record.emergency.phone}`,
-      record.authorizedPickup ? `Pickup: ${record.authorizedPickup}` : '',
+      pickupNames ? `Pickup: ${pickupNames}` : '',
+      record.notAuthorized ? `⛔ NOT authorized: ${record.notAuthorized}` : '',
     ].filter(Boolean).join(' · ')
     await providers.customer.appendNote(
       customer.id,
@@ -286,12 +326,23 @@ async function handleReuse(
   attendingRaw: unknown,
   responsibleAdult: string,
   agreeAddendum: boolean,
+  pickupUpdateRaw: unknown,
   now: Date,
   clientAddress: string | undefined,
   userAgent: string | null,
 ): Promise<Response> {
   if (!verifyReuseToken(reuseId, reuseToken)) {
     return bad("That session expired — look yourself up again to RSVP.", 401)
+  }
+
+  // Compact "Who may pick up?" block on the returning screen (HOM-212) —
+  // only sent when the on-file signature had no pickup rows. Stored on the
+  // RSVP, never on the immutable signature (HOM-210).
+  let pickup: PickupInput | null = null
+  if (pickupUpdateRaw && typeof pickupUpdateRaw === 'object') {
+    const { err: pickupErr, data } = parsePickupInput(pickupUpdateRaw)
+    if (pickupErr) return pickupErr
+    pickup = data
   }
 
   const eventKind: SignableEventKind | null = partyId ? 'party' : workshopId ? 'workshop' : null
@@ -339,6 +390,7 @@ async function handleReuse(
     responsibleAdult: responsibleAdult || null,
     addendumVersion: addendum?.version ?? null,
     addendumSha256: addendum?.sha256 ?? null,
+    ...(pickup ? { pickup } : {}),
     at: now.toISOString(),
     ip: clientAddress ?? null,
     userAgent,
@@ -389,6 +441,7 @@ async function handleFresh(
     name: String(m?.name ?? '').trim(),
     dob: String(m?.dob ?? '').trim(),
     allergies: String(m?.allergies ?? '').trim(),
+    medications: String(m?.medications ?? '').trim().slice(0, 300),
   }))
   for (const m of minors) {
     if (!m.name || !DATE_RE.test(m.dob)) return bad('Each child needs a name and date of birth.')
@@ -404,6 +457,12 @@ async function handleFresh(
   if (!emergencyName || emergencyPhone.replace(/\D/g, '').length < 10) {
     return bad('Please add an emergency contact name and phone number.')
   }
+
+  // Authorized pickup + "may NOT collect" (HOM-212). Rendered client-side
+  // only for drop-off events, but validated here regardless — a drop-off
+  // event with zero rows is fine (the signer may be the only collector).
+  const { err: pickupErr, data: pickupData } = parsePickupInput(body)
+  if (pickupErr) return pickupErr
 
   if (typeof body.photoConsent !== 'boolean') {
     return bad('Please choose a photo preference — either answer is fine.')
@@ -444,7 +503,8 @@ async function handleFresh(
     adult: { firstName, lastName, email, phone, dob, allergies: String(body.adultAllergies ?? '').trim() },
     minors,
     emergency: { name: emergencyName, phone: emergencyPhone, relationship: emergencyRelationship },
-    authorizedPickup: String(body.authorizedPickup ?? '').trim(),
+    authorizedPickup: pickupData.authorizedPickup,
+    notAuthorized: pickupData.notAuthorized,
     photoConsent: body.photoConsent,
     signature,
     squareCustomerId: null,
@@ -513,7 +573,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const reuseId = typeof body.reuseRecordId === 'string' ? body.reuseRecordId.trim() : ''
     const reuseToken = typeof body.reuseToken === 'string' ? body.reuseToken.trim() : ''
     if (reuseId) {
-      return handleReuse(reuseId, reuseToken, partyId, workshopId, bookingId, body.attending, responsibleAdult, agreeAddendum, now, clientAddress, userAgent)
+      return handleReuse(reuseId, reuseToken, partyId, workshopId, bookingId, body.attending, responsibleAdult, agreeAddendum, body.pickupUpdate, now, clientAddress, userAgent)
     }
 
     return handleFresh(body, partyId, workshopId, bookingId, responsibleAdult, agreeAddendum, now, clientAddress, userAgent)

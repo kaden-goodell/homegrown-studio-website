@@ -20,7 +20,7 @@ function ctx(query: string) {
 }
 
 function emptyCheckin(): CheckinState {
-  return { expected: null, presence: {}, pickedUpBy: null, confirmedPickup: [], pickupCodeHash: null, events: [] }
+  return { expected: null, presence: {}, pickedUpBy: null, confirmedPickup: [], notAuthorized: '', pickupCodeHash: null, events: [] }
 }
 
 let GET: any

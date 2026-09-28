@@ -24,7 +24,7 @@ vi.mock('@lib/checkin-store', async (importOriginal) => ({
 }))
 
 function emptyState(): CheckinState {
-  return { expected: null, presence: {}, pickedUpBy: null, confirmedPickup: [], pickupCodeHash: null, events: [] }
+  return { expected: null, presence: {}, pickedUpBy: null, confirmedPickup: [], notAuthorized: '', pickupCodeHash: null, events: [] }
 }
 
 function ctx(body: any) {

@@ -2,21 +2,14 @@ import type { APIRoute } from 'astro'
 import { randomInt, createHash } from 'node:crypto'
 import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { getEvent } from '@lib/events'
-import { getWaiverRecord } from '@lib/waiver-store'
+import { getWaiverRecord, normalizeAuthorizedPickup } from '@lib/waiver-store'
+import { getRsvp } from '@lib/rsvp-store'
 import { mutateCheckin, toPublicCheckin, type CheckinState } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 
 const logger = createLogger('api:staff:checkin')
 
 export const prerender = false
-
-/** "Grandma Rivera, Uncle Joe and Aunt Sue" → ["Grandma Rivera","Uncle Joe","Aunt Sue"] */
-function parsePickup(raw: string): string[] {
-  return raw
-    .split(/,|\band\b|\n|&|;/i)
-    .map((s) => s.trim())
-    .filter(Boolean)
-}
 
 const hashCode = (code: string) => createHash('sha256').update('pickup:' + code).digest('hex')
 const newCode = () => String(randomInt(1000, 10000))
@@ -38,7 +31,7 @@ function childStillHere(state: CheckinState): boolean {
  *   undo-checkin: { personIds?: string[] }  — clear presence (all if omitted)
  *   pickup:       { personIds: string[], code, pickedUpBy? } — code required if a child is leaving a drop-off
  *   undo-pickup:  { personIds?: string[] }  — reverse a pickup (all if omitted)
- *   set-pickup:   { confirmedPickup: string[] }
+ *   set-pickup:   { confirmedPickup: {name, phone}[] }
  *   reissue-code: {}  — rotate the pickup code (only for drop-off events; works even if no code was issued yet)
  */
 export const POST: APIRoute = async ({ request }) => {
@@ -101,11 +94,22 @@ export const POST: APIRoute = async ({ request }) => {
             state.presence[id] = { inAt: existing && !existing.outAt ? existing.inAt : nowIso, outAt: null }
           }
           if (dropOff && ids.some(isChild)) {
-            // Seed authorized-pickup names, and issue the ONE family code if we
-            // haven't already — store only its hash, show the plaintext once.
+            // Seed authorized-pickup people (+ any "may NOT collect" note),
+            // and issue the ONE family code if we haven't already — store
+            // only its hash, show the plaintext once. The RSVP's `pickup`
+            // override (set on the returning-household RSVP screen when the
+            // on-file signature had no pickup rows, HOM-212) wins over the
+            // signature's own fields when present.
             if (state.confirmedPickup.length === 0) {
-              const w = await getWaiverRecord(recordId)
-              state.confirmedPickup = w ? parsePickup(w.authorizedPickup || '') : []
+              const rsvp = await getRsvp('party', party, recordId)
+              if (rsvp?.pickup) {
+                state.confirmedPickup = normalizeAuthorizedPickup(rsvp.pickup.authorizedPickup)
+                state.notAuthorized = rsvp.pickup.notAuthorized || ''
+              } else {
+                const w = await getWaiverRecord(recordId)
+                state.confirmedPickup = w ? normalizeAuthorizedPickup(w.authorizedPickup) : []
+                state.notAuthorized = w?.notAuthorized || ''
+              }
             }
             if (!state.pickupCodeHash) {
               oneTimeCode = newCode()
@@ -150,7 +154,7 @@ export const POST: APIRoute = async ({ request }) => {
         }
 
         case 'set-pickup':
-          state.confirmedPickup = asIds(body?.confirmedPickup)
+          state.confirmedPickup = normalizeAuthorizedPickup(body?.confirmedPickup)
           state.events.push({ at: nowIso, action: 'set-pickup', personIds: [], by })
           break
 

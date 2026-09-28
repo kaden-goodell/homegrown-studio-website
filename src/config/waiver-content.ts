@@ -79,7 +79,28 @@ export const waiverContent = {
     emergencyHeading: 'Emergency contact',
     emergencyNote: 'Who should we call if we can’t reach you?',
     adultAllergiesLabel: 'Your own allergies or medical conditions (optional)',
-    pickupLabel: 'Authorized pickup — who may collect your child at a drop-off event (optional)',
+    /** "None" chip on an allergies field (adult or child) — fills the literal
+     *  string 'None', distinct from a blank left unanswered (HOM-212). */
+    allergiesNoneChip: 'None',
+    allergiesNoneHelper: 'Leave blank only if you’re not sure.',
+    /** Shown only for drop-off events (HOM-212) — a plain visit never asks. */
+    pickupLabel: 'Authorized pickup — who else may collect your child? (optional)',
+    pickupHelperText:
+      'Besides you. They’ll need the pickup code we text you at drop-off, and photo ID if we don’t know them.',
+    addPickupLabel: '+ Add another',
+    notAuthorizedLabel: 'Anyone who may NOT collect your child? (optional — bring a copy of any court order)',
+    /** Heading for the compact pickup block shown on the returning-RSVP
+     *  screen when the on-file signature has no pickup rows yet (HOM-212). */
+    returningPickupHeading: 'Who may pick up?',
+    /** Drop-off only, per child (HOM-212) — the Studio never administers medication. */
+    medicationsLabel: 'Medications or conditions we should know about — we don’t administer medication.',
+    /**
+     * Inline note when the DOB the signer typed makes them 18 (or younger) —
+     * Alabama's age of majority is 19 (HOM-212). `{link}` is replaced with
+     * this page's own URL so it reads well when texted to a parent.
+     */
+    underageNote:
+      "In Alabama you're a legal adult at 19. If you're 18, a parent or guardian signs for you — they can do it from their phone: {link}.",
     photoHeading: 'Photos at the studio',
     photoNote:
       'We sometimes photograph activities for our website and social media. Either answer is completely fine — it doesn’t affect participation.',

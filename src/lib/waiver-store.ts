@@ -16,8 +16,20 @@ const kv = makeKvStore('waivers', 'waivers')
 export interface WaiverMinor {
   name: string
   dob: string // YYYY-MM-DD
-  /** Allergies / medical notes for THIS child. */
+  /** Allergies / medical notes for THIS child. The literal string 'None' is a
+   *  deliberate answer (HOM-212) — distinct from '' (never asked/left blank). */
   allergies: string
+  /** Medications or conditions staff should know about for a drop-off program
+   *  (HOM-212) — '' when none. The Studio never administers medication;
+   *  see the drop-off addendum §4. */
+  medications: string
+}
+
+/** One person authorized to collect a child at a drop-off event (HOM-212).
+ *  `phone` is '' when not given (legacy free-text pickup notes never had one). */
+export interface AuthorizedPickup {
+  name: string
+  phone: string
 }
 
 export type EventKind = 'party' | 'workshop' | 'open-studio'
@@ -43,8 +55,17 @@ export interface WaiverRecord {
     phone: string
     relationship: string
   }
-  /** Who may collect the child(ren) at a drop-off event. */
-  authorizedPickup: string
+  /**
+   * Who may collect the child(ren) at a drop-off event (up to 3). Was a
+   * free-text string pre-HOM-212 — legacy records still hold a bare string on
+   * disk; read them through `normalizeAuthorizedPickup()`, never assume the
+   * array shape from a raw record.
+   */
+  authorizedPickup: AuthorizedPickup[]
+  /** Anyone who may NOT collect the child(ren) — custody restrictions
+   *  (HOM-212). '' when none given. Free text (e.g. "no contact per court
+   *  order — see copy on file"), never structured. */
+  notAuthorized: string
   photoConsent: boolean
   signature: string
   /**
@@ -84,7 +105,10 @@ export interface HouseholdOnFile {
   adultAllergies: string
   minors: WaiverMinor[]
   emergency: { name: string; phone: string; relationship: string }
-  authorizedPickup: string
+  /** Normalized on read via `normalizeAuthorizedPickup()` — safe regardless
+   *  of whether the underlying record predates HOM-212. */
+  authorizedPickup: AuthorizedPickup[]
+  notAuthorized: string
   photoConsent: boolean
 }
 
@@ -287,6 +311,33 @@ function phoneKey(phone: string): string {
   return digits.length === 10 ? `contact-phone-${digits}` : ''
 }
 
+/**
+ * Normalize any shape `authorizedPickup` has ever been stored in (HOM-212):
+ * a legacy free-text string ("Grandma Rivera, Uncle Joe and Aunt Sue"), the
+ * current `{name, phone}[]`, or garbage. Always safe to call on a raw record
+ * straight off disk.
+ */
+export function normalizeAuthorizedPickup(value: unknown): AuthorizedPickup[] {
+  if (typeof value === 'string') {
+    return value
+      .split(/,|\band\b|\n|&|;/i)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((name) => ({ name, phone: '' }))
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => {
+        if (!v || typeof v !== 'object') return null
+        const name = String((v as any).name ?? '').trim()
+        const phone = String((v as any).phone ?? '').trim()
+        return name ? { name, phone } : null
+      })
+      .filter((v): v is AuthorizedPickup => v !== null)
+  }
+  return []
+}
+
 function householdFrom(r: WaiverRecord): HouseholdOnFile {
   return {
     recordId: r.id,
@@ -301,7 +352,8 @@ function householdFrom(r: WaiverRecord): HouseholdOnFile {
     adultAllergies: r.adult.allergies,
     minors: r.minors,
     emergency: r.emergency,
-    authorizedPickup: r.authorizedPickup,
+    authorizedPickup: normalizeAuthorizedPickup(r.authorizedPickup),
+    notAuthorized: r.notAuthorized ?? '',
     photoConsent: r.photoConsent,
   }
 }

@@ -11,6 +11,7 @@
 import { createLogger } from '@lib/logger'
 import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
+import type { AuthorizedPickup } from '@lib/waiver-store'
 
 const logger = createLogger('checkin-store')
 const kv = makeKvStore('checkins', 'checkins')
@@ -48,8 +49,14 @@ export interface CheckinState {
   presence: Record<string, PersonPresence>
   /** Optional free-text note of who collected (the code is the real gate). */
   pickedUpBy: string | null
-  /** Staff-confirmed authorized pickup names (drop-off events). */
-  confirmedPickup: string[]
+  /** Staff-confirmed authorized pickup people (drop-off events). Seeded once,
+   *  at first child check-in, from the RSVP's pickup override if the
+   *  household set one on the returning screen, else from the waiver itself
+   *  (HOM-212). */
+  confirmedPickup: AuthorizedPickup[]
+  /** Anyone flagged as NOT allowed to collect this household's child(ren) —
+   *  same seed source/timing as `confirmedPickup` (HOM-212). '' when none. */
+  notAuthorized: string
   /** SHA-256 of the ONE family pickup code — never the plaintext. */
   pickupCodeHash: string | null
   /** Append-only audit log of all custody events. Never exposed to clients. */
@@ -61,7 +68,8 @@ export interface PublicCheckin {
   expected: string[] | null
   presence: Record<string, PersonPresence>
   pickedUpBy: string | null
-  confirmedPickup: string[]
+  confirmedPickup: AuthorizedPickup[]
+  notAuthorized: string
   hasPickupCode: boolean
 }
 
@@ -71,6 +79,7 @@ export function toPublicCheckin(s: CheckinState): PublicCheckin {
     presence: s.presence,
     pickedUpBy: s.pickedUpBy,
     confirmedPickup: s.confirmedPickup,
+    notAuthorized: s.notAuthorized,
     hasPickupCode: !!s.pickupCodeHash,
   }
 }
@@ -91,7 +100,22 @@ function key(partyId: string, recordId: string): string {
 }
 
 function emptyState(): CheckinState {
-  return { expected: null, presence: {}, pickedUpBy: null, confirmedPickup: [], pickupCodeHash: null, events: [] }
+  return { expected: null, presence: {}, pickedUpBy: null, confirmedPickup: [], notAuthorized: '', pickupCodeHash: null, events: [] }
+}
+
+/**
+ * Convert one raw `confirmedPickup` entry onto the current `{name, phone}`
+ * shape. Pre-HOM-212 states stored bare name strings; tolerate those forever
+ * (never migrated in place) alongside the current object shape.
+ */
+function normalizePickupEntry(e: unknown): AuthorizedPickup | null {
+  if (typeof e === 'string') return e.trim() ? { name: e.trim(), phone: '' } : null
+  if (e && typeof e === 'object') {
+    const name = String((e as any).name ?? '').trim()
+    const phone = String((e as any).phone ?? '').trim()
+    return name ? { name, phone } : null
+  }
+  return null
 }
 
 /** Normalize a stored record onto the current shape, dropping legacy fields. */
@@ -100,7 +124,10 @@ export function normalize(raw: any): CheckinState {
     expected: Array.isArray(raw?.expected) ? raw.expected.map(String) : null,
     presence: raw?.presence && typeof raw.presence === 'object' ? raw.presence : {},
     pickedUpBy: typeof raw?.pickedUpBy === 'string' ? raw.pickedUpBy : null,
-    confirmedPickup: Array.isArray(raw?.confirmedPickup) ? raw.confirmedPickup.map(String) : [],
+    confirmedPickup: Array.isArray(raw?.confirmedPickup)
+      ? raw.confirmedPickup.map(normalizePickupEntry).filter((p: AuthorizedPickup | null): p is AuthorizedPickup => p !== null)
+      : [],
+    notAuthorized: typeof raw?.notAuthorized === 'string' ? raw.notAuthorized : '',
     pickupCodeHash: typeof raw?.pickupCodeHash === 'string' ? raw.pickupCodeHash : null,
     events: Array.isArray(raw?.events) ? raw.events : [],
   }

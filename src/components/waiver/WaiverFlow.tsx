@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { waiverContent, dropOffAddendum } from '@config/waiver-content'
 import { formatCalendarDate } from '@lib/studio-time'
+import { maskDob, dobToIso } from '@lib/dob-input'
+import PickupFields, { type PickupRow } from '@components/waiver/PickupFields'
+import { inputStyle, labelStyle, sectionHeadingStyle, sectionNoteStyle, scrollBoxStyle, cardStyle } from '@components/waiver/waiver-ui'
 
 interface Props {
   /** Present when opened from a party guest link — /waiver?party={bookingId} */
@@ -34,62 +37,32 @@ interface MinorRow {
   name: string
   dob: string
   allergies: string
+  /** Drop-off only (HOM-212) — the Studio never administers medication. */
+  medications: string
 }
 
-const inputStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '0.65rem 0.85rem',
-  borderRadius: '0.625rem',
-  border: '1px solid rgba(150, 112, 91, 0.25)',
-  background: 'rgba(255, 255, 255, 0.85)',
-  fontSize: '0.9375rem',
-  color: 'var(--color-dark)',
-  outline: 'none',
-}
-
-const labelStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: '0.8125rem',
-  fontWeight: 600,
-  color: 'var(--color-dark)',
-  marginBottom: '0.3rem',
-}
-
-const sectionHeadingStyle: React.CSSProperties = {
-  fontSize: '1.0625rem',
-  fontFamily: 'var(--font-heading)',
-  fontWeight: 600,
-  color: 'var(--color-dark)',
-  margin: '0 0 0.25rem',
-}
-
-const sectionNoteStyle: React.CSSProperties = {
-  fontSize: '0.8125rem',
-  color: 'var(--color-muted)',
-  margin: '0 0 0.9rem',
-  lineHeight: 1.5,
-}
-
-/** Scrollable legal-text box — shared by the agreement and the drop-off
- *  addendum so they read as the same kind of thing. */
-const scrollBoxStyle: React.CSSProperties = {
-  maxHeight: '20rem',
-  overflowY: 'auto',
-  border: '1px solid rgba(150, 112, 91, 0.18)',
-  borderRadius: '0.75rem',
-  padding: '1rem 1.1rem',
-  background: 'rgba(255, 255, 255, 0.9)',
-}
-
-const cardStyle: React.CSSProperties = {
-  background: 'rgba(255, 255, 255, 0.72)',
-  backdropFilter: 'blur(14px)',
-  WebkitBackdropFilter: 'blur(14px)',
-  border: '1px solid rgba(150, 112, 91, 0.16)',
-  borderRadius: '1.25rem',
-  padding: '1.5rem',
-  boxShadow: '0 18px 44px rgba(150, 112, 91, 0.12)',
-  marginBottom: '1.25rem',
+/** Small "None" chip next to an allergies input — fills the literal string
+ *  'None', distinct from a blank left unanswered (HOM-212). */
+function NoneChip({ onClick, active }: { onClick: () => void; active: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={{
+        border: `1px solid ${active ? 'var(--color-primary)' : 'rgba(150, 112, 91, 0.3)'}`,
+        background: active ? 'rgba(150, 112, 91, 0.1)' : 'transparent',
+        color: active ? 'var(--color-primary)' : 'var(--color-muted)',
+        borderRadius: '0.625rem',
+        padding: '0 0.9rem',
+        cursor: 'pointer',
+        fontSize: '0.8125rem',
+        fontWeight: 600,
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {waiverContent.form.allergiesNoneChip}
+    </button>
+  )
 }
 
 /** Drop-off Program Addendum card — full text + its own unchecked checkbox
@@ -172,12 +145,17 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
+  // `dob` stays the ISO value the server expects; `dobMasked` is the
+  // MM/DD/YYYY text the person actually sees/types (HOM-212).
   const [dob, setDob] = useState('')
+  const [dobMasked, setDobMasked] = useState('')
   const [minors, setMinors] = useState<MinorRow[]>([])
   const [emergencyName, setEmergencyName] = useState('')
   const [emergencyPhone, setEmergencyPhone] = useState('')
   const [emergencyRelationship, setEmergencyRelationship] = useState('')
-  const [authorizedPickup, setAuthorizedPickup] = useState('')
+  // Authorized pickup + "may NOT collect" — drop-off events only (HOM-212).
+  const [pickupRows, setPickupRows] = useState<PickupRow[]>([])
+  const [notAuthorized, setNotAuthorized] = useState('')
   const [adultAllergies, setAdultAllergies] = useState('')
   const [photoConsent, setPhotoConsent] = useState<boolean | null>(null)
   const [agreeRelease, setAgreeRelease] = useState(false)
@@ -200,7 +178,11 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const [mode, setMode] = useState<'lookup' | 'returning' | 'form'>(kiosk ? 'form' : 'lookup')
   const [contact, setContact] = useState('')
   const [lookupBusy, setLookupBusy] = useState(false)
-  const [returning, setReturning] = useState<{ recordId: string; reuseToken: string; firstName: string; kids: string[]; validUntil: string; signedAt: string } | null>(null)
+  const [returning, setReturning] = useState<{ recordId: string; reuseToken: string; firstName: string; kids: string[]; validUntil: string; signedAt: string; hasPickup: boolean } | null>(null)
+  // Compact "Who may pick up?" block on the returning screen (HOM-212) —
+  // only shown when `dropOff` and the on-file signature has no pickup rows.
+  const [returningPickupRows, setReturningPickupRows] = useState<PickupRow[]>([])
+  const [returningNotAuthorized, setReturningNotAuthorized] = useState('')
   // Friendly heads-up shown atop the form (e.g. a lapsed agreement was found).
   const [formNotice, setFormNotice] = useState<string | null>(null)
   // RSVP "who's coming" for the returning-household path: person id → coming?
@@ -228,6 +210,22 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     if (now < anniversary) years--
     return years
   }
+
+  // Adult DOB masked input (HOM-212) — `dob` stays the ISO value the server
+  // expects; the text field shows/edits `dobMasked` instead.
+  function handleDobInput(raw: string) {
+    const masked = maskDob(raw)
+    setDobMasked(masked)
+    setDob(dobToIso(masked) ?? '')
+  }
+
+  // Inline note (not just on submit) when the typed DOB makes the signer 18
+  // or younger — Alabama's age of majority is 19 (HOM-212).
+  const signerUnderage = !!dob && yearsBetween(dob, new Date()) < waiverContent.adultAge
+  const underageNoteText = waiverContent.form.underageNote.replace(
+    '{link}',
+    typeof window !== 'undefined' ? window.location.href : '',
+  )
 
   // True when a party RSVP has kids crafting but the signer isn't on the craft
   // list — we then ask whether the signer is still coming (watching) or another
@@ -261,6 +259,10 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   // Same addendum rule as the fresh path, evaluated against the returning
   // household's roster instead of the freshly-typed minors list.
   const addendumNeededReturning = !!dropOff && !!returning && returning.kids.some((_, i) => !!attending[`child:${i}`])
+
+  // Compact "Who may pick up?" block on the returning screen (HOM-212) —
+  // only for a drop-off event whose on-file signature has no pickup rows yet.
+  const showReturningPickup = !!dropOff && !!returning && !returning.hasPickup
 
   /** One gentle question when kids are crafting and the signer isn't: are you
    *  still coming (watching), or is another adult bringing them? The name input
@@ -347,9 +349,15 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     }
     if (!agreeRelease) m.push('the checkbox agreeing to the terms')
     if (addendumNeededFresh && !agreeAddendum) m.push('the Drop-off Program Addendum checkbox')
+    if (dropOff && pickupRows.some((r) => r.name.trim() && r.name.trim().length < 2)) {
+      m.push('a full name (2+ characters) for each pickup person')
+    }
+    if (dropOff && pickupRows.some((r) => r.phone.trim() && r.phone.replace(/\D/g, '').length < 10)) {
+      m.push('a valid phone number (10+ digits) for each pickup person, or leave it blank')
+    }
     if (!signatureMatches) m.push('your typed signature (must match your name exactly)')
     return m
-  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, addendumNeededFresh, agreeAddendum, signatureMatches, partyId, formAttending, kidsWithoutSigner, signerPresent, responsibleAdult])
+  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, addendumNeededFresh, agreeAddendum, signatureMatches, partyId, formAttending, kidsWithoutSigner, signerPresent, responsibleAdult, dropOff, pickupRows])
 
   const canSubmit = missing.length === 0 && !submitting
 
@@ -373,13 +381,21 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
             phone: phone.trim(),
             dob,
           },
-          minors: minors.map((m) => ({ name: m.name.trim(), dob: m.dob, allergies: m.allergies.trim() })),
+          minors: minors.map((m) => ({
+            name: m.name.trim(),
+            dob: m.dob,
+            allergies: m.allergies.trim(),
+            medications: m.medications.trim(),
+          })),
           emergency: {
             name: emergencyName.trim(),
             phone: emergencyPhone.trim(),
             relationship: emergencyRelationship.trim(),
           },
-          authorizedPickup: authorizedPickup.trim(),
+          authorizedPickup: dropOff
+            ? pickupRows.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), phone: r.phone.trim() }))
+            : [],
+          notAuthorized: dropOff ? notAuthorized.trim() : '',
           adultAllergies: adultAllergies.trim(),
           photoConsent,
           agreeRelease,
@@ -428,7 +444,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         setMode('form')
       } else if (json?.data?.found) {
         const kids: string[] = json.data.kids ?? []
-        setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids, validUntil: json.data.validUntil ?? '', signedAt: json.data.signedAt ?? '' })
+        setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids, validUntil: json.data.validUntil ?? '', signedAt: json.data.signedAt ?? '', hasPickup: !!json.data.hasPickup })
         // Default everyone in the household to "coming"; they can uncheck below.
         setAttending(Object.fromEntries(['adult', ...kids.map((_, i) => `child:${i}`)].map((id) => [id, true])))
         setMode('returning')
@@ -476,6 +492,16 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           attending: Object.entries(attending).filter(([, coming]) => coming).map(([id]) => id),
           responsibleAdult: returningKidsWithoutSigner ? effectiveResponsibleAdult(returning.firstName) : '',
           agreeAddendum,
+          ...(showReturningPickup
+            ? {
+                pickupUpdate: {
+                  authorizedPickup: returningPickupRows
+                    .filter((r) => r.name.trim())
+                    .map((r) => ({ name: r.name.trim(), phone: r.phone.trim() })),
+                  notAuthorized: returningNotAuthorized.trim(),
+                },
+              }
+            : {}),
         }),
       })
       const json = await res.json().catch(() => null)
@@ -513,10 +539,10 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
    * land on this filled-in state (HOM-209 — a shared iPad, next guest up).
    */
   function kioskReturn() {
-    setFirstName(''); setLastName(''); setEmail(''); setPhone(''); setDob('')
+    setFirstName(''); setLastName(''); setEmail(''); setPhone(''); setDob(''); setDobMasked('')
     setMinors([])
     setEmergencyName(''); setEmergencyPhone(''); setEmergencyRelationship('')
-    setAuthorizedPickup(''); setAdultAllergies('')
+    setPickupRows([]); setNotAuthorized(''); setAdultAllergies('')
     setPhotoConsent(null); setAgreeRelease(false); setAgreeAddendum(false); setSignature('')
     setResponsibleAdult(''); setSignerPresent(null)
     setError(null); setFormNotice(null); setDone(null)
@@ -769,6 +795,18 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         {returningKidsWithoutSigner && (
           <div style={{ maxWidth: '22rem', margin: '0 auto 1rem' }}>{presenceBlock('wv-ret')}</div>
         )}
+        {showReturningPickup && (
+          <div style={{ maxWidth: '22rem', margin: '0 auto 1rem', textAlign: 'left' }}>
+            <p style={{ ...labelStyle, marginBottom: '0.5rem' }}>{form.returningPickupHeading}</p>
+            <PickupFields
+              rows={returningPickupRows}
+              onRowsChange={setReturningPickupRows}
+              notAuthorized={returningNotAuthorized}
+              onNotAuthorizedChange={setReturningNotAuthorized}
+              compact
+            />
+          </div>
+        )}
         {error && <p style={{ color: 'rgb(185,28,28)', fontSize: '0.875rem', marginBottom: '0.75rem' }}>{error}</p>}
         {hasEvent ? (
           (() => {
@@ -900,9 +938,22 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           </div>
           <div>
             <label style={labelStyle} htmlFor="wv-dob">Your date of birth</label>
-            <input id="wv-dob" type="date" style={inputStyle} value={dob} onChange={(e) => setDob(e.target.value)} />
+            <input
+              id="wv-dob"
+              inputMode="numeric"
+              style={inputStyle}
+              value={dobMasked}
+              onChange={(e) => handleDobInput(e.target.value)}
+              placeholder="MM/DD/YYYY"
+              autoComplete="bday"
+            />
           </div>
         </div>
+        {signerUnderage && (
+          <p style={{ ...sectionNoteStyle, margin: '0.75rem 0 0', color: '#b45309', fontWeight: 600 }}>
+            {underageNoteText}
+          </p>
+        )}
       </div>
 
       {/* Children */}
@@ -931,13 +982,29 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
             </div>
             <div style={{ marginTop: '0.6rem' }}>
               <label style={labelStyle} htmlFor={`wv-minor-allergy-${i}`}>{minor.name ? `${minor.name.split(' ')[0]}’s allergies / medical` : 'Allergies / medical'} (optional)</label>
-              <input id={`wv-minor-allergy-${i}`} style={inputStyle} value={minor.allergies} onChange={(e) => updateMinor(i, { allergies: e.target.value })} placeholder="e.g. Peanuts, bee stings — or leave blank" />
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input id={`wv-minor-allergy-${i}`} style={inputStyle} value={minor.allergies} onChange={(e) => updateMinor(i, { allergies: e.target.value })} placeholder="e.g. Peanuts, bee stings — or leave blank" />
+                <NoneChip active={minor.allergies === form.allergiesNoneChip} onClick={() => updateMinor(i, { allergies: form.allergiesNoneChip })} />
+              </div>
+              <p style={{ ...sectionNoteStyle, margin: '0.3rem 0 0' }}>{form.allergiesNoneHelper}</p>
             </div>
+            {dropOff && (
+              <div style={{ marginTop: '0.6rem' }}>
+                <label style={labelStyle} htmlFor={`wv-minor-meds-${i}`}>{form.medicationsLabel}</label>
+                <input
+                  id={`wv-minor-meds-${i}`}
+                  style={inputStyle}
+                  value={minor.medications}
+                  onChange={(e) => updateMinor(i, { medications: e.target.value })}
+                  placeholder="Leave blank if none"
+                />
+              </div>
+            )}
           </div>
         ))}
         <button
           type="button"
-          onClick={() => setMinors((rows) => [...rows, { name: '', dob: '', allergies: '' }])}
+          onClick={() => setMinors((rows) => [...rows, { name: '', dob: '', allergies: '', medications: '' }])}
           style={{
             border: '1px dashed rgba(150, 112, 91, 0.4)',
             background: 'rgba(150, 112, 91, 0.05)',
@@ -973,24 +1040,28 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         </div>
         <div style={{ marginTop: '0.9rem' }}>
           <label style={labelStyle} htmlFor="wv-adult-allergies">{form.adultAllergiesLabel}</label>
-          <input
-            id="wv-adult-allergies"
-            style={inputStyle}
-            value={adultAllergies}
-            onChange={(e) => setAdultAllergies(e.target.value)}
-            placeholder="Your own allergies, if you’ll be crafting — or leave blank"
-          />
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <input
+              id="wv-adult-allergies"
+              style={inputStyle}
+              value={adultAllergies}
+              onChange={(e) => setAdultAllergies(e.target.value)}
+              placeholder="Your own allergies, if you’ll be crafting — or leave blank"
+            />
+            <NoneChip active={adultAllergies === form.allergiesNoneChip} onClick={() => setAdultAllergies(form.allergiesNoneChip)} />
+          </div>
+          <p style={{ ...sectionNoteStyle, margin: '0.3rem 0 0' }}>{form.allergiesNoneHelper}</p>
         </div>
-        <div style={{ marginTop: '0.9rem' }}>
-          <label style={labelStyle} htmlFor="wv-pickup">{form.pickupLabel}</label>
-          <input
-            id="wv-pickup"
-            style={inputStyle}
-            value={authorizedPickup}
-            onChange={(e) => setAuthorizedPickup(e.target.value)}
-            placeholder="Names of adults allowed to pick up your child(ren)"
-          />
-        </div>
+        {dropOff && (
+          <div style={{ marginTop: '0.9rem' }}>
+            <PickupFields
+              rows={pickupRows}
+              onRowsChange={setPickupRows}
+              notAuthorized={notAuthorized}
+              onNotAuthorizedChange={setNotAuthorized}
+            />
+          </div>
+        )}
       </div>
 
       {/* Photo preference — separate, optional, no default. */}

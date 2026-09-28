@@ -97,7 +97,8 @@ function makeAdultBody(overrides: Record<string, any> = {}) {
     },
     minors: [],
     emergency: { name: 'Bob Test', phone: '2565555678', relationship: 'Spouse' },
-    authorizedPickup: '',
+    authorizedPickup: [],
+    notAuthorized: '',
     adultAllergies: '',
     photoConsent: true,
     agreeRelease: true,
@@ -577,6 +578,139 @@ describe('POST /api/waiver/sign.json', () => {
       expect(res.status).toBe(400)
       const json = await res.json()
       expect(json.error).toMatch(/one event/i)
+    })
+  })
+
+  describe('authorized pickup + notAuthorized + medications (HOM-212)', () => {
+    it('rejects more than 3 pickup rows', async () => {
+      const body = makeAdultBody({
+        authorizedPickup: [
+          { name: 'Grandma Rivera', phone: '' },
+          { name: 'Uncle Joe', phone: '' },
+          { name: 'Aunt Sue', phone: '' },
+          { name: 'Cousin Max', phone: '' },
+        ],
+      })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(400)
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+    })
+
+    it('rejects a pickup row with a 1-character name', async () => {
+      const body = makeAdultBody({ authorizedPickup: [{ name: 'J', phone: '' }] })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(400)
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+    })
+
+    it('rejects a pickup phone under 10 digits', async () => {
+      const body = makeAdultBody({ authorizedPickup: [{ name: 'Grandma Rivera', phone: '12345' }] })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(400)
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+    })
+
+    it('stores valid pickup rows and notAuthorized on the WaiverRecord', async () => {
+      const body = makeAdultBody({
+        authorizedPickup: [{ name: 'Grandma Rivera', phone: '2565551234' }],
+        notAuthorized: 'Bio dad — court order on file',
+      })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      const saved = mockSaveWaiverRecord.mock.calls[0][0]
+      expect(saved.authorizedPickup).toEqual([{ name: 'Grandma Rivera', phone: '2565551234' }])
+      expect(saved.notAuthorized).toBe('Bio dad — court order on file')
+    })
+
+    it('preserves the literal "None" for adult and child allergies', async () => {
+      const body = makeAdultBody({
+        adultAllergies: 'None',
+        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: 'None', medications: '' }],
+        attending: ['adult', 'child:0'],
+      })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      const saved = mockSaveWaiverRecord.mock.calls[0][0]
+      expect(saved.adult.allergies).toBe('None')
+      expect(saved.minors[0].allergies).toBe('None')
+    })
+
+    it('stores per-child medications', async () => {
+      const body = makeAdultBody({
+        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '', medications: 'Inhaler for asthma' }],
+        attending: ['adult', 'child:0'],
+      })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      const saved = mockSaveWaiverRecord.mock.calls[0][0]
+      expect(saved.minors[0].medications).toBe('Inhaler for asthma')
+    })
+
+    it('drop-off event with no pickup rows at all still signs fine (signer may be the only collector)', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      const body = makeAdultBody({
+        partyId: 'party-123',
+        authorizedPickup: [],
+        agreeAddendum: true,
+      })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+    })
+  })
+
+  describe('reuse RSVP pickupUpdate (HOM-212)', () => {
+    it('stores a validated pickupUpdate on the RSVP as `pickup`, never touching the on-file signature', async () => {
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      const body = {
+        reuseRecordId: 'wvr_source_abc',
+        reuseToken: 'valid-token',
+        partyId: 'party-123',
+        attending: ['adult', 'child:0'],
+        responsibleAdult: '',
+        pickupUpdate: {
+          authorizedPickup: [{ name: 'Grandma Rivera', phone: '2565551234' }],
+          notAuthorized: 'Bio dad',
+        },
+      }
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pickup: { authorizedPickup: [{ name: 'Grandma Rivera', phone: '2565551234' }], notAuthorized: 'Bio dad' },
+        }),
+      )
+    })
+
+    it('rejects more than 3 rows in a pickupUpdate', async () => {
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      const body = {
+        reuseRecordId: 'wvr_source_abc',
+        reuseToken: 'valid-token',
+        partyId: 'party-123',
+        attending: ['adult', 'child:0'],
+        pickupUpdate: {
+          authorizedPickup: [
+            { name: 'A Aaa', phone: '' },
+            { name: 'B Bbb', phone: '' },
+            { name: 'C Ccc', phone: '' },
+            { name: 'D Ddd', phone: '' },
+          ],
+          notAuthorized: '',
+        },
+      }
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(400)
+      expect(mockUpsertRsvp).not.toHaveBeenCalled()
     })
   })
 })

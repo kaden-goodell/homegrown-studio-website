@@ -321,6 +321,7 @@ describe('checkin-events (setCheckin normalizes and caps events)', () => {
       presence: {},
       pickedUpBy: null,
       confirmedPickup: [],
+      notAuthorized: '',
       pickupCodeHash: null,
       events,
     }
@@ -363,6 +364,7 @@ describe('toPublicCheckin', () => {
       presence: {},
       pickedUpBy: null,
       confirmedPickup: [],
+      notAuthorized: '',
       pickupCodeHash: null,
       events: [{ at: '2026-01-01T00:00:00.000Z', action: 'checkin' as const, personIds: ['adult'] }],
     }

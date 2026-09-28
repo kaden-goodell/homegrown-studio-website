@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { lookupHouseholdEntry } from '@lib/waiver-store'
+import { lookupHouseholdEntry, normalizeAuthorizedPickup } from '@lib/waiver-store'
 import { rateLimited } from '@lib/rate-limit'
 import { issueReuseToken } from '@lib/reuse-token'
 import { substantiveSince, compareVersions } from '@config/waiver-content'
@@ -13,10 +13,15 @@ export const prerender = false
  * DOBs) are never returned to the browser; they're reused server-side by record
  * id at RSVP time, so typing a stranger's email can't harvest their details.
  *
- * POST { contact }  →  { found, firstName?, kids?, validUntil?, recordId?, signedAt?, reuseToken? }
+ * POST { contact }  →  { found, firstName?, kids?, validUntil?, recordId?, signedAt?, reuseToken?, hasPickup? }
  *   or, when the agreement text has changed substantively since they last
  *   signed (HOM-210): { found: true, mustResign: true, firstName } — no
  *   token, no recordId; the client opens the full form instead.
+ *
+ * `hasPickup` (HOM-212) is the one exception to "no sensitive fields returned"
+ * above — just a boolean saying whether the on-file signature already has an
+ * authorized-pickup row, so the client can decide whether to show the
+ * compact "Who may pick up?" block on the RSVP screen. It carries no names.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (rateLimited(`lookup:${clientAddress}`, 10, 60_000)) {
@@ -66,6 +71,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         validUntil: h.validUntil,
         signedAt: h.signedAt,
         reuseToken: issueReuseToken(h.recordId),
+        hasPickup: normalizeAuthorizedPickup(h.authorizedPickup).length > 0,
       },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
