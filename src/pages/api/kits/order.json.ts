@@ -26,6 +26,8 @@ import {
 import type { LedgerRecord } from '@lib/kit-ledger'
 import { sendKitConfirmationEmail } from '@lib/email'
 import { fetchPartyCrafts } from '@lib/craft-catalog'
+import { lookupHouseholdEntry } from '@lib/waiver-store'
+import { formatCalendarDate } from '@lib/studio-time'
 
 const logger = createLogger('api:kits:order')
 
@@ -85,6 +87,24 @@ function lastName(full: string): string {
 /** Short human-facing order reference, e.g. KIT-4F9K2A. */
 function generateReference(): string {
   return `KIT-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
+}
+
+/**
+ * "Participation agreement on file — signed {date}, valid through {date}."
+ * for the confirmation email, when a currently-valid signature exists for
+ * this contact (HOM-216). `undefined` (line omitted) when there's no
+ * household on file, it's expired, or the lookup itself fails — a lookup
+ * hiccup must never break the order confirmation email.
+ */
+async function agreementLineFor(email: string): Promise<string | undefined> {
+  try {
+    const entry = await lookupHouseholdEntry(email)
+    if (!entry || new Date(entry.validUntil).getTime() <= Date.now()) return undefined
+    return `Participation agreement on file — signed ${formatCalendarDate(entry.signedAt)}, valid through ${formatCalendarDate(entry.validUntil)}.`
+  } catch (err) {
+    logger.error('Household lookup failed (confirmation email unaffected)', { error: String(err) })
+    return undefined
+  }
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
@@ -548,6 +568,7 @@ async function sendConfirmation(record: KitOrderRecord, theme: ResolvedTheme | u
     totalChargedCents: record.totalChargedCents,
     balanceDueCents: record.balanceDueCents,
     receiptUrl,
+    agreementLine: await agreementLineFor(record.contact.email),
   })
 }
 

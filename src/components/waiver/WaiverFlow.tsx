@@ -169,7 +169,9 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const [signerPresent, setSignerPresent] = useState<boolean | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<{ covered: string[]; validUntil: string } | null>(null)
+  // `subline` is the confirmation-screen line under the headline — varies by
+  // path (fresh sign vs. returning RSVP w/ or w/o an addendum), see HOM-216.
+  const [done, setDone] = useState<{ covered: string[]; validUntil: string; subline: string } | null>(null)
 
   // Returning-customer lookup: start on the lookup step; fall through to the
   // full form for new/expired households. Kiosk mode skips straight to the
@@ -421,7 +423,12 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       })
       const json = await res.json().catch(() => null)
       if (!res.ok) throw new Error(json?.error ?? 'Something went wrong — please try again.')
-      setDone({ covered: json.data.covered, validUntil: json.data.validUntil })
+      // Fresh signature — we always email a copy (HOM-216).
+      setDone({
+        covered: json.data.covered,
+        validUntil: json.data.validUntil,
+        subline: confirmation.emailedCopyLine.replace('{email}', email.trim()),
+      })
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong — please try again.')
@@ -545,7 +552,13 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         return
       }
       if (!res.ok) throw new Error(json?.error ?? 'Something went wrong — please try again.')
-      setDone({ covered: json.data.covered, validUntil: json.data.validUntil })
+      // Only an addendum acceptance sends an email on this path — the base
+      // agreement is already on file and unchanged (HOM-216).
+      setDone({
+        covered: json.data.covered,
+        validUntil: json.data.validUntil,
+        subline: json.data.addendumAccepted ? confirmation.emailedAddendumLine : confirmation.subline,
+      })
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong — please try again.')
@@ -667,7 +680,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           {confirmation.headline}
         </h2>
         <p style={{ ...sectionNoteStyle, maxWidth: '26rem', margin: '0 auto 0.75rem' }}>
-          {confirmation.subline}
+          {done.subline}
         </p>
         <p style={{ ...sectionNoteStyle, maxWidth: '26rem', margin: '0 auto 1.25rem', fontSize: '0.8125rem' }}>
           {confirmation.anotherAdultLine}

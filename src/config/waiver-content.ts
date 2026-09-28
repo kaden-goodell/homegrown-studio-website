@@ -135,6 +135,14 @@ export const waiverContent = {
   confirmation: {
     headline: 'You’re all set!',
     subline: 'Your signature is on file — show this screen at the front desk if asked.',
+    /** Shown instead of `subline` right after a fresh signature — we always
+     *  email a copy of the agreement (+ addendum, when accepted) on signing
+     *  (HOM-216). `{email}` is replaced with the signer's typed email. */
+    emailedCopyLine: 'We’ve emailed a copy to {email}.',
+    /** Shown instead of `subline` on a returning-household RSVP that just
+     *  accepted the Drop-off Program Addendum (HOM-216) — no typed email to
+     *  fill in on that path, so this reads generically ("on file"). */
+    emailedAddendumLine: 'We’ve emailed the addendum to your email on file.',
     coversLabel: 'This signature covers',
     validLabel: 'Valid through',
     partyLine: "You’re RSVP’d — see you at the party! 🎉",

@@ -39,6 +39,12 @@ vi.mock('@lib/rsvp-store', () => ({
   getRsvp: (...args: any[]) => mockGetRsvp(...args),
 }))
 
+const mockSendAgreementCopyEmail = vi.fn().mockResolvedValue({ sent: true })
+
+vi.mock('@lib/email', () => ({
+  sendAgreementCopyEmail: (...args: any[]) => mockSendAgreementCopyEmail(...args),
+}))
+
 const mockGetEvent = vi.fn()
 
 vi.mock('@lib/events', () => ({
@@ -181,11 +187,15 @@ describe('POST /api/waiver/sign.json', () => {
         },
       },
     }))
+    vi.mock('@lib/email', () => ({
+      sendAgreementCopyEmail: (...args: any[]) => mockSendAgreementCopyEmail(...args),
+    }))
 
     mockSaveWaiverRecord.mockResolvedValue(undefined)
     mockUpsertWaiverInEventIndex.mockResolvedValue({ replacedRecordId: null })
     mockIndexWaiverByContact.mockResolvedValue(undefined)
     mockNewWaiverId.mockReturnValue('wvr_test_abc')
+    mockSendAgreementCopyEmail.mockReset().mockResolvedValue({ sent: true })
     mockGetRsvp.mockResolvedValue(null)
     mockUpsertRsvp.mockResolvedValue({
       id: 'rsv_test_abc',
@@ -820,6 +830,70 @@ describe('POST /api/waiver/sign.json', () => {
       expect(res.status).toBe(200)
       const [rsvpArgs] = mockUpsertRsvp.mock.calls[0]
       expect(rsvpArgs.pickup).toBeUndefined()
+    })
+  })
+
+  describe('agreement copy email (HOM-216)', () => {
+    it('fresh sign: sends the agreement copy email once, fire-and-forget', async () => {
+      const body = makeAdultBody({ partyId: null })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      expect(mockSendAgreementCopyEmail).toHaveBeenCalledTimes(1)
+      expect(mockSendAgreementCopyEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          record: expect.objectContaining({ id: 'wvr_test_abc' }),
+          addendum: null,
+        }),
+      )
+    })
+
+    it('returning RSVP without an addendum: does not send the email', async () => {
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      const body = {
+        reuseRecordId: 'wvr_source_abc',
+        reuseToken: 'valid-token',
+        partyId: 'party-123',
+        attending: ['adult', 'child:0'],
+        responsibleAdult: '',
+      }
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      expect(mockSendAgreementCopyEmail).not.toHaveBeenCalled()
+    })
+
+    it('returning RSVP that accepts the drop-off addendum: sends the addendum-only email', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      const body = {
+        reuseRecordId: 'wvr_source_abc',
+        reuseToken: 'valid-token',
+        partyId: 'party-123',
+        attending: ['adult', 'child:0'],
+        responsibleAdult: '',
+        agreeAddendum: true,
+      }
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
+      expect(mockSendAgreementCopyEmail).toHaveBeenCalledTimes(1)
+      expect(mockSendAgreementCopyEmail).toHaveBeenCalledWith(
+        expect.objectContaining({
+          record: expect.objectContaining({ id: 'wvr_source_abc' }),
+          returning: true,
+          addendum: expect.objectContaining({ version: dropOffAddendum.version }),
+          event: expect.objectContaining({ id: 'party-123' }),
+        }),
+      )
+    })
+
+    it('a thrown/rejected email error still returns 200 — the signature is already saved', async () => {
+      mockSendAgreementCopyEmail.mockRejectedValueOnce(new Error('SMTP down'))
+      const body = makeAdultBody({ partyId: null })
+      const ctx = createMockContext(body)
+      const res = await POST(ctx)
+      expect(res.status).toBe(200)
     })
   })
 })

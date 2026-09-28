@@ -18,6 +18,7 @@ import { rateLimited } from '@lib/rate-limit'
 import { verifyReuseToken } from '@lib/reuse-token'
 import { getEvent, isEventPast, type EventKind as StudioEventKind, type StudioEvent } from '@lib/events'
 import { addendumRequired, currentAddendum } from '@lib/addendum'
+import { sendAgreementCopyEmail } from '@lib/email'
 
 export const prerender = false
 
@@ -149,6 +150,23 @@ function yearsBetween(dobIso: string, now: Date): number {
   anniversary.setFullYear(now.getFullYear())
   if (now < anniversary) years--
   return years
+}
+
+/**
+ * Fire the "here's your copy" email (HOM-216) without blocking the response
+ * — a thrown or rejected send must never fail the signature/RSVP that's
+ * already saved. `.catch` alone isn't enough (a synchronous throw from a
+ * bad mock/impl would escape before it attaches), so this wraps the whole
+ * call in an async IIFE.
+ */
+function fireAgreementCopyEmail(input: Parameters<typeof sendAgreementCopyEmail>[0], recordId: string): void {
+  void (async () => {
+    try {
+      await sendAgreementCopyEmail(input)
+    } catch (err) {
+      logger.error('Agreement copy email failed (record saved)', { id: recordId, error: String(err) })
+    }
+  })()
 }
 
 /** Save the signature + update the contact index. Event attachment (roster,
@@ -402,6 +420,16 @@ async function handleReuse(
   })
   await recordExpected(partyId, source.id, resolvedIds)
   await indexEventRsvp(eventKind, eventId, source, rsvp.id)
+
+  // Only when this RSVP just accepted the addendum for the first time — the
+  // base agreement is already on file and unchanged, so no email otherwise.
+  if (addendum) {
+    fireAgreementCopyEmail(
+      { record: source, addendum: { version: addendum.version, acceptedAt: now.toISOString() }, event, returning: true },
+      source.id,
+    )
+  }
+
   logger.info('RSVP via reuse', { waiverId: source.id, rsvpId: rsvp.id, partyId, workshopId })
   return okRsvp(source, rsvp, addendum)
 }
@@ -521,6 +549,17 @@ async function handleFresh(
   }
 
   await persistWaiver(record)
+
+  // Every fresh signature gets an emailed copy (HOM-216) — fire-and-forget,
+  // never blocks or fails the save.
+  fireAgreementCopyEmail(
+    {
+      record,
+      addendum: addendum ? { version: addendum.version, acceptedAt: now.toISOString() } : null,
+      event,
+    },
+    record.id,
+  )
 
   const eventId = partyId ?? workshopId
   let context: { kind: SignableEventKind; id: string } | null = null

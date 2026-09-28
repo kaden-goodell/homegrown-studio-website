@@ -7,6 +7,7 @@
 import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
 import { partyInviteMailto, partyInviteIcsUrl } from '@lib/party-share'
+import { buildAgreementCopy, type BuildAgreementCopyInput } from '@lib/agreement-email'
 
 const logger = createLogger('email')
 
@@ -50,6 +51,16 @@ export async function sendEmail(input: {
   }
 }
 
+/**
+ * The signer's retained copy of the agreement (and addendum, when accepted)
+ * — HOM-216. Thin wrapper: assembly lives in `buildAgreementCopy` (testable
+ * without SMTP); this just sends what it builds.
+ */
+export async function sendAgreementCopyEmail(input: BuildAgreementCopyInput): Promise<{ sent: boolean }> {
+  const { subject, html, text } = buildAgreementCopy(input)
+  return sendEmail({ to: input.record.adult.email, subject, html, text })
+}
+
 export async function sendPartyConfirmationEmail(input: {
   to: string; hostName: string; craftName: string; craftDescription?: string; craftImageUrl?: string; slotLabel: string
   /** Per-person craft price in cents; max set when the craft has a price range. */
@@ -59,6 +70,10 @@ export async function sendPartyConfirmationEmail(input: {
   googleCalendarUrl?: string; icsContent?: string
   /** Booking id — shown as a footer reference (also keeps repeated test emails from Gmail-trimming). */
   bookingRef?: string
+  /** "Participation agreement on file — signed {date}, valid through {date}."
+   *  Precomputed by the caller (a `lookupHouseholdEntry` hit) — omitted when
+   *  no signature is on file for this contact (HOM-216). */
+  agreementLine?: string
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const fee = dollars(input.totalChargedCents)
@@ -86,6 +101,7 @@ export async function sendPartyConfirmationEmail(input: {
     input.inviteUrl,
     ...(input.googleCalendarUrl ? [``, `Add to Google Calendar: ${input.googleCalendarUrl}`, `Apple/Outlook: open the attached invite (.ics)`] : []),
     ...(input.receiptUrl ? [``, `Receipt: ${input.receiptUrl}`] : []),
+    ...(input.agreementLine ? [``, input.agreementLine] : []),
     ``,
     `Hometown Studio · 525 Hughes Rd Ste F, Madison, AL`,
   ].join('\n')
@@ -120,6 +136,7 @@ export async function sendPartyConfirmationEmail(input: {
   <p style="${MUTED}">Opens a ready-to-send invitation &mdash; just add addresses.</p>
   ${input.googleCalendarUrl ? `<p style="margin:14px 0 2px;"><a href="${esc(input.googleCalendarUrl)}" style="color:#96705B;font-size:14px;font-weight:600;">&#128197; Add to Google Calendar</a></p><p style="${MUTED}">Apple or Outlook? Open the attached invite (.ics).</p>` : ''}
   ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#96705B;font-size:13px;">View your receipt</a></p>` : ''}
+  ${input.agreementLine ? `<p style="${MUTED}">${esc(input.agreementLine)}</p>` : ''}
   <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
   <p style="margin:0;font-size:12px;color:#8a7f75;">Hometown Studio &middot; 525 Hughes Rd Ste F, Madison, AL${input.bookingRef ? ` &middot; Booking ref ${esc(input.bookingRef)}` : ''}</p>
 </div>`
@@ -150,6 +167,10 @@ export async function sendKitConfirmationEmail(input: {
   depositCents?: number; totalChargedCents: number
   /** Due on the POS at pickup (deposit-only booking model). */
   balanceDueCents?: number; receiptUrl: string | null
+  /** "Participation agreement on file — signed {date}, valid through {date}."
+   *  Precomputed by the caller (a `lookupHouseholdEntry` hit) — omitted when
+   *  no signature is on file for this contact (HOM-216). */
+  agreementLine?: string
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const total = dollars(input.totalChargedCents)
@@ -181,6 +202,7 @@ export async function sendKitConfirmationEmail(input: {
     `Paid today: ${total}.`,
     ...(balanceLine ? [balanceLine] : []),
     ...(input.receiptUrl ? [``, `Receipt: ${input.receiptUrl}`] : []),
+    ...(input.agreementLine ? [``, input.agreementLine] : []),
     ``,
     `Hometown Studio · 525 Hughes Rd Ste F, Madison, AL · Booking ref ${input.reference}`,
   ].join('\n')
@@ -211,6 +233,7 @@ export async function sendKitConfirmationEmail(input: {
   <p style="${P}"><strong>Paid today: ${esc(total)}.</strong></p>
   ${balanceLine ? `<p style="${P}">${esc(balanceLine)}</p>` : ''}
   ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#96705B;font-size:13px;">View your receipt</a></p>` : ''}
+  ${input.agreementLine ? `<p style="${MUTED}">${esc(input.agreementLine)}</p>` : ''}
   <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
   <p style="margin:0;font-size:12px;color:#8a7f75;">Hometown Studio &middot; 525 Hughes Rd Ste F, Madison, AL &middot; Booking ref ${esc(input.reference)}</p>
 </div>`

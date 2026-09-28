@@ -18,7 +18,8 @@ import type { LedgerRecord } from '@lib/kit-ledger'
 import { sendPartyConfirmationEmail } from '@lib/email'
 import { partyInviteUrl, googleCalendarUrl, buildIcs, addMinutesIso } from '@lib/party-share'
 import { inviteContent } from '@config/invite-content'
-import { formatSlotLabel } from '@lib/studio-time'
+import { formatSlotLabel, formatCalendarDate } from '@lib/studio-time'
+import { lookupHouseholdEntry } from '@lib/waiver-store'
 import type { Booking } from '@providers/interfaces/booking'
 
 const logger = createLogger('api:party:book')
@@ -107,6 +108,24 @@ interface BookRequest {
 /** Studio-local today (America/Chicago), YYYY-MM-DD — matches WhatsOnCalendar's todayISO. */
 function studioToday(): string {
   return new Date().toLocaleDateString('en-CA', { timeZone: kitConfig.timezone })
+}
+
+/**
+ * "Participation agreement on file — signed {date}, valid through {date}."
+ * for the confirmation email, when a currently-valid signature exists for
+ * this contact (HOM-216). `undefined` (line omitted) when there's no
+ * household on file, it's expired, or the lookup itself fails — a lookup
+ * hiccup must never break the booking confirmation email.
+ */
+async function agreementLineFor(email: string): Promise<string | undefined> {
+  try {
+    const entry = await lookupHouseholdEntry(email)
+    if (!entry || new Date(entry.validUntil).getTime() <= Date.now()) return undefined
+    return `Participation agreement on file — signed ${formatCalendarDate(entry.signedAt)}, valid through ${formatCalendarDate(entry.validUntil)}.`
+  } catch (err) {
+    logger.error('Household lookup failed (confirmation email unaffected)', { error: String(err) })
+    return undefined
+  }
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
@@ -236,6 +255,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           googleCalendarUrl: googleCalendarUrl(bypassCalEvent),
           icsContent: buildIcs(bypassCalEvent),
           bookingRef: bookingId,
+          agreementLine: await agreementLineFor(body.customer.email),
         })
       : { sent: false }
     return new Response(
@@ -521,6 +541,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       googleCalendarUrl: googleCalendarUrl(calEvent),
       icsContent: buildIcs(calEvent),
       bookingRef: booking.id,
+      agreementLine: await agreementLineFor(body.customer.email),
     })
 
     return new Response(
