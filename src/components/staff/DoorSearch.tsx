@@ -161,11 +161,14 @@ export default function DoorSearch({ onCheckedIn }: { onCheckedIn: () => void })
   const [qrOpen, setQrOpen] = useState(false)
 
   // Restore the last query on mount (e.g. returning from the kiosk after
-  // "Sign on this iPad") so staff immediately see GOOD TO GO.
+  // "Sign on this iPad") so staff immediately see GOOD TO GO. The functional
+  // update matters: this input autofocuses, and staff who start typing a NEW
+  // name the instant the screen appears had their first characters replaced
+  // by the restored query (F5). Anything already typed wins.
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(STORAGE_KEY)
-      if (saved) setQuery(saved)
+      if (saved) setQuery((typed) => typed || saved)
     } catch {
       // sessionStorage unavailable — just start blank.
     }

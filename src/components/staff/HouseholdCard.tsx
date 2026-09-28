@@ -119,7 +119,7 @@ export default function HouseholdCard({
 
   // Check-in selection (absent people) defaults to who RSVP'd; expandable at the door.
   // Duplicate kids (already on another family's RSVP) default to unchecked.
-  // Re-derives whenever the selected day changes (a new day's absent list).
+  // Re-derived per day because `Roster` keys this card by `recordId:day`.
   const [selIn, setSelIn] = useState<Record<string, boolean>>(() =>
     Object.fromEntries(people.map((p) => [
       p.id,

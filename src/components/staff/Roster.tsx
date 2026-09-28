@@ -184,6 +184,10 @@ export default function Roster({
   const allergyCount = data.households.reduce((n, h) => n + (h.adultAllergies ? 1 : 0) + h.children.filter((c) => c.allergies).length, 0)
   const noPhotoGroups = data.households.filter((h) => !h.photoConsent).length
 
+  // The link a household signs for THIS event — shown on an empty drop-off
+  // roster so staff can read it out or text it without leaving the screen.
+  const waiverLink = `${typeof window === 'undefined' ? '' : window.location.origin}/waiver?${kind}=${id}`
+
   const lowerQuery = query.toLowerCase()
   const visibleHouseholds = query
     ? data.households.filter((h) =>
@@ -317,8 +321,28 @@ export default function Roster({
         style={{ ...field, width: '100%', boxSizing: 'border-box', marginBottom: '0.8rem' }}
       />
 
+      {data.households.length === 0 && (
+        <div style={{ ...card, background: 'rgba(255,255,255,0.7)', textAlign: 'center' }}>
+          <p style={{ margin: 0, color: 'var(--color-muted)' }}>
+            No RSVPs yet — anyone who signs the agreement for this event will appear here.
+          </p>
+          {event.dropOff && (
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+              Send them the link: <strong style={{ color: 'var(--color-dark)', wordBreak: 'break-all' }}>{waiverLink}</strong>
+            </p>
+          )}
+        </div>
+      )}
+
+      {data.households.length > 0 && visibleHouseholds.length === 0 && (
+        <p style={{ color: 'var(--color-muted)', textAlign: 'center' }}>No one here matches “{query}”.</p>
+      )}
+
+      {/* Keyed by record AND day: the in/out selections and the revealed pickup
+          code belong to one day's roster, and carried straight over when staff
+          switched days on a multi-day camp. */}
       {visibleHouseholds.map((h) => (
-        <HouseholdCard key={h.recordId} h={h} dropOff={event.dropOff} kind={kind} id={id} day={data.day} post={post} />
+        <HouseholdCard key={`${h.recordId}:${data.day}`} h={h} dropOff={event.dropOff} kind={kind} id={id} day={data.day} post={post} />
       ))}
     </div>
   )

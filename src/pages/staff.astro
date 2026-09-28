@@ -5,8 +5,15 @@ import Layout from '@layouts/Layout.astro'
 import StaffConsole from '@components/staff/StaffConsole'
 ---
 
-<Layout title="Staff Check-In" description="Hometown Studio staff check-in console." noindex>
-  <section class="max-w-2xl mx-auto px-4 sm:px-6 py-24">
+{/* `bare`: no site header/nav/footer/shimmer. The console is a tool on the
+    counter iPad, not a page of the website — the fixed marketing nav covered
+    the sheet headers and its "Parties" link sat exactly where the History
+    sheet's Close button is (F1). */}
+<Layout title="Staff Check-In" description="Hometown Studio staff check-in console." noindex bare>
+  <section class="max-w-2xl mx-auto px-4 sm:px-6 py-8">
+    <p class="text-xs font-semibold tracking-[0.18em] uppercase mb-4" style="color: var(--color-muted);">
+      Hometown Studio
+    </p>
     <StaffConsole client:load />
   </section>
 </Layout>
