@@ -1,36 +1,50 @@
 import type { APIRoute } from 'astro'
 import { staffAuthorized } from '@lib/staff-auth'
-import { getPartyRecord } from '@lib/party-store'
-import { getEvent } from '@lib/events'
-import { listWaiversByParty, markDuplicateChildren, normalizeAuthorizedPickup } from '@lib/waiver-store'
+import { getEvent, eventKey, resolveEventDay } from '@lib/events'
+import { listWaiversByEvent, markDuplicateChildren, normalizeAuthorizedPickup } from '@lib/waiver-store'
 import { getRsvp } from '@lib/rsvp-store'
-import { getCheckin, toPublicCheckin } from '@lib/checkin-store'
+import { getCheckin, toPublicCheckin, presenceOn } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 
 export const prerender = false
 
 const logger = createLogger('api:staff:roster')
 
-/** Staff-only: full check-in roster for a party — everything staff need on site. */
+const KIND_RE = /^(party|workshop)$/
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+const DROP_OFF_CAP = 12
+
+/** Rosters only ever exist for these two kinds (programs have no resolver
+ *  yet) — a subset of both `@lib/events`' and `@lib/waiver-store`'s own
+ *  wider `EventKind` unions, so it satisfies every function below. */
+type RosterKind = 'party' | 'workshop'
+
+/** Staff-only: full check-in roster for one event, one day (HOM-213). Rosters
+ *  are per event now, not per party — `?kind=&id=&day=` (`?party=` kept as
+ *  the legacy alias for `kind=party`). */
 export const GET: APIRoute = async ({ request, url }) => {
   if (!staffAuthorized(request)) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   }
-  const partyId = url.searchParams.get('party') ?? ''
-  if (!partyId) return new Response(JSON.stringify({ error: 'Missing party' }), { status: 400 })
+
+  const legacyParty = url.searchParams.get('party') ?? ''
+  const kind = legacyParty ? 'party' : (url.searchParams.get('kind') ?? '')
+  const id = legacyParty || (url.searchParams.get('id') ?? '')
+  if (!KIND_RE.test(kind) || !id) {
+    return new Response(JSON.stringify({ error: 'Missing kind/id' }), { status: 400 })
+  }
+  const requestedDay = url.searchParams.get('day')
+  const dayParam = requestedDay && DAY_RE.test(requestedDay) ? requestedDay : null
 
   // Storage throws (transient Blobs outage) become a 503 the client can retry;
   // the 404 is a plain return and never reaches the catch.
   try {
-    const party = await getPartyRecord(partyId)
-    if (!party) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 })
+    const event = await getEvent(kind as RosterKind, id)
+    if (!event) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404 })
 
-    // dropOff and days now live on the event-meta overlay, not the raw party
-    // record — go through getEvent so a flip from the settings sheet shows
-    // up here (party.dropOff is a stale read-only fallback for old data).
-    const event = await getEvent('party', partyId)
+    const day = resolveEventDay(event, dayParam)
 
-    const waivers = await listWaiversByParty(partyId)
+    const waivers = await listWaiversByEvent(kind as RosterKind, id)
 
     // Sort by signedAt ascending so "first" == earlier RSVP for duplicate detection.
     waivers.sort((a, b) => a.signedAt.localeCompare(b.signedAt))
@@ -38,9 +52,9 @@ export const GET: APIRoute = async ({ request, url }) => {
     const households = await Promise.all(
       waivers.map(async (w) => {
         // RSVP records now carry who's actually with the household at this
-        // party; the waiver's own field is a legacy fallback for records
+        // event; the waiver's own field is a legacy fallback for records
         // signed before RSVPs existed (HOM-210).
-        const rsvp = await getRsvp('party', partyId, w.id)
+        const rsvp = await getRsvp(kind as RosterKind, id, w.id)
         // A returning household's RSVP-time pickup override (HOM-212 — filled
         // on the RSVP screen when the on-file signature had no pickup rows)
         // wins over the signature's own fields when present — same rule
@@ -49,6 +63,8 @@ export const GET: APIRoute = async ({ request, url }) => {
           ? normalizeAuthorizedPickup(rsvp.pickup.authorizedPickup)
           : normalizeAuthorizedPickup(w.authorizedPickup)
         const notAuthorized = rsvp?.pickup?.notAuthorized || w.notAuthorized || ''
+        const checkinState = await getCheckin(eventKey(kind as RosterKind, id), w.id, { firstDay: event.days[0] })
+        const pub = toPublicCheckin(checkinState)
         return {
           recordId: w.id,
           signer: `${w.adult.firstName} ${w.adult.lastName}`.trim(),
@@ -72,7 +88,17 @@ export const GET: APIRoute = async ({ request, url }) => {
           responsibleAdult: rsvp?.responsibleAdult ?? w.responsibleAdult ?? '',
           photoConsent: w.photoConsent,
           signedAt: w.signedAt,
-          checkin: toPublicCheckin(await getCheckin(partyId, w.id)),
+          agreementVersion: w.agreementVersion,
+          validUntil: w.validUntil,
+          addendumVersion: rsvp?.addendumVersion ?? null,
+          checkin: {
+            expected: pub.expected,
+            presence: presenceOn(checkinState, day),
+            pickedUpBy: pub.pickedUpBy,
+            confirmedPickup: pub.confirmedPickup,
+            notAuthorized: pub.notAuthorized,
+            hasPickupCode: pub.hasPickupCode,
+          },
         }
       }),
     )
@@ -85,6 +111,11 @@ export const GET: APIRoute = async ({ request, url }) => {
     households.sort((a, b) => a.signer.localeCompare(b.signer))
 
     const people = households.reduce((n, h) => n + 1 + h.childCount, 0) - duplicateKids
+    const childrenHereNow = households.reduce(
+      (n, h) => n + Object.entries(h.checkin.presence).filter(([pid, p]) => pid.startsWith('child:') && !p.outAt).length,
+      0,
+    )
+    const capWarning = event.dropOff && childrenHereNow > DROP_OFF_CAP
 
     // Strip the matching-only dob before serialization.
     const responseHouseholds = households.map((h) => ({
@@ -95,24 +126,17 @@ export const GET: APIRoute = async ({ request, url }) => {
     return new Response(
       JSON.stringify({
         data: {
-          party: {
-            bookingId: party.bookingId,
-            craftName: party.craftName,
-            startIso: party.startIso,
-            title: party.title,
-            hostName: party.hostName,
-            hostPhone: party.hostPhone ?? null,
-            guestCount: party.guestCount,
-            dropOff: event?.dropOff ?? party.dropOff,
-          },
-          summary: { households: households.length, people },
+          event,
+          day,
+          summary: { households: households.length, people, childrenHereNow },
+          capWarning,
           households: responseHouseholds,
         },
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
     )
   } catch (err) {
-    logger.error('Roster load failed', { partyId, error: err instanceof Error ? err.message : String(err) })
+    logger.error('Roster load failed', { kind, id, error: err instanceof Error ? err.message : String(err) })
     return new Response(JSON.stringify({ error: 'Couldn’t load the roster — please try again.' }), { status: 503 })
   }
 }

@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { staffAuthorized } from '@lib/staff-auth'
 import { listEvents, eventKey } from '@lib/events'
 import { listRsvpsByEvent } from '@lib/rsvp-store'
-import { getCheckin } from '@lib/checkin-store'
+import { getCheckin, presenceOn } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 
 export const prerender = false
@@ -24,7 +24,9 @@ export const GET: APIRoute = async ({ request, url }) => {
       events.map(async (e) => {
         const rsvps = await listRsvpsByEvent(e.kind, e.id)
         const checkins = await Promise.all(rsvps.map((r) => getCheckin(eventKey(e.kind, e.id), r.waiverId)))
-        const hereNow = checkins.reduce((n, c) => n + Object.values(c.presence).filter((p) => !p.outAt).length, 0)
+        // "Here now" is counted on THIS day — hereNow for a multi-day camp
+        // shouldn't include attendance from a different day (HOM-213).
+        const hereNow = checkins.reduce((n, c) => n + Object.values(presenceOn(c, date)).filter((p) => !p.outAt).length, 0)
         return { ...e, rsvpCount: rsvps.length, hereNow }
       }),
     )

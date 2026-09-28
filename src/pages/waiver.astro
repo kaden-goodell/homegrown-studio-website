@@ -4,7 +4,7 @@ export const prerender = false
 import Layout from '@layouts/Layout.astro'
 import WaiverFlow from '@components/waiver/WaiverFlow'
 import { waiverContent } from '@config/waiver-content'
-import { getEvent, type StudioEvent } from '@lib/events'
+import { getEvent, isEventPast, type StudioEvent } from '@lib/events'
 import { formatWhen } from '@lib/studio-time'
 import { safeReturnPath } from '@lib/safe-return'
 
@@ -53,7 +53,10 @@ if (eventKind && rawId) {
           : 'That link wasn’t recognized — ask the studio for a fresh link. You can still sign the general agreement below.',
       }
     } else {
-      const isPast = new Date(event.startIso).getTime() + 24 * 3600_000 < Date.now()
+      // Days-based rule, aligned with sign.json's server-side validateEvent
+      // (Task 2 deferred item): past once every day of the event is before
+      // yesterday (studio-local), not a flat 24h window off startIso.
+      const isPast = isEventPast(event)
       if (isPast) {
         outcome = { kind: 'past', notice: 'This event has already happened.' }
       } else {

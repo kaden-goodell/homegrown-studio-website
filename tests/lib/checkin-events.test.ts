@@ -1,5 +1,7 @@
 /**
- * Tests for CheckinEvent audit log, mutateCheckin, and normalize defaults.
+ * Tests for CheckinEvent audit log, mutateCheckin, normalize defaults, and
+ * (HOM-213) the multi-day `days[]` schema: legacy-presence migration, per-day
+ * independence, and the `presenceOn`/`childStillHere` helpers.
  */
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
@@ -13,81 +15,18 @@ import { makeKvStore } from '@lib/blob-store'
 // checkin-store itself, we replicate the relevant logic here using the blob-store
 // primitives, then also test the exported functions separately.
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
-function makeFakeBlobStore(options: { failFirst?: boolean } = {}) {
-  let callCount = 0
-  const data: Record<string, string> = {}
-  const etags: Record<string, string> = {}
-
-  return {
-    _data: data,
-    _etags: etags,
-    _failFirst: options.failFirst ?? false,
-
-    async get(key: string, _opts?: unknown): Promise<string | null> {
-      return data[key] ?? null
-    },
-
-    async getWithMetadata(key: string, _opts?: unknown) {
-      const value = data[key]
-      if (value === undefined) return null
-      return { data: value, etag: etags[key] ?? undefined, metadata: {} }
-    },
-
-    async set(key: string, value: string, opts?: unknown) {
-      callCount++
-      const shouldFail = this._failFirst && callCount === 1
-      if (shouldFail) {
-        // Simulate lost race: don't update, return modified=false
-        return { modified: false, etag: undefined }
-      }
-      data[key] = value
-      etags[key] = `etag-${callCount}`
-      return { modified: true, etag: etags[key] }
-    },
-
-    async list() {
-      const blobs = Object.keys(data).map((key) => ({ key, etag: 'etag' }))
-      return { blobs, directories: [] }
-    },
-  }
-}
-
-// ─── Import the module under test ────────────────────────────────────────────
-// We import after the test file is loaded so we get the real module.
-// Because checkin-store uses a module-level kv singleton pointing at .data/,
-// we test it by creating a fresh module-level store using blob-store + fs mode.
-// The checkin-store functions themselves are tested via their public API.
-
 // ─── Tests using exported functions (fs mode via temp dir) ───────────────────
 
 describe('checkin-events (via exported functions, fs mode)', () => {
-  let tmpDir: string
-
-  // We dynamically import checkin-store with a patched kv using unstable_vi
-  // workaround: since checkin-store has a module-level kv, we use vi.mock
-  // to inject a temp-dir KvStore. But vi.mock requires static calls.
-  // Instead, we directly test via the blob-store pattern used in blob-store.test.ts:
-  // create a KvStore with fsDirOverride, then call the lower-level logic directly.
-
   // For testing normalize and emptyState behavior, we need to access them.
-  // Per the plan, normalize is EXPORTED in Step 2, so we can import it.
-
-  beforeEach(async () => {
-    tmpDir = await mkdtemp(join(tmpdir(), 'checkin-events-test-'))
-  })
-
-  afterEach(async () => {
-    await rm(tmpDir, { recursive: true, force: true })
-  })
+  // normalize is EXPORTED, so we can import it directly.
 
   // (b) normalize defaults events:[] on legacy blobs (JSON without the field)
   it('normalize defaults events:[] on legacy blobs', async () => {
     const { normalize } = await import('@lib/checkin-store')
     const legacy = {
       expected: null,
-      presence: {},
+      days: {},
       pickedUpBy: null,
       confirmedPickup: [],
       pickupCodeHash: null,
@@ -101,7 +40,7 @@ describe('checkin-events (via exported functions, fs mode)', () => {
     const { normalize } = await import('@lib/checkin-store')
     const withEvents = {
       expected: null,
-      presence: {},
+      days: {},
       pickedUpBy: null,
       confirmedPickup: [],
       pickupCodeHash: null,
@@ -116,7 +55,7 @@ describe('checkin-events (via exported functions, fs mode)', () => {
     const { normalize } = await import('@lib/checkin-store')
     const malformed = {
       expected: null,
-      presence: {},
+      days: {},
       pickedUpBy: null,
       confirmedPickup: [],
       pickupCodeHash: null,
@@ -124,6 +63,71 @@ describe('checkin-events (via exported functions, fs mode)', () => {
     }
     const result = normalize(malformed)
     expect(result.events).toEqual([])
+  })
+
+  // ─── HOM-213: legacy presence migration + per-day independence ────────────
+
+  it('migrates legacy presence into days[firstDay] on read', async () => {
+    const { normalize } = await import('@lib/checkin-store')
+    const s = normalize({ presence: { adult: { inAt: 'x', outAt: null } }, events: [] }, '2026-10-20')
+    expect(s.days['2026-10-20'].presence.adult.inAt).toBe('x')
+    expect((s as any).presence).toBeUndefined()
+  })
+
+  it('migrating without a firstDay falls back to the day of the earliest arrival', async () => {
+    const { normalize } = await import('@lib/checkin-store')
+    const s = normalize({
+      presence: {
+        'child:0': { inAt: '2026-10-21T14:00:00.000Z', outAt: null },
+        adult: { inAt: '2026-10-20T13:00:00.000Z', outAt: null },
+      },
+      events: [],
+    })
+    // Both people land on the day of the EARLIEST arrival (adult's, Oct 20 studio-local).
+    expect(Object.keys(s.days)).toEqual(['2026-10-20'])
+    expect(s.days['2026-10-20'].presence.adult.inAt).toBe('2026-10-20T13:00:00.000Z')
+  })
+})
+
+// ─── HOM-213: multi-day independence, via mutateCheckin/getCheckin (fs mode) ──
+
+describe('checkin-events (multi-day days independence, fs mode)', () => {
+  let tmpDir: string
+
+  beforeEach(async () => {
+    tmpDir = await mkdtemp(join(tmpdir(), 'checkin-days-test-'))
+    vi.resetModules()
+    vi.doMock('@lib/blob-store', () => ({
+      makeKvStore: (storeName: string, fsDirName: string) => {
+        return makeKvStore(storeName, fsDirName, { fsDirOverride: tmpDir })
+      },
+    }))
+  })
+
+  afterEach(async () => {
+    vi.doUnmock('@lib/blob-store')
+    vi.resetModules()
+    await rm(tmpDir, { recursive: true, force: true })
+  })
+
+  it('keeps days independent', async () => {
+    const { mutateCheckin, getCheckin } = await import('@lib/checkin-store')
+    await mutateCheckin('workshop:cs1', 'wvr_1', (s) => {
+      s.days['2026-10-20'] = { presence: { 'child:0': { inAt: 'a', outAt: null } } }
+    })
+    const s = await getCheckin('workshop:cs1', 'wvr_1')
+    expect(s.days['2026-10-21']).toBeUndefined()
+    expect(s.days['2026-10-20'].presence['child:0'].inAt).toBe('a')
+  })
+
+  it('childStillHere is per day', async () => {
+    const { mutateCheckin, childStillHere } = await import('@lib/checkin-store')
+    const s = await mutateCheckin('workshop:cs2', 'wvr_2', (s) => {
+      s.days['2026-10-20'] = { presence: { 'child:0': { inAt: 'a', outAt: 'b' } } } // left day 1
+      s.days['2026-10-21'] = { presence: { 'child:0': { inAt: 'c', outAt: null } } } // still here day 2
+    })
+    expect(childStillHere(s, '2026-10-20')).toBe(false)
+    expect(childStillHere(s, '2026-10-21')).toBe(true)
   })
 })
 
@@ -260,22 +264,22 @@ describe('checkin-events (append and history survival)', () => {
 
     // First mutation: checkin
     await mutateCheckin('party-b', 'rec-b', (s) => {
-      s.presence['adult'] = { inAt: now, outAt: null }
-      s.events.push({ at: now, action: 'checkin', personIds: ['adult'] })
+      s.days['2026-10-20'] = { presence: { adult: { inAt: now, outAt: null } } }
+      s.events.push({ at: now, action: 'checkin', personIds: ['adult'], day: '2026-10-20' })
     })
 
-    // Second mutation: undo-checkin (clears presence)
+    // Second mutation: undo-checkin (clears presence for that day)
     await mutateCheckin('party-b', 'rec-b', (s) => {
-      const prevPresence = JSON.stringify(s.presence)
-      s.presence = {}
-      s.events.push({ at: now, action: 'undo-checkin', personIds: ['adult'], note: `cleared: ${prevPresence}` })
+      const prevPresence = JSON.stringify(s.days['2026-10-20'].presence)
+      s.days['2026-10-20'].presence = {}
+      s.events.push({ at: now, action: 'undo-checkin', personIds: ['adult'], note: `cleared: ${prevPresence}`, day: '2026-10-20' })
     })
 
     // Read final state
     const finalState = await mutateCheckin('party-b', 'rec-b', (_s) => {})
 
     // Presence is cleared
-    expect(Object.keys(finalState.presence)).toHaveLength(0)
+    expect(Object.keys(finalState.days['2026-10-20'].presence)).toHaveLength(0)
     // But BOTH events are still in history
     expect(finalState.events).toHaveLength(2)
     expect(finalState.events[0].action).toBe('checkin')
@@ -305,12 +309,12 @@ describe('checkin-events (setCheckin normalizes and caps events)', () => {
     await rm(tmpDir, { recursive: true, force: true })
   })
 
-  // (e) setCheckin normalizes (adds events:[]) and caps events at 500 on write
-  it('setCheckin caps events at 500 on write', async () => {
+  // (e) setCheckin normalizes (adds events:[]) and caps events at 2000 on write
+  it('setCheckin caps events at 2000 on write', async () => {
     const { setCheckin, getCheckin } = await import('@lib/checkin-store')
 
-    // Build a state with 600 events
-    const events = Array.from({ length: 600 }, (_, i) => ({
+    // Build a state with 2100 events
+    const events = Array.from({ length: 2100 }, (_, i) => ({
       at: new Date(Date.now() + i).toISOString(),
       action: 'checkin' as const,
       personIds: ['adult'],
@@ -318,7 +322,7 @@ describe('checkin-events (setCheckin normalizes and caps events)', () => {
 
     const state = {
       expected: null,
-      presence: {},
+      days: {},
       pickedUpBy: null,
       confirmedPickup: [],
       notAuthorized: '',
@@ -329,10 +333,10 @@ describe('checkin-events (setCheckin normalizes and caps events)', () => {
     await setCheckin('party-cap', 'rec-cap', state)
 
     const loaded = await getCheckin('party-cap', 'rec-cap')
-    expect(loaded.events).toHaveLength(500)
-    // Should keep the LAST 500 (slice(-500))
+    expect(loaded.events).toHaveLength(2000)
+    // Should keep the LAST 2000 (slice(-2000))
     expect(loaded.events[0]).toEqual(events[100]) // first kept = index 100
-    expect(loaded.events[499]).toEqual(events[599]) // last kept = index 599
+    expect(loaded.events[1999]).toEqual(events[2099]) // last kept = index 2099
   })
 
   it('setCheckin adds events:[] to a legacy blob without events field', async () => {
@@ -340,7 +344,7 @@ describe('checkin-events (setCheckin normalizes and caps events)', () => {
 
     const legacyState = {
       expected: null,
-      presence: {},
+      days: {},
       pickedUpBy: null,
       confirmedPickup: [],
       pickupCodeHash: null,
@@ -361,7 +365,7 @@ describe('toPublicCheckin', () => {
     const { toPublicCheckin } = await import('@lib/checkin-store')
     const state = {
       expected: null,
-      presence: {},
+      days: {},
       pickedUpBy: null,
       confirmedPickup: [],
       notAuthorized: '',
@@ -371,5 +375,7 @@ describe('toPublicCheckin', () => {
     const pub = toPublicCheckin(state)
     expect((pub as any).events).toBeUndefined()
     expect(pub.hasPickupCode).toBe(false)
+    expect(pub.days).toEqual({})
+    expect(pub.today).toEqual({ presence: {} })
   })
 })

@@ -11,7 +11,10 @@ const mockListRsvpsByEvent = vi.fn()
 vi.mock('@lib/rsvp-store', () => ({ listRsvpsByEvent: (...a: any[]) => mockListRsvpsByEvent(...a) }))
 
 const mockGetCheckin = vi.fn()
-vi.mock('@lib/checkin-store', () => ({ getCheckin: (...a: any[]) => mockGetCheckin(...a) }))
+vi.mock('@lib/checkin-store', async (importOriginal) => {
+  const actual: any = await importOriginal()
+  return { ...actual, getCheckin: (...a: any[]) => mockGetCheckin(...a) }
+})
 
 function ctx(query: string) {
   const request = new Request(`http://localhost/api/staff/events.json${query}`)
@@ -20,7 +23,13 @@ function ctx(query: string) {
 }
 
 function emptyCheckin(): CheckinState {
-  return { expected: null, presence: {}, pickedUpBy: null, confirmedPickup: [], notAuthorized: '', pickupCodeHash: null, events: [] }
+  return { expected: null, days: {}, pickedUpBy: null, confirmedPickup: [], notAuthorized: '', pickupCodeHash: null, events: [] }
+}
+
+/** Build a CheckinState with presence for one day (HOM-213 — `hereNow` is
+ *  now scoped to the date the request asked about). */
+function checkinOn(day: string, presence: Record<string, { inAt: string; outAt: string | null }>): CheckinState {
+  return { ...emptyCheckin(), days: { [day]: { presence } } }
 }
 
 let GET: any
@@ -60,7 +69,7 @@ describe('GET /api/staff/events.json', () => {
       { waiverId: 'wvr_2', event: { kind: 'party', id: 'party-1' } },
     ])
     mockGetCheckin.mockImplementation(async (_eventKey: string, waiverId: string) => {
-      if (waiverId === 'wvr_1') return { ...emptyCheckin(), presence: { adult: { inAt: 'x', outAt: null } } }
+      if (waiverId === 'wvr_1') return checkinOn('2026-10-20', { adult: { inAt: 'x', outAt: null } })
       return emptyCheckin()
     })
 
@@ -78,12 +87,25 @@ describe('GET /api/staff/events.json', () => {
       { kind: 'workshop', id: 'ws-1', title: 'Pottery', startIso: '2026-10-20T18:00:00.000Z', days: ['2026-10-20'], dropOff: false },
     ])
     mockListRsvpsByEvent.mockResolvedValue([{ waiverId: 'wvr_1', event: { kind: 'workshop', id: 'ws-1' } }])
-    mockGetCheckin.mockResolvedValue({ ...emptyCheckin(), presence: { adult: { inAt: 'x', outAt: 'y' } } })
+    mockGetCheckin.mockResolvedValue(checkinOn('2026-10-20', { adult: { inAt: 'x', outAt: 'y' } }))
 
     const res = await GET(ctx('?date=2026-10-20'))
     const json = await res.json()
     expect(json.data.events[0].hereNow).toBe(0)
     expect(json.data.events[0].rsvpCount).toBe(1)
+  })
+
+  it('hereNow only counts presence on the requested date, not other days of a multi-day event (HOM-213)', async () => {
+    mockListEvents.mockResolvedValue([
+      { kind: 'workshop', id: 'ws-camp', title: 'Camp', startIso: '2026-10-20T18:00:00.000Z', days: ['2026-10-20', '2026-10-21'], dropOff: true },
+    ])
+    mockListRsvpsByEvent.mockResolvedValue([{ waiverId: 'wvr_1', event: { kind: 'workshop', id: 'ws-camp' } }])
+    // Present on day 2, but the request below is for day 1.
+    mockGetCheckin.mockResolvedValue(checkinOn('2026-10-21', { 'child:0': { inAt: 'x', outAt: null } }))
+
+    const res = await GET(ctx('?date=2026-10-20'))
+    const json = await res.json()
+    expect(json.data.events[0].hereNow).toBe(0)
   })
 
   it('returns 503 on a storage error', async () => {

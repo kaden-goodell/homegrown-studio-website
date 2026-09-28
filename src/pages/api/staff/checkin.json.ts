@@ -1,10 +1,10 @@
 import type { APIRoute } from 'astro'
 import { randomInt, createHash } from 'node:crypto'
 import { staffAuthorized, byOf } from '@lib/staff-auth'
-import { getEvent } from '@lib/events'
+import { getEvent, eventKey, resolveEventDay, isLastEventDay, type EventKind } from '@lib/events'
 import { getWaiverRecord, normalizeAuthorizedPickup } from '@lib/waiver-store'
 import { getRsvp } from '@lib/rsvp-store'
-import { mutateCheckin, toPublicCheckin, type CheckinState } from '@lib/checkin-store'
+import { mutateCheckin, toPublicCheckin, childStillHere, type CheckinState } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 
 const logger = createLogger('api:staff:checkin')
@@ -14,25 +14,27 @@ export const prerender = false
 const hashCode = (code: string) => createHash('sha256').update('pickup:' + code).digest('hex')
 const newCode = () => String(randomInt(1000, 10000))
 
+const KIND_RE = /^(party|workshop|program)$/
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+
 const isChild = (id: string) => id.startsWith('child:')
 const asIds = (v: unknown): string[] =>
   Array.isArray(v) ? v.map((s) => String(s).trim()).filter(Boolean) : []
 
-/** Any child still on-site (checked in, not yet picked up)? */
-function childStillHere(state: CheckinState): boolean {
-  return Object.entries(state.presence).some(([id, p]) => isChild(id) && !p.outAt)
-}
-
 /**
- * Staff-only per-person check-in/pickup for a household at a party.
- * POST { party, recordId, action, ...}
+ * Staff-only per-person check-in/pickup for a household at an event.
+ * POST { kind, id, recordId, action, day?, ...} — `party` is accepted as a
+ * legacy alias for `{ kind: 'party', id: party }`.
  *   action: 'checkin' | 'undo-checkin' | 'pickup' | 'undo-pickup' | 'reissue-code' | 'set-pickup'
- *   checkin:      { personIds: string[] }   — mark these people present
- *   undo-checkin: { personIds?: string[] }  — clear presence (all if omitted)
+ *   checkin:      { personIds: string[] }   — mark these people present (on `day`)
+ *   undo-checkin: { personIds?: string[] }  — clear presence on `day` (all if omitted)
  *   pickup:       { personIds: string[], code, pickedUpBy? } — code required if a child is leaving a drop-off
- *   undo-pickup:  { personIds?: string[] }  — reverse a pickup (all if omitted)
+ *   undo-pickup:  { personIds?: string[] }  — reverse a pickup on `day` (all if omitted)
  *   set-pickup:   { confirmedPickup: {name, phone}[] }
  *   reissue-code: {}  — rotate the pickup code (only for drop-off events; works even if no code was issued yet)
+ *   `day` (YYYY-MM-DD): which day's attendance this action applies to.
+ *   Defaults to today if today is one of the event's days, else the event's
+ *   first day (HOM-213). The pickup code itself is event-scoped, not per-day.
  */
 export const POST: APIRoute = async ({ request }) => {
   const staff = staffAuthorized(request)
@@ -41,26 +43,35 @@ export const POST: APIRoute = async ({ request }) => {
   }
   const by = byOf(staff)
   const body = await request.json().catch(() => null)
-  const party = typeof body?.party === 'string' ? body.party : ''
+  const legacyParty = typeof body?.party === 'string' ? body.party.trim() : ''
+  const kind = legacyParty ? 'party' : (typeof body?.kind === 'string' ? body.kind : '')
+  const id = legacyParty || (typeof body?.id === 'string' ? body.id.trim() : '')
   const recordId = typeof body?.recordId === 'string' ? body.recordId : ''
   const action = typeof body?.action === 'string' ? body.action : ''
-  if (!party || !recordId) return new Response(JSON.stringify({ error: 'Missing party/record' }), { status: 400 })
+  if (!KIND_RE.test(kind) || !id || !recordId) {
+    return new Response(JSON.stringify({ error: 'Missing event/record' }), { status: 400 })
+  }
 
-  // Read dropOff flag once before the mutation callback — it doesn't change
+  // Read the event once before the mutation callback — it doesn't change
   // within a request and avoids async calls inside the retry loop.
   let studioEvent = null
   try {
-    studioEvent = await getEvent('party', party)
+    studioEvent = await getEvent(kind as EventKind, id)
   } catch (err) {
     logger.error('Event lookup failed', { error: String(err) })
     return new Response(JSON.stringify({ error: 'Couldn’t reach storage — check wifi and try again.' }), { status: 503 })
   }
   const dropOff = !!studioEvent?.dropOff
 
+  const requestedDay = typeof body?.day === 'string' && DAY_RE.test(body.day) ? body.day : null
+  const day = resolveEventDay(studioEvent, requestedDay)
+
   if (action !== 'checkin' && action !== 'undo-checkin' && action !== 'pickup' &&
       action !== 'undo-pickup' && action !== 'reissue-code' && action !== 'set-pickup') {
     return new Response(JSON.stringify({ error: 'Unknown action' }), { status: 400 })
   }
+
+  const evKey = eventKey(kind as EventKind, id)
 
   // Plaintext code is shown to the caller exactly once (never persisted).
   // denyReason is set inside the callback to signal validation failures that
@@ -71,13 +82,14 @@ export const POST: APIRoute = async ({ request }) => {
   let finalState: CheckinState
 
   try {
-    finalState = await mutateCheckin(party, recordId, async (state) => {
+    finalState = await mutateCheckin(evKey, recordId, async (state) => {
       // Reset closure variables at the top of each callback invocation so
       // retries don't leak stale values from a previous (failed) attempt.
       oneTimeCode = null
       denyReason = null
 
       const nowIso = new Date().toISOString()
+      const dayState = (state.days[day] ??= { presence: {} })
 
       switch (action) {
         case 'checkin': {
@@ -89,9 +101,9 @@ export const POST: APIRoute = async ({ request }) => {
             return
           }
           for (const id of ids) {
-            const existing = state.presence[id]
+            const existing = dayState.presence[id]
             // Re-checking someone who already left reopens their presence.
-            state.presence[id] = { inAt: existing && !existing.outAt ? existing.inAt : nowIso, outAt: null }
+            dayState.presence[id] = { inAt: existing && !existing.outAt ? existing.inAt : nowIso, outAt: null }
           }
           if (dropOff && ids.some(isChild)) {
             // Seed authorized-pickup people (+ any "may NOT collect" note),
@@ -99,9 +111,9 @@ export const POST: APIRoute = async ({ request }) => {
             // only its hash, show the plaintext once. The RSVP's `pickup`
             // override (set on the returning-household RSVP screen when the
             // on-file signature had no pickup rows, HOM-212) wins over the
-            // signature's own fields when present.
+            // signature's own fields when present. Event-scoped, not per-day.
             if (state.confirmedPickup.length === 0) {
-              const rsvp = await getRsvp('party', party, recordId)
+              const rsvp = await getRsvp(kind as EventKind, id, recordId)
               if (rsvp?.pickup) {
                 state.confirmedPickup = normalizeAuthorizedPickup(rsvp.pickup.authorizedPickup)
                 state.notAuthorized = rsvp.pickup.notAuthorized || ''
@@ -116,7 +128,7 @@ export const POST: APIRoute = async ({ request }) => {
               state.pickupCodeHash = hashCode(oneTimeCode)
             }
           }
-          state.events.push({ at: nowIso, action: 'checkin', personIds: ids, by })
+          state.events.push({ at: nowIso, action: 'checkin', personIds: ids, day, by })
           break
         }
 
@@ -124,7 +136,7 @@ export const POST: APIRoute = async ({ request }) => {
           // Guard: pickup codes only apply to drop-off events.
           if (!dropOff) {
             denyReason = 'Pickup codes only apply to drop-off events.'
-            state.events.push({ at: nowIso, action: 'reissue-code', personIds: [], note: 'denied: not a drop-off event', by })
+            state.events.push({ at: nowIso, action: 'reissue-code', personIds: [], note: 'denied: not a drop-off event', day, by })
             return
           }
           // Works whether or not a code already exists — fixes the dead-end when
@@ -134,32 +146,34 @@ export const POST: APIRoute = async ({ request }) => {
           const isRotation = !!state.pickupCodeHash
           oneTimeCode = newCode()
           state.pickupCodeHash = hashCode(oneTimeCode)
-          state.events.push({ at: nowIso, action: 'reissue-code', personIds: [], note: isRotation ? 'rotated' : 'first issue', by })
+          state.events.push({ at: nowIso, action: 'reissue-code', personIds: [], note: isRotation ? 'rotated' : 'first issue', day, by })
           break
         }
 
         case 'undo-checkin': {
           const ids = asIds(body?.personIds)
-          const prevPresence = JSON.stringify(state.presence)
-          if (ids.length === 0) state.presence = {}
-          else for (const id of ids) delete state.presence[id]
-          // No one left on-site → retire the code and pickup note.
-          if (Object.keys(state.presence).length === 0) {
+          const prevPresence = JSON.stringify(dayState.presence)
+          if (ids.length === 0) dayState.presence = {}
+          else for (const id of ids) delete dayState.presence[id]
+          // No one left on-site FOR THIS DAY, and this is the event's last
+          // day → retire the code and pickup note. Otherwise keep it — a
+          // multi-day camp still needs it tomorrow.
+          if (Object.keys(dayState.presence).length === 0 && isLastEventDay(studioEvent, day)) {
             state.pickupCodeHash = null
             state.pickedUpBy = null
           }
           const clearedIds = ids.length === 0 ? Object.keys(JSON.parse(prevPresence)) : ids
-          state.events.push({ at: nowIso, action: 'undo-checkin', personIds: clearedIds, note: `cleared: ${prevPresence}`, by })
+          state.events.push({ at: nowIso, action: 'undo-checkin', personIds: clearedIds, note: `cleared: ${prevPresence}`, day, by })
           break
         }
 
         case 'set-pickup':
           state.confirmedPickup = normalizeAuthorizedPickup(body?.confirmedPickup)
-          state.events.push({ at: nowIso, action: 'set-pickup', personIds: [], by })
+          state.events.push({ at: nowIso, action: 'set-pickup', personIds: [], day, by })
           break
 
         case 'pickup': {
-          const ids = asIds(body?.personIds).filter((id) => state.presence[id] && !state.presence[id].outAt)
+          const ids = asIds(body?.personIds).filter((id) => dayState.presence[id] && !dayState.presence[id].outAt)
           if (ids.length === 0) {
             denyReason = 'No one here to check out.'
             return
@@ -171,38 +185,40 @@ export const POST: APIRoute = async ({ request }) => {
             const code = typeof body?.code === 'string' ? body.code.trim() : ''
             if (!state.pickupCodeHash) {
               denyReason = 'No pickup code was ever issued for this family — use "Issue pickup code" first.'
-              state.events.push({ at: nowIso, action: 'pickup-denied', personIds: ids, note: 'no code issued', by })
+              state.events.push({ at: nowIso, action: 'pickup-denied', personIds: ids, note: 'no code issued', day, by })
               return
             }
             if (hashCode(code) !== state.pickupCodeHash) {
               denyReason = 'Pickup code doesn’t match. Verify with the parent.'
-              state.events.push({ at: nowIso, action: 'pickup-denied', personIds: ids, note: 'code mismatch', by })
+              state.events.push({ at: nowIso, action: 'pickup-denied', personIds: ids, note: 'code mismatch', day, by })
               return
             }
           }
-          for (const id of ids) state.presence[id] = { ...state.presence[id], outAt: nowIso }
+          for (const id of ids) dayState.presence[id] = { ...dayState.presence[id], outAt: nowIso }
           const pickedUpBy = typeof body?.pickedUpBy === 'string' && body.pickedUpBy.trim()
             ? body.pickedUpBy.trim()
             : undefined
           if (pickedUpBy) state.pickedUpBy = pickedUpBy
-          // Once every child has been collected, the family code is spent.
-          if (dropOff && !childStillHere(state)) state.pickupCodeHash = null
-          state.events.push({ at: nowIso, action: 'pickup', personIds: ids, ...(pickedUpBy ? { pickedUpBy } : {}), by })
+          // Once every child on THIS day has been collected, and this is the
+          // event's last day, the family code is spent. A multi-day camp
+          // keeps it live overnight for tomorrow's drop-off.
+          if (dropOff && !childStillHere(state, day) && isLastEventDay(studioEvent, day)) state.pickupCodeHash = null
+          state.events.push({ at: nowIso, action: 'pickup', personIds: ids, ...(pickedUpBy ? { pickedUpBy } : {}), day, by })
           break
         }
 
         case 'undo-pickup': {
           const ids = asIds(body?.personIds)
-          const targets = ids.length ? ids : Object.keys(state.presence)
+          const targets = ids.length ? ids : Object.keys(dayState.presence)
           for (const id of targets) {
-            if (state.presence[id]) state.presence[id] = { ...state.presence[id], outAt: null }
+            if (dayState.presence[id]) dayState.presence[id] = { ...dayState.presence[id], outAt: null }
           }
           // A child is back on-site but the code was spent → re-issue so pickup works.
-          if (dropOff && childStillHere(state) && !state.pickupCodeHash) {
+          if (dropOff && childStillHere(state, day) && !state.pickupCodeHash) {
             oneTimeCode = newCode()
             state.pickupCodeHash = hashCode(oneTimeCode)
           }
-          state.events.push({ at: nowIso, action: 'undo-pickup', personIds: targets, by })
+          state.events.push({ at: nowIso, action: 'undo-pickup', personIds: targets, day, by })
           break
         }
       }
@@ -227,7 +243,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   return new Response(
-    JSON.stringify({ data: { checkin: toPublicCheckin(finalState!), ...(oneTimeCode ? { oneTimeCode } : {}) } }),
+    JSON.stringify({ data: { checkin: toPublicCheckin(finalState!), day, ...(oneTimeCode ? { oneTimeCode } : {}) } }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
   )
 }

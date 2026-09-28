@@ -120,3 +120,44 @@ export async function listEvents({ from, to }: { from: string; to: string }): Pr
 export function eventKey(kind: EventKind, id: string): string {
   return kind === 'party' ? id : `${kind}:${id}`
 }
+
+/** Calendar day (studio-local) one day before `ymd`. */
+function ymdMinusOne(ymd: string): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10)
+}
+
+/**
+ * True once every day of the event is before yesterday (studio-local) — a
+ * full grace day past the event's last day. Shared by `/waiver`'s own
+ * "already happened" notice and `sign.json`'s server-side validation so the
+ * two checks can't drift apart (HOM-213 carries this forward from a Task 2
+ * deferred item).
+ */
+export function isEventPast(event: StudioEvent, now: Date = new Date()): boolean {
+  const cutoff = ymdMinusOne(studioDate(now.toISOString()))
+  return event.days.every((d) => d < cutoff)
+}
+
+/**
+ * Which studio-local day (YYYY-MM-DD) a roster/check-in action defaults to
+ * when the caller didn't ask for a specific one: today, if today is one of
+ * the event's days; otherwise the event's first day (HOM-213). An explicit
+ * `requested` day wins as long as it's actually one of the event's days —
+ * a stale/foreign day falls back to the same default.
+ */
+export function resolveEventDay(event: StudioEvent | null, requested?: string | null): string {
+  const today = studioDate(new Date().toISOString())
+  const days = event?.days ?? []
+  if (requested && days.includes(requested)) return requested
+  if (days.includes(today)) return today
+  return days[0] ?? today
+}
+
+/** Is `day` the last (chronologically latest) day of the event? An event
+ *  with no known days (defensive default) counts as "last" so single-day
+ *  code paths behave as before HOM-213. */
+export function isLastEventDay(event: StudioEvent | null, day: string): boolean {
+  const days = event?.days ?? []
+  return days.length === 0 || day === days[days.length - 1]
+}
