@@ -124,7 +124,12 @@ export default function PickupPanel({
   }
 
   function openEditList() {
-    setEditRows(h.authorizedPickup.map((p) => ({ name: p.name, phone: p.phone })))
+    // Seed from the LIVE door-side list (`checkin.confirmedPickup`), not the
+    // static waiver-level `authorizedPickup` — fix round 1, Critical 2. Those
+    // two can diverge (this is exactly what "Edit list" is for), and seeding
+    // from the wrong one meant a name removed at the door came back the next
+    // time the editor was opened, and Save would silently re-authorize it.
+    setEditRows(h.checkin.confirmedPickup.map((p) => ({ name: p.name, phone: p.phone })))
     setEditingList(true)
   }
 

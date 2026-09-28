@@ -62,12 +62,25 @@ function isKnownCollector(name: string, confirmedPickup: AuthorizedPickup[], sig
   return confirmedPickup.some((p) => p.name.trim().toLowerCase() === n)
 }
 
-/** Case-insensitive substring match, either direction, trimmed — the
+/** Lowercase, collapse all whitespace (spaces/tabs/newlines, including
+ *  doubled-up runs) to one space, and drop punctuation that doesn't change
+ *  who's being named ("R. Smith" vs "R Smith", "O'Brien" vs "OBrien") —
+ *  shared normalization for the may-NOT-collect fuzzy match (fix round 1,
+ *  Critical 1: a doubled space or stray tab was defeating the match). */
+function normalizeForMatch(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .replace(/[.,'’-]/g, '')
+    .replace(/\s+/g, ' ')
+}
+
+/** Substring match, either direction, on the normalized names — the
  *  may-NOT-collect gate (HOM-214). Free text on both sides, so this is
  *  deliberately fuzzy rather than an exact-name match. */
 function fuzzyMatchesNotAuthorized(name: string, notAuthorized: string): boolean {
-  const n = name.trim().toLowerCase()
-  const na = notAuthorized.trim().toLowerCase()
+  const n = normalizeForMatch(name)
+  const na = normalizeForMatch(notAuthorized)
   if (!n || !na) return false
   return na.includes(n) || n.includes(na)
 }
@@ -272,6 +285,15 @@ export const POST: APIRoute = async ({ request }) => {
           // event — whoever holds it was given it by the parent. Adults (or
           // non-drop-off) need no code and none of the collector-matching rules apply.
           if (dropOff && ids.some(isChild)) {
+            // A name is required to release a child — mirrors pickup-override's
+            // own required-collectedBy check (fix round 1, Important 3: a blank
+            // name + idChecked:true was slipping past the "known collector" gate
+            // below, since an empty string can never MATCH a chip, but also never
+            // fails to match one when idChecked is already true).
+            if (!collectedBy) {
+              denyReason = 'Who’s collecting? Pick a name or type one.'
+              return
+            }
             // The may-NOT-collect note always wins, even over a checked photo ID.
             if (state.notAuthorized && fuzzyMatchesNotAuthorized(collectedBy, state.notAuthorized)) {
               denyReason = NOT_AUTHORIZED_MSG
@@ -410,7 +432,16 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   if (denyReason) {
-    return new Response(JSON.stringify({ error: denyReason }), { status: denyStatus })
+    // Carry the live checkin state along with the denial (fix round 1,
+    // Important 4) — a wrong-code/lock/not-authorized response still
+    // committed mutations to `finalState` (codeAttempts++, lockedAt, …), and
+    // without this the console's tries-left/locked UI wouldn't reflect them
+    // until the next 30s poll. Top-level, not nested under `data`, matching
+    // every other error body in this endpoint.
+    return new Response(
+      JSON.stringify({ error: denyReason, checkin: toPublicCheckin(finalState!), day }),
+      { status: denyStatus },
+    )
   }
 
   // SMS side effects happen exactly once here, AFTER the mutation committed —

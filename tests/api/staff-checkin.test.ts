@@ -324,3 +324,108 @@ describe('POST /api/staff/checkin.json — pickup completion (HOM-214)', () => {
     for (const ev of state.events) expect(ev.by).toEqual({ id: 't', name: 'Test' })
   })
 })
+
+// ─── HOM-214 fix round 1 ──────────────────────────────────────────────────
+
+describe('POST /api/staff/checkin.json — pickup completion, fix round 1', () => {
+  it('Critical 1: fuzzyMatchesNotAuthorized survives internal whitespace', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ notAuthorized: 'Rick Smith' }))
+    const ci = await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    const code = (await ci.json()).data.oneTimeCode
+
+    // Doubled internal space.
+    let res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code, collectedBy: 'Rick  Smith', idChecked: true })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('That name is on the may-NOT-collect list. Do not release. Call the parent.')
+    expect(state.days['2026-09-05'].presence['child:0'].outAt).toBeFalsy()
+
+    // Trailing tab.
+    res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code, collectedBy: 'Rick Smith\t', idChecked: true })
+    expect(res.status).toBe(400)
+    expect(state.days['2026-09-05'].presence['child:0'].outAt).toBeFalsy()
+  })
+
+  it('Critical 1: fuzzyMatchesNotAuthorized ignores punctuation-only differences', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ notAuthorized: 'R Smith' }))
+    const ci = await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    const code = (await ci.json()).data.oneTimeCode
+
+    // "R. Smith" vs "R Smith" — punctuation-only difference.
+    const res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code, collectedBy: 'R. Smith', idChecked: true })
+    expect(res.status).toBe(400)
+    expect(state.days['2026-09-05'].presence['child:0'].outAt).toBeFalsy()
+  })
+
+  it('Critical 1: also refuses on pickup-override, not just pickup', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ notAuthorized: 'Rick Smith' }))
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+
+    const res = await dropOffPost({ action: 'pickup-override', personIds: ['child:0'], collectedBy: 'Rick  Smith', reason: 'parent-present', idChecked: true })
+    expect(res.status).toBe(400)
+    expect(state.days['2026-09-05'].presence['child:0'].outAt).toBeFalsy()
+  })
+
+  it('Important 3: an empty collectedBy cannot release a child, even with idChecked:true', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    const ci = await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    const code = (await ci.json()).data.oneTimeCode
+
+    const res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code, collectedBy: '', idChecked: true })
+    expect(res.status).toBe(400)
+    const j = await res.json()
+    expect(j.error).toBe('Who’s collecting? Pick a name or type one.')
+    expect(state.days['2026-09-05'].presence['child:0'].outAt).toBeFalsy()
+    expect(state.releasedTo['child:0']).toBeUndefined()
+  })
+
+  it('Important 4: a wrong-code / locked denial response carries the live checkin state', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    const ci = await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    const realCode = (await ci.json()).data.oneTimeCode
+    const wrongCode = realCode === '1111' ? '2222' : '1111'
+
+    let res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code: wrongCode, collectedBy: 'Grandma Rivera' })
+    let json = await res.json()
+    expect(res.status).toBe(400)
+    expect(json.checkin.codeAttempts).toBe(1)
+    expect(json.checkin.locked).toBe(false)
+
+    for (let i = 0; i < 3; i++) {
+      await dropOffPost({ action: 'pickup', personIds: ['child:0'], code: wrongCode, collectedBy: 'Grandma Rivera' })
+    }
+    res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code: wrongCode, collectedBy: 'Grandma Rivera' })
+    json = await res.json()
+    expect(res.status).toBe(423)
+    expect(json.checkin.codeAttempts).toBe(5)
+    expect(json.checkin.locked).toBe(true)
+  })
+
+  it("pickup-override with reason 'other' requires reasonText of at least 5 characters", async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+
+    let res = await dropOffPost({ action: 'pickup-override', personIds: ['child:0'], collectedBy: 'Grandma Rivera', reason: 'other', reasonText: 'hi' })
+    expect(res.status).toBe(400)
+    expect(state.days['2026-09-05'].presence['child:0'].outAt).toBeFalsy()
+
+    res = await dropOffPost({ action: 'pickup-override', personIds: ['child:0'], collectedBy: 'Grandma Rivera', reason: 'other', reasonText: 'left a voicemail' })
+    expect(res.status).toBe(200)
+    expect(state.days['2026-09-05'].presence['child:0'].outAt).toBeTruthy()
+  })
+
+  it('pickup-override with a missing collectedBy is refused', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+
+    const res = await dropOffPost({ action: 'pickup-override', personIds: ['child:0'], collectedBy: '', reason: 'parent-present' })
+    expect(res.status).toBe(400)
+    expect(state.days['2026-09-05'].presence['child:0'].outAt).toBeFalsy()
+  })
+})
