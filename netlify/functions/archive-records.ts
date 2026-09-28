@@ -54,9 +54,20 @@ function gmailCreds(): { user: string; pass: string } | null {
 
 let transport: any = null
 
-/** Duplicated from `src/lib/email.ts` (functions can't import `src/`) —
- *  same Gmail SMTP transport, same "skip, don't throw, when unconfigured"
- *  behavior. Returns whether it actually sent. */
+/**
+ * Duplicated from `src/lib/email.ts` (functions can't import `src/`) — same
+ * Gmail SMTP transport. Two distinct outcomes, deliberately NOT collapsed
+ * into one:
+ *   - "Not configured" (no GMAIL_USER/GMAIL_APP_PASSWORD — the expected case
+ *     in an environment without secrets, e.g. local `netlify dev`) — warns
+ *     and returns `false`. Never throws.
+ *   - "Configured but the send itself failed" (a REAL SMTP error — bad
+ *     creds, network, Gmail rejecting the message) — THROWS. Fix round 1:
+ *     this used to be swallowed here and reported as `sent: false`, which
+ *     let a real send failure look like a normal 200 response and never
+ *     reach the "Archive FAILED" path below — the one thing this whole
+ *     ticket exists to prevent (a silent gap in the legal record trail).
+ */
 async function sendMail(input: {
   to: string
   subject: string
@@ -68,28 +79,25 @@ async function sendMail(input: {
     console.warn('[archive-records] GMAIL_USER/GMAIL_APP_PASSWORD not set — skipping send', { subject: input.subject })
     return false
   }
-  try {
-    if (!transport) {
-      const nm = await import('nodemailer')
-      transport = (nm.default ?? nm).createTransport({
-        host: 'smtp.gmail.com',
-        port: 465,
-        secure: true,
-        auth: { user: creds.user, pass: creds.pass },
-      })
-    }
-    await transport.sendMail({
-      from: `"Hometown Studio Records" <${creds.user}>`,
-      to: input.to,
-      subject: input.subject,
-      text: input.text,
-      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+  if (!transport) {
+    const nm = await import('nodemailer')
+    transport = (nm.default ?? nm).createTransport({
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
+      auth: { user: creds.user, pass: creds.pass },
     })
-    return true
-  } catch (err) {
-    console.error('[archive-records] send failed', err instanceof Error ? err.message : String(err))
-    return false
   }
+  // No try/catch here on purpose — a real send failure must propagate to
+  // the caller (see the doc comment above).
+  await transport.sendMail({
+    from: `"Hometown Studio Records" <${creds.user}>`,
+    to: input.to,
+    subject: input.subject,
+    text: input.text,
+    ...(input.attachments?.length ? { attachments: input.attachments } : {}),
+  })
+  return true
 }
 
 function archiveTo(): string {
@@ -159,11 +167,19 @@ export default async () => {
     const message = err instanceof Error ? err.message : String(err)
     console.error('[archive-records] Archive FAILED', message)
     // Never swallow — a failed archive with no failure email is a silent
-    // gap in the legal record trail (the whole point of HOM-217).
+    // gap in the legal record trail (the whole point of HOM-217). If even
+    // THIS fails (or isn't configured), that's the one case with no email
+    // to fall back on, so it MUST be loud in the function logs — greppable
+    // prefix, and the response below is already a non-2xx so Netlify's own
+    // function-invocation log shows it red regardless.
     try {
-      await sendMail({ to, subject: `Archive FAILED — ${message}`, text: `The weekly records archive failed:\n\n${message}` })
+      const failedSent = await sendMail({ to, subject: `Archive FAILED — ${message}`, text: `The weekly records archive failed:\n\n${message}` })
+      if (!failedSent) {
+        console.error(`[archive] SEND FAILED: couldn’t notify ${to} — email not configured. Original archive error: ${message}`)
+      }
     } catch (mailErr) {
-      console.error('[archive-records] Archive FAILED email also failed to send', mailErr)
+      const mailMessage = mailErr instanceof Error ? mailErr.message : String(mailErr)
+      console.error(`[archive] SEND FAILED: the "Archive FAILED" email itself failed to send — ${mailMessage}. Original archive error: ${message}`)
     }
     return new Response(JSON.stringify({ ok: false, error: message }), { status: 500 })
   }
