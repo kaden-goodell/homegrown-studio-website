@@ -23,7 +23,11 @@ let _transport: any = null
 
 export async function sendEmail(input: {
   to: string; subject: string; html: string; text: string
-  attachments?: { filename: string; content: string; contentType: string }[]
+  /** `encoding: 'base64'` tells nodemailer to decode `content` before
+   *  sending — needed for binary attachments (e.g. the HOM-217 archive zip),
+   *  where `content` is a base64 string rather than plain text like the
+   *  .ics attachments below. Omitted (utf8) by every other caller. */
+  attachments?: { filename: string; content: string; contentType: string; encoding?: string }[]
 }): Promise<{ sent: boolean }> {
   const c = creds()
   if (!c) {

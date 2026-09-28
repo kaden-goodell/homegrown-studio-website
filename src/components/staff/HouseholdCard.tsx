@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { formatTime, formatMonthDay, formatMonthYear } from '@lib/studio-time'
 import { card, btn, Badge } from '@components/staff/ui'
 import PickupPanel from '@components/staff/PickupPanel'
+import HistorySheet from '@components/staff/HistorySheet'
 import type { EventKind } from '@lib/events'
 import type { AuthorizedPickup } from '@lib/waiver-store'
 
@@ -144,6 +145,8 @@ export default function HouseholdCard({
   // Two-tap reset guard
   const [resetPending, setResetPending] = useState(false)
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Read-only custody-log sheet (HOM-217) — "History" button below.
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -242,10 +245,19 @@ export default function HouseholdCard({
       </div>
 
       {/* Signature validity — HOM-213 */}
-      <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
-        Signed {formatMonthDay(h.signedAt)} · {h.agreementVersion} ·{' '}
-        {expired ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>EXPIRED</span> : `valid to ${formatMonthYear(h.validUntil)}`}
-      </p>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
+        <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
+          Signed {formatMonthDay(h.signedAt)} · {h.agreementVersion} ·{' '}
+          {expired ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>EXPIRED</span> : `valid to ${formatMonthYear(h.validUntil)}`}
+        </p>
+        <button
+          type="button"
+          onClick={() => setHistoryOpen(true)}
+          style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.7rem', color: 'var(--color-muted)' }}
+        >
+          🕘 History
+        </button>
+      </div>
 
       {/* Drop-off addendum status — HOM-211/213 */}
       {dropOff && (
@@ -358,6 +370,8 @@ export default function HouseholdCard({
           </button>
         </div>
       )}
+
+      {historyOpen && <HistorySheet h={h} kind={kind} id={id} onClose={() => setHistoryOpen(false)} />}
     </div>
   )
 }

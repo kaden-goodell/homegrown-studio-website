@@ -138,3 +138,45 @@ in Linear HOM-99 (licensing) and HOM-114 (safeguards).
 | `scripts/team/post-open-shifts.ts` | Publish the week's open Crew slots (idempotent) |
 | `scripts/team/load-crew-credit.ts` | Pay-period credit → gift cards (ledger-idempotent) |
 | `src/lib/crew/` | Slot templates, timezone + credit math (unit-tested) |
+
+## 7. Records & archive
+
+Every legal record — signed agreements (`waivers`), RSVPs, the custody event
+log (`checkins`), incident reports (`incidents`), plus event/open-studio
+metadata — lives in Netlify Blobs. **Never delete any of it.** In Alabama a
+minor's injury claim is tolled until they turn 19, then they have two more
+years to file — a signature from a 6-year-old today must still exist in
+2041. Audit finding H3; HOM-217.
+
+**Weekly self-archive (automatic):** a Netlify scheduled function
+(`netlify/functions/archive-records.ts`, Sunday ~3am Central) exports every
+record, writes a full snapshot into the `archive` blob store, and emails a
+zip (one JSON per store + `custody.csv`, the flattened custody log a lawyer
+would ask for) to `ARCHIVE_TO` (default kaden@ourhometownstudio.com). If a
+store's data is too big to email (>20 MB combined), it splits into one email
+per store instead of skipping any of it. If the export itself fails, you get
+an "Archive FAILED — {error}" email instead of silence.
+
+**Manual run**, anytime:
+
+```bash
+# Write a local copy instead of emailing:
+npx tsx scripts/archive-records.ts --out ./archive-2026-09-28.zip
+
+# Or email it right now (same as the weekly job):
+npx tsx scripts/archive-records.ts
+```
+
+**Restoring after a Netlify incident:** unzip the most recent archive (from
+the emailed copy, or `archive/{date}.json` in the `archive` blob store) —
+each `{store}.json` is that store's key → record map and can be replayed
+back into a fresh Blobs store key-by-key if it ever comes to that.
+
+**Who can see records day to day:** owners and on-shift crew, through the
+staff console — a household's card has a "History" button showing every
+custody event (check-in, pickup, overrides, denials) for that family. It's
+read-only; nothing in the console lets anyone edit or delete a past event.
+
+**A customer asking for their data:** forward the request to Kaden/Catherine
+— see the Records paragraph on `/policies` for what we tell customers we
+keep and why.

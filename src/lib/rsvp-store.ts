@@ -5,6 +5,10 @@
  * event, or changing who's coming, must never clone or touch the signature
  * (HOM-210). One record per (event, waiverId); a re-RSVP overwrites in place.
  *
+ * Never delete. Minor claims toll to age 21 in Alabama — see
+ * `docs/CREW-OPERATIONS.md` §7 and the weekly self-archive in
+ * `src/lib/archive-export.ts` (HOM-217).
+ *
  * Production (Netlify): Netlify Blobs. Local dev: `.data/rsvps/` on disk.
  */
 import { createLogger } from '@lib/logger'

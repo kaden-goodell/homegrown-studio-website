@@ -4,6 +4,10 @@
  * Production (Netlify): Netlify Blobs. Local dev: `.data/waivers/` on disk.
  * Records are immutable once written — a signature is evidence; never mutate.
  *
+ * Never delete. Minor claims toll to age 21 in Alabama — see
+ * `docs/CREW-OPERATIONS.md` §7 and the weekly self-archive in
+ * `src/lib/archive-export.ts` (HOM-217).
+ *
  * Waivers signed through a party invite are also indexed by partyId so the
  * host's roster can list who has RSVP'd.
  */

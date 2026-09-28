@@ -6,6 +6,10 @@
  * store holds the incident's own record of truth (what/first aid/witnesses/
  * parent notification/follow-up).
  *
+ * Never delete. Minor claims toll to age 21 in Alabama — see
+ * `docs/CREW-OPERATIONS.md` §7 and the weekly self-archive in
+ * `src/lib/archive-export.ts` (HOM-217).
+ *
  * Netlify Blobs in prod, `.data/incidents/` on disk in dev.
  */
 import { createLogger } from '@lib/logger'

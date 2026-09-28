@@ -15,6 +15,7 @@ export const POLICY_ANCHORS = {
   parties: 'parties',
   workshops: 'workshops',
   closures: 'closures-and-refunds',
+  records: 'records',
 } as const
 
 /** Every window in one place — copy below derives from these. */
@@ -125,6 +126,39 @@ export const policySections: PolicySection[] = [
         heading: 'Questions?',
         body:
           'Text or call us and we’ll sort it out — the fastest way to reach us is the number in the footer below.',
+      },
+    ],
+  },
+  {
+    id: POLICY_ANCHORS.records,
+    title: 'Records',
+    intro:
+      'Signing a participation agreement means we’re keeping some records about your household — here’s exactly what, why, and for how long (HOM-217).',
+    rules: [
+      {
+        heading: 'What we keep',
+        body:
+          'Names and dates of birth for every signer and child on the agreement, allergy/medical notes, your emergency contact, who’s authorized to pick up a child at a drop-off event, and the signature itself (when it was signed, which agreement version, and the device/IP it was signed from).',
+      },
+      {
+        heading: 'Why',
+        body:
+          'This is the exact information a legal claim needs and the information a first-aid or custody decision at the door needs — the two reasons this data exists. In Alabama, a minor’s injury claim is tolled until they turn 19, then they have two more years to file, so a signature from a young child today can still matter well into their twenties.',
+      },
+      {
+        heading: 'How long',
+        body:
+          'Indefinitely — we never delete a signed record. A weekly export backs everything up off-platform so a site outage or a change of hosting provider can’t take the evidence with it.',
+      },
+      {
+        heading: 'Who can see it',
+        body:
+          'The studio’s owners and on-shift crew, for check-in/pickup and safety purposes only. It’s never sold, shared with advertisers, or used for anything beyond running the studio safely.',
+      },
+      {
+        heading: 'Requesting a copy or correction',
+        body:
+          'Email us (the address in the footer below) and we’ll send you a copy of what’s on file or fix anything that’s wrong.',
       },
     ],
   },

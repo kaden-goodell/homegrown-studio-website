@@ -2,6 +2,11 @@
  * Mutable check-in / pickup state for a guest at an event. Separate from the
  * immutable waiver record. Keyed by event + waiver record.
  *
+ * Never delete. Minor claims toll to age 21 in Alabama — the `events[]`
+ * custody log below is exactly what a lawyer would ask for (HOM-217); see
+ * `docs/CREW-OPERATIONS.md` §7 and the weekly archive in
+ * `src/lib/archive-export.ts`.
+ *
  * The pickup code is treated like an API token: only a HASH is stored, the
  * plaintext is shown exactly once (at generation), and it's never returned
  * again — so a refreshed staff screen can't leak one parent's code to another.
