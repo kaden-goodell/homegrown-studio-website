@@ -96,6 +96,9 @@ describe('WaiverFlow — returning screen pickup block (HOM-212 fix round 1)', (
     await reachReturningScreen(container)
 
     expect(screen.getByText('Who may pick up?')).toBeInTheDocument()
+    // F4: one empty row is rendered by default so the question has somewhere
+    // to be answered — leaving it blank still sends no pickupUpdate.
+    expect(screen.getByLabelText('Pickup person 1 name')).toHaveValue('')
 
     await act(async () => {
       fireEvent.click(screen.getByText('✓ RSVP us'))
@@ -110,8 +113,7 @@ describe('WaiverFlow — returning screen pickup block (HOM-212 fix round 1)', (
     const { container } = render(<WaiverFlow partyId="party-1" dropOff />)
     await reachReturningScreen(container)
 
-    // No rows exist yet — add one first, then fill it in.
-    fireEvent.click(screen.getByText('+ Add another'))
+    // The block opens with one empty row already (F4) — just fill it in.
     const nameInput = screen.getByLabelText('Pickup person 1 name')
     fireEvent.change(nameInput, { target: { value: 'Grandma Rivera' } })
 

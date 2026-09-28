@@ -241,6 +241,15 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   // shared device must never show one guest another guest's household.
   const [mode, setMode] = useState<'lookup' | 'code' | 'returning' | 'form'>(kiosk ? 'form' : 'lookup')
   const [contact, setContact] = useState('')
+  // This island is server-rendered, so the lookup field is on screen and
+  // typeable before React hydrates — and hydration then re-asserts the empty
+  // state, swallowing whatever was typed in that window (F5). Adopt the DOM's
+  // value on mount instead of discarding it.
+  const contactRef = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    const typed = contactRef.current?.value
+    if (typed) setContact((c) => c || typed)
+  }, [])
   const [lookupBusy, setLookupBusy] = useState(false)
   const [returning, setReturning] = useState<{ recordId: string; reuseToken: string; firstName: string; kids: string[]; validUntil: string; signedAt: string; hasPickup: boolean } | null>(null)
   // SMS one-time-code step (HOM-218) — sits between "Been here before?" and
@@ -342,6 +351,15 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   // Compact "Who may pick up?" block on the returning screen (HOM-212) —
   // only for a drop-off event whose on-file signature has no pickup rows yet.
   const showReturningPickup = !!dropOff && !!returning && !returning.hasPickup
+
+  // The block asked "Who may pick up?" and then showed no name field at all
+  // until you found the dashed "+ Add another" — start it with one empty row
+  // so there's somewhere to answer. Still entirely optional: a blank row
+  // never makes `returningPickupFilled` true.
+  useEffect(() => {
+    if (!showReturningPickup) return
+    setReturningPickupRows((rows) => (rows.length === 0 ? [{ name: '', phone: '' }] : rows))
+  }, [showReturningPickup])
 
   // Only send pickupUpdate when the guest actually typed something into the
   // block — an absent field must mean "no change" (fix round 1 addendum),
@@ -648,15 +666,20 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       const json = await res.json().catch(() => null)
       if (!res.ok) {
         setError(json?.error ?? 'Something went wrong — please try again.')
-      } else if (json?.data?.smsFailed) {
+        return
+      }
+      if (json?.data?.smsFailed) {
         setError(waiverContent.lookup.smsFailedLine)
       } else if (json?.data?.phoneHint) {
         setPhoneHint(json.data.phoneHint)
       }
+      // Only a send that actually went out burns one of the three tries — a
+      // 429 or a network blip used to spend them and hide the button on a
+      // guest who never got a single text.
+      setResendCount((n) => n + 1)
     } catch {
       setError('Something went wrong — please try again.')
     } finally {
-      setResendCount((n) => n + 1)
       setResendAvailableAt(Date.now() + RESEND_COOLDOWN_MS)
       setResendBusy(false)
     }
@@ -886,6 +909,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           Enter your email or phone and we’ll pull up your agreement — no need to fill it out again.
         </p>
         <input
+          ref={contactRef}
           style={inputStyle}
           value={contact}
           onChange={(e) => setContact(e.target.value)}

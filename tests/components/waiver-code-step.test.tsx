@@ -73,4 +73,32 @@ describe('WaiverFlow — code step resend cap (HOM-218 fix round 1)', () => {
     await clickResendAfterCooldown() // resend #2 — the server's last allowed resend
     expect(screen.queryByText(/Send again/)).not.toBeInTheDocument()
   })
+
+  it('M5: a resend that FAILS does not burn one of the tries', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init: any) => {
+      const body = init?.body ? JSON.parse(String(init.body)) : {}
+      // Every resend POST fails (rate-limited upstream); the initial lookup works.
+      if (body.resend) {
+        return { ok: false, status: 429, json: async () => ({ error: 'Too many tries — wait a minute.' }) } as Response
+      }
+      return {
+        ok: true,
+        json: async () => ({
+          data: { found: true, firstName: 'Sarah', kidCount: 0, validUntil: '2099-01-01T00:00:00.000Z', needsCode: true, phoneHint: '••42' },
+        }),
+      } as Response
+    })
+    const { container } = render(<WaiverFlow partyId="party-1" />)
+    await reachCodeStep(container)
+
+    await clickResendAfterCooldown()
+    await clickResendAfterCooldown()
+    await clickResendAfterCooldown()
+
+    // Three failed sends, and the button is still there — the guest never got
+    // a single text, so none of their tries should have been spent.
+    expect(screen.getByText(/Send again/)).toBeInTheDocument()
+    expect(screen.getByText('Too many tries — wait a minute.')).toBeInTheDocument()
+    expect(fetchSpy.mock.calls.filter(([, init]: any[]) => init?.body && JSON.parse(String(init.body)).resend)).toHaveLength(3)
+  })
 })
