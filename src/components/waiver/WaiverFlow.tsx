@@ -140,7 +140,12 @@ function PartyLabelChip({ label }: { label: string }) {
 
 const CODE_LENGTH = 6
 const RESEND_COOLDOWN_MS = 60_000
-const MAX_RESENDS = 3
+// @lib/otp-store's issueOtp sets sends:1 on the initial code, and
+// resendOtp's cap is `sends >= MAX_SENDS` (3) — so only 2 resends can ever
+// succeed after that initial send. This must stay MAX_SENDS - 1: a client
+// cap of 3 would show an enabled "Send again" for a click that always 429s
+// server-side (fix round 1, HOM-218).
+const MAX_RESENDS = 2
 
 /** Six single-digit boxes for the SMS one-time code (HOM-218) — numeric
  *  keyboard, auto-advance on entry, backspace walks back, and pasting all 6
