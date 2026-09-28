@@ -5,9 +5,7 @@ import { closures, daysOf, reopensOn } from '@config/closures'
 import { longDate } from '@lib/notify-context'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
-import { createSquareClient } from '@providers/square/client'
 import { partyConfig } from '@config/party.config'
-import type { SquareConfig } from '@config/site.config'
 import { parseOpenStudioWindows } from '@lib/open-studio'
 import { localDate, localToUtcISO, partyStartsInRange, removeBooked } from '@lib/party-slots'
 import {
@@ -18,6 +16,7 @@ import {
 import { createLogger } from '@lib/logger'
 import { remember } from '@lib/short-memory'
 import { publicListHeaders } from '@lib/cache-headers'
+import { loadPartyVariationId } from '@lib/party-open-dates'
 
 export const prerender = false
 const logger = createLogger('api:calendar')
@@ -44,13 +43,6 @@ async function loadOpenStudioWindows(): Promise<OpenStudioWindow[]> {
     eventTypes.find((et: any) => et.id === partyConfig.square.openStudioItemId) ??
     eventTypes.find((et: any) => (et.flow as string) === 'display')
   return parseOpenStudioWindows(openStudio?.programDates ?? '')
-}
-
-async function loadPartyVariationId(): Promise<string> {
-  const client = createSquareClient(siteConfig.providers.catalog.config as SquareConfig)
-  const resp = await client.catalog.object.get({ objectId: partyConfig.square.catalogItemId })
-  const item = ((resp as any)?.object ?? resp) as any
-  return item?.itemData?.variations?.[0]?.id ?? ''
 }
 
 /**

@@ -5,6 +5,7 @@ import { rateLimited } from '@lib/rate-limit'
 import { alertOwners } from '@lib/owner-alert'
 import { sendSignupConfirmationEmail } from '@lib/email'
 import { signupPromise } from '@lib/signup-promise'
+import { askedLine } from '@lib/signup-ledger'
 import { remember } from '@lib/short-memory'
 import { longDate } from '@lib/notify-context'
 import { OPENING_DATE } from '@config/opening'
@@ -27,8 +28,8 @@ const json = (body: unknown, status: number) =>
  * follow up, and the visitor gets one email confirming what they will hear
  * about. An alert or the email failing never fails the sign-up.
  *
- * The LATER email ("booking is open", "a seat opened") is not sent from here:
- * nothing on the site sends it automatically yet.
+ * The LATER email ("booking is open", "a seat opened") is sent by the
+ * scheduled job (api/jobs/signup-emails), which reads the same note.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (rateLimited(`notify-me:${clientAddress}`, 5, 10 * 60_000)) {
@@ -43,7 +44,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // The longest list tells us what to schedule or stock next.
   const interest = typeof body?.interest === 'string' ? body.interest.trim().slice(0, 80) : ''
   const today = new Date().toISOString().slice(0, 10)
-  const note = `${today} Asked to be told: ${interest || 'when booking opens'}`
+  // The line the scheduled sign-up emails look for (see signup-ledger.ts).
+  const note = askedLine(today, interest)
 
   let saved = true
   try {

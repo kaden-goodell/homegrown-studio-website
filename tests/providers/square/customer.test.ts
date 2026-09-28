@@ -4,6 +4,7 @@ const mockSearch = vi.fn()
 const mockCreate = vi.fn()
 const mockGet = vi.fn()
 const mockUpdate = vi.fn()
+const mockList = vi.fn()
 
 vi.mock('square', () => {
   return {
@@ -13,6 +14,7 @@ vi.mock('square', () => {
         create: mockCreate,
         get: mockGet,
         update: mockUpdate,
+        list: mockList,
       }
       constructor(_opts: any) {}
     },
@@ -254,6 +256,52 @@ describe('SquareCustomerProvider', () => {
         customerId: 'sq-existing',
         note: '2026-09-27 Asked to be told: kits\n2026-09-01 Booked a party',
       })
+    })
+  })
+
+  describe('listWithNotes', () => {
+    /** What the SDK hands back: something that can be walked page by page. */
+    const pages = (...customers: any[]) => ({
+      async *[Symbol.asyncIterator]() {
+        for (const c of customers) yield c
+      },
+    })
+
+    it('returns everyone with an email and a note, across every page', async () => {
+      mockList.mockResolvedValue(
+        pages(
+          { id: 'A', emailAddress: 'ada@example.com', note: '2026-09-27 Asked to be told: party:booking-opens' },
+          { id: 'B', emailAddress: 'bea@example.com', note: 'Called 10/2' },
+        ),
+      )
+      expect(await provider.listWithNotes()).toEqual([
+        { id: 'A', email: 'ada@example.com', note: '2026-09-27 Asked to be told: party:booking-opens' },
+        { id: 'B', email: 'bea@example.com', note: 'Called 10/2' },
+      ])
+    })
+
+    it('leaves out anyone with no note or no email: there is nothing to send, or nowhere to send it', async () => {
+      mockList.mockResolvedValue(
+        pages(
+          { id: 'A', emailAddress: 'ada@example.com' },
+          { id: 'B', note: '2026-09-27 Asked to be told: party:booking-opens' },
+          { id: 'C', emailAddress: 'cy@example.com', note: '' },
+        ),
+      )
+      expect(await provider.listWithNotes()).toEqual([])
+    })
+
+    it('asks for the customers in a fixed order, a page of 100 at a time', async () => {
+      mockList.mockResolvedValue(pages())
+      await provider.listWithNotes()
+      expect(mockList).toHaveBeenCalledWith({ limit: 100, sortField: 'DEFAULT', sortOrder: 'ASC' })
+    })
+
+    it('changes nothing', async () => {
+      mockList.mockResolvedValue(pages({ id: 'A', emailAddress: 'ada@example.com', note: 'x' }))
+      await provider.listWithNotes()
+      expect(mockUpdate).not.toHaveBeenCalled()
+      expect(mockCreate).not.toHaveBeenCalled()
     })
   })
 })

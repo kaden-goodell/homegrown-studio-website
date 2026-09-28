@@ -272,12 +272,21 @@ describe('PartyModal — dates and times', () => {
       expect(screen.getByRole('button', { name: 'Back to open dates' })).toBeInTheDocument()
     })
 
-    it('offers the months after the booking window', async () => {
+    it('offers the months with dates past the booking window, starting with the one the window ends in', async () => {
       open()
       await toLater()
-      const month = screen.getByLabelText('Month you have in mind (optional)') as HTMLSelectElement
-      // The window ends 11 Nov 2026.
-      expect(Array.from(month.options).map((o) => o.value).slice(0, 3)).toEqual(['', '2026-12', '2027-01'])
+      const month = screen.getByLabelText('Month you have in mind') as HTMLSelectElement
+      // The window ends 11 Nov 2026: the rest of November is still to come.
+      expect(Array.from(month.options).map((o) => o.value).slice(0, 3)).toEqual(['2026-11', '2026-12', '2027-01'])
+    })
+
+    it('always names a month: there is no "not sure", because the month is what triggers the email', async () => {
+      open()
+      await toLater()
+      const month = screen.getByLabelText('Month you have in mind') as HTMLSelectElement
+      expect(month.value).toBe('2026-11')
+      expect(Array.from(month.options).map((o) => o.value)).not.toContain('')
+      expect(screen.queryByText('Not sure yet')).toBeNull()
     })
 
     it('goes back to the open dates, with a date chosen earlier still chosen', async () => {

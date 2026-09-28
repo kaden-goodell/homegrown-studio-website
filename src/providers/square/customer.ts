@@ -1,4 +1,4 @@
-import type { Customer, CustomerProvider } from '@providers/interfaces/customer'
+import type { Customer, CustomerNote, CustomerProvider } from '@providers/interfaces/customer'
 import type { SquareConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
 import { createSquareClient } from './client'
@@ -115,6 +115,16 @@ export class SquareCustomerProvider implements CustomerProvider {
       ...(note ? { note: note.slice(0, 4000) } : {}),
     })
     logger.info('Subscribed customer', { email })
+  }
+
+  async listWithNotes(): Promise<CustomerNote[]> {
+    const found: CustomerNote[] = []
+    // v44: customers.list returns a paginator; iterating it walks every page.
+    const pages = await this.client.customers.list({ limit: 100, sortField: 'DEFAULT', sortOrder: 'ASC' })
+    for await (const c of pages as AsyncIterable<any>) {
+      if (c?.id && c.emailAddress && c.note) found.push({ id: c.id, email: c.emailAddress, note: c.note })
+    }
+    return found
   }
 
   async appendNote(customerId: string, line: string): Promise<void> {

@@ -105,11 +105,16 @@ function perPersonLabel(minCents: number, maxCents?: number): string {
   return maxCents && maxCents > minCents ? `${formatMoney(minCents)}–${formatMoney(maxCents)}` : formatMoney(minCents)
 }
 
-/** The months after the booking window, for "planning something later?". */
+/**
+ * The months with dates past the booking window, for "planning something
+ * later?". The first is the month of the day after the window ends: when the
+ * window ends on the 11th, the rest of that month is still to come.
+ */
 function laterMonths(count: number): { value: string; label: string }[] {
-  const [y, m] = bookableDates().last.split('-').map(Number)
+  const [y, m, day] = bookableDates().last.split('-').map(Number)
+  const first = new Date(y, m - 1, day + 1)
   return Array.from({ length: count }, (_, i) => {
-    const d = new Date(y, m - 1 + i + 1, 1)
+    const d = new Date(first.getFullYear(), first.getMonth() + i, 1)
     return {
       value: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
       label: d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
@@ -933,18 +938,19 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   /** Someone planning past the booking window: one email, and nothing to pick. */
   function renderLaterView() {
     const months = laterMonths(6)
+    // A month is always named: it is what tells us when to send the email.
+    const month = laterMonth || months[0].value
     return (
       <div>
         <p style={sectionLabel}>Planning something later?</p>
         <p style={{ ...helpText, marginBottom: '1rem' }}>
-          We open dates {partyConfig.bookingWindowDays} days ahead. Leave your email and we’ll tell you the day your date opens.
+          We open dates {partyConfig.bookingWindowDays} days ahead. Pick a month and leave your email, and we’ll tell you the day its dates start to open.
         </p>
         <div className="field" style={{ maxWidth: '26rem', margin: '0 auto 0.75rem' }}>
           <label className="field-label" htmlFor={`${formId}-later`}>
-            Month you have in mind <span className="field-optional">(optional)</span>
+            Month you have in mind
           </label>
-          <select id={`${formId}-later`} name="month" className="field-input" value={laterMonth} onChange={(e) => setLaterMonth(e.target.value)}>
-            <option value="">Not sure yet</option>
+          <select id={`${formId}-later`} name="month" className="field-input" value={month} onChange={(e) => setLaterMonth(e.target.value)}>
             {months.map((m) => (
               <option key={m.value} value={m.value}>
                 {m.label}
@@ -953,10 +959,10 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           </select>
         </div>
         <NotifyMe
-          interest={laterMonth ? `party-later:${laterMonth}` : 'party-later'}
+          interest={`party-later:${month}`}
           buttonLabel="Tell me when it opens"
-          note="One message the day your date opens. Nothing else."
-          successText="Got it. We’ll tell you the day your date opens."
+          note="One email the day dates in that month start to open. Nothing else."
+          successText="Got it. We’ll email you the day dates in that month start to open."
         />
       </div>
     )

@@ -17,6 +17,11 @@ function creds() {
   return user && pass ? { user, pass } : null
 }
 
+/** Whether email can be sent at all. The scheduled sign-up emails check this before promising anything. */
+export function emailReady(): boolean {
+  return creds() !== null
+}
+
 let _transport: any = null
 
 export async function sendEmail(input: {
@@ -229,6 +234,63 @@ export async function sendSignupConfirmationEmail(input: {
   <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}</p>
 </div>`
   return sendEmail({ to: input.to, subject: `You're on the list at Hometown Studio`, html, text })
+}
+
+/**
+ * The email a sign-up was promised: the thing they asked about has happened.
+ * One email covers everything that came due for them at once. Each item has
+ * its own button, which goes straight to what they signed up for.
+ */
+export async function sendSignupNewsEmail(input: {
+  to: string
+  items: { headline: string; lines: string[]; path: string; linkLabel: string }[]
+  /** "https://ourhometownstudio.com" */
+  siteUrl: string
+}): Promise<{ sent: boolean }> {
+  if (input.items.length === 0) return { sent: false }
+  const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
+  const phone = siteConfig.contactPhone
+  const url = (path: string) => `${input.siteUrl.replace(/\/$/, '')}${path}`
+  const one = input.items.length === 1
+  const opener = one ? 'You asked us to tell you when this happened. It has.' : 'You asked us to tell you about these. Here they are.'
+  const why = 'You are getting this because you left your email at ourhometownstudio.com and asked to be told. We will not email you about this again.'
+
+  const text = [
+    opener,
+    ``,
+    ...input.items.flatMap((item) => [item.headline, ...item.lines, `${item.linkLabel}: ${url(item.path)}`, ``]),
+    ...(phone ? [`Questions? Text us at ${phone}.`, ``] : []),
+    why,
+    ``,
+    `Hometown Studio · ${address}`,
+  ].join('\n')
+
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const P = 'margin:0 0 10px;font-size:15px;color:#3d3630;line-height:1.55'
+  const MUTED = 'margin:0 0 6px;font-size:13px;color:#6f635b;line-height:1.5'
+  const BUTTON =
+    'display:inline-block;margin:6px 0 0;padding:12px 22px;border-radius:9999px;background:#7a4a2e;color:#ffffff;font-size:15px;font-weight:600;text-decoration:none'
+  const blocks = input.items
+    .map(
+      (item) => `
+  <div style="margin:0 0 22px;">
+    <h1 style="margin:0 0 8px;font-size:22px;color:#3d3630;">${esc(item.headline)}</h1>
+    ${item.lines.map((line) => `<p style="${P}">${esc(line)}</p>`).join('\n    ')}
+    <a href="${esc(url(item.path))}" style="${BUTTON}">${esc(item.linkLabel)}</a>
+  </div>`,
+    )
+    .join('')
+  const html = `
+<div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <p style="margin:0 0 2px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
+  <p style="${MUTED};margin-bottom:14px;">${esc(opener)}</p>${blocks}
+  ${phone ? `<p style="${P}">Questions? Text us at <strong>${esc(phone)}</strong>.</p>` : ''}
+  <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
+  <p style="${MUTED}">${esc(why)}</p>
+  <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}</p>
+</div>`
+  const subject = one ? `${input.items[0].headline} at Hometown Studio` : 'What you asked about is open at Hometown Studio'
+  return sendEmail({ to: input.to, subject, html, text })
 }
 
 /**

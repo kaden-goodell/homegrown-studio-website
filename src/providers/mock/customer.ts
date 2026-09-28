@@ -1,4 +1,4 @@
-import type { Customer, CustomerProvider } from '@providers/interfaces/customer'
+import type { Customer, CustomerNote, CustomerProvider } from '@providers/interfaces/customer'
 
 export class MockCustomerProvider implements CustomerProvider {
   private customers = new Map<string, Customer>()
@@ -35,6 +35,15 @@ export class MockCustomerProvider implements CustomerProvider {
   }
 
   async subscribe(_email: string, _note?: string): Promise<void> {}
+
+  async listWithNotes(): Promise<CustomerNote[]> {
+    const found: CustomerNote[] = []
+    for (const c of this.customers.values()) {
+      const lines = this.notes.get(c.id)
+      if (c.email && lines?.length) found.push({ id: c.id, email: c.email, note: lines.join('\n') })
+    }
+    return found
+  }
 
   async appendNote(customerId: string, line: string): Promise<void> {
     const notes = this.notes.get(customerId) ?? []
