@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { staffAuthorized } from '@lib/staff-auth'
-import { getEvent, type EventKind } from '@lib/events'
+import { getEvent, EVENT_KIND_RE, type EventKind } from '@lib/events'
 import { getWaiverRecord } from '@lib/waiver-store'
 import { quoConfigured, sendQuoText } from '@lib/quo'
 import { siteConfig } from '@config/site.config'
@@ -10,7 +10,9 @@ export const prerender = false
 
 const logger = createLogger('api:staff:send-waiver-link')
 
-const KIND_RE = /^(party|workshop)$/
+// One shared kind validator (@lib/events) rather than a hand-copied literal,
+// so every staff surface widens together when Programs land.
+const KIND_RE = EVENT_KIND_RE
 
 const json = (body: unknown, status: number) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })

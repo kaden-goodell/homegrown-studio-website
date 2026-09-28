@@ -4,7 +4,7 @@ let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 
 vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed }))
 
 const mockGetEvent = vi.fn()
-vi.mock('@lib/events', () => ({ getEvent: (...a: any[]) => mockGetEvent(...a) }))
+vi.mock('@lib/events', () => ({ getEvent: (...a: any[]) => mockGetEvent(...a), EVENT_KIND_RE: /^(party|workshop)$/ }))
 
 const mockGetWaiverRecord = vi.fn()
 vi.mock('@lib/waiver-store', () => ({ getWaiverRecord: (...a: any[]) => mockGetWaiverRecord(...a) }))

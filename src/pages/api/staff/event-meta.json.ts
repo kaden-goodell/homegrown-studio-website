@@ -1,11 +1,13 @@
 import type { APIRoute } from 'astro'
 import { staffAuthorized, byOf } from '@lib/staff-auth'
-import { getEvent, type EventKind } from '@lib/events'
+import { getEvent, EVENT_KIND_RE, type EventKind } from '@lib/events'
 import { setEventMeta, type EventMetaPatch } from '@lib/event-meta'
 
 export const prerender = false
 
-const KIND_RE = /^(party|workshop|program)$/
+// One shared kind validator (@lib/events) — a local copy here had drifted
+// to include `program`, which `getEvent` has no resolver for.
+const KIND_RE = EVENT_KIND_RE
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 const MAX_DAYS = 14
 
@@ -66,6 +68,10 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   try {
+    // Confirm the event resolves BEFORE writing — a typo'd/stale id used to
+    // leave an orphan meta overlay behind (written, then 404'd on the read
+    // back) that nothing would ever surface or clean up.
+    if (!(await getEvent(kind, id))) return bad("We couldn't find that event.", 404)
     await setEventMeta(kind, id, patch, byOf(staff))
     const event = await getEvent(kind, id)
     if (!event) return bad("We couldn't find that event.", 404)

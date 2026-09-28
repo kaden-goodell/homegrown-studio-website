@@ -5,7 +5,7 @@ vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed, byOf: (m: any
 
 const mockGetEvent = vi.fn()
 const mockSetEventMeta = vi.fn()
-vi.mock('@lib/events', () => ({ getEvent: (...a: any[]) => mockGetEvent(...a) }))
+vi.mock('@lib/events', () => ({ getEvent: (...a: any[]) => mockGetEvent(...a), EVENT_KIND_RE: /^(party|workshop)$/ }))
 vi.mock('@lib/event-meta', () => ({ setEventMeta: (...a: any[]) => mockSetEventMeta(...a) }))
 
 function postCtx(body: any) {
@@ -72,10 +72,11 @@ describe('POST /api/staff/event-meta.json', () => {
     expect(mockSetEventMeta).toHaveBeenCalledWith('workshop', 'cs1', { days: ['2026-10-20', '2026-10-21'] }, { id: 'k', name: 'Kaden' })
   })
 
-  it('404s when the event no longer resolves', async () => {
+  it('404s when the event no longer resolves — without writing an orphan overlay (M7)', async () => {
     mockGetEvent.mockResolvedValue(null)
     const res = await POST(postCtx({ kind: 'workshop', id: 'missing', dropOff: true }))
     expect(res.status).toBe(404)
+    expect(mockSetEventMeta).not.toHaveBeenCalled()
   })
 
   it('503s on a storage throw (fails closed)', async () => {

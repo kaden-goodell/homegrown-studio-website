@@ -27,6 +27,7 @@ vi.mock('@lib/checkin-store', () => ({
 
 vi.mock('@lib/events', () => ({
   eventKey: (kind: string, id: string) => (kind === 'party' ? id : `${kind}:${id}`),
+  EVENT_KIND_RE: /^(party|workshop)$/,
 }))
 
 const mockSendIncidentEmail = vi.fn()

@@ -1,11 +1,13 @@
 import type { APIRoute } from 'astro'
 import { staffAuthorized } from '@lib/staff-auth'
-import { eventKey, type EventKind } from '@lib/events'
+import { eventKey, EVENT_KIND_RE, type EventKind } from '@lib/events'
 import { getCheckin } from '@lib/checkin-store'
 
 export const prerender = false
 
-const KIND_RE = /^(party|workshop|program)$/
+// One shared kind validator (@lib/events) — a local copy here had drifted
+// to include `program`, which `getEvent` has no resolver for.
+const KIND_RE = EVENT_KIND_RE
 
 function bad(detail: string, status = 400): Response {
   return new Response(JSON.stringify({ error: detail }), { status })

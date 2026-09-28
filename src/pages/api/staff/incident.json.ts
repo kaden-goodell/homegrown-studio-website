@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { createIncident, type IncidentRecord } from '@lib/incident-store'
 import { mutateCheckin } from '@lib/checkin-store'
-import { eventKey, type EventKind } from '@lib/events'
+import { eventKey, EVENT_KIND_RE, type EventKind } from '@lib/events'
 import { sendIncidentEmail } from '@lib/email'
 import { siteConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
@@ -11,7 +11,9 @@ export const prerender = false
 
 const logger = createLogger('api:staff:incident')
 
-const KIND_RE = /^(party|workshop|program)$/
+// One shared kind validator (@lib/events) — a local copy here had drifted
+// to include `program`, which `getEvent` has no resolver for.
+const KIND_RE = EVENT_KIND_RE
 const HOW_RE = /^(phone|in-person|text|not-yet)$/
 const MIN_WHAT = 10
 
