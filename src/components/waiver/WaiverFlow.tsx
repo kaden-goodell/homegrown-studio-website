@@ -267,6 +267,13 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   // only for a drop-off event whose on-file signature has no pickup rows yet.
   const showReturningPickup = !!dropOff && !!returning && !returning.hasPickup
 
+  // Only send pickupUpdate when the guest actually typed something into the
+  // block — an absent field must mean "no change" (fix round 1 addendum),
+  // never an accidental clear from a block that was shown but left blank,
+  // and never at all when the block wasn't shown in the first place.
+  const returningPickupFilled =
+    returningPickupRows.some((r) => r.name.trim()) || !!returningNotAuthorized.trim()
+
   /** One gentle question when kids are crafting and the signer isn't: are you
    *  still coming (watching), or is another adult bringing them? The name input
    *  only appears in the second case. */
@@ -507,7 +514,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           attending: Object.entries(attending).filter(([, coming]) => coming).map(([id]) => id),
           responsibleAdult: returningKidsWithoutSigner ? effectiveResponsibleAdult(returning.firstName) : '',
           agreeAddendum,
-          ...(showReturningPickup
+          ...(showReturningPickup && returningPickupFilled
             ? {
                 pickupUpdate: {
                   authorizedPickup: returningPickupRows
@@ -1008,6 +1015,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
                   value={minor.medications}
                   onChange={(e) => updateMinor(i, { medications: e.target.value })}
                   placeholder="Leave blank if none"
+                  maxLength={300}
                 />
               </div>
             )}
