@@ -3,15 +3,11 @@ import { formatTime, formatMonthDay, formatMonthYear } from '@lib/studio-time'
 import { card, btn, Badge } from '@components/staff/ui'
 import PickupPanel from '@components/staff/PickupPanel'
 import type { EventKind } from '@lib/events'
+import type { AuthorizedPickup } from '@lib/waiver-store'
 
 export interface Presence {
   inAt: string
   outAt: string | null
-}
-
-export interface AuthorizedPickupEntry {
-  name: string
-  phone: string
 }
 
 /** Who collected one person, and when/which day (HOM-214). */
@@ -28,7 +24,7 @@ export interface Checkin {
   presence: Record<string, Presence>
   /** @deprecated legacy free-text note — see `releasedTo`. */
   pickedUpBy: string | null
-  confirmedPickup: AuthorizedPickupEntry[]
+  confirmedPickup: AuthorizedPickup[]
   notAuthorized: string
   hasPickupCode: boolean
   /** Consecutive wrong pickup-code attempts (HOM-214) — drives "N tries left". */
@@ -48,7 +44,7 @@ export interface Household {
   childCount: number
   adultAllergies: string
   emergency: { name: string; phone: string; relationship: string }
-  authorizedPickup: AuthorizedPickupEntry[]
+  authorizedPickup: AuthorizedPickup[]
   notAuthorized: string
   responsibleAdult: string
   photoConsent: boolean
