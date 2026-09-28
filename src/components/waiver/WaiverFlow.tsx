@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { waiverContent, dropOffAddendum } from '@config/waiver-content'
 import { formatCalendarDate } from '@lib/studio-time'
 import { maskDob, dobToIso } from '@lib/dob-input'
@@ -138,6 +138,63 @@ function PartyLabelChip({ label }: { label: string }) {
   )
 }
 
+const CODE_LENGTH = 6
+const RESEND_COOLDOWN_MS = 60_000
+const MAX_RESENDS = 3
+
+/** Six single-digit boxes for the SMS one-time code (HOM-218) — numeric
+ *  keyboard, auto-advance on entry, backspace walks back, and pasting all 6
+ *  digits at once (e.g. from an iOS SMS autofill suggestion) fills every box. */
+function CodeBoxes({ value, onChange, disabled }: { value: string[]; onChange: (v: string[]) => void; disabled: boolean }) {
+  const refs = useRef<Array<HTMLInputElement | null>>([])
+  return (
+    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', margin: '1rem 0' }}>
+      {value.map((digit, i) => (
+        <input
+          key={i}
+          ref={(el) => { refs.current[i] = el }}
+          inputMode="numeric"
+          autoComplete={i === 0 ? 'one-time-code' : 'off'}
+          maxLength={1}
+          disabled={disabled}
+          value={digit}
+          onChange={(e) => {
+            const raw = e.target.value.replace(/\D/g, '')
+            if (!raw) {
+              onChange(value.map((d, idx) => (idx === i ? '' : d)))
+              return
+            }
+            const next = value.map((d, idx) => (idx === i ? raw.slice(-1) : d))
+            onChange(next)
+            if (i < value.length - 1) refs.current[i + 1]?.focus()
+          }}
+          onPaste={(e) => {
+            const digits = e.clipboardData.getData('text').replace(/\D/g, '')
+            if (digits.length >= value.length) {
+              e.preventDefault()
+              onChange(digits.slice(0, value.length).split(''))
+              refs.current[value.length - 1]?.focus()
+            }
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Backspace' && !value[i] && i > 0) refs.current[i - 1]?.focus()
+          }}
+          style={{
+            width: '2.75rem',
+            height: '3.25rem',
+            textAlign: 'center',
+            fontSize: '1.5rem',
+            fontWeight: 700,
+            borderRadius: '0.75rem',
+            border: '1px solid rgba(150, 112, 91, 0.3)',
+            color: 'var(--color-dark)',
+          }}
+        />
+      ))}
+    </div>
+  )
+}
+
 export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle: _eventTitle, dropOff, booking, kiosk = false, returnTo = '/staff' }: Props) {
   const { form, confirmation, legalSections } = waiverContent
 
@@ -177,10 +234,22 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   // full form for new/expired households. Kiosk mode skips straight to the
   // full form — the crew already checked coverage on the Today screen, and a
   // shared device must never show one guest another guest's household.
-  const [mode, setMode] = useState<'lookup' | 'returning' | 'form'>(kiosk ? 'form' : 'lookup')
+  const [mode, setMode] = useState<'lookup' | 'code' | 'returning' | 'form'>(kiosk ? 'form' : 'lookup')
   const [contact, setContact] = useState('')
   const [lookupBusy, setLookupBusy] = useState(false)
   const [returning, setReturning] = useState<{ recordId: string; reuseToken: string; firstName: string; kids: string[]; validUntil: string; signedAt: string; hasPickup: boolean } | null>(null)
+  // SMS one-time-code step (HOM-218) — sits between "Been here before?" and
+  // the returning screen; nothing identifying (kids, recordId, reuseToken)
+  // exists client-side until `handleVerify` succeeds.
+  const [phoneHint, setPhoneHint] = useState('')
+  const [code, setCode] = useState<string[]>(Array(CODE_LENGTH).fill(''))
+  const [codeBusy, setCodeBusy] = useState(false)
+  const [resendBusy, setResendBusy] = useState(false)
+  const [resendCount, setResendCount] = useState(0)
+  const [resendAvailableAt, setResendAvailableAt] = useState(0)
+  // Forces a re-render each second while the resend cooldown counts down —
+  // otherwise the "(58s)" label would only update on the next keystroke.
+  const [, forceTick] = useState(0)
   // Compact "Who may pick up?" block on the returning screen (HOM-212) —
   // only shown when `dropOff` and the on-file signature has no pickup rows.
   const [returningPickupRows, setReturningPickupRows] = useState<PickupRow[]>([])
@@ -437,6 +506,15 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     }
   }
 
+  // Countdown for the code step's "Send again" cooldown (HOM-218) — a bare
+  // second-by-second re-render so the "(58s)" label ticks down on its own.
+  useEffect(() => {
+    if (mode !== 'code') return
+    const t = setInterval(() => forceTick((n) => n + 1), 1000)
+    return () => clearInterval(t)
+  }, [mode])
+  const resendSecondsLeft = Math.max(0, Math.ceil((resendAvailableAt - Date.now()) / 1000))
+
   async function handleLookup() {
     const c = contact.trim()
     if (!c) return
@@ -446,10 +524,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       const res = await fetch('/api/waiver/lookup.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        // partyId/workshopId let the server check whether an existing RSVP's
-        // pickup override already covers THIS event (fix round 1) — without
-        // them hasPickup could only ever see the signature's own fields.
-        body: JSON.stringify({ contact: c, partyId: partyId ?? null, workshopId: workshopId ?? null }),
+        body: JSON.stringify({ contact: c }),
       })
       const json = await res.json().catch(() => null)
       if (!res.ok) {
@@ -462,21 +537,22 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         else setPhone(c)
         setFormNotice(waiverContent.mustResignNotice)
         setMode('form')
-      } else if (json?.data?.found) {
-        const kids: string[] = json.data.kids ?? []
-        setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids, validUntil: json.data.validUntil ?? '', signedAt: json.data.signedAt ?? '', hasPickup: !!json.data.hasPickup })
-        // Defensive prefill (fix round 1): if the compact pickup block ever
-        // does render for a household that already has an override on file,
-        // start it from that data instead of blank — an edit, not a replace.
-        if (json.data.pickup) {
-          setReturningPickupRows(
-            (json.data.pickup.authorizedPickup ?? []).map((p: { name: string; phone: string }) => ({ name: p.name, phone: p.phone })),
-          )
-          setReturningNotAuthorized(json.data.pickup.notAuthorized ?? '')
-        }
-        // Default everyone in the household to "coming"; they can uncheck below.
-        setAttending(Object.fromEntries(['adult', ...kids.map((_, i) => `child:${i}`)].map((id) => [id, true])))
-        setMode('returning')
+      } else if (json?.data?.smsFailed) {
+        // Quo's down, or the on-file phone can't be normalized (HOM-218) — no
+        // OTP step is possible; fall straight through to the full form,
+        // never a bypass of the code check.
+        if (c.includes('@')) setEmail(c)
+        else setPhone(c)
+        setFormNotice(waiverContent.lookup.smsFailedLine)
+        setMode('form')
+      } else if (json?.data?.needsCode) {
+        // A code just went out to the on-file phone (HOM-218) — nothing
+        // identifying (kids, recordId, reuseToken) exists client-side yet.
+        setPhoneHint(json.data.phoneHint ?? '')
+        setCode(Array(CODE_LENGTH).fill(''))
+        setResendCount(0)
+        setResendAvailableAt(Date.now() + RESEND_COOLDOWN_MS)
+        setMode('code')
       } else {
         // New or expired — prefill what they typed and open the full form.
         if (c.includes('@')) setEmail(c)
@@ -501,6 +577,83 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       setMode('form')
     } finally {
       setLookupBusy(false)
+    }
+  }
+
+  /** Verify the 6-digit code (HOM-218) — success is the only path that ever
+   *  hands the browser kids' names, a recordId, or a reuseToken. */
+  async function handleVerify() {
+    const typed = code.join('')
+    if (typed.length !== CODE_LENGTH || codeBusy) return
+    setCodeBusy(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/waiver/verify.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        // partyId/workshopId let the server check whether an existing RSVP's
+        // pickup override already covers THIS event (fix round 1) — without
+        // them hasPickup could only ever see the signature's own fields.
+        body: JSON.stringify({ contact: contact.trim(), code: typed, partyId: partyId ?? null, workshopId: workshopId ?? null }),
+      })
+      const json = await res.json().catch(() => null)
+      if (res.status === 429 || res.status === 410) {
+        // Locked out or expired — the OTP is gone either way; back to lookup.
+        setMode('lookup')
+        setError(json?.error ?? 'Please look yourself up again.')
+        return
+      }
+      if (!res.ok) {
+        setError(json?.error ?? "That code isn't right — try again.")
+        setCode(Array(CODE_LENGTH).fill(''))
+        return
+      }
+      const kids: string[] = json.data.kids ?? []
+      setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids, validUntil: json.data.validUntil ?? '', signedAt: json.data.signedAt ?? '', hasPickup: !!json.data.hasPickup })
+      // Defensive prefill (fix round 1): if the compact pickup block ever
+      // does render for a household that already has an override on file,
+      // start it from that data instead of blank — an edit, not a replace.
+      if (json.data.pickup) {
+        setReturningPickupRows(
+          (json.data.pickup.authorizedPickup ?? []).map((p: { name: string; phone: string }) => ({ name: p.name, phone: p.phone })),
+        )
+        setReturningNotAuthorized(json.data.pickup.notAuthorized ?? '')
+      }
+      // Default everyone in the household to "coming"; they can uncheck below.
+      setAttending(Object.fromEntries(['adult', ...kids.map((_, i) => `child:${i}`)].map((id) => [id, true])))
+      setMode('returning')
+    } catch {
+      setError('Something went wrong — please try again.')
+    } finally {
+      setCodeBusy(false)
+    }
+  }
+
+  /** "Didn't get it? Send again" — 60s cooldown, hidden after 3 uses (HOM-218). */
+  async function handleResend() {
+    if (resendBusy || resendCount >= MAX_RESENDS || resendSecondsLeft > 0) return
+    setResendBusy(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/waiver/lookup.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contact: contact.trim(), resend: true }),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        setError(json?.error ?? 'Something went wrong — please try again.')
+      } else if (json?.data?.smsFailed) {
+        setError(waiverContent.lookup.smsFailedLine)
+      } else if (json?.data?.phoneHint) {
+        setPhoneHint(json.data.phoneHint)
+      }
+    } catch {
+      setError('Something went wrong — please try again.')
+    } finally {
+      setResendCount((n) => n + 1)
+      setResendAvailableAt(Date.now() + RESEND_COOLDOWN_MS)
+      setResendBusy(false)
     }
   }
 
@@ -762,6 +915,74 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         >
           First time here? Fill out the form →
         </button>
+        </div>
+      </div>
+    )
+  }
+
+  // Step 0.5 — SMS one-time code (HOM-218). Gates the returning-household
+  // screen; nothing identifying exists client-side until handleVerify succeeds.
+  if (mode === 'code') {
+    const { lookup } = waiverContent
+    const codeComplete = code.every((d) => d !== '')
+    const resendDisabled = resendBusy || resendCount >= MAX_RESENDS || resendSecondsLeft > 0
+    return (
+      <div style={{ maxWidth: '30rem', margin: '0 auto' }}>
+        {partyLabel && <PartyLabelChip label={partyLabel} />}
+        <div style={{ ...cardStyle, marginBottom: 0, textAlign: 'center' }}>
+          <h2 style={sectionHeadingStyle}>{lookup.codeSentLine.replace('{phoneHint}', phoneHint)}</h2>
+          <p style={sectionNoteStyle}>{lookup.codeInputLabel}</p>
+          <CodeBoxes value={code} onChange={setCode} disabled={codeBusy} />
+          {error && <p style={{ color: 'rgb(185,28,28)', fontSize: '0.875rem', marginTop: '0.4rem' }}>{error}</p>}
+          <button
+            type="button"
+            onClick={handleVerify}
+            disabled={!codeComplete || codeBusy}
+            style={{
+              marginTop: '0.9rem',
+              width: '100%',
+              padding: '0.8rem',
+              borderRadius: '0.875rem',
+              border: 'none',
+              background: codeComplete && !codeBusy ? 'var(--color-primary)' : 'rgba(150,112,91,0.35)',
+              color: '#fff',
+              fontSize: '1rem',
+              fontWeight: 600,
+              cursor: codeComplete && !codeBusy ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {codeBusy ? lookup.verifyingLabel : lookup.verifyLabel}
+          </button>
+          {resendCount < MAX_RESENDS && (
+            <button
+              type="button"
+              onClick={handleResend}
+              disabled={resendDisabled}
+              style={{
+                display: 'block',
+                margin: '0.9rem auto 0',
+                background: 'none',
+                border: 'none',
+                color: resendDisabled ? 'var(--color-muted)' : 'var(--color-primary)',
+                fontSize: '0.8125rem',
+                fontWeight: 600,
+                cursor: resendDisabled ? 'default' : 'pointer',
+              }}
+            >
+              {resendBusy
+                ? lookup.resendingLabel
+                : resendSecondsLeft > 0
+                  ? lookup.resendCooldownLabel.replace('{seconds}', String(resendSecondsLeft))
+                  : lookup.resendLabel}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => { setMode('lookup'); setError(null); setCode(Array(CODE_LENGTH).fill('')) }}
+            style={{ display: 'block', margin: '0.6rem auto 0', background: 'none', border: 'none', color: 'var(--color-muted)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
+          >
+            Not you? Look up again →
+          </button>
         </div>
       </div>
     )

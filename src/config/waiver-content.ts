@@ -132,6 +132,27 @@ export const waiverContent = {
    *  and must be re-signed in full — see `substantiveSince` above. */
   mustResignNotice: "We've updated the agreement — please read and sign again.",
 
+  /**
+   * The SMS one-time-code step between "Been here before?" and the
+   * returning-household screen (HOM-218) — a found household's kids' names,
+   * record id, and reuse token never reach the browser until this step's
+   * `verify.json` call succeeds. `{phoneHint}` is replaced with the on-file
+   * phone's last two digits (e.g. "••42").
+   */
+  lookup: {
+    codeSentLine: 'We texted a code to the phone ending in {phoneHint}',
+    codeInputLabel: 'Enter the 6-digit code',
+    verifyLabel: 'Verify',
+    verifyingLabel: 'Checking…',
+    resendLabel: 'Didn’t get it? Send again',
+    resendingLabel: 'Sending…',
+    /** `{seconds}` counts down during the 60s cooldown. */
+    resendCooldownLabel: 'Send again ({seconds}s)',
+    /** Quo down, or the on-file phone can't be normalized — no OTP step is
+     *  possible; falls straight through to the full form (never a bypass). */
+    smsFailedLine: 'We couldn’t send a text — sign the form instead',
+  },
+
   confirmation: {
     headline: 'You’re all set!',
     subline: 'Your signature is on file — show this screen at the front desk if asked.',
@@ -230,6 +251,16 @@ export const waiverContent = {
       ],
     },
   ] satisfies WaiverSection[],
+
+  /**
+   * "For counsel" note rendered at the bottom of the generated `docs/WAIVER.md`
+   * (HOM-219) — kept here, versioned with the text it's about, rather than
+   * hand-typed into the doc where it could drift. Not part of `legalSections`:
+   * never rendered on the signing page, never hashed into a record.
+   */
+  counselNotes: [
+    'Three things we’d flag ourselves: (1) §6b products — there is no products liability coverage behind it, so it’s the clause that most needs strength; (2) §4(b) parental indemnification — our Alabama minor-waiver workaround (Monster Mountain); (3) the §5 host indemnity in the separate Offsite Event Agreement. Beyond that, redline whatever you’d redline. Deliberately omitted for your judgment: arbitration / jury-trial waiver.',
+  ],
 }
 
 /** Canonical serialization of the legal text — the string that gets hashed into records. */

@@ -102,7 +102,9 @@ fields stay hidden until filled — no code changes needed to "turn them on."
 ## ✅ Done — verified in Netlify env / live site (for the record)
 
 `PROVIDER_MODE=square` · `GMAIL_USER` + `GMAIL_APP_PASSWORD` (booking emails
-live) · `LOOKUP_SIGNING_SECRET` · `SQUARE_ACCESS_TOKEN`/`SQUARE_ENVIRONMENT` ·
+live) · `LOOKUP_SIGNING_SECRET` (⚠️ HOM-218: production now THROWS at first
+reuse-token use if this is ever unset, rather than silently falling back to a
+non-secret default — keep it set) · `SQUARE_ACCESS_TOKEN`/`SQUARE_ENVIRONMENT` ·
 Apple Pay domain verified · business phone (256) 464-1710 in modal + footer ·
 footer address · party FAQ (10 answers + JSON-LD) · reschedule promise ·
 `features.kits.enabled` — **flipped to FALSE 2026-07-18** for the pre-booking
