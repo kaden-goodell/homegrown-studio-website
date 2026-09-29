@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import StaffHeader from '@components/staff/StaffHeader'
-import DoorSearch from '@components/staff/DoorSearch'
+import DoorSearch, { type HouseholdMatch, type TodayEvent } from '@components/staff/DoorSearch'
 import EventList from '@components/staff/EventList'
 import { card, btn, Badge } from '@components/staff/ui'
 import { formatWhen, formatCalendarDay, studioDate } from '@lib/studio-time'
@@ -36,10 +36,11 @@ export default function Today({
   onSwitch: () => void
   onKits: () => void
   onLogout: () => void
-  onOpenRoster: (e: { kind: EventKind; id: string; title: string }) => void
+  onOpenRoster: (e: { kind: EventKind; id: string; title: string; addFamily?: { household?: HouseholdMatch } }) => void
 }) {
   const today = studioDate(new Date().toISOString())
   const [openStudioCount, setOpenStudioCount] = useState<number | null>(null)
+  const [todayEvents, setTodayEvents] = useState<TodayEvent[]>([])
   const [view, setView] = useState<'main' | 'allParties'>('main')
   const [parties, setParties] = useState<PartyRow[]>([])
   const [partiesError, setPartiesError] = useState<string | null>(null)
@@ -123,9 +124,17 @@ export default function Today({
         </p>
       )}
 
-      <DoorSearch onCheckedIn={loadOpenStudioCount} />
+      <DoorSearch
+        onCheckedIn={loadOpenStudioCount}
+        todayEvents={todayEvents}
+        onAddToEvent={(e, household) => onOpenRoster({ kind: e.kind, id: e.id, title: e.title, addFamily: { household } })}
+      />
 
-      <EventList date={today} onOpenRoster={onOpenRoster} />
+      <EventList
+        date={today}
+        onOpenRoster={onOpenRoster}
+        onLoaded={(events) => setTodayEvents(events.map((e) => ({ kind: e.kind, id: e.id, title: e.title, startIso: e.startIso, rsvpWaiverIds: e.rsvpWaiverIds })))}
+      />
 
       <button
         type="button"

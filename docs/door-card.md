@@ -12,9 +12,15 @@ Type their name or phone into **Today**. It'll tell you one of three things:
 
 | It says… | Means | You do |
 |---|---|---|
-| **GOOD TO GO** | Waiver's on file and current | "Check in to Open Studio" (or send them to the roster for a party/PNO) |
+| **GOOD TO GO** | Waiver's on file and current | Tap **✓ Here** — that's it. Here for a party/workshop? Tap that event's button right under it. |
 | **EXPIRED** | Waiver's on file but stale | **Show QR** (their phone) or **Sign on this iPad** |
 | **NOT ON FILE** | Never signed | **Show QR** (their phone) or **Sign on this iPad** |
+
+## Party or workshop guest not on the list
+
+Open that event's roster → **+ Add family** → search → **✓ Add & mark here**. Not on file
+or expired: **Show QR** or **Sign on this iPad** (it brings you back to the roster).
+Parties and workshops are just attendance — there's no check-out.
 
 ## Drop-off events only (camps, kids' workshops, Parents Night Out)
 

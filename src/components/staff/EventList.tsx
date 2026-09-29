@@ -4,9 +4,10 @@ import { formatTime, formatCalendarDay } from '@lib/studio-time'
 import { addDays } from '@lib/kit-dates'
 import type { EventKind, EventSources, StudioEvent } from '@lib/events'
 
-interface EventRow extends StudioEvent {
+export interface EventRow extends StudioEvent {
   rsvpCount: number
   hereNow: number
+  rsvpWaiverIds?: string[]
 }
 
 const SOURCE_LABEL: Record<keyof EventSources, string> = { parties: 'Parties', workshops: 'Workshops' }
@@ -21,10 +22,13 @@ const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', progr
 export default function EventList({
   date,
   onOpenRoster,
+  onLoaded,
 }: {
   /** The actual studio-local "today" — used only to label the stepper. */
   date: string
   onOpenRoster: (e: { kind: EventKind; id: string; title: string }) => void
+  /** Reports the events for `date` (the real today) — Today's door chips use it. */
+  onLoaded?: (events: EventRow[]) => void
 }) {
   const [cursor, setCursor] = useState(date)
   const [events, setEvents] = useState<EventRow[]>([])
@@ -42,6 +46,7 @@ export default function EventList({
       const json = await res.json().catch(() => null)
       if (!res.ok) { setError(json?.error ?? 'Couldn’t load events.'); setDownSources([]); return }
       setEvents(json.data.events)
+      if (d === date) onLoaded?.(json.data.events)
       const sources: Partial<EventSources> = json.data.sources ?? {}
       setDownSources((Object.keys(SOURCE_LABEL) as (keyof EventSources)[]).filter((s) => sources[s] === 'error'))
     } catch {

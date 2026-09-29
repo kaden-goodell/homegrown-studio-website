@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import StaffHeader from '@components/staff/StaffHeader'
 import EventSettingsSheet from '@components/staff/EventSettingsSheet'
+import AddFamilySheet from '@components/staff/AddFamilySheet'
+import type { HouseholdMatch } from '@components/staff/DoorSearch'
 import HouseholdCard, { type Household, type Checkin } from '@components/staff/HouseholdCard'
 import { card, btn, field, Badge } from '@components/staff/ui'
 import { formatWhen, studioDate } from '@lib/studio-time'
@@ -40,6 +42,7 @@ export default function Roster({
   onBack,
   kind,
   id,
+  addFamily,
 }: {
   staff: StaffMember
   onSwitch: () => void
@@ -48,7 +51,11 @@ export default function Roster({
   onBack: () => void
   kind: EventKind
   id: string
+  /** Open "+ Add family" on arrival — with this household already found when
+   *  Today's "Here for an event?" chip sent us here. */
+  addFamily?: { household?: HouseholdMatch } | null
 }) {
+  const [addFamilyOpen, setAddFamilyOpen] = useState(!!addFamily)
   const [data, setData] = useState<RosterData | null>(null)
   const [netError, setNetError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
@@ -201,6 +208,7 @@ export default function Roster({
       <StaffHeader title="Roster" staff={staff} onSwitch={onSwitch} onKits={onKits} onLogout={onLogout} event={event} households={data.households} day={data.day} />
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <button type="button" onClick={onBack} style={btn()}>← Today</button>
+        <button type="button" onClick={() => setAddFamilyOpen(true)} style={btn(true)}>+ Add family</button>
         <button type="button" onClick={refresh} style={btn()}>↻ Refresh</button>
         <a href={`/staff/print?kind=${kind}&id=${encodeURIComponent(id)}&day=${data.day}`} target="_blank" rel="noopener noreferrer" style={{ ...btn(), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
           🖨 Print
@@ -272,6 +280,15 @@ export default function Roster({
         </div>
       </div>
 
+      {addFamilyOpen && (
+        <AddFamilySheet
+          event={{ kind, id, title: event.title, day: data.day }}
+          initialHousehold={addFamily?.household}
+          onAdded={refresh}
+          onClose={() => setAddFamilyOpen(false)}
+        />
+      )}
+
       {eventSettingsOpen && (
         <EventSettingsSheet
           event={event}
@@ -324,7 +341,7 @@ export default function Roster({
       {data.households.length === 0 && (
         <div style={{ ...card, background: 'rgba(255,255,255,0.7)', textAlign: 'center' }}>
           <p style={{ margin: 0, color: 'var(--color-muted)' }}>
-            No RSVPs yet — anyone who signs the agreement for this event will appear here.
+            No RSVPs yet — anyone who signs the agreement for this event will appear here, or tap “+ Add family”.
           </p>
           {event.dropOff && (
             <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>

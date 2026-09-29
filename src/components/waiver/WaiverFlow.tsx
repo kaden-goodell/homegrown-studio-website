@@ -90,7 +90,7 @@ function PartyLabelChip({ label }: { label: string }) {
   )
 }
 
-export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle: _eventTitle, dropOff, booking, kiosk = false, returnTo = '/staff' }: Props) {
+export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle, dropOff, booking, kiosk = false, returnTo = '/staff' }: Props) {
   const { form, confirmation, legalSections } = waiverContent
 
   const [firstName, setFirstName] = useState('')
@@ -304,8 +304,8 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     if (!emergencyName.trim()) m.push('an emergency contact name')
     if (emergencyPhone.replace(/\D/g, '').length < 10) m.push('an emergency contact phone')
     if (photoConsent === null) m.push('a photo preference (either answer is fine)')
-    if (partyId && !['adult', ...minors.map((_, i) => `child:${i}`)].some((id) => formAttending[id] !== false)) {
-      m.push('at least one person going to the party')
+    if (hasEvent && !['adult', ...minors.map((_, i) => `child:${i}`)].some((id) => formAttending[id] !== false)) {
+      m.push('at least one person coming')
     }
     if (kidsWithoutSigner && signerPresent === null) {
       m.push("whether you’ll be at the party with your kids")
@@ -860,7 +860,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           Signing on the studio iPad — your details are only saved to your agreement, not to this device.
         </div>
       )}
-      {partyLabel && <PartyLabelChip label={partyLabel} />}
+      {(partyLabel ?? eventTitle) && <PartyLabelChip label={(partyLabel ?? eventTitle)!} />}
       {formNotice && (
         <div
           style={{
@@ -1085,8 +1085,8 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         ))}
       </div>
 
-      {/* Who's coming — only in a party context */}
-      {partyId && (
+      {/* Who's coming — any event context (party, workshop), incl. the staff kiosk */}
+      {hasEvent && (
         <div style={cardStyle}>
           <h2 style={sectionHeadingStyle}>Who’s making a craft?</h2>
           <p style={sectionNoteStyle}>
@@ -1108,7 +1108,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           ))}
           {!['adult', ...minors.map((_, i) => `child:${i}`)].some(formComing) && (
             <p style={{ fontSize: '0.8125rem', color: 'rgb(185,28,28)', margin: '0.4rem 0 0', fontWeight: 600 }}>
-              Pick at least one person going to the party.
+              Pick at least one person who’s coming.
             </p>
           )}
           {kidsWithoutSigner && presenceBlock('wv')}

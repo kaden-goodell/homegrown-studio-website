@@ -35,7 +35,8 @@ export const GET: APIRoute = async ({ request, url }) => {
         // "Here now" is counted on THIS day — hereNow for a multi-day camp
         // shouldn't include attendance from a different day (HOM-213).
         const hereNow = checkins.reduce((n, c) => n + Object.values(presenceOn(c, date)).filter((p) => !p.outAt).length, 0)
-        return { ...e, rsvpCount: rsvps.length, hereNow }
+        // `rsvpWaiverIds` lets the door screen highlight the event a household already RSVP'd to.
+        return { ...e, rsvpCount: rsvps.length, hereNow, rsvpWaiverIds: rsvps.map((r) => r.waiverId) }
       }),
     )
     return new Response(JSON.stringify({ data: { events: withCounts, sources } }), {

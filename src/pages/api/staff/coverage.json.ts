@@ -62,6 +62,7 @@ export const GET: APIRoute = async ({ request, url }) => {
     adultAllergies: h.adultAllergies,
     photoConsent: h.photoConsent,
     openStudioToday: !!openStudioDay[h.recordId],
+    openStudioAt: openStudioDay[h.recordId]?.at ?? null,
   }))
 
   return new Response(JSON.stringify({ data: { households: data } }), {

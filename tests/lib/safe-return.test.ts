@@ -37,4 +37,17 @@ describe('safeReturnPath', () => {
   it('accepts a deeper same-origin path', () => {
     expect(safeReturnPath('/staff/kits')).toBe('/staff/kits')
   })
+
+  it('accepts a same-origin path WITH a query string (the roster deep link)', () => {
+    expect(safeReturnPath('/staff?open=party:abc')).toBe('/staff?open=party:abc')
+    expect(safeReturnPath('/staff?open=workshop:cs-camp-1')).toBe('/staff?open=workshop:cs-camp-1')
+    expect(safeReturnPath(encodeURIComponent('/staff?open=party:abc'))).toBe('/staff') // still-encoded = not a path
+  })
+
+  it('still rejects off-site tricks that carry a query', () => {
+    expect(safeReturnPath('//evil.com/staff?open=party:abc')).toBe('/staff')
+    expect(safeReturnPath('https://evil.com/staff?open=party:abc')).toBe('/staff')
+    expect(safeReturnPath('/javascript:alert(1)')).toBe('/staff')
+    expect(safeReturnPath('/\\evil.com?open=party:abc')).toBe('/staff')
+  })
 })
