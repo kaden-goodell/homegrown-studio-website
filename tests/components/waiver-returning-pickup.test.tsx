@@ -168,4 +168,11 @@ describe('WaiverFlow — returning screen pickup block (HOM-212 fix round 1)', (
     expect(screen.queryByText(/text a pickup code/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Late pickup/)).not.toBeInTheDocument()
   })
+
+  it('the may-NOT-collect field explains blank vs None', async () => {
+    mockLookupThenSign(false)
+    const { container } = render(<WaiverFlow partyId="party-1" dropOff />)
+    await reachReturningScreen(container)
+    expect(screen.getByText('Leave blank to keep what we have on file. Type “None” to remove it.')).toBeInTheDocument()
+  })
 })

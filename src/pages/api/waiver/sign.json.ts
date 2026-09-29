@@ -401,13 +401,19 @@ async function handleReuse(
   const validIds = new Set(['adult', ...source.minors.map((_, i) => `child:${i}`)])
   const resolvedIds = resolveAttending(attendingRaw, validIds)
 
-  // No pickupUpdate must never erase what the household has already told us:
-  // the household's pickup list / may-NOT-collect follow it to every event
-  // (this event's RSVP, else its latest RSVP anywhere, else the signature).
-  // upsertRsvp fully replaces the record, so store the resolved value.
-  if (!pickup) {
-    const eff = await effectivePickup({ waiver: source })
-    if (hasPickupContent(eff)) pickup = eff
+  // Blank never erases: the household's pickup list / may-NOT-collect follow it
+  // to every event (newest source per field — see @lib/pickup). A pickupUpdate
+  // replaces only the fields actually typed (rows if any, note if non-blank; a
+  // note of "None" is the deliberate clear). upsertRsvp fully replaces the
+  // record, so store the resolved value.
+  const eff = await effectivePickup({ waiver: source })
+  if (pickup) {
+    pickup = {
+      authorizedPickup: pickup.authorizedPickup.length > 0 ? pickup.authorizedPickup : eff.authorizedPickup,
+      notAuthorized: pickup.notAuthorized || eff.notAuthorized,
+    }
+  } else if (hasPickupContent(eff)) {
+    pickup = eff
   }
 
   const raErr = checkResponsibleAdult(partyId, dropOff, resolvedIds, responsibleAdult)

@@ -655,7 +655,7 @@ describe('POST /api/waiver/sign.json', () => {
       )
     })
 
-    it('re-RSVP WITH a pickupUpdate replaces the prior pickup rather than merging it', async () => {
+    it('re-RSVP WITH a pickupUpdate replaces the typed fields (rows) and keeps a blank note on file', async () => {
       mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
       mockLatestPickup.mockResolvedValue({ authorizedPickup: [{ name: 'Grandma Rivera', phone: '2565551234' }], notAuthorized: 'Bio dad', at: '2026-02-01T00:00:00.000Z' })
       const body = {
@@ -670,7 +670,7 @@ describe('POST /api/waiver/sign.json', () => {
       expect(res.status).toBe(200)
       expect(mockUpsertRsvp).toHaveBeenCalledWith(
         expect.objectContaining({
-          pickup: { authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: '' },
+          pickup: { authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: 'Bio dad' },
         }),
       )
     })
@@ -790,6 +790,22 @@ describe('POST /api/waiver/sign.json', () => {
       mockLatestPickup.mockResolvedValue(rick) // ...but event A's had one
       expect((await returning({ attending: ['adult', 'child:0'] })).status).toBe(200)
       expect(mockUpsertRsvp.mock.calls[0][0].pickup).toEqual(rick)
+    })
+
+    it('(a) a pickupUpdate with rows only keeps the on-file may-NOT-collect note (blank = keep)', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      mockLatestPickup.mockResolvedValue({ authorizedPickup: [], notAuthorized: 'Rick Smith', at: '2026-02-01T00:00:00.000Z' })
+      await returning({ pickupUpdate: { authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: '' } })
+      expect(mockUpsertRsvp.mock.calls[0][0].pickup).toEqual({ authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: 'Rick Smith' })
+    })
+
+    it('a pickupUpdate with a note only keeps the on-file rows', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      mockLatestPickup.mockResolvedValue({ authorizedPickup: [{ name: 'Grandma Rivera', phone: '' }], notAuthorized: '', at: '2026-02-01T00:00:00.000Z' })
+      await returning({ pickupUpdate: { authorizedPickup: [], notAuthorized: 'Dana Lee' } })
+      expect(mockUpsertRsvp.mock.calls[0][0].pickup).toEqual({ authorizedPickup: [{ name: 'Grandma Rivera', phone: '' }], notAuthorized: 'Dana Lee' })
     })
 
     it('(e) a typed pickupUpdate on event B replaces it for B', async () => {

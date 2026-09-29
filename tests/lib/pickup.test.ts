@@ -100,3 +100,41 @@ describe('effectivePickup', () => {
     expect((await effectivePickup({ waiver: subject() })).authorizedPickup.map((p) => p.name)).toEqual(['Grandma'])
   })
 })
+
+describe('effectivePickup resolves rows and note INDEPENDENTLY', () => {
+  const rows = (name: string) => [{ name, phone: '' }]
+
+  it('(a) an older note survives a newer source that has rows but a blank note', async () => {
+    // newest RSVP: rows only. older waiver own fields: the note.
+    latestById.wvr_old = { authorizedPickup: rows('Aunt Sue'), notAuthorized: '', at: '2026-06-01T00:00:00.000Z' }
+    const r = await effectivePickup({ waiver: subject({ notAuthorized: 'Rick Smith', signedAt: '2026-01-01T00:00:00.000Z' }) })
+    expect(r.authorizedPickup.map((p) => p.name)).toEqual(['Aunt Sue'])
+    expect(r.notAuthorized).toBe('Rick Smith')
+  })
+
+  it('(b) a newer note replaces an older one', async () => {
+    latestById.wvr_old = { authorizedPickup: [], notAuthorized: 'Dana Lee', at: '2026-06-01T00:00:00.000Z' }
+    const r = await effectivePickup({ waiver: subject({ notAuthorized: 'Rick Smith' }) })
+    expect(r.notAuthorized).toBe('Dana Lee')
+  })
+
+  it('(c) a newer "None" note removes the restriction (resolves to blank)', async () => {
+    latestById.wvr_old = { authorizedPickup: rows('Aunt Sue'), notAuthorized: 'None', at: '2026-06-01T00:00:00.000Z' }
+    const r = await effectivePickup({ waiver: subject({ notAuthorized: 'Rick Smith' }) })
+    expect(r.notAuthorized).toBe('')
+    expect(r.authorizedPickup.map((p) => p.name)).toEqual(['Aunt Sue'])
+  })
+
+  it('(c2) an OLDER "None" does not beat a newer real note', async () => {
+    latestById.wvr_old = { authorizedPickup: [], notAuthorized: 'Rick Smith', at: '2026-06-01T00:00:00.000Z' }
+    const r = await effectivePickup({ waiver: subject({ notAuthorized: 'None' }) })
+    expect(r.notAuthorized).toBe('Rick Smith')
+  })
+
+  it('(d) a newer source with only a note keeps the older rows', async () => {
+    latestById.wvr_old = { authorizedPickup: [], notAuthorized: 'Rick Smith', at: '2026-06-01T00:00:00.000Z' }
+    const r = await effectivePickup({ waiver: subject({ authorizedPickup: rows('Grandma') }) })
+    expect(r.authorizedPickup.map((p) => p.name)).toEqual(['Grandma'])
+    expect(r.notAuthorized).toBe('Rick Smith')
+  })
+})

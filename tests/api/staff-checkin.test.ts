@@ -694,4 +694,21 @@ describe('pickup follows the household (seeding)', () => {
     expect(state.notAuthorized).toBe('Rick Smith')
     expect(state.confirmedPickup.map((p) => p.name)).toEqual(['Aunt Sue'])
   })
+
+  it('(a) check-in seeds BOTH the rows and the older may-NOT-collect note', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ authorizedPickup: [], notAuthorized: 'Rick Smith', signedAt: '2026-01-01T00:00:00.000Z' }))
+    mockLatest.mockResolvedValue({ authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: '', at: '2026-06-01T00:00:00.000Z' })
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    expect(state.notAuthorized).toBe('Rick Smith')
+    expect(state.confirmedPickup.map((p) => p.name)).toEqual(['Aunt Sue'])
+  })
+
+  it('(c) a newer "None" note seeds no restriction', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ authorizedPickup: [], notAuthorized: 'Rick Smith', signedAt: '2026-01-01T00:00:00.000Z' }))
+    mockLatest.mockResolvedValue({ authorizedPickup: [], notAuthorized: 'None', at: '2026-06-01T00:00:00.000Z' })
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    expect(state.notAuthorized).toBe('')
+  })
 })

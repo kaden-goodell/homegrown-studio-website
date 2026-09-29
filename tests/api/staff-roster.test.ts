@@ -258,4 +258,11 @@ describe('GET /api/staff/roster.json — pickup/notAuthorized/medications (HOM-2
     expect(h.notAuthorized).toBe('Rick Smith')
     expect(h.authorizedPickup).toEqual([{ name: 'Aunt Sue', phone: '' }])
   })
+
+  it('(c) the card shows no restriction after a newer "None"', async () => {
+    mockListWaiversByEvent.mockResolvedValue([makeWaiver({ notAuthorized: 'Rick Smith' })])
+    mockLatest.mockResolvedValue({ authorizedPickup: [], notAuthorized: 'None', at: '2026-09-01T00:00:00.000Z' })
+    const h = (await (await GET(ctx('?party=party-1'))).json()).data.households[0]
+    expect(h.notAuthorized).toBe('')
+  })
 })

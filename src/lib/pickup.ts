@@ -11,6 +11,7 @@
 import { getLatestPickupForWaiver } from '@lib/rsvp-store'
 import { lookupHouseholdEntry, normalizeAuthorizedPickup, type AuthorizedPickup } from '@lib/waiver-store'
 import { hasPickupContent, sameHousehold } from '@lib/pickup-rules'
+import { isNoneToken } from '@lib/allergy'
 
 export { hasPickupContent, sameHousehold }
 
@@ -69,10 +70,13 @@ export async function effectivePickup({ waiver }: { waiver: PickupSubject }): Pr
   }
   push({ authorizedPickup: waiver.authorizedPickup, notAuthorized: waiver.notAuthorized, at: waiver.signedAt })
 
-  // Newest wins (stable sort keeps list order on ties).
+  // Resolve the two fields INDEPENDENTLY, newest first (stable sort keeps
+  // list order on ties): the rows come from the newest source that has rows,
+  // the note from the newest source that has a note. A newer source with only
+  // one of them never erases the other. A newest note that is a "None" token
+  // is the parent's deliberate clear → no restriction.
   candidates.sort((a, b) => b.at.localeCompare(a.at))
-  const best = candidates[0]
-  return best
-    ? { authorizedPickup: best.authorizedPickup as AuthorizedPickup[], notAuthorized: best.notAuthorized }
-    : { authorizedPickup: [], notAuthorized: '' }
+  const rows = candidates.find((c) => c.authorizedPickup.length > 0)?.authorizedPickup ?? []
+  const note = candidates.find((c) => c.notAuthorized.trim() !== '')?.notAuthorized ?? ''
+  return { authorizedPickup: rows as AuthorizedPickup[], notAuthorized: isNoneToken(note) ? '' : note }
 }

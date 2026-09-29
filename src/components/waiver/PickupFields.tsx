@@ -96,6 +96,7 @@ export default function PickupFields({ rows, onRowsChange, notAuthorized, onNotA
           onChange={(e) => onNotAuthorizedChange(e.target.value)}
           maxLength={200}
         />
+        <p style={{ ...sectionNoteStyle, margin: '0.35rem 0 0' }}>{form.notAuthorizedHelper}</p>
       </div>
     </div>
   )

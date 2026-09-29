@@ -29,10 +29,10 @@ function err(message: string, status: number): Response {
  *   nothing on file: { found: false }
  *
  * `hasPickup` (HOM-212) is a boolean only — this endpoint is public, so it never
- * returns the third-party names/phones themselves. It considers BOTH the signature's own
- * `authorizedPickup` AND — when the caller passes `partyId`/`workshopId` —
- * an existing RSVP's `pickup` override for that specific event, same rule
- * `sign.json`'s handleReuse uses when carrying it forward.
+ * returns the third-party names/phones themselves. It is true when authorized
+ * adults are on file for the HOUSEHOLD (newest across its RSVPs for any event,
+ * else the signature — see `@lib/pickup`); `partyId`/`workshopId` don't change
+ * the answer, because a household's pickup list follows it to every event.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (rateLimited(`lookup:${clientAddress}`, 10, 60_000)) {

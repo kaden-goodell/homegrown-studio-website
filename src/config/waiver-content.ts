@@ -92,6 +92,7 @@ export const waiverContent = {
     notAuthorizedLabel: 'Anyone who may NOT collect your child? (optional — bring a copy of any court order)',
     /** Heading for the compact pickup block shown on the returning-RSVP
      *  screen when the on-file signature has no pickup rows yet (HOM-212). */
+    notAuthorizedHelper: 'Leave blank to keep what we have on file. Type “None” to remove it.',
     returningPickupHeading: 'Who may pick up?',
     /** Drop-off only, per child (HOM-212) — the Studio never administers medication. */
     medicationsLabel: 'Medications or conditions we should know about — we don’t administer medication.',
