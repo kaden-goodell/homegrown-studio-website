@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { hasAllergy } from '@lib/allergy'
 import QrModal from '@components/staff/QrModal'
 import { card, btn, field, Badge } from '@components/staff/ui'
 import { formatMonthDay, formatMonthDayYear, formatMonthYear, formatTime } from '@lib/studio-time'
@@ -124,8 +125,8 @@ function ResultCard({
   }
 
   const allergyChips = [
-    ...h.kids.filter((k) => k.allergies).map((k) => <Badge key={k.name} tone="alert" wrap>⚠ {firstOf(k.name)}: {k.allergies}</Badge>),
-    ...(h.adultAllergies ? [<Badge key="adult" tone="alert" wrap>⚠ {h.firstName}: {h.adultAllergies}</Badge>] : []),
+    ...h.kids.filter((k) => hasAllergy(k.allergies)).map((k) => <Badge key={k.name} tone="alert" wrap>⚠ {firstOf(k.name)}: {k.allergies}</Badge>),
+    ...(hasAllergy(h.adultAllergies) ? [<Badge key="adult" tone="alert" wrap>⚠ {h.firstName}: {h.adultAllergies}</Badge>] : []),
     ...(!h.photoConsent ? [<Badge key="photo" tone="muted">🚫 No photos</Badge>] : []),
   ]
 

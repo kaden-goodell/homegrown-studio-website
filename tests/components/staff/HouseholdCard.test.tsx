@@ -109,6 +109,20 @@ describe('HouseholdCard — non-drop-off (attendance-only)', () => {
   })
 })
 
+describe('HouseholdCard — allergy "None"', () => {
+  it('a child whose allergies are the literal "None" shows no warning badge and no family flag', () => {
+    const h = household({}, { children: [{ name: 'Kiddo Rivera', allergies: 'None', medications: '' }], childCount: 1 })
+    renderCard(h, false)
+    expect(screen.queryByText(/⚠/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Allergies in this family/)).not.toBeInTheDocument()
+  })
+
+  it('a real allergy still does', () => {
+    renderCard(household(), false)
+    expect(screen.getByText(/Allergies in this family/)).toBeInTheDocument()
+  })
+})
+
 describe('HouseholdCard — drop-off (unchanged)', () => {
   it('shows the pickup machinery once someone is here', () => {
     renderCard(household({ 'child:0': here }), true)

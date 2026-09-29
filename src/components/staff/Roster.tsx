@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { hasAllergy } from '@lib/allergy'
 import StaffHeader from '@components/staff/StaffHeader'
 import EventSettingsSheet from '@components/staff/EventSettingsSheet'
 import AddFamilySheet from '@components/staff/AddFamilySheet'
@@ -188,7 +189,7 @@ export default function Roster({
 
   const here = data.households.reduce((n, h) => n + Object.values(h.checkin.presence || {}).filter((p) => !p.outAt).length, 0)
   const coming = data.households.reduce((n, h) => n + (h.checkin.expected ? h.checkin.expected.length : 1 + h.children.length), 0)
-  const allergyCount = data.households.reduce((n, h) => n + (h.adultAllergies ? 1 : 0) + h.children.filter((c) => c.allergies).length, 0)
+  const allergyCount = data.households.reduce((n, h) => n + (hasAllergy(h.adultAllergies) ? 1 : 0) + h.children.filter((c) => hasAllergy(c.allergies)).length, 0)
   const noPhotoGroups = data.households.filter((h) => !h.photoConsent).length
 
   // The link a household signs for THIS event — shown on an empty drop-off

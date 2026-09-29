@@ -187,4 +187,14 @@ describe('Roster', () => {
     expect(within(sheet).getByText(/GOOD TO GO — Sam Lee/)).toBeInTheDocument()
     expect(within(sheet).getByRole('button', { name: '✓ Add & mark here' })).toBeInTheDocument()
   })
+
+  it('the "n with allergies" summary ignores "None" answers', async () => {
+    mockRoster([
+      household({ children: [{ name: 'A', allergies: 'None', medications: '' }], adultAllergies: 'n/a' }),
+      household({ recordId: 'wvr_2', signer: 'Pat Lee', children: [{ name: 'B', allergies: 'peanuts', medications: '' }] }),
+    ], { ...CAMP, dropOff: false })
+    renderRoster()
+    await screen.findAllByText('Jamie Rivera')
+    expect(screen.getByText('⚠ 1 with allergies')).toBeInTheDocument()
+  })
 })

@@ -21,6 +21,7 @@ const mockGetWaiverRecord = vi.fn()
 const mockUpsertWaiverInEventIndex = vi.fn().mockResolvedValue({ replacedRecordId: null })
 const mockIndexWaiverByContact = vi.fn().mockResolvedValue(undefined)
 const mockNewWaiverId = vi.fn().mockReturnValue('wvr_test_abc')
+const mockLookupHouseholdEntry = vi.fn().mockResolvedValue(null)
 
 vi.mock('@lib/waiver-store', () => ({
   saveWaiverRecord: (...args: any[]) => mockSaveWaiverRecord(...args),
@@ -28,6 +29,7 @@ vi.mock('@lib/waiver-store', () => ({
   upsertWaiverInEventIndex: (...args: any[]) => mockUpsertWaiverInEventIndex(...args),
   indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
   newWaiverId: () => mockNewWaiverId(),
+  lookupHouseholdEntry: (...args: any[]) => mockLookupHouseholdEntry(...args),
 }))
 
 const mockUpsertRsvp = vi.fn()
@@ -180,6 +182,7 @@ describe('POST /api/waiver/sign.json', () => {
       upsertWaiverInEventIndex: (...args: any[]) => mockUpsertWaiverInEventIndex(...args),
       indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
       newWaiverId: () => mockNewWaiverId(),
+      lookupHouseholdEntry: (...args: any[]) => mockLookupHouseholdEntry(...args),
     }))
     vi.mock('@lib/rsvp-store', () => ({
       upsertRsvp: (...args: any[]) => mockUpsertRsvp(...args),
@@ -205,6 +208,7 @@ describe('POST /api/waiver/sign.json', () => {
     mockNewWaiverId.mockReturnValue('wvr_test_abc')
     mockSendAgreementCopyEmail.mockReset().mockResolvedValue({ sent: true })
     mockGetRsvp.mockResolvedValue(null)
+    mockLookupHouseholdEntry.mockReset().mockResolvedValue(null)
     mockUpsertRsvp.mockResolvedValue({
       id: 'rsv_test_abc',
       waiverId: 'wvr_test_abc',
@@ -726,6 +730,53 @@ describe('POST /api/waiver/sign.json', () => {
       const body = makeAdultBody({ partyId: null })
       const ctx = createMockContext(body)
       const res = await POST(ctx)
+      expect(res.status).toBe(200)
+    })
+  })
+
+  describe('re-signing never silently drops a custody restriction', () => {
+    const prevHousehold = (over: Record<string, any> = {}) => ({
+      recordId: 'wvr_old', authorizedPickup: [], notAuthorized: '', ...over,
+    })
+    const prevRsvp = { pickup: { authorizedPickup: [{ name: 'Grandma Rivera', phone: '2565550100' }], notAuthorized: 'Rick Smith' } }
+    const dropOffPost = (over: Record<string, any> = {}) => POST(createMockContext(makeAdultBody({ partyId: 'party-123', ...over })))
+
+    it('(a) event re-sign with blank fields keeps the previous RSVP\'s notAuthorized and pickup rows', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      mockLookupHouseholdEntry.mockResolvedValue(prevHousehold())
+      mockGetRsvp.mockImplementation(async (_k: string, _i: string, waiverId: string) => (waiverId === 'wvr_old' ? prevRsvp : null))
+      const res = await dropOffPost()
+      expect(res.status).toBe(200)
+      expect(mockUpsertRsvp.mock.calls[0][0].pickup).toEqual(prevRsvp.pickup)
+    })
+
+    it('(b) a NEW notAuthorized replaces the old one (rows still carried when none typed)', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      mockLookupHouseholdEntry.mockResolvedValue(prevHousehold())
+      mockGetRsvp.mockImplementation(async (_k: string, _i: string, waiverId: string) => (waiverId === 'wvr_old' ? prevRsvp : null))
+      await dropOffPost({ notAuthorized: 'Pat Jones' })
+      expect(mockUpsertRsvp.mock.calls[0][0].pickup).toEqual({ authorizedPickup: prevRsvp.pickup.authorizedPickup, notAuthorized: 'Pat Jones' })
+      expect(mockSaveWaiverRecord.mock.calls[0][0].notAuthorized).toBe('Pat Jones')
+    })
+
+    it('(c) plain re-sign (no event) copies notAuthorized and pickup rows from the replaced waiver onto the NEW record', async () => {
+      mockLookupHouseholdEntry.mockResolvedValue(prevHousehold({ notAuthorized: 'Rick Smith', authorizedPickup: [{ name: 'Grandma Rivera', phone: '' }] }))
+      const res = await POST(createMockContext(makeAdultBody({ partyId: null })))
+      expect(res.status).toBe(200)
+      const saved = mockSaveWaiverRecord.mock.calls[0][0]
+      expect(saved.notAuthorized).toBe('Rick Smith')
+      expect(saved.authorizedPickup).toEqual([{ name: 'Grandma Rivera', phone: '' }])
+    })
+
+    it('a first-time signer (no previous record) is unchanged', async () => {
+      const res = await POST(createMockContext(makeAdultBody({ partyId: null })))
+      expect(res.status).toBe(200)
+      expect(mockSaveWaiverRecord.mock.calls[0][0].notAuthorized).toBe('')
+    })
+
+    it('a lookup failure does not block signing', async () => {
+      mockLookupHouseholdEntry.mockRejectedValue(new Error('blob down'))
+      const res = await POST(createMockContext(makeAdultBody({ partyId: null })))
       expect(res.status).toBe(200)
     })
   })

@@ -235,4 +235,19 @@ describe('GET /api/staff/roster.json — pickup/notAuthorized/medications (HOM-2
     expect(json.data.households[0].authorizedPickup).toEqual([{ name: 'Aunt Sue', phone: '2565559876' }])
     expect(json.data.households[0].notAuthorized).toBe('Ex-partner')
   })
+
+  it('(d) returns the check-in state\'s may-NOT-collect when neither the RSVP nor the waiver has one', async () => {
+    mockListWaiversByEvent.mockResolvedValue([makeWaiver()])
+    mockGetCheckin.mockResolvedValue({ ...emptyCheckin(), notAuthorized: 'Rick Smith' })
+    const json = await (await GET(ctx('?party=party-1'))).json()
+    expect(json.data.households[0].notAuthorized).toBe('Rick Smith')
+  })
+
+  it('once the door list is seeded, display follows it (edited list / cleared note), same as the gate', async () => {
+    mockListWaiversByEvent.mockResolvedValue([makeWaiver({ authorizedPickup: [{ name: 'Old Name', phone: '' }], notAuthorized: 'Old Note' })])
+    mockGetCheckin.mockResolvedValue({ ...emptyCheckin(), pickupSeeded: true, confirmedPickup: [{ name: 'Grandma Rivera', phone: '' }], notAuthorized: '' })
+    const h = (await (await GET(ctx('?party=party-1'))).json()).data.households[0]
+    expect(h.authorizedPickup).toEqual([{ name: 'Grandma Rivera', phone: '' }])
+    expect(h.notAuthorized).toBe('')
+  })
 })

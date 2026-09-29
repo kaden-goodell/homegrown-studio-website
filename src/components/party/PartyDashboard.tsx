@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { hasAllergy } from '@lib/allergy'
 import { partyConfig } from '@config/party.config'
 import { partyContent } from '@config/party-content'
 import {
@@ -249,8 +250,8 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
                 .filter((_, ci) => !h.attending.includes(`child:${ci}`))
                 .map((c) => c.name.split(' ')[0])
               const allergyLines = [
-                ...(adultComing && h.adultAllergies ? [`${h.signer.split(' ')[0]}: ${h.adultAllergies}`] : []),
-                ...comingGuests.filter((c) => c.allergies).map((c) => `${c.name.split(' ')[0]}: ${c.allergies}`),
+                ...(adultComing && hasAllergy(h.adultAllergies) ? [`${h.signer.split(' ')[0]}: ${h.adultAllergies}`] : []),
+                ...comingGuests.filter((c) => hasAllergy(c.allergies)).map((c) => `${c.name.split(' ')[0]}: ${c.allergies}`),
               ]
               const first = h.signer.split(' ')[0]
               const rowSummary = comingGuests.length > 0

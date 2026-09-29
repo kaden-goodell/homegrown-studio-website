@@ -160,3 +160,12 @@ describe('outdated agreements', () => {
     expect(data.households[0]).toMatchObject({ covered: true, outdated: false })
   })
 })
+
+describe('"None" allergy answers', () => {
+  it('are not returned as allergies', async () => {
+    mockLookupHouseholdEntry.mockResolvedValue(household({ adultAllergies: 'None', minors: [{ name: 'Max Rivera', dob: '2018-01-01', allergies: 'none' }, { name: 'Zed', dob: '2018-01-01', allergies: 'peanuts' }] }))
+    const { data } = await (await GET(ctx('?q=sarah@example.com'))).json()
+    expect(data.households[0].adultAllergies).toBe('')
+    expect(data.households[0].kids.map((k: any) => k.allergies)).toEqual(['', 'peanuts'])
+  })
+})

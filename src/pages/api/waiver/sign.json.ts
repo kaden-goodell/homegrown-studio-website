@@ -8,6 +8,8 @@ import {
   newWaiverId,
   upsertWaiverInEventIndex,
   indexWaiverByContact,
+  lookupHouseholdEntry,
+  type HouseholdOnFile,
   type WaiverRecord,
   type AuthorizedPickup,
 } from '@lib/waiver-store'
@@ -173,6 +175,24 @@ function fireDropOffDetailsEmail(input: Parameters<typeof sendDropOffDetailsEmai
       logger.error('Drop-off details email failed (RSVP saved)', { id: recordId, error: String(err) })
     }
   })()
+}
+
+/**
+ * The household this fresh signature replaces (same email/phone), if any. A
+ * re-sign must never silently erase a custody restriction the parent gave
+ * before — blank optional pickup fields mean "no change", not "none".
+ * Best-effort: a lookup failure just means nothing is carried over.
+ */
+async function findPreviousHousehold(email: string, phone: string): Promise<HouseholdOnFile | null> {
+  for (const contact of [email, phone]) {
+    try {
+      const h = await lookupHouseholdEntry(contact)
+      if (h) return h
+    } catch (err) {
+      logger.error('Previous-household lookup failed — nothing carried over', { error: String(err) })
+    }
+  }
+  return null
 }
 
 /** Save the signature + update the contact index. Event attachment (roster,
@@ -507,6 +527,14 @@ async function handleFresh(
   const validUntil = new Date(now)
   validUntil.setMonth(validUntil.getMonth() + waiverContent.validityMonths)
 
+  // Blank pickup / may-NOT-collect fields never erase what the previous
+  // signature had; typing new values still replaces them.
+  const prev = await findPreviousHousehold(email, phone)
+  const carriedPickup = {
+    authorizedPickup: pickupData.authorizedPickup.length > 0 ? pickupData.authorizedPickup : (prev?.authorizedPickup ?? []),
+    notAuthorized: pickupData.notAuthorized || prev?.notAuthorized || '',
+  }
+
   const record: WaiverRecord = {
     id: newWaiverId(),
     agreementVersion: waiverContent.version,
@@ -516,8 +544,8 @@ async function handleFresh(
     adult: { firstName, lastName, email, phone, dob, allergies: String(body.adultAllergies ?? '').trim() },
     minors,
     emergency: { name: emergencyName, phone: emergencyPhone, relationship: emergencyRelationship },
-    authorizedPickup: pickupData.authorizedPickup,
-    notAuthorized: pickupData.notAuthorized,
+    authorizedPickup: carriedPickup.authorizedPickup,
+    notAuthorized: carriedPickup.notAuthorized,
     photoConsent: body.photoConsent,
     signature,
     squareCustomerId: null,
@@ -535,12 +563,25 @@ async function handleFresh(
   let context: { kind: SignableEventKind; id: string } | null = null
   if (eventKind && eventId) {
     context = { kind: eventKind, id: eventId }
+    // The previous RSVP for THIS event may hold a pickup override the old
+    // signature itself never had (set on the RSVP screen) — carry it too.
+    let rsvpPickup: RsvpRecord['pickup'] = null
+    if (prev) {
+      const prevRsvp = await getRsvp(eventKind, eventId, prev.recordId).catch(() => null)
+      if (prevRsvp?.pickup) {
+        rsvpPickup = {
+          authorizedPickup: pickupData.authorizedPickup.length > 0 ? pickupData.authorizedPickup : prevRsvp.pickup.authorizedPickup,
+          notAuthorized: pickupData.notAuthorized || prevRsvp.pickup.notAuthorized,
+        }
+      }
+    }
     const rsvp = await upsertRsvp({
       waiverId: record.id,
       event: { kind: eventKind, id: eventId },
       ...(bookingId ? { ref: { bookingId } } : {}),
       attending: freshResolvedIds,
       responsibleAdult: responsibleAdult || null,
+      ...(rsvpPickup ? { pickup: rsvpPickup } : {}),
       at: now.toISOString(),
       ip: clientAddress ?? null,
       userAgent,

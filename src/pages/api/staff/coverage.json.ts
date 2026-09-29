@@ -1,4 +1,5 @@
 import type { APIRoute } from 'astro'
+import { hasAllergy } from '@lib/allergy'
 import { staffAuthorized } from '@lib/staff-auth'
 import { lookupHouseholdEntry, lookupHouseholdsByName, type HouseholdOnFile } from '@lib/waiver-store'
 import { getOpenStudioDay, type OpenStudioDay } from '@lib/open-studio-store'
@@ -62,8 +63,9 @@ export const GET: APIRoute = async ({ request, url }) => {
     // they never agreed to the current terms (drop-off terms live in v3+).
     outdated: compareVersions(h.agreementVersion, substantiveSince) < 0,
     covered: new Date(h.validUntil).getTime() > Date.now() && compareVersions(h.agreementVersion, substantiveSince) >= 0,
-    kids: h.minors.map((m) => ({ name: m.name, allergies: m.allergies || '' })),
-    adultAllergies: h.adultAllergies,
+    // "None"/"n/a" are not allergies — the door flags only real ones.
+    kids: h.minors.map((m) => ({ name: m.name, allergies: hasAllergy(m.allergies) ? m.allergies : '' })),
+    adultAllergies: hasAllergy(h.adultAllergies) ? h.adultAllergies : '',
     photoConsent: h.photoConsent,
     openStudioToday: !!openStudioDay[h.recordId],
     openStudioAt: openStudioDay[h.recordId]?.at ?? null,

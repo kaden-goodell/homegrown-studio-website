@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { hasAllergy } from '@lib/allergy'
 import { formatTime, formatMonthDay, formatMonthYear } from '@lib/studio-time'
 import { card, btn, Badge } from '@components/staff/ui'
 import PickupPanel from '@components/staff/PickupPanel'
@@ -105,7 +106,7 @@ export default function HouseholdCard({
   const presence = h.checkin.presence || {}
   const expected = h.checkin.expected
   const noPhoto = !h.photoConsent
-  const anyAllergy = people.some((p) => p.allergies)
+  const anyAllergy = people.some((p) => hasAllergy(p.allergies))
   const expired = new Date(h.validUntil).getTime() < Date.now()
 
   const stateOf = (id: string): PersonState => {
@@ -279,7 +280,7 @@ export default function HouseholdCard({
               {p.duplicateOf && <Badge tone="muted">also on {p.duplicateOf}’s RSVP</Badge>}
               {stateLabel(p, st)}
               <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-                {p.allergies && <Badge tone="alert" wrap>⚠ {p.allergies}</Badge>}
+                {hasAllergy(p.allergies) && <Badge tone="alert" wrap>⚠ {p.allergies}</Badge>}
                 {p.medications && <Badge tone="muted" wrap>💊 {p.medications}</Badge>}
               </span>
             </Row>
