@@ -24,6 +24,8 @@ export interface HouseholdMatch {
   agreementVersion: string
   validUntil: string
   covered: boolean
+  /** Signed before the current agreement — unexpired but not covered. */
+  outdated?: boolean
   kids: Kid[]
   adultAllergies: string
   photoConsent: boolean
@@ -199,14 +201,14 @@ function ResultCard({
     )
   }
 
-  // EXPIRED
+  // EXPIRED, or signed before the current agreement (never agreed to the current terms)
   return (
     <div style={{ ...card, background: 'rgba(217,119,6,0.05)', borderLeft: '5px solid rgb(217,119,6)' }}>
       <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '1.0625rem', color: 'var(--color-dark)' }}>
-        EXPIRED — {h.firstName} {h.lastName}
+        {h.outdated ? `UPDATED AGREEMENT — ${h.firstName} ${h.lastName} needs to sign again` : `EXPIRED — ${h.firstName} ${h.lastName}`}
       </h3>
       <p style={{ margin: '0.35rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-        Signed {formatMonthDayYear(h.signedAt)} · expired {formatMonthDayYear(h.validUntil)}
+        Signed {formatMonthDayYear(h.signedAt)} · {h.outdated ? `${h.agreementVersion} is out of date` : `expired ${formatMonthDayYear(h.validUntil)}`}
       </p>
       <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.8rem', flexWrap: 'wrap' }}>
         <button type="button" onClick={onShowQr} style={{ ...btn(), minHeight: '2.75rem', flex: '1 1 8rem' }}>Show QR</button>
@@ -227,24 +229,15 @@ function ResultCard({
  * `initialHousehold` skips the search when the caller already has the match
  * (Today's "Here for an event?" chips).
  */
-export default function DoorSearch({
-  mode = 'walk-in',
-  event,
-  todayEvents,
-  initialHousehold,
-  onCheckedIn,
-  onAdded,
-  onAddToEvent,
-}: {
-  mode?: 'walk-in' | 'event'
-  event?: DoorEvent
+export default function DoorSearch(props: {
   todayEvents?: TodayEvent[]
   initialHousehold?: HouseholdMatch
   onCheckedIn?: () => void
   onAdded?: (r: AddedResult) => void
   onAddToEvent?: (e: TodayEvent, h: HouseholdMatch) => void
-}) {
-  const doorEvent = mode === 'event' ? event : undefined
+} & ({ mode?: 'walk-in'; event?: undefined } | { mode: 'event'; event: DoorEvent })) {
+  const { mode = 'walk-in', todayEvents, initialHousehold, onCheckedIn, onAdded, onAddToEvent } = props
+  const doorEvent = props.mode === 'event' ? props.event : undefined
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<HouseholdMatch[] | null>(initialHousehold ? [initialHousehold] : null)
   const [selectedId, setSelectedId] = useState<string | null>(initialHousehold?.recordId ?? null)
@@ -350,7 +343,7 @@ export default function DoorSearch({
                   {h.contactHint && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--color-muted)' }}>{h.contactHint}</span>}
                 </span>
                 <span style={{ fontSize: '0.75rem', color: h.covered ? 'rgb(21,128,61)' : 'rgb(180,120,20)', fontWeight: 700 }}>
-                  {h.covered ? 'good to go' : 'expired'}
+                  {h.covered ? 'good to go' : h.outdated ? 'sign again' : 'expired'}
                 </span>
               </button>
             ))}

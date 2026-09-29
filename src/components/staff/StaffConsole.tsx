@@ -10,7 +10,7 @@ import Roster from '@components/staff/Roster'
 import type { HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, field, Badge } from '@components/staff/ui'
 import type { StaffMember } from '@lib/staff-auth'
-import type { EventKind } from '@lib/events'
+import { EVENT_KIND_RE, type EventKind } from '@lib/event-kinds'
 
 // ─── Kits phase ──────────────────────────────────────────────────────────────
 
@@ -227,6 +227,9 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
   )
 }
 
+// Kinds come from EVENT_KIND_RE so a new kind can't drift; ids are slug-like only.
+const OPEN_RE = new RegExp(`^(${EVENT_KIND_RE.source.replace(/^\^\(|\)\$$/g, '')}):([\\w-]+)$`)
+
 /** Parse + strip `?open={kind}:{id}` from the address bar. */
 function readOpenParam(): { kind: EventKind; id: string } | null {
   try {
@@ -236,7 +239,7 @@ function readOpenParam(): { kind: EventKind; id: string } | null {
     params.delete('open')
     const qs = params.toString()
     history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash)
-    const m = /^(party|workshop):(.+)$/.exec(raw)
+    const m = OPEN_RE.exec(raw)
     return m ? { kind: m[1] as EventKind, id: m[2] } : null
   } catch {
     return null

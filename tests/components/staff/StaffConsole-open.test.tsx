@@ -48,4 +48,12 @@ describe('StaffConsole ?open=', () => {
     await screen.findByText(/Today ·/)
     await waitFor(() => expect(window.location.search).toBe(''))
   })
+
+  it.each(['party:../../x', 'program:abc', 'party:a/b', 'party:'])('ignores open=%s (lands on Today, strips it)', async (v) => {
+    history.replaceState(null, '', `/staff?open=${v}`)
+    serve()
+    render(<StaffConsole />)
+    await screen.findByText(/Today ·/)
+    await waitFor(() => expect(window.location.search).toBe(''))
+  })
 })

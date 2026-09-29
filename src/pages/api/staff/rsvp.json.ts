@@ -2,7 +2,8 @@ import type { APIRoute } from 'astro'
 import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { getEvent, resolveEventDay, EVENT_KIND_RE } from '@lib/events'
 import { getWaiverRecord, upsertWaiverInEventIndex } from '@lib/waiver-store'
-import { upsertRsvp } from '@lib/rsvp-store'
+import { upsertRsvp, getRsvp } from '@lib/rsvp-store'
+import { substantiveSince, compareVersions } from '@config/waiver-content'
 import { markPresent, migrateCheckinOnReplace } from '@lib/checkin-actions'
 import { createLogger } from '@lib/logger'
 
@@ -56,6 +57,11 @@ export const POST: APIRoute = async ({ request }) => {
     return json({ error: 'That agreement has expired — they need to sign again.' }, 409)
   }
 
+  // Signed before the current agreement (v3 folded in the drop-off terms): they never agreed to it.
+  if (compareVersions(waiver.agreementVersion, substantiveSince) < 0) {
+    return json({ error: 'Their agreement is out of date — they need to sign the new one.', mustResign: true }, 409)
+  }
+
   const valid = new Set(['adult', ...waiver.minors.map((_, i) => `child:${i}`)])
   const people = attending.filter((p) => valid.has(p))
   if (people.length === 0) return json({ error: 'No one selected.' }, 400)
@@ -64,11 +70,19 @@ export const POST: APIRoute = async ({ request }) => {
   const day = resolveEventDay(event, requestedDay)
 
   try {
+    // upsertRsvp replaces the whole record, so a household that already RSVP'd
+    // (the designed path: Today's highlighted chip) must have its pickup /
+    // may-NOT-collect list, booking ref and responsible adult carried over,
+    // and its attending widened — never narrowed.
+    const existing = await getRsvp(kind as DoorKind, id, recordId)
+    const everyone = ['adult', ...waiver.minors.map((_, i) => `child:${i}`)]
+    const attendingNow = existing ? [...new Set([...(existing.attending ?? everyone), ...people])] : people
     const rsvp = await upsertRsvp({
+      ...(existing ? { id: existing.id, ref: existing.ref, pickup: existing.pickup } : {}),
       waiverId: recordId,
       event: { kind: kind as DoorKind, id },
-      attending: people,
-      responsibleAdult: null,
+      attending: attendingNow,
+      responsibleAdult: existing?.responsibleAdult ?? null,
       at: new Date().toISOString(),
       ip: null,
       userAgent: null,
@@ -78,7 +92,7 @@ export const POST: APIRoute = async ({ request }) => {
     await migrateCheckinOnReplace(kind as DoorKind, id, replacedRecordId, recordId)
     const { state, oneTimeCode, smsFailed } = await markPresent({
       event, kind: kind as DoorKind, id, recordId, waiverRecord: waiver,
-      personIds: people, day, by, ...(kind === 'party' ? { expected: people } : {}),
+      personIds: people, day, by, ...(kind === 'party' && !existing ? { expected: people } : {}),
     })
     return json({
       data: {

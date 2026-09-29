@@ -24,9 +24,10 @@ vi.mock('@lib/waiver-store', async (importOriginal) => {
 })
 
 const mockUpsertRsvp = vi.fn()
+const mockGetRsvp = vi.fn()
 vi.mock('@lib/rsvp-store', () => ({
   upsertRsvp: (...a: any[]) => mockUpsertRsvp(...a),
-  getRsvp: vi.fn(async () => null),
+  getRsvp: (...a: any[]) => mockGetRsvp(...a),
 }))
 
 const mockSendQuoText = vi.fn()
@@ -60,7 +61,7 @@ const waiver = (over: Record<string, any> = {}) => ({
     { name: 'Kiddo Rivera', dob: '2018-01-01', allergies: '', medications: '' },
     { name: 'Second Rivera', dob: '2019-01-01', allergies: '', medications: '' },
   ],
-  authorizedPickup: [], notAuthorized: '',
+  authorizedPickup: [], notAuthorized: '', agreementVersion: 'v3',
   validUntil: new Date(Date.now() + 86_400_000 * 100).toISOString(),
   ...over,
 })
@@ -78,6 +79,7 @@ beforeEach(async () => {
   oldState = emptyState()
   mockGetEvent.mockResolvedValue(party)
   mockGetWaiverRecord.mockResolvedValue(waiver())
+  mockGetRsvp.mockResolvedValue(null)
   mockUpsertRsvp.mockResolvedValue({ id: 'rsv_1' })
   mockIndex.mockResolvedValue({ replacedRecordId: null })
   mockSendQuoText.mockResolvedValue(undefined)
@@ -175,5 +177,61 @@ describe('POST /api/staff/rsvp.json', () => {
     await call({ ...base, attending: ['adult'] })
     expect(state.days['2026-09-05'].presence['child:1']).toBeTruthy() // migrated
     expect(state.days['2026-09-05'].presence.adult).toBeTruthy() // and the add itself
+  })
+
+  describe('a household that ALREADY RSVP\'d (Today\'s highlighted chip)', () => {
+    const existing = () => ({
+      id: 'rsv_old', waiverId: 'wvr_1', event: { kind: 'workshop', id: 'ws-1' },
+      ref: { bookingId: 'bk_7' }, attending: ['child:0'], responsibleAdult: 'Aunt May',
+      pickup: { authorizedPickup: [{ name: 'Grandma Rivera', phone: '2565550100' }], notAuthorized: 'Rick Smith' },
+      at: '2026-09-01T00:00:00.000Z', firstAt: '2026-09-01T00:00:00.000Z',
+    })
+    const add = (attending: string[]) => call({ kind: 'workshop', id: 'ws-1', recordId: 'wvr_1', day: '2026-09-05', attending })
+
+    it('keeps the RSVP\'s id, pickup + may-NOT-collect, booking ref and responsible adult; attending is the union', async () => {
+      mockGetEvent.mockResolvedValue(pno)
+      mockGetRsvp.mockResolvedValue(existing())
+      mockUpsertRsvp.mockResolvedValue({ id: 'rsv_old' }) // upsertRsvp returns the stored record
+      const res = await add(['adult'])
+      expect(res.status).toBe(200)
+      expect(mockUpsertRsvp).toHaveBeenCalledWith(expect.objectContaining({
+        id: 'rsv_old',
+        ref: { bookingId: 'bk_7' },
+        responsibleAdult: 'Aunt May',
+        pickup: existing().pickup,
+        attending: ['child:0', 'adult'],
+      }))
+      expect(mockIndex).toHaveBeenCalledWith('workshop', 'ws-1', expect.anything(), 'rsv_old')
+    })
+
+    it('a drop-off check-in then seeds the RSVP\'s pickup list and may-NOT-collect, not the signature\'s empty one', async () => {
+      mockGetEvent.mockResolvedValue(pno)
+      mockGetRsvp.mockResolvedValue(existing())
+      await add(['child:0'])
+      expect(state.notAuthorized).toBe('Rick Smith')
+      expect(state.confirmedPickup.map((p) => p.name)).toEqual(['Grandma Rivera'])
+    })
+
+    it('an existing RSVP with everyone (attending null) stays "everyone"', async () => {
+      mockGetEvent.mockResolvedValue(pno)
+      mockGetRsvp.mockResolvedValue({ ...existing(), attending: null })
+      await add(['adult'])
+      expect(mockUpsertRsvp.mock.calls[0][0].attending).toEqual(['adult', 'child:0', 'child:1'])
+    })
+
+    it('does not overwrite a party\'s expected list', async () => {
+      mockGetRsvp.mockResolvedValue({ ...existing(), event: { kind: 'party', id: 'p1' } })
+      state.expected = ['adult', 'child:0']
+      await call({ ...base, attending: ['child:1'] })
+      expect(state.expected).toEqual(['adult', 'child:0'])
+    })
+  })
+
+  it('an out-of-date agreement (older than v3) is refused with mustResign', async () => {
+    mockGetWaiverRecord.mockResolvedValue(waiver({ agreementVersion: 'v2' }))
+    const res = await call({ ...base, attending: ['adult'] })
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: 'Their agreement is out of date — they need to sign the new one.', mustResign: true })
+    expect(mockUpsertRsvp).not.toHaveBeenCalled()
   })
 })

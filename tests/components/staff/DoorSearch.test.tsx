@@ -174,4 +174,23 @@ describe('DoorSearch — event mode (+ Add family)', () => {
     await new Promise((r) => setTimeout(r, 50))
     expect((screen.getByPlaceholderText('Phone, email or last name') as HTMLInputElement).value).toBe('')
   })
+
+  it('a v1/v2 signer (outdated) gets UPDATED AGREEMENT and the same two buttons — no Add', async () => {
+    serve([sam({ covered: false, outdated: true, agreementVersion: 'v2' })])
+    render(<DoorSearch mode="event" event={camp} onAdded={vi.fn()} />)
+    search('lee')
+    await screen.findByText('UPDATED AGREEMENT — Sam Lee needs to sign again')
+    expect(screen.getByRole('button', { name: 'Show QR' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign on this iPad' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Add & mark here|✓ Here/ })).not.toBeInTheDocument()
+    expect(screen.queryByText(/EXPIRED/)).not.toBeInTheDocument()
+  })
+
+  it('walk-in mode shows the same UPDATED AGREEMENT state', async () => {
+    serve([sam({ covered: false, outdated: true, agreementVersion: 'v1' })])
+    render(<DoorSearch onCheckedIn={vi.fn()} />)
+    search('lee')
+    await screen.findByText(/UPDATED AGREEMENT — Sam Lee needs to sign again/)
+    expect(screen.queryByRole('button', { name: '✓ Here' })).not.toBeInTheDocument()
+  })
 })
