@@ -120,7 +120,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const [error, setError] = useState<string | null>(null)
   // `subline` is the confirmation-screen line under the headline — varies by
   // path (fresh sign with an emailed copy vs. returning RSVP), see HOM-216.
-  const [done, setDone] = useState<{ covered: string[]; validUntil: string; subline: string } | null>(null)
+  const [done, setDone] = useState<{ covered: string[]; validUntil: string; subline: string; kidsComing: boolean } | null>(null)
 
   // Returning-customer lookup: start on the lookup step; fall through to the
   // full form for new/expired households. Kiosk mode skips straight to the
@@ -380,6 +380,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         covered: json.data.covered,
         validUntil: json.data.validUntil,
         subline: confirmation.emailedCopyLine.replace('{email}', email.trim()),
+        kidsComing: minors.some((_, i) => formComing(`child:${i}`)),
       })
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
@@ -415,14 +416,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         // A valid household is on file — show it (no code step).
         const kids: string[] = json.data.kids ?? []
         setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids, validUntil: json.data.validUntil ?? '', signedAt: json.data.signedAt ?? '', hasPickup: !!json.data.hasPickup })
-        // Defensive prefill: if the compact pickup block ever does render for
-        // a household that already has an override on file, start from it.
-        if (json.data.pickup) {
-          setReturningPickupRows(
-            (json.data.pickup.authorizedPickup ?? []).map((p: { name: string; phone: string }) => ({ name: p.name, phone: p.phone })),
-          )
-          setReturningNotAuthorized(json.data.pickup.notAuthorized ?? '')
-        }
         // Default everyone in the household to "coming"; they can uncheck below.
         setAttending(Object.fromEntries(['adult', ...kids.map((_, i) => `child:${i}`)].map((id) => [id, true])))
         setMode('returning')
@@ -504,6 +497,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         covered: json.data.covered,
         validUntil: json.data.validUntil,
         subline: confirmation.subline,
+        kidsComing: (returning?.kids ?? []).some((_, i) => !!attending[`child:${i}`]),
       })
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
@@ -631,7 +625,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         <p style={{ ...sectionNoteStyle, maxWidth: '26rem', margin: '0 auto 1.25rem', fontSize: '0.8125rem' }}>
           {confirmation.anotherAdultLine}
         </p>
-        {hasEvent && dropOff && (
+        {hasEvent && dropOff && done.kidsComing && (
           <div style={{ maxWidth: '26rem', margin: '0 auto 1.25rem', textAlign: 'left' }}>
             {[confirmation.dropOffPickupLine, confirmation.dropOffIdLine, lateFeeLine()].map((line) => (
               <p key={line} style={{ ...sectionNoteStyle, margin: '0 0 0.35rem' }}>{line}</p>
@@ -782,6 +776,11 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         )}
         {returningKidsWithoutSigner && (
           <div style={{ maxWidth: '22rem', margin: '0 auto 1rem' }}>{presenceBlock('wv-ret')}</div>
+        )}
+        {dropOff && returning.hasPickup && (
+          <p style={{ ...sectionNoteStyle, maxWidth: '22rem', margin: '0 auto 1rem' }}>
+            Pickup people are on file — tell the front desk if that changes.
+          </p>
         )}
         {showReturningPickup && (
           <div style={{ maxWidth: '22rem', margin: '0 auto 1rem', textAlign: 'left' }}>

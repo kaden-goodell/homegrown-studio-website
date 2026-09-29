@@ -211,8 +211,6 @@ describe('POST /api/waiver/sign.json', () => {
       event: { kind: 'party', id: 'party-123' },
       attending: ['adult'],
       responsibleAdult: null,
-      addendumVersion: null,
-      addendumSha256: null,
       at: NOW,
       firstAt: NOW,
       ip: null,
@@ -762,6 +760,17 @@ describe('POST /api/waiver/sign.json', () => {
       expect(mockSendDropOffDetailsEmail).toHaveBeenCalledWith(
         expect.objectContaining({ record: expect.objectContaining({ id: 'wvr_source_abc' }) }),
       )
+    })
+
+    it('an adult-only RSVP to a drop-off event (fresh or returning) sends no details email', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      await POST(createMockContext(makeAdultBody({ partyId: 'party-123', attending: ['adult'] })))
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      await POST(createMockContext({
+        reuseRecordId: 'wvr_source_abc', reuseToken: 'valid-token', partyId: 'party-123', attending: ['adult'], responsibleAdult: '',
+      }))
+      expect(mockSendDropOffDetailsEmail).not.toHaveBeenCalled()
     })
 
     it('a non-drop-off event (fresh or returning) does not', async () => {

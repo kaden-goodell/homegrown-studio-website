@@ -21,7 +21,7 @@ function mockLookupThenSign(hasPickup: boolean) {
             recordId: 'wvr_1',
             reuseToken: 'tok-abc',
             firstName: 'Sarah',
-            kids: [],
+            kids: ['Bo'],
             validUntil: '2099-01-01T00:00:00.000Z',
             signedAt: '2026-01-01T00:00:00.000Z',
             hasPickup,
@@ -63,6 +63,7 @@ describe('WaiverFlow — returning screen pickup block (HOM-212 fix round 1)', (
     await reachReturningScreen(container)
 
     expect(screen.queryByText('Who may pick up?')).not.toBeInTheDocument()
+    expect(screen.getByText('Pickup people are on file — tell the front desk if that changes.')).toBeInTheDocument()
 
     await act(async () => {
       fireEvent.click(screen.getByText('✓ RSVP us'))
@@ -146,6 +147,25 @@ describe('WaiverFlow — returning screen pickup block (HOM-212 fix round 1)', (
       fireEvent.click(screen.getByText('✓ RSVP us'))
     })
     await screen.findByText(/You’re all set/)
+    expect(screen.queryByText(/Late pickup/)).not.toBeInTheDocument()
+  })
+
+  it('the on-file line only shows for a drop-off event, and only when pickup is on file', async () => {
+    mockLookupThenSign(false)
+    const { container } = render(<WaiverFlow partyId="party-1" dropOff />)
+    await reachReturningScreen(container)
+    expect(screen.queryByText(/Pickup people are on file/)).not.toBeInTheDocument()
+    expect(screen.getByText('Who may pick up?')).toBeInTheDocument()
+  })
+
+  it('an adult-only RSVP to a drop-off event does not show the pickup/ID/late-fee lines', async () => {
+    mockLookupThenSign(true)
+    const { container } = render(<WaiverFlow partyId="party-1" dropOff />)
+    await reachReturningScreen(container)
+    fireEvent.click(screen.getByLabelText(/Bo/)) // untick the child; the adult still comes
+    await act(async () => { fireEvent.click(screen.getByText('✓ RSVP us')) })
+    await screen.findByText(/You’re all set/)
+    expect(screen.queryByText(/text a pickup code/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Late pickup/)).not.toBeInTheDocument()
   })
 })

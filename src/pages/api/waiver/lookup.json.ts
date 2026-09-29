@@ -22,13 +22,14 @@ function err(message: string, status: number): Response {
  * Returning-customer lookup. Type an email or phone → the household appears.
  *
  * POST { contact, partyId?, workshopId? } →
- *   found + valid: { found: true, recordId, firstName, kids, validUntil, signedAt, reuseToken, hasPickup, pickup? }
+ *   found + valid: { found: true, recordId, firstName, kids, validUntil, signedAt, reuseToken, hasPickup }
  *   agreement text changed substantively since they signed (HOM-210):
  *     { found: true, mustResign: true, firstName } — the client opens the full form.
  *   found but lapsed: { found: false, expired: true, firstName, validUntil }
  *   nothing on file: { found: false }
  *
- * `hasPickup`/`pickup` (HOM-212) considers BOTH the signature's own
+ * `hasPickup` (HOM-212) is a boolean only — this endpoint is public, so it never
+ * returns the third-party names/phones themselves. It considers BOTH the signature's own
  * `authorizedPickup` AND — when the caller passes `partyId`/`workshopId` —
  * an existing RSVP's `pickup` override for that specific event, same rule
  * `sign.json`'s handleReuse uses when carrying it forward.
@@ -83,6 +84,5 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     signedAt: h.signedAt,
     reuseToken: issueReuseToken(h.recordId),
     hasPickup,
-    ...(hasPickup ? { pickup } : {}),
   })
 }

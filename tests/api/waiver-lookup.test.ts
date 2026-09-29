@@ -69,18 +69,19 @@ describe('POST /api/waiver/lookup.json — type a phone number, the household ap
     })
     expect(typeof data.reuseToken).toBe('string')
     expect(data.reuseToken.length).toBeGreaterThan(10)
-    expect(data.pickup).toBeUndefined()
+    expect('pickup' in data).toBe(false)
     expect(data.needsCode).toBeUndefined()
     expect(data.phoneHint).toBeUndefined()
   })
 
-  it('hasPickup + pickup come from the signature when it lists authorized pickups', async () => {
+  it('hasPickup (boolean only — never the names) comes from the signature when it lists authorized pickups', async () => {
     mockLookupHouseholdEntry.mockResolvedValue(
       makeHousehold({ authorizedPickup: [{ name: 'Grandma Sue', phone: '2565550000' }], notAuthorized: 'Ex' }),
     )
     const { data } = await (await POST(createMockContext({ contact: 'alice@test.com' }))).json()
     expect(data.hasPickup).toBe(true)
-    expect(data.pickup).toEqual({ authorizedPickup: [{ name: 'Grandma Sue', phone: '2565550000' }], notAuthorized: 'Ex' })
+    expect('pickup' in data).toBe(false)
+    expect(JSON.stringify(data)).not.toMatch(/Grandma Sue|2565550000/)
     expect(mockGetRsvp).not.toHaveBeenCalled()
   })
 
@@ -90,7 +91,8 @@ describe('POST /api/waiver/lookup.json — type a phone number, the household ap
     const { data } = await (await POST(createMockContext({ contact: 'alice@test.com', partyId: 'party-1' }))).json()
     expect(mockGetRsvp).toHaveBeenCalledWith('party', 'party-1', 'wvr_abc')
     expect(data.hasPickup).toBe(true)
-    expect(data.pickup.authorizedPickup[0].name).toBe('Uncle Al')
+    expect('pickup' in data).toBe(false)
+    expect(JSON.stringify(data)).not.toContain('Uncle Al')
   })
 
   it('workshopId looks up the workshop RSVP', async () => {

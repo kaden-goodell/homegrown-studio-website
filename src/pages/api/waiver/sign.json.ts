@@ -160,6 +160,9 @@ function fireAgreementCopyEmail(input: Parameters<typeof sendAgreementCopyEmail>
   })()
 }
 
+/** The drop-off details are about collecting a child — no child attending, no email. */
+const hasChild = (ids: string[]) => ids.some((id) => id.startsWith('child:'))
+
 /** Same contract as `fireAgreementCopyEmail`, for the drop-off details email. */
 function fireDropOffDetailsEmail(input: Parameters<typeof sendDropOffDetailsEmail>[0], recordId: string): void {
   void (async () => {
@@ -414,7 +417,7 @@ async function handleReuse(
   await recordExpected(partyId, source.id, resolvedIds)
   await indexEventRsvp(eventKind, eventId, source, rsvp.id)
 
-  if (dropOff && event) {
+  if (dropOff && event && hasChild(resolvedIds)) {
     fireDropOffDetailsEmail(
       { record: source, event, attending: resolvedIds, ...(pickup ? { authorizedPickup: pickup.authorizedPickup } : {}) },
       source.id,
@@ -554,7 +557,7 @@ async function handleFresh(
     })
     await recordExpected(partyId, record.id, freshResolvedIds)
     await indexEventRsvp(eventKind, eventId, record, rsvp.id)
-    if (dropOff && event) {
+    if (dropOff && event && hasChild(freshResolvedIds)) {
       fireDropOffDetailsEmail({ record, event, attending: freshResolvedIds }, record.id)
     }
   }
