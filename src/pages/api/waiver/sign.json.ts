@@ -15,7 +15,7 @@ import {
 } from '@lib/waiver-store'
 import { upsertRsvp, getRsvp, type RsvpRecord } from '@lib/rsvp-store'
 import { setExpected } from '@lib/checkin-store'
-import { effectivePickup, hasPickupContent, sameHousehold } from '@lib/pickup'
+import { effectivePickup, storablePickup, sameHousehold } from '@lib/pickup'
 import { migrateCheckinOnReplace } from '@lib/checkin-actions'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
@@ -410,10 +410,10 @@ async function handleReuse(
   if (pickup) {
     pickup = {
       authorizedPickup: pickup.authorizedPickup.length > 0 ? pickup.authorizedPickup : eff.authorizedPickup,
-      notAuthorized: pickup.notAuthorized || eff.notAuthorized,
+      notAuthorized: pickup.notAuthorized || eff.rawNotAuthorized, // raw: a "None" clear must persist
     }
-  } else if (hasPickupContent(eff)) {
-    pickup = eff
+  } else {
+    pickup = storablePickup(eff)
   }
 
   const raErr = checkResponsibleAdult(partyId, dropOff, resolvedIds, responsibleAdult)
@@ -543,7 +543,7 @@ async function handleFresh(
     : null
   const carriedPickup = {
     authorizedPickup: pickupData.authorizedPickup.length > 0 ? pickupData.authorizedPickup : (prevEff?.authorizedPickup ?? []),
-    notAuthorized: pickupData.notAuthorized || prevEff?.notAuthorized || '',
+    notAuthorized: pickupData.notAuthorized || prevEff?.rawNotAuthorized || '', // raw: a "None" clear must persist
   }
 
   const record: WaiverRecord = {
@@ -575,7 +575,7 @@ async function handleFresh(
   if (eventKind && eventId) {
     context = { kind: eventKind, id: eventId }
     // A restriction the household already gave goes on the new RSVP too.
-    const rsvpPickup: RsvpRecord['pickup'] = hasPickupContent(prevEff) ? carriedPickup : null
+    const rsvpPickup: RsvpRecord['pickup'] = storablePickup(prevEff) ? carriedPickup : null
     const rsvp = await upsertRsvp({
       waiverId: record.id,
       event: { kind: eventKind, id: eventId },

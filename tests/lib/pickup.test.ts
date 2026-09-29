@@ -54,7 +54,7 @@ describe('hasPickupContent', () => {
 describe('effectivePickup', () => {
   it('newest RSVP pickup across ALL of this waiver\'s RSVPs (this event\'s included)', async () => {
     latestById.wvr_old = pk('Aunt Sue', 'Rick Smith')
-    expect(noAt(await effectivePickup({ waiver: subject() }))).toEqual(noAt(pk('Aunt Sue', 'Rick Smith')))
+    expect(await effectivePickup({ waiver: subject() })).toMatchObject({ authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: 'Rick Smith' })
   })
 
   it('no RSVP pickup → the waiver\'s own fields (legacy strings normalized)', async () => {
@@ -64,7 +64,7 @@ describe('effectivePickup', () => {
   })
 
   it('nothing at all → empty', async () => {
-    expect(await effectivePickup({ waiver: subject() })).toEqual({ authorizedPickup: [], notAuthorized: '' })
+    expect(await effectivePickup({ waiver: subject() })).toEqual({ authorizedPickup: [], notAuthorized: '', rawNotAuthorized: '' })
   })
 
   it('a restriction typed on a RE-SIGN reaches an event booked under the OLD waiver id', async () => {
@@ -90,7 +90,7 @@ describe('effectivePickup', () => {
   it('a DIFFERENT household sharing the email but not the name contributes nothing', async () => {
     latestById.wvr_other = pk('Their Aunt', 'Their Ex', '2026-09-01T00:00:00.000Z')
     mockLookup.mockResolvedValue({ recordId: 'wvr_other', email: 'sam@x.com', firstName: 'Pat', lastName: 'Kim', signedAt: '2026-09-01T00:00:00.000Z', authorizedPickup: [{ name: 'Their Aunt', phone: '' }], notAuthorized: 'Their Ex' })
-    expect(await effectivePickup({ waiver: subject() })).toEqual({ authorizedPickup: [], notAuthorized: '' })
+    expect(await effectivePickup({ waiver: subject() })).toEqual({ authorizedPickup: [], notAuthorized: '', rawNotAuthorized: '' })
     expect(mockLatest).not.toHaveBeenCalledWith('wvr_other')
   })
 
@@ -136,5 +136,27 @@ describe('effectivePickup resolves rows and note INDEPENDENTLY', () => {
     const r = await effectivePickup({ waiver: subject({ authorizedPickup: rows('Grandma') }) })
     expect(r.authorizedPickup.map((p) => p.name)).toEqual(['Grandma'])
     expect(r.notAuthorized).toBe('Rick Smith')
+  })
+})
+
+describe('a "None" clear persists (raw token kept, display value cleared)', () => {
+  it('(1) returns rawNotAuthorized "None" and notAuthorized "" — a later rows-only RSVP that carries "None" stays cleared', async () => {
+    latestById.wvr_old = { authorizedPickup: [{ name: 'Uncle Joe', phone: '' }], notAuthorized: 'None', at: '2026-09-01T00:00:00.000Z' }
+    const r = await effectivePickup({ waiver: subject({ notAuthorized: 'Rick Smith', signedAt: '2026-01-01T00:00:00.000Z' }) })
+    expect(r.notAuthorized).toBe('')
+    expect(r.rawNotAuthorized).toBe('None')
+    expect(r.authorizedPickup.map((p) => p.name)).toEqual(['Uncle Joe'])
+  })
+
+  it('rawNotAuthorized is the note as stored when it is a real one', async () => {
+    latestById.wvr_old = { authorizedPickup: [], notAuthorized: 'Rick Smith', at: '2026-09-01T00:00:00.000Z' }
+    const r = await effectivePickup({ waiver: subject() })
+    expect(r).toMatchObject({ notAuthorized: 'Rick Smith', rawNotAuthorized: 'Rick Smith' })
+  })
+
+  it('(4) a NEW note typed after a clear sets it', async () => {
+    latestById.wvr_old = { authorizedPickup: [], notAuthorized: 'Dana Lee', at: '2026-10-01T00:00:00.000Z' }
+    const r = await effectivePickup({ waiver: subject({ notAuthorized: 'None', signedAt: '2026-09-01T00:00:00.000Z' }) })
+    expect(r.notAuthorized).toBe('Dana Lee')
   })
 })

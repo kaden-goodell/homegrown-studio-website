@@ -17,7 +17,17 @@ export { hasPickupContent, sameHousehold }
 
 export interface EffectivePickup {
   authorizedPickup: AuthorizedPickup[]
+  /** The note to ENFORCE / DISPLAY: '' when the newest note is a "None" clear. */
   notAuthorized: string
+  /** The newest note exactly as stored (e.g. "None"). WRITERS persist this, so
+   *  a clear keeps beating an older real note; readers use `notAuthorized`. */
+  rawNotAuthorized: string
+}
+
+/** What a writer stores on a new RSVP / waiver: rows + the RAW note, or null when there is nothing. */
+export function storablePickup(eff: EffectivePickup | null | undefined): { authorizedPickup: AuthorizedPickup[]; notAuthorized: string } | null {
+  if (!eff || (eff.authorizedPickup.length === 0 && eff.rawNotAuthorized.trim() === '')) return null
+  return { authorizedPickup: eff.authorizedPickup, notAuthorized: eff.rawNotAuthorized }
 }
 
 /** Either a WaiverRecord (`adult`, `id`) or a HouseholdOnFile (`recordId`, flat name/email). */
@@ -78,5 +88,5 @@ export async function effectivePickup({ waiver }: { waiver: PickupSubject }): Pr
   candidates.sort((a, b) => b.at.localeCompare(a.at))
   const rows = candidates.find((c) => c.authorizedPickup.length > 0)?.authorizedPickup ?? []
   const note = candidates.find((c) => c.notAuthorized.trim() !== '')?.notAuthorized ?? ''
-  return { authorizedPickup: rows as AuthorizedPickup[], notAuthorized: isNoneToken(note) ? '' : note }
+  return { authorizedPickup: rows as AuthorizedPickup[], notAuthorized: isNoneToken(note) ? '' : note, rawNotAuthorized: note }
 }

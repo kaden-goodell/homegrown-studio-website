@@ -249,4 +249,20 @@ describe('POST /api/staff/rsvp.json', () => {
     expect(state.notAuthorized).toBe('Rick Smith') // and the check-in seeded it
     expect(state.confirmedPickup.map((p) => p.name)).toEqual(['Grandma Rivera'])
   })
+
+  it('(2) a door add after a "None" clear keeps it cleared — the literal "None" is what gets stored', async () => {
+    mockGetEvent.mockResolvedValue(pno)
+    mockLatest.mockResolvedValue({ authorizedPickup: [], notAuthorized: 'None', at: '2026-09-01T00:00:00.000Z' })
+    mockGetWaiverRecord.mockResolvedValue(waiver({ notAuthorized: 'Rick Smith' }))
+    await call({ kind: 'workshop', id: 'ws-1', recordId: 'wvr_1', day: '2026-09-05', attending: ['child:0'] })
+    expect(mockUpsertRsvp.mock.calls[0][0].pickup).toEqual({ authorizedPickup: [], notAuthorized: 'None' })
+    expect(state.notAuthorized).toBe('')
+  })
+
+  it('an EXISTING RSVP\'s pickup is never dropped when nothing resolves', async () => {
+    const kept = { authorizedPickup: [], notAuthorized: '' }
+    mockGetRsvp.mockResolvedValue({ id: 'rsv_old', pickup: kept, attending: null })
+    await call({ ...base, attending: ['adult'] })
+    expect(mockUpsertRsvp.mock.calls[0][0].pickup).toEqual(kept)
+  })
 })
