@@ -3,7 +3,7 @@ import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { getEvent, resolveEventDay, EVENT_KIND_RE } from '@lib/events'
 import { getWaiverRecord, upsertWaiverInEventIndex } from '@lib/waiver-store'
 import { upsertRsvp } from '@lib/rsvp-store'
-import { markPresent } from '@lib/checkin-actions'
+import { markPresent, migrateCheckinOnReplace } from '@lib/checkin-actions'
 import { createLogger } from '@lib/logger'
 
 const logger = createLogger('api:staff:rsvp')
@@ -74,7 +74,8 @@ export const POST: APIRoute = async ({ request }) => {
       userAgent: null,
       by,
     })
-    await upsertWaiverInEventIndex(kind as DoorKind, id, waiver, rsvp.id)
+    const { replacedRecordId } = await upsertWaiverInEventIndex(kind as DoorKind, id, waiver, rsvp.id)
+    await migrateCheckinOnReplace(kind as DoorKind, id, replacedRecordId, recordId)
     const { state, oneTimeCode, smsFailed } = await markPresent({
       event, kind: kind as DoorKind, id, recordId, waiverRecord: waiver,
       personIds: people, day, by, ...(kind === 'party' ? { expected: people } : {}),

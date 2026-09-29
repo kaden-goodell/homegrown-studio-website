@@ -12,7 +12,8 @@ import {
   type AuthorizedPickup,
 } from '@lib/waiver-store'
 import { upsertRsvp, getRsvp, type RsvpRecord } from '@lib/rsvp-store'
-import { setExpected, getCheckin, mutateCheckin } from '@lib/checkin-store'
+import { setExpected } from '@lib/checkin-store'
+import { migrateCheckinOnReplace } from '@lib/checkin-actions'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { verifyReuseToken } from '@lib/reuse-token'
@@ -197,18 +198,7 @@ async function persistWaiver(record: WaiverRecord): Promise<void> {
 async function indexEventRsvp(kind: SignableEventKind, id: string, record: WaiverRecord, rsvpId: string): Promise<void> {
   try {
     const { replacedRecordId } = await upsertWaiverInEventIndex(kind, id, record, rsvpId)
-    // Checkin migration is party-only — check-in state lives in the party domain.
-    if (replacedRecordId && kind === 'party') {
-      try {
-        const old = await getCheckin(id, replacedRecordId)
-        const hadAnyPresence = Object.values(old.days).some((d) => Object.keys(d.presence).length > 0)
-        if (hadAnyPresence || old.pickupCodeHash) {
-          await mutateCheckin(id, record.id, (s) => { Object.assign(s, old) })
-        }
-      } catch (err) {
-        logger.error('Checkin migration failed on re-RSVP', { error: String(err) })
-      }
-    }
+    await migrateCheckinOnReplace(kind, id, replacedRecordId, record.id)
   } catch (err) {
     logger.error('Event index failed (signature saved)', { id: record.id, error: String(err) })
   }

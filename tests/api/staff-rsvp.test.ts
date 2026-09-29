@@ -36,8 +36,10 @@ vi.mock('@lib/quo', async (importOriginal) => {
 })
 
 let state: CheckinState
+let oldState: CheckinState
 vi.mock('@lib/checkin-store', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@lib/checkin-store')>()),
+  getCheckin: async () => oldState,
   mutateCheckin: async (_k: string, _r: string, fn: (s: CheckinState) => void | Promise<void>) => {
     await fn(state)
     return state
@@ -73,6 +75,7 @@ beforeEach(async () => {
   vi.resetModules()
   authed = { id: 't', name: 'Test', role: 'crew' }
   state = emptyState()
+  oldState = emptyState()
   mockGetEvent.mockResolvedValue(party)
   mockGetWaiverRecord.mockResolvedValue(waiver())
   mockUpsertRsvp.mockResolvedValue({ id: 'rsv_1' })
@@ -164,5 +167,13 @@ describe('POST /api/staff/rsvp.json', () => {
     expect((await call({ ...base, attending: [] })).status).toBe(400)
     expect((await call({ ...base, kind: 'program', attending: ['adult'] })).status).toBe(400)
     expect((await call({ ...base, recordId: '', attending: ['adult'] })).status).toBe(400)
+  })
+
+  it('carries earlier check-in state over when this waiver replaces an older one for the household', async () => {
+    mockIndex.mockResolvedValue({ replacedRecordId: 'wvr_old' })
+    oldState.days['2026-09-05'] = { presence: { 'child:1': { inAt: '2026-09-05T14:00:00.000Z', outAt: null } } }
+    await call({ ...base, attending: ['adult'] })
+    expect(state.days['2026-09-05'].presence['child:1']).toBeTruthy() // migrated
+    expect(state.days['2026-09-05'].presence.adult).toBeTruthy() // and the add itself
   })
 })

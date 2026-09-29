@@ -13,7 +13,7 @@
 import { randomInt, createHash } from 'node:crypto'
 import { getRsvp } from '@lib/rsvp-store'
 import { normalizeAuthorizedPickup, type WaiverRecord } from '@lib/waiver-store'
-import { mutateCheckin, type CheckinState } from '@lib/checkin-store'
+import { mutateCheckin, getCheckin, type CheckinState } from '@lib/checkin-store'
 import { sendQuoText, pickupCodeText } from '@lib/quo'
 import { eventKey, type EventKind, type StudioEvent } from '@lib/events'
 import type { By } from '@lib/staff-auth'
@@ -152,4 +152,23 @@ export async function markPresent(
   let smsFailed = false
   if (code) smsFailed = (await sendPickupCode(c, code)).smsFailed
   return { state, oneTimeCode: code, smsFailed }
+}
+
+/**
+ * A household re-signed (or was re-added) under a new waiver id for the same
+ * event: carry the earlier check-in state (presence, pickup code) over to the
+ * new id so the family doesn't vanish from "here". Party-only — that's where
+ * check-in state is keyed by the bare event id. Never throws.
+ */
+export async function migrateCheckinOnReplace(kind: EventKind, id: string, oldId: string | null, newId: string): Promise<void> {
+  if (!oldId || kind !== 'party') return
+  try {
+    const old = await getCheckin(id, oldId)
+    const hadAnyPresence = Object.values(old.days).some((d) => Object.keys(d.presence).length > 0)
+    if (hadAnyPresence || old.pickupCodeHash) {
+      await mutateCheckin(id, newId, (s) => { Object.assign(s, old) })
+    }
+  } catch (err) {
+    logger.error('Checkin migration failed on re-RSVP', { error: err instanceof Error ? err.message : String(err) })
+  }
 }
