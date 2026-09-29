@@ -5,7 +5,7 @@
  *  - F3: a roster with no RSVPs yet rendered nothing at all under the header.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, act, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, act, waitFor, within } from '@testing-library/react'
 import Roster from '@components/staff/Roster'
 import type { StaffMember } from '@lib/staff-auth'
 
@@ -28,7 +28,6 @@ function household(overrides: Record<string, any> = {}) {
     signedAt: '2026-08-01T00:00:00.000Z',
     agreementVersion: 'v3',
     validUntil: '2027-08-01T00:00:00.000Z',
-    addendumVersion: 'v3',
     checkin: {
       expected: null,
       presence: {},
@@ -133,5 +132,69 @@ describe('Roster', () => {
 
     await screen.findByText(/No RSVPs yet/)
     expect(screen.queryByText(/\/waiver\?workshop=/)).not.toBeInTheDocument()
+  })
+
+  it('every roster has a "+ Add family" button that opens the door search for THIS event', async () => {
+    mockRoster([household()], { ...CAMP, dropOff: false })
+    renderRoster()
+    await screen.findAllByText('Jamie Rivera')
+    expect(screen.queryByRole('dialog', { name: /Add a family/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '+ Add family' }))
+    const sheet = await screen.findByRole('dialog', { name: 'Add a family to Fall Camp' })
+    expect(within(sheet).getByPlaceholderText('Phone, email or last name')).toBeInTheDocument()
+
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Close' }))
+    expect(screen.queryByRole('dialog', { name: /Add a family/ })).not.toBeInTheDocument()
+  })
+
+  it('a drop-off roster has it too, and shows the drop-off banner; a non-drop-off one does not', async () => {
+    mockRoster([household()])
+    const { unmount } = renderRoster()
+    await screen.findAllByText('Jamie Rivera')
+    expect(screen.getByRole('button', { name: '+ Add family' })).toBeInTheDocument()
+    expect(screen.getByText(/DROP-OFF EVENT/)).toBeInTheDocument()
+    unmount()
+
+    vi.restoreAllMocks()
+    mockRoster([household()], { ...CAMP, dropOff: false })
+    renderRoster()
+    await screen.findAllByText('Jamie Rivera')
+    expect(screen.getByRole('button', { name: '+ Add family' })).toBeInTheDocument()
+    expect(screen.queryByText(/DROP-OFF EVENT/)).not.toBeInTheDocument()
+  })
+
+  it('a non-drop-off roster card is attendance-only (✓ Here, no check-out)', async () => {
+    mockRoster([household()], { ...CAMP, dropOff: false })
+    renderRoster()
+    await screen.findAllByText('Jamie Rivera')
+    expect(screen.getByRole('button', { name: '✓ Here (2)' })).toBeInTheDocument()
+    expect(screen.getByText(/Not here yet/)).toBeInTheDocument()
+    expect(screen.queryByText(/Check out|Collected by/i)).not.toBeInTheDocument()
+  })
+
+  it('opens the sheet on arrival with the household already found (Today\'s event chip)', async () => {
+    mockRoster([], { ...CAMP, dropOff: false })
+    const found = {
+      recordId: 'wvr_9', firstName: 'Sam', lastName: 'Lee', contactHint: '••• 0142', signedAt: '2026-08-01T00:00:00.000Z',
+      agreementVersion: 'v3', validUntil: '2027-08-01T00:00:00.000Z', covered: true, kids: [{ name: 'Mia Lee', allergies: '' }],
+      adultAllergies: '', photoConsent: true, openStudioToday: false,
+    }
+    render(
+      <Roster staff={staff} onSwitch={vi.fn()} onKits={vi.fn()} onLogout={vi.fn()} onBack={vi.fn()} kind="workshop" id="cs-camp" addFamily={{ household: found }} />,
+    )
+    const sheet = await screen.findByRole('dialog', { name: 'Add a family to Fall Camp' })
+    expect(within(sheet).getByText(/GOOD TO GO — Sam Lee/)).toBeInTheDocument()
+    expect(within(sheet).getByRole('button', { name: '✓ Add & mark here' })).toBeInTheDocument()
+  })
+
+  it('the "n with allergies" summary ignores "None" answers', async () => {
+    mockRoster([
+      household({ children: [{ name: 'A', allergies: 'None', medications: '' }], adultAllergies: 'n/a' }),
+      household({ recordId: 'wvr_2', signer: 'Pat Lee', children: [{ name: 'B', allergies: 'peanuts', medications: '' }] }),
+    ], { ...CAMP, dropOff: false })
+    renderRoster()
+    await screen.findAllByText('Jamie Rivera')
+    expect(screen.getByText('⚠ 1 with allergies')).toBeInTheDocument()
   })
 })

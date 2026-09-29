@@ -39,8 +39,7 @@ export const sectionNoteStyle: CSSProperties = {
   lineHeight: 1.5,
 }
 
-/** Scrollable legal-text box — shared by the agreement and the drop-off
- *  addendum so they read as the same kind of thing. */
+/** Scrollable legal-text box — for the agreement text. */
 export const scrollBoxStyle: CSSProperties = {
   maxHeight: '20rem',
   overflowY: 'auto',

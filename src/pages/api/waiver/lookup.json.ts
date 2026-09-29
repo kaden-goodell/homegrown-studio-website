@@ -1,22 +1,14 @@
 import type { APIRoute } from 'astro'
 import { lookupHouseholdEntry } from '@lib/waiver-store'
+import { effectivePickup } from '@lib/pickup'
 import { rateLimited } from '@lib/rate-limit'
+import { issueReuseToken } from '@lib/reuse-token'
 import { substantiveSince, compareVersions } from '@config/waiver-content'
-import { issueOtp, resendOtp } from '@lib/otp-store'
-import { sendQuoText, toE164 } from '@lib/quo'
 import { createLogger } from '@lib/logger'
 
 const logger = createLogger('api:waiver:lookup')
 
 export const prerender = false
-
-/** Exact SMS wording (HOM-218) — the household's own phone gets this, never
- *  whatever the caller typed into the lookup box. */
-const otpText = (code: string) => `Your Hometown Studio code is ${code}. It expires in 10 minutes.`
-
-/** Last 2 digits of the on-file phone, shown so the caller can tell they got
- *  the right household without ever seeing the full number back. */
-const phoneHint = (phone: string): string => `••${phone.replace(/\D/g, '').slice(-2)}`
 
 function ok(data: Record<string, unknown>): Response {
   return new Response(JSON.stringify({ data }), { status: 200, headers: { 'Content-Type': 'application/json' } })
@@ -26,36 +18,21 @@ function err(message: string, status: number): Response {
   return new Response(JSON.stringify({ error: message }), { status })
 }
 
-/** Quo down, or the on-file phone can't be normalized — the client falls
- *  through to the full form; the OTP step never happens (no bypass). */
-function smsFailed(firstName: string): Response {
-  return ok({ found: true, smsFailed: true, firstName })
-}
-
-/** The response shape once a code has gone out — deliberately NOTHING that
- *  identifies the household beyond a first name: no recordId, no kids'
- *  names, no reuseToken. Those only ever leave verify.json, after the caller
- *  has proven they hold the on-file phone (HOM-218 / audit finding H2). */
-function codeSent(firstName: string, kidCount: number, validUntil: string, phone: string): Response {
-  return ok({ found: true, firstName, kidCount, validUntil, needsCode: true, phoneHint: phoneHint(phone) })
-}
-
 /**
- * Returning-customer lookup. Given an email or phone, says whether a still-
- * valid household agreement is on file. No sensitive fields (kids' names,
- * the record id, a reuse token) go back until `verify.json` confirms the
- * caller holds the on-file phone via a texted one-time code — this endpoint
- * only ever starts that check.
+ * Returning-customer lookup. Type an email or phone → the household appears.
  *
- * POST { contact, resend? } → { found, firstName?, kidCount?, validUntil?, needsCode?, phoneHint?, smsFailed? }
- *   or, when the agreement text has changed substantively since they last
- *   signed (HOM-210): { found: true, mustResign: true, firstName } — the
- *   client opens the full form instead, no code needed.
- *   or, when found but lapsed: { found: false, expired: true, firstName, validUntil }.
+ * POST { contact, partyId?, workshopId? } →
+ *   found + valid: { found: true, recordId, firstName, kids, validUntil, signedAt, reuseToken, hasPickup }
+ *   agreement text changed substantively since they signed (HOM-210):
+ *     { found: true, mustResign: true, firstName } — the client opens the full form.
+ *   found but lapsed: { found: false, expired: true, firstName, validUntil }
+ *   nothing on file: { found: false }
  *
- * `resend: true` asks for a fresh code against an OTP already issued by an
- * earlier call on this same contact (rate-limited: 60s cooldown, 3 sends max
- * per OTP — see @lib/otp-store).
+ * `hasPickup` (HOM-212) is a boolean only — this endpoint is public, so it never
+ * returns the third-party names/phones themselves. It is true when authorized
+ * adults are on file for the HOUSEHOLD (newest across its RSVPs for any event,
+ * else the signature — see `@lib/pickup`); `partyId`/`workshopId` don't change
+ * the answer, because a household's pickup list follows it to every event.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (rateLimited(`lookup:${clientAddress}`, 10, 60_000)) {
@@ -67,31 +44,11 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!contact) {
     return err('Enter an email or phone number.', 400)
   }
+  const partyId = typeof body?.partyId === 'string' && body.partyId.trim() ? body.partyId.trim() : null
+  const workshopId = typeof body?.workshopId === 'string' && body.workshopId.trim() ? body.workshopId.trim() : null
 
   const h = await lookupHouseholdEntry(contact)
   if (!h) return ok({ found: false })
-
-  if (body?.resend === true) {
-    const result = await resendOtp(h.recordId)
-    if (!result.ok) {
-      if (result.reason === 'cooldown') return err('Give it a minute before asking for another code.', 429)
-      if (result.reason === 'max-sends') return err("You've already gotten a few codes — look yourself up again in a bit.", 429)
-      // 'not-found' — nothing to resend against (never issued, or already consumed/expired).
-      return err('That code expired — look yourself up again.', 410)
-    }
-    const toPhone = toE164(h.phone)
-    if (!toPhone) {
-      logger.error('On-file phone unparseable — cannot resend a code', { recordId: h.recordId })
-      return smsFailed(h.firstName)
-    }
-    try {
-      await sendQuoText({ to: toPhone, content: otpText(result.code) })
-    } catch (error) {
-      logger.error('OTP resend failed', { recordId: h.recordId, error: String(error) })
-      return smsFailed(h.firstName)
-    }
-    return codeSent(h.firstName, h.minors.length, h.validUntil, h.phone)
-  }
 
   // Found but lapsed: don't offer one-tap reuse — they must re-sign. Tell them
   // who/what we found (their own name + when it expired) so it isn't a mystery.
@@ -100,26 +57,30 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
 
   // The agreement text has changed substantively since this household last
-  // signed (HOM-210) — no one-tap reuse (and no code needed); the client
-  // opens the full form. Only the first name goes back, same privacy rule as
-  // the normal "found" case.
+  // signed (HOM-210) — no one-tap reuse; the client opens the full form.
   if (compareVersions(h.agreementVersion, substantiveSince) < 0) {
     return ok({ found: true, mustResign: true, firstName: h.firstName })
   }
 
-  const toPhone = toE164(h.phone)
-  if (!toPhone) {
-    logger.error('On-file phone unparseable — cannot text a code', { recordId: h.recordId })
-    return smsFailed(h.firstName)
-  }
-
-  const code = await issueOtp(h.recordId)
+  // Same resolver the pickup gate uses (newest across the household's RSVPs,
+  // else the signature). `hasPickup` means AUTHORIZED ADULTS are on file — a
+  // may-NOT-collect note alone doesn't answer "who picks up?". Boolean only:
+  // this endpoint is public.
+  let hasPickup = false
   try {
-    await sendQuoText({ to: toPhone, content: otpText(code) })
+    hasPickup = (await effectivePickup({ waiver: h })).authorizedPickup.length > 0
   } catch (error) {
-    logger.error('OTP send failed', { recordId: h.recordId, error: String(error) })
-    return smsFailed(h.firstName)
+    logger.error('Pickup lookup failed — treating as none on file', { error: String(error) })
   }
 
-  return codeSent(h.firstName, h.minors.length, h.validUntil, h.phone)
+  return ok({
+    found: true,
+    recordId: h.recordId,
+    firstName: h.firstName,
+    kids: h.minors.map((m) => m.name.split(' ')[0]),
+    validUntil: h.validUntil,
+    signedAt: h.signedAt,
+    reuseToken: issueReuseToken(h.recordId),
+    hasPickup,
+  })
 }

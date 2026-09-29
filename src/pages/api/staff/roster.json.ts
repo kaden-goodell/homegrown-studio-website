@@ -3,6 +3,7 @@ import { staffAuthorized } from '@lib/staff-auth'
 import { getEvent, eventKey, resolveEventDay, EVENT_KIND_RE } from '@lib/events'
 import { listWaiversByEvent, markDuplicateChildren, normalizeAuthorizedPickup } from '@lib/waiver-store'
 import { getRsvp } from '@lib/rsvp-store'
+import { effectivePickup } from '@lib/pickup'
 import { getCheckin, toPublicCheckin, presenceOn } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 
@@ -55,15 +56,17 @@ export const GET: APIRoute = async ({ request, url }) => {
         // event; the waiver's own field is a legacy fallback for records
         // signed before RSVPs existed (HOM-210).
         const rsvp = await getRsvp(kind as RosterKind, id, w.id)
-        // A returning household's RSVP-time pickup override (HOM-212 — filled
-        // on the RSVP screen when the on-file signature had no pickup rows)
-        // wins over the signature's own fields when present — same rule
-        // checkin.json.ts uses to seed the door state.
-        const authorizedPickup = rsvp?.pickup
-          ? normalizeAuthorizedPickup(rsvp.pickup.authorizedPickup)
-          : normalizeAuthorizedPickup(w.authorizedPickup)
-        const notAuthorized = rsvp?.pickup?.notAuthorized || w.notAuthorized || ''
         const checkinState = await getCheckin(eventKey(kind as RosterKind, id), w.id, { firstDay: event.days[0] })
+        // Display must never disagree with the pickup gate (checkin.json). The
+        // gate reads the door-side state once it has been seeded (which is
+        // itself seeded RSVP override > signature); before that, show what it
+        // WILL seed from. An empty seeded list is a deliberate staff edit.
+        const seeded = checkinState.pickupSeeded
+        const fallback = seeded ? null : await effectivePickup({ waiver: w })
+        const authorizedPickup = seeded
+          ? normalizeAuthorizedPickup(checkinState.confirmedPickup)
+          : fallback!.authorizedPickup
+        const notAuthorized = checkinState.notAuthorized || (seeded ? '' : fallback!.notAuthorized)
         const pub = toPublicCheckin(checkinState)
         return {
           recordId: w.id,
@@ -90,7 +93,6 @@ export const GET: APIRoute = async ({ request, url }) => {
           signedAt: w.signedAt,
           agreementVersion: w.agreementVersion,
           validUntil: w.validUntil,
-          addendumVersion: rsvp?.addendumVersion ?? null,
           checkin: {
             expected: pub.expected,
             presence: presenceOn(checkinState, day),

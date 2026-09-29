@@ -8,17 +8,21 @@ import {
   newWaiverId,
   upsertWaiverInEventIndex,
   indexWaiverByContact,
+  lookupHouseholdEntry,
+  type HouseholdOnFile,
   type WaiverRecord,
   type AuthorizedPickup,
 } from '@lib/waiver-store'
 import { upsertRsvp, getRsvp, type RsvpRecord } from '@lib/rsvp-store'
-import { setExpected, getCheckin, mutateCheckin } from '@lib/checkin-store'
+import { setExpected } from '@lib/checkin-store'
+import { effectivePickup, storablePickup, sameHousehold } from '@lib/pickup'
+import { migrateCheckinOnReplace } from '@lib/checkin-actions'
+import { isNoneToken } from '@lib/allergy'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { verifyReuseToken } from '@lib/reuse-token'
 import { getEvent, isEventPast, type EventKind as StudioEventKind, type StudioEvent } from '@lib/events'
-import { addendumRequired, currentAddendum } from '@lib/addendum'
-import { sendAgreementCopyEmail } from '@lib/email'
+import { sendAgreementCopyEmail, sendDropOffDetailsEmail } from '@lib/email'
 
 export const prerender = false
 
@@ -52,17 +56,11 @@ function coveredNames(adult: { firstName: string; lastName: string }, minors: { 
   return [`${adult.firstName} ${adult.lastName}`.trim(), ...minors.map((m) => m.name)]
 }
 
-/** Addendum acceptance echoed back on a signed/RSVP response — a hook for the
- *  copy-email ticket to read without re-deriving the hash. `null` when no
- *  addendum was required (or accepted) for this signature/RSVP. */
-type AddendumAccepted = { version: string; sha256: string } | null
-
 /** Response for a fresh signature (new WaiverRecord just written). */
 function okSigned(
   record: WaiverRecord,
   partyId: string | null,
   context: { kind: SignableEventKind; id: string } | null,
-  addendumAccepted: AddendumAccepted,
 ): Response {
   return new Response(
     JSON.stringify({
@@ -72,7 +70,6 @@ function okSigned(
         validUntil: record.validUntil,
         partyId,
         context,
-        addendumAccepted,
       },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -80,7 +77,7 @@ function okSigned(
 }
 
 /** Response for a reuse RSVP (no new signature — the on-file one covers them). */
-function okRsvp(source: WaiverRecord, rsvp: RsvpRecord, addendumAccepted: AddendumAccepted): Response {
+function okRsvp(source: WaiverRecord, rsvp: RsvpRecord): Response {
   return new Response(
     JSON.stringify({
       data: {
@@ -88,7 +85,6 @@ function okRsvp(source: WaiverRecord, rsvp: RsvpRecord, addendumAccepted: Addend
         waiverId: source.id,
         validUntil: source.validUntil,
         covered: coveredNames(source.adult, source.minors),
-        addendumAccepted,
       },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -169,6 +165,37 @@ function fireAgreementCopyEmail(input: Parameters<typeof sendAgreementCopyEmail>
   })()
 }
 
+/** The drop-off details are about collecting a child — no child attending, no email. */
+const hasChild = (ids: string[]) => ids.some((id) => id.startsWith('child:'))
+
+/** Same contract as `fireAgreementCopyEmail`, for the drop-off details email. */
+function fireDropOffDetailsEmail(input: Parameters<typeof sendDropOffDetailsEmail>[0], recordId: string): void {
+  void (async () => {
+    try {
+      await sendDropOffDetailsEmail(input)
+    } catch (err) {
+      logger.error('Drop-off details email failed (RSVP saved)', { id: recordId, error: String(err) })
+    }
+  })()
+}
+
+/**
+ * The household this fresh signature replaces: same email AND signer name
+ * (sameHousehold). Never by phone — the phone index knows nothing about
+ * households, and pickup names are third parties' data. A re-sign must never
+ * silently erase a custody restriction the parent gave before; blank optional
+ * pickup fields mean "no change", not "none". Best-effort.
+ */
+async function findPreviousHousehold(next: { email: string; firstName: string; lastName: string }): Promise<HouseholdOnFile | null> {
+  try {
+    const h = await lookupHouseholdEntry(next.email)
+    return h && sameHousehold(h, next) ? h : null
+  } catch (err) {
+    logger.error('Previous-household lookup failed — nothing carried over', { error: String(err) })
+    return null
+  }
+}
+
 /** Save the signature + update the contact index. Event attachment (roster,
  *  RSVP) is separate — see `indexEventRsvp` — a signature no longer carries
  *  its event (HOM-210). */
@@ -192,18 +219,7 @@ async function persistWaiver(record: WaiverRecord): Promise<void> {
 async function indexEventRsvp(kind: SignableEventKind, id: string, record: WaiverRecord, rsvpId: string): Promise<void> {
   try {
     const { replacedRecordId } = await upsertWaiverInEventIndex(kind, id, record, rsvpId)
-    // Checkin migration is party-only — check-in state lives in the party domain.
-    if (replacedRecordId && kind === 'party') {
-      try {
-        const old = await getCheckin(id, replacedRecordId)
-        const hadAnyPresence = Object.values(old.days).some((d) => Object.keys(d.presence).length > 0)
-        if (hadAnyPresence || old.pickupCodeHash) {
-          await mutateCheckin(id, record.id, (s) => { Object.assign(s, old) })
-        }
-      } catch (err) {
-        logger.error('Checkin migration failed on re-RSVP', { error: String(err) })
-      }
-    }
+    await migrateCheckinOnReplace(kind, id, replacedRecordId, record.id)
   } catch (err) {
     logger.error('Event index failed (signature saved)', { id: record.id, error: String(err) })
   }
@@ -261,7 +277,7 @@ async function attachSquare(record: WaiverRecord): Promise<void> {
       medicationLines.length ? `Medications — ${medicationLines.join('; ')}` : '',
       `Emergency: ${record.emergency.name} ${record.emergency.phone}`,
       pickupNames ? `Pickup: ${pickupNames}` : '',
-      record.notAuthorized ? `⛔ NOT authorized: ${record.notAuthorized}` : '',
+      record.notAuthorized && !isNoneToken(record.notAuthorized) ? `⛔ NOT authorized: ${record.notAuthorized}` : '',
     ].filter(Boolean).join(' · ')
     await providers.customer.appendNote(
       customer.id,
@@ -339,7 +355,6 @@ async function handleReuse(
   bookingId: string | null,
   attendingRaw: unknown,
   responsibleAdult: string,
-  agreeAddendum: boolean,
   pickupUpdateRaw: unknown,
   now: Date,
   clientAddress: string | undefined,
@@ -387,23 +402,23 @@ async function handleReuse(
   const validIds = new Set(['adult', ...source.minors.map((_, i) => `child:${i}`)])
   const resolvedIds = resolveAttending(attendingRaw, validIds)
 
-  // A re-RSVP (e.g. just changing headcount) with no pickupUpdate must never
-  // silently erase a pickup override saved on an earlier RSVP for this same
-  // event — upsertRsvp fully replaces the record, so carry the existing
-  // pickup forward when the client didn't send a new one (fix round 1).
-  if (!pickup) {
-    const existingRsvp = await getRsvp(eventKind, eventId, source.id)
-    if (existingRsvp?.pickup) pickup = existingRsvp.pickup
+  // Blank never erases: the household's pickup list / may-NOT-collect follow it
+  // to every event (newest source per field — see @lib/pickup). A pickupUpdate
+  // replaces only the fields actually typed (rows if any, note if non-blank; a
+  // note of "None" is the deliberate clear). upsertRsvp fully replaces the
+  // record, so store the resolved value.
+  const eff = await effectivePickup({ waiver: source })
+  if (pickup) {
+    pickup = {
+      authorizedPickup: pickup.authorizedPickup.length > 0 ? pickup.authorizedPickup : eff.authorizedPickup,
+      notAuthorized: pickup.notAuthorized || eff.rawNotAuthorized, // raw: a "None" clear must persist
+    }
+  } else {
+    pickup = storablePickup(eff)
   }
 
   const raErr = checkResponsibleAdult(partyId, dropOff, resolvedIds, responsibleAdult)
   if (raErr) return raErr
-
-  const addendumNeeded = addendumRequired(event, resolvedIds, source.minors.length)
-  if (addendumNeeded && agreeAddendum !== true) {
-    return bad('Please read and accept the Drop-off Program Addendum to continue.')
-  }
-  const addendum = addendumNeeded ? currentAddendum() : null
 
   const rsvp = await upsertRsvp({
     waiverId: source.id,
@@ -411,8 +426,6 @@ async function handleReuse(
     ...(bookingId ? { ref: { bookingId } } : {}),
     attending: resolvedIds,
     responsibleAdult: responsibleAdult || null,
-    addendumVersion: addendum?.version ?? null,
-    addendumSha256: addendum?.sha256 ?? null,
     ...(pickup ? { pickup } : {}),
     at: now.toISOString(),
     ip: clientAddress ?? null,
@@ -421,17 +434,15 @@ async function handleReuse(
   await recordExpected(partyId, source.id, resolvedIds)
   await indexEventRsvp(eventKind, eventId, source, rsvp.id)
 
-  // Only when this RSVP just accepted the addendum for the first time — the
-  // base agreement is already on file and unchanged, so no email otherwise.
-  if (addendum) {
-    fireAgreementCopyEmail(
-      { record: source, addendum: { version: addendum.version, acceptedAt: now.toISOString() }, event, returning: true },
+  if (dropOff && event && hasChild(resolvedIds)) {
+    fireDropOffDetailsEmail(
+      { record: source, event, attending: resolvedIds, ...(pickup ? { authorizedPickup: pickup.authorizedPickup } : {}) },
       source.id,
     )
   }
 
   logger.info('RSVP via reuse', { waiverId: source.id, rsvpId: rsvp.id, partyId, workshopId })
-  return okRsvp(source, rsvp, addendum)
+  return okRsvp(source, rsvp)
 }
 
 /**
@@ -445,7 +456,6 @@ async function handleFresh(
   workshopId: string | null,
   bookingId: string | null,
   responsibleAdult: string,
-  agreeAddendum: boolean,
   now: Date,
   clientAddress: string | undefined,
   userAgent: string | null,
@@ -521,14 +531,21 @@ async function handleFresh(
   const freshRaErr = checkResponsibleAdult(partyId, dropOff, freshResolvedIds, responsibleAdult)
   if (freshRaErr) return freshRaErr
 
-  const addendumNeeded = addendumRequired(event, freshResolvedIds, minors.length)
-  if (addendumNeeded && agreeAddendum !== true) {
-    return bad('Please read and accept the Drop-off Program Addendum to continue.')
-  }
-  const addendum = addendumNeeded ? currentAddendum() : null
-
   const validUntil = new Date(now)
   validUntil.setMonth(validUntil.getMonth() + waiverContent.validityMonths)
+
+  // Blank pickup / may-NOT-collect fields never erase what the household had
+  // before (its previous RSVP override for this event, its latest RSVP
+  // anywhere, or the previous signature); typing new values replaces them.
+  // The new signature itself carries the result, so it lives on the record.
+  const prev = await findPreviousHousehold({ email, firstName, lastName })
+  const prevEff = prev
+    ? await effectivePickup({ waiver: prev }).catch(() => null)
+    : null
+  const carriedPickup = {
+    authorizedPickup: pickupData.authorizedPickup.length > 0 ? pickupData.authorizedPickup : (prevEff?.authorizedPickup ?? []),
+    notAuthorized: pickupData.notAuthorized || prevEff?.rawNotAuthorized || '', // raw: a "None" clear must persist
+  }
 
   const record: WaiverRecord = {
     id: newWaiverId(),
@@ -539,8 +556,8 @@ async function handleFresh(
     adult: { firstName, lastName, email, phone, dob, allergies: String(body.adultAllergies ?? '').trim() },
     minors,
     emergency: { name: emergencyName, phone: emergencyPhone, relationship: emergencyRelationship },
-    authorizedPickup: pickupData.authorizedPickup,
-    notAuthorized: pickupData.notAuthorized,
+    authorizedPickup: carriedPickup.authorizedPickup,
+    notAuthorized: carriedPickup.notAuthorized,
     photoConsent: body.photoConsent,
     signature,
     squareCustomerId: null,
@@ -552,38 +569,35 @@ async function handleFresh(
 
   // Every fresh signature gets an emailed copy (HOM-216) — fire-and-forget,
   // never blocks or fails the save.
-  fireAgreementCopyEmail(
-    {
-      record,
-      addendum: addendum ? { version: addendum.version, acceptedAt: now.toISOString() } : null,
-      event,
-    },
-    record.id,
-  )
+  fireAgreementCopyEmail({ record }, record.id)
 
   const eventId = partyId ?? workshopId
   let context: { kind: SignableEventKind; id: string } | null = null
   if (eventKind && eventId) {
     context = { kind: eventKind, id: eventId }
+    // A restriction the household already gave goes on the new RSVP too.
+    const rsvpPickup: RsvpRecord['pickup'] = storablePickup(prevEff) ? carriedPickup : null
     const rsvp = await upsertRsvp({
       waiverId: record.id,
       event: { kind: eventKind, id: eventId },
       ...(bookingId ? { ref: { bookingId } } : {}),
       attending: freshResolvedIds,
       responsibleAdult: responsibleAdult || null,
-      addendumVersion: addendum?.version ?? null,
-      addendumSha256: addendum?.sha256 ?? null,
+      ...(rsvpPickup ? { pickup: rsvpPickup } : {}),
       at: now.toISOString(),
       ip: clientAddress ?? null,
       userAgent,
     })
     await recordExpected(partyId, record.id, freshResolvedIds)
     await indexEventRsvp(eventKind, eventId, record, rsvp.id)
+    if (dropOff && event && hasChild(freshResolvedIds)) {
+      fireDropOffDetailsEmail({ record, event, attending: freshResolvedIds }, record.id)
+    }
   }
 
   await attachSquare(record)
   logger.info('Waiver signed', { recordId: record.id, minors: minors.length, partyId })
-  return okSigned(record, partyId, context, addendum)
+  return okSigned(record, partyId, context)
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
@@ -606,7 +620,6 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const responsibleAdult = typeof body.responsibleAdult === 'string'
       ? body.responsibleAdult.trim().slice(0, 120)
       : ''
-    const agreeAddendum = body.agreeAddendum === true
 
     // Mutually exclusive — can only attach a signature to one event at a time.
     if (partyId && workshopId) return bad('One event per signature, please.')
@@ -620,10 +633,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const reuseId = typeof body.reuseRecordId === 'string' ? body.reuseRecordId.trim() : ''
     const reuseToken = typeof body.reuseToken === 'string' ? body.reuseToken.trim() : ''
     if (reuseId) {
-      return handleReuse(reuseId, reuseToken, partyId, workshopId, bookingId, body.attending, responsibleAdult, agreeAddendum, body.pickupUpdate, now, clientAddress, userAgent)
+      return handleReuse(reuseId, reuseToken, partyId, workshopId, bookingId, body.attending, responsibleAdult, body.pickupUpdate, now, clientAddress, userAgent)
     }
 
-    return handleFresh(body, partyId, workshopId, bookingId, responsibleAdult, agreeAddendum, now, clientAddress, userAgent)
+    return handleFresh(body, partyId, workshopId, bookingId, responsibleAdult, now, clientAddress, userAgent)
   } catch (err) {
     logger.error('Waiver signing failed', { error: err instanceof Error ? err.message : String(err) })
     return bad('Something went wrong saving your signature — please try again or sign at the front desk.', 500)

@@ -18,7 +18,8 @@ vi.mock('@lib/waiver-store', async (importOriginal) => {
 })
 
 const mockGetRsvp = vi.fn()
-vi.mock('@lib/rsvp-store', () => ({ getRsvp: (...a: any[]) => mockGetRsvp(...a) }))
+const mockLatest = vi.fn()
+vi.mock('@lib/rsvp-store', () => ({ getRsvp: (...a: any[]) => mockGetRsvp(...a), getLatestPickupForWaiver: (...a: any[]) => mockLatest(...a) }))
 
 const mockSendQuoText = vi.fn()
 vi.mock('@lib/quo', async (importOriginal) => {
@@ -92,6 +93,7 @@ beforeEach(async () => {
   mockGetEvent.mockResolvedValue(singleDayEvent) // non-drop-off party — no pickup code involved
   mockGetWaiverRecord.mockResolvedValue(null)
   mockGetRsvp.mockResolvedValue(null)
+  mockLatest.mockReset().mockResolvedValue(null)
   mockSendQuoText.mockReset()
   mockSendQuoText.mockResolvedValue(undefined)
   POST = (await import('@pages/api/staff/checkin.json')).POST
@@ -648,5 +650,65 @@ describe('POST /api/staff/checkin.json — override audit + copy', () => {
     const res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code: '1234', collectedBy: 'Grandma Rivera', idChecked: true })
     expect(res.status).toBe(400)
     expect((await res.json()).error).toBe('No pickup code has been issued for this family — use "Issue pickup code" first.')
+  })
+})
+
+describe('non-drop-off events are attendance-only', () => {
+  const MSG = "This event isn't drop-off — there's nothing to check out."
+
+  it.each(['pickup', 'undo-pickup', 'pickup-override', 'reissue-code', 'set-pickup'])(
+    '%s on a non-drop-off event → 400 and nothing is written',
+    async (action) => {
+      const res = await POST(ctx({ party: 'party-1', recordId: 'rec-1', action, personIds: ['adult'], collectedBy: 'x', reason: 'parent-present', confirmedPickup: [] }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe(MSG)
+      expect(mockMutate).not.toHaveBeenCalled()
+    },
+  )
+
+  it('checkin and undo-checkin still work, and never issue a code', async () => {
+    const inRes = await POST(ctx({ party: 'party-1', recordId: 'rec-1', action: 'checkin', personIds: ['adult'] }))
+    expect(inRes.status).toBe(200)
+    expect((await inRes.json()).data.oneTimeCode).toBeUndefined()
+    expect(state.days['2026-09-05'].presence.adult.outAt).toBeNull()
+    const undo = await POST(ctx({ party: 'party-1', recordId: 'rec-1', action: 'undo-checkin', personIds: ['adult'] }))
+    expect(undo.status).toBe(200)
+    expect(state.days['2026-09-05'].presence.adult).toBeUndefined()
+  })
+
+  it('drop-off events still take the pickup actions (unchanged)', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    const res = await dropOffPost({ action: 'reissue-code', reason: 'lost' })
+    expect(res.status).toBe(200)
+    expect((await res.json()).data.oneTimeCode).toMatch(/^\d{4}$/)
+  })
+})
+
+describe('pickup follows the household (seeding)', () => {
+  it('(a) check-in at event B seeds the may-NOT-collect / list from the household\'s other RSVP', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ authorizedPickup: [], notAuthorized: '' }))
+    mockLatest.mockResolvedValue({ authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: 'Rick Smith' })
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    expect(state.notAuthorized).toBe('Rick Smith')
+    expect(state.confirmedPickup.map((p) => p.name)).toEqual(['Aunt Sue'])
+  })
+
+  it('(a) check-in seeds BOTH the rows and the older may-NOT-collect note', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ authorizedPickup: [], notAuthorized: 'Rick Smith', signedAt: '2026-01-01T00:00:00.000Z' }))
+    mockLatest.mockResolvedValue({ authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: '', at: '2026-06-01T00:00:00.000Z' })
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    expect(state.notAuthorized).toBe('Rick Smith')
+    expect(state.confirmedPickup.map((p) => p.name)).toEqual(['Aunt Sue'])
+  })
+
+  it('(c) a newer "None" note seeds no restriction', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ authorizedPickup: [], notAuthorized: 'Rick Smith', signedAt: '2026-01-01T00:00:00.000Z' }))
+    mockLatest.mockResolvedValue({ authorizedPickup: [], notAuthorized: 'None', at: '2026-06-01T00:00:00.000Z' })
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    expect(state.notAuthorized).toBe('')
   })
 })

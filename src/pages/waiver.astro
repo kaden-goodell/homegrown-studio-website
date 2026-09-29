@@ -7,6 +7,7 @@ import { waiverContent } from '@config/waiver-content'
 import { getEvent, isEventPast, type StudioEvent } from '@lib/events'
 import { formatWhen } from '@lib/studio-time'
 import { safeReturnPath } from '@lib/safe-return'
+import { flowPropsFor, type EventOutcome } from '@lib/waiver-page'
 
 // Kiosk mode (HOM-209): the shared staff iPad at the counter, opened via
 // Today's "Sign on this iPad". Skips the returning-customer lookup, shows a
@@ -29,13 +30,6 @@ const subline = rawPartyId ? page.partySubline : page.subline
 //   2. found + past      → block RSVP with a notice, no id
 //   3. returned null     → unrecognised id — show warning, no id (prevents ghost RSVPs)
 //   4. threw             → transient storage error — keep id, no label
-
-type EventOutcome =
-  | { kind: 'ok';      id: string; label: string; dropOff: boolean }
-  | { kind: 'past';    notice: string }
-  | { kind: 'unknown'; notice: string }
-  | { kind: 'error';   id: string }
-  | { kind: 'none' }
 
 const rawId = rawPartyId ?? rawWorkshopId
 const eventKind = rawPartyId ? 'party' as const : rawWorkshopId ? 'workshop' as const : null
@@ -71,24 +65,15 @@ if (eventKind && rawId) {
   }
 }
 
-const flowPartyId    = eventKind === 'party' && (outcome.kind === 'ok' || outcome.kind === 'error') ? outcome.id : undefined
-const flowWorkshopId = eventKind === 'workshop' && (outcome.kind === 'ok' || outcome.kind === 'error') ? outcome.id : undefined
-const flowPartyLabel = eventKind === 'party' && outcome.kind === 'ok' ? outcome.label : undefined
-const flowEventTitle = eventKind === 'workshop' && outcome.kind === 'ok' ? outcome.label : undefined
-// On a storage error we kept the id (the RSVP still works, sign.json
-// re-validates) but had no idea whether the event is drop-off — and
-// `undefined` meant the addendum checkbox never rendered while the server
-// still REQUIRED it, a dead-end the guest couldn't get out of. Assume
-// drop-off: showing the addendum to a non-drop-off event is harmless, the
-// reverse is not.
-const flowDropOff    = outcome.kind === 'ok' ? outcome.dropOff : outcome.kind === 'error' ? true : undefined
-const noticeText     = outcome.kind === 'unknown' || outcome.kind === 'past' ? (outcome as { notice: string }).notice : null
+const flow = flowPropsFor(eventKind, outcome)
+const noticeText = flow.notice
 ---
 
 <Layout
   title="Participation Agreement"
   description="Sign the Hometown Studio participation agreement — each adult signs for themselves and their own kids, good for a full year."
   noindex={kiosk}
+  bare={kiosk}
 >
   <section class="max-w-2xl mx-auto px-4 sm:px-6 py-28">
     <div class="text-center mb-10 fade-in">
@@ -122,6 +107,6 @@ const noticeText     = outcome.kind === 'unknown' || outcome.kind === 'past' ? (
       </div>
     )}
 
-    <WaiverFlow client:load partyId={flowPartyId} partyLabel={flowPartyLabel} workshopId={flowWorkshopId} eventTitle={flowEventTitle} dropOff={flowDropOff} booking={rawBooking} kiosk={kiosk} returnTo={returnTo} />
+    <WaiverFlow client:load partyId={flow.partyId} partyLabel={flow.partyLabel} workshopId={flow.workshopId} eventTitle={flow.eventTitle} dropOff={flow.dropOff} booking={rawBooking} kiosk={kiosk} returnTo={returnTo} />
   </section>
 </Layout>

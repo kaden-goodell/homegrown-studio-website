@@ -1,0 +1,148 @@
+/**
+ * Only drop-off events have real check-out. Every other event's card is
+ * attendance-only: tick boxes + ONE `✓ Here (n)` button; after that each person
+ * shows `● here 4:12 PM` with a small Undo. No pickup panel, no "collected by",
+ * no code, no "All picked up", no Reset.
+ */
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import HouseholdCard, { type Household } from '@components/staff/HouseholdCard'
+
+function household(presence: Household['checkin']['presence'] = {}, over: Partial<Household> = {}): Household {
+  return {
+    recordId: 'wvr_1',
+    signer: 'Jamie Rivera',
+    phone: '2565550199',
+    email: 'jamie@x.com',
+    children: [
+      { name: 'Kiddo Rivera', allergies: 'peanuts', medications: '' },
+      { name: 'Second Rivera', allergies: '', medications: '' },
+    ],
+    childCount: 2,
+    adultAllergies: '',
+    emergency: { name: 'Bob', phone: '2565559999', relationship: 'Spouse' },
+    authorizedPickup: [{ name: 'Grandma Rivera', phone: '' }],
+    notAuthorized: 'Rick Smith',
+    responsibleAdult: '',
+    photoConsent: false,
+    signedAt: '2026-08-01T00:00:00.000Z',
+    agreementVersion: 'v3',
+    validUntil: '2027-08-01T00:00:00.000Z',
+    checkin: {
+      expected: null,
+      presence,
+      pickedUpBy: null,
+      confirmedPickup: [{ name: 'Grandma Rivera', phone: '' }],
+      notAuthorized: 'Rick Smith',
+      hasPickupCode: false,
+      codeAttempts: 0,
+      locked: false,
+      releasedTo: {},
+    },
+    ...over,
+  }
+}
+
+const here = { inAt: '2026-09-05T21:12:00.000Z', outAt: null }
+
+function renderCard(h: Household, dropOff: boolean, post = vi.fn(async () => ({}))) {
+  render(<HouseholdCard h={h} dropOff={dropOff} kind="party" id="p1" day="2026-09-05" post={post as any} />)
+  return post
+}
+
+const CHECKOUT_TEXT = [/Check out/i, /Collected by/i, /Pickup code/i, /All picked up/i, /Override/i, /Re-send code/i, /Issue pickup code/i, /^Reset$/, /photo ID/i, /May NOT collect/i, /Someone else/i]
+
+describe('HouseholdCard — non-drop-off (attendance-only)', () => {
+  it('before anyone arrives: tick boxes and one ✓ Here (n) button, pill says Not here yet', () => {
+    renderCard(household(), false)
+    expect(screen.getByText(/Not here yet/)).toBeInTheDocument()
+    expect(screen.getAllByRole('checkbox')).toHaveLength(3)
+    expect(screen.getByRole('button', { name: '✓ Here (3)' })).toBeInTheDocument()
+    for (const t of CHECKOUT_TEXT) expect(screen.queryByText(t)).not.toBeInTheDocument()
+    expect(screen.queryByPlaceholderText(/code|Someone else/i)).not.toBeInTheDocument()
+  })
+
+  it('the button counts only ticked people and posts a plain checkin for them', async () => {
+    const post = renderCard(household(), false)
+    fireEvent.click(screen.getAllByRole('checkbox')[0]) // untick the adult
+    fireEvent.click(screen.getByRole('button', { name: '✓ Here (2)' }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('wvr_1', { day: '2026-09-05', action: 'checkin', personIds: ['child:0', 'child:1'] }))
+  })
+
+  it('after tapping: each person shows "● here <time>" with Undo — and still no check-out controls', () => {
+    renderCard(household({ adult: here, 'child:0': here }), false)
+    expect(screen.getByText(/2 of 3 here/)).toBeInTheDocument()
+    expect(screen.getAllByText(/● here/)).toHaveLength(2)
+    expect(screen.getAllByRole('button', { name: 'Undo' })).toHaveLength(2)
+    // the one not-yet-here person can still be added
+    expect(screen.getByRole('button', { name: '✓ Here (1)' })).toBeInTheDocument()
+    for (const t of CHECKOUT_TEXT) expect(screen.queryByText(t)).not.toBeInTheDocument()
+  })
+
+  it('Undo clears just that person via undo-checkin (no confirm dialog)', async () => {
+    const confirm = vi.spyOn(window, 'confirm')
+    const post = renderCard(household({ adult: here }), false)
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(post).toHaveBeenCalledWith('wvr_1', { day: '2026-09-05', action: 'undo-checkin', personIds: ['adult'] }))
+    expect(confirm).not.toHaveBeenCalled()
+  })
+
+  it('tapping a here-person\'s NAME does not press Undo (the row is not a <label> around a button)', () => {
+    const post = renderCard(household({ adult: here }), false)
+    fireEvent.click(screen.getAllByText('Jamie Rivera').at(-1)!) // header name first, person row last
+    expect(post).not.toHaveBeenCalled()
+  })
+
+  it('an old checked-out row (from before this rule) reads as here, not "left"', () => {
+    renderCard(household({ adult: { inAt: here.inAt, outAt: '2026-09-05T22:00:00.000Z' } }), false)
+    expect(screen.getByText(/● here/)).toBeInTheDocument()
+    expect(screen.queryByText(/left/)).not.toBeInTheDocument()
+  })
+
+  it('keeps allergy + no-photo badges, emergency contact, signed/valid line and History', () => {
+    renderCard(household(), false)
+    expect(screen.getAllByText(/peanuts/).length).toBeGreaterThan(0)
+    expect(screen.getByText(/No photos/)).toBeInTheDocument()
+    expect(screen.getByText(/Emergency:/)).toBeInTheDocument()
+    expect(screen.getByText(/valid to/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /History/ })).toBeInTheDocument()
+  })
+})
+
+describe('HouseholdCard — allergy "None"', () => {
+  it('a child whose allergies are the literal "None" shows no warning badge and no family flag', () => {
+    const h = household({}, { children: [{ name: 'Kiddo Rivera', allergies: 'None', medications: '' }], childCount: 1 })
+    renderCard(h, false)
+    expect(screen.queryByText(/⚠/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Allergies in this family/)).not.toBeInTheDocument()
+  })
+
+  it('a real allergy still does', () => {
+    renderCard(household(), false)
+    expect(screen.getByText(/Allergies in this family/)).toBeInTheDocument()
+  })
+})
+
+describe('HouseholdCard — drop-off (unchanged)', () => {
+  it('shows the pickup machinery once someone is here', () => {
+    renderCard(household({ 'child:0': here }), true)
+    expect(screen.getByText(/1 of 3 here/)).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('Pickup code')).toBeInTheDocument()
+    expect(screen.getByText(/May NOT collect: Rick Smith/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeInTheDocument()
+    expect(screen.getByText(/Override/)).toBeInTheDocument()
+  })
+
+  it('still says Check in (n) / Not arrived before arrival', () => {
+    renderCard(household(), true)
+    expect(screen.getByText(/Not arrived/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Check in (3)' })).toBeInTheDocument()
+  })
+
+  it('a checked-out person still reads "left" with who collected them', () => {
+    const h = household({ 'child:0': { inAt: here.inAt, outAt: '2026-09-05T22:00:00.000Z' } })
+    h.checkin.releasedTo = { 'child:0': { name: 'Grandma Rivera', at: '2026-09-05T22:00:00.000Z', day: '2026-09-05' } }
+    renderCard(h, true)
+    expect(screen.getByText(/✓ left .*Grandma Rivera/)).toBeInTheDocument()
+  })
+})

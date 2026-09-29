@@ -16,6 +16,7 @@ import { makeKvStore } from '@lib/blob-store'
 import type { EventKind } from '@lib/events'
 import type { By } from '@lib/staff-auth'
 import type { AuthorizedPickup } from '@lib/waiver-store'
+import { hasPickupContent } from '@lib/pickup-rules'
 
 const logger = createLogger('rsvp-store')
 const kv = makeKvStore('rsvps', 'rsvps')
@@ -27,8 +28,9 @@ export interface RsvpRecord {
   ref?: { bookingId?: string } // e.g. the Square seat booking (workshops)
   attending: string[] | null // 'adult' | 'child:N' ids from the waiver; null = everyone
   responsibleAdult: string | null
-  addendumVersion: string | null // filled by the drop-off addendum ticket
-  addendumSha256: string | null
+  /** Legacy — the standalone addendum was retired in agreement v3 (§4b). Never written; kept so old dev data still types. */
+  addendumVersion?: string | null
+  addendumSha256?: string | null
   /**
    * Set only on the returning-household RSVP path (HOM-212), when the
    * on-file signature has no pickup info and the guest fills the compact
@@ -95,4 +97,26 @@ export async function listRsvpsByEvent(kind: EventKind, eventId: string): Promis
     }),
   )
   return records.filter((r): r is RsvpRecord => r !== null)
+}
+
+/**
+ * The household's most recent non-empty pickup / may-NOT-collect override,
+ * from ANY event's RSVP — a restriction follows the household (blank never
+ * erases). Newest by `at`; RSVPs with no pickup, or an empty one, are skipped.
+ * The store is small, so a key scan is fine.
+ */
+export async function getLatestPickupForWaiver(waiverId: string): Promise<(NonNullable<RsvpRecord['pickup']> & { at: string }) | null> {
+  const suffix = `-${waiverId}`
+  const keys = (await kv.list()).filter((k) => k.startsWith('rsvp-') && k.endsWith(suffix))
+  const records = await Promise.all(
+    keys.map(async (k) => {
+      const json = await kv.get(k)
+      return json ? (JSON.parse(json) as RsvpRecord) : null
+    }),
+  )
+  const withPickup = records
+    .filter((r): r is RsvpRecord => !!r && r.waiverId === waiverId && hasPickupContent(r.pickup))
+    .sort((a, b) => b.at.localeCompare(a.at))
+  const best = withPickup[0]
+  return best?.pickup ? { ...best.pickup, at: best.at } : null
 }

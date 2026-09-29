@@ -16,14 +16,8 @@ import { createLogger } from '@lib/logger'
 
 const logger = createLogger('events')
 
-export type EventKind = 'party' | 'workshop' | 'program'
-
-/** Shared kind-param validator for every staff surface that resolves an
- *  event (checkin, roster, print). Rejects 'program' — `getEvent` has no
- *  resolver for it yet (see above) — so a stray `?kind=program` fails the
- *  same way everywhere instead of only where someone remembered to exclude
- *  it. Widen this (and `getEvent`) together when Programs land. */
-export const EVENT_KIND_RE = /^(party|workshop)$/
+import { EVENT_KIND_RE, type EventKind } from '@lib/event-kinds'
+export { EVENT_KIND_RE, type EventKind }
 
 export interface StudioEvent {
   kind: EventKind

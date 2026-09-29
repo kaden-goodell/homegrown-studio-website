@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { waiverContent, dropOffAddendum } from '@config/waiver-content'
+import { waiverContent } from '@config/waiver-content'
+import { lateFeeLine } from '@config/dropoff.config'
 import { formatCalendarDate } from '@lib/studio-time'
 import { maskDob, dobToIso } from '@lib/dob-input'
 import PickupFields, { type PickupRow } from '@components/waiver/PickupFields'
@@ -65,55 +66,6 @@ function NoneChip({ onClick, active }: { onClick: () => void; active: boolean })
   )
 }
 
-/** Drop-off Program Addendum card — full text + its own unchecked checkbox
- *  (HOM-211). Rendered identically on the fresh-form path (after the main
- *  agreement) and the returning-RSVP path (above the roster); never
- *  pre-checked, never merged with the release checkbox. */
-function AddendumCard({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
-  const { form } = waiverContent
-  return (
-    <div style={cardStyle}>
-      <h2 style={sectionHeadingStyle}>{dropOffAddendum.title}</h2>
-      <div style={scrollBoxStyle}>
-        {dropOffAddendum.sections.map((section) => (
-          <div key={section.heading} style={{ marginBottom: '1rem' }}>
-            <h3 style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-dark)', margin: '0 0 0.35rem' }}>
-              {section.heading}
-            </h3>
-            {section.body.map((para, i) => (
-              <p key={i} style={{ fontSize: '0.8125rem', color: 'var(--color-dark)', lineHeight: 1.6, margin: '0 0 0.5rem' }}>
-                {para}
-              </p>
-            ))}
-          </div>
-        ))}
-      </div>
-      <label
-        style={{
-          display: 'flex',
-          gap: '0.65rem',
-          alignItems: 'flex-start',
-          fontSize: '0.875rem',
-          color: 'var(--color-dark)',
-          lineHeight: 1.5,
-          cursor: 'pointer',
-          marginTop: '1rem',
-        }}
-      >
-        <input
-          type="checkbox"
-          checked={checked}
-          onChange={(e) => onChange(e.target.checked)}
-          style={{ marginTop: '0.2rem' }}
-        />
-        <span>
-          <strong>{form.addendumCheckboxLabel}</strong>
-        </span>
-      </label>
-    </div>
-  )
-}
-
 /** Pill shown above the flow content so guests can confirm which party they're RSVPing to. */
 function PartyLabelChip({ label }: { label: string }) {
   return (
@@ -138,69 +90,7 @@ function PartyLabelChip({ label }: { label: string }) {
   )
 }
 
-const CODE_LENGTH = 6
-const RESEND_COOLDOWN_MS = 60_000
-// @lib/otp-store's issueOtp sets sends:1 on the initial code, and
-// resendOtp's cap is `sends >= MAX_SENDS` (3) — so only 2 resends can ever
-// succeed after that initial send. This must stay MAX_SENDS - 1: a client
-// cap of 3 would show an enabled "Send again" for a click that always 429s
-// server-side (fix round 1, HOM-218).
-const MAX_RESENDS = 2
-
-/** Six single-digit boxes for the SMS one-time code (HOM-218) — numeric
- *  keyboard, auto-advance on entry, backspace walks back, and pasting all 6
- *  digits at once (e.g. from an iOS SMS autofill suggestion) fills every box. */
-function CodeBoxes({ value, onChange, disabled }: { value: string[]; onChange: (v: string[]) => void; disabled: boolean }) {
-  const refs = useRef<Array<HTMLInputElement | null>>([])
-  return (
-    <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', margin: '1rem 0' }}>
-      {value.map((digit, i) => (
-        <input
-          key={i}
-          ref={(el) => { refs.current[i] = el }}
-          inputMode="numeric"
-          autoComplete={i === 0 ? 'one-time-code' : 'off'}
-          maxLength={1}
-          disabled={disabled}
-          value={digit}
-          onChange={(e) => {
-            const raw = e.target.value.replace(/\D/g, '')
-            if (!raw) {
-              onChange(value.map((d, idx) => (idx === i ? '' : d)))
-              return
-            }
-            const next = value.map((d, idx) => (idx === i ? raw.slice(-1) : d))
-            onChange(next)
-            if (i < value.length - 1) refs.current[i + 1]?.focus()
-          }}
-          onPaste={(e) => {
-            const digits = e.clipboardData.getData('text').replace(/\D/g, '')
-            if (digits.length >= value.length) {
-              e.preventDefault()
-              onChange(digits.slice(0, value.length).split(''))
-              refs.current[value.length - 1]?.focus()
-            }
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Backspace' && !value[i] && i > 0) refs.current[i - 1]?.focus()
-          }}
-          style={{
-            width: '2.75rem',
-            height: '3.25rem',
-            textAlign: 'center',
-            fontSize: '1.5rem',
-            fontWeight: 700,
-            borderRadius: '0.75rem',
-            border: '1px solid rgba(var(--color-primary-rgb), 0.3)',
-            color: 'var(--color-dark)',
-          }}
-        />
-      ))}
-    </div>
-  )
-}
-
-export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle: _eventTitle, dropOff, booking, kiosk = false, returnTo = '/staff' }: Props) {
+export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle, dropOff, booking, kiosk = false, returnTo = '/staff' }: Props) {
   const { form, confirmation, legalSections } = waiverContent
 
   const [firstName, setFirstName] = useState('')
@@ -221,9 +111,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const [adultAllergies, setAdultAllergies] = useState('')
   const [photoConsent, setPhotoConsent] = useState<boolean | null>(null)
   const [agreeRelease, setAgreeRelease] = useState(false)
-  // Drop-off Program Addendum checkbox (HOM-211) — separate from agreeRelease,
-  // shown only when a drop-off event has a minor attending.
-  const [agreeAddendum, setAgreeAddendum] = useState(false)
   const [signature, setSignature] = useState('')
   const [responsibleAdult, setResponsibleAdult] = useState('')
   // Kids crafting without the signer on the list: is the signer still coming
@@ -232,14 +119,14 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // `subline` is the confirmation-screen line under the headline — varies by
-  // path (fresh sign vs. returning RSVP w/ or w/o an addendum), see HOM-216.
-  const [done, setDone] = useState<{ covered: string[]; validUntil: string; subline: string } | null>(null)
+  // path (fresh sign with an emailed copy vs. returning RSVP), see HOM-216.
+  const [done, setDone] = useState<{ covered: string[]; validUntil: string; subline: string; kidsComing: boolean } | null>(null)
 
   // Returning-customer lookup: start on the lookup step; fall through to the
   // full form for new/expired households. Kiosk mode skips straight to the
   // full form — the crew already checked coverage on the Today screen, and a
   // shared device must never show one guest another guest's household.
-  const [mode, setMode] = useState<'lookup' | 'code' | 'returning' | 'form'>(kiosk ? 'form' : 'lookup')
+  const [mode, setMode] = useState<'lookup' | 'returning' | 'form'>(kiosk ? 'form' : 'lookup')
   const [contact, setContact] = useState('')
   // This island is server-rendered, so the lookup field is on screen and
   // typeable before React hydrates — and hydration then re-asserts the empty
@@ -252,18 +139,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   }, [])
   const [lookupBusy, setLookupBusy] = useState(false)
   const [returning, setReturning] = useState<{ recordId: string; reuseToken: string; firstName: string; kids: string[]; validUntil: string; signedAt: string; hasPickup: boolean } | null>(null)
-  // SMS one-time-code step (HOM-218) — sits between "Been here before?" and
-  // the returning screen; nothing identifying (kids, recordId, reuseToken)
-  // exists client-side until `handleVerify` succeeds.
-  const [phoneHint, setPhoneHint] = useState('')
-  const [code, setCode] = useState<string[]>(Array(CODE_LENGTH).fill(''))
-  const [codeBusy, setCodeBusy] = useState(false)
-  const [resendBusy, setResendBusy] = useState(false)
-  const [resendCount, setResendCount] = useState(0)
-  const [resendAvailableAt, setResendAvailableAt] = useState(0)
-  // Forces a re-render each second while the resend cooldown counts down —
-  // otherwise the "(58s)" label would only update on the next keystroke.
-  const [, forceTick] = useState(0)
   // Compact "Who may pick up?" block on the returning screen (HOM-212) —
   // only shown when `dropOff` and the on-file signature has no pickup rows.
   const [returningPickupRows, setReturningPickupRows] = useState<PickupRow[]>([])
@@ -327,15 +202,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const effectiveResponsibleAdult = (signerName: string) =>
     signerPresent === true ? `${signerName} (there, not crafting)` : responsibleAdult.trim()
 
-  // Drop-off Program Addendum (HOM-211) on the fresh path: required whenever
-  // the event is drop-off, full stop — deliberately stricter client-side
-  // than the server's minors-only `addendumRequired` (an adult-only
-  // drop-off registration never needs it server-side, but always showing/
-  // requiring it here is harmless and avoids the card popping in/out as
-  // minors are added or removed).
-  //
-  // Same "needs a minor attending" rule for the returning path (left as-is —
-  // it already sits above the roster, so there's no fold-visibility issue).
   const returningKidsWithoutSigner =
     !!partyId &&
     !dropOff &&
@@ -343,10 +209,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     returning.kids.length > 0 &&
     attending['adult'] === false &&
     returning.kids.some((_, i) => !!attending[`child:${i}`])
-
-  // Same addendum rule as the fresh path, evaluated against the returning
-  // household's roster instead of the freshly-typed minors list.
-  const addendumNeededReturning = !!dropOff && !!returning && returning.kids.some((_, i) => !!attending[`child:${i}`])
 
   // Compact "Who may pick up?" block on the returning screen (HOM-212) —
   // only for a drop-off event whose on-file signature has no pickup rows yet.
@@ -362,7 +224,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   }, [showReturningPickup])
 
   // Only send pickupUpdate when the guest actually typed something into the
-  // block — an absent field must mean "no change" (fix round 1 addendum),
+  // block — an absent field must mean "no change" (fix round 1),
   // never an accidental clear from a block that was shown but left blank,
   // and never at all when the block wasn't shown in the first place.
   const returningPickupFilled =
@@ -442,8 +304,8 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     if (!emergencyName.trim()) m.push('an emergency contact name')
     if (emergencyPhone.replace(/\D/g, '').length < 10) m.push('an emergency contact phone')
     if (photoConsent === null) m.push('a photo preference (either answer is fine)')
-    if (partyId && !['adult', ...minors.map((_, i) => `child:${i}`)].some((id) => formAttending[id] !== false)) {
-      m.push('at least one person going to the party')
+    if (hasEvent && !['adult', ...minors.map((_, i) => `child:${i}`)].some((id) => formAttending[id] !== false)) {
+      m.push('at least one person coming')
     }
     if (kidsWithoutSigner && signerPresent === null) {
       m.push("whether you’ll be at the party with your kids")
@@ -452,7 +314,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       m.push("the adult who’ll be with your child at the party")
     }
     if (!agreeRelease) m.push('the checkbox agreeing to the terms')
-    if (dropOff && !agreeAddendum) m.push('the Drop-off Program Addendum checkbox')
     if (dropOff && pickupRows.some((r) => r.name.trim() && r.name.trim().length < 2)) {
       m.push('a full name (2+ characters) for each pickup person')
     }
@@ -461,7 +322,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     }
     if (!signatureMatches) m.push('your typed signature (must match your name exactly)')
     return m
-  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, agreeAddendum, signatureMatches, partyId, formAttending, kidsWithoutSigner, signerPresent, responsibleAdult, dropOff, pickupRows])
+  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, signatureMatches, partyId, formAttending, kidsWithoutSigner, signerPresent, responsibleAdult, dropOff, pickupRows])
 
   const canSubmit = missing.length === 0 && !submitting
 
@@ -503,7 +364,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           adultAllergies: adultAllergies.trim(),
           photoConsent,
           agreeRelease,
-          agreeAddendum,
           signature: signature.trim(),
           partyId: partyId ?? null,
           workshopId: workshopId ?? null,
@@ -520,6 +380,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         covered: json.data.covered,
         validUntil: json.data.validUntil,
         subline: confirmation.emailedCopyLine.replace('{email}', email.trim()),
+        kidsComing: minors.some((_, i) => formComing(`child:${i}`)),
       })
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
@@ -528,15 +389,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       setSubmitting(false)
     }
   }
-
-  // Countdown for the code step's "Send again" cooldown (HOM-218) — a bare
-  // second-by-second re-render so the "(58s)" label ticks down on its own.
-  useEffect(() => {
-    if (mode !== 'code') return
-    const t = setInterval(() => forceTick((n) => n + 1), 1000)
-    return () => clearInterval(t)
-  }, [mode])
-  const resendSecondsLeft = Math.max(0, Math.ceil((resendAvailableAt - Date.now()) / 1000))
 
   async function handleLookup() {
     const c = contact.trim()
@@ -547,7 +399,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       const res = await fetch('/api/waiver/lookup.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contact: c }),
+        body: JSON.stringify({ contact: c, partyId: partyId ?? null, workshopId: workshopId ?? null }),
       })
       const json = await res.json().catch(() => null)
       if (!res.ok) {
@@ -560,22 +412,13 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         else setPhone(c)
         setFormNotice(waiverContent.mustResignNotice)
         setMode('form')
-      } else if (json?.data?.smsFailed) {
-        // Quo's down, or the on-file phone can't be normalized (HOM-218) — no
-        // OTP step is possible; fall straight through to the full form,
-        // never a bypass of the code check.
-        if (c.includes('@')) setEmail(c)
-        else setPhone(c)
-        setFormNotice(waiverContent.lookup.smsFailedLine)
-        setMode('form')
-      } else if (json?.data?.needsCode) {
-        // A code just went out to the on-file phone (HOM-218) — nothing
-        // identifying (kids, recordId, reuseToken) exists client-side yet.
-        setPhoneHint(json.data.phoneHint ?? '')
-        setCode(Array(CODE_LENGTH).fill(''))
-        setResendCount(0)
-        setResendAvailableAt(Date.now() + RESEND_COOLDOWN_MS)
-        setMode('code')
+      } else if (json?.data?.found && json.data.recordId) {
+        // A valid household is on file — show it (no code step).
+        const kids: string[] = json.data.kids ?? []
+        setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids, validUntil: json.data.validUntil ?? '', signedAt: json.data.signedAt ?? '', hasPickup: !!json.data.hasPickup })
+        // Default everyone in the household to "coming"; they can uncheck below.
+        setAttending(Object.fromEntries(['adult', ...kids.map((_, i) => `child:${i}`)].map((id) => [id, true])))
+        setMode('returning')
       } else {
         // New or expired — prefill what they typed and open the full form.
         if (c.includes('@')) setEmail(c)
@@ -603,88 +446,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     }
   }
 
-  /** Verify the 6-digit code (HOM-218) — success is the only path that ever
-   *  hands the browser kids' names, a recordId, or a reuseToken. */
-  async function handleVerify() {
-    const typed = code.join('')
-    if (typed.length !== CODE_LENGTH || codeBusy) return
-    setCodeBusy(true)
-    setError(null)
-    try {
-      const res = await fetch('/api/waiver/verify.json', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // partyId/workshopId let the server check whether an existing RSVP's
-        // pickup override already covers THIS event (fix round 1) — without
-        // them hasPickup could only ever see the signature's own fields.
-        body: JSON.stringify({ contact: contact.trim(), code: typed, partyId: partyId ?? null, workshopId: workshopId ?? null }),
-      })
-      const json = await res.json().catch(() => null)
-      if (res.status === 429 || res.status === 410) {
-        // Locked out or expired — the OTP is gone either way; back to lookup.
-        setMode('lookup')
-        setError(json?.error ?? 'Please look yourself up again.')
-        return
-      }
-      if (!res.ok) {
-        setError(json?.error ?? "That code isn't right — try again.")
-        setCode(Array(CODE_LENGTH).fill(''))
-        return
-      }
-      const kids: string[] = json.data.kids ?? []
-      setReturning({ recordId: json.data.recordId, reuseToken: json.data.reuseToken ?? '', firstName: json.data.firstName, kids, validUntil: json.data.validUntil ?? '', signedAt: json.data.signedAt ?? '', hasPickup: !!json.data.hasPickup })
-      // Defensive prefill (fix round 1): if the compact pickup block ever
-      // does render for a household that already has an override on file,
-      // start it from that data instead of blank — an edit, not a replace.
-      if (json.data.pickup) {
-        setReturningPickupRows(
-          (json.data.pickup.authorizedPickup ?? []).map((p: { name: string; phone: string }) => ({ name: p.name, phone: p.phone })),
-        )
-        setReturningNotAuthorized(json.data.pickup.notAuthorized ?? '')
-      }
-      // Default everyone in the household to "coming"; they can uncheck below.
-      setAttending(Object.fromEntries(['adult', ...kids.map((_, i) => `child:${i}`)].map((id) => [id, true])))
-      setMode('returning')
-    } catch {
-      setError('Something went wrong — please try again.')
-    } finally {
-      setCodeBusy(false)
-    }
-  }
-
-  /** "Didn't get it? Send again" — 60s cooldown, hidden after 3 uses (HOM-218). */
-  async function handleResend() {
-    if (resendBusy || resendCount >= MAX_RESENDS || resendSecondsLeft > 0) return
-    setResendBusy(true)
-    setError(null)
-    try {
-      const res = await fetch('/api/waiver/lookup.json', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ contact: contact.trim(), resend: true }),
-      })
-      const json = await res.json().catch(() => null)
-      if (!res.ok) {
-        setError(json?.error ?? 'Something went wrong — please try again.')
-        return
-      }
-      if (json?.data?.smsFailed) {
-        setError(waiverContent.lookup.smsFailedLine)
-      } else if (json?.data?.phoneHint) {
-        setPhoneHint(json.data.phoneHint)
-      }
-      // Only a send that actually went out burns one of the three tries — a
-      // 429 or a network blip used to spend them and hide the button on a
-      // guest who never got a single text.
-      setResendCount((n) => n + 1)
-    } catch {
-      setError('Something went wrong — please try again.')
-    } finally {
-      setResendAvailableAt(Date.now() + RESEND_COOLDOWN_MS)
-      setResendBusy(false)
-    }
-  }
-
   async function handleReturningRsvp() {
     if (!returning) return
     setSubmitting(true)
@@ -701,7 +462,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           booking: booking ?? null,
           attending: Object.entries(attending).filter(([, coming]) => coming).map(([id]) => id),
           responsibleAdult: returningKidsWithoutSigner ? effectiveResponsibleAdult(returning.firstName) : '',
-          agreeAddendum,
           ...(showReturningPickup && returningPickupFilled
             ? {
                 pickupUpdate: {
@@ -733,12 +493,11 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         return
       }
       if (!res.ok) throw new Error(json?.error ?? 'Something went wrong — please try again.')
-      // Only an addendum acceptance sends an email on this path — the base
-      // agreement is already on file and unchanged (HOM-216).
       setDone({
         covered: json.data.covered,
         validUntil: json.data.validUntil,
-        subline: json.data.addendumAccepted ? confirmation.emailedAddendumLine : confirmation.subline,
+        subline: confirmation.subline,
+        kidsComing: (returning?.kids ?? []).some((_, i) => !!attending[`child:${i}`]),
       })
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
@@ -759,7 +518,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     setMinors([])
     setEmergencyName(''); setEmergencyPhone(''); setEmergencyRelationship('')
     setPickupRows([]); setNotAuthorized(''); setAdultAllergies('')
-    setPhotoConsent(null); setAgreeRelease(false); setAgreeAddendum(false); setSignature('')
+    setPhotoConsent(null); setAgreeRelease(false); setSignature('')
     setResponsibleAdult(''); setSignerPresent(null)
     setError(null); setFormNotice(null); setDone(null)
     try {
@@ -866,6 +625,13 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         <p style={{ ...sectionNoteStyle, maxWidth: '26rem', margin: '0 auto 1.25rem', fontSize: '0.8125rem' }}>
           {confirmation.anotherAdultLine}
         </p>
+        {hasEvent && dropOff && done.kidsComing && (
+          <div style={{ maxWidth: '26rem', margin: '0 auto 1.25rem', textAlign: 'left' }}>
+            {[confirmation.dropOffPickupLine, confirmation.dropOffIdLine, lateFeeLine()].map((line) => (
+              <p key={line} style={{ ...sectionNoteStyle, margin: '0 0 0.35rem' }}>{line}</p>
+            ))}
+          </div>
+        )}
         {partyId && (
           <p style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '1rem' }}>
             {confirmation.partyLine}
@@ -949,74 +715,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     )
   }
 
-  // Step 0.5 — SMS one-time code (HOM-218). Gates the returning-household
-  // screen; nothing identifying exists client-side until handleVerify succeeds.
-  if (mode === 'code') {
-    const { lookup } = waiverContent
-    const codeComplete = code.every((d) => d !== '')
-    const resendDisabled = resendBusy || resendCount >= MAX_RESENDS || resendSecondsLeft > 0
-    return (
-      <div style={{ maxWidth: '30rem', margin: '0 auto' }}>
-        {partyLabel && <PartyLabelChip label={partyLabel} />}
-        <div style={{ ...cardStyle, marginBottom: 0, textAlign: 'center' }}>
-          <h2 style={sectionHeadingStyle}>{lookup.codeSentLine.replace('{phoneHint}', phoneHint)}</h2>
-          <p style={sectionNoteStyle}>{lookup.codeInputLabel}</p>
-          <CodeBoxes value={code} onChange={setCode} disabled={codeBusy} />
-          {error && <p style={{ color: 'rgb(185,28,28)', fontSize: '0.875rem', marginTop: '0.4rem' }}>{error}</p>}
-          <button
-            type="button"
-            onClick={handleVerify}
-            disabled={!codeComplete || codeBusy}
-            style={{
-              marginTop: '0.9rem',
-              width: '100%',
-              padding: '0.8rem',
-              borderRadius: '0.875rem',
-              border: 'none',
-              background: codeComplete && !codeBusy ? 'var(--color-primary)' : 'rgba(var(--color-primary-rgb),0.35)',
-              color: '#fff',
-              fontSize: '1rem',
-              fontWeight: 600,
-              cursor: codeComplete && !codeBusy ? 'pointer' : 'not-allowed',
-            }}
-          >
-            {codeBusy ? lookup.verifyingLabel : lookup.verifyLabel}
-          </button>
-          {resendCount < MAX_RESENDS && (
-            <button
-              type="button"
-              onClick={handleResend}
-              disabled={resendDisabled}
-              style={{
-                display: 'block',
-                margin: '0.9rem auto 0',
-                background: 'none',
-                border: 'none',
-                color: resendDisabled ? 'var(--color-muted)' : 'var(--color-primary)',
-                fontSize: '0.8125rem',
-                fontWeight: 600,
-                cursor: resendDisabled ? 'default' : 'pointer',
-              }}
-            >
-              {resendBusy
-                ? lookup.resendingLabel
-                : resendSecondsLeft > 0
-                  ? lookup.resendCooldownLabel.replace('{seconds}', String(resendSecondsLeft))
-                  : lookup.resendLabel}
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => { setMode('lookup'); setError(null); setCode(Array(CODE_LENGTH).fill('')) }}
-            style={{ display: 'block', margin: '0.6rem auto 0', background: 'none', border: 'none', color: 'var(--color-muted)', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer' }}
-          >
-            Not you? Look up again →
-          </button>
-        </div>
-      </div>
-    )
-  }
-
   // Returning customer with a valid agreement on file — one-tap RSVP.
   if (mode === 'returning' && returning) {
     const returningValidDate = returning.validUntil
@@ -1026,7 +724,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     return (
       <div style={{ maxWidth: '30rem', margin: '0 auto' }}>
         {partyLabel && <PartyLabelChip label={partyLabel} />}
-        {addendumNeededReturning && <AddendumCard checked={agreeAddendum} onChange={setAgreeAddendum} />}
         <div style={{ ...cardStyle, marginBottom: 0, textAlign: 'center' }}>
         <h2 style={{ ...sectionHeadingStyle, fontSize: '1.375rem' }}>Welcome back, {returning.firstName}! 🎉</h2>
         <p style={{ ...sectionNoteStyle, maxWidth: '24rem', margin: '0.25rem auto 1.25rem' }}>
@@ -1080,6 +777,11 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         {returningKidsWithoutSigner && (
           <div style={{ maxWidth: '22rem', margin: '0 auto 1rem' }}>{presenceBlock('wv-ret')}</div>
         )}
+        {dropOff && returning.hasPickup && (
+          <p style={{ ...sectionNoteStyle, maxWidth: '22rem', margin: '0 auto 1rem' }}>
+            Pickup people are on file — tell the front desk if that changes.
+          </p>
+        )}
         {showReturningPickup && (
           <div style={{ maxWidth: '22rem', margin: '0 auto 1rem', textAlign: 'left' }}>
             <p style={{ ...labelStyle, marginBottom: '0.5rem' }}>{form.returningPickupHeading}</p>
@@ -1099,8 +801,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
             const needsAdult =
               returningKidsWithoutSigner &&
               (signerPresent === null || (signerPresent === false && !responsibleAdult.trim()))
-            const needsAddendum = addendumNeededReturning && !agreeAddendum
-            const disabled = submitting || noneComing || needsAdult || needsAddendum
+            const disabled = submitting || noneComing || needsAdult
             return (
               <button
                 type="button"
@@ -1158,7 +859,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           Signing on the studio iPad — your details are only saved to your agreement, not to this device.
         </div>
       )}
-      {partyLabel && <PartyLabelChip label={partyLabel} />}
+      {(partyLabel ?? eventTitle) && <PartyLabelChip label={(partyLabel ?? eventTitle)!} />}
       {formNotice && (
         <div
           style={{
@@ -1383,8 +1084,8 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         ))}
       </div>
 
-      {/* Who's coming — only in a party context */}
-      {partyId && (
+      {/* Who's coming — any event context (party, workshop), incl. the staff kiosk */}
+      {hasEvent && (
         <div style={cardStyle}>
           <h2 style={sectionHeadingStyle}>Who’s making a craft?</h2>
           <p style={sectionNoteStyle}>
@@ -1406,21 +1107,12 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           ))}
           {!['adult', ...minors.map((_, i) => `child:${i}`)].some(formComing) && (
             <p style={{ fontSize: '0.8125rem', color: 'rgb(185,28,28)', margin: '0.4rem 0 0', fontWeight: 600 }}>
-              Pick at least one person going to the party.
+              Pick at least one person who’s coming.
             </p>
           )}
           {kidsWithoutSigner && presenceBlock('wv')}
         </div>
       )}
-
-      {/* Drop-off Program Addendum (HOM-211) — its own card, its own
-          checkbox. Rendered whenever the event is drop-off, regardless of
-          whether a minor has been added yet (a Task 5 review fix: gating on
-          minors.some(formComing) made it invisible on first load and popped
-          it in below the fold once a child was added). Sits immediately
-          above the assent/signature card — the last thing before the
-          release checkbox. */}
-      {dropOff && <AddendumCard checked={agreeAddendum} onChange={setAgreeAddendum} />}
 
       {/* Assent + signature */}
       <div style={cardStyle}>

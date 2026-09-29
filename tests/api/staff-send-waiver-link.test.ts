@@ -63,13 +63,14 @@ describe('POST /api/staff/send-waiver-link.json (HOM-213)', () => {
     expect(res.status).toBe(404)
   })
 
-  it('sends the addendum link to the household phone', async () => {
+  it('texts the household the agreement-signing link', async () => {
     const res = await POST(ctx({ recordId: 'wvr_1', kind: 'party', id: 'party-1' }))
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json.data.sent).toBe(true)
     const { to, content } = mockSend.mock.calls[0][0]
     expect(to).toBe('(256) 555-0123')
+    expect(content).toBe('Hometown Studio: please sign the participation agreement for Suncatchers Party: ' + content.split(': ').pop())
     expect(content).toContain('Suncatchers Party')
     expect(content).toContain('/waiver?party=party-1')
   })

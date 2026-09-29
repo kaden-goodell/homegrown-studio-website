@@ -18,8 +18,8 @@ const json = (body: unknown, status: number) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
 /**
- * Staff-only: text a household the drop-off addendum link when the roster
- * card shows "Addendum not signed" (HOM-213). Best-effort — an unconfigured
+ * Staff-only: text a household the link to sign the participation agreement
+ * for an event. Best-effort — an unconfigured
  * Quo account or a send failure comes back as `{ sent: false }`, never a
  * hard error, since there's nothing broken to retry (the waiver itself is
  * already saved regardless).
@@ -42,13 +42,13 @@ export const POST: APIRoute = async ({ request }) => {
     if (!quoConfigured()) return json({ data: { sent: false } }, 200)
 
     const link = `${siteConfig.url}/waiver?${kind}=${encodeURIComponent(id)}`
-    const content = `Hometown Studio: please read and accept the drop-off addendum before ${event.title}: ${link}`
+    const content = `Hometown Studio: please sign the participation agreement for ${event.title}: ${link}`
 
     try {
       await sendQuoText({ to: waiver.adult.phone, content })
     } catch (err) {
       // Never log the phone number or message content — just that it failed.
-      logger.error('Addendum link text failed', { recordId, kind, id, error: String(err) })
+      logger.error('Waiver link text failed', { recordId, kind, id, error: String(err) })
       return json({ data: { sent: false } }, 200)
     }
     return json({ data: { sent: true } }, 200)

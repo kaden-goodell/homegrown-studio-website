@@ -8,17 +8,19 @@ const WAIVER_URL = `${SITE_URL}/waiver`
  * "Show QR" — a guest scans this on their own phone to sign the agreement
  * without ever touching the shared staff iPad. Rendered client-side as
  * inline SVG (no external image host — CSP, and it works with wifi down).
+ * `url` defaults to the general agreement; the roster's "+ Add family" passes
+ * the event's own link so a guest's signature lands on that roster.
  */
-export default function QrModal({ onClose }: { onClose: () => void }) {
+export default function QrModal({ onClose, url = WAIVER_URL }: { onClose: () => void; url?: string }) {
   const [svg, setSvg] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
-    QRCode.toString(WAIVER_URL, { type: 'svg', margin: 1 }).then((s) => {
+    QRCode.toString(url, { type: 'svg', margin: 1 }).then((s) => {
       if (!cancelled) setSvg(s)
     })
     return () => { cancelled = true }
-  }, [])
+  }, [url])
 
   return (
     <div

@@ -1,7 +1,7 @@
 /**
  * Staff roster endpoint (HOM-213): per-event (not per-party) roster —
  * `kind`/`id`/`day` params, the `?party=` legacy alias, the signature
- * meta fields (signedAt/agreementVersion/validUntil/addendumVersion), the
+ * meta fields (signedAt/agreementVersion/validUntil), the
  * >12-kids drop-off cap warning, and (carried from HOM-212) authorized
  * pickup / notAuthorized / medications exposure.
  */
@@ -26,7 +26,8 @@ vi.mock('@lib/waiver-store', async (importOriginal) => {
 })
 
 const mockGetRsvp = vi.fn()
-vi.mock('@lib/rsvp-store', () => ({ getRsvp: (...a: any[]) => mockGetRsvp(...a) }))
+const mockLatest = vi.fn()
+vi.mock('@lib/rsvp-store', () => ({ getRsvp: (...a: any[]) => mockGetRsvp(...a), getLatestPickupForWaiver: (...a: any[]) => mockLatest(...a) }))
 
 const mockGetCheckin = vi.fn()
 vi.mock('@lib/checkin-store', async (importOriginal) => {
@@ -83,6 +84,7 @@ beforeEach(async () => {
   mockGetEvent.mockResolvedValue(partyEvent)
   mockResolveEventDay.mockImplementation((event: any, requested: string | null) => requested ?? event?.days?.[0] ?? '2026-09-05')
   mockGetRsvp.mockResolvedValue(null)
+  mockLatest.mockReset().mockResolvedValue(null)
   mockGetCheckin.mockResolvedValue(emptyCheckin())
   mockListWaiversByEvent.mockResolvedValue([])
   GET = (await import('@pages/api/staff/roster.json')).GET
@@ -129,32 +131,16 @@ describe('GET /api/staff/roster.json — kind/id + ?party= alias (HOM-213)', () 
 })
 
 describe('GET /api/staff/roster.json — signature meta fields (HOM-213)', () => {
-  it('exposes signedAt, agreementVersion, validUntil, and addendumVersion from the RSVP', async () => {
-    mockListWaiversByEvent.mockResolvedValue([makeWaiver({ agreementVersion: 'v2', validUntil: '2027-08-01T00:00:00.000Z' })])
+  it('exposes signedAt, agreementVersion and validUntil — and no addendum field (retired in v3)', async () => {
+    mockListWaiversByEvent.mockResolvedValue([makeWaiver({ agreementVersion: 'v3', validUntil: '2027-08-01T00:00:00.000Z' })])
     mockGetRsvp.mockResolvedValue({ addendumVersion: 'a1' })
     const res = await GET(ctx('?party=party-1'))
     const json = await res.json()
     const h = json.data.households[0]
     expect(h.signedAt).toBe('2026-08-01T00:00:00.000Z')
-    expect(h.agreementVersion).toBe('v2')
+    expect(h.agreementVersion).toBe('v3')
     expect(h.validUntil).toBe('2027-08-01T00:00:00.000Z')
-    expect(h.addendumVersion).toBe('a1')
-  })
-
-  it('addendumVersion is null when the RSVP never accepted one', async () => {
-    mockListWaiversByEvent.mockResolvedValue([makeWaiver()])
-    mockGetRsvp.mockResolvedValue({ addendumVersion: null })
-    const res = await GET(ctx('?party=party-1'))
-    const json = await res.json()
-    expect(json.data.households[0].addendumVersion).toBeNull()
-  })
-
-  it('addendumVersion is null with no RSVP at all', async () => {
-    mockListWaiversByEvent.mockResolvedValue([makeWaiver()])
-    mockGetRsvp.mockResolvedValue(null)
-    const res = await GET(ctx('?party=party-1'))
-    const json = await res.json()
-    expect(json.data.households[0].addendumVersion).toBeNull()
+    expect(h.addendumVersion).toBeUndefined()
   })
 })
 
@@ -243,12 +229,40 @@ describe('GET /api/staff/roster.json — pickup/notAuthorized/medications (HOM-2
     mockListWaiversByEvent.mockResolvedValue([
       makeWaiver({ authorizedPickup: [], notAuthorized: '' }),
     ])
-    mockGetRsvp.mockResolvedValue({
-      pickup: { authorizedPickup: [{ name: 'Aunt Sue', phone: '2565559876' }], notAuthorized: 'Ex-partner' },
-    })
+    mockLatest.mockResolvedValue({ authorizedPickup: [{ name: 'Aunt Sue', phone: '2565559876' }], notAuthorized: 'Ex-partner', at: '2026-08-02T00:00:00.000Z' })
     const res = await GET(ctx('?party=party-1'))
     const json = await res.json()
     expect(json.data.households[0].authorizedPickup).toEqual([{ name: 'Aunt Sue', phone: '2565559876' }])
     expect(json.data.households[0].notAuthorized).toBe('Ex-partner')
+  })
+
+  it('(d) returns the check-in state\'s may-NOT-collect when neither the RSVP nor the waiver has one', async () => {
+    mockListWaiversByEvent.mockResolvedValue([makeWaiver()])
+    mockGetCheckin.mockResolvedValue({ ...emptyCheckin(), notAuthorized: 'Rick Smith' })
+    const json = await (await GET(ctx('?party=party-1'))).json()
+    expect(json.data.households[0].notAuthorized).toBe('Rick Smith')
+  })
+
+  it('once the door list is seeded, display follows it (edited list / cleared note), same as the gate', async () => {
+    mockListWaiversByEvent.mockResolvedValue([makeWaiver({ authorizedPickup: [{ name: 'Old Name', phone: '' }], notAuthorized: 'Old Note' })])
+    mockGetCheckin.mockResolvedValue({ ...emptyCheckin(), pickupSeeded: true, confirmedPickup: [{ name: 'Grandma Rivera', phone: '' }], notAuthorized: '' })
+    const h = (await (await GET(ctx('?party=party-1'))).json()).data.households[0]
+    expect(h.authorizedPickup).toEqual([{ name: 'Grandma Rivera', phone: '' }])
+    expect(h.notAuthorized).toBe('')
+  })
+
+  it('before the door state is seeded, the card shows the household\'s pickup from its other RSVP', async () => {
+    mockListWaiversByEvent.mockResolvedValue([makeWaiver()])
+    mockLatest.mockResolvedValue({ authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: 'Rick Smith' })
+    const h = (await (await GET(ctx('?party=party-1'))).json()).data.households[0]
+    expect(h.notAuthorized).toBe('Rick Smith')
+    expect(h.authorizedPickup).toEqual([{ name: 'Aunt Sue', phone: '' }])
+  })
+
+  it('(c) the card shows no restriction after a newer "None"', async () => {
+    mockListWaiversByEvent.mockResolvedValue([makeWaiver({ notAuthorized: 'Rick Smith' })])
+    mockLatest.mockResolvedValue({ authorizedPickup: [], notAuthorized: 'None', at: '2026-09-01T00:00:00.000Z' })
+    const h = (await (await GET(ctx('?party=party-1'))).json()).data.households[0]
+    expect(h.notAuthorized).toBe('')
   })
 })

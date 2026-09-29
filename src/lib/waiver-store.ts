@@ -25,7 +25,7 @@ export interface WaiverMinor {
   allergies: string
   /** Medications or conditions staff should know about for a drop-off program
    *  (HOM-212) — '' when none. The Studio never administers medication;
-   *  see the drop-off addendum §4. */
+   *  see agreement §4b(b). */
   medications: string
 }
 

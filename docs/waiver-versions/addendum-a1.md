@@ -1,3 +1,5 @@
+> RETIRED 2026-09-29 — folded into agreement v3 §4b. Never signed in production.
+
 ## Preamble
 This addendum applies when I register a listed minor for a designated Studio drop-off program (for example, a camp, a kids' workshop, or Parents' Night Out). The Participation Agreement remains in full effect; §4(c) is supplemented as follows for that program only.
 

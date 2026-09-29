@@ -1,7 +1,9 @@
 import type { APIRoute } from 'astro'
+import { hasAllergy } from '@lib/allergy'
 import { staffAuthorized } from '@lib/staff-auth'
 import { lookupHouseholdEntry, lookupHouseholdsByName, type HouseholdOnFile } from '@lib/waiver-store'
 import { getOpenStudioDay, type OpenStudioDay } from '@lib/open-studio-store'
+import { substantiveSince, compareVersions } from '@config/waiver-content'
 import { studioDate } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
 
@@ -57,11 +59,16 @@ export const GET: APIRoute = async ({ request, url }) => {
     signedAt: h.signedAt,
     agreementVersion: h.agreementVersion,
     validUntil: h.validUntil,
-    covered: new Date(h.validUntil).getTime() > Date.now(),
-    kids: h.minors.map((m) => ({ name: m.name, allergies: m.allergies || '' })),
-    adultAllergies: h.adultAllergies,
+    // An unexpired signature older than the current agreement is NOT covered:
+    // they never agreed to the current terms (drop-off terms live in v3+).
+    outdated: compareVersions(h.agreementVersion, substantiveSince) < 0,
+    covered: new Date(h.validUntil).getTime() > Date.now() && compareVersions(h.agreementVersion, substantiveSince) >= 0,
+    // "None"/"n/a" are not allergies — the door flags only real ones.
+    kids: h.minors.map((m) => ({ name: m.name, allergies: hasAllergy(m.allergies) ? m.allergies : '' })),
+    adultAllergies: hasAllergy(h.adultAllergies) ? h.adultAllergies : '',
     photoConsent: h.photoConsent,
     openStudioToday: !!openStudioDay[h.recordId],
+    openStudioAt: openStudioDay[h.recordId]?.at ?? null,
   }))
 
   return new Response(JSON.stringify({ data: { households: data } }), {

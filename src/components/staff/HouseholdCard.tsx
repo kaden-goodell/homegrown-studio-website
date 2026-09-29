@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { hasAllergy } from '@lib/allergy'
 import { formatTime, formatMonthDay, formatMonthYear } from '@lib/studio-time'
 import { card, btn, Badge } from '@components/staff/ui'
 import PickupPanel from '@components/staff/PickupPanel'
@@ -52,17 +53,14 @@ export interface Household {
   signedAt: string
   agreementVersion: string
   validUntil: string
-  /** Drop-off addendum version accepted for THIS event, or null if the
-   *  household hasn't accepted one yet (HOM-213). */
-  addendumVersion: string | null
   checkin: Checkin
 }
 
 type Status = 'wait' | 'in' | 'out'
 
-function StatusPill({ status, hereCount, total }: { status: Status; hereCount: number; total: number }) {
+function StatusPill({ status, hereCount, total, dropOff }: { status: Status; hereCount: number; total: number; dropOff: boolean }) {
   const map = {
-    wait: { bg: 'rgba(var(--color-primary-rgb),0.12)', fg: 'var(--color-muted)', icon: '○', label: 'Not arrived' },
+    wait: { bg: 'rgba(var(--color-primary-rgb),0.12)', fg: 'var(--color-muted)', icon: '○', label: dropOff ? 'Not arrived' : 'Not here yet' },
     in: { bg: 'rgba(34,197,94,0.16)', fg: 'rgb(21,128,61)', icon: '●', label: `${hereCount} of ${total} here` },
     out: { bg: 'rgba(120,120,120,0.14)', fg: '#555', icon: '✓', label: 'All picked up' },
   }[status]
@@ -78,9 +76,13 @@ export interface Person { id: string; icon: string; name: string; sub: string; a
 
 /**
  * One household's card on the roster: signer, phone, each person with a
- * check-in/pickup checkbox, allergy/medication badges, emergency contact,
- * the signature's validity line, and (for drop-off events) the addendum
- * status + pickup code machinery (HOM-213, HOM-212).
+ * tick box, allergy/medication badges, emergency contact, and the signature's
+ * validity line.
+ *
+ * Only DROP-OFF events have real check-out (pickup code, chips, override —
+ * HOM-213, HOM-212). Every other event is attendance-only: one `✓ Here`
+ * button, each person then shows `● here 4:12 PM` with a small Undo. No
+ * check-out, no "collected by", no Reset.
  */
 export default function HouseholdCard({
   h,
@@ -104,12 +106,15 @@ export default function HouseholdCard({
   const presence = h.checkin.presence || {}
   const expected = h.checkin.expected
   const noPhoto = !h.photoConsent
-  const anyAllergy = people.some((p) => p.allergies)
+  const anyAllergy = people.some((p) => hasAllergy(p.allergies))
   const expired = new Date(h.validUntil).getTime() < Date.now()
 
   const stateOf = (id: string): PersonState => {
     const p = presence[id]
     if (!p) return 'absent'
+    // Attendance-only: a person is either here or not. (An old `outAt` from
+    // before this rule still just means "was here".)
+    if (!dropOff) return 'here'
     return p.outAt ? 'out' : 'here'
   }
   const herePeople = people.filter((p) => stateOf(p.id) === 'here')
@@ -129,7 +134,6 @@ export default function HouseholdCard({
   // Checkout selection (present people) defaults to everyone here.
   const [selOut, setSelOut] = useState<Record<string, boolean>>({})
   const [err, setErr] = useState<string | null>(null)
-  const [sendState, setSendState] = useState<'idle' | 'busy' | 'sent' | 'failed'>('idle')
   // The freshly-issued pickup code (HOM-214): shown once, then hidden. Lives
   // here (not PickupPanel) because it's first set by the CHECK-IN action
   // above, and again by PickupPanel's own "Re-send code" — both write into
@@ -168,21 +172,6 @@ export default function HouseholdCard({
     else if (r.oneTimeCode) { setRevealCode(r.oneTimeCode); setSmsFailed(!!r.smsFailed) }
   }
 
-  async function sendLink() {
-    setSendState('busy')
-    try {
-      const res = await fetch('/api/staff/send-waiver-link.json', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recordId: h.recordId, kind, id }),
-      })
-      const json = await res.json().catch(() => null)
-      setSendState(res.ok && json?.data?.sent ? 'sent' : 'failed')
-    } catch {
-      setSendState('failed')
-    }
-  }
-
   function handleResetTap() {
     if (!resetPending) {
       setResetPending(true)
@@ -198,7 +187,14 @@ export default function HouseholdCard({
   function stateLabel(p: Person, st: PersonState) {
     const pr = presence[p.id]
     if (st === 'here') {
-      return <span style={{ fontSize: '0.78rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>● here {pr ? formatTime(pr.inAt) : ''}</span>
+      const label = <span style={{ fontSize: '0.78rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>● here {pr ? formatTime(pr.inAt) : ''}</span>
+      if (dropOff) return label
+      return (
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
+          {label}
+          <button type="button" onClick={(e) => { e.preventDefault(); act({ action: 'undo-checkin', personIds: [p.id] }) }} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}>Undo</button>
+        </span>
+      )
     }
     if (st === 'out') {
       const releasedTo = h.checkin.releasedTo?.[p.id]
@@ -219,7 +215,7 @@ export default function HouseholdCard({
 
   // Big, obvious check box on the left of a person row (or a spacer to keep alignment).
   function leftBox(p: Person, st: PersonState) {
-    if (st === 'out') return <span style={{ width: '1.4rem', flex: '0 0 auto' }} />
+    if (st === 'out' || (!dropOff && st === 'here')) return <span style={{ width: '1.4rem', flex: '0 0 auto' }} />
     const checked = st === 'here' ? selOut[p.id] !== false : !!selIn[p.id]
     const onChange = (v: boolean) =>
       st === 'here' ? setSelOut((s) => ({ ...s, [p.id]: v })) : setSelIn((s) => ({ ...s, [p.id]: v }))
@@ -241,7 +237,7 @@ export default function HouseholdCard({
           <span style={{ fontWeight: 700, color: 'var(--color-dark)', fontSize: '1.0625rem' }}>{h.signer}</span>
           <a href={`tel:${h.phone}`} style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--color-primary)', textDecoration: 'none' }}>📞 {h.phone}</a>
         </div>
-        <StatusPill status={status} hereCount={herePeople.length} total={people.length} />
+        <StatusPill status={status} hereCount={herePeople.length} total={people.length} dropOff={dropOff} />
       </div>
 
       {/* Signature validity — HOM-213 */}
@@ -259,20 +255,6 @@ export default function HouseholdCard({
         </button>
       </div>
 
-      {/* Drop-off addendum status — HOM-211/213 */}
-      {dropOff && (
-        h.addendumVersion ? (
-          <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0.15rem 0 0' }}>Addendum ✓</p>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0.25rem 0 0', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.75rem', color: '#b91c1c', fontWeight: 700 }}>⚠ Addendum not signed</span>
-            <button type="button" onClick={sendLink} disabled={sendState === 'busy'} style={{ ...btn(), padding: '0.25rem 0.55rem', fontSize: '0.7rem' }}>
-              {sendState === 'sent' ? 'Sent!' : sendState === 'failed' ? 'Couldn’t send — retry' : sendState === 'busy' ? 'Sending…' : 'Send link'}
-            </button>
-          </div>
-        )
-      )}
-
       {/* Card-level scan strip: any allergy or no-photo in this family */}
       {(anyAllergy || noPhoto) && (
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.6rem' }}>
@@ -285,8 +267,12 @@ export default function HouseholdCard({
       <div style={{ marginTop: '0.6rem' }}>
         {people.map((p) => {
           const st = stateOf(p.id)
+          // Only a row with a tick box is a <label>: a label around an Undo
+          // button (no checkbox) makes tapping the NAME press Undo.
+          const hasBox = !(st === 'out' || (!dropOff && st === 'here'))
+          const Row = hasBox ? 'label' : 'div'
           return (
-            <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0', borderTop: '1px solid rgba(var(--color-primary-rgb),0.1)', flexWrap: 'wrap', opacity: st === 'out' ? 0.6 : 1, cursor: st === 'out' ? 'default' : 'pointer' }}>
+            <Row key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0', borderTop: '1px solid rgba(var(--color-primary-rgb),0.1)', flexWrap: 'wrap', opacity: st === 'out' ? 0.6 : 1, cursor: st === 'out' ? 'default' : 'pointer' }}>
               {leftBox(p, st)}
               <span style={{ fontSize: '0.95rem' }}>{p.icon}</span>
               <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9375rem' }}>{p.name}</span>
@@ -294,10 +280,10 @@ export default function HouseholdCard({
               {p.duplicateOf && <Badge tone="muted">also on {p.duplicateOf}’s RSVP</Badge>}
               {stateLabel(p, st)}
               <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-                {p.allergies && <Badge tone="alert" wrap>⚠ {p.allergies}</Badge>}
+                {hasAllergy(p.allergies) && <Badge tone="alert" wrap>⚠ {p.allergies}</Badge>}
                 {p.medications && <Badge tone="muted" wrap>💊 {p.medications}</Badge>}
               </span>
-            </label>
+            </Row>
           )
         })}
       </div>
@@ -327,8 +313,8 @@ export default function HouseholdCard({
 
       {err && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginTop: '0.5rem', fontWeight: 600 }}>{err}</p>}
 
-      {/* Check-out — chips/code/override for drop-off, simple "collected by" otherwise (HOM-214) */}
-      {herePeople.length > 0 && (
+      {/* Check-out — drop-off events only: chips, code, override (HOM-214) */}
+      {dropOff && herePeople.length > 0 && (
         <PickupPanel
           h={h}
           dropOff={dropOff}
@@ -342,8 +328,8 @@ export default function HouseholdCard({
         />
       )}
 
-      {/* Reset — clears this family's whole day; two-tap guard, no native confirm */}
-      {herePeople.length > 0 && (
+      {/* Reset — drop-off only; clears this family's whole day; two-tap guard, no native confirm */}
+      {dropOff && herePeople.length > 0 && (
         <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'flex-end' }}>
           {resetPending ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
@@ -366,7 +352,9 @@ export default function HouseholdCard({
             onClick={() => act({ action: 'checkin', personIds: selectedIn })}
             style={{ ...btn(true), width: '100%', padding: '0.7rem', opacity: selectedIn.length === 0 ? 0.5 : 1 }}
           >
-            {status === 'wait' ? `Check in (${selectedIn.length})` : `Add / check in (${selectedIn.length})`}
+            {!dropOff
+              ? `✓ Here (${selectedIn.length})`
+              : status === 'wait' ? `Check in (${selectedIn.length})` : `Add / check in (${selectedIn.length})`}
           </button>
         </div>
       )}

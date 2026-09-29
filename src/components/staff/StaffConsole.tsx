@@ -7,9 +7,10 @@ import PickStaff from '@components/staff/PickStaff'
 import StaffHeader from '@components/staff/StaffHeader'
 import Today from '@components/staff/Today'
 import Roster from '@components/staff/Roster'
+import type { HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, field, Badge } from '@components/staff/ui'
 import type { StaffMember } from '@lib/staff-auth'
-import type { EventKind } from '@lib/events'
+import { EVENT_KIND_RE, type EventKind } from '@lib/event-kinds'
 
 // ─── Kits phase ──────────────────────────────────────────────────────────────
 
@@ -226,6 +227,25 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
   )
 }
 
+// Kinds come from EVENT_KIND_RE so a new kind can't drift; ids are slug-like only.
+const OPEN_RE = new RegExp(`^(${EVENT_KIND_RE.source.replace(/^\^\(|\)\$$/g, '')}):([\\w-]+)$`)
+
+/** Parse + strip `?open={kind}:{id}` from the address bar. */
+function readOpenParam(): { kind: EventKind; id: string } | null {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    const raw = params.get('open')
+    if (raw === null) return null
+    params.delete('open')
+    const qs = params.toString()
+    history.replaceState(null, '', window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash)
+    const m = OPEN_RE.exec(raw)
+    return m ? { kind: m[1] as EventKind, id: m[2] } : null
+  } catch {
+    return null
+  }
+}
+
 export default function StaffConsole() {
   const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'today' | 'roster' | 'kits'>('checking')
   const [kitBuckets, setKitBuckets] = useState<KitBuckets | null>(null)
@@ -240,24 +260,36 @@ export default function StaffConsole() {
   const [pickAuthFailed, setPickAuthFailed] = useState(false)
   /** Which event's roster to show — any kind `getEvent`/`roster.json`
    *  resolves (party, workshop). `Roster` owns its own fetch/poll/state. */
-  const [rosterTarget, setRosterTarget] = useState<{ kind: EventKind; id: string } | null>(null)
+  const [rosterTarget, setRosterTarget] = useState<{ kind: EventKind; id: string; addFamily?: { household?: HouseholdMatch } } | null>(null)
   const [netError, setNetError] = useState<string | null>(null)
   // The passcode lives only in memory for the length of this browser session —
   // "Switch" reuses it to re-pick an identity without asking again. A page
   // reload always starts back at the passcode screen (pick.json re-verifies it).
   const passcodeRef = useRef('')
 
+  // `?open=` target, held until we know who's signed in (it may need a login first).
+  const pendingOpen = useRef<{ kind: EventKind; id: string } | null>(null)
+  function landOnToday() {
+    const target = pendingOpen.current
+    pendingOpen.current = null
+    if (target) { setRosterTarget(target); setPhase('roster') } else setPhase('today')
+  }
+
   // Recover the signed-in staffer from the identity cookie on mount, so a
   // page reload lands back on Today instead of dropping to the passcode
   // screen. No cookie (or an expired one) falls through to login.
   useEffect(() => {
-    (async () => {
+    pendingOpen.current = readOpenParam() ?? pendingOpen.current // ?? — StrictMode runs this twice; the 2nd read finds the param already stripped
+    ;(async () => {
       try {
         const res = await fetch('/api/staff/me.json', { cache: 'no-store' })
         if (res.ok) {
           const json = await res.json()
           setMe(json.data.staff)
-          setPhase('today')
+          // `/staff?open=party:abc` (the kiosk's return path after signing for an
+          // event) goes straight to that roster, then drops the param so a
+          // refresh or Back doesn't re-open it.
+          landOnToday()
           return
         }
       } catch {
@@ -300,7 +332,7 @@ export default function StaffConsole() {
       }
       setMe(json.data.staff)
       setPickBusy(false)
-      setPhase('today')
+      landOnToday()
     } catch {
       setPickError('Couldn’t reach the studio server — check wifi and try again.')
       setPickBusy(false)
@@ -367,8 +399,8 @@ export default function StaffConsole() {
   /** Today/EventList's row tap — opens that event's roster. Any kind
    *  `getEvent`/`roster.json` resolves (party, workshop) — HOM-213 replaced
    *  the party-only screen with a generalized one. */
-  function openRoster(e: { kind: EventKind; id: string; title: string }) {
-    setRosterTarget({ kind: e.kind, id: e.id })
+  function openRoster(e: { kind: EventKind; id: string; title: string; addFamily?: { household?: HouseholdMatch } }) {
+    setRosterTarget({ kind: e.kind, id: e.id, ...(e.addFamily ? { addFamily: e.addFamily } : {}) })
     setPhase('roster')
   }
 
@@ -426,6 +458,7 @@ export default function StaffConsole() {
         onBack={() => { setRosterTarget(null); setPhase('today') }}
         kind={rosterTarget.kind}
         id={rosterTarget.id}
+        addFamily={rosterTarget.addFamily}
       />
     )
   }

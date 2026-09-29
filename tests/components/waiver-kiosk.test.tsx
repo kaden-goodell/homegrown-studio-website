@@ -26,7 +26,8 @@ function fillMinimalForm(container: HTMLElement) {
   set('wv-em-name', 'Bob Rivera')
   set('wv-em-phone', '2565559999')
   fireEvent.click(screen.getByText(waiverContent.form.photoNo))
-  fireEvent.click(container.querySelector('input[type="checkbox"]')!)
+  // The assent box is the LAST checkbox (an event form has "who's coming" boxes before it).
+  fireEvent.click(Array.from(container.querySelectorAll('input[type="checkbox"]')).at(-1)!)
   set('wv-signature', 'Sarah Rivera')
 }
 
@@ -114,5 +115,56 @@ describe('WaiverFlow — kiosk mode (HOM-209)', () => {
 
     fireEvent.click(screen.getByText('Done'))
     expect(replaceSpy).toHaveBeenCalledWith('/staff')
+  })
+
+  describe('with an event (the door\'s "Sign on this iPad" from a roster)', () => {
+    function stubReturn() {
+      const replaceSpy = vi.fn()
+      const replaceStateSpy = vi.spyOn(window.history, 'replaceState').mockImplementation(() => {})
+      Object.defineProperty(window, 'location', { value: { ...window.location, replace: replaceSpy }, writable: true })
+      return { replaceSpy, replaceStateSpy }
+    }
+
+    it('still skips the lookup, and asks who\'s coming (workshop, not just party)', () => {
+      render(<WaiverFlow kiosk workshopId="cs-1" eventTitle="Slime Night · Fri 6:00 PM CT" returnTo="/staff?open=workshop:cs-1" />)
+      expect(screen.queryByText('Been here before?')).not.toBeInTheDocument()
+      expect(screen.getByText('Who’s making a craft?')).toBeInTheDocument()
+      expect(screen.getByText('Slime Night · Fri 6:00 PM CT')).toBeInTheDocument()
+    })
+
+    it('drop-off event: the form has the medications + may-NOT-collect fields', () => {
+      render(<WaiverFlow kiosk partyId="p1" dropOff returnTo="/staff?open=party:p1" />)
+      expect(screen.getByText(/Anyone who may NOT collect your child/)).toBeInTheDocument()
+      expect(screen.getByText('Who’s making a craft?')).toBeInTheDocument()
+    })
+
+    it('non-drop-off event: no pickup fields', () => {
+      render(<WaiverFlow kiosk partyId="p1" dropOff={false} returnTo="/staff?open=party:p1" />)
+      expect(screen.queryByText(/Anyone who may NOT collect your child/)).not.toBeInTheDocument()
+    })
+
+    it('signing sends the event with who is coming, shows the same done screen, and hands back to the roster', async () => {
+      const fetchSpy = mockSignSuccess()
+      const { replaceSpy, replaceStateSpy } = stubReturn()
+      const { container } = render(<WaiverFlow kiosk partyId="p1" partyLabel="Rivera Party" returnTo="/staff?open=party:p1" />)
+      fillMinimalForm(container)
+      await act(async () => { fireEvent.click(screen.getByText(waiverContent.form.submitLabel)) })
+
+      await screen.findByText('Done — hand the iPad back')
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string)
+      expect(body.partyId).toBe('p1')
+      expect(body.attending).toEqual(['adult'])
+
+      fireEvent.click(screen.getByText('Done'))
+      expect(replaceStateSpy).toHaveBeenCalledWith(null, '', '/staff?open=party:p1')
+      expect(replaceSpy).toHaveBeenCalledWith('/staff?open=party:p1')
+    })
+
+    it('blocks Submit until at least one person is coming', async () => {
+      const { container } = render(<WaiverFlow kiosk workshopId="cs-1" returnTo="/staff?open=workshop:cs-1" />)
+      fillMinimalForm(container)
+      fireEvent.click(screen.getByLabelText(/Sarah Rivera \(you\)/)) // untick the only person
+      expect(screen.getByText(/Pick at least one person who’s coming/)).toBeInTheDocument()
+    })
   })
 })

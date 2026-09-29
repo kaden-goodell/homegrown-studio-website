@@ -105,17 +105,21 @@ in Linear HOM-99 (licensing) and HOM-114 (safeguards).
 
 **Check-in / check-out — how the iPad actually walks you through it:**
 - **The Today screen (front desk) answers one of three questions** the moment you type a
-  name or phone: **GOOD TO GO** (waiver's on file and current — "Check in to Open Studio",
-  or walk them to the roster for a party/PNO), **EXPIRED** (waiver's stale), or **NOT ON
+  name or phone: **GOOD TO GO** (waiver's on file and current — tap "✓ Here"; if they're
+  here for a party or workshop, tap that event's button under it), **EXPIRED** (waiver's stale), or **NOT ON
   FILE**. Expired or not on file both get the same two buttons — "Show QR" (they sign on
   their own phone) or "Sign on this iPad."
+- **Only drop-off events have check-out.** Parties, workshops and Open Studio are
+  attendance only: tick who's here → "✓ Here (n)". A family that isn't on the roster yet:
+  open the roster → "+ Add family" → search → "✓ Add & mark here" (or Show QR / Sign on
+  this iPad if they need to sign first).
 - **Drop-off is a setting on the event, not a separate mode.** Tap the gear (Event
   settings) on the roster to see or change it, and the multi-day dates — don't guess from
   the event name or how it sounds.
 - **Check-in texts the pickup code.** Tap "Check in (n)" on the roster; for a drop-off event
   this sends the family's pickup code by text the moment their first kid checks in. The
-  signing parent accepted the **Drop-off Program Addendum** (HOM-211) at registration — it's
-  what governs everything below.
+  signing parent agreed to the drop-off terms (Section 4b of the participation agreement) —
+  they govern everything below.
 - **Pickup is chip + code.** The person collecting shows up on the "Who's collecting?"
   chips. Known person + correct code → "Check out (n)." Someone not on the chip list →
   tick "Not on the list — I checked their photo ID" first, then check out. No code on

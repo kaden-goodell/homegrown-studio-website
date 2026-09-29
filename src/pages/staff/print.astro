@@ -3,8 +3,8 @@ export const prerender = false
 
 import { staffAuthorized } from '@lib/staff-auth'
 import { getEvent, resolveEventDay, EVENT_KIND_RE } from '@lib/events'
-import { listWaiversByEvent, normalizeAuthorizedPickup } from '@lib/waiver-store'
-import { getRsvp } from '@lib/rsvp-store'
+import { listWaiversByEvent } from '@lib/waiver-store'
+import { effectivePickup } from '@lib/pickup'
 import { formatWhen, formatCalendarDay } from '@lib/studio-time'
 import { siteConfig } from '@config/site.config'
 
@@ -45,11 +45,9 @@ interface PrintRow {
 
 const rows: PrintRow[] = []
 for (const w of waivers) {
-  const rsvp = kind ? await getRsvp(kind, id, w.id) : null
-  const authorizedPickup = rsvp?.pickup
-    ? normalizeAuthorizedPickup(rsvp.pickup.authorizedPickup)
-    : normalizeAuthorizedPickup(w.authorizedPickup)
-  const notAuthorized = rsvp?.pickup?.notAuthorized || w.notAuthorized || ''
+  // Same resolver the door gate uses, so paper never disagrees with the iPad
+  // (and a "None" clear never prints as a restriction).
+  const { authorizedPickup, notAuthorized } = await effectivePickup({ waiver: w })
   const emergency = `${w.emergency.name} · ${w.emergency.phone}${w.emergency.relationship ? ` (${w.emergency.relationship})` : ''}`
   const pickupText = authorizedPickup.length > 0
     ? authorizedPickup.map((p) => (p.phone ? `${p.name} (${p.phone})` : p.name)).join(', ')
