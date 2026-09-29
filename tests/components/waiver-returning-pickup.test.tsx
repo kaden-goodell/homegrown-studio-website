@@ -8,9 +8,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, act } from '@testing-library/react'
 import WaiverFlow from '@components/waiver/WaiverFlow'
 
-// HOM-218: lookup.json only ever starts the SMS code step now — the
-// household's kids/recordId/reuseToken/hasPickup come back from verify.json,
-// after the (mocked) code is "verified".
+// lookup.json returns the whole household directly — no code step.
 function mockLookupThenSign(hasPickup: boolean) {
   return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
     const href = String(url)
@@ -18,15 +16,8 @@ function mockLookupThenSign(hasPickup: boolean) {
       return {
         ok: true,
         json: async () => ({
-          data: { found: true, firstName: 'Sarah', kidCount: 0, validUntil: '2099-01-01T00:00:00.000Z', needsCode: true, phoneHint: '••42' },
-        }),
-      } as Response
-    }
-    if (href.includes('/api/waiver/verify.json')) {
-      return {
-        ok: true,
-        json: async () => ({
           data: {
+            found: true,
             recordId: 'wvr_1',
             reuseToken: 'tok-abc',
             firstName: 'Sarah',
@@ -46,21 +37,12 @@ function mockLookupThenSign(hasPickup: boolean) {
   })
 }
 
-/** Type a contact, click through to the code step, type the (mocked) code,
- *  and verify through to the returning screen. */
+/** Type a contact and continue straight through to the returning screen. */
 async function reachReturningScreen(container: HTMLElement) {
   const input = container.querySelector('input[placeholder="Email or phone"]') as HTMLInputElement
   fireEvent.change(input, { target: { value: 'sarah@example.com' } })
   await act(async () => {
     fireEvent.click(screen.getByText('Continue'))
-  })
-  await screen.findByText(/We texted a code/)
-  const boxes = container.querySelectorAll('input[inputmode="numeric"]')
-  '042017'.split('').forEach((digit, i) => {
-    fireEvent.change(boxes[i], { target: { value: digit } })
-  })
-  await act(async () => {
-    fireEvent.click(screen.getByText('Verify'))
   })
   await screen.findByText(/Welcome back, Sarah/)
 }
@@ -142,5 +124,28 @@ describe('WaiverFlow — returning screen pickup block (HOM-212 fix round 1)', (
     const body = rsvpBody(fetchSpy)
     expect(body).not.toBeNull()
     expect(body.pickupUpdate).toEqual({ authorizedPickup: [], notAuthorized: 'Bio dad' })
+  })
+
+  it('drop-off RSVP done screen shows the pickup-code, photo-ID and late-fee lines; a non-drop-off one does not', async () => {
+    mockLookupThenSign(true)
+    const { container, unmount } = render(<WaiverFlow partyId="party-1" dropOff />)
+    await reachReturningScreen(container)
+    await act(async () => {
+      fireEvent.click(screen.getByText('✓ RSVP us'))
+    })
+    expect(await screen.findByText(/text a pickup code/)).toBeInTheDocument()
+    expect(screen.getByText(/photo ID if we don’t know them/)).toBeInTheDocument()
+    expect(screen.getByText('Late pickup: $1 per minute after a 15-minute grace.')).toBeInTheDocument()
+    unmount()
+
+    vi.restoreAllMocks()
+    mockLookupThenSign(true)
+    const second = render(<WaiverFlow partyId="party-1" />)
+    await reachReturningScreen(second.container)
+    await act(async () => {
+      fireEvent.click(screen.getByText('✓ RSVP us'))
+    })
+    await screen.findByText(/You’re all set/)
+    expect(screen.queryByText(/Late pickup/)).not.toBeInTheDocument()
   })
 })
