@@ -17,6 +17,7 @@ import { upsertRsvp, getRsvp, type RsvpRecord } from '@lib/rsvp-store'
 import { setExpected } from '@lib/checkin-store'
 import { effectivePickup, storablePickup, sameHousehold } from '@lib/pickup'
 import { migrateCheckinOnReplace } from '@lib/checkin-actions'
+import { isNoneToken } from '@lib/allergy'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { verifyReuseToken } from '@lib/reuse-token'
@@ -276,7 +277,7 @@ async function attachSquare(record: WaiverRecord): Promise<void> {
       medicationLines.length ? `Medications — ${medicationLines.join('; ')}` : '',
       `Emergency: ${record.emergency.name} ${record.emergency.phone}`,
       pickupNames ? `Pickup: ${pickupNames}` : '',
-      record.notAuthorized ? `⛔ NOT authorized: ${record.notAuthorized}` : '',
+      record.notAuthorized && !isNoneToken(record.notAuthorized) ? `⛔ NOT authorized: ${record.notAuthorized}` : '',
     ].filter(Boolean).join(' · ')
     await providers.customer.appendNote(
       customer.id,

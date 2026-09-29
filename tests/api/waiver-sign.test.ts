@@ -518,6 +518,16 @@ describe('POST /api/waiver/sign.json', () => {
       expect(saved.notAuthorized).toBe('Bio dad — court order on file')
     })
 
+    it('never writes a "None" clear into the Square customer note as a restriction', async () => {
+      const { providers } = await import('@config/providers')
+      const appendNote = providers.customer.appendNote as ReturnType<typeof vi.fn>
+      appendNote.mockClear()
+      const res = await POST(createMockContext(makeAdultBody({ notAuthorized: 'None' })))
+      expect(res.status).toBe(200)
+      await vi.waitFor(() => expect(appendNote).toHaveBeenCalled())
+      expect(appendNote.mock.calls[0][1]).not.toContain('NOT authorized')
+    })
+
     it('preserves the literal "None" for adult and child allergies', async () => {
       const body = makeAdultBody({
         adultAllergies: 'None',
