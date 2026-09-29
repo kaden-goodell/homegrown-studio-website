@@ -1,20 +1,16 @@
 import type { APIRoute } from 'astro'
-import { randomInt, createHash } from 'node:crypto'
 import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { getEvent, eventKey, resolveEventDay, isLastEventDay, EVENT_KIND_RE, type EventKind } from '@lib/events'
 import { getWaiverRecord, normalizeAuthorizedPickup, type AuthorizedPickup, type WaiverRecord } from '@lib/waiver-store'
-import { getRsvp } from '@lib/rsvp-store'
+import { applyPresent, sendPickupCode, kidNames, hashCode, newCode } from '@lib/checkin-actions'
 import { mutateCheckin, toPublicCheckin, childStillHere, type CheckinState } from '@lib/checkin-store'
-import { sendQuoText, pickupCodeText, pickedUpText } from '@lib/quo'
+import { sendQuoText, pickedUpText } from '@lib/quo'
 import { formatTime } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
 
 const logger = createLogger('api:staff:checkin')
 
 export const prerender = false
-
-const hashCode = (code: string) => createHash('sha256').update('pickup:' + code).digest('hex')
-const newCode = () => String(randomInt(1000, 10000))
 
 const KIND_RE = EVENT_KIND_RE
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
@@ -34,27 +30,8 @@ const CODE_MISMATCH_MSG = 'Pickup code doesn’t match. Verify with the parent.'
 // Names the button the console actually shows in this state — with no code on
 // file, `PickupPanel` renders "Issue pickup code", never "Re-send code".
 const NO_CODE_MSG = 'No pickup code has been issued for this family — use "Issue pickup code" first.'
+const NOT_DROP_OFF_MSG = "This event isn't drop-off — there's nothing to check out."
 const NO_EVENT_MSG = 'Couldn’t confirm this event — refresh the roster and try again.'
-
-/** First name only — what the pickup-code / pickup-confirmation texts use
- *  when naming the kid(s) involved, so a text doesn't read a whole legal name. */
-function firstName(full: string): string {
-  const t = full.trim()
-  return t.split(/\s+/)[0] || t
-}
-
-/** Kid first names for an SMS — every minor on the waiver by default (the
- *  family code covers all of them), or just the ones in `ids` when releasing
- *  a specific subset. */
-function kidNames(waiverRecord: WaiverRecord | null, ids?: string[]): string[] {
-  if (!waiverRecord) return []
-  const minors = waiverRecord.minors
-  const targets = ids ? ids.filter(isChild) : minors.map((_, i) => `child:${i}`)
-  return targets
-    .map((id) => minors[Number(id.slice('child:'.length))]?.name)
-    .filter((n): n is string => !!n)
-    .map(firstName)
-}
 
 /** Case-insensitive, trimmed, EXACT match against a confirmed-pickup chip or
  *  the signer's own name — the "known collector" gate (HOM-214). */
@@ -173,6 +150,11 @@ export const POST: APIRoute = async ({ request }) => {
     return new Response(JSON.stringify({ error: 'Unknown action' }), { status: 400 })
   }
 
+  const CHECKOUT_ACTIONS = ['pickup', 'undo-pickup', 'pickup-override', 'reissue-code', 'set-pickup']
+  if (!dropOff && CHECKOUT_ACTIONS.includes(action)) {
+    return new Response(JSON.stringify({ error: NOT_DROP_OFF_MSG }), { status: 400 })
+  }
+
   const evKey = eventKey(kind as EventKind, id)
 
   // Plaintext code is shown to the caller exactly once (never persisted).
@@ -208,60 +190,17 @@ export const POST: APIRoute = async ({ request }) => {
         case 'checkin': {
           // Mark the selected people present. Whoever staff picked is who's here —
           // the RSVP only pre-selected; a late-arriving sibling can be added now.
+          // Shared with rsvp.json ("+ Add family") via @lib/checkin-actions.
           const ids = asIds(body?.personIds)
           if (ids.length === 0) {
             denyReason = 'No one selected to check in.'
             return
           }
-          for (const id of ids) {
-            const existing = dayState.presence[id]
-            // Re-checking someone who already left reopens their presence.
-            dayState.presence[id] = { inAt: existing && !existing.outAt ? existing.inAt : nowIso, outAt: null }
-          }
-          state.events.push({ at: nowIso, action: 'checkin', personIds: ids, day, by })
-          if (dropOff && ids.some(isChild)) {
-            // Seed authorized-pickup people (+ any "may NOT collect" note),
-            // and issue the ONE family code if we haven't already — store
-            // only its hash, show the plaintext once. The RSVP's `pickup`
-            // override (set on the returning-household RSVP screen when the
-            // on-file signature had no pickup rows, HOM-212) wins over the
-            // signature's own fields when present. Event-scoped, not per-day.
-            //
-            // ONE-SHOT, gated on `pickupSeeded` rather than on the list being
-            // empty: staff who delete an unsafe collector leave an empty list
-            // behind, and re-seeding it from the waiver on the next check-in
-            // put that person straight back on the authorized list.
-            if (!state.pickupSeeded) {
-              if (state.confirmedPickup.length === 0) {
-                const rsvp = await getRsvp(kind as EventKind, id, recordId)
-                if (rsvp?.pickup) {
-                  state.confirmedPickup = normalizeAuthorizedPickup(rsvp.pickup.authorizedPickup)
-                  state.notAuthorized = rsvp.pickup.notAuthorized || ''
-                } else {
-                  state.confirmedPickup = waiverRecord ? normalizeAuthorizedPickup(waiverRecord.authorizedPickup) : []
-                  state.notAuthorized = waiverRecord?.notAuthorized || ''
-                }
-              }
-              state.pickupSeeded = true
-            }
-            if (!state.pickupCodeHash) {
-              oneTimeCode = newCode()
-              state.pickupCodeHash = hashCode(oneTimeCode)
-              // 'code-sent' is logged AFTER the SMS is actually attempted
-              // (fix round 1 addendum, finding 5) — see the post-mutation
-              // SMS block below.
-            }
-          }
+          oneTimeCode = (await applyPresent(state, { event: studioEvent!, kind: kind as EventKind, id, recordId, waiverRecord, personIds: ids, day, by })).oneTimeCode
           break
         }
 
         case 'reissue-code': {
-          // Guard: pickup codes only apply to drop-off events.
-          if (!dropOff) {
-            denyReason = 'Pickup codes only apply to drop-off events.'
-            state.events.push({ at: nowIso, action: 'reissue-code', personIds: [], note: 'denied: not a drop-off event', day, by })
-            return
-          }
           const reason = typeof body?.reason === 'string' ? body.reason.trim() : ''
           if (!reason) {
             denyReason = 'Tell us why — pick a reason to resend the code.'
@@ -405,10 +344,6 @@ export const POST: APIRoute = async ({ request }) => {
         }
 
         case 'pickup-override': {
-          if (!dropOff) {
-            denyReason = 'Override only applies to drop-off events.'
-            return
-          }
           const ids = asIds(body?.personIds).filter((id) => dayState.presence[id] && !dayState.presence[id].outAt)
           if (ids.length === 0) {
             denyReason = 'No one here to check out.'
@@ -515,37 +450,8 @@ export const POST: APIRoute = async ({ request }) => {
   // check-in/pickup succeed, just with `smsFailed: true` (HOM-214).
   let smsFailed = false
   if (oneTimeCode) {
-    let codeSendFailed = false
-    try {
-      await sendQuoText({
-        to: signerPhone,
-        content: pickupCodeText(studioEvent?.title ?? 'Hometown Studio', oneTimeCode, kidNames(waiverRecord)),
-      })
-    } catch (err) {
-      logger.error('Pickup-code text failed', { error: err instanceof Error ? err.message : String(err) })
-      codeSendFailed = true
-      smsFailed = true
-    }
-    // Log the send AFTER it's actually attempted, with the true outcome
-    // (fix round 1 addendum, finding 5) — logging it inside the mutation
-    // above would claim a text went out even when Quo just threw. A second
-    // small append is safe here: it can't double-log on a retry, since
-    // mutateCheckin re-reads fresh state per attempt and only ever commits
-    // once.
-    try {
-      await mutateCheckin(evKey, recordId, (s) => {
-        s.events.push({
-          at: new Date().toISOString(),
-          action: 'code-sent',
-          personIds: [],
-          day,
-          by,
-          ...(codeSendFailed ? { note: 'send failed' } : {}),
-        })
-      })
-    } catch (err) {
-      logger.error('Failed to log code-sent event', { error: err instanceof Error ? err.message : String(err) })
-    }
+    const sent = await sendPickupCode({ event: studioEvent, kind: kind as EventKind, id, recordId, waiverRecord, day, by }, oneTimeCode)
+    if (sent.smsFailed) smsFailed = true
   }
   if (releasedKidIds.length > 0) {
     try {

@@ -650,3 +650,35 @@ describe('POST /api/staff/checkin.json — override audit + copy', () => {
     expect((await res.json()).error).toBe('No pickup code has been issued for this family — use "Issue pickup code" first.')
   })
 })
+
+describe('non-drop-off events are attendance-only', () => {
+  const MSG = "This event isn't drop-off — there's nothing to check out."
+
+  it.each(['pickup', 'undo-pickup', 'pickup-override', 'reissue-code', 'set-pickup'])(
+    '%s on a non-drop-off event → 400 and nothing is written',
+    async (action) => {
+      const res = await POST(ctx({ party: 'party-1', recordId: 'rec-1', action, personIds: ['adult'], collectedBy: 'x', reason: 'parent-present', confirmedPickup: [] }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toBe(MSG)
+      expect(mockMutate).not.toHaveBeenCalled()
+    },
+  )
+
+  it('checkin and undo-checkin still work, and never issue a code', async () => {
+    const inRes = await POST(ctx({ party: 'party-1', recordId: 'rec-1', action: 'checkin', personIds: ['adult'] }))
+    expect(inRes.status).toBe(200)
+    expect((await inRes.json()).data.oneTimeCode).toBeUndefined()
+    expect(state.days['2026-09-05'].presence.adult.outAt).toBeNull()
+    const undo = await POST(ctx({ party: 'party-1', recordId: 'rec-1', action: 'undo-checkin', personIds: ['adult'] }))
+    expect(undo.status).toBe(200)
+    expect(state.days['2026-09-05'].presence.adult).toBeUndefined()
+  })
+
+  it('drop-off events still take the pickup actions (unchanged)', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver())
+    const res = await dropOffPost({ action: 'reissue-code', reason: 'lost' })
+    expect(res.status).toBe(200)
+    expect((await res.json()).data.oneTimeCode).toMatch(/^\d{4}$/)
+  })
+})

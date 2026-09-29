@@ -317,7 +317,6 @@ describe('POST /api/waiver/sign.json', () => {
         minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
         attending: ['child:0'],
         responsibleAdult: '',
-        agreeAddendum: true,
       })
       const ctx = createMockContext(body)
       const res = await POST(ctx)
@@ -542,7 +541,6 @@ describe('POST /api/waiver/sign.json', () => {
       const body = makeAdultBody({
         partyId: 'party-123',
         authorizedPickup: [],
-        agreeAddendum: true,
       })
       const ctx = createMockContext(body)
       const res = await POST(ctx)
