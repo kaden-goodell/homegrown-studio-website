@@ -16,6 +16,7 @@ import { makeKvStore } from '@lib/blob-store'
 import type { EventKind } from '@lib/events'
 import type { By } from '@lib/staff-auth'
 import type { AuthorizedPickup } from '@lib/waiver-store'
+import { hasPickupContent } from '@lib/pickup-rules'
 
 const logger = createLogger('rsvp-store')
 const kv = makeKvStore('rsvps', 'rsvps')
@@ -104,7 +105,7 @@ export async function listRsvpsByEvent(kind: EventKind, eventId: string): Promis
  * erases). Newest by `at`; RSVPs with no pickup, or an empty one, are skipped.
  * The store is small, so a key scan is fine.
  */
-export async function getLatestPickupForWaiver(waiverId: string): Promise<NonNullable<RsvpRecord['pickup']> | null> {
+export async function getLatestPickupForWaiver(waiverId: string): Promise<(NonNullable<RsvpRecord['pickup']> & { at: string }) | null> {
   const suffix = `-${waiverId}`
   const keys = (await kv.list()).filter((k) => k.startsWith('rsvp-') && k.endsWith(suffix))
   const records = await Promise.all(
@@ -116,10 +117,6 @@ export async function getLatestPickupForWaiver(waiverId: string): Promise<NonNul
   const withPickup = records
     .filter((r): r is RsvpRecord => !!r && r.waiverId === waiverId && hasPickupContent(r.pickup))
     .sort((a, b) => b.at.localeCompare(a.at))
-  return withPickup[0]?.pickup ?? null
-}
-
-/** Rows or a may-NOT-collect note. */
-function hasPickupContent(p: RsvpRecord['pickup'] | undefined): p is NonNullable<RsvpRecord['pickup']> {
-  return !!p && (p.authorizedPickup.length > 0 || p.notAuthorized.trim() !== '')
+  const best = withPickup[0]
+  return best?.pickup ? { ...best.pickup, at: best.at } : null
 }

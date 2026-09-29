@@ -1,39 +1,78 @@
 /**
- * The ONE answer to "who may collect this household's kids at this event".
- * A household's pickup list and may-NOT-collect note follow it to every event:
- *   1. this event's RSVP override, if it has any content
- *   2. else the household's most recent RSVP override from any other event
- *   3. else the signature's own fields
- * Blank never erases; typing new values on an RSVP replaces (rule 1).
+ * The ONE answer to "who may collect this household's kids". A household's
+ * pickup list and may-NOT-collect note follow it to every event — the newest
+ * source wins, blank never erases, typing new values replaces:
+ *   - the newest RSVP pickup (any event) under this waiver id
+ *   - if the household re-signed (a DIFFERENT current record for the same
+ *     email AND signer name): that record's own fields and its RSVPs too, so a
+ *     restriction typed on a re-sign reaches events booked under the old id
+ *   - the waiver's own fields
  */
-import { getRsvp, getLatestPickupForWaiver } from '@lib/rsvp-store'
-import { normalizeAuthorizedPickup, type AuthorizedPickup } from '@lib/waiver-store'
-import type { EventKind } from '@lib/event-kinds'
+import { getLatestPickupForWaiver } from '@lib/rsvp-store'
+import { lookupHouseholdEntry, normalizeAuthorizedPickup, type AuthorizedPickup } from '@lib/waiver-store'
+import { hasPickupContent, sameHousehold } from '@lib/pickup-rules'
+
+export { hasPickupContent, sameHousehold }
 
 export interface EffectivePickup {
   authorizedPickup: AuthorizedPickup[]
   notAuthorized: string
 }
 
-const hasContent = (p: { authorizedPickup: unknown[]; notAuthorized: string } | null | undefined): p is EffectivePickup =>
-  !!p && (p.authorizedPickup.length > 0 || (p.notAuthorized ?? '').trim() !== '')
-
-export const hasPickupContent = hasContent
-
-export async function effectivePickup(input: {
-  /** Omit for a plain (no-event) lookup: skips step 1. */
-  kind?: EventKind
+/** Either a WaiverRecord (`adult`, `id`) or a HouseholdOnFile (`recordId`, flat name/email). */
+export interface PickupSubject {
   id?: string
-  waiver: { id: string; authorizedPickup: unknown; notAuthorized?: string | null }
-}): Promise<EffectivePickup> {
-  const { kind, id, waiver } = input
-  const here = kind && id ? await getRsvp(kind, id, waiver.id) : null
-  if (hasContent(here?.pickup)) {
-    return { authorizedPickup: normalizeAuthorizedPickup(here!.pickup!.authorizedPickup), notAuthorized: here!.pickup!.notAuthorized }
+  recordId?: string
+  authorizedPickup: unknown
+  notAuthorized?: string | null
+  signedAt?: string
+  adult?: { email: string; firstName: string; lastName: string }
+  email?: string
+  firstName?: string
+  lastName?: string
+}
+
+const idOf = (w: PickupSubject) => (w.id ?? w.recordId)!
+const personOf = (w: PickupSubject) => ({
+  email: w.adult?.email ?? w.email ?? '',
+  firstName: w.adult?.firstName ?? w.firstName ?? '',
+  lastName: w.adult?.lastName ?? w.lastName ?? '',
+})
+
+export async function effectivePickup({ waiver }: { waiver: PickupSubject }): Promise<EffectivePickup> {
+  type Candidate = { authorizedPickup: unknown[]; notAuthorized: string; at: string }
+  const candidates: Candidate[] = [] // ties keep list order: RSVPs first, own fields last
+  const push = (p: { authorizedPickup: unknown; notAuthorized?: string | null; at?: string } | null) => {
+    if (!p) return
+    const rows = normalizeAuthorizedPickup(p.authorizedPickup as any)
+    const c = { authorizedPickup: rows, notAuthorized: p.notAuthorized ?? '', at: p.at ?? '' }
+    if (hasPickupContent(c)) candidates.push(c)
   }
-  const latest = await getLatestPickupForWaiver(waiver.id)
-  if (hasContent(latest)) {
-    return { authorizedPickup: normalizeAuthorizedPickup(latest.authorizedPickup), notAuthorized: latest.notAuthorized }
+
+  const id = idOf(waiver)
+  push(await getLatestPickupForWaiver(id))
+
+  // The household's CURRENT record, when it re-signed under a new id.
+  let current: PickupSubject | null = null
+  const email = personOf(waiver).email
+  if (email) {
+    try {
+      const h = await lookupHouseholdEntry(email)
+      if (h && h.recordId !== id && sameHousehold(personOf(h), personOf(waiver))) current = h
+    } catch {
+      // best effort — nothing extra
+    }
   }
-  return { authorizedPickup: normalizeAuthorizedPickup(waiver.authorizedPickup as any), notAuthorized: waiver.notAuthorized || '' }
+  if (current) {
+    push(await getLatestPickupForWaiver(idOf(current)))
+    push({ authorizedPickup: current.authorizedPickup, notAuthorized: current.notAuthorized, at: current.signedAt })
+  }
+  push({ authorizedPickup: waiver.authorizedPickup, notAuthorized: waiver.notAuthorized, at: waiver.signedAt })
+
+  // Newest wins (stable sort keeps list order on ties).
+  candidates.sort((a, b) => b.at.localeCompare(a.at))
+  const best = candidates[0]
+  return best
+    ? { authorizedPickup: best.authorizedPickup as AuthorizedPickup[], notAuthorized: best.notAuthorized }
+    : { authorizedPickup: [], notAuthorized: '' }
 }

@@ -15,7 +15,7 @@ import {
 } from '@lib/waiver-store'
 import { upsertRsvp, getRsvp, type RsvpRecord } from '@lib/rsvp-store'
 import { setExpected } from '@lib/checkin-store'
-import { effectivePickup, hasPickupContent } from '@lib/pickup'
+import { effectivePickup, hasPickupContent, sameHousehold } from '@lib/pickup'
 import { migrateCheckinOnReplace } from '@lib/checkin-actions'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
@@ -179,21 +179,20 @@ function fireDropOffDetailsEmail(input: Parameters<typeof sendDropOffDetailsEmai
 }
 
 /**
- * The household this fresh signature replaces (same email/phone), if any. A
- * re-sign must never silently erase a custody restriction the parent gave
- * before — blank optional pickup fields mean "no change", not "none".
- * Best-effort: a lookup failure just means nothing is carried over.
+ * The household this fresh signature replaces: same email AND signer name
+ * (sameHousehold). Never by phone — the phone index knows nothing about
+ * households, and pickup names are third parties' data. A re-sign must never
+ * silently erase a custody restriction the parent gave before; blank optional
+ * pickup fields mean "no change", not "none". Best-effort.
  */
-async function findPreviousHousehold(email: string, phone: string): Promise<HouseholdOnFile | null> {
-  for (const contact of [email, phone]) {
-    try {
-      const h = await lookupHouseholdEntry(contact)
-      if (h) return h
-    } catch (err) {
-      logger.error('Previous-household lookup failed — nothing carried over', { error: String(err) })
-    }
+async function findPreviousHousehold(next: { email: string; firstName: string; lastName: string }): Promise<HouseholdOnFile | null> {
+  try {
+    const h = await lookupHouseholdEntry(next.email)
+    return h && sameHousehold(h, next) ? h : null
+  } catch (err) {
+    logger.error('Previous-household lookup failed — nothing carried over', { error: String(err) })
+    return null
   }
-  return null
 }
 
 /** Save the signature + update the contact index. Event attachment (roster,
@@ -407,7 +406,7 @@ async function handleReuse(
   // (this event's RSVP, else its latest RSVP anywhere, else the signature).
   // upsertRsvp fully replaces the record, so store the resolved value.
   if (!pickup) {
-    const eff = await effectivePickup({ kind: eventKind, id: eventId, waiver: source })
+    const eff = await effectivePickup({ waiver: source })
     if (hasPickupContent(eff)) pickup = eff
   }
 
@@ -532,9 +531,9 @@ async function handleFresh(
   // before (its previous RSVP override for this event, its latest RSVP
   // anywhere, or the previous signature); typing new values replaces them.
   // The new signature itself carries the result, so it lives on the record.
-  const prev = await findPreviousHousehold(email, phone)
+  const prev = await findPreviousHousehold({ email, firstName, lastName })
   const prevEff = prev
-    ? await effectivePickup({ kind: eventKind ?? undefined, id: (partyId ?? workshopId) ?? undefined, waiver: { id: prev.recordId, authorizedPickup: prev.authorizedPickup, notAuthorized: prev.notAuthorized } }).catch(() => null)
+    ? await effectivePickup({ waiver: prev }).catch(() => null)
     : null
   const carriedPickup = {
     authorizedPickup: pickupData.authorizedPickup.length > 0 ? pickupData.authorizedPickup : (prevEff?.authorizedPickup ?? []),

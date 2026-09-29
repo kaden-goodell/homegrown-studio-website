@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { lookupHouseholdEntry } from '@lib/waiver-store'
-import { effectivePickup, hasPickupContent } from '@lib/pickup'
+import { effectivePickup } from '@lib/pickup'
 import { rateLimited } from '@lib/rate-limit'
 import { issueReuseToken } from '@lib/reuse-token'
 import { substantiveSince, compareVersions } from '@config/waiver-content'
@@ -62,12 +62,13 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     return ok({ found: true, mustResign: true, firstName: h.firstName })
   }
 
-  // Same resolver the pickup gate uses: this event's RSVP, else the household's
-  // latest RSVP anywhere, else the signature. Boolean only — public endpoint.
-  const kind = partyId ? 'party' : workshopId ? 'workshop' : undefined
+  // Same resolver the pickup gate uses (newest across the household's RSVPs,
+  // else the signature). `hasPickup` means AUTHORIZED ADULTS are on file — a
+  // may-NOT-collect note alone doesn't answer "who picks up?". Boolean only:
+  // this endpoint is public.
   let hasPickup = false
   try {
-    hasPickup = hasPickupContent(await effectivePickup({ kind, id: (partyId ?? workshopId) ?? undefined, waiver: { id: h.recordId, authorizedPickup: h.authorizedPickup, notAuthorized: h.notAuthorized } }))
+    hasPickup = (await effectivePickup({ waiver: h })).authorizedPickup.length > 0
   } catch (error) {
     logger.error('Pickup lookup failed — treating as none on file', { error: String(error) })
   }

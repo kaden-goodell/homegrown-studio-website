@@ -81,7 +81,7 @@ describe('rsvp-store', () => {
       await upsertRsvp({ ...base, waiverId: w, event: { kind: 'party', id: 'e_b' + w }, at: '2026-10-05T00:00:00.000Z', pickup: pk('Uncle Al') })
       await upsertRsvp({ ...base, waiverId: w, event: { kind: 'workshop', id: 'e_c' + w }, at: '2026-10-09T00:00:00.000Z' }) // newest, but no pickup
       await upsertRsvp({ ...base, waiverId: w, event: { kind: 'workshop', id: 'e_d' + w }, at: '2026-10-10T00:00:00.000Z', pickup: pk('', '') }) // empty
-      expect(await getLatestPickupForWaiver(w)).toEqual(pk('Uncle Al'))
+      expect(await getLatestPickupForWaiver(w)).toEqual({ ...pk('Uncle Al'), at: '2026-10-05T00:00:00.000Z' })
     })
 
     it('does not match a different household whose id merely ends the same way', async () => {

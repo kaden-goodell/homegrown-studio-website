@@ -87,11 +87,11 @@ describe('POST /api/waiver/lookup.json — type a phone number, the household ap
     expect(mockGetRsvp).not.toHaveBeenCalled()
   })
 
-  it('an existing RSVP pickup override for THIS event wins (partyId)', async () => {
+  it('an existing RSVP pickup override counts for hasPickup (never returned)', async () => {
     mockLookupHouseholdEntry.mockResolvedValue(makeHousehold())
-    mockGetRsvp.mockResolvedValue({ pickup: { authorizedPickup: [{ name: 'Uncle Al', phone: '' }], notAuthorized: '' } })
+    mockLatest.mockResolvedValue({ authorizedPickup: [{ name: 'Uncle Al', phone: '' }], notAuthorized: '', at: '2026-09-01T00:00:00.000Z' })
     const { data } = await (await POST(createMockContext({ contact: 'alice@test.com', partyId: 'party-1' }))).json()
-    expect(mockGetRsvp).toHaveBeenCalledWith('party', 'party-1', 'wvr_abc')
+    expect(mockLatest).toHaveBeenCalledWith('wvr_abc')
     expect(data.hasPickup).toBe(true)
     expect('pickup' in data).toBe(false)
     expect(JSON.stringify(data)).not.toContain('Uncle Al')
@@ -100,16 +100,16 @@ describe('POST /api/waiver/lookup.json — type a phone number, the household ap
   it('(b) hasPickup is true for event B when only ANOTHER event\'s RSVP had a pickup/may-NOT-collect', async () => {
     mockLookupHouseholdEntry.mockResolvedValue(makeHousehold())
     mockGetRsvp.mockResolvedValue(null)
-    mockLatest.mockResolvedValue({ authorizedPickup: [], notAuthorized: 'Rick Smith' })
+    mockLatest.mockResolvedValue({ authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: 'Rick Smith' })
     const { data } = await (await POST(createMockContext({ contact: 'alice@test.com', workshopId: 'event-b' }))).json()
     expect(data.hasPickup).toBe(true)
     expect('pickup' in data).toBe(false)
   })
 
-  it('workshopId looks up the workshop RSVP', async () => {
-    mockLookupHouseholdEntry.mockResolvedValue(makeHousehold())
-    await POST(createMockContext({ contact: 'alice@test.com', workshopId: 'ws-1' }))
-    expect(mockGetRsvp).toHaveBeenCalledWith('workshop', 'ws-1', 'wvr_abc')
+  it('NEW-3: a may-NOT-collect note alone is NOT "pickup people on file" (hasPickup needs authorized adults)', async () => {
+    mockLookupHouseholdEntry.mockResolvedValue(makeHousehold({ notAuthorized: 'Rick Smith', authorizedPickup: [] }))
+    const { data } = await (await POST(createMockContext({ contact: 'alice@test.com' }))).json()
+    expect(data.hasPickup).toBe(false)
   })
 
   it('an RSVP storage error falls back to the signature instead of failing the lookup', async () => {

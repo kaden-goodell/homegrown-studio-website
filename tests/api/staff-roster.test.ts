@@ -229,9 +229,7 @@ describe('GET /api/staff/roster.json — pickup/notAuthorized/medications (HOM-2
     mockListWaiversByEvent.mockResolvedValue([
       makeWaiver({ authorizedPickup: [], notAuthorized: '' }),
     ])
-    mockGetRsvp.mockResolvedValue({
-      pickup: { authorizedPickup: [{ name: 'Aunt Sue', phone: '2565559876' }], notAuthorized: 'Ex-partner' },
-    })
+    mockLatest.mockResolvedValue({ authorizedPickup: [{ name: 'Aunt Sue', phone: '2565559876' }], notAuthorized: 'Ex-partner', at: '2026-08-02T00:00:00.000Z' })
     const res = await GET(ctx('?party=party-1'))
     const json = await res.json()
     expect(json.data.households[0].authorizedPickup).toEqual([{ name: 'Aunt Sue', phone: '2565559876' }])

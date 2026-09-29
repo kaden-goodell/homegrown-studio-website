@@ -194,6 +194,7 @@ describe('POST /api/staff/rsvp.json', () => {
     it('keeps the RSVP\'s id, pickup + may-NOT-collect, booking ref and responsible adult; attending is the union', async () => {
       mockGetEvent.mockResolvedValue(pno)
       mockGetRsvp.mockResolvedValue(existing())
+      mockLatest.mockResolvedValue({ ...existing().pickup, at: '2026-09-01T00:00:00.000Z' })
       mockUpsertRsvp.mockResolvedValue({ id: 'rsv_old' }) // upsertRsvp returns the stored record
       const res = await add(['adult'])
       expect(res.status).toBe(200)
@@ -210,6 +211,7 @@ describe('POST /api/staff/rsvp.json', () => {
     it('a drop-off check-in then seeds the RSVP\'s pickup list and may-NOT-collect, not the signature\'s empty one', async () => {
       mockGetEvent.mockResolvedValue(pno)
       mockGetRsvp.mockResolvedValue(existing())
+      mockLatest.mockResolvedValue({ ...existing().pickup, at: '2026-09-01T00:00:00.000Z' })
       await add(['child:0'])
       expect(state.notAuthorized).toBe('Rick Smith')
       expect(state.confirmedPickup.map((p) => p.name)).toEqual(['Grandma Rivera'])

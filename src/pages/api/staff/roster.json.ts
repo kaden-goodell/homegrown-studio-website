@@ -62,7 +62,7 @@ export const GET: APIRoute = async ({ request, url }) => {
         // itself seeded RSVP override > signature); before that, show what it
         // WILL seed from. An empty seeded list is a deliberate staff edit.
         const seeded = checkinState.pickupSeeded
-        const fallback = seeded ? null : await effectivePickup({ kind: kind as RosterKind, id, waiver: w })
+        const fallback = seeded ? null : await effectivePickup({ waiver: w })
         const authorizedPickup = seeded
           ? normalizeAuthorizedPickup(checkinState.confirmedPickup)
           : fallback!.authorizedPickup

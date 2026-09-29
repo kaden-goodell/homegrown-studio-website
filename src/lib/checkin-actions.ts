@@ -84,7 +84,7 @@ export async function applyPresent(state: CheckinState, c: PresentCtx): Promise<
     // it from the waiver would put that person straight back.
     if (!state.pickupSeeded) {
       if (state.confirmedPickup.length === 0) {
-        const eff = c.waiverRecord ? await effectivePickup({ kind: c.kind, id: c.id, waiver: c.waiverRecord }) : null
+        const eff = c.waiverRecord ? await effectivePickup({ waiver: c.waiverRecord }) : null
         state.confirmedPickup = eff?.authorizedPickup ?? []
         state.notAuthorized = eff?.notAuthorized ?? ''
       }
