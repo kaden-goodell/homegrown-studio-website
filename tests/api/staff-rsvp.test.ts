@@ -25,9 +25,11 @@ vi.mock('@lib/waiver-store', async (importOriginal) => {
 
 const mockUpsertRsvp = vi.fn()
 const mockGetRsvp = vi.fn()
+const mockLatest = vi.fn()
 vi.mock('@lib/rsvp-store', () => ({
   upsertRsvp: (...a: any[]) => mockUpsertRsvp(...a),
   getRsvp: (...a: any[]) => mockGetRsvp(...a),
+  getLatestPickupForWaiver: (...a: any[]) => mockLatest(...a),
 }))
 
 const mockSendQuoText = vi.fn()
@@ -80,6 +82,7 @@ beforeEach(async () => {
   mockGetEvent.mockResolvedValue(party)
   mockGetWaiverRecord.mockResolvedValue(waiver())
   mockGetRsvp.mockResolvedValue(null)
+  mockLatest.mockReset().mockResolvedValue(null)
   mockUpsertRsvp.mockResolvedValue({ id: 'rsv_1' })
   mockIndex.mockResolvedValue({ replacedRecordId: null })
   mockSendQuoText.mockResolvedValue(undefined)
@@ -233,5 +236,15 @@ describe('POST /api/staff/rsvp.json', () => {
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: 'Their agreement is out of date — they need to sign the new one.', mustResign: true })
     expect(mockUpsertRsvp).not.toHaveBeenCalled()
+  })
+
+  it('(c) adding a household to event B (no RSVP there) carries the pickup/may-NOT-collect from its other RSVP', async () => {
+    const carried = { authorizedPickup: [{ name: 'Grandma Rivera', phone: '' }], notAuthorized: 'Rick Smith' }
+    mockGetEvent.mockResolvedValue(pno)
+    mockLatest.mockResolvedValue(carried)
+    await call({ kind: 'workshop', id: 'ws-1', recordId: 'wvr_1', day: '2026-09-05', attending: ['child:0'] })
+    expect(mockUpsertRsvp.mock.calls[0][0].pickup).toEqual(carried)
+    expect(state.notAuthorized).toBe('Rick Smith') // and the check-in seeded it
+    expect(state.confirmedPickup.map((p) => p.name)).toEqual(['Grandma Rivera'])
   })
 })

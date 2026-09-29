@@ -18,7 +18,8 @@ vi.mock('@lib/waiver-store', async (importOriginal) => {
 })
 
 const mockGetRsvp = vi.fn()
-vi.mock('@lib/rsvp-store', () => ({ getRsvp: (...a: any[]) => mockGetRsvp(...a) }))
+const mockLatest = vi.fn()
+vi.mock('@lib/rsvp-store', () => ({ getRsvp: (...a: any[]) => mockGetRsvp(...a), getLatestPickupForWaiver: (...a: any[]) => mockLatest(...a) }))
 
 const mockSendQuoText = vi.fn()
 vi.mock('@lib/quo', async (importOriginal) => {
@@ -92,6 +93,7 @@ beforeEach(async () => {
   mockGetEvent.mockResolvedValue(singleDayEvent) // non-drop-off party — no pickup code involved
   mockGetWaiverRecord.mockResolvedValue(null)
   mockGetRsvp.mockResolvedValue(null)
+  mockLatest.mockReset().mockResolvedValue(null)
   mockSendQuoText.mockReset()
   mockSendQuoText.mockResolvedValue(undefined)
   POST = (await import('@pages/api/staff/checkin.json')).POST
@@ -680,5 +682,16 @@ describe('non-drop-off events are attendance-only', () => {
     const res = await dropOffPost({ action: 'reissue-code', reason: 'lost' })
     expect(res.status).toBe(200)
     expect((await res.json()).data.oneTimeCode).toMatch(/^\d{4}$/)
+  })
+})
+
+describe('pickup follows the household (seeding)', () => {
+  it('(a) check-in at event B seeds the may-NOT-collect / list from the household\'s other RSVP', async () => {
+    mockGetEvent.mockResolvedValue(dropOffEvent)
+    mockGetWaiverRecord.mockResolvedValue(dropOffWaiver({ authorizedPickup: [], notAuthorized: '' }))
+    mockLatest.mockResolvedValue({ authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: 'Rick Smith' })
+    await dropOffPost({ action: 'checkin', personIds: ['child:0'] })
+    expect(state.notAuthorized).toBe('Rick Smith')
+    expect(state.confirmedPickup.map((p) => p.name)).toEqual(['Aunt Sue'])
   })
 })

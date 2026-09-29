@@ -3,6 +3,7 @@ import { staffAuthorized } from '@lib/staff-auth'
 import { getEvent, eventKey, resolveEventDay, EVENT_KIND_RE } from '@lib/events'
 import { listWaiversByEvent, markDuplicateChildren, normalizeAuthorizedPickup } from '@lib/waiver-store'
 import { getRsvp } from '@lib/rsvp-store'
+import { effectivePickup } from '@lib/pickup'
 import { getCheckin, toPublicCheckin, presenceOn } from '@lib/checkin-store'
 import { createLogger } from '@lib/logger'
 
@@ -61,10 +62,11 @@ export const GET: APIRoute = async ({ request, url }) => {
         // itself seeded RSVP override > signature); before that, show what it
         // WILL seed from. An empty seeded list is a deliberate staff edit.
         const seeded = checkinState.pickupSeeded
+        const fallback = seeded ? null : await effectivePickup({ kind: kind as RosterKind, id, waiver: w })
         const authorizedPickup = seeded
           ? normalizeAuthorizedPickup(checkinState.confirmedPickup)
-          : normalizeAuthorizedPickup(rsvp?.pickup ? rsvp.pickup.authorizedPickup : w.authorizedPickup)
-        const notAuthorized = checkinState.notAuthorized || (seeded ? '' : rsvp?.pickup?.notAuthorized || w.notAuthorized || '')
+          : fallback!.authorizedPickup
+        const notAuthorized = checkinState.notAuthorized || (seeded ? '' : fallback!.notAuthorized)
         const pub = toPublicCheckin(checkinState)
         return {
           recordId: w.id,

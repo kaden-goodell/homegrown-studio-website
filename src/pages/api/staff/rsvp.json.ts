@@ -4,6 +4,7 @@ import { getEvent, resolveEventDay, EVENT_KIND_RE } from '@lib/events'
 import { getWaiverRecord, upsertWaiverInEventIndex } from '@lib/waiver-store'
 import { upsertRsvp, getRsvp } from '@lib/rsvp-store'
 import { substantiveSince, compareVersions } from '@config/waiver-content'
+import { effectivePickup, hasPickupContent } from '@lib/pickup'
 import { markPresent, migrateCheckinOnReplace } from '@lib/checkin-actions'
 import { createLogger } from '@lib/logger'
 
@@ -77,8 +78,12 @@ export const POST: APIRoute = async ({ request }) => {
     const existing = await getRsvp(kind as DoorKind, id, recordId)
     const everyone = ['adult', ...waiver.minors.map((_, i) => `child:${i}`)]
     const attendingNow = existing ? [...new Set([...(existing.attending ?? everyone), ...people])] : people
+    // The household's pickup list / may-NOT-collect follow it to this event.
+    const eff = await effectivePickup({ kind: kind as DoorKind, id, waiver })
+    const pickup = hasPickupContent(existing?.pickup) ? existing!.pickup : hasPickupContent(eff) ? eff : null
     const rsvp = await upsertRsvp({
-      ...(existing ? { id: existing.id, ref: existing.ref, pickup: existing.pickup } : {}),
+      ...(existing ? { id: existing.id, ref: existing.ref } : {}),
+      ...(pickup ? { pickup } : {}),
       waiverId: recordId,
       event: { kind: kind as DoorKind, id },
       attending: attendingNow,

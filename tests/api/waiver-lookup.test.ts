@@ -34,7 +34,8 @@ function createMockContext(body: any) {
 }
 
 vi.mock('@lib/rate-limit', () => ({ rateLimited: (...args: any[]) => mockRateLimited(...args) }))
-vi.mock('@lib/rsvp-store', () => ({ getRsvp: (...args: any[]) => mockGetRsvp(...args) }))
+const mockLatest = vi.fn()
+vi.mock('@lib/rsvp-store', () => ({ getRsvp: (...args: any[]) => mockGetRsvp(...args), getLatestPickupForWaiver: (...args: any[]) => mockLatest(...args) }))
 vi.mock('@lib/waiver-store', async (importOriginal) => {
   const actual: any = await importOriginal()
   return { ...actual, lookupHouseholdEntry: (...args: any[]) => mockLookupHouseholdEntry(...args) }
@@ -44,6 +45,7 @@ describe('POST /api/waiver/lookup.json — type a phone number, the household ap
   let POST: any
 
   beforeEach(async () => {
+  mockLatest.mockReset().mockResolvedValue(null)
     vi.clearAllMocks()
     mockRateLimited.mockReturnValue(false)
     mockGetRsvp.mockResolvedValue(null)
@@ -93,6 +95,15 @@ describe('POST /api/waiver/lookup.json — type a phone number, the household ap
     expect(data.hasPickup).toBe(true)
     expect('pickup' in data).toBe(false)
     expect(JSON.stringify(data)).not.toContain('Uncle Al')
+  })
+
+  it('(b) hasPickup is true for event B when only ANOTHER event\'s RSVP had a pickup/may-NOT-collect', async () => {
+    mockLookupHouseholdEntry.mockResolvedValue(makeHousehold())
+    mockGetRsvp.mockResolvedValue(null)
+    mockLatest.mockResolvedValue({ authorizedPickup: [], notAuthorized: 'Rick Smith' })
+    const { data } = await (await POST(createMockContext({ contact: 'alice@test.com', workshopId: 'event-b' }))).json()
+    expect(data.hasPickup).toBe(true)
+    expect('pickup' in data).toBe(false)
   })
 
   it('workshopId looks up the workshop RSVP', async () => {

@@ -97,3 +97,29 @@ export async function listRsvpsByEvent(kind: EventKind, eventId: string): Promis
   )
   return records.filter((r): r is RsvpRecord => r !== null)
 }
+
+/**
+ * The household's most recent non-empty pickup / may-NOT-collect override,
+ * from ANY event's RSVP — a restriction follows the household (blank never
+ * erases). Newest by `at`; RSVPs with no pickup, or an empty one, are skipped.
+ * The store is small, so a key scan is fine.
+ */
+export async function getLatestPickupForWaiver(waiverId: string): Promise<NonNullable<RsvpRecord['pickup']> | null> {
+  const suffix = `-${waiverId}`
+  const keys = (await kv.list()).filter((k) => k.startsWith('rsvp-') && k.endsWith(suffix))
+  const records = await Promise.all(
+    keys.map(async (k) => {
+      const json = await kv.get(k)
+      return json ? (JSON.parse(json) as RsvpRecord) : null
+    }),
+  )
+  const withPickup = records
+    .filter((r): r is RsvpRecord => !!r && r.waiverId === waiverId && hasPickupContent(r.pickup))
+    .sort((a, b) => b.at.localeCompare(a.at))
+  return withPickup[0]?.pickup ?? null
+}
+
+/** Rows or a may-NOT-collect note. */
+function hasPickupContent(p: RsvpRecord['pickup'] | undefined): p is NonNullable<RsvpRecord['pickup']> {
+  return !!p && (p.authorizedPickup.length > 0 || p.notAuthorized.trim() !== '')
+}

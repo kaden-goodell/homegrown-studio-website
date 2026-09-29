@@ -15,6 +15,7 @@ import {
 } from '@lib/waiver-store'
 import { upsertRsvp, getRsvp, type RsvpRecord } from '@lib/rsvp-store'
 import { setExpected } from '@lib/checkin-store'
+import { effectivePickup, hasPickupContent } from '@lib/pickup'
 import { migrateCheckinOnReplace } from '@lib/checkin-actions'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
@@ -401,13 +402,13 @@ async function handleReuse(
   const validIds = new Set(['adult', ...source.minors.map((_, i) => `child:${i}`)])
   const resolvedIds = resolveAttending(attendingRaw, validIds)
 
-  // A re-RSVP (e.g. just changing headcount) with no pickupUpdate must never
-  // silently erase a pickup override saved on an earlier RSVP for this same
-  // event — upsertRsvp fully replaces the record, so carry the existing
-  // pickup forward when the client didn't send a new one (fix round 1).
+  // No pickupUpdate must never erase what the household has already told us:
+  // the household's pickup list / may-NOT-collect follow it to every event
+  // (this event's RSVP, else its latest RSVP anywhere, else the signature).
+  // upsertRsvp fully replaces the record, so store the resolved value.
   if (!pickup) {
-    const existingRsvp = await getRsvp(eventKind, eventId, source.id)
-    if (existingRsvp?.pickup) pickup = existingRsvp.pickup
+    const eff = await effectivePickup({ kind: eventKind, id: eventId, waiver: source })
+    if (hasPickupContent(eff)) pickup = eff
   }
 
   const raErr = checkResponsibleAdult(partyId, dropOff, resolvedIds, responsibleAdult)
@@ -527,12 +528,17 @@ async function handleFresh(
   const validUntil = new Date(now)
   validUntil.setMonth(validUntil.getMonth() + waiverContent.validityMonths)
 
-  // Blank pickup / may-NOT-collect fields never erase what the previous
-  // signature had; typing new values still replaces them.
+  // Blank pickup / may-NOT-collect fields never erase what the household had
+  // before (its previous RSVP override for this event, its latest RSVP
+  // anywhere, or the previous signature); typing new values replaces them.
+  // The new signature itself carries the result, so it lives on the record.
   const prev = await findPreviousHousehold(email, phone)
+  const prevEff = prev
+    ? await effectivePickup({ kind: eventKind ?? undefined, id: (partyId ?? workshopId) ?? undefined, waiver: { id: prev.recordId, authorizedPickup: prev.authorizedPickup, notAuthorized: prev.notAuthorized } }).catch(() => null)
+    : null
   const carriedPickup = {
-    authorizedPickup: pickupData.authorizedPickup.length > 0 ? pickupData.authorizedPickup : (prev?.authorizedPickup ?? []),
-    notAuthorized: pickupData.notAuthorized || prev?.notAuthorized || '',
+    authorizedPickup: pickupData.authorizedPickup.length > 0 ? pickupData.authorizedPickup : (prevEff?.authorizedPickup ?? []),
+    notAuthorized: pickupData.notAuthorized || prevEff?.notAuthorized || '',
   }
 
   const record: WaiverRecord = {
@@ -563,18 +569,8 @@ async function handleFresh(
   let context: { kind: SignableEventKind; id: string } | null = null
   if (eventKind && eventId) {
     context = { kind: eventKind, id: eventId }
-    // The previous RSVP for THIS event may hold a pickup override the old
-    // signature itself never had (set on the RSVP screen) — carry it too.
-    let rsvpPickup: RsvpRecord['pickup'] = null
-    if (prev) {
-      const prevRsvp = await getRsvp(eventKind, eventId, prev.recordId).catch(() => null)
-      if (prevRsvp?.pickup) {
-        rsvpPickup = {
-          authorizedPickup: pickupData.authorizedPickup.length > 0 ? pickupData.authorizedPickup : prevRsvp.pickup.authorizedPickup,
-          notAuthorized: pickupData.notAuthorized || prevRsvp.pickup.notAuthorized,
-        }
-      }
-    }
+    // A restriction the household already gave goes on the new RSVP too.
+    const rsvpPickup: RsvpRecord['pickup'] = hasPickupContent(prevEff) ? carriedPickup : null
     const rsvp = await upsertRsvp({
       waiverId: record.id,
       event: { kind: eventKind, id: eventId },

@@ -30,14 +30,17 @@ vi.mock('@lib/waiver-store', () => ({
   indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
   newWaiverId: () => mockNewWaiverId(),
   lookupHouseholdEntry: (...args: any[]) => mockLookupHouseholdEntry(...args),
+  normalizeAuthorizedPickup: (v: any) => (Array.isArray(v) ? v : []),
 }))
 
 const mockUpsertRsvp = vi.fn()
 const mockGetRsvp = vi.fn().mockResolvedValue(null)
+const mockLatestPickup = vi.fn().mockResolvedValue(null)
 
 vi.mock('@lib/rsvp-store', () => ({
   upsertRsvp: (...args: any[]) => mockUpsertRsvp(...args),
   getRsvp: (...args: any[]) => mockGetRsvp(...args),
+  getLatestPickupForWaiver: (...args: any[]) => mockLatestPickup(...args),
 }))
 
 const mockSendAgreementCopyEmail = vi.fn().mockResolvedValue({ sent: true })
@@ -183,10 +186,12 @@ describe('POST /api/waiver/sign.json', () => {
       indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
       newWaiverId: () => mockNewWaiverId(),
       lookupHouseholdEntry: (...args: any[]) => mockLookupHouseholdEntry(...args),
+      normalizeAuthorizedPickup: (v: any) => (Array.isArray(v) ? v : []),
     }))
     vi.mock('@lib/rsvp-store', () => ({
       upsertRsvp: (...args: any[]) => mockUpsertRsvp(...args),
       getRsvp: (...args: any[]) => mockGetRsvp(...args),
+      getLatestPickupForWaiver: (...args: any[]) => mockLatestPickup(...args),
     }))
     vi.mock('@lib/events', () => ({ getEvent: (...args: any[]) => mockGetEvent(...args), isEventPast: () => false }))
     vi.mock('@config/providers', () => ({
@@ -208,6 +213,7 @@ describe('POST /api/waiver/sign.json', () => {
     mockNewWaiverId.mockReturnValue('wvr_test_abc')
     mockSendAgreementCopyEmail.mockReset().mockResolvedValue({ sent: true })
     mockGetRsvp.mockResolvedValue(null)
+    mockLatestPickup.mockReset().mockResolvedValue(null)
     mockLookupHouseholdEntry.mockReset().mockResolvedValue(null)
     mockUpsertRsvp.mockResolvedValue({
       id: 'rsv_test_abc',
@@ -778,6 +784,47 @@ describe('POST /api/waiver/sign.json', () => {
       mockLookupHouseholdEntry.mockRejectedValue(new Error('blob down'))
       const res = await POST(createMockContext(makeAdultBody({ partyId: null })))
       expect(res.status).toBe(200)
+    })
+  })
+
+  describe('the pickup restriction follows the household to every event', () => {
+    const rick = { authorizedPickup: [{ name: 'Grandma Rivera', phone: '2565550100' }], notAuthorized: 'Rick Smith' }
+    const returning = (over: Record<string, any> = {}) => POST(createMockContext({
+      reuseRecordId: 'wvr_source_abc', reuseToken: 'valid-token', partyId: 'party-123', attending: ['adult'], responsibleAdult: '', ...over,
+    }))
+
+    it('(a) a returning RSVP to event B, with no pickupUpdate, carries what event A\'s RSVP had — stored on the new RSVP', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      mockGetRsvp.mockResolvedValue(null) // no RSVP for THIS event yet
+      mockLatestPickup.mockResolvedValue(rick) // ...but event A's had one
+      expect((await returning({ attending: ['adult', 'child:0'] })).status).toBe(200)
+      expect(mockUpsertRsvp.mock.calls[0][0].pickup).toEqual(rick)
+    })
+
+    it('(e) a typed pickupUpdate on event B replaces it for B', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      mockLatestPickup.mockResolvedValue(rick)
+      await returning({ pickupUpdate: { authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: 'Pat Jones' } })
+      expect(mockUpsertRsvp.mock.calls[0][0].pickup).toEqual({ authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: 'Pat Jones' })
+    })
+
+    it('(d) re-sign with the restriction only on an OLD RSVP → the NEW waiver record has it', async () => {
+      mockLookupHouseholdEntry.mockResolvedValue({ recordId: 'wvr_old', authorizedPickup: [], notAuthorized: '' })
+      mockLatestPickup.mockResolvedValue(rick)
+      const res = await POST(createMockContext(makeAdultBody({ partyId: null })))
+      expect(res.status).toBe(200)
+      const saved = mockSaveWaiverRecord.mock.calls[0][0]
+      expect(saved.notAuthorized).toBe('Rick Smith')
+      expect(saved.authorizedPickup).toEqual(rick.authorizedPickup)
+    })
+
+    it('(d) …and typed values still win on the new waiver record', async () => {
+      mockLookupHouseholdEntry.mockResolvedValue({ recordId: 'wvr_old', authorizedPickup: [], notAuthorized: '' })
+      mockLatestPickup.mockResolvedValue(rick)
+      await POST(createMockContext(makeAdultBody({ partyId: null, notAuthorized: 'Pat Jones' })))
+      expect(mockSaveWaiverRecord.mock.calls[0][0].notAuthorized).toBe('Pat Jones')
     })
   })
 

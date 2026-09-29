@@ -11,8 +11,8 @@
  *   markPresent()       — both, for callers with nothing else to fold in
  */
 import { randomInt, createHash } from 'node:crypto'
-import { getRsvp } from '@lib/rsvp-store'
-import { normalizeAuthorizedPickup, type WaiverRecord } from '@lib/waiver-store'
+import { effectivePickup } from '@lib/pickup'
+import type { WaiverRecord } from '@lib/waiver-store'
 import { mutateCheckin, getCheckin, type CheckinState } from '@lib/checkin-store'
 import { sendQuoText, pickupCodeText } from '@lib/quo'
 import { eventKey, type EventKind, type StudioEvent } from '@lib/events'
@@ -84,14 +84,9 @@ export async function applyPresent(state: CheckinState, c: PresentCtx): Promise<
     // it from the waiver would put that person straight back.
     if (!state.pickupSeeded) {
       if (state.confirmedPickup.length === 0) {
-        const rsvp = await getRsvp(c.kind, c.id, c.recordId)
-        if (rsvp?.pickup) {
-          state.confirmedPickup = normalizeAuthorizedPickup(rsvp.pickup.authorizedPickup)
-          state.notAuthorized = rsvp.pickup.notAuthorized || ''
-        } else {
-          state.confirmedPickup = c.waiverRecord ? normalizeAuthorizedPickup(c.waiverRecord.authorizedPickup) : []
-          state.notAuthorized = c.waiverRecord?.notAuthorized || ''
-        }
+        const eff = c.waiverRecord ? await effectivePickup({ kind: c.kind, id: c.id, waiver: c.waiverRecord }) : null
+        state.confirmedPickup = eff?.authorizedPickup ?? []
+        state.notAuthorized = eff?.notAuthorized ?? ''
       }
       state.pickupSeeded = true
     }

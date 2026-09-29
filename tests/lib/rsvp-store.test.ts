@@ -3,7 +3,7 @@
  * firstAt preserved across re-RSVP, list-by-event.
  */
 import { describe, it, expect } from 'vitest'
-import { upsertRsvp, getRsvp, listRsvpsByEvent, type RsvpRecord } from '@lib/rsvp-store'
+import { upsertRsvp, getRsvp, listRsvpsByEvent, getLatestPickupForWaiver, type RsvpRecord } from '@lib/rsvp-store'
 
 const base: Omit<RsvpRecord, 'id' | 'firstAt'> = {
   waiverId: 'wvr_a',
@@ -65,5 +65,27 @@ describe('rsvp-store', () => {
 
   it('getRsvp returns null when no RSVP is on file', async () => {
     expect(await getRsvp('party', 'no-such-party', 'wvr_nope')).toBeNull()
+  })
+
+  describe('getLatestPickupForWaiver', () => {
+    const w = 'wvr_pk_' + Date.now()
+    const pk = (name: string, na = '') => ({ authorizedPickup: name ? [{ name, phone: '' }] : [], notAuthorized: na })
+
+    it('returns null when the household has no RSVP with a pickup override', async () => {
+      await upsertRsvp({ ...base, waiverId: w + 'x', event: { kind: 'workshop', id: 'e_none_' + Date.now() } })
+      expect(await getLatestPickupForWaiver(w + 'x')).toBeNull()
+    })
+
+    it('returns the pickup from the LATEST RSVP that has a non-empty one, across events', async () => {
+      await upsertRsvp({ ...base, waiverId: w, event: { kind: 'workshop', id: 'e_a' + w }, at: '2026-10-01T00:00:00.000Z', pickup: pk('Grandma', 'Rick Smith') })
+      await upsertRsvp({ ...base, waiverId: w, event: { kind: 'party', id: 'e_b' + w }, at: '2026-10-05T00:00:00.000Z', pickup: pk('Uncle Al') })
+      await upsertRsvp({ ...base, waiverId: w, event: { kind: 'workshop', id: 'e_c' + w }, at: '2026-10-09T00:00:00.000Z' }) // newest, but no pickup
+      await upsertRsvp({ ...base, waiverId: w, event: { kind: 'workshop', id: 'e_d' + w }, at: '2026-10-10T00:00:00.000Z', pickup: pk('', '') }) // empty
+      expect(await getLatestPickupForWaiver(w)).toEqual(pk('Uncle Al'))
+    })
+
+    it('does not match a different household whose id merely ends the same way', async () => {
+      expect(await getLatestPickupForWaiver('x' + w)).toBeNull()
+    })
   })
 })

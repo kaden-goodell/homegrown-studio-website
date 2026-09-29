@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
-import { lookupHouseholdEntry, normalizeAuthorizedPickup } from '@lib/waiver-store'
-import { getRsvp } from '@lib/rsvp-store'
+import { lookupHouseholdEntry } from '@lib/waiver-store'
+import { effectivePickup, hasPickupContent } from '@lib/pickup'
 import { rateLimited } from '@lib/rate-limit'
 import { issueReuseToken } from '@lib/reuse-token'
 import { substantiveSince, compareVersions } from '@config/waiver-content'
@@ -62,18 +62,15 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     return ok({ found: true, mustResign: true, firstName: h.firstName })
   }
 
-  let pickup = { authorizedPickup: normalizeAuthorizedPickup(h.authorizedPickup), notAuthorized: h.notAuthorized || '' }
-  if (partyId || workshopId) {
-    const kind = partyId ? 'party' : 'workshop'
-    const id = (partyId ?? workshopId)!
-    try {
-      const rsvp = await getRsvp(kind, id, h.recordId)
-      if (rsvp?.pickup) pickup = rsvp.pickup
-    } catch (error) {
-      logger.error('RSVP pickup lookup failed — falling back to the signature', { error: String(error) })
-    }
+  // Same resolver the pickup gate uses: this event's RSVP, else the household's
+  // latest RSVP anywhere, else the signature. Boolean only — public endpoint.
+  const kind = partyId ? 'party' : workshopId ? 'workshop' : undefined
+  let hasPickup = false
+  try {
+    hasPickup = hasPickupContent(await effectivePickup({ kind, id: (partyId ?? workshopId) ?? undefined, waiver: { id: h.recordId, authorizedPickup: h.authorizedPickup, notAuthorized: h.notAuthorized } }))
+  } catch (error) {
+    logger.error('Pickup lookup failed — treating as none on file', { error: String(error) })
   }
-  const hasPickup = pickup.authorizedPickup.length > 0
 
   return ok({
     found: true,

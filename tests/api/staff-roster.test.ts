@@ -26,7 +26,8 @@ vi.mock('@lib/waiver-store', async (importOriginal) => {
 })
 
 const mockGetRsvp = vi.fn()
-vi.mock('@lib/rsvp-store', () => ({ getRsvp: (...a: any[]) => mockGetRsvp(...a) }))
+const mockLatest = vi.fn()
+vi.mock('@lib/rsvp-store', () => ({ getRsvp: (...a: any[]) => mockGetRsvp(...a), getLatestPickupForWaiver: (...a: any[]) => mockLatest(...a) }))
 
 const mockGetCheckin = vi.fn()
 vi.mock('@lib/checkin-store', async (importOriginal) => {
@@ -83,6 +84,7 @@ beforeEach(async () => {
   mockGetEvent.mockResolvedValue(partyEvent)
   mockResolveEventDay.mockImplementation((event: any, requested: string | null) => requested ?? event?.days?.[0] ?? '2026-09-05')
   mockGetRsvp.mockResolvedValue(null)
+  mockLatest.mockReset().mockResolvedValue(null)
   mockGetCheckin.mockResolvedValue(emptyCheckin())
   mockListWaiversByEvent.mockResolvedValue([])
   GET = (await import('@pages/api/staff/roster.json')).GET
@@ -249,5 +251,13 @@ describe('GET /api/staff/roster.json — pickup/notAuthorized/medications (HOM-2
     const h = (await (await GET(ctx('?party=party-1'))).json()).data.households[0]
     expect(h.authorizedPickup).toEqual([{ name: 'Grandma Rivera', phone: '' }])
     expect(h.notAuthorized).toBe('')
+  })
+
+  it('before the door state is seeded, the card shows the household\'s pickup from its other RSVP', async () => {
+    mockListWaiversByEvent.mockResolvedValue([makeWaiver()])
+    mockLatest.mockResolvedValue({ authorizedPickup: [{ name: 'Aunt Sue', phone: '' }], notAuthorized: 'Rick Smith' })
+    const h = (await (await GET(ctx('?party=party-1'))).json()).data.households[0]
+    expect(h.notAuthorized).toBe('Rick Smith')
+    expect(h.authorizedPickup).toEqual([{ name: 'Aunt Sue', phone: '' }])
   })
 })
