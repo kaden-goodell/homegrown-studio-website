@@ -114,8 +114,8 @@ in Linear HOM-99 (licensing) and HOM-114 (safeguards).
   the event name or how it sounds.
 - **Check-in texts the pickup code.** Tap "Check in (n)" on the roster; for a drop-off event
   this sends the family's pickup code by text the moment their first kid checks in. The
-  signing parent accepted the **Drop-off Program Addendum** (HOM-211) at registration — it's
-  what governs everything below.
+  signing parent agreed to the drop-off terms (Section 4b of the participation agreement) —
+  they govern everything below.
 - **Pickup is chip + code.** The person collecting shows up on the "Who's collecting?"
   chips. Known person + correct code → "Check out (n)." Someone not on the chip list →
   tick "Not on the list — I checked their photo ID" first, then check out. No code on

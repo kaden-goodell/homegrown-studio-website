@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { dropOffAddendum } from '@config/waiver-content'
 
 // --- Module mocks set up before any import ---
 
@@ -40,9 +39,11 @@ vi.mock('@lib/rsvp-store', () => ({
 }))
 
 const mockSendAgreementCopyEmail = vi.fn().mockResolvedValue({ sent: true })
+const mockSendDropOffDetailsEmail = vi.fn().mockResolvedValue({ sent: true })
 
 vi.mock('@lib/email', () => ({
   sendAgreementCopyEmail: (...args: any[]) => mockSendAgreementCopyEmail(...args),
+  sendDropOffDetailsEmail: (...args: any[]) => mockSendDropOffDetailsEmail(...args),
 }))
 
 const mockGetEvent = vi.fn()
@@ -124,7 +125,7 @@ function makeAdultBody(overrides: Record<string, any> = {}) {
 function makeReuseSource(overrides: Record<string, any> = {}) {
   return {
     id: 'wvr_source_abc',
-    agreementVersion: 'v2',
+    agreementVersion: 'v3',
     agreementSha256: 'abc123',
     signedAt: '2026-01-01T00:00:00.000Z',
     validUntil: '2027-01-01T00:00:00.000Z',
@@ -195,6 +196,7 @@ describe('POST /api/waiver/sign.json', () => {
     }))
     vi.mock('@lib/email', () => ({
       sendAgreementCopyEmail: (...args: any[]) => mockSendAgreementCopyEmail(...args),
+      sendDropOffDetailsEmail: (...args: any[]) => mockSendDropOffDetailsEmail(...args),
     }))
 
     mockSaveWaiverRecord.mockResolvedValue(undefined)
@@ -323,124 +325,6 @@ describe('POST /api/waiver/sign.json', () => {
     })
   })
 
-  describe('drop-off addendum (HOM-211)', () => {
-    it('drop-off event + a minor attending + no addendum acceptance → 400, nothing written', async () => {
-      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
-      const body = makeAdultBody({
-        partyId: 'party-123',
-        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
-        attending: ['adult', 'child:0'],
-        agreeAddendum: false,
-      })
-      const ctx = createMockContext(body)
-      const res = await POST(ctx)
-      expect(res.status).toBe(400)
-      const json = await res.json()
-      expect(json.error).toMatch(/Drop-off Program Addendum/i)
-      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
-      expect(mockUpsertRsvp).not.toHaveBeenCalled()
-    })
-
-    it('drop-off event + a minor attending + addendum accepted → RSVP carries addendumVersion/addendumSha256, response echoes addendumAccepted', async () => {
-      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
-      const body = makeAdultBody({
-        partyId: 'party-123',
-        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
-        attending: ['adult', 'child:0'],
-        agreeAddendum: true,
-      })
-      const ctx = createMockContext(body)
-      const res = await POST(ctx)
-      expect(res.status).toBe(200)
-      expect(mockUpsertRsvp).toHaveBeenCalledWith(
-        expect.objectContaining({
-          addendumVersion: dropOffAddendum.version,
-          addendumSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
-        }),
-      )
-      const [rsvpArgs] = mockUpsertRsvp.mock.calls[0]
-      const json = await res.json()
-      expect(json.data.addendumAccepted).toEqual({
-        version: dropOffAddendum.version,
-        sha256: rsvpArgs.addendumSha256,
-      })
-    })
-
-    it('non-drop-off event ignores agreeAddendum entirely — no error, no addendum fields written', async () => {
-      const body = makeAdultBody({
-        partyId: 'party-123',
-        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
-        attending: ['adult', 'child:0'],
-        agreeAddendum: false,
-      })
-      const ctx = createMockContext(body)
-      const res = await POST(ctx)
-      expect(res.status).toBe(200)
-      expect(mockUpsertRsvp).toHaveBeenCalledWith(
-        expect.objectContaining({ addendumVersion: null, addendumSha256: null }),
-      )
-      const json = await res.json()
-      expect(json.data.addendumAccepted).toBeNull()
-    })
-
-    it('drop-off event but no minor attending (adult-only) skips the requirement', async () => {
-      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
-      const body = makeAdultBody({
-        partyId: 'party-123',
-        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
-        attending: ['adult'],
-        agreeAddendum: false,
-      })
-      const ctx = createMockContext(body)
-      const res = await POST(ctx)
-      expect(res.status).toBe(200)
-      expect(mockUpsertRsvp).toHaveBeenCalledWith(
-        expect.objectContaining({ addendumVersion: null, addendumSha256: null }),
-      )
-    })
-
-    it('returning path also enforces it: drop-off + minor attending + no addendum acceptance → 400', async () => {
-      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
-      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
-      const body = {
-        reuseRecordId: 'wvr_source_abc',
-        reuseToken: 'valid-token',
-        partyId: 'party-123',
-        attending: ['adult', 'child:0'],
-        responsibleAdult: '',
-        agreeAddendum: false,
-      }
-      const ctx = createMockContext(body)
-      const res = await POST(ctx)
-      expect(res.status).toBe(400)
-      const json = await res.json()
-      expect(json.error).toMatch(/Drop-off Program Addendum/i)
-      expect(mockUpsertRsvp).not.toHaveBeenCalled()
-    })
-
-    it('returning path with addendum accepted writes the addendum fields on the RSVP', async () => {
-      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
-      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
-      const body = {
-        reuseRecordId: 'wvr_source_abc',
-        reuseToken: 'valid-token',
-        partyId: 'party-123',
-        attending: ['adult', 'child:0'],
-        responsibleAdult: '',
-        agreeAddendum: true,
-      }
-      const ctx = createMockContext(body)
-      const res = await POST(ctx)
-      expect(res.status).toBe(200)
-      expect(mockUpsertRsvp).toHaveBeenCalledWith(
-        expect.objectContaining({
-          addendumVersion: dropOffAddendum.version,
-          addendumSha256: expect.stringMatching(/^[a-f0-9]{64}$/),
-        }),
-      )
-    })
-  })
-
   describe('reuse (returning-customer) path — RSVP only, no new signature', () => {
     it('does not call saveWaiverRecord, and calls upsertRsvp with the source waiverId', async () => {
       mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
@@ -515,65 +399,22 @@ describe('POST /api/waiver/sign.json', () => {
   })
 
   describe('forced re-sign (mustResign) — HOM-210', () => {
-    it('returns 409 mustResign when the source record predates substantiveSince', async () => {
-      vi.doMock('@config/waiver-content', async (importOriginal) => {
-        const actual: any = await importOriginal()
-        return { ...actual, substantiveSince: 'v3' }
-      })
-      vi.resetModules()
-      // Re-establish every mock after resetModules (vi.doMock isn't hoisted,
-      // so this describe block re-imports its own fully-mocked instance).
-      vi.mock('@lib/rate-limit', () => ({ rateLimited: vi.fn().mockReturnValue(false) }))
-      vi.mock('@lib/reuse-token', () => ({ verifyReuseToken: vi.fn().mockReturnValue(true) }))
-      vi.mock('@lib/checkin-store', () => ({
-        setExpected: vi.fn().mockResolvedValue(undefined),
-        getCheckin: vi.fn().mockResolvedValue({ presence: {}, pickupCodeHash: null, expected: null, pickedUpBy: null, confirmedPickup: [], events: [] }),
-        mutateCheckin: vi.fn().mockResolvedValue(undefined),
-      }))
-      vi.mock('@lib/waiver-store', () => ({
-        saveWaiverRecord: (...args: any[]) => mockSaveWaiverRecord(...args),
-        getWaiverRecord: (...args: any[]) => mockGetWaiverRecord(...args),
-        upsertWaiverInEventIndex: (...args: any[]) => mockUpsertWaiverInEventIndex(...args),
-        indexWaiverByContact: (...args: any[]) => mockIndexWaiverByContact(...args),
-        newWaiverId: () => mockNewWaiverId(),
-      }))
-      vi.mock('@lib/rsvp-store', () => ({
-        upsertRsvp: (...args: any[]) => mockUpsertRsvp(...args),
-        getRsvp: (...args: any[]) => mockGetRsvp(...args),
-      }))
-      vi.mock('@lib/events', () => ({ getEvent: (...args: any[]) => mockGetEvent(...args), isEventPast: () => false }))
-      vi.mock('@config/providers', () => ({
-        providers: {
-          customer: {
-            findOrCreate: vi.fn().mockResolvedValue({ id: 'cust-1' }),
-            appendNote: vi.fn().mockResolvedValue(undefined),
-          },
-        },
-      }))
-
+    it('returns 409 mustResign when the source record predates substantiveSince (a v2 signature must re-sign under v3)', async () => {
       mockGetWaiverRecord.mockResolvedValue(makeReuseSource({ agreementVersion: 'v2' }))
-      mockGetEvent.mockImplementation(async (kind: string, id: string) => {
-        if (kind === 'party' && id === 'party-123') return partyEvent()
-        return null
-      })
-
-      const mod = await import('@pages/api/waiver/sign.json')
-      const body = {
+      mockGetEvent.mockResolvedValueOnce(partyEvent())
+      const ctx = createMockContext({
         reuseRecordId: 'wvr_source_abc',
         reuseToken: 'valid-token',
         partyId: 'party-123',
         attending: ['adult'],
         responsibleAdult: '',
-      }
-      const ctx = createMockContext(body)
-      const res = await mod.POST(ctx)
+      })
+      const res = await POST(ctx)
       expect(res.status).toBe(409)
       const json = await res.json()
       expect(json.mustResign).toBe(true)
       expect(mockUpsertRsvp).not.toHaveBeenCalled()
       expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
-
-      vi.doUnmock('@config/waiver-content')
     })
   })
 
@@ -865,49 +706,23 @@ describe('POST /api/waiver/sign.json', () => {
       expect(mockSendAgreementCopyEmail).toHaveBeenCalledWith(
         expect.objectContaining({
           record: expect.objectContaining({ id: 'wvr_test_abc' }),
-          addendum: null,
         }),
       )
+      expect(mockSendDropOffDetailsEmail).not.toHaveBeenCalled()
     })
 
-    it('returning RSVP without an addendum: does not send the email', async () => {
+    it('returning RSVP: the agreement is already on file, so no copy email', async () => {
       mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
-      const body = {
+      const ctx = createMockContext({
         reuseRecordId: 'wvr_source_abc',
         reuseToken: 'valid-token',
         partyId: 'party-123',
         attending: ['adult', 'child:0'],
         responsibleAdult: '',
-      }
-      const ctx = createMockContext(body)
+      })
       const res = await POST(ctx)
       expect(res.status).toBe(200)
       expect(mockSendAgreementCopyEmail).not.toHaveBeenCalled()
-    })
-
-    it('returning RSVP that accepts the drop-off addendum: sends the addendum-only email', async () => {
-      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
-      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
-      const body = {
-        reuseRecordId: 'wvr_source_abc',
-        reuseToken: 'valid-token',
-        partyId: 'party-123',
-        attending: ['adult', 'child:0'],
-        responsibleAdult: '',
-        agreeAddendum: true,
-      }
-      const ctx = createMockContext(body)
-      const res = await POST(ctx)
-      expect(res.status).toBe(200)
-      expect(mockSendAgreementCopyEmail).toHaveBeenCalledTimes(1)
-      expect(mockSendAgreementCopyEmail).toHaveBeenCalledWith(
-        expect.objectContaining({
-          record: expect.objectContaining({ id: 'wvr_source_abc' }),
-          returning: true,
-          addendum: expect.objectContaining({ version: dropOffAddendum.version }),
-          event: expect.objectContaining({ id: 'party-123' }),
-        }),
-      )
     })
 
     it('a thrown/rejected email error still returns 200 — the signature is already saved', async () => {
@@ -915,6 +730,57 @@ describe('POST /api/waiver/sign.json', () => {
       const body = makeAdultBody({ partyId: null })
       const ctx = createMockContext(body)
       const res = await POST(ctx)
+      expect(res.status).toBe(200)
+    })
+  })
+
+  describe('drop-off details email', () => {
+    it('fresh RSVP to a drop-off event sends the details email', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      const res = await POST(createMockContext(makeAdultBody({
+        partyId: 'party-123',
+        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '', medications: '' }],
+        attending: ['adult', 'child:0'],
+      })))
+      expect(res.status).toBe(200)
+      expect(mockSendDropOffDetailsEmail).toHaveBeenCalledTimes(1)
+      expect(mockSendDropOffDetailsEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ record: expect.objectContaining({ id: 'wvr_test_abc' }), event: expect.objectContaining({ id: 'party-123' }) }),
+      )
+    })
+
+    it('returning RSVP to a drop-off event sends the details email', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      const res = await POST(createMockContext({
+        reuseRecordId: 'wvr_source_abc',
+        reuseToken: 'valid-token',
+        partyId: 'party-123',
+        attending: ['adult', 'child:0'],
+        responsibleAdult: '',
+      }))
+      expect(res.status).toBe(200)
+      expect(mockSendDropOffDetailsEmail).toHaveBeenCalledTimes(1)
+      expect(mockSendDropOffDetailsEmail).toHaveBeenCalledWith(
+        expect.objectContaining({ record: expect.objectContaining({ id: 'wvr_source_abc' }) }),
+      )
+    })
+
+    it('a non-drop-off event (fresh or returning) does not', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent())
+      await POST(createMockContext(makeAdultBody({ partyId: 'party-123' })))
+      mockGetEvent.mockResolvedValueOnce(partyEvent())
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
+      await POST(createMockContext({
+        reuseRecordId: 'wvr_source_abc', reuseToken: 'valid-token', partyId: 'party-123', attending: ['adult'], responsibleAdult: '',
+      }))
+      expect(mockSendDropOffDetailsEmail).not.toHaveBeenCalled()
+    })
+
+    it('a rejected details email still returns 200', async () => {
+      mockSendDropOffDetailsEmail.mockRejectedValueOnce(new Error('SMTP down'))
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      const res = await POST(createMockContext(makeAdultBody({ partyId: 'party-123' })))
       expect(res.status).toBe(200)
     })
   })

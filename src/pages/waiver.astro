@@ -77,10 +77,9 @@ const flowPartyLabel = eventKind === 'party' && outcome.kind === 'ok' ? outcome.
 const flowEventTitle = eventKind === 'workshop' && outcome.kind === 'ok' ? outcome.label : undefined
 // On a storage error we kept the id (the RSVP still works, sign.json
 // re-validates) but had no idea whether the event is drop-off — and
-// `undefined` meant the addendum checkbox never rendered while the server
-// still REQUIRED it, a dead-end the guest couldn't get out of. Assume
-// drop-off: showing the addendum to a non-drop-off event is harmless, the
-// reverse is not.
+// `undefined` meant the drop-off fields (pickup, medications) never
+// rendered. Assume drop-off: asking a non-drop-off event for them is
+// harmless, the reverse is not.
 const flowDropOff    = outcome.kind === 'ok' ? outcome.dropOff : outcome.kind === 'error' ? true : undefined
 const noticeText     = outcome.kind === 'unknown' || outcome.kind === 'past' ? (outcome as { notice: string }).notice : null
 ---

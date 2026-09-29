@@ -1,7 +1,7 @@
 /**
  * Staff roster endpoint (HOM-213): per-event (not per-party) roster —
  * `kind`/`id`/`day` params, the `?party=` legacy alias, the signature
- * meta fields (signedAt/agreementVersion/validUntil/addendumVersion), the
+ * meta fields (signedAt/agreementVersion/validUntil), the
  * >12-kids drop-off cap warning, and (carried from HOM-212) authorized
  * pickup / notAuthorized / medications exposure.
  */
@@ -129,32 +129,16 @@ describe('GET /api/staff/roster.json — kind/id + ?party= alias (HOM-213)', () 
 })
 
 describe('GET /api/staff/roster.json — signature meta fields (HOM-213)', () => {
-  it('exposes signedAt, agreementVersion, validUntil, and addendumVersion from the RSVP', async () => {
-    mockListWaiversByEvent.mockResolvedValue([makeWaiver({ agreementVersion: 'v2', validUntil: '2027-08-01T00:00:00.000Z' })])
+  it('exposes signedAt, agreementVersion and validUntil — and no addendum field (retired in v3)', async () => {
+    mockListWaiversByEvent.mockResolvedValue([makeWaiver({ agreementVersion: 'v3', validUntil: '2027-08-01T00:00:00.000Z' })])
     mockGetRsvp.mockResolvedValue({ addendumVersion: 'a1' })
     const res = await GET(ctx('?party=party-1'))
     const json = await res.json()
     const h = json.data.households[0]
     expect(h.signedAt).toBe('2026-08-01T00:00:00.000Z')
-    expect(h.agreementVersion).toBe('v2')
+    expect(h.agreementVersion).toBe('v3')
     expect(h.validUntil).toBe('2027-08-01T00:00:00.000Z')
-    expect(h.addendumVersion).toBe('a1')
-  })
-
-  it('addendumVersion is null when the RSVP never accepted one', async () => {
-    mockListWaiversByEvent.mockResolvedValue([makeWaiver()])
-    mockGetRsvp.mockResolvedValue({ addendumVersion: null })
-    const res = await GET(ctx('?party=party-1'))
-    const json = await res.json()
-    expect(json.data.households[0].addendumVersion).toBeNull()
-  })
-
-  it('addendumVersion is null with no RSVP at all', async () => {
-    mockListWaiversByEvent.mockResolvedValue([makeWaiver()])
-    mockGetRsvp.mockResolvedValue(null)
-    const res = await GET(ctx('?party=party-1'))
-    const json = await res.json()
-    expect(json.data.households[0].addendumVersion).toBeNull()
+    expect(h.addendumVersion).toBeUndefined()
   })
 })
 

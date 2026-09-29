@@ -10,8 +10,6 @@ const base: Omit<RsvpRecord, 'id' | 'firstAt'> = {
   event: { kind: 'workshop', id: 'cs_' + Date.now() },
   attending: ['adult', 'child:0'],
   responsibleAdult: null,
-  addendumVersion: null,
-  addendumSha256: null,
   at: '2026-10-01T00:00:00.000Z',
   ip: null,
   userAgent: null,

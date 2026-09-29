@@ -4,8 +4,8 @@
  *
  * `scripts/gen-waiver-doc.ts` writes this function's output to disk.
  * `tests/config/waiver-hashes.test.ts` asserts the file on disk still
- * equals it, so a hand edit to `docs/WAIVER.md` — or a `legalSections`/
- * `dropOffAddendum` change that forgot to re-run `npm run gen:waiver` —
+ * equals it, so a hand edit to `docs/WAIVER.md` — or a `legalSections`
+ * change that forgot to re-run `npm run gen:waiver` —
  * fails CI (HOM-219).
  *
  * Deliberately pure and deterministic: no dates, no randomness, nothing
@@ -15,9 +15,7 @@
 import { createHash } from 'node:crypto'
 import {
   waiverContent,
-  dropOffAddendum,
   serializeAgreement,
-  serializeAddendum,
   type WaiverSection,
 } from '@config/waiver-content'
 
@@ -29,7 +27,6 @@ function renderSection(s: WaiverSection): string {
 
 export function generateWaiverDoc(): string {
   const agreementHash = sha256(serializeAgreement())
-  const addendumHash = sha256(serializeAddendum())
 
   const parts: string[] = [
     '# Hometown Studio — Participation Agreement',
@@ -54,13 +51,6 @@ export function generateWaiverDoc(): string {
       'Adult signer (name, DOB, email, phone) · each minor (name, DOB) · emergency contact (name, ' +
       'phone, relationship) · allergies/medical conditions · photo consent · typed-name signature · ' +
       'timestamp, IP, and agreement version hash (stored with each record).',
-    '---',
-    `## ${dropOffAddendum.title}`,
-    'Signed separately from the agreement above, only by a household registering a minor for a ' +
-      "studio-run drop-off program (a camp, a kids' workshop, or Parents' Night Out) — supplements " +
-      '§4(c) for that program only; the base agreement stays in full effect.',
-    `**Addendum version:** \`${dropOffAddendum.version}\` · **SHA-256:** \`${addendumHash}\``,
-    ...dropOffAddendum.sections.map(renderSection),
     '---',
     '## For counsel',
     ...waiverContent.counselNotes,

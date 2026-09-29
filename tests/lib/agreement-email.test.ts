@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { buildAgreementCopy } from '@lib/agreement-email'
-import { waiverContent, dropOffAddendum } from '@config/waiver-content'
+import { buildAgreementCopy, buildDropOffDetails } from '@lib/agreement-email'
+import { waiverContent } from '@config/waiver-content'
 import type { WaiverRecord } from '@lib/waiver-store'
 import type { StudioEvent } from '@lib/events'
 
 function makeRecord(overrides: Partial<WaiverRecord> = {}): WaiverRecord {
   return {
     id: 'wvr_test_abc123',
-    agreementVersion: 'v2',
+    agreementVersion: 'v3',
     agreementSha256: 'deadbeef',
     signedAt: '2026-09-01T18:00:00.000Z',
     validUntil: '2027-09-01T18:00:00.000Z',
@@ -47,7 +47,7 @@ function makeEvent(overrides: Partial<StudioEvent> = {}): StudioEvent {
 }
 
 describe('buildAgreementCopy', () => {
-  it('(a) fresh sign, no addendum — subject is the base agreement subject, html has every legal section heading + minor first name + record id, no addendum content', () => {
+  it('has the base subject, every legal section (including 4b), the minor and the record id', () => {
     const record = makeRecord()
     const { subject, html, text } = buildAgreementCopy({ record })
 
@@ -55,64 +55,43 @@ describe('buildAgreementCopy', () => {
     for (const section of waiverContent.legalSections) {
       expect(html).toContain(section.heading)
     }
+    expect(html).toContain('4b. Drop-off programs')
     expect(html).toContain('Bobby')
     expect(html).toContain(record.id)
-    expect(html).not.toContain(dropOffAddendum.title)
+    expect(html).not.toMatch(/addendum/i)
     expect(text).toContain(record.id)
+    expect(text).toContain('The only exception is a designated Studio drop-off program')
   })
+})
 
-  it('(b) fresh sign + addendum — subject includes "+ Drop-off Addendum", html has base sections AND addendum sections + record id', () => {
-    const record = makeRecord()
+describe('buildDropOffDetails', () => {
+  it('names the event, when, the pickup-code rule with the masked phone, the late fee, no medication, and 4b', () => {
+    const record = makeRecord({ authorizedPickup: [{ name: 'Grandma Sue', phone: '' }] })
     const event = makeEvent()
-    const { subject, html, text } = buildAgreementCopy({
-      record,
-      addendum: { version: dropOffAddendum.version, acceptedAt: record.signedAt },
-      event,
-    })
+    const { subject, html, text } = buildDropOffDetails({ record, event })
 
-    expect(subject).toBe('Your Hometown Studio participation agreement + Drop-off Addendum')
-    for (const section of waiverContent.legalSections) {
-      expect(html).toContain(section.heading)
+    expect(subject).toBe(`Drop-off details for ${event.title}`)
+    for (const body of [html.replace(/&#39;/g, "'"), text]) {
+      expect(body).toContain('Check your child in with our crew at the door.')
+      expect(body).toContain('phone ending ••34')
+      expect(body).toContain('Whoever collects Bobby needs that code, and photo ID if we don')
+      expect(body).toContain('Grandma Sue')
+      expect(body).toContain('Late pickup: $1 per minute after a 15-minute grace.')
+      expect(body).toContain('give medication')
+      expect(body).toContain('Section 4b of the participation agreement you signed on September 1, 2026')
     }
-    for (const section of dropOffAddendum.sections) {
-      expect(html).toContain(section.heading)
-    }
-    expect(html).toContain(event.title)
-    expect(html).toContain(record.id)
-    expect(text).toContain(record.id)
   })
 
-  it('(c) returning + addendum accepted — subject is the addendum-only subject, html has ONLY addendum sections + the "unchanged" line + record id', () => {
-    const record = makeRecord()
-    const event = makeEvent()
-    const acceptedAt = '2026-09-28T12:00:00.000Z'
-    const { subject, html, text } = buildAgreementCopy({
-      record,
-      addendum: { version: dropOffAddendum.version, acceptedAt },
-      event,
-      returning: true,
+  it('omits the authorized-pickup line when none was given, and only names attending kids', () => {
+    const record = makeRecord({
+      minors: [
+        { name: 'Bobby Test', dob: '2018-05-01', allergies: '', medications: '' },
+        { name: 'Cara Test', dob: '2019-05-01', allergies: '', medications: '' },
+      ],
     })
-
-    expect(subject).toBe(`Your Drop-off Addendum for ${event.title}`)
-    for (const section of dropOffAddendum.sections) {
-      expect(html).toContain(section.heading)
-    }
-    // The base agreement text is NOT re-rendered on the returning path.
-    for (const section of waiverContent.legalSections) {
-      expect(html).not.toContain(section.heading)
-    }
-    expect(html).toMatch(/unchanged/i)
-    expect(html).toContain(record.id)
-    expect(text).toContain(record.id)
-    expect(text).toMatch(/unchanged/i)
-  })
-
-  it('never renders an addendum block when none is passed', () => {
-    const record = makeRecord()
-    const { html } = buildAgreementCopy({ record })
-    expect(html).not.toContain(dropOffAddendum.title)
-    for (const section of dropOffAddendum.sections) {
-      expect(html).not.toContain(section.heading)
-    }
+    const { text } = buildDropOffDetails({ record, event: makeEvent(), attending: ['adult', 'child:1'] })
+    expect(text).not.toMatch(/Authorized pickup/)
+    expect(text).toContain('Whoever collects Cara needs')
+    expect(text).not.toContain('Bobby')
   })
 })

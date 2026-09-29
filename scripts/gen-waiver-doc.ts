@@ -1,6 +1,6 @@
 /**
  * Regenerates `docs/WAIVER.md` from `src/config/waiver-content.ts` (HOM-219).
- * Run this any time `legalSections`, `dropOffAddendum`, or `counselNotes`
+ * Run this any time `legalSections` or `counselNotes`
  * change — `tests/config/waiver-hashes.test.ts` fails CI if the file on
  * disk drifts from this output.
  *

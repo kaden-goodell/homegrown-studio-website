@@ -28,7 +28,6 @@ function household(overrides: Record<string, any> = {}) {
     signedAt: '2026-08-01T00:00:00.000Z',
     agreementVersion: 'v3',
     validUntil: '2027-08-01T00:00:00.000Z',
-    addendumVersion: 'v3',
     checkin: {
       expected: null,
       presence: {},

@@ -52,9 +52,6 @@ export interface Household {
   signedAt: string
   agreementVersion: string
   validUntil: string
-  /** Drop-off addendum version accepted for THIS event, or null if the
-   *  household hasn't accepted one yet (HOM-213). */
-  addendumVersion: string | null
   checkin: Checkin
 }
 
@@ -79,8 +76,8 @@ export interface Person { id: string; icon: string; name: string; sub: string; a
 /**
  * One household's card on the roster: signer, phone, each person with a
  * check-in/pickup checkbox, allergy/medication badges, emergency contact,
- * the signature's validity line, and (for drop-off events) the addendum
- * status + pickup code machinery (HOM-213, HOM-212).
+ * the signature's validity line, and (for drop-off events) the pickup code
+ * machinery (HOM-213, HOM-212).
  */
 export default function HouseholdCard({
   h,
@@ -129,7 +126,6 @@ export default function HouseholdCard({
   // Checkout selection (present people) defaults to everyone here.
   const [selOut, setSelOut] = useState<Record<string, boolean>>({})
   const [err, setErr] = useState<string | null>(null)
-  const [sendState, setSendState] = useState<'idle' | 'busy' | 'sent' | 'failed'>('idle')
   // The freshly-issued pickup code (HOM-214): shown once, then hidden. Lives
   // here (not PickupPanel) because it's first set by the CHECK-IN action
   // above, and again by PickupPanel's own "Re-send code" — both write into
@@ -166,21 +162,6 @@ export default function HouseholdCard({
     const r = await post(h.recordId, { day, ...extra })
     if (r.error) setErr(r.error)
     else if (r.oneTimeCode) { setRevealCode(r.oneTimeCode); setSmsFailed(!!r.smsFailed) }
-  }
-
-  async function sendLink() {
-    setSendState('busy')
-    try {
-      const res = await fetch('/api/staff/send-waiver-link.json', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ recordId: h.recordId, kind, id }),
-      })
-      const json = await res.json().catch(() => null)
-      setSendState(res.ok && json?.data?.sent ? 'sent' : 'failed')
-    } catch {
-      setSendState('failed')
-    }
   }
 
   function handleResetTap() {
@@ -258,20 +239,6 @@ export default function HouseholdCard({
           🕘 History
         </button>
       </div>
-
-      {/* Drop-off addendum status — HOM-211/213 */}
-      {dropOff && (
-        h.addendumVersion ? (
-          <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0.15rem 0 0' }}>Addendum ✓</p>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0.25rem 0 0', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.75rem', color: '#b91c1c', fontWeight: 700 }}>⚠ Addendum not signed</span>
-            <button type="button" onClick={sendLink} disabled={sendState === 'busy'} style={{ ...btn(), padding: '0.25rem 0.55rem', fontSize: '0.7rem' }}>
-              {sendState === 'sent' ? 'Sent!' : sendState === 'failed' ? 'Couldn’t send — retry' : sendState === 'busy' ? 'Sending…' : 'Send link'}
-            </button>
-          </div>
-        )
-      )}
 
       {/* Card-level scan strip: any allergy or no-photo in this family */}
       {(anyAllergy || noPhoto) && (

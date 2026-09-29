@@ -29,7 +29,6 @@ function makeHousehold(overrides: Partial<Household> = {}): Household {
     signedAt: '2026-08-01T00:00:00.000Z',
     agreementVersion: 'v2',
     validUntil: '2027-08-01T00:00:00.000Z',
-    addendumVersion: null,
     checkin: {
       expected: null,
       presence: {},

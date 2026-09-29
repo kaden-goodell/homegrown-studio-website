@@ -17,8 +17,7 @@ import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { verifyReuseToken } from '@lib/reuse-token'
 import { getEvent, isEventPast, type EventKind as StudioEventKind, type StudioEvent } from '@lib/events'
-import { addendumRequired, currentAddendum } from '@lib/addendum'
-import { sendAgreementCopyEmail } from '@lib/email'
+import { sendAgreementCopyEmail, sendDropOffDetailsEmail } from '@lib/email'
 
 export const prerender = false
 
@@ -52,17 +51,11 @@ function coveredNames(adult: { firstName: string; lastName: string }, minors: { 
   return [`${adult.firstName} ${adult.lastName}`.trim(), ...minors.map((m) => m.name)]
 }
 
-/** Addendum acceptance echoed back on a signed/RSVP response — a hook for the
- *  copy-email ticket to read without re-deriving the hash. `null` when no
- *  addendum was required (or accepted) for this signature/RSVP. */
-type AddendumAccepted = { version: string; sha256: string } | null
-
 /** Response for a fresh signature (new WaiverRecord just written). */
 function okSigned(
   record: WaiverRecord,
   partyId: string | null,
   context: { kind: SignableEventKind; id: string } | null,
-  addendumAccepted: AddendumAccepted,
 ): Response {
   return new Response(
     JSON.stringify({
@@ -72,7 +65,6 @@ function okSigned(
         validUntil: record.validUntil,
         partyId,
         context,
-        addendumAccepted,
       },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -80,7 +72,7 @@ function okSigned(
 }
 
 /** Response for a reuse RSVP (no new signature — the on-file one covers them). */
-function okRsvp(source: WaiverRecord, rsvp: RsvpRecord, addendumAccepted: AddendumAccepted): Response {
+function okRsvp(source: WaiverRecord, rsvp: RsvpRecord): Response {
   return new Response(
     JSON.stringify({
       data: {
@@ -88,7 +80,6 @@ function okRsvp(source: WaiverRecord, rsvp: RsvpRecord, addendumAccepted: Addend
         waiverId: source.id,
         validUntil: source.validUntil,
         covered: coveredNames(source.adult, source.minors),
-        addendumAccepted,
       },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -165,6 +156,17 @@ function fireAgreementCopyEmail(input: Parameters<typeof sendAgreementCopyEmail>
       await sendAgreementCopyEmail(input)
     } catch (err) {
       logger.error('Agreement copy email failed (record saved)', { id: recordId, error: String(err) })
+    }
+  })()
+}
+
+/** Same contract as `fireAgreementCopyEmail`, for the drop-off details email. */
+function fireDropOffDetailsEmail(input: Parameters<typeof sendDropOffDetailsEmail>[0], recordId: string): void {
+  void (async () => {
+    try {
+      await sendDropOffDetailsEmail(input)
+    } catch (err) {
+      logger.error('Drop-off details email failed (RSVP saved)', { id: recordId, error: String(err) })
     }
   })()
 }
@@ -339,7 +341,6 @@ async function handleReuse(
   bookingId: string | null,
   attendingRaw: unknown,
   responsibleAdult: string,
-  agreeAddendum: boolean,
   pickupUpdateRaw: unknown,
   now: Date,
   clientAddress: string | undefined,
@@ -399,20 +400,12 @@ async function handleReuse(
   const raErr = checkResponsibleAdult(partyId, dropOff, resolvedIds, responsibleAdult)
   if (raErr) return raErr
 
-  const addendumNeeded = addendumRequired(event, resolvedIds, source.minors.length)
-  if (addendumNeeded && agreeAddendum !== true) {
-    return bad('Please read and accept the Drop-off Program Addendum to continue.')
-  }
-  const addendum = addendumNeeded ? currentAddendum() : null
-
   const rsvp = await upsertRsvp({
     waiverId: source.id,
     event: { kind: eventKind, id: eventId },
     ...(bookingId ? { ref: { bookingId } } : {}),
     attending: resolvedIds,
     responsibleAdult: responsibleAdult || null,
-    addendumVersion: addendum?.version ?? null,
-    addendumSha256: addendum?.sha256 ?? null,
     ...(pickup ? { pickup } : {}),
     at: now.toISOString(),
     ip: clientAddress ?? null,
@@ -421,17 +414,15 @@ async function handleReuse(
   await recordExpected(partyId, source.id, resolvedIds)
   await indexEventRsvp(eventKind, eventId, source, rsvp.id)
 
-  // Only when this RSVP just accepted the addendum for the first time — the
-  // base agreement is already on file and unchanged, so no email otherwise.
-  if (addendum) {
-    fireAgreementCopyEmail(
-      { record: source, addendum: { version: addendum.version, acceptedAt: now.toISOString() }, event, returning: true },
+  if (dropOff && event) {
+    fireDropOffDetailsEmail(
+      { record: source, event, attending: resolvedIds, ...(pickup ? { authorizedPickup: pickup.authorizedPickup } : {}) },
       source.id,
     )
   }
 
   logger.info('RSVP via reuse', { waiverId: source.id, rsvpId: rsvp.id, partyId, workshopId })
-  return okRsvp(source, rsvp, addendum)
+  return okRsvp(source, rsvp)
 }
 
 /**
@@ -445,7 +436,6 @@ async function handleFresh(
   workshopId: string | null,
   bookingId: string | null,
   responsibleAdult: string,
-  agreeAddendum: boolean,
   now: Date,
   clientAddress: string | undefined,
   userAgent: string | null,
@@ -521,12 +511,6 @@ async function handleFresh(
   const freshRaErr = checkResponsibleAdult(partyId, dropOff, freshResolvedIds, responsibleAdult)
   if (freshRaErr) return freshRaErr
 
-  const addendumNeeded = addendumRequired(event, freshResolvedIds, minors.length)
-  if (addendumNeeded && agreeAddendum !== true) {
-    return bad('Please read and accept the Drop-off Program Addendum to continue.')
-  }
-  const addendum = addendumNeeded ? currentAddendum() : null
-
   const validUntil = new Date(now)
   validUntil.setMonth(validUntil.getMonth() + waiverContent.validityMonths)
 
@@ -552,14 +536,7 @@ async function handleFresh(
 
   // Every fresh signature gets an emailed copy (HOM-216) — fire-and-forget,
   // never blocks or fails the save.
-  fireAgreementCopyEmail(
-    {
-      record,
-      addendum: addendum ? { version: addendum.version, acceptedAt: now.toISOString() } : null,
-      event,
-    },
-    record.id,
-  )
+  fireAgreementCopyEmail({ record }, record.id)
 
   const eventId = partyId ?? workshopId
   let context: { kind: SignableEventKind; id: string } | null = null
@@ -571,19 +548,20 @@ async function handleFresh(
       ...(bookingId ? { ref: { bookingId } } : {}),
       attending: freshResolvedIds,
       responsibleAdult: responsibleAdult || null,
-      addendumVersion: addendum?.version ?? null,
-      addendumSha256: addendum?.sha256 ?? null,
       at: now.toISOString(),
       ip: clientAddress ?? null,
       userAgent,
     })
     await recordExpected(partyId, record.id, freshResolvedIds)
     await indexEventRsvp(eventKind, eventId, record, rsvp.id)
+    if (dropOff && event) {
+      fireDropOffDetailsEmail({ record, event, attending: freshResolvedIds }, record.id)
+    }
   }
 
   await attachSquare(record)
   logger.info('Waiver signed', { recordId: record.id, minors: minors.length, partyId })
-  return okSigned(record, partyId, context, addendum)
+  return okSigned(record, partyId, context)
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
@@ -606,7 +584,6 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const responsibleAdult = typeof body.responsibleAdult === 'string'
       ? body.responsibleAdult.trim().slice(0, 120)
       : ''
-    const agreeAddendum = body.agreeAddendum === true
 
     // Mutually exclusive — can only attach a signature to one event at a time.
     if (partyId && workshopId) return bad('One event per signature, please.')
@@ -620,10 +597,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const reuseId = typeof body.reuseRecordId === 'string' ? body.reuseRecordId.trim() : ''
     const reuseToken = typeof body.reuseToken === 'string' ? body.reuseToken.trim() : ''
     if (reuseId) {
-      return handleReuse(reuseId, reuseToken, partyId, workshopId, bookingId, body.attending, responsibleAdult, agreeAddendum, body.pickupUpdate, now, clientAddress, userAgent)
+      return handleReuse(reuseId, reuseToken, partyId, workshopId, bookingId, body.attending, responsibleAdult, body.pickupUpdate, now, clientAddress, userAgent)
     }
 
-    return handleFresh(body, partyId, workshopId, bookingId, responsibleAdult, agreeAddendum, now, clientAddress, userAgent)
+    return handleFresh(body, partyId, workshopId, bookingId, responsibleAdult, now, clientAddress, userAgent)
   } catch (err) {
     logger.error('Waiver signing failed', { error: err instanceof Error ? err.message : String(err) })
     return bad('Something went wrong saving your signature — please try again or sign at the front desk.', 500)

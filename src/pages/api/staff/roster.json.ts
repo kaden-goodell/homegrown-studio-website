@@ -90,7 +90,6 @@ export const GET: APIRoute = async ({ request, url }) => {
           signedAt: w.signedAt,
           agreementVersion: w.agreementVersion,
           validUntil: w.validUntil,
-          addendumVersion: rsvp?.addendumVersion ?? null,
           checkin: {
             expected: pub.expected,
             presence: presenceOn(checkinState, day),

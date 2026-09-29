@@ -7,7 +7,7 @@
 import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
 import { partyInviteMailto, partyInviteIcsUrl } from '@lib/party-share'
-import { buildAgreementCopy, type BuildAgreementCopyInput } from '@lib/agreement-email'
+import { buildAgreementCopy, buildDropOffDetails, type BuildAgreementCopyInput, type BuildDropOffDetailsInput } from '@lib/agreement-email'
 import { formatWhen } from '@lib/studio-time'
 
 const logger = createLogger('email')
@@ -62,12 +62,17 @@ export async function sendEmail(input: {
 }
 
 /**
- * The signer's retained copy of the agreement (and addendum, when accepted)
- * — HOM-216. Thin wrapper: assembly lives in `buildAgreementCopy` (testable
+ * The signer's retained copy of the agreement — HOM-216. Thin wrapper: assembly lives in `buildAgreementCopy` (testable
  * without SMTP); this just sends what it builds.
  */
 export async function sendAgreementCopyEmail(input: BuildAgreementCopyInput): Promise<{ sent: boolean }> {
   const { subject, html, text } = buildAgreementCopy(input)
+  return sendEmail({ to: input.record.adult.email, subject, html, text })
+}
+
+/** "Drop-off details for {event}" — after any RSVP to a drop-off event. */
+export async function sendDropOffDetailsEmail(input: BuildDropOffDetailsInput): Promise<{ sent: boolean }> {
+  const { subject, html, text } = buildDropOffDetails(input)
   return sendEmail({ to: input.record.adult.email, subject, html, text })
 }
 

@@ -27,11 +27,12 @@ const adultAge = 19
  * can no longer one-tap RSVP (HOM-210) — the reuse path forces a full
  * re-sign instead of cloning the old signature forward. Bump this forward
  * only when a `legalSections` change is SUBSTANTIVE; an administrative-only
- * bump (e.g. v1→v2, the 2026-09-26 rebrand) leaves it where it is. Mirrored
- * verbatim in `docs/waiver-versions/README.md` as `substantiveSince: v1` —
+ * bump (e.g. v1→v2, the 2026-09-26 rebrand) leaves it where it is. v3
+ * (2026-09-29) folded the drop-off program terms in as §4b — substantive. Mirrored
+ * verbatim in `docs/waiver-versions/README.md` as `substantiveSince: v3` —
  * keep the two in sync.
  */
-export const substantiveSince = 'v1'
+export const substantiveSince = 'v3'
 
 /**
  * Compare two 'vN' version strings by their numeric suffix. An unparsable or
@@ -53,7 +54,7 @@ export const waiverContent = {
    * be re-verified if this text is rolled back. Attorney review required before
    * deploying changes (see docs/NEEDS-FROM-KADEN.md).
    */
-  version: 'v2', // v2 (2026-09-26) = v1 text with the trade name changed to Hometown Studio (rebrand after a cease-and-desist; entity unchanged). v1 = the LAUNCH text (2026-08-03; attorney redline pending, HOM-98). Numbering reset from draft-era v4: no production signature ever recorded an earlier version, so v1 starts the permanent series. On every bump: archive the full text to docs/waiver-versions/vN.md (records store version + SHA-256 hash; the archive keeps the text itself readable without git archaeology).
+  version: 'v3', // v3 (2026-09-29) = drop-off program terms folded in as §4b (the separate addendum is retired; substantive — v1/v2 signatures re-sign). v2 (2026-09-26) = v1 text with the trade name changed to Hometown Studio (rebrand after a cease-and-desist; entity unchanged). v1 = the LAUNCH text (2026-08-03; attorney redline pending, HOM-98). Numbering reset from draft-era v4: no production signature ever recorded an earlier version, so v1 starts the permanent series. On every bump: archive the full text to docs/waiver-versions/vN.md (records store version + SHA-256 hash; the archive keeps the text itself readable without git archaeology).
   legalEntityName,
   businessAddress,
   /** Months a signature stays valid before re-signing is required. */
@@ -110,10 +111,6 @@ export const waiverContent = {
     agreementNote: 'Please read the full agreement below before checking the box.',
     releaseCheckboxLabel:
       'I have read and agree to the Participation Agreement above, including the release of liability and the indemnification for my listed children.',
-    /** Second checkbox, shown only for drop-off events with minors attending
-     *  (HOM-211) — never pre-checked, never merged with `releaseCheckboxLabel`. */
-    addendumCheckboxLabel:
-      'I have read and agree to the Drop-off Program Addendum for the minors I am registering.',
     signatureLabel: 'Type your full name to sign',
     signatureNote: 'Typing your name here acts as your legal signature.',
     submitLabel: 'Sign the agreement',
@@ -132,40 +129,18 @@ export const waiverContent = {
    *  and must be re-signed in full — see `substantiveSince` above. */
   mustResignNotice: "We've updated the agreement — please read and sign again.",
 
-  /**
-   * The SMS one-time-code step between "Been here before?" and the
-   * returning-household screen (HOM-218) — a found household's kids' names,
-   * record id, and reuse token never reach the browser until this step's
-   * `verify.json` call succeeds. `{phoneHint}` is replaced with the on-file
-   * phone's last two digits (e.g. "••42").
-   */
-  lookup: {
-    codeSentLine: 'We texted a code to the phone ending in {phoneHint}',
-    codeInputLabel: 'Enter the 6-digit code',
-    verifyLabel: 'Verify',
-    verifyingLabel: 'Checking…',
-    resendLabel: 'Didn’t get it? Send again',
-    resendingLabel: 'Sending…',
-    /** `{seconds}` counts down during the 60s cooldown. */
-    resendCooldownLabel: 'Send again ({seconds}s)',
-    /** Quo down, or the on-file phone can't be normalized — no OTP step is
-     *  possible; falls straight through to the full form (never a bypass). */
-    smsFailedLine: 'We couldn’t send a text — sign the form instead',
-  },
-
   confirmation: {
     headline: 'You’re all set!',
     subline: 'Your signature is on file — show this screen at the front desk if asked.',
     /** Shown instead of `subline` right after a fresh signature — we always
-     *  email a copy of the agreement (+ addendum, when accepted) on signing
+     *  email a copy of the agreement on signing
      *  (HOM-216). `{email}` is replaced with the signer's typed email. */
     emailedCopyLine: 'We’ve emailed a copy to {email}.',
-    /** Shown instead of `subline` on a returning-household RSVP that just
-     *  accepted the Drop-off Program Addendum (HOM-216) — no typed email to
-     *  fill in on that path, so this reads generically ("on file"). */
-    emailedAddendumLine: 'We’ve emailed the addendum to your email on file.',
     coversLabel: 'This signature covers',
     validLabel: 'Valid through',
+    /** Drop-off RSVP done screen — with the posted late fee (`lateFeeLine()`) these are the three lines. */
+    dropOffPickupLine: 'We’ll text a pickup code to the phone number on file when you drop off.',
+    dropOffIdLine: 'Whoever collects your child needs that code, and photo ID if we don’t know them.',
     partyLine: "You’re RSVP’d — see you at the party! 🎉",
     anotherAdultLine: "Bringing another adult? Send them this page’s link — every adult signs their own agreement.",
   },
@@ -215,7 +190,19 @@ export const waiverContent = {
         'I understand that under Alabama law, a parent’s signature does not waive a minor’s own legal claims. Accordingly, as to each minor listed on this form:',
         '(a) My own claims released. I release the Released Parties, to the fullest extent permitted by law, from any claims that belong to me individually arising out of the minor’s participation, including claims for the minor’s medical expenses, loss of services, or emotional distress, including such claims arising from a Released Party’s ordinary negligence.',
         '(b) INDEMNIFICATION. I agree to INDEMNIFY, DEFEND, AND HOLD HARMLESS the Released Parties from and against any claim, demand, or action brought by or on behalf of a listed minor (including by the minor upon reaching majority, or by any other person on the minor’s behalf) arising out of the minor’s participation in Studio activities, including the Released Parties’ reasonable attorneys’ fees and costs of defense — except to the extent the claim arises from the willful or wanton conduct of a Released Party.',
-        "(c) Supervision. Private parties and regular Studio activities are NOT drop-off events. I remain responsible for each listed minor at all times while at the Studio, and if I am not personally present I will designate another responsible adult, present at the Studio, who is in charge of each listed minor. The Studio provides craft instruction and facilities; it does not provide childcare or supervision of minors. Separately, if the Studio offers a designated drop-off program (such as a camp), participation in that program is governed by that program’s own registration terms and check-in/pickup procedures, which I agree to at registration.",
+        "(c) Supervision. Private parties and regular Studio activities are NOT drop-off events. I remain responsible for each listed minor at all times while at the Studio, and if I am not personally present I will designate another responsible adult, present at the Studio, who is in charge of each listed minor. The Studio provides craft instruction and facilities; it does not provide childcare or supervision of minors. The only exception is a designated Studio drop-off program, which is governed by Section 4b below.",
+      ],
+    },
+    {
+      heading: '4b. Drop-off programs',
+      body: [
+        'When a listed minor takes part in a designated Studio drop-off program (for example, a camp, a kids’ workshop, or Parents’ Night Out), the following apply to that program, and Section 4(c) is supplemented accordingly:',
+        '(a) Supervision. During the program’s posted hours, Studio staff supervise participating minors in the Studio’s craft space. Supervision is group supervision of a structured craft activity; it is not medical care or one-on-one care.',
+        '(b) Drop-off and pickup. I will check each minor in with Studio staff at drop-off. Each minor will be released only (i) to me, or (ii) to an adult I have named as authorized, who presents the pickup code issued at check-in and, if not personally known to staff, photo identification. If the person collecting my child cannot provide the code, the Studio will attempt to reach me at the phone number on file before releasing the child, and may decline release until it does. I will tell the Studio in writing of anyone who may NOT collect my child, and I will provide a copy of any court order that restricts custody or contact.',
+        '(c) Late pickup. Programs end at the posted time. If a minor has not been collected by the end of the grace period posted for that program, the Studio will call me and then my emergency contact, and the late fee posted for that program at registration applies.',
+        '(d) Health. I have disclosed all allergies, medical conditions and medications relevant to my child’s safety. The Studio does not administer medication; a minor who needs medication during the program must be able to self-administer, or I will arrange to come in. I will not bring a child who is ill, and the Studio may ask me to collect a child who becomes ill or whose behavior is unsafe for the group.',
+        '(e) Emergencies. The medical authorization in Section 5 applies. Staff will call me as soon as practical after any injury or incident and will give me a written note of what happened.',
+        '(f) Program terms. Capacity is limited to 12 minors with at least two adult staff present. The Studio may cancel a program for insufficient enrollment or staffing, with a full refund as its sole obligation.',
       ],
     },
     {
@@ -266,79 +253,6 @@ export const waiverContent = {
 /** Canonical serialization of the legal text — the string that gets hashed into records. */
 export function serializeAgreement(): string {
   return waiverContent.legalSections
-    .map((s) => `## ${s.heading}\n${s.body.join('\n')}`)
-    .join('\n\n')
-}
-
-/**
- * Supplements Agreement §4(c) for studio-run drop-off programs (camps, kids'
- * workshops, Parents' Night Out) — audit finding C3 (HOM-211): §4(c) disclaims
- * supervision while staff are in fact supervising at these events. Attorney
- * has approved the addendum approach (this text has not itself had attorney
- * redline — treat the same way as the base agreement re: docs/NEEDS-FROM-KADEN.md).
- * Shown + accepted only when a drop-off event has a minor attending
- * (`@lib/addendum`'s `addendumRequired`) — separately versioned and hashed
- * from the main agreement so a change here doesn't force every household to
- * re-sign the base Participation Agreement.
- *
- * Bump `version` (a1 → a2 …) on ANY change to `sections`, same rule as
- * `waiverContent.version` — archive the new text to
- * docs/waiver-versions/addendum-aN.md and recompute docs/waiver-versions/hashes.json
- * in the same commit (see docs/waiver-versions/README.md).
- */
-export const dropOffAddendum = {
-  version: 'a1',
-  title: 'Drop-off Program Addendum',
-  sections: [
-    {
-      heading: 'Preamble',
-      body: [
-        "This addendum applies when I register a listed minor for a designated Studio drop-off program (for example, a camp, a kids' workshop, or Parents' Night Out). The Participation Agreement remains in full effect; §4(c) is supplemented as follows for that program only.",
-      ],
-    },
-    {
-      heading: '1. Supervision',
-      body: [
-        "During the program's posted hours, Studio staff supervise participating minors in the Studio's craft space. Supervision is group supervision of a structured craft activity; it is not medical care or one-on-one care.",
-      ],
-    },
-    {
-      heading: '2. Drop-off and pickup',
-      body: [
-        'I will check each minor in with Studio staff at drop-off. Each minor will be released only (a) to me, or (b) to an adult I have named as authorized, who presents the pickup code issued at check-in and, if not personally known to staff, photo identification. If the person collecting my child cannot provide the code, the Studio will attempt to reach me at the phone number on file before releasing the child, and may decline release until it does. I will tell the Studio in writing of anyone who may NOT collect my child, and I will provide a copy of any court order that restricts custody or contact.',
-      ],
-    },
-    {
-      heading: '3. Late pickup',
-      body: [
-        'Programs end at the posted time. If a minor has not been collected 15 minutes after the end time, the Studio will call me and then my emergency contact, and a late fee of $1 per minute applies from the end of the grace period.',
-      ],
-    },
-    {
-      heading: '4. Health',
-      body: [
-        "I have disclosed all allergies, medical conditions and medications relevant to my child's safety. The Studio does not administer medication; a minor who needs medication during the program must be able to self-administer, or I will arrange to come in. I will not bring a child who is ill, and the Studio may ask me to collect a child who becomes ill or whose behavior is unsafe for the group.",
-      ],
-    },
-    {
-      heading: '5. Emergencies',
-      body: [
-        'The medical authorization in §5 of the Participation Agreement applies. Staff will call me as soon as practical after any injury or incident and will give me a written note of what happened.',
-      ],
-    },
-    {
-      heading: '6. Program terms',
-      body: [
-        'Capacity is limited to 12 minors with at least two adult staff present. The Studio may cancel a program for insufficient enrollment or staffing, with a full refund as its sole obligation.',
-      ],
-    },
-  ] satisfies WaiverSection[],
-}
-
-/** Canonical serialization of the addendum text — same scheme as
- *  `serializeAgreement()`, so `addendum-a1.md` is derivable from this. */
-export function serializeAddendum(): string {
-  return dropOffAddendum.sections
     .map((s) => `## ${s.heading}\n${s.body.join('\n')}`)
     .join('\n\n')
 }
