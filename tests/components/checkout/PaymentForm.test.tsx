@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, cleanup } from '@testing-library/react'
-import PaymentForm from '@components/checkout/PaymentForm'
+import { createRef } from 'react'
+import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import PaymentForm, { type PaymentFormRef } from '@components/checkout/PaymentForm'
 
 /**
  * The payment step is already titled "Payment" by the panel around it, so the
@@ -61,5 +62,36 @@ describe('PaymentForm headings', () => {
     render(<PaymentForm onReadyChange={onReadyChange} />)
     await screen.findByText('Test mode')
     expect(onReadyChange).toHaveBeenLastCalledWith(true)
+  })
+})
+
+describe('PaymentForm with a caller-supplied app id', () => {
+  const squareScripts = () => document.head.querySelectorAll('script[src*="squarecdn"]').length
+
+  it('uses the stand-in card when the site config is a mock, whatever the override says', async () => {
+    configAnswers('mock-app-id')
+    const ref = createRef<PaymentFormRef>()
+    const before = squareScripts()
+    render(<PaymentForm ref={ref} applicationIdOverride="sq0idp-real" environmentOverride="production" />)
+    await screen.findByText(/Card number placeholder/)
+    expect(squareScripts()).toBe(before)
+    expect(await ref.current!.tokenize()).toBe('mock-payment-token')
+  })
+
+  it('does not load the Square SDK while the config is still loading', () => {
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
+    const before = squareScripts()
+    render(<PaymentForm applicationIdOverride="sq0idp-real" />)
+    expect(screen.getByText('Loading payment form...')).toBeInTheDocument()
+    expect(squareScripts()).toBe(before)
+  })
+
+  it('keeps the real path when the site config is real', async () => {
+    configAnswers('sq0idp-site')
+    const ref = createRef<PaymentFormRef>()
+    render(<PaymentForm ref={ref} applicationIdOverride="sq0idp-real" environmentOverride="production" />)
+    await waitFor(() => expect(squareScripts()).toBeGreaterThan(0))
+    expect(screen.queryByText(/Card number placeholder/)).toBeNull()
+    await expect(ref.current!.tokenize()).rejects.toThrow('Payment card not initialized')
   })
 })

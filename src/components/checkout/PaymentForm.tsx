@@ -137,7 +137,9 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     const paymentsRef = useRef<any>(null)
     const containerRef = useRef<HTMLDivElement>(null)
 
-    const effectiveAppId = applicationIdOverride || config?.appId
+    // A mock config (simulated payments on dev / preview) beats any caller override,
+    // so a booking modal's real app id can't put a live card box on a simulated site.
+    const effectiveAppId = config?.appId?.startsWith('mock-') ? config.appId : (applicationIdOverride || config?.appId)
     const isMockMode = !effectiveAppId || effectiveAppId === '' || effectiveAppId.startsWith('mock-')
 
     // Fetch client config on mount
