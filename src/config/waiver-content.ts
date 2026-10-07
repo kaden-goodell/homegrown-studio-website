@@ -78,7 +78,10 @@ export const waiverContent = {
     minorsNote: 'Add any child you’re the parent or legal guardian of. Just you? Skip this part.',
     addMinorLabel: '+ Add a child',
     emergencyHeading: 'Emergency contact',
-    emergencyNote: 'Who should we call if we can’t reach you?',
+    /** Plain visits: optional (we'd call the signer). Drop-off: required —
+     *  the signer isn't in the building. Both fields or neither. */
+    emergencyNote: 'Who should we call if we can’t reach you? Optional for a regular visit.',
+    emergencyNoteDropOff: 'Who should we call if we can’t reach you? Required for drop-off, since you won’t be here.',
     adultAllergiesLabel: 'Your own allergies or medical conditions (optional)',
     /** "None" chip on an allergies field (adult or child) — fills the literal
      *  string 'None', distinct from a blank left unanswered (HOM-212). */
@@ -96,16 +99,14 @@ export const waiverContent = {
     returningPickupHeading: 'Who may pick up?',
     /** Drop-off only, per child (HOM-212) — the Studio never administers medication. */
     medicationsLabel: 'Medications or conditions we should know about — we don’t administer medication.',
-    /**
-     * Inline note when the DOB the signer typed makes them 18 (or younger) —
-     * Alabama's age of majority is 19 (HOM-212). `{link}` is replaced with
-     * this page's own URL so it reads well when texted to a parent.
-     */
-    underageNote:
-      "In Alabama you're a legal adult at 19. If you're 18, a parent or guardian signs for you — they can do it from their phone: {link}.",
+    /** Replaces the adult date-of-birth field (Oct 2026): one attestation
+     *  tick. Alabama's age of majority is 19. */
+    ageConfirmLabel: 'I’m 19 or older',
+    ageConfirmNote: 'In Alabama you’re a legal adult at 19. If you’re 18, a parent or guardian signs for you and lists you as their child.',
     photoHeading: 'Photos at the studio',
+    /** Defaults to yes; opting out never affects participation. */
     photoNote:
-      'We sometimes photograph activities for our website and social media. Either answer is completely fine — it doesn’t affect participation.',
+      'We sometimes photograph activities for our website and social media. Opt out here if you’d rather not — it doesn’t affect participation.',
     photoYes: 'Yes — photos that include my household are OK (first names at most)',
     photoNo: 'No — please leave my household out of marketing photos and video',
     agreementHeading: 'The agreement',

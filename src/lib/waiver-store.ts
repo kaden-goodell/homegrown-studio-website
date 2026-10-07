@@ -49,11 +49,16 @@ export interface WaiverRecord {
     lastName: string
     email: string
     phone: string
+    /** '' since Oct 2026 — the form asks for an age attestation instead. */
     dob: string
+    /** Signer ticked "I'm 19 or older". Absent on records signed before Oct 2026 (those carry a DOB). */
+    ageConfirmed?: boolean
     /** Allergies / medical notes for the signing adult (if they participate). */
     allergies: string
   }
   minors: WaiverMinor[]
+  /** Name + phone; both '' when a plain-visit signer skipped it (optional
+   *  since Oct 2026, required for drop-off). `relationship` is '' on new records. */
   emergency: {
     name: string
     phone: string

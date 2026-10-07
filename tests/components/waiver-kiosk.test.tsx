@@ -22,7 +22,7 @@ function fillMinimalForm(container: HTMLElement) {
   set('wv-last', 'Rivera')
   set('wv-email', 'sarah@example.com')
   set('wv-phone', '2565550142')
-  set('wv-dob', '01/01/1990')
+  fireEvent.click(container.querySelector('#wv-age') as HTMLInputElement)
   set('wv-em-name', 'Bob Rivera')
   set('wv-em-phone', '2565559999')
   fireEvent.click(screen.getByText(waiverContent.form.photoNo))
@@ -115,6 +115,58 @@ describe('WaiverFlow — kiosk mode (HOM-209)', () => {
 
     fireEvent.click(screen.getByText('Done'))
     expect(replaceSpy).toHaveBeenCalledWith('/staff')
+  })
+
+  describe('lighter form (Oct 2026): age tick, optional emergency contact, photo default', () => {
+    const submit = () => screen.getByText(waiverContent.form.submitLabel) as HTMLButtonElement
+
+    it('has no adult date-of-birth field; the "19 or older" tick is required instead', () => {
+      const { container } = render(<WaiverFlow kiosk returnTo="/staff" />)
+      expect(container.querySelector('#wv-dob')).toBeNull()
+      expect(screen.getByText(waiverContent.form.ageConfirmLabel)).toBeInTheDocument()
+      fillMinimalForm(container)
+      expect(submit().disabled).toBe(false)
+      fireEvent.click(container.querySelector('#wv-age') as HTMLInputElement) // untick
+      expect(submit().disabled).toBe(true)
+      expect(submit().title).toMatch(/19 or older/)
+    })
+
+    it('emergency contact is name + phone only, optional on a plain visit, but never half-filled', () => {
+      const { container } = render(<WaiverFlow kiosk returnTo="/staff" />)
+      expect(container.querySelector('#wv-em-rel')).toBeNull()
+      fillMinimalForm(container)
+      const set = (id: string, value: string) => fireEvent.change(container.querySelector(`#${id}`) as HTMLInputElement, { target: { value } })
+      set('wv-em-name', ''); set('wv-em-phone', '')
+      expect(submit().disabled).toBe(false)
+      set('wv-em-name', 'Bob')
+      expect(submit().disabled).toBe(true)
+      expect(submit().title).toMatch(/emergency contact phone/)
+    })
+
+    it('emergency contact is required for a drop-off event', () => {
+      const { container } = render(<WaiverFlow kiosk partyId="p1" dropOff returnTo="/staff?open=party:p1" />)
+      expect(screen.getByText(waiverContent.form.emergencyNoteDropOff)).toBeInTheDocument()
+      fillMinimalForm(container)
+      const set = (id: string, value: string) => fireEvent.change(container.querySelector(`#${id}`) as HTMLInputElement, { target: { value } })
+      set('wv-em-name', ''); set('wv-em-phone', '')
+      expect(submit().disabled).toBe(true)
+      expect(submit().title).toMatch(/emergency contact name/)
+    })
+
+    it('photo consent defaults to yes and is sent as true without a tap', async () => {
+      const fetchSpy = mockSignSuccess()
+      const { container } = render(<WaiverFlow kiosk returnTo="/staff" />)
+      const yes = screen.getByText(waiverContent.form.photoYes).closest('label')!.querySelector('input') as HTMLInputElement
+      expect(yes.checked).toBe(true)
+      fillMinimalForm(container)
+      fireEvent.click(screen.getByText(waiverContent.form.photoYes)) // back to the default after the helper's "no"
+      await act(async () => { fireEvent.click(submit()) })
+      const body = JSON.parse((fetchSpy.mock.calls[0][1] as RequestInit).body as string)
+      expect(body.photoConsent).toBe(true)
+      expect(body.adult.ageConfirmed).toBe(true)
+      expect(body.adult.dob).toBeUndefined()
+      expect(body.emergency).toEqual({ name: 'Bob Rivera', phone: '2565559999' })
+    })
   })
 
   describe('with an event (the door\'s "Sign on this iPad" from a roster)', () => {

@@ -110,7 +110,7 @@ function makeAdultBody(overrides: Record<string, any> = {}) {
       lastName: 'Test',
       email: 'alice@test.com',
       phone: '2565551234',
-      dob: '1990-01-01',
+      ageConfirmed: true,
     },
     minors: [],
     emergency: { name: 'Bob Test', phone: '2565555678', relationship: 'Spouse' },
@@ -332,6 +332,69 @@ describe('POST /api/waiver/sign.json', () => {
     })
   })
 
+  describe('lighter form (Oct 2026): age tick, optional emergency contact, photo default', () => {
+    it('refuses a fresh signature without the "19 or older" tick and saves nothing', async () => {
+      const res = await POST(createMockContext(makeAdultBody({ adult: { firstName: 'Alice', lastName: 'Test', email: 'alice@test.com', phone: '2565551234', ageConfirmed: false } })))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toMatch(/19 or older/)
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+    })
+
+    it('stores ageConfirmed and an empty dob — no date of birth is collected from the adult', async () => {
+      const res = await POST(createMockContext(makeAdultBody({ adult: { firstName: 'Alice', lastName: 'Test', email: 'alice@test.com', phone: '2565551234', ageConfirmed: true, dob: '1990-01-01' } })))
+      expect(res.status).toBe(200)
+      const saved = mockSaveWaiverRecord.mock.calls[0][0]
+      expect(saved.adult.ageConfirmed).toBe(true)
+      expect(saved.adult.dob).toBe('')
+    })
+
+    it('a plain visit may leave the emergency contact blank', async () => {
+      const res = await POST(createMockContext(makeAdultBody({ emergency: { name: '', phone: '' } })))
+      expect(res.status).toBe(200)
+      expect(mockSaveWaiverRecord.mock.calls[0][0].emergency).toEqual({ name: '', phone: '', relationship: '' })
+    })
+
+    it('a half-filled emergency contact is refused (name without phone)', async () => {
+      const res = await POST(createMockContext(makeAdultBody({ emergency: { name: 'Bob', phone: '' } })))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toMatch(/both/)
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+    })
+
+    it('a drop-off event requires the emergency contact', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      const res = await POST(createMockContext(makeAdultBody({
+        partyId: 'party-123',
+        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
+        attending: ['child:0'],
+        emergency: { name: '', phone: '' },
+      })))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toMatch(/Drop-off needs an emergency contact/)
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+    })
+
+    it('a drop-off event with the contact filled in signs normally', async () => {
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      const res = await POST(createMockContext(makeAdultBody({
+        partyId: 'party-123',
+        minors: [{ name: 'Child One', dob: '2018-05-01', allergies: '' }],
+        attending: ['child:0'],
+        emergency: { name: 'Bob', phone: '2565559999' },
+      })))
+      expect(res.status).toBe(200)
+      expect(mockSaveWaiverRecord.mock.calls[0][0].emergency).toEqual({ name: 'Bob', phone: '2565559999', relationship: '' })
+    })
+
+    it('photo consent must still arrive as a boolean (the form defaults it to yes)', async () => {
+      const res = await POST(createMockContext(makeAdultBody({ photoConsent: undefined })))
+      expect(res.status).toBe(400)
+      const ok = await POST(createMockContext(makeAdultBody({ photoConsent: false })))
+      expect(ok.status).toBe(200)
+      expect(mockSaveWaiverRecord.mock.calls[0][0].photoConsent).toBe(false)
+    })
+  })
+
   describe('reuse (returning-customer) path — RSVP only, no new signature', () => {
     it('does not call saveWaiverRecord, and calls upsertRsvp with the source waiverId', async () => {
       mockGetWaiverRecord.mockResolvedValue(makeReuseSource())
@@ -445,12 +508,12 @@ describe('POST /api/waiver/sign.json', () => {
     })
 
     it('two households booking two different seats both attach to the same class', async () => {
-      const bodyA = makeAdultBody({ workshopId: 'wkbk-abc123', partyId: null, booking: 'seat-1', adult: { firstName: 'Mom', lastName: 'A', email: 'mom@test.com', phone: '2565551111', dob: '1985-01-01' }, signature: 'Mom A' })
+      const bodyA = makeAdultBody({ workshopId: 'wkbk-abc123', partyId: null, booking: 'seat-1', adult: { firstName: 'Mom', lastName: 'A', email: 'mom@test.com', phone: '2565551111', ageConfirmed: true }, signature: 'Mom A' })
       mockNewWaiverId.mockReturnValueOnce('wvr_mom')
       const resA = await POST(createMockContext(bodyA))
       expect(resA.status).toBe(200)
 
-      const bodyB = makeAdultBody({ workshopId: 'wkbk-abc123', partyId: null, booking: 'seat-2', adult: { firstName: 'Dad', lastName: 'B', email: 'dad@test.com', phone: '2565552222', dob: '1985-01-01' }, signature: 'Dad B' })
+      const bodyB = makeAdultBody({ workshopId: 'wkbk-abc123', partyId: null, booking: 'seat-2', adult: { firstName: 'Dad', lastName: 'B', email: 'dad@test.com', phone: '2565552222', ageConfirmed: true }, signature: 'Dad B' })
       mockNewWaiverId.mockReturnValueOnce('wvr_dad')
       const resB = await POST(createMockContext(bodyB))
       expect(resB.status).toBe(200)

@@ -297,7 +297,7 @@ export default function HouseholdCard({
 
       {/* Meta */}
       <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.55rem 0 0' }}>
-        <strong style={{ color: 'var(--color-dark)' }}>Emergency:</strong> {h.emergency.name} · {h.emergency.phone}{h.emergency.relationship ? ` (${h.emergency.relationship})` : ''}
+        <strong style={{ color: 'var(--color-dark)' }}>Emergency:</strong> {h.emergency.name ? `${h.emergency.name} · ${h.emergency.phone}${h.emergency.relationship ? ` (${h.emergency.relationship})` : ''}` : 'none given — call the signer'}
       </p>
       {h.responsibleAdult && (
         <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.15rem 0 0' }}>

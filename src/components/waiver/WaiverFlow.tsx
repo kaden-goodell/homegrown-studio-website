@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { waiverContent } from '@config/waiver-content'
 import { lateFeeLine } from '@config/dropoff.config'
 import { formatCalendarDate } from '@lib/studio-time'
-import { maskDob, dobToIso } from '@lib/dob-input'
 import PickupFields, { type PickupRow } from '@components/waiver/PickupFields'
 import { inputStyle, labelStyle, sectionHeadingStyle, sectionNoteStyle, scrollBoxStyle, cardStyle } from '@components/waiver/waiver-ui'
 
@@ -97,19 +96,17 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const [lastName, setLastName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
-  // `dob` stays the ISO value the server expects; `dobMasked` is the
-  // MM/DD/YYYY text the person actually sees/types (HOM-212).
-  const [dob, setDob] = useState('')
-  const [dobMasked, setDobMasked] = useState('')
+  // Age attestation replaces the adult date-of-birth field (Oct 2026).
+  const [ageConfirmed, setAgeConfirmed] = useState(false)
   const [minors, setMinors] = useState<MinorRow[]>([])
   const [emergencyName, setEmergencyName] = useState('')
   const [emergencyPhone, setEmergencyPhone] = useState('')
-  const [emergencyRelationship, setEmergencyRelationship] = useState('')
   // Authorized pickup + "may NOT collect" — drop-off events only (HOM-212).
   const [pickupRows, setPickupRows] = useState<PickupRow[]>([])
   const [notAuthorized, setNotAuthorized] = useState('')
   const [adultAllergies, setAdultAllergies] = useState('')
-  const [photoConsent, setPhotoConsent] = useState<boolean | null>(null)
+  // Photo consent defaults to yes and never blocks submit; opting out is a tap.
+  const [photoConsent, setPhotoConsent] = useState<boolean>(true)
   const [agreeRelease, setAgreeRelease] = useState(false)
   const [signature, setSignature] = useState('')
   const [responsibleAdult, setResponsibleAdult] = useState('')
@@ -160,32 +157,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   const signatureMatches =
     fullName.length > 2 &&
     signature.trim().toLowerCase().replace(/\s+/g, ' ') === fullName.toLowerCase().replace(/\s+/g, ' ')
-
-  // Small local age calculator (mirrors the server's yearsBetween).
-  function yearsBetween(dobIso: string, now: Date): number {
-    const d = new Date(`${dobIso}T00:00:00`)
-    let years = now.getFullYear() - d.getFullYear()
-    const anniversary = new Date(d)
-    anniversary.setFullYear(now.getFullYear())
-    if (now < anniversary) years--
-    return years
-  }
-
-  // Adult DOB masked input (HOM-212) — `dob` stays the ISO value the server
-  // expects; the text field shows/edits `dobMasked` instead.
-  function handleDobInput(raw: string) {
-    const masked = maskDob(raw)
-    setDobMasked(masked)
-    setDob(dobToIso(masked) ?? '')
-  }
-
-  // Inline note (not just on submit) when the typed DOB makes the signer 18
-  // or younger — Alabama's age of majority is 19 (HOM-212).
-  const signerUnderage = !!dob && yearsBetween(dob, new Date()) < waiverContent.adultAge
-  const underageNoteText = waiverContent.form.underageNote.replace(
-    '{link}',
-    typeof window !== 'undefined' ? window.location.href : '',
-  )
 
   // True when a party RSVP has kids crafting but the signer isn't on the craft
   // list — we then ask whether the signer is still coming (watching) or another
@@ -296,14 +267,17 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     if (!lastName.trim()) m.push('your last name')
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) m.push('a valid email address')
     if (phone.replace(/\D/g, '').length < 10) m.push('a phone number (at least 10 digits)')
-    if (!dob) m.push('your date of birth')
-    if (dob && yearsBetween(dob, new Date()) < waiverContent.adultAge) {
-      m.push(`to be ${waiverContent.adultAge}+ to sign — ask a parent/guardian to sign and list you`)
-    }
+    if (!ageConfirmed) m.push(`to confirm you’re ${waiverContent.adultAge} or older`)
     if (minors.some((mn) => !mn.name.trim() || !mn.dob)) m.push('a name and date of birth for each child')
-    if (!emergencyName.trim()) m.push('an emergency contact name')
-    if (emergencyPhone.replace(/\D/g, '').length < 10) m.push('an emergency contact phone')
-    if (photoConsent === null) m.push('a photo preference (either answer is fine)')
+    // Emergency contact: required for drop-off (the signer isn't here);
+    // otherwise optional, but a half-filled pair is an error, not a blank.
+    const emName = emergencyName.trim()
+    const emPhoneOk = emergencyPhone.replace(/\D/g, '').length >= 10
+    const emStarted = !!emName || !!emergencyPhone.trim()
+    if (dropOff || emStarted) {
+      if (!emName) m.push('an emergency contact name')
+      if (!emPhoneOk) m.push('an emergency contact phone (at least 10 digits)')
+    }
     if (hasEvent && !['adult', ...minors.map((_, i) => `child:${i}`)].some((id) => formAttending[id] !== false)) {
       m.push('at least one person coming')
     }
@@ -322,7 +296,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     }
     if (!signatureMatches) m.push('your typed signature (must match your name exactly)')
     return m
-  }, [firstName, lastName, email, phone, dob, minors, emergencyName, emergencyPhone, photoConsent, agreeRelease, signatureMatches, partyId, formAttending, kidsWithoutSigner, signerPresent, responsibleAdult, dropOff, pickupRows])
+  }, [firstName, lastName, email, phone, ageConfirmed, minors, emergencyName, emergencyPhone, agreeRelease, signatureMatches, partyId, formAttending, kidsWithoutSigner, signerPresent, responsibleAdult, dropOff, pickupRows])
 
   const canSubmit = missing.length === 0 && !submitting
 
@@ -344,7 +318,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
             lastName: lastName.trim(),
             email: email.trim(),
             phone: phone.trim(),
-            dob,
+            ageConfirmed,
           },
           minors: minors.map((m) => ({
             name: m.name.trim(),
@@ -355,7 +329,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           emergency: {
             name: emergencyName.trim(),
             phone: emergencyPhone.trim(),
-            relationship: emergencyRelationship.trim(),
           },
           authorizedPickup: dropOff
             ? pickupRows.filter((r) => r.name.trim()).map((r) => ({ name: r.name.trim(), phone: r.phone.trim() }))
@@ -514,11 +487,11 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
    * land on this filled-in state (HOM-209 — a shared iPad, next guest up).
    */
   function kioskReturn() {
-    setFirstName(''); setLastName(''); setEmail(''); setPhone(''); setDob(''); setDobMasked('')
+    setFirstName(''); setLastName(''); setEmail(''); setPhone(''); setAgeConfirmed(false)
     setMinors([])
-    setEmergencyName(''); setEmergencyPhone(''); setEmergencyRelationship('')
+    setEmergencyName(''); setEmergencyPhone('')
     setPickupRows([]); setNotAuthorized(''); setAdultAllergies('')
-    setPhotoConsent(null); setAgreeRelease(false); setSignature('')
+    setPhotoConsent(true); setAgreeRelease(false); setSignature('')
     setResponsibleAdult(''); setSignerPresent(null)
     setError(null); setFormNotice(null); setDone(null)
     try {
@@ -918,24 +891,30 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
             <label style={labelStyle} htmlFor="wv-phone">Phone</label>
             <input id="wv-phone" type="tel" style={inputStyle} value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" />
           </div>
-          <div>
-            <label style={labelStyle} htmlFor="wv-dob">Your date of birth</label>
-            <input
-              id="wv-dob"
-              inputMode="numeric"
-              style={inputStyle}
-              value={dobMasked}
-              onChange={(e) => handleDobInput(e.target.value)}
-              placeholder="MM/DD/YYYY"
-              autoComplete="bday"
-            />
-          </div>
         </div>
-        {signerUnderage && (
-          <p style={{ ...sectionNoteStyle, margin: '0.75rem 0 0', color: '#b45309', fontWeight: 600 }}>
-            {underageNoteText}
-          </p>
-        )}
+        <label
+          htmlFor="wv-age"
+          style={{
+            display: 'flex',
+            gap: '0.65rem',
+            alignItems: 'flex-start',
+            marginTop: '0.9rem',
+            fontSize: '0.875rem',
+            color: 'var(--color-dark)',
+            lineHeight: 1.5,
+            cursor: 'pointer',
+          }}
+        >
+          <input
+            id="wv-age"
+            type="checkbox"
+            checked={ageConfirmed}
+            onChange={(e) => setAgeConfirmed(e.target.checked)}
+            style={{ marginTop: '0.2rem' }}
+          />
+          <span><strong>{form.ageConfirmLabel}</strong></span>
+        </label>
+        <p style={{ ...sectionNoteStyle, margin: '0.4rem 0 0' }}>{form.ageConfirmNote}</p>
       </div>
 
       {/* Children */}
@@ -1006,7 +985,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       {/* Emergency contact */}
       <div style={cardStyle}>
         <h2 style={sectionHeadingStyle}>{form.emergencyHeading}</h2>
-        <p style={sectionNoteStyle}>{form.emergencyNote}</p>
+        <p style={sectionNoteStyle}>{dropOff ? form.emergencyNoteDropOff : form.emergencyNote}</p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(12rem, 1fr))', gap: '0.75rem' }}>
           <div>
             <label style={labelStyle} htmlFor="wv-em-name">Name</label>
@@ -1015,10 +994,6 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           <div>
             <label style={labelStyle} htmlFor="wv-em-phone">Phone</label>
             <input id="wv-em-phone" type="tel" style={inputStyle} value={emergencyPhone} onChange={(e) => setEmergencyPhone(e.target.value)} />
-          </div>
-          <div>
-            <label style={labelStyle} htmlFor="wv-em-rel">Relationship</label>
-            <input id="wv-em-rel" style={inputStyle} value={emergencyRelationship} onChange={(e) => setEmergencyRelationship(e.target.value)} placeholder="Spouse, grandparent…" />
           </div>
         </div>
         <div style={{ marginTop: '0.9rem' }}>
@@ -1047,7 +1022,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         )}
       </div>
 
-      {/* Photo preference — separate, optional, no default. */}
+      {/* Photo preference — defaults to yes; opting out is one tap and never blocks. */}
       <div style={cardStyle}>
         <h2 style={sectionHeadingStyle}>{form.photoHeading}</h2>
         <p style={sectionNoteStyle}>{form.photoNote}</p>

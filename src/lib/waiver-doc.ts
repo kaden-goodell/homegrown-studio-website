@@ -48,8 +48,9 @@ export function generateWaiverDoc(): string {
       'Collected as a separate yes/no on the form: whether the Studio may use photos or video that ' +
       "include the signer's household (first names at most) on its website and social media.",
     '### Collected alongside the signature\n\n' +
-      'Adult signer (name, DOB, email, phone) · each minor (name, DOB) · emergency contact (name, ' +
-      'phone, relationship) · allergies/medical conditions · photo consent · typed-name signature · ' +
+      'Adult signer (name, email, phone, "19 or older" attestation) · each minor (name, DOB) · ' +
+      'emergency contact (name, phone — optional except for drop-off) · allergies/medical conditions · ' +
+      'photo consent (defaults to yes) · typed-name signature · ' +
       'timestamp, IP, and agreement version hash (stored with each record).',
     '---',
     '## For counsel',

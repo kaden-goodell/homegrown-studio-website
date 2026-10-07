@@ -70,7 +70,7 @@ for (const w of waivers) {
   // Same resolver the door gate uses, so paper never disagrees with the iPad
   // (and a "None" clear never prints as a restriction).
   const { authorizedPickup, notAuthorized } = await effectivePickup({ waiver: w })
-  const emergency = `${w.emergency.name} · ${w.emergency.phone}${w.emergency.relationship ? ` (${w.emergency.relationship})` : ''}`
+  const emergency = w.emergency.name ? `${w.emergency.name} · ${w.emergency.phone}${w.emergency.relationship ? ` (${w.emergency.relationship})` : ''}` : '— (call the signer)'
   const pickupText = authorizedPickup.length > 0
     ? authorizedPickup.map((p) => (p.phone ? `${p.name} (${p.phone})` : p.name)).join(', ')
     : '— not provided —'

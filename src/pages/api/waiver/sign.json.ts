@@ -465,18 +465,16 @@ async function handleFresh(
   const lastName = String(adult.lastName ?? '').trim()
   const email = String(adult.email ?? '').trim()
   const phone = String(adult.phone ?? '').trim()
-  const dob = String(adult.dob ?? '').trim()
+  // The adult's age is attested with a tick, not a date of birth (Oct 2026).
+  // Older records carry `adult.dob`; new ones store '' there.
+  const ageConfirmed = adult.ageConfirmed === true
 
   if (!firstName || !lastName) return bad('Please enter your full name.')
   if (!EMAIL_RE.test(email)) return bad('Please enter a valid email address.')
   if (phone.replace(/\D/g, '').length < 10) return bad('Please enter a valid phone number.')
-  if (!DATE_RE.test(dob)) return bad('Please enter your date of birth.')
-
-  const age = yearsBetween(dob, now)
-  if (age < waiverContent.adultAge) {
-    return bad(`The signing adult must be at least ${waiverContent.adultAge} years old.`)
+  if (!ageConfirmed) {
+    return bad(`Please confirm you’re ${waiverContent.adultAge} or older — a parent or guardian signs for anyone younger.`)
   }
-  if (age > 120) return bad('Please check your date of birth.')
 
   const minorsInput: unknown[] = Array.isArray(body.minors) ? body.minors : []
   if (minorsInput.length > 12) return bad('Too many children listed — please contact the studio.')
@@ -500,8 +498,12 @@ async function handleFresh(
   const emergencyName = String(emergency.name ?? '').trim()
   const emergencyPhone = String(emergency.phone ?? '').trim()
   const emergencyRelationship = String(emergency.relationship ?? '').trim()
-  if (!emergencyName || emergencyPhone.replace(/\D/g, '').length < 10) {
-    return bad('Please add an emergency contact name and phone number.')
+  // Required only for drop-off (checked below, once the event is known); a
+  // half-filled pair is always refused.
+  const emergencyGiven = !!emergencyName || !!emergencyPhone
+  const emergencyComplete = !!emergencyName && emergencyPhone.replace(/\D/g, '').length >= 10
+  if (emergencyGiven && !emergencyComplete) {
+    return bad('Please add both an emergency contact name and phone number, or leave both blank.')
   }
 
   // Authorized pickup + "may NOT collect" (HOM-212). Rendered client-side
@@ -525,6 +527,9 @@ async function handleFresh(
   const { err: eventErr, event } = await validateEvent(eventKind, partyId ?? workshopId, now)
   if (eventErr) return eventErr
   const dropOff = !!event?.dropOff
+  if (dropOff && !emergencyComplete) {
+    return bad('Drop-off needs an emergency contact name and phone number, since you won’t be here.')
+  }
 
   const freshValidIds = new Set(['adult', ...minors.map((_, i) => `child:${i}`)])
   const freshResolvedIds = resolveAttending(body.attending, freshValidIds)
@@ -553,7 +558,7 @@ async function handleFresh(
     agreementSha256: createHash('sha256').update(serializeAgreement(), 'utf8').digest('hex'),
     signedAt: now.toISOString(),
     validUntil: validUntil.toISOString(),
-    adult: { firstName, lastName, email, phone, dob, allergies: String(body.adultAllergies ?? '').trim() },
+    adult: { firstName, lastName, email, phone, dob: '', ageConfirmed: true, allergies: String(body.adultAllergies ?? '').trim() },
     minors,
     emergency: { name: emergencyName, phone: emergencyPhone, relationship: emergencyRelationship },
     authorizedPickup: carriedPickup.authorizedPickup,
