@@ -25,9 +25,22 @@ Paragraphs are separated by a blank line (the modal renders `white-space: pre-li
 - Banned: "one-of-a-kind creation", "uniquely yours", "unleash your creativity", "perfect mix of", exclamation-mark stacking, "at Hometown Studio's …!" openers, em-dash pileups.
 - Never invent facts. If the materials, take-home count, or age aren't known, ask — don't guess. Flag any assumption when presenting the draft.
 
-## Guest-instructor classes — stay vague (Kaden, 2026-10-06)
+## Workshop classes — the approved style (Catherine + Kaden, 2026-10-06)
 
-When an outside instructor leads a class (Louise & Co., Nutmeg's Cookies…), do NOT pin down specifics we don't control: no exact designs, counts, colors, packaging, or "in a box". "If you are too specific and we don't do it exactly, people will complain." Name the instructor and their business ("with Megan, the owner of Nutmeg's Cookies"), say the kind of thing you make and what you learn, and keep the take-home generic ("the cookies they decorate"). Concrete nouns still apply to OUR in-house crafts, where we control the supplies.
+Catherine approved this exact shape and rejected the specific version ("she didn't like how you were so specific"). Use it for EVERY workshop/class:
+
+1. **Hook:** what you make, and who leads it when it is a guest instructor ("with Mrs. Megan, the owner of Nutmeg's Cookies"). Instructors get "Mrs./Mr. + first name" when Kaden gives it that way.
+2. **"Learn to …" paragraph:** the skills you learn, who guides the table, then `No experience needed.` (or an equivalent reassurance).
+3. **Take-home + age:** `Each guest goes home with the <thing> they make. Ages 8 and up.` Generic take-home — never a count, a design, a color, or packaging. Add `This is a drop-off class: parents can head out and come back for pickup.` only when Kaden says the class is drop-off.
+
+Stay vague on anything we might not do exactly: no exact designs, counts, colors, menus, combos, or "in a box". "If you are too specific and we don't do it exactly, people will complain." Say the kind of thing, not the inventory. (Concrete nouns were the OLD rule for party crafts — keep those light on specifics too.)
+
+Approved example — **Halloween Cookie Decorating**
+> Decorate Halloween cookies with Mrs. Megan, the owner of Nutmeg's Cookies.
+>
+> Learn to outline, flood, and add the details, with Mrs. Megan guiding the whole table. No experience needed.
+>
+> Each guest goes home with the cookies they decorate. Ages 8 and up. This is a drop-off class: parents can head out and come back for pickup.
 
 ## Names
 
