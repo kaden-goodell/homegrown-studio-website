@@ -17,8 +17,8 @@ import { isPreviewOrDev } from '@lib/deploy-context'
  * On the `dev` branch preview: set `DEV_BYPASS_PAYMENT=true` for the
  * deploy-preview / branch-deploy contexts only (never the production context).
  */
-export function paymentBypassEnabled(): boolean {
-  return bypassDecision({ flag: process.env.DEV_BYPASS_PAYMENT ?? (import.meta as any).env?.DEV_BYPASS_PAYMENT, simulatedAllowed: isPreviewOrDev() })
+export function paymentBypassEnabled(request?: Request): boolean {
+  return bypassDecision({ flag: process.env.DEV_BYPASS_PAYMENT ?? (import.meta as any).env?.DEV_BYPASS_PAYMENT, simulatedAllowed: isPreviewOrDev(request) })
 }
 
 /** The rule itself, with its inputs passed in so it can be tested exhaustively. */

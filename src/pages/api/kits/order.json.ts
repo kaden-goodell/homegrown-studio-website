@@ -156,7 +156,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if ((contact.address ?? '').trim().length < 8) {
     return errorResponse('A party address is required', 400)
   }
-  if (!body.paymentToken && !paymentBypassEnabled()) {
+  if (!body.paymentToken && !paymentBypassEnabled(request)) {
     return errorResponse('Missing payment information', 400)
   }
 
@@ -221,7 +221,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // skip Square + the ledger claim entirely and return a synthetic confirmation
   // so the flow (persist + email) is exercisable without a charge.
   // Mirrors party book.json's bypass.
-  if (paymentBypassEnabled()) {
+  if (paymentBypassEnabled(request)) {
     logger.info('Payment bypass active — returning synthetic kit order')
     const orderId = `dev_${Date.now().toString(36)}`
     const record = buildRecord({

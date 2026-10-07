@@ -13,7 +13,7 @@ export const POST: APIRoute = async ({ request }) => {
 
     // Simulated payments (local dev and Netlify previews only, never production):
     // return a synthetic paid result without charging.
-    if (paymentBypassEnabled()) {
+    if (paymentBypassEnabled(request)) {
       logger.info('Payment bypass active — returning synthetic payment')
       return new Response(
         JSON.stringify({ data: { id: `dev_pay_${Date.now().toString(36)}`, status: 'completed', receiptUrl: null } }),

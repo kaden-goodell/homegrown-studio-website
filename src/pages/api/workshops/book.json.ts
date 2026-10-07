@@ -89,7 +89,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const attemptId = isAttemptId(body.attemptId) ? body.attemptId : randomUUID()
 
   // Simulated payments (local dev and Netlify previews only): no real customer is created in Square.
-  const simulated = paymentBypassEnabled()
+  const simulated = paymentBypassEnabled(request)
 
   // ── 1. The workshop, the customer and the class's settings, looked up together
   const [workshopLookup, customerLookup, metaLookup] = await Promise.allSettled([

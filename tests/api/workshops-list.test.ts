@@ -48,6 +48,14 @@ describe('GET /api/workshops.json — questions and cutoff', () => {
     expect(pails).toMatchObject({ name: 'clssch_pails', options: [] })
   })
 
+  it('says why, when settings could not be read', async () => {
+    mockGetEventMeta.mockRejectedValue(new Error('blobs down'))
+    const res = await GET({ request: new Request('http://localhost/api/workshops.json') } as any)
+    const json = await res.json()
+    expect(json.incomplete).toBe(true)
+    expect(json.settingsErrors[0]).toEqual({ scheduleId: 'clssch_pails', error: 'blobs down' })
+  })
+
   it('never lets the edge cache a list built without a class’s settings', async () => {
     mockGetEventMeta.mockImplementation(async (_kind: string, id: string) => {
       if (id === 'clssch_pails') throw new Error('blobs down')

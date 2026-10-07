@@ -256,7 +256,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // skip Square entirely and return a synthetic confirmation so the booking
   // flow (and its waiver/invite handoff) can be exercised without a real
   // charge or a live booking.
-  if (paymentBypassEnabled()) {
+  if (paymentBypassEnabled(request)) {
     logger.info('Payment bypass active — returning synthetic party booking')
     const bookingId = `dev_${Date.now().toString(36)}`
     const hostToken = await persistParty(bookingId, body, theme, true)
