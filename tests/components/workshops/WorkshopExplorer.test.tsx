@@ -279,6 +279,13 @@ describe('WorkshopExplorer — a link to one workshop (?w=<id>)', () => {
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(FINISHED_NOTICE))
   })
 
+  it('sign-ups closed: no booking panel, a notice instead', () => {
+    window.history.replaceState({}, '', '/workshops?w=2')
+    render(<WorkshopExplorer workshops={[mockWorkshops[0], { ...mockWorkshops[1], signupClosed: true }]} />)
+    expect(screen.queryByTestId('booking-modal')).toBeNull()
+    expect(screen.getByRole('status')).toHaveTextContent('Sign-ups for Pottery Basics have closed.')
+  })
+
   it('no link, no notice', () => {
     render(<WorkshopExplorer workshops={mockWorkshops} />)
 

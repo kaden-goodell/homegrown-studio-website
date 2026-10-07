@@ -13,7 +13,11 @@ import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
 import { partyStartsForDate, removeBooked } from '@lib/party-slots'
 import { studioDayUtcRange } from '@lib/studio-time'
+import { createLogger } from '@lib/logger'
+import { classSpanOf, removeClassBlocked, type ClassSpan } from '@lib/conflicts'
 import type { BookingWithMetadata } from '@providers/interfaces/booking'
+
+const logger = createLogger('party-availability')
 
 /** Studio-local YYYY-MM-DD for any ISO instant. */
 export function studioDateOf(iso: string): string {
@@ -26,17 +30,52 @@ export function studioDateOf(iso: string): string {
 }
 
 /**
- * Open start ISOs for a studio-local date (schedule minus booked minus past).
+ * Classes on the calendar between two instants, in-progress and sold-out ones
+ * included (`listAllWorkshops`). Never cached: the pre-charge re-check uses it
+ * to decide a booking. Throws when classes can't be read.
+ */
+export async function classSpansBetween(fromIso: string, toIso: string): Promise<ClassSpan[]> {
+  const w = providers.workshop
+  const list = await (w.listAllWorkshops?.() ?? w.listWorkshops())
+  const from = Date.parse(fromIso)
+  const to = Date.parse(toIso)
+  return list.map(classSpanOf).filter((c) => Date.parse(c.endIso) > from && Date.parse(c.startIso) < to)
+}
+
+/**
+ * The same, but a failed lookup is logged and read as "no classes": party
+ * availability is never blocked by it (spec E). The warnings panel catches
+ * any overlap that slips through.
+ */
+export async function classSpansOrNone(fromIso: string, toIso: string): Promise<ClassSpan[]> {
+  try {
+    return await classSpansBetween(fromIso, toIso)
+  } catch (err) {
+    logger.error('Class lookup failed — party times not checked against classes', {
+      error: err instanceof Error ? err.message : String(err),
+    })
+    return []
+  }
+}
+
+/**
+ * Open start ISOs for a studio-local date: the schedule, minus past starts,
+ * minus starts a class rules out (parties yield to classes, `@lib/conflicts`),
+ * minus starts already booked.
  *
- * Degrades gracefully: if listBookings is unavailable or throws, candidates
- * filtered to future are returned so booking is never blocked by a lookup failure.
+ * A failed class lookup is logged and ignored (never blocks booking). A failed
+ * bookings lookup throws; callers decide (availability.json shows all
+ * candidates; the book endpoint proceeds).
  */
 export async function openPartyStarts(date: string, serviceVariationId?: string): Promise<string[]> {
   const now = Date.now()
   const candidates = partyStartsForDate(date).filter((iso) => new Date(iso).getTime() > now)
-  if (candidates.length === 0 || !providers.booking.listBookings) return candidates
+  if (candidates.length === 0) return candidates
 
   const { startIso, endIso } = studioDayUtcRange(date)
+  const clear = removeClassBlocked(candidates, await classSpansOrNone(startIso, endIso))
+  if (clear.length === 0 || !providers.booking.listBookings) return clear
+
   const bookings = await providers.booking.listBookings({
     startDate: startIso,
     endDate: endIso,
@@ -50,7 +89,7 @@ export async function openPartyStarts(date: string, serviceVariationId?: string)
     )
     .map((b) => b.slot.startAt)
 
-  return removeBooked(candidates, bookedStarts)
+  return removeBooked(clear, bookedStarts)
 }
 
 /**

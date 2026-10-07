@@ -13,6 +13,7 @@ import { getEventMeta, type EventMeta } from '@lib/event-meta'
 import { studioDate } from '@lib/studio-time'
 import type { By } from '@lib/staff-auth'
 import { createLogger } from '@lib/logger'
+import type { SeatOption } from '@lib/seat-options'
 
 const logger = createLogger('events')
 
@@ -29,6 +30,12 @@ export interface StudioEvent {
   days: string[]
   dropOff: boolean
   seats?: number
+  /** Per-seat questions (classes only; [] when none). */
+  options?: SeatOption[]
+  /** The class's own sign-up cutoff in hours; null = the default. */
+  signupCutoffHours?: number | null
+  /** Seats the class holds in all: Square's figure, else the class's own setting. */
+  capacity?: number
   /** Present only when an event-meta override exists for this event. */
   updatedAt?: string
   by?: By
@@ -82,11 +89,16 @@ function partyEvent(id: string, p: PartyRecord, meta: EventMeta | null): StudioE
     // Meta overrides; the party record's own dropOff is a read-only fallback
     // for old data written before the event-meta store existed.
     dropOff: meta?.dropOff ?? p.dropOff ?? false,
+    options: [],
+    signupCutoffHours: null,
     ...(meta ? { updatedAt: meta.updatedAt, by: meta.by } : {}),
   }
 }
 
 function workshopEvent(id: string, w: Workshop, meta: EventMeta | null): StudioEvent {
+  // Square's buyer API sends no capacity for real classes, so the class's
+  // own setting fills in; Square wins whenever it does say.
+  const capacity = w.totalCapacity ?? meta?.capacity ?? undefined
   return {
     kind: 'workshop',
     id,
@@ -95,6 +107,9 @@ function workshopEvent(id: string, w: Workshop, meta: EventMeta | null): StudioE
     days: meta?.days ?? [studioDate(w.startAt)],
     dropOff: meta?.dropOff ?? false,
     seats: w.availableCapacity,
+    options: meta?.options ?? [],
+    signupCutoffHours: meta?.signupCutoffHours ?? null,
+    ...(capacity !== undefined ? { capacity } : {}),
     ...(meta ? { updatedAt: meta.updatedAt, by: meta.by } : {}),
   }
 }

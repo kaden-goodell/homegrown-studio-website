@@ -35,6 +35,12 @@ vi.mock('@lib/checkin-store', async (importOriginal) => {
   return { ...actual, getCheckin: (...a: any[]) => mockGetCheckin(...a) }
 })
 
+const mockListSeatChoices = vi.fn()
+vi.mock('@lib/seat-choices', async (importOriginal) => {
+  const actual: any = await importOriginal()
+  return { ...actual, listSeatChoicesByEvent: (...a: any[]) => mockListSeatChoices(...a) }
+})
+
 function makeWaiver(overrides: Record<string, any> = {}) {
   return {
     id: 'wvr_a',
@@ -87,6 +93,7 @@ beforeEach(async () => {
   mockLatest.mockReset().mockResolvedValue(null)
   mockGetCheckin.mockResolvedValue(emptyCheckin())
   mockListWaiversByEvent.mockResolvedValue([])
+  mockListSeatChoices.mockReset().mockResolvedValue([])
   GET = (await import('@pages/api/staff/roster.json')).GET
 })
 
@@ -264,5 +271,48 @@ describe('GET /api/staff/roster.json — pickup/notAuthorized/medications (HOM-2
     mockLatest.mockResolvedValue({ authorizedPickup: [], notAuthorized: 'None', at: '2026-09-01T00:00:00.000Z' })
     const h = (await (await GET(ctx('?party=party-1'))).json()).data.households[0]
     expect(h.notAuthorized).toBe('')
+  })
+})
+
+describe('GET /api/staff/roster.json — seat picks (spec D)', () => {
+  const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
+  const pailsEvent = {
+    kind: 'workshop', id: 'clssch_pails', title: 'Pumpkin Pails', startIso: '2026-10-18T18:00:00.000Z', days: ['2026-10-18'],
+    dropOff: false, options: [PAILS], signupCutoffHours: null, seats: 10, capacity: 25,
+  }
+  const p = (seat: number, choice: string) => ({ seat, optionId: 'pumpkin-color', choice })
+  const rec = (email: string, givenName: string, picks: any[]) => ({
+    eventKind: 'workshop', eventId: 'clssch_pails', bookingId: `bk_${givenName}`, orderId: null,
+    customer: { givenName, familyName: 'Test', email, phone: '' }, seats: picks.length, picks, at: '2026-10-06T15:00:00.000Z', attemptId: 'a',
+  })
+
+  it('totals each choice, groups picks by family email, and lists who paid but has not signed', async () => {
+    mockGetEvent.mockResolvedValue(pailsEvent)
+    mockListWaiversByEvent.mockResolvedValue([makeWaiver({ adult: { firstName: 'Alice', lastName: 'Test', email: 'Alice@X.com', phone: '', dob: '1990-01-01', allergies: '' } })])
+    mockListSeatChoices.mockResolvedValue([rec('alice@x.com', 'Alice', [p(1, 'Lavender'), p(2, 'Lavender')]), rec('bo@x.com', 'Bo', [p(1, 'Black')])])
+    const { data } = await (await GET(ctx('?kind=workshop&id=clssch_pails'))).json()
+    expect(mockListSeatChoices).toHaveBeenCalledWith('workshop', 'clssch_pails')
+    expect(data.choices).toEqual({
+      totals: { 'pumpkin-color': { Lavender: 2, Black: 1 } },
+      byEmail: { 'alice@x.com': [p(1, 'Lavender'), p(2, 'Lavender')], 'bo@x.com': [p(1, 'Black')] },
+      unmatched: [{ name: 'Bo Test', email: 'bo@x.com', seats: 1, picks: [p(1, 'Black')] }],
+      seatsSold: 15,
+    })
+  })
+
+  it('a party, or a class with no questions, has no picks block', async () => {
+    const { data } = await (await GET(ctx('?kind=party&id=party-1'))).json()
+    expect(data.choices).toBeNull()
+    mockGetEvent.mockResolvedValue({ ...pailsEvent, options: [] })
+    expect((await (await GET(ctx('?kind=workshop&id=clssch_pails'))).json()).data.choices).toBeNull()
+    expect(mockListSeatChoices).not.toHaveBeenCalled()
+  })
+
+  it('a failed picks read still returns the roster, without choices', async () => {
+    mockGetEvent.mockResolvedValue(pailsEvent)
+    mockListSeatChoices.mockRejectedValue(new Error('blobs down'))
+    const res = await GET(ctx('?kind=workshop&id=clssch_pails'))
+    expect(res.status).toBe(200)
+    expect((await res.json()).data.choices).toBeUndefined()
   })
 })

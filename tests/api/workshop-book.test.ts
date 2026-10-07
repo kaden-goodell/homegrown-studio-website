@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { SeatBookingError } from '@lib/errors'
 
 const mockFindOrCreate = vi.fn()
@@ -26,6 +26,18 @@ vi.mock('@lib/owner-alert', () => ({ alertOwners: (...a: any[]) => mockAlertOwne
 
 const mockSendEmail = vi.fn()
 vi.mock('@lib/email', () => ({ sendWorkshopConfirmationEmail: (...a: any[]) => mockSendEmail(...a) }))
+
+const mockGetEventMeta = vi.fn()
+vi.mock('@lib/event-meta', () => ({ getEventMeta: (...a: any[]) => mockGetEventMeta(...a) }))
+
+const mockSaveSeatChoices = vi.fn()
+vi.mock('@lib/seat-choices', () => ({ saveSeatChoices: (...a: any[]) => mockSaveSeatChoices(...a) }))
+
+const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
+const TWO_PICKS = [
+  { seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' },
+  { seat: 2, optionId: 'pumpkin-color', choice: 'Black' },
+]
 
 const ATTEMPT = '3f2b8a0e-5c1d-4e7a-9b3c-0a1b2c3d4e5f'
 // 7 PM Central on Fri 16 Oct 2026
@@ -76,8 +88,12 @@ const TECHNICAL = /[{}<>]|https?:|status \d{3}|\bjson\b|exception|fetch failed/i
 
 let POST: any
 beforeEach(async () => {
+  // Sat 10 Oct 2026: a week before the fixture's class. Only Date is faked.
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(new Date('2026-10-10T17:00:00.000Z'))
   vi.clearAllMocks()
   vi.resetModules()
+  mockGetEventMeta.mockResolvedValue(null)
   mockFindOrCreate.mockResolvedValue({ id: 'cust-1' })
   mockReserve.mockResolvedValue({ bookingId: 'clsbk_1', contactToken: 'contact-1', orderId: 'order-1' })
   mockPay.mockResolvedValue({ bookingId: 'clsbk_1', orderId: 'order-1', status: 'accepted', receiptUrl: 'https://squareup.com/receipt/1' })
@@ -86,8 +102,10 @@ beforeEach(async () => {
   mockListWorkshops.mockResolvedValue([workshop])
   mockAlertOwners.mockResolvedValue({ attempted: 2, sent: 2 })
   mockSendEmail.mockResolvedValue({ sent: true })
+  mockSaveSeatChoices.mockResolvedValue(undefined)
   POST = (await import('@pages/api/workshops/book.json')).POST
 })
+afterEach(() => vi.useRealTimers())
 
 describe('POST /api/workshops/book.json', () => {
   describe('a booking that goes through', () => {
@@ -371,6 +389,136 @@ describe('POST /api/workshops/book.json', () => {
       const res = await POST(ctx(body({ seats: 20 })))
       expect(res.status).toBe(200)
       expect(mockReserve.mock.calls[0][0].seats).toBe(20)
+    })
+  })
+
+  describe('sign-up cutoff and seat picks', () => {
+    const withPails = () => mockGetEventMeta.mockResolvedValue({ options: [PAILS], signupCutoffHours: null })
+
+    async function refusedBeforeHold(res: Response, status: number, code: string, detail: string) {
+      expect(res.status).toBe(status)
+      expect(await res.json()).toMatchObject({ code, detail })
+      expect(mockReserve).not.toHaveBeenCalled()
+      expect(mockPay).not.toHaveBeenCalled()
+    }
+
+    it('refuses after the class’s own cutoff, before holding anything', async () => {
+      mockGetEventMeta.mockResolvedValue({ options: [], signupCutoffHours: 48 })
+      vi.setSystemTime(new Date('2026-10-15T12:00:00.000Z')) // 36 h before
+      await refusedBeforeHold(await POST(ctx(body())), 409, 'not_open', 'Sign-ups for this class closed 48 hours before it starts.')
+    })
+
+    it('a class with questions closes 24 hours ahead by default', async () => {
+      withPails()
+      vi.setSystemTime(new Date('2026-10-16T01:00:00.000Z')) // 23 h before
+      await refusedBeforeHold(await POST(ctx(body({ picks: TWO_PICKS }))), 409, 'not_open', 'Sign-ups for this class closed 24 hours before it starts.')
+    })
+
+    it('a plain class can still be booked half an hour before', async () => {
+      vi.setSystemTime(new Date('2026-10-16T23:30:00.000Z'))
+      expect((await POST(ctx(body()))).status).toBe(200)
+    })
+
+    it('refuses a seat with no pick, naming the seat', async () => {
+      withPails()
+      await refusedBeforeHold(await POST(ctx(body({ picks: [TWO_PICKS[0]] }))), 400, 'invalid', 'Pick a pumpkin color for seat 2.')
+    })
+
+    it('refuses a choice the class does not offer', async () => {
+      withPails()
+      const picks = [TWO_PICKS[0], { seat: 2, optionId: 'pumpkin-color', choice: 'Orange' }]
+      await refusedBeforeHold(await POST(ctx(body({ picks }))), 400, 'invalid', 'Seat 2: “Orange” isn’t one of the pumpkin color choices.')
+    })
+
+    it('refuses picks for a class with no questions', async () => {
+      await refusedBeforeHold(await POST(ctx(body({ picks: TWO_PICKS }))), 400, 'invalid', 'This class has nothing to pick. Refresh and try again.')
+    })
+
+    it('refuses when the class’s settings cannot be read: seats are never sold without their picks', async () => {
+      mockGetEventMeta.mockRejectedValue(new Error('blobs down'))
+      const res = await POST(ctx(body({ picks: TWO_PICKS })))
+      expect(res.status).toBe(502)
+      expect((await res.json()).code).toBe('unavailable')
+      expect(mockReserve).not.toHaveBeenCalled()
+    })
+
+    it('holds the seats with the picks as Square’s booking note', async () => {
+      withPails()
+      expect((await POST(ctx(body({ picks: TWO_PICKS })))).status).toBe(200)
+      expect(mockGetEventMeta).toHaveBeenCalledWith('workshop', 'clssch_kinusaiga')
+      expect(mockReserve).toHaveBeenCalledWith({
+        scheduleId: 'clssch_kinusaiga',
+        startAt: START,
+        seats: 2,
+        customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com' },
+        note: 'Pumpkin color: Black ×1, Lavender ×1',
+      })
+    })
+  })
+
+  describe('the picks, once paid', () => {
+    beforeEach(() => mockGetEventMeta.mockResolvedValue({ options: [PAILS], signupCutoffHours: null }))
+
+    it('stores each seat’s pick after the charge has gone through', async () => {
+      expect((await POST(ctx(body({ picks: TWO_PICKS })))).status).toBe(200)
+      expect(mockSaveSeatChoices).toHaveBeenCalledWith({
+        eventKind: 'workshop',
+        eventId: 'clssch_kinusaiga',
+        bookingId: 'clsbk_1',
+        orderId: 'order-1',
+        customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com', phone: '(256) 555-0123' },
+        seats: 2,
+        picks: TWO_PICKS,
+        at: '2026-10-10T17:00:00.000Z',
+        attemptId: ATTEMPT,
+      })
+      expect(mockSaveSeatChoices.mock.invocationCallOrder[0]).toBeGreaterThan(mockPay.mock.invocationCallOrder[0])
+    })
+
+    it('puts the picks in the confirmation email', async () => {
+      await POST(ctx(body({ picks: TWO_PICKS })))
+      const mail = mockSendEmail.mock.calls[0][0]
+      expect(mail.pickLines).toEqual(['Seat 1 · Pumpkin color: Lavender', 'Seat 2 · Pumpkin color: Black'])
+      expect(mail.picksFinalLine).toBe('Picks are made ahead for you, so they can’t be changed after you book.')
+    })
+
+    it('leaves picks out of the email for a class with no questions', async () => {
+      mockGetEventMeta.mockResolvedValue(null)
+      await POST(ctx(body()))
+      expect(mockSendEmail.mock.calls[0][0]).not.toHaveProperty('pickLines')
+    })
+
+    it('stores nothing when the card is refused', async () => {
+      mockPay.mockRejectedValue(new SeatBookingError('square', 'pay', 'refused', '{"errors":[{"code":"CARD_DECLINED"}]}', 400))
+      await POST(ctx(body({ picks: TWO_PICKS })))
+      expect(mockSaveSeatChoices).not.toHaveBeenCalled()
+    })
+
+    it('stores nothing for a class with no questions', async () => {
+      mockGetEventMeta.mockResolvedValue(null)
+      await POST(ctx(body()))
+      expect(mockSaveSeatChoices).not.toHaveBeenCalled()
+    })
+
+    it('a failed save never fails a paid booking, and the owners are told', async () => {
+      mockSaveSeatChoices.mockRejectedValue(new Error('blobs down'))
+      const res = await POST(ctx(body({ picks: TWO_PICKS })))
+      expect(res.status).toBe(200)
+      expect(mockAlertOwners).toHaveBeenCalledWith(expect.stringContaining('Seat picks not saved: Ada Lovelace'))
+      expect(mockAlertOwners.mock.calls[0][0]).toContain('Pumpkin color: Black ×1, Lavender ×1')
+    })
+
+    it('the save-failure alert never promises the picks are in a Square note', async () => {
+      mockSaveSeatChoices.mockRejectedValue(new Error('blobs down'))
+      await POST(ctx(body({ picks: TWO_PICKS })))
+      expect(mockAlertOwners.mock.calls[0][0]).not.toMatch(/Square note/i)
+    })
+
+    it('an unclear charge alert carries the picks, so they exist somewhere', async () => {
+      mockPay.mockRejectedValue(new SeatBookingError('square', 'pay', 'no_answer', 'fetch failed'))
+      await POST(ctx(body({ picks: TWO_PICKS })))
+      expect(mockAlertOwners).toHaveBeenCalledTimes(1)
+      expect(mockAlertOwners.mock.calls[0][0]).toContain('Pumpkin color: Black ×1, Lavender ×1')
     })
   })
 

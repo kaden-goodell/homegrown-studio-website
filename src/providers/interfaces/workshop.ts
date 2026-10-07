@@ -12,6 +12,8 @@ export interface Workshop {
   priceCents: number
   priceCurrency: string
   availableCapacity: number
+  /** Seats the class holds in all (Square's instance `capacity`). Absent when Square doesn't say. */
+  totalCapacity?: number
   staffName: string
   teamMemberId: string
   /** Card image (16:9), resolved from the paired catalog item's image with caption "card". */
@@ -76,6 +78,12 @@ export interface WorkshopProvider {
     startAt: string
     seats: number
     customer: { givenName: string; familyName: string; email: string }
+    /**
+     * Short text kept on the booking in Square (the seat picks). If Square
+     * refuses the hold with it, the hold is asked for once more without it;
+     * the picks are stored on our side either way.
+     */
+    note?: string
   }): Promise<SeatReservation>
 
   /**

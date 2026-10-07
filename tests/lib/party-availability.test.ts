@@ -4,11 +4,16 @@ import { studioDayUtcRange } from '@lib/studio-time'
 // ── Provider mock ─────────────────────────────────────────────────────────────
 // Must be declared before any dynamic import of the module under test.
 const mockListBookings = vi.fn()
+const mockListAllWorkshops = vi.fn()
 
 vi.mock('@config/providers', () => ({
   providers: {
     booking: {
       listBookings: mockListBookings,
+    },
+    workshop: {
+      listAllWorkshops: mockListAllWorkshops,
+      listWorkshops: vi.fn(async () => []),
     },
   },
 }))
@@ -33,6 +38,7 @@ const TEST_DATE = '2027-08-07' // Saturday
 beforeEach(() => {
   vi.setSystemTime(FAKE_NOW)
   mockListBookings.mockResolvedValue([])
+  mockListAllWorkshops.mockResolvedValue([])
 })
 
 afterEach(() => {
@@ -320,5 +326,65 @@ describe('bookingHeldBy', () => {
   it('finds nothing without a customer', async () => {
     mockListBookings.mockResolvedValue([booking({ customerId: '' })])
     expect(await heldBy('')).toBeNull()
+  })
+})
+
+// ── Parties yield to classes (spec E) ────────────────────────────────────────
+function classAt(startAt: string, durationMinutes = 120) {
+  return {
+    id: 'inst-pails', scheduleId: 'clssch_pails', name: 'Bedazzled Pumpkin Pails', description: '', descriptionHtml: '',
+    startAt, durationMinutes, priceCents: 2500, priceCurrency: 'USD', availableCapacity: 10, staffName: '', teamMemberId: '',
+  }
+}
+
+describe('openPartyStarts — parties yield to classes', () => {
+  // Thu 8 Oct 2026: Sunday 18 Oct is inside the booking window.
+  const OCT_8 = new Date('2026-10-08T17:00:00.000Z')
+  const SUN_1PM = '2026-10-18T18:00:00.000Z'
+  const SUN_330PM = '2026-10-18T20:30:00.000Z'
+
+  it('drops the 1:00 PM Sunday party when Pumpkin Pails runs 1–3 PM, and keeps 3:30', async () => {
+    vi.setSystemTime(OCT_8)
+    mockListAllWorkshops.mockResolvedValue([classAt(SUN_1PM)])
+    const { openPartyStarts } = await import('@lib/party-availability')
+    expect(await openPartyStarts('2026-10-18')).toEqual([SUN_330PM])
+  })
+
+  it('the pre-charge re-check refuses the class-blocked start', async () => {
+    vi.setSystemTime(OCT_8)
+    mockListAllWorkshops.mockResolvedValue([classAt(SUN_1PM)])
+    const { isStartOpen } = await import('@lib/party-availability')
+    expect(await isStartOpen(SUN_1PM)).toBe(false)
+    expect(await isStartOpen(SUN_330PM)).toBe(true)
+  })
+
+  it('a class lookup that fails never blocks party availability', async () => {
+    vi.setSystemTime(OCT_8)
+    mockListAllWorkshops.mockRejectedValue(new Error('Square Classes API error: 503'))
+    const { openPartyStarts } = await import('@lib/party-availability')
+    expect(await openPartyStarts('2026-10-18')).toEqual([SUN_1PM, SUN_330PM])
+    expect(mockListBookings).toHaveBeenCalledTimes(1)
+  })
+
+  it('a 7 PM Saturday class leaves every Saturday party in place', async () => {
+    const { partyStartsForDate } = await import('@lib/party-slots')
+    mockListAllWorkshops.mockResolvedValue([classAt('2027-08-08T00:00:00.000Z')]) // 7 PM CDT Sat 7 Aug 2027
+    expect(await getOpen()).toEqual(partyStartsForDate(TEST_DATE))
+  })
+
+  it('availability.json: when the bookings lookup throws, the class rule still applies', async () => {
+    vi.setSystemTime(OCT_8)
+    mockListBookings.mockRejectedValue(new Error('Square 503'))
+    mockListAllWorkshops.mockResolvedValue([classAt(SUN_1PM)])
+    const { POST } = await import('@pages/api/party/availability.json')
+    const url = new URL('http://localhost/api/party/availability.json')
+    const request = new Request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: '2026-10-18' }),
+    })
+    const response = await POST({ request, url, params: {}, redirect: () => new Response(), locals: {} } as any)
+    const json = await response.json()
+    expect(json.data.slots.map((s: any) => s.startAt)).toEqual([SUN_330PM])
   })
 })

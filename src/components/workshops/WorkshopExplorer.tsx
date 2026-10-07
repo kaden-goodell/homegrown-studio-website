@@ -6,6 +6,7 @@ import WorkshopCard from './WorkshopCard'
 import WorkshopBookingModal from './WorkshopBookingModal'
 import { canBeBooked, isSoldOut } from '@lib/workshop-rules'
 import { byStart } from './workshop-view-model'
+import type { SeatOption } from '@lib/seat-options'
 
 export interface WorkshopData {
   id: string
@@ -26,6 +27,12 @@ export interface WorkshopData {
   classScheduleId?: string
   classScheduleInstanceId?: string
   teamMemberId?: string
+  /** Per-seat questions; empty or absent when the class asks none. */
+  options?: SeatOption[]
+  /** When sign-ups close (ISO). */
+  signupClosesAt?: string
+  /** Decided on the server, so a visitor's clock doesn't matter. */
+  signupClosed?: boolean
 }
 
 const STUDIO_TZ = 'America/Chicago'
@@ -168,6 +175,11 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
     }
     // Not for sale yet: the list, with its "Coming soon" card. No booking panel.
     if (!canBeBooked(target.price)) return
+    // Past its sign-up cutoff: say so, and no booking panel.
+    if (target.signupClosed) {
+      setNotice(`Sign-ups for ${target.name} have closed.`)
+      return
+    }
     if (isSoldOut(target.remainingSeats)) {
       setNotice(`${target.name} is sold out. Leave your email on its card and we’ll tell you if a seat opens.`)
       // Not every browser can do this; the notice alone still says what to do.

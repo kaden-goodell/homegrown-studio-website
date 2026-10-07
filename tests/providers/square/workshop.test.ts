@@ -151,4 +151,19 @@ describe('SquareWorkshopProvider', () => {
     expect(NOW - startAt).toBeGreaterThan(6.9 * DAY)
     expect(NOW - startAt).toBeLessThan(7.1 * DAY)
   })
+
+  it('carries the class’s total capacity when Square gives it', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({
+      ...FIXTURE_RESPONSE,
+      class_schedule_instances: [{ id: 'inst-1', class_schedule_id: 'sched-A', start_at: FUTURE_1, available_capacity: 5, capacity: 12 }],
+    }), { status: 200 })))
+    const [w] = await new SquareWorkshopProvider(config).listAllWorkshops()
+    expect(w.totalCapacity).toBe(12)
+    expect(w.availableCapacity).toBe(5)
+  })
+
+  it('leaves total capacity out when Square does not say', async () => {
+    const [w] = await new SquareWorkshopProvider(config).listAllWorkshops()
+    expect(w).not.toHaveProperty('totalCapacity')
+  })
 })

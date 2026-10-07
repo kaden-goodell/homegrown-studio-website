@@ -27,11 +27,15 @@ vi.mock('@lib/owner-alert', () => ({ alertOwners: (...a: any[]) => mockAlert(...
 const mockOpenStarts = vi.fn()
 vi.mock('@lib/party-open-dates', () => ({ openPartyStartsInWindow: (...a: any[]) => mockOpenStarts(...a) }))
 
+const mockGetEventMeta = vi.fn()
+vi.mock('@lib/event-meta', () => ({ getEventMeta: (...a: any[]) => mockGetEventMeta(...a) }))
+
 const SECRET = 'a-secret-only-the-site-holds'
 const OCT_24 = '2026-10-24T14:00:00.000Z'
 
 const kinusaiga = (over: Record<string, unknown> = {}) => ({
   id: 'clsschi_kinusaiga',
+  scheduleId: 'clssch_kinusaiga',
   name: 'Kinusaiga',
   startAt: '2026-10-17T00:00:00.000Z',
   durationMinutes: 120,
@@ -71,6 +75,7 @@ beforeEach(async () => {
   mockListWorkshops.mockResolvedValue([kinusaiga()])
   mockOpenStarts.mockResolvedValue([OCT_24])
   mockListWithNotes.mockResolvedValue([])
+  mockGetEventMeta.mockResolvedValue(null)
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-10-10T15:00:00.000Z'))
   ;({ POST, jobKey } = await import('@pages/api/jobs/signup-emails.json'))
@@ -159,6 +164,28 @@ describe('once booking is open', () => {
     expect(json.data.sent).toBe(0)
     expect(mockSend).not.toHaveBeenCalled()
     expect(mockAppendNote).not.toHaveBeenCalled()
+  })
+
+  it('does not tell a waiting list a seat opened once the class’s sign-ups have closed', async () => {
+    mockGetEventMeta.mockResolvedValue({ options: [], signupCutoffHours: 336 }) // closed two weeks ahead
+    mockListWithNotes.mockResolvedValue([person(1, '2026-09-27 Asked to be told: workshop-waitlist:Kinusaiga 2026-10-16')])
+    const { json } = await run()
+    expect(mockGetEventMeta).toHaveBeenCalledWith('workshop', 'clssch_kinusaiga')
+    expect(json.data).toMatchObject({ sent: 0, waiting: 1 })
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('says nothing about a workshop whose settings could not be read', async () => {
+    mockGetEventMeta.mockRejectedValue(new Error('blobs down'))
+    mockListWithNotes.mockResolvedValue([person(1, '2026-09-27 Asked to be told: workshop-waitlist:Kinusaiga 2026-10-16')])
+    const { json } = await run()
+    expect(json.data).toMatchObject({ sent: 0, waiting: 1 })
+  })
+
+  it('still tells a waiting list while sign-ups are open', async () => {
+    mockListWithNotes.mockResolvedValue([person(1, '2026-09-27 Asked to be told: workshop-waitlist:Kinusaiga 2026-10-16')])
+    const { json } = await run()
+    expect(json.data).toMatchObject({ sent: 1 })
   })
 
   it('leaves alone a sign-up whose time has not come', async () => {

@@ -10,6 +10,7 @@ import { googleCalendarUrl, buildIcs, icsDataUrl } from '@lib/party-share'
 import { workshopRefundLine } from '@lib/refund-lines'
 import { formatDayAndSpan } from '@lib/studio-time'
 import { seatsLeftLabel } from '@lib/workshop-rules'
+import { firstMissingPick, picksFromSelections, picksNote, selectionKey, PICKS_FINAL_LINE } from '@lib/seat-options'
 import type { WorkshopData } from './WorkshopExplorer'
 import BookingPanel from '@components/shared/BookingPanel'
 import BookingConfirmed, { ConfirmedBlock } from '@components/shared/BookingConfirmed'
@@ -48,6 +49,10 @@ const POLICY_UNTICKED = 'Tick the box to agree to the booking and cancellation p
 export default function WorkshopBookingModal({ workshop, onClose, onBooked }: WorkshopBookingModalProps) {
   const [step, setStep] = useState<Step>('details')
   const [seats, setSeats] = useState(1)
+  // One answer per seat per question, keyed by selectionKey(seat, optionId).
+  // Kept when the seat count drops, so a seat added back shows its pick.
+  const [selections, setSelections] = useState<Record<string, string>>({})
+  const [pickProblem, setPickProblem] = useState<string | null>(null)
   const [contact, setContact] = useState<Contact>(EMPTY_CONTACT)
   const [agreedToPolicy, setAgreedToPolicy] = useState(false)
   const [policyProblem, setPolicyProblem] = useState(false)
@@ -67,14 +72,19 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   const formId = useId()
   const policyErrorId = useId()
 
+  const options = workshop.options ?? []
+  const picks = picksFromSelections(options, seats, selections)
+  const picksSignature = JSON.stringify(picks)
+  const pickFieldId = (seat: number, optionId: string) => `${formId}-pick-${seat}-${optionId}`
+
   // One attempt ID per checkout. While we don't know how a try ended (dropped
   // connection, "we're not sure"), a retry sends the same ID, so the server
-  // can never charge twice for it. Changing the number of seats, or a plain
+  // can never charge twice for it. Changing the seats or a pick, or a plain
   // "nothing was charged", starts a new one.
   const attemptId = useRef(newAttemptId())
   useEffect(() => {
     attemptId.current = newAttemptId()
-  }, [seats])
+  }, [seats, picksSignature])
 
   useEffect(() => {
     trackWizardStarted('workshop')
@@ -103,7 +113,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   const seatWord = `${seats} seat${seats === 1 ? '' : 's'}`
 
   // Closing asks first only once there is something to lose.
-  const started = seats !== 1 || contactStarted(contact)
+  const started = seats !== 1 || contactStarted(contact) || Object.keys(selections).length > 0
   function requestClose() {
     if (completed || !started) return onClose()
     setAskToLeave(true)
@@ -114,9 +124,25 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
     onClose()
   }
 
+  /** Every seat answers every question before payment. Says which is missing and goes to it. */
+  function picksComplete(afterStepChange = false): boolean {
+    const missing = firstMissingPick(options, seats, selections)
+    if (!missing) return true
+    setPickProblem(`Pick a ${missing.option.label.toLowerCase()} for seat ${missing.seat}.`)
+    const focusIt = () => document.getElementById(pickFieldId(missing.seat, missing.option.id))?.focus()
+    // From the pay step the select is not on screen until the details step has rendered.
+    if (afterStepChange) setTimeout(focusIt, 0)
+    else focusIt()
+    return false
+  }
+
   async function handlePay(e?: FormEvent) {
     e?.preventDefault()
     if (processing || !paymentReady) return
+    if (!picksComplete(true)) {
+      setStep('details')
+      return
+    }
 
     // Say what's missing, field by field, and go to the first one.
     const contactOk = contactRef.current?.check() ?? false
@@ -161,6 +187,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
               ...(contact.phone.trim() ? { phone: contact.phone.trim() } : {}),
             },
             seats,
+            ...(options.length > 0 ? { picks } : {}),
             paymentToken: token,
           }),
         })
@@ -247,6 +274,12 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
             </div>
           </ConfirmedBlock>
 
+          {picks.length > 0 && (
+            <ConfirmedBlock label="Your picks">
+              {picksNote(options, picks)}
+              <p style={{ margin: '0.25rem 0 0' }}>{PICKS_FINAL_LINE}</p>
+            </ConfirmedBlock>
+          )}
           <ConfirmedBlock label="Before you come">
             <p style={{ margin: '0 0 0.625rem' }}>Sign the participation agreement. It takes a minute, and saves doing it at the door.</p>
             <a href={waiverUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
@@ -380,6 +413,57 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
               )}
             </p>
           )}
+          {options.length > 0 && (
+            <div style={{ marginTop: '1rem' }}>
+              {Array.from({ length: seats }, (_, i) => i + 1).map((seat) =>
+                options.map((o) => {
+                  const k = selectionKey(seat, o.id)
+                  const fieldId = pickFieldId(seat, o.id)
+                  return (
+                    <div key={k} style={{ marginBottom: '0.625rem' }}>
+                      <label
+                        htmlFor={fieldId}
+                        style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}
+                      >
+                        Seat {seat} · {o.label}
+                      </label>
+                      <select
+                        id={fieldId}
+                        required
+                        value={selections[k] ?? ''}
+                        onChange={(e) => {
+                          const value = e.target.value
+                          setSelections((s) => ({ ...s, [k]: value }))
+                          setPickProblem(null)
+                        }}
+                        style={{
+                          width: '100%',
+                          minHeight: '2.75rem',
+                          padding: '0.5rem 0.75rem',
+                          borderRadius: '0.75rem',
+                          border: '1.5px solid var(--color-field-border)',
+                          background: 'var(--color-surface)',
+                          fontSize: '1rem',
+                          color: 'var(--color-dark)',
+                        }}
+                      >
+                        <option value="" disabled>Choose…</option>
+                        {o.choices.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )
+                }),
+              )}
+              <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', lineHeight: 1.5, color: 'var(--color-text)' }}>{PICKS_FINAL_LINE}</p>
+              {pickProblem && (
+                <p role="alert" className="field-error" style={{ marginTop: '0.375rem' }}>
+                  {pickProblem}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
     )
@@ -398,6 +482,9 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
             </span>
             <strong>{formatMoney(total, workshop.currency)}</strong>
           </div>
+          {picks.length > 0 && (
+            <p style={{ margin: '0.375rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>{picksNote(options, picks)}</p>
+          )}
         </div>
 
         <PaymentForm
@@ -465,6 +552,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
         type="button"
         className="btn btn-primary"
         onClick={() => {
+          if (!picksComplete()) return
           trackWizardStepCompleted('details')
           setStep('pay')
         }}

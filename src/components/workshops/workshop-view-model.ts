@@ -1,6 +1,7 @@
 import type { Workshop } from '@providers/interfaces/workshop'
 import type { WorkshopData } from './WorkshopExplorer'
 import { canBeBooked } from '@lib/workshop-rules'
+import { isSignupClosed, signupClosesAt, type CutoffSettings } from '@lib/seat-options'
 import { formatTimeRange } from '@components/calendar/calendar-view-model'
 
 /**
@@ -68,5 +69,15 @@ export function toWorkshopData(w: Workshop): WorkshopData {
     teamMemberId: w.teamMemberId,
     imageUrl: w.imageUrl,
     flyerUrl: w.flyerUrl,
+  }
+}
+
+/** The class's seat questions and sign-up cutoff, worked out on the server. */
+export function withSignupInfo(data: WorkshopData, settings: CutoffSettings, now: Date = new Date()): WorkshopData {
+  return {
+    ...data,
+    options: settings.options,
+    signupClosesAt: signupClosesAt(data.startTime, settings),
+    signupClosed: isSignupClosed(data.startTime, settings, now),
   }
 }

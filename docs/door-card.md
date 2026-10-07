@@ -22,6 +22,17 @@ Open that event's roster → **+ Add family** → search → **✓ Add & mark he
 or expired: **Show QR** or **Sign on this iPad** (it brings you back to the roster).
 Parties and workshops are just attendance — there's no check-out.
 
+## Red box at the top of Today?
+
+That's a schedule problem (a class over a party, a double-booked room, too many seats sold,
+seats with no pick). **Don't try to fix it — tell Kaden or Catherine.** "Couldn't check the
+schedule" → tap **Try again**.
+
+## Class with picks (e.g. pumpkin colour)
+
+The totals line on the roster is the make-ahead list. Each family's picks are on their card.
+Picks can't be changed after booking — note any ask in History and tell an owner.
+
 ## Drop-off events only (camps, kids' workshops, Parents Night Out)
 
 - **Check in the kid** on the roster (**Check in (n)**) — this texts the family their

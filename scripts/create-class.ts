@@ -1,6 +1,9 @@
 import 'dotenv/config'
 import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { SquareClient, SquareEnvironment } from 'square'
+import { partyBlocksClass, partySpanOf, partyClashMessage } from '../src/lib/conflicts'
+import { studioDate, studioDayUtcRange } from '../src/lib/studio-time'
 
 /**
  * Create an Appointments "class" schedule (the dated instance the website reads)
@@ -39,10 +42,17 @@ import { SquareClient, SquareEnvironment } from 'square'
  *   --description <str>   item description, used only when creating the item
  *   --start <local>       start time in America/Chicago, "YYYY-MM-DDTHH:mm"
  *   --duration <min>      class length in minutes (default 120)
- *   --capacity <n>        seats available (default 12)
+ *   --capacity <n>        seats available (default 12); also saved as the class's
+ *                         capacity setting via scripts/set-event.ts, since
+ *                         Square's buyer API doesn't report it
  *   --rrule <RRULE>       recurrence rule for a repeating series (default one-off)
  *   --staff <teamId>      staff/team member id (default SQUARE_TEAM_MEMBER_ID)
  *   --dry-run             print the request body and exit without POSTing
+ *
+ * Party guard: before creating anything (and on --dry-run) the script reads
+ * that day's bookings and refuses if a booked party overlaps the class or
+ * the hour of cleanup before it. Move the party in Square first; there is
+ * no --force.
  */
 
 const WORKSHOP_CATEGORY_ID = 'QXN2HDQQG2YBZBNLLKNFTZRC'
@@ -206,7 +216,46 @@ async function createItem(name: string): Promise<any> {
   }
 }
 
+/**
+ * HARD RULE (Kaden, 2026-10-06): a class is never created over a booked party.
+ * Read-only: lists that studio day's bookings and exits 1 on any party that
+ * overlaps [class start − cleanup, class end] (`@lib/conflicts`). It never
+ * touches a booking, and there is no override.
+ */
+async function refuseIfPartyInTheWay(startIso: string, minutes: number): Promise<void> {
+  const { startIso: from, endIso: to } = studioDayUtcRange(studioDate(startIso))
+  const found: any[] = []
+  // v44: bookings.list returns a paginator; iterate to collect.
+  for await (const b of (await client.bookings.list({ locationId: locationId!, startAtMin: from, startAtMax: to })) as any) found.push(b)
+  const live = found.filter((b) => !/^(CANCELLED|DECLINED)/.test(String(b.status ?? '')))
+  const parties = await Promise.all(
+    live.map(async (b) => {
+      let hostName: string | undefined
+      if (b.customerId) {
+        try {
+          const r: any = await client.customers.get({ customerId: b.customerId })
+          const c = r?.customer ?? r
+          hostName = [c?.givenName, c?.familyName].filter(Boolean).join(' ') || undefined
+        } catch {
+          // A name is a nicety; the refusal still prints the time and booking id.
+        }
+      }
+      return partySpanOf({ id: b.id, slot: { startAt: b.startAt, duration: b.appointmentSegments?.[0]?.durationMinutes } }, hostName)
+    }),
+  )
+  const endIso = new Date(Date.parse(startIso) + minutes * 60_000).toISOString()
+  const clashes = partyBlocksClass(startIso, endIso, parties)
+  if (clashes.length > 0) fail(partyClashMessage(clashes))
+  console.log('  party check: no booked party in the way')
+}
+
 async function main() {
+  // 0. party guard first: a refused class must leave nothing behind (no catalog item, no POST).
+  // Runs on --dry-run too: it only reads, so a dry run shows the refusal.
+  const startAtIso = chicagoToUtcISO(startLocal!)
+  await refuseIfPartyInTheWay(startAtIso, durationMinutes)
+  if (rrule) console.log('  note: only the first date of a repeating series was checked for parties.')
+
   // 1. resolve the catalog item (+ its variation token/version)
   let item: any
   if (itemId) {
@@ -235,7 +284,7 @@ async function main() {
       item_variation_version: Number(variation.version),
       location_id: locationId,
       rrule,
-      start_at: chicagoToUtcISO(startLocal!),
+      start_at: startAtIso,
       status: 'CLASS_SCHEDULE_ACTIVE',
       team_member_id: teamMemberId,
       total_capacity: totalCapacity,
@@ -290,6 +339,17 @@ async function main() {
     scheduleId = JSON.parse(text)?.class_schedule?.id ?? ''
   } catch {}
   console.log(`\n✓ Class schedule created${scheduleId ? ` (${scheduleId})` : ''}. It will show on the site once it's a future dated instance with open capacity.`)
+
+  // 3. Square's buyer API never reports capacity, so save it in the class's
+  // settings (what warnings and the roster count seats against). Same write
+  // path as set-event.ts: run it, don't copy it.
+  const reminder = `Now run: npx tsx scripts/set-event.ts --workshop ${scheduleId || '<clssch_id>'} --capacity ${totalCapacity}`
+  if (!scheduleId) {
+    console.log(`  couldn't read the new schedule id — capacity not saved. ${reminder}`)
+    return
+  }
+  const saved = spawnSync('npx', ['tsx', 'scripts/set-event.ts', '--workshop', scheduleId, '--capacity', String(totalCapacity)], { stdio: 'inherit' })
+  if (saved.status !== 0) console.log(`  capacity not saved. ${reminder}`)
 }
 
 main().catch((e) => {

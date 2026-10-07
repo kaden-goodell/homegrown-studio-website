@@ -2,7 +2,9 @@ import type { APIRoute } from 'astro'
 import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
 import { partyConfig } from '@config/party.config'
 import { partyStartsForDate } from '@lib/party-slots'
-import { openPartyStarts } from '@lib/party-availability'
+import { openPartyStarts, classSpansOrNone } from '@lib/party-availability'
+import { removeClassBlocked } from '@lib/conflicts'
+import { studioDayUtcRange } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 
@@ -45,7 +47,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         error: err instanceof Error ? err.message : String(err),
       })
       const now = Date.now()
-      openStarts = partyStartsForDate(date).filter((iso) => new Date(iso).getTime() > now)
+      const candidates = partyStartsForDate(date).filter((iso) => new Date(iso).getTime() > now)
+      // Parties still yield to classes here; a failed class lookup never blocks.
+      const { startIso, endIso } = studioDayUtcRange(date)
+      openStarts = removeClassBlocked(candidates, await classSpansOrNone(startIso, endIso))
     }
 
     const durationMinutes = partyConfig.durationMinutes

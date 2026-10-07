@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import StaffHeader from '@components/staff/StaffHeader'
 import DoorSearch, { type HouseholdMatch, type TodayEvent } from '@components/staff/DoorSearch'
 import EventList from '@components/staff/EventList'
+import WarningsPanel from '@components/staff/WarningsPanel'
 import { card, btn, Badge } from '@components/staff/ui'
 import { formatWhen, formatCalendarDay, studioDate } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
@@ -123,6 +124,8 @@ export default function Today({
           {openStudioCount} here now (open studio)
         </p>
       )}
+
+      <WarningsPanel onOpenEvent={(e) => onOpenRoster(e)} />
 
       <DoorSearch
         onCheckedIn={loadOpenStudioCount}

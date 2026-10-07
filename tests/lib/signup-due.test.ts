@@ -244,6 +244,23 @@ describe('workshops', () => {
     expect(judge('workshop-soon:Kinusaiga 2026-10-02', facts())).toEqual({ state: 'over' })
   })
 
+  it('a seat that opens after sign-ups closed is not announced', () => {
+    const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Black', 'Lavender'] }
+    const interest = 'workshop-waitlist:Kinusaiga 2026-10-16'
+    const twelveHoursBefore = new Date('2026-10-16T12:00:00.000Z')
+    // Asks questions, so sign-ups close 24 hours ahead by default.
+    const closed = workshop({ seatsLeft: 2, cutoff: { options: [PAILS], signupCutoffHours: null } })
+    expect(judge(interest, facts({ now: twelveHoursBefore, workshops: [closed] }))).toEqual({ state: 'wait' })
+    expect(judge('workshops:new-dates', facts({ now: twelveHoursBefore, workshops: [closed] }))).toEqual({ state: 'wait' })
+    // Its own 6-hour cutoff leaves it open.
+    const open = workshop({ seatsLeft: 2, cutoff: { options: [PAILS], signupCutoffHours: 6 } })
+    expect(judge(interest, facts({ now: twelveHoursBefore, workshops: [open] })).state).toBe('due')
+  })
+
+  it('announces nothing for a workshop whose settings could not be read', () => {
+    expect(judge('workshop-waitlist:Kinusaiga 2026-10-16', facts({ workshops: [workshop({ cutoff: null })] }))).toEqual({ state: 'wait' })
+  })
+
   it('waits when the workshop is not listed at all', () => {
     expect(judge('workshop-waitlist:Kinusaiga 2026-10-16', facts({ workshops: [] }))).toEqual({ state: 'wait' })
   })

@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockListBookings = vi.fn()
+const mockListAllWorkshops = vi.fn()
 vi.mock('@config/providers', () => ({
-  providers: { booking: { listBookings: (...a: any[]) => mockListBookings(...a) } },
+  providers: {
+    booking: { listBookings: (...a: any[]) => mockListBookings(...a) },
+    workshop: { listAllWorkshops: (...a: any[]) => mockListAllWorkshops(...a), listWorkshops: async () => [] },
+  },
 }))
 vi.mock('@lib/bookings-gate', () => ({
   bookingsOpen: () => true,
@@ -30,6 +34,7 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
   mockListBookings.mockReset().mockResolvedValue([])
+  mockListAllWorkshops.mockReset().mockResolvedValue([])
 })
 afterEach(() => vi.useRealTimers())
 
@@ -98,5 +103,19 @@ describe('POST /api/party/available-dates.json', () => {
   it('is never cached: open times change with every booking', async () => {
     const { response } = await ask()
     expect(response.headers.get('Cache-Control')).toBe('no-store')
+  })
+
+  it('leaves out party times a class rules out, so the panel never offers them', async () => {
+    mockListAllWorkshops.mockResolvedValue([
+      { id: 'i', scheduleId: 'clssch_pails', name: 'Bedazzled Pumpkin Pails', startAt: '2026-10-18T18:00:00.000Z', durationMinutes: 120 },
+    ])
+    const { data } = await ask()
+    expect(data.times['2026-10-18'].map((t: any) => t.startAt)).toEqual(['2026-10-18T20:30:00.000Z'])
+  })
+
+  it('offers every time when classes cannot be read', async () => {
+    mockListAllWorkshops.mockRejectedValue(new Error('Square Classes API error: 503'))
+    const { data } = await ask()
+    expect(data.times['2026-10-18'].map((t: any) => t.startAt)).toEqual(['2026-10-18T18:00:00.000Z', '2026-10-18T20:30:00.000Z'])
   })
 })

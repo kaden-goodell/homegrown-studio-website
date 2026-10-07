@@ -252,4 +252,25 @@ describe('WorkshopCard — a sold-out workshop', () => {
       vi.unstubAllGlobals()
     }
   })
+
+  it('after the cutoff, a quiet "Sign-ups closed" stands where the book button was', () => {
+    const onBook = vi.fn()
+    render(<WorkshopCard workshop={makeWorkshop({ signupClosed: true })} onBook={onBook} />)
+    expect(screen.getByText('Sign-ups closed')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'See details and book' })).toBeNull()
+    expect(screen.queryByText('6 seats left')).toBeNull()
+  })
+
+  it('a sold-out class past its cutoff says both, and offers no waitlist', () => {
+    render(<WorkshopCard workshop={makeWorkshop({ signupClosed: true, remainingSeats: 0 })} />)
+    expect(screen.getByText('Sold out')).toBeInTheDocument()
+    expect(screen.getByText('Sign-ups closed')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Tell me if a seat opens' })).toBeNull()
+  })
+
+  it('on the home page, a closed class has no link to book', () => {
+    render(<WorkshopCard workshop={makeWorkshop({ signupClosed: true })} href="/workshops?w=ws-1" />)
+    expect(screen.queryByRole('link', { name: 'See details and book' })).toBeNull()
+    expect(screen.getByText('Sign-ups closed')).toBeInTheDocument()
+  })
 })

@@ -134,3 +134,23 @@ describe('byStart', () => {
     expect(list.sort(byStart).map((w) => w.id)).toEqual(['four-pm', 'seven-pm'])
   })
 })
+
+import { withSignupInfo } from '@components/workshops/workshop-view-model'
+
+describe('withSignupInfo', () => {
+  const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Black', 'Lavender'] }
+  const base = {
+    id: 'inst-pails', name: 'Bedazzled Pumpkin Pails', description: '', category: 'workshop', date: '2026-10-18',
+    startTime: '2026-10-18T18:00:00.000Z', endTime: '2026-10-18T20:00:00.000Z', duration: 120, price: 2500, currency: 'USD', remainingSeats: 10,
+  }
+
+  it('a class with questions closes 24 hours ahead by default', () => {
+    const d = withSignupInfo(base, { options: [PAILS], signupCutoffHours: null }, new Date('2026-10-17T18:30:00.000Z'))
+    expect(d).toMatchObject({ options: [PAILS], signupClosesAt: '2026-10-17T18:00:00.000Z', signupClosed: true })
+  })
+
+  it('a plain class is open until it starts', () => {
+    const d = withSignupInfo(base, { options: [], signupCutoffHours: null }, new Date('2026-10-18T17:59:00.000Z'))
+    expect(d).toMatchObject({ options: [], signupClosesAt: '2026-10-18T18:00:00.000Z', signupClosed: false })
+  })
+})

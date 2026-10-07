@@ -18,6 +18,20 @@ import { buildIcs, googleCalendarUrl, addMinutesIso } from '@lib/party-share'
 import { formatSlotLabel } from '@lib/studio-time'
 import { summarize } from '@lib/seo'
 import { canBeBooked } from '@lib/workshop-rules'
+import { getEventMeta } from '@lib/event-meta'
+import { saveSeatChoices } from '@lib/seat-choices'
+import {
+  cutoffClosedMessage,
+  effectiveCutoffHours,
+  isSignupClosed,
+  PICKS_FINAL_LINE,
+  picksNote,
+  seatPickLines,
+  validatePicks,
+  type CutoffSettings,
+  type SeatOption,
+  type SeatPick,
+} from '@lib/seat-options'
 import type { SeatReservation, Workshop } from '@providers/interfaces/workshop'
 
 const logger = createLogger('api:workshops:book')
@@ -29,6 +43,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  *
  *   1. look the workshop up, and find or create the customer
  *      (a workshop with no price is not for sale and is refused here)
+ *   1b. refuse after the class's sign-up cutoff, and unless every seat has a valid pick (nothing held yet)
  *   2. hold the seats            (nothing charged)
  *   3. charge and confirm        (one step: both happen or neither)
  *   4. send our confirmation email
@@ -72,10 +87,11 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // Older cached pages may not send one; then every request is its own attempt.
   const attemptId = isAttemptId(body.attemptId) ? body.attemptId : randomUUID()
 
-  // ── 1. The workshop and the customer, looked up together ───────────────────
-  const [workshopLookup, customerLookup] = await Promise.allSettled([
+  // ── 1. The workshop, the customer and the class's settings, looked up together
+  const [workshopLookup, customerLookup, metaLookup] = await Promise.allSettled([
     lookUp(typeof body.workshopId === 'string' ? body.workshopId : '', String(classScheduleId), String(startAt)),
     providers.customer.findOrCreate({ email, givenName, familyName, ...(phone ? { phone } : {}) }),
+    getEventMeta('workshop', String(classScheduleId)),
   ])
 
   // The workshop must be one we can see, with a price. If we can't tell, we
@@ -94,6 +110,29 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     return fail(409, 'not_open')
   }
 
+  // ── 1b. Sign-up cutoff and seat picks (spec C) ─────────────────────────────
+  // Settings we can't read are a refusal: a class with questions must never be
+  // sold without its picks. Nothing has been held or charged yet.
+  if (metaLookup.status === 'rejected') {
+    logger.error('Event settings unreadable before booking — refusing', {
+      scheduleId: String(classScheduleId),
+      error: String(metaLookup.reason),
+    })
+    return fail(502, 'unavailable')
+  }
+  const settings: CutoffSettings = {
+    options: metaLookup.value?.options ?? [],
+    signupCutoffHours: metaLookup.value?.signupCutoffHours ?? null,
+  }
+  if (isSignupClosed(workshop.startAt, settings)) {
+    return fail(409, 'not_open', cutoffClosedMessage(effectiveCutoffHours(settings)))
+  }
+  const picksCheck = validatePicks(settings.options, seats, body.picks)
+  if (!picksCheck.ok) return fail(400, 'invalid', picksCheck.error)
+  const picks: SeatPick[] = picksCheck.value
+  // Square keeps the picks only as a booking note ("Pumpkin color: Lavender ×2").
+  const note = picksNote(settings.options, picks)
+
   let customerId: string | undefined
   if (customerLookup.status === 'fulfilled') {
     customerId = customerLookup.value.id
@@ -110,6 +149,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       startAt: String(startAt),
       seats,
       customer: { givenName, familyName, email },
+      ...(note ? { note } : {}),
     })
   } catch (err) {
     const seatError = asSeatBookingError(err)
@@ -157,12 +197,39 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       raw: raw.slice(0, 500),
     })
     await alertOwners(
-      `Workshop payment unclear: ${givenName} ${familyName} (${email}${phone ? `, ${phone}` : ''}), ${seats} seat${seats === 1 ? '' : 's'}, ${formatSlotLabel(String(startAt))}. Check Square for the payment, then confirm with them or cancel booking ${reservation.bookingId}.`,
+      `Workshop payment unclear: ${givenName} ${familyName} (${email}${phone ? `, ${phone}` : ''}), ${seats} seat${seats === 1 ? '' : 's'}, ${formatSlotLabel(String(startAt))}.${note ? ` Picks: ${note}.` : ''} Check Square for the payment, then confirm with them or cancel booking ${reservation.bookingId}.`,
     ).catch(() => undefined)
     return fail(502, 'unknown_outcome')
   }
 
   // ── Paid and confirmed. Nothing below may turn this into a failure. ────────
+  // The structured picks behind the roster (spec C/D). Written only now, once
+  // the money is taken. A failed write never fails the booking: the picks are
+  // in the customer's email and in the owner alert (Square's booking note may
+  // have been dropped on a retry), so a person can add them by hand.
+  if (picks.length > 0) {
+    try {
+      await saveSeatChoices({
+        eventKind: 'workshop',
+        eventId: workshop.scheduleId,
+        bookingId: booked.bookingId,
+        orderId: booked.orderId,
+        customer: { givenName, familyName, email, phone },
+        seats,
+        picks,
+        at: new Date().toISOString(),
+        attemptId,
+      })
+    } catch (err) {
+      logger.error('SEAT PICKS NOT SAVED (booking is paid)', {
+        bookingId: booked.bookingId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      await alertOwners(
+        `Seat picks not saved: ${givenName} ${familyName}, ${workshop.name}, ${formatSlotLabel(workshop.startAt)}. ${note}. Booking ${booked.bookingId} is paid; add these picks by hand.`,
+      ).catch(() => undefined)
+    }
+  }
   let emailSent = false
   try {
     emailSent = await sendConfirmation({
@@ -173,6 +240,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       email,
       givenName,
       receiptUrl: booked.receiptUrl,
+      options: settings.options,
+      picks,
     })
   } catch (err) {
     logger.error('Workshop confirmation email failed (booking still confirmed)', {
@@ -224,6 +293,8 @@ async function sendConfirmation(input: {
   email: string
   givenName: string
   receiptUrl: string | null
+  options: SeatOption[]
+  picks: SeatPick[]
 }): Promise<boolean> {
   const { workshop } = input
 
@@ -258,6 +329,9 @@ async function sendConfirmation(input: {
     googleCalendarUrl: googleCalendarUrl(calendarEvent),
     icsContent: buildIcs(calendarEvent),
     bookingRef: input.bookingId,
+    ...(input.picks.length > 0
+      ? { pickLines: seatPickLines(input.options, input.picks), picksFinalLine: PICKS_FINAL_LINE }
+      : {}),
   })
   return sent
 }
