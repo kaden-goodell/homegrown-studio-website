@@ -71,12 +71,58 @@ describe('scheduleInSquare (run in the signed-in Square tab)', () => {
     expect(init.headers['x-csrf-token']).toBe('tok123')
   })
 
+  const mover = (bookings: unknown[] | null) => async (_u: string, init: any) =>
+    init.method === 'GET'
+      ? bookings === null ? answer(500, {}) : answer(200, { class_schedule: { id: 'clssch_1', class_bookings: bookings } })
+      : answer(200, { class_schedule: { id: 'clssch_1' } })
+  const methods = (root: any) => root.fetch.mock.calls.map((c: any[]) => c[1].method)
+
   it('moves a class with PUT, dropping the empty resource_id Square 404s on', async () => {
-    const root = load(async () => answer(200, { class_schedule: { id: 'clssch_1' } }))
+    const root = load(mover([]))
     const r = await root.HometownSchedule.scheduleInSquare({ clearance: clear(), body: body({ resource_id: '' }), method: 'PUT', scheduleId: 'clssch_1' })
     expect(r.done).toBe(true)
-    const [url, init] = root.fetch.mock.calls[0]
+    expect(methods(root)).toEqual(['GET', 'PUT'])
+    const [url, init] = root.fetch.mock.calls[1]
     expect(url).toBe('/appointments/api/class-schedules/clssch_1')
     expect(JSON.parse(init.body).class_schedule).not.toHaveProperty('resource_id')
+  })
+
+  it('does not move a class it cannot read', async () => {
+    const root = load(mover(null))
+    const r = await root.HometownSchedule.scheduleInSquare({ clearance: clear(), body: body(), method: 'PUT', scheduleId: 'clssch_1' })
+    expect(r.done).toBe(false)
+    expect(r.message).toMatch(/not moving it/)
+    expect(methods(root)).toEqual(['GET'])
+  })
+
+  it('does not move a class that has bookings', async () => {
+    const root = load(mover([{ id: 'b1' }, { id: 'b2' }]))
+    const r = await root.HometownSchedule.scheduleInSquare({ clearance: clear(), body: body(), method: 'PUT', scheduleId: 'clssch_1' })
+    expect(r.done).toBe(false)
+    expect(r.message).toMatch(/2 bookings/)
+    expect(methods(root)).toEqual(['GET'])
+  })
+
+  it('refuses a clearance with no checkedAt or one from the future', async () => {
+    const root = load(async () => answer(200, {}))
+    const { checkedAt, ...noStamp } = clear()
+    expect((await root.HometownSchedule.scheduleInSquare({ clearance: noStamp, body: body() })).done).toBe(false)
+    expect((await root.HometownSchedule.scheduleInSquare({ clearance: { ...clear(), checkedAt: Date.now() + 60_000 }, body: body() })).done).toBe(false)
+    expect(root.fetch).not.toHaveBeenCalled()
+  })
+
+  it('allows a 9 minute old check and refuses an 11 minute old one', async () => {
+    const root = load(async () => answer(200, { class_schedule: { id: 'x' } }))
+    expect((await root.HometownSchedule.scheduleInSquare({ clearance: { ...clear(), checkedAt: Date.now() - 9 * 60_000 }, body: body() })).done).toBe(true)
+    expect((await root.HometownSchedule.scheduleInSquare({ clearance: { ...clear(), checkedAt: Date.now() - 11 * 60_000 }, body: body() })).done).toBe(false)
+  })
+
+  it('is single-use: a second call with the same clearance is refused without a fetch', async () => {
+    const root = load(async () => answer(200, { class_schedule: { id: 'x' } }))
+    const clearance = clear()
+    expect((await root.HometownSchedule.scheduleInSquare({ clearance, body: body() })).done).toBe(true)
+    const r = await root.HometownSchedule.scheduleInSquare({ clearance, body: body() })
+    expect(r.done).toBe(false)
+    expect(root.fetch).toHaveBeenCalledTimes(1)
   })
 })

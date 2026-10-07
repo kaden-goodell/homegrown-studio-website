@@ -18,6 +18,11 @@
  *      It refuses unless the clearance is ok, under 10 minutes old, and for the
  *      same start_at and duration_minutes.
  *
+ * The clearance is a convention guard for the person pasting the snippet, not
+ * a cryptographic one, and it is single-use: it is marked used after one
+ * successful Square call. A move first reads the class and refuses if it has
+ * any bookings.
+ *
  * Claude runs both through the Chrome javascript tool. Nothing runs on its own.
  */
 ;(function (root) {
@@ -55,7 +60,9 @@
   async function scheduleInSquare(opts) {
     var c = opts.clearance
     if (!c || c.ok !== true) return refuse((c && c.message) || 'Run checkStudio in the studio tab first.')
-    if (Date.now() - c.checkedAt > MAX_AGE_MS) return refuse('That party check is more than 10 minutes old. Run it again.')
+    if (c.used === true) return refuse('That party check was already used. Run it again.')
+    var age = Date.now() - Number(c.checkedAt)
+    if (!(age >= 0 && age <= MAX_AGE_MS)) return refuse('That party check is missing, from the future, or more than 10 minutes old. Run it again.')
     var sendBody = JSON.parse(JSON.stringify(opts.body || {}))
     var cs = sendBody.class_schedule
     if (!cs || Date.parse(cs.start_at) !== Date.parse(c.start) || Number(cs.duration_minutes) !== Number(c.minutes)) {
@@ -68,19 +75,36 @@
     var csrf = (/(?:^|; )_js_csrf=([^;]+)/.exec(root.document.cookie) || [])[1]
     if (!csrf) return refuse('No _js_csrf cookie: sign in to app.squareup.com in this tab first.')
     var url = method === 'PUT' ? SCHEDULES + '/' + encodeURIComponent(opts.scheduleId) : SCHEDULES
+    var headers = {
+      accept: 'application/json',
+      'content-type': 'application/json',
+      'x-csrf-token': csrf,
+      'x-requested-with': 'XMLHttpRequest',
+    }
+    if (method === 'PUT') {
+      // Never move a class that has bookings: those are paying customers' plans.
+      var cur
+      try {
+        cur = await root.fetch(url, { method: 'GET', credentials: 'include', headers: headers })
+      } catch (err) {
+        return refuse('Couldn\u2019t read the class \u2014 not moving it.')
+      }
+      var curJson = cur.ok ? await cur.json().catch(function () { return null }) : null
+      if (!curJson || !curJson.class_schedule) return refuse('Couldn\u2019t read the class \u2014 not moving it.')
+      var n = (curJson.class_schedule.class_bookings || []).length
+      if (n > 0) {
+        return refuse('This class has ' + n + ' booking' + (n === 1 ? '' : 's') + '. Moving it changes paying customers\u2019 plans \u2014 Kaden does that himself in Square. Not moving it.')
+      }
+    }
     var res = await root.fetch(url, {
       method: method,
       credentials: 'include',
-      headers: {
-        accept: 'application/json',
-        'content-type': 'application/json',
-        'x-csrf-token': csrf,
-        'x-requested-with': 'XMLHttpRequest',
-      },
+      headers: headers,
       body: JSON.stringify(sendBody),
     })
     var text = await res.text()
     if (!res.ok) return { done: false, status: res.status, message: 'Square said ' + res.status + ': ' + text.slice(0, 300) }
+    c.used = true
     var id = ''
     try {
       id = (JSON.parse(text).class_schedule || {}).id || ''
