@@ -45,6 +45,8 @@ export interface PartyRecord {
    * reservation key on the shared kit ledger, released when the party cancels.
    */
   theme?: { themeId: string; displayName: string; serves: number; claimRef: string }
+  /** Written by a payment-bypass booking (dev / preview). Hidden in production. */
+  simulated?: true
   createdAt: string // ISO
 }
 
@@ -57,9 +59,16 @@ export async function savePartyRecord(record: PartyRecord): Promise<void> {
   logger.info('Party stored', { bookingId: record.bookingId })
 }
 
+/** Previews share production's blob stores; simulated parties must never show up there. */
+function visibleHere(record: PartyRecord): boolean {
+  return !(process.env.CONTEXT === 'production' && (record.simulated === true || record.bookingId.startsWith('dev_')))
+}
+
 export async function getPartyRecord(bookingId: string): Promise<PartyRecord | null> {
   const json = await kv.get(bookingId)
-  return json ? JSON.parse(json) : null
+  if (!json) return null
+  const record: PartyRecord = JSON.parse(json)
+  return visibleHere(record) ? record : null
 }
 
 /** Constant-ish check that the supplied token matches the party's host token. */

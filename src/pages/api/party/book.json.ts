@@ -42,7 +42,7 @@ interface ResolvedTheme {
 }
 
 /** Build + persist the party record for the host's management view. Returns hostToken or null. */
-async function persistParty(bookingId: string, body: BookRequest, theme?: ResolvedTheme): Promise<string | null> {
+async function persistParty(bookingId: string, body: BookRequest, theme?: ResolvedTheme, simulated = false): Promise<string | null> {
   // A retried checkout reaches here a second time for the same booking. Keep
   // the record and token from the first time: that token is already in the
   // host's confirmation email.
@@ -68,6 +68,7 @@ async function persistParty(bookingId: string, body: BookRequest, theme?: Resolv
     ...(theme
       ? { theme: { themeId: theme.themeId, displayName: theme.displayName, serves: theme.serves, claimRef: theme.claimRef } }
       : {}),
+    ...(simulated ? { simulated: true as const } : {}),
     createdAt: new Date().toISOString(),
   }
   try {
@@ -257,7 +258,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (paymentBypassEnabled()) {
     logger.info('Payment bypass active — returning synthetic party booking')
     const bookingId = `dev_${Date.now().toString(36)}`
-    const hostToken = await persistParty(bookingId, body, theme)
+    const hostToken = await persistParty(bookingId, body, theme, true)
     // Send the real confirmation email too (no-ops without GMAIL_* creds) so
     // the whole flow — including the email — is testable locally. Beware: with
     // creds in .env this sends an ACTUAL email to whatever address you typed.
