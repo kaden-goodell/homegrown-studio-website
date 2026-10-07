@@ -13,10 +13,10 @@ import { getEventMeta, type EventMeta } from '@lib/event-meta'
 import { studioDate } from '@lib/studio-time'
 import type { By } from '@lib/staff-auth'
 import { createLogger } from '@lib/logger'
+import type { SeatOption } from '@lib/seat-options'
 
 const logger = createLogger('events')
 
-import type { SeatOption } from '@lib/seat-options'
 import { EVENT_KIND_RE, type EventKind } from '@lib/event-kinds'
 export { EVENT_KIND_RE, type EventKind }
 

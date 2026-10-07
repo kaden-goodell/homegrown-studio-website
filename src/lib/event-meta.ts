@@ -62,11 +62,12 @@ export function emptyEventMeta(): EventMeta {
 
 export function normalizeEventMeta(raw: any): EventMeta {
   const options = validateOptions(raw?.options)
+  const cutoff = validateCutoffHours(raw?.signupCutoffHours)
   return {
     dropOff: !!raw?.dropOff,
     days: Array.isArray(raw?.days) ? raw.days.map(String) : null,
     options: options.ok ? options.value : [],
-    signupCutoffHours: typeof raw?.signupCutoffHours === 'number' ? raw.signupCutoffHours : null,
+    signupCutoffHours: cutoff.ok ? cutoff.value : null,
     updatedAt: typeof raw?.updatedAt === 'string' ? raw.updatedAt : new Date(0).toISOString(),
     by: raw?.by && typeof raw.by === 'object'
       ? { id: String(raw.by.id ?? ''), name: String(raw.by.name ?? '') }
@@ -120,10 +121,12 @@ export function mergeEventMeta(current: EventMeta, patch: EventMetaPatch, by: By
  */
 export async function setEventMeta(kind: string, id: string, patch: EventMetaPatch, by: By): Promise<EventMeta> {
   const k = key(kind, id)
-  // Only a change to the questions needs to know whether anyone has picked.
-  const hasPicks = patch.options !== undefined && kind === 'workshop' ? await hasSeatChoices('workshop', id) : false
   for (let attempt = 0; attempt < 3; attempt++) {
     const { value, etag } = await kv.getWithMeta(k)
+    // Only a change to the questions needs to know whether anyone has picked.
+    // Checked after reading the etag and on every attempt, so a pick landing
+    // before our write loses the CAS and is seen on the retry.
+    const hasPicks = patch.options !== undefined && kind === 'workshop' ? await hasSeatChoices('workshop', id) : false
     const current = value ? normalizeEventMeta(JSON.parse(value)) : emptyEventMeta()
     const next = mergeEventMeta(current, patch, by, new Date().toISOString(), hasPicks)
     if (await kv.setIfMatch(k, JSON.stringify(next), etag, value !== null)) {

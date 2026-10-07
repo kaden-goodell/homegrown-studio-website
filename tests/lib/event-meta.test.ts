@@ -1,4 +1,38 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+
+// Pass-through by default; a test can hook the first call to simulate a
+// concurrent writer landing between the lock check and the CAS write.
+const hook = vi.hoisted(() => ({ afterFirstCall: null as null | (() => Promise<void>), failNextCas: false }))
+// The fs-backed store never loses a CAS, so wrap setIfMatch to lose it once on demand.
+vi.mock('@lib/blob-store', async (orig) => {
+  const real = await orig<typeof import('@lib/blob-store')>()
+  return {
+    ...real,
+    makeKvStore: (...a: Parameters<typeof real.makeKvStore>) => {
+      const kv = real.makeKvStore(...a)
+      return {
+        ...kv,
+        setIfMatch: async (...b: Parameters<typeof kv.setIfMatch>) => {
+          if (hook.failNextCas) { hook.failNextCas = false; return false }
+          return kv.setIfMatch(...b)
+        },
+      }
+    },
+  }
+})
+vi.mock('@lib/seat-choices', async (orig) => {
+  const real = await orig<typeof import('@lib/seat-choices')>()
+  return {
+    ...real,
+    hasSeatChoices: async (...a: Parameters<typeof real.hasSeatChoices>) => {
+      const r = await real.hasSeatChoices(...a)
+      const h = hook.afterFirstCall
+      hook.afterFirstCall = null
+      if (h) await h()
+      return r
+    },
+  }
+})
 import { getEventMeta, setEventMeta } from '@lib/event-meta'
 import { emptyEventMeta, mergeEventMeta } from '@lib/event-meta'
 import { saveSeatChoices } from '@lib/seat-choices'
@@ -78,5 +112,30 @@ describe('event-meta — seat questions and sign-up cutoff', () => {
     const next = mergeEventMeta(emptyEventMeta(), { signupCutoffHours: 24 }, by, now, false)
     expect(next).toMatchObject({ signupCutoffHours: 24, options: [], updatedAt: now, by })
     expect(() => mergeEventMeta(emptyEventMeta(), { signupCutoffHours: -1 }, by, now, false)).toThrow(SeatSettingsError)
+  })
+
+  it('ignores an out-of-range stored cutoff', async () => {
+    const id = 'w_badcut_' + Date.now()
+    await makeKvStore('event-meta', 'event-meta').set(
+      `event-meta-workshop:${id}`,
+      JSON.stringify({ dropOff: false, days: null, signupCutoffHours: 9999, updatedAt: '2026-09-28T00:00:00.000Z', by, history: [] }),
+    )
+    expect((await getEventMeta('workshop', id))!.signupCutoffHours).toBeNull()
+  })
+
+  it('re-checks for picks on a CAS retry, so a pick that lands mid-save still locks', async () => {
+    const id = 'w_race_' + Date.now()
+    await setEventMeta('workshop', id, { options: [PAILS] }, by)
+    // After the first lock check: someone picks, and our first CAS write is lost.
+    hook.afterFirstCall = async () => {
+      await saveSeatChoices({
+        eventKind: 'workshop', eventId: id, bookingId: 'clsbk_race', orderId: null,
+        customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com', phone: '' },
+        seats: 1, picks: [{ seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' }], at: '2026-10-06T15:00:00.000Z', attemptId: 'r',
+      })
+      hook.failNextCas = true
+    }
+    await expect(setEventMeta('workshop', id, { options: [] }, by)).rejects.toMatchObject({ status: 409 })
+    expect((await getEventMeta('workshop', id))!.options).toEqual([PAILS])
   })
 })
