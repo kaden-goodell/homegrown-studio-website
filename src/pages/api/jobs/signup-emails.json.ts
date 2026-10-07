@@ -11,6 +11,8 @@ import { emailReady, sendSignupNewsEmail } from '@lib/email'
 import { openPartyStartsInWindow } from '@lib/party-open-dates'
 import { emailedLine, failedLine, openSignups } from '@lib/signup-ledger'
 import { judge, type DueItem, type StudioFacts, type WorkshopFact } from '@lib/signup-due'
+import { getEventMeta } from '@lib/event-meta'
+import type { CutoffSettings } from '@lib/seat-options'
 
 export const prerender = false
 const logger = createLogger('api:jobs:signup-emails')
@@ -48,6 +50,17 @@ interface Due {
   items: DueItem[]
 }
 
+/** A class's cutoff settings; null when unreadable (nothing is said about it then). */
+async function cutoffFor(scheduleId: string): Promise<CutoffSettings | null> {
+  try {
+    const meta = await getEventMeta('workshop', scheduleId)
+    return { options: meta?.options ?? [], signupCutoffHours: meta?.signupCutoffHours ?? null }
+  } catch (err) {
+    logger.error('Event settings unreadable: no email about this workshop this time', { scheduleId, error: String(err) })
+    return null
+  }
+}
+
 async function gatherFacts(now: Date): Promise<StudioFacts> {
   const bookingOpen = envBookingsOpen()
   const [workshops, openPartyStarts] = await Promise.all([
@@ -65,15 +78,18 @@ async function gatherFacts(now: Date): Promise<StudioFacts> {
     now,
     bookingOpen,
     openPartyStarts,
-    workshops: workshops.map(
-      (w): WorkshopFact => ({
-        id: w.id,
-        name: w.name,
-        startAt: w.startAt,
-        durationMinutes: w.durationMinutes,
-        priceCents: w.priceCents,
-        seatsLeft: w.availableCapacity,
-      }),
+    workshops: await Promise.all(
+      workshops.map(
+        async (w): Promise<WorkshopFact> => ({
+          id: w.id,
+          name: w.name,
+          startAt: w.startAt,
+          durationMinutes: w.durationMinutes,
+          priceCents: w.priceCents,
+          seatsLeft: w.availableCapacity,
+          cutoff: await cutoffFor(w.scheduleId),
+        }),
+      ),
     ),
     kitsOpen: bookingOpen && siteConfig.features.kits.enabled,
     bookingWindowDays: partyConfig.bookingWindowDays,

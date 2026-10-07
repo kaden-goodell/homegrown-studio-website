@@ -16,6 +16,7 @@
  */
 import { canBeBooked } from '@lib/workshop-rules'
 import { formatMoney } from '@lib/money'
+import { isSignupClosed, type CutoffSettings } from '@lib/seat-options'
 
 export interface WorkshopFact {
   id: string
@@ -25,6 +26,9 @@ export interface WorkshopFact {
   durationMinutes: number
   priceCents: number
   seatsLeft: number
+  /** The class's questions and cutoff. Absent = a plain class (closes at its
+   *  start); null = couldn't be read, so nothing is announced for it. */
+  cutoff?: CutoffSettings | null
 }
 
 export interface StudioFacts {
@@ -121,8 +125,14 @@ function upcoming(w: WorkshopFact, facts: StudioFacts): boolean {
   return new Date(w.startAt).getTime() > facts.now.getTime()
 }
 
+/** Same cutoff the booking server enforces, so no email points at a closed class. */
+function signupsOpen(w: WorkshopFact, facts: StudioFacts): boolean {
+  if (w.cutoff === null) return false
+  return !w.cutoff || !isSignupClosed(w.startAt, w.cutoff, facts.now)
+}
+
 function bookable(w: WorkshopFact, facts: StudioFacts): boolean {
-  return upcoming(w, facts) && canBeBooked(w.priceCents) && w.seatsLeft > 0
+  return upcoming(w, facts) && canBeBooked(w.priceCents) && w.seatsLeft > 0 && signupsOpen(w, facts)
 }
 
 /** "Friday, October 16 at 7:00 PM. $40 per seat." */
