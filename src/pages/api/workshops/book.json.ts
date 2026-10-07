@@ -19,6 +19,7 @@ import { formatSlotLabel } from '@lib/studio-time'
 import { summarize } from '@lib/seo'
 import { canBeBooked } from '@lib/workshop-rules'
 import { getEventMeta } from '@lib/event-meta'
+import { saveSeatChoices } from '@lib/seat-choices'
 import {
   cutoffClosedMessage,
   effectiveCutoffHours,
@@ -199,6 +200,33 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
 
   // ── Paid and confirmed. Nothing below may turn this into a failure. ────────
+  // The structured picks behind the roster (spec C/D). Written only now, once
+  // the money is taken. A failed write never fails the booking: the picks are
+  // also in Square's booking note and in the customer's email, and a person
+  // is told so they can be added by hand.
+  if (picks.length > 0) {
+    try {
+      await saveSeatChoices({
+        eventKind: 'workshop',
+        eventId: workshop.scheduleId,
+        bookingId: booked.bookingId,
+        orderId: booked.orderId,
+        customer: { givenName, familyName, email, phone },
+        seats,
+        picks,
+        at: new Date().toISOString(),
+        attemptId,
+      })
+    } catch (err) {
+      logger.error('SEAT PICKS NOT SAVED (booking is paid)', {
+        bookingId: booked.bookingId,
+        error: err instanceof Error ? err.message : String(err),
+      })
+      await alertOwners(
+        `Seat picks not saved: ${givenName} ${familyName}, ${workshop.name}, ${formatSlotLabel(workshop.startAt)}. ${note}. Booking ${booked.bookingId} is paid; the picks are in its Square note.`,
+      ).catch(() => undefined)
+    }
+  }
   let emailSent = false
   try {
     emailSent = await sendConfirmation({

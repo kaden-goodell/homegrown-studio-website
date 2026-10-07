@@ -30,6 +30,9 @@ vi.mock('@lib/email', () => ({ sendWorkshopConfirmationEmail: (...a: any[]) => m
 const mockGetEventMeta = vi.fn()
 vi.mock('@lib/event-meta', () => ({ getEventMeta: (...a: any[]) => mockGetEventMeta(...a) }))
 
+const mockSaveSeatChoices = vi.fn()
+vi.mock('@lib/seat-choices', () => ({ saveSeatChoices: (...a: any[]) => mockSaveSeatChoices(...a) }))
+
 const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
 const TWO_PICKS = [
   { seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' },
@@ -99,6 +102,7 @@ beforeEach(async () => {
   mockListWorkshops.mockResolvedValue([workshop])
   mockAlertOwners.mockResolvedValue({ attempted: 2, sent: 2 })
   mockSendEmail.mockResolvedValue({ sent: true })
+  mockSaveSeatChoices.mockResolvedValue(undefined)
   POST = (await import('@pages/api/workshops/book.json')).POST
 })
 afterEach(() => vi.useRealTimers())
@@ -449,6 +453,46 @@ describe('POST /api/workshops/book.json', () => {
         customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com' },
         note: 'Pumpkin color: Black ×1, Lavender ×1',
       })
+    })
+  })
+
+  describe('the picks, once paid', () => {
+    beforeEach(() => mockGetEventMeta.mockResolvedValue({ options: [PAILS], signupCutoffHours: null }))
+
+    it('stores each seat’s pick after the charge has gone through', async () => {
+      expect((await POST(ctx(body({ picks: TWO_PICKS })))).status).toBe(200)
+      expect(mockSaveSeatChoices).toHaveBeenCalledWith({
+        eventKind: 'workshop',
+        eventId: 'clssch_kinusaiga',
+        bookingId: 'clsbk_1',
+        orderId: 'order-1',
+        customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com', phone: '(256) 555-0123' },
+        seats: 2,
+        picks: TWO_PICKS,
+        at: '2026-10-10T17:00:00.000Z',
+        attemptId: ATTEMPT,
+      })
+      expect(mockSaveSeatChoices.mock.invocationCallOrder[0]).toBeGreaterThan(mockPay.mock.invocationCallOrder[0])
+    })
+
+    it('stores nothing when the card is refused', async () => {
+      mockPay.mockRejectedValue(new SeatBookingError('square', 'pay', 'refused', '{"errors":[{"code":"CARD_DECLINED"}]}', 400))
+      await POST(ctx(body({ picks: TWO_PICKS })))
+      expect(mockSaveSeatChoices).not.toHaveBeenCalled()
+    })
+
+    it('stores nothing for a class with no questions', async () => {
+      mockGetEventMeta.mockResolvedValue(null)
+      await POST(ctx(body()))
+      expect(mockSaveSeatChoices).not.toHaveBeenCalled()
+    })
+
+    it('a failed save never fails a paid booking, and the owners are told', async () => {
+      mockSaveSeatChoices.mockRejectedValue(new Error('blobs down'))
+      const res = await POST(ctx(body({ picks: TWO_PICKS })))
+      expect(res.status).toBe(200)
+      expect(mockAlertOwners).toHaveBeenCalledWith(expect.stringContaining('Seat picks not saved: Ada Lovelace'))
+      expect(mockAlertOwners.mock.calls[0][0]).toContain('Pumpkin color: Black ×1, Lavender ×1')
     })
   })
 
