@@ -247,6 +247,12 @@ async function refuseIfPartyInTheWay(startIso: string, minutes: number): Promise
 }
 
 async function main() {
+  // 0. party guard first: a refused class must leave nothing behind (no catalog item, no POST).
+  // Runs on --dry-run too: it only reads, so a dry run shows the refusal.
+  const startAtIso = chicagoToUtcISO(startLocal!)
+  await refuseIfPartyInTheWay(startAtIso, durationMinutes)
+  if (rrule) console.log('  note: only the first date of a repeating series was checked for parties.')
+
   // 1. resolve the catalog item (+ its variation token/version)
   let item: any
   if (itemId) {
@@ -275,7 +281,7 @@ async function main() {
       item_variation_version: Number(variation.version),
       location_id: locationId,
       rrule,
-      start_at: chicagoToUtcISO(startLocal!),
+      start_at: startAtIso,
       status: 'CLASS_SCHEDULE_ACTIVE',
       team_member_id: teamMemberId,
       total_capacity: totalCapacity,
@@ -286,10 +292,6 @@ async function main() {
   console.log(`\nClass: ${item.itemData?.name}  (item ${item.id})`)
   console.log(`  start:    ${startLocal} America/Chicago  ->  ${body.class_schedule.start_at}`)
   console.log(`  duration: ${durationMinutes} min   capacity: ${totalCapacity}   rrule: ${rrule || '(one-off)'}`)
-
-  // Runs on --dry-run too: it only reads, so a dry run shows the refusal.
-  await refuseIfPartyInTheWay(body.class_schedule.start_at, durationMinutes)
-  if (rrule) console.log('  note: only the first date of a repeating series was checked for parties.')
 
   if (dryRun) {
     console.log('\n--dry-run, request body:\n' + JSON.stringify(body, null, 2))
