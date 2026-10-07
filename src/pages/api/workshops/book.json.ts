@@ -88,10 +88,15 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // Older cached pages may not send one; then every request is its own attempt.
   const attemptId = isAttemptId(body.attemptId) ? body.attemptId : randomUUID()
 
+  // Simulated payments (local dev and Netlify previews only): no real customer is created in Square.
+  const simulated = paymentBypassEnabled()
+
   // ── 1. The workshop, the customer and the class's settings, looked up together
   const [workshopLookup, customerLookup, metaLookup] = await Promise.allSettled([
     lookUp(typeof body.workshopId === 'string' ? body.workshopId : '', String(classScheduleId), String(startAt)),
-    providers.customer.findOrCreate({ email, givenName, familyName, ...(phone ? { phone } : {}) }),
+    simulated
+      ? Promise.resolve({ id: 'dev-customer' })
+      : providers.customer.findOrCreate({ email, givenName, familyName, ...(phone ? { phone } : {}) }),
     getEventMeta('workshop', String(classScheduleId)),
   ])
 
@@ -143,7 +148,6 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
 
   let booked: { bookingId: string; orderId: string | null; status: string; receiptUrl: string | null }
-  const simulated = paymentBypassEnabled()
   if (simulated) {
     // Simulated payments (local dev, deploy previews): every refusal above has
     // already run. Nothing is held or charged; carry on as a paid booking.
@@ -236,7 +240,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         error: err instanceof Error ? err.message : String(err),
       })
       await alertOwners(
-        `Seat picks not saved: ${givenName} ${familyName}, ${workshop.name}, ${formatSlotLabel(workshop.startAt)}. ${note}. Booking ${booked.bookingId} is paid; add these picks by hand.`,
+        `${simulated ? '(test booking, no action needed) ' : ''}Seat picks not saved: ${givenName} ${familyName}, ${workshop.name}, ${formatSlotLabel(workshop.startAt)}. ${note}. Booking ${booked.bookingId} is ${simulated ? 'simulated' : 'paid'}; ${simulated ? 'ignore this' : 'add these picks by hand'}.`,
       ).catch(() => undefined)
     }
   }

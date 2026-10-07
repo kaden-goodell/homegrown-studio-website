@@ -1,4 +1,8 @@
-import { describe, it, expect, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+let previewOrDev = true
+vi.mock('@lib/deploy-context', () => ({ isPreviewOrDev: () => previewOrDev }))
+
 import { saveSeatChoices, listSeatChoicesByEvent, hasSeatChoices, seatChoiceKey, summarizeChoices, type SeatChoiceRecord } from '@lib/seat-choices'
 
 function record(eventId: string, bookingId: string, over: Partial<SeatChoiceRecord> = {}): SeatChoiceRecord {
@@ -63,11 +67,7 @@ describe('summarizeChoices', () => {
 })
 
 describe('simulated records (payment bypass on a preview)', () => {
-  const saved = process.env.CONTEXT
-  afterEach(() => {
-    if (saved === undefined) delete process.env.CONTEXT
-    else process.env.CONTEXT = saved
-  })
+  beforeEach(() => { previewOrDev = true })
 
   async function seed() {
     const id = `clssch_sim${Date.now()}${Math.random()}`
@@ -76,26 +76,22 @@ describe('simulated records (payment bypass on a preview)', () => {
     return id
   }
 
-  it('are left out of the production listing', async () => {
+  it('are left out of the listing in production and in an unknown runtime', async () => {
     const id = await seed()
-    process.env.CONTEXT = 'production'
+    previewOrDev = false
     expect((await listSeatChoicesByEvent('workshop', id)).map((r) => r.bookingId)).toEqual(['clsbk_real'])
   })
 
-  it('do not make a class look like it has picks in production', async () => {
+  it('do not make a class look like it has picks there', async () => {
     const id = `clssch_simonly${Date.now()}${Math.random()}`
     await saveSeatChoices(record(id, 'bypass-1', { simulated: true }))
-    process.env.CONTEXT = 'production'
+    previewOrDev = false
     expect(await hasSeatChoices('workshop', id)).toBe(false)
   })
 
-  it('are listed everywhere else', async () => {
+  it('are listed on a preview or in dev', async () => {
     const id = await seed()
-    for (const ctx of ['branch-deploy', 'deploy-preview', undefined]) {
-      if (ctx === undefined) delete process.env.CONTEXT
-      else process.env.CONTEXT = ctx
-      expect((await listSeatChoicesByEvent('workshop', id)).map((r) => r.bookingId).sort()).toEqual(['bypass-1', 'clsbk_real'])
-    }
+    expect((await listSeatChoicesByEvent('workshop', id)).map((r) => r.bookingId).sort()).toEqual(['bypass-1', 'clsbk_real'])
   })
 
   it('carry a (test) suffix on the roster', () => {

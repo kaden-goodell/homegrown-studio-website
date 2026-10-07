@@ -252,9 +252,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
   let bookingIdForLog: string | undefined
 
-  // Dev-only: skip Square entirely and return a synthetic confirmation so the
-  // booking flow (and its waiver/invite handoff) can be exercised without a
-  // real charge or a live booking. Gated to `astro dev` — never in prod.
+  // Simulated payments (local dev and Netlify previews only, never production):
+  // skip Square entirely and return a synthetic confirmation so the booking
+  // flow (and its waiver/invite handoff) can be exercised without a real
+  // charge or a live booking.
   if (paymentBypassEnabled()) {
     logger.info('Payment bypass active — returning synthetic party booking')
     const bookingId = `dev_${Date.now().toString(36)}`

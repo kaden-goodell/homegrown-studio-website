@@ -9,6 +9,7 @@
  * Netlify Blobs in prod, `.data/seat-choices/` on disk in dev.
  */
 import { createLogger } from '@lib/logger'
+import { isPreviewOrDev } from '@lib/deploy-context'
 import { makeKvStore } from '@lib/blob-store'
 import { choiceTotals, type SeatOption, type SeatPick } from '@lib/seat-options'
 
@@ -50,7 +51,7 @@ export async function listSeatChoicesByEvent(_kind: 'workshop', eventId: string)
   }))
   // Previews share production's blob stores: a simulated booking must never be
   // counted as a paying customer on the production roster.
-  const hideSimulated = process.env.CONTEXT === 'production'
+  const hideSimulated = !isPreviewOrDev()
   return records
     .filter((r): r is SeatChoiceRecord => r !== null)
     .filter((r) => !(hideSimulated && r.simulated === true))

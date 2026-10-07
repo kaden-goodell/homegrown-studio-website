@@ -7,7 +7,11 @@
  * blob store that honours onlyIfMatch/onlyIfNew exactly like Netlify Blobs, via
  * the same _blobStore hook blob-store.test.ts uses.
  */
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+let previewOrDev = true
+vi.mock('@lib/deploy-context', () => ({ isPreviewOrDev: () => previewOrDev }))
+
 import { makeKvStore, type KvStore } from '@lib/blob-store'
 import {
   _setKitKvForTests,
@@ -221,5 +225,30 @@ describe('claimWeek — pending TTL', () => {
     // The three stale pending were pruned; only the fresh claim survives.
     const claims = await getWeekClaims(THEME, WEEK)
     expect(claims.map((c) => c.ref)).toEqual(['fresh'])
+  })
+})
+
+describe('simulated kit orders (payment bypass on a preview)', () => {
+  beforeEach(() => {
+    previewOrDev = true
+    _setKitKvForTests(makeKvStore('kit-sim-test', 'kit-sim-test'))
+  })
+
+  it('are hidden from reads and lists in production or an unknown runtime', async () => {
+    const tag = `${Date.now()}${Math.floor(Math.random() * 1e6)}`
+    await createKitOrder(orderFixture({ orderId: `dev_${tag}` }))
+    await createKitOrder(orderFixture({ orderId: `flag_${tag}`, simulated: true }))
+    await createKitOrder(orderFixture({ orderId: `real_${tag}` }))
+    previewOrDev = false
+    expect(await getKitOrder(`dev_${tag}`)).toBeNull()
+    expect(await getKitOrder(`flag_${tag}`)).toBeNull()
+    expect((await getKitOrder(`real_${tag}`))?.orderId).toBe(`real_${tag}`)
+    expect((await listKitOrders()).map((o) => o.orderId).filter((id) => id.endsWith(tag))).toEqual([`real_${tag}`])
+  })
+
+  it('are visible on a preview or in dev', async () => {
+    const tag = `${Date.now()}${Math.floor(Math.random() * 1e6)}`
+    await createKitOrder(orderFixture({ orderId: `dev_${tag}` }))
+    expect((await getKitOrder(`dev_${tag}`))?.orderId).toBe(`dev_${tag}`)
   })
 })

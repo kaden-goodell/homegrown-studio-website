@@ -11,8 +11,8 @@ export const POST: APIRoute = async ({ request }) => {
   try {
     const body = await request.json()
 
-    // Dev-only: return a synthetic paid result without charging. Gated to
-    // `astro dev` — never in prod. Lets workshop/checkout flows be demoed.
+    // Simulated payments (local dev and Netlify previews only, never production):
+    // return a synthetic paid result without charging.
     if (paymentBypassEnabled()) {
       logger.info('Payment bypass active — returning synthetic payment')
       return new Response(

@@ -10,6 +10,7 @@
  */
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@lib/logger'
+import { isPreviewOrDev } from '@lib/deploy-context'
 import { makeKvStore } from '@lib/blob-store'
 
 const logger = createLogger('party-store')
@@ -61,7 +62,7 @@ export async function savePartyRecord(record: PartyRecord): Promise<void> {
 
 /** Previews share production's blob stores; simulated parties must never show up there. */
 function visibleHere(record: PartyRecord): boolean {
-  return !(process.env.CONTEXT === 'production' && (record.simulated === true || record.bookingId.startsWith('dev_')))
+  return isPreviewOrDev() || !(record.simulated === true || record.bookingId.startsWith('dev_'))
 }
 
 export async function getPartyRecord(bookingId: string): Promise<PartyRecord | null> {

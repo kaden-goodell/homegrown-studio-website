@@ -14,6 +14,7 @@
  * `.data/kits/` on disk in dev.
  */
 import { createLogger } from '@lib/logger'
+import { isPreviewOrDev } from '@lib/deploy-context'
 import { makeKvStore, type KvStore } from '@lib/blob-store'
 import { availabilityFor, CLAIM_TTL_MS, type WeekClaim, type LedgerRecord } from '@lib/kit-ledger'
 import type { By } from '@lib/staff-auth'
@@ -74,6 +75,8 @@ export interface KitOrderRecord {
   depositRefund?: { amountCents: number; refundId: string; at: string }
   status: 'upcoming' | 'out' | 'returned' | 'cancelled' | 'forfeited'
   events: KitEvent[]
+  /** Written by a payment-bypass order (dev / preview). Hidden unless on a preview or dev. */
+  simulated?: true
 }
 
 const EVENTS_CAP = 200
@@ -92,9 +95,16 @@ export async function createKitOrder(record: KitOrderRecord): Promise<void> {
   logger.info('Kit order stored', { orderId: record.orderId, reference: record.reference })
 }
 
+/** Previews share production's blob stores; simulated orders must never show up there (or anywhere unidentified). */
+function visibleHere(record: KitOrderRecord): boolean {
+  return isPreviewOrDev() || !(record.simulated === true || record.orderId.startsWith('dev_'))
+}
+
 export async function getKitOrder(orderId: string): Promise<KitOrderRecord | null> {
   const json = await kv.get(orderId)
-  return json ? (JSON.parse(json) as KitOrderRecord) : null
+  if (!json) return null
+  const record = JSON.parse(json) as KitOrderRecord
+  return visibleHere(record) ? record : null
 }
 
 /** All kit orders, newest first. Claims blobs and the probe key are excluded. */

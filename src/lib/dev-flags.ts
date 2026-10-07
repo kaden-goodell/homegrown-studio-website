@@ -2,26 +2,10 @@
  * Simulated-payment affordance.
  *
  * Never active in production. It needs an explicit opt-in (`DEV_BYPASS_PAYMENT=true`)
- * AND a non-production runtime:
- *  - `astro dev` (`import.meta.env.DEV`), or
- *  - a Netlify deploy preview / branch deploy (`CONTEXT` = 'deploy-preview' | 'branch-deploy').
- * `CONTEXT=production` always wins, and an unknown runtime (no CONTEXT, not DEV)
- * never simulates: it fails safe to real payments.
+ * AND `isPreviewOrDev()` (local dev, or a Netlify deploy preview / branch deploy;
+ * see deploy-context.ts). Production and unknown runtimes never simulate.
  */
-
-function read(name: string): string | undefined {
-  const fromProcess = typeof process !== 'undefined' ? process.env?.[name] : undefined
-  if (fromProcess !== undefined) return fromProcess
-  const metaEnv: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {}
-  const fromMeta = metaEnv[name]
-  return fromMeta === undefined ? undefined : String(fromMeta)
-}
-
-function isDevServer(): boolean {
-  const metaEnv: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {}
-  // Astro exposes a boolean; some runners expose the string form.
-  return metaEnv.DEV === true || metaEnv.DEV === 'true'
-}
+import { isPreviewOrDev } from '@lib/deploy-context'
 
 /**
  * When on, the payment step is skipped end-to-end so booking flows can be
@@ -34,16 +18,10 @@ function isDevServer(): boolean {
  * deploy-preview / branch-deploy contexts only (never the production context).
  */
 export function paymentBypassEnabled(): boolean {
-  return bypassDecision({
-    flag: read('DEV_BYPASS_PAYMENT'),
-    context: read('CONTEXT'),
-    dev: isDevServer(),
-  })
+  return bypassDecision({ flag: process.env.DEV_BYPASS_PAYMENT ?? (import.meta as any).env?.DEV_BYPASS_PAYMENT, simulatedAllowed: isPreviewOrDev() })
 }
 
 /** The rule itself, with its inputs passed in so it can be tested exhaustively. */
-export function bypassDecision(input: { flag?: string; context?: string; dev: boolean }): boolean {
-  if (input.flag !== 'true') return false
-  if (input.context === 'production') return false
-  return input.dev || input.context === 'deploy-preview' || input.context === 'branch-deploy'
+export function bypassDecision(input: { flag?: string; simulatedAllowed: boolean }): boolean {
+  return input.flag === 'true' && input.simulatedAllowed
 }
