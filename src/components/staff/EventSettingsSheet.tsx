@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react'
 import { formatWhen } from '@lib/studio-time'
 import type { StudioEvent } from '@lib/events'
+import {
+  effectiveCutoffHours,
+  MAX_CHOICE_LENGTH,
+  MAX_CUTOFF_HOURS,
+  MAX_LABEL_LENGTH,
+  MAX_OPTIONS,
+  type SeatOption,
+} from '@lib/seat-options'
+
+type EventPatch = { dropOff?: boolean; days?: string[] | null; options?: SeatOption[]; signupCutoffHours?: number | null }
 
 const ENDPOINT = '/api/staff/event-meta.json'
 
@@ -43,7 +53,7 @@ async function fetchEvent(kind: string, id: string): Promise<StudioEvent | null>
   }
 }
 
-async function patchEvent(kind: string, id: string, patch: { dropOff?: boolean; days?: string[] | null }): Promise<{ event?: StudioEvent; error?: string }> {
+async function patchEvent(kind: string, id: string, patch: EventPatch): Promise<{ event?: StudioEvent; error?: string }> {
   try {
     const res = await fetch(ENDPOINT, {
       method: 'POST',
@@ -92,7 +102,7 @@ export default function EventSettingsSheet({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialEvent.kind, initialEvent.id])
 
-  async function save(patch: { dropOff?: boolean; days?: string[] | null }) {
+  async function save(patch: EventPatch) {
     setBusy(true)
     setError(null)
     const r = await patchEvent(event.kind, event.id, patch)
@@ -237,6 +247,13 @@ export default function EventSettingsSheet({
           )}
         </div>
 
+        {event.kind === 'workshop' && (
+          <SeatQuestions saved={event.options ?? []} busy={busy} onSave={(options) => save({ options })} />
+        )}
+        {event.kind === 'workshop' && (
+          <SignupCutoff event={event} busy={busy} onSave={(hours) => save({ signupCutoffHours: hours })} />
+        )}
+
         {error && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginTop: '0.8rem', fontWeight: 600 }}>{error}</p>}
 
         {event.by && event.updatedAt && (
@@ -245,6 +262,225 @@ export default function EventSettingsSheet({
           </p>
         )}
       </div>
+    </div>
+  )
+}
+
+const sectionTitle: React.CSSProperties = { margin: '0 0 0.4rem', fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-dark)' }
+const hint: React.CSSProperties = { margin: '0.25rem 0 0', fontSize: '0.78125rem', color: 'var(--color-muted)' }
+const textInput: React.CSSProperties = {
+  minHeight: '2.75rem',
+  padding: '0.4rem 0.6rem',
+  borderRadius: '0.5rem',
+  border: '1px solid rgba(var(--color-primary-rgb),0.3)',
+  fontSize: '0.85rem',
+}
+const confirmBox: React.CSSProperties = {
+  marginTop: '0.6rem',
+  padding: '0.7rem 0.85rem',
+  borderRadius: '0.7rem',
+  background: 'rgba(217,119,6,0.08)',
+  border: '1px solid rgba(217,119,6,0.28)',
+}
+
+const toDraft = (o: SeatOption): SeatOption => ({ id: o.id, label: o.label, choices: [...o.choices] })
+
+/**
+ * "Questions for each seat" (spec A): e.g. Pumpkin color → Light Pink /
+ * Light Blue / Black / Lavender. Edits stay local until Save → confirm, like
+ * Drop-off. The server owns the rules (limits; nothing removed once anyone
+ * has picked) and its refusal shows in the sheet's error line.
+ */
+function SeatQuestions({ saved, busy, onSave }: { saved: SeatOption[]; busy: boolean; onSave: (options: SeatOption[]) => Promise<void> }) {
+  const savedKey = JSON.stringify(saved)
+  const [draft, setDraft] = useState<SeatOption[]>(() => saved.map(toDraft))
+  const [newChoice, setNewChoice] = useState<Record<number, string>>({})
+  const [confirming, setConfirming] = useState(false)
+
+  useEffect(() => {
+    setDraft(saved.map(toDraft))
+    setConfirming(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey])
+
+  const dirty = JSON.stringify(draft) !== savedKey
+  const update = (i: number, next: Partial<SeatOption>) => setDraft((d) => d.map((o, j) => (j === i ? { ...o, ...next } : o)))
+
+  function addChoice(i: number) {
+    const c = (newChoice[i] ?? '').trim()
+    if (!c) return
+    update(i, { choices: [...draft[i].choices, c] })
+    setNewChoice((n) => ({ ...n, [i]: '' }))
+  }
+
+  async function confirmSave() {
+    setConfirming(false)
+    await onSave(draft.map((o) => ({ id: o.id, label: o.label.trim(), choices: o.choices })))
+  }
+
+  return (
+    <div style={{ marginTop: '1.1rem' }}>
+      <p style={sectionTitle}>Questions for each seat</p>
+      <p style={{ ...hint, margin: '0 0 0.4rem' }}>Each seat picks one answer when booking. Picks can’t change after.</p>
+      {draft.map((o, i) => (
+        <div key={i} style={{ marginTop: '0.6rem', padding: '0.6rem', borderRadius: '0.6rem', border: '1px solid rgba(var(--color-primary-rgb),0.2)' }}>
+          <input
+            aria-label={`Question ${i + 1}`}
+            value={o.label}
+            maxLength={MAX_LABEL_LENGTH}
+            placeholder="Pumpkin color"
+            disabled={busy}
+            onChange={(e) => update(i, { label: e.target.value })}
+            style={{ ...textInput, width: '100%', boxSizing: 'border-box' }}
+          />
+          <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+            {o.choices.map((c, k) => (
+              <span key={k} style={chip}>
+                {c}
+                <button
+                  type="button"
+                  aria-label={`Remove ${c}`}
+                  disabled={busy}
+                  onClick={() => update(i, { choices: o.choices.filter((_, x) => x !== k) })}
+                  style={{ border: 'none', background: 'none', color: 'var(--color-muted)', cursor: busy ? 'default' : 'pointer', fontSize: '0.85rem', lineHeight: 1, padding: 0, minWidth: '2.75rem', minHeight: '2.75rem' }}
+                >
+                  ×
+                </button>
+              </span>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '0.4rem', marginTop: '0.5rem' }}>
+            <input
+              aria-label={`New choice for question ${i + 1}`}
+              value={newChoice[i] ?? ''}
+              maxLength={MAX_CHOICE_LENGTH}
+              placeholder="Lavender"
+              disabled={busy}
+              onChange={(e) => setNewChoice((n) => ({ ...n, [i]: e.target.value }))}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  addChoice(i)
+                }
+              }}
+              style={{ ...textInput, flex: 1 }}
+            />
+            <button type="button" onClick={() => addChoice(i)} disabled={busy} style={{ ...btn(), minHeight: '2.75rem' }}>Add choice</button>
+          </div>
+          <button
+            type="button"
+            onClick={() => setDraft((d) => d.filter((_, j) => j !== i))}
+            disabled={busy}
+            style={{ ...btn(), marginTop: '0.5rem', padding: '0.3rem 0.65rem', fontSize: '0.78125rem', minHeight: '2.75rem' }}
+          >
+            Remove question
+          </button>
+        </div>
+      ))}
+      {draft.length < MAX_OPTIONS && (
+        <button
+          type="button"
+          onClick={() => setDraft((d) => [...d, { id: '', label: '', choices: [] }])}
+          disabled={busy}
+          style={{ ...btn(), marginTop: '0.6rem', padding: '0.3rem 0.65rem', fontSize: '0.78125rem', minHeight: '2.75rem' }}
+        >
+          + Add a question
+        </button>
+      )}
+      {dirty && !confirming && (
+        <div style={{ marginTop: '0.6rem' }}>
+          <button type="button" onClick={() => setConfirming(true)} disabled={busy} style={btn(true)}>Save questions</button>
+        </div>
+      )}
+      {confirming && (
+        <div style={confirmBox}>
+          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-dark)', fontWeight: 600 }}>
+            {draft.length === 0
+              ? 'Remove the questions from this class?'
+              : 'Save these questions? Everyone booking this class will pick one answer per seat.'}
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem' }}>
+            <button type="button" onClick={() => setConfirming(false)} style={btn()}>Cancel</button>
+            <button type="button" onClick={confirmSave} disabled={busy} style={btn(true)}>Yes, save</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * "Sign-ups close" (spec A): whole hours before the class. Blank means the
+ * default (0 h, or 24 h once the class asks questions), shown greyed.
+ */
+function SignupCutoff({ event, busy, onSave }: { event: StudioEvent; busy: boolean; onSave: (hours: number | null) => Promise<void> }) {
+  const saved = event.signupCutoffHours ?? null
+  const fallback = effectiveCutoffHours({ options: event.options ?? [], signupCutoffHours: null })
+  const [value, setValue] = useState(saved === null ? '' : String(saved))
+  const [confirming, setConfirming] = useState(false)
+
+  useEffect(() => {
+    setValue(saved === null ? '' : String(saved))
+    setConfirming(false)
+  }, [saved])
+
+  const parsed = value.trim() === '' ? null : Number(value)
+  const valid = parsed === null || (Number.isInteger(parsed) && parsed >= 0 && parsed <= MAX_CUTOFF_HOURS)
+  const changed = parsed !== saved
+  const inputId = `cutoff-${event.id}`
+
+  return (
+    <div style={{ marginTop: '1.1rem' }}>
+      <label htmlFor={inputId} style={{ ...sectionTitle, display: 'block' }}>Sign-ups close</label>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <input
+          id={inputId}
+          type="number"
+          inputMode="numeric"
+          min={0}
+          max={MAX_CUTOFF_HOURS}
+          step={1}
+          value={value}
+          placeholder={`${fallback} (default)`}
+          disabled={busy}
+          onChange={(e) => setValue(e.target.value)}
+          style={{ ...textInput, width: '7.5rem' }}
+        />
+        <span style={{ fontSize: '0.85rem', color: 'var(--color-dark)' }}>hours before it starts</span>
+      </div>
+      <p style={hint}>
+        {!valid
+          ? `Whole hours, 0 to ${MAX_CUTOFF_HOURS}.`
+          : saved === null
+            ? `Using the default: ${fallback} hours.`
+            : `Default would be ${fallback} hours. Clear the box to use it.`}
+      </p>
+      {valid && changed && !confirming && (
+        <div style={{ marginTop: '0.5rem' }}>
+          <button type="button" onClick={() => setConfirming(true)} disabled={busy} style={btn(true)}>Save</button>
+        </div>
+      )}
+      {confirming && (
+        <div style={confirmBox}>
+          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-dark)', fontWeight: 600 }}>
+            {parsed === null ? `Go back to the default (${fallback} hours)?` : `Close sign-ups ${parsed} hours before this class?`}
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem' }}>
+            <button type="button" onClick={() => setConfirming(false)} style={btn()}>Cancel</button>
+            <button
+              type="button"
+              onClick={async () => {
+                setConfirming(false)
+                await onSave(parsed)
+              }}
+              disabled={busy}
+              style={btn(true)}
+            >
+              Yes, save
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
