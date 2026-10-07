@@ -28,9 +28,12 @@ const box: CSSProperties = {
 export default function WarningsPanel({ onOpenEvent }: { onOpenEvent: (e: { kind: EventKind; id: string; title: string }) => void }) {
   const [warnings, setWarnings] = useState<PanelWarning[] | null>(null)
   const [failed, setFailed] = useState(false)
+  const [loading, setLoading] = useState(false)
 
+  // `failed` is only cleared once an answer arrives, so a retry in flight keeps
+  // the red box up instead of flashing to nothing (which reads as all clear).
   async function load() {
-    setFailed(false)
+    setLoading(true)
     try {
       const res = await fetch('/api/staff/warnings.json', { cache: 'no-store' })
       const json = await res.json().catch(() => null)
@@ -39,8 +42,11 @@ export default function WarningsPanel({ onOpenEvent }: { onOpenEvent: (e: { kind
         return
       }
       setWarnings(Array.isArray(json.data.warnings) ? json.data.warnings : [])
+      setFailed(false)
     } catch {
       setFailed(true)
+    } finally {
+      setLoading(false)
     }
   }
 
@@ -52,7 +58,9 @@ export default function WarningsPanel({ onOpenEvent }: { onOpenEvent: (e: { kind
     return (
       <div role="alert" style={box}>
         <p style={{ margin: 0, fontWeight: 700, color: '#b91c1c' }}>⚠ Couldn’t check the schedule for conflicts.</p>
-        <button type="button" onClick={load} style={{ ...btn(), minHeight: 44, marginTop: '0.5rem' }}>Try again</button>
+        <button type="button" onClick={load} disabled={loading} style={{ ...btn(), minHeight: 44, marginTop: '0.5rem' }}>
+          {loading ? 'Checking…' : 'Try again'}
+        </button>
       </div>
     )
   }
@@ -64,7 +72,7 @@ export default function WarningsPanel({ onOpenEvent }: { onOpenEvent: (e: { kind
       <ul style={{ margin: 0, padding: 0, listStyle: 'none' }}>
         {warnings.map((w, i) => (
           <li
-            key={`${w.code}:${w.eventId}:${w.when}`}
+            key={`${w.code}:${w.eventId}:${w.when}:${i}`}
             style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.35rem 0', borderTop: i === 0 ? 'none' : '1px solid rgba(185,28,28,0.15)' }}
           >
             <span style={{ flex: 1, fontSize: '0.875rem', color: 'var(--color-dark)' }}>{w.line}</span>
