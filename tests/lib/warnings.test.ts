@@ -15,6 +15,11 @@ vi.mock('@config/site.config', () => ({ siteConfig: { providers: { booking: { co
 const HOSTS: Record<string, string> = { bk_rivera: 'Jamie Rivera', bk_lopez: 'Ana Lopez' }
 vi.mock('@lib/party-store', () => ({ getPartyRecord: async (id: string) => (HOSTS[id] ? { hostName: HOSTS[id] } : null) }))
 
+const mockGetEventMeta = vi.fn()
+vi.mock('@lib/event-meta', () => ({ getEventMeta: (...a: any[]) => mockGetEventMeta(...a) }))
+const mockListSeatChoices = vi.fn()
+vi.mock('@lib/seat-choices', () => ({ listSeatChoicesByEvent: (...a: any[]) => mockListSeatChoices(...a) }))
+
 import { partyConfig } from '@config/party.config'
 import { listWarnings, warningLine } from '@lib/warnings'
 
@@ -35,6 +40,8 @@ beforeEach(() => {
   mockProviders.booking.listBookings = (...a: any[]) => mockListBookings(...a)
   mockListAllWorkshops.mockResolvedValue([])
   mockListBookings.mockResolvedValue([])
+  mockGetEventMeta.mockResolvedValue(null)
+  mockListSeatChoices.mockResolvedValue([])
 })
 
 describe('listWarnings', () => {
@@ -159,5 +166,56 @@ describe('listWarnings', () => {
     mockListBookings.mockResolvedValue([party('bk_rivera', '2026-10-18T19:00:00.000Z'), party('bk_lopez', '2026-10-18T23:00:00.000Z')])
     const list = await listWarnings(WINDOW)
     expect(list.filter((w) => w.code === 'class-over-party')).toHaveLength(2)
+  })
+})
+
+describe('listWarnings — picks-missing', () => {
+  const OPTION = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Black', 'Lavender'] }
+  const seatsPicked = (...n: number[]) => n.map((seats) => ({ seats }))
+
+  beforeEach(() => {
+    mockListAllWorkshops.mockResolvedValue([PAILS]) // 25 seats, 10 left: 15 sold
+    mockGetEventMeta.mockResolvedValue({ options: [OPTION], signupCutoffHours: null })
+  })
+
+  it('counts sold seats with no pick on record', async () => {
+    mockListSeatChoices.mockResolvedValue(seatsPicked(4, 4, 5)) // 13 picked
+    const [w] = await listWarnings(WINDOW)
+    expect(mockListSeatChoices).toHaveBeenCalledWith('workshop', 'clssch_pails')
+    expect(w).toEqual({
+      code: 'picks-missing', eventKind: 'workshop', eventId: 'clssch_pails', when: '2026-10-18T18:00:00.000Z', title: 'Pumpkin Pails',
+      detail: 'Pumpkin Pails: 2 seats have no pumpkin color.', action: 'Call the customer.',
+    })
+  })
+
+  it('says "1 seat has" for one', async () => {
+    mockListSeatChoices.mockResolvedValue(seatsPicked(14))
+    expect((await listWarnings(WINDOW))[0].detail).toBe('Pumpkin Pails: 1 seat has no pumpkin color.')
+  })
+
+  it('is quiet when every sold seat has a pick', async () => {
+    mockListSeatChoices.mockResolvedValue(seatsPicked(15))
+    expect(await listWarnings(WINDOW)).toEqual([])
+  })
+
+  it('skips a class that asks no questions', async () => {
+    mockGetEventMeta.mockResolvedValue(null)
+    expect(await listWarnings(WINDOW)).toEqual([])
+    expect(mockListSeatChoices).not.toHaveBeenCalled()
+  })
+
+  it('skips a class when Square gives no capacity', async () => {
+    mockListAllWorkshops.mockResolvedValue([{ ...PAILS, totalCapacity: undefined }])
+    expect(await listWarnings(WINDOW)).toEqual([])
+  })
+
+  it('throws when the seat choices cannot be read', async () => {
+    mockListSeatChoices.mockRejectedValue(new Error('store down'))
+    await expect(listWarnings(WINDOW)).rejects.toThrow('store down')
+  })
+
+  it('throws when the event meta cannot be read', async () => {
+    mockGetEventMeta.mockRejectedValue(new Error('meta down'))
+    await expect(listWarnings(WINDOW)).rejects.toThrow('meta down')
   })
 })

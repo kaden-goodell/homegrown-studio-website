@@ -14,6 +14,8 @@
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { studioOpenOn } from '@config/closures'
+import { getEventMeta } from '@lib/event-meta'
+import { listSeatChoicesByEvent } from '@lib/seat-choices'
 import { getPartyRecord } from '@lib/party-store'
 import { createLogger } from '@lib/logger'
 import { formatCalendarDay, formatTime, formatTimeSpan, studioDate, studioDayUtcRange } from '@lib/studio-time'
@@ -166,9 +168,34 @@ function partyOnClosedDay(s: Scan): Warning[] {
     }))
 }
 
+/** Seats Square says are sold, minus seats with a pick on record: someone booked outside our site. */
+async function picksMissing(s: Scan): Promise<Warning[]> {
+  const checked = await Promise.all(
+    s.classes.map(async ({ span, workshop }): Promise<Warning[]> => {
+      if (typeof workshop.totalCapacity !== 'number') return []
+      const options = (await getEventMeta('workshop', span.id))?.options ?? []
+      if (options.length === 0) return []
+      const sold = workshop.totalCapacity - workshop.availableCapacity
+      const picked = (await listSeatChoicesByEvent('workshop', span.id)).reduce((n, r) => n + r.seats, 0)
+      const missing = sold - picked
+      if (missing <= 0) return []
+      return [{
+        code: 'picks-missing',
+        eventKind: 'workshop',
+        eventId: span.id,
+        when: span.startIso,
+        title: span.name,
+        detail: `${span.name}: ${missing} seat${missing === 1 ? ' has' : 's have'} no ${options[0].label.toLowerCase()}.`,
+        action: 'Call the customer.',
+      }]
+    }),
+  )
+  return checked.flat()
+}
+
 export async function listWarnings({ from, to }: { from: string; to: string }): Promise<Warning[]> {
   const s = await scan(from, to)
-  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s)].sort((a, b) =>
+  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s), ...(await picksMissing(s))].sort((a, b) =>
     a.when.localeCompare(b.when),
   )
 }
