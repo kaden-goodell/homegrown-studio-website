@@ -217,3 +217,30 @@ export function validatePicks(options: SeatOption[], seats: number, raw: unknown
 export function seatPickLines(options: SeatOption[], picks: SeatPick[]): string[] {
   return picks.map((p) => `Seat ${p.seat} · ${options.find((o) => o.id === p.optionId)?.label ?? p.optionId}: ${p.choice}`)
 }
+
+/** Seats per choice, per question: { "pumpkin-color": { Lavender: 6, Black: 4 } }. */
+export function choiceTotals(options: SeatOption[], picks: SeatPick[]): Record<string, Record<string, number>> {
+  const totals: Record<string, Record<string, number>> = {}
+  for (const o of options) totals[o.id] = {}
+  for (const p of picks) {
+    const t = totals[p.optionId]
+    if (t) t[p.choice] = (t[p.choice] ?? 0) + 1
+  }
+  return totals
+}
+
+/** "Pumpkin color — Lavender 6 · Black 4 · Light Pink 3 · Light Blue 2": most picked first, ties in the class's order. */
+export function totalsLine(option: SeatOption, totals: Record<string, number>): string {
+  const parts = option.choices
+    .map((c) => [c, totals[c] ?? 0] as const)
+    .filter(([, n]) => n > 0)
+    .sort((a, b) => b[1] - a[1])
+  return `${option.label} — ${parts.length ? parts.map(([c, n]) => `${c} ${n}`).join(' · ') : 'no picks yet'}`
+}
+
+/** "Lavender ×2, Black ×1": a family's picks on the roster card. */
+export function picksShort(picks: SeatPick[]): string {
+  const counts = new Map<string, number>()
+  for (const p of picks) counts.set(p.choice, (counts.get(p.choice) ?? 0) + 1)
+  return [...counts].map(([c, n]) => `${c} ×${n}`).join(', ')
+}

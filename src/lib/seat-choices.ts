@@ -10,7 +10,7 @@
  */
 import { createLogger } from '@lib/logger'
 import { makeKvStore } from '@lib/blob-store'
-import type { SeatPick } from '@lib/seat-options'
+import { choiceTotals, type SeatOption, type SeatPick } from '@lib/seat-options'
 
 const logger = createLogger('seat-choices')
 const kv = makeKvStore('seat-choices', 'seat-choices')
@@ -51,4 +51,35 @@ export async function listSeatChoicesByEvent(_kind: 'workshop', eventId: string)
 
 export async function hasSeatChoices(_kind: 'workshop', eventId: string): Promise<boolean> {
   return (await kv.list()).some((k) => k.startsWith(prefix(eventId)))
+}
+
+export interface RosterChoices {
+  /** optionId → choice → seats. */
+  totals: Record<string, Record<string, number>>
+  /** Lower-cased booking email → that family's picks (all their bookings). */
+  byEmail: Record<string, SeatPick[]>
+  /** Paid bookings whose email matches no signed agreement for this class. */
+  unmatched: { name: string; email: string; seats: number; picks: SeatPick[] }[]
+  /** Seats Square says are sold (capacity − left), or null when unknown. */
+  seatsSold: number | null
+}
+
+/** Roll a class's records up for the roster and the print sheet (spec D). */
+export function summarizeChoices(
+  options: SeatOption[],
+  records: SeatChoiceRecord[],
+  signerEmails: string[],
+  seatsSold: number | null,
+): RosterChoices {
+  const signed = new Set(signerEmails.map((e) => e.trim().toLowerCase()))
+  const byEmail: Record<string, SeatPick[]> = {}
+  const unmatched: RosterChoices['unmatched'] = []
+  for (const r of records) {
+    const email = r.customer.email.trim().toLowerCase()
+    byEmail[email] = [...(byEmail[email] ?? []), ...r.picks]
+    if (!signed.has(email)) {
+      unmatched.push({ name: `${r.customer.givenName} ${r.customer.familyName}`.trim(), email, seats: r.seats, picks: r.picks })
+    }
+  }
+  return { totals: choiceTotals(options, records.flatMap((r) => r.picks)), byEmail, unmatched, seatsSold }
 }

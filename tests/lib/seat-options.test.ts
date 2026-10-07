@@ -16,6 +16,9 @@ import {
   picksNote,
   validatePicks,
   seatPickLines,
+  choiceTotals,
+  totalsLine,
+  picksShort,
 } from '@lib/seat-options'
 
 const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
@@ -179,5 +182,23 @@ describe('validatePicks (the server’s check)', () => {
       'Seat 1 · Pumpkin color: Lavender',
       'Seat 2 · Pumpkin color: Black',
     ])
+  })
+})
+
+describe('roster wording', () => {
+  const p = (seat: number, choice: string) => ({ seat, optionId: 'pumpkin-color', choice })
+
+  it('totals each choice', () => {
+    expect(choiceTotals([PAILS], [p(1, 'Lavender'), p(2, 'Lavender'), p(1, 'Black')])).toEqual({ 'pumpkin-color': { Lavender: 2, Black: 1 } })
+  })
+
+  it('writes the strip most picked first, ties in the class’s order', () => {
+    expect(totalsLine(PAILS, { Lavender: 6, Black: 4, 'Light Pink': 3, 'Light Blue': 2 })).toBe('Pumpkin color — Lavender 6 · Black 4 · Light Pink 3 · Light Blue 2')
+    expect(totalsLine(PAILS, { Black: 1, 'Light Pink': 1 })).toBe('Pumpkin color — Light Pink 1 · Black 1')
+    expect(totalsLine(PAILS, {})).toBe('Pumpkin color — no picks yet')
+  })
+
+  it('writes a family’s picks short', () => {
+    expect(picksShort([p(1, 'Lavender'), p(2, 'Lavender'), p(3, 'Black')])).toBe('Lavender ×2, Black ×1')
   })
 })

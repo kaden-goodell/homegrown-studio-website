@@ -5,6 +5,7 @@ import { listWaiversByEvent, markDuplicateChildren, normalizeAuthorizedPickup } 
 import { getRsvp } from '@lib/rsvp-store'
 import { effectivePickup } from '@lib/pickup'
 import { getCheckin, toPublicCheckin, presenceOn } from '@lib/checkin-store'
+import { listSeatChoicesByEvent, summarizeChoices, type RosterChoices } from '@lib/seat-choices'
 import { createLogger } from '@lib/logger'
 
 export const prerender = false
@@ -128,6 +129,24 @@ export const GET: APIRoute = async ({ request, url }) => {
       children: h.children.map(({ dob: _dob, ...c }) => c),
     }))
 
+    // Seat picks (spec D): only classes that ask questions have them. A failed
+    // read leaves `choices` out rather than blanking the roster.
+    const options = kind === 'workshop' ? (event.options ?? []) : []
+    let choices: RosterChoices | null | undefined = null
+    if (options.length > 0) {
+      try {
+        choices = summarizeChoices(
+          options,
+          await listSeatChoicesByEvent('workshop', id),
+          waivers.map((w) => w.adult.email),
+          typeof event.capacity === 'number' && typeof event.seats === 'number' ? event.capacity - event.seats : null,
+        )
+      } catch (err) {
+        logger.error('Seat picks read failed', { kind, id, error: err instanceof Error ? err.message : String(err) })
+        choices = undefined
+      }
+    }
+
     return new Response(
       JSON.stringify({
         data: {
@@ -136,6 +155,7 @@ export const GET: APIRoute = async ({ request, url }) => {
           summary: { households: households.length, people, childrenHereNow },
           capWarning,
           households: responseHouseholds,
+          choices,
         },
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },

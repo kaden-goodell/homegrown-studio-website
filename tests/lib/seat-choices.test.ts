@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { saveSeatChoices, listSeatChoicesByEvent, hasSeatChoices, seatChoiceKey, type SeatChoiceRecord } from '@lib/seat-choices'
+import { saveSeatChoices, listSeatChoicesByEvent, hasSeatChoices, seatChoiceKey, summarizeChoices, type SeatChoiceRecord } from '@lib/seat-choices'
 
 function record(eventId: string, bookingId: string, over: Partial<SeatChoiceRecord> = {}): SeatChoiceRecord {
   return {
@@ -41,5 +41,23 @@ describe('seat-choices store', () => {
     expect(await hasSeatChoices('workshop', id)).toBe(false)
     await saveSeatChoices(record(id, 'clsbk_1'))
     expect(await hasSeatChoices('workshop', id)).toBe(true)
+  })
+})
+
+describe('summarizeChoices', () => {
+  const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
+  const p = (seat: number, choice: string) => ({ seat, optionId: 'pumpkin-color', choice })
+
+  it('totals, groups by email (any case) and lists paid families with no signed agreement', () => {
+    const records = [
+      record('clssch_pails', 'clsbk_1', { customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'Ada@Example.com', phone: '' }, seats: 2, picks: [p(1, 'Lavender'), p(2, 'Lavender')] }),
+      record('clssch_pails', 'clsbk_2', { customer: { givenName: 'Bo', familyName: 'Test', email: 'bo@x.com', phone: '' }, seats: 1, picks: [p(1, 'Black')] }),
+    ]
+    expect(summarizeChoices([PAILS], records, ['ada@example.com '], 15)).toEqual({
+      totals: { 'pumpkin-color': { Lavender: 2, Black: 1 } },
+      byEmail: { 'ada@example.com': [p(1, 'Lavender'), p(2, 'Lavender')], 'bo@x.com': [p(1, 'Black')] },
+      unmatched: [{ name: 'Bo Test', email: 'bo@x.com', seats: 1, picks: [p(1, 'Black')] }],
+      seatsSold: 15,
+    })
   })
 })
