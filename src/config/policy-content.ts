@@ -138,7 +138,7 @@ export const policySections: PolicySection[] = [
       {
         heading: 'What we keep',
         body:
-          'Names and dates of birth for every signer and child on the agreement, allergy/medical notes, your emergency contact, who’s authorized to pick up a child at a drop-off event, and the signature itself (when it was signed, which agreement version, and the device/IP it was signed from).',
+          'Names of every signer and child on the agreement (and each child’s date of birth), allergy/medical notes, your emergency contact if you give one, who’s authorized to pick up a child at a drop-off event, and the signature itself (when it was signed, which agreement version, and the device/IP it was signed from).',
       },
       {
         heading: 'Why',

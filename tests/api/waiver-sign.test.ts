@@ -488,6 +488,30 @@ describe('POST /api/waiver/sign.json', () => {
     })
   })
 
+  describe('returning household without an emergency contact on file', () => {
+    const reuseBody = { reuseRecordId: 'wvr_source_abc', reuseToken: 'valid-token', partyId: 'party-123', attending: ['adult', 'child:0'], responsibleAdult: '' }
+
+    it('is sent to the full form (409 mustResign) for a DROP-OFF event, nothing written', async () => {
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource({ emergency: { name: '', phone: '', relationship: '' } }))
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: true }))
+      const res = await POST(createMockContext(reuseBody))
+      expect(res.status).toBe(409)
+      const json = await res.json()
+      expect(json.mustResign).toBe(true)
+      expect(json.error).toMatch(/emergency contact on file/)
+      expect(mockUpsertRsvp).not.toHaveBeenCalled()
+      expect(mockSaveWaiverRecord).not.toHaveBeenCalled()
+    })
+
+    it('RSVPs one-tap as usual for a plain (non-drop-off) event', async () => {
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource({ emergency: { name: '', phone: '', relationship: '' } }))
+      mockGetEvent.mockResolvedValueOnce(partyEvent({ dropOff: false }))
+      const res = await POST(createMockContext(reuseBody))
+      expect(res.status).toBe(200)
+      expect(mockUpsertRsvp).toHaveBeenCalledOnce()
+    })
+  })
+
   describe('workshop context — RSVP attaches to the class, not the per-seat booking', () => {
     it('fresh sign: event.kind is workshop, keyed by classScheduleId, and stores ref.bookingId', async () => {
       const body = makeAdultBody({ workshopId: 'wkbk-abc123', partyId: null, booking: 'seat-booking-1' })

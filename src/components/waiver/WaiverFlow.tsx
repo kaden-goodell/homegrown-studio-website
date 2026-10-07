@@ -383,7 +383,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         setFirstName(json.data.firstName ?? '')
         if (c.includes('@')) setEmail(c)
         else setPhone(c)
-        setFormNotice(waiverContent.mustResignNotice)
+        setFormNotice(json.data.notice ?? waiverContent.mustResignNotice)
         setMode('form')
       } else if (json?.data?.found && json.data.recordId) {
         // A valid household is on file — show it (no code step).
@@ -461,7 +461,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         // lookup step should already have routed them here directly).
         setFirstName(returning.firstName)
         setReturning(null)
-        setFormNotice(waiverContent.mustResignNotice)
+        setFormNotice(json?.error ?? waiverContent.mustResignNotice)
         setMode('form')
         return
       }

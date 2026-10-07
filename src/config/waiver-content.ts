@@ -102,7 +102,7 @@ export const waiverContent = {
     /** Replaces the adult date-of-birth field (Oct 2026): one attestation
      *  tick. Alabama's age of majority is 19. */
     ageConfirmLabel: 'I’m 19 or older',
-    ageConfirmNote: 'In Alabama you’re a legal adult at 19. If you’re 18, a parent or guardian signs for you and lists you as their child.',
+    ageConfirmNote: 'In Alabama you’re a legal adult at 19. If you’re 18, a parent or guardian signs for you and lists you on theirs.',
     photoHeading: 'Photos at the studio',
     /** Defaults to yes; opting out never affects participation. */
     photoNote:
@@ -130,6 +130,9 @@ export const waiverContent = {
    *  returning household's signature predates a substantive agreement change
    *  and must be re-signed in full — see `substantiveSince` above. */
   mustResignNotice: "We've updated the agreement — please read and sign again.",
+  /** Same 409 door, different reason: a returning household with no
+   *  emergency contact on file RSVPing to a drop-off event. */
+  dropOffNeedsContactNotice: 'Drop-off needs an emergency contact on file — please sign a fresh agreement (it takes a minute).',
 
   confirmation: {
     headline: 'You’re all set!',

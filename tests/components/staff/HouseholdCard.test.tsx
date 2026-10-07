@@ -162,4 +162,9 @@ describe('HouseholdCard — seat picks', () => {
     renderCard(household(), false)
     expect(screen.queryByText(/^Picks:/)).toBeNull()
   })
+
+  it('a blank emergency contact (optional since Oct 2026) reads "none given — call the signer"', () => {
+    renderCard(household({}, { emergency: { name: '', phone: '', relationship: '' } }), false)
+    expect(screen.getByText(/none given — call the signer/)).toBeInTheDocument()
+  })
 })

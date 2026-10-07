@@ -43,11 +43,12 @@ function bad(detail: string, status = 400): Response {
   return new Response(JSON.stringify({ error: detail }), { status })
 }
 
-/** 409 — the on-file signature predates a substantive agreement change; the
- *  client must open the full form instead of one-tap RSVPing. */
-function mustResign(): Response {
+/** 409 — the on-file signature can't be reused one-tap (it predates a
+ *  substantive agreement change, or lacks something this event needs); the
+ *  client opens the full form instead and shows `detail`. */
+function mustResign(detail: string = waiverContent.mustResignNotice): Response {
   return new Response(
-    JSON.stringify({ error: waiverContent.mustResignNotice, mustResign: true }),
+    JSON.stringify({ error: detail, mustResign: true }),
     { status: 409 },
   )
 }
@@ -275,7 +276,7 @@ async function attachSquare(record: WaiverRecord): Promise<void> {
     const safety = [
       allergyLines.length ? `Allergies — ${allergyLines.join('; ')}` : 'Allergies: none noted',
       medicationLines.length ? `Medications — ${medicationLines.join('; ')}` : '',
-      `Emergency: ${record.emergency.name} ${record.emergency.phone}`,
+      record.emergency.name ? `Emergency: ${record.emergency.name} ${record.emergency.phone}` : 'Emergency: none given',
       pickupNames ? `Pickup: ${pickupNames}` : '',
       record.notAuthorized && !isNoneToken(record.notAuthorized) ? `⛔ NOT authorized: ${record.notAuthorized}` : '',
     ].filter(Boolean).join(' · ')
@@ -389,6 +390,12 @@ async function handleReuse(
   // removes. Force a full re-sign instead.
   if (compareVersions(source.agreementVersion, substantiveSince) < 0) {
     return mustResign()
+  }
+  // The emergency contact is optional on a plain visit, so an on-file
+  // signature may have none — a drop-off event needs one (the signer isn't
+  // in the building). Same door as a changed agreement: full form.
+  if (dropOff && !source.emergency.name) {
+    return mustResign(waiverContent.dropOffNeedsContactNotice)
   }
 
   if (!eventKind) {
