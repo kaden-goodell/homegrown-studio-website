@@ -133,3 +133,47 @@ export function cutoffClosedMessage(hours: number): string {
   if (hours === 0) return 'Sign-ups for this class have closed.'
   return `Sign-ups for this class closed ${hours} hour${hours === 1 ? '' : 's'} before it starts.`
 }
+
+/** Key for one seat's answer to one question in a form's state. */
+export function selectionKey(seat: number, optionId: string): string {
+  return `${seat}:${optionId}`
+}
+
+/** The first seat and question still unanswered, or null when every seat has picked. */
+export function firstMissingPick(
+  options: SeatOption[],
+  seats: number,
+  selections: Record<string, string>,
+): { seat: number; option: SeatOption } | null {
+  for (let seat = 1; seat <= seats; seat++) {
+    for (const option of options) {
+      if (!selections[selectionKey(seat, option.id)]) return { seat, option }
+    }
+  }
+  return null
+}
+
+/** Picks for seats 1..seats only: answers kept for seats taken away are not sent. */
+export function picksFromSelections(options: SeatOption[], seats: number, selections: Record<string, string>): SeatPick[] {
+  const out: SeatPick[] = []
+  for (let seat = 1; seat <= seats; seat++) {
+    for (const option of options) {
+      const choice = selections[selectionKey(seat, option.id)]
+      if (choice) out.push({ seat, optionId: option.id, choice })
+    }
+  }
+  return out
+}
+
+/** "Pumpkin color: Black ×1, Lavender ×1" — the Square booking note. Choices in the class's order; questions joined with " · ". */
+export function picksNote(options: SeatOption[], picks: SeatPick[]): string {
+  return options
+    .map((o) => {
+      const counts = o.choices
+        .map((c) => [c, picks.filter((p) => p.optionId === o.id && p.choice === c).length] as const)
+        .filter(([, n]) => n > 0)
+      return counts.length ? `${o.label}: ${counts.map(([c, n]) => `${c} ×${n}`).join(', ')}` : ''
+    })
+    .filter(Boolean)
+    .join(' · ')
+}

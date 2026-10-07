@@ -10,6 +10,10 @@ import {
   cutoffClosedMessage,
   optionIdFrom,
   PICKS_FINAL_LINE,
+  selectionKey,
+  firstMissingPick,
+  picksFromSelections,
+  picksNote,
 } from '@lib/seat-options'
 
 const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
@@ -106,5 +110,34 @@ describe('cutoff', () => {
 
   it('keeps the one modal line exactly', () => {
     expect(PICKS_FINAL_LINE).toBe('Picks are made ahead for you, so they can’t be changed after you book.')
+  })
+})
+
+describe('picks in a form', () => {
+  const RIBBON = { id: 'ribbon', label: 'Ribbon', choices: ['Red', 'Gold'] }
+  const sel = { [selectionKey(1, 'pumpkin-color')]: 'Lavender', [selectionKey(2, 'pumpkin-color')]: 'Black', [selectionKey(3, 'pumpkin-color')]: 'Black' }
+
+  it('finds the first seat still to answer', () => {
+    expect(firstMissingPick([PAILS], 2, sel)).toBeNull()
+    expect(firstMissingPick([PAILS], 4, sel)).toEqual({ seat: 4, option: PAILS })
+    expect(firstMissingPick([PAILS, RIBBON], 1, sel)).toEqual({ seat: 1, option: RIBBON })
+  })
+
+  it('sends picks for the seats booked only', () => {
+    expect(picksFromSelections([PAILS], 2, sel)).toEqual([
+      { seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' },
+      { seat: 2, optionId: 'pumpkin-color', choice: 'Black' },
+    ])
+  })
+
+  it('writes the Square note in the class’s choice order', () => {
+    expect(picksNote([PAILS], picksFromSelections([PAILS], 3, sel))).toBe('Pumpkin color: Black ×2, Lavender ×1')
+    expect(picksNote([PAILS], [])).toBe('')
+    expect(
+      picksNote([PAILS, RIBBON], [
+        { seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' },
+        { seat: 1, optionId: 'ribbon', choice: 'Gold' },
+      ]),
+    ).toBe('Pumpkin color: Lavender ×1 · Ribbon: Gold ×1')
   })
 })

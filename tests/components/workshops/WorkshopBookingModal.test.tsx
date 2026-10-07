@@ -520,3 +520,66 @@ describe('WorkshopBookingModal — leaving', () => {
     expect(screen.getByRole('alertdialog')).not.toHaveTextContent(/seats left/)
   })
 })
+
+describe('WorkshopBookingModal — a question for each seat', () => {
+  const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
+  const pails = () => makeWorkshop({ name: 'Bedazzled Pumpkin Pails', price: 2500, options: [PAILS] })
+  const pick = (seat: number, choice: string) =>
+    fireEvent.change(screen.getByLabelText(`Seat ${seat} · Pumpkin color`), { target: { value: choice } })
+
+  it('asks once per seat, and again for each seat added', () => {
+    open(pails())
+    expect(screen.getByLabelText('Seat 1 · Pumpkin color')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Seat 2 · Pumpkin color')).toBeNull()
+    addSeats(1)
+    expect(screen.getByLabelText('Seat 2 · Pumpkin color')).toBeInTheDocument()
+  })
+
+  it('offers only the class’s choices, and says picks are final', () => {
+    open(pails())
+    const options = within(screen.getByLabelText('Seat 1 · Pumpkin color')).getAllByRole('option')
+    expect(options.map((o) => o.textContent)).toEqual(['Choose…', 'Light Pink', 'Light Blue', 'Black', 'Lavender'])
+    expect(screen.getByText('Picks are made ahead for you, so they can’t be changed after you book.')).toBeInTheDocument()
+  })
+
+  it('will not go on until every seat has picked, and says which seat', () => {
+    open(pails())
+    addSeats(1)
+    pick(1, 'Lavender')
+    fireEvent.click(screen.getByRole('button', { name: /^Continue/ }))
+    expect(screen.getByText('Pick a pumpkin color for seat 2.')).toBeInTheDocument()
+    expect(screen.getByText('Step 1 of 2')).toBeInTheDocument()
+    expect(screen.getByLabelText('Seat 2 · Pumpkin color')).toHaveFocus()
+  })
+
+  it('keeps earlier picks through seat changes, and sends picks only for the seats booked', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(booked())
+    vi.stubGlobal('fetch', fetchMock)
+    open(pails())
+    addSeats(1)
+    pick(1, 'Lavender')
+    pick(2, 'Black')
+    fireEvent.click(screen.getByRole('button', { name: 'Fewer seats' }))
+    expect(screen.queryByLabelText('Seat 2 · Pumpkin color')).toBeNull()
+    addSeats(1)
+    expect(screen.getByLabelText('Seat 1 · Pumpkin color')).toHaveValue('Lavender')
+    expect(screen.getByLabelText('Seat 2 · Pumpkin color')).toHaveValue('Black')
+    fireEvent.click(screen.getByRole('button', { name: 'Fewer seats' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByTestId('payment-form')
+    fillContact()
+    await pay('$25')
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).picks).toEqual([{ seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' }])
+  })
+
+  it('shows the picks beside the total on the payment step', async () => {
+    open(pails())
+    addSeats(1)
+    pick(1, 'Lavender')
+    pick(2, 'Lavender')
+    fireEvent.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByTestId('payment-form')
+    expect(screen.getByText('Pumpkin color: Lavender ×2')).toBeInTheDocument()
+  })
+})
