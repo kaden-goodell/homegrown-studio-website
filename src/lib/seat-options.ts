@@ -200,6 +200,9 @@ export function validatePicks(options: SeatOption[], seats: number, raw: unknown
   if (options.length === 0) {
     return list.length === 0 ? { ok: true, value: [] } : { ok: false, error: 'This class has nothing to pick. Refresh and try again.' }
   }
+  // No picks at all: the page was loaded before the class had questions (or
+  // without its settings), so it showed nothing to pick from.
+  if (list.length === 0) return { ok: false, error: 'This class now asks a question for each seat — refresh the page and book again.' }
   const chosen: Record<string, string> = {}
   for (const p of list as any[]) {
     const seat = p?.seat

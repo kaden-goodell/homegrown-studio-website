@@ -173,6 +173,8 @@ describe('validatePicks (the server’s check)', () => {
     ['a choice not offered', [two[1], { seat: 2, optionId: 'pumpkin-color', choice: 'Orange' }], 'Seat 2: “Orange” isn’t one of the pumpkin color choices.'],
     ['two picks for one seat', [...two, { seat: 1, optionId: 'pumpkin-color', choice: 'Black' }], 'Seat 1 has two pumpkin color picks.'],
     ['something that is not a list', 'Lavender', 'The seat picks didn’t come through. Refresh and try again.'],
+    ['no picks at all, from a page that showed none', undefined, 'This class now asks a question for each seat — refresh the page and book again.'],
+    ['an empty list of picks', [], 'This class now asks a question for each seat — refresh the page and book again.'],
   ])('refuses %s', (_name, raw, error) => {
     expect(validatePicks([PAILS], 2, raw)).toEqual({ ok: false, error })
   })

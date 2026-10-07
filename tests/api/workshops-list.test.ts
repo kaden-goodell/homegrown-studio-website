@@ -47,4 +47,18 @@ describe('GET /api/workshops.json — questions and cutoff', () => {
     const [pails] = await list()
     expect(pails).toMatchObject({ name: 'clssch_pails', options: [] })
   })
+
+  it('never lets the edge cache a list built without a class’s settings', async () => {
+    mockGetEventMeta.mockImplementation(async (_kind: string, id: string) => {
+      if (id === 'clssch_pails') throw new Error('blobs down')
+      return null
+    })
+    const res = await GET({ request: new Request('http://localhost/api/workshops.json') } as any)
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store')
+  })
+
+  it('lets a healthy list be cached', async () => {
+    const res = await GET({ request: new Request('http://localhost/api/workshops.json') } as any)
+    expect(res.headers.get('Cache-Control')).not.toContain('no-store')
+  })
 })
