@@ -262,6 +262,7 @@ export class SquareWorkshopProvider implements WorkshopProvider {
         priceCents: details.price_amount ?? 0,
         priceCurrency: details.price_currency ?? 'USD',
         availableCapacity: instance.available_capacity ?? 0,
+        ...(typeof instance.capacity === 'number' ? { totalCapacity: instance.capacity } : {}),
         staffName: details.staff_name ?? '',
         teamMemberId: details.team_member_id ?? '',
       }

@@ -12,6 +12,8 @@ export interface Workshop {
   priceCents: number
   priceCurrency: string
   availableCapacity: number
+  /** Seats the class holds in all (Square's instance `capacity`). Absent when Square doesn't say. */
+  totalCapacity?: number
   staffName: string
   teamMemberId: string
   /** Card image (16:9), resolved from the paired catalog item's image with caption "card". */
