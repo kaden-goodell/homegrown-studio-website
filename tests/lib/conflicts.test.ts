@@ -30,10 +30,14 @@ describe('overlaps', () => {
     expect(overlaps(b, a)).toBe(true)
   })
 
-  it('pulls b’s start earlier by the buffer, and only its start', () => {
-    expect(overlaps({ start: ms('10:00'), end: ms('11:30') }, { start: ms('12:00'), end: ms('13:00') }, 60)).toBe(true)
-    expect(overlaps({ start: ms('10:00'), end: ms('11:00') }, { start: ms('12:00'), end: ms('13:00') }, 60)).toBe(false)
-    expect(overlaps({ start: ms('13:00'), end: ms('14:00') }, { start: ms('11:00'), end: ms('13:00') }, 60)).toBe(false)
+  it('needs the buffer on both sides, in either order', () => {
+    const early = { start: ms('10:00'), end: ms('11:30') }
+    const late = { start: ms('12:00'), end: ms('13:00') }
+    const farLate = { start: ms('12:30'), end: ms('13:30') }
+    expect(overlaps(early, late, 60)).toBe(true)
+    expect(overlaps(late, early, 60)).toBe(true)
+    expect(overlaps(early, farLate, 60)).toBe(false)
+    expect(overlaps(farLate, early, 60)).toBe(false)
   })
 })
 
@@ -42,8 +46,20 @@ describe('classBlocksParty — Pumpkin Pails 1–3 PM on Sunday 18 Oct', () => {
     expect(classBlocksParty(at('13:00'), [PAILS])?.id).toBe('clssch_pails')
   })
 
-  it('keeps the 3:30 PM party: nothing is needed after a class', () => {
-    expect(classBlocksParty(at('15:30'), [PAILS])).toBeNull()
+  it('rules out a party starting 30 minutes after the class ends', () => {
+    expect(classBlocksParty(at('15:30'), [PAILS])?.id).toBe('clssch_pails')
+  })
+
+  it('rules out a party starting right as the class ends', () => {
+    expect(classBlocksParty(at('15:00'), [PAILS])?.id).toBe('clssch_pails')
+  })
+
+  it('rules out a party one minute short of the hour after the class', () => {
+    expect(classBlocksParty(at('15:59'), [PAILS])?.id).toBe('clssch_pails')
+  })
+
+  it('keeps a party starting exactly one hour after the class ends', () => {
+    expect(classBlocksParty(at('16:00'), [PAILS])).toBeNull()
   })
 
   it('allows a party that ends exactly one cleanup before the class', () => {
@@ -72,6 +88,14 @@ describe('partyBlocksClass — the same rule from the class side', () => {
     expect(partyBlocksClass(at('15:30'), at('17:30'), [rivera])).toEqual([])
   })
 
+  it('refuses a class ending inside the hour before a party', () => {
+    expect(partyBlocksClass(at('10:30'), at('12:30'), [rivera]).map((p) => p.id)).toEqual(['bk_1'])
+  })
+
+  it('allows a class ending exactly one hour before a party', () => {
+    expect(partyBlocksClass(at('10:00'), at('12:00'), [rivera])).toEqual([])
+  })
+
   it('agrees with classBlocksParty for every half hour of the day', () => {
     for (let h = 8; h <= 19; h++) {
       for (const m of ['00', '30']) {
@@ -94,8 +118,8 @@ describe('spans', () => {
     expect(PAILS).toEqual({ id: 'clssch_pails', name: 'Bedazzled Pumpkin Pails', startIso: at('13:00'), endIso: at('15:00') })
   })
 
-  it('removeClassBlocked keeps only the Sunday 3:30 start next to Pails', () => {
-    expect(removeClassBlocked([at('13:00'), at('15:30')], [PAILS])).toEqual([at('15:30')])
+  it('removeClassBlocked drops starts within the hour of Pails, either side', () => {
+    expect(removeClassBlocked([at('13:00'), at('15:30'), at('16:00')], [PAILS])).toEqual([at('16:00')])
     expect(removeClassBlocked([at('13:00')], [])).toEqual([at('13:00')])
   })
 
@@ -104,7 +128,21 @@ describe('spans', () => {
     const gcn = classSpanOf({ scheduleId: 'g', name: 'Girls Craft Night', startAt: at('19:00', '2026-10-23'), durationMinutes: 120 })
     const later = classSpanOf({ scheduleId: 'l', name: 'Later', startAt: at('20:00', '2026-10-23'), durationMinutes: 60 })
     expect(classesOverlap(needle, gcn)).toBe(true)
-    expect(classesOverlap(needle, later)).toBe(false)
+    expect(classesOverlap(needle, later)).toBe(true) // 8 PM starts the moment 6–8 PM ends
+  })
+
+  it('two classes back to back clash, in either order', () => {
+    const a = classSpanOf({ scheduleId: 'a', name: 'A', startAt: at('18:00', '2026-10-23'), durationMinutes: 120 })
+    const b = classSpanOf({ scheduleId: 'b', name: 'B', startAt: at('20:00', '2026-10-23'), durationMinutes: 120 })
+    expect(classesOverlap(a, b)).toBe(true)
+    expect(classesOverlap(b, a)).toBe(true)
+  })
+
+  it('two classes exactly one hour apart do not clash', () => {
+    const a = classSpanOf({ scheduleId: 'a', name: 'A', startAt: at('13:00'), durationMinutes: 120 })
+    const b = classSpanOf({ scheduleId: 'b', name: 'B', startAt: at('16:00'), durationMinutes: 120 })
+    expect(classesOverlap(a, b)).toBe(false)
+    expect(classesOverlap(b, a)).toBe(false)
   })
 })
 

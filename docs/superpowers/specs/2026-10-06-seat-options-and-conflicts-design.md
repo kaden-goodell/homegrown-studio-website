@@ -26,6 +26,8 @@ Catherine's October classes need things we can't do today:
 | 7 | **Warning panel** on `/staff` Today: red, top of page, every load; also a daily email when it is non-empty. |
 | 8 | Price fix out of scope here but done 10/6: Kinusaiga $40 → $35. |
 
+2026-10-07 (Kaden): one hour between ANY two events in either order; classes closer than that are warned, party times blocked.
+
 ## Scope
 
 ### A. Event settings (`src/lib/event-meta.ts`, `/api/staff/event-meta.json`, `EventSettingsSheet.tsx`, `scripts/set-dropoff.ts`)

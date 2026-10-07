@@ -342,20 +342,28 @@ describe('openPartyStarts — parties yield to classes', () => {
   const OCT_8 = new Date('2026-10-08T17:00:00.000Z')
   const SUN_1PM = '2026-10-18T18:00:00.000Z'
   const SUN_330PM = '2026-10-18T20:30:00.000Z'
+  const SUN_NOON = '2026-10-18T17:00:00.000Z' // a noon class runs to 2 PM: 1:00 clashes, 3:30 is 90 minutes clear
 
-  it('drops the 1:00 PM Sunday party when Pumpkin Pails runs 1–3 PM, and keeps 3:30', async () => {
+  it('drops the 1:00 PM Sunday party when a class runs noon–2 PM, and keeps 3:30', async () => {
     vi.setSystemTime(OCT_8)
-    mockListAllWorkshops.mockResolvedValue([classAt(SUN_1PM)])
+    mockListAllWorkshops.mockResolvedValue([classAt(SUN_NOON)])
     const { openPartyStarts } = await import('@lib/party-availability')
     expect(await openPartyStarts('2026-10-18')).toEqual([SUN_330PM])
   })
 
   it('the pre-charge re-check refuses the class-blocked start', async () => {
     vi.setSystemTime(OCT_8)
-    mockListAllWorkshops.mockResolvedValue([classAt(SUN_1PM)])
+    mockListAllWorkshops.mockResolvedValue([classAt(SUN_NOON)])
     const { isStartOpen } = await import('@lib/party-availability')
     expect(await isStartOpen(SUN_1PM)).toBe(false)
     expect(await isStartOpen(SUN_330PM)).toBe(true)
+  })
+
+  it('drops BOTH Sunday parties when Pumpkin Pails runs 1–3 PM (3:30 is only 30 minutes after it)', async () => {
+    vi.setSystemTime(OCT_8)
+    mockListAllWorkshops.mockResolvedValue([classAt(SUN_1PM)])
+    const { openPartyStarts } = await import('@lib/party-availability')
+    expect(await openPartyStarts('2026-10-18')).toEqual([])
   })
 
   it('a class lookup that fails never blocks party availability', async () => {
@@ -375,7 +383,7 @@ describe('openPartyStarts — parties yield to classes', () => {
   it('availability.json: when the bookings lookup throws, the class rule still applies', async () => {
     vi.setSystemTime(OCT_8)
     mockListBookings.mockRejectedValue(new Error('Square 503'))
-    mockListAllWorkshops.mockResolvedValue([classAt(SUN_1PM)])
+    mockListAllWorkshops.mockResolvedValue([classAt(SUN_NOON)])
     const { POST } = await import('@pages/api/party/availability.json')
     const url = new URL('http://localhost/api/party/availability.json')
     const request = new Request(url, {

@@ -47,7 +47,7 @@ beforeEach(() => {
 describe('listWarnings', () => {
   it('is empty when nothing is wrong', async () => {
     mockListAllWorkshops.mockResolvedValue([PAILS])
-    mockListBookings.mockResolvedValue([party('bk_rivera', '2026-10-18T20:30:00.000Z')]) // Sun 3:30 PM
+    mockListBookings.mockResolvedValue([party('bk_rivera', '2026-10-18T21:00:00.000Z')]) // Sun 4:00 PM, an hour after Pails
     expect(await listWarnings(WINDOW)).toEqual([])
   })
 
@@ -79,7 +79,7 @@ describe('listWarnings', () => {
       cls('clssch_needle', 'Needlepoint', '2026-10-23T23:00:00.000Z'), // Fri 6–8 PM
     ])
     const [w] = await listWarnings(WINDOW)
-    expect(w).toMatchObject({ code: 'class-over-class', eventId: 'clssch_needle', detail: 'Needlepoint 6–8 PM overlaps Girls Craft Night 7–9 PM.' })
+    expect(w).toMatchObject({ code: 'class-over-class', eventId: 'clssch_needle', detail: 'Needlepoint 6–8 PM is within an hour of Girls Craft Night 7–9 PM.' })
   })
 
   it('oversold: more seats sold than the class holds', async () => {
@@ -139,10 +139,29 @@ describe('listWarnings', () => {
     expect(await listWarnings(WINDOW)).toEqual([])
   })
 
-  it('does not warn for back-to-back classes', async () => {
+  it('warns once for back-to-back classes', async () => {
     mockListAllWorkshops.mockResolvedValue([
       cls('clssch_a', 'A', '2026-10-23T23:00:00.000Z'), // 6-8 PM
       cls('clssch_b', 'B', '2026-10-24T01:00:00.000Z'), // 8-10 PM
+    ])
+    const list = await listWarnings(WINDOW)
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ code: 'class-over-class', detail: 'A 6–8 PM is within an hour of B 8–10 PM.' })
+  })
+
+  it('does not warn for classes exactly one hour apart', async () => {
+    mockListAllWorkshops.mockResolvedValue([
+      cls('clssch_a', 'A', '2026-10-23T23:00:00.000Z'), // 6-8 PM
+      cls('clssch_b', 'B', '2026-10-24T02:00:00.000Z'), // 9-11 PM
+    ])
+    expect(await listWarnings(WINDOW)).toEqual([])
+  })
+
+  it('does not warn for the Sunday Oct 18 trio (1–3, 4–6, 7–9 PM)', async () => {
+    mockListAllWorkshops.mockResolvedValue([
+      cls('clssch_1', 'One', '2026-10-18T18:00:00.000Z'), // 1-3 PM
+      cls('clssch_2', 'Two', '2026-10-18T21:00:00.000Z'), // 4-6 PM
+      cls('clssch_3', 'Three', '2026-10-19T00:00:00.000Z'), // 7-9 PM
     ])
     expect(await listWarnings(WINDOW)).toEqual([])
   })

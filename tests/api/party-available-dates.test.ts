@@ -107,7 +107,7 @@ describe('POST /api/party/available-dates.json', () => {
 
   it('leaves out party times a class rules out, so the panel never offers them', async () => {
     mockListAllWorkshops.mockResolvedValue([
-      { id: 'i', scheduleId: 'clssch_pails', name: 'Bedazzled Pumpkin Pails', startAt: '2026-10-18T18:00:00.000Z', durationMinutes: 120 },
+      { id: 'i', scheduleId: 'clssch_pails', name: 'Bedazzled Pumpkin Pails', startAt: '2026-10-18T17:00:00.000Z', durationMinutes: 120 }, // noon–2 PM
     ])
     const { data } = await ask()
     expect(data.times['2026-10-18'].map((t: any) => t.startAt)).toEqual(['2026-10-18T20:30:00.000Z'])

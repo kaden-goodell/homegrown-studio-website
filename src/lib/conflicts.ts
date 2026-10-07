@@ -4,12 +4,12 @@
  * guard: party times on offer, the party pre-charge re-check, class creation
  * (CLI and the in-tab Square step) and the warnings panel.
  *
- *   A party and a class clash when the party (its own length) overlaps the
- *   class window [class start − cleanup, class end].
+ *   Any two events in the one room (party or class, either way round) need at
+ *   least `partyConfig.cleanupBufferMinutes` between them. Closer than that,
+ *   touching, or overlapping is a clash; a gap of exactly that long is fine.
  *
- * The cleanup is `partyConfig.cleanupBufferMinutes`: the room needs that long
- * after a party before a class starts. Nothing is needed after a class (the
- * Sunday 1–3 PM class leaves the 3:30 PM party in place).
+ * So a party needs the hour after a class as well as before it, two parties
+ * need the hour between them, and two classes closer than the hour are warned.
  *
  * Pure: ISO strings in, answers out. No Square, no storage. Imported by
  * scripts/create-class.ts too (tsx resolves the @ aliases).
@@ -42,11 +42,14 @@ export interface PartySpan {
 }
 
 /**
- * Do `a` and `b` overlap once `b`'s start is pulled `bufferMinutes` earlier?
- * With the default 0 it is plain overlap, the same either way round.
+ * Are `a` and `b` closer than `bufferMinutes` (or overlapping)? The gap is
+ * needed on both sides, so the answer is the same either way round. A gap of
+ * exactly `bufferMinutes` is not a clash. With the default 0 it is plain
+ * overlap.
  */
 export function overlaps(a: Interval, b: Interval, bufferMinutes = 0): boolean {
-  return a.start < b.end && b.start - bufferMinutes * MINUTE_MS < a.end
+  const gap = bufferMinutes * MINUTE_MS
+  return a.start < b.end + gap && b.start < a.end + gap
 }
 
 export function intervalOf(span: { startIso: string; endIso: string }): Interval {
@@ -76,14 +79,14 @@ export function partySpanOf(b: { id: string; slot: { startAt: string; duration?:
   }
 }
 
-/** The class that rules out a party starting at `partyStartIso`, or null. */
+/** The class that rules out a party starting at `partyStartIso` (less than the cleanup gap from it, either side), or null. */
 export function classBlocksParty(partyStartIso: string, classes: ClassSpan[]): ClassSpan | null {
   const start = Date.parse(partyStartIso)
   const party: Interval = { start, end: start + partyConfig.durationMinutes * MINUTE_MS }
   return classes.find((c) => overlaps(party, intervalOf(c), partyConfig.cleanupBufferMinutes)) ?? null
 }
 
-/** Every party that rules out a class running [classStartIso, classEndIso). */
+/** Every party that rules out a class running [classStartIso, classEndIso): less than the cleanup gap away, either side. */
 export function partyBlocksClass(classStartIso: string, classEndIso: string, parties: PartySpan[]): PartySpan[] {
   const cls: Interval = { start: Date.parse(classStartIso), end: Date.parse(classEndIso) }
   return parties.filter((p) => overlaps(intervalOf(p), cls, partyConfig.cleanupBufferMinutes))
@@ -95,9 +98,9 @@ export function removeClassBlocked(starts: string[], classes: ClassSpan[]): stri
   return starts.filter((s) => !classBlocksParty(s, classes))
 }
 
-/** Two classes in the room at the same time. */
+/** Two classes in the room closer together than the cleanup gap (touching or overlapping included). */
 export function classesOverlap(a: ClassSpan, b: ClassSpan): boolean {
-  return overlaps(intervalOf(a), intervalOf(b))
+  return overlaps(intervalOf(a), intervalOf(b), partyConfig.cleanupBufferMinutes)
 }
 
 /** "the Rivera party" from host "Jamie Rivera"; "a party" when no name is known. */
@@ -112,7 +115,7 @@ export function partyClashMessage(clashes: PartySpan[]): string {
     (p) => `  ${formatDay(p.startIso)} · ${formatTime(p.startIso)} party${p.hostName ? ` (${p.hostName})` : ''}, booking ${p.id}`,
   )
   return [
-    `This class would overlap ${clashes.length === 1 ? 'a booked party' : `${clashes.length} booked parties`} (the room needs ${partyConfig.cleanupBufferMinutes} minutes after a party):`,
+    `This class would overlap ${clashes.length === 1 ? 'a booked party' : `${clashes.length} booked parties`} (the room needs ${partyConfig.cleanupBufferMinutes} minutes between a party and a class):`,
     ...lines,
     'Move the party in Square first (your call), then re-run.',
   ].join('\n')

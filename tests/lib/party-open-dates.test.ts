@@ -76,9 +76,9 @@ describe('openPartyStartsInWindow', () => {
     await expect(openPartyStartsInWindow(NOW)).rejects.toThrow('Square 503')
   })
 
-  it('leaves out a time a class rules out (a Sunday 1–3 PM class takes the 1:00 start, not 3:30)', async () => {
+  it('leaves out a time a class rules out (a Sunday noon–2 PM class takes the 1:00 start, not 3:30)', async () => {
     mockListAllWorkshops.mockResolvedValue([
-      { id: 'i', scheduleId: 'clssch_pails', name: 'Bedazzled Pumpkin Pails', startAt: '2026-10-18T18:00:00.000Z', durationMinutes: 120 },
+      { id: 'i', scheduleId: 'clssch_pails', name: 'Bedazzled Pumpkin Pails', startAt: '2026-10-18T17:00:00.000Z', durationMinutes: 120 },
     ])
     const starts = await openPartyStartsInWindow(NOW)
     expect(starts).not.toContain('2026-10-18T18:00:00.000Z')

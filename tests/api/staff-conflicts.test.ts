@@ -59,8 +59,15 @@ describe('GET /api/staff/conflicts.json', () => {
     expect(data.message).toContain('Move the party in Square first (your call), then re-run.')
   })
 
-  it('is clear when the only party starts after the class ends', async () => {
+  it('flags a party starting only 30 minutes after the class ends', async () => {
     mockListBookings.mockResolvedValue([party('bk_2', '2026-10-18T20:30:00.000Z')])
+    const { data } = await (await GET(ctx(`kind=workshop&start=${SUN_1PM}&minutes=120`))).json()
+    expect(data.ok).toBe(false)
+    expect(data.clashes.map((c: any) => c.id)).toEqual(['bk_2'])
+  })
+
+  it('is clear when the only party starts a full hour after the class ends', async () => {
+    mockListBookings.mockResolvedValue([party('bk_2', '2026-10-18T21:00:00.000Z')])
     const { data } = await (await GET(ctx(`kind=workshop&start=${SUN_1PM}&minutes=120`))).json()
     expect(data.ok).toBe(true)
     expect(data.clashes).toEqual([])

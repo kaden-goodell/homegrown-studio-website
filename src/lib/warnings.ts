@@ -139,7 +139,7 @@ function classOverClass(s: Scan): Warning[] {
         eventId: a.id,
         when: a.startIso,
         title: a.name,
-        detail: `${a.name} ${formatTimeSpan(a.startIso, a.endIso)} overlaps ${b.name} ${formatTimeSpan(b.startIso, b.endIso)}.`,
+        detail: `${a.name} ${formatTimeSpan(a.startIso, a.endIso)} is within an hour of ${b.name} ${formatTimeSpan(b.startIso, b.endIso)}.`,
         action: 'Move one in Square.',
       })
     }
