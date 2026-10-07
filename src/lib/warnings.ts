@@ -38,7 +38,7 @@ export interface Warning {
   /** ISO start of the event the line is about. */
   when: string
   title: string
-  /** "Pumpkin Pails 1–3 PM overlaps the Rivera party 1:00 PM." */
+  /** "Pumpkin Pails 1–3 PM is within an hour of the Rivera party 1:00 PM." */
   detail: string
   /** What a person does about it: "Move one in Square." */
   action: string
@@ -120,7 +120,7 @@ function classOverParty(s: Scan): Warning[] {
       eventId: span.id,
       when: span.startIso,
       title: span.name,
-      detail: `${span.name} ${formatTimeSpan(span.startIso, span.endIso)} overlaps ${partyName(p)} ${formatTime(p.startIso)}.`,
+      detail: `${span.name} ${formatTimeSpan(span.startIso, span.endIso)} is within an hour of ${partyName(p)} ${formatTime(p.startIso)}.`,
       action: 'Move one in Square.',
     })),
   )

@@ -2,7 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import WarningsPanel from '@components/staff/WarningsPanel'
 
-const LINE = 'Sun Oct 18 · Pumpkin Pails 1–3 PM overlaps the Rivera party 1:00 PM. Move one in Square.'
+const LINE = 'Sun Oct 18 · Pumpkin Pails 1–3 PM is within an hour of the Rivera party 1:00 PM. Move one in Square.'
 const warning = { code: 'class-over-party', eventKind: 'workshop', eventId: 'clssch_pails', title: 'Pumpkin Pails', when: '2026-10-18T18:00:00.000Z', detail: '', action: '', line: LINE }
 
 function serve(...answers: Array<{ status: number; body: unknown }>) {

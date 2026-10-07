@@ -63,7 +63,7 @@ export const partyConfig = {
    *  date before this is offered OR accepted — enforced in partyStartsForDate,
    *  which also backs the book endpoint's server-side slot re-verify. */
   bookingOpensDate: OPENING_DATE,
-  /** Cleanup gap between back-to-back parties, and before the evening workshop. */
+  /** Cleanup gap required between any two events in the room (parties and classes, either order). */
   cleanupBufferMinutes: 60,
   /** Studio timezone for interpreting slot start times. */
   timezone: 'America/Chicago',

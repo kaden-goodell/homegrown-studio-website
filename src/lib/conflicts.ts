@@ -115,7 +115,7 @@ export function partyClashMessage(clashes: PartySpan[]): string {
     (p) => `  ${formatDay(p.startIso)} · ${formatTime(p.startIso)} party${p.hostName ? ` (${p.hostName})` : ''}, booking ${p.id}`,
   )
   return [
-    `This class would overlap ${clashes.length === 1 ? 'a booked party' : `${clashes.length} booked parties`} (the room needs ${partyConfig.cleanupBufferMinutes} minutes between a party and a class):`,
+    `This class would be within an hour of ${clashes.length === 1 ? 'a booked party' : `${clashes.length} booked parties`} (the room needs ${partyConfig.cleanupBufferMinutes} minutes between a party and a class):`,
     ...lines,
     'Move the party in Square first (your call), then re-run.',
   ].join('\n')

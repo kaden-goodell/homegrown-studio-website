@@ -62,9 +62,17 @@ describe('listWarnings', () => {
     const [w] = await listWarnings(WINDOW)
     expect(w).toEqual({
       code: 'class-over-party', eventKind: 'workshop', eventId: 'clssch_pails', when: '2026-10-18T18:00:00.000Z', title: 'Pumpkin Pails',
-      detail: 'Pumpkin Pails 1–3 PM overlaps the Rivera party 1:00 PM.', action: 'Move one in Square.',
+      detail: 'Pumpkin Pails 1–3 PM is within an hour of the Rivera party 1:00 PM.', action: 'Move one in Square.',
     })
-    expect(warningLine(w)).toBe('Sun Oct 18 · Pumpkin Pails 1–3 PM overlaps the Rivera party 1:00 PM. Move one in Square.')
+    expect(warningLine(w)).toBe('Sun Oct 18 · Pumpkin Pails 1–3 PM is within an hour of the Rivera party 1:00 PM. Move one in Square.')
+  })
+
+  it('class-over-party: a party booked 30 minutes after the class ends', async () => {
+    mockListAllWorkshops.mockResolvedValue([PAILS])
+    mockListBookings.mockResolvedValue([party('bk_rivera', '2026-10-18T20:30:00.000Z')]) // Sun 3:30 PM
+    const list = await listWarnings(WINDOW)
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ code: 'class-over-party', eventId: 'clssch_pails' })
   })
 
   it('ignores a cancelled party', async () => {
