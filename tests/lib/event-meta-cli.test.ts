@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseSetEventArgs, SET_EVENT_USAGE } from '@lib/event-meta-cli'
+import { parseSetEventArgs, SET_EVENT_USAGE, classifyBlobRead, echoOptionIds } from '@lib/event-meta-cli'
 
 describe('parseSetEventArgs', () => {
   it('needs --workshop or --party with an id', () => {
@@ -46,5 +46,40 @@ describe('parseSetEventArgs', () => {
 
   it('--show only reads', () => {
     expect(parseSetEventArgs(['--workshop', 'c', '--show'])).toEqual({ kind: 'workshop', id: 'c', show: true, patch: {} })
+  })
+})
+
+describe('classifyBlobRead', () => {
+  it('the missing-key message (exit 0, on stderr) is missing', () => {
+    expect(classifyBlobRead('', 'Error: Blob event-meta-workshop:c does not exist in store event-meta', 0)).toBe('missing')
+  })
+  it('a JSON body is ok', () => {
+    expect(classifyBlobRead('{"dropOff":true}', '', 0)).toBe('ok')
+    expect(classifyBlobRead('Reading…\n{"dropOff":true}', '', 0)).toBe('ok')
+  })
+  it('anything else is an error', () => {
+    expect(classifyBlobRead('', 'Error: not logged in', 1)).toBe('error')
+    expect(classifyBlobRead('', 'ENOTFOUND api.netlify.com', 0)).toBe('error')
+    expect(classifyBlobRead('{oops', '', 0)).toBe('error')
+  })
+})
+
+describe('echoOptionIds', () => {
+  const o = (id: string, label: string) => ({ id, label, choices: ['x', 'y'] })
+  const ids = (l: ReturnType<typeof echoOptionIds>) => l.map((x) => x.id)
+  it('rename at the same position keeps the id', () => {
+    expect(ids(echoOptionIds([o('a', 'A')], [o('', 'A2')]))).toEqual(['a'])
+  })
+  it('reorder keeps both ids', () => {
+    expect(ids(echoOptionIds([o('a', 'A'), o('b', 'B')], [o('', 'B'), o('', 'A')]))).toEqual(['b', 'a'])
+  })
+  it('rename plus reorder gives the renamed one a fresh id', () => {
+    expect(ids(echoOptionIds([o('a', 'A'), o('b', 'B')], [o('', 'B'), o('', 'A2')]))).toEqual(['b', ''])
+  })
+  it('case-only relabel keeps the id', () => {
+    expect(ids(echoOptionIds([o('a', 'Pumpkin color')], [o('', 'pumpkin COLOR')]))).toEqual(['a'])
+  })
+  it('no current questions leaves all ids empty', () => {
+    expect(ids(echoOptionIds([], [o('', 'A'), o('', 'B')]))).toEqual(['', ''])
   })
 })

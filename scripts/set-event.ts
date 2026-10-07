@@ -22,11 +22,11 @@
  * Workshops are keyed by their Square class SCHEDULE id (clssch_…, from
  * scripts/list-classes.ts), parties by their booking id.
  */
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawnSync } from 'node:child_process'
 import { writeFileSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { parseSetEventArgs } from '../src/lib/event-meta-cli'
+import { classifyBlobRead, echoOptionIds, parseSetEventArgs } from '../src/lib/event-meta-cli'
 import { emptyEventMeta, mergeEventMeta, normalizeEventMeta, type EventMeta } from '../src/lib/event-meta'
 import { effectiveCutoffHours } from '../src/lib/seat-options'
 
@@ -46,14 +46,28 @@ function netlify(args: string[]): string {
   return execFileSync('netlify', args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
 }
 
+/** null = the key doesn't exist yet. Any other failure stops here, before a write. */
 function read(): EventMeta | null {
+  let stdout = ''
+  let stderr = ''
+  let status = 0
   try {
-    const out = netlify(['blobs:get', STORE, key])
-    const start = out.indexOf('{')
-    return start >= 0 ? normalizeEventMeta(JSON.parse(out.slice(start))) : null
-  } catch {
-    return null // missing key
+    const r = spawnSync('netlify', ['blobs:get', STORE, key], { encoding: 'utf8' })
+    stdout = r.stdout ?? ''
+    stderr = r.stderr ?? ''
+    status = r.error ? 1 : (r.status ?? 1)
+    if (r.error) stderr += String(r.error)
+  } catch (err) {
+    stderr = String(err)
+    status = 1
   }
+  const kindOfRead = classifyBlobRead(stdout, stderr, status)
+  if (kindOfRead === 'missing') return null
+  if (kindOfRead === 'error') {
+    console.error(`✗ Couldn't read the current settings for ${key} — nothing was changed. (${(stderr || stdout).trim().slice(0, 300) || `exit ${status}`})`)
+    process.exit(1)
+  }
+  return normalizeEventMeta(JSON.parse(stdout.slice(stdout.indexOf('{'))))
 }
 
 /** Has anyone picked for this class? If we can't tell, assume yes (the stricter rule). */
@@ -85,18 +99,7 @@ if (Object.keys(patch).length === 0) {
   process.exit(1)
 }
 
-// Echo the ids of questions already on the class, so a re-sent or renamed
-// question keeps its id (stored picks hang off it). Matched by label, else a
-// question left unmatched in the same position is taken as a rename of it.
-if (patch.options) {
-  const given = patch.options
-  given.forEach((o, i) => {
-    const same = current.options.find((c) => c.label.toLowerCase() === o.label.toLowerCase())
-    const prev = current.options[i]
-    const renamed = prev && !given.some((g) => g.label.toLowerCase() === prev.label.toLowerCase()) ? prev : undefined
-    o.id = (same ?? renamed)?.id ?? ''
-  })
-}
+if (patch.options) patch.options = echoOptionIds(current.options, patch.options)
 
 let next: EventMeta
 try {
