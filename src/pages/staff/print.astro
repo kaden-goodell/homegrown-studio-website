@@ -6,6 +6,8 @@ import { getEvent, resolveEventDay, EVENT_KIND_RE } from '@lib/events'
 import { listWaiversByEvent } from '@lib/waiver-store'
 import { effectivePickup } from '@lib/pickup'
 import { formatWhen, formatCalendarDay } from '@lib/studio-time'
+import { listSeatChoicesByEvent, summarizeChoices } from '@lib/seat-choices'
+import { picksShort, totalsLine } from '@lib/seat-options'
 import { siteConfig } from '@config/site.config'
 
 // Staff-authed server-side (HOM-213) — a printable paper fallback for the
@@ -31,6 +33,25 @@ const day = event ? resolveEventDay(event, Astro.url.searchParams.get('day')) : 
 const waivers = event && kind ? await listWaiversByEvent(kind, id) : []
 waivers.sort((a, b) => `${a.adult.firstName} ${a.adult.lastName}`.localeCompare(`${b.adult.firstName} ${b.adult.lastName}`))
 
+// Seat picks (spec D): only classes that ask questions have them. A failed
+// read must never blank the paper fallback — print without picks and say so.
+const options = kind === 'workshop' && event ? (event.options ?? []) : []
+let choices: ReturnType<typeof summarizeChoices> | null = null
+let picksUnavailable = false
+if (event && options.length > 0) {
+  try {
+    choices = summarizeChoices(
+      options,
+      await listSeatChoicesByEvent('workshop', id),
+      waivers.map((w) => w.adult.email),
+      typeof event.capacity === 'number' && typeof event.seats === 'number' ? event.capacity - event.seats : null,
+    )
+  } catch (err) {
+    console.error('[staff/print] seat choices read failed', err)
+    picksUnavailable = true
+  }
+}
+
 interface PrintRow {
   household: string
   phone: string
@@ -41,6 +62,7 @@ interface PrintRow {
   emergency: string
   authorizedPickup: string
   notAuthorized: string
+  picks: string
 }
 
 const rows: PrintRow[] = []
@@ -58,12 +80,13 @@ for (const w of waivers) {
     household, phone: w.adult.phone, person: household, role: 'Adult',
     allergies: w.adult.allergies || '', medications: '',
     emergency, authorizedPickup: pickupText, notAuthorized,
+    picks: choices ? picksShort(choices.byEmail[w.adult.email.trim().toLowerCase()] ?? []) : '',
   })
   w.minors.forEach((m) => {
     rows.push({
       household, phone: w.adult.phone, person: m.name, role: 'Child',
       allergies: m.allergies || '', medications: m.medications || '',
-      emergency, authorizedPickup: pickupText, notAuthorized,
+      emergency, authorizedPickup: pickupText, notAuthorized, picks: '',
     })
   })
 }
@@ -125,6 +148,7 @@ const title = event ? `${event.title} — Roster` : 'Roster not found'
         font-weight: 700;
       }
       .blank-col { width: 4.5rem; }
+      .picks-col { max-width: 6rem; overflow-wrap: anywhere; }
       .household-start td { border-top: 2px solid #9ca3af; }
       .not-authorized { color: #b91c1c; font-weight: 700; }
       .empty { color: #6b7280; padding: 2rem 0; text-align: center; }
@@ -147,6 +171,13 @@ const title = event ? `${event.title} — Roster` : 'Roster not found'
             {event.dropOff && <> · DROP-OFF EVENT</>}
           </p>
         )}
+        {choices && options.map((o) => (
+          <p class="meta">
+            <strong>{totalsLine(o, choices.totals[o.id] ?? {})}</strong>
+            {choices.seatsSold !== null && <> ({choices.seatsSold} seats sold)</>}
+          </p>
+        ))}
+        {picksUnavailable && <p class="meta">Picks unavailable</p>}
         <p class="meta">{origin}/staff</p>
       </div>
       <div class="no-print">
@@ -164,6 +195,7 @@ const title = event ? `${event.title} — Roster` : 'Roster not found'
           <tr>
             <th>Household</th>
             <th>Person</th>
+            {choices && <th class="picks-col">Picks</th>}
             <th>Allergies</th>
             <th>Medications</th>
             <th>Emergency contact</th>
@@ -179,6 +211,7 @@ const title = event ? `${event.title} — Roster` : 'Roster not found'
             <tr class={i === 0 || rows[i - 1].household !== r.household ? 'household-start' : ''}>
               <td>{r.household}<br />{r.phone}</td>
               <td>{r.person} <em>({r.role})</em></td>
+              {choices && <td class="picks-col">{r.picks}</td>}
               <td>{r.allergies}</td>
               <td>{r.medications}</td>
               <td>{r.emergency}</td>
@@ -191,6 +224,17 @@ const title = event ? `${event.title} — Roster` : 'Roster not found'
           ))}
         </tbody>
       </table>
+    )}
+
+    {choices && choices.unmatched.length > 0 && (
+      <>
+        <h2 style="font-size: 1rem; margin: 1rem 0 0.4rem;">Paid, not signed in yet</h2>
+        <ul style="margin: 0; padding-left: 1.1rem; font-size: 0.8125rem;">
+          {choices.unmatched.map((u) => (
+            <li>{u.name} · {u.seats} seat{u.seats === 1 ? '' : 's'}{u.picks.length > 0 && <> · Picks: {picksShort(u.picks)}</>}</li>
+          ))}
+        </ul>
+      </>
     )}
 
     <script>
