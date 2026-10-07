@@ -573,6 +573,53 @@ describe('WorkshopBookingModal — a question for each seat', () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).picks).toEqual([{ seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' }])
   })
 
+  it('starts a new attempt when a pick changes after an unsure try, and keeps it when nothing changed', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockImplementationOnce(async () => {
+        throw new TypeError('Failed to fetch')
+      })
+      .mockImplementationOnce(async () => {
+        throw new TypeError('Failed to fetch')
+      })
+      .mockResolvedValueOnce(booked())
+    vi.stubGlobal('fetch', fetchMock)
+    open(pails())
+    pick(1, 'Lavender')
+    fireEvent.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByTestId('payment-form')
+    fillContact()
+    await pay('$25')
+    await screen.findByRole('alert')
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $25' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await screen.findByRole('alert')
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    pick(1, 'Black')
+    fireEvent.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByTestId('payment-form')
+    fireEvent.click(await screen.findByRole('button', { name: 'Pay $25' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    const ids = [0, 1, 2].map((i) => JSON.parse(fetchMock.mock.calls[i][1].body).attemptId)
+    expect(ids[1]).toBe(ids[0])
+    expect(ids[2]).not.toBe(ids[1])
+  })
+
+  it('shows each seat’s pick on the confirmation', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(booked()))
+    open(pails())
+    addSeats(1)
+    pick(1, 'Lavender')
+    pick(2, 'Black')
+    fireEvent.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByTestId('payment-form')
+    fillContact()
+    await pay('$50')
+    await screen.findByText('Your picks')
+    expect(screen.getByText(/Pumpkin color: Black ×1, Lavender ×1/)).toBeInTheDocument()
+    expect(screen.getByText('Picks are made ahead for you, so they can’t be changed after you book.')).toBeInTheDocument()
+  })
+
   it('shows the picks beside the total on the payment step', async () => {
     open(pails())
     addSeats(1)

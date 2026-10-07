@@ -125,18 +125,21 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   }
 
   /** Every seat answers every question before payment. Says which is missing and goes to it. */
-  function picksComplete(): boolean {
+  function picksComplete(afterStepChange = false): boolean {
     const missing = firstMissingPick(options, seats, selections)
     if (!missing) return true
     setPickProblem(`Pick a ${missing.option.label.toLowerCase()} for seat ${missing.seat}.`)
-    document.getElementById(pickFieldId(missing.seat, missing.option.id))?.focus()
+    const focusIt = () => document.getElementById(pickFieldId(missing.seat, missing.option.id))?.focus()
+    // From the pay step the select is not on screen until the details step has rendered.
+    if (afterStepChange) setTimeout(focusIt, 0)
+    else focusIt()
     return false
   }
 
   async function handlePay(e?: FormEvent) {
     e?.preventDefault()
     if (processing || !paymentReady) return
-    if (!picksComplete()) {
+    if (!picksComplete(true)) {
       setStep('details')
       return
     }
