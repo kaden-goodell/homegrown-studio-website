@@ -69,6 +69,52 @@ describe('SquareWorkshopProvider — holding and paying for seats', () => {
       const err = await caught(new SquareWorkshopProvider(config).reserveSeats({ scheduleId: 's', startAt: '2026-10-17T00:00:00.000Z', seats: 1, customer }))
       expect(err).toMatchObject({ phase: 'reserve', kind: 'no_answer' })
     })
+
+    const held = () => answer(200, { class_booking: { id: 'clsbk_1', order_id: 'order-1', customer: { contact_token: 'contact-1' } } })
+    const params = (note?: string) => ({ scheduleId: 'clssch_1', startAt: '2026-10-17T00:00:00.000Z', seats: 2, customer, ...(note ? { note } : {}) })
+
+    it('sends the seat picks as the booking’s customer note', async () => {
+      const fetchSpy = stubFetch(async () => held())
+      await new SquareWorkshopProvider(config).reserveSeats(params('Pumpkin color: Lavender ×2'))
+      expect(JSON.parse(fetchSpy.mock.calls[0][1].body).customer_note).toBe('Pumpkin color: Lavender ×2')
+    })
+
+    it('asks once more without the note when Square refuses, and keeps that hold', async () => {
+      const fetchSpy = stubFetch(async (_url: string, init: any) =>
+        JSON.parse(init.body).customer_note ? answer(400, '{"errors":[{"code":"BAD_REQUEST","field":"customer_note"}]}') : held(),
+      )
+      expect(await new SquareWorkshopProvider(config).reserveSeats(params('Pumpkin color: Lavender ×2'))).toEqual(reservation)
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
+      expect(JSON.parse(fetchSpy.mock.calls[1][1].body)).not.toHaveProperty('customer_note')
+    })
+
+    it('reports the second refusal when the hold fails without the note too', async () => {
+      const fetchSpy = stubFetch(async () => answer(400, 'Not enough seats available'))
+      const err = await caught(new SquareWorkshopProvider(config).reserveSeats(params('x')))
+      expect(err).toMatchObject({ phase: 'reserve', kind: 'refused', raw: 'Not enough seats available' })
+      expect(fetchSpy).toHaveBeenCalledTimes(2)
+    })
+
+    it('never asks again after no answer: the seats may already be held', async () => {
+      const fetchSpy = stubFetch(async () => {
+        throw new TypeError('fetch failed')
+      })
+      const err = await caught(new SquareWorkshopProvider(config).reserveSeats(params('x')))
+      expect(err).toMatchObject({ kind: 'no_answer' })
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not ask again after a 5xx: it would fail the same way', async () => {
+      const fetchSpy = stubFetch(async () => answer(503, 'unavailable'))
+      await caught(new SquareWorkshopProvider(config).reserveSeats(params('x')))
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    })
+
+    it('without a note, a refusal is not retried', async () => {
+      const fetchSpy = stubFetch(async () => answer(400, 'Not enough seats available'))
+      await caught(new SquareWorkshopProvider(config).reserveSeats(params()))
+      expect(fetchSpy).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('payForSeats', () => {

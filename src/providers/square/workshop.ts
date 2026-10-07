@@ -43,7 +43,33 @@ export class SquareWorkshopProvider implements WorkshopProvider {
     startAt: string
     seats: number
     customer: { givenName: string; familyName: string; email: string }
+    note?: string
   }): Promise<SeatReservation> {
+    try {
+      return await this.holdSeats(params, params.note)
+    } catch (err) {
+      // A refused hold holds nothing, so asking again is safe. If the note was
+      // what Square refused, the picks are still stored on our side and in the
+      // confirmation email. No answer and 5xx are never retried: seats may be held.
+      if (
+        params.note &&
+        err instanceof SeatBookingError &&
+        err.kind === 'refused' &&
+        err.status !== undefined &&
+        err.status >= 400 &&
+        err.status < 500
+      ) {
+        logger.warn('Seat hold refused with a booking note — asking once more without it', { status: err.status })
+        return this.holdSeats(params, undefined)
+      }
+      throw err
+    }
+  }
+
+  private async holdSeats(
+    params: { scheduleId: string; startAt: string; seats: number; customer: { givenName: string; familyName: string; email: string } },
+    note: string | undefined,
+  ): Promise<SeatReservation> {
     let res: Response
     try {
       res = await fetch(this.classesUrl('/class_bookings'), {
@@ -58,6 +84,7 @@ export class SquareWorkshopProvider implements WorkshopProvider {
             email_address: params.customer.email,
           },
           quantity: params.seats,
+          ...(note ? { customer_note: note } : {}),
         }),
       })
     } catch (err) {
@@ -65,11 +92,11 @@ export class SquareWorkshopProvider implements WorkshopProvider {
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '')
-      logger.error('Seat reservation refused', { status: res.status, error: text })
+      logger.error('Seat reservation refused', { status: res.status, error: text, withNote: !!note })
       throw new SeatBookingError('square', 'reserve', 'refused', text, res.status)
     }
     const booking = (await res.json()).class_booking
-    logger.info('Seats reserved', { bookingId: booking.id, orderId: booking.order_id })
+    logger.info('Seats reserved', { bookingId: booking.id, orderId: booking.order_id, withNote: !!note })
     return {
       bookingId: booking.id,
       // /complete expects this contact token as its customer_id, NOT the
