@@ -34,7 +34,10 @@ export function contextFromHost(rawHost: string | undefined): DeployContext | nu
   const host = (rawHost ?? '').toLowerCase().split(':')[0]
   if (!host) return null
   if (/^deploy-preview-\d+--/.test(host)) return 'deploy-preview'
-  if (/^[a-z0-9-]+--[a-z0-9-]+\.netlify\.app$/.test(host)) return 'branch-deploy'
+  const branchLabel = /^([a-z0-9-]+)--[a-z0-9-]+\.netlify\.app$/.exec(host)?.[1]
+  // `<24-hex-id>--site.netlify.app` is a permanent per-deploy link, which exists
+  // for production deploys too: we can't tell which deploy it is, so treat it as production.
+  if (branchLabel) return /^[0-9a-f]{20,}$/.test(branchLabel) ? 'production' : 'branch-deploy'
   if (/^[a-z0-9-]+\.netlify\.app$/.test(host)) return 'production'
   if (host === 'ourhometownstudio.com' || host.endsWith('.ourhometownstudio.com')) return 'production'
   if (host === 'homegrowncraftstudio.com' || host.endsWith('.homegrowncraftstudio.com')) return 'production'
@@ -49,22 +52,42 @@ function hostOf(request: Request): string | undefined {
   }
 }
 
-let logged = false
+// The last context a request identified, per function instance. Request-less
+// callers (the record stores) fall back to it, so a store never disagrees with
+// the bypass that just wrote through it. Never holds 'unknown'.
+let remembered: DeployContext | null = null
+let lastLogged: DeployContext | null = null
+
+/** Resolve, remembering what a request told us. Exported so the cache can be tested. */
+export function resolveRemembering(input: Parameters<typeof resolveDeployContext>[0]): DeployContext {
+  const { context, source } = resolveDeployContext(input)
+  let result = context
+  if (context !== 'unknown') {
+    if (input.host !== undefined) remembered = context
+  } else if (input.host === undefined && remembered) {
+    result = remembered
+  }
+  if (result !== lastLogged) {
+    lastLogged = result
+    createLogger('deploy-context').info('Deploy context resolved', { context: result, source: result === context ? source : 'remembered' })
+  }
+  return result
+}
+
+export function _resetDeployContextForTests(): void {
+  remembered = null
+  lastLogged = null
+}
 
 export function deployContext(request?: Request): DeployContext {
   const metaEnv: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {}
   const netlify = (globalThis as any).Netlify?.context?.deploy?.context
-  const { context, source } = resolveDeployContext({
+  return resolveRemembering({
     dev: metaEnv.DEV === true || metaEnv.DEV === 'true',
     netlify: typeof netlify === 'string' ? netlify : undefined,
     env: typeof process !== 'undefined' ? process.env?.CONTEXT : undefined,
     host: request ? hostOf(request) : undefined,
   })
-  if (!logged) {
-    logged = true
-    createLogger('deploy-context').info('Deploy context resolved', { context, source })
-  }
-  return context
 }
 
 /** Local dev or a Netlify preview: the only places simulated data may appear. */

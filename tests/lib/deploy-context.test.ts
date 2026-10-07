@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, beforeEach } from 'vitest'
 import { resolveDeployContext } from '@lib/deploy-context'
 
 describe('resolveDeployContext', () => {
@@ -21,7 +21,7 @@ describe('resolveDeployContext', () => {
   })
 })
 
-import { contextFromHost } from '@lib/deploy-context'
+import { contextFromHost, resolveRemembering, _resetDeployContextForTests } from '@lib/deploy-context'
 
 describe('host hint', () => {
   it('maps Netlify and own hosts', () => {
@@ -41,5 +41,37 @@ describe('host hint', () => {
     expect(resolveDeployContext({ dev: false, netlify: 'production', host }).context).toBe('production')
     expect(resolveDeployContext({ dev: false, env: 'deploy-preview', host }).context).toBe('deploy-preview')
     expect(resolveDeployContext({ dev: false, host: 'example.org' }).context).toBe('unknown')
+  })
+})
+
+describe('host edge cases', () => {
+  it('treats a per-deploy permalink as production (which deploy is unknown)', () => {
+    expect(contextFromHost('65f1a2b3c4d5e6f708192a3b--iridescent-croissant-494fc3.netlify.app')).toBe('production')
+  })
+  it('still sees branch and preview hosts, any case', () => {
+    expect(contextFromHost('dev--site.netlify.app')).toBe('branch-deploy')
+    expect(contextFromHost('Deploy-Preview-12--Site.Netlify.App')).toBe('deploy-preview')
+    expect(contextFromHost('DEV--SITE.NETLIFY.APP')).toBe('branch-deploy')
+  })
+  it('knows the old domain', () => {
+    expect(contextFromHost('homegrowncraftstudio.com')).toBe('production')
+    expect(contextFromHost('www.homegrowncraftstudio.com')).toBe('production')
+  })
+})
+
+describe('remembering what a request said', () => {
+  beforeEach(() => _resetDeployContextForTests())
+
+  it('lets a later request-less call reuse a known context, and never caches unknown', () => {
+    expect(resolveRemembering({ dev: false })).toBe('unknown')
+    expect(resolveRemembering({ dev: false, host: 'example.org' })).toBe('unknown')
+    expect(resolveRemembering({ dev: false })).toBe('unknown')
+    expect(resolveRemembering({ dev: false, host: 'dev--site.netlify.app' })).toBe('branch-deploy')
+    expect(resolveRemembering({ dev: false })).toBe('branch-deploy')
+  })
+  it('lets a later request overwrite it', () => {
+    resolveRemembering({ dev: false, host: 'dev--site.netlify.app' })
+    resolveRemembering({ dev: false, host: 'ourhometownstudio.com' })
+    expect(resolveRemembering({ dev: false })).toBe('production')
   })
 })

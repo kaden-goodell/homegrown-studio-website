@@ -251,4 +251,14 @@ describe('simulated kit orders (payment bypass on a preview)', () => {
     await createKitOrder(orderFixture({ orderId: `dev_${tag}` }))
     expect((await getKitOrder(`dev_${tag}`))?.orderId).toBe(`dev_${tag}`)
   })
+
+  it('refuses a staff update to a simulated order in production', async () => {
+    const id = `dev_mut${Date.now()}${Math.floor(Math.random() * 1e6)}`
+    await createKitOrder(orderFixture({ orderId: id }))
+    previewOrDev = false
+    await expect(mutateKitOrder(id, (o) => { o.status = 'out' })).rejects.toThrow(/not found/)
+    previewOrDev = true
+    const ok = await mutateKitOrder(id, (o) => { o.status = 'out' })
+    expect(ok.status).toBe('out')
+  })
 })

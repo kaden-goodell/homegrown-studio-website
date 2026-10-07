@@ -7,7 +7,7 @@ export const GET: APIRoute = async (ctx) => {
   const logger = createLogger('api:checkout:client-config')
   const startTime = Date.now()
   try {
-    // Dev-only: hand the client a mock app id so PaymentForm skips the card.
+    // Simulated payments (local dev and Netlify previews/branch deploys; never production): hand the client a mock app id so PaymentForm skips the card.
     if (paymentBypassEnabled(ctx?.request)) {
       logger.info('Payment bypass active — serving mock client config')
       return new Response(

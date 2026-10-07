@@ -122,6 +122,7 @@ export async function mutateKitOrder(orderId: string, fn: (o: KitOrderRecord) =>
     const { value, etag } = await kv.getWithMeta(orderId)
     if (!value) throw new Error(`Kit order not found: ${orderId}`)
     const record = JSON.parse(value) as KitOrderRecord
+    if (!visibleHere(record)) throw new Error(`Kit order not found: ${orderId}`)
     await fn(record)
     record.events = record.events.slice(-EVENTS_CAP)
     if (await kv.setIfMatch(orderId, JSON.stringify(record, null, 2), etag, true)) return record
