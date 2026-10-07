@@ -139,3 +139,39 @@ describe('event-meta — seat questions and sign-up cutoff', () => {
     expect((await getEventMeta('workshop', id))!.options).toEqual([PAILS])
   })
 })
+
+describe('event-meta — class capacity', () => {
+  it('defaults to unknown, and reads an old record without it as unknown', async () => {
+    const m = await setEventMeta('workshop', 'w_cap0_' + Date.now(), { dropOff: false }, by)
+    expect(m.capacity).toBeNull()
+    const id = 'w_capold_' + Date.now()
+    await makeKvStore('event-meta', 'event-meta').set(
+      `event-meta-workshop:${id}`,
+      JSON.stringify({ dropOff: false, days: null, updatedAt: '2026-09-28T00:00:00.000Z', by, history: [] }),
+    )
+    expect((await getEventMeta('workshop', id))!.capacity).toBeNull()
+  })
+
+  it('saves a capacity, logs it, and clears it back to unknown', async () => {
+    const id = 'w_capset_' + Date.now()
+    const m = await setEventMeta('workshop', id, { capacity: 12 }, by)
+    expect(m.capacity).toBe(12)
+    expect(m.history.at(-1)).toMatchObject({ by, capacity: 12 })
+    const m2 = await setEventMeta('workshop', id, { signupCutoffHours: 48 }, by)
+    expect(m2.capacity).toBe(12)
+    expect((await setEventMeta('workshop', id, { capacity: null }, by)).capacity).toBeNull()
+  })
+
+  it.each([0, -3, 1000, 2.5, '12'])('refuses a capacity of %j', (bad) => {
+    expect(() => mergeEventMeta(emptyEventMeta(), { capacity: bad as any }, by, '2026-10-06T00:00:00.000Z', false)).toThrow(SeatSettingsError)
+  })
+
+  it('reads an invalid stored capacity as unknown', async () => {
+    const id = 'w_capbad_' + Date.now()
+    await makeKvStore('event-meta', 'event-meta').set(
+      `event-meta-workshop:${id}`,
+      JSON.stringify({ dropOff: false, days: null, capacity: 0, updatedAt: '2026-09-28T00:00:00.000Z', by, history: [] }),
+    )
+    expect((await getEventMeta('workshop', id))!.capacity).toBeNull()
+  })
+})

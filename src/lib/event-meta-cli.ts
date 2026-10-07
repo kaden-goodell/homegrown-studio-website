@@ -4,7 +4,7 @@
  * anyone has picked) are applied by `mergeEventMeta`, same as the gear sheet.
  */
 import type { EventMetaPatch } from '@lib/event-meta'
-import { validateCutoffHours, type SeatOption } from '@lib/seat-options'
+import { validateCapacity, validateCutoffHours, type SeatOption } from '@lib/seat-options'
 
 export interface SetEventArgs {
   kind: 'workshop' | 'party'
@@ -15,7 +15,7 @@ export interface SetEventArgs {
 
 export const SET_EVENT_USAGE =
   'Usage: set-event.ts (--workshop <clssch_id> | --party <bookingId>) [--on | --off] [--days a,b] ' +
-  '[--option "Label=Choice|Choice" …] [--no-options] [--cutoff <hours> | --cutoff default] [--show]'
+  '[--option "Label=Choice|Choice" …] [--no-options] [--cutoff <hours> | --cutoff default] [--capacity <seats> | --capacity none] [--show]'
 
 export function parseSetEventArgs(argv: string[]): SetEventArgs | { error: string } {
   const flag = (n: string) => {
@@ -54,6 +54,14 @@ export function parseSetEventArgs(argv: string[]): SetEventArgs | { error: strin
     const checked = validateCutoffHours(cutoff === 'default' ? null : Number(cutoff))
     if (!checked.ok) return { error: checked.error }
     patch.signupCutoffHours = checked.value
+  }
+
+  const capacity = flag('capacity')
+  if (capacity !== undefined) {
+    if (kind !== 'workshop') return { error: 'Capacity is for classes (--workshop) only.' }
+    const checked = validateCapacity(capacity === 'none' ? null : Number(capacity))
+    if (!checked.ok) return { error: checked.error }
+    patch.capacity = checked.value
   }
 
   return { kind, id, show: has('show'), patch }

@@ -3,6 +3,7 @@ import { formatWhen } from '@lib/studio-time'
 import type { StudioEvent } from '@lib/events'
 import {
   effectiveCutoffHours,
+  MAX_CAPACITY,
   MAX_CHOICE_LENGTH,
   MAX_CUTOFF_HOURS,
   MAX_LABEL_LENGTH,
@@ -10,7 +11,7 @@ import {
   type SeatOption,
 } from '@lib/seat-options'
 
-type EventPatch = { dropOff?: boolean; days?: string[] | null; options?: SeatOption[]; signupCutoffHours?: number | null }
+type EventPatch = { dropOff?: boolean; days?: string[] | null; options?: SeatOption[]; signupCutoffHours?: number | null; capacity?: number | null }
 
 const ENDPOINT = '/api/staff/event-meta.json'
 
@@ -253,6 +254,9 @@ export default function EventSettingsSheet({
         {event.kind === 'workshop' && (
           <SignupCutoff event={event} busy={busy} onSave={(hours) => save({ signupCutoffHours: hours })} />
         )}
+        {event.kind === 'workshop' && (
+          <Capacity event={event} busy={busy} onSave={(capacity) => save({ capacity })} />
+        )}
 
         {error && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginTop: '0.8rem', fontWeight: 600 }}>{error}</p>}
 
@@ -470,6 +474,75 @@ function SignupCutoff({ event, busy, onSave }: { event: StudioEvent; busy: boole
         <div style={confirmBox}>
           <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-dark)', fontWeight: 600 }}>
             {parsed === null ? `Go back to the default (${fallback} hours)?` : `Close sign-ups ${parsed} hours before this class?`}
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem' }}>
+            <button type="button" onClick={() => setConfirming(false)} style={btn()}>Cancel</button>
+            <button
+              type="button"
+              onClick={async () => {
+                setConfirming(false)
+                await onSave(parsed)
+              }}
+              disabled={busy}
+              style={btn(true)}
+            >
+              Yes, save
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
+ * "Capacity": seats the class holds. Square's buyer API doesn't say, so the
+ * seats-sold count (warnings, roster) needs it from here. Blank = unknown.
+ */
+function Capacity({ event, busy, onSave }: { event: StudioEvent; busy: boolean; onSave: (seats: number | null) => Promise<void> }) {
+  const saved = event.capacity ?? null
+  const [value, setValue] = useState(saved === null ? '' : String(saved))
+  const [confirming, setConfirming] = useState(false)
+
+  useEffect(() => {
+    setValue(saved === null ? '' : String(saved))
+    setConfirming(false)
+  }, [saved])
+
+  const parsed = value.trim() === '' ? null : Number(value)
+  const valid = parsed === null || (Number.isInteger(parsed) && parsed >= 1 && parsed <= MAX_CAPACITY)
+  const changed = parsed !== saved
+  const inputId = `capacity-${event.id}`
+
+  return (
+    <div style={{ marginTop: '1.1rem' }}>
+      <label htmlFor={inputId} style={{ ...sectionTitle, display: 'block' }}>Capacity</label>
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+        <input
+          id={inputId}
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={MAX_CAPACITY}
+          step={1}
+          value={value}
+          placeholder="from Square"
+          disabled={busy}
+          onChange={(e) => setValue(e.target.value)}
+          style={{ ...textInput, width: '7.5rem' }}
+        />
+        <span style={{ fontSize: '0.85rem', color: 'var(--color-dark)' }}>seats</span>
+      </div>
+      {!valid && <p style={hint}>Whole seats, 1 to {MAX_CAPACITY}.</p>}
+      {valid && changed && !confirming && (
+        <div style={{ marginTop: '0.5rem' }}>
+          <button type="button" onClick={() => setConfirming(true)} disabled={busy} style={btn(true)}>Save</button>
+        </div>
+      )}
+      {confirming && (
+        <div style={confirmBox}>
+          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-dark)', fontWeight: 600 }}>
+            {parsed === null ? 'Clear this class’s capacity?' : `Set this class to ${parsed} seats?`}
           </p>
           <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem' }}>
             <button type="button" onClick={() => setConfirming(false)} style={btn()}>Cancel</button>

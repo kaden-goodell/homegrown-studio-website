@@ -88,6 +88,13 @@ describe('listWarnings', () => {
     expect(w).toMatchObject({ code: 'oversold', eventId: 'clssch_pails', detail: 'Pumpkin Pails: 27 seats sold, 25 capacity.' })
   })
 
+  it('oversold: uses the class’s own capacity setting when Square gives none', async () => {
+    mockListAllWorkshops.mockResolvedValue([{ ...PAILS, totalCapacity: undefined, availableCapacity: -1 }])
+    mockGetEventMeta.mockResolvedValue({ options: [], signupCutoffHours: null, capacity: 12 })
+    const [w] = await listWarnings(WINDOW)
+    expect(w).toMatchObject({ code: 'oversold', detail: 'Pumpkin Pails: 13 seats sold, 12 capacity.' })
+  })
+
   it('party-on-closed-day: a party on a day the studio is shut', async () => {
     mockListBookings.mockResolvedValue([party('bk_lopez', '2026-10-19T15:00:00.000Z')]) // Mon 10 AM
     const [w] = await listWarnings(WINDOW)
@@ -204,8 +211,28 @@ describe('listWarnings — picks-missing', () => {
     expect(mockListSeatChoices).not.toHaveBeenCalled()
   })
 
-  it('skips a class when Square gives no capacity', async () => {
+  it('counts against the class’s own capacity setting when Square gives none', async () => {
     mockListAllWorkshops.mockResolvedValue([{ ...PAILS, totalCapacity: undefined }])
+    mockGetEventMeta.mockResolvedValue({ options: [OPTION], signupCutoffHours: null, capacity: 25 })
+    mockListSeatChoices.mockResolvedValue(seatsPicked(13))
+    expect(await listWarnings(WINDOW)).toEqual([
+      expect.objectContaining({ code: 'picks-missing', detail: 'Pumpkin Pails: 2 seats have no pumpkin color.' }),
+    ])
+  })
+
+  it('says it can’t count seats when a class with questions has no capacity anywhere — never silent', async () => {
+    mockListAllWorkshops.mockResolvedValue([{ ...PAILS, totalCapacity: undefined }])
+    const warnings = await listWarnings(WINDOW)
+    expect(warnings).toEqual([{
+      code: 'capacity-unknown', eventKind: 'workshop', eventId: 'clssch_pails', when: '2026-10-18T18:00:00.000Z', title: 'Pumpkin Pails',
+      detail: 'Can’t count seats sold for Pumpkin Pails. Set its capacity (gear → Capacity) so seats booked on Square’s own page get flagged.',
+      action: 'Set the capacity.',
+    }])
+  })
+
+  it('stays quiet about capacity for a class with no questions', async () => {
+    mockListAllWorkshops.mockResolvedValue([{ ...PAILS, totalCapacity: undefined }])
+    mockGetEventMeta.mockResolvedValue(null)
     expect(await listWarnings(WINDOW)).toEqual([])
   })
 

@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { readFileSync } from 'node:fs'
+import { spawnSync } from 'node:child_process'
 import { SquareClient, SquareEnvironment } from 'square'
 import { partyBlocksClass, partySpanOf, partyClashMessage } from '../src/lib/conflicts'
 import { studioDate, studioDayUtcRange } from '../src/lib/studio-time'
@@ -41,7 +42,9 @@ import { studioDate, studioDayUtcRange } from '../src/lib/studio-time'
  *   --description <str>   item description, used only when creating the item
  *   --start <local>       start time in America/Chicago, "YYYY-MM-DDTHH:mm"
  *   --duration <min>      class length in minutes (default 120)
- *   --capacity <n>        seats available (default 12)
+ *   --capacity <n>        seats available (default 12); also saved as the class's
+ *                         capacity setting via scripts/set-event.ts, since
+ *                         Square's buyer API doesn't report it
  *   --rrule <RRULE>       recurrence rule for a repeating series (default one-off)
  *   --staff <teamId>      staff/team member id (default SQUARE_TEAM_MEMBER_ID)
  *   --dry-run             print the request body and exit without POSTing
@@ -336,6 +339,17 @@ async function main() {
     scheduleId = JSON.parse(text)?.class_schedule?.id ?? ''
   } catch {}
   console.log(`\n✓ Class schedule created${scheduleId ? ` (${scheduleId})` : ''}. It will show on the site once it's a future dated instance with open capacity.`)
+
+  // 3. Square's buyer API never reports capacity, so save it in the class's
+  // settings (what warnings and the roster count seats against). Same write
+  // path as set-event.ts: run it, don't copy it.
+  const reminder = `Now run: npx tsx scripts/set-event.ts --workshop ${scheduleId || '<clssch_id>'} --capacity ${totalCapacity}`
+  if (!scheduleId) {
+    console.log(`  couldn't read the new schedule id — capacity not saved. ${reminder}`)
+    return
+  }
+  const saved = spawnSync('npx', ['tsx', 'scripts/set-event.ts', '--workshop', scheduleId, '--capacity', String(totalCapacity)], { stdio: 'inherit' })
+  if (saved.status !== 0) console.log(`  capacity not saved. ${reminder}`)
 }
 
 main().catch((e) => {

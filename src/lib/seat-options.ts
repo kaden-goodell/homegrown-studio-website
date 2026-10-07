@@ -34,6 +34,8 @@ export const MAX_CHOICE_LENGTH = 30
 /** Two weeks: room for "a couple of days" and then some. */
 export const MAX_CUTOFF_HOURS = 336
 export const DEFAULT_CUTOFF_HOURS_WITH_OPTIONS = 24
+/** Seats a class holds, when staff set it (Square's buyer API doesn't say). */
+export const MAX_CAPACITY = 999
 
 /** The one line under the seat questions, in the modal and the email. */
 export const PICKS_FINAL_LINE = 'Picks are made ahead for you, so they can’t be changed after you book.'
@@ -110,6 +112,13 @@ export function validateCutoffHours(raw: unknown): Result<number | null> {
   if (raw === null) return { ok: true, value: null }
   if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= MAX_CUTOFF_HOURS) return { ok: true, value: raw }
   return { ok: false, error: `Sign-ups close 0 to ${MAX_CUTOFF_HOURS} hours before the class, in whole hours.` }
+}
+
+/** A class's seat count: a whole number 1–999, or null for "unknown". */
+export function validateCapacity(raw: unknown): Result<number | null> {
+  if (raw === null) return { ok: true, value: null }
+  if (typeof raw === 'number' && Number.isInteger(raw) && raw >= 1 && raw <= MAX_CAPACITY) return { ok: true, value: raw }
+  return { ok: false, error: `Capacity is 1 to ${MAX_CAPACITY} seats, in whole seats.` }
 }
 
 /** 0 h for a plain class, 24 h once it asks questions; a class's own setting wins. */

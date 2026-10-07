@@ -10,7 +10,7 @@
 import { createLogger } from '@lib/logger'
 import { makeKvStore } from '@lib/blob-store'
 import { hasSeatChoices } from '@lib/seat-choices'
-import { optionsChangeRefusal, validateCutoffHours, validateOptions, SeatSettingsError, type SeatOption } from '@lib/seat-options'
+import { optionsChangeRefusal, validateCapacity, validateCutoffHours, validateOptions, SeatSettingsError, type SeatOption } from '@lib/seat-options'
 import type { By } from '@lib/staff-auth'
 
 const logger = createLogger('event-meta')
@@ -26,6 +26,7 @@ export interface EventMetaHistoryEntry {
   /** Absent on entries written before seat questions existed. */
   options?: SeatOption[]
   signupCutoffHours?: number | null
+  capacity?: number | null
 }
 
 export interface EventMeta {
@@ -36,6 +37,8 @@ export interface EventMeta {
   options: SeatOption[]
   /** null = the default (0 h, or 24 h once the class asks questions). */
   signupCutoffHours: number | null
+  /** Seats the class holds; null = unknown (Square's buyer API never says). */
+  capacity: number | null
   updatedAt: string // ISO
   by: By
   /** Append-only, capped at 50 (oldest dropped first). */
@@ -47,6 +50,7 @@ export interface EventMetaPatch {
   days?: string[] | null
   options?: SeatOption[]
   signupCutoffHours?: number | null
+  capacity?: number | null
 }
 
 function key(kind: string, id: string): string {
@@ -55,7 +59,7 @@ function key(kind: string, id: string): string {
 
 export function emptyEventMeta(): EventMeta {
   return {
-    dropOff: false, days: null, options: [], signupCutoffHours: null,
+    dropOff: false, days: null, options: [], signupCutoffHours: null, capacity: null,
     updatedAt: new Date(0).toISOString(), by: { id: '', name: '' }, history: [],
   }
 }
@@ -63,11 +67,13 @@ export function emptyEventMeta(): EventMeta {
 export function normalizeEventMeta(raw: any): EventMeta {
   const options = validateOptions(raw?.options)
   const cutoff = validateCutoffHours(raw?.signupCutoffHours)
+  const capacity = validateCapacity(raw?.capacity ?? null)
   return {
     dropOff: !!raw?.dropOff,
     days: Array.isArray(raw?.days) ? raw.days.map(String) : null,
     options: options.ok ? options.value : [],
     signupCutoffHours: cutoff.ok ? cutoff.value : null,
+    capacity: capacity.ok ? capacity.value : null,
     updatedAt: typeof raw?.updatedAt === 'string' ? raw.updatedAt : new Date(0).toISOString(),
     by: raw?.by && typeof raw.by === 'object'
       ? { id: String(raw.by.id ?? ''), name: String(raw.by.name ?? '') }
@@ -102,6 +108,12 @@ export function mergeEventMeta(current: EventMeta, patch: EventMetaPatch, by: By
     if (!checked.ok) throw new SeatSettingsError(checked.error)
     signupCutoffHours = checked.value
   }
+  let capacity = current.capacity
+  if (patch.capacity !== undefined) {
+    const checked = validateCapacity(patch.capacity)
+    if (!checked.ok) throw new SeatSettingsError(checked.error)
+    capacity = checked.value
+  }
   const dropOff = patch.dropOff ?? current.dropOff
   const days = patch.days !== undefined ? patch.days : current.days
   return {
@@ -109,9 +121,10 @@ export function mergeEventMeta(current: EventMeta, patch: EventMetaPatch, by: By
     days,
     options,
     signupCutoffHours,
+    capacity,
     updatedAt: now,
     by,
-    history: [...current.history, { at: now, by, dropOff, days, options, signupCutoffHours }].slice(-HISTORY_CAP),
+    history: [...current.history, { at: now, by, dropOff, days, options, signupCutoffHours, capacity }].slice(-HISTORY_CAP),
   }
 }
 
@@ -131,7 +144,7 @@ export async function setEventMeta(kind: string, id: string, patch: EventMetaPat
     const next = mergeEventMeta(current, patch, by, new Date().toISOString(), hasPicks)
     if (await kv.setIfMatch(k, JSON.stringify(next), etag, value !== null)) {
       logger.info('Event meta set', {
-        kind, id, dropOff: next.dropOff, days: next.days, options: next.options.length, signupCutoffHours: next.signupCutoffHours,
+        kind, id, dropOff: next.dropOff, days: next.days, options: next.options.length, signupCutoffHours: next.signupCutoffHours, capacity: next.capacity,
       })
       return next
     }

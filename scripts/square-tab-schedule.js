@@ -21,7 +21,8 @@
  * The clearance is a convention guard for the person pasting the snippet, not
  * a cryptographic one, and it is single-use: it is marked used after one
  * successful Square call. A move first reads the class and refuses if it has
- * any bookings.
+ * any bookings. After a create it prints the set-event.ts line that saves the
+ * class's capacity (Square's buyer API doesn't report it).
  *
  * Claude runs both through the Chrome javascript tool. Nothing runs on its own.
  */
@@ -109,7 +110,12 @@
     try {
       id = (JSON.parse(text).class_schedule || {}).id || ''
     } catch (e) {}
-    return { done: true, status: res.status, scheduleId: id || opts.scheduleId || '', message: method === 'PUT' ? 'Class moved.' : 'Class scheduled.' }
+    if (method === 'PUT') return { done: true, status: res.status, scheduleId: id || opts.scheduleId || '', message: 'Class moved.' }
+    // Square's buyer API never reports capacity, and this tab can't reach the
+    // studio's store, so say how to save it in the class's settings.
+    var reminder = 'Now run: npx tsx scripts/set-event.ts --workshop ' + (id || '<clssch_id>') + ' --capacity ' + (cs.total_capacity != null ? cs.total_capacity : '<seats>')
+    console.log(reminder)
+    return { done: true, status: res.status, scheduleId: id, message: 'Class scheduled. ' + reminder }
   }
 
   root.HometownSchedule = { checkStudio: checkStudio, scheduleInSquare: scheduleInSquare }

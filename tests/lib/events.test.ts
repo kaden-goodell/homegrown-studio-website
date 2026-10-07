@@ -168,6 +168,22 @@ describe('listEvents source isolation (F2)', () => {
     expect(await getEvent('workshop', 'cs-pno')).toMatchObject({ options: [PAILS], signupCutoffHours: 48, capacity: 25 })
   })
 
+  it('takes the capacity from the class’s settings when Square doesn’t say, and Square wins when it does', async () => {
+    const { getEventMeta } = await import('@lib/event-meta')
+    const meta = { dropOff: false, days: null, options: [], signupCutoffHours: null, capacity: 12, updatedAt: '', by: { id: 'k', name: 'K' }, history: [] } as any
+    vi.mocked(getEventMeta).mockResolvedValueOnce(meta)
+    mockGetWorkshop.mockResolvedValueOnce({ ...WORKSHOPS[1] })
+    expect((await getEvent('workshop', 'cs-pno'))?.capacity).toBe(12)
+    vi.mocked(getEventMeta).mockResolvedValueOnce(meta)
+    mockGetWorkshop.mockResolvedValueOnce({ ...WORKSHOPS[1], totalCapacity: 25 })
+    expect((await getEvent('workshop', 'cs-pno'))?.capacity).toBe(25)
+  })
+
+  it('leaves the capacity out when neither knows it', async () => {
+    mockGetWorkshop.mockResolvedValueOnce({ ...WORKSHOPS[1] })
+    expect(await getEvent('workshop', 'cs-pno')).not.toHaveProperty('capacity')
+  })
+
   it('a party never asks seat questions', async () => {
     expect(await getEvent('party', 'p1')).toMatchObject({ options: [], signupCutoffHours: null })
   })

@@ -34,7 +34,7 @@ export interface StudioEvent {
   options?: SeatOption[]
   /** The class's own sign-up cutoff in hours; null = the default. */
   signupCutoffHours?: number | null
-  /** Seats the class holds in all, when Square says. */
+  /** Seats the class holds in all: Square's figure, else the class's own setting. */
   capacity?: number
   /** Present only when an event-meta override exists for this event. */
   updatedAt?: string
@@ -96,6 +96,9 @@ function partyEvent(id: string, p: PartyRecord, meta: EventMeta | null): StudioE
 }
 
 function workshopEvent(id: string, w: Workshop, meta: EventMeta | null): StudioEvent {
+  // Square's buyer API sends no capacity for real classes, so the class's
+  // own setting fills in; Square wins whenever it does say.
+  const capacity = w.totalCapacity ?? meta?.capacity ?? undefined
   return {
     kind: 'workshop',
     id,
@@ -106,7 +109,7 @@ function workshopEvent(id: string, w: Workshop, meta: EventMeta | null): StudioE
     seats: w.availableCapacity,
     options: meta?.options ?? [],
     signupCutoffHours: meta?.signupCutoffHours ?? null,
-    ...(typeof w.totalCapacity === 'number' ? { capacity: w.totalCapacity } : {}),
+    ...(capacity !== undefined ? { capacity } : {}),
     ...(meta ? { updatedAt: meta.updatedAt, by: meta.by } : {}),
   }
 }

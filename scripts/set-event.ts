@@ -1,8 +1,8 @@
 /**
  * Change an event's settings from the command line — the same `event-meta`
  * record the staff console's gear sheet writes, under the same rules
- * (`mergeEventMeta`): drop-off, multi-day span, per-seat questions and the
- * sign-up cutoff.
+ * (`mergeEventMeta`): drop-off, multi-day span, per-seat questions, the
+ * sign-up cutoff and the class's capacity.
  *
  * Writes the PRODUCTION Netlify Blobs store through the authed `netlify` CLI
  * (site stores are site-wide, not per deploy). For local dev use the gear on
@@ -11,6 +11,7 @@
  * Usage:
  *   npx tsx scripts/set-event.ts --workshop clssch_… --option "Pumpkin color=Light Pink|Light Blue|Black|Lavender"
  *   npx tsx scripts/set-event.ts --workshop clssch_… --cutoff 24          (or --cutoff default)
+ *   npx tsx scripts/set-event.ts --workshop clssch_… --capacity 12        (or --capacity none)
  *   npx tsx scripts/set-event.ts --workshop clssch_… --no-options
  *   npx tsx scripts/set-event.ts --workshop clssch_… --on | --off | --days 2026-10-18,2026-10-19
  *   npx tsx scripts/set-event.ts --workshop clssch_… --show
@@ -84,7 +85,7 @@ function hasPicks(): boolean {
 function summary(m: EventMeta): string {
   const questions = m.options.map((o) => `${o.label}=${o.choices.join('|')}`).join('; ') || '(none)'
   const cutoff = `${effectiveCutoffHours(m)}h${m.signupCutoffHours === null ? ' (default)' : ''}`
-  return `dropOff=${m.dropOff} days=${m.days ? m.days.join(',') : '(single day)'} questions=${questions} cutoff=${cutoff}`
+  return `dropOff=${m.dropOff} days=${m.days ? m.days.join(',') : '(single day)'} questions=${questions} cutoff=${cutoff} capacity=${m.capacity ?? '(unknown)'}`
 }
 
 const current = read() ?? emptyEventMeta()
@@ -95,7 +96,7 @@ if (show) {
   process.exit(0)
 }
 if (Object.keys(patch).length === 0) {
-  console.error('Nothing to change. Add --on/--off, --days, --option, --no-options or --cutoff (or --show to read).')
+  console.error('Nothing to change. Add --on/--off, --days, --option, --no-options, --cutoff or --capacity (or --show to read).')
   process.exit(1)
 }
 

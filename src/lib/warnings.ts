@@ -10,11 +10,15 @@
  * Oversold only fires when Square reports a NEGATIVE available_capacity: an
  * exactly-full class looks the same as an oversold one, so the roster's
  * seats-sold figure remains the human check.
+ *
+ * Capacity is Square's figure when it gives one, else the class's own setting
+ * (Square's buyer API sends none for real classes). A class with questions and
+ * no capacity anywhere gets a capacity-unknown line rather than silence.
  */
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { studioOpenOn } from '@config/closures'
-import { getEventMeta } from '@lib/event-meta'
+import { getEventMeta, type EventMeta } from '@lib/event-meta'
 import { listSeatChoicesByEvent } from '@lib/seat-choices'
 import { getPartyRecord } from '@lib/party-store'
 import { createLogger } from '@lib/logger'
@@ -24,7 +28,7 @@ import type { Workshop } from '@providers/interfaces/workshop'
 
 const logger = createLogger('warnings')
 
-export type WarningCode = 'class-over-party' | 'class-over-class' | 'oversold' | 'party-on-closed-day' | 'picks-missing'
+export type WarningCode = 'class-over-party' | 'class-over-class' | 'oversold' | 'party-on-closed-day' | 'picks-missing' | 'capacity-unknown'
 
 export interface Warning {
   code: WarningCode
@@ -51,7 +55,11 @@ export function warningLine(w: Warning): string {
 interface ScannedClass {
   span: ClassSpan
   workshop: Workshop
+  meta: EventMeta | null
 }
+
+/** Seats the class holds: Square's figure, else the class's own setting. */
+const capacityOf = (c: ScannedClass): number | null => c.workshop.totalCapacity ?? c.meta?.capacity ?? null
 
 interface Scan {
   classes: ScannedClass[]
@@ -77,13 +85,19 @@ async function scan(from: string, to: string): Promise<Scan> {
       locationId: siteConfig.providers.booking.config.locationId || '',
     }),
   ])
-  const classes = workshops
-    .filter((x) => {
-      const t = Date.parse(x.startAt)
-      return t >= lo && t <= hi
-    })
-    .map((workshop) => ({ span: classSpanOf(workshop), workshop }))
-    .sort((a, b) => a.span.startIso.localeCompare(b.span.startIso))
+  const inWindow = workshops.filter((x) => {
+    const t = Date.parse(x.startAt)
+    return t >= lo && t <= hi
+  })
+  // A settings read that fails throws: it fails the scan, never quietly skips.
+  const classes = (
+    await Promise.all(
+      inWindow.map(async (workshop) => {
+        const span = classSpanOf(workshop)
+        return { span, workshop, meta: await getEventMeta('workshop', span.id) }
+      }),
+    )
+  ).sort((a, b) => a.span.startIso.localeCompare(b.span.startIso))
   const parties = await Promise.all(
     bookings
       .filter((b) => b.status !== 'cancelled')
@@ -134,12 +148,13 @@ function classOverClass(s: Scan): Warning[] {
 }
 
 function oversold(s: Scan): Warning[] {
-  return s.classes.flatMap(({ span, workshop }): Warning[] => {
+  return s.classes.flatMap((c): Warning[] => {
+    const { span, workshop } = c
     // Only fires if Square reports a NEGATIVE available_capacity; an exactly-full
     // class is indistinguishable from an oversold one. The roster's seats-sold
     // figure is the human check.
-    const total = workshop.totalCapacity
-    if (typeof total !== 'number') return []
+    const total = capacityOf(c)
+    if (total === null) return []
     const sold = total - workshop.availableCapacity
     if (sold <= total) return []
     return [{
@@ -168,14 +183,29 @@ function partyOnClosedDay(s: Scan): Warning[] {
     }))
 }
 
-/** Seats Square says are sold, minus seats with a pick on record: someone booked outside our site. */
+/**
+ * Seats sold, minus seats with a pick on record: someone booked outside our
+ * site. With no capacity to count against, says so instead of going quiet.
+ */
 async function picksMissing(s: Scan): Promise<Warning[]> {
   const checked = await Promise.all(
-    s.classes.map(async ({ span, workshop }): Promise<Warning[]> => {
-      if (typeof workshop.totalCapacity !== 'number') return []
-      const options = (await getEventMeta('workshop', span.id))?.options ?? []
+    s.classes.map(async (c): Promise<Warning[]> => {
+      const { span, workshop } = c
+      const options = c.meta?.options ?? []
       if (options.length === 0) return []
-      const sold = workshop.totalCapacity - workshop.availableCapacity
+      const capacity = capacityOf(c)
+      if (capacity === null) {
+        return [{
+          code: 'capacity-unknown',
+          eventKind: 'workshop',
+          eventId: span.id,
+          when: span.startIso,
+          title: span.name,
+          detail: `Can’t count seats sold for ${span.name}. Set its capacity (gear → Capacity) so seats booked on Square’s own page get flagged.`,
+          action: 'Set the capacity.',
+        }]
+      }
+      const sold = capacity - workshop.availableCapacity
       const picked = (await listSeatChoicesByEvent('workshop', span.id)).reduce((n, r) => n + r.seats, 0)
       const missing = sold - picked
       if (missing <= 0) return []

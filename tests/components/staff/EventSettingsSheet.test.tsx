@@ -105,3 +105,35 @@ describe('EventSettingsSheet — sign-ups close', async () => {
     expect(screen.getByText('Whole hours, 0 to 336.')).toBeInTheDocument()
   })
 })
+
+describe('EventSettingsSheet — capacity', () => {
+  it('a party has no capacity field', async () => {
+    serve({ ...CLASS, kind: 'party' })
+    await open({ ...CLASS, kind: 'party' })
+    expect(screen.queryByLabelText('Capacity')).toBeNull()
+  })
+
+  it('shows "from Square" when the capacity is unknown', async () => {
+    serve(CLASS)
+    await open()
+    expect(screen.getByLabelText('Capacity')).toHaveAttribute('placeholder', 'from Square')
+  })
+
+  it('saves whole seats after a confirm', async () => {
+    const spy = serve(CLASS)
+    await open()
+    fireEvent.change(screen.getByLabelText('Capacity'), { target: { value: '12' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    expect(screen.getByText('Set this class to 12 seats?')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, save' }))
+    await waitFor(() => expect(posted(spy)).toEqual([{ kind: 'workshop', id: 'clssch_pails', capacity: 12 }]))
+  })
+
+  it('will not offer to save a capacity outside 1–999', async () => {
+    serve(CLASS)
+    await open()
+    fireEvent.change(screen.getByLabelText('Capacity'), { target: { value: '0' } })
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+    expect(screen.getByText('Whole seats, 1 to 999.')).toBeInTheDocument()
+  })
+})

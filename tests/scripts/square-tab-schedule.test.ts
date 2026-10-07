@@ -71,6 +71,16 @@ describe('scheduleInSquare (run in the signed-in Square tab)', () => {
     expect(init.headers['x-csrf-token']).toBe('tok123')
   })
 
+  it('after a create, says how to save the class’s capacity (the snippet can’t reach the studio’s store)', async () => {
+    const root = load(async () => answer(200, { class_schedule: { id: 'clssch_new' } }))
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    const r = await root.HometownSchedule.scheduleInSquare({ clearance: clear(), body: body() })
+    const line = 'Now run: npx tsx scripts/set-event.ts --workshop clssch_new --capacity 25'
+    expect(r.message).toContain(line)
+    expect(log).toHaveBeenCalledWith(line)
+    log.mockRestore()
+  })
+
   const mover = (bookings: unknown[] | null) => async (_u: string, init: any) =>
     init.method === 'GET'
       ? bookings === null ? answer(500, {}) : answer(200, { class_schedule: { id: 'clssch_1', class_bookings: bookings } })

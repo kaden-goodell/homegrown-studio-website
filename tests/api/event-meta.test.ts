@@ -129,6 +129,20 @@ describe('POST /api/staff/event-meta.json', () => {
     expect(mockSetEventMeta).not.toHaveBeenCalled()
   })
 
+  it('saves a class capacity, or null for unknown', async () => {
+    expect((await POST(postCtx({ kind: 'workshop', id: 'cs1', capacity: 12 }))).status).toBe(200)
+    expect((await POST(postCtx({ kind: 'workshop', id: 'cs1', capacity: null }))).status).toBe(200)
+    expect(mockSetEventMeta.mock.calls.map((c) => c[2])).toEqual([{ capacity: 12 }, { capacity: null }])
+  })
+
+  it('refuses a capacity that is not 1–999 whole seats, or on a party', async () => {
+    for (const capacity of [0, -1, 1000, 2.5, '12']) {
+      expect((await POST(postCtx({ kind: 'workshop', id: 'cs1', capacity }))).status).toBe(400)
+    }
+    expect((await POST(postCtx({ kind: 'party', id: 'p1', capacity: 12 }))).status).toBe(400)
+    expect(mockSetEventMeta).not.toHaveBeenCalled()
+  })
+
   it('passes on the lock refusal once someone has picked', async () => {
     const { SeatSettingsError } = await import('@lib/seat-options')
     const msg = 'People have already picked for this class, so existing choices can’t be removed or renamed. You can add new ones.'
