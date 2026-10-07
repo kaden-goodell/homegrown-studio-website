@@ -371,4 +371,20 @@ describe('openPartyStarts — parties yield to classes', () => {
     mockListAllWorkshops.mockResolvedValue([classAt('2027-08-08T00:00:00.000Z')]) // 7 PM CDT Sat 7 Aug 2027
     expect(await getOpen()).toEqual(partyStartsForDate(TEST_DATE))
   })
+
+  it('availability.json: when the bookings lookup throws, the class rule still applies', async () => {
+    vi.setSystemTime(OCT_8)
+    mockListBookings.mockRejectedValue(new Error('Square 503'))
+    mockListAllWorkshops.mockResolvedValue([classAt(SUN_1PM)])
+    const { POST } = await import('@pages/api/party/availability.json')
+    const url = new URL('http://localhost/api/party/availability.json')
+    const request = new Request(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date: '2026-10-18' }),
+    })
+    const response = await POST({ request, url, params: {}, redirect: () => new Response(), locals: {} } as any)
+    const json = await response.json()
+    expect(json.data.slots.map((s: any) => s.startAt)).toEqual([SUN_330PM])
+  })
 })

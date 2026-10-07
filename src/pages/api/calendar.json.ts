@@ -13,6 +13,7 @@ import {
   type PartyAvailabilitySlot,
   type PartyBookedSlot,
 } from '@components/calendar/calendar-view-model'
+import { classSpanOf, removeClassBlocked } from '@lib/conflicts'
 import { createLogger } from '@lib/logger'
 import { remember } from '@lib/short-memory'
 import { publicListHeaders } from '@lib/cache-headers'
@@ -126,8 +127,9 @@ export const GET: APIRoute = async ({ url, request }) => {
     availStart.getTime() < rangeEnd.getTime()
       ? partyStartsInRange(availStart.toISOString(), rangeEnd.toISOString())
       : []
+  // Parties yield to classes (spec E), then booked parties come off.
   const partyAvailable: PartyAvailabilitySlot[] = removeBooked(
-    offeredStarts,
+    removeClassBlocked(offeredStarts, allWorkshops.map(classSpanOf)),
     partyBooked.map((b) => b.startAt)
   )
     .filter(inRangeIso)

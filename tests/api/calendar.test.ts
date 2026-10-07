@@ -374,4 +374,10 @@ describe('GET /api/calendar.json', () => {
       expect(ids(body)).toContain('workshop-w1')
     })
   })
+
+  it('does not advertise a party time a class rules out', async () => {
+    mockListWorkshops.mockResolvedValue([workshop({ startAt: '2026-10-18T18:00:00.000Z', durationMinutes: 120, name: 'Bedazzled Pumpkin Pails' })])
+    const october = (await getMonth('2026-10')).body.events.filter((e: any) => e.kind === 'party-available' && e.date === '2026-10-18')
+    expect(october.map((e: any) => e.startTime)).toEqual(['15:30'])
+  })
 })

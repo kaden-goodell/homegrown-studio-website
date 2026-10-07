@@ -12,6 +12,8 @@ import { siteConfig } from '@config/site.config'
 import type { SquareConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
 import { createSquareClient } from '@providers/square/client'
+import { removeClassBlocked } from '@lib/conflicts'
+import { classSpansOrNone } from '@lib/party-availability'
 import { bookableDates, localToUtcISO, partyStartsInRange, removeBooked } from '@lib/party-slots'
 
 /** The party service's variation id: what marks a booking as a party. */
@@ -27,7 +29,12 @@ export async function openPartyStartsInWindow(now: Date = new Date()): Promise<s
   if (first > last) return []
   const from = new Date(Math.max(new Date(localToUtcISO(first, '00:00')).getTime(), now.getTime()))
   const to = new Date(localToUtcISO(last, '23:59'))
-  const offered = partyStartsInRange(from.toISOString(), to.toISOString(), now)
+  const allOffered = partyStartsInRange(from.toISOString(), to.toISOString(), now)
+  // Parties yield to classes (spec E). A failed class lookup never blocks.
+  const offered =
+    allOffered.length === 0
+      ? allOffered
+      : removeClassBlocked(allOffered, await classSpansOrNone(from.toISOString(), to.toISOString()))
   if (offered.length === 0 || !providers.booking.listBookings) return offered
 
   const [variationId, bookings] = await Promise.all([

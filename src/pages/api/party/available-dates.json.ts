@@ -4,6 +4,8 @@ import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
 import { partyStartsInRange, removeBooked, localDate } from '@lib/party-slots'
+import { classSpansOrNone } from '@lib/party-availability'
+import { removeClassBlocked } from '@lib/conflicts'
 import { createLogger } from '@lib/logger'
 
 const logger = createLogger('api:party:available-dates')
@@ -25,6 +27,12 @@ export const POST: APIRoute = async ({ request }) => {
 
     // Offered starts across the window come from config (per-weekday schedule).
     const starts = partyStartsInRange(now.toISOString(), windowEnd.toISOString())
+
+    // Parties yield to classes (spec E). The panel takes its times from here,
+    // so the rule must hold here as well as in availability.json. A failed
+    // class lookup offers every time (logged inside classSpansOrNone).
+    const classes = starts.length > 0 ? await classSpansOrNone(now.toISOString(), windowEnd.toISOString()) : []
+    const unblocked = removeClassBlocked(starts, classes)
 
     // Remove starts already booked (one bookings lookup for the whole window).
     let bookedStarts: string[] = []
@@ -53,7 +61,7 @@ export const POST: APIRoute = async ({ request }) => {
     // panel shows its times at once instead of waiting on a second request.
     const durationMinutes = partyConfig.durationMinutes
     const times: Record<string, { startAt: string; endAt: string; durationMinutes: number }[]> = {}
-    for (const startAt of removeBooked(starts, bookedStarts)) {
+    for (const startAt of removeBooked(unblocked, bookedStarts)) {
       const date = localDate(startAt)
       ;(times[date] ??= []).push({
         startAt,

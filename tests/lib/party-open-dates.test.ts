@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const mockListBookings = vi.fn()
+const mockListAllWorkshops = vi.fn()
 vi.mock('@config/providers', () => ({
-  providers: { booking: { listBookings: (...a: any[]) => mockListBookings(...a) } },
+  providers: {
+    booking: { listBookings: (...a: any[]) => mockListBookings(...a) },
+    workshop: { listAllWorkshops: (...a: any[]) => mockListAllWorkshops(...a), listWorkshops: async () => [] },
+  },
 }))
 
 const mockCatalogGet = vi.fn()
@@ -29,6 +33,7 @@ beforeEach(() => {
   vi.clearAllMocks()
   mockCatalogGet.mockResolvedValue({ object: { itemData: { variations: [{ id: VARIATION }] } } })
   mockListBookings.mockResolvedValue([])
+  mockListAllWorkshops.mockResolvedValue([])
 })
 
 describe('openPartyStartsInWindow', () => {
@@ -69,5 +74,14 @@ describe('openPartyStartsInWindow', () => {
   it('throws when the bookings cannot be read, so nobody is told a taken date is open', async () => {
     mockListBookings.mockRejectedValue(new Error('Square 503'))
     await expect(openPartyStartsInWindow(NOW)).rejects.toThrow('Square 503')
+  })
+
+  it('leaves out a time a class rules out (a Sunday 1–3 PM class takes the 1:00 start, not 3:30)', async () => {
+    mockListAllWorkshops.mockResolvedValue([
+      { id: 'i', scheduleId: 'clssch_pails', name: 'Bedazzled Pumpkin Pails', startAt: '2026-10-18T18:00:00.000Z', durationMinutes: 120 },
+    ])
+    const starts = await openPartyStartsInWindow(NOW)
+    expect(starts).not.toContain('2026-10-18T18:00:00.000Z')
+    expect(starts).toContain('2026-10-18T20:30:00.000Z')
   })
 })
