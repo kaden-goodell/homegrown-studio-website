@@ -20,8 +20,8 @@
   the immediate vicinity and readily available**. This **covers walk-in sessions and pottery
   painting with parents present** — those are clearly fine. It plainly **fails for PNO** where
   parents leave.
-- Headcount mitigation: "day care center" requires **more than 12 children**; the sub-12
-  categories only apply to family homes. Capping PNO at ≤12 kids helps but is not a confirmed
+- Headcount: "day care center" requires **more than 12 children**; the sub-12
+  categories only apply to family homes. A small headcount helps but is not a confirmed
   safe harbor (the base definition starts at one child). Note 6–9pm crosses the 7pm
   "nighttime center" boundary (same >12 threshold).
 - DHR's public pages contain **no** duration/hours-based exemption for short recreational
@@ -29,22 +29,16 @@
   "established and maintained for the care of children" — genuinely ambiguous.
 - **Action: get a written DHR determination or Alabama attorney opinion before running PNO.
   Until then, consider requiring one parent per group to remain on premises (fits the
-  transient exclusion), or cap ≤12 and get the opinion.**
+  transient exclusion), or get the opinion.**
 - Sources: [§38-7-2](https://law.justia.com/codes/alabama/title-38/chapter-7/section-38-7-2/),
   [PHLC Alabama child-care exemptions](https://www.publichealthlawcenter.org/resources/child-care-definitions-and-exemptions-alabama),
   [DHR licensing overview](https://dhr.alabama.gov/child-care/licensing-overview/)
 
-- **2026-10-07 re-check against the CURRENT statute (ALISON; §38-7-2 amended 2021, §38-7-3 amended 2018) and rules ch. 660-5-26 (eff. 9/13/2021) — full report `docs/research/2026-10-07-alabama-drop-off-12-limit.md`:**
-  13+ children in drop-off care needs a DHR licence ("day care center" / "nighttime center" = *more than 12*);
-  ≤12 at a storefront sits in a GAP (no licence type exists for a non-home with ≤12) — unregulated in
-  practice, not an exemption. The count is ambiguous between **per day** ("during all or part of a day")
-  and at-one-time; conservative rule = **≤12 drop-off kids per DAY**, siblings and walk-ins whose parent
-  leaves included. No staff ratio applies to an unlicensed program (licensed centers: 1:22 for 8+, two
-  adults at 7+ kids); our "12 kids / two adults" is a voluntary standard. After 7 PM = "nighttime", same
-  >12 line. Never advertise as "child care"/"babysitting" (§38-7-16(4)–(5)). Penalty for operating a
-  licensable facility unlicensed: misdemeanour, $100–$1,000 and/or ≤1 yr. Written determination:
-  childcarelicensingintake@dhr.alabama.gov · 1-866-528-1694. DHR's Parent's Guide "<4 hours/day not
-  regulated" line is BROADER than the statute (preschool-age only) — don't rely on it.
+- 2026-10-07: statute re-read from ALISON (§38-7-2 amended 2021, §38-7-3 amended 2018; rules ch.
+  660-5-26 eff. 2021). Licensable "day care center"/"nighttime center" = *more than 12* children; no
+  licence type exists for a non-home below that. No staff ratio applies to an unlicensed program. Never
+  advertise events as "child care"/"babysitting" (§38-7-16(4)–(5)). Written determination:
+  childcarelicensingintake@dhr.alabama.gov · 1-866-528-1694.
 
 ### 2. Workers' compensation — 5-employee headcount rule (confirmed)
 - Mandatory at **5+ employees, counted by head not FTE**: part-timers count, and corporate

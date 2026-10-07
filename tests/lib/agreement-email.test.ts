@@ -7,7 +7,7 @@ import type { StudioEvent } from '@lib/events'
 function makeRecord(overrides: Partial<WaiverRecord> = {}): WaiverRecord {
   return {
     id: 'wvr_test_abc123',
-    agreementVersion: 'v3',
+    agreementVersion: 'v1',
     agreementSha256: 'deadbeef',
     signedAt: '2026-09-01T18:00:00.000Z',
     validUntil: '2027-09-01T18:00:00.000Z',
@@ -58,7 +58,6 @@ describe('buildAgreementCopy', () => {
     expect(html).toContain('4b. Drop-off programs')
     expect(html).toContain('Bobby')
     expect(html).toContain(record.id)
-    expect(html).not.toMatch(/addendum/i)
     expect(text).toContain(record.id)
     expect(text).toContain('The only exception is a designated Studio drop-off program')
   })

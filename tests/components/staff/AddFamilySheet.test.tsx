@@ -5,7 +5,7 @@ import type { HouseholdMatch } from '@components/staff/DoorSearch'
 
 const sam: HouseholdMatch = {
   recordId: 'wvr_9', firstName: 'Sam', lastName: 'Lee', contactHint: '', signedAt: '2026-08-01T00:00:00.000Z',
-  agreementVersion: 'v3', validUntil: '2027-08-01T00:00:00.000Z', covered: true, kids: [{ name: 'Mia Lee', allergies: '' }],
+  agreementVersion: 'v1', validUntil: '2027-08-01T00:00:00.000Z', covered: true, kids: [{ name: 'Mia Lee', allergies: '' }],
   adultAllergies: '', photoConsent: true, openStudioToday: false,
 }
 const ev = { kind: 'workshop' as const, id: 'ws1', title: 'Parents Night Out', day: '2026-09-29' }

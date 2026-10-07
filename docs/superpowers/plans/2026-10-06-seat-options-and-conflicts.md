@@ -5475,7 +5475,7 @@ describe('Roster — seat picks (spec D)', () => {
       return {
         ok: true,
         json: async () => ({
-          data: { event, day: '2026-10-18', summary: { households: 1, people: 2, childrenHereNow: 0 }, capWarning: false, households: [household()], choices },
+          data: { event, day: '2026-10-18', summary: { households: 1, people: 2, childrenHereNow: 0 }, households: [household()], choices },
         }),
       } as Response
     })

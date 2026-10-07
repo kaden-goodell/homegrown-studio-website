@@ -9,7 +9,7 @@ function makeHousehold(overrides: Record<string, any> = {}) {
     recordId: 'wvr_abc',
     validUntil: '2099-01-01T00:00:00.000Z',
     signedAt: '2026-01-01T00:00:00.000Z',
-    agreementVersion: 'v3',
+    agreementVersion: 'v1',
     firstName: 'Alice',
     lastName: 'Test',
     email: 'alice@test.com',
@@ -120,8 +120,8 @@ describe('POST /api/waiver/lookup.json — type a phone number, the household ap
     expect((await res.json()).data.hasPickup).toBe(false)
   })
 
-  it('mustResign:true when the on-file version predates substantiveSince (v2 → re-sign under v3)', async () => {
-    mockLookupHouseholdEntry.mockResolvedValue(makeHousehold({ agreementVersion: 'v2' }))
+  it('mustResign:true when the on-file version predates substantiveSince (an older signature re-signs)', async () => {
+    mockLookupHouseholdEntry.mockResolvedValue(makeHousehold({ agreementVersion: 'v0' }))
     const { data } = await (await POST(createMockContext({ contact: 'alice@test.com' }))).json()
     expect(data).toEqual({ found: true, mustResign: true, firstName: 'Alice' })
   })

@@ -130,7 +130,7 @@ function makeAdultBody(overrides: Record<string, any> = {}) {
 function makeReuseSource(overrides: Record<string, any> = {}) {
   return {
     id: 'wvr_source_abc',
-    agreementVersion: 'v3',
+    agreementVersion: 'v1',
     agreementSha256: 'abc123',
     signedAt: '2026-01-01T00:00:00.000Z',
     validUntil: '2027-01-01T00:00:00.000Z',
@@ -469,8 +469,8 @@ describe('POST /api/waiver/sign.json', () => {
   })
 
   describe('forced re-sign (mustResign) — HOM-210', () => {
-    it('returns 409 mustResign when the source record predates substantiveSince (a v2 signature must re-sign under v3)', async () => {
-      mockGetWaiverRecord.mockResolvedValue(makeReuseSource({ agreementVersion: 'v2' }))
+    it('returns 409 mustResign when the source record predates substantiveSince (an older signature must re-sign)', async () => {
+      mockGetWaiverRecord.mockResolvedValue(makeReuseSource({ agreementVersion: 'v0' }))
       mockGetEvent.mockResolvedValueOnce(partyEvent())
       const ctx = createMockContext({
         reuseRecordId: 'wvr_source_abc',

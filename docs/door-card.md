@@ -56,7 +56,6 @@ First aid → call the parent → **🚑 Incident** (top of every screen) → **
 ## Always
 
 - **Two vetted adults, every event, no exceptions.** Never one-on-one with a kid.
-- **12 kids max.**
 - See something that worries you? You're a **mandated reporter** — call DHR
   **1-800-458-7214** immediately. Don't sit on it.
 - **Never delete anything.** Wrong entry? Add a note or an Override with the real story.

@@ -28,9 +28,6 @@ export interface RsvpRecord {
   ref?: { bookingId?: string } // e.g. the Square seat booking (workshops)
   attending: string[] | null // 'adult' | 'child:N' ids from the waiver; null = everyone
   responsibleAdult: string | null
-  /** Legacy — the standalone addendum was retired in agreement v3 (§4b). Never written; kept so old dev data still types. */
-  addendumVersion?: string | null
-  addendumSha256?: string | null
   /**
    * Set only on the returning-household RSVP path (HOM-212), when the
    * on-file signature has no pickup info and the guest fills the compact

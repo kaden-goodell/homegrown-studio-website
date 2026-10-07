@@ -26,7 +26,7 @@ function household(overrides: Record<string, any> = {}) {
     responsibleAdult: '',
     photoConsent: true,
     signedAt: '2026-08-01T00:00:00.000Z',
-    agreementVersion: 'v3',
+    agreementVersion: 'v1',
     validUntil: '2027-08-01T00:00:00.000Z',
     checkin: {
       expected: null,
@@ -67,7 +67,6 @@ function mockRoster(households: any[], event: any = CAMP) {
           event,
           day,
           summary: { households: households.length, people: households.length * 2, childrenHereNow: 0 },
-          capWarning: false,
           households,
         },
       }),
@@ -177,7 +176,7 @@ describe('Roster', () => {
     mockRoster([], { ...CAMP, dropOff: false })
     const found = {
       recordId: 'wvr_9', firstName: 'Sam', lastName: 'Lee', contactHint: '••• 0142', signedAt: '2026-08-01T00:00:00.000Z',
-      agreementVersion: 'v3', validUntil: '2027-08-01T00:00:00.000Z', covered: true, kids: [{ name: 'Mia Lee', allergies: '' }],
+      agreementVersion: 'v1', validUntil: '2027-08-01T00:00:00.000Z', covered: true, kids: [{ name: 'Mia Lee', allergies: '' }],
       adultAllergies: '', photoConsent: true, openStudioToday: false,
     }
     render(
@@ -212,7 +211,7 @@ describe('Roster — seat picks (spec D)', () => {
       return {
         ok: true,
         json: async () => ({
-          data: { event, day: '2026-10-18', summary: { households: 1, people: 2, childrenHereNow: 0 }, capWarning: false, households: [household()], choices },
+          data: { event, day: '2026-10-18', summary: { households: 1, people: 2, childrenHereNow: 0 }, households: [household()], choices },
         }),
       } as Response
     })

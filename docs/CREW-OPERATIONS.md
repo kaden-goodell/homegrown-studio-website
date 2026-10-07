@@ -99,9 +99,8 @@ in Linear HOM-99 (licensing) and HOM-114 (safeguards).
 - Bathroom policy for young kids: a child is never alone with a single adult behind a
   closed door — door stays ajar / a second adult is aware.
 
-**Capacity & ratio:**
-- **Hard cap: 12 children per event.** (This is the licensing decision — do not exceed 12.)
-- Staff to at least **1 adult per 6 kids, minimum 2 adults** — so 2 adults up to 12 kids.
+**Staffing:**
+- **Minimum 2 adults** for any drop-off event; the owners set the headcount and add staff for bigger groups.
 
 **Check-in / check-out — how the iPad actually walks you through it:**
 - **The Today screen (front desk) answers one of three questions** the moment you type a

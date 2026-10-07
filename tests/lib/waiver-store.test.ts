@@ -20,7 +20,7 @@ function makeRecord(overrides: Partial<{
 }> = {}): import('@lib/waiver-store').WaiverRecord {
   return {
     id: overrides.id ?? 'wvr_test_001',
-    agreementVersion: 'v2',
+    agreementVersion: 'v1',
     agreementSha256: 'abc',
     signedAt: new Date().toISOString(),
     validUntil: new Date(Date.now() + 1e10).toISOString(),

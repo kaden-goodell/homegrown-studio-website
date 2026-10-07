@@ -1,7 +1,7 @@
 # Take-Home Party Kits — PRD
 
 > Status: **APPROVED — build authorized by Kaden 2026-07-11** · Tier: Full
-> Related: docs/plans/2026-07-11-site-reorg-redesign-plan.md (teaser shipped on /book + homepage card), party flow (`src/components/party/`, `party-steps` lib), attorney review of agreement v3 (rental terms to be folded in).
+> Related: docs/plans/2026-07-11-site-reorg-redesign-plan.md (teaser shipped on /book + homepage card), party flow (`src/components/party/`, `party-steps` lib), attorney review of the agreement (rental terms to be folded in).
 
 ## 1. Overview
 
@@ -124,7 +124,7 @@ Flow inside the modal (dynamic steps, `party-steps` pattern — settled steps dr
 - **Late/damaged protection**: a kit's settings stay "consumed" from pickup until staff CHECKS IT IN (not until the scheduled Wednesday) — an overdue kit automatically keeps blocking NEW bookings, surfacing conflicts instead of hiding them. Staff can also manually block a theme-week (damage, deep cleaning). Breakage shrinks `ownedSettings` via config edit.
 - **Over-commitment radar (Kaden 2026-07-11)**: auto-blocking cannot protect weeks booked BEFORE a loss (booked 8 weeks out, stock drops in week 4 → week 5 may be stranded; the 15-setting buffer absorbs small losses but not a lost serves-20). When a forfeit is confirmed or `ownedSettings` drops, the staff kits view flags every future week whose committed settings now exceed physical stock. Resolution policy (documented, human-executed): communicate early, partial-fulfill with what exists, refund the package difference if it can't be made whole. No automated cancellations.
 - TBD: Route name — `/kits` vs `/parties/take-home` (parties-hub framing from the site-reorg plan).
-- TBD: Rental terms language — with attorney in agreement v3 review; blocking for LAUNCH, not for build (build against draft terms). Now includes the "customer cleans food-contact pieces" clause.
+- TBD: Rental terms language — with attorney in the agreement review; blocking for LAUNCH, not for build (build against draft terms). Now includes the "customer cleans food-contact pieces" clause.
 - ~~Return window~~ — DECIDED: Thursday→Thursday, forfeit staff-confirmed on/after return Thursday.
 - ~~Replacement prices~~ — DECIDED: none; deposit withholding + manual recourse only.
 - ~~Wash/sanitize~~ — DECIDED: customer cleans, staff verifies + final sanitize; dirty returns can dock the deposit.

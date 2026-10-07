@@ -15,7 +15,7 @@ vi.mock('qrcode', () => ({ default: { toString: qrSpy } }))
 
 const sam = (over: Partial<HouseholdMatch> = {}): HouseholdMatch => ({
   recordId: 'wvr_9', firstName: 'Sam', lastName: 'Lee', contactHint: '••• 0142',
-  signedAt: '2026-08-01T00:00:00.000Z', agreementVersion: 'v3', validUntil: '2027-08-01T00:00:00.000Z',
+  signedAt: '2026-08-01T00:00:00.000Z', agreementVersion: 'v1', validUntil: '2027-08-01T00:00:00.000Z',
   covered: true, kids: [{ name: 'Mia Lee', allergies: '' }, { name: 'Noah Lee', allergies: '' }],
   adultAllergies: '', photoConsent: true, openStudioToday: false, ...over,
 })
@@ -175,8 +175,8 @@ describe('DoorSearch — event mode (+ Add family)', () => {
     expect((screen.getByPlaceholderText('Phone, email or last name') as HTMLInputElement).value).toBe('')
   })
 
-  it('a v1/v2 signer (outdated) gets UPDATED AGREEMENT and the same two buttons — no Add', async () => {
-    serve([sam({ covered: false, outdated: true, agreementVersion: 'v2' })])
+  it('an outdated signer gets UPDATED AGREEMENT and the same two buttons — no Add', async () => {
+    serve([sam({ covered: false, outdated: true, agreementVersion: 'v0' })])
     render(<DoorSearch mode="event" event={camp} onAdded={vi.fn()} />)
     search('lee')
     await screen.findByText('UPDATED AGREEMENT — Sam Lee needs to sign again')
@@ -187,7 +187,7 @@ describe('DoorSearch — event mode (+ Add family)', () => {
   })
 
   it('walk-in mode shows the same UPDATED AGREEMENT state', async () => {
-    serve([sam({ covered: false, outdated: true, agreementVersion: 'v1' })])
+    serve([sam({ covered: false, outdated: true, agreementVersion: 'v0' })])
     render(<DoorSearch onCheckedIn={vi.fn()} />)
     search('lee')
     await screen.findByText(/UPDATED AGREEMENT — Sam Lee needs to sign again/)

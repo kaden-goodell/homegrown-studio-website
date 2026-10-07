@@ -26,7 +26,7 @@ function household(presence: Household['checkin']['presence'] = {}, over: Partia
     responsibleAdult: '',
     photoConsent: false,
     signedAt: '2026-08-01T00:00:00.000Z',
-    agreementVersion: 'v3',
+    agreementVersion: 'v1',
     validUntil: '2027-08-01T00:00:00.000Z',
     checkin: {
       expected: null,

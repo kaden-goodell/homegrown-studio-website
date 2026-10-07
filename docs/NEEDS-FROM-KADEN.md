@@ -39,7 +39,7 @@ fields stay hidden until filled — no code changes needed to "turn them on."
 1. **Set `STAFF_PASSCODE` in the Netlify environment** — verified MISSING 2026-07-11.
    Auth fails closed (no security risk), but the staff console — kits board,
    party check-in, rosters — cannot log in on the deployed site until this is set.
-2. **Attorney redline of `docs/waiver-versions/v3.md`** (drop-off terms are its §4b) — the
+2. **Attorney redline of `docs/waiver-versions/v1.md`** (drop-off terms are its §4b) — the
    exact text customers sign (`docs/WAIVER.md` is a generated mirror of the same
    text; don't send that, send the archived versions so a later text change can't
    silently invalidate the redline). Three questions to put to counsel specifically:

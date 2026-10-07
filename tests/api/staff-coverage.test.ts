@@ -21,7 +21,7 @@ function household(overrides: Record<string, any> = {}) {
     firstName: 'Sarah',
     lastName: 'Rivera',
     signedAt: '2026-08-03T00:00:00.000Z',
-    agreementVersion: 'v3',
+    agreementVersion: 'v1',
     validUntil: '2099-01-01T00:00:00.000Z',
     email: 'sarah@example.com',
     phone: '2565550142',
@@ -102,7 +102,7 @@ describe('GET /api/staff/coverage.json', () => {
     expect(h.photoConsent).toBe(true)
     expect(h.openStudioToday).toBe(true)
     expect(h.signedAt).toBe('2026-08-03T00:00:00.000Z')
-    expect(h.agreementVersion).toBe('v3')
+    expect(h.agreementVersion).toBe('v1')
     expect(h.validUntil).toBe('2099-01-01T00:00:00.000Z')
   })
 
@@ -147,14 +147,14 @@ describe('GET /api/staff/coverage.json', () => {
 })
 
 describe('outdated agreements', () => {
-  it.each(['v1', 'v2', 'garbage'])('a %s signature is covered:false, outdated:true even when unexpired', async (version) => {
+  it.each(['v0', 'garbage'])('a %s signature (older than the current agreement) is covered:false, outdated:true even when unexpired', async (version) => {
     mockLookupHouseholdEntry.mockResolvedValue(household({ agreementVersion: version }))
     const res = await GET(ctx('?q=sarah@example.com'))
     const { data } = await res.json()
     expect(data.households[0]).toMatchObject({ covered: false, outdated: true })
   })
 
-  it('a current (v3) signature is covered and not outdated', async () => {
+  it('a current signature is covered and not outdated', async () => {
     mockLookupHouseholdEntry.mockResolvedValue(household())
     const { data } = await (await GET(ctx('?q=sarah@example.com'))).json()
     expect(data.households[0]).toMatchObject({ covered: true, outdated: false })

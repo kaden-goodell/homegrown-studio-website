@@ -14,13 +14,11 @@ import { picksShort, totalsLine } from '@lib/seat-options'
 import type { RosterChoices } from '@lib/seat-choices'
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
-const DROP_OFF_CAP = 12
 
 interface RosterData {
   event: StudioEvent
   day: string
   summary: { households: number; people: number; childrenHereNow: number }
-  capWarning: boolean
   households: Household[]
   /** Seat picks (classes with questions only); null = no questions, undefined = the read failed. */
   choices?: RosterChoices | null
@@ -273,9 +271,6 @@ export default function Roster({
             <Badge tone="alert" wrap>🚫 No group photos — {noPhotoGroups} {noPhotoGroups === 1 ? 'group' : 'groups'} opted out</Badge>
           )}
           {event.dropOff && <Badge tone="alert">🔑 Drop-off event</Badge>}
-          {data.capWarning && (
-            <Badge tone="alert" wrap>⚠ {data.summary.childrenHereNow} kids checked in — cap is {DROP_OFF_CAP}</Badge>
-          )}
           {incidents.length > 0 && (
             <button
               type="button"

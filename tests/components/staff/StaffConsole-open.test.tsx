@@ -13,7 +13,7 @@ function serve() {
     const href = String(url)
     if (href.includes('/api/staff/me.json')) return { ok: true, status: 200, json: async () => ({ data: { staff: { id: 't', name: 'Test', role: 'crew' } } }) } as Response
     if (href.includes('/api/staff/roster.json')) {
-      return { ok: true, json: async () => ({ data: { event: EVENT, day: '2026-09-29', summary: { households: 0, people: 0, childrenHereNow: 0 }, capWarning: false, households: [] } }) } as Response
+      return { ok: true, json: async () => ({ data: { event: EVENT, day: '2026-09-29', summary: { households: 0, people: 0, childrenHereNow: 0 }, households: [] } }) } as Response
     }
     if (href.includes('/api/staff/incidents.json')) return { ok: true, json: async () => ({ data: { incidents: [] } }) } as Response
     return { ok: true, json: async () => ({ data: { events: [], sources: {}, count: 0, parties: [] } }) } as Response

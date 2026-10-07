@@ -14,7 +14,6 @@ const logger = createLogger('api:staff:roster')
 
 const KIND_RE = EVENT_KIND_RE
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
-const DROP_OFF_CAP = 12
 
 /** Rosters only ever exist for these two kinds (programs have no resolver
  *  yet) — a subset of both `@lib/events`' and `@lib/waiver-store`'s own
@@ -121,7 +120,6 @@ export const GET: APIRoute = async ({ request, url }) => {
       (n, h) => n + Object.entries(h.checkin.presence).filter(([pid, p]) => pid.startsWith('child:') && !p.outAt).length,
       0,
     )
-    const capWarning = event.dropOff && childrenHereNow > DROP_OFF_CAP
 
     // Strip the matching-only dob before serialization.
     const responseHouseholds = households.map((h) => ({
@@ -153,7 +151,6 @@ export const GET: APIRoute = async ({ request, url }) => {
           event,
           day,
           summary: { households: households.length, people, childrenHereNow },
-          capWarning,
           households: responseHouseholds,
           choices,
         },

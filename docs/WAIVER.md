@@ -6,7 +6,7 @@ Canonical text of the studio's liability waiver. The live copy is rendered by th
 
 Written to Alabama enforceability: the adult release names ordinary negligence expressly, is conspicuous, and carves out willful/wanton conduct; minors are handled through parental indemnification (a parent cannot waive a child's own claims in Alabama — *J.T. v. Monster Mountain*, 754 F. Supp. 2d 1323 (M.D. Ala. 2010)). Counsel review is tracked in HOM-98; see *For counsel* at the bottom.
 
-**Agreement version:** `v3` · **SHA-256:** `bcfbfa442d7c92c530e2e5e087e37be5ec7b8e2e629ca6680d219cb613102332`
+**Agreement version:** `v1` · **SHA-256:** `1b71c675e49389c71f5b02c827fb324286c3cc301f52d4c16995f089a5559f45`
 
 ---
 
@@ -56,7 +56,7 @@ When a listed minor takes part in a designated Studio drop-off program (for exam
 
 (e) Emergencies. The medical authorization in Section 5 applies. Staff will call me as soon as practical after any injury or incident and will give me a written note of what happened.
 
-(f) Program terms. Capacity is limited to 12 minors with at least two adult staff present. The Studio may cancel a program for insufficient enrollment or staffing, with a full refund as its sole obligation.
+(f) Program terms. The Studio may cancel a program for insufficient enrollment or staffing, with a full refund as its sole obligation.
 
 ### 5. Medical authorization
 

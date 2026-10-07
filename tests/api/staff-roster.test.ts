@@ -45,7 +45,7 @@ function makeWaiver(overrides: Record<string, any> = {}) {
   return {
     id: 'wvr_a',
     signedAt: '2026-08-01T00:00:00.000Z',
-    agreementVersion: 'v2',
+    agreementVersion: 'v1',
     validUntil: '2027-08-01T00:00:00.000Z',
     adult: { firstName: 'Alice', lastName: 'Test', email: 'alice@x.com', phone: '', dob: '1990-01-01', allergies: '' },
     minors: [],
@@ -138,69 +138,19 @@ describe('GET /api/staff/roster.json — kind/id + ?party= alias (HOM-213)', () 
 })
 
 describe('GET /api/staff/roster.json — signature meta fields (HOM-213)', () => {
-  it('exposes signedAt, agreementVersion and validUntil — and no addendum field (retired in v3)', async () => {
-    mockListWaiversByEvent.mockResolvedValue([makeWaiver({ agreementVersion: 'v3', validUntil: '2027-08-01T00:00:00.000Z' })])
-    mockGetRsvp.mockResolvedValue({ addendumVersion: 'a1' })
+  it('exposes signedAt, agreementVersion and validUntil — and passes no unknown RSVP fields through', async () => {
+    mockListWaiversByEvent.mockResolvedValue([makeWaiver({ agreementVersion: 'v1', validUntil: '2027-08-01T00:00:00.000Z' })])
+    mockGetRsvp.mockResolvedValue({ addendumVersion: 'x' })
     const res = await GET(ctx('?party=party-1'))
     const json = await res.json()
     const h = json.data.households[0]
     expect(h.signedAt).toBe('2026-08-01T00:00:00.000Z')
-    expect(h.agreementVersion).toBe('v3')
+    expect(h.agreementVersion).toBe('v1')
     expect(h.validUntil).toBe('2027-08-01T00:00:00.000Z')
     expect(h.addendumVersion).toBeUndefined()
   })
 })
 
-describe('GET /api/staff/roster.json — drop-off cap warning (HOM-213)', () => {
-  function checkinWithChildrenHere(day: string, childIds: string[]) {
-    return {
-      ...emptyCheckin(),
-      days: { [day]: { presence: Object.fromEntries(childIds.map((id) => [id, { inAt: 'x', outAt: null }])) } },
-    }
-  }
-
-  it('warns when a drop-off event has more than 12 children checked in on the selected day', async () => {
-    // 13 households, each with one checked-in child on the selected day.
-    const waivers = Array.from({ length: 13 }, (_, i) => makeWaiver({ id: `wvr_${i}`, minors: [{ name: `Kid ${i}`, dob: '2018-01-01', allergies: '' }] }))
-    mockListWaiversByEvent.mockResolvedValue(waivers)
-    mockGetCheckin.mockImplementation(async () => checkinWithChildrenHere('2026-09-05', ['child:0']))
-    const res = await GET(ctx('?party=party-1&day=2026-09-05'))
-    const json = await res.json()
-    expect(json.data.capWarning).toBe(true)
-    expect(json.data.summary.childrenHereNow).toBe(13)
-  })
-
-  it('does not warn at exactly 12 children', async () => {
-    const waivers = Array.from({ length: 12 }, (_, i) => makeWaiver({ id: `wvr_${i}`, minors: [{ name: `Kid ${i}`, dob: '2018-01-01', allergies: '' }] }))
-    mockListWaiversByEvent.mockResolvedValue(waivers)
-    mockGetCheckin.mockImplementation(async () => checkinWithChildrenHere('2026-09-05', ['child:0']))
-    const res = await GET(ctx('?party=party-1&day=2026-09-05'))
-    const json = await res.json()
-    expect(json.data.capWarning).toBe(false)
-  })
-
-  it('never warns on a non-drop-off event even with 13 children checked in', async () => {
-    mockGetEvent.mockResolvedValue({ ...partyEvent, dropOff: false })
-    const waivers = Array.from({ length: 13 }, (_, i) => makeWaiver({ id: `wvr_${i}`, minors: [{ name: `Kid ${i}`, dob: '2018-01-01', allergies: '' }] }))
-    mockListWaiversByEvent.mockResolvedValue(waivers)
-    mockGetCheckin.mockImplementation(async () => checkinWithChildrenHere('2026-09-05', ['child:0']))
-    const res = await GET(ctx('?party=party-1&day=2026-09-05'))
-    const json = await res.json()
-    expect(json.data.capWarning).toBe(false)
-  })
-
-  it('only counts children checked in on the SELECTED day, not other days', async () => {
-    const waivers = Array.from({ length: 13 }, (_, i) => makeWaiver({ id: `wvr_${i}`, minors: [{ name: `Kid ${i}`, dob: '2018-01-01', allergies: '' }] }))
-    mockGetEvent.mockResolvedValue({ ...partyEvent, days: ['2026-09-05', '2026-09-06'] })
-    mockListWaiversByEvent.mockResolvedValue(waivers)
-    // All 13 checked in on day 1 only — day 2's roster should show 0 here.
-    mockGetCheckin.mockImplementation(async () => checkinWithChildrenHere('2026-09-05', ['child:0']))
-    const res = await GET(ctx('?party=party-1&day=2026-09-06'))
-    const json = await res.json()
-    expect(json.data.capWarning).toBe(false)
-    expect(json.data.summary.childrenHereNow).toBe(0)
-  })
-})
 
 describe('GET /api/staff/roster.json — pickup/notAuthorized/medications (HOM-212)', () => {
   it('normalizes a legacy free-text authorizedPickup string into chips', async () => {

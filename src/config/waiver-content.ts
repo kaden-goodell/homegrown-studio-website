@@ -27,12 +27,11 @@ const adultAge = 19
  * can no longer one-tap RSVP (HOM-210) — the reuse path forces a full
  * re-sign instead of cloning the old signature forward. Bump this forward
  * only when a `legalSections` change is SUBSTANTIVE; an administrative-only
- * bump (e.g. v1→v2, the 2026-09-26 rebrand) leaves it where it is. v3
- * (2026-09-29) folded the drop-off program terms in as §4b — substantive. Mirrored
- * verbatim in `docs/waiver-versions/README.md` as `substantiveSince: v3` —
- * keep the two in sync.
+ * bump (a rebrand, a typo) leaves it where it is. Mirrored verbatim in
+ * `docs/waiver-versions/README.md` as `substantiveSince: v1` — keep the two
+ * in sync.
  */
-export const substantiveSince = 'v3'
+export const substantiveSince = 'v1'
 
 /**
  * Compare two 'vN' version strings by their numeric suffix. An unparsable or
@@ -54,7 +53,7 @@ export const waiverContent = {
    * be re-verified if this text is rolled back. Attorney review required before
    * deploying changes (see docs/NEEDS-FROM-KADEN.md).
    */
-  version: 'v3', // v3 (2026-09-29) = drop-off program terms folded in as §4b (the separate addendum is retired; substantive — v1/v2 signatures re-sign). v2 (2026-09-26) = v1 text with the trade name changed to Hometown Studio (rebrand after a cease-and-desist; entity unchanged). v1 = the LAUNCH text (2026-08-03; attorney redline pending, HOM-98). Numbering reset from draft-era v4: no production signature ever recorded an earlier version, so v1 starts the permanent series. On every bump: archive the full text to docs/waiver-versions/vN.md (records store version + SHA-256 hash; the archive keeps the text itself readable without git archaeology).
+  version: 'v1', // v1 = the launch text (2026-10-07; attorney redline pending, HOM-98). On every bump: archive the full text to docs/waiver-versions/vN.md (records store version + SHA-256 hash; the archive keeps the text itself readable without git archaeology).
   legalEntityName,
   businessAddress,
   /** Months a signature stays valid before re-signing is required. */
@@ -207,7 +206,7 @@ export const waiverContent = {
         '(c) Late pickup. Programs end at the posted time. If a minor has not been collected by the end of the grace period posted for that program, the Studio will call me and then my emergency contact, and the late fee posted for that program at registration applies.',
         '(d) Health. I have disclosed all allergies, medical conditions and medications relevant to my child’s safety. The Studio does not administer medication; a minor who needs medication during the program must be able to self-administer, or I will arrange to come in. I will not bring a child who is ill, and the Studio may ask me to collect a child who becomes ill or whose behavior is unsafe for the group.',
         '(e) Emergencies. The medical authorization in Section 5 applies. Staff will call me as soon as practical after any injury or incident and will give me a written note of what happened.',
-        '(f) Program terms. Capacity is limited to 12 minors with at least two adult staff present. The Studio may cancel a program for insufficient enrollment or staffing, with a full refund as its sole obligation.',
+        '(f) Program terms. The Studio may cancel a program for insufficient enrollment or staffing, with a full refund as its sole obligation.',
       ],
     },
     {

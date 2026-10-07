@@ -27,7 +27,7 @@ function makeHousehold(overrides: Partial<Household> = {}): Household {
     responsibleAdult: '',
     photoConsent: true,
     signedAt: '2026-08-01T00:00:00.000Z',
-    agreementVersion: 'v2',
+    agreementVersion: 'v1',
     validUntil: '2027-08-01T00:00:00.000Z',
     checkin: {
       expected: null,

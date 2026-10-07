@@ -63,7 +63,7 @@ const waiver = (over: Record<string, any> = {}) => ({
     { name: 'Kiddo Rivera', dob: '2018-01-01', allergies: '', medications: '' },
     { name: 'Second Rivera', dob: '2019-01-01', allergies: '', medications: '' },
   ],
-  authorizedPickup: [], notAuthorized: '', agreementVersion: 'v3',
+  authorizedPickup: [], notAuthorized: '', agreementVersion: 'v1',
   validUntil: new Date(Date.now() + 86_400_000 * 100).toISOString(),
   ...over,
 })
@@ -232,8 +232,8 @@ describe('POST /api/staff/rsvp.json', () => {
     })
   })
 
-  it('an out-of-date agreement (older than v3) is refused with mustResign', async () => {
-    mockGetWaiverRecord.mockResolvedValue(waiver({ agreementVersion: 'v2' }))
+  it('an out-of-date agreement (older than the current text) is refused with mustResign', async () => {
+    mockGetWaiverRecord.mockResolvedValue(waiver({ agreementVersion: 'v0' }))
     const res = await call({ ...base, attending: ['adult'] })
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: 'Their agreement is out of date — they need to sign the new one.', mustResign: true })
