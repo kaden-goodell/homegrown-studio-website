@@ -26,6 +26,8 @@ export interface SeatChoiceRecord {
   picks: SeatPick[]
   at: string
   attemptId: string
+  /** Written by a simulated (payment-bypass) booking. Absent on every real one. */
+  simulated?: true
 }
 
 const prefix = (eventId: string) => `seat-choices-workshop:${eventId}-`
@@ -46,11 +48,17 @@ export async function listSeatChoicesByEvent(_kind: 'workshop', eventId: string)
     const json = await kv.get(k)
     return json ? (JSON.parse(json) as SeatChoiceRecord) : null
   }))
-  return records.filter((r): r is SeatChoiceRecord => r !== null).sort((a, b) => a.at.localeCompare(b.at))
+  // Previews share production's blob stores: a simulated booking must never be
+  // counted as a paying customer on the production roster.
+  const hideSimulated = process.env.CONTEXT === 'production'
+  return records
+    .filter((r): r is SeatChoiceRecord => r !== null)
+    .filter((r) => !(hideSimulated && r.simulated === true))
+    .sort((a, b) => a.at.localeCompare(b.at))
 }
 
-export async function hasSeatChoices(_kind: 'workshop', eventId: string): Promise<boolean> {
-  return (await kv.list()).some((k) => k.startsWith(prefix(eventId)))
+export async function hasSeatChoices(kind: 'workshop', eventId: string): Promise<boolean> {
+  return (await listSeatChoicesByEvent(kind, eventId)).length > 0
 }
 
 export interface RosterChoices {
@@ -78,7 +86,7 @@ export function summarizeChoices(
     const email = r.customer.email.trim().toLowerCase()
     byEmail[email] = [...(byEmail[email] ?? []), ...r.picks]
     if (!signed.has(email)) {
-      unmatched.push({ name: `${r.customer.givenName} ${r.customer.familyName}`.trim(), email, seats: r.seats, picks: r.picks })
+      unmatched.push({ name: `${r.customer.givenName} ${r.customer.familyName}`.trim() + (r.simulated ? ' (test)' : ''), email, seats: r.seats, picks: r.picks })
     }
   }
   return { totals: choiceTotals(options, records.flatMap((r) => r.picks)), byEmail, unmatched, seatsSold }

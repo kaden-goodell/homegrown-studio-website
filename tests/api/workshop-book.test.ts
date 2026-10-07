@@ -552,7 +552,7 @@ describe('POST /api/workshops/book.json', () => {
       expect(data).toMatchObject({ bookingId: `bypass-${ATTEMPT}`, orderId: null, status: 'accepted', receiptUrl: null, emailSent: true })
       expect(mockReserve).not.toHaveBeenCalled()
       expect(mockPay).not.toHaveBeenCalled()
-      expect(mockSaveSeatChoices).toHaveBeenCalledWith(expect.objectContaining({ bookingId: `bypass-${ATTEMPT}`, orderId: null }))
+      expect(mockSaveSeatChoices).toHaveBeenCalledWith(expect.objectContaining({ bookingId: `bypass-${ATTEMPT}`, orderId: null, simulated: true }))
       expect(mockSendEmail).toHaveBeenCalledTimes(1)
     })
   })

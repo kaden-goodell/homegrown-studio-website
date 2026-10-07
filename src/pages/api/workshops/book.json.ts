@@ -143,7 +143,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
 
   let booked: { bookingId: string; orderId: string | null; status: string; receiptUrl: string | null }
-  if (paymentBypassEnabled()) {
+  const simulated = paymentBypassEnabled()
+  if (simulated) {
     // Simulated payments (local dev, deploy previews): every refusal above has
     // already run. Nothing is held or charged; carry on as a paid booking.
     logger.warn('Payment bypassed (simulated booking)', { workshopId: workshop.id, name: workshop.name, seats })
@@ -227,6 +228,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         picks,
         at: new Date().toISOString(),
         attemptId,
+        ...(simulated ? { simulated: true as const } : {}),
       })
     } catch (err) {
       logger.error('SEAT PICKS NOT SAVED (booking is paid)', {

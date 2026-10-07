@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, afterEach } from 'vitest'
 import { saveSeatChoices, listSeatChoicesByEvent, hasSeatChoices, seatChoiceKey, summarizeChoices, type SeatChoiceRecord } from '@lib/seat-choices'
 
 function record(eventId: string, bookingId: string, over: Partial<SeatChoiceRecord> = {}): SeatChoiceRecord {
@@ -59,5 +59,47 @@ describe('summarizeChoices', () => {
       unmatched: [{ name: 'Bo Test', email: 'bo@x.com', seats: 1, picks: [p(1, 'Black')] }],
       seatsSold: 15,
     })
+  })
+})
+
+describe('simulated records (payment bypass on a preview)', () => {
+  const saved = process.env.CONTEXT
+  afterEach(() => {
+    if (saved === undefined) delete process.env.CONTEXT
+    else process.env.CONTEXT = saved
+  })
+
+  async function seed() {
+    const id = `clssch_sim${Date.now()}${Math.random()}`
+    await saveSeatChoices(record(id, 'bypass-1', { simulated: true }))
+    await saveSeatChoices(record(id, 'clsbk_real'))
+    return id
+  }
+
+  it('are left out of the production listing', async () => {
+    const id = await seed()
+    process.env.CONTEXT = 'production'
+    expect((await listSeatChoicesByEvent('workshop', id)).map((r) => r.bookingId)).toEqual(['clsbk_real'])
+  })
+
+  it('do not make a class look like it has picks in production', async () => {
+    const id = `clssch_simonly${Date.now()}${Math.random()}`
+    await saveSeatChoices(record(id, 'bypass-1', { simulated: true }))
+    process.env.CONTEXT = 'production'
+    expect(await hasSeatChoices('workshop', id)).toBe(false)
+  })
+
+  it('are listed everywhere else', async () => {
+    const id = await seed()
+    for (const ctx of ['branch-deploy', 'deploy-preview', undefined]) {
+      if (ctx === undefined) delete process.env.CONTEXT
+      else process.env.CONTEXT = ctx
+      expect((await listSeatChoicesByEvent('workshop', id)).map((r) => r.bookingId).sort()).toEqual(['bypass-1', 'clsbk_real'])
+    }
+  })
+
+  it('carry a (test) suffix on the roster', () => {
+    const out = summarizeChoices([], [record('c', 'bypass-1', { simulated: true })], [], null)
+    expect(out.unmatched[0].name).toBe('Ada Lovelace (test)')
   })
 })
