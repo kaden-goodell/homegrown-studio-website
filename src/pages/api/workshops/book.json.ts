@@ -20,6 +20,7 @@ import { summarize } from '@lib/seo'
 import { canBeBooked } from '@lib/workshop-rules'
 import { getEventMeta } from '@lib/event-meta'
 import { saveSeatChoices } from '@lib/seat-choices'
+import { paymentBypassEnabled } from '@lib/dev-flags'
 import {
   cutoffClosedMessage,
   effectiveCutoffHours,
@@ -141,65 +142,72 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     logger.error('Customer lookup failed — continuing', { error: String(customerLookup.reason) })
   }
 
-  // ── 2. Hold the seats ─────────────────────────────────────────────────────
-  let reservation: SeatReservation
-  try {
-    reservation = await providers.workshop.reserveSeats({
-      scheduleId: String(classScheduleId),
-      startAt: String(startAt),
-      seats,
-      customer: { givenName, familyName, email },
-      ...(note ? { note } : {}),
-    })
-  } catch (err) {
-    const seatError = asSeatBookingError(err)
-    const raw = seatError?.raw ?? String(err)
-    const code = seatError?.kind === 'refused' ? classifyClassBookingError(raw, 'create') : 'unavailable'
-    logger.error('Could not hold seats', { code, raw: raw.slice(0, 500) })
-    return fail(code === 'sold_out' || code === 'already_booked' ? 409 : 502, code)
-  }
-
-  // ── 3. Charge and confirm ─────────────────────────────────────────────────
-  let booked
-  try {
-    booked = await providers.workshop.payForSeats({
-      reservation,
-      scheduleId: String(classScheduleId),
-      paymentToken: String(paymentToken),
-      verificationToken: verificationToken ? String(verificationToken) : undefined,
-      idempotencyKey: attemptKey(attemptId, 'pay'),
-      fallbackCustomerId: customerId,
-    })
-  } catch (err) {
-    const seatError = asSeatBookingError(err)
-    const refused = seatError?.kind === 'refused'
-    const raw = seatError?.raw ?? String(err)
-
-    if (refused) {
-      // The service said no, so nothing was charged. Let the seats go.
-      const code = classifyClassBookingError(raw, 'complete')
-      logger.error('Seat payment refused — releasing seats', { bookingId: reservation.bookingId, code, raw: raw.slice(0, 500) })
-      try {
-        await providers.workshop.releaseSeats(reservation.bookingId)
-      } catch (releaseErr) {
-        logger.error('HELD SEATS NOT RELEASED after a refused payment', {
-          bookingId: reservation.bookingId,
-          error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
-        })
-      }
-      return fail(code === 'card_declined' ? 402 : code === 'sold_out' || code === 'already_booked' ? 409 : 502, code)
+  let booked: { bookingId: string; orderId: string | null; status: string; receiptUrl: string | null }
+  if (paymentBypassEnabled()) {
+    // Simulated payments (local dev, deploy previews): every refusal above has
+    // already run. Nothing is held or charged; carry on as a paid booking.
+    logger.warn('Payment bypassed (simulated booking)', { workshopId: workshop.id, name: workshop.name, seats })
+    booked = { bookingId: `bypass-${attemptId}`, orderId: null, status: 'accepted', receiptUrl: null }
+  } else {
+    // ── 2. Hold the seats ─────────────────────────────────────────────────────
+    let reservation: SeatReservation
+    try {
+      reservation = await providers.workshop.reserveSeats({
+        scheduleId: String(classScheduleId),
+        startAt: String(startAt),
+        seats,
+        customer: { givenName, familyName, email },
+        ...(note ? { note } : {}),
+      })
+    } catch (err) {
+      const seatError = asSeatBookingError(err)
+      const raw = seatError?.raw ?? String(err)
+      const code = seatError?.kind === 'refused' ? classifyClassBookingError(raw, 'create') : 'unavailable'
+      logger.error('Could not hold seats', { code, raw: raw.slice(0, 500) })
+      return fail(code === 'sold_out' || code === 'already_booked' ? 409 : 502, code)
     }
 
-    // No answer. The charge may have gone through: keep the seats, tell a person.
-    logger.error('SEAT PAYMENT OUTCOME UNKNOWN — seats kept, needs a person', {
-      bookingId: reservation.bookingId,
-      attemptId,
-      raw: raw.slice(0, 500),
-    })
-    await alertOwners(
-      `Workshop payment unclear: ${givenName} ${familyName} (${email}${phone ? `, ${phone}` : ''}), ${seats} seat${seats === 1 ? '' : 's'}, ${formatSlotLabel(String(startAt))}.${note ? ` Picks: ${note}.` : ''} Check Square for the payment, then confirm with them or cancel booking ${reservation.bookingId}.`,
-    ).catch(() => undefined)
-    return fail(502, 'unknown_outcome')
+    // ── 3. Charge and confirm ─────────────────────────────────────────────────
+      try {
+      booked = await providers.workshop.payForSeats({
+        reservation,
+        scheduleId: String(classScheduleId),
+        paymentToken: String(paymentToken),
+        verificationToken: verificationToken ? String(verificationToken) : undefined,
+        idempotencyKey: attemptKey(attemptId, 'pay'),
+        fallbackCustomerId: customerId,
+      })
+    } catch (err) {
+      const seatError = asSeatBookingError(err)
+      const refused = seatError?.kind === 'refused'
+      const raw = seatError?.raw ?? String(err)
+
+      if (refused) {
+        // The service said no, so nothing was charged. Let the seats go.
+        const code = classifyClassBookingError(raw, 'complete')
+        logger.error('Seat payment refused — releasing seats', { bookingId: reservation.bookingId, code, raw: raw.slice(0, 500) })
+        try {
+          await providers.workshop.releaseSeats(reservation.bookingId)
+        } catch (releaseErr) {
+          logger.error('HELD SEATS NOT RELEASED after a refused payment', {
+            bookingId: reservation.bookingId,
+            error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
+          })
+        }
+        return fail(code === 'card_declined' ? 402 : code === 'sold_out' || code === 'already_booked' ? 409 : 502, code)
+      }
+
+      // No answer. The charge may have gone through: keep the seats, tell a person.
+      logger.error('SEAT PAYMENT OUTCOME UNKNOWN — seats kept, needs a person', {
+        bookingId: reservation.bookingId,
+        attemptId,
+        raw: raw.slice(0, 500),
+      })
+      await alertOwners(
+        `Workshop payment unclear: ${givenName} ${familyName} (${email}${phone ? `, ${phone}` : ''}), ${seats} seat${seats === 1 ? '' : 's'}, ${formatSlotLabel(String(startAt))}.${note ? ` Picks: ${note}.` : ''} Check Square for the payment, then confirm with them or cancel booking ${reservation.bookingId}.`,
+      ).catch(() => undefined)
+      return fail(502, 'unknown_outcome')
+    }
   }
 
   // ── Paid and confirmed. Nothing below may turn this into a failure. ────────

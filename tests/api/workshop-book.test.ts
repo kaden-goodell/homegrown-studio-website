@@ -33,6 +33,9 @@ vi.mock('@lib/event-meta', () => ({ getEventMeta: (...a: any[]) => mockGetEventM
 const mockSaveSeatChoices = vi.fn()
 vi.mock('@lib/seat-choices', () => ({ saveSeatChoices: (...a: any[]) => mockSaveSeatChoices(...a) }))
 
+let bypassOn = false
+vi.mock('@lib/dev-flags', () => ({ paymentBypassEnabled: () => bypassOn }))
+
 const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
 const TWO_PICKS = [
   { seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' },
@@ -91,6 +94,7 @@ beforeEach(async () => {
   // Sat 10 Oct 2026: a week before the fixture's class. Only Date is faked.
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-10-10T17:00:00.000Z'))
+  bypassOn = false
   vi.clearAllMocks()
   vi.resetModules()
   mockGetEventMeta.mockResolvedValue(null)
@@ -519,6 +523,37 @@ describe('POST /api/workshops/book.json', () => {
       await POST(ctx(body({ picks: TWO_PICKS })))
       expect(mockAlertOwners).toHaveBeenCalledTimes(1)
       expect(mockAlertOwners.mock.calls[0][0]).toContain('Pumpkin color: Black ×1, Lavender ×1')
+    })
+  })
+
+  describe('with simulated payments on (dev / preview)', () => {
+    beforeEach(() => {
+      bypassOn = true
+      mockGetEventMeta.mockResolvedValue({ options: [PAILS], signupCutoffHours: null })
+    })
+
+    it('still refuses a booking past the sign-up cutoff', async () => {
+      mockGetEventMeta.mockResolvedValue({ options: [], signupCutoffHours: 24 * 30 })
+      const res = await POST(ctx(body()))
+      expect(res.status).toBe(409)
+      expect(mockSaveSeatChoices).not.toHaveBeenCalled()
+    })
+
+    it('still refuses missing or invalid picks', async () => {
+      const res = await POST(ctx(body()))
+      expect(res.status).toBe(400)
+      expect(mockSendEmail).not.toHaveBeenCalled()
+    })
+
+    it('books without holding or charging, then saves picks and sends the email', async () => {
+      const res = await POST(ctx(body({ picks: TWO_PICKS })))
+      expect(res.status).toBe(200)
+      const { data } = await res.json()
+      expect(data).toMatchObject({ bookingId: `bypass-${ATTEMPT}`, orderId: null, status: 'accepted', receiptUrl: null, emailSent: true })
+      expect(mockReserve).not.toHaveBeenCalled()
+      expect(mockPay).not.toHaveBeenCalled()
+      expect(mockSaveSeatChoices).toHaveBeenCalledWith(expect.objectContaining({ bookingId: `bypass-${ATTEMPT}`, orderId: null }))
+      expect(mockSendEmail).toHaveBeenCalledTimes(1)
     })
   })
 
