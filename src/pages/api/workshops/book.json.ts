@@ -18,6 +18,16 @@ import { buildIcs, googleCalendarUrl, addMinutesIso } from '@lib/party-share'
 import { formatSlotLabel } from '@lib/studio-time'
 import { summarize } from '@lib/seo'
 import { canBeBooked } from '@lib/workshop-rules'
+import { getEventMeta } from '@lib/event-meta'
+import {
+  cutoffClosedMessage,
+  effectiveCutoffHours,
+  isSignupClosed,
+  picksNote,
+  validatePicks,
+  type CutoffSettings,
+  type SeatPick,
+} from '@lib/seat-options'
 import type { SeatReservation, Workshop } from '@providers/interfaces/workshop'
 
 const logger = createLogger('api:workshops:book')
@@ -29,6 +39,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  *
  *   1. look the workshop up, and find or create the customer
  *      (a workshop with no price is not for sale and is refused here)
+ *   1b. refuse after the class's sign-up cutoff, and unless every seat has a valid pick (nothing held yet)
  *   2. hold the seats            (nothing charged)
  *   3. charge and confirm        (one step: both happen or neither)
  *   4. send our confirmation email
@@ -72,10 +83,11 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // Older cached pages may not send one; then every request is its own attempt.
   const attemptId = isAttemptId(body.attemptId) ? body.attemptId : randomUUID()
 
-  // ── 1. The workshop and the customer, looked up together ───────────────────
-  const [workshopLookup, customerLookup] = await Promise.allSettled([
+  // ── 1. The workshop, the customer and the class's settings, looked up together
+  const [workshopLookup, customerLookup, metaLookup] = await Promise.allSettled([
     lookUp(typeof body.workshopId === 'string' ? body.workshopId : '', String(classScheduleId), String(startAt)),
     providers.customer.findOrCreate({ email, givenName, familyName, ...(phone ? { phone } : {}) }),
+    getEventMeta('workshop', String(classScheduleId)),
   ])
 
   // The workshop must be one we can see, with a price. If we can't tell, we
@@ -94,6 +106,29 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     return fail(409, 'not_open')
   }
 
+  // ── 1b. Sign-up cutoff and seat picks (spec C) ─────────────────────────────
+  // Settings we can't read are a refusal: a class with questions must never be
+  // sold without its picks. Nothing has been held or charged yet.
+  if (metaLookup.status === 'rejected') {
+    logger.error('Event settings unreadable before booking — refusing', {
+      scheduleId: String(classScheduleId),
+      error: String(metaLookup.reason),
+    })
+    return fail(502, 'unavailable')
+  }
+  const settings: CutoffSettings = {
+    options: metaLookup.value?.options ?? [],
+    signupCutoffHours: metaLookup.value?.signupCutoffHours ?? null,
+  }
+  if (isSignupClosed(workshop.startAt, settings)) {
+    return fail(409, 'not_open', cutoffClosedMessage(effectiveCutoffHours(settings)))
+  }
+  const picksCheck = validatePicks(settings.options, seats, body.picks)
+  if (!picksCheck.ok) return fail(400, 'invalid', picksCheck.error)
+  const picks: SeatPick[] = picksCheck.value
+  // Square keeps the picks only as a booking note ("Pumpkin color: Lavender ×2").
+  const note = picksNote(settings.options, picks)
+
   let customerId: string | undefined
   if (customerLookup.status === 'fulfilled') {
     customerId = customerLookup.value.id
@@ -110,6 +145,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       startAt: String(startAt),
       seats,
       customer: { givenName, familyName, email },
+      ...(note ? { note } : {}),
     })
   } catch (err) {
     const seatError = asSeatBookingError(err)

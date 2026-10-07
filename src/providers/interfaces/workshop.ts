@@ -78,6 +78,12 @@ export interface WorkshopProvider {
     startAt: string
     seats: number
     customer: { givenName: string; familyName: string; email: string }
+    /**
+     * Short text kept on the booking in Square (the seat picks). If Square
+     * refuses the hold with it, the hold is asked for once more without it;
+     * the picks are stored on our side either way.
+     */
+    note?: string
   }): Promise<SeatReservation>
 
   /**

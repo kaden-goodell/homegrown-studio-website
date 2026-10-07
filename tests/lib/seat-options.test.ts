@@ -14,6 +14,8 @@ import {
   firstMissingPick,
   picksFromSelections,
   picksNote,
+  validatePicks,
+  seatPickLines,
 } from '@lib/seat-options'
 
 const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
@@ -139,5 +141,43 @@ describe('picks in a form', () => {
         { seat: 1, optionId: 'ribbon', choice: 'Gold' },
       ]),
     ).toBe('Pumpkin color: Lavender ×1 · Ribbon: Gold ×1')
+  })
+})
+
+describe('validatePicks (the server’s check)', () => {
+  const two = [
+    { seat: 2, optionId: 'pumpkin-color', choice: 'Black' },
+    { seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' },
+  ]
+
+  it('accepts one listed choice per seat, in seat order', () => {
+    expect(validatePicks([PAILS], 2, two)).toEqual({
+      ok: true,
+      value: [{ seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' }, { seat: 2, optionId: 'pumpkin-color', choice: 'Black' }],
+    })
+  })
+
+  it('a class with no questions takes no picks', () => {
+    expect(validatePicks([], 2, undefined)).toEqual({ ok: true, value: [] })
+    expect(validatePicks([], 2, [])).toEqual({ ok: true, value: [] })
+    expect(validatePicks([], 2, two)).toEqual({ ok: false, error: 'This class has nothing to pick. Refresh and try again.' })
+  })
+
+  it.each([
+    ['a seat with no pick', [two[1]], 'Pick a pumpkin color for seat 2.'],
+    ['a seat beyond the booking', [...two, { seat: 3, optionId: 'pumpkin-color', choice: 'Black' }], 'The seat picks didn’t come through. Refresh and try again.'],
+    ['an unknown question', [...two, { seat: 1, optionId: 'ribbon', choice: 'Red' }], 'This class’s questions have changed. Refresh and pick again.'],
+    ['a choice not offered', [two[1], { seat: 2, optionId: 'pumpkin-color', choice: 'Orange' }], 'Seat 2: “Orange” isn’t one of the pumpkin color choices.'],
+    ['two picks for one seat', [...two, { seat: 1, optionId: 'pumpkin-color', choice: 'Black' }], 'Seat 1 has two pumpkin color picks.'],
+    ['something that is not a list', 'Lavender', 'The seat picks didn’t come through. Refresh and try again.'],
+  ])('refuses %s', (_name, raw, error) => {
+    expect(validatePicks([PAILS], 2, raw)).toEqual({ ok: false, error })
+  })
+
+  it('writes one line per seat for the email', () => {
+    expect(seatPickLines([PAILS], [{ seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' }, { seat: 2, optionId: 'pumpkin-color', choice: 'Black' }])).toEqual([
+      'Seat 1 · Pumpkin color: Lavender',
+      'Seat 2 · Pumpkin color: Black',
+    ])
   })
 })

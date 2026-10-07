@@ -177,3 +177,43 @@ export function picksNote(options: SeatOption[], picks: SeatPick[]): string {
     .filter(Boolean)
     .join(' · ')
 }
+
+const PICKS_GARBLED = 'The seat picks didn’t come through. Refresh and try again.'
+
+/**
+ * The booking server's check: one pick per seat per question, each a listed
+ * choice. A class with no questions takes no picks. Answers with the FIRST
+ * problem, in words the customer can act on.
+ */
+export function validatePicks(options: SeatOption[], seats: number, raw: unknown): Result<SeatPick[]> {
+  const list = raw === undefined || raw === null ? [] : raw
+  if (!Array.isArray(list)) return { ok: false, error: PICKS_GARBLED }
+  if (options.length === 0) {
+    return list.length === 0 ? { ok: true, value: [] } : { ok: false, error: 'This class has nothing to pick. Refresh and try again.' }
+  }
+  const chosen: Record<string, string> = {}
+  for (const p of list as any[]) {
+    const seat = p?.seat
+    const optionId = p?.optionId
+    const choice = p?.choice
+    if (!Number.isInteger(seat) || seat < 1 || seat > seats || typeof optionId !== 'string' || typeof choice !== 'string') {
+      return { ok: false, error: PICKS_GARBLED }
+    }
+    const option = options.find((o) => o.id === optionId)
+    if (!option) return { ok: false, error: 'This class’s questions have changed. Refresh and pick again.' }
+    if (!option.choices.includes(choice)) {
+      return { ok: false, error: `Seat ${seat}: “${choice}” isn’t one of the ${option.label.toLowerCase()} choices.` }
+    }
+    const k = selectionKey(seat, optionId)
+    if (k in chosen) return { ok: false, error: `Seat ${seat} has two ${option.label.toLowerCase()} picks.` }
+    chosen[k] = choice
+  }
+  const missing = firstMissingPick(options, seats, chosen)
+  if (missing) return { ok: false, error: `Pick a ${missing.option.label.toLowerCase()} for seat ${missing.seat}.` }
+  return { ok: true, value: picksFromSelections(options, seats, chosen) }
+}
+
+/** "Seat 1 · Pumpkin color: Lavender" — one line per pick, for the email. */
+export function seatPickLines(options: SeatOption[], picks: SeatPick[]): string[] {
+  return picks.map((p) => `Seat ${p.seat} · ${options.find((o) => o.id === p.optionId)?.label ?? p.optionId}: ${p.choice}`)
+}
