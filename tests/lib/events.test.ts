@@ -160,4 +160,15 @@ describe('listEvents source isolation (F2)', () => {
     expect(events).toEqual([])
     expect(sources).toEqual({ parties: 'error', workshops: 'error' })
   })
+  it('carries a class’s seat questions, cutoff and capacity', async () => {
+    const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Black', 'Lavender'] }
+    const { getEventMeta } = await import('@lib/event-meta')
+    vi.mocked(getEventMeta).mockResolvedValueOnce({ dropOff: false, days: null, options: [PAILS], signupCutoffHours: 48, updatedAt: '', by: { id: 'k', name: 'K' }, history: [] } as any)
+    mockGetWorkshop.mockResolvedValueOnce({ ...WORKSHOPS[1], totalCapacity: 25 })
+    expect(await getEvent('workshop', 'cs-pno')).toMatchObject({ options: [PAILS], signupCutoffHours: 48, capacity: 25 })
+  })
+
+  it('a party never asks seat questions', async () => {
+    expect(await getEvent('party', 'p1')).toMatchObject({ options: [], signupCutoffHours: null })
+  })
 })

@@ -16,6 +16,7 @@ import { createLogger } from '@lib/logger'
 
 const logger = createLogger('events')
 
+import type { SeatOption } from '@lib/seat-options'
 import { EVENT_KIND_RE, type EventKind } from '@lib/event-kinds'
 export { EVENT_KIND_RE, type EventKind }
 
@@ -29,6 +30,12 @@ export interface StudioEvent {
   days: string[]
   dropOff: boolean
   seats?: number
+  /** Per-seat questions (classes only; [] when none). */
+  options?: SeatOption[]
+  /** The class's own sign-up cutoff in hours; null = the default. */
+  signupCutoffHours?: number | null
+  /** Seats the class holds in all, when Square says. */
+  capacity?: number
   /** Present only when an event-meta override exists for this event. */
   updatedAt?: string
   by?: By
@@ -82,6 +89,8 @@ function partyEvent(id: string, p: PartyRecord, meta: EventMeta | null): StudioE
     // Meta overrides; the party record's own dropOff is a read-only fallback
     // for old data written before the event-meta store existed.
     dropOff: meta?.dropOff ?? p.dropOff ?? false,
+    options: [],
+    signupCutoffHours: null,
     ...(meta ? { updatedAt: meta.updatedAt, by: meta.by } : {}),
   }
 }
@@ -95,6 +104,9 @@ function workshopEvent(id: string, w: Workshop, meta: EventMeta | null): StudioE
     days: meta?.days ?? [studioDate(w.startAt)],
     dropOff: meta?.dropOff ?? false,
     seats: w.availableCapacity,
+    options: meta?.options ?? [],
+    signupCutoffHours: meta?.signupCutoffHours ?? null,
+    ...(typeof w.totalCapacity === 'number' ? { capacity: w.totalCapacity } : {}),
     ...(meta ? { updatedAt: meta.updatedAt, by: meta.by } : {}),
   }
 }
