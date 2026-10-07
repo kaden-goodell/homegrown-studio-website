@@ -113,6 +113,17 @@ in Linear HOM-99 (licensing) and HOM-114 (safeguards).
   attendance only: tick who's here → "✓ Here (n)". A family that isn't on the roster yet:
   open the roster → "+ Add family" → search → "✓ Add & mark here" (or Show QR / Sign on
   this iPad if they need to sign first).
+- **A red "Needs attention" box at the top of Today means stop and tell Kaden or Catherine.**
+  It lists schedule problems for the next 60 days: a class on top of a booked party, two
+  classes overlapping, a class with more seats sold than it has, a party on a closed day, or
+  seats sold with no pick on record. Nothing on that box fixes itself and you can't dismiss
+  it — it clears when an owner moves things in Square. If it says "Couldn't check the
+  schedule", tap Try again; if it keeps failing, say so.
+- **Classes that ask each seat a question (like a pumpkin colour)** show a totals line at
+  the top of the roster — that's the make-ahead list — and each family's picks on their
+  card. "Paid, not signed in yet" under the roster is people who booked but haven't signed
+  the agreement; their picks are there too. Picks can't be changed after booking; if a
+  parent asks, note it in the family's History and tell an owner.
 - **Drop-off is a setting on the event, not a separate mode.** Tap the gear (Event
   settings) on the roster to see or change it, and the multi-day dates — don't guess from
   the event name or how it sounds.
