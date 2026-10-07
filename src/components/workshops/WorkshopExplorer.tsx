@@ -6,6 +6,7 @@ import WorkshopCard from './WorkshopCard'
 import WorkshopBookingModal from './WorkshopBookingModal'
 import { canBeBooked, isSoldOut } from '@lib/workshop-rules'
 import { byStart } from './workshop-view-model'
+import type { SeatOption } from '@lib/seat-options'
 
 export interface WorkshopData {
   id: string
@@ -26,6 +27,12 @@ export interface WorkshopData {
   classScheduleId?: string
   classScheduleInstanceId?: string
   teamMemberId?: string
+  /** Per-seat questions; empty or absent when the class asks none. */
+  options?: SeatOption[]
+  /** When sign-ups close (ISO). */
+  signupClosesAt?: string
+  /** Decided on the server, so a visitor's clock doesn't matter. */
+  signupClosed?: boolean
 }
 
 const STUDIO_TZ = 'America/Chicago'
