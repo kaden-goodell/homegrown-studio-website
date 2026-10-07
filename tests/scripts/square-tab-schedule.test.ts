@@ -105,6 +105,15 @@ describe('scheduleInSquare (run in the signed-in Square tab)', () => {
     expect(methods(root)).toEqual(['GET'])
   })
 
+  it('does not move a class whose bookings Square left out (fails closed)', async () => {
+    for (const cs of [{ id: 'clssch_1' }, { id: 'clssch_1', class_bookings: null }, { id: 'clssch_1', class_bookings: { count: 0 } }]) {
+      const root = load(async (_u: string, init: any) => (init.method === 'GET' ? answer(200, { class_schedule: cs }) : answer(200, { class_schedule: { id: 'clssch_1' } })))
+      const r = await root.HometownSchedule.scheduleInSquare({ clearance: clear(), body: body(), method: 'PUT', scheduleId: 'clssch_1' })
+      expect(r).toEqual({ done: false, message: 'Couldn’t read this class’s bookings — not moving it.' })
+      expect(methods(root)).toEqual(['GET'])
+    }
+  })
+
   it('does not move a class that has bookings', async () => {
     const root = load(mover([{ id: 'b1' }, { id: 'b2' }]))
     const r = await root.HometownSchedule.scheduleInSquare({ clearance: clear(), body: body(), method: 'PUT', scheduleId: 'clssch_1' })

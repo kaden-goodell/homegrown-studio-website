@@ -92,7 +92,10 @@
       }
       var curJson = cur.ok ? await cur.json().catch(function () { return null }) : null
       if (!curJson || !curJson.class_schedule) return refuse('Couldn\u2019t read the class \u2014 not moving it.')
-      var n = (curJson.class_schedule.class_bookings || []).length
+      // A missing or odd field is not "no bookings": fail closed.
+      var bookings = curJson.class_schedule.class_bookings
+      if (!Array.isArray(bookings)) return refuse('Couldn\u2019t read this class\u2019s bookings \u2014 not moving it.')
+      var n = bookings.length
       if (n > 0) {
         return refuse('This class has ' + n + ' booking' + (n === 1 ? '' : 's') + '. Moving it changes paying customers\u2019 plans \u2014 Kaden does that himself in Square. Not moving it.')
       }
