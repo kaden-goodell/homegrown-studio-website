@@ -1,6 +1,6 @@
 // tests/components/staff/EventSettingsSheet.test.tsx
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import EventSettingsSheet from '@components/staff/EventSettingsSheet'
 
 const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
@@ -19,21 +19,23 @@ const posted = (spy: ReturnType<typeof serve>) => spy.mock.calls.filter(([, init
 
 afterEach(() => vi.restoreAllMocks())
 
-function open(event: any = CLASS) {
-  render(<EventSettingsSheet event={event} onSaved={vi.fn()} onClose={vi.fn()} />)
+async function open(event: any = CLASS) {
+  await act(async () => {
+    render(<EventSettingsSheet event={event} onSaved={vi.fn()} onClose={vi.fn()} />)
+  })
 }
 
-describe('EventSettingsSheet — seat questions', () => {
-  it('a party has no seat questions and no cutoff', () => {
+describe('EventSettingsSheet — seat questions', async () => {
+  it('a party has no seat questions and no cutoff', async () => {
     serve({ ...CLASS, kind: 'party' })
-    open({ ...CLASS, kind: 'party' })
+    await open({ ...CLASS, kind: 'party' })
     expect(screen.queryByText('Questions for each seat')).toBeNull()
     expect(screen.queryByText('Sign-ups close')).toBeNull()
   })
 
   it('builds a question, and saves it only after a confirm', async () => {
     const spy = serve(CLASS)
-    open()
+    await open()
     fireEvent.click(screen.getByRole('button', { name: '+ Add a question' }))
     fireEvent.change(screen.getByLabelText('Question 1'), { target: { value: 'Pumpkin color' } })
     for (const c of ['Lavender', 'Black']) {
@@ -49,10 +51,21 @@ describe('EventSettingsSheet — seat questions', () => {
     )
   })
 
+  it('counts a typed choice that was never added', async () => {
+    const spy = serve({ ...CLASS, options: [PAILS] })
+    await open({ ...CLASS, options: [PAILS] })
+    fireEvent.change(screen.getByLabelText('New choice for question 1'), { target: { value: ' Mint ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save questions' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, save' }))
+    await waitFor(() =>
+      expect(posted(spy)).toEqual([{ kind: 'workshop', id: 'clssch_pails', options: [{ ...PAILS, choices: [...PAILS.choices, 'Mint'] }] }]),
+    )
+  })
+
   it('shows the server’s refusal when picks lock a choice', async () => {
     const msg = 'People have already picked for this class, so existing choices can’t be removed or renamed. You can add new ones.'
     serve({ ...CLASS, options: [PAILS] }, { status: 409, body: { error: msg } })
-    open({ ...CLASS, options: [PAILS] })
+    await open({ ...CLASS, options: [PAILS] })
     fireEvent.click(screen.getByRole('button', { name: 'Remove Black' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save questions' }))
     fireEvent.click(screen.getByRole('button', { name: 'Yes, save' }))
@@ -60,23 +73,23 @@ describe('EventSettingsSheet — seat questions', () => {
   })
 })
 
-describe('EventSettingsSheet — sign-ups close', () => {
-  it('shows the default greyed: 0 hours for a plain class', () => {
+describe('EventSettingsSheet — sign-ups close', async () => {
+  it('shows the default greyed: 0 hours for a plain class', async () => {
     serve(CLASS)
-    open()
+    await open()
     expect(screen.getByLabelText('Sign-ups close')).toHaveAttribute('placeholder', '0 (default)')
     expect(screen.getByText('Using the default: 0 hours.')).toBeInTheDocument()
   })
 
-  it('shows the default greyed: 24 hours once the class asks questions', () => {
+  it('shows the default greyed: 24 hours once the class asks questions', async () => {
     serve({ ...CLASS, options: [PAILS] })
-    open({ ...CLASS, options: [PAILS] })
+    await open({ ...CLASS, options: [PAILS] })
     expect(screen.getByLabelText('Sign-ups close')).toHaveAttribute('placeholder', '24 (default)')
   })
 
   it('saves whole hours after a confirm', async () => {
     const spy = serve(CLASS)
-    open()
+    await open()
     fireEvent.change(screen.getByLabelText('Sign-ups close'), { target: { value: '48' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(screen.getByText('Close sign-ups 48 hours before this class?')).toBeInTheDocument()
@@ -84,9 +97,9 @@ describe('EventSettingsSheet — sign-ups close', () => {
     await waitFor(() => expect(posted(spy)).toEqual([{ kind: 'workshop', id: 'clssch_pails', signupCutoffHours: 48 }]))
   })
 
-  it('will not offer to save part hours', () => {
+  it('will not offer to save part hours', async () => {
     serve(CLASS)
-    open()
+    await open()
     fireEvent.change(screen.getByLabelText('Sign-ups close'), { target: { value: '2.5' } })
     expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
     expect(screen.getByText('Whole hours, 0 to 336.')).toBeInTheDocument()

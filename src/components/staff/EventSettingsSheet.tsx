@@ -303,7 +303,12 @@ function SeatQuestions({ saved, busy, onSave }: { saved: SeatOption[]; busy: boo
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedKey])
 
-  const dirty = JSON.stringify(draft) !== savedKey
+  // Text typed into "New choice" but not yet added still counts as a choice.
+  const withPending = draft.map((o, i) => {
+    const p = (newChoice[i] ?? '').trim()
+    return p ? { ...o, choices: [...o.choices, p] } : o
+  })
+  const dirty = JSON.stringify(withPending) !== savedKey
   const update = (i: number, next: Partial<SeatOption>) => setDraft((d) => d.map((o, j) => (j === i ? { ...o, ...next } : o)))
 
   function addChoice(i: number) {
@@ -315,7 +320,8 @@ function SeatQuestions({ saved, busy, onSave }: { saved: SeatOption[]; busy: boo
 
   async function confirmSave() {
     setConfirming(false)
-    await onSave(draft.map((o) => ({ id: o.id, label: o.label.trim(), choices: o.choices })))
+    setNewChoice({})
+    await onSave(withPending.map((o) => ({ id: o.id, label: o.label.trim(), choices: o.choices })))
   }
 
   return (
