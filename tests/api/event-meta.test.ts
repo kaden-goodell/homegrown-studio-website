@@ -84,6 +84,59 @@ describe('POST /api/staff/event-meta.json', () => {
     const res = await POST(postCtx({ kind: 'workshop', id: 'cs1', dropOff: true }))
     expect(res.status).toBe(503)
   })
+
+  const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
+
+  it('rejects questions from a caller without the staff cookie', async () => {
+    authed = null
+    expect((await POST(postCtx({ kind: 'workshop', id: 'cs1', options: [PAILS] }))).status).toBe(401)
+    expect(mockSetEventMeta).not.toHaveBeenCalled()
+  })
+
+  it('saves checked, trimmed questions', async () => {
+    const res = await POST(postCtx({ kind: 'workshop', id: 'cs1', options: [{ label: ' Pumpkin color ', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }] }))
+    expect(res.status).toBe(200)
+    expect(mockSetEventMeta).toHaveBeenCalledWith('workshop', 'cs1', { options: [PAILS] }, { id: 'k', name: 'Kaden' })
+  })
+
+  it('refuses more than three questions, saying why', async () => {
+    const options = [1, 2, 3, 4].map((n) => ({ label: `Q${n}`, choices: ['A', 'B'] }))
+    const res = await POST(postCtx({ kind: 'workshop', id: 'cs1', options }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('A class can ask up to 3 questions.')
+    expect(mockSetEventMeta).not.toHaveBeenCalled()
+  })
+
+  it('refuses questions or a cutoff on a party', async () => {
+    const res = await POST(postCtx({ kind: 'party', id: 'p1', options: [PAILS] }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('Seat questions and sign-up cutoffs apply to classes only.')
+    expect((await POST(postCtx({ kind: 'party', id: 'p1', signupCutoffHours: 24 }))).status).toBe(400)
+    expect(mockSetEventMeta).not.toHaveBeenCalled()
+    expect(mockGetEvent).not.toHaveBeenCalled()
+  })
+
+  it('saves a cutoff in whole hours, or null for the default', async () => {
+    await POST(postCtx({ kind: 'workshop', id: 'cs1', signupCutoffHours: 48 }))
+    await POST(postCtx({ kind: 'workshop', id: 'cs1', signupCutoffHours: null }))
+    expect(mockSetEventMeta.mock.calls.map((c) => c[2])).toEqual([{ signupCutoffHours: 48 }, { signupCutoffHours: null }])
+  })
+
+  it('refuses a cutoff that is not whole hours 0–336', async () => {
+    for (const signupCutoffHours of [2.5, -1, 337, '24']) {
+      expect((await POST(postCtx({ kind: 'workshop', id: 'cs1', signupCutoffHours }))).status).toBe(400)
+    }
+    expect(mockSetEventMeta).not.toHaveBeenCalled()
+  })
+
+  it('passes on the lock refusal once someone has picked', async () => {
+    const { SeatSettingsError } = await import('@lib/seat-options')
+    const msg = 'People have already picked for this class, so existing choices can’t be removed or renamed. You can add new ones.'
+    mockSetEventMeta.mockRejectedValue(new SeatSettingsError(msg, 409))
+    const res = await POST(postCtx({ kind: 'workshop', id: 'cs1', options: [PAILS] }))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe(msg)
+  })
 })
 
 describe('GET /api/staff/event-meta.json', () => {

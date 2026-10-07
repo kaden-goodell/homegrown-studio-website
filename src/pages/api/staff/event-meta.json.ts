@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { getEvent, EVENT_KIND_RE, type EventKind } from '@lib/events'
 import { setEventMeta, type EventMetaPatch } from '@lib/event-meta'
+import { SeatSettingsError, validateCutoffHours, validateOptions } from '@lib/seat-options'
 
 export const prerender = false
 
@@ -40,8 +41,8 @@ function parseDaysPatch(body: any): { ok: true; value?: string[] | null } | { ok
 }
 
 /**
- * Staff-only. `POST { kind, id, dropOff?, days? }` patches the event-meta
- * overlay (drop-off + multi-day settings) and returns the merged event.
+ * Staff-only. `POST { kind, id, dropOff?, days?, options?, signupCutoffHours? }` patches the event-meta
+ * overlay (drop-off, multi-day, per-seat questions, sign-up cutoff) and returns the merged event.
  * `GET ?kind=&id=` reads the current merged event without changing anything —
  * used by the settings sheet to show "Last changed by …" on open.
  */
@@ -63,7 +64,21 @@ export const POST: APIRoute = async ({ request }) => {
   if (typeof body.dropOff === 'boolean') patch.dropOff = body.dropOff
   if ('value' in daysPatch) patch.days = daysPatch.value
 
-  if (patch.dropOff === undefined && patch.days === undefined) {
+  if ('options' in body || 'signupCutoffHours' in body) {
+    if (kind !== 'workshop') return bad('Seat questions and sign-up cutoffs apply to classes only.')
+  }
+  if ('options' in body) {
+    const checked = validateOptions(body.options)
+    if (!checked.ok) return bad(checked.error)
+    patch.options = checked.value
+  }
+  if ('signupCutoffHours' in body) {
+    const checked = validateCutoffHours(body.signupCutoffHours)
+    if (!checked.ok) return bad(checked.error)
+    patch.signupCutoffHours = checked.value
+  }
+
+  if (patch.dropOff === undefined && patch.days === undefined && patch.options === undefined && patch.signupCutoffHours === undefined) {
     return bad('Nothing to update.')
   }
 
@@ -76,7 +91,9 @@ export const POST: APIRoute = async ({ request }) => {
     const event = await getEvent(kind, id)
     if (!event) return bad("We couldn't find that event.", 404)
     return new Response(JSON.stringify({ data: event }), { status: 200, headers: { 'Content-Type': 'application/json' } })
-  } catch {
+  } catch (err) {
+    // The rules said no (invalid, or someone has already picked): say why.
+    if (err instanceof SeatSettingsError) return bad(err.message, err.status)
     return bad("Couldn't reach storage — try again.", 503)
   }
 }
