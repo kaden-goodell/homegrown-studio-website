@@ -25,6 +25,10 @@ Paragraphs are separated by a blank line (the modal renders `white-space: pre-li
 - Banned: "one-of-a-kind creation", "uniquely yours", "unleash your creativity", "perfect mix of", exclamation-mark stacking, "at Hometown Studio's …!" openers, em-dash pileups.
 - Never invent facts. If the materials, take-home count, or age aren't known, ask — don't guess. Flag any assumption when presenting the draft.
 
+## Guest-instructor classes — stay vague (Kaden, 2026-10-06)
+
+When an outside instructor leads a class (Louise & Co., Nutmeg's Cookies…), do NOT pin down specifics we don't control: no exact designs, counts, colors, packaging, or "in a box". "If you are too specific and we don't do it exactly, people will complain." Name the instructor and their business ("with Megan, the owner of Nutmeg's Cookies"), say the kind of thing you make and what you learn, and keep the take-home generic ("the cookies they decorate"). Concrete nouns still apply to OUR in-house crafts, where we control the supplies.
+
 ## Names
 
 Short, plural-or-noun craft names. No "Party", no "Birthday": "Bubble Letter Keychains", "Denim Patch Notebooks", "Keychain Bar".
