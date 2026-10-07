@@ -36,7 +36,9 @@ export default function WorkshopCard({ workshop, onBook, href }: WorkshopCardPro
   // That wins over "Sold out": a class that is not on sale has not sold anything.
   const comingSoon = !canBeBooked(workshop.price)
   const soldOut = !comingSoon && isSoldOut(workshop.remainingSeats)
-  const seats = comingSoon || soldOut ? '' : seatsLeftLabel(workshop.remainingSeats)
+  // Past the class's sign-up cutoff (decided on the server). A class not on sale yet has no cutoff to pass.
+  const closed = !comingSoon && workshop.signupClosed === true
+  const seats = comingSoon || soldOut || closed ? '' : seatsLeftLabel(workshop.remainingSeats)
   const takeHome = takeHomeLine(workshop.description)
 
   return (
@@ -151,12 +153,12 @@ export default function WorkshopCard({ workshop, onBook, href }: WorkshopCardPro
             />
           )}
 
-          {soldOut && !asking && (
+          {soldOut && !closed && !asking && (
             <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setAsking(true)}>
               Tell me if a seat opens
             </button>
           )}
-          {soldOut && asking && (
+          {soldOut && !closed && asking && (
             <NotifyMe
               interest={notifyInterest('workshop-waitlist', workshop.name, workshop.date)}
               buttonLabel="Tell me if a seat opens"
@@ -165,12 +167,28 @@ export default function WorkshopCard({ workshop, onBook, href }: WorkshopCardPro
             />
           )}
 
-          {!comingSoon && !soldOut && href && (
+          {closed && (
+            <p
+              style={{
+                margin: 0,
+                minHeight: '2.75rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '0.9375rem',
+                fontWeight: 600,
+                color: 'var(--color-muted)',
+              }}
+            >
+              Sign-ups closed
+            </p>
+          )}
+          {!comingSoon && !soldOut && !closed && href && (
             <a className="btn btn-primary" style={{ width: '100%' }} href={href}>
               See details and book
             </a>
           )}
-          {!comingSoon && !soldOut && !href && (
+          {!comingSoon && !soldOut && !closed && !href && (
             <button type="button" className="btn btn-primary" style={{ width: '100%' }} onClick={() => onBook?.(workshop)}>
               See details and book
             </button>
