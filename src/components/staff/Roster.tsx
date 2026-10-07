@@ -10,6 +10,8 @@ import { formatWhen, studioDate } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
 import type { EventKind, StudioEvent } from '@lib/events'
 import type { IncidentRecord } from '@lib/incident-store'
+import { picksShort, totalsLine } from '@lib/seat-options'
+import type { RosterChoices } from '@lib/seat-choices'
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
 const DROP_OFF_CAP = 12
@@ -20,6 +22,8 @@ interface RosterData {
   summary: { households: number; people: number; childrenHereNow: number }
   capWarning: boolean
   households: Household[]
+  /** Seat picks (classes with questions only); null = no questions, undefined = the read failed. */
+  choices?: RosterChoices | null
 }
 
 /** "Mon 19" — short weekday + day number, studio-local calendar math (no tz shift). */
@@ -183,6 +187,9 @@ export default function Roster({
   }
 
   const { event } = data
+  const options = event.options ?? []
+  const choices = options.length > 0 ? data.choices ?? null : null
+  const picksUnknown = options.length > 0 && data.choices === undefined
   const multiDay = event.days.length > 1
   const dayIndex = event.days.indexOf(data.day)
   const today = studioDate(new Date().toISOString())
@@ -281,6 +288,26 @@ export default function Roster({
         </div>
       </div>
 
+      {picksUnknown && (
+        <p style={{ margin: '0 0 0.8rem', fontSize: '0.8125rem', color: 'var(--color-muted)', textAlign: 'center' }}>Picks unavailable — reload the page</p>
+      )}
+      {choices && (
+        <div data-testid="picks-totals" style={{ ...card, background: 'rgba(255,255,255,0.85)' }}>
+          {options.map((o) => {
+            const totals = choices.totals[o.id] ?? {}
+            const picked = Object.values(totals).reduce((n, x) => n + x, 0)
+            return (
+              <p key={o.id} style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                <span>{totalsLine(o, totals)}</span>{' '}
+                <span style={{ fontWeight: 400, color: 'var(--color-muted)' }}>
+                  {choices.seatsSold !== null ? `(${choices.seatsSold} seats sold)` : `(${picked} seats picked)`}
+                </span>
+              </p>
+            )
+          })}
+        </div>
+      )}
+
       {addFamilyOpen && (
         <AddFamilySheet
           event={{ kind, id, title: event.title, day: data.day }}
@@ -360,8 +387,19 @@ export default function Roster({
           code belong to one day's roster, and carried straight over when staff
           switched days on a multi-day camp. */}
       {visibleHouseholds.map((h) => (
-        <HouseholdCard key={`${h.recordId}:${data.day}`} h={h} dropOff={event.dropOff} kind={kind} id={id} day={data.day} post={post} />
+        <HouseholdCard key={`${h.recordId}:${data.day}`} h={h} dropOff={event.dropOff} kind={kind} id={id} day={data.day} post={post} picks={choices?.byEmail[h.email.trim().toLowerCase()]} />
       ))}
+
+      {choices && choices.unmatched.length > 0 && (
+        <div style={{ ...card, background: 'rgba(255,255,255,0.7)' }}>
+          <p style={{ margin: '0 0 0.4rem', fontWeight: 700, color: 'var(--color-dark)' }}>Paid, not signed in yet</p>
+          {choices.unmatched.map((u, i) => (
+            <p key={`${u.email}:${i}`} style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)' }}>
+              {`${u.name} · ${u.seats} seat${u.seats === 1 ? '' : 's'}${u.picks.length ? ` · Picks: ${picksShort(u.picks)}` : ''}`}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -6,6 +6,7 @@ import PickupPanel from '@components/staff/PickupPanel'
 import HistorySheet from '@components/staff/HistorySheet'
 import type { EventKind } from '@lib/events'
 import type { AuthorizedPickup } from '@lib/waiver-store'
+import { picksShort, type SeatPick } from '@lib/seat-options'
 
 export interface Presence {
   inAt: string
@@ -91,6 +92,7 @@ export default function HouseholdCard({
   id,
   day,
   post,
+  picks,
 }: {
   h: Household
   dropOff: boolean
@@ -98,6 +100,8 @@ export default function HouseholdCard({
   id: string
   day: string
   post: (recordId: string, extra: any) => Promise<{ error?: string; oneTimeCode?: string; smsFailed?: boolean }>
+  /** This family's seat picks (classes with questions). Read-only: picks never change after booking. */
+  picks?: SeatPick[]
 }) {
   const people: Person[] = [
     { id: 'adult', icon: '👤', name: h.signer, sub: 'adult', allergies: h.adultAllergies, isChild: false },
@@ -236,6 +240,9 @@ export default function HouseholdCard({
         <div>
           <span style={{ fontWeight: 700, color: 'var(--color-dark)', fontSize: '1.0625rem' }}>{h.signer}</span>
           <a href={`tel:${h.phone}`} style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--color-primary)', textDecoration: 'none' }}>📞 {h.phone}</a>
+          {picks && picks.length > 0 && (
+            <p style={{ margin: '0.15rem 0 0', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)' }}>Picks: {picksShort(picks)}</p>
+          )}
         </div>
         <StatusPill status={status} hereCount={herePeople.length} total={people.length} dropOff={dropOff} />
       </div>

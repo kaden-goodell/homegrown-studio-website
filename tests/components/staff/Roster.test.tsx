@@ -198,3 +198,61 @@ describe('Roster', () => {
     expect(screen.getByText('⚠ 1 with allergies')).toBeInTheDocument()
   })
 })
+
+describe('Roster — seat picks (spec D)', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+
+  const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
+  const PAILS_EVENT = { kind: 'workshop', id: 'cs-camp', title: 'Pumpkin Pails', startIso: '2026-10-18T18:00:00.000Z', days: ['2026-10-18'], dropOff: false, options: [PAILS] }
+  const p = (seat: number, choice: string) => ({ seat, optionId: 'pumpkin-color', choice })
+
+  function serveRoster(choices: unknown, event: any = PAILS_EVENT) {
+    return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
+      if (String(url).includes('/api/staff/incidents.json')) return { ok: true, json: async () => ({ data: { incidents: [] } }) } as Response
+      return {
+        ok: true,
+        json: async () => ({
+          data: { event, day: '2026-10-18', summary: { households: 1, people: 2, childrenHereNow: 0 }, capWarning: false, households: [household()], choices },
+        }),
+      } as Response
+    })
+  }
+
+  it('shows the totals strip, the family’s picks, and who has paid but not signed in', async () => {
+    serveRoster({
+      totals: { 'pumpkin-color': { Lavender: 6, Black: 4, 'Light Pink': 3, 'Light Blue': 2 } },
+      byEmail: { 'jamie@x.com': [p(1, 'Lavender'), p(2, 'Lavender')] },
+      unmatched: [{ name: 'Bo Test', email: 'bo@x.com', seats: 1, picks: [p(1, 'Black')] }],
+      seatsSold: 15,
+    })
+    renderRoster()
+    expect(await screen.findByText('Pumpkin color — Lavender 6 · Black 4 · Light Pink 3 · Light Blue 2')).toBeInTheDocument()
+    expect(screen.getByText('(15 seats sold)')).toBeInTheDocument()
+    expect(screen.getByText('Picks: Lavender ×2')).toBeInTheDocument()
+    expect(screen.getByText('Paid, not signed in yet')).toBeInTheDocument()
+    expect(screen.getByText('Bo Test · 1 seat · Picks: Black ×1')).toBeInTheDocument()
+  })
+
+  it('counts picked seats when Square gave no capacity', async () => {
+    serveRoster({ totals: { 'pumpkin-color': { Lavender: 2, Black: 1 } }, byEmail: {}, unmatched: [], seatsSold: null })
+    renderRoster()
+    expect(await screen.findByText('(3 seats picked)')).toBeInTheDocument()
+    expect(screen.queryByText('Paid, not signed in yet')).toBeNull()
+  })
+
+  it('a class with no questions shows no picks at all', async () => {
+    serveRoster(null, { ...PAILS_EVENT, options: [] })
+    renderRoster()
+    await screen.findAllByText('Jamie Rivera')
+    expect(screen.queryByText(/^Pumpkin color —/)).toBeNull()
+    expect(screen.queryByText(/^Picks:/)).toBeNull()
+  })
+
+  it('says picks are unavailable (not "nobody picked") when the read failed', async () => {
+    serveRoster(undefined)
+    renderRoster()
+    expect(await screen.findByText('Picks unavailable — reload the page')).toBeInTheDocument()
+    expect(screen.queryByTestId('picks-totals')).toBeNull()
+    expect(screen.queryByText(/^Picks:/)).toBeNull()
+  })
+})

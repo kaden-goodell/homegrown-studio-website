@@ -146,3 +146,20 @@ describe('HouseholdCard — drop-off (unchanged)', () => {
     expect(screen.getByText(/✓ left .*Grandma Rivera/)).toBeInTheDocument()
   })
 })
+
+describe('HouseholdCard — seat picks', () => {
+  it('shows the family’s picks under the phone', () => {
+    render(
+      <HouseholdCard
+        h={household()} dropOff={false} kind="workshop" id="clssch_pails" day="2026-10-18" post={vi.fn(async () => ({})) as any}
+        picks={[{ seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' }, { seat: 2, optionId: 'pumpkin-color', choice: 'Lavender' }]}
+      />,
+    )
+    expect(screen.getByText('Picks: Lavender ×2')).toBeInTheDocument()
+  })
+
+  it('shows no picks line without picks', () => {
+    renderCard(household(), false)
+    expect(screen.queryByText(/^Picks:/)).toBeNull()
+  })
+})
