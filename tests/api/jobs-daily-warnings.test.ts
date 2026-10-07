@@ -55,9 +55,19 @@ describe('POST /api/jobs/daily-warnings.json', () => {
     expect(mail.html).toContain('Pumpkin Pails: 27 seats sold, 25 capacity.')
   })
 
-  it('answers 503 when the scan cannot run', async () => {
+  it('answers 503 and tells the owners when the scan cannot run, so silence never reads as all clear', async () => {
     mockListWarnings.mockRejectedValue(new Error('Square 500'))
     expect((await POST(ctx(dailyWarningsJobKey(SECRET)))).status).toBe(503)
-    expect(mockSendEmail).not.toHaveBeenCalled()
+    expect(mockSendEmail).toHaveBeenCalledTimes(1)
+    const mail = mockSendEmail.mock.calls[0][0]
+    expect(mail.to).toBe('kaden@ourhometownstudio.com, catherine@ourhometownstudio.com')
+    expect(mail.subject).toBe('⚠ Couldn’t check the studio schedule today')
+    expect(mail.text).toMatch(/open .*\/staff and tap Try again/i)
+  })
+
+  it('still answers 503 when the failure email cannot be sent', async () => {
+    mockListWarnings.mockRejectedValue(new Error('Square 500'))
+    mockSendEmail.mockRejectedValue(new Error('gmail down'))
+    expect((await POST(ctx(dailyWarningsJobKey(SECRET)))).status).toBe(503)
   })
 })

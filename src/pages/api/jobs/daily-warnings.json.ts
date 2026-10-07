@@ -37,6 +37,7 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 /**
  * Run each morning by netlify/functions/daily-warnings.ts: the same scan as
  * the staff panel, emailed to the owners only when something needs a person.
+ * A scan that fails emails them too, so silence only ever means all clear.
  * Read-only; it changes nothing anywhere.
  */
 export const POST: APIRoute = async ({ request }) => {
@@ -49,6 +50,15 @@ export const POST: APIRoute = async ({ request }) => {
     warnings = await listWarnings({ from, to })
   } catch (err) {
     logger.error('Daily warnings scan failed', { error: err instanceof Error ? err.message : String(err) })
+    // No email on a failure morning would look exactly like a clean one.
+    const subject = '⚠ Couldn’t check the studio schedule today'
+    const body = ['This morning’s check for schedule conflicts couldn’t read Square or the studio’s records.', `Open ${SITE_URL}/staff and tap Try again.`]
+    await sendEmail({
+      to: siteConfig.ownerEmails.join(', '),
+      subject,
+      text: body.join('\n'),
+      html: `<div style="max-width:560px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">${body.map((l) => `<p style="margin:0 0 8px;font-size:14px;color:#3d3630;">${esc(l)}</p>`).join('')}</div>`,
+    }).catch((mailErr) => logger.error('Daily warnings failure email not sent', { error: String(mailErr) }))
     return json({ error: 'Scan failed' }, 503)
   }
   if (warnings.length === 0) return json({ data: { count: 0, sent: false } }, 200)
