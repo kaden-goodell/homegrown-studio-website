@@ -507,6 +507,19 @@ describe('POST /api/workshops/book.json', () => {
       expect(mockAlertOwners).toHaveBeenCalledWith(expect.stringContaining('Seat picks not saved: Ada Lovelace'))
       expect(mockAlertOwners.mock.calls[0][0]).toContain('Pumpkin color: Black ×1, Lavender ×1')
     })
+
+    it('the save-failure alert never promises the picks are in a Square note', async () => {
+      mockSaveSeatChoices.mockRejectedValue(new Error('blobs down'))
+      await POST(ctx(body({ picks: TWO_PICKS })))
+      expect(mockAlertOwners.mock.calls[0][0]).not.toMatch(/Square note/i)
+    })
+
+    it('an unclear charge alert carries the picks, so they exist somewhere', async () => {
+      mockPay.mockRejectedValue(new SeatBookingError('square', 'pay', 'no_answer', 'fetch failed'))
+      await POST(ctx(body({ picks: TWO_PICKS })))
+      expect(mockAlertOwners).toHaveBeenCalledTimes(1)
+      expect(mockAlertOwners.mock.calls[0][0]).toContain('Pumpkin color: Black ×1, Lavender ×1')
+    })
   })
 
   it('slows down someone hammering the endpoint', async () => {

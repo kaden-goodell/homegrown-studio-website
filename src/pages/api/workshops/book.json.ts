@@ -197,7 +197,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       raw: raw.slice(0, 500),
     })
     await alertOwners(
-      `Workshop payment unclear: ${givenName} ${familyName} (${email}${phone ? `, ${phone}` : ''}), ${seats} seat${seats === 1 ? '' : 's'}, ${formatSlotLabel(String(startAt))}. Check Square for the payment, then confirm with them or cancel booking ${reservation.bookingId}.`,
+      `Workshop payment unclear: ${givenName} ${familyName} (${email}${phone ? `, ${phone}` : ''}), ${seats} seat${seats === 1 ? '' : 's'}, ${formatSlotLabel(String(startAt))}.${note ? ` Picks: ${note}.` : ''} Check Square for the payment, then confirm with them or cancel booking ${reservation.bookingId}.`,
     ).catch(() => undefined)
     return fail(502, 'unknown_outcome')
   }
@@ -205,8 +205,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // ── Paid and confirmed. Nothing below may turn this into a failure. ────────
   // The structured picks behind the roster (spec C/D). Written only now, once
   // the money is taken. A failed write never fails the booking: the picks are
-  // also in Square's booking note and in the customer's email, and a person
-  // is told so they can be added by hand.
+  // in the customer's email and in the owner alert (Square's booking note may
+  // have been dropped on a retry), so a person can add them by hand.
   if (picks.length > 0) {
     try {
       await saveSeatChoices({
@@ -226,7 +226,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         error: err instanceof Error ? err.message : String(err),
       })
       await alertOwners(
-        `Seat picks not saved: ${givenName} ${familyName}, ${workshop.name}, ${formatSlotLabel(workshop.startAt)}. ${note}. Booking ${booked.bookingId} is paid; the picks are in its Square note.`,
+        `Seat picks not saved: ${givenName} ${familyName}, ${workshop.name}, ${formatSlotLabel(workshop.startAt)}. ${note}. Booking ${booked.bookingId} is paid; add these picks by hand.`,
       ).catch(() => undefined)
     }
   }
