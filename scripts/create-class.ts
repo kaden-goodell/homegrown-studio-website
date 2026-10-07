@@ -1,6 +1,8 @@
 import 'dotenv/config'
 import { readFileSync } from 'node:fs'
 import { SquareClient, SquareEnvironment } from 'square'
+import { partyBlocksClass, partySpanOf, partyClashMessage } from '../src/lib/conflicts'
+import { studioDate, studioDayUtcRange } from '../src/lib/studio-time'
 
 /**
  * Create an Appointments "class" schedule (the dated instance the website reads)
@@ -43,6 +45,11 @@ import { SquareClient, SquareEnvironment } from 'square'
  *   --rrule <RRULE>       recurrence rule for a repeating series (default one-off)
  *   --staff <teamId>      staff/team member id (default SQUARE_TEAM_MEMBER_ID)
  *   --dry-run             print the request body and exit without POSTing
+ *
+ * Party guard: before creating anything (and on --dry-run) the script reads
+ * that day's bookings and refuses if a booked party overlaps the class or
+ * the hour of cleanup before it. Move the party in Square first; there is
+ * no --force.
  */
 
 const WORKSHOP_CATEGORY_ID = 'QXN2HDQQG2YBZBNLLKNFTZRC'
@@ -206,6 +213,39 @@ async function createItem(name: string): Promise<any> {
   }
 }
 
+/**
+ * HARD RULE (Kaden, 2026-10-06): a class is never created over a booked party.
+ * Read-only: lists that studio day's bookings and exits 1 on any party that
+ * overlaps [class start − cleanup, class end] (`@lib/conflicts`). It never
+ * touches a booking, and there is no override.
+ */
+async function refuseIfPartyInTheWay(startIso: string, minutes: number): Promise<void> {
+  const { startIso: from, endIso: to } = studioDayUtcRange(studioDate(startIso))
+  const found: any[] = []
+  // v44: bookings.list returns a paginator; iterate to collect.
+  for await (const b of (await client.bookings.list({ locationId: locationId!, startAtMin: from, startAtMax: to })) as any) found.push(b)
+  const live = found.filter((b) => !/^(CANCELLED|DECLINED)/.test(String(b.status ?? '')))
+  const parties = await Promise.all(
+    live.map(async (b) => {
+      let hostName: string | undefined
+      if (b.customerId) {
+        try {
+          const r: any = await client.customers.get({ customerId: b.customerId })
+          const c = r?.customer ?? r
+          hostName = [c?.givenName, c?.familyName].filter(Boolean).join(' ') || undefined
+        } catch {
+          // A name is a nicety; the refusal still prints the time and booking id.
+        }
+      }
+      return partySpanOf({ id: b.id, slot: { startAt: b.startAt, duration: b.appointmentSegments?.[0]?.durationMinutes } }, hostName)
+    }),
+  )
+  const endIso = new Date(Date.parse(startIso) + minutes * 60_000).toISOString()
+  const clashes = partyBlocksClass(startIso, endIso, parties)
+  if (clashes.length > 0) fail(partyClashMessage(clashes))
+  console.log('  party check: no booked party in the way')
+}
+
 async function main() {
   // 1. resolve the catalog item (+ its variation token/version)
   let item: any
@@ -246,6 +286,10 @@ async function main() {
   console.log(`\nClass: ${item.itemData?.name}  (item ${item.id})`)
   console.log(`  start:    ${startLocal} America/Chicago  ->  ${body.class_schedule.start_at}`)
   console.log(`  duration: ${durationMinutes} min   capacity: ${totalCapacity}   rrule: ${rrule || '(one-off)'}`)
+
+  // Runs on --dry-run too: it only reads, so a dry run shows the refusal.
+  await refuseIfPartyInTheWay(body.class_schedule.start_at, durationMinutes)
+  if (rrule) console.log('  note: only the first date of a repeating series was checked for parties.')
 
   if (dryRun) {
     console.log('\n--dry-run, request body:\n' + JSON.stringify(body, null, 2))
