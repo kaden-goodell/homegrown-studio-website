@@ -4,15 +4,23 @@
  * move or release a booking.
  *
  * Throws when classes or bookings can't be read: an empty list must only ever
- * mean "checked, and nothing is wrong".
+ * mean "checked, and nothing is wrong". A source that can't be asked at all
+ * (no listBookings, no listAllWorkshops) counts as can't be read.
+ *
+ * Oversold only fires when Square reports a NEGATIVE available_capacity: an
+ * exactly-full class looks the same as an oversold one, so the roster's
+ * seats-sold figure remains the human check.
  */
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { studioOpenOn } from '@config/closures'
 import { getPartyRecord } from '@lib/party-store'
+import { createLogger } from '@lib/logger'
 import { formatCalendarDay, formatTime, formatTimeSpan, studioDate, studioDayUtcRange } from '@lib/studio-time'
 import { classSpanOf, classesOverlap, partyBlocksClass, partyName, partySpanOf, type ClassSpan, type PartySpan } from '@lib/conflicts'
 import type { Workshop } from '@providers/interfaces/workshop'
+
+const logger = createLogger('warnings')
 
 export type WarningCode = 'class-over-party' | 'class-over-class' | 'oversold' | 'party-on-closed-day' | 'picks-missing'
 
@@ -56,15 +64,16 @@ async function scan(from: string, to: string): Promise<Scan> {
   const lo = Date.parse(startIso)
   const hi = Date.parse(endIso)
   const w = providers.workshop
+  const b = providers.booking
+  if (typeof w.listAllWorkshops !== 'function') throw new Error('Classes cannot be read — warnings scan refused')
+  if (typeof b.listBookings !== 'function') throw new Error('Bookings cannot be read — warnings scan refused')
   const [workshops, bookings] = await Promise.all([
-    w.listAllWorkshops?.() ?? w.listWorkshops(),
-    providers.booking.listBookings
-      ? providers.booking.listBookings({
-          startDate: startIso,
-          endDate: endIso,
-          locationId: siteConfig.providers.booking.config.locationId || '',
-        })
-      : Promise.resolve([]),
+    w.listAllWorkshops(),
+    b.listBookings({
+      startDate: startIso,
+      endDate: endIso,
+      locationId: siteConfig.providers.booking.config.locationId || '',
+    }),
   ])
   const classes = workshops
     .filter((x) => {
@@ -77,7 +86,10 @@ async function scan(from: string, to: string): Promise<Scan> {
     bookings
       .filter((b) => b.status !== 'cancelled')
       .map(async (b) => {
-        const record = await getPartyRecord(b.id).catch(() => null)
+        const record = await getPartyRecord(b.id).catch((error) => {
+          logger.warn('Party record unavailable for warning text', { id: b.id, error })
+          return null
+        })
         return partySpanOf(b, record?.hostName)
       }),
   )
@@ -121,6 +133,9 @@ function classOverClass(s: Scan): Warning[] {
 
 function oversold(s: Scan): Warning[] {
   return s.classes.flatMap(({ span, workshop }): Warning[] => {
+    // Only fires if Square reports a NEGATIVE available_capacity; an exactly-full
+    // class is indistinguishable from an oversold one. The roster's seats-sold
+    // figure is the human check.
     const total = workshop.totalCapacity
     if (typeof total !== 'number') return []
     const sold = total - workshop.availableCapacity

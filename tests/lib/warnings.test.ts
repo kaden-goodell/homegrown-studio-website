@@ -1,18 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const mockListAllWorkshops = vi.fn()
-const mockListBookings = vi.fn()
-vi.mock('@config/providers', () => ({
-  providers: {
+const { mockListAllWorkshops, mockListBookings, mockProviders } = vi.hoisted(() => {
+  const mockListAllWorkshops = vi.fn()
+  const mockListBookings = vi.fn()
+  const mockProviders: any = {
     workshop: { listAllWorkshops: (...a: any[]) => mockListAllWorkshops(...a), listWorkshops: async () => [] },
     booking: { listBookings: (...a: any[]) => mockListBookings(...a) },
-  },
-}))
+  }
+  return { mockListAllWorkshops, mockListBookings, mockProviders }
+})
+vi.mock('@config/providers', () => ({ providers: mockProviders }))
 vi.mock('@config/site.config', () => ({ siteConfig: { providers: { booking: { config: { locationId: 'LOC' } } } } }))
 
 const HOSTS: Record<string, string> = { bk_rivera: 'Jamie Rivera', bk_lopez: 'Ana Lopez' }
 vi.mock('@lib/party-store', () => ({ getPartyRecord: async (id: string) => (HOSTS[id] ? { hostName: HOSTS[id] } : null) }))
 
+import { partyConfig } from '@config/party.config'
 import { listWarnings, warningLine } from '@lib/warnings'
 
 function cls(scheduleId: string, name: string, startAt: string, over: Record<string, unknown> = {}) {
@@ -28,6 +31,8 @@ const PAILS = cls('clssch_pails', 'Pumpkin Pails', '2026-10-18T18:00:00.000Z', {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  mockProviders.workshop.listAllWorkshops = (...a: any[]) => mockListAllWorkshops(...a)
+  mockProviders.booking.listBookings = (...a: any[]) => mockListBookings(...a)
   mockListAllWorkshops.mockResolvedValue([])
   mockListBookings.mockResolvedValue([])
 })
@@ -103,5 +108,56 @@ describe('listWarnings', () => {
   it('throws when bookings cannot be read', async () => {
     mockListBookings.mockRejectedValue(new Error('Square 500'))
     await expect(listWarnings(WINDOW)).rejects.toThrow('500')
+  })
+
+  it('throws when the booking provider cannot list bookings', async () => {
+    delete mockProviders.booking.listBookings
+    await expect(listWarnings(WINDOW)).rejects.toThrow('Bookings cannot be read')
+  })
+
+  it('throws when the workshop provider cannot list all classes', async () => {
+    delete mockProviders.workshop.listAllWorkshops
+    await expect(listWarnings(WINDOW)).rejects.toThrow('Classes cannot be read')
+  })
+
+  it('does not warn when seats sold equals capacity', async () => {
+    mockListAllWorkshops.mockResolvedValue([{ ...PAILS, availableCapacity: 0 }])
+    expect(await listWarnings(WINDOW)).toEqual([])
+  })
+
+  it('does not warn for back-to-back classes', async () => {
+    mockListAllWorkshops.mockResolvedValue([
+      cls('clssch_a', 'A', '2026-10-23T23:00:00.000Z'), // 6-8 PM
+      cls('clssch_b', 'B', '2026-10-24T01:00:00.000Z'), // 8-10 PM
+    ])
+    expect(await listWarnings(WINDOW)).toEqual([])
+  })
+
+  it('does not warn when a party ends exactly the cleanup buffer before a class', async () => {
+    const classStart = Date.parse('2026-10-18T22:00:00.000Z')
+    const partyStart = classStart - (partyConfig.cleanupBufferMinutes + partyConfig.durationMinutes) * 60_000
+    mockListAllWorkshops.mockResolvedValue([cls('clssch_x', 'X', new Date(classStart).toISOString())])
+    mockListBookings.mockResolvedValue([{ id: 'bk_rivera', status: 'confirmed', slot: { startAt: new Date(partyStart).toISOString(), duration: partyConfig.durationMinutes } }])
+    expect(await listWarnings(WINDOW)).toEqual([])
+  })
+
+  it('warns for classes on the first and last day of the window', async () => {
+    mockListAllWorkshops.mockResolvedValue([
+      cls('clssch_first', 'First', '2026-10-15T23:00:00.000Z'), // Thu 6 PM
+      cls('clssch_last', 'Last', '2026-10-25T23:00:00.000Z'), // Sun 6 PM
+    ])
+    mockListBookings.mockResolvedValue([
+      party('bk_rivera', '2026-10-15T23:00:00.000Z'),
+      party('bk_lopez', '2026-10-25T23:00:00.000Z'),
+    ])
+    const list = await listWarnings(WINDOW)
+    expect(list.filter((w) => w.code === 'class-over-party').map((w) => w.eventId)).toEqual(['clssch_first', 'clssch_last'])
+  })
+
+  it('gives one class-over-party warning per clashing party', async () => {
+    mockListAllWorkshops.mockResolvedValue([cls('clssch_wide', 'Wide', '2026-10-18T18:00:00.000Z', { durationMinutes: 480 })])
+    mockListBookings.mockResolvedValue([party('bk_rivera', '2026-10-18T19:00:00.000Z'), party('bk_lopez', '2026-10-18T23:00:00.000Z')])
+    const list = await listWarnings(WINDOW)
+    expect(list.filter((w) => w.code === 'class-over-party')).toHaveLength(2)
   })
 })
