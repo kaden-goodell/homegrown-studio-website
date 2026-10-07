@@ -24,9 +24,12 @@ import {
   cutoffClosedMessage,
   effectiveCutoffHours,
   isSignupClosed,
+  PICKS_FINAL_LINE,
   picksNote,
+  seatPickLines,
   validatePicks,
   type CutoffSettings,
+  type SeatOption,
   type SeatPick,
 } from '@lib/seat-options'
 import type { SeatReservation, Workshop } from '@providers/interfaces/workshop'
@@ -237,6 +240,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       email,
       givenName,
       receiptUrl: booked.receiptUrl,
+      options: settings.options,
+      picks,
     })
   } catch (err) {
     logger.error('Workshop confirmation email failed (booking still confirmed)', {
@@ -288,6 +293,8 @@ async function sendConfirmation(input: {
   email: string
   givenName: string
   receiptUrl: string | null
+  options: SeatOption[]
+  picks: SeatPick[]
 }): Promise<boolean> {
   const { workshop } = input
 
@@ -322,6 +329,9 @@ async function sendConfirmation(input: {
     googleCalendarUrl: googleCalendarUrl(calendarEvent),
     icsContent: buildIcs(calendarEvent),
     bookingRef: input.bookingId,
+    ...(input.picks.length > 0
+      ? { pickLines: seatPickLines(input.options, input.picks), picksFinalLine: PICKS_FINAL_LINE }
+      : {}),
   })
   return sent
 }

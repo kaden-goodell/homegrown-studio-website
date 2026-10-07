@@ -475,6 +475,19 @@ describe('POST /api/workshops/book.json', () => {
       expect(mockSaveSeatChoices.mock.invocationCallOrder[0]).toBeGreaterThan(mockPay.mock.invocationCallOrder[0])
     })
 
+    it('puts the picks in the confirmation email', async () => {
+      await POST(ctx(body({ picks: TWO_PICKS })))
+      const mail = mockSendEmail.mock.calls[0][0]
+      expect(mail.pickLines).toEqual(['Seat 1 · Pumpkin color: Lavender', 'Seat 2 · Pumpkin color: Black'])
+      expect(mail.picksFinalLine).toBe('Picks are made ahead for you, so they can’t be changed after you book.')
+    })
+
+    it('leaves picks out of the email for a class with no questions', async () => {
+      mockGetEventMeta.mockResolvedValue(null)
+      await POST(ctx(body()))
+      expect(mockSendEmail.mock.calls[0][0]).not.toHaveProperty('pickLines')
+    })
+
     it('stores nothing when the card is refused', async () => {
       mockPay.mockRejectedValue(new SeatBookingError('square', 'pay', 'refused', '{"errors":[{"code":"CARD_DECLINED"}]}', 400))
       await POST(ctx(body({ picks: TWO_PICKS })))

@@ -100,6 +100,33 @@ describe('sendWorkshopConfirmationEmail', () => {
     expect(mail.attachments ?? []).toHaveLength(0)
   })
 
+  it('lists each seat’s pick and says picks are final', async () => {
+    await sendWorkshopConfirmationEmail({
+      ...input,
+      pickLines: ['Seat 1 · Pumpkin color: Lavender', 'Seat 2 · Pumpkin color: Black'],
+      picksFinalLine: 'Picks are made ahead for you, so they can’t be changed after you book.',
+    })
+    const mail = mockSendMail.mock.calls[0][0]
+    expect(mail.text).toContain(
+      'Your picks:\n  Seat 1 · Pumpkin color: Lavender\n  Seat 2 · Pumpkin color: Black\nPicks are made ahead for you, so they can’t be changed after you book.',
+    )
+    expect(mail.html).toContain('Your picks')
+    expect(mail.html).toContain('Seat 2 · Pumpkin color: Black')
+    expect(mail.html).toContain('can’t be changed after you book.')
+  })
+
+  it('escapes the picks in the page', async () => {
+    await sendWorkshopConfirmationEmail({ ...input, pickLines: ['Seat 1 · Color: <i>Red</i>'] })
+    expect(mockSendMail.mock.calls[0][0].html).toContain('Color: &lt;i&gt;Red&lt;/i&gt;')
+  })
+
+  it('says nothing about picks for a class with no questions', async () => {
+    await sendWorkshopConfirmationEmail(input)
+    const mail = mockSendMail.mock.calls[0][0]
+    expect(mail.text).not.toContain('Your picks')
+    expect(mail.html).not.toContain('Your picks')
+  })
+
   it('uses the brand brown, not the old one', async () => {
     await sendWorkshopConfirmationEmail(input)
     const { html } = mockSendMail.mock.calls[0][0]

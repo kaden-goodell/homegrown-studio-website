@@ -349,6 +349,10 @@ export async function sendWorkshopConfirmationEmail(input: {
   googleCalendarUrl?: string
   icsContent?: string
   bookingRef?: string
+  /** "Seat 1 · Pumpkin color: Lavender", one per pick. Absent for a class with no questions. */
+  pickLines?: string[]
+  /** Shown under the picks: PICKS_FINAL_LINE. */
+  picksFinalLine?: string
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const paid = dollars(input.totalChargedCents)
@@ -364,6 +368,9 @@ export async function sendWorkshopConfirmationEmail(input: {
     `Where: Hometown Studio, ${address}`,
     `Directions: ${input.directionsUrl}`,
     `Seats: ${seatWord}, ${paid} paid`,
+    ...(input.pickLines?.length
+      ? [``, `Your picks:`, ...input.pickLines.map((l) => `  ${l}`), ...(input.picksFinalLine ? [input.picksFinalLine] : [])]
+      : []),
     ``,
     ...(summary ? [summary, ``] : []),
     `Before you come: sign the participation agreement. It takes a minute.`,
@@ -399,6 +406,9 @@ export async function sendWorkshopConfirmationEmail(input: {
   <p style="${P}">Hometown Studio, ${esc(address)}<br /><a href="${esc(input.directionsUrl)}" style="${LINK}font-size:13px;">Get directions</a></p>
   <p style="${LABEL}margin-top:10px;">Your booking</p>
   <p style="${P}">${esc(seatWord)} &middot; <strong>${esc(paid)} paid</strong></p>
+  ${input.pickLines?.length
+    ? `<p style="${LABEL}margin-top:10px;">Your picks</p>${input.pickLines.map((l) => `<p style="${P}margin:0 0 2px;">${esc(l)}</p>`).join('')}${input.picksFinalLine ? `<p style="${MUTED}margin-top:4px;">${esc(input.picksFinalLine)}</p>` : ''}`
+    : ''}
   ${summary ? `<p style="${MUTED}margin-top:10px;">${esc(summary)}</p>` : ''}
   <div style="margin:18px 0 6px;">
     <a href="${esc(input.waiverUrl)}" style="display:inline-block;padding:11px 22px;background:#7a4a2e;color:#ffffff;text-decoration:none;border-radius:8px;font-size:14px;font-weight:600;">Sign the participation agreement &rarr;</a>
