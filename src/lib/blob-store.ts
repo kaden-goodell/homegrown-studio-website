@@ -47,6 +47,11 @@ export interface _KvStoreTestOptions {
   fsDirOverride?: string
 }
 
+/** True on a deployed Netlify build or function (Netlify sets NETLIFY=true). */
+function onNetlify(): boolean {
+  return typeof process !== 'undefined' && process.env.NETLIFY === 'true'
+}
+
 export function makeKvStore(
   storeName: string,
   fsDirName: string,
@@ -72,7 +77,19 @@ export function makeKvStore(
       const store = getStore({ name: storeName, consistency: 'strong' })
       await store.get('__probe__') // throws outside Netlify → fs fallback
       blobStore = store
-    } catch {
+    } catch (err) {
+      // On a Netlify deploy the blob store IS the data. Falling back to local
+      // files there would silently read "nothing on file" for every record
+      // (settings, waivers, picks) and sell a class without its questions.
+      // Fail instead, log it, and leave the probe un-cached so the next call
+      // retries once the blip is over. Off Netlify (local dev, tests) the
+      // filesystem is the intended store.
+      if (onNetlify()) {
+        logger.error('Blob store unavailable on Netlify — refusing to fall back to local files', {
+          error: err instanceof Error ? err.message : String(err),
+        })
+        throw new Error(`Blob store "${storeName}" is unavailable`)
+      }
       blobStore = null
     }
     return blobStore

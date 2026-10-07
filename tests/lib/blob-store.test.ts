@@ -5,7 +5,7 @@
  * We also inject a fake blob store via the internal test hook to exercise the
  * conditional-write (setIfMatch) semantics without a live Netlify connection.
  */
-import { describe, it, expect, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -162,3 +162,39 @@ function makeFakeStore() {
     },
   }
 }
+
+
+// ─── On Netlify, a dead blob store must FAIL, never fall back to files ──────
+
+describe('makeKvStore (probe fails on Netlify)', () => {
+  const env = process.env.NETLIFY
+
+  afterEach(() => {
+    if (env === undefined) delete process.env.NETLIFY
+    else process.env.NETLIFY = env
+    vi.doUnmock('@netlify/blobs')
+    vi.resetModules()
+  })
+
+  async function deadStore() {
+    vi.doMock('@netlify/blobs', () => ({
+      getStore: () => ({ get: async () => { throw new Error('ECONNRESET') } }),
+    }))
+    const { makeKvStore: make } = await import('@lib/blob-store')
+    return make('test-dead', 'dead')
+  }
+
+  it('throws on Netlify instead of reading local files', async () => {
+    process.env.NETLIFY = 'true'
+    const store = await deadStore()
+    await expect(store.get('anything')).rejects.toThrow(/unavailable/)
+    // Not cached as "use fs": the next call probes again and fails the same way.
+    await expect(store.getWithMeta('anything')).rejects.toThrow(/unavailable/)
+  })
+
+  it('falls back to files off Netlify (local dev, tests)', async () => {
+    delete process.env.NETLIFY
+    const store = await deadStore()
+    await expect(store.get('anything')).resolves.toBeNull()
+  })
+})
