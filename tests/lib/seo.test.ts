@@ -109,7 +109,7 @@ describe('hours', () => {
     ])
   })
   it('shows the Craft Café morning hours', () => {
-    expect(formatHours(CAFE_HOURS)).toEqual([{ days: 'Saturday', time: '9 AM – 12:30 PM' }])
+    expect(formatHours(CAFE_HOURS)).toEqual([{ days: 'Saturday', time: '9 AM – 12 PM' }])
   })
   it('stays open on Sunday until the evening workshops end at 9', () => {
     const sunday = STUDIO_HOURS.find((h) => h.days.includes('Sunday'))

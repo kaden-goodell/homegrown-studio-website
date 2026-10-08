@@ -83,7 +83,7 @@ export const partyConfig = {
  * start + party + cleanup ≤ `lastWrap`, so the evening workshop slot stays clear.
  * Weekdays not listed have no parties.
  * Weekend shape (Kaden, 8 Oct 2026):
- *   Sat: Craft Café 9–12:30 · party 1:30 · workshop 4–6 · workshop 7–9
+ *   Sat: Craft Café 9–12 · party 1:30 · workshop 4–6 · workshop 7–9
  *   Sun: party 1:00 · party 3:30 · workshop 6–8
  * so Saturday offers ONE party start (1:30; a 90-min party + the hour's
  * cleanup wraps by 4:00 for the first class) and Sunday two (3:30 steps aside

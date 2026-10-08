@@ -30,7 +30,7 @@ export const STUDIO_HOURS: HoursEntry[] = [
  * (Kaden, 8 Oct 2026). Shown wherever the site says "walk-in hours".
  */
 export const CAFE_HOURS: HoursEntry[] = [
-  { days: ['Saturday'], opens: '09:00', closes: '12:30' },
+  { days: ['Saturday'], opens: '09:00', closes: '12:00' },
 ]
 
 function parts(hhmm: string): { hour: number; minute: string; period: 'AM' | 'PM' } {
