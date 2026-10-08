@@ -159,6 +159,38 @@ protects you and the family later. Something's wrong or changed? Add a note, or 
 with the real reason — don't erase what's there. Need the whole story on a family? Open
 **History** on their card.
 
+## 5b. Giveaways: gift cards and comped seats
+
+Two ways to hand someone something free. Both are open to anyone signed in to `/staff`.
+Nothing blocks you, so the **audit log** is the check (see the end of this section).
+
+**Mint a gift card** (a promo credit — no money moves):
+- `/staff` → header button **Gift cards**.
+- Tap a preset ($10 / $25 / $50 / $100) or **Other** and type an amount.
+- Fill **For whom** (e.g. "Megan, shared our reel") and an optional **Note**, then **Make card**.
+- The 16-digit number shows with a **Copy** button. Send it to them. The list below the form
+  shows every card and its balance.
+- Customers use it on party and kit checkouts ("Pay with a gift card instead" under the card
+  box) and at the register. The card must cover the whole amount. If it doesn't, the checkout
+  says how much is on it.
+- **Workshop seats can't take a gift card online.** Comp a seat instead (below).
+
+**Comp a seat** (workshops only — Square first, then record it here):
+1. Open the class roster on `/staff` → **Comp a seat**.
+2. **Step 1:** tap "Open this class in Square". In Square: **Add attendee** → pick or create
+   the person → **Add to class** → choose **Skip** at payment.
+3. **Step 2:** back here, record the same person: name, email, seats, and picks.
+4. They get the normal confirmation email and show on the roster as comped.
+- Skipping the Square step means the seat isn't really held. Always do Square first.
+
+**Audit log:** every staff action is recorded with who, what, and when — gift cards minted,
+seats comped, check-ins, overrides, kit actions, settings changes, sign-ins. Read it signed in
+at `/api/staff/audit.json`, or run `npx tsx scripts/audit-log.ts`. Don't try to hide or undo
+an entry. If something was a mistake, do the right thing next and add a note.
+
+**From the command line** (Kaden):
+`npx tsx scripts/mint-gift-card.ts --amount 25 --for "Megan (shared our reel)"`
+
 ## 6. What this costs
 
 | Item | Cost |
@@ -175,6 +207,8 @@ with the real reason — don't erase what's there. Need the whole story on a fam
 | `scripts/team/add-team-member.ts` | Create team member + hourly wage (never bookable) |
 | `scripts/team/post-open-shifts.ts` | Publish the week's open Crew slots (idempotent) |
 | `scripts/team/load-crew-credit.ts` | Pay-period credit → gift cards (ledger-idempotent) |
+| `scripts/mint-gift-card.ts` | Mint a promo gift card: `--amount 25 --for "who"` (logged) |
+| `scripts/audit-log.ts` | Print the staff audit log (who did what, when) |
 | `src/lib/crew/` | Slot templates, timezone + credit math (unit-tested) |
 
 ## 7. Records & archive

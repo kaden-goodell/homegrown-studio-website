@@ -91,6 +91,12 @@ fields stay hidden until filled — no code changes needed to "turn them on."
    Square Dashboard → Items). Card disappears from /book on its own.
 8. **Verify the FAQ claim "most are $15–$40"** (`party-content.ts` `faq[0]`)
    against the real Party Crafts prices — fix or drop the range.
+9. **Giveaways live check — before the next prod push.** On the preview: (a) mint a $1
+   gift card from /staff → Gift cards, then pay a $1 kit deposit with it ("Pay with a gift
+   card instead"). (b) In Square's dashboard, add an attendee to a *test* class with **Skip**
+   payment, then record that person via Comp a seat on /staff. Confirm the confirmation
+   email arrives and the roster shows them as comped. Then cancel that attendee in Square
+   by hand. Details: `docs/CREW-OPERATIONS.md` §5b.
 
 ## 📋 Standing decisions (no action unless you change your mind)
 
