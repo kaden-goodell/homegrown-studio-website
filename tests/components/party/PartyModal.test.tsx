@@ -467,6 +467,17 @@ describe('PartyModal — paying', () => {
     expect(body.attemptId).toMatch(/^[0-9a-f-]{36}$/)
   })
 
+  it('shows a short gift card message as written, and stays on the pay step', async () => {
+    const detail = 'That gift card has $25.00 on it — this booking is $300.00. Nothing was charged. Use a card instead.'
+    answers.book = { status: 402, body: { code: 'gift_card_short', detail, balanceCents: 2500, totalCents: 30000 } }
+    open()
+    await toPay()
+    await pay()
+    expect(await screen.findByRole('alert')).toHaveTextContent(detail)
+    expect(screen.getByTestId('payment-form')).toBeInTheDocument()
+    expect(screen.getByLabelText('Email')).toHaveValue('ada@example.com')
+  })
+
   it('shows the sentence the server chose for a declined card, and keeps what was typed', async () => {
     answers.book = { status: 402, body: { code: 'card_declined', detail: 'Your card was declined, so we released the date. Nothing was charged. Try another card.' } }
     open()

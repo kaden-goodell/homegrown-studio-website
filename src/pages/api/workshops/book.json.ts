@@ -11,7 +11,7 @@ import { inviteContent } from '@config/invite-content'
 import { formatRange } from '@config/hours'
 import { asSeatBookingError } from '@lib/errors'
 import { attemptKey, classifyClassBookingError, isAttemptId, type CheckoutErrorCode } from '@lib/checkout-attempt'
-import { workshopMessages } from '@lib/checkout-messages'
+import { workshopMessages, TEXT_US } from '@lib/checkout-messages'
 import { alertOwners } from '@lib/owner-alert'
 import { sendWorkshopConfirmationEmail } from '@lib/email'
 import { buildIcs, googleCalendarUrl, addMinutesIso } from '@lib/party-share'
@@ -71,6 +71,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const { classScheduleId, startAt, customer, paymentToken, verificationToken } = body ?? {}
   if (!classScheduleId || !startAt || Number.isNaN(Date.parse(String(startAt)))) return fail(400, 'invalid')
   if (!paymentToken) return fail(400, 'invalid')
+  if (body.sourceKind === 'gift_card') {
+    return fail(400, 'invalid', `Gift cards can’t be used for class seats — ${TEXT_US} and we’ll add you.`)
+  }
 
   const givenName = String(customer?.givenName ?? '').trim()
   const familyName = String(customer?.familyName ?? '').trim()

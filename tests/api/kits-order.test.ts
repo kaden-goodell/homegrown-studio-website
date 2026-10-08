@@ -60,6 +60,7 @@ const mockCreateOrder = vi.fn()
 const mockProcessPayment = vi.fn()
 const mockCancelOrder = vi.fn()
 const mockNotify = vi.fn()
+const mockFromNonce = vi.fn()
 
 vi.mock('@config/providers', () => ({
   providers: {
@@ -73,6 +74,12 @@ vi.mock('@config/providers', () => ({
       appendNote: (...a: any[]) => mockAppendNote(...a),
     },
     notification: { send: (...a: any[]) => mockNotify(...a) },
+    giftcard: {
+      fromNonce: (...a: any[]) => mockFromNonce(...a),
+      mint: vi.fn(),
+      get: vi.fn(),
+      fromGan: vi.fn(),
+    },
   },
 }))
 
@@ -228,6 +235,34 @@ describe('POST /api/kits/order.json', () => {
 
     const claims = await getWeekClaims('gilded', WEEK_KEY)
     expect(claims).toHaveLength(0)
+  })
+
+  it('gift card too small for the deposit: 402 gift_card_short, claim released, no order', async () => {
+    mockFromNonce.mockResolvedValue({ id: 'gc-1', gan: '7783', balanceCents: 2500, state: 'ACTIVE' })
+    const res = await POST(ctx(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
+    expect(res.status).toBe(402)
+    const json = await res.json()
+    expect(json).toMatchObject({ code: 'gift_card_short', balanceCents: 2500, totalCents: 5000 })
+    expect(json.detail).toBe('That gift card has $25.00 on it — this booking is $50.00. Nothing was charged. Use a card instead.')
+    expect(mockCreateOrder).not.toHaveBeenCalled()
+    expect(mockProcessPayment).not.toHaveBeenCalled()
+    // The week is free again: the same order with a card still gets it.
+    expect((await POST(ctx(makeBody()))).status).toBe(200)
+  })
+
+  it('gift card that covers the deposit: proceeds to order and charge', async () => {
+    mockFromNonce.mockResolvedValue({ id: 'gc-1', gan: '7783', balanceCents: 5000, state: 'ACTIVE' })
+    const res = await POST(ctx(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
+    expect(res.status).toBe(200)
+    expect(mockCreateOrder).toHaveBeenCalledTimes(1)
+    expect(mockProcessPayment).toHaveBeenCalledTimes(1)
+  })
+
+  it('a gift-card token that is not a gift card: 400, claim released', async () => {
+    mockFromNonce.mockResolvedValue(null)
+    const res = await POST(ctx(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:card' })))
+    expect(res.status).toBe(400)
+    expect(mockCreateOrder).not.toHaveBeenCalled()
   })
 
   it('errors carry a code and a detail string (missing payment token → 400 invalid)', async () => {

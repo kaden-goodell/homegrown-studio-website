@@ -11,6 +11,7 @@ const mockListWorkshops = vi.fn()
 vi.mock('@config/providers', () => ({
   providers: {
     customer: { findOrCreate: (...a: any[]) => mockFindOrCreate(...a) },
+    giftcard: { fromNonce: vi.fn(), mint: vi.fn(), get: vi.fn(), fromGan: vi.fn() },
     workshop: {
       reserveSeats: (...a: any[]) => mockReserve(...a),
       payForSeats: (...a: any[]) => mockPay(...a),
@@ -112,6 +113,16 @@ beforeEach(async () => {
 afterEach(() => vi.useRealTimers())
 
 describe('POST /api/workshops/book.json', () => {
+  it('refuses a gift card outright: 400, no seats held', async () => {
+    const res = await POST(ctx(body({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.code).toBe('invalid')
+    expect(json.detail).toMatch(/^Gift cards can’t be used for class seats/)
+    expect(mockReserve).not.toHaveBeenCalled()
+    expect(mockPay).not.toHaveBeenCalled()
+  })
+
   describe('a booking that goes through', () => {
     it('holds the seats, charges once, and confirms', async () => {
       const res = await POST(ctx(body()))

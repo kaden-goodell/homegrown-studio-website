@@ -8,6 +8,7 @@ import { kitConfig } from '@config/kit.config'
 import { kitContent, kitThemes } from '@config/kit-content'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import type { CheckoutErrorCode } from '@lib/checkout-attempt'
+import { giftCardShortMessage } from '@lib/checkout-messages'
 import {
   pickupThursdayFor,
   returnByFor,
@@ -45,6 +46,8 @@ interface KitOrderRequest {
   /** Required when any craft is personalized (made-to-order, non-refundable). */
   personalizedAck?: boolean
   paymentToken: string
+  /** 'gift_card' when the browser tokenized a gift card; absent or 'card' otherwise. */
+  sourceKind?: 'card' | 'gift_card'
 }
 
 /** A theme resolved against server config — prices and variation ids never come from the client. */
@@ -223,6 +226,11 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // so the flow (persist + email) is exercisable without a charge.
   // Mirrors party book.json's bypass.
   if (paymentBypassEnabled(request)) {
+    // Only a mock gift-card token is checked under bypass (nothing is claimed yet).
+    if (body.sourceKind === 'gift_card' && String(body.paymentToken ?? '').startsWith('mock-gift')) {
+      const refusal = await giftCardRefusal(body.paymentToken, dueTodayCents)
+      if (refusal) return refusal
+    }
     logger.info('Payment bypass active — returning synthetic kit order')
     const orderId = `dev_${Date.now().toString(36)}`
     const record = buildRecord({
@@ -350,6 +358,15 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       ? [{ catalogObjectId: theme.depositVariationId, name: 'Rental Deposit', quantity: 1, pricePerUnit: theme.depositCents }]
       : [{ catalogObjectId: kitConfig.square.assemblyVariationId, name: 'Kit Assembly', quantity: 1, pricePerUnit: kitConfig.assemblyFeeCents }]
     const expectedTotal = dueTodayCents
+
+    // A gift card must cover today's deposit. Check before the order exists.
+    if (body.sourceKind === 'gift_card') {
+      const refusal = await giftCardRefusal(body.paymentToken, dueTodayCents)
+      if (refusal) {
+        await releaseIfClaimed()
+        return refusal
+      }
+    }
 
     let order: Awaited<ReturnType<typeof providers.payment.createOrder>>
     try {
@@ -605,11 +622,24 @@ function okResponse(input: {
   )
 }
 
-function errorResponse(detail: string, status: number, code?: CheckoutErrorCode) {
+/** Null when the gift card can pay; otherwise the response that refuses it. */
+async function giftCardRefusal(token: string, totalCents: number): Promise<Response | null> {
+  const card = await providers.giftcard.fromNonce(token)
+  if (!card) return errorResponse('That doesn’t look like a gift card. Use a card instead.', 400, 'invalid')
+  if (card.balanceCents < totalCents) {
+    return errorResponse(giftCardShortMessage(card.balanceCents, totalCents), 402, 'gift_card_short', {
+      balanceCents: card.balanceCents,
+      totalCents,
+    })
+  }
+  return null
+}
+
+function errorResponse(detail: string, status: number, code?: CheckoutErrorCode, extra?: Record<string, unknown>) {
   const resolved: CheckoutErrorCode =
     code ?? (status === 400 ? 'invalid' : status === 409 ? 'slot_taken' : status === 402 ? 'card_declined' : 'unavailable')
   return new Response(
-    JSON.stringify({ error: 'Unable to complete kit order', code: resolved, detail }),
+    JSON.stringify({ error: 'Unable to complete kit order', code: resolved, detail, ...extra }),
     { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
   )
 }

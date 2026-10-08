@@ -16,7 +16,7 @@ import { bookableOn } from '@lib/party-slots'
 import { partyRefundLine } from '@lib/refund-lines'
 import { STUDIO_DIRECTIONS_URL } from '@config/studio-address'
 import { attemptKey, chargeOutcomeOf, isAttemptId, squareErrorCodes, type CheckoutErrorCode } from '@lib/checkout-attempt'
-import { partyMessages } from '@lib/checkout-messages'
+import { partyMessages, giftCardShortMessage } from '@lib/checkout-messages'
 import { alertOwners } from '@lib/owner-alert'
 import { tierFor, weekKeyFor } from '@lib/kit-dates'
 import { claimWeek, confirmWeekClaim, releaseWeekClaim, listKitOrders, kitOrderToLedgerRecord } from '@lib/kit-store'
@@ -119,6 +119,8 @@ interface BookRequest {
   /** Optional in-studio themed-table add-on. Price + variation are derived server-side. */
   theme?: { themeId: string; serves: number }
   paymentToken: string
+  /** 'gift_card' when the browser tokenized a gift card; absent or 'card' otherwise. */
+  sourceKind?: 'card' | 'gift_card'
   /**
    * Made by the browser when the pay step opens and sent again on every retry
    * of that checkout. Becomes the idempotency keys given to the booking
@@ -257,6 +259,12 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // flow (and its waiver/invite handoff) can be exercised without a real
   // charge or a live booking.
   if (paymentBypassEnabled(request)) {
+    // Only a mock gift-card token is checked under bypass, so the short path
+    // can be tried on previews. Nothing is held yet, so nothing to release.
+    if (body.sourceKind === 'gift_card' && String(body.paymentToken).startsWith('mock-gift')) {
+      const refusal = await giftCardRefusal(body.paymentToken, partyConfig.basePriceCents + (theme?.priceCents ?? 0))
+      if (refusal) return refusal
+    }
     logger.info('Payment bypass active — returning synthetic party booking')
     const bookingId = `dev_${Date.now().toString(36)}`
     const hostToken = await persistParty(bookingId, body, theme, true)
@@ -503,6 +511,17 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         : []),
     ]
 
+    // A gift card must cover the whole fee. Check before the order exists, and
+    // give the held date back if it can't.
+    if (body.sourceKind === 'gift_card') {
+      const refusal = await giftCardRefusal(body.paymentToken, partyConfig.basePriceCents + (theme?.priceCents ?? 0))
+      if (refusal) {
+        await releaseBooking(booking)
+        await releaseIfClaimed()
+        return refusal
+      }
+    }
+
     let order: Awaited<ReturnType<typeof providers.payment.createOrder>>
     let payment: Awaited<ReturnType<typeof providers.payment.processPayment>> | null = null
     try {
@@ -739,11 +758,24 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 }
 
 /** A plain sentence for the customer, plus a code the booking panel can act on. */
-function errorResponse(detail: string, status: number, code?: CheckoutErrorCode) {
+/** Null when the gift card can pay; otherwise the response that refuses it. */
+async function giftCardRefusal(token: string, totalCents: number): Promise<Response | null> {
+  const card = await providers.giftcard.fromNonce(token)
+  if (!card) return errorResponse('That doesn’t look like a gift card. Use a card instead.', 400, 'invalid')
+  if (card.balanceCents < totalCents) {
+    return errorResponse(giftCardShortMessage(card.balanceCents, totalCents), 402, 'gift_card_short', {
+      balanceCents: card.balanceCents,
+      totalCents,
+    })
+  }
+  return null
+}
+
+function errorResponse(detail: string, status: number, code?: CheckoutErrorCode, extra?: Record<string, unknown>) {
   const resolved: CheckoutErrorCode =
     code ?? (status === 400 ? 'invalid' : status === 409 ? 'slot_taken' : status === 402 ? 'card_declined' : 'unavailable')
   return new Response(
-    JSON.stringify({ error: 'Unable to complete party booking', code: resolved, detail }),
+    JSON.stringify({ error: 'Unable to complete party booking', code: resolved, detail, ...extra }),
     { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
   )
 }

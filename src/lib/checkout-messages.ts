@@ -39,6 +39,12 @@ export const partyMessages: Record<CheckoutErrorCode, string> = {
   gift_card_short: 'That gift card doesn’t have enough on it for this booking. Nothing was charged. Use a card instead.',
 }
 
+/** A gift card that can't cover the booking. Said before anything is held or charged. */
+export function giftCardShortMessage(balanceCents: number, totalCents: number): string {
+  const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`
+  return `That gift card has ${dollars(balanceCents)} on it — this booking is ${dollars(totalCents)}. Nothing was charged. Use a card instead.`
+}
+
 /** The payment form could not load at all (script blocked, network down). */
 export const PAYMENT_FORM_UNAVAILABLE = `We couldn’t load the payment form. Refresh the page, or ${TEXT_US}.`
 

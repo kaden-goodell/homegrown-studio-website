@@ -51,3 +51,32 @@ describe('KitModal payment', () => {
     vi.unstubAllGlobals()
   })
 })
+
+const SHORT = 'That gift card has $25.00 on it — this booking is $50.00. Nothing was charged. Use a card instead.'
+
+describe('KitModal short gift card', () => {
+  it('shows a short gift card message as written, and stays on the pay step', async () => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      const u = String(url)
+      const data = u.includes('service-info') ? info : u.includes('weeks') ? weeks : { pickupDate: '2026-11-05', returnBy: '2026-11-09', returnWindow: 'by noon', totalChargedCents: 5000 }
+      if (u.includes('/api/kits/order.json')) return { ok: false, status: 402, json: async () => ({ code: 'gift_card_short', detail: SHORT }) }
+      return { ok: true, status: 200, json: async () => ({ data }) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    render(<KitModal onClose={vi.fn()} initialCraftId="c1" />)
+    fireEvent.click(await screen.findByText('No themed table — just crafts'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^7 / }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByTestId('payment-form')
+    for (const [label, value] of [['First Name *', 'Ada'], ['Last Name *', 'Lovelace'], ['Email *', 'ada@example.com'], ['Phone *', '(256) 555-0123']] as const) {
+      fireEvent.change(screen.getByText(label).parentElement!.querySelector('input')!, { target: { value } })
+    }
+    fireEvent.change(screen.getByPlaceholderText(/Where the party/), { target: { value: '12 Main Street, Madison' } })
+    fireEvent.click(screen.getByRole('button', { name: /Pay \$50\.00 deposit/ }))
+    expect(await screen.findByText(SHORT)).toBeInTheDocument()
+    expect(screen.getByTestId('payment-form')).toBeInTheDocument()
+    vi.unstubAllGlobals()
+  })
+})
