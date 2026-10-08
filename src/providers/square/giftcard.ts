@@ -5,82 +5,77 @@ import { createSquareClient } from './client'
 
 const logger = createLogger('square-giftcard')
 
+function toCard(raw: any): GiftCard {
+  return {
+    id: raw.id,
+    gan: raw.gan ?? '',
+    balanceCents: Number(raw.balanceMoney?.amount ?? 0),
+    state: raw.state ?? 'PENDING',
+  }
+}
+
+/** Square answers "no such card" as a thrown error; everything else is a real failure. */
+function isNotFound(err: any): boolean {
+  const errors = err?.errors ?? err?.body?.errors ?? []
+  return (
+    err?.statusCode === 404 ||
+    errors.some((e: any) => e.code === 'NOT_FOUND' || e.category === 'NOT_FOUND' || e.category === 'INVALID_REQUEST_ERROR')
+  )
+}
+
 export class SquareGiftCardProvider implements GiftCardProvider {
   private client: ReturnType<typeof createSquareClient>
+  private locationId: string
 
-  constructor(config: SquareConfig) {
-    this.client = createSquareClient(config)
+  constructor(config: SquareConfig, client: ReturnType<typeof createSquareClient> = createSquareClient(config)) {
+    this.client = client
+    this.locationId = config.locationId
   }
 
-  async createAndLink(params: {
-    amountCents: number
-    customerId: string
-    locationId: string
-  }): Promise<GiftCard> {
-    const { amountCents, customerId, locationId } = params
-
-    logger.info('Creating gift card', { amountCents, customerId, locationId })
-
-    // Step 1: Create the digital gift card
-    const createResult = await (this.client as any).giftCards.create({
-      idempotencyKey: crypto.randomUUID(),
-      locationId,
-      type: 'DIGITAL',
+  async mint({ amountCents, idempotencyKey }: { amountCents: number; idempotencyKey: string }): Promise<GiftCard> {
+    const gc: any = this.client.giftCards as any
+    const created: any = await gc.create({
+      idempotencyKey: `${idempotencyKey}-create`,
+      locationId: this.locationId,
+      giftCard: { type: 'DIGITAL' },
     })
-
-    const giftCardId = createResult.giftCard.id
-    const ganCode = createResult.giftCard.gan
-
-    logger.info('Gift card created', { giftCardId, ganCode })
-
-    // Step 2: Activate with the deposit amount
-    await (this.client as any).giftCardActivities.create({
-      idempotencyKey: crypto.randomUUID(),
+    const id = created.giftCard.id
+    await gc.activities.create({
+      idempotencyKey: `${idempotencyKey}-load`,
       giftCardActivity: {
-        giftCardId,
-        type: 'ACTIVATE',
-        locationId,
-        activateActivityDetails: {
-          amountMoney: {
-            amount: BigInt(amountCents),
-            currency: 'USD',
-          },
+        type: 'ADJUST_INCREMENT',
+        locationId: this.locationId,
+        giftCardId: id,
+        adjustIncrementActivityDetails: {
+          amountMoney: { amount: BigInt(amountCents), currency: 'USD' },
+          reason: 'COMPLIMENTARY',
         },
       },
     })
+    const after: any = await gc.get({ id })
+    logger.info('Gift card minted', { id, amountCents })
+    return toCard(after.giftCard)
+  }
 
-    logger.info('Gift card activated', { giftCardId, amountCents })
+  async get(id: string): Promise<GiftCard | null> {
+    return this.lookup((gc) => gc.get({ id }))
+  }
 
-    // Step 3: Link to customer profile so it shows up at POS
-    await (this.client as any).giftCards.linkCustomer({
-      giftCardId,
-      customerId,
-    })
+  async fromNonce(nonce: string): Promise<GiftCard | null> {
+    return this.lookup((gc) => gc.getFromNonce({ nonce }))
+  }
 
-    logger.info('Gift card linked to customer', { giftCardId, customerId })
+  async fromGan(gan: string): Promise<GiftCard | null> {
+    return this.lookup((gc) => gc.getFromGan({ gan }))
+  }
 
-    return {
-      id: giftCardId,
-      ganCode,
-      balanceCents: amountCents,
-      state: 'ACTIVE',
+  private async lookup(call: (gc: any) => Promise<any>): Promise<GiftCard | null> {
+    try {
+      const r = await call(this.client.giftCards as any)
+      return r?.giftCard ? toCard(r.giftCard) : null
+    } catch (e) {
+      if (isNotFound(e)) return null
+      throw e
     }
-  }
-
-  async deactivate(giftCardId: string): Promise<void> {
-    logger.info('Deactivating gift card', { giftCardId })
-
-    await (this.client as any).giftCardActivities.create({
-      idempotencyKey: crypto.randomUUID(),
-      giftCardActivity: {
-        giftCardId,
-        type: 'DEACTIVATE',
-        deactivateActivityDetails: {
-          reason: 'SUSPICIOUS_ACTIVITY',
-        },
-      },
-    })
-
-    logger.info('Gift card deactivated', { giftCardId })
   }
 }

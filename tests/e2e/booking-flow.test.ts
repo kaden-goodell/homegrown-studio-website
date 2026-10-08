@@ -45,7 +45,12 @@ vi.mock('@config/providers', () => ({
       listWorkshops: mockListWorkshops,
       getWorkshop: mockGetWorkshop,
     },
-    giftcard: null,
+    giftcard: {
+      mint: vi.fn(),
+      get: vi.fn().mockResolvedValue(null),
+      fromNonce: vi.fn().mockResolvedValue(null),
+      fromGan: vi.fn().mockResolvedValue(null),
+    },
     notification: {
       send: mockNotificationSend,
     },
