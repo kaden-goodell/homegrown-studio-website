@@ -8,6 +8,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 'k', name: 'Kaden', role: 'crew' }
+const mockAudit = vi.fn()
+vi.mock('@lib/audit', () => ({ recordAudit: (...a: any[]) => mockAudit(...a) }))
 vi.mock('@lib/staff-auth', () => ({
   staffAuthorized: () => authed,
   byOf: (m: any) => ({ id: m.id, name: m.name }),
@@ -100,6 +102,7 @@ describe('POST /api/staff/incident.json', () => {
   })
 
   it('saves a valid report, appends an incident event per distinct waiverId, and emails both owners', async () => {
+    mockAudit.mockClear()
     const res = await POST(postCtx({
       at: '2026-09-28T20:00:00.000Z',
       event: { kind: 'party', id: 'p1', title: 'Pottery Party', day: '2026-09-28' },
@@ -120,6 +123,8 @@ describe('POST /api/staff/incident.json', () => {
     expect(json.data.emailed).toBe(true)
 
     expect(mockCreateIncident).toHaveBeenCalledTimes(1)
+    expect(mockAudit).toHaveBeenCalledTimes(1)
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'incident.filed', by: expect.objectContaining({ id: expect.any(String), role: expect.stringMatching(/^(owner|crew)$/) }), target: expect.objectContaining({ kind: 'incident', id: 'inc_1' }) }))
 
     // One waiverId → one mutateCheckin call, not one per person.
     expect(mockMutateCheckin).toHaveBeenCalledTimes(1)

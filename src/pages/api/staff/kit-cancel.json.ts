@@ -5,6 +5,8 @@ import { getKitOrder, mutateKitOrder, releaseWeekClaim, type KitOrderRecord } fr
 import { addDays } from '@lib/kit-dates'
 import { kitConfig } from '@config/kit.config'
 import { createLogger } from '@lib/logger'
+import { recordAudit } from '@lib/audit'
+import { paymentBypassEnabled } from '@lib/dev-flags'
 
 const logger = createLogger('api:staff:kit-cancel')
 
@@ -76,6 +78,13 @@ export const POST: APIRoute = async ({ request }) => {
         by,
         note: freeCancel ? 'full refund' : 'assembly fee withheld',
       })
+    })
+    await recordAudit({
+      by: staff,
+      action: 'kit.cancelled',
+      target: { kind: 'kit', id: orderId, label: order.contact?.name },
+      details: { refundCents: refundAmount, assemblyWithheld: !freeCancel },
+      ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
     })
     return json({ data: { order: publicOrder(updated), refundCents: refundAmount, assemblyWithheld: !freeCancel } }, 200)
   } catch (err) {

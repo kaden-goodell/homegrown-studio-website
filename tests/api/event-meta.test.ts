@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 'k', name: 'Kaden', role: 'crew' }
+const mockAudit = vi.fn()
+vi.mock('@lib/audit', () => ({ recordAudit: (...a: any[]) => mockAudit(...a) }))
 vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed, byOf: (m: any) => ({ id: m.id, name: m.name }) }))
 
 const mockGetEvent = vi.fn()
@@ -62,6 +64,7 @@ describe('POST /api/staff/event-meta.json', () => {
     const res = await POST(postCtx({ kind: 'workshop', id: 'cs1', dropOff: true, days: null }))
     expect(res.status).toBe(200)
     expect(mockSetEventMeta).toHaveBeenCalledWith('workshop', 'cs1', { dropOff: true, days: null }, { id: 'k', name: 'Kaden' })
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'event.settings', by: expect.objectContaining({ id: expect.any(String), role: expect.stringMatching(/^(owner|crew)$/) }), target: expect.objectContaining({ kind: 'workshop', id: 'cs1' }) }))
     const json = await res.json()
     expect(json.data).toMatchObject({ id: 'cs1', dropOff: true })
   })

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 't', name: 'Test', role: 'crew' }
+const mockAudit = vi.fn()
+vi.mock('@lib/audit', () => ({ recordAudit: (...a: any[]) => mockAudit(...a) }))
 vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed }))
 
 const mockGetEvent = vi.fn()
@@ -73,6 +75,7 @@ describe('POST /api/staff/send-waiver-link.json (HOM-213)', () => {
     expect(content).toBe('Hometown Studio: please sign the participation agreement for Suncatchers Party: ' + content.split(': ').pop())
     expect(content).toContain('Suncatchers Party')
     expect(content).toContain('/waiver?party=party-1')
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'waiver-link.sent', by: expect.objectContaining({ id: expect.any(String), role: expect.stringMatching(/^(owner|crew)$/) }), target: expect.objectContaining({ kind: 'household', id: 'wvr_1' }) }))
   })
 
   it('workshop kind builds a /waiver?workshop= link', async () => {

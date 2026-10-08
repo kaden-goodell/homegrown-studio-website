@@ -5,6 +5,8 @@ vi.mock('@lib/staff-auth', () => ({
   staffAuthorized: () => authed,
   byOf: (m: { id: string; name: string }) => ({ id: m.id, name: m.name }),
 }))
+const mockAudit = vi.fn()
+vi.mock('@lib/audit', () => ({ recordAudit: (...a: any[]) => mockAudit(...a) }))
 vi.mock('@lib/dev-flags', () => ({ paymentBypassEnabled: () => false }))
 vi.mock('@lib/owner-alert', () => ({ alertOwners: vi.fn(async () => ({ sent: 0 })) }))
 
@@ -30,7 +32,7 @@ const get_ = () => GET({ request: new Request('http://x/api/staff/gift-cards.jso
 
 beforeEach(() => {
   authed = { id: 't', name: 'Test', role: 'crew' }
-  saved.length = 0; records = []
+  saved.length = 0; records = []; mockAudit.mockReset()
   mint.mockReset(); get.mockReset()
 })
 
@@ -56,6 +58,13 @@ describe('/api/staff/gift-cards', () => {
     expect(mint.mock.calls[0][0].amountCents).toBe(2500)
     expect(saved[0]).toMatchObject({ forWhom: 'Megan', note: 'FB', gan: '1234', giftCardId: 'sq1', by: { id: 't', name: 'Test' } })
     expect(mint.mock.calls[0][0].idempotencyKey).toBe(saved[0].id)
+    expect(mockAudit).toHaveBeenCalledTimes(1)
+    expect(mockAudit).toHaveBeenCalledWith({
+      by: { id: 't', name: 'Test', role: 'crew' },
+      action: 'gift-card.minted',
+      target: { kind: 'gift-card', id: saved[0].id, label: 'Megan' },
+      details: { amountCents: 2500, forWhom: 'Megan', gan: '1234', note: 'FB' },
+    })
   })
 
   it('lists with live balance, null when lookup throws', async () => {

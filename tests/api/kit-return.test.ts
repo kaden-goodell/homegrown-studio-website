@@ -3,6 +3,8 @@ import type { KitOrderRecord } from '@lib/kit-store'
 
 // --- Module mocks (hoisted) ---
 let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 't', name: 'Test', role: 'crew' }
+const mockAudit = vi.fn()
+vi.mock('@lib/audit', () => ({ recordAudit: (...a: any[]) => mockAudit(...a) }))
 vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed, byOf: (m: any) => ({ id: m.id, name: m.name }) }))
 
 const mockRefund = vi.fn()
@@ -81,6 +83,7 @@ describe('POST /api/staff/kit-return.json', () => {
     expect(record.status).toBe('returned')
     expect(record.depositRefund).toMatchObject({ amountCents: 7500, refundId: 'ref-1' })
     expect(record.events.at(-1)?.action).toBe('return-complete')
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'kit.returned', by: expect.objectContaining({ id: expect.any(String), role: expect.stringMatching(/^(owner|crew)$/) }), target: expect.objectContaining({ kind: 'kit', id: 'ord_1' }), details: expect.objectContaining({ outcome: 'complete', refundCents: 7500 }) }))
   })
 
   it('partial → refunds deposit minus the withheld amount and records the note', async () => {

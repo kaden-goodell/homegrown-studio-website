@@ -3,6 +3,8 @@ import type { CheckinState } from '@lib/checkin-store'
 
 // --- Module mocks (hoisted), same style as tests/api/kit-staff.test.ts ---
 let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 't', name: 'Test', role: 'crew' }
+const mockAudit = vi.fn()
+vi.mock('@lib/audit', () => ({ recordAudit: (...a: any[]) => mockAudit(...a) }))
 vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed, byOf: (m: any) => ({ id: m.id, name: m.name }) }))
 
 const mockGetEvent = vi.fn()
@@ -113,6 +115,7 @@ describe('POST /api/staff/checkin.json', () => {
     const last = state.events.at(-1)!
     expect(last.action).toBe('checkin')
     expect(last.by).toEqual({ id: 't', name: 'Test' })
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'checkin.here', by: expect.objectContaining({ id: expect.any(String), role: expect.stringMatching(/^(owner|crew)$/) }), target: expect.objectContaining({ kind: 'household', id: 'rec-1' }) }))
   })
 
   it('accepts { kind, id } as well as the legacy { party } alias', async () => {

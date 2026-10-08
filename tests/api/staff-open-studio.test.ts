@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 't', name: 'Test', role: 'crew' }
+const mockAudit = vi.fn()
+vi.mock('@lib/audit', () => ({ recordAudit: (...a: any[]) => mockAudit(...a) }))
 vi.mock('@lib/staff-auth', () => ({
   staffAuthorized: () => authed,
   byOf: (m: any) => ({ id: m.id, name: m.name }),
@@ -60,6 +62,7 @@ describe('POST /api/staff/open-studio.json', () => {
     const res = await POST(postCtx({ recordId: 'wvr_1', personIds: ['adult', 'child:0'] }))
     expect(res.status).toBe(200)
     expect(mockCheckIn).toHaveBeenCalledWith(expect.any(String), 'wvr_1', ['adult', 'child:0'], { id: 't', name: 'Test' })
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'checkin.here', by: expect.objectContaining({ id: expect.any(String), role: expect.stringMatching(/^(owner|crew)$/) }), target: expect.objectContaining({ kind: 'household', id: 'wvr_1' }) }))
   })
 
   it('returns 503 on a storage error', async () => {

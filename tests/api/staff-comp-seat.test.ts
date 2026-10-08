@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 'sam', name: 'Sam', role: 'crew' }
+const mockAudit = vi.fn()
+vi.mock('@lib/audit', () => ({ recordAudit: (...a: any[]) => mockAudit(...a) }))
 vi.mock('@lib/staff-auth', () => ({
   staffAuthorized: () => authed,
   byOf: (m: any) => ({ id: m.id, name: m.name }),
@@ -81,6 +83,12 @@ describe('POST /api/staff/comp-seat.json', () => {
     })
     expect(mockSend).toHaveBeenCalledTimes(1)
     expect(mockSend.mock.calls[0][0]).toMatchObject({ comped: true, totalChargedCents: 0, receiptUrl: null, email: 'gia@x.com', origin: 'http://localhost' })
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: 'seat.comped',
+      by: expect.objectContaining({ id: 'sam', name: 'Sam', role: expect.any(String) }),
+      target: expect.objectContaining({ kind: 'workshop', id: 'clssch_pails' }),
+      details: expect.objectContaining({ seats: 2, email: 'gia@x.com' }),
+    }))
   })
 
   it('an email that returns false or throws still answers 200 with emailSent false', async () => {

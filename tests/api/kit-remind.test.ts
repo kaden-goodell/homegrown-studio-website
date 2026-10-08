@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { KitOrderRecord } from '@lib/kit-store'
 
 let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 't', name: 'Test', role: 'crew' }
+const mockAudit = vi.fn()
+vi.mock('@lib/audit', () => ({ recordAudit: (...a: any[]) => mockAudit(...a) }))
 vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed, byOf: (m: any) => ({ id: m.id, name: m.name }) }))
 
 let configured = true
@@ -90,6 +92,7 @@ describe('POST /api/staff/kit-remind.json', () => {
     const last = record!.events.at(-1)!
     expect(last.action).toBe('reminder')
     expect(last.by).toEqual({ id: 't', name: 'Test' })
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'kit.reminded', by: expect.objectContaining({ id: expect.any(String), role: expect.stringMatching(/^(owner|crew)$/) }), target: expect.objectContaining({ kind: 'kit', id: 'ord_1' }) }))
   })
 
   it('rejects a non-checked-out order with 409', async () => {

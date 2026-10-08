@@ -4,6 +4,8 @@ import { getKitOrder, mutateKitOrder, type KitOrderRecord } from '@lib/kit-store
 import { quoConfigured, sendQuoText } from '@lib/quo'
 import { kitConfig } from '@config/kit.config'
 import { createLogger } from '@lib/logger'
+import { recordAudit } from '@lib/audit'
+import { paymentBypassEnabled } from '@lib/dev-flags'
 
 const logger = createLogger('api:staff:kit-remind')
 
@@ -70,6 +72,13 @@ export const POST: APIRoute = async ({ request }) => {
 
   const updated = await mutateKitOrder(orderId, (o) => {
     o.events.push({ at: new Date().toISOString(), action: 'reminder', by, note: 'return reminder texted via Quo' })
+  })
+  await recordAudit({
+    by: staff,
+    action: 'kit.reminded',
+    target: { kind: 'kit', id: orderId, label: order.contact.name },
+    details: { returnBy: order.returnBy },
+    ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
   })
   return json({ data: { order: publicOrder(updated) } }, 200)
 }

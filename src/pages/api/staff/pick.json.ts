@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { checkPasscode, passcodeConfigured, staffCookie } from '@lib/staff-auth'
 import { listStaff } from '@lib/staff-directory'
 import { rateLimited } from '@lib/rate-limit'
+import { recordAudit } from '@lib/audit'
 
 export const prerender = false
 
@@ -28,8 +29,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!staff) {
     return new Response(JSON.stringify({ error: 'Unknown staff member — refresh and try again.' }), { status: 400 })
   }
+  const cookie = staffCookie(staff)
+  await recordAudit({
+    by: { id: staff.id, name: staff.name, role: staff.role },
+    action: 'staff.signed-in',
+    target: { kind: 'staff', id: staff.id, label: staff.name },
+  })
   return new Response(JSON.stringify({ data: { staff } }), {
     status: 200,
-    headers: { 'Content-Type': 'application/json', 'Set-Cookie': staffCookie(staff) },
+    headers: { 'Content-Type': 'application/json', 'Set-Cookie': cookie },
   })
 }

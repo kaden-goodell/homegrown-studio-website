@@ -8,6 +8,7 @@ import { saveSeatChoices } from '@lib/seat-choices'
 import { sendWorkshopConfirmation } from '@lib/workshop-confirmation'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { createLogger } from '@lib/logger'
+import { recordAudit } from '@lib/audit'
 
 export const prerender = false
 
@@ -88,6 +89,13 @@ export const POST: APIRoute = async ({ request }) => {
     }
     if (!emailSent) logger.warn('Comp seat confirmation not sent', { bookingId })
 
+    await recordAudit({
+      by: member,
+      action: 'seat.comped',
+      target: { kind: 'workshop', id: scheduleId, label: workshop.name },
+      details: { bookingId, seats, email, name: `${givenName} ${familyName}`, emailSent },
+      ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
+    })
     return reply(200, { data: { bookingId, emailSent } })
   } catch (err) {
     logger.error('Comp seat failed', { scheduleId, error: err instanceof Error ? err.message : String(err) })

@@ -2,6 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { KitOrderRecord } from '@lib/kit-store'
 
 let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 't', name: 'Test', role: 'crew' }
+const mockAudit = vi.fn()
+vi.mock('@lib/audit', () => ({ recordAudit: (...a: any[]) => mockAudit(...a) }))
 vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed, byOf: (m: any) => ({ id: m.id, name: m.name }) }))
 
 const mockRefund = vi.fn()
@@ -98,6 +100,7 @@ describe('POST /api/staff/kit-cancel.json', () => {
     expect(record.status).toBe('cancelled')
     expect(payload.data.refundCents).toBe(30000)
     expect(payload.data.assemblyWithheld).toBe(false)
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'kit.cancelled', by: expect.objectContaining({ id: expect.any(String), role: expect.stringMatching(/^(owner|crew)$/) }), target: expect.objectContaining({ kind: 'kit', id: 'ord_1' }) }))
   })
 
   it('inside 7 days → refund minus the assembly fee', async () => {

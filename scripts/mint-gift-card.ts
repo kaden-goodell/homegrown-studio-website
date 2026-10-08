@@ -6,6 +6,7 @@
  */
 import 'dotenv/config'
 import { providers } from '../src/config/providers'
+import { recordAudit } from '../src/lib/audit'
 import { saveMintedGiftCard, validateMint, newGiftCardRecordId } from '../src/lib/gift-cards'
 
 function arg(name: string): string | undefined {
@@ -27,6 +28,12 @@ async function main() {
       id, giftCardId: card.id, gan: card.gan, amountCents: v.value.amountCents,
       forWhom: v.value.forWhom, note: v.value.note,
       by: { id: 'cli', name: 'Kaden (CLI)' }, at: new Date().toISOString(),
+    })
+    await recordAudit({
+      by: { id: 'cli', name: 'Kaden (CLI)', role: 'owner' },
+      action: 'gift-card.minted',
+      target: { kind: 'gift-card', id, label: v.value.forWhom },
+      details: { amountCents: v.value.amountCents, forWhom: v.value.forWhom, gan: card.gan, note: v.value.note || null },
     })
   } catch (err) {
     console.error('Card made but NOT recorded:', err)

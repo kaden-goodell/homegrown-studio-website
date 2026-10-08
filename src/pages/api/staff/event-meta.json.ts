@@ -1,5 +1,7 @@
 import type { APIRoute } from 'astro'
 import { staffAuthorized, byOf } from '@lib/staff-auth'
+import { recordAudit } from '@lib/audit'
+import { paymentBypassEnabled } from '@lib/dev-flags'
 import { getEvent, EVENT_KIND_RE, type EventKind } from '@lib/events'
 import { setEventMeta, type EventMetaPatch } from '@lib/event-meta'
 import { SeatSettingsError, validateCapacity, validateCutoffHours, validateOptions } from '@lib/seat-options'
@@ -98,6 +100,18 @@ export const POST: APIRoute = async ({ request }) => {
     await setEventMeta(kind, id, patch, byOf(staff))
     const event = await getEvent(kind, id)
     if (!event) return bad("We couldn't find that event.", 404)
+    await recordAudit({
+      by: staff,
+      action: 'event.settings',
+      target: { kind, id, label: (event as { title?: string }).title },
+      details: {
+        changed: Object.keys(patch).join(','),
+        ...(patch.dropOff !== undefined ? { dropOff: patch.dropOff } : {}),
+        ...(patch.capacity !== undefined ? { capacity: patch.capacity ?? null } : {}),
+        ...(patch.signupCutoffHours !== undefined ? { signupCutoffHours: patch.signupCutoffHours ?? null } : {}),
+      },
+      ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
+    })
     return new Response(JSON.stringify({ data: event }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   } catch (err) {
     // The rules said no (invalid, or someone has already picked): say why.

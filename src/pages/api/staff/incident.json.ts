@@ -6,6 +6,8 @@ import { eventKey, EVENT_KIND_RE, type EventKind } from '@lib/events'
 import { sendIncidentEmail } from '@lib/email'
 import { siteConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
+import { recordAudit } from '@lib/audit'
+import { paymentBypassEnabled } from '@lib/dev-flags'
 
 export const prerender = false
 
@@ -129,6 +131,14 @@ export const POST: APIRoute = async ({ request }) => {
       }
     }
   }
+
+  await recordAudit({
+    by: staff,
+    action: 'incident.filed',
+    target: { kind: 'incident', id: record.id },
+    details: { event: event ? event.title : 'Craft Café', people: who.length },
+    ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
+  })
 
   const whoLabel = who.map((w) => w.name)
   const eventLabel = event ? event.title : 'Craft Café'

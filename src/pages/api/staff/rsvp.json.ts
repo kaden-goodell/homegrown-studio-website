@@ -7,6 +7,8 @@ import { substantiveSince, compareVersions } from '@config/waiver-content'
 import { effectivePickup, storablePickup } from '@lib/pickup'
 import { markPresent, migrateCheckinOnReplace } from '@lib/checkin-actions'
 import { createLogger } from '@lib/logger'
+import { recordAudit } from '@lib/audit'
+import { paymentBypassEnabled } from '@lib/dev-flags'
 
 const logger = createLogger('api:staff:rsvp')
 
@@ -99,6 +101,13 @@ export const POST: APIRoute = async ({ request }) => {
     const { state, oneTimeCode, smsFailed } = await markPresent({
       event, kind: kind as DoorKind, id, recordId, waiverRecord: waiver,
       personIds: people, day, by, ...(kind === 'party' && !existing ? { expected: people } : {}),
+    })
+    await recordAudit({
+      by: staff,
+      action: 'rsvp.updated',
+      target: { kind: 'household', id: recordId, label: `${waiver.adult.firstName} ${waiver.adult.lastName}`.trim() },
+      details: { eventKind: kind, eventId: id, day, people: people.length, alreadyRsvpd: !!existing },
+      ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
     })
     return json({
       data: {

@@ -3,6 +3,8 @@ import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { providers } from '@config/providers'
 import { getKitOrder, mutateKitOrder, type KitOrderRecord } from '@lib/kit-store'
 import { createLogger } from '@lib/logger'
+import { recordAudit } from '@lib/audit'
+import { paymentBypassEnabled } from '@lib/dev-flags'
 
 const logger = createLogger('api:staff:kit-return')
 
@@ -41,6 +43,14 @@ export const POST: APIRoute = async ({ request }) => {
   if (!order) return json({ error: 'Kit order not found' }, 404)
 
   const nowIso = new Date().toISOString()
+  const audit = (details: Record<string, string | number | boolean | null>) =>
+    recordAudit({
+      by: staff,
+      action: 'kit.returned',
+      target: { kind: 'kit', id: orderId, label: order.contact?.name },
+      details,
+      ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
+    })
 
   try {
     switch (action) {
@@ -61,6 +71,7 @@ export const POST: APIRoute = async ({ request }) => {
             amountCents: o.balanceDueCents || undefined,
           })
         })
+        await audit({ outcome: 'pickup', settledOnPickup: settleDirectly })
         return json({ data: { order: publicOrder(updated) } }, 200)
       }
 
@@ -105,6 +116,7 @@ export const POST: APIRoute = async ({ request }) => {
             amountCents: refundAmount,
           })
         })
+        await audit({ outcome: action, refundCents: refundAmount, ...(note ? { note } : {}) })
         return json({ data: { order: publicOrder(updated) } }, 200)
       }
 
@@ -116,6 +128,7 @@ export const POST: APIRoute = async ({ request }) => {
           o.status = 'forfeited'
           o.events.push({ at: nowIso, action: 'forfeit', note: str(body?.note) || undefined, by, amountCents: 0 })
         })
+        await audit({ outcome: 'forfeit' })
         return json({ data: { order: publicOrder(updated) } }, 200)
       }
 
@@ -136,6 +149,7 @@ export const POST: APIRoute = async ({ request }) => {
           o.status = 'out' // its pre-mistake value — matters for the overdue ledger clause
           o.events.push({ at: nowIso, action: 'undo', by })
         })
+        await audit({ outcome: 'undo' })
         return json({ data: { order: publicOrder(updated) } }, 200)
       }
 

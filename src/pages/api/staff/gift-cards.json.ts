@@ -4,6 +4,7 @@ import { paymentBypassEnabled } from '@lib/dev-flags'
 import { providers } from '@config/providers'
 import { alertOwners } from '@lib/owner-alert'
 import { createLogger } from '@lib/logger'
+import { recordAudit } from '@lib/audit'
 import {
   listMintedGiftCards, saveMintedGiftCard, validateMint, newGiftCardRecordId,
   type MintedGiftCard,
@@ -73,5 +74,12 @@ export const POST: APIRoute = async ({ request }) => {
     await alertOwners(`Gift card ${minted.gan} ($${v.value.amountCents / 100}, for ${v.value.forWhom}) was made in Square but not recorded. Hand it out anyway.`)
     return json({ error: 'Card made but not recorded', gan: minted.gan }, 502)
   }
+  await recordAudit({
+    by: member,
+    action: 'gift-card.minted',
+    target: { kind: 'gift-card', id: record.id, label: record.forWhom },
+    details: { amountCents: record.amountCents, forWhom: record.forWhom, gan: minted.gan, note: record.note || null },
+    ...(record.simulated ? { simulated: true as const } : {}),
+  })
   return json({ data: { card: record, balanceCents: minted.balanceCents } })
 }

@@ -4,6 +4,8 @@ import type { CheckinState } from '@lib/checkin-store'
 // "+ Add family" at the door: adds a household to an event's roster AND marks
 // the chosen people here, through the same code path as checkin.json.
 let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 't', name: 'Test', role: 'crew' }
+const mockAudit = vi.fn()
+vi.mock('@lib/audit', () => ({ recordAudit: (...a: any[]) => mockAudit(...a) }))
 vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed, byOf: (m: any) => ({ id: m.id, name: m.name }) }))
 
 const mockGetEvent = vi.fn()
@@ -114,6 +116,7 @@ describe('POST /api/staff/rsvp.json', () => {
     const json = await res.json()
     expect(json.data.oneTimeCode).toBeUndefined() // not a drop-off event
     expect(mockSendQuoText).not.toHaveBeenCalled()
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'rsvp.updated', by: expect.objectContaining({ id: expect.any(String), role: expect.stringMatching(/^(owner|crew)$/) }), target: expect.objectContaining({ kind: 'household', id: 'wvr_1' }) }))
   })
 
   it('respects an attending subset', async () => {

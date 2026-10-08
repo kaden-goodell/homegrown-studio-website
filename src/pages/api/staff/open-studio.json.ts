@@ -3,6 +3,8 @@ import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { checkInOpenStudio, hereNowCount } from '@lib/open-studio-store'
 import { studioDate } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
+import { recordAudit } from '@lib/audit'
+import { paymentBypassEnabled } from '@lib/dev-flags'
 
 export const prerender = false
 
@@ -32,6 +34,13 @@ export const POST: APIRoute = async ({ request }) => {
     return new Response(JSON.stringify({ error: 'Couldn’t reach storage — check wifi and try again.' }), { status: 503 })
   }
 
+  await recordAudit({
+    by: staff,
+    action: 'checkin.here',
+    target: { kind: 'household', id: recordId },
+    details: { people: personIds.length, where: 'craft-cafe' },
+    ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
+  })
   return new Response(JSON.stringify({ data: { ok: true } }), { status: 200, headers: { 'Content-Type': 'application/json' } })
 }
 

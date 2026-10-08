@@ -5,6 +5,8 @@ import { getWaiverRecord } from '@lib/waiver-store'
 import { quoConfigured, sendQuoText } from '@lib/quo'
 import { siteConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
+import { recordAudit } from '@lib/audit'
+import { paymentBypassEnabled } from '@lib/dev-flags'
 
 export const prerender = false
 
@@ -51,6 +53,13 @@ export const POST: APIRoute = async ({ request }) => {
       logger.error('Waiver link text failed', { recordId, kind, id, error: String(err) })
       return json({ data: { sent: false } }, 200)
     }
+    await recordAudit({
+      by: staff,
+      action: 'waiver-link.sent',
+      target: { kind: 'household', id: recordId, label: `${waiver.adult.firstName} ${waiver.adult.lastName}`.trim() },
+      details: { eventKind: kind, eventId: id, eventTitle: event.title },
+      ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
+    })
     return json({ data: { sent: true } }, 200)
   } catch (err) {
     logger.error('Send-waiver-link failed', { error: err instanceof Error ? err.message : String(err) })

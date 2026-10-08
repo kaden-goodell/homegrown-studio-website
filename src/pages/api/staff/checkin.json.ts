@@ -7,6 +7,8 @@ import { mutateCheckin, toPublicCheckin, childStillHere, type CheckinState } fro
 import { sendQuoText, pickedUpText } from '@lib/quo'
 import { formatTime } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
+import { recordAudit } from '@lib/audit'
+import { paymentBypassEnabled } from '@lib/dev-flags'
 
 const logger = createLogger('api:staff:checkin')
 
@@ -464,6 +466,36 @@ export const POST: APIRoute = async ({ request }) => {
       smsFailed = true
     }
   }
+
+  const AUDIT_ACTION: Record<string, string> = {
+    checkin: 'checkin.here',
+    'undo-checkin': 'checkin.undone',
+    pickup: 'checkin.out',
+    'undo-pickup': 'checkin.out-undone',
+    'pickup-override': 'custody.override',
+    'set-pickup': 'pickup-list.set',
+    'reissue-code': 'pickup-code.reissued',
+  }
+  const collectedByAudit = typeof body?.collectedBy === 'string' ? body.collectedBy.trim() : ''
+  await recordAudit({
+    by: staff,
+    action: AUDIT_ACTION[action],
+    target: {
+      kind: 'household',
+      id: recordId,
+      ...(waiverRecord ? { label: signerName } : {}),
+    },
+    details: {
+      eventKind: kind,
+      eventId: id,
+      day,
+      ...(asIds(body?.personIds).length ? { people: asIds(body?.personIds).length } : {}),
+      ...(action === 'pickup' || action === 'pickup-override' ? { collectedBy: collectedByAudit || null, idChecked: !!body?.idChecked } : {}),
+      ...(action === 'pickup-override' ? { reason: typeof body?.reason === 'string' ? body.reason : null } : {}),
+      ...(action === 'reissue-code' ? { reason: typeof body?.reason === 'string' ? body.reason.trim() : null } : {}),
+    },
+    ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
+  })
 
   return new Response(
     JSON.stringify({
