@@ -179,8 +179,10 @@ const testimonials = siteConfig.testimonials?.items ?? []
     </div>
   </section>
 
-  <!-- Upcoming workshops (live from Square; hides itself if none) -->
-  <UpcomingWorkshops client:visible />
+  <!-- Upcoming workshops (live from Square; hides itself if none). client:idle, not
+       client:visible: it renders nothing until it has fetched, and a zero-height
+       element never intersects the viewport, so client:visible never hydrated it. -->
+  <UpcomingWorkshops client:idle />
 
   <!-- Visit us -->
   <section class="py-12 sm:py-16 px-4">
