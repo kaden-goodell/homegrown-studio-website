@@ -134,3 +134,39 @@ describe('PaymentForm gift cards', () => {
     expect(await ref.current!.tokenize()).toEqual({ token: 'mock-gift-cents:1500', kind: 'gift_card' })
   })
 })
+
+describe('PaymentForm gift card field with the real SDK', () => {
+  it('attaches on toggle, destroys on toggle-off, and is not ready until attached', async () => {
+    // Pretend Square's script is already on the page so nothing is downloaded.
+    const script = document.createElement('script')
+    script.src = 'https://sandbox.web.squarecdn.com/v1/square.js'
+    document.head.appendChild(script)
+
+    let finishAttach!: () => void
+    const cardStub = { attach: vi.fn(async () => {}), destroy: vi.fn(async () => {}), tokenize: vi.fn() }
+    const giftStub = {
+      attach: vi.fn(() => new Promise<void>((resolve) => { finishAttach = resolve })),
+      destroy: vi.fn(async () => {}),
+      tokenize: vi.fn(),
+    }
+    ;(window as any).Square = { payments: () => ({ card: async () => cardStub, giftCard: async () => giftStub }) }
+
+    configAnswers('sq0idp-real')
+    const onReadyChange = vi.fn()
+    render(<PaymentForm onReadyChange={onReadyChange} environmentOverride="sandbox" />)
+    await waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pay with a gift card instead' }))
+    await waitFor(() => expect(giftStub.attach).toHaveBeenCalled())
+    // Still attaching: the form must not say it is ready.
+    expect(onReadyChange).toHaveBeenLastCalledWith(false)
+    finishAttach()
+    await waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Pay with a card instead' }))
+    await waitFor(() => expect(giftStub.destroy).toHaveBeenCalled())
+
+    delete (window as any).Square
+    script.remove()
+  })
+})

@@ -136,6 +136,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     const giftRef = useRef<CardInstance | null>(null)
     const giftContainerRef = useRef<HTMLDivElement>(null)
     const [useGift, setUseGift] = useState(false)
+    const [giftAttached, setGiftAttached] = useState(false)
     const [giftError, setGiftError] = useState<string | null>(null)
     // Mock mode only: the typed stand-in for the gift card field.
     const [mockGiftValue, setMockGiftValue] = useState('')
@@ -317,8 +318,13 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
             return
           }
           if (giftContainerRef.current) await gift.attach(giftContainerRef.current)
+          if (cancelled) {
+            await gift.destroy().catch(() => {})
+            return
+          }
           created = gift
           giftRef.current = gift
+          setGiftAttached(true)
           setGiftError(null)
         } catch {
           if (!cancelled) {
@@ -331,12 +337,13 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
         cancelled = true
         if (created) created.destroy().catch(() => {})
         giftRef.current = null
+        setGiftAttached(false)
       }
     }, [useGift, sdkReady, isMockMode, giftCards])
 
     // The panel's Pay button waits on this. The stand-in form used in local
     // development has no card field to wait for.
-    const ready = !loading && !error && (isMockMode ? !!config || !!applicationIdOverride : sdkReady)
+    const ready = !loading && !error && (isMockMode ? !!config || !!applicationIdOverride : sdkReady && (!useGift || giftAttached))
     useEffect(() => {
       onReadyChange?.(ready)
     }, [ready])
@@ -377,7 +384,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
       const field = giftOn ? giftRef.current : cardRef.current
       if (!field) {
-        throw new Error(giftOn ? 'Gift card field not initialized' : 'Payment card not initialized')
+        throw new Error(giftOn ? 'Give the gift card field a second to load, then try again.' : 'Payment card not initialized')
       }
 
       const result = await field.tokenize()
@@ -553,7 +560,9 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           ref={containerRef}
           id="card-container"
           className="min-h-[44px] rounded-md border border-gray-300"
-          style={{ display: useGift && giftCards === 'allowed' ? 'none' : undefined }}
+          style={useGift && giftCards === 'allowed'
+            ? { visibility: 'hidden', height: 0, minHeight: 0, overflow: 'hidden', position: 'absolute' }
+            : undefined}
         />
         {!sdkReady && (
           <div className="text-sm text-gray-400">Initializing payment form...</div>
