@@ -9,7 +9,7 @@
  * Open Studio is a non-bookable catalog item (flow='display', dated windows in
  * the `programDates` custom attribute).
  */
-import { OPENING_DATE } from './opening'
+import { PARTY_START_DATE } from './opening'
 
 export const partyConfig = {
   square: {
@@ -58,11 +58,11 @@ export const partyConfig = {
    * 2026). Enforced in the same place as the window.
    */
   minLeadDays: 5,
-  /** Earliest bookable party date (YYYY-MM-DD, studio-local). The studio can't
-   *  host events before the grand opening (no certificate of occupancy), so no
-   *  date before this is offered OR accepted — enforced in partyStartsForDate,
-   *  which also backs the book endpoint's server-side slot re-verify. */
-  bookingOpensDate: OPENING_DATE,
+  /** Earliest bookable party date (YYYY-MM-DD, studio-local): the weekend
+   *  after the grand opening (see opening.ts). No date before this is offered
+   *  OR accepted — enforced in partyStartsForDate, which also backs the book
+   *  endpoint's server-side slot re-verify. */
+  bookingOpensDate: PARTY_START_DATE,
   /** Cleanup gap required between any two events in the room (parties and classes, either order). */
   cleanupBufferMinutes: 60,
   /** Studio timezone for interpreting slot start times. */

@@ -13,8 +13,8 @@ describe('bookableDates', () => {
     expect(partyConfig.minLeadDays).toBe(5)
   })
 
-  it('before opening, starts on opening day and ends 45 days from today', () => {
-    expect(bookableDates(SEP_27)).toEqual({ first: '2026-10-16', last: '2026-11-11' })
+  it('before parties start, begins on the first party day (the weekend after opening) and ends 45 days from today', () => {
+    expect(bookableDates(SEP_27)).toEqual({ first: '2026-10-23', last: '2026-11-11' })
   })
 
   it('after opening, starts 5 days from today', () => {
@@ -49,11 +49,11 @@ describe('bookableOn', () => {
 describe('partyStartsForDate', () => {
   it('offers the day\'s party times for a date inside the window', () => {
     // Saturday 17 Oct 2026: 9:00, 11:30, 2:00 and 4:30 Central (CDT, UTC-5).
-    expect(partyStartsForDate('2026-10-17', SEP_27)).toEqual([
-      '2026-10-17T14:00:00.000Z',
-      '2026-10-17T16:30:00.000Z',
-      '2026-10-17T19:00:00.000Z',
-      '2026-10-17T21:30:00.000Z',
+    expect(partyStartsForDate('2026-10-24', SEP_27)).toEqual([
+      '2026-10-24T14:00:00.000Z',
+      '2026-10-24T16:30:00.000Z',
+      '2026-10-24T19:00:00.000Z',
+      '2026-10-24T21:30:00.000Z',
     ])
   })
 
@@ -68,8 +68,9 @@ describe('partyStartsForDate', () => {
     expect(partyStartsForDate('2026-10-25', OCT_20).length).toBeGreaterThan(0) // Sunday, 5 days away
   })
 
-  it('offers nothing before opening day', () => {
+  it('offers nothing before parties start (opening weekend included)', () => {
     expect(partyStartsForDate('2026-10-10', SEP_27)).toEqual([])
+    expect(partyStartsForDate('2026-10-17', SEP_27)).toEqual([])
   })
 
   it('offers nothing on a day with no parties', () => {
@@ -81,10 +82,10 @@ describe('partyStartsInRange', () => {
   it('never returns a party time outside the window, however wide the range asked for', () => {
     const starts = partyStartsInRange('2026-09-27T17:00:00.000Z', '2027-03-01T06:00:00.000Z', SEP_27)
     const dates = [...new Set(starts.map((s) => localDate(s)))]
-    expect(dates[0]).toBe('2026-10-17') // first Saturday on or after opening day
+    expect(dates[0]).toBe('2026-10-24') // first Saturday on or after the party start date
     expect(dates[dates.length - 1]).toBe('2026-11-08') // last party day on or before 11 Nov
     for (const d of dates) {
-      expect(d >= '2026-10-16').toBe(true)
+      expect(d >= '2026-10-23').toBe(true)
       expect(d <= '2026-11-11').toBe(true)
     }
   })

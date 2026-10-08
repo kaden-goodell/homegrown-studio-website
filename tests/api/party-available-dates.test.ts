@@ -42,7 +42,7 @@ describe('POST /api/party/available-dates.json', () => {
   it('offers only dates inside the booking window', async () => {
     const { data } = await ask()
     // Halloween weekend (Oct 30 to Nov 1) is closed, so it is not offered.
-    expect(data.dates).toEqual(['2026-10-17', '2026-10-18', '2026-10-24', '2026-10-25', '2026-11-07', '2026-11-08'])
+    expect(data.dates).toEqual(['2026-10-24', '2026-10-25', '2026-11-07', '2026-11-08'])
     expect(data.bookedDates).toEqual([])
     expect(data.windowDays).toBe(45)
   })
@@ -54,43 +54,43 @@ describe('POST /api/party/available-dates.json', () => {
 
   it('sends the open times with each date, so the panel need not ask again', async () => {
     const { data } = await ask()
-    expect(data.times['2026-10-17'].map((t: any) => t.startAt)).toEqual([
-      '2026-10-17T14:00:00.000Z',
-      '2026-10-17T16:30:00.000Z',
-      '2026-10-17T19:00:00.000Z',
-      '2026-10-17T21:30:00.000Z',
+    expect(data.times['2026-10-24'].map((t: any) => t.startAt)).toEqual([
+      '2026-10-24T14:00:00.000Z',
+      '2026-10-24T16:30:00.000Z',
+      '2026-10-24T19:00:00.000Z',
+      '2026-10-24T21:30:00.000Z',
     ])
-    expect(data.times['2026-10-17'][0]).toEqual({
-      startAt: '2026-10-17T14:00:00.000Z',
-      endAt: '2026-10-17T15:30:00.000Z',
+    expect(data.times['2026-10-24'][0]).toEqual({
+      startAt: '2026-10-24T14:00:00.000Z',
+      endAt: '2026-10-24T15:30:00.000Z',
       durationMinutes: 90,
     })
     expect(Object.keys(data.times).sort()).toEqual(data.dates)
   })
 
   it('leaves a booked time out of its date', async () => {
-    mockListBookings.mockResolvedValue([booked('2026-10-17T19:00:00.000Z')])
+    mockListBookings.mockResolvedValue([booked('2026-10-24T19:00:00.000Z')])
     const { data } = await ask()
-    expect(data.times['2026-10-17'].map((t: any) => t.startAt)).not.toContain('2026-10-17T19:00:00.000Z')
-    expect(data.dates).toContain('2026-10-17')
+    expect(data.times['2026-10-24'].map((t: any) => t.startAt)).not.toContain('2026-10-24T19:00:00.000Z')
+    expect(data.dates).toContain('2026-10-24')
     expect(data.bookedDates).toEqual([])
   })
 
   it('lists a date with no time left as booked, not as missing', async () => {
     // Sunday offers 1:00 and 3:30 PM Central.
-    mockListBookings.mockResolvedValue([booked('2026-10-18T18:00:00.000Z'), booked('2026-10-18T20:30:00.000Z')])
+    mockListBookings.mockResolvedValue([booked('2026-10-25T18:00:00.000Z'), booked('2026-10-25T20:30:00.000Z')])
     const { data } = await ask()
-    expect(data.dates).not.toContain('2026-10-18')
-    expect(data.bookedDates).toEqual(['2026-10-18'])
+    expect(data.dates).not.toContain('2026-10-25')
+    expect(data.bookedDates).toEqual(['2026-10-25'])
   })
 
   it('ignores cancelled bookings and bookings for other services', async () => {
     mockListBookings.mockResolvedValue([
-      { status: 'cancelled', slot: { startAt: '2026-10-17T19:00:00.000Z', serviceVariationId: VARIATION } },
-      { status: 'confirmed', slot: { startAt: '2026-10-17T16:30:00.000Z', serviceVariationId: 'something-else' } },
+      { status: 'cancelled', slot: { startAt: '2026-10-24T19:00:00.000Z', serviceVariationId: VARIATION } },
+      { status: 'confirmed', slot: { startAt: '2026-10-24T16:30:00.000Z', serviceVariationId: 'something-else' } },
     ])
     const { data } = await ask()
-    expect(data.times['2026-10-17']).toHaveLength(4)
+    expect(data.times['2026-10-24']).toHaveLength(4)
   })
 
   it('still offers dates when the bookings lookup fails', async () => {
@@ -107,15 +107,15 @@ describe('POST /api/party/available-dates.json', () => {
 
   it('leaves out party times a class rules out, so the panel never offers them', async () => {
     mockListAllWorkshops.mockResolvedValue([
-      { id: 'i', scheduleId: 'clssch_pails', name: 'Bedazzled Pumpkin Pails', startAt: '2026-10-18T17:00:00.000Z', durationMinutes: 120 }, // noon–2 PM
+      { id: 'i', scheduleId: 'clssch_pails', name: 'Bedazzled Pumpkin Pails', startAt: '2026-10-25T17:00:00.000Z', durationMinutes: 120 }, // noon–2 PM
     ])
     const { data } = await ask()
-    expect(data.times['2026-10-18'].map((t: any) => t.startAt)).toEqual(['2026-10-18T20:30:00.000Z'])
+    expect(data.times['2026-10-25'].map((t: any) => t.startAt)).toEqual(['2026-10-25T20:30:00.000Z'])
   })
 
   it('offers every time when classes cannot be read', async () => {
     mockListAllWorkshops.mockRejectedValue(new Error('Square Classes API error: 503'))
     const { data } = await ask()
-    expect(data.times['2026-10-18'].map((t: any) => t.startAt)).toEqual(['2026-10-18T18:00:00.000Z', '2026-10-18T20:30:00.000Z'])
+    expect(data.times['2026-10-25'].map((t: any) => t.startAt)).toEqual(['2026-10-25T18:00:00.000Z', '2026-10-25T20:30:00.000Z'])
   })
 })
