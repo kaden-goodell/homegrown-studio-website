@@ -6,6 +6,7 @@ import { addDays } from '@lib/kit-dates'
 import PickStaff from '@components/staff/PickStaff'
 import StaffHeader from '@components/staff/StaffHeader'
 import Today from '@components/staff/Today'
+import GiftCards from '@components/staff/GiftCards'
 import Roster from '@components/staff/Roster'
 import type { HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, field, Badge } from '@components/staff/ui'
@@ -247,7 +248,7 @@ function readOpenParam(): { kind: EventKind; id: string } | null {
 }
 
 export default function StaffConsole() {
-  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'today' | 'roster' | 'kits'>('checking')
+  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'today' | 'roster' | 'kits' | 'giftcards'>('checking')
   const [kitBuckets, setKitBuckets] = useState<KitBuckets | null>(null)
   const [radar, setRadar] = useState<RadarRow[]>([])
   const [assembly, setAssembly] = useState<KitAssembly | null>(null)
@@ -444,7 +445,11 @@ export default function StaffConsole() {
   )
 
   if (phase === 'today') {
-    return <Today staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onLogout={logout} onOpenRoster={openRoster} />
+    return <Today staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onGiftCards={() => setPhase('giftcards')} onLogout={logout} onOpenRoster={openRoster} />
+  }
+
+  if (phase === 'giftcards') {
+    return <GiftCards staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onLogout={logout} onBack={() => setPhase('today')} />
   }
 
   if (phase === 'roster' && rosterTarget) {
@@ -454,6 +459,7 @@ export default function StaffConsole() {
         staff={me}
         onSwitch={switchStaff}
         onKits={() => loadKits()}
+        onGiftCards={() => setPhase('giftcards')}
         onLogout={logout}
         onBack={() => { setRosterTarget(null); setPhase('today') }}
         kind={rosterTarget.kind}
@@ -477,7 +483,7 @@ export default function StaffConsole() {
     const empty = kitBuckets && sections.every(([k]) => kitBuckets[k].length === 0)
     return (
       <div>
-        <StaffHeader title="Kits" staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onLogout={logout} />
+        <StaffHeader title="Kits" staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onGiftCards={() => setPhase('giftcards')} onLogout={logout} />
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
           <button type="button" onClick={() => setPhase('today')} style={btn()}>← Today</button>
           <button type="button" onClick={() => loadKits()} style={btn()}>↻ Refresh</button>

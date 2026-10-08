@@ -41,6 +41,7 @@ export default function Roster({
   staff,
   onSwitch,
   onKits,
+  onGiftCards,
   onLogout,
   onBack,
   kind,
@@ -50,6 +51,7 @@ export default function Roster({
   staff: StaffMember
   onSwitch: () => void
   onKits: () => void
+  onGiftCards: () => void
   onLogout: () => void
   onBack: () => void
   kind: EventKind
@@ -177,7 +179,7 @@ export default function Roster({
   if (!data) {
     return (
       <div>
-        <StaffHeader title="Roster" staff={staff} onSwitch={onSwitch} onKits={onKits} onLogout={onLogout} />
+        <StaffHeader title="Roster" staff={staff} onSwitch={onSwitch} onKits={onKits} onGiftCards={onGiftCards} onLogout={onLogout} />
         <button type="button" onClick={onBack} style={{ ...btn(), marginBottom: '1rem' }}>← Today</button>
         {netErrorBanner || <p style={{ textAlign: 'center', color: 'var(--color-muted)' }}>Loading…</p>}
       </div>
@@ -211,7 +213,7 @@ export default function Roster({
 
   return (
     <div>
-      <StaffHeader title="Roster" staff={staff} onSwitch={onSwitch} onKits={onKits} onLogout={onLogout} event={event} households={data.households} day={data.day} />
+      <StaffHeader title="Roster" staff={staff} onSwitch={onSwitch} onKits={onKits} onGiftCards={onGiftCards} onLogout={onLogout} event={event} households={data.households} day={data.day} />
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <button type="button" onClick={onBack} style={btn()}>← Today</button>
         <button type="button" onClick={() => setAddFamilyOpen(true)} style={btn(true)}>+ Add family</button>

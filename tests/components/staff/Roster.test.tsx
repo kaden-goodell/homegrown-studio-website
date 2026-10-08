@@ -79,7 +79,7 @@ function renderRoster() {
     <Roster
       staff={staff}
       onSwitch={vi.fn()}
-      onKits={vi.fn()}
+      onKits={vi.fn()} onGiftCards={vi.fn()}
       onLogout={vi.fn()}
       onBack={vi.fn()}
       kind="workshop"
@@ -180,7 +180,7 @@ describe('Roster', () => {
       adultAllergies: '', photoConsent: true, openStudioToday: false,
     }
     render(
-      <Roster staff={staff} onSwitch={vi.fn()} onKits={vi.fn()} onLogout={vi.fn()} onBack={vi.fn()} kind="workshop" id="cs-camp" addFamily={{ household: found }} />,
+      <Roster staff={staff} onSwitch={vi.fn()} onKits={vi.fn()} onGiftCards={vi.fn()} onLogout={vi.fn()} onBack={vi.fn()} kind="workshop" id="cs-camp" addFamily={{ household: found }} />,
     )
     const sheet = await screen.findByRole('dialog', { name: 'Add a family to Fall Camp' })
     expect(within(sheet).getByText(/GOOD TO GO — Sam Lee/)).toBeInTheDocument()

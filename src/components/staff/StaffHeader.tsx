@@ -28,6 +28,7 @@ export default function StaffHeader({
   staff,
   onSwitch,
   onKits,
+  onGiftCards,
   onLogout,
   event,
   households,
@@ -37,6 +38,7 @@ export default function StaffHeader({
   staff: StaffHeaderMember
   onSwitch: () => void
   onKits: () => void
+  onGiftCards: () => void
   onLogout: () => void
   event?: StudioEvent | null
   households?: Household[]
@@ -56,6 +58,7 @@ export default function StaffHeader({
             🚑 Incident
           </button>
           <button type="button" onClick={onKits} style={btn()}>Kits</button>
+          <button type="button" onClick={onGiftCards} style={btn()}>Gift cards</button>
           <button type="button" onClick={onLogout} style={btn()}>Log out</button>
         </div>
       </div>
