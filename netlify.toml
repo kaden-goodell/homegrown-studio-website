@@ -24,3 +24,4 @@
   to = "https://ourhometownstudio.com/:splat"
   status = 301
   force = true
+

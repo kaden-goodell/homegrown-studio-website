@@ -84,7 +84,7 @@ afterEach(() => {
 })
 
 describe('shimmerAllowedOn', () => {
-  it.each(['/', '/book', '/workshops', '/calendar', '/about/', '/open-studio', '/party/abc123', '/kits'])(
+  it.each(['/', '/book', '/workshops', '/calendar', '/about/', '/craft-cafe', '/party/abc123', '/kits'])(
     'glitter is on at %s',
     (path) => {
       expect(shimmerAllowedOn(path)).toBe(true)

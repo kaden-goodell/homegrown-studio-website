@@ -9,6 +9,9 @@ export default defineConfig({
   site: 'https://ourhometownstudio.com',
   output: 'server',
   adapter: netlify(),
+  // Open Studio became Craft Café (Oct 2026); the old address keeps working
+  // in dev and on Netlify (the adapter writes it to _redirects).
+  redirects: { '/open-studio': { status: 301, destination: '/craft-cafe' } },
   integrations: [
     react(),
     tailwind(),

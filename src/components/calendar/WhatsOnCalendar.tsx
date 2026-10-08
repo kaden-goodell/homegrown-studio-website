@@ -137,7 +137,7 @@ const CLOSED_HATCH = 'repeating-linear-gradient(135deg, rgba(var(--color-primary
 
 const KIND_LABELS: Record<CalendarEvent['kind'], string> = {
   workshop: 'Workshop',
-  'open-studio': 'Open Studio',
+  'open-studio': 'Craft Café',
   event: 'Event',
   'party-available': 'Party Available',
   'party-booked': 'Booked',
@@ -193,7 +193,7 @@ function chipTime(t?: string) {
 }
 
 
-/** Label shown in a selected-day row, e.g. "Open Studio · 9 AM–6 PM (walk-in)". */
+/** Label shown in a selected-day row, e.g. "Craft Café · 9 AM–6 PM (walk-in)". */
 function eventLine(e: CalendarEvent) {
   // Party events carry their own descriptive titles already (time / "Reserved").
   if (e.kind === 'party-available' || e.kind === 'party-booked') return e.title

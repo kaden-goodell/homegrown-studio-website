@@ -299,7 +299,7 @@ describe('listRowMeta', () => {
   })
 
   it('reads "Walk-in · time range" for open studio', () => {
-    const e = ev({ kind: 'open-studio', title: 'Open Studio', bookable: false, startTime: '16:00', endTime: '21:00' })
+    const e = ev({ kind: 'open-studio', title: 'Craft Café', bookable: false, startTime: '16:00', endTime: '21:00' })
     expect(listRowMeta(e)).toBe('Walk-in · 4–9 PM')
   })
 
@@ -353,7 +353,7 @@ describe('listRowAction', () => {
   })
 
   it('is nothing for rows that cannot be booked, even when they link somewhere', () => {
-    expect(listRowAction(ev({ kind: 'open-studio', bookable: false, href: '/open-studio' }))).toBeNull()
+    expect(listRowAction(ev({ kind: 'open-studio', bookable: false, href: '/craft-cafe' }))).toBeNull()
     expect(listRowAction(ev({ kind: 'party-booked', bookable: false }))).toBeNull()
     expect(listRowAction(ev({ kind: 'event', bookable: false }))).toBeNull()
   })
@@ -400,10 +400,10 @@ describe('buildCalendarEvents — workshop details', () => {
 })
 
 describe('buildCalendarEvents — links and titles', () => {
-  it('makes Open Studio tappable at the source without making it bookable', () => {
+  it('makes Craft Café tappable at the source without making it bookable', () => {
     const [e] = buildCalendarEvents([], [{ date: '2026-12-03', startTime: '16:00', endTime: '21:00' }])
     expect(e.kind).toBe('open-studio')
-    expect(e.href).toBe('/open-studio')
+    expect(e.href).toBe('/craft-cafe')
     expect(e.bookable).toBe(false)
   })
 

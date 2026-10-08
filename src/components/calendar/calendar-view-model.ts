@@ -132,13 +132,13 @@ export function buildCalendarEvents(
     events.push({
       id: `open-studio-${win.date}-${i}`,
       kind: 'open-studio',
-      title: 'Open Studio',
+      title: 'Craft Café',
       date: win.date,
       startTime: win.startTime,
       endTime: win.endTime,
       // Walk-in, so not bookable — but still tappable, in both views.
       bookable: false,
-      href: '/open-studio',
+      href: '/craft-cafe',
     })
   })
 

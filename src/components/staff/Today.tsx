@@ -121,7 +121,7 @@ export default function Today({
 
       {openStudioCount !== null && (
         <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '-0.4rem 0 1rem', fontWeight: 600 }}>
-          {openStudioCount} here now (open studio)
+          {openStudioCount} here now (Craft Café)
         </p>
       )}
 

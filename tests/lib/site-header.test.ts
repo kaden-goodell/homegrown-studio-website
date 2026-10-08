@@ -8,7 +8,7 @@ const HEADER = `
       <a href="/" class="header-brand">Hometown Studio</a>
       <ul class="header-links">
         <li><a class="header-link" href="/book">Parties</a></li>
-        <li><a class="header-link" href="/open-studio">Open Studio</a></li>
+        <li><a class="header-link" href="/craft-cafe">Craft Café</a></li>
         <li><a class="header-link" href="/about">About</a></li>
       </ul>
       <a href="/book" class="header-cta-mobile" data-open-booking>Book</a>
@@ -17,7 +17,7 @@ const HEADER = `
         <div id="mobile-menu">
           <ul>
             <li><a class="mobile-link" href="/book">Parties</a></li>
-            <li><a class="mobile-link" href="/open-studio">Open Studio</a></li>
+            <li><a class="mobile-link" href="/craft-cafe">Craft Café</a></li>
             <li><a class="mobile-link" href="/about">About</a></li>
             <li><a class="mobile-link mobile-link-cta" href="/book" data-open-booking>Book a Party</a></li>
           </ul>
@@ -36,7 +36,7 @@ describe('normalizePath', () => {
   it.each([
     ['/about/', '/about'],
     ['/about', '/about'],
-    ['/open-studio/', '/open-studio'],
+    ['/craft-cafe/', '/craft-cafe'],
     ['/policies/', '/policies'],
     ['/party/abc/', '/party/abc'],
     ['/', '/'],
@@ -50,7 +50,7 @@ describe('normalizePath', () => {
 describe('isActivePath', () => {
   it('matches a page served with a trailing slash', () => {
     expect(isActivePath('/about', '/about/')).toBe(true)
-    expect(isActivePath('/open-studio', '/open-studio/')).toBe(true)
+    expect(isActivePath('/craft-cafe', '/craft-cafe/')).toBe(true)
     expect(isActivePath('/policies', '/policies/')).toBe(true)
   })
 
@@ -170,7 +170,7 @@ describe('site header', () => {
     const active = () =>
       [...document.querySelectorAll('.is-active')].map((el) => `${el.className.split(' ')[0]}:${el.getAttribute('href')}`)
 
-    it.each(['/about/', '/open-studio/'])('underlines the link for %s', (path) => {
+    it.each(['/about/', '/craft-cafe/'])('underlines the link for %s', (path) => {
       window.history.replaceState({}, '', path)
       document.dispatchEvent(new Event('astro:page-load'))
       const href = path.slice(0, -1)

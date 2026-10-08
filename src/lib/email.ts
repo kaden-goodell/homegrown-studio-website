@@ -543,7 +543,7 @@ const NOTIFIED_LABEL: Record<'phone' | 'in-person' | 'text' | 'not-yet', string>
 export async function sendIncidentEmail(input: {
   to: string[]
   who: string[] // names, for the subject line
-  eventLabel: string // event title, or 'Open Studio'
+  eventLabel: string // event title, or 'Craft Café'
   at: string // ISO — when it happened
   reportedAt: string // ISO — when the report was filed
   by: { name: string } // reporter

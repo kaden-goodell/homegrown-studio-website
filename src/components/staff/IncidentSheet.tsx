@@ -156,7 +156,7 @@ export default function IncidentSheet({
     }
   }
 
-  const eventLabel = event ? event.title : 'Open Studio / no event'
+  const eventLabel = event ? event.title : 'Craft Café / no event'
 
   return (
     <div

@@ -82,7 +82,7 @@ export interface SiteConfig {
   }
   nav?: NavItem[]
   /**
-   * Walk-in hours, displayed in footer / Open Studio / homepage. Until walk-ins
+   * Walk-in hours, displayed in footer / Craft Café / homepage. Until walk-ins
    * start (OPEN_STUDIO_START_DATE) the door opens only for booked workshops
    * and parties (Kaden, 27 Sep 2026), so they are labelled "Walk-in hours from
    * December" and the copy points to the calendar. They must cover every
@@ -403,7 +403,7 @@ export const siteConfig: SiteConfig = {
   nav: [
     { label: 'Parties', href: '/book' },
     { label: 'Workshops', href: '/workshops' },
-    { label: 'Open Studio', href: '/open-studio' },
+    { label: 'Craft Café', href: '/craft-cafe' },
     { label: 'Calendar', href: '/calendar' },
     { label: 'About', href: '/about' },
   ],

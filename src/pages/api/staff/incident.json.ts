@@ -131,7 +131,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   const whoLabel = who.map((w) => w.name)
-  const eventLabel = event ? event.title : 'Open Studio'
+  const eventLabel = event ? event.title : 'Craft Café'
   let emailed = false
   try {
     const r = await sendIncidentEmail({

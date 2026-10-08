@@ -22,7 +22,7 @@ const btn = (primary = false): CSSProperties => ({
  *  signed in, and the always-available nav (Switch identity, Incident, Kits,
  *  Log out). The 🚑 Incident sheet is self-contained here (HOM-215) so every
  *  screen gets it for free — `event`/`households`/`day` let a roster screen
- *  hand it real context; Today and Kits leave them unset ("Open Studio"). */
+ *  hand it real context; Today and Kits leave them unset ("Craft Café"). */
 export default function StaffHeader({
   title,
   staff,

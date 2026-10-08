@@ -108,7 +108,7 @@ in Linear HOM-99 (licensing) and HOM-114 (safeguards).
   here for a party or workshop, tap that event's button under it), **EXPIRED** (waiver's stale), or **NOT ON
   FILE**. Expired or not on file both get the same two buttons — "Show QR" (they sign on
   their own phone) or "Sign on this iPad."
-- **Only drop-off events have check-out.** Parties, workshops and Open Studio are
+- **Only drop-off events have check-out.** Parties, workshops and Craft Café are
   attendance only: tick who's here → "✓ Here (n)". A family that isn't on the roster yet:
   open the roster → "+ Add family" → search → "✓ Add & mark here" (or Show QR / Sign on
   this iPad if they need to sign first).
