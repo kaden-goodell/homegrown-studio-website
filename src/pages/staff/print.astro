@@ -228,10 +228,10 @@ const title = event ? `${event.title} — Roster` : 'Roster not found'
 
     {choices && choices.unmatched.length > 0 && (
       <>
-        <h2 style="font-size: 1rem; margin: 1rem 0 0.4rem;">Paid, not signed in yet</h2>
+        <h2 style="font-size: 1rem; margin: 1rem 0 0.4rem;">Paid or comped, not signed in yet</h2>
         <ul style="margin: 0; padding-left: 1.1rem; font-size: 0.8125rem;">
           {choices.unmatched.map((u) => (
-            <li>{u.name} · {u.seats} seat{u.seats === 1 ? '' : 's'}{u.picks.length > 0 && <> · Picks: {picksShort(u.picks)}</>}</li>
+            <li>{u.name} · {u.seats} seat{u.seats === 1 ? '' : 's'}{u.picks.length > 0 && <> · Picks: {picksShort(u.picks)}</>}{u.comped && ' · comped'}</li>
           ))}
         </ul>
       </>

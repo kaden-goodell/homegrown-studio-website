@@ -147,6 +147,21 @@ describe('Roster', () => {
     expect(screen.queryByRole('dialog', { name: /Add a family/ })).not.toBeInTheDocument()
   })
 
+  it('workshop rosters have "Comp a seat" that opens the sheet; party rosters do not', async () => {
+    mockRoster([household()], { ...CAMP, dropOff: false })
+    const { unmount } = renderRoster()
+    await screen.findAllByText('Jamie Rivera')
+    fireEvent.click(screen.getByRole('button', { name: 'Comp a seat' }))
+    expect(await screen.findByRole('dialog', { name: 'Comp a seat' })).toBeInTheDocument()
+    unmount()
+
+    vi.restoreAllMocks()
+    mockRoster([household()], { ...CAMP, kind: 'party', dropOff: false })
+    render(<Roster staff={staff} onSwitch={vi.fn()} onKits={vi.fn()} onGiftCards={vi.fn()} onLogout={vi.fn()} onBack={vi.fn()} kind="party" id="cs-camp" />)
+    await screen.findAllByText('Jamie Rivera')
+    expect(screen.queryByRole('button', { name: 'Comp a seat' })).not.toBeInTheDocument()
+  })
+
   it('a drop-off roster has it too, and shows the drop-off banner; a non-drop-off one does not', async () => {
     mockRoster([household()])
     const { unmount } = renderRoster()

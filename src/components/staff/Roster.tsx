@@ -3,6 +3,7 @@ import { hasAllergy } from '@lib/allergy'
 import StaffHeader from '@components/staff/StaffHeader'
 import EventSettingsSheet from '@components/staff/EventSettingsSheet'
 import AddFamilySheet from '@components/staff/AddFamilySheet'
+import CompSeatSheet from '@components/staff/CompSeatSheet'
 import type { HouseholdMatch } from '@components/staff/DoorSearch'
 import HouseholdCard, { type Household, type Checkin } from '@components/staff/HouseholdCard'
 import { card, btn, field, Badge } from '@components/staff/ui'
@@ -61,6 +62,7 @@ export default function Roster({
   addFamily?: { household?: HouseholdMatch } | null
 }) {
   const [addFamilyOpen, setAddFamilyOpen] = useState(!!addFamily)
+  const [compSeatOpen, setCompSeatOpen] = useState(false)
   const [data, setData] = useState<RosterData | null>(null)
   const [netError, setNetError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
@@ -217,6 +219,7 @@ export default function Roster({
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <button type="button" onClick={onBack} style={btn()}>← Today</button>
         <button type="button" onClick={() => setAddFamilyOpen(true)} style={btn(true)}>+ Add family</button>
+        {kind === 'workshop' && <button type="button" onClick={() => setCompSeatOpen(true)} style={btn()}>Comp a seat</button>}
         <button type="button" onClick={refresh} style={btn()}>↻ Refresh</button>
         <a href={`/staff/print?kind=${kind}&id=${encodeURIComponent(id)}&day=${data.day}`} target="_blank" rel="noopener noreferrer" style={{ ...btn(), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
           🖨 Print
@@ -311,6 +314,15 @@ export default function Roster({
           initialHousehold={addFamily?.household}
           onAdded={refresh}
           onClose={() => setAddFamilyOpen(false)}
+        />
+      )}
+
+      {compSeatOpen && kind === 'workshop' && (
+        <CompSeatSheet
+          event={{ id, title: event.title, day: data.day }}
+          options={options}
+          onRecorded={refresh}
+          onClose={() => setCompSeatOpen(false)}
         />
       )}
 
