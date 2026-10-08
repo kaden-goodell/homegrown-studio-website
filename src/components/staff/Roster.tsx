@@ -389,10 +389,11 @@ export default function Roster({
 
       {choices && choices.unmatched.length > 0 && (
         <div style={{ ...card, background: 'rgba(255,255,255,0.7)' }}>
-          <p style={{ margin: '0 0 0.4rem', fontWeight: 700, color: 'var(--color-dark)' }}>Paid, not signed in yet</p>
+          <p style={{ margin: '0 0 0.4rem', fontWeight: 700, color: 'var(--color-dark)' }}>Paid or comped, not signed in yet</p>
           {choices.unmatched.map((u, i) => (
             <p key={`${u.email}:${i}`} style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)' }}>
               {`${u.name} · ${u.seats} seat${u.seats === 1 ? '' : 's'}${u.picks.length ? ` · Picks: ${picksShort(u.picks)}` : ''}`}
+              {u.comped && <>{' '}<Badge tone="muted">comped</Badge></>}
             </p>
           ))}
         </div>

@@ -60,7 +60,7 @@ describe('summarizeChoices', () => {
     expect(summarizeChoices([PAILS], records, ['ada@example.com '], 15)).toEqual({
       totals: { 'pumpkin-color': { Lavender: 2, Black: 1 } },
       byEmail: { 'ada@example.com': [p(1, 'Lavender'), p(2, 'Lavender')], 'bo@x.com': [p(1, 'Black')] },
-      unmatched: [{ name: 'Bo Test', email: 'bo@x.com', seats: 1, picks: [p(1, 'Black')] }],
+      unmatched: [{ name: 'Bo Test', email: 'bo@x.com', seats: 1, picks: [p(1, 'Black')], comped: false }],
       seatsSold: 15,
     })
   })
@@ -92,6 +92,11 @@ describe('simulated records (payment bypass on a preview)', () => {
   it('are listed on a preview or in dev', async () => {
     const id = await seed()
     expect((await listSeatChoicesByEvent('workshop', id)).map((r) => r.bookingId).sort()).toEqual(['bypass-1', 'clsbk_real'])
+  })
+
+  it('a comped record is listed as comped', () => {
+    const out = summarizeChoices([], [record('c', 'comp_1', { orderId: null, comped: true, by: { id: 's', name: 'Sam' } })], [], null)
+    expect(out.unmatched[0]).toMatchObject({ name: 'Ada Lovelace', comped: true })
   })
 
   it('carry a (test) suffix on the roster', () => {

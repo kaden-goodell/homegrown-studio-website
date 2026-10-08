@@ -11,6 +11,7 @@
 import { createLogger } from '@lib/logger'
 import { isPreviewOrDev } from '@lib/deploy-context'
 import { makeKvStore } from '@lib/blob-store'
+import type { By } from '@lib/staff-auth'
 import { choiceTotals, type SeatOption, type SeatPick } from '@lib/seat-options'
 
 const logger = createLogger('seat-choices')
@@ -29,6 +30,10 @@ export interface SeatChoiceRecord {
   attemptId: string
   /** Written by a simulated (payment-bypass) booking. Absent on every real one. */
   simulated?: true
+  /** A seat staff added for free (a giveaway). No order, no charge. */
+  comped?: true
+  /** The staff member who recorded a comped seat. */
+  by?: By
 }
 
 const prefix = (eventId: string) => `seat-choices-workshop:${eventId}-`
@@ -67,8 +72,8 @@ export interface RosterChoices {
   totals: Record<string, Record<string, number>>
   /** Lower-cased booking email → that family's picks (all their bookings). */
   byEmail: Record<string, SeatPick[]>
-  /** Paid bookings whose email matches no signed agreement for this class. */
-  unmatched: { name: string; email: string; seats: number; picks: SeatPick[] }[]
+  /** Paid or comped bookings whose email matches no signed agreement for this class. */
+  unmatched: { name: string; email: string; seats: number; picks: SeatPick[]; comped: boolean }[]
   /** Seats Square says are sold (capacity − left), or null when unknown. */
   seatsSold: number | null
 }
@@ -87,7 +92,7 @@ export function summarizeChoices(
     const email = r.customer.email.trim().toLowerCase()
     byEmail[email] = [...(byEmail[email] ?? []), ...r.picks]
     if (!signed.has(email)) {
-      unmatched.push({ name: `${r.customer.givenName} ${r.customer.familyName}`.trim() + (r.simulated ? ' (test)' : ''), email, seats: r.seats, picks: r.picks })
+      unmatched.push({ name: `${r.customer.givenName} ${r.customer.familyName}`.trim() + (r.simulated ? ' (test)' : ''), email, seats: r.seats, picks: r.picks, comped: r.comped === true })
     }
   }
   return { totals: choiceTotals(options, records.flatMap((r) => r.picks)), byEmail, unmatched, seatsSold }

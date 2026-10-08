@@ -221,22 +221,34 @@ describe('Roster — seat picks (spec D)', () => {
     serveRoster({
       totals: { 'pumpkin-color': { Lavender: 6, Black: 4, 'Light Pink': 3, 'Light Blue': 2 } },
       byEmail: { 'jamie@x.com': [p(1, 'Lavender'), p(2, 'Lavender')] },
-      unmatched: [{ name: 'Bo Test', email: 'bo@x.com', seats: 1, picks: [p(1, 'Black')] }],
+      unmatched: [{ name: 'Bo Test', email: 'bo@x.com', seats: 1, picks: [p(1, 'Black')], comped: false }],
       seatsSold: 15,
     })
     renderRoster()
     expect(await screen.findByText('Pumpkin color — Lavender 6 · Black 4 · Light Pink 3 · Light Blue 2')).toBeInTheDocument()
     expect(screen.getByText('(15 seats sold)')).toBeInTheDocument()
     expect(screen.getByText('Picks: Lavender ×2')).toBeInTheDocument()
-    expect(screen.getByText('Paid, not signed in yet')).toBeInTheDocument()
+    expect(screen.getByText('Paid or comped, not signed in yet')).toBeInTheDocument()
     expect(screen.getByText('Bo Test · 1 seat · Picks: Black ×1')).toBeInTheDocument()
+    expect(screen.queryByText('comped')).toBeNull()
+  })
+
+  it('marks a comped seat with a badge', async () => {
+    serveRoster({
+      totals: { 'pumpkin-color': { Black: 1 } },
+      byEmail: {},
+      unmatched: [{ name: 'Gia Winner', email: 'gia@x.com', seats: 1, picks: [p(1, 'Black')], comped: true }],
+      seatsSold: null,
+    })
+    renderRoster()
+    expect(await screen.findByText('comped')).toBeInTheDocument()
   })
 
   it('counts picked seats when Square gave no capacity', async () => {
     serveRoster({ totals: { 'pumpkin-color': { Lavender: 2, Black: 1 } }, byEmail: {}, unmatched: [], seatsSold: null })
     renderRoster()
     expect(await screen.findByText('(3 seats picked)')).toBeInTheDocument()
-    expect(screen.queryByText('Paid, not signed in yet')).toBeNull()
+    expect(screen.queryByText('Paid or comped, not signed in yet')).toBeNull()
   })
 
   it('a class with no questions shows no picks at all', async () => {
