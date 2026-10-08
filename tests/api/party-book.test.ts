@@ -487,6 +487,29 @@ describe('POST /api/party/book.json', () => {
         expect(mockCancelBooking).toHaveBeenCalledTimes(1)
       })
 
+      it('answers unavailable and releases the date when the card lookup throws', async () => {
+        mockFromNonce.mockRejectedValue(new Error('Square 503'))
+        const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
+        expect(res.status).toBe(503)
+        expect((await res.json()).code).toBe('unavailable')
+        expect(mockCancelBooking).toHaveBeenCalledTimes(1)
+        expect(mockCreateOrder).not.toHaveBeenCalled()
+        expect(mockAlertOwners).not.toHaveBeenCalled()
+      })
+
+      it('under simulated payments, checks only a mock gift card token', async () => {
+        const flags = await import('@lib/dev-flags')
+        vi.mocked(flags.paymentBypassEnabled).mockReturnValue(true)
+        try {
+          mockFromNonce.mockResolvedValue({ id: 'gc-mock', gan: '1', balanceCents: 2500, state: 'ACTIVE' })
+          const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'mock-gift-cents:2500' })))
+          expect(res.status).toBe(402)
+          expect(await res.json()).toMatchObject({ code: 'gift_card_short', balanceCents: 2500 })
+        } finally {
+          vi.mocked(flags.paymentBypassEnabled).mockReturnValue(false)
+        }
+      })
+
       it('does not look at the balance for a plain card', async () => {
         const res = await POST(createMockContext(makeBody()))
         expect(res.status).toBe(200)

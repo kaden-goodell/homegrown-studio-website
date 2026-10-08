@@ -624,7 +624,14 @@ function okResponse(input: {
 
 /** Null when the gift card can pay; otherwise the response that refuses it. */
 async function giftCardRefusal(token: string, totalCents: number): Promise<Response | null> {
-  const card = await providers.giftcard.fromNonce(token)
+  let card: Awaited<ReturnType<typeof providers.giftcard.fromNonce>>
+  try {
+    card = await providers.giftcard.fromNonce(token)
+  } catch (err) {
+    // Square is down. Nothing has been charged, so say so and let the caller release the hold.
+    logger.error('Gift card lookup failed', { error: String(err) })
+    return errorResponse('We couldn’t check that gift card just now. Nothing was charged. Please try again, or use a card.', 503, 'unavailable')
+  }
   if (!card) return errorResponse('That doesn’t look like a gift card. Use a card instead.', 400, 'invalid')
   if (card.balanceCents < totalCents) {
     return errorResponse(giftCardShortMessage(card.balanceCents, totalCents), 402, 'gift_card_short', {

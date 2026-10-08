@@ -258,11 +258,22 @@ describe('POST /api/kits/order.json', () => {
     expect(mockProcessPayment).toHaveBeenCalledTimes(1)
   })
 
+  it('a failed card lookup: 503 unavailable, claim released, nothing ordered', async () => {
+    mockFromNonce.mockRejectedValue(new Error('Square 503'))
+    const res = await POST(ctx(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
+    expect(res.status).toBe(503)
+    expect((await res.json()).code).toBe('unavailable')
+    expect(mockCreateOrder).not.toHaveBeenCalled()
+    expect((await POST(ctx(makeBody()))).status).toBe(200)
+  })
+
   it('a gift-card token that is not a gift card: 400, claim released', async () => {
     mockFromNonce.mockResolvedValue(null)
     const res = await POST(ctx(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:card' })))
     expect(res.status).toBe(400)
     expect(mockCreateOrder).not.toHaveBeenCalled()
+    // The release is real (the claim store is real): the week is free for the next order.
+    expect((await POST(ctx(makeBody()))).status).toBe(200)
   })
 
   it('errors carry a code and a detail string (missing payment token → 400 invalid)', async () => {
