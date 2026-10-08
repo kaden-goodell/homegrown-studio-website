@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { createRef } from 'react'
 import { render, screen, cleanup, waitFor } from '@testing-library/react'
+import { fireEvent } from '@testing-library/react'
 import PaymentForm, { type PaymentFormRef } from '@components/checkout/PaymentForm'
+import { TEXT_US } from '@lib/checkout-messages'
 
 /**
  * The payment step is already titled "Payment" by the panel around it, so the
@@ -75,7 +77,7 @@ describe('PaymentForm with a caller-supplied app id', () => {
     render(<PaymentForm ref={ref} applicationIdOverride="sq0idp-real" environmentOverride="production" />)
     await screen.findByText(/Card number placeholder/)
     expect(squareScripts()).toBe(before)
-    expect(await ref.current!.tokenize()).toBe('mock-payment-token')
+    expect(await ref.current!.tokenize()).toEqual({ token: 'mock-payment-token', kind: 'card' })
   })
 
   it('does not load the Square SDK while the config is still loading', () => {
@@ -93,5 +95,42 @@ describe('PaymentForm with a caller-supplied app id', () => {
     await waitFor(() => expect(squareScripts()).toBeGreaterThan(0))
     expect(screen.queryByText(/Card number placeholder/)).toBeNull()
     await expect(ref.current!.tokenize()).rejects.toThrow('Payment card not initialized')
+  })
+})
+
+describe('PaymentForm gift cards', () => {
+  it('offers a gift card toggle by default', async () => {
+    configAnswers('mock-app')
+    render(<PaymentForm />)
+    expect(await screen.findByRole('button', { name: 'Pay with a gift card instead' })).toBeInTheDocument()
+    expect(screen.queryByText(/Gift cards can’t be used/)).toBeNull()
+  })
+
+  it('says cards only, with no toggle, when gift cards are not accepted', async () => {
+    configAnswers('mock-app')
+    render(<PaymentForm giftCards="cards-only" />)
+    await screen.findByText('Test mode')
+    expect(screen.queryByRole('button', { name: /gift card/i })).toBeNull()
+    expect(screen.getByText(`Gift cards can’t be used for class seats — ${TEXT_US} and we’ll add you.`)).toBeInTheDocument()
+  })
+
+  it('tokenizes a typed gift card number as a gift card', async () => {
+    configAnswers('mock-app')
+    const ref = createRef<PaymentFormRef>()
+    render(<PaymentForm ref={ref} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Pay with a gift card instead' }))
+    fireEvent.change(screen.getByLabelText('Gift card number (test)'), { target: { value: '7783000011112222' } })
+    expect(await ref.current!.tokenize()).toEqual({ token: 'mock-gift:7783000011112222', kind: 'gift_card' })
+    fireEvent.click(screen.getByRole('button', { name: 'Pay with a card instead' }))
+    expect(await ref.current!.tokenize()).toEqual({ token: 'mock-payment-token', kind: 'card' })
+  })
+
+  it('turns cents:1500 into a short mock gift card', async () => {
+    configAnswers('mock-app')
+    const ref = createRef<PaymentFormRef>()
+    render(<PaymentForm ref={ref} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Pay with a gift card instead' }))
+    fireEvent.change(screen.getByLabelText('Gift card number (test)'), { target: { value: 'cents:1500' } })
+    expect(await ref.current!.tokenize()).toEqual({ token: 'mock-gift-cents:1500', kind: 'gift_card' })
   })
 })

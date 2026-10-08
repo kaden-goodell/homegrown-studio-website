@@ -1,4 +1,4 @@
-import { PAYMENT_FORM_UNAVAILABLE } from '@lib/checkout-messages'
+import { PAYMENT_FORM_UNAVAILABLE, TEXT_US } from '@lib/checkout-messages'
 import {
   createElement,
   forwardRef,
@@ -25,7 +25,8 @@ export interface TokenizeResult {
 }
 
 export interface PaymentFormRef {
-  tokenize: () => Promise<string>
+  /** `kind` says which field the token came from, so the server knows how to charge it. */
+  tokenize: () => Promise<{ token: string; kind: 'card' | 'gift_card' }>
   tokenizeAndVerify: (buyerDetails: VerifyBuyerDetails) => Promise<TokenizeResult>
 }
 
@@ -49,6 +50,9 @@ interface PaymentFormProps {
   /** Told when the card field becomes usable (or stops being), so the panel
    *  never offers Pay before there is a card field to pay with. */
   onReadyChange?: (ready: boolean) => void
+  /** 'allowed' (default) offers a "pay with a gift card instead" toggle;
+   *  'cards-only' shows a line saying gift cards can't be used here. */
+  giftCards?: 'allowed' | 'cards-only'
 }
 
 interface ClientConfig {
@@ -116,7 +120,7 @@ type WalletInstance = {
 }
 
 const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
-  function PaymentForm({ applicationIdOverride, environmentOverride, wallet, onWalletToken, canPayWithWallet, onReadyChange }: PaymentFormProps, ref) {
+  function PaymentForm({ applicationIdOverride, environmentOverride, wallet, onWalletToken, canPayWithWallet, onReadyChange, giftCards = 'allowed' }: PaymentFormProps, ref) {
     const [config, setConfig] = useState<ClientConfig | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -129,6 +133,12 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     const [attempt, setAttempt] = useState(0)
 
     const cardRef = useRef<CardInstance | null>(null)
+    const giftRef = useRef<CardInstance | null>(null)
+    const giftContainerRef = useRef<HTMLDivElement>(null)
+    const [useGift, setUseGift] = useState(false)
+    const [giftError, setGiftError] = useState<string | null>(null)
+    // Mock mode only: the typed stand-in for the gift card field.
+    const [mockGiftValue, setMockGiftValue] = useState('')
     const applePayRef = useRef<WalletInstance | null>(null)
     const googlePayRef = useRef<WalletInstance | null>(null)
     const afterpayRef = useRef<WalletInstance | null>(null)
@@ -293,6 +303,37 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
       }
     }, [config, isMockMode, effectiveEnvironment, attempt])
 
+    // The real gift card field exists only while the toggle is on: Square
+    // fields don't hide reliably, so attach on toggle and destroy on toggle-off.
+    useEffect(() => {
+      if (isMockMode || !sdkReady || !useGift || giftCards !== 'allowed') return
+      let cancelled = false
+      let created: CardInstance | null = null
+      ;(async () => {
+        try {
+          const gift = await paymentsRef.current.giftCard()
+          if (cancelled) {
+            await gift.destroy()
+            return
+          }
+          if (giftContainerRef.current) await gift.attach(giftContainerRef.current)
+          created = gift
+          giftRef.current = gift
+          setGiftError(null)
+        } catch {
+          if (!cancelled) {
+            setGiftError('We couldn’t load the gift card field. Please use a card instead.')
+            setUseGift(false)
+          }
+        }
+      })()
+      return () => {
+        cancelled = true
+        if (created) created.destroy().catch(() => {})
+        giftRef.current = null
+      }
+    }, [useGift, sdkReady, isMockMode, giftCards])
+
     // The panel's Pay button waits on this. The stand-in form used in local
     // development has no card field to wait for.
     const ready = !loading && !error && (isMockMode ? !!config || !!applicationIdOverride : sdkReady)
@@ -323,30 +364,37 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
       }
     }
 
-    const tokenize = useCallback(async (): Promise<string> => {
+    const tokenize = useCallback(async (): Promise<{ token: string; kind: 'card' | 'gift_card' }> => {
+      const giftOn = useGift && giftCards === 'allowed'
       if (isMockMode) {
-        return 'mock-payment-token'
+        if (giftOn) {
+          const value = mockGiftValue.trim()
+          const short = /^cents:(\d+)$/.exec(value)
+          return { token: short ? `mock-gift-cents:${short[1]}` : `mock-gift:${value}`, kind: 'gift_card' }
+        }
+        return { token: 'mock-payment-token', kind: 'card' }
       }
 
-      const card = cardRef.current
-      if (!card) {
-        throw new Error('Payment card not initialized')
+      const field = giftOn ? giftRef.current : cardRef.current
+      if (!field) {
+        throw new Error(giftOn ? 'Gift card field not initialized' : 'Payment card not initialized')
       }
 
-      const result = await card.tokenize()
+      const result = await field.tokenize()
 
       if (result.status === 'OK' && result.token) {
-        return result.token
+        return { token: result.token, kind: giftOn ? 'gift_card' : 'card' }
       }
 
       const messages = result.errors?.map((e) => e.message).join(', ') ?? 'Tokenization failed'
       throw new Error(messages)
-    }, [isMockMode])
+    }, [isMockMode, useGift, giftCards, mockGiftValue])
 
     const tokenizeAndVerify = useCallback(async (buyerDetails: VerifyBuyerDetails): Promise<TokenizeResult> => {
-      const token = await tokenize()
+      const { token, kind } = await tokenize()
 
-      if (isMockMode || !paymentsRef.current) {
+      // A gift card has no 3-D Secure step.
+      if (isMockMode || !paymentsRef.current || kind === 'gift_card') {
         return { token }
       }
 
@@ -419,6 +467,33 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
               Test mode
             </span>
           </div>
+          {giftCards === 'allowed' ? (
+            <div>
+              {useGift && (
+                <label className="block text-sm">
+                  Gift card number (test)
+                  <input
+                    type="text"
+                    className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2"
+                    value={mockGiftValue}
+                    onChange={(e) => setMockGiftValue(e.target.value)}
+                  />
+                </label>
+              )}
+              <button
+                type="button"
+                className="mt-2 text-sm underline"
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit' }}
+                onClick={() => setUseGift((v) => !v)}
+              >
+                {useGift ? 'Pay with a card instead' : 'Pay with a gift card instead'}
+              </button>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500" style={{ margin: 0 }}>
+              Gift cards can’t be used for class seats — {TEXT_US} and we’ll add you.
+            </p>
+          )}
         </div>
       )
     }
@@ -478,9 +553,31 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           ref={containerRef}
           id="card-container"
           className="min-h-[44px] rounded-md border border-gray-300"
+          style={{ display: useGift && giftCards === 'allowed' ? 'none' : undefined }}
         />
         {!sdkReady && (
           <div className="text-sm text-gray-400">Initializing payment form...</div>
+        )}
+
+        {giftCards === 'allowed' ? (
+          <div>
+            {useGift && (
+              <div ref={giftContainerRef} id="gift-card-container" className="min-h-[44px] rounded-md border border-gray-300" />
+            )}
+            {giftError && <div className="text-sm text-red-700">{giftError}</div>}
+            <button
+              type="button"
+              className="mt-2 text-sm underline"
+              style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit' }}
+              onClick={() => { setGiftError(null); setUseGift((v) => !v) }}
+            >
+              {useGift ? 'Pay with a card instead' : 'Pay with a gift card instead'}
+            </button>
+          </div>
+        ) : (
+          <p className="text-sm text-gray-500" style={{ margin: 0 }}>
+            Gift cards can’t be used for class seats — {TEXT_US} and we’ll add you.
+          </p>
         )}
       </div>
     )

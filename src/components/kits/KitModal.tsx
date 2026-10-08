@@ -396,9 +396,12 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
 
     try {
       let token = walletToken
+      let sourceKind: 'card' | 'gift_card' = 'card'
       if (!token) {
         try {
-          token = await paymentFormRef.current!.tokenize()
+          const tokenized = await paymentFormRef.current!.tokenize()
+          token = tokenized.token
+          sourceKind = tokenized.kind
         } catch {
           throw new Error('Could not process your card. Please check your details and try again.')
         }
@@ -421,6 +424,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
           rentalTermsAccepted: hasTheme ? rentalTermsAccepted : undefined,
           personalizedAck: selectedCraft.personalized ? ackPersonalized : undefined,
           paymentToken: token,
+          sourceKind,
         }),
       })
 

@@ -9,7 +9,7 @@ vi.mock('@components/checkout/PaymentForm', async () => {
   const { forwardRef, useImperativeHandle, useEffect } = await import('react')
   return {
     default: forwardRef((props: { onReadyChange?: (ready: boolean) => void }, ref: any) => {
-      useImperativeHandle(ref, () => ({ tokenize: async () => 'cnon:test-token' }))
+      useImperativeHandle(ref, () => ({ tokenize: async () => ({ token: 'cnon:test-token', kind: 'card' }) }))
       useEffect(() => {
         props.onReadyChange?.(paymentFormReady)
       }, [])
@@ -462,6 +462,7 @@ describe('PartyModal — paying', () => {
       craft: { id: 'c-keys', name: 'Bubble Letter Keychains', perHeadCents: 2000 },
       customer: { firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.com', phone: '(256) 555-0123' },
       paymentToken: 'cnon:test-token',
+      sourceKind: 'card',
     })
     expect(body.attemptId).toMatch(/^[0-9a-f-]{36}$/)
   })

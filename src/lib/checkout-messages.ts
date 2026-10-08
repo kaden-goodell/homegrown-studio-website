@@ -11,7 +11,7 @@
 import { partyContent } from '@config/party-content'
 import type { CheckoutErrorCode } from '@lib/checkout-attempt'
 
-const TEXT_US = partyContent.textNumber ? `text us at ${partyContent.textNumber}` : 'get in touch'
+export const TEXT_US = partyContent.textNumber ? `text us at ${partyContent.textNumber}` : 'get in touch'
 
 export const UNKNOWN_OUTCOME_MESSAGE = `We’re not sure that went through. Please don’t pay again yet. Check your email for a receipt, or ${TEXT_US} and we’ll confirm.`
 

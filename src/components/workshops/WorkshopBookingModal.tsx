@@ -164,8 +164,11 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
 
     try {
       let token: string
+      let sourceKind: 'card' | 'gift_card'
       try {
-        token = await paymentFormRef.current!.tokenize()
+        const tokenized = await paymentFormRef.current!.tokenize()
+        token = tokenized.token
+        sourceKind = tokenized.kind
       } catch {
         throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
       }
@@ -189,6 +192,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
             seats,
             ...(options.length > 0 ? { picks } : {}),
             paymentToken: token,
+            sourceKind,
           }),
         })
       } catch {
@@ -491,6 +495,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
           ref={paymentFormRef}
           applicationIdOverride={CLASS_BOOKING_APP_ID}
           environmentOverride="production"
+          giftCards="cards-only"
           onReadyChange={setPaymentReady}
         />
 

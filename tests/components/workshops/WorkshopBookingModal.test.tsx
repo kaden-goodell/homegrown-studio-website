@@ -7,12 +7,14 @@ import { CONTACT_MESSAGES } from '@lib/contact-rules'
 // The real form loads Square's Web Payments SDK; stand in a ref that tokenizes
 // and reports itself ready (or not, when a test says so).
 let paymentFormReady = true
+let paymentFormProps: Record<string, unknown> = {}
 vi.mock('@components/checkout/PaymentForm', async () => {
   const { forwardRef, useImperativeHandle, useEffect } = await import('react')
   return {
     default: forwardRef((props: { onReadyChange?: (ready: boolean) => void }, ref: any) => {
+      paymentFormProps = props
       useImperativeHandle(ref, () => ({
-        tokenize: async () => 'cnon:test-token',
+        tokenize: async () => ({ token: 'cnon:test-token', kind: 'card' }),
         tokenizeAndVerify: async () => ({ token: 'cnon:test-token' }),
       }))
       useEffect(() => {
@@ -220,10 +222,12 @@ describe('WorkshopBookingModal — payment step', () => {
     const body = JSON.parse(init.body)
     expect(body.seats).toBe(2)
     expect(Object.keys(body).sort()).toEqual(
-      ['attemptId', 'classScheduleId', 'customer', 'paymentToken', 'seats', 'startAt', 'workshopId'],
+      ['attemptId', 'classScheduleId', 'customer', 'paymentToken', 'seats', 'sourceKind', 'startAt', 'workshopId'],
     )
     expect(body.customer).toEqual({ givenName: 'Alice', familyName: 'Smith', email: 'alice@test.com', phone: '(256) 555-0123' })
     expect(body.workshopId).toBe('inst-1')
+    expect(body.sourceKind).toBe('card')
+    expect(paymentFormProps.giftCards).toBe('cards-only')
     expect(await screen.findByText('You’re booked')).toBeInTheDocument()
   })
 

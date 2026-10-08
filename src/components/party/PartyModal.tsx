@@ -558,9 +558,12 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
     try {
       let token = walletToken
+      let sourceKind: 'card' | 'gift_card' = 'card'
       if (!token) {
         try {
-          token = await paymentFormRef.current!.tokenize()
+          const tokenized = await paymentFormRef.current!.tokenize()
+          token = tokenized.token
+          sourceKind = tokenized.kind
         } catch {
           throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
         }
@@ -596,6 +599,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             // (the server works out price and item from themeId + serves).
             ...(selectedTheme && themeTierAvailable ? { theme: { themeId: selectedTheme.id, serves: themeTierServes } } : {}),
             paymentToken: token,
+            sourceKind,
           }),
         })
       } catch {
