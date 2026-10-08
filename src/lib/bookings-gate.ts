@@ -18,7 +18,10 @@ const PREVIEW_COOKIE = 'hg_preview'
 
 function readEnv(key: string): string | undefined {
   try {
-    const ime: any = (import.meta as any)?.env
+    // Must be written exactly `import.meta.env`: Vite substitutes that
+    // expression at build time, and `import.meta?.env` is left alone (so it
+    // read as undefined on the dev server and the gate stayed closed locally).
+    const ime: any = (import.meta as any).env
     if (ime && ime[key] != null && ime[key] !== '') return String(ime[key])
   } catch {
     /* import.meta not available in this context */
