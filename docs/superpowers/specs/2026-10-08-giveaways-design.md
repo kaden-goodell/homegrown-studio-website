@@ -23,6 +23,7 @@ Parties and kits are charged through Square's Payments API, which does accept gi
 | 4 | Gift cards are minted from `/staff` (and a CLI) by anyone with the staff passcode. Each mint records who it was for in the card's note so the Square list is self-explaining. |
 | 5 | v1: a gift card must **cover the whole amount**; otherwise the checkout says how much is on it and asks for a card. Splitting one order across a gift card and a card is a follow-up (Square supports it — two payments on one order — but it doubles the payment states to get right). |
 | 6 | Nothing here cancels, refunds, or moves a booking (standing rule). "Comp a seat" only adds. |
+| 7 | **Added 2026-10-08:** every staff action is written to an audit log (who, what, when, on what) with an owners-only "Log" screen on `/staff`; minting gift cards and comping seats are **owners-only**. Kaden: "track if kids are comping their friends or creating gift cards." |
 
 ## Scope
 
