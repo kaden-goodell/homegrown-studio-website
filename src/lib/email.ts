@@ -337,6 +337,8 @@ export async function sendWorkshopConfirmationEmail(input: {
   timeRange: string
   seats: number
   totalChargedCents: number
+  /** A giveaway seat: say "comped" instead of an amount paid. */
+  comped?: boolean
   receiptUrl: string | null
   /** Participation agreement, carrying the booking id. Forwardable to companions. */
   waiverUrl: string
@@ -367,7 +369,7 @@ export async function sendWorkshopConfirmationEmail(input: {
     `When: ${input.whenLabel} (${input.timeRange})`,
     `Where: Hometown Studio, ${address}`,
     `Directions: ${input.directionsUrl}`,
-    `Seats: ${seatWord}, ${paid} paid`,
+    `Seats: ${seatWord}, ${input.comped ? 'comped' : `${paid} paid`}`,
     ...(input.pickLines?.length
       ? [``, `Your picks:`, ...input.pickLines.map((l) => `  ${l}`), ...(input.picksFinalLine ? [input.picksFinalLine] : [])]
       : []),
@@ -405,7 +407,7 @@ export async function sendWorkshopConfirmationEmail(input: {
   <p style="${LABEL}margin-top:10px;">Where</p>
   <p style="${P}">Hometown Studio, ${esc(address)}<br /><a href="${esc(input.directionsUrl)}" style="${LINK}font-size:13px;">Get directions</a></p>
   <p style="${LABEL}margin-top:10px;">Your booking</p>
-  <p style="${P}">${esc(seatWord)} &middot; <strong>${esc(paid)} paid</strong></p>
+  <p style="${P}">${esc(seatWord)} &middot; <strong>${input.comped ? 'comped' : `${esc(paid)} paid`}</strong></p>
   ${input.pickLines?.length
     ? `<p style="${LABEL}margin-top:10px;">Your picks</p>${input.pickLines.map((l) => `<p style="${P}margin:0 0 2px;">${esc(l)}</p>`).join('')}${input.picksFinalLine ? `<p style="${MUTED}margin-top:4px;">${esc(input.picksFinalLine)}</p>` : ''}`
     : ''}

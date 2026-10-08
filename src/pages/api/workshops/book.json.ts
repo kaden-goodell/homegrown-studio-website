@@ -4,19 +4,13 @@ import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { providers } from '@config/providers'
-import { partyConfig } from '@config/party.config'
 import { MAX_SEATS_PER_BOOKING } from '@config/class-booking.config'
-import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
-import { inviteContent } from '@config/invite-content'
-import { formatRange } from '@config/hours'
 import { asSeatBookingError } from '@lib/errors'
 import { attemptKey, classifyClassBookingError, isAttemptId, type CheckoutErrorCode } from '@lib/checkout-attempt'
 import { workshopMessages, TEXT_US } from '@lib/checkout-messages'
 import { alertOwners } from '@lib/owner-alert'
-import { sendWorkshopConfirmationEmail } from '@lib/email'
-import { buildIcs, googleCalendarUrl, addMinutesIso } from '@lib/party-share'
 import { formatSlotLabel } from '@lib/studio-time'
-import { summarize } from '@lib/seo'
+import { sendWorkshopConfirmation } from '@lib/workshop-confirmation'
 import { canBeBooked } from '@lib/workshop-rules'
 import { getEventMeta } from '@lib/event-meta'
 import { saveSeatChoices } from '@lib/seat-choices'
@@ -25,18 +19,14 @@ import {
   cutoffClosedMessage,
   effectiveCutoffHours,
   isSignupClosed,
-  PICKS_FINAL_LINE,
   picksNote,
-  seatPickLines,
   validatePicks,
   type CutoffSettings,
-  type SeatOption,
   type SeatPick,
 } from '@lib/seat-options'
 import type { SeatReservation, Workshop } from '@providers/interfaces/workshop'
 
 const logger = createLogger('api:workshops:book')
-const TZ = partyConfig.timezone
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 /**
@@ -249,8 +239,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
   let emailSent = false
   try {
-    emailSent = await sendConfirmation({
-      request,
+    emailSent = await sendWorkshopConfirmation({
+      origin: new URL(request.url).origin,
       bookingId: booked.bookingId,
       workshop,
       seats,
@@ -259,6 +249,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       receiptUrl: booked.receiptUrl,
       options: settings.options,
       picks,
+      totalChargedCents: workshop.priceCents * seats,
     })
   } catch (err) {
     logger.error('Workshop confirmation email failed (booking still confirmed)', {
@@ -281,13 +272,6 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   )
 }
 
-/** "19:00" in studio time, for the shared range formatter. */
-function studioClock(iso: string): string {
-  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(iso))
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? '00'
-  return `${get('hour')}:${get('minute')}`
-}
-
 async function lookUp(workshopId: string, scheduleId: string, startAt: string): Promise<Workshop | null> {
   const find = async () => {
     if (workshopId) {
@@ -300,57 +284,6 @@ async function lookUp(workshopId: string, scheduleId: string, startAt: string): 
   }
   // Runs before anything is held or charged. A lookup that hangs is a refusal, not a wait.
   return Promise.race([find(), new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000))])
-}
-
-async function sendConfirmation(input: {
-  request: Request
-  bookingId: string
-  workshop: Workshop
-  seats: number
-  email: string
-  givenName: string
-  receiptUrl: string | null
-  options: SeatOption[]
-  picks: SeatPick[]
-}): Promise<boolean> {
-  const { workshop } = input
-
-  const origin = new URL(input.request.url).origin
-  const endIso = addMinutesIso(workshop.startAt, workshop.durationMinutes)
-  const waiverUrl = `${origin}/waiver?workshop=${encodeURIComponent(input.bookingId)}`
-  const workshopUrl = `${origin}/workshops?w=${encodeURIComponent(workshop.id)}`
-  const calendarEvent = {
-    title: `${workshop.name} at Hometown Studio`,
-    startIso: workshop.startAt,
-    endIso,
-    details: `Your workshop at Hometown Studio.\n\nSign the participation agreement before you come: ${waiverUrl}`,
-    location: inviteContent.where,
-  }
-
-  const { sent } = await sendWorkshopConfirmationEmail({
-    to: input.email,
-    firstName: input.givenName,
-    workshopName: workshop.name,
-    summary: summarize(workshop.description, 280),
-    imageUrl: workshop.imageUrl,
-    whenLabel: formatSlotLabel(workshop.startAt),
-    timeRange: formatRange(studioClock(workshop.startAt), studioClock(endIso)),
-    seats: input.seats,
-    totalChargedCents: workshop.priceCents * input.seats,
-    receiptUrl: input.receiptUrl,
-    waiverUrl,
-    workshopUrl,
-    directionsUrl: `https://maps.google.com/?q=${encodeURIComponent('Hometown Studio, 525 Hughes Rd, Suite F, Madison, AL 35758')}`,
-    policyLine: checkoutPolicySummary.workshop,
-    policyUrl: `${origin}${POLICY_PATH}#${POLICY_ANCHORS.workshops}`,
-    googleCalendarUrl: googleCalendarUrl(calendarEvent),
-    icsContent: buildIcs(calendarEvent),
-    bookingRef: input.bookingId,
-    ...(input.picks.length > 0
-      ? { pickLines: seatPickLines(input.options, input.picks), picksFinalLine: PICKS_FINAL_LINE }
-      : {}),
-  })
-  return sent
 }
 
 /** A plain sentence for the customer, plus a code the booking panel can act on. */

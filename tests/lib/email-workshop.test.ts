@@ -134,6 +134,14 @@ describe('sendWorkshopConfirmationEmail', () => {
     expect(html.toLowerCase()).not.toContain('#96705b')
   })
 
+  it('says comped, not $0 paid, for a giveaway seat', async () => {
+    await sendWorkshopConfirmationEmail({ ...input, seats: 1, totalChargedCents: 0, comped: true })
+    const { text, html } = mockSendMail.mock.calls[0][0]
+    expect(text).toContain('Seats: 1 seat, comped')
+    expect(html).toContain('<strong>comped</strong>')
+    for (const body of [text, html]) expect(body).not.toContain('$0 paid')
+  })
+
   it('reports not sent, without throwing, when mail is not set up', async () => {
     delete process.env.GMAIL_USER
     vi.resetModules()
