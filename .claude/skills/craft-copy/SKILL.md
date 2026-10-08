@@ -19,6 +19,10 @@ Paragraphs are separated by a blank line (the modal renders `white-space: pre-li
 
 ## Voice
 
+**Rejected 2026-10-08 (Kaden: "this one was shit"):** "Cover a bulletin board in fabric you pick, then trim it so it looks like it came from a store." Two lessons, both hard rules now:
+- **Never compare the craft to something store-bought, polished, or "professional."** Nothing from a store is the point — the craft is personal to the person who made it. Praise "yours," never "looks like a real one."
+- **The hook just says what it is**, plainly, no angle: "Design your own bulletin board with fabric, ribbon, and your imagination." If a sentence is trying to sell, cut it. Shorter than the 320-char floor is fine when the plain version is shorter.
+
 - Tween-friendly but not corny; cute, not stupid. A little dry wit is welcome ("the notebook nobody else is allowed to read"), one touch per description at most.
 - Second person / "everyone" — never "girls", "kids", "birthday", or "party" in names or copy. Crafts are for everyone, any occasion (see memory: audience-framing).
 - Concrete nouns over adjectives: "fuzzy pom-poms", "gold carabiners", not "a wide variety of fun embellishments".
