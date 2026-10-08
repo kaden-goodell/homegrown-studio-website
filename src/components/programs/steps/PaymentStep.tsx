@@ -1,9 +1,7 @@
 import { useState, useRef } from 'react'
 import { useEnrollment } from '../EnrollmentContext'
-import CouponInput from '@components/checkout/CouponInput'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
-import type { Discount } from '@providers/interfaces/payment'
 
 function formatPrice(cents: number): string {
   return `$${(cents / 100).toFixed(2)}`
@@ -18,16 +16,7 @@ export default function PaymentStep() {
 
   const sessionCount = selectedSessions.length
   const subtotal = (program.pricePerHead ?? 0) * headcount * sessionCount
-  const discountAmount = state.appliedDiscount
-    ? state.appliedDiscount.type === 'percent'
-      ? Math.round((subtotal * state.appliedDiscount.value) / 100)
-      : state.appliedDiscount.value
-    : 0
-  const total = subtotal - discountAmount
-
-  function handleCouponApply(code: string, discount: Discount) {
-    dispatch({ type: 'APPLY_COUPON', payload: { code, discount } })
-  }
+  const total = subtotal
 
   async function handlePay() {
     if (!parentInfo) return
@@ -77,7 +66,6 @@ export default function PaymentStep() {
             quantity: headcount,
             pricePerUnit: program.pricePerHead,
           })),
-          discounts: state.appliedDiscount ? [state.appliedDiscount] : [],
           note: JSON.stringify(enrollmentData),
         }),
       })
@@ -133,19 +121,11 @@ export default function PaymentStep() {
             <span>{formatPrice((program.pricePerHead ?? 0) * headcount)}</span>
           </div>
         ))}
-        {state.appliedDiscount && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem', color: 'var(--color-primary)', marginBottom: '0.375rem' }}>
-            <span>Discount</span>
-            <span>-{formatPrice(discountAmount)}</span>
-          </div>
-        )}
         <div style={{ borderTop: '1px solid rgba(var(--color-primary-rgb), 0.08)', marginTop: '0.5rem', paddingTop: '0.5rem', display: 'flex', justifyContent: 'space-between', fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>
           <span>Total</span>
           <span>{formatPrice(total)}</span>
         </div>
       </div>
-
-      <CouponInput onApply={handleCouponApply} />
 
       <PaymentForm ref={paymentFormRef} />
 

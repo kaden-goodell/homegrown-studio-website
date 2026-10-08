@@ -1,22 +1,13 @@
-import type { LineItem, Discount } from '@providers/interfaces/payment'
+import type { LineItem } from '@providers/interfaces/payment'
 import { formatMoney } from '@lib/money'
 
 interface OrderSummaryProps {
   lineItems: LineItem[]
-  discount: Discount | null
   total: number
   currency: string
 }
 
-function computeDiscountAmount(discount: Discount, subtotal: number): number {
-  if (discount.type === 'percent') {
-    return Math.round((subtotal * discount.value) / 100)
-  }
-  return discount.value
-}
-
-export default function OrderSummary({ lineItems, discount, total, currency }: OrderSummaryProps) {
-  const subtotal = lineItems.reduce((sum, item) => sum + item.pricePerUnit * item.quantity, 0)
+export default function OrderSummary({ lineItems, total, currency }: OrderSummaryProps) {
   const money = (cents: number) => formatMoney(cents, currency || 'USD')
 
   return (
@@ -32,15 +23,6 @@ export default function OrderSummary({ lineItems, discount, total, currency }: O
           </li>
         ))}
       </ul>
-      {discount && (
-        <div
-          className="mt-2 flex justify-between pt-2 text-sm text-green-700"
-          style={{ borderTop: '1px solid var(--color-line)' }}
-        >
-          <span>{discount.name} ({discount.type === 'percent' ? `${discount.value}%` : money(discount.value)})</span>
-          <span>-{money(computeDiscountAmount(discount, subtotal))}</span>
-        </div>
-      )}
       <div
         className="mt-3 flex justify-between pt-3 text-base font-semibold"
         style={{ borderTop: '1px solid var(--color-line)', color: 'var(--color-dark)' }}

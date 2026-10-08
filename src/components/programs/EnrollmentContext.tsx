@@ -1,6 +1,5 @@
 import { createContext, useContext, useReducer, type ReactNode } from 'react'
 import type { EventType, EventVariation } from '@providers/interfaces/catalog'
-import type { Discount } from '@providers/interfaces/payment'
 
 export interface ChildInfo {
   firstName: string
@@ -20,8 +19,6 @@ export interface EnrollmentState {
   headcount: number
   children: ChildInfo[]
   parentInfo: { firstName: string; lastName: string; email: string; phone: string } | null
-  couponCode: string | null
-  appliedDiscount: Discount | null
   orderId: string | null
   paymentStatus: 'idle' | 'processing' | 'completed' | 'failed'
   error: string | null
@@ -32,7 +29,6 @@ export type EnrollmentAction =
   | { type: 'SET_HEADCOUNT'; payload: number }
   | { type: 'SET_CHILD_INFO'; payload: { index: number; info: ChildInfo } }
   | { type: 'SET_PARENT_INFO'; payload: { firstName: string; lastName: string; email: string; phone: string } }
-  | { type: 'APPLY_COUPON'; payload: { code: string; discount: Discount } }
   | { type: 'SET_ORDER_ID'; payload: string }
   | { type: 'SET_PAYMENT_STATUS'; payload: 'idle' | 'processing' | 'completed' | 'failed' }
   | { type: 'SET_ERROR'; payload: string | null }
@@ -49,8 +45,6 @@ export function createInitialState(program: EventType): EnrollmentState {
     headcount: 1,
     children: [emptyChild()],
     parentInfo: null,
-    couponCode: null,
-    appliedDiscount: null,
     orderId: null,
     paymentStatus: 'idle',
     error: null,
@@ -88,8 +82,6 @@ export function enrollmentReducer(state: EnrollmentState, action: EnrollmentActi
     }
     case 'SET_PARENT_INFO':
       return { ...state, parentInfo: action.payload }
-    case 'APPLY_COUPON':
-      return { ...state, couponCode: action.payload.code, appliedDiscount: action.payload.discount }
     case 'SET_ORDER_ID':
       return { ...state, orderId: action.payload }
     case 'SET_PAYMENT_STATUS':

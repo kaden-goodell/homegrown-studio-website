@@ -60,7 +60,6 @@ export interface SiteConfig {
       types: ProgramConfig[]
     }
     newsletter: boolean
-    coupons: boolean
     gallery: boolean
   }
   eventTypes: EventTypeConfig[]
@@ -349,7 +348,6 @@ export const siteConfig: SiteConfig = {
       ],
     },
     newsletter: true,
-    coupons: true,
     gallery: false,
   },
   eventTypes: [

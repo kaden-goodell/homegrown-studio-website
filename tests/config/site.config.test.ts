@@ -20,7 +20,6 @@ describe('site config', () => {
     expect(typeof siteConfig.features.workshops).toBe('boolean')
     expect(typeof siteConfig.features.newsletter).toBe('boolean')
     expect(typeof siteConfig.features.gallery).toBe('boolean')
-    expect(typeof siteConfig.features.coupons).toBe('boolean')
     expect(typeof siteConfig.features.parties.enabled).toBe('boolean')
   })
 

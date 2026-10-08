@@ -35,10 +35,6 @@ export function trackBookingCompleted(eventType: string): void {
   capture('booking_completed', { event_type: eventType })
 }
 
-export function trackCouponApplied(codeName: string): void {
-  capture('coupon_applied', { code: codeName })
-}
-
 export function trackPaymentStarted(amount: number): void {
   capture('payment_started', { amount })
 }

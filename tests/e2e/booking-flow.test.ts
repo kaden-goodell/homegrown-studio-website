@@ -52,19 +52,12 @@ vi.mock('@config/providers', () => ({
   },
 }))
 
-// Mock coupons module used by the validate-coupon route
-const mockValidateCoupon = vi.fn()
-vi.mock('@lib/coupons', () => ({
-  validateCoupon: (...args: any[]) => mockValidateCoupon(...args),
-}))
-
 // Import API routes after mocking
 const workshopAvailability = await import('../../src/pages/api/workshops/availability.json')
 const bookingCreate = await import('../../src/pages/api/booking/create.json')
 const customerFindOrCreate = await import('../../src/pages/api/customer/find-or-create.json')
 const checkoutCreateOrder = await import('../../src/pages/api/checkout/create-order.json')
 const checkoutProcessPayment = await import('../../src/pages/api/checkout/process-payment.json')
-const checkoutValidateCoupon = await import('../../src/pages/api/checkout/validate-coupon.json')
 
 function makeRequest(body: unknown): Request {
   return new Request('http://localhost/api/test', {
@@ -183,33 +176,6 @@ describe('Booking flow integration', () => {
     const bookData = await bookRes.json()
     expect(bookData.data.id).toBe('BK1')
     expect(bookData.data.status).toBe('confirmed')
-  })
-
-  it('validates coupon flow end-to-end', async () => {
-    // Valid coupon
-    mockValidateCoupon.mockReturnValue({
-      valid: true,
-      description: '20% off your order',
-      discount: { name: 'SAVE20', type: 'percent', value: 20, scope: 'order' },
-    })
-
-    const validCtx = {
-      request: makeRequest({ code: 'SAVE20' }),
-    } as any
-    const validRes = await checkoutValidateCoupon.POST(validCtx)
-    const validData = await validRes.json()
-    expect(validData.data.valid).toBe(true)
-    expect(validData.data.discount.value).toBe(20)
-
-    // Invalid coupon
-    mockValidateCoupon.mockReturnValue({ valid: false, error: 'Invalid coupon code' })
-
-    const invalidCtx = {
-      request: makeRequest({ code: 'FAKECODE' }),
-    } as any
-    const invalidRes = await checkoutValidateCoupon.POST(invalidCtx)
-    const invalidData = await invalidRes.json()
-    expect(invalidData.data.valid).toBe(false)
   })
 
   it('handles API errors gracefully with notifications', async () => {
