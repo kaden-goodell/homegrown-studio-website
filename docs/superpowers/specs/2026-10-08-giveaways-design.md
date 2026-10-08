@@ -19,7 +19,7 @@ Parties and kits are charged through Square's Payments API, which does accept gi
 |---|---|
 | 1 | **No coupon codes.** The dead coupon system (`src/lib/coupons.ts`, `coupons.json`, `validate-coupon`, `CouponInput`, `features.coupons`) is deleted — it is wired only into the hidden Programs flow. |
 | 2 | **Dollar giveaways = Square gift cards** with a promotional balance (`ADJUST_INCREMENT`, reason `COMPLIMENTARY` — the same mechanism as crew credit; no money moves). Redeemable online for parties and kits, and at the register. |
-| 3 | **Free workshop seats = "Comp a seat" on `/staff`**, which makes the dashboard call from the staff browser. The iPad stays signed in to Square (it already must be for class creation). |
+| 3 | **Free workshop seats = "Comp a seat" on `/staff`**: a link into Square's dashboard for the no-payment "Add attendee" step, then a form here that records the person and their picks and sends the confirmation. (Direct call from our page is impossible — CORS; see C.) |
 | 4 | Gift cards are minted from `/staff` (and a CLI) by anyone with the staff passcode. Each mint records who it was for in the card's note so the Square list is self-explaining. |
 | 5 | v1: a gift card must **cover the whole amount**; otherwise the checkout says how much is on it and asks for a card. Splitting one order across a gift card and a card is a follow-up (Square supports it — two payments on one order — but it doubles the payment states to get right). |
 | 6 | Nothing here cancels, refunds, or moves a booking (standing rule). "Comp a seat" only adds. |
@@ -42,15 +42,16 @@ Parties and kits are charged through Square's Payments API, which does accept gi
 
 ### C. Comp a seat (`/staff` → class roster → "Comp a seat")
 
-- Lives on the class roster (`Roster.tsx`), next to the existing actions, drop-off or not.
-- Form: name, email, phone (optional), seats (default 1), and — when the class has questions (`event-meta.options`) — the same per-seat picks the public modal asks.
-- Flow:
-  1. The browser checks it is signed in to Square (`GET app.squareup.com/appointments/api/class-schedules/<id>` with `credentials:'include'`; a 401/redirect → *"Sign in to Square in this browser first"* with a link, and stop).
-  2. `POST /api/staff/comp-seat/prepare.json` (staff-authed): finds or creates the Square customer (`providers.customer.findOrCreate`), validates picks against the class's options, and returns `{ customerId }`. Nothing is written yet.
-  3. The browser calls `POST app.squareup.com/appointments/api/class-bookings` `{ class_booking: { class_schedule_id, customer_id, start_at }, client_message: { send_email: false, … } }` once per seat (Square books one seat per booking). On any failure after the first seat, it stops and reports which seats were booked — it never cancels.
-  4. `POST /api/staff/comp-seat/record.json`: `{ scheduleId, bookingIds, customerId, picks, by }` → writes the `seat-choices` record(s) (same shape the paid path writes, `simulated` absent, plus `comped: true`), and sends our own confirmation email (the "Your picks" one) so the person gets the same email a paying guest gets. The roster re-reads Square and the seat appears like any other — rosters, totals, picks, warnings all already read Square + `seat-choices`.
-- The seat shows as "Not yet paid" in Square's dashboard. That is correct and wanted; staff can "Take payment" there later if a comp turns into a sale.
-- The existing conflict guards apply unchanged (a comp over a sold-out class fails at step 3 with Square's error, shown as-is).
+**Deviation recorded 2026-10-08:** the first draft had the staff page call Square's dashboard endpoint directly. A live probe from the studio origin fails (`Failed to fetch`): Square sends no CORS allowance, so that call works only from inside an app.squareup.com tab. The flow below keeps the outcome and routes the one Square step through Square's own screen.
+
+- Lives on the class roster (`Roster.tsx`), next to the existing actions, drop-off or not. Opens a right-side sheet (same pattern as `AddFamilySheet`).
+- **Step 1 — in Square (one link).** The sheet shows a button *"Open this class in Square"* → `https://app.squareup.com/dashboard/appointments/calendar/classes/<classScheduleId>?date=<YYYY-MM-DD>&view=week` in a new tab, with the three taps spelled out: *Add attendee → pick or create the person → Add to class → Skip payment.* (Verified: that books the seat with no charge; it shows "Not yet paid" in Square.)
+- **Step 2 — record it here.** The same sheet has the form: name, email, phone (optional), seats (default 1), and — when the class has questions — the per-seat picks the public modal asks. *Record comped seat* → `POST /api/staff/comp-seat.json` (staff-authed) `{ scheduleId, givenName, familyName, email, phone?, seats, picks }`:
+  - validates picks against the class's options exactly as the public path does (400 naming the first problem);
+  - writes one `seat-choices` record with `bookingId: 'comp_<id>'`, `orderId: null`, `comped: true`, `by` = the staff member;
+  - sends the same confirmation email a paying guest gets (the "Seats … paid" line reads *comped* instead);
+  - returns `{ ok: true, bookingId }`. The roster refreshes; the person appears under "Paid, not signed in yet" (now labelled *"Comped / paid, not signed in yet"*) with their picks, and the class's picks-missing warning clears once the recorded seats match Square's sold count.
+- Nothing here talks to Square. The seat exists in Square because staff added it there; our record is what the roster, totals, picks and email run on. If staff records but forgets Square, the oversold/picks warnings don't catch it — the sheet's copy makes the order explicit (Square first, then record), and the warnings panel already flags a class whose recorded seats exceed Square's sold count.
 
 ### D. Delete the coupon remnants
 
@@ -67,16 +68,16 @@ Parties and kits are charged through Square's Payments API, which does accept gi
 ## Data
 
 - New blob store `gift-cards` (`makeKvStore('gift-cards','gift-cards')`): `{ gan, giftCardId, amountCents, forWhom, note, by, at }`. The balance is never stored — Square is the truth.
-- `seat-choices` records gain optional `comped: true`.
+- `seat-choices` records gain optional `comped: true` and `by?: By`; comped records use `bookingId: 'comp_<id>'` and `orderId: null`.
 - No change to event-meta, bookings, or waivers.
 
 ## Testing
 
-- Unit: gift-card mint request validation (amount 1–500 dollars, forWhom required), comp-seat prepare (picks validated exactly like the public path, 400 naming the first problem), record (one `seat-choices` row per booking id, email sent once).
+- Unit: gift-card mint request validation (amount 1–500 dollars, forWhom required); comp-seat record (picks validated exactly like the public path, 400 naming the first problem; one `seat-choices` row, `comped: true`; email sent once with the comped wording).
 - API: staff auth (401) on all three new routes; party/kit book with a short gift card → 402 with the balance and nothing charged; workshop book with a gift-card token → 400 "cards only" before any Square call.
-- Components: PaymentForm gift-card toggle (mounts, tokenizes via the mock, absent on workshops with the explanatory line); gift-card screen (mint → number shown → list refreshes); comp-seat form (picks required when the class has questions; "sign in to Square" state; partial-success message lists booked seats).
-- Browser walkthrough on local dev with mock providers: mint $25 → book a $25 kit with it → kit order shows paid; comp two seats on a class with questions → roster shows both with picks and "comped"; a short card on a party → 402 copy.
-- Live check before prod (Kaden's call): mint a $1 card, pay a $1 kit deposit with it on the preview; comp a seat on a test class from the iPad and cancel it in Square by hand.
+- Components: PaymentForm gift-card toggle (mounts, tokenizes via the mock, absent on workshops with the explanatory line); gift-card screen (mint → number shown → list refreshes); comp-seat sheet (Square link carries the class id and day; picks required when the class has questions; success refreshes the roster).
+- Browser walkthrough on local dev with mock providers: mint $25 → book a $25 kit with it → kit order shows paid; record a two-seat comp on a class with questions → roster shows them with picks and "comped"; a short card on a party → 402 copy.
+- Live check before prod (Kaden's call): mint a $1 card, pay a $1 kit deposit with it on the preview; add an attendee to a test class from Square's dashboard (Skip payment), record it on /staff, confirm the email and the roster; cancel the attendee in Square by hand.
 
 ## Rollout
 
