@@ -192,9 +192,9 @@ describe('GET /api/calendar.json', () => {
     const parties = body.events.filter((e: any) => e.kind === 'party-available')
     expect(parties.length).toBeGreaterThan(0)
     for (const p of parties) expect(p.date.startsWith('2026-11')).toBe(true)
-    // The first weekend of November is closed (Halloween), so the month starts on the 7th,
-    // the first Saturday after the clocks change; its first party is still 9:00 AM.
-    expect(parties[0]).toMatchObject({ date: '2026-11-07', startTime: '09:00' })
+    // Parties start on Saturday 7 Nov, after the clocks change; a Saturday has one party, at 1:30 PM.
+    expect(parties[0]).toMatchObject({ date: '2026-11-07', startTime: '13:30' })
+    expect(parties.filter((p: any) => p.date === '2026-11-07')).toHaveLength(1)
   })
 
   it('offers no party time on a day the studio has closed', async () => {
@@ -376,8 +376,8 @@ describe('GET /api/calendar.json', () => {
   })
 
   it('does not advertise a party time a class rules out', async () => {
-    mockListWorkshops.mockResolvedValue([workshop({ startAt: '2026-10-25T17:00:00.000Z', durationMinutes: 120, name: 'Bedazzled Pumpkin Pails' })])
-    const october = (await getMonth('2026-10')).body.events.filter((e: any) => e.kind === 'party-available' && e.date === '2026-10-25')
-    expect(october.map((e: any) => e.startTime)).toEqual(['15:30'])
+    mockListWorkshops.mockResolvedValue([workshop({ startAt: '2026-11-08T18:00:00.000Z', durationMinutes: 120, name: 'Bedazzled Pumpkin Pails' })]) // noon–2 PM CST
+    const november = (await getMonth('2026-11')).body.events.filter((e: any) => e.kind === 'party-available' && e.date === '2026-11-08')
+    expect(november.map((e: any) => e.startTime)).toEqual(['15:30'])
   })
 })

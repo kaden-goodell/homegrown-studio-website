@@ -10,7 +10,7 @@ import { OPEN_STUDIO_START_DATE, OPEN_STUDIO_START_LABEL } from '@config/opening
 const walkInOpen = new Date() >= new Date(OPEN_STUDIO_START_DATE + 'T00:00:00-06:00')
 
 const steps = [
-  { n: '1', title: 'Walk in', text: 'No booking, no reservation — come by any time during open hours.' },
+  { n: '1', title: 'Walk in', text: 'No booking, no reservation — come by any Saturday morning.' },
   { n: '2', title: 'Pick a craft', text: 'Choose from the craft menu below. Pay per craft — no studio fee, no minimum.' },
   { n: '3', title: 'Make it yours', text: 'Grab a seat, take your time, and leave with something you made.' },
 ]
@@ -48,7 +48,7 @@ const steps = [
     <div class="glass-strong rounded-2xl px-8 py-10 sm:px-12 text-center mb-16 fade-in">
       <h2 class="text-2xl sm:text-3xl font-heading font-bold mb-6" style="color: var(--color-dark);"><span data-walkin="before" hidden={walkInOpen}>Walk-in hours (from {OPEN_STUDIO_START_LABEL})</span><span data-walkin="after" hidden={!walkInOpen}>Walk-in hours</span></h2>
       <div class="flex flex-wrap justify-center gap-x-10 gap-y-3">
-        {siteConfig.hours.map((h) => (
+        {siteConfig.cafeHours.map((h) => (
           <div>
             <span class="block text-sm font-semibold" style="color: var(--color-dark);">{h.days}</span>
             <span class="block text-sm" style="color: var(--color-muted);">{h.time}</span>

@@ -82,10 +82,14 @@ export const partyConfig = {
  * step by (durationMinutes + cleanupBufferMinutes) from `firstStart`, while
  * start + party + cleanup ≤ `lastWrap`, so the evening workshop slot stays clear.
  * Weekdays not listed have no parties.
- *   Sat: 9:00, 11:30, 2:00, 4:30   (90-min parties, 1-hr gaps, wrap by 7pm)
- *   Sun: 1:00, 3:30                (wrap by 6pm)
+ * Weekend shape (Kaden, 8 Oct 2026):
+ *   Sat: Craft Café 9–12:30 · party 1:30 · workshop 4–6 · workshop 7–9
+ *   Sun: party 1:00 · party 3:30 · workshop 6–8
+ * so Saturday offers ONE party start (1:30; a 90-min party + the hour's
+ * cleanup wraps by 4:00 for the first class) and Sunday two (3:30 steps aside
+ * automatically if a class is ever scheduled there).
  */
 export const partyDays: Record<number, { firstStart: string; lastWrap: string }> = {
-  0: { firstStart: '13:00', lastWrap: '18:00' }, // Sunday
-  6: { firstStart: '09:00', lastWrap: '19:00' }, // Saturday
+  0: { firstStart: '13:00', lastWrap: '18:00' }, // Sunday: 1:00, 3:30
+  6: { firstStart: '13:30', lastWrap: '16:00' }, // Saturday: 1:30 only
 }

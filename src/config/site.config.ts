@@ -1,6 +1,6 @@
 import { OPENING_DATE } from './opening'
 import { SITE_URL } from './site-url'
-import { STUDIO_HOURS, formatHours } from './hours'
+import { STUDIO_HOURS, CAFE_HOURS, formatHours } from './hours'
 
 export interface SiteConfig {
   name: string
@@ -89,6 +89,7 @@ export interface SiteConfig {
    * scheduled workshop.
    */
   hours: { days: string; time: string }[]
+  cafeHours: { days: string; time: string }[]
   /** Grand-opening date (ISO). Drives the pre-launch banner; remove after opening. */
   openingDate: string
   /** Header call-to-action button (rendered as a pill, not a text link). */
@@ -233,6 +234,8 @@ export const siteConfig: SiteConfig = {
   },
   // Edit the hours in ./hours.ts; this is the display form of that list.
   hours: formatHours(STUDIO_HOURS),
+  /** Craft Café walk-in hours (Saturday mornings) — what "walk-in hours" means on the site. */
+  cafeHours: formatHours(CAFE_HOURS),
   openingDate: OPENING_DATE,
   theme: {
     // These six override the matching tokens in src/styles/global.css (the

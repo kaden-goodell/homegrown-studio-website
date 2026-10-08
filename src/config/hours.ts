@@ -21,7 +21,16 @@ export interface HoursEntry {
 export const STUDIO_HOURS: HoursEntry[] = [
   { days: ['Thursday', 'Friday'], opens: '16:00', closes: '21:00' },
   { days: ['Saturday'], opens: '09:00', closes: '21:00' },
-  { days: ['Sunday'], opens: '14:00', closes: '21:00' },
+  { days: ['Sunday'], opens: '12:30', closes: '21:00' }, // 1:00 party hosts arrive 12:30
+]
+
+/**
+ * Craft Café (walk-in) hours — a subset of the studio hours. Saturday
+ * mornings only: the rest of the weekend is parties and workshops
+ * (Kaden, 8 Oct 2026). Shown wherever the site says "walk-in hours".
+ */
+export const CAFE_HOURS: HoursEntry[] = [
+  { days: ['Saturday'], opens: '09:00', closes: '12:30' },
 ]
 
 function parts(hhmm: string): { hour: number; minute: string; period: 'AM' | 'PM' } {

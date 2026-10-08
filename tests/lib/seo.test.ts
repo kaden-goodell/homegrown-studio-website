@@ -11,7 +11,7 @@ import {
   withStudioOffset,
   workshopEventsJsonLd,
 } from '@lib/seo'
-import { STUDIO_HOURS, formatHours, formatRange } from '@config/hours'
+import { STUDIO_HOURS, CAFE_HOURS, formatHours, formatRange } from '@config/hours'
 import { SITE_URL } from '@config/site-url'
 
 const SITE = 'https://ourhometownstudio.com'
@@ -105,8 +105,11 @@ describe('hours', () => {
     expect(formatHours(STUDIO_HOURS)).toEqual([
       { days: 'Thursday & Friday', time: '4 – 9 PM' },
       { days: 'Saturday', time: '9 AM – 9 PM' },
-      { days: 'Sunday', time: '2 – 9 PM' },
+      { days: 'Sunday', time: '12:30 – 9 PM' },
     ])
+  })
+  it('shows the Craft Café morning hours', () => {
+    expect(formatHours(CAFE_HOURS)).toEqual([{ days: 'Saturday', time: '9 AM – 12:30 PM' }])
   })
   it('stays open on Sunday until the evening workshops end at 9', () => {
     const sunday = STUDIO_HOURS.find((h) => h.days.includes('Sunday'))
@@ -136,7 +139,7 @@ describe('localBusinessJsonLd', () => {
   it('publishes the same hours the site shows', () => {
     const data = localBusinessJsonLd({ ...business, hours: STUDIO_HOURS }) as any
     expect(data.openingHoursSpecification).toHaveLength(3)
-    expect(data.openingHoursSpecification[2]).toMatchObject({ dayOfWeek: ['Sunday'], opens: '14:00', closes: '21:00' })
+    expect(data.openingHoursSpecification[2]).toMatchObject({ dayOfWeek: ['Sunday'], opens: '12:30', closes: '21:00' })
   })
 })
 

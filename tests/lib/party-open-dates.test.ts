@@ -17,7 +17,7 @@ vi.mock('@providers/square/client', () => ({
 import { openPartyStartsInWindow } from '@lib/party-open-dates'
 
 const VARIATION = 'PARTY_VARIATION'
-const NOW = new Date('2026-10-10T15:00:00.000Z') // window: Oct 23 (first party weekend, 5 days' notice) to Nov 24
+const NOW = new Date('2026-10-10T15:00:00.000Z') // window: Nov 7 (first party weekend) to Nov 24
 const dayOf = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
 const days = (starts: string[]) => Array.from(new Set(starts.map(dayOf)))
 
@@ -39,9 +39,8 @@ beforeEach(() => {
 describe('openPartyStartsInWindow', () => {
   it('lists the weekends inside the booking window, and nothing past it', async () => {
     const starts = await openPartyStartsInWindow(NOW)
+    // Parties start Sat 7 Nov; the Halloween weekend before it is closed anyway.
     expect(days(starts)).toEqual([
-      '2026-10-24', '2026-10-25',
-      // Halloween weekend is closed.
       '2026-11-07', '2026-11-08', '2026-11-14', '2026-11-15', '2026-11-21', '2026-11-22',
     ])
   })
@@ -53,15 +52,16 @@ describe('openPartyStartsInWindow', () => {
   })
 
   it('leaves out a time that is booked', async () => {
-    mockListBookings.mockResolvedValue([booked('2026-10-24T14:00:00.000Z')])
+    // Sunday 8 Nov, 1:00 PM CST: the 3:30 start the same day stays open.
+    mockListBookings.mockResolvedValue([booked('2026-11-08T19:00:00.000Z')])
     const starts = await openPartyStartsInWindow(NOW)
-    expect(starts).not.toContain('2026-10-24T14:00:00.000Z')
-    expect(starts).toContain('2026-10-24T19:00:00.000Z')
+    expect(starts).not.toContain('2026-11-08T19:00:00.000Z')
+    expect(starts).toContain('2026-11-08T21:30:00.000Z')
   })
 
   it('counts a cancelled booking as free', async () => {
-    mockListBookings.mockResolvedValue([booked('2026-10-24T14:00:00.000Z', { status: 'cancelled' })])
-    expect(await openPartyStartsInWindow(NOW)).toContain('2026-10-24T14:00:00.000Z')
+    mockListBookings.mockResolvedValue([booked('2026-11-07T19:30:00.000Z', { status: 'cancelled' })])
+    expect(await openPartyStartsInWindow(NOW)).toContain('2026-11-07T19:30:00.000Z')
   })
 
   it('offers nothing at all in the days the studio is closed for Christmas', async () => {
@@ -78,10 +78,10 @@ describe('openPartyStartsInWindow', () => {
 
   it('leaves out a time a class rules out (a Sunday noon–2 PM class takes the 1:00 start, not 3:30)', async () => {
     mockListAllWorkshops.mockResolvedValue([
-      { id: 'i', scheduleId: 'clssch_pails', name: 'Bedazzled Pumpkin Pails', startAt: '2026-10-25T17:00:00.000Z', durationMinutes: 120 },
+      { id: 'i', scheduleId: 'clssch_pails', name: 'Bedazzled Pumpkin Pails', startAt: '2026-11-08T18:00:00.000Z', durationMinutes: 120 },
     ])
     const starts = await openPartyStartsInWindow(NOW)
-    expect(starts).not.toContain('2026-10-25T18:00:00.000Z')
-    expect(starts).toContain('2026-10-25T20:30:00.000Z')
+    expect(starts).not.toContain('2026-11-08T19:00:00.000Z')
+    expect(starts).toContain('2026-11-08T21:30:00.000Z')
   })
 })

@@ -30,7 +30,7 @@ vi.mock('@config/site.config', () => ({
 
 // ── Deterministic clock ───────────────────────────────────────────────────────
 // Use a far-future Saturday so openPartyStarts won't filter any starts as past.
-// 2027-08-07 is a Saturday; party slots: 9:00, 11:30, 14:00, 16:30 CT
+// 2027-08-07 is a Saturday; the one Saturday party slot is 1:30 PM CT
 const FAKE_NOW = new Date('2027-08-01T12:00:00.000Z').getTime() // well before the Saturday
 
 const TEST_DATE = '2027-08-07' // Saturday
@@ -338,17 +338,17 @@ function classAt(startAt: string, durationMinutes = 120) {
 }
 
 describe('openPartyStarts — parties yield to classes', () => {
-  // Thu 8 Oct 2026: Sunday 25 Oct is inside the booking window (parties start Oct 23).
+  // Thu 8 Oct 2026: Sunday 8 Nov (CST, UTC-6) is inside the booking window (parties start Nov 7).
   const OCT_8 = new Date('2026-10-08T17:00:00.000Z')
-  const SUN_1PM = '2026-10-25T18:00:00.000Z'
-  const SUN_330PM = '2026-10-25T20:30:00.000Z'
-  const SUN_NOON = '2026-10-25T17:00:00.000Z' // a noon class runs to 2 PM: 1:00 clashes, 3:30 is 90 minutes clear
+  const SUN_1PM = '2026-11-08T19:00:00.000Z'
+  const SUN_330PM = '2026-11-08T21:30:00.000Z'
+  const SUN_NOON = '2026-11-08T18:00:00.000Z' // a noon class runs to 2 PM: 1:00 clashes, 3:30 is 90 minutes clear
 
   it('drops the 1:00 PM Sunday party when a class runs noon–2 PM, and keeps 3:30', async () => {
     vi.setSystemTime(OCT_8)
     mockListAllWorkshops.mockResolvedValue([classAt(SUN_NOON)])
     const { openPartyStarts } = await import('@lib/party-availability')
-    expect(await openPartyStarts('2026-10-25')).toEqual([SUN_330PM])
+    expect(await openPartyStarts('2026-11-08')).toEqual([SUN_330PM])
   })
 
   it('the pre-charge re-check refuses the class-blocked start', async () => {
@@ -363,14 +363,14 @@ describe('openPartyStarts — parties yield to classes', () => {
     vi.setSystemTime(OCT_8)
     mockListAllWorkshops.mockResolvedValue([classAt(SUN_1PM)])
     const { openPartyStarts } = await import('@lib/party-availability')
-    expect(await openPartyStarts('2026-10-25')).toEqual([])
+    expect(await openPartyStarts('2026-11-08')).toEqual([])
   })
 
   it('a class lookup that fails never blocks party availability', async () => {
     vi.setSystemTime(OCT_8)
     mockListAllWorkshops.mockRejectedValue(new Error('Square Classes API error: 503'))
     const { openPartyStarts } = await import('@lib/party-availability')
-    expect(await openPartyStarts('2026-10-25')).toEqual([SUN_1PM, SUN_330PM])
+    expect(await openPartyStarts('2026-11-08')).toEqual([SUN_1PM, SUN_330PM])
     expect(mockListBookings).toHaveBeenCalledTimes(1)
   })
 
@@ -389,7 +389,7 @@ describe('openPartyStarts — parties yield to classes', () => {
     const request = new Request(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date: '2026-10-25' }),
+      body: JSON.stringify({ date: '2026-11-08' }),
     })
     const response = await POST({ request, url, params: {}, redirect: () => new Response(), locals: {} } as any)
     const json = await response.json()

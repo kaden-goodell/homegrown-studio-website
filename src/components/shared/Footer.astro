@@ -78,7 +78,7 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
           ))}
         </dl>
         <p class="footer-note" data-walkin="before" hidden={walkInOpen}>
-          Walk-ins start in December. Until then we open for booked workshops and parties.
+          Craft Café walk-ins are Saturday mornings from November 7. Parties and workshops by booking.
         </p>
       </div>
 
@@ -108,7 +108,7 @@ const phoneDigits = (siteConfig.contactPhone ?? '').replace(/[^+\d]/g, '')
 </footer>
 
 <script is:inline data-astro-rerun define:vars={{ walkInStart: OPEN_STUDIO_START_DATE }}>
-  // Central time, standard offset: walk-ins start in December.
+  // Central time, standard offset: the Craft Café start date (see opening.ts).
   var walkInOpen = new Date() >= new Date(walkInStart + 'T00:00:00-06:00')
   document.querySelectorAll('[data-walkin]').forEach(function (el) {
     el.hidden = (el.getAttribute('data-walkin') === 'after') !== walkInOpen

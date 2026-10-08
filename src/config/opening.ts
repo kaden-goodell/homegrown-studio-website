@@ -12,17 +12,17 @@
 export const OPENING_DATE = '2026-10-16'
 
 /**
- * Private parties start the weekend AFTER the grand opening — the opening
- * weekend itself is workshops and events only (Kaden, 8 Oct 2026). No party
- * date before this is offered or accepted. Change it here only.
+ * Private parties and the Craft Café both start the weekend after the
+ * Halloween break (Sat 7 Nov 2026); until then the studio runs workshops
+ * only (Kaden, 8 Oct 2026). No party date before this is offered or
+ * accepted. Change it here only.
  */
-export const PARTY_START_DATE = '2026-10-23'
+export const PARTY_START_DATE = '2026-11-07'
 
 /**
- * Open Studio (walk-in) starts later than the grand opening — the first weeks
- * are parties, workshops, and events only. Before this date /craft-cafe and
- * the homepage say walk-in hours haven't started. Same rule: change it here only.
- * Label is what the copy says until the exact day is confirmed.
+ * Craft Café (walk-in) starts the same weekend as parties. Before this date
+ * /craft-cafe and the homepage say walk-in hours haven't started. Same rule:
+ * change it here only. The label is what the copy says.
  */
-export const OPEN_STUDIO_START_DATE = '2026-12-03'
-export const OPEN_STUDIO_START_LABEL = 'the first week of December'
+export const OPEN_STUDIO_START_DATE = PARTY_START_DATE
+export const OPEN_STUDIO_START_LABEL = 'Saturday, November 7'

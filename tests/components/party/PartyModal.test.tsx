@@ -18,14 +18,16 @@ vi.mock('@components/checkout/PaymentForm', async () => {
   }
 })
 
-// Noon Central on Sunday 27 Sep 2026. Opening day is 16 Oct, so dates run 16 Oct to 11 Nov.
+// Noon Central on Sunday 27 Sep 2026. Parties start Sat 7 Nov, so dates run 7 Nov to 11 Nov.
 const NOW = new Date('2026-09-27T17:00:00.000Z')
-// Saturday 24 Oct 2026, Central (CDT, UTC-5) — the first party weekend
-const SAT = '2026-10-24'
+// Saturday 7 Nov 2026, Central (CST, UTC-6) — the first party weekend. Saturday has one
+// party time (1:30 PM); Sunday 8 Nov has two (1:00 and 3:30 PM).
+const SAT = '2026-11-07'
+const SUN = '2026-11-08'
 const slot = (iso: string) => ({ startAt: iso, endAt: new Date(Date.parse(iso) + 90 * 60_000).toISOString(), durationMinutes: 90 })
-const SAT_9 = slot('2026-10-24T14:00:00.000Z')
-const SAT_2 = slot('2026-10-24T19:00:00.000Z')
-const SUN_1 = slot('2026-10-25T18:00:00.000Z')
+const SAT_1 = slot('2026-11-07T19:30:00.000Z')
+const SUN_1 = slot('2026-11-08T19:00:00.000Z')
+const SUN_3 = slot('2026-11-08T21:30:00.000Z')
 
 const crafts = [
   { id: 'c-bling', name: 'Bedazzle & Bling', perHeadCents: 1500, description: 'Line one.\n\nEveryone picks their own.\n\nEach guest goes home with it. Ages 8 and up.', imageUrl: 'https://img.example/bling.jpg' },
@@ -61,8 +63,8 @@ beforeEach(() => {
   )
   answers = {
     'service-info': { body: { data: serviceInfo } },
-    'available-dates': { body: { data: { dates: [SAT, '2026-10-25'], bookedDates: ['2026-10-31'], times: { [SAT]: [SAT_9, SAT_2], '2026-10-25': [SUN_1] }, windowDays: 45 } } },
-    availability: { body: { data: { slots: [SAT_9, SAT_2] } } },
+    'available-dates': { body: { data: { dates: [SAT, SUN], bookedDates: [], times: { [SAT]: [SAT_1], [SUN]: [SUN_1] }, windowDays: 45 } } },
+    availability: { body: { data: { slots: [SAT_1] } } },
     book: { body: { data: { bookingId: 'bk-1', hostToken: 'host-key', receiptUrl: 'https://squareup.com/receipt/9', totalCharged: 30000, emailSent: true } } },
   }
   fetchMock = vi.fn(async (url: string) => {
@@ -104,19 +106,19 @@ async function pickCraft(name = 'Bubble Letter Keychains') {
 async function toWhen() {
   await pickCraft()
   next()
-  await screen.findByRole('button', { name: 'Sat, Oct 24' })
+  await screen.findByRole('button', { name: 'Sat, Nov 7' })
 }
 
-async function toGuests() {
+async function toGuests(day = 'Sat, Nov 7', time = '1:30 PM') {
   await toWhen()
-  fireEvent.click(screen.getByRole('button', { name: 'Sat, Oct 24' }))
-  fireEvent.click(await screen.findByRole('button', { name: '2:00 PM' }))
+  fireEvent.click(screen.getByRole('button', { name: day }))
+  fireEvent.click(await screen.findByRole('button', { name: time }))
   next()
   await screen.findByText('About how many guests?')
 }
 
-async function toPay() {
-  await toGuests()
+async function toPay(day?: string, time?: string) {
+  await toGuests(day, time)
   next()
   await screen.findByTestId('payment-form')
 }
@@ -127,10 +129,10 @@ function fillContact() {
   }
 }
 
-async function pay() {
+async function pay(date = 'Nov 7') {
   fillContact()
   fireEvent.click(screen.getByRole('checkbox'))
-  fireEvent.click(await screen.findByRole('button', { name: 'Pay $300 and reserve Oct 24' }))
+  fireEvent.click(await screen.findByRole('button', { name: `Pay $300 and reserve ${date}` }))
 }
 
 describe('PartyModal — the craft step', () => {
@@ -204,32 +206,35 @@ describe('PartyModal — dates and times', () => {
   it('shows the times for a date at once, from what came with the dates', async () => {
     open()
     await toWhen()
-    fireEvent.click(screen.getByRole('button', { name: 'Sat, Oct 24' }))
-    expect(screen.getByRole('button', { name: '9:00 AM' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '2:00 PM' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Sat, Nov 7' }))
+    expect(screen.getByRole('button', { name: '1:30 PM' })).toBeInTheDocument()
     expect(requestsTo('availability')).toHaveLength(0)
   })
 
   it('shows a fully booked date as "Booked", not as missing', async () => {
+    // Saturday's one time (1:30 PM) is taken, so the whole date is booked.
+    answers['available-dates'] = { body: { data: { dates: [SUN], bookedDates: [SAT], times: { [SUN]: [SUN_1] }, windowDays: 45 } } }
     open()
-    await toWhen()
-    expect(screen.getByRole('button', { name: 'Sat, Oct 31 · Booked' })).toBeDisabled()
+    await pickCraft()
+    next()
+    expect(await screen.findByRole('button', { name: 'Sat, Nov 7 · Booked' })).toBeDisabled()
   })
 
-  it('counts only booked times: "2 of 4 times still open"', async () => {
+  it('counts only booked times: "1 of 2 times still open"', async () => {
+    // Sunday offers 1:00 and 3:30; only 1:00 is left.
     open()
     await toWhen()
-    fireEvent.click(screen.getByRole('button', { name: 'Sat, Oct 24' }))
-    expect(screen.getByText('2 of 4 times still open')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Sun, Nov 8' }))
+    expect(screen.getByText('1 of 2 times still open')).toBeInTheDocument()
   })
 
   it('says nothing about scarcity when every time is open', async () => {
     // Sunday offers 1:00 and 3:30, and both are open.
-    answers['available-dates'] = { body: { data: { dates: ['2026-10-25'], bookedDates: [], times: { '2026-10-25': [SUN_1, slot('2026-10-25T20:30:00.000Z')] } } } }
+    answers['available-dates'] = { body: { data: { dates: [SUN], bookedDates: [], times: { [SUN]: [SUN_1, SUN_3] } } } }
     open()
     await pickCraft()
     next()
-    fireEvent.click(await screen.findByRole('button', { name: 'Sun, Oct 25' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Sun, Nov 8' }))
     expect(screen.getByRole('button', { name: '1:00 PM' })).toBeInTheDocument()
     expect(screen.queryByText(/times still open/)).toBeNull()
   })
@@ -239,7 +244,7 @@ describe('PartyModal — dates and times', () => {
     await toWhen()
     next()
     expect(screen.getByRole('alert')).toHaveTextContent('Pick a date to continue.')
-    fireEvent.click(screen.getByRole('button', { name: 'Sat, Oct 24' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sun, Nov 8' }))
     next()
     expect(screen.getByRole('alert')).toHaveTextContent('Pick a start time to continue.')
   })
@@ -261,7 +266,7 @@ describe('PartyModal — dates and times', () => {
       await toLater()
       expect(screen.getByLabelText('Email address')).toBeInTheDocument()
       expect(screen.queryByRole('group', { name: 'Dates' })).toBeNull()
-      expect(screen.queryByRole('button', { name: 'Sat, Oct 24' })).toBeNull()
+      expect(screen.queryByRole('button', { name: 'Sat, Nov 7' })).toBeNull()
       expect(screen.queryByText('Choose a date')).toBeNull()
     })
 
@@ -292,16 +297,16 @@ describe('PartyModal — dates and times', () => {
     it('goes back to the open dates, with a date chosen earlier still chosen', async () => {
       open()
       await toWhen()
-      fireEvent.click(screen.getByRole('button', { name: 'Sat, Oct 24' }))
-      fireEvent.click(screen.getByRole('button', { name: '2:00 PM' }))
+      fireEvent.click(screen.getByRole('button', { name: 'Sat, Nov 7' }))
+      fireEvent.click(screen.getByRole('button', { name: '1:30 PM' }))
       fireEvent.click(screen.getByRole('button', { name: 'Planning something later?' }))
 
       // While asking about a later date, no time is shown as chosen.
-      expect(screen.queryByText('Sat, Oct 24 · 2:00 PM CT')).toBeNull()
+      expect(screen.queryByText('Sat, Nov 7 · 1:30 PM CT')).toBeNull()
 
       fireEvent.click(screen.getByRole('button', { name: 'Back to open dates' }))
-      expect(screen.getByRole('button', { name: '2:00 PM' })).toHaveAttribute('aria-pressed', 'true')
-      expect(screen.getByText('Sat, Oct 24 · 2:00 PM CT')).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: '1:30 PM' })).toHaveAttribute('aria-pressed', 'true')
+      expect(screen.getByText('Sat, Nov 7 · 1:30 PM CT')).toBeInTheDocument()
       expect(screen.queryByLabelText('Email address')).toBeNull()
     })
 
@@ -340,13 +345,13 @@ describe('PartyModal — dates and times', () => {
     next()
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent('We couldn’t load this. Try again, or text us at (256) 464-1710.')
-    answers['available-dates'] = { body: { data: { dates: [SAT], bookedDates: [], times: { [SAT]: [SAT_2] } } } }
+    answers['available-dates'] = { body: { data: { dates: [SAT], bookedDates: [], times: { [SAT]: [SAT_1] } } } }
     fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
-    expect(await screen.findByRole('button', { name: 'Sat, Oct 24' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Sat, Nov 7' })).toBeInTheDocument()
   })
 
   it('skips the date step when a calendar link carried a time that is still open', async () => {
-    open({ initialStart: SAT_2.startAt })
+    open({ initialStart: SAT_1.startAt })
     await pickCraft()
     expect(await screen.findByText('Step 1 of 3')).toBeInTheDocument()
     next()
@@ -354,8 +359,9 @@ describe('PartyModal — dates and times', () => {
   })
 
   it('keeps the date step, and explains, when the linked time has gone', async () => {
-    answers.availability = { body: { data: { slots: [SAT_9] } } }
-    open({ initialStart: SAT_2.startAt })
+    // The linked 1:00 PM Sunday time has gone; 3:30 PM is what is left.
+    answers.availability = { body: { data: { slots: [SUN_3] } } }
+    open({ initialStart: SUN_1.startAt })
     await pickCraft()
     next()
     expect(await screen.findByText('That time was just booked. Nothing was charged. These are still open.')).toBeInTheDocument()
@@ -368,7 +374,7 @@ describe('PartyModal — the price', () => {
     await toGuests()
     const summary = screen.getByRole('region', { name: 'Price summary' })
     expect(summary).toHaveTextContent('Pay today')
-    expect(summary).toHaveTextContent('Studio fee, holds Sat, Oct 24 at 2:00 PM$300')
+    expect(summary).toHaveTextContent('Studio fee, holds Sat, Nov 7 at 1:30 PM$300')
     expect(summary).toHaveTextContent('Pay at the studio')
     expect(summary).toHaveTextContent('Bubble Letter Keychains, about 10 guests × $20about $200')
     expect(summary).toHaveTextContent('Only for guests who come. Minimum 10 crafts.')
@@ -397,13 +403,13 @@ describe('PartyModal — the price', () => {
     open()
     await toPay()
     expect(screen.getByRole('region', { name: 'Price summary' })).toHaveTextContent('Estimated party total' + 'about $500')
-    expect(await screen.findByRole('button', { name: 'Pay $300 and reserve Oct 24' })).toBeInTheDocument()
-    // 17 Oct is 20 days away on 27 Sep: cash refund until 3 Oct.
-    expect(screen.getByText('Full refund until Oct 10. After that, studio credit.')).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Pay $300 and reserve Nov 7' })).toBeInTheDocument()
+    // 7 Nov is 41 days away on 27 Sep: cash refund until 14 days before, 24 Oct.
+    expect(screen.getByText('Full refund until Oct 24. After that, studio credit.')).toBeInTheDocument()
   })
 
   it('tells someone booking inside 14 days that the fee is credit only, before they pay', async () => {
-    vi.setSystemTime(new Date('2026-10-15T17:00:00.000Z'))
+    vi.setSystemTime(new Date('2026-10-30T17:00:00.000Z'))
     open()
     await toPay()
     expect(screen.getByText(/This date is less than 14 days away, so the \$300 is refundable as studio credit, not cash/)).toBeInTheDocument()
@@ -414,7 +420,7 @@ describe('PartyModal — paying', () => {
   it('never greys out Pay for missing details: it marks each one and goes to the first', async () => {
     open()
     await toPay()
-    const button = await screen.findByRole('button', { name: 'Pay $300 and reserve Oct 24' })
+    const button = await screen.findByRole('button', { name: 'Pay $300 and reserve Nov 7' })
     expect(button).not.toBeDisabled()
     fireEvent.click(button)
     expect(screen.getAllByRole('alert').map((a) => a.textContent)).toEqual([
@@ -449,7 +455,7 @@ describe('PartyModal — paying', () => {
     await waitFor(() => expect(requestsTo('book')).toHaveLength(1))
     const body = JSON.parse(requestsTo('book')[0][1].body)
     expect(body).toMatchObject({
-      startTime: SAT_2.startAt,
+      startTime: SAT_1.startAt,
       serviceVariationId: 'var-party',
       serviceVariationVersion: 7,
       people: 10,
@@ -478,10 +484,10 @@ describe('PartyModal — paying', () => {
     answers.book = () => {
       throw new TypeError('Failed to fetch')
     }
-    fireEvent.click(screen.getByRole('button', { name: 'Pay $300 and reserve Oct 24' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $300 and reserve Nov 7' }))
     await waitFor(() => expect(requestsTo('book')).toHaveLength(2))
     expect(await screen.findByRole('alert')).toHaveTextContent('We’re not sure that went through.')
-    fireEvent.click(screen.getByRole('button', { name: 'Pay $300 and reserve Oct 24' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $300 and reserve Nov 7' }))
     await waitFor(() => expect(requestsTo('book')).toHaveLength(3))
 
     const ids = requestsTo('book').map(([, init]) => JSON.parse(init.body).attemptId)
@@ -501,16 +507,16 @@ describe('PartyModal — paying', () => {
 
   it('takes them back to pick another time when theirs was just taken, with their details kept', async () => {
     answers.book = { status: 409, body: { code: 'slot_taken', detail: 'That time was just booked by someone else.' } }
-    answers.availability = { body: { data: { slots: [SAT_9] } } }
+    answers.availability = { body: { data: { slots: [SUN_3] } } }
     open()
-    await toPay()
-    await pay()
+    await toPay('Sun, Nov 8', '1:00 PM')
+    await pay('Nov 8')
 
     expect(await screen.findByText('That time was just booked. Nothing was charged. These are still open.')).toBeInTheDocument()
     expect(screen.getByText('Date and time')).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: '2:00 PM' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '1:00 PM' })).toBeNull()
 
-    fireEvent.click(screen.getByRole('button', { name: '9:00 AM' }))
+    fireEvent.click(screen.getByRole('button', { name: '3:30 PM' }))
     next()
     await screen.findByText('About how many guests?')
     next()
@@ -521,15 +527,16 @@ describe('PartyModal — paying', () => {
 
   it('brings the date step back when a calendar link had removed it', async () => {
     answers.book = { status: 409, body: { code: 'slot_taken', detail: 'taken' } }
-    open({ initialStart: SAT_2.startAt })
+    answers.availability = { body: { data: { slots: [SUN_1, SUN_3] } } }
+    open({ initialStart: SUN_1.startAt })
     await pickCraft()
     await screen.findByText('Step 1 of 3')
     next()
     await screen.findByText('About how many guests?')
     next()
     await screen.findByTestId('payment-form')
-    answers.availability = { body: { data: { slots: [SAT_9] } } }
-    await pay()
+    answers.availability = { body: { data: { slots: [SUN_3] } } }
+    await pay('Nov 8')
     expect(await screen.findByText('Step 2 of 4')).toBeInTheDocument()
     expect(screen.getByText('Date and time')).toBeInTheDocument()
   })
@@ -552,11 +559,11 @@ describe('PartyModal — confirmation', () => {
 
   it('tells the host what they need to turn up', async () => {
     await bookedScreen()
-    expect(screen.getByText('Sat, Oct 24 · 2:00–3:30 PM')).toBeInTheDocument()
+    expect(screen.getByText('Sat, Nov 7 · 1:30–3 PM')).toBeInTheDocument()
     expect(screen.getByText('Arrive up to 30 minutes early to set up.')).toBeInTheDocument()
     expect(screen.getByText(/525 Hughes Rd, Suite F, Madison, AL 35758/)).toBeInTheDocument()
     expect(screen.getByText(/About a week before, we’ll text you to check your headcount/)).toHaveTextContent('you pay for who comes, minimum 10.')
-    expect(screen.getByText('Full refund until Oct 10. After that, studio credit.')).toBeInTheDocument()
+    expect(screen.getByText('Full refund until Oct 24. After that, studio credit.')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: '(256) 464-1710' })).toHaveAttribute('href', 'sms:2564641710')
   })
 
@@ -571,7 +578,7 @@ describe('PartyModal — confirmation', () => {
     await bookedScreen()
     const google = decodeURIComponent(screen.getByRole('link', { name: 'Add to Google Calendar' }).getAttribute('href')!)
     expect(google).not.toContain('host-key')
-    expect(google).toContain('20261024T190000Z/20261024T203000Z')
+    expect(google).toContain('20261107T193000Z/20261107T210000Z')
   })
 
   it('says the party page is being set up, never links to /book, when it could not be saved', async () => {
@@ -615,7 +622,7 @@ describe('PartyModal — leaving', () => {
   it('asks first once a date has been chosen', async () => {
     const { onClose } = open()
     await toWhen()
-    fireEvent.click(screen.getByRole('button', { name: 'Sat, Oct 24' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sat, Nov 7' }))
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(onClose).not.toHaveBeenCalled()
     const prompt = screen.getByRole('alertdialog')
