@@ -370,13 +370,13 @@ Sheet (mirror `AddFamilySheet`): heading *"Comp a seat"*.
 
 ---
 
-### Task 12: Staff audit log (backend only) + owner-only money actions
+### Task 12: Staff audit log (backend only)
 
-> Added 2026-10-08 (Kaden): "we really need a log on who makes any decisions/actions on the admin page … It doesn't have to manifest on the frontend but it needs to be logged." Build this BEFORE Task 11's final gate. No screen.
+> Added 2026-10-08 (Kaden): "we really need a log on who makes any decisions/actions on the admin page … It doesn't have to manifest on the frontend but it needs to be logged." Build this BEFORE Task 11's final gate. No screen. No role gates — Kaden: "anyone can do it. Trust first. But we need to be able to check these things."
 
 **Files:**
 - Create: `src/lib/audit.ts`, `src/pages/api/staff/audit.json.ts`, `scripts/audit-log.ts`, `tests/lib/audit.test.ts`, `tests/api/staff-audit.test.ts`
-- Modify: every mutating staff endpoint — `checkin`, `comp-seat`, `event-meta`, `gift-cards` (POST), `incident`, `kit-cancel`, `kit-remind`, `kit-return`, `open-studio`, `rsvp`, `send-waiver-link`, and `pick` (records `staff.signed-in`) — each calls `recordAudit` after its write succeeds; `src/lib/staff-auth.ts` (export `requireOwner`).
+- Modify: every mutating staff endpoint — `checkin`, `comp-seat`, `event-meta`, `gift-cards` (POST), `incident`, `kit-cancel`, `kit-remind`, `kit-return`, `open-studio`, `rsvp`, `send-waiver-link`, and `pick` (records `staff.signed-in`) — each calls `recordAudit` after its write succeeds.
 
 **Interfaces (Produces):**
 
@@ -385,27 +385,25 @@ Sheet (mirror `AddFamilySheet`): heading *"Comp a seat"*.
 export interface AuditEntry { id: string; at: string; by: { id: string; name: string; role: 'owner' | 'crew' }; action: string; target: { kind: string; id: string; label?: string }; details?: Record<string, string | number | boolean | null>; simulated?: true }
 export async function recordAudit(e: Omit<AuditEntry, 'id' | 'at'>): Promise<void>   // NEVER throws; logs on failure — an audit failure must not fail the action
 export async function listAudit(opts?: { limit?: number; byId?: string; since?: string }): Promise<AuditEntry[]>   // newest first; hides simulated unless isPreviewOrDev()
-// src/lib/staff-auth.ts
-export function requireOwner(request: Request): StaffMember | Response   // 401 Response when not signed in, 403 { error: 'Owners only' } when role !== 'owner'
 ```
 
 Store `makeKvStore('audit', 'audit')`, key `audit:${at}-${id}` (ISO `at` first so `kv.list()` sorts by time). `action` is a short verb-noun: `gift-card.minted`, `seat.comped`, `checkin.here`, `checkin.out`, `custody.override`, `event.settings`, `rsvp.updated`, `kit.cancelled`, `kit.reminded`, `kit.returned`, `incident.filed`, `waiver-link.sent`, `staff.signed-in`. `details` carries the human-relevant facts (`amountCents`, `forWhom`, `seats`, `email`, `scheduleId`, `householdName` …) — never secrets, never a full waiver. The `by` comes from `staffAuthorized(request)` (id, name, role).
 
-**Owner-only:** `requireOwner` applied to `gift-cards` POST and `comp-seat` POST (crew may still GET the gift-card list). Everything else stays crew-accessible.
+**No role gates.** Any signed-in staff member can mint or comp; the log records `by.role` so owners can review.
 
-**Read endpoint:** `GET /api/staff/audit.json?limit=200&by=<staffId>&since=<ISO>` → `{ data: { entries } }`, owners only.
+**Read endpoint:** `GET /api/staff/audit.json?limit=200&by=<staffId>&since=<ISO>` → `{ data: { entries } }`, any signed-in staff.
 
 **CLI:** `npx tsx scripts/audit-log.ts [--limit 100] [--by <staffId>] [--since YYYY-MM-DD]` prints `time · who (role) · action · target · details` one per line, newest first (reads the store directly via `listAudit`).
 
-- [ ] **Step 1: Failing tests.** `audit.test.ts`: record → list newest first; `byId` and `since` filters; `simulated` hidden in prod; `recordAudit` swallows a store throw (spy on the logger). `staff-audit.test.ts`: 401 unauth, 403 crew, 200 owner with entries and the `by` filter passed through. In `staff-gift-cards.test.ts` and `staff-comp-seat.test.ts`: crew → 403 and NO mint/save; owner → `recordAudit` called once with the action and details. In each other mutating endpoint's existing test file: one assertion that `recordAudit` is called with the right `action` (mock `@lib/audit`).
+- [ ] **Step 1: Failing tests.** `audit.test.ts`: record → list newest first; `byId` and `since` filters; `simulated` hidden in prod; `recordAudit` swallows a store throw (spy on the logger). `staff-audit.test.ts`: 401 unauth, 200 signed-in (crew or owner) with entries and the `by` filter passed through. In `staff-gift-cards.test.ts` and `staff-comp-seat.test.ts`: `recordAudit` called once with the action and details, including `by.role`. In each other mutating endpoint's existing test file: one assertion that `recordAudit` is called with the right `action` (mock `@lib/audit`).
 - [ ] **Step 2–4:** implement, run `npx vitest run tests/lib/audit.test.ts tests/api`, tsc.
-- [ ] **Step 5: Commit** `feat(staff): audit log of every staff action; gift cards and comps are owners-only`.
+- [ ] **Step 5: Commit** `feat(staff): audit log of every staff action`.
 
 ---
 
 ### Task 11: Docs and the full gate
 
-**Files:** `docs/CREW-OPERATIONS.md` (new short section "Giveaways: gift cards and comped seats" — owners only; how to mint, how to comp: Square first, then record; every action is logged — `scripts/audit-log.ts` to read it), `docs/NEEDS-FROM-KADEN.md` (one line: live check before prod — mint $1, pay a $1 kit deposit on the preview).
+**Files:** `docs/CREW-OPERATIONS.md` (new short section "Giveaways: gift cards and comped seats" — how to mint, how to comp: Square first, then record; every action is logged — `scripts/audit-log.ts` to read it), `docs/NEEDS-FROM-KADEN.md` (one line: live check before prod — mint $1, pay a $1 kit deposit on the preview).
 
 - [ ] **Step 1:** write the two doc edits.
 - [ ] **Step 2: Full gate:** `npx vitest run` (all green), `npx tsc --noEmit`, `npm run build`.
