@@ -17,7 +17,7 @@ vi.mock('@providers/square/client', () => ({
 import { openPartyStartsInWindow } from '@lib/party-open-dates'
 
 const VARIATION = 'PARTY_VARIATION'
-const NOW = new Date('2026-10-10T15:00:00.000Z') // window: Nov 7 (first party weekend) to Nov 24
+const NOW = new Date('2026-10-10T15:00:00.000Z') // window: Nov 7 (first party weekend) to Jan 8 (90 days)
 const dayOf = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
 const days = (starts: string[]) => Array.from(new Set(starts.map(dayOf)))
 
@@ -39,10 +39,15 @@ beforeEach(() => {
 describe('openPartyStartsInWindow', () => {
   it('lists the weekends inside the booking window, and nothing past it', async () => {
     const starts = await openPartyStartsInWindow(NOW)
+    const open = days(starts)
     // Parties start Sat 7 Nov; the Halloween weekend before it is closed anyway.
-    expect(days(starts)).toEqual([
-      '2026-11-07', '2026-11-08', '2026-11-14', '2026-11-15', '2026-11-21', '2026-11-22',
-    ])
+    expect(open[0]).toBe('2026-11-07')
+    expect(open.slice(0, 6)).toEqual(['2026-11-07', '2026-11-08', '2026-11-14', '2026-11-15', '2026-11-21', '2026-11-22'])
+    // The window ends Fri 8 Jan, so the last party day is Sun 3 Jan; nothing later.
+    expect(open[open.length - 1]).toBe('2027-01-03')
+    expect(open.every((d) => d <= '2027-01-08')).toBe(true)
+    // Closed for Christmas, 21 Dec to 1 Jan.
+    expect(open.filter((d) => d >= '2026-12-21' && d <= '2027-01-01')).toEqual([])
   })
 
   it('leaves out the days the studio has closed', async () => {

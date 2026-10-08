@@ -63,7 +63,7 @@ beforeEach(() => {
   )
   answers = {
     'service-info': { body: { data: serviceInfo } },
-    'available-dates': { body: { data: { dates: [SAT, SUN], bookedDates: [], times: { [SAT]: [SAT_1], [SUN]: [SUN_1] }, windowDays: 45 } } },
+    'available-dates': { body: { data: { dates: [SAT, SUN], bookedDates: [], times: { [SAT]: [SAT_1], [SUN]: [SUN_1] }, windowDays: 90 } } },
     availability: { body: { data: { slots: [SAT_1] } } },
     book: { body: { data: { bookingId: 'bk-1', hostToken: 'host-key', receiptUrl: 'https://squareup.com/receipt/9', totalCharged: 30000, emailSent: true } } },
   }
@@ -213,7 +213,7 @@ describe('PartyModal — dates and times', () => {
 
   it('shows a fully booked date as "Booked", not as missing', async () => {
     // Saturday's one time (1:30 PM) is taken, so the whole date is booked.
-    answers['available-dates'] = { body: { data: { dates: [SUN], bookedDates: [SAT], times: { [SUN]: [SUN_1] }, windowDays: 45 } } }
+    answers['available-dates'] = { body: { data: { dates: [SUN], bookedDates: [SAT], times: { [SUN]: [SUN_1] }, windowDays: 90 } } }
     open()
     await pickCraft()
     next()
@@ -252,7 +252,7 @@ describe('PartyModal — dates and times', () => {
   it('states the booking window', async () => {
     open()
     await toWhen()
-    expect(screen.getByText('We open dates 45 days ahead.')).toBeInTheDocument()
+    expect(screen.getByText('We open dates 90 days ahead.')).toBeInTheDocument()
   })
 
   describe('planning something later', () => {
@@ -281,15 +281,15 @@ describe('PartyModal — dates and times', () => {
       open()
       await toLater()
       const month = screen.getByLabelText('Month you have in mind') as HTMLSelectElement
-      // The window ends 11 Nov 2026: the rest of November is still to come.
-      expect(Array.from(month.options).map((o) => o.value).slice(0, 3)).toEqual(['2026-11', '2026-12', '2027-01'])
+      // The window ends 26 Dec 2026: the rest of December is still to come.
+      expect(Array.from(month.options).map((o) => o.value).slice(0, 3)).toEqual(['2026-12', '2027-01', '2027-02'])
     })
 
     it('always names a month: there is no "not sure", because the month is what triggers the email', async () => {
       open()
       await toLater()
       const month = screen.getByLabelText('Month you have in mind') as HTMLSelectElement
-      expect(month.value).toBe('2026-11')
+      expect(month.value).toBe('2026-12')
       expect(Array.from(month.options).map((o) => o.value)).not.toContain('')
       expect(screen.queryByText('Not sure yet')).toBeNull()
     })
@@ -323,7 +323,7 @@ describe('PartyModal — dates and times', () => {
       open()
       await pickCraft()
       next()
-      await screen.findByText(/Every party date in the next 45 days is booked/)
+      await screen.findByText(/Every party date in the next 90 days is booked/)
       expect(screen.queryByRole('button', { name: 'Planning something later?' })).toBeNull()
       expect(screen.getAllByLabelText('Email address')).toHaveLength(1)
     })
@@ -334,7 +334,7 @@ describe('PartyModal — dates and times', () => {
     open()
     await pickCraft()
     next()
-    expect(await screen.findByText(/Every party date in the next 45 days is booked/)).toBeInTheDocument()
+    expect(await screen.findByText(/Every party date in the next 90 days is booked/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Tell me when dates open' })).toBeInTheDocument()
   })
 

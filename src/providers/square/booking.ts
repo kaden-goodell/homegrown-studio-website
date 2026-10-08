@@ -303,7 +303,7 @@ export class SquareBookingProvider implements BookingProvider {
 
     // Square refuses a range longer than 31 days ("Time range can be at most
     // 31 days in length"). Callers ask for what they need (the party window is
-    // 45 days), so longer ranges are fetched in pieces and joined here.
+    // 90 days), so longer ranges are fetched in pieces and joined here.
     // The pieces are asked for at the same time; if any fails, the whole
     // lookup fails, so a caller never trusts half a list.
     const pieces = await Promise.all(

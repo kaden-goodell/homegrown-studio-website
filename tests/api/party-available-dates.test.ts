@@ -41,15 +41,20 @@ afterEach(() => vi.useRealTimers())
 describe('POST /api/party/available-dates.json', () => {
   it('offers only dates inside the booking window', async () => {
     const { data } = await ask()
-    // Parties start the weekend of 7 Nov (Halloween weekend is closed), and the window ends 11 Nov.
-    expect(data.dates).toEqual(['2026-11-07', '2026-11-08'])
+    // Parties start the weekend of 7 Nov (Halloween weekend is closed); the window ends Sat 26 Dec,
+    // which is inside the Christmas closure, so the last party day is Sun 20 Dec.
+    expect(data.dates[0]).toBe('2026-11-07')
+    expect(data.dates[1]).toBe('2026-11-08')
+    expect(data.dates[data.dates.length - 1]).toBe('2026-12-20')
+    expect(data.dates.every((d: string) => d >= '2026-11-07' && d <= '2026-12-26')).toBe(true)
+    expect(data.dates.filter((d: string) => d >= '2026-12-21')).toEqual([])
     expect(data.bookedDates).toEqual([])
-    expect(data.windowDays).toBe(45)
+    expect(data.windowDays).toBe(90)
   })
 
   it('cannot be talked into a wider window than the rule allows', async () => {
     const { data } = await ask({ serviceVariationId: VARIATION, days: 120 })
-    expect(data.dates[data.dates.length - 1]).toBe('2026-11-08')
+    expect(data.dates[data.dates.length - 1]).toBe('2026-12-20')
   })
 
   it('sends the open times with each date, so the panel need not ask again', async () => {
@@ -87,7 +92,8 @@ describe('POST /api/party/available-dates.json', () => {
   it('lists a Saturday as booked once its single 1:30 PM time is taken', async () => {
     mockListBookings.mockResolvedValue([booked('2026-11-07T19:30:00.000Z')])
     const { data } = await ask()
-    expect(data.dates).toEqual(['2026-11-08'])
+    expect(data.dates).not.toContain('2026-11-07')
+    expect(data.dates[0]).toBe('2026-11-08')
     expect(data.bookedDates).toEqual(['2026-11-07'])
   })
 

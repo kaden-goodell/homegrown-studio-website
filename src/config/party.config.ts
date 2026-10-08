@@ -47,11 +47,11 @@ export const partyConfig = {
   hostArrivalMinutesEarly: 30,
   /**
    * How far ahead a party can be booked, in days from today (studio-local).
-   * Stays at 45 while the studio is new, so plans can change without
-   * cancelling on anyone (Kaden, 27 Sep 2026). Enforced in partyStartsForDate,
-   * so the calendar, the date list, the panel and the server all agree.
+   * 90 now that the weekend shape is settled (Kaden, 8 Oct 2026; was 45
+   * while plans were still moving). Enforced in partyStartsForDate, so the
+   * calendar, the date list, the panel and the server all agree.
    */
-  bookingWindowDays: 45,
+  bookingWindowDays: 90,
   /**
    * The least notice a party needs, in days: a party on the 20th can be booked
    * up to and including the 15th. Gives time to order supplies (Kaden, 27 Sep
