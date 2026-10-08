@@ -24,6 +24,7 @@ export const workshopMessages: Record<CheckoutErrorCode, string> = {
   not_open: 'This workshop isn’t open for booking yet. Nothing was charged.',
   unavailable: `Something went wrong on our end and nothing was charged. Please try again, or ${TEXT_US}.`,
   unknown_outcome: UNKNOWN_OUTCOME_MESSAGE,
+  gift_card_short: 'That gift card doesn’t have enough on it for this booking. Nothing was charged. Use a card instead.',
 }
 
 export const partyMessages: Record<CheckoutErrorCode, string> = {
@@ -35,6 +36,7 @@ export const partyMessages: Record<CheckoutErrorCode, string> = {
   not_open: 'That date isn’t open for booking yet. Nothing was charged. Pick one of the dates shown.',
   unavailable: `Something went wrong on our end and nothing was charged. Please try again, or ${TEXT_US}.`,
   unknown_outcome: UNKNOWN_OUTCOME_MESSAGE,
+  gift_card_short: 'That gift card doesn’t have enough on it for this booking. Nothing was charged. Use a card instead.',
 }
 
 /** The payment form could not load at all (script blocked, network down). */

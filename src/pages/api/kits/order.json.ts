@@ -7,6 +7,7 @@ import { providers } from '@config/providers'
 import { kitConfig } from '@config/kit.config'
 import { kitContent, kitThemes } from '@config/kit-content'
 import { paymentBypassEnabled } from '@lib/dev-flags'
+import type { CheckoutErrorCode } from '@lib/checkout-attempt'
 import {
   pickupThursdayFor,
   returnByFor,
@@ -604,9 +605,11 @@ function okResponse(input: {
   )
 }
 
-function errorResponse(detail: string, status: number) {
+function errorResponse(detail: string, status: number, code?: CheckoutErrorCode) {
+  const resolved: CheckoutErrorCode =
+    code ?? (status === 400 ? 'invalid' : status === 409 ? 'slot_taken' : status === 402 ? 'card_declined' : 'unavailable')
   return new Response(
-    JSON.stringify({ error: 'Unable to complete kit order', detail }),
-    { status, headers: { 'Content-Type': 'application/json' } },
+    JSON.stringify({ error: 'Unable to complete kit order', code: resolved, detail }),
+    { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
   )
 }

@@ -230,6 +230,14 @@ describe('POST /api/kits/order.json', () => {
     expect(claims).toHaveLength(0)
   })
 
+  it('errors carry a code and a detail string (missing payment token → 400 invalid)', async () => {
+    const res = await POST(ctx(makeBody({ paymentToken: undefined })))
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.code).toBe('invalid')
+    expect(typeof json.detail).toBe('string')
+  })
+
   it('rejects guests below the minimum with 400, no charge', async () => {
     const res = await POST(ctx(makeBody({ guests: 8, theme: undefined })))
     expect(res.status).toBe(400)
