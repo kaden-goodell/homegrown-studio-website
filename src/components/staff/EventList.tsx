@@ -14,6 +14,28 @@ const SOURCE_LABEL: Record<keyof EventSources, string> = { parties: 'Parties', w
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
 
+const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
+
+export function readDayParam(): string | null {
+  try {
+    const d = new URLSearchParams(window.location.search).get('day')
+    return d && DAY_RE.test(d) && !Number.isNaN(Date.parse(d)) ? d : null
+  } catch {
+    return null
+  }
+}
+
+export function writeDayParam(day: string | null): void {
+  try {
+    const params = new URLSearchParams(window.location.search)
+    if (day) params.set('day', day)
+    else params.delete('day')
+    const qs = params.toString()
+    const next = window.location.pathname + (qs ? `?${qs}` : '') + window.location.hash
+    if (next !== window.location.pathname + window.location.search + window.location.hash) history.replaceState(history.state, '', next)
+  } catch { /* address bar is a convenience */ }
+}
+
 /**
  * Today's (or any day's) scheduled events — parties, workshops, programs —
  * with a date stepper so staff can peek at tomorrow's roster ahead of time
@@ -30,7 +52,9 @@ export default function EventList({
   /** Reports the events for `date` (the real today) — Today's door chips use it. */
   onLoaded?: (events: EventRow[]) => void
 }) {
-  const [cursor, setCursor] = useState(date)
+  // The day being viewed lives in the address (?day=YYYY-MM-DD) so a refresh,
+  // or coming back from a roster, stays on it. Today itself drops the param.
+  const [cursor, setCursor] = useState(() => readDayParam() ?? date)
   const [events, setEvents] = useState<EventRow[]>([])
   const [error, setError] = useState<string | null>(null)
   // Which source systems failed on the last successful load (F2) — one of
@@ -58,6 +82,17 @@ export default function EventList({
   }
 
   useEffect(() => { load(cursor) }, [cursor])
+  useEffect(() => { writeDayParam(cursor === date ? null : cursor) }, [cursor, date])
+
+  // The door's event chips always need TODAY's events, even when a refresh
+  // lands the stepper on another day.
+  useEffect(() => {
+    if (cursor === date || !onLoaded) return
+    fetch(`/api/staff/events.json?date=${date}`, { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => { if (json?.data?.events) onLoaded(json.data.events) })
+      .catch(() => {})
+  }, [date])
 
   const isToday = cursor === date
   const label = isToday ? 'Today' : formatCalendarDay(cursor)
