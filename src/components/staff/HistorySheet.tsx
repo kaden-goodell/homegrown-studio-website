@@ -40,7 +40,9 @@ export function clearedLine(h: Household, e: CheckinEvent): string | null {
     try { cleared = JSON.parse(e.note.slice('cleared: '.length)) } catch { return null }
   }
   if (!cleared) return null
-  const parts = Object.entries(cleared).map(([pid, p]) =>
+  // Older notes held the whole family's times; show only who this undo cleared.
+  const only = new Set(e.personIds)
+  const parts = Object.entries(cleared).filter(([pid]) => only.size === 0 || only.has(pid)).map(([pid, p]) =>
     `${personName(h, pid)} at ${formatTime(p.inAt)}${p.outAt ? ` (left ${formatTime(p.outAt)})` : ''}`,
   )
   return parts.length ? `Had been checked in: ${parts.join(', ')}` : 'No one was checked in yet'

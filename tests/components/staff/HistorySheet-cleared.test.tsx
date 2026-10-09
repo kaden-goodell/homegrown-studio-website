@@ -14,6 +14,13 @@ describe('History: cleared check-ins in plain words', () => {
     expect(line).toMatch(/^Had been checked in: Jamie Rivera at .+ \(left .+\)$/)
     expect(line).not.toContain('{')
   })
+  it('names only the people this undo cleared, even when an old note held the whole family', () => {
+    const note = 'cleared: ' + JSON.stringify({ adult: { inAt: '2026-10-09T01:06:16.883Z', outAt: null }, 'child:0': { inAt: '2026-10-09T01:06:16.883Z', outAt: null } })
+    const line = clearedLine(h, { at: '', action: 'undo-checkin', personIds: ['child:0'], note })!
+    expect(line).toMatch(/^Had been checked in: Mia Rivera at /)
+    expect(line).not.toContain('Jamie')
+  })
+
   it('says nothing for other notes', () => {
     expect(clearedLine(h, { at: '', action: 'reissue-code', personIds: [], note: 'rotated' })).toBeNull()
   })
