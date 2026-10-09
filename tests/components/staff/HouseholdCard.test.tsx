@@ -99,13 +99,19 @@ describe('HouseholdCard — non-drop-off (attendance-only)', () => {
     expect(screen.queryByText(/left/)).not.toBeInTheDocument()
   })
 
-  it('keeps allergy + no-photo badges, emergency contact, signed/valid line and History', () => {
+  it('keeps allergy + no-photo badges, Agreement and History; emergency and signed date live in Agreement', () => {
     renderCard(household(), false)
     expect(screen.getAllByText(/peanuts/).length).toBeGreaterThan(0)
     expect(screen.getByText(/No photos/)).toBeInTheDocument()
-    expect(screen.getByText(/Emergency:/)).toBeInTheDocument()
-    expect(screen.getByText(/valid to/)).toBeInTheDocument()
+    expect(screen.queryByText(/Emergency:/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/EXPIRED/)).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Agreement/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /History/ })).toBeInTheDocument()
+  })
+
+  it('says so plainly when the agreement has expired', () => {
+    renderCard(household({}, { validUntil: '2020-01-01T00:00:00.000Z' }), false)
+    expect(screen.getByText(/Agreement EXPIRED/)).toBeInTheDocument()
   })
 })
 
@@ -117,9 +123,9 @@ describe('HouseholdCard — allergy "None"', () => {
     expect(screen.queryByText(/Allergies in this family/)).not.toBeInTheDocument()
   })
 
-  it('a real allergy still does', () => {
+  it('a real allergy still does, on the person', () => {
     renderCard(household(), false)
-    expect(screen.getByText(/Allergies in this family/)).toBeInTheDocument()
+    expect(screen.getByText(/⚠ peanuts/)).toBeInTheDocument()
   })
 })
 
@@ -164,7 +170,7 @@ describe('HouseholdCard — seat picks', () => {
   })
 
   it('a blank emergency contact (optional since Oct 2026) reads "none given — call the signer"', () => {
-    renderCard(household({}, { emergency: { name: '', phone: '', relationship: '' } }), false)
+    renderCard(household({}, { emergency: { name: '', phone: '', relationship: '' } }), true)
     expect(screen.getByText(/none given — call the signer/)).toBeInTheDocument()
   })
 })

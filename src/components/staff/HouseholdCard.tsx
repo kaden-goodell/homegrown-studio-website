@@ -243,7 +243,7 @@ export default function HouseholdCard({
       {/* Header: family name + status */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <div>
-          <span style={{ fontWeight: 700, color: 'var(--color-dark)', fontSize: '1.0625rem' }}>{h.signer}</span>
+          <span style={{ fontWeight: 700, color: 'var(--color-dark)', fontSize: '1.2rem' }}>{h.signer}</span>
           <a href={`tel:${h.phone}`} style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--color-primary)', textDecoration: 'none' }}>📞 {h.phone}</a>
           {seats && seats.seats === 0 && (
             <p role="alert" data-testid="seats-line" style={{ margin: '0.15rem 0 0', fontSize: '0.8125rem', fontWeight: 700, color: '#b45309' }}>
@@ -287,35 +287,15 @@ export default function HouseholdCard({
         <StatusPill status={status} hereCount={herePeople.length} total={people.length} dropOff={dropOff} />
       </div>
 
-      {/* Signature validity — HOM-213 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
-        <p style={{ fontSize: '0.75rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
-          Signed {formatMonthDay(h.signedAt)} · {h.agreementVersion} ·{' '}
-          {expired ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>EXPIRED</span> : `valid to ${formatMonthYear(h.validUntil)}`}
+      {/* Expired agreement (the only signature detail the card needs); the rest is in 📄 Agreement. */}
+      {expired && (
+        <p style={{ fontSize: '0.875rem', color: '#b91c1c', fontWeight: 700, margin: '0.4rem 0 0' }}>
+          Agreement EXPIRED — they need to sign again.
         </p>
-        <span style={{ display: 'inline-flex', gap: '0.35rem' }}>
-          <button
-            type="button"
-            onClick={() => setAgreementOpen(true)}
-            style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.7rem', color: 'var(--color-muted)' }}
-          >
-            📄 Agreement
-          </button>
-          <button
-            type="button"
-            onClick={() => setHistoryOpen(true)}
-            style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.7rem', color: 'var(--color-muted)' }}
-          >
-            🕘 History
-          </button>
-        </span>
-      </div>
-
-      {/* Card-level scan strip: any allergy or no-photo in this family */}
-      {(anyAllergy || noPhoto) && (
-        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.6rem' }}>
-          {anyAllergy && <Badge tone="alert" wrap>⚠ Allergies in this family</Badge>}
-          {noPhoto && <Badge tone="muted">🚫 No photos</Badge>}
+      )}
+      {noPhoto && (
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+          <Badge tone="muted">🚫 No photos</Badge>
         </div>
       )}
 
@@ -331,7 +311,7 @@ export default function HouseholdCard({
             <Row key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.5rem 0', borderTop: '1px solid rgba(var(--color-primary-rgb),0.1)', flexWrap: 'wrap', opacity: st === 'out' ? 0.6 : 1, cursor: st === 'out' ? 'default' : 'pointer' }}>
               {leftBox(p, st)}
               <span style={{ fontSize: '0.95rem' }}>{p.icon}</span>
-              <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9375rem' }}>{p.name}</span>
+              <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '1.0625rem' }}>{p.name}</span>
               {p.sub && <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{p.sub}</span>}
               {p.duplicateOf && <Badge tone="muted">also on {p.duplicateOf}’s RSVP</Badge>}
               {stateLabel(p, st)}
@@ -344,10 +324,12 @@ export default function HouseholdCard({
         })}
       </div>
 
-      {/* Meta */}
-      <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.55rem 0 0' }}>
-        <strong style={{ color: 'var(--color-dark)' }}>Emergency:</strong> {h.emergency.name ? `${h.emergency.name} · ${h.emergency.phone}${h.emergency.relationship ? ` (${h.emergency.relationship})` : ''}` : 'none given — call the signer'}
-      </p>
+      {/* Meta — emergency contact on the card only for drop-off (no parent in the room); always in 📄 Agreement. */}
+      {dropOff && (
+        <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.55rem 0 0' }}>
+          <strong style={{ color: 'var(--color-dark)' }}>Emergency:</strong> {h.emergency.name ? `${h.emergency.name} · ${h.emergency.phone}${h.emergency.relationship ? ` (${h.emergency.relationship})` : ''}` : 'none given — call the signer'}
+        </p>
+      )}
       {h.responsibleAdult && (
         <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.15rem 0 0' }}>
           <strong style={{ color: 'var(--color-dark)' }}>With:</strong> {h.responsibleAdult}
@@ -367,7 +349,12 @@ export default function HouseholdCard({
         </div>
       )}
 
-      {err && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginTop: '0.5rem', fontWeight: 600 }}>{err}</p>}
+      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem', flexWrap: 'wrap' }}>
+        <button type="button" onClick={() => setAgreementOpen(true)} style={{ ...btn(), minHeight: '2.5rem', fontSize: '0.875rem' }}>📄 Agreement</button>
+        <button type="button" onClick={() => setHistoryOpen(true)} style={{ ...btn(), minHeight: '2.5rem', fontSize: '0.875rem' }}>🕘 History</button>
+      </div>
+
+      {err && <p style={{ color: '#b91c1c', fontSize: '0.875rem', marginTop: '0.5rem', fontWeight: 600 }}>{err}</p>}
 
       {/* Check-out — drop-off events only: chips, code, override (HOM-214) */}
       {dropOff && herePeople.length > 0 && (
