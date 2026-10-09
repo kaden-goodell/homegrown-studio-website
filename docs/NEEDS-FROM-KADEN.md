@@ -4,99 +4,44 @@ Verified against the live Netlify environment and the codebase on **2026-07-11**
 Each open item lists the exact file/place to act on. UI elements gated on empty
 fields stay hidden until filled — no code changes needed to "turn them on."
 
-## 🔴 Blocking before launch (Sept 1)
+## 🔴 Before opening day (Fri Oct 16, 2026) — updated 2026-10-09
 
-0. **Insurance stack (status as of 7/29 — bond ✅ paid; everything else pending):**
-   - [ ] **Workers' comp — DECIDED 7/29: Square Payroll pay-as-you-go (NEXT
-     Insurance)** so premium auto-tracks actual payroll. Setup chain, in order:
-     (1) register AL withholding + AL DOL unemployment accounts, (2) activate
-     Square Payroll, (3) Dashboard → Payroll → Benefits → Workers' Comp → Get
-     Started (NEXT uploads a policy to sign in 1–2 business days). Must be IN
-     FORCE before the crew's FIRST TRAINING HOUR (~mid-Aug). ⚠️ The store-credit
-     top-up must run through payroll as an IMPUTED-INCOME earning code — that's
-     what makes NEXT's auto-calc (and the W-2s) correct; same setup the CPA
-     needs anyway. You + Catherine: opt out via WC15, but you still count
-     toward the 5-employee trigger. Agent gets an FYI-not-a-quote in the email.
-   - [ ] **Bind the GL** ($1,800/yr CSU quote) — before binding, get the
-     forms/exclusions list in writing and confirm: affirmative **abuse &
-     molestation** coverage (E&S kid venues often exclude it), cosmetics/
-     products treatment (take-home face creams), and offsite events.
-   - [ ] **Madison Stargate LLC as additional insured** + COI to landlord
-     (lease covenant — currently out of compliance).
-   - [ ] **Liquor liability ≥$100k** — gates the ABC beer/wine license.
-     **DECIDED 7/29: liquor license + liability go on a SEPARATE LLC** (agent's
-     recommendation, Kaden agreed — unblocks the main business). NewCo needs:
-     own EIN/OA/bank, sublease or concession agreement for 525 Hughes Rd (ABC
-     matches lessee↔licensee exactly), possibly its own ALDOR sales-tax
-     license/bond, and cross additional-insured with Homegrown's GL. Tell the
-     attorney + CPA the entity exists.
-   - [ ] **Hired & non-owned auto** if "car stuff" involves vehicles — GL never
-     covers auto.
-   - [ ] **Confirm the property policy actually BOUND** (quote said eff 7/28 —
-     "this is not a policy"); ask in writing whether kit tableware is covered
-     while rented out in customers' homes.
+1. **Open workshop booking.** Production is `BOOKINGS_OPEN=parties` (parties
+   live since 10/9). Set it to `parties,workshops` and redeploy before the first
+   classes (Oct 16–18; Pumpkin Pails sign-ups close 24 h before, Sat 1 PM).
+   The one workshop "tell me when" sign-up is emailed automatically then.
+2. **Workers' comp + payroll with the CPA** (next week). AL counts heads incl.
+   LLC members toward the 5-employee trigger; must be in force before crew work.
+3. **Live checks of the staff tools** (`docs/CREW-OPERATIONS.md` §5b): mint a $1
+   gift card on /staff; comp yourself 2 seats (Square should show you + a guest
+   attendee) and cancel them in Square; Sell a seat → **Take payment** in Square
+   (unverified that it marks the seat paid).
+4. **New workshops**: dates, times, seat counts, drop-off for Bring Your Own
+   Bedazzle ($15), Rondelle Bead Necklaces ($35), Doodle Dishes ($35) — plus the
+   batch Kaden is sending.
 
-1. **Set `STAFF_PASSCODE` in the Netlify environment** — verified MISSING 2026-07-11.
-   Auth fails closed (no security risk), but the staff console — kits board,
-   party check-in, rosters — cannot log in on the deployed site until this is set.
-2. **Attorney redline of `docs/waiver-versions/v1.md`** (drop-off terms are its §4b) — the
-   exact text customers sign (`docs/WAIVER.md` is a generated mirror of the same
-   text; don't send that, send the archived versions so a later text change can't
-   silently invalidate the redline). Three questions to put to counsel specifically:
-   (1) §4(b) indemnity — does our Alabama minor-waiver workaround hold up post
-   *Monster Mountain*? (2) §6b products — how much can we strengthen it with no
-   products-liability coverage behind it? (3) arbitration / jury-trial waiver —
-   in or out, your call (deliberately omitted so far).
-3. **Physical kit inventory purchase** — Gilded + Prism at 60 settings each
-   (ledger sells 45), 3 hero sets each; Sweet Sixteen shares Gilded's tableware,
-   needs only its own consumables/staging.
+## 🟡 Do when ready
 
-## 🟡 Do when ready (feature upgrades itself, nothing broken meanwhile)
+5. **Photos**, then they go live: Doodle Dishes (hidden until then — Square
+   category "Not on Website"), Earring Bar, Mosaic Tile Coasters, Potholder Loom
+   (café-only; prices set: $35, $10 each, $10 small / $15 large).
+6. **Socials rebrand** to Hometown Studio + the new logo (Google Business Profile done).
+7. **Google Analytics** — `PUBLIC_GA4_ID` is NOT set in Netlify, so the site sends
+   no analytics. Create a GA4 property for ourhometownstudio.com and set it.
+8. **Take-home kits** — hidden (`features.kits.enabled=false` + not in
+   BOOKINGS_OPEN). Turn on when inventory, kit FAQ copy and theme photos are ready.
+9. **Seasonal Paint Craft** — parked until Kaden is ready.
 
-3a. **GA4 measurement ID** (HOM-150, before ad spend ~Aug 18) — create a GA4
-   property at [analytics.google.com](https://analytics.google.com) for
-   homegrowncraftstudio.com, then set `PUBLIC_GA4_ID=G-XXXXXXXXXX` in Netlify.
-   The site loads gtag + fires booking/purchase conversion events the moment the
-   var exists — no deploy needed beyond the one that ships this code. Then in
-   GA4: mark `purchase` (and optionally `booking_completed`) as key events, and
-   link Google Ads (HOM-41) to import them. Meta pixel still pending the ads
-   account (HOM-40).
+## ✅ Settled 2026-10-09
 
-4a. **Quo reminder texts — key DONE, carrier registration PENDING.**
-   `QUO_API_KEY` + `QUO_FROM_NUMBER` are set in Netlify + `.env` (verified
-   against the API 2026-07-12). ⚠️ But the number reports
-   `messaging: US restricted` — **US carrier registration (A2P/10DLC) is not
-   complete**, so API texts will fail until it is. Go to Quo → Settings →
-   Trust Center → US messaging registration and submit Goodell Holdings, LLC
-   (+ EIN); approval takes days. Also confirm prepaid credits (~$0.01/text).
-   The "💬 Text reminder" button fails politely until then.
-
-4. ~~Address autocomplete key~~ **DONE 2026-07-11** — `PUBLIC_GOOGLE_PLACES_KEY`
-   set in Netlify + local `.env`, verified live (suggestions + selection working
-   end-to-end). Key is from the *second* Google project (…W2gbrU); the first
-   project's key (…pRbSrg) is dead weight — delete that key/project in
-   [console.cloud.google.com](https://console.cloud.google.com) when convenient,
-   and optionally add a $5 budget alert. Free tier: 10k requests/month
-   (~1,500 typed addresses), then $2.83/1k.
-5. **Real photos** — party hero (`/images/party-hero.jpg` is an AI placeholder;
-   also serves as every kit-theme card via `kit-content.ts` `photo`) and the six
-   theme shots. Drop files, update paths, done.
-6. **Kit FAQ copy** (`kit-content.ts` → `faq`, empty = section hidden) and
-   per-theme `keeps`/`returns` refinement (drives the contents card + staff
-   return checklist). Theme names/tier prices are Claude drafts blessed for
-   editing — change `kit-content.ts` + `kit.config.ts`, re-run
-   `scripts/seed-kits.ts` (idempotent).
-7. **Delete the Pottery Painting demo item** once your wife has seen the
-   price-range display (Square item `6H3P6JRMGWDL6FQKFX3TFTPR` — ask me, or
-   Square Dashboard → Items). Card disappears from /book on its own.
-8. **Verify the FAQ claim "most are $15–$40"** (`party-content.ts` `faq[0]`)
-   against the real Party Crafts prices — fix or drop the range.
-9. **Giveaways live check — before the next prod push.** On the preview: (a) mint a $1
-   gift card from /staff → Gift cards, then pay a $1 kit deposit with it ("Pay with a gift
-   card instead"). (b) After the prod push (previews simulate, so they never touch Square):
-   on the live /staff, Comp a seat for yourself, 1 seat, on a class. Confirm Square shows
-   you as an attendee marked "Not yet paid", the email arrives, and the roster shows you as
-   comped. Then cancel that attendee in Square by hand. Details: `docs/CREW-OPERATIONS.md` §5b.
+- Insurance bound: building + GL (covers parents' night out). No liquor coverage
+  (no liquor). Workers' comp pending (item 2).
+- Participation agreement reviewed by the attorney.
+- Storefront sign ordered; install Oct 23.
+- Google Business Profile updated to Hometown.
+- `STAFF_PASSCODE` set; Quo texting unrestricted (US carrier registration done);
+  Pottery Painting demo item gone; the "$15–$40" FAQ claim no longer exists.
+- Party page photo is the real studio with AI touch-ups — keep it.
 
 ## 📋 Standing decisions (no action unless you change your mind)
 
