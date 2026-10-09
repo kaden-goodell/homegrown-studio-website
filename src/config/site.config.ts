@@ -6,6 +6,7 @@ export interface SiteConfig {
   name: string
   tagline: string
   logo: string
+  logoOnDark: string
   /** Canonical site origin, no trailing slash (e.g. for building absolute
    *  links in texts/emails/print pages). */
   url: string
@@ -220,7 +221,9 @@ const partyTypes: EventTypeConfig[] = [
 export const siteConfig: SiteConfig = {
   name: 'Hometown Studio',
   tagline: 'Create. Celebrate. Connect.',
-  logo: '/images/logo.svg',
+  logo: '/images/logo.png',
+  /** White version, for dark backgrounds (the footer). */
+  logoOnDark: '/images/logo-white.png',
   url: SITE_URL,
   contactEmail: 'contact@ourhometownstudio.com', // real Workspace alias; hello@ does not exist
   ownerEmails: ['kaden@ourhometownstudio.com', 'catherine@ourhometownstudio.com'],
