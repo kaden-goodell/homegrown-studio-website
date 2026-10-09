@@ -127,11 +127,12 @@ export const GET: APIRoute = async ({ request, url }) => {
       children: h.children.map(({ dob: _dob, ...c }) => c),
     }))
 
-    // Seat picks (spec D): only classes that ask questions have them. A failed
-    // read leaves `choices` out rather than blanking the roster.
+    // Seat records (spec D): picks for classes that ask questions, and comped
+    // seats on any class (a comp is always recorded, questions or not). A
+    // failed read leaves `choices` out rather than blanking the roster.
     const options = kind === 'workshop' ? (event.options ?? []) : []
     let choices: RosterChoices | null | undefined = null
-    if (options.length > 0) {
+    if (kind === 'workshop') {
       try {
         choices = summarizeChoices(
           options,

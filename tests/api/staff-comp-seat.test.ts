@@ -10,9 +10,10 @@ vi.mock('@lib/staff-auth', () => ({
 
 const mockList = vi.fn()
 const mockFindOrCreate = vi.fn()
+const mockGuest = vi.fn()
 vi.mock('@config/providers', () => ({ providers: {
   workshop: { listAllWorkshops: (...a: any[]) => mockList(...a) },
-  customer: { findOrCreate: (...a: any[]) => mockFindOrCreate(...a) },
+  customer: { findOrCreate: (...a: any[]) => mockFindOrCreate(...a), createGuest: (...a: any[]) => mockGuest(...a) },
 } }))
 
 const mockAdd = vi.fn()
@@ -50,6 +51,7 @@ beforeEach(async () => {
   mockList.mockResolvedValue([WORKSHOP])
   mockSend.mockResolvedValue(true)
   mockFindOrCreate.mockResolvedValue({ id: 'CUST_GIA' })
+  mockGuest.mockResolvedValue({ id: 'CUST_GUEST' })
   let n = 0
   mockAdd.mockImplementation(async () => ({ ok: true, bookingId: `clsbk_${++n}` }))
   POST = (await import('@pages/api/staff/comp-seat.json')).POST
@@ -88,7 +90,10 @@ describe('POST /api/staff/comp-seat.json', () => {
     const { data } = await res.json()
     expect(mockFindOrCreate).toHaveBeenCalledWith({ email: 'gia@x.com', givenName: 'Gia', familyName: 'Winner' })
     expect(mockAdd).toHaveBeenCalledTimes(2)
-    expect(mockAdd).toHaveBeenCalledWith({ scheduleId: 'clssch_pails', startAt: WORKSHOP.startAt, customerId: 'CUST_GIA' })
+    // Square lists one attendee per customer per class: seat 2 goes to a name-only guest.
+    expect(mockAdd.mock.calls[0][0]).toEqual({ scheduleId: 'clssch_pails', startAt: WORKSHOP.startAt, customerId: 'CUST_GIA' })
+    expect(mockAdd.mock.calls[1][0]).toEqual({ scheduleId: 'clssch_pails', startAt: WORKSHOP.startAt, customerId: 'CUST_GUEST' })
+    expect(mockGuest).toHaveBeenCalledWith({ givenName: 'Gia', familyName: 'Winner (guest 2 of 2)', note: expect.stringContaining('gia@x.com') })
     expect(data.bookingId).toBe('clsbk_1')
     expect(data.seats).toBe(2)
     expect(mockSave.mock.calls[0][0].squareBookingIds).toEqual(['clsbk_1', 'clsbk_2'])
@@ -142,6 +147,16 @@ describe('POST /api/staff/comp-seat.json', () => {
     expect(saved.seats).toBe(1)
     expect(saved.picks).toEqual([good.picks[0]])
     expect(mockSend.mock.calls[0][0]).toMatchObject({ seats: 1, picks: [good.picks[0]] })
+    expect(mockAudit.mock.calls[0][0].details.squareRefusal).toMatch(/refused 400: full/)
+  })
+
+  it('keeps seat 1 when making the guest for seat 2 fails', async () => {
+    mockGuest.mockRejectedValue(new Error('customers down'))
+    const res = await POST(req(good))
+    expect(res.status).toBe(200)
+    expect((await res.json()).data).toMatchObject({ seats: 1, warning: expect.stringMatching(/added 1 of 2/) })
+    expect(mockAdd).toHaveBeenCalledTimes(1)
+    expect(mockSave.mock.calls[0][0].seats).toBe(1)
   })
 
   it('with alreadyInSquare, only records and emails (the expired-sign-in fallback)', async () => {

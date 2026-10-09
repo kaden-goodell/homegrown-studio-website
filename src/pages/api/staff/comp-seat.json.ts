@@ -68,11 +68,29 @@ export const POST: APIRoute = async ({ request }) => {
     let squareBookingIds: string[] = []
     let seatsAdded = seats
     let squareNote: string | null = null
+    let refusal: string | null = null
 
     if (!alreadyInSquare && !simulated) {
       const customer = await providers.customer.findOrCreate({ email, givenName, familyName, ...(phone ? { phone } : {}) })
       for (let i = 0; i < seats; i++) {
-        const r = await addClassAttendee({ scheduleId, startAt: workshop.startAt, customerId: customer.id })
+        // Square lists one attendee per customer per class, so seats 2+ go to
+        // name-only guest customers ("Gia Winner (guest 2 of 3)").
+        let customerId = customer.id
+        if (i > 0) {
+          try {
+            customerId = (await providers.customer.createGuest({
+              givenName,
+              familyName: `${familyName} (guest ${i + 1} of ${seats})`,
+              note: `Comped seat ${i + 1} of ${seats} with ${givenName} ${familyName} <${email}>, ${workshop.name}.`,
+            })).id
+          } catch (err) {
+            refusal = `guest customer: ${err instanceof Error ? err.message.slice(0, 150) : String(err)}`
+            logger.error('Could not create a guest customer for a comped seat', { scheduleId, seat: i + 1, error: refusal })
+            squareNote = `Square added ${squareBookingIds.length} of ${seats} seats, then stopped. Only those ${squareBookingIds.length} are recorded and in the email.`
+            break
+          }
+        }
+        const r = await addClassAttendee({ scheduleId, startAt: workshop.startAt, customerId })
         if (r.ok) { squareBookingIds.push(r.bookingId); continue }
         logger.error('Square refused a comped seat', { scheduleId, seat: i + 1, kind: r.kind, status: r.status, detail: r.detail })
         if (squareBookingIds.length === 0) {
@@ -86,6 +104,7 @@ export const POST: APIRoute = async ({ request }) => {
               : 'Square didn’t answer, so we can’t tell whether the seat was added. Check the class in Square before trying again.',
           })
         }
+        refusal = `${r.kind}${r.status ? ` ${r.status}` : ''}: ${r.detail.slice(0, 150)}`
         squareNote = `Square added ${squareBookingIds.length} of ${seats} seats, then stopped. Only those ${squareBookingIds.length} are recorded and in the email.`
         break
       }
@@ -138,6 +157,7 @@ export const POST: APIRoute = async ({ request }) => {
         bookingId, seats: seatsAdded, requested: seats, email, name: `${givenName} ${familyName}`, emailSent,
         addedInSquare: alreadyInSquare ? 'by hand' : simulated ? 'simulated' : 'by the site',
         ...(squareBookingIds.length ? { squareBookingIds: squareBookingIds.join(',') } : {}),
+        ...(refusal ? { squareRefusal: refusal } : {}),
       },
       ...(simulated ? { simulated: true as const } : {}),
     })

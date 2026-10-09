@@ -5,6 +5,13 @@ export class MockCustomerProvider implements CustomerProvider {
   private notes = new Map<string, string[]>()
   private counter = 0
 
+  async createGuest(params: { givenName: string; familyName: string; note: string }): Promise<Customer> {
+    this.counter++
+    const c: Customer = { id: `mock-guest-${this.counter}`, email: '', givenName: params.givenName, familyName: params.familyName }
+    this.notes.set(c.id, [params.note])
+    return c
+  }
+
   async findOrCreate(params: {
     email: string
     givenName: string

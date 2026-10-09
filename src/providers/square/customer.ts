@@ -12,6 +12,12 @@ export class SquareCustomerProvider implements CustomerProvider {
     this.client = createSquareClient(config)
   }
 
+  async createGuest(params: { givenName: string; familyName: string; note: string }): Promise<Customer> {
+    const res = await this.client.customers.create({ givenName: params.givenName, familyName: params.familyName, note: params.note })
+    logger.info('Created guest customer', { id: res.customer?.id })
+    return mapSquareCustomer(res.customer!)
+  }
+
   async findOrCreate(params: {
     email: string
     givenName: string

@@ -250,12 +250,18 @@ describe('GET /api/staff/roster.json — seat picks (spec D)', () => {
     })
   })
 
-  it('a party, or a class with no questions, has no picks block', async () => {
+  it('a party has no seat records', async () => {
     const { data } = await (await GET(ctx('?kind=party&id=party-1'))).json()
     expect(data.choices).toBeNull()
-    mockGetEvent.mockResolvedValue({ ...pailsEvent, options: [] })
-    expect((await (await GET(ctx('?kind=workshop&id=clssch_pails'))).json()).data.choices).toBeNull()
     expect(mockListSeatChoices).not.toHaveBeenCalled()
+  })
+
+  it('a class with no questions still lists comped seats (no totals)', async () => {
+    mockGetEvent.mockResolvedValue({ ...pailsEvent, options: [] })
+    mockListSeatChoices.mockResolvedValue([{ customer: { givenName: 'Kaden', familyName: 'Goodell', email: 'k@x.com', phone: '' }, seats: 1, picks: [], comped: true }])
+    const { data } = await (await GET(ctx('?kind=workshop&id=clssch_pails'))).json()
+    expect(data.choices.totals).toEqual({})
+    expect(data.choices.unmatched).toEqual([{ name: 'Kaden Goodell', email: 'k@x.com', seats: 1, picks: [], comped: true }])
   })
 
   it('a failed picks read still returns the roster, without choices', async () => {

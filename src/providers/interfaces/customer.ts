@@ -27,6 +27,13 @@ export interface CustomerProvider {
   }): Promise<Customer>
 
   /**
+   * A name-only customer for the 2nd, 3rd… seat of a comped booking. Square
+   * lists one attendee per customer per class, so each extra seat needs its
+   * own customer. No email or phone, so it never merges with a real person.
+   */
+  createGuest(params: { givenName: string; familyName: string; note: string }): Promise<Customer>
+
+  /**
    * Keep an email-only contact. `note` (optional) is one dated line saying what
    * they asked to hear about; it is added to the record's notes, newest first.
    */

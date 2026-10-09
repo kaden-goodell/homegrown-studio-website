@@ -190,7 +190,9 @@ export default function Roster({
 
   const { event } = data
   const options = event.options ?? []
-  const choices = options.length > 0 ? data.choices ?? null : null
+  // Comped seats are recorded on every class, so the records come back even
+  // when the class asks no questions; only the totals card needs questions.
+  const choices = data.choices ?? null
   const picksUnknown = options.length > 0 && data.choices === undefined
   const multiDay = event.days.length > 1
   const dayIndex = event.days.indexOf(data.day)
@@ -291,7 +293,7 @@ export default function Roster({
       {picksUnknown && (
         <p style={{ margin: '0 0 0.8rem', fontSize: '0.8125rem', color: 'var(--color-muted)', textAlign: 'center' }}>Picks unavailable — reload the page</p>
       )}
-      {choices && (
+      {choices && options.length > 0 && (
         <div data-testid="picks-totals" style={{ ...card, background: 'rgba(255,255,255,0.85)' }}>
           {options.map((o) => {
             const totals = choices.totals[o.id] ?? {}
