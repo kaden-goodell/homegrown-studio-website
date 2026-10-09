@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import StaffHeader from '@components/staff/StaffHeader'
-import DoorSearch, { type HouseholdMatch, type TodayEvent } from '@components/staff/DoorSearch'
+import { type HouseholdMatch, type TodayEvent } from '@components/staff/DoorSearch'
+import CheckInFlow from '@components/staff/CheckInFlow'
+import { cafeRunsOn } from '@lib/cafe-days'
 import EventList from '@components/staff/EventList'
 import WarningsPanel from '@components/staff/WarningsPanel'
 import { card, btn, Badge } from '@components/staff/ui'
@@ -43,7 +45,7 @@ export default function Today({
 }) {
   const today = studioDate(new Date().toISOString())
   const [openStudioCount, setOpenStudioCount] = useState<number | null>(null)
-  const [todayEvents, setTodayEvents] = useState<TodayEvent[]>([])
+  const [todayEvents, setTodayEvents] = useState<TodayEvent[] | null>(null)
   const [view, setView] = useState<'main' | 'allParties'>('main')
   const [parties, setParties] = useState<PartyRow[]>([])
   const [partiesError, setPartiesError] = useState<string | null>(null)
@@ -129,11 +131,9 @@ export default function Today({
 
       <WarningsPanel onOpenEvent={(e) => onOpenRoster(e)} />
 
-      <DoorSearch
-        onCheckedIn={loadOpenStudioCount}
-        todayEvents={todayEvents}
-        onAddToEvent={(e, household) => onOpenRoster({ kind: e.kind, id: e.id, title: e.title, addFamily: { household } })}
-      />
+      <div style={{ marginBottom: '1rem' }}>
+        <CheckInFlow todayEvents={todayEvents} cafeOpen={cafeRunsOn(today)} onOpenRoster={onOpenRoster} onCheckedIn={loadOpenStudioCount} />
+      </div>
 
       <EventList
         date={today}

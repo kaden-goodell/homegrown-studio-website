@@ -245,7 +245,7 @@ describe('GET /api/staff/roster.json — seat picks (spec D)', () => {
     expect(data.choices).toEqual({
       totals: { 'pumpkin-color': { Lavender: 2, Black: 1 } },
       byEmail: { 'alice@x.com': [p(1, 'Lavender'), p(2, 'Lavender')], 'bo@x.com': [p(1, 'Black')] },
-      seatsByEmail: { 'alice@x.com': { seats: 2, comped: 0 }, 'bo@x.com': { seats: 1, comped: 0 } },
+      seatsByEmail: { 'alice@x.com': { seats: 2, comped: 0, atRegister: 0 }, 'bo@x.com': { seats: 1, comped: 0, atRegister: 0 } },
       unmatched: [{ name: 'Bo Test', email: 'bo@x.com', seats: 1, picks: [p(1, 'Black')], comped: false }],
       seatsSold: 15,
     })

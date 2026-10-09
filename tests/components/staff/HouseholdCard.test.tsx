@@ -171,7 +171,7 @@ describe('HouseholdCard — seat picks', () => {
 
 describe('seats vs crafting', () => {
   const post = vi.fn(async () => ({}))
-  const card = (h: Household, seats?: { seats: number; comped: number }) =>
+  const card = (h: Household, seats?: { seats: number; comped: number; atRegister?: number }) =>
     render(<HouseholdCard h={h} dropOff={false} kind="workshop" id="clssch_x" day="2026-10-17" post={post} seats={seats} />)
   const withExpected = (expected: string[]) => household({}, { checkin: { ...household().checkin, expected } })
 
@@ -187,16 +187,26 @@ describe('seats vs crafting', () => {
     })
     card(h, { seats: 3, comped: 3 }) // no checklist: everyone on the agreement counts
     expect(screen.getByTestId('seats-line').textContent).toBe('3 seats (comped) · 5 crafting')
-    expect(screen.getByRole('alert').textContent).toBe('2 more crafting than seats. Take payment at the register or comp 2 more seats.')
+    expect(screen.getByRole('alert').textContent).toBe('2 more crafting than seats. Use Sell a seat or Comp a seat for the extra 2.')
   })
 
   it('notes unused seats, and mixes paid with comped', () => {
     card(withExpected(['adult', 'child:0']), { seats: 3, comped: 1 })
-    expect(screen.getByTestId('seats-line').textContent).toBe('3 seats (1 comped, 2 paid) · 2 crafting')
+    expect(screen.getByTestId('seats-line').textContent).toBe('3 seats (2 paid, 1 comped) · 2 crafting')
     expect(screen.getByText('1 seat not used yet.')).toBeTruthy()
   })
 
-  it('shows nothing when there is no booking record', () => {
+  it('labels seats to be paid at the register', () => {
+    card(withExpected(['adult', 'child:0']), { seats: 2, comped: 0, atRegister: 2 })
+    expect(screen.getByTestId('seats-line').textContent).toBe('2 seats (pay at register) · 2 crafting')
+  })
+
+  it('warns when a family on a class has no seat on record', () => {
+    card(household(), { seats: 0, comped: 0, atRegister: 0 })
+    expect(screen.getByRole('alert').textContent).toMatch(/No seat on record/)
+  })
+
+  it('shows nothing when seats are unknown (not a class, or the read failed)', () => {
     card(household())
     expect(screen.queryByTestId('seats-line')).toBeNull()
   })

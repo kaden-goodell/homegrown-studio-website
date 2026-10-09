@@ -30,6 +30,8 @@ export async function sendWorkshopConfirmation(input: {
   picks: SeatPick[]
   totalChargedCents: number
   comped?: boolean
+  /** Added at the door; paid at the register. */
+  dueAtStudioCents?: number
 }): Promise<boolean> {
   const { workshop } = input
 
@@ -58,12 +60,13 @@ export async function sendWorkshopConfirmation(input: {
     seats: input.seats,
     totalChargedCents: input.totalChargedCents,
     ...(input.comped ? { comped: true } : {}),
+    ...(input.dueAtStudioCents !== undefined ? { dueAtStudioCents: input.dueAtStudioCents } : {}),
     receiptUrl: input.receiptUrl,
     waiverUrl,
     workshopUrl,
     directionsUrl: `https://maps.google.com/?q=${encodeURIComponent('Hometown Studio, 525 Hughes Rd, Suite F, Madison, AL 35758')}`,
     // A free seat has nothing to refund; ask them to free it up instead.
-    policyLine: input.comped
+    policyLine: input.comped || input.dueAtStudioCents !== undefined
       ? 'Can’t make it? Text or email us so we can pass your seat to someone else'
       : checkoutPolicySummary.workshop,
     policyUrl: `${origin}${POLICY_PATH}#${POLICY_ANCHORS.workshops}`,

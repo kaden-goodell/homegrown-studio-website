@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import DoorSearch, { type AddedResult, type DoorEvent, type HouseholdMatch } from '@components/staff/DoorSearch'
 import { btn } from '@components/staff/ui'
-import { NewFamilyButton } from '@components/staff/CheckInSheet'
+import NewFamilyButton from '@components/staff/NewFamilyButton'
 
 /**
  * Roster "+ Add family": the Today door search, pointed at one event. Sheet

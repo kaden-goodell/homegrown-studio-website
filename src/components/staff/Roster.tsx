@@ -63,6 +63,7 @@ export default function Roster({
 }) {
   const [addFamilyOpen, setAddFamilyOpen] = useState(!!addFamily)
   const [compSeatOpen, setCompSeatOpen] = useState(false)
+  const [sellSeatOpen, setSellSeatOpen] = useState(false)
   const [data, setData] = useState<RosterData | null>(null)
   const [netError, setNetError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
@@ -221,6 +222,7 @@ export default function Roster({
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <button type="button" onClick={onBack} style={btn()}>← Today</button>
         <button type="button" onClick={() => setAddFamilyOpen(true)} style={btn(true)}>+ Add family</button>
+        {kind === 'workshop' && <button type="button" onClick={() => setSellSeatOpen(true)} style={btn()}>Sell a seat</button>}
         {kind === 'workshop' && <button type="button" onClick={() => setCompSeatOpen(true)} style={btn()}>Comp a seat</button>}
         <button type="button" onClick={refresh} style={btn()}>↻ Refresh</button>
         <a href={`/staff/print?kind=${kind}&id=${encodeURIComponent(id)}&day=${data.day}`} target="_blank" rel="noopener noreferrer" style={{ ...btn(), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
@@ -319,6 +321,17 @@ export default function Roster({
         />
       )}
 
+      {sellSeatOpen && kind === 'workshop' && (
+        <CompSeatSheet
+          mode="sell"
+          priceCents={event.priceCents}
+          event={{ id, title: event.title, day: data.day }}
+          options={options}
+          onRecorded={refresh}
+          onClose={() => setSellSeatOpen(false)}
+        />
+      )}
+
       {compSeatOpen && kind === 'workshop' && (
         <CompSeatSheet
           event={{ id, title: event.title, day: data.day }}
@@ -398,7 +411,7 @@ export default function Roster({
           code belong to one day's roster, and carried straight over when staff
           switched days on a multi-day camp. */}
       {visibleHouseholds.map((h) => (
-        <HouseholdCard key={`${h.recordId}:${data.day}`} h={h} dropOff={event.dropOff} kind={kind} id={id} day={data.day} post={post} picks={choices?.byEmail[h.email.trim().toLowerCase()]} seats={choices?.seatsByEmail?.[h.email.trim().toLowerCase()]} />
+        <HouseholdCard key={`${h.recordId}:${data.day}`} h={h} dropOff={event.dropOff} kind={kind} id={id} day={data.day} post={post} picks={choices?.byEmail[h.email.trim().toLowerCase()]} seats={kind === 'workshop' && choices ? (choices.seatsByEmail?.[h.email.trim().toLowerCase()] ?? { seats: 0, comped: 0, atRegister: 0 }) : undefined} />
       ))}
 
       {choices && choices.unmatched.length > 0 && (
@@ -408,6 +421,7 @@ export default function Roster({
             <p key={`${u.email}:${i}`} style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)' }}>
               {`${u.name} · ${u.seats} seat${u.seats === 1 ? '' : 's'}${u.picks.length ? ` · Picks: ${picksShort(u.picks)}` : ''}`}
               {u.comped && <>{' '}<Badge tone="muted">comped</Badge></>}
+              {u.atRegister && <>{' '}<Badge tone="muted">pay at register</Badge></>}
             </p>
           ))}
         </div>

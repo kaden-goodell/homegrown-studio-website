@@ -32,7 +32,7 @@ let bypass = false
 vi.mock('@lib/dev-flags', () => ({ paymentBypassEnabled: () => bypass }))
 
 const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Lavender', 'Black'] }
-const WORKSHOP = { id: 'inst_1', scheduleId: 'clssch_pails', name: 'Pumpkin Pails', startAt: '2026-10-18T18:00:00.000Z', durationMinutes: 90 }
+const WORKSHOP = { id: 'inst_1', scheduleId: 'clssch_pails', name: 'Pumpkin Pails', startAt: '2026-10-18T18:00:00.000Z', durationMinutes: 90, priceCents: 2500 }
 
 function req(body: unknown) {
   return { request: new Request('http://localhost/api/staff/comp-seat.json', { method: 'POST', body: JSON.stringify(body) }) } as any
@@ -191,5 +191,20 @@ describe('POST /api/staff/comp-seat.json', () => {
     expect(res.status).toBe(503)
     expect(mockSave).not.toHaveBeenCalled()
     expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('Sell a seat: adds in Square, records pay-at-register (not comped), emails what is due', async () => {
+    const res = await POST(req({ ...good, payAtRegister: true }))
+    expect(res.status).toBe(200)
+    const { data } = await res.json()
+    expect(data.dueCents).toBe(5000)
+    expect(mockAdd).toHaveBeenCalledTimes(2)
+    const saved = mockSave.mock.calls[0][0]
+    expect(saved.payAtRegister).toBe(true)
+    expect(saved.comped).toBeUndefined()
+    expect(mockSend.mock.calls[0][0]).toMatchObject({ dueAtStudioCents: 5000 })
+    expect(mockSend.mock.calls[0][0].comped).toBeUndefined()
+    expect(mockAudit.mock.calls[0][0]).toMatchObject({ action: 'seat.sold-at-door', details: expect.objectContaining({ dueCents: 5000 }) })
+    expect(mockGuest.mock.calls[0][0].note).toMatch(/^Door seat 2 of 2/)
   })
 })

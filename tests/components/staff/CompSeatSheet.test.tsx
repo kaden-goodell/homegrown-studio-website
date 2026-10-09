@@ -89,4 +89,15 @@ describe('CompSeatSheet', () => {
     for (const l of ['First name', 'Last name', 'Email']) expect((screen.getByLabelText(l) as HTMLInputElement).required).toBe(true)
     expect((screen.getByLabelText('Phone (optional)') as HTMLInputElement).required).toBe(false)
   })
+
+  it('Sell a seat: says the price, sends payAtRegister, then says what to take at the register', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: { bookingId: 'clsbk_1', emailSent: true, seats: 1, dueCents: 2500 } }) })
+    render(<CompSeatSheet mode="sell" priceCents={2500} event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    expect(screen.getByRole('dialog', { name: 'Sell a seat' }).textContent).toContain('($25 each)')
+    fill()
+    fireEvent.click(screen.getByRole('button', { name: 'Add seat, pay at register' }))
+    const box = await screen.findByTestId('take-payment')
+    expect(box.textContent).toBe('Now take $25 at the registerIn Square, open Pumpkins, tap Ada Lovelace, then Take payment.')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).payAtRegister).toBe(true)
+  })
 })

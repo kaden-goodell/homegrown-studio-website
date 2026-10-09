@@ -339,6 +339,8 @@ export async function sendWorkshopConfirmationEmail(input: {
   totalChargedCents: number
   /** A giveaway seat: say "comped" instead of an amount paid. */
   comped?: boolean
+  /** Seats added at the door, paid at the register: say what's due instead of "paid". */
+  dueAtStudioCents?: number
   receiptUrl: string | null
   /** Participation agreement, carrying the booking id. Forwardable to companions. */
   waiverUrl: string
@@ -359,6 +361,11 @@ export async function sendWorkshopConfirmationEmail(input: {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const paid = dollars(input.totalChargedCents)
   const seatWord = input.seats === 1 ? '1 seat' : `${input.seats} seats`
+  const paidWords = input.comped
+    ? 'comped'
+    : input.dueAtStudioCents !== undefined
+      ? `${dollars(input.dueAtStudioCents)} to pay at the studio`
+      : `${paid} paid`
   const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
   const phone = siteConfig.contactPhone
   const summary = (input.summary ?? '').replace(/\r/g, '').trim()
@@ -369,7 +376,7 @@ export async function sendWorkshopConfirmationEmail(input: {
     `When: ${input.whenLabel} (${input.timeRange})`,
     `Where: Hometown Studio, ${address}`,
     `Directions: ${input.directionsUrl}`,
-    `Seats: ${seatWord}, ${input.comped ? 'comped' : `${paid} paid`}`,
+    `Seats: ${seatWord}, ${paidWords}`,
     ...(input.pickLines?.length
       ? [``, `Your picks:`, ...input.pickLines.map((l) => `  ${l}`), ...(input.picksFinalLine ? [input.picksFinalLine] : [])]
       : []),
@@ -407,7 +414,7 @@ export async function sendWorkshopConfirmationEmail(input: {
   <p style="${LABEL}margin-top:10px;">Where</p>
   <p style="${P}">Hometown Studio, ${esc(address)}<br /><a href="${esc(input.directionsUrl)}" style="${LINK}font-size:13px;">Get directions</a></p>
   <p style="${LABEL}margin-top:10px;">Your booking</p>
-  <p style="${P}">${esc(seatWord)} &middot; <strong>${input.comped ? 'comped' : `${esc(paid)} paid`}</strong></p>
+  <p style="${P}">${esc(seatWord)} &middot; <strong>${esc(paidWords)}</strong></p>
   ${input.pickLines?.length
     ? `<p style="${LABEL}margin-top:10px;">Your picks</p>${input.pickLines.map((l) => `<p style="${P}margin:0 0 2px;">${esc(l)}</p>`).join('')}${input.picksFinalLine ? `<p style="${MUTED}margin-top:4px;">${esc(input.picksFinalLine)}</p>` : ''}`
     : ''}

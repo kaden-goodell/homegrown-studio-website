@@ -142,6 +142,14 @@ describe('sendWorkshopConfirmationEmail', () => {
     for (const body of [text, html]) expect(body).not.toMatch(/\$0(\.00)? paid/)
   })
 
+  it('says what is due at the studio for a seat sold at the door', async () => {
+    await sendWorkshopConfirmationEmail({ ...input, seats: 2, totalChargedCents: 0, dueAtStudioCents: 5000 })
+    const { text, html } = mockSendMail.mock.calls[0][0]
+    expect(text).toContain('Seats: 2 seats, $50 to pay at the studio')
+    expect(html).toContain('to pay at the studio</strong>')
+    for (const body of [text, html]) expect(body).not.toMatch(/\$0(\.00)? paid/)
+  })
+
   it('reports not sent, without throwing, when mail is not set up', async () => {
     delete process.env.GMAIL_USER
     vi.resetModules()

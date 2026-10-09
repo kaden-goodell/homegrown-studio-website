@@ -177,7 +177,7 @@ function ResultCard({
             onClick={markHere}
             style={{ ...btn(true), width: '100%', padding: '0.75rem', marginTop: '0.6rem', minHeight: '2.75rem', opacity: busy ? 0.7 : 1 }}
           >
-            {event ? '✓ Add & mark here' : '✓ Here'}
+            {event ? '✓ Add & mark here' : '✓ Here for Craft Café'}
           </button>
           {!event && todayEvents && todayEvents.length > 0 && onAddToEvent && (
             <div style={{ marginTop: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', fontSize: '0.78125rem', color: 'var(--color-muted)' }}>

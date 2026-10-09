@@ -48,7 +48,7 @@ describe('DoorSearch — walk-in mode (Today)', () => {
     await screen.findByText(/GOOD TO GO — Sam Lee/)
     expect(screen.queryByText(/Check in to Open Studio|Check in again/)).not.toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: '✓ Here' }))
+    fireEvent.click(screen.getByRole('button', { name: '✓ Here for Craft Café' }))
     await waitFor(() => expect(onCheckedIn).toHaveBeenCalled())
     const [url, init] = posts()[0] as [string, RequestInit]
     expect(url).toBe('/api/staff/open-studio.json')
@@ -191,6 +191,6 @@ describe('DoorSearch — event mode (+ Add family)', () => {
     render(<DoorSearch onCheckedIn={vi.fn()} />)
     search('lee')
     await screen.findByText(/UPDATED AGREEMENT — Sam Lee needs to sign again/)
-    expect(screen.queryByRole('button', { name: '✓ Here' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '✓ Here for Craft Café' })).not.toBeInTheDocument()
   })
 })

@@ -60,7 +60,7 @@ describe('summarizeChoices', () => {
     expect(summarizeChoices([PAILS], records, ['ada@example.com '], 15)).toEqual({
       totals: { 'pumpkin-color': { Lavender: 2, Black: 1 } },
       byEmail: { 'ada@example.com': [p(1, 'Lavender'), p(2, 'Lavender')], 'bo@x.com': [p(1, 'Black')] },
-      seatsByEmail: { 'ada@example.com': { seats: 2, comped: 0 }, 'bo@x.com': { seats: 1, comped: 0 } },
+      seatsByEmail: { 'ada@example.com': { seats: 2, comped: 0, atRegister: 0 }, 'bo@x.com': { seats: 1, comped: 0, atRegister: 0 } },
       unmatched: [{ name: 'Bo Test', email: 'bo@x.com', seats: 1, picks: [p(1, 'Black')], comped: false }],
       seatsSold: 15,
     })
@@ -110,7 +110,7 @@ describe('summarizeChoices seatsByEmail', () => {
   it('adds a family’s bookings together and counts comped seats', () => {
     const rec = (seats: number, comped?: true) => ({ eventKind: 'workshop', eventId: 'c', bookingId: 'b' + seats, orderId: null, customer: { givenName: 'K', familyName: 'G', email: 'K@x.com', phone: '' }, seats, picks: [], at: '', attemptId: '', ...(comped ? { comped } : {}) }) as any
     const r = summarizeChoices([], [rec(3, true), rec(1)], ['k@x.com'], null)
-    expect(r.seatsByEmail).toEqual({ 'k@x.com': { seats: 4, comped: 3 } })
+    expect(r.seatsByEmail).toEqual({ 'k@x.com': { seats: 4, comped: 3, atRegister: 0 } })
     expect(r.unmatched).toEqual([])
   })
 })

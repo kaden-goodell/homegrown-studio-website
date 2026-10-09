@@ -105,7 +105,7 @@ export default function HouseholdCard({
   /** This family's seat picks (classes with questions). Read-only: picks never change after booking. */
   picks?: SeatPick[]
   /** Seats this family paid for or was comped (from the booking record), when we have one. */
-  seats?: { seats: number; comped: number }
+  seats?: { seats: number; comped: number; atRegister?: number }
 }) {
   const people: Person[] = [
     { id: 'adult', icon: '👤', name: h.signer, sub: 'adult', allergies: h.adultAllergies, isChild: false },
@@ -245,10 +245,22 @@ export default function HouseholdCard({
         <div>
           <span style={{ fontWeight: 700, color: 'var(--color-dark)', fontSize: '1.0625rem' }}>{h.signer}</span>
           <a href={`tel:${h.phone}`} style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--color-primary)', textDecoration: 'none' }}>📞 {h.phone}</a>
+          {seats && seats.seats === 0 && (
+            <p role="alert" data-testid="seats-line" style={{ margin: '0.15rem 0 0', fontSize: '0.8125rem', fontWeight: 700, color: '#b45309' }}>
+              No seat on record. If they didn’t book online, use Sell a seat or Comp a seat.
+            </p>
+          )}
           {seats && seats.seats > 0 && (() => {
             // Crafting = who they checked at sign-in; no checklist means everyone on the agreement.
             const crafting = h.checkin.expected ? h.checkin.expected.length : people.length
-            const kindLabel = seats.comped === seats.seats ? 'comped' : seats.comped === 0 ? 'paid' : `${seats.comped} comped, ${seats.seats - seats.comped} paid`
+            const atRegister = seats.atRegister ?? 0
+            const paid = seats.seats - seats.comped - atRegister
+            const parts = [
+              ...(paid > 0 ? [{ n: paid, w: 'paid' }] : []),
+              ...(seats.comped > 0 ? [{ n: seats.comped, w: 'comped' }] : []),
+              ...(atRegister > 0 ? [{ n: atRegister, w: 'pay at register' }] : []),
+            ]
+            const kindLabel = parts.length === 1 ? parts[0].w : parts.map((p) => `${p.n} ${p.w}`).join(', ')
             const diff = crafting - seats.seats
             return (
               <>
@@ -257,7 +269,7 @@ export default function HouseholdCard({
                 </p>
                 {diff > 0 && (
                   <p role="alert" style={{ margin: '0.15rem 0 0', fontSize: '0.8125rem', fontWeight: 700, color: '#b45309' }}>
-                    {diff} more crafting than seats. Take payment at the register or comp {diff === 1 ? 'another seat' : `${diff} more seats`}.
+                    {diff} more crafting than seats. Use Sell a seat or Comp a seat for {diff === 1 ? 'the extra one' : `the extra ${diff}`}.
                   </p>
                 )}
                 {diff < 0 && (

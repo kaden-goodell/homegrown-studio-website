@@ -9,12 +9,14 @@ describe('floating Check in button', () => {
   beforeEach(() => { fetchMock.mockClear(); vi.stubGlobal('fetch', fetchMock) })
   afterEach(() => vi.unstubAllGlobals())
 
-  it('is on every staff screen and opens the general sheet with a new-family button', async () => {
+  it('is on every staff screen and asks what they are here for first', async () => {
     render(<StaffHeader {...base} />)
     fireEvent.click(screen.getByRole('button', { name: 'Check in a family' }))
     expect(screen.getByRole('dialog', { name: 'Check in' })).toBeTruthy()
+    expect(screen.getByText('What are they here for?')).toBeTruthy()
+    fireEvent.click(await screen.findByRole('button', { name: /Fall Earring Bar/ }))
     expect(screen.getByRole('button', { name: '✍️ New family? Sign on this iPad' })).toBeTruthy()
-    await waitFor(() => expect(fetchMock.mock.calls.some((c: any) => String(c[0]).startsWith('/api/staff/events.json?date='))).toBe(true))
+    expect(screen.getByRole('button', { name: '← Fall Earring Bar' })).toBeTruthy()
   })
 
   it('on a roster, hands off to that event’s own add-family sheet', () => {

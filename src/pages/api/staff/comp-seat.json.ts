@@ -65,6 +65,9 @@ export const POST: APIRoute = async ({ request }) => {
 
     const simulated = paymentBypassEnabled(request)
     const alreadyInSquare = body.alreadyInSquare === true
+    // "Sell a seat": the same add, but the money is taken at the register.
+    const payAtRegister = body.payAtRegister === true
+    const what = payAtRegister ? 'Door seat' : 'Comped seat'
     let squareBookingIds: string[] = []
     let seatsAdded = seats
     let squareNote: string | null = null
@@ -81,7 +84,7 @@ export const POST: APIRoute = async ({ request }) => {
             customerId = (await providers.customer.createGuest({
               givenName,
               familyName: `${familyName} (guest ${i + 1} of ${seats})`,
-              note: `Comped seat ${i + 1} of ${seats} with ${givenName} ${familyName} <${email}>, ${workshop.name}.`,
+              note: `${what} ${i + 1} of ${seats} with ${givenName} ${familyName} <${email}>, ${workshop.name}.`,
             })).id
           } catch (err) {
             refusal = `guest customer: ${err instanceof Error ? err.message.slice(0, 150) : String(err)}`
@@ -111,6 +114,7 @@ export const POST: APIRoute = async ({ request }) => {
       seatsAdded = squareBookingIds.length
     }
 
+    const dueCents = payAtRegister ? (workshop.priceCents ?? 0) * seatsAdded : 0
     const bookingId = squareBookingIds[0] ?? 'comp_' + randomUUID().slice(0, 10)
     const picks = checked.value.filter((p) => p.seat <= seatsAdded)
     await saveSeatChoices({
@@ -123,7 +127,7 @@ export const POST: APIRoute = async ({ request }) => {
       picks,
       at: new Date().toISOString(),
       attemptId: bookingId,
-      comped: true,
+      ...(payAtRegister ? { payAtRegister: true as const } : { comped: true as const }),
       by: byOf(member),
       ...(squareBookingIds.length ? { squareBookingIds } : {}),
       ...(simulated ? { simulated: true as const } : {}),
@@ -142,7 +146,7 @@ export const POST: APIRoute = async ({ request }) => {
         options,
         picks,
         totalChargedCents: 0,
-        comped: true,
+        ...(payAtRegister ? { dueAtStudioCents: dueCents } : { comped: true }),
       })
     } catch (err) {
       logger.error('Comp seat confirmation email failed', { bookingId, error: err instanceof Error ? err.message : String(err) })
@@ -151,17 +155,17 @@ export const POST: APIRoute = async ({ request }) => {
 
     await recordAudit({
       by: member,
-      action: 'seat.comped',
+      action: payAtRegister ? 'seat.sold-at-door' : 'seat.comped',
       target: { kind: 'workshop', id: scheduleId, label: workshop.name },
       details: {
-        bookingId, seats: seatsAdded, requested: seats, email, name: `${givenName} ${familyName}`, emailSent,
+        bookingId, seats: seatsAdded, requested: seats, ...(payAtRegister ? { dueCents } : {}), email, name: `${givenName} ${familyName}`, emailSent,
         addedInSquare: alreadyInSquare ? 'by hand' : simulated ? 'simulated' : 'by the site',
         ...(squareBookingIds.length ? { squareBookingIds: squareBookingIds.join(',') } : {}),
         ...(refusal ? { squareRefusal: refusal } : {}),
       },
       ...(simulated ? { simulated: true as const } : {}),
     })
-    return reply(200, { data: { bookingId, emailSent, seats: seatsAdded, ...(squareNote ? { warning: squareNote } : {}) } })
+    return reply(200, { data: { bookingId, emailSent, seats: seatsAdded, ...(payAtRegister ? { dueCents } : {}), ...(squareNote ? { warning: squareNote } : {}) } })
   } catch (err) {
     logger.error('Comp seat failed', { scheduleId, error: err instanceof Error ? err.message : String(err) })
     return bad('Couldn’t record that seat — please try again.', 503)

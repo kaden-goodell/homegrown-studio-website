@@ -14,8 +14,14 @@ export default function CompSeatSheet({
   options,
   onRecorded,
   onClose,
+  mode = 'comp',
+  priceCents,
 }: {
   event: { id: string; title: string; day: string }
+  /** 'sell': same add, but the money is taken at the register ("Sell a seat"). */
+  mode?: 'comp' | 'sell'
+  /** Price of one seat, for the "take $X at the register" line. */
+  priceCents?: number
   options: SeatOption[]
   onRecorded: () => void
   onClose: () => void
@@ -31,7 +37,9 @@ export default function CompSeatSheet({
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<null | { warning: string | null; byHand: boolean }>(null)
+  const [done, setDone] = useState<null | { warning: string | null; byHand: boolean; dueCents: number | null; name: string }>(null)
+  const sell = mode === 'sell'
+  const money = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`
   const [signedOut, setSignedOut] = useState(false)
 
   const key = (seat: number, optionId: string) => `${seat}:${optionId}`
@@ -59,11 +67,17 @@ export default function CompSeatSheet({
           seats,
           picks,
           ...(alreadyInSquare ? { alreadyInSquare: true } : {}),
+          ...(sell ? { payAtRegister: true } : {}),
         }),
       })
       const body = await res.json().catch(() => ({}))
       if (res.ok) {
-        setDone({ warning: typeof body?.data?.warning === 'string' ? body.data.warning : null, byHand: alreadyInSquare })
+        setDone({
+          warning: typeof body?.data?.warning === 'string' ? body.data.warning : null,
+          byHand: alreadyInSquare,
+          dueCents: typeof body?.data?.dueCents === 'number' ? body.data.dueCents : null,
+          name: `${givenName.trim()} ${familyName.trim()}`,
+        })
         onRecorded()
       } else if (body?.code === 'square_signed_out') {
         setSignedOut(true)
@@ -86,7 +100,7 @@ export default function CompSeatSheet({
     <div
       role="dialog"
       aria-modal="true"
-      aria-label="Comp a seat"
+      aria-label={sell ? 'Sell a seat' : 'Comp a seat'}
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
       style={{ position: 'fixed', inset: 0, zIndex: 130, display: 'flex', justifyContent: 'flex-end', background: 'rgba(0, 0, 0, 0.4)' }}
     >
@@ -99,12 +113,14 @@ export default function CompSeatSheet({
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem', marginBottom: '0.9rem' }}>
-          <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)' }}>Comp a seat</h3>
+          <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)' }}>{sell ? 'Sell a seat' : 'Comp a seat'}</h3>
           <button type="button" onClick={onClose} aria-label="Close" style={{ ...btn(), padding: '0.35rem 0.6rem' }}>✕</button>
         </div>
 
         <p style={{ margin: '0 0 1rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
-          A free seat in <strong>{event.title}</strong>. We add them in Square with no charge and send the usual confirmation email.
+          {sell
+            ? <>A seat in <strong>{event.title}</strong>{priceCents ? ` (${money(priceCents)} each)` : ''}, paid at the register. We add them in Square and send the confirmation email, then you take the payment.</>
+            : <>A free seat in <strong>{event.title}</strong>. We add them in Square with no charge and send the usual confirmation email.</>}
         </p>
         {signedOut && !done && (
           <div style={{ margin: '0 0 1.1rem', padding: '0.75rem', borderRadius: '0.6rem', background: 'rgba(245, 158, 11, 0.12)' }}>
@@ -117,15 +133,25 @@ export default function CompSeatSheet({
             <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
               <li>Add attendee</li>
               <li>Pick or create the person</li>
-              <li>Add to class, then Skip payment</li>
+              <li>Add to class, then {sell ? 'Take payment' : 'Skip payment'}</li>
             </ol>
           </div>
         )}
         {done ? (
           <div style={{ textAlign: 'center', padding: '1rem 0' }}>
             <p role="status" style={{ margin: 0, fontWeight: 700, color: 'rgb(21,128,61)' }}>
-              {done.byHand ? 'Recorded.' : 'Added in Square, no charge.'} They’ll get the usual confirmation email.
+              {done.byHand ? 'Recorded.' : sell ? 'Added in Square.' : 'Added in Square, no charge.'} They’ll get the usual confirmation email.
             </p>
+            {sell && !done.byHand && (
+              <div data-testid="take-payment" style={{ margin: '0.9rem 0 0', padding: '0.8rem', borderRadius: '0.6rem', background: 'rgba(245, 158, 11, 0.14)', textAlign: 'left' }}>
+                <p style={{ margin: '0 0 0.35rem', fontWeight: 800, fontSize: '1.05rem', color: 'var(--color-dark)' }}>
+                  Now take {done.dueCents !== null ? money(done.dueCents) : 'the payment'} at the register
+                </p>
+                <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-dark)' }}>
+                  In Square, open {event.title}, tap {done.name}, then Take payment.
+                </p>
+              </div>
+            )}
             {done.warning && <p role="alert" style={{ margin: '0.6rem 0 0', color: '#b45309', fontSize: '0.875rem', fontWeight: 600 }}>{done.warning}</p>}
             <button type="button" onClick={onClose} style={{ ...btn(true), marginTop: '1.2rem', padding: '0.7rem 2rem', minHeight: '2.75rem' }}>Done</button>
           </div>
@@ -180,7 +206,7 @@ export default function CompSeatSheet({
 
             {error && <p role="alert" style={{ margin: '0 0 0.6rem', color: '#b91c1c', fontSize: '0.875rem', fontWeight: 600 }}>{error}</p>}
             <button type="submit" disabled={busy} style={{ ...btn(true), padding: '0.7rem 1.4rem', minHeight: '2.75rem', opacity: busy ? 0.6 : 1 }}>
-              {busy ? (signedOut ? 'Recording…' : 'Adding…') : signedOut ? 'I added them in Square' : 'Add comped seat'}
+              {busy ? (signedOut ? 'Recording…' : 'Adding…') : signedOut ? 'I added them in Square' : sell ? 'Add seat, pay at register' : 'Add comped seat'}
             </button>
           </form>
         )}

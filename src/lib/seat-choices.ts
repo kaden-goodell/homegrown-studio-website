@@ -34,6 +34,8 @@ export interface SeatChoiceRecord {
   comped?: true
   /** The staff member who recorded a comped seat. */
   by?: By
+  /** Added at the door; the money is taken at the register, not online. */
+  payAtRegister?: true
   /** Square class-booking ids for a comped seat added from /staff (one per seat). */
   squareBookingIds?: string[]
 }
@@ -75,9 +77,9 @@ export interface RosterChoices {
   /** Lower-cased booking email → that family's picks (all their bookings). */
   byEmail: Record<string, SeatPick[]>
   /** Lower-cased booking email → seats that family has (paid + comped), across their bookings. */
-  seatsByEmail: Record<string, { seats: number; comped: number }>
+  seatsByEmail: Record<string, { seats: number; comped: number; atRegister: number }>
   /** Paid or comped bookings whose email matches no signed agreement for this class. */
-  unmatched: { name: string; email: string; seats: number; picks: SeatPick[]; comped: boolean }[]
+  unmatched: { name: string; email: string; seats: number; picks: SeatPick[]; comped: boolean; atRegister?: boolean }[]
   /** Seats Square says are sold (capacity − left), or null when unknown. */
   seatsSold: number | null
 }
@@ -96,10 +98,14 @@ export function summarizeChoices(
   for (const r of records) {
     const email = r.customer.email.trim().toLowerCase()
     byEmail[email] = [...(byEmail[email] ?? []), ...r.picks]
-    const had = seatsByEmail[email] ?? { seats: 0, comped: 0 }
-    seatsByEmail[email] = { seats: had.seats + r.seats, comped: had.comped + (r.comped === true ? r.seats : 0) }
+    const had = seatsByEmail[email] ?? { seats: 0, comped: 0, atRegister: 0 }
+    seatsByEmail[email] = {
+      seats: had.seats + r.seats,
+      comped: had.comped + (r.comped === true ? r.seats : 0),
+      atRegister: had.atRegister + (r.payAtRegister === true ? r.seats : 0),
+    }
     if (!signed.has(email)) {
-      unmatched.push({ name: `${r.customer.givenName} ${r.customer.familyName}`.trim() + (r.simulated ? ' (test)' : ''), email, seats: r.seats, picks: r.picks, comped: r.comped === true })
+      unmatched.push({ name: `${r.customer.givenName} ${r.customer.familyName}`.trim() + (r.simulated ? ' (test)' : ''), email, seats: r.seats, picks: r.picks, comped: r.comped === true, ...(r.payAtRegister ? { atRegister: true } : {}) })
     }
   }
   return { totals: choiceTotals(options, records.flatMap((r) => r.picks)), byEmail, seatsByEmail, unmatched, seatsSold }

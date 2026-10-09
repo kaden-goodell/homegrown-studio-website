@@ -30,6 +30,8 @@ export interface StudioEvent {
   days: string[]
   dropOff: boolean
   seats?: number
+  /** Price of one seat, in cents (classes only). */
+  priceCents?: number
   /** Per-seat questions (classes only; [] when none). */
   options?: SeatOption[]
   /** The class's own sign-up cutoff in hours; null = the default. */
@@ -107,6 +109,7 @@ function workshopEvent(id: string, w: Workshop, meta: EventMeta | null): StudioE
     days: meta?.days ?? [studioDate(w.startAt)],
     dropOff: meta?.dropOff ?? false,
     seats: w.availableCapacity,
+    priceCents: w.priceCents,
     options: meta?.options ?? [],
     signupCutoffHours: meta?.signupCutoffHours ?? null,
     ...(capacity !== undefined ? { capacity } : {}),
