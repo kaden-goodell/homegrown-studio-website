@@ -70,7 +70,7 @@ async function main() {
   const rows: unknown[][] = json.results ?? []
   console.log(cols.join('\t'))
   for (const r of rows) console.log(r.map((v) => (v === null ? '' : typeof v === 'object' ? JSON.stringify(v) : String(v))).join('\t'))
-  console.error(`(${rows.length} rows, last ${days} days)`)
+  console.error(`(${rows.length} rows${report ? `, last ${days} days` : ''})`)
 }
 
 main().catch((e) => { console.error(e); process.exit(1) })

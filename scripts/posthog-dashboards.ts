@@ -2,7 +2,8 @@ import 'dotenv/config'
 
 /**
  * Builds (or tops up) the "Hometown — Bookings & Traffic" dashboard in PostHog.
- * Safe to re-run: an insight that already exists by name is left alone.
+ * Safe to re-run: an insight that already exists by name gets this file's
+ * description and query (edits here win).
  *
  *   npx tsx scripts/posthog-dashboards.ts
  */
@@ -70,6 +71,11 @@ const INSIGHTS: { name: string; description: string; query: unknown }[] = [
     query: trend([ev('share')], 'content_type', table) },
   { name: 'FAQ questions opened', description: 'Which questions people open on the party page — copy to answer up front.',
     query: trend([ev('faq_open')], 'question', table) },
+  { name: 'All Square revenue by week (online + in studio)', description: 'Every completed Square payment minus refunds — includes Craft Café, party crafts paid at the studio and the register. From the Square data sync.',
+    query: { kind: 'DataVisualizationNode', source: { kind: 'HogQLQuery', query: `SELECT toStartOfWeek(parseDateTimeBestEffort(toString(created_at))) AS week,
+        round(sum(ifNull(toFloat(JSONExtractInt(toString(total_money), 'amount')), 0) - ifNull(toFloat(JSONExtractInt(toString(refunded_money), 'amount')), 0)) / 100, 2) AS net_revenue,
+        count() AS payments
+      FROM square_payments WHERE status = 'COMPLETED' GROUP BY week ORDER BY week` } } },
   { name: 'Site errors', description: 'Crashes and errors visitors hit.',
     query: trend([ev('$exception')], '$exception_message', table) },
 ]
@@ -91,7 +97,11 @@ async function main() {
   const existing = await api(`/insights/?limit=500&saved=true`)
   for (const ins of INSIGHTS) {
     const found = existing.results.find((x: any) => x.name === ins.name && !x.deleted)
-    if (found) { console.log(`= ${ins.name}`); continue }
+    if (found) {
+      await api(`/insights/${found.id}/`, { method: 'PATCH', body: JSON.stringify({ description: ins.description, query: ins.query }) })
+      console.log(`= ${ins.name}`)
+      continue
+    }
     await api('/insights/', { method: 'POST', body: JSON.stringify({ name: ins.name, description: ins.description, query: ins.query, dashboards: [dash.id], saved: true }) })
     console.log(`+ ${ins.name}`)
   }
