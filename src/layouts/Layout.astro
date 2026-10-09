@@ -99,6 +99,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     )}
     {!bare && <Footer transition:persist />}
     <script>import '@lib/fade-in'</script>
-    <Analytics />
+    {/* Staff tools (the console, the counter-iPad agreement) aren't visitors. */}
+    {!bare && <Analytics />}
   </body>
 </html>
