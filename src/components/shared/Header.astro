@@ -66,11 +66,13 @@ const opensBooking = normalizePath(siteConfig.navCta.href) === '/book'
     <a href="/" class="header-brand">
       <img
         src={siteConfig.logo}
-        alt={`${siteConfig.name} logo`}
+        alt=""
         class="header-logo"
-        onerror="this.style.display='none'"
+        onerror="this.style.display='none';this.nextElementSibling.classList.remove('sr-only')"
       />
-      <span class="header-name">{siteConfig.name}</span>
+      {/* The banner logo already reads "Hometown Studio"; the text stays for
+          screen readers, and comes back on screen if the image can't load. */}
+      <span class="header-name sr-only">{siteConfig.name}</span>
     </a>
 
     {/* Desktop nav */}
