@@ -5,7 +5,7 @@ import { providers } from '@config/providers'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 
 export const POST: APIRoute = async ({ request }) => {
-  if (!bookingsOpen(request)) return bookingsClosedResponse()
+  if (!bookingsOpen(request, 'other')) return bookingsClosedResponse()
   const logger = createLogger('api:checkout:process-payment')
   const startTime = Date.now()
   try {

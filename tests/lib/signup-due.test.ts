@@ -20,6 +20,7 @@ const NOV_07_9AM = '2026-11-07T15:00:00.000Z'
 const facts = (over: Partial<StudioFacts> = {}): StudioFacts => ({
   now: new Date('2026-10-10T15:00:00.000Z'),
   bookingOpen: true,
+  workshopsOpen: true,
   openPartyStarts: [OCT_24_9AM, OCT_24_2PM, OCT_25_1PM, NOV_07_9AM],
   workshops: [workshop()],
   kitsOpen: false,
@@ -282,5 +283,14 @@ describe('anything else', () => {
   it('is left for a person, open or closed', () => {
     expect(judge('corporate: call me about a team day', facts())).toEqual({ state: 'unknown' })
     expect(judge('corporate: call me about a team day', facts({ bookingOpen: false }))).toEqual({ state: 'unknown' })
+  })
+})
+
+describe('parties open, workshops still closed (BOOKINGS_OPEN=parties)', () => {
+  it('party sign-ups are due; workshop sign-ups wait', () => {
+    const f = facts({ workshopsOpen: false })
+    expect(judge('party', f).state).toBe('due')
+    expect(judge('workshops', f).state).toBe('wait')
+    expect(judge(`workshop:${workshop().name}`, f).state).toBe('wait')
   })
 })

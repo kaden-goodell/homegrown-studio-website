@@ -23,7 +23,7 @@ const _previewMatch = previewQueryMatches(Astro.url)
 if (_previewMatch) {
   Astro.cookies.set(previewCookieName, previewToken(), { path: '/', httpOnly: true, sameSite: 'lax', maxAge: 60 * 60 * 24 * 30 })
 }
-const bookingsOpen = envBookingsOpen() || _previewMatch || hasValidPreviewCookie(Astro.request)
+const bookingsOpen = envBookingsOpen('parties') || _previewMatch || hasValidPreviewCookie(Astro.request)
 
 // While booking is closed the page offers a "tell me when it opens" sign-up.
 // If the visitor arrived from the calendar or a shared link, say back to them

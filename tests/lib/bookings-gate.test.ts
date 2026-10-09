@@ -24,12 +24,28 @@ describe('bookings-gate', () => {
   it('is closed by default (BOOKINGS_OPEN not "true")', () => {
     process.env.BOOKINGS_OPEN = 'false'
     expect(envBookingsOpen()).toBe(false)
-    expect(bookingsOpen()).toBe(false)
+    expect(bookingsOpen(undefined, 'parties')).toBe(false)
   })
 
   it('is open when BOOKINGS_OPEN=true', () => {
     process.env.BOOKINGS_OPEN = 'true'
-    expect(bookingsOpen()).toBe(true)
+    for (const k of ['parties', 'workshops', 'kits', 'other'] as const) expect(bookingsOpen(undefined, k)).toBe(true)
+  })
+
+  it('BOOKINGS_OPEN=parties opens parties only', () => {
+    process.env.BOOKINGS_OPEN = 'parties'
+    expect(bookingsOpen(undefined, 'parties')).toBe(true)
+    expect(bookingsOpen(undefined, 'workshops')).toBe(false)
+    expect(bookingsOpen(undefined, 'kits')).toBe(false)
+    expect(bookingsOpen(undefined, 'other')).toBe(false)
+    expect(envBookingsOpen()).toBe(true) // something is open
+  })
+
+  it('takes a comma list, case and spaces forgiven', () => {
+    process.env.BOOKINGS_OPEN = ' Parties , workshops '
+    expect(envBookingsOpen('parties')).toBe(true)
+    expect(envBookingsOpen('workshops')).toBe(true)
+    expect(envBookingsOpen('kits')).toBe(false)
   })
 
   it('bookingsClosedResponse is a 403 with a friendly message', async () => {
@@ -45,9 +61,9 @@ describe('bookings-gate', () => {
     const bad = new Request('https://x/api', { headers: { cookie: 'hg_preview=nope' } })
     const none = new Request('https://x/api')
     expect(hasValidPreviewCookie(ok)).toBe(true)
-    expect(bookingsOpen(ok)).toBe(true)
-    expect(bookingsOpen(bad)).toBe(false)
-    expect(bookingsOpen(none)).toBe(false)
+    expect(bookingsOpen(ok, 'workshops')).toBe(true)
+    expect(bookingsOpen(bad, 'workshops')).toBe(false)
+    expect(bookingsOpen(none, 'workshops')).toBe(false)
   })
 
   it('preview query matches only the configured token', () => {
@@ -61,7 +77,7 @@ describe('bookings-gate', () => {
     process.env.BOOKINGS_OPEN = 'false'
     delete process.env.PREVIEW_TOKEN
     const req = new Request('https://x/api', { headers: { cookie: 'hg_preview=anything' } })
-    expect(bookingsOpen(req)).toBe(false)
+    expect(bookingsOpen(req, 'parties')).toBe(false)
     expect(previewQueryMatches(new URL('https://x/book?preview=anything'))).toBe(false)
   })
 })

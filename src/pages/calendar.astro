@@ -6,7 +6,9 @@ import WhatsOnCalendar from '@components/calendar/WhatsOnCalendar'
 import { envBookingsOpen, hasValidPreviewCookie, previewQueryMatches } from '@lib/bookings-gate'
 
 // Only promise "tap to book" when tapping can actually book.
-const bookingsOpen = envBookingsOpen() || previewQueryMatches(Astro.url) || hasValidPreviewCookie(Astro.request)
+const preview = previewQueryMatches(Astro.url) || hasValidPreviewCookie(Astro.request)
+const partiesOpen = envBookingsOpen('parties') || preview
+const workshopsOpen = envBookingsOpen('workshops') || preview
 
 // Events are fetched per-month, client-side, from /api/calendar.json?month=YYYY-MM
 // (one month at a time keeps each Square availability query under the 32-day cap).
@@ -18,9 +20,11 @@ const bookingsOpen = envBookingsOpen() || previewQueryMatches(Astro.url) || hasV
       <p class="eyebrow tone-event mb-3">Calendar</p>
       <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">Coming up at the studio</h1>
       <p class="text-lg mt-4 max-w-xl mx-auto" style="color: var(--color-muted);">
-        {bookingsOpen
+        {partiesOpen && workshopsOpen
           ? 'Workshops and open party dates. Tap one to book it.'
-          : 'Here’s what’s coming. Booking opens with our grand opening, and you can ask to be told the day it does.'}
+          : partiesOpen
+            ? 'Open party dates and upcoming workshops. Tap a party date to book it. Workshop booking opens with our grand opening.'
+            : 'Here’s what’s coming. Booking opens with our grand opening, and you can ask to be told the day it does.'}
       </p>
     </div>
     <WhatsOnCalendar client:load />

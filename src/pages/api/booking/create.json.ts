@@ -4,7 +4,7 @@ import { createLogger } from '@lib/logger'
 import { providers } from '@config/providers'
 
 export const POST: APIRoute = async ({ request }) => {
-  if (!bookingsOpen(request)) return bookingsClosedResponse()
+  if (!bookingsOpen(request, 'other')) return bookingsClosedResponse()
   const logger = createLogger('api:booking:create')
   const startTime = Date.now()
   try {

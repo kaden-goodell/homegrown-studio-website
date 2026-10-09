@@ -112,7 +112,7 @@ async function agreementLineFor(email: string): Promise<string | undefined> {
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  if (!bookingsOpen(request)) return bookingsClosedResponse()
+  if (!bookingsOpen(request, 'kits')) return bookingsClosedResponse()
   // Not seeded yet → no catalog ids to build line items from.
   if (!kitConfig.square.packageItemId) {
     return errorResponse('Kits are not available yet', 503)

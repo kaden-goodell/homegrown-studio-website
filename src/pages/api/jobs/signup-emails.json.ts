@@ -63,13 +63,14 @@ async function cutoffFor(scheduleId: string): Promise<CutoffSettings | null> {
 
 async function gatherFacts(now: Date): Promise<StudioFacts> {
   const bookingOpen = envBookingsOpen()
+  const partiesOpen = envBookingsOpen('parties')
   const [workshops, openPartyStarts] = await Promise.all([
     providers.workshop.listWorkshops().catch((err) => {
       logger.error('Workshop list failed: no workshop email this time', { error: String(err) })
       return []
     }),
     // A failed lookup means nothing is said about party dates this time round.
-    (bookingOpen ? openPartyStartsInWindow(now) : Promise.resolve([])).catch((err) => {
+    (partiesOpen ? openPartyStartsInWindow(now) : Promise.resolve([])).catch((err) => {
       logger.error('Party dates lookup failed: no party email this time', { error: String(err) })
       return [] as string[]
     }),
@@ -77,6 +78,7 @@ async function gatherFacts(now: Date): Promise<StudioFacts> {
   return {
     now,
     bookingOpen,
+    workshopsOpen: envBookingsOpen('workshops'),
     openPartyStarts,
     workshops: await Promise.all(
       workshops.map(
@@ -91,7 +93,7 @@ async function gatherFacts(now: Date): Promise<StudioFacts> {
         }),
       ),
     ),
-    kitsOpen: bookingOpen && siteConfig.features.kits.enabled,
+    kitsOpen: envBookingsOpen('kits') && siteConfig.features.kits.enabled,
     bookingWindowDays: partyConfig.bookingWindowDays,
     timeZone: partyConfig.timezone,
   }

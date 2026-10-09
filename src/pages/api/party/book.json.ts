@@ -153,7 +153,7 @@ async function agreementLineFor(email: string): Promise<string | undefined> {
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  if (!bookingsOpen(request)) return bookingsClosedResponse()
+  if (!bookingsOpen(request, 'parties')) return bookingsClosedResponse()
   if (rateLimited(`party-book:${clientAddress}`, 5, 60_000)) {
     return errorResponse('Too many booking attempts — give it a minute.', 429)
   }

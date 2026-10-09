@@ -7,7 +7,9 @@
  * bypass so the owner can still exercise the real production flow.
  *
  * Controls (Netlify environment):
- *   BOOKINGS_OPEN=true   → bookings open to everyone (set this on grand-opening day)
+ *   BOOKINGS_OPEN=true   → every kind of booking open to everyone
+ *   BOOKINGS_OPEN=parties → only the listed kinds open (comma list of
+ *                           parties, workshops, kits); everything else stays closed
  *   PREVIEW_TOKEN=<secret> → visiting any page with ?preview=<secret> drops a
  *                            cookie that unlocks booking for THAT browser only.
  *
@@ -32,9 +34,27 @@ function readEnv(key: string): string | undefined {
   return undefined
 }
 
-/** True when BOOKINGS_OPEN is explicitly "true". */
-export function envBookingsOpen(): boolean {
-  return readEnv('BOOKINGS_OPEN') === 'true'
+/** What can be booked. Older flows (hidden programs, legacy checkout) are 'other'. */
+export type BookingKind = 'parties' | 'workshops' | 'kits' | 'other'
+
+/** The kinds BOOKINGS_OPEN opens: "true" = all of them, else a comma list. */
+function openKinds(): { all: boolean; kinds: Set<string> } {
+  const raw = (readEnv('BOOKINGS_OPEN') ?? '').trim().toLowerCase()
+  if (raw === 'true') return { all: true, kinds: new Set() }
+  // Only real kind names count, so "false", "off" or a typo opens nothing.
+  const known = new Set(['parties', 'workshops', 'kits', 'other'])
+  return { all: false, kinds: new Set(raw.split(',').map((k) => k.trim()).filter((k) => known.has(k))) }
+}
+
+/**
+ * True when BOOKINGS_OPEN opens this kind for everyone. With no kind: true when
+ * ANY kind is open (used for "is anything bookable" questions).
+ */
+export function envBookingsOpen(kind?: BookingKind): boolean {
+  const { all, kinds } = openKinds()
+  if (all) return true
+  if (!kind) return kinds.size > 0
+  return kinds.has(kind)
 }
 
 /** The configured preview secret, or '' when none is set. */
@@ -71,13 +91,12 @@ export function previewQueryMatches(url: URL): boolean {
 export const previewCookieName = PREVIEW_COOKIE
 
 /**
- * Whether bookings are open for this request. Open to everyone when
- * BOOKINGS_OPEN=true; otherwise only when the browser holds a valid preview
- * cookie. Endpoints pass their Request; call with no argument for the
- * everyone-or-nobody check.
+ * Whether this kind of booking is open for this request: open to everyone when
+ * BOOKINGS_OPEN opens it; otherwise only when the browser holds a valid preview
+ * cookie (which unlocks every kind, for the owner's testing).
  */
-export function bookingsOpen(request?: Request): boolean {
-  if (envBookingsOpen()) return true
+export function bookingsOpen(request: Request | undefined, kind: BookingKind): boolean {
+  if (envBookingsOpen(kind)) return true
   if (request && hasValidPreviewCookie(request)) return true
   return false
 }

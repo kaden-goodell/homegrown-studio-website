@@ -26,7 +26,7 @@ const _previewMatch = previewQueryMatches(Astro.url)
 if (_previewMatch) {
   Astro.cookies.set(previewCookieName, previewToken(), { path: '/', httpOnly: true, sameSite: 'lax', maxAge: 60 * 60 * 24 * 30 })
 }
-const bookingsOpen = envBookingsOpen() || _previewMatch || hasValidPreviewCookie(Astro.request)
+const bookingsOpen = envBookingsOpen('workshops') || _previewMatch || hasValidPreviewCookie(Astro.request)
 
 // A link to one workshop (?w=<id>, from the calendar or a shared link) should
 // preview as that workshop, and while booking is closed the sign-up panel

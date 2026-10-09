@@ -33,8 +33,10 @@ export interface WorkshopFact {
 
 export interface StudioFacts {
   now: Date
-  /** The public booking switch. While it is off nothing is due. */
+  /** Any public booking is open. While nothing is, nothing is due. */
   bookingOpen: boolean
+  /** Workshop seats can be booked online (its own switch: parties can open first). */
+  workshopsOpen: boolean
   /** Party start times a customer could book right now (ISO). Empty when none are on offer. */
   openPartyStarts: string[]
   /** Upcoming workshops, sold-out and unpriced ones included. */
@@ -132,7 +134,7 @@ function signupsOpen(w: WorkshopFact, facts: StudioFacts): boolean {
 }
 
 function bookable(w: WorkshopFact, facts: StudioFacts): boolean {
-  return upcoming(w, facts) && canBeBooked(w.priceCents) && w.seatsLeft > 0 && signupsOpen(w, facts)
+  return facts.workshopsOpen && upcoming(w, facts) && canBeBooked(w.priceCents) && w.seatsLeft > 0 && signupsOpen(w, facts)
 }
 
 /** "Friday, October 16 at 7:00 PM. $40 per seat." */

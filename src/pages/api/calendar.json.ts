@@ -142,7 +142,7 @@ export const GET: APIRoute = async ({ url, request }) => {
   //    would then refuse. Real created content (workshops, open studio, booked
   //    parties) still shows as "what's coming". A Grand Opening marker anchors
   //    the opening month.
-  const includePartySlots = bookingsOpen(request)
+  const includePartySlots = bookingsOpen(request, 'parties')
   const built = buildCalendarEvents(
     workshops,
     openStudioWindows,

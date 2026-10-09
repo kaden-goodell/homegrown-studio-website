@@ -46,7 +46,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  * told, because the customer may have paid.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  if (!bookingsOpen(request)) return bookingsClosedResponse()
+  if (!bookingsOpen(request, 'workshops')) return bookingsClosedResponse()
   if (rateLimited(`workshop-book:${clientAddress}`, 5, 60_000)) {
     return fail(429, 'unavailable', 'That’s a lot of attempts in a row. Give it a minute, then try again.')
   }

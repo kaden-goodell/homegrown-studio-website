@@ -11,7 +11,7 @@ import { rateLimited } from '@lib/rate-limit'
 const logger = createLogger('api:party:availability')
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  if (!bookingsOpen(request)) return bookingsClosedResponse()
+  if (!bookingsOpen(request, 'parties')) return bookingsClosedResponse()
   if (rateLimited(`party-avail:${clientAddress}`, 30, 60_000)) {
     return new Response(
       JSON.stringify({ error: 'Too many requests — give it a minute.' }),
