@@ -29,16 +29,16 @@ Paragraphs are separated by a blank line (the modal renders `white-space: pre-li
 - Banned: "one-of-a-kind creation", "uniquely yours", "unleash your creativity", "perfect mix of", exclamation-mark stacking, "at Hometown Studio's …!" openers, em-dash pileups.
 - Never invent facts. If the materials, take-home count, or age aren't known, ask — don't guess. Flag any assumption when presenting the draft.
 
-## No "learn" — they come to make it (Kaden, 2026-10-09)
+## No "learn" on café or party crafts (Kaden, 2026-10-09)
 
-Never frame a craft or class as a lesson: no "Learn to…", "Learn how…", "We'll teach…". People come to DO it. Say what they make and do, with help at the table when that's true. (This replaces the "Learn to …" middle paragraph below.)
+Craft Café and party crafts are not lessons: no "Learn to…", "Learn how…". People come to DO it. Say what they make and do, with help at the table when that's true. **Workshops may still use "Learn to…"** (the approved shape below); Kaden kept the existing workshop copy as is. New workshops don't need it either.
 
 ## Workshop classes — the approved style (Catherine + Kaden, 2026-10-06)
 
 Catherine approved this exact shape and rejected the specific version ("she didn't like how you were so specific"). Use it for EVERY workshop/class:
 
 1. **Hook:** what you make, and who leads it when it is a guest instructor ("with Mrs. Megan, the owner of Nutmeg's Cookies"). Instructors get "Mrs./Mr. + first name" when Kaden gives it that way.
-2. **What you do paragraph** (no "Learn to…", see above): what they do, who guides the table, then `No experience needed.` (or an equivalent reassurance).
+2. **"Learn to …" paragraph** (optional for new workshops, see above): the skills you learn or what you do, who guides the table, then `No experience needed.` (or an equivalent reassurance).
 3. **Take-home + age:** `Each guest goes home with the <thing> they make. Ages 8 and up.` Generic take-home — never a count, a design, a color, or packaging. Add `This is a drop-off class: parents can head out and come back for pickup.` only when Kaden says the class is drop-off.
 
 Stay vague on anything we might not do exactly: no exact designs, counts, colors, menus, combos, or "in a box". "If you are too specific and we don't do it exactly, people will complain." Say the kind of thing, not the inventory. (Concrete nouns were the OLD rule for party crafts — keep those light on specifics too.)
@@ -46,7 +46,7 @@ Stay vague on anything we might not do exactly: no exact designs, counts, colors
 Approved example — **Halloween Cookie Decorating**
 > Decorate Halloween cookies with Mrs. Megan, the owner of Nutmeg's Cookies.
 >
-> Outline, flood, and add the details, with Mrs. Megan guiding the whole table. No experience needed.
+> Learn to outline, flood, and add the details, with Mrs. Megan guiding the whole table. No experience needed.
 >
 > Each guest goes home with the cookies they decorate. Ages 8 and up. This is a drop-off class: parents can head out and come back for pickup.
 
