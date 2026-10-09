@@ -18,7 +18,7 @@ Parties and kits are charged through Square's Payments API, which does accept gi
 | # | Decision |
 |---|---|
 | 1 | **No coupon codes.** The dead coupon system (`src/lib/coupons.ts`, `coupons.json`, `validate-coupon`, `CouponInput`, `features.coupons`) is deleted — it is wired only into the hidden Programs flow. |
-| 2 | **Dollar giveaways = Square gift cards** with a promotional balance (`ADJUST_INCREMENT`, reason `COMPLIMENTARY` — the same mechanism as crew credit; no money moves). Redeemable online for parties and kits, and at the register. |
+| 2 | **Dollar giveaways = Square gift cards** loaded by an `ACTIVATE` with payment instrument `complimentary` (Square refuses `ADJUST_INCREMENT` on a card that isn't active yet — verified 2026-10-08; no money moves). Redeemable online for parties and kits, and at the register. |
 | 3 | **Free workshop seats = "Comp a seat" on `/staff`**: a link into Square's dashboard for the no-payment "Add attendee" step, then a form here that records the person and their picks and sends the confirmation. (Direct call from our page is impossible — CORS; see C.) |
 | 4 | Gift cards are minted from `/staff` (and a CLI) by anyone with the staff passcode. Each mint records who it was for in the card's note so the Square list is self-explaining. |
 | 5 | v1: a gift card must **cover the whole amount**; otherwise the checkout says how much is on it and asks for a card. Splitting one order across a gift card and a card is a follow-up (Square supports it — two payments on one order — but it doubles the payment states to get right). |
@@ -36,7 +36,7 @@ Parties and kits are charged through Square's Payments API, which does accept gi
 
 ### B. Mint gift cards (`/staff` → "Gift cards"; `scripts/mint-gift-card.ts`)
 
-- `POST /api/staff/gift-cards.json` (staff-authed): `{ amountCents, forWhom, note? }` → creates a `DIGITAL` card, activates it with `ADJUST_INCREMENT` `COMPLIMENTARY` (not `ACTIVATE` with a fake payment id — that is what the spike used and it works, but `COMPLIMENTARY` is the honest reason code), stores `forWhom`/`note` as the card's `customer`-less metadata via our own small `gift-cards` blob record `{ gan, amountCents, forWhom, note, by, at }`, and returns the card number.
+- `POST /api/staff/gift-cards.json` (staff-authed): `{ amountCents, forWhom, note? }` → creates a `DIGITAL` card, activates it with `ACTIVATE` and payment instrument `complimentary` (Square refuses `ADJUST_INCREMENT` on a pending card; Square's reports may list these as gift-card loads with no payment), stores `forWhom`/`note` as the card's `customer`-less metadata via our own small `gift-cards` blob record `{ gan, amountCents, forWhom, note, by, at }`, and returns the card number.
 - `GET /api/staff/gift-cards.json` lists our minted cards with live balance (Square `giftCards.get`), newest first, so staff can see "Megan's $35 — $0 left, used Nov 9".
 - Screen: amount (preset chips $10 / $25 / $50 / $100 + free entry), "for whom", optional note, **Make card** → shows the 16-digit number big, with a Copy button and a "text it" link that opens Messages with the number pre-filled (the staff member sends it). List below.
 - CLI: `npx tsx scripts/mint-gift-card.ts --amount 35 --for "Megan (shared our reel)"` for Kaden.

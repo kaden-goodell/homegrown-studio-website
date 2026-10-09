@@ -7,7 +7,7 @@ export interface GiftCard {
 }
 
 export interface GiftCardProvider {
-  /** Create a DIGITAL card and load a promotional balance (ADJUST_INCREMENT, COMPLIMENTARY). No money moves. */
+  /** Create a DIGITAL card and ACTIVATE it with the giveaway amount (payment instrument "complimentary"). No money moves. */
   mint(params: { amountCents: number; idempotencyKey: string }): Promise<GiftCard>
   /** Card by id (balance is live). */
   get(id: string): Promise<GiftCard | null>

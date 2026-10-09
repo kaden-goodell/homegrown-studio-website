@@ -226,7 +226,9 @@ async function seatCounts(s: Scan): Promise<Warning[]> {
           action: 'Call the customer.',
         })
       }
-      const extra = recorded - sold
+      // A simulated (preview) record never reached Square, so it can't be
+      // "recorded but not added in Square" — count only real ones here.
+      const extra = records.filter((r) => r.simulated !== true).reduce((n, r) => n + r.seats, 0) - sold
       if (extra > 0) {
         out.push({
           code: 'recorded-over-sold',

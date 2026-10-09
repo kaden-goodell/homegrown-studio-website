@@ -24,6 +24,17 @@ export function requireNetlifyCli(): void {
     )
     process.exit(1)
   }
+  // --version passes even when not logged in or linked; a real list call proves
+  // production is reachable before anything is created in Square.
+  const l = spawnSync('netlify', ['blobs:list', 'gift-cards', '--json'], { encoding: 'utf8' })
+  if (l.error || l.status !== 0) {
+    console.error(
+      '✗ The `netlify` CLI can’t read production blobs (not logged in or not linked?).\n' +
+        '  Run `netlify login` and `netlify link` in this repo, then try again.\n' +
+        `  ${(l.stderr || l.stdout || '').trim().split('\n')[0] ?? ''}`,
+    )
+    process.exit(1)
+  }
 }
 
 /** Keys from `netlify blobs:list --json`, whichever shape the CLI prints. */

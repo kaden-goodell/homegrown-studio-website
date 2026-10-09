@@ -308,4 +308,10 @@ describe('listWarnings — recorded-over-sold', () => {
     mockListSeatChoices.mockResolvedValue(seatsRecorded(15))
     expect(await listWarnings(WINDOW)).toEqual([])
   })
+
+  it('ignores simulated preview records, which never reach Square', async () => {
+    mockGetEventMeta.mockResolvedValue(null)
+    mockListSeatChoices.mockResolvedValue([{ seats: 15 }, { seats: 3, simulated: true }])
+    expect(await listWarnings(WINDOW)).toEqual([])
+  })
 })
