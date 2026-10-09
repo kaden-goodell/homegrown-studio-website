@@ -45,16 +45,22 @@ export default function EventList({
   date,
   onOpenRoster,
   onLoaded,
+  stepper = true,
+  start,
 }: {
-  /** The actual studio-local "today" — used only to label the stepper. */
+  /** The actual studio-local "today". */
   date: string
+  /** false = today only (the Today tab): no day stepper, no ?day in the address. */
+  stepper?: boolean
+  /** Where the stepper starts when the address has no ?day (Upcoming: tomorrow). */
+  start?: string
   onOpenRoster: (e: { kind: EventKind; id: string; title: string }) => void
   /** Reports the events for `date` (the real today) — Today's door chips use it. */
   onLoaded?: (events: EventRow[]) => void
 }) {
   // The day being viewed lives in the address (?day=YYYY-MM-DD) so a refresh,
   // or coming back from a roster, stays on it. Today itself drops the param.
-  const [cursor, setCursor] = useState(() => readDayParam() ?? date)
+  const [cursor, setCursor] = useState(() => (stepper ? readDayParam() ?? start ?? date : date))
   const [events, setEvents] = useState<EventRow[]>([])
   const [error, setError] = useState<string | null>(null)
   // Which source systems failed on the last successful load (F2) — one of
@@ -82,7 +88,7 @@ export default function EventList({
   }
 
   useEffect(() => { load(cursor) }, [cursor])
-  useEffect(() => { writeDayParam(cursor === date ? null : cursor) }, [cursor, date])
+  useEffect(() => { if (stepper) writeDayParam(cursor === date ? null : cursor) }, [cursor, date, stepper])
 
   // The door's event chips always need TODAY's events, even when a refresh
   // lands the stepper on another day.
@@ -95,15 +101,18 @@ export default function EventList({
   }, [date])
 
   const isToday = cursor === date
-  const label = isToday ? 'Today' : formatCalendarDay(cursor)
+  const label = isToday ? `Today · ${formatCalendarDay(cursor)}` : cursor === addDays(date, 1) ? `Tomorrow · ${formatCalendarDay(cursor)}` : formatCalendarDay(cursor)
 
   return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
+      {!stepper && (
+        <h3 style={{ margin: '0 0 0.6rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', fontSize: '1.15rem' }}>{label}</h3>
+      )}
+      {stepper && <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.6rem' }}>
         <button type="button" onClick={() => setCursor((c) => addDays(c, -1))} aria-label="Previous day" style={{ ...btn(), minWidth: '2.75rem', minHeight: '2.75rem' }}>‹</button>
-        <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', fontSize: '1rem' }}>{label}</h3>
+        <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', fontSize: '1.15rem' }}>{label}</h3>
         <button type="button" onClick={() => setCursor((c) => addDays(c, 1))} aria-label="Next day" style={{ ...btn(), minWidth: '2.75rem', minHeight: '2.75rem' }}>›</button>
-      </div>
+      </div>}
 
       {error && (
         <div style={{ background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '0.6rem', padding: '0.7rem 0.9rem', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>

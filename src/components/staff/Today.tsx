@@ -10,7 +10,7 @@ import type { EventKind } from '@lib/events'
 
 /**
  * The staff landing screen: warnings, the Craft Café headcount on café days,
- * and the day's events (step to other days to look ahead). Checking people
+ * and today's events — today only (Upcoming looks ahead). Checking people
  * in is the floating ✓ Check in button, which always works on today.
  */
 export default function Today({
@@ -52,10 +52,7 @@ export default function Today({
 
       <WarningsPanel onOpenEvent={(e) => onOpenRoster(e)} />
 
-      <EventList
-        date={today}
-        onOpenRoster={onOpenRoster}
-      />
+      <EventList date={today} stepper={false} onOpenRoster={onOpenRoster} />
     </div>
   )
 }

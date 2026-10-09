@@ -1,6 +1,6 @@
 import { createContext, useContext } from 'react'
 
-export type StaffTab = 'today' | 'parties' | 'kits' | 'giftcards'
+export type StaffTab = 'today' | 'upcoming' | 'kits' | 'giftcards'
 
 export interface StaffNav {
   active: StaffTab
@@ -15,7 +15,7 @@ export const useStaffNav = () => useContext(StaffNavContext)
 
 export const TABS: { id: StaffTab; label: string }[] = [
   { id: 'today', label: 'Today' },
-  { id: 'parties', label: 'Parties' },
+  { id: 'upcoming', label: 'Upcoming' },
   { id: 'kits', label: 'Kits' },
   { id: 'giftcards', label: 'Gift cards' },
 ]

@@ -12,11 +12,11 @@ function setup(active: StaffNav['active'] = 'today') {
 describe('staff tabs', () => {
   it('shows four tabs with the current one marked, and switches on tap', () => {
     const nav = setup('kits')
-    for (const t of ['Today', 'Parties', 'Kits', 'Gift cards']) expect(screen.getByRole('button', { name: t })).toBeTruthy()
+    for (const t of ['Today', 'Upcoming', 'Kits', 'Gift cards']) expect(screen.getByRole('button', { name: t })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Kits' }).getAttribute('aria-current')).toBe('page')
     expect(screen.getByRole('button', { name: 'Today' }).getAttribute('aria-current')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: 'Parties' }))
-    expect(nav.go).toHaveBeenCalledWith('parties')
+    fireEvent.click(screen.getByRole('button', { name: 'Upcoming' }))
+    expect(nav.go).toHaveBeenCalledWith('upcoming')
   })
 
   it('the name opens Switch person and Log out', () => {

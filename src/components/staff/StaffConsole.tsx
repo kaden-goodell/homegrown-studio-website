@@ -6,7 +6,8 @@ import { addDays } from '@lib/kit-dates'
 import PickStaff from '@components/staff/PickStaff'
 import StaffHeader from '@components/staff/StaffHeader'
 import Today from '@components/staff/Today'
-import Parties from '@components/staff/Parties'
+import Upcoming from '@components/staff/Upcoming'
+import { readDayParam, writeDayParam } from '@components/staff/EventList'
 import { StaffNavContext, type StaffNav, type StaffTab } from '@components/staff/nav'
 import GiftCards from '@components/staff/GiftCards'
 import Roster from '@components/staff/Roster'
@@ -250,9 +251,9 @@ function readOpenParam(): { kind: EventKind; id: string } | null {
 }
 
 export default function StaffConsole() {
-  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'today' | 'parties' | 'roster' | 'kits' | 'giftcards'>('checking')
+  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'today' | 'upcoming' | 'roster' | 'kits' | 'giftcards'>('checking')
   // Which list a roster was opened from, so its Back and the active tab match.
-  const [lastList, setLastList] = useState<'today' | 'parties'>('today')
+  const [lastList, setLastList] = useState<'today' | 'upcoming'>('today')
   const [kitBuckets, setKitBuckets] = useState<KitBuckets | null>(null)
   const [radar, setRadar] = useState<RadarRow[]>([])
   const [assembly, setAssembly] = useState<KitAssembly | null>(null)
@@ -277,7 +278,8 @@ export default function StaffConsole() {
   function landOnToday() {
     const target = pendingOpen.current
     pendingOpen.current = null
-    if (target) { setRosterTarget(target); setPhase('roster') } else setPhase('today')
+    // A ?day in the address means someone was looking ahead: land back on Upcoming.
+    if (target) { setRosterTarget(target); setPhase('roster') } else setPhase(readDayParam() ? 'upcoming' : 'today')
   }
 
   // Recover the signed-in staffer from the identity cookie on mount, so a
@@ -405,7 +407,7 @@ export default function StaffConsole() {
    *  `getEvent`/`roster.json` resolves (party, workshop) — HOM-213 replaced
    *  the party-only screen with a generalized one. */
   function openRoster(e: { kind: EventKind; id: string; title: string; addFamily?: { household?: HouseholdMatch } }) {
-    if (phase === 'today' || phase === 'parties') setLastList(phase)
+    if (phase === 'today' || phase === 'upcoming') setLastList(phase)
     setRosterTarget({ kind: e.kind, id: e.id, ...(e.addFamily ? { addFamily: e.addFamily } : {}) })
     setPhase('roster')
   }
@@ -449,11 +451,12 @@ export default function StaffConsole() {
     </div>
   )
 
-  const activeTab: StaffTab = phase === 'roster' ? lastList : phase === 'parties' || phase === 'kits' || phase === 'giftcards' ? phase : 'today'
+  const activeTab: StaffTab = phase === 'roster' ? lastList : phase === 'upcoming' || phase === 'kits' || phase === 'giftcards' ? phase : 'today'
   const nav: StaffNav = {
     active: activeTab,
     go: (tab) => {
       setRosterTarget(null)
+      if (tab !== 'upcoming') writeDayParam(null) // ?day belongs to Upcoming
       if (tab === 'kits') { loadKits(); return }
       setPhase(tab)
     },
@@ -466,8 +469,8 @@ export default function StaffConsole() {
     return withNav(<Today staff={me} onOpenRoster={openRoster} />)
   }
 
-  if (phase === 'parties') {
-    return withNav(<Parties staff={me} onOpenRoster={openRoster} />)
+  if (phase === 'upcoming') {
+    return withNav(<Upcoming staff={me} onOpenRoster={openRoster} />)
   }
 
   if (phase === 'giftcards') {
@@ -480,7 +483,7 @@ export default function StaffConsole() {
         key={`${rosterTarget.kind}:${rosterTarget.id}`}
         staff={me}
         onBack={() => { setRosterTarget(null); setPhase(lastList) }}
-        backLabel={lastList === 'parties' ? 'Parties' : 'Today'}
+        backLabel={lastList === 'upcoming' ? 'Upcoming' : 'Today'}
         kind={rosterTarget.kind}
         id={rosterTarget.id}
         addFamily={rosterTarget.addFamily}

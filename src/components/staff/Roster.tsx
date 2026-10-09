@@ -59,6 +59,7 @@ export default function Roster({
   const [addFamilyOpen, setAddFamilyOpen] = useState(!!addFamily)
   const [compSeatOpen, setCompSeatOpen] = useState(false)
   const [sellSeatOpen, setSellSeatOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const [data, setData] = useState<RosterData | null>(null)
   const [netError, setNetError] = useState<string | null>(null)
   const [stale, setStale] = useState(false)
@@ -214,16 +215,31 @@ export default function Roster({
   return (
     <div>
       <StaffHeader title="Roster" staff={staff} event={event} households={data.households} day={data.day} onCheckIn={() => setAddFamilyOpen(true)} />
-      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <button type="button" onClick={onBack} style={btn()}>← {backLabel}</button>
-        <button type="button" onClick={() => setAddFamilyOpen(true)} style={btn(true)}>+ Add family</button>
-        {kind === 'workshop' && <button type="button" onClick={() => setSellSeatOpen(true)} style={btn()}>Sell a seat</button>}
-        {kind === 'workshop' && <button type="button" onClick={() => setCompSeatOpen(true)} style={btn()}>Comp a seat</button>}
-        <button type="button" onClick={refresh} style={btn()}>↻ Refresh</button>
-        <a href={`/staff/print?kind=${kind}&id=${encodeURIComponent(id)}&day=${data.day}`} target="_blank" rel="noopener noreferrer" style={{ ...btn(), textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
-          🖨 Print
-        </a>
-        {stale && <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>⚠ Roster may be stale</span>}
+      <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.8rem', flexWrap: 'wrap' }}>
+        <button type="button" onClick={onBack} style={{ ...btn(), minHeight: '2.75rem', fontSize: '0.9rem' }}>← {backLabel}</button>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', position: 'relative' }}>
+          {stale && <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>⚠ May be out of date</span>}
+          <button
+            type="button"
+            aria-label="More"
+            aria-haspopup="menu"
+            aria-expanded={moreOpen}
+            onClick={() => setMoreOpen((o) => !o)}
+            style={{ ...btn(), minHeight: '2.75rem', minWidth: '2.75rem', fontSize: '1.1rem', fontWeight: 800 }}
+          >
+            ⋯
+          </button>
+          {moreOpen && (
+            <>
+              <div onClick={() => setMoreOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 110 }} />
+              <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 0.35rem)', zIndex: 111, minWidth: '12rem', padding: '0.35rem', borderRadius: '0.75rem', background: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.18)', display: 'grid', gap: '0.25rem' }}>
+                <a role="menuitem" href={`/staff/print?kind=${kind}&id=${encodeURIComponent(id)}&day=${data.day}`} target="_blank" rel="noopener noreferrer" onClick={() => setMoreOpen(false)} style={{ ...btn(), border: 'none', textDecoration: 'none', display: 'flex', alignItems: 'center', minHeight: '2.75rem', fontSize: '0.95rem' }}>🖨 Print</a>
+                <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); setEventSettingsOpen(true) }} style={{ ...btn(), border: 'none', textAlign: 'left', minHeight: '2.75rem', fontSize: '0.95rem' }}>⚙️ Event settings</button>
+                <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); refresh() }} style={{ ...btn(), border: 'none', textAlign: 'left', minHeight: '2.75rem', fontSize: '0.95rem' }}>↻ Refresh</button>
+              </div>
+            </>
+          )}
+        </span>
       </div>
       {netErrorBanner}
 
@@ -233,20 +249,11 @@ export default function Roster({
         </div>
       )}
 
-      <div style={{ ...card, background: 'rgba(255,255,255,0.85)', textAlign: 'center', position: 'relative' }}>
-        <button
-          type="button"
-          onClick={() => setEventSettingsOpen(true)}
-          aria-label="Event settings"
-          title="Event settings"
-          style={{ ...btn(), position: 'absolute', top: '0.7rem', right: '0.7rem', padding: '0.35rem 0.55rem' }}
-        >
-          ⚙
-        </button>
-        <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0 }}>
+      <div style={{ ...card, background: 'rgba(255,255,255,0.85)', textAlign: 'center' }}>
+        <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0, fontSize: '1.6rem' }}>
           <span aria-hidden="true">{ICON[event.kind]}</span> {event.title}
         </h2>
-        <p style={{ color: 'var(--color-dark)', fontWeight: 600, margin: '0.3rem 0 0' }}>
+        <p style={{ color: 'var(--color-dark)', fontWeight: 600, margin: '0.3rem 0 0', fontSize: '1rem' }}>
           {formatWhen(event.startIso)}
           {multiDay && <> · Day {dayIndex + 1} of {event.days.length}</>}
         </p>
@@ -258,7 +265,7 @@ export default function Roster({
                 key={d}
                 type="button"
                 onClick={() => load(d)}
-                style={{ ...btn(d === data.day), padding: '0.35rem 0.7rem', fontSize: '0.78125rem', opacity: d < today && d !== data.day ? 0.55 : 1 }}
+                style={{ ...btn(d === data.day), padding: '0.45rem 0.8rem', minHeight: '2.5rem', fontSize: '0.875rem', opacity: d < today && d !== data.day ? 0.55 : 1 }}
               >
                 {fmtSeg(d)}
               </button>
@@ -266,25 +273,44 @@ export default function Roster({
           </div>
         )}
 
-        <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginTop: '0.6rem' }}>
-          <Badge tone="muted">👥 {data.summary.households} RSVP’d</Badge>
-          <Badge tone="muted">🗓 {coming} crafting</Badge>
-          <Badge tone="muted">✓ {here} here now</Badge>
-          {allergyCount > 0 && <Badge tone="alert">⚠ {allergyCount} with allergies</Badge>}
-          {noPhotoGroups > 0 && (
-            <Badge tone="alert" wrap>🚫 No group photos — {noPhotoGroups} {noPhotoGroups === 1 ? 'group' : 'groups'} opted out</Badge>
-          )}
-          {event.dropOff && <Badge tone="alert">🔑 Drop-off event</Badge>}
-          {incidents.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setIncidentsOpen(true)}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.5rem', borderRadius: '0.5rem', fontSize: '0.7rem', fontWeight: 700, background: 'rgba(185,28,28,0.1)', color: '#b91c1c', border: '1px solid rgba(185,28,28,0.3)', cursor: 'pointer' }}
-            >
-              🚑 Incidents ({incidents.length})
-            </button>
-          )}
+        <div data-testid="roster-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.5rem', marginTop: '0.9rem' }}>
+          {(kind === 'workshop' && typeof event.capacity === 'number' && typeof event.seats === 'number'
+            ? [{ n: `${event.capacity - event.seats}`, sub: `of ${event.capacity} sold` }]
+            : [{ n: `${data.summary.households}`, sub: data.summary.households === 1 ? 'family RSVP’d' : 'families RSVP’d' }]
+          ).concat([
+            { n: `${coming}`, sub: 'crafting' },
+            { n: `${here}`, sub: 'here now' },
+          ]).map((st) => (
+            <div key={st.sub} style={{ padding: '0.55rem 0.3rem', borderRadius: '0.7rem', background: 'rgba(var(--color-primary-rgb),0.07)' }}>
+              <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--color-dark)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{st.n}</div>
+              <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-muted)' }}>{st.sub}</div>
+            </div>
+          ))}
         </div>
+
+        {(allergyCount > 0 || noPhotoGroups > 0 || incidents.length > 0) && (
+          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginTop: '0.7rem' }}>
+            {allergyCount > 0 && <Badge tone="alert">⚠ {allergyCount} with allergies</Badge>}
+            {noPhotoGroups > 0 && (
+              <Badge tone="alert" wrap>🚫 No group photos — {noPhotoGroups} {noPhotoGroups === 1 ? 'group' : 'groups'} opted out</Badge>
+            )}
+            {incidents.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setIncidentsOpen(true)}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.3rem 0.6rem', borderRadius: '0.5rem', fontSize: '0.8125rem', fontWeight: 700, background: 'rgba(185,28,28,0.1)', color: '#b91c1c', border: '1px solid rgba(185,28,28,0.3)', cursor: 'pointer' }}
+              >
+                🚑 Incidents ({incidents.length})
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
+        <button type="button" onClick={() => setAddFamilyOpen(true)} style={{ ...btn(true), minHeight: '2.75rem', fontSize: '0.95rem', flex: '1 1 10rem' }}>+ Add family</button>
+        {kind === 'workshop' && <button type="button" onClick={() => setSellSeatOpen(true)} style={{ ...btn(), minHeight: '2.75rem', fontSize: '0.95rem', flex: '1 1 7rem' }}>Sell a seat</button>}
+        {kind === 'workshop' && <button type="button" onClick={() => setCompSeatOpen(true)} style={{ ...btn(), minHeight: '2.75rem', fontSize: '0.95rem', flex: '1 1 7rem' }}>Comp a seat</button>}
       </div>
 
       {picksUnknown && (

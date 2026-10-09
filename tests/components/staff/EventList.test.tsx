@@ -45,4 +45,18 @@ describe('EventList day in the address', () => {
     await waitFor(() => expect(dates()).toEqual([TODAY]))
     expect(window.location.search).toBe('?x=1')
   })
+
+  it('Today mode: today only, no stepper, ignores and never writes ?day', async () => {
+    history.replaceState(null, '', '/staff?day=2026-10-18')
+    render(<EventList date={TODAY} stepper={false} onOpenRoster={() => {}} />)
+    await waitFor(() => expect(dates()).toEqual([TODAY]))
+    expect(screen.queryByRole('button', { name: 'Next day' })).toBeNull()
+    expect(screen.getByText(/^Today · /)).toBeTruthy()
+  })
+
+  it('Upcoming starts tomorrow when the address has no ?day', async () => {
+    render(<EventList date={TODAY} start="2026-10-17" onOpenRoster={() => {}} />)
+    await waitFor(() => expect(dates()).toEqual(['2026-10-17']))
+    expect(screen.getByText(/^Tomorrow · /)).toBeTruthy()
+  })
 })
