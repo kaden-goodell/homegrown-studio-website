@@ -59,36 +59,62 @@ async function main() {
   if (personalized) categories.push({ id: await findOrCreateCategory('Personalized') })
 
   const existing = await findByName('ITEM', name!)
-  const objectId = existing ? existing.id : '#craft'
-  const varId = existing ? existing.itemData.variations[0].id : '#var'
-  const version = existing ? existing.version : undefined
-  const varVersion = existing ? existing.itemData.variations[0].version : undefined
-
-  const r: any = await client.catalog.batchUpsert({
-    idempotencyKey: `craft-${name}-${Date.now()}`,
-    batches: [{ objects: [{
-      type: 'ITEM', id: objectId, version,
-      itemData: {
-        name, productType: 'REGULAR',
-        categories,
-        reportingCategory: { id: craftCatId },
-        // Preserve any already-attached image(s) on update, so re-running to
-        // change price/description/tags doesn't drop the craft's picture.
-        imageIds: existing?.itemData?.imageIds ?? undefined,
-        descriptionHtml: description ?? undefined,
-        variations: [{
-          type: 'ITEM_VARIATION', id: varId, version: varVersion,
-          itemVariationData: {
-            itemId: objectId, name: 'Per Guest', pricingType: 'FIXED_PRICING',
-            priceMoney: { amount: BigInt(cents), currency: 'USD' },
-          },
-        }],
-      },
-    }] }],
-  })
+  let r: any
+  if (existing) {
+    // UPDATE: start from the full saved item so nothing else is lost (photos,
+    // tax, channels, and marker tags like Most Popular / Parties Only), then
+    // change only the price, the description, and the made-to-order tag.
+    const fresh: any = ((await client.catalog.object.get({ objectId: existing.id })) as any).object
+    const personalizedId = await findOrCreateCategory('Personalized')
+    const cats: any[] = (fresh.itemData.categories ?? []).filter((c: any) => c.id !== personalizedId)
+    if (!cats.some((c: any) => c.id === craftCatId)) cats.unshift({ id: craftCatId })
+    if (personalized) cats.push({ id: personalizedId })
+    fresh.itemData.categories = cats
+    // Square CLEARS a description that is re-sent unchanged (seen 2026-10-09:
+    // two crafts lost theirs on a price-only update). So only send it when the
+    // text actually differs; otherwise leave Square's copy exactly as it is.
+    const current = String(fresh.itemData.descriptionPlaintext ?? fresh.itemData.description ?? '').trim()
+    if (description !== undefined && description.trim() !== current) {
+      // Plain `description` — Square derives the HTML and plaintext copies from it.
+      fresh.itemData.description = description
+      delete fresh.itemData.descriptionHtml
+      delete fresh.itemData.descriptionPlaintext
+    }
+    fresh.itemData.variations[0].itemVariationData.priceMoney = { amount: BigInt(cents), currency: 'USD' }
+    for (const o of [fresh, fresh.itemData.variations[0]]) { delete o.updatedAt; delete o.createdAt; delete o.versionUpdatedAt }
+    r = await client.catalog.batchUpsert({ idempotencyKey: `craft-${name}-${Date.now()}`, batches: [{ objects: [fresh] }] })
+  } else {
+    r = await client.catalog.batchUpsert({
+      idempotencyKey: `craft-${name}-${Date.now()}`,
+      batches: [{ objects: [{
+        type: 'ITEM', id: '#craft',
+        itemData: {
+          name, productType: 'REGULAR',
+          categories,
+          reportingCategory: { id: craftCatId },
+          description: description ?? undefined,
+          variations: [{
+            type: 'ITEM_VARIATION', id: '#var',
+            itemVariationData: {
+              itemId: '#craft', name: 'Per Guest', pricingType: 'FIXED_PRICING',
+              priceMoney: { amount: BigInt(cents), currency: 'USD' },
+            },
+          }],
+        },
+      }] }],
+    })
+  }
   const id = existing ? existing.id : (r.idMappings ?? []).find((m: any) => m.clientObjectId === '#craft')?.objectId
   console.log(`${existing ? 'updated' : 'created'} craft "${name}" @ $${(cents / 100).toFixed(2)}/head${personalized ? ' [personalized]' : ''}  (item ${id})`)
   if (!description) console.log('  note: no description set')
+  // Read it back: a description that silently didn't save is worse than an error.
+  const saved: any = ((await client.catalog.object.get({ objectId: id })) as any).object
+  const savedText = saved?.itemData?.descriptionPlaintext ?? saved?.itemData?.description ?? ''
+  if (description && !savedText.trim()) {
+    console.error('  ✗ Square saved the craft but the description is EMPTY — check it in the dashboard.')
+    process.exit(1)
+  }
+  console.log(`  saved: $${(Number(saved.itemData.variations[0].itemVariationData.priceMoney.amount) / 100).toFixed(2)}, ${saved.itemData.imageIds?.length ?? 0} photo(s), ${saved.itemData.categories?.length ?? 0} categories, description ${savedText.length} chars`)
   console.log('  add an image:  npx tsx scripts/upload-workshop-image.ts ' + id + ' <imagePath> --role card')
 }
 

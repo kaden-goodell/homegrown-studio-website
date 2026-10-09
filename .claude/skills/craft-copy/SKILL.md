@@ -99,6 +99,6 @@ Rules: never fully top-down if the craft's side is the point; say what's NOT inc
 ## Pushing to Square (gotchas)
 
 - `npx tsx scripts/add-party-craft.ts --name … --price … --description …` upserts by exact name against the PRODUCTION catalog.
-- **Updating an existing craft rewrites its categories.** Re-pass `--personalized` for made-to-order crafts, and re-run `scripts/set-popular-craft.ts --name "<craft>" --add` afterward if it held the Most Popular badge (several crafts can hold it). Images are preserved.
+- **Updating an existing craft starts from the saved item** (since 2026-10-09): photos, tax, channels and the Most Popular / Parties Only tags are kept; only price, description and `--personalized` change (pass `--personalized` again for made-to-order crafts, or it comes off). Square CLEARS a description re-sent unchanged, so the script only sends it when the text differs, and it reads the craft back and fails loudly if the description is empty.
 - Photos: 4:3 landscape, ≥1600×1200, subject centered; upload with `scripts/upload-workshop-image.ts <itemId> <path> --role card`.
 - Verify after every push: `GET /api/party/service-info.json` — check price, image, personalized, popular for ALL crafts, not just the one you touched.
