@@ -8,6 +8,8 @@ interface Craft {
   description?: string
   imageUrl?: string
   popular?: boolean
+  /** Tagged "Parties Only" in Square: bookable for parties, not on the café menu. */
+  partyOnly?: boolean
 }
 
 /** A craft can have multiple priced variations — show a range when min ≠ max. */
@@ -32,7 +34,8 @@ export default function CraftMenu() {
       .then((json: { data?: { crafts?: Craft[] }; crafts?: Craft[] }) => {
         if (cancelled) return
         const data = json.data ?? json
-        setCrafts(Array.isArray(data?.crafts) ? data.crafts : [])
+        // Crafts tagged "Parties Only" in Square stay off the café menu.
+        setCrafts(Array.isArray(data?.crafts) ? data.crafts.filter((c) => !c.partyOnly) : [])
       })
       .catch((err) => {
         // Distinct from an empty catalog: a transient API blip must not read

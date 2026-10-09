@@ -22,6 +22,9 @@ export const partyConfig = {
     /** Marker category — the (single) craft tagged here shows the "Most popular"
      *  badge. Manage from Square Dashboard or `scripts/set-popular-craft.ts`. */
     popularCategoryId: 'N2ZDEPFKYME52I7OQYSFIDWN',
+    /** Marker category — crafts tagged here are bookable for parties but left
+     *  off the Craft Café menu. Manage from Square or `scripts/set-party-only.ts`. */
+    partyOnlyCategoryId: 'JQ3QDTNFUZQH3H2DKP3IQTDA',
     /** Non-bookable Open Studio display item (flow='display', windows in the
      *  programDates custom attribute). Currently the TEST item created
      *  2026-07-18 for pre-launch flow testing (windows = Jul 23–Aug 2 open

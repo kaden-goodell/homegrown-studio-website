@@ -94,6 +94,9 @@ export const GET: APIRoute = async ({ url }) => {
         const popular = (o.itemData?.categories ?? []).some(
           (c: any) => c.id === partyConfig.square.popularCategoryId
         )
+        const partyOnly = (o.itemData?.categories ?? []).some(
+          (c: any) => c.id === partyConfig.square.partyOnlyCategoryId
+        )
         return {
           id: o.id as string,
           name: (o.itemData?.name ?? '') as string,
@@ -103,6 +106,7 @@ export const GET: APIRoute = async ({ url }) => {
           imageUrl: firstImage ? imageUrlById[firstImage] ?? null : null,
           personalized,
           popular,
+          partyOnly,
         }
       })
       // Popular first (the gallery previews only the first few cards), then

@@ -70,6 +70,9 @@ export async function fetchPartyCrafts(
       const popular = (o.itemData?.categories ?? []).some(
         (c: any) => c.id === partyConfig.square.popularCategoryId
       )
+      const partyOnly = (o.itemData?.categories ?? []).some(
+        (c: any) => c.id === partyConfig.square.partyOnlyCategoryId
+      )
       return {
         id: o.id as string,
         name: (o.itemData?.name ?? '') as string,
@@ -79,6 +82,7 @@ export async function fetchPartyCrafts(
         imageUrl: firstImage ? imageUrlById[firstImage] ?? null : null,
         personalized,
         popular,
+        partyOnly,
       }
     })
     .sort((a, b) => Number(!!b.popular) - Number(!!a.popular) || a.name.localeCompare(b.name))
