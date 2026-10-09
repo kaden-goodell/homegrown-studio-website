@@ -12,4 +12,11 @@ describe('CraftMenu (Craft Café)', () => {
     expect(await screen.findByText('Keychain Bar')).toBeTruthy()
     expect(screen.queryByText('Patch & Personalize')).toBeNull()
   })
+
+  it('shows no prices (café crafts are priced at the counter)', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ data: { crafts: [craft('Keychain Bar'), craft('Junk Journaling', { perHeadCents: 1500, perHeadMaxCents: 3000 })] } }) })))
+    const { container } = render(<CraftMenu />)
+    await screen.findByText('Keychain Bar')
+    expect(container.textContent).not.toMatch(/\$\d/)
+  })
 })

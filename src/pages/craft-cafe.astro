@@ -11,7 +11,7 @@ const walkInOpen = new Date() >= new Date(OPEN_STUDIO_START_DATE + 'T00:00:00-06
 
 const steps = [
   { n: '1', title: 'Walk in', text: 'No booking, no reservation — come by any Saturday morning.' },
-  { n: '2', title: 'Pick a craft', text: 'Choose from the craft menu below. Pay per craft — no studio fee, no minimum.' },
+  { n: '2', title: 'Pick a craft', text: 'Choose from the craft menu below. Pay at the counter for what you make — no studio fee, no minimum.' },
   { n: '3', title: 'Make it yours', text: 'Grab a seat, take your time, and leave with something you made.' },
 ]
 ---
@@ -65,7 +65,7 @@ const steps = [
     <div class="text-center mb-10 fade-in">
       <h2 class="text-3xl sm:text-4xl font-heading font-bold" style="color: var(--color-dark);">The craft menu</h2>
       <p class="text-base mt-3 max-w-xl mx-auto" style="color: var(--color-muted);">
-        Every craft is priced per person — make one, or make a few.
+        Prices are at the counter — pay for each craft you make. Make one, or make a few.
       </p>
     </div>
     <CraftMenu client:visible />

@@ -12,14 +12,6 @@ interface Craft {
   partyOnly?: boolean
 }
 
-/** A craft can have multiple priced variations — show a range when min ≠ max. */
-function formatPrice(c: Craft): string {
-  if (!c.perHeadCents) return ''
-  const min = (c.perHeadCents / 100).toFixed(0)
-  if (c.perHeadMaxCents > c.perHeadCents) return `$${min}–$${(c.perHeadMaxCents / 100).toFixed(0)}`
-  return `$${min}`
-}
-
 export default function CraftMenu() {
   const [crafts, setCrafts] = useState<Craft[] | null>(null)
   const [error, setError] = useState(false)
@@ -94,11 +86,6 @@ export default function CraftMenu() {
           <div style={{ padding: '1.25rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem' }}>
               <h3 className="font-heading" style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--color-dark)' }}>{c.name}</h3>
-              {formatPrice(c) && (
-                <span style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--color-primary)', whiteSpace: 'nowrap' }}>
-                  {formatPrice(c)}
-                </span>
-              )}
             </div>
             {c.description && (
               <p
