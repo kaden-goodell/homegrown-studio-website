@@ -1,6 +1,7 @@
 /**
  * Audit log of staff actions: who did what, to what, and when. Backend only —
- * read it with `scripts/audit-log.ts` or `GET /api/staff/audit.json`.
+ * read it with `scripts/audit-log.ts` (production, via the netlify CLI) or
+ * `GET /api/staff/audit.json`.
  *
  * No role gates anywhere: any signed-in staff member can act, and this log is
  * how the owners check afterward. `recordAudit` NEVER throws — an audit failure
@@ -27,25 +28,37 @@ export interface AuditEntry {
   simulated?: true
 }
 
-const PREFIX = 'audit:'
+export const AUDIT_PREFIX = 'audit:'
+const PREFIX = AUDIT_PREFIX
+
+/** A fresh entry and the key it is stored under. Shared with the CLIs that write production directly. */
+export function newAuditEntry(e: Omit<AuditEntry, 'id' | 'at'>): { key: string; entry: AuditEntry } {
+  const entry: AuditEntry = { id: 'au_' + randomUUID().slice(0, 8), at: new Date().toISOString(), ...e }
+  // ISO `at` first so a plain key listing sorts by time.
+  return { key: `${PREFIX}${entry.at}-${entry.id}`, entry }
+}
+
+/** Audit keys newest first, from `since` (YYYY-MM-DD) on when given. */
+export function auditKeysNewestFirst(keys: string[], since?: string): string[] {
+  const sinceKey = since ? `${PREFIX}${since}` : null
+  return keys
+    .filter((k) => k.startsWith(PREFIX))
+    .filter((k) => !sinceKey || k >= sinceKey)
+    .sort()
+    .reverse()
+}
 
 export async function recordAudit(e: Omit<AuditEntry, 'id' | 'at'>): Promise<void> {
   try {
-    const entry: AuditEntry = { id: 'au_' + randomUUID().slice(0, 8), at: new Date().toISOString(), ...e }
-    // ISO `at` first so a plain key listing sorts by time.
-    await kv.set(`${PREFIX}${entry.at}-${entry.id}`, JSON.stringify(entry))
+    const { key, entry } = newAuditEntry(e)
+    await kv.set(key, JSON.stringify(entry))
   } catch (err) {
     logger.error('Audit write failed', { action: e.action, error: err instanceof Error ? err.message : String(err) })
   }
 }
 
 export async function listAudit(opts: { limit?: number; byId?: string; since?: string } = {}): Promise<AuditEntry[]> {
-  const sinceKey = opts.since ? `${PREFIX}${opts.since}` : null
-  const keys = (await kv.list())
-    .filter((k) => k.startsWith(PREFIX))
-    .filter((k) => !sinceKey || k >= sinceKey)
-    .sort()
-    .reverse()
+  const keys = auditKeysNewestFirst(await kv.list(), opts.since)
   const hideSimulated = !isPreviewOrDev()
   const out: AuditEntry[] = []
   for (const k of keys) {

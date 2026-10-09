@@ -29,12 +29,17 @@ export interface MintedGiftCard {
 
 const PREFIX = 'gift-card:'
 
+/** The store key for a minted card's record. Shared with the CLI that writes production directly. */
+export function giftCardKey(id: string): string {
+  return `${PREFIX}${id}`
+}
+
 export function newGiftCardRecordId(): string {
   return 'gc_' + randomUUID().slice(0, 8)
 }
 
 export async function saveMintedGiftCard(r: MintedGiftCard): Promise<void> {
-  await kv.set(`${PREFIX}${r.id}`, JSON.stringify(r))
+  await kv.set(giftCardKey(r.id), JSON.stringify(r))
   logger.info('Gift card recorded', { id: r.id, amountCents: r.amountCents })
 }
 

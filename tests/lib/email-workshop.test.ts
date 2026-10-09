@@ -16,7 +16,7 @@ const input = {
   seats: 2,
   totalChargedCents: 8000,
   receiptUrl: 'https://squareup.com/receipt/1',
-  waiverUrl: 'https://ourhometownstudio.com/waiver?workshop=clsbk_1',
+  waiverUrl: 'https://ourhometownstudio.com/waiver?workshop=clssch_1&booking=clsbk_1',
   workshopUrl: 'https://ourhometownstudio.com/workshops?w=clsschi_kinusaiga',
   directionsUrl: 'https://maps.google.com/?q=Hometown%20Studio',
   policyLine: 'Full refund 48+ hours out · studio credit or free seat transfer inside 48 hours',
@@ -61,7 +61,7 @@ describe('sendWorkshopConfirmationEmail', () => {
     for (const url of [input.waiverUrl, input.workshopUrl, input.directionsUrl, input.receiptUrl, input.policyUrl]) {
       expect(text).toContain(url)
     }
-    expect(html).toContain('href="https://ourhometownstudio.com/waiver?workshop=clsbk_1"')
+    expect(html).toContain('href="https://ourhometownstudio.com/waiver?workshop=clssch_1&amp;booking=clsbk_1"')
     expect(html).toContain('Add to Google Calendar')
   })
 
@@ -139,7 +139,7 @@ describe('sendWorkshopConfirmationEmail', () => {
     const { text, html } = mockSendMail.mock.calls[0][0]
     expect(text).toContain('Seats: 1 seat, comped')
     expect(html).toContain('<strong>comped</strong>')
-    for (const body of [text, html]) expect(body).not.toContain('$0 paid')
+    for (const body of [text, html]) expect(body).not.toMatch(/\$0(\.00)? paid/)
   })
 
   it('reports not sent, without throwing, when mail is not set up', async () => {

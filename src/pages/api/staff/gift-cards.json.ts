@@ -67,19 +67,25 @@ export const POST: APIRoute = async ({ request }) => {
     at: new Date().toISOString(),
     ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
   }
+  // The audit keeps the record id as the target; the card number stays out of it.
+  const audit = (recorded: boolean) => recordAudit({
+    by: member,
+    action: 'gift-card.minted',
+    target: { kind: 'gift-card', id: record.id, label: record.forWhom },
+    details: {
+      amountCents: record.amountCents, forWhom: record.forWhom, note: record.note || null,
+      ...(recorded ? {} : { recorded: false }),
+    },
+    ...(record.simulated ? { simulated: true as const } : {}),
+  })
   try {
     await saveMintedGiftCard(record)
   } catch (err) {
     logger.error('Gift card made but not recorded', { id, gan: minted.gan, error: err instanceof Error ? err.message : String(err) })
-    await alertOwners(`Gift card ${minted.gan} ($${v.value.amountCents / 100}, for ${v.value.forWhom}) was made in Square but not recorded. Hand it out anyway.`)
+    await audit(false)
+    await alertOwners(`Gift card ${minted.gan} ($${v.value.amountCents / 100}, for ${v.value.forWhom}) was made in Square by ${member.name} but not recorded. Hand it out anyway.`)
     return json({ error: 'Card made but not recorded', gan: minted.gan }, 502)
   }
-  await recordAudit({
-    by: member,
-    action: 'gift-card.minted',
-    target: { kind: 'gift-card', id: record.id, label: record.forWhom },
-    details: { amountCents: record.amountCents, forWhom: record.forWhom, gan: minted.gan, note: record.note || null },
-    ...(record.simulated ? { simulated: true as const } : {}),
-  })
+  await audit(true)
   return json({ data: { card: record, balanceCents: minted.balanceCents } })
 }

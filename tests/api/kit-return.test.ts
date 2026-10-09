@@ -86,6 +86,26 @@ describe('POST /api/staff/kit-return.json', () => {
     expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'kit.returned', by: expect.objectContaining({ id: expect.any(String), role: expect.stringMatching(/^(owner|crew)$/) }), target: expect.objectContaining({ kind: 'kit', id: 'ord_1' }), details: expect.objectContaining({ outcome: 'complete', refundCents: 7500 }) }))
   })
 
+  it('logs pickup and forfeit under their own audit actions, not as a return', async () => {
+    record = makeOrder({ status: 'upcoming' })
+    await POST(ctx({ orderId: 'ord_1', action: 'pickup' }))
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'kit.picked-up' }))
+    record = makeOrder({ status: 'out' })
+    await POST(ctx({ orderId: 'ord_1', action: 'forfeit' }))
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'kit.forfeited' }))
+  })
+
+  it('audits a refund that went out even when the order record fails to save', async () => {
+    record = makeOrder({ status: 'out' })
+    mockMutate.mockRejectedValueOnce(new Error('store down'))
+    const res = await POST(ctx({ orderId: 'ord_1', action: 'complete' }))
+    expect(res.status).toBe(502)
+    expect(mockRefund).toHaveBeenCalledTimes(1)
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({
+      action: 'kit.returned', details: expect.objectContaining({ refundCents: 7500, recorded: false }),
+    }))
+  })
+
   it('partial → refunds deposit minus the withheld amount and records the note', async () => {
     record = makeOrder({ status: 'out' })
     const res = await POST(ctx({ orderId: 'ord_1', action: 'partial', withheldCents: 2000, note: 'chipped plate' }))

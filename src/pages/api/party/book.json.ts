@@ -379,6 +379,15 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       if (!resumed) return errorResponse(partyMessages.slot_taken, 409, 'slot_taken')
     }
 
+    // A gift card must cover the whole fee. Check before anything is held, so a
+    // short card never books or claims anything. A resumed checkout skips this:
+    // its first charge may already have spent the card, and the payment lookup
+    // below decides that case.
+    if (body.sourceKind === 'gift_card' && !resumed) {
+      const refusal = await giftCardRefusal(body.paymentToken, partyConfig.basePriceCents + (theme?.priceCents ?? 0))
+      if (refusal) return refusal
+    }
+
     // Step 1b: Reserve the themed-table week BEFORE booking or charging (LR-1) —
     // the party analogue of book-before-charge. Two hosts racing for the last
     // styled table can't both win: the CAS-guarded claim gives it to one.
@@ -510,17 +519,6 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         ? [{ catalogObjectId: theme.variationId, name: `Themed Table — ${theme.displayName}`, quantity: 1, pricePerUnit: theme.priceCents }]
         : []),
     ]
-
-    // A gift card must cover the whole fee. Check before the order exists, and
-    // give the held date back if it can't.
-    if (body.sourceKind === 'gift_card') {
-      const refusal = await giftCardRefusal(body.paymentToken, partyConfig.basePriceCents + (theme?.priceCents ?? 0))
-      if (refusal) {
-        await releaseBooking(booking)
-        await releaseIfClaimed()
-        return refusal
-      }
-    }
 
     let order: Awaited<ReturnType<typeof providers.payment.createOrder>>
     let payment: Awaited<ReturnType<typeof providers.payment.processPayment>> | null = null
@@ -757,18 +755,18 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
 }
 
-/** A plain sentence for the customer, plus a code the booking panel can act on. */
 /** Null when the gift card can pay; otherwise the response that refuses it. */
 async function giftCardRefusal(token: string, totalCents: number): Promise<Response | null> {
   let card: Awaited<ReturnType<typeof providers.giftcard.fromNonce>>
   try {
     card = await providers.giftcard.fromNonce(token)
   } catch (err) {
-    // Square is down. Nothing has been charged, so say so and let the caller release the hold.
+    // Square is down. Nothing has been charged or held, so say so.
     logger.error('Gift card lookup failed', { error: String(err) })
     return errorResponse(partyMessages.unavailable, 503, 'unavailable')
   }
   if (!card) return errorResponse('That doesn’t look like a gift card. Use a card instead.', 400, 'invalid')
+  if (card.state !== 'ACTIVE') return errorResponse('That gift card can’t be used right now. Use a card instead.', 400, 'invalid')
   if (card.balanceCents < totalCents) {
     return errorResponse(giftCardShortMessage(card.balanceCents, totalCents), 402, 'gift_card_short', {
       balanceCents: card.balanceCents,
@@ -778,6 +776,7 @@ async function giftCardRefusal(token: string, totalCents: number): Promise<Respo
   return null
 }
 
+/** A plain sentence for the customer, plus a code the booking panel can act on. */
 function errorResponse(detail: string, status: number, code?: CheckoutErrorCode, extra?: Record<string, unknown>) {
   const resolved: CheckoutErrorCode =
     code ?? (status === 400 ? 'invalid' : status === 409 ? 'slot_taken' : status === 402 ? 'card_declined' : 'unavailable')

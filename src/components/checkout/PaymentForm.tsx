@@ -561,7 +561,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           id="card-container"
           className="min-h-[44px] rounded-md border border-gray-300"
           style={useGift && giftCards === 'allowed'
-            ? { visibility: 'hidden', height: 0, minHeight: 0, overflow: 'hidden', position: 'absolute' }
+            ? { visibility: 'hidden', height: 0, minHeight: 0, overflow: 'hidden', position: 'absolute', width: '100%' }
             : undefined}
         />
         {!sdkReady && (

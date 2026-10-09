@@ -217,12 +217,18 @@ describe('POST /api/staff/checkin.json — pickup completion (HOM-214)', () => {
       res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code: wrongCode, collectedBy: 'Grandma Rivera' })
       expect(res.status).toBe(400)
       expect(state.codeAttempts).toBe(i)
+      expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({
+        action: 'custody.refused',
+        target: expect.objectContaining({ kind: 'household' }),
+        details: expect.objectContaining({ attempted: 'pickup', reason: expect.any(String) }),
+      }))
     }
 
     res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code: wrongCode, collectedBy: 'Grandma Rivera' })
     expect(res.status).toBe(423)
     expect(state.lockedAt).toBeTruthy()
     expect(state.events.at(-1)!.action).toBe('locked')
+    expect(mockAudit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'custody.refused' }))
 
     // Locked ignores even the correct code.
     res = await dropOffPost({ action: 'pickup', personIds: ['child:0'], code: realCode, collectedBy: 'Grandma Rivera' })

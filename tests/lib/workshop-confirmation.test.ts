@@ -51,6 +51,8 @@ describe('sendWorkshopConfirmation', () => {
     const arg = sendEmail.mock.calls[0][0]
     expect(arg.comped).toBe(true)
     expect(arg.totalChargedCents).toBe(0)
+    // No refund terms on a free seat.
+    expect(arg.policyLine).not.toMatch(/refund/i)
   })
 
   it('does not mark a paid booking as comped', async () => {
@@ -58,11 +60,12 @@ describe('sendWorkshopConfirmation', () => {
     const arg = sendEmail.mock.calls[0][0]
     expect(arg.comped).toBeUndefined()
     expect(arg.totalChargedCents).toBe(4000)
+    expect(arg.policyLine).toMatch(/refund/i)
   })
 
-  it('carries the booking id in the waiver URL, built from the origin', async () => {
+  it('carries the class schedule and the booking id in the waiver URL, built from the origin', async () => {
     const sent = await sendWorkshopConfirmation(base)
     expect(sent).toBe(true)
-    expect(sendEmail.mock.calls[0][0].waiverUrl).toBe('https://ourhometownstudio.com/waiver?workshop=clsbk_9')
+    expect(sendEmail.mock.calls[0][0].waiverUrl).toBe('https://ourhometownstudio.com/waiver?workshop=sched_1&booking=clsbk_9')
   })
 })

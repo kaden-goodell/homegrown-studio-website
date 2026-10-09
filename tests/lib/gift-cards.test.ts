@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 
-vi.mock('@lib/deploy-context', () => ({ isPreviewOrDev: () => true }))
+let preview = true
+vi.mock('@lib/deploy-context', () => ({ isPreviewOrDev: () => preview }))
 
 import { saveMintedGiftCard, listMintedGiftCards, validateMint, type MintedGiftCard } from '@lib/gift-cards'
 
@@ -17,6 +18,23 @@ describe('gift-cards store', () => {
     const ids = (await listMintedGiftCards()).map((c) => c.id)
     expect(ids.indexOf(b)).toBeLessThan(ids.indexOf(a))
     expect(ids.indexOf(b)).toBeGreaterThanOrEqual(0)
+  })
+
+  it('hides simulated cards outside preview and dev, and shows them inside', async () => {
+    const t = Date.now()
+    const real = `gc_real${t}`, sim = `gc_sim${t}`
+    await saveMintedGiftCard(card(real, '2090-02-01T00:00:00.000Z'))
+    await saveMintedGiftCard({ ...card(sim, '2090-02-02T00:00:00.000Z'), simulated: true })
+    try {
+      preview = false
+      const prodIds = (await listMintedGiftCards()).map((c) => c.id)
+      expect(prodIds).toContain(real)
+      expect(prodIds).not.toContain(sim)
+      preview = true
+      expect((await listMintedGiftCards()).map((c) => c.id)).toContain(sim)
+    } finally {
+      preview = true
+    }
   })
 })
 

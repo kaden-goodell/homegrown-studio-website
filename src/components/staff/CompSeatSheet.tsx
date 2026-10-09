@@ -22,7 +22,10 @@ export default function CompSeatSheet({
   const [familyName, setFamilyName] = useState('')
   const [email, setEmail] = useState('')
   const [phone, setPhone] = useState('')
-  const [seats, setSeats] = useState(1)
+  // The field keeps what's typed (so it can be cleared and retyped); the count
+  // used everywhere else is clamped to 1–10.
+  const [seatsText, setSeatsText] = useState('1')
+  const seats = Math.min(10, Math.max(1, Math.floor(Number(seatsText)) || 1))
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -113,15 +116,15 @@ export default function CompSeatSheet({
           <form onSubmit={submit}>
             <div style={row}>
               <label htmlFor="comp-given" style={label}>First name</label>
-              <input id="comp-given" value={givenName} onChange={(e) => setGivenName(e.target.value)} style={input} autoComplete="off" />
+              <input id="comp-given" required value={givenName} onChange={(e) => setGivenName(e.target.value)} style={input} autoComplete="off" />
             </div>
             <div style={row}>
               <label htmlFor="comp-family" style={label}>Last name</label>
-              <input id="comp-family" value={familyName} onChange={(e) => setFamilyName(e.target.value)} style={input} autoComplete="off" />
+              <input id="comp-family" required value={familyName} onChange={(e) => setFamilyName(e.target.value)} style={input} autoComplete="off" />
             </div>
             <div style={row}>
               <label htmlFor="comp-email" style={label}>Email</label>
-              <input id="comp-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} style={input} autoComplete="off" />
+              <input id="comp-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} style={input} autoComplete="off" />
             </div>
             <div style={row}>
               <label htmlFor="comp-phone" style={label}>Phone (optional)</label>
@@ -130,8 +133,9 @@ export default function CompSeatSheet({
             <div style={row}>
               <label htmlFor="comp-seats" style={label}>Seats</label>
               <input
-                id="comp-seats" type="number" min={1} max={10} value={seats}
-                onChange={(e) => setSeats(Math.min(10, Math.max(1, Math.floor(Number(e.target.value)) || 1)))}
+                id="comp-seats" type="number" min={1} max={10} value={seatsText}
+                onChange={(e) => setSeatsText(e.target.value)}
+                onBlur={() => setSeatsText(String(seats))}
                 style={{ ...input, width: '6rem' }}
               />
             </div>

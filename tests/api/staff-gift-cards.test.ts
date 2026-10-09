@@ -8,7 +8,8 @@ vi.mock('@lib/staff-auth', () => ({
 const mockAudit = vi.fn()
 vi.mock('@lib/audit', () => ({ recordAudit: (...a: any[]) => mockAudit(...a) }))
 vi.mock('@lib/dev-flags', () => ({ paymentBypassEnabled: () => false }))
-vi.mock('@lib/owner-alert', () => ({ alertOwners: vi.fn(async () => ({ sent: 0 })) }))
+const mockAlert = vi.fn(async (_msg: string) => ({ sent: 0 }))
+vi.mock('@lib/owner-alert', () => ({ alertOwners: (msg: string) => mockAlert(msg) }))
 
 const mint = vi.fn()
 const get = vi.fn()
@@ -16,11 +17,12 @@ vi.mock('@config/providers', () => ({ providers: { giftcard: { mint: (...a: any[
 
 const saved: any[] = []
 let records: any[] = []
+let saveFails = false
 vi.mock('@lib/gift-cards', async (importOriginal) => {
   const actual: any = await importOriginal()
   return {
     ...actual,
-    saveMintedGiftCard: async (r: any) => { saved.push(r) },
+    saveMintedGiftCard: async (r: any) => { if (saveFails) throw new Error('store down'); saved.push(r) },
     listMintedGiftCards: async () => records,
   }
 })
@@ -32,7 +34,7 @@ const get_ = () => GET({ request: new Request('http://x/api/staff/gift-cards.jso
 
 beforeEach(() => {
   authed = { id: 't', name: 'Test', role: 'crew' }
-  saved.length = 0; records = []; mockAudit.mockReset()
+  saved.length = 0; records = []; saveFails = false; mockAudit.mockReset(); mockAlert.mockClear()
   mint.mockReset(); get.mockReset()
 })
 
@@ -63,7 +65,7 @@ describe('/api/staff/gift-cards', () => {
       by: { id: 't', name: 'Test', role: 'crew' },
       action: 'gift-card.minted',
       target: { kind: 'gift-card', id: saved[0].id, label: 'Megan' },
-      details: { amountCents: 2500, forWhom: 'Megan', gan: '1234', note: 'FB' },
+      details: { amountCents: 2500, forWhom: 'Megan', note: 'FB' },
     })
   })
 
@@ -77,5 +79,19 @@ describe('/api/staff/gift-cards', () => {
     const cards = (await res.json()).data.cards
     expect(cards[0]).toMatchObject({ balanceCents: 300, state: 'ACTIVE' })
     expect(cards[1]).toMatchObject({ balanceCents: null, state: null })
+  })
+  it('a card made but not recorded: 502 with the number, audited as recorded:false, owners told who made it', async () => {
+    mint.mockResolvedValue({ id: 'sq1', gan: '1234', balanceCents: 2500, state: 'ACTIVE' })
+    saveFails = true
+    const res = await post({ amountDollars: 25, forWhom: 'Megan' })
+    expect(res.status).toBe(502)
+    expect((await res.json()).gan).toBe('1234')
+    expect(mockAudit).toHaveBeenCalledTimes(1)
+    const entry = mockAudit.mock.calls[0][0]
+    expect(entry.action).toBe('gift-card.minted')
+    expect(entry.by).toMatchObject({ id: 't', name: 'Test' })
+    expect(entry.details).toMatchObject({ recorded: false })
+    expect(entry.details.gan).toBeUndefined()
+    expect(mockAlert.mock.calls[0][0]).toContain('by Test')
   })
 })

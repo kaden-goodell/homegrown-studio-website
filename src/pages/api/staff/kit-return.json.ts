@@ -10,6 +10,11 @@ const logger = createLogger('api:staff:kit-return')
 
 export const prerender = false
 
+/** The audit action for each console action, so a pickup isn't logged as a return. */
+const AUDIT_ACTION: Record<string, string> = {
+  pickup: 'kit.picked-up', complete: 'kit.returned', partial: 'kit.returned', forfeit: 'kit.forfeited', undo: 'kit.undone',
+}
+
 const str = (v: unknown): string => (typeof v === 'string' ? v.trim() : '')
 const json = (body: unknown, status: number) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
@@ -46,7 +51,7 @@ export const POST: APIRoute = async ({ request }) => {
   const audit = (details: Record<string, string | number | boolean | null>) =>
     recordAudit({
       by: staff,
-      action: 'kit.returned',
+      action: AUDIT_ACTION[action] ?? 'kit.updated',
       target: { kind: 'kit', id: orderId, label: order.contact?.name },
       details,
       ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
@@ -104,18 +109,25 @@ export const POST: APIRoute = async ({ request }) => {
           depositRefund = { amountCents: refundAmount, refundId: refund.id, at: nowIso }
         }
 
-        const updated = await mutateKitOrder(orderId, (o) => {
-          if (o.status !== 'out') return
-          o.status = 'returned'
-          if (depositRefund) o.depositRefund = depositRefund
-          o.events.push({
-            at: nowIso,
-            action: action === 'complete' ? 'return-complete' : 'return-partial',
-            note,
-            by,
-            amountCents: refundAmount,
+        let updated: KitOrderRecord
+        try {
+          updated = await mutateKitOrder(orderId, (o) => {
+            if (o.status !== 'out') return
+            o.status = 'returned'
+            if (depositRefund) o.depositRefund = depositRefund
+            o.events.push({
+              at: nowIso,
+              action: action === 'complete' ? 'return-complete' : 'return-partial',
+              note,
+              by,
+              amountCents: refundAmount,
+            })
           })
-        })
+        } catch (err) {
+          // The money already moved: leave a trail even though the order record didn't save.
+          if (depositRefund) await audit({ outcome: action, refundCents: refundAmount, recorded: false, ...(note ? { note } : {}) })
+          throw err
+        }
         await audit({ outcome: action, refundCents: refundAmount, ...(note ? { note } : {}) })
         return json({ data: { order: publicOrder(updated) } }, 200)
       }

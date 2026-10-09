@@ -31,19 +31,27 @@ describe('SquareGiftCardProvider', () => {
     provider = new SquareGiftCardProvider(testConfig)
   })
 
-  it('mint creates a DIGITAL card, loads it COMPLIMENTARY, and returns the live card', async () => {
+  it('mint creates a DIGITAL card, ACTIVATEs it with the amount, and returns the live card', async () => {
     create.mockResolvedValue({ giftCard: { id: 'gc1', gan: '7783000000000001', state: 'PENDING' } })
     activitiesCreate.mockResolvedValue({})
     get.mockResolvedValue({ giftCard: { id: 'gc1', gan: '7783000000000001', state: 'ACTIVE', balanceMoney: { amount: BigInt(2500) } } })
 
     const card = await provider.mint({ amountCents: 2500, idempotencyKey: 'k1' })
 
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ locationId: 'loc-123', giftCard: { type: 'DIGITAL' } }))
-    const act = activitiesCreate.mock.calls[0][0].giftCardActivity
-    expect(act.type).toBe('ADJUST_INCREMENT')
+    expect(create).toHaveBeenCalledWith({ idempotencyKey: 'k1-create', locationId: 'loc-123', giftCard: { type: 'DIGITAL' } })
+    expect(activitiesCreate).toHaveBeenCalledTimes(1)
+    const call = activitiesCreate.mock.calls[0][0]
+    expect(call.idempotencyKey).toBe('k1-load')
+    const act = call.giftCardActivity
+    expect(act.type).toBe('ACTIVATE')
     expect(act.giftCardId).toBe('gc1')
-    expect(act.adjustIncrementActivityDetails.reason).toBe('COMPLIMENTARY')
-    expect(act.adjustIncrementActivityDetails.amountMoney.amount).toBe(BigInt(2500))
+    expect(act.locationId).toBe('loc-123')
+    expect(act.activateActivityDetails).toEqual({
+      amountMoney: { amount: BigInt(2500), currency: 'USD' },
+      buyerPaymentInstrumentIds: ['complimentary'],
+    })
+    expect(act.adjustIncrementActivityDetails).toBeUndefined()
+    expect(activitiesCreate.mock.calls.some((c) => c[0].giftCardActivity.type === 'ADJUST_INCREMENT')).toBe(false)
     expect(get).toHaveBeenCalledWith({ id: 'gc1' })
     expect(card).toEqual({ id: 'gc1', gan: '7783000000000001', balanceCents: 2500, state: 'ACTIVE' })
   })
@@ -70,5 +78,10 @@ describe('SquareGiftCardProvider', () => {
     expect(await provider.fromGan('c')).toBeNull()
     get.mockRejectedValueOnce({ statusCode: 500, errors: [{ category: 'API_ERROR' }] })
     await expect(provider.get('d')).rejects.toBeTruthy()
+  })
+
+  it('rethrows an auth failure instead of treating it as "no such card"', async () => {
+    getFromNonce.mockRejectedValueOnce({ statusCode: 401, errors: [{ category: 'AUTHENTICATION_ERROR', code: 'UNAUTHORIZED' }] })
+    await expect(provider.fromNonce('e')).rejects.toMatchObject({ statusCode: 401 })
   })
 })

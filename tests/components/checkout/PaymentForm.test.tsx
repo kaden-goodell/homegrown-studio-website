@@ -25,6 +25,9 @@ function configAnswers(appId: string) {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+  // A failed assertion must not leave the SDK stub (or its script tag) for the next test.
+  delete (window as any).Square
+  document.head.querySelectorAll('script[src*="squarecdn.com"]').forEach((s) => s.remove())
 })
 
 describe('PaymentForm headings', () => {
@@ -165,8 +168,5 @@ describe('PaymentForm gift card field with the real SDK', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Pay with a card instead' }))
     await waitFor(() => expect(giftStub.destroy).toHaveBeenCalled())
-
-    delete (window as any).Square
-    script.remove()
   })
 })

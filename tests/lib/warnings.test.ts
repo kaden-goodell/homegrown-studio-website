@@ -232,10 +232,9 @@ describe('listWarnings — picks-missing', () => {
     expect(await listWarnings(WINDOW)).toEqual([])
   })
 
-  it('skips a class that asks no questions', async () => {
+  it('skips a class that asks no questions and has nothing recorded', async () => {
     mockGetEventMeta.mockResolvedValue(null)
     expect(await listWarnings(WINDOW)).toEqual([])
-    expect(mockListSeatChoices).not.toHaveBeenCalled()
   })
 
   it('counts against the class’s own capacity setting when Square gives none', async () => {
@@ -271,5 +270,42 @@ describe('listWarnings — picks-missing', () => {
   it('throws when the event meta cannot be read', async () => {
     mockGetEventMeta.mockRejectedValue(new Error('meta down'))
     await expect(listWarnings(WINDOW)).rejects.toThrow('meta down')
+  })
+})
+
+describe('listWarnings — recorded-over-sold', () => {
+  const OPTION = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Black', 'Lavender'] }
+  const seatsRecorded = (...n: number[]) => n.map((seats) => ({ seats }))
+
+  beforeEach(() => {
+    mockListAllWorkshops.mockResolvedValue([PAILS]) // 25 seats, 10 left: 15 sold
+  })
+
+  it('flags a comp recorded here but never added in Square', async () => {
+    mockGetEventMeta.mockResolvedValue({ options: [OPTION], signupCutoffHours: null })
+    mockListSeatChoices.mockResolvedValue(seatsRecorded(15, 2)) // 17 recorded, 15 sold
+    const warnings = await listWarnings(WINDOW)
+    expect(warnings).toEqual([{
+      code: 'recorded-over-sold', eventKind: 'workshop', eventId: 'clssch_pails', when: '2026-10-18T18:00:00.000Z', title: 'Pumpkin Pails',
+      detail: 'Pumpkin Pails · 2 recorded seats more than Square shows —',
+      action: 'someone was recorded here but not added in Square.',
+    }])
+    expect(warningLine(warnings[0])).toBe(
+      'Sun Oct 18 · Pumpkin Pails · 2 recorded seats more than Square shows — someone was recorded here but not added in Square.',
+    )
+  })
+
+  it('flags it on a class that asks no questions, too, and says "seat" for one', async () => {
+    mockGetEventMeta.mockResolvedValue(null)
+    mockListSeatChoices.mockResolvedValue(seatsRecorded(16))
+    const [w] = await listWarnings(WINDOW)
+    expect(w.code).toBe('recorded-over-sold')
+    expect(w.detail).toBe('Pumpkin Pails · 1 recorded seat more than Square shows —')
+  })
+
+  it('is quiet when recorded equals sold', async () => {
+    mockGetEventMeta.mockResolvedValue({ options: [OPTION], signupCutoffHours: null })
+    mockListSeatChoices.mockResolvedValue(seatsRecorded(15))
+    expect(await listWarnings(WINDOW)).toEqual([])
   })
 })

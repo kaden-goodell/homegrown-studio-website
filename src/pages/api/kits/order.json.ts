@@ -330,6 +330,17 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       claimed = true
     }
 
+    // A gift card must cover today's deposit. Check before the customer note
+    // and the order exist, so a refused card leaves nothing behind but the
+    // week claim, which is ours and released here.
+    if (body.sourceKind === 'gift_card') {
+      const refusal = await giftCardRefusal(body.paymentToken, dueTodayCents)
+      if (refusal) {
+        await releaseIfClaimed()
+        return refusal
+      }
+    }
+
     // Customer (address rides into the note; the field is the durable lookup place).
     let customer: Awaited<ReturnType<typeof providers.customer.findOrCreate>>
     try {
@@ -358,15 +369,6 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       ? [{ catalogObjectId: theme.depositVariationId, name: 'Rental Deposit', quantity: 1, pricePerUnit: theme.depositCents }]
       : [{ catalogObjectId: kitConfig.square.assemblyVariationId, name: 'Kit Assembly', quantity: 1, pricePerUnit: kitConfig.assemblyFeeCents }]
     const expectedTotal = dueTodayCents
-
-    // A gift card must cover today's deposit. Check before the order exists.
-    if (body.sourceKind === 'gift_card') {
-      const refusal = await giftCardRefusal(body.paymentToken, dueTodayCents)
-      if (refusal) {
-        await releaseIfClaimed()
-        return refusal
-      }
-    }
 
     let order: Awaited<ReturnType<typeof providers.payment.createOrder>>
     try {
@@ -628,11 +630,12 @@ async function giftCardRefusal(token: string, totalCents: number): Promise<Respo
   try {
     card = await providers.giftcard.fromNonce(token)
   } catch (err) {
-    // Square is down. Nothing has been charged, so say so and let the caller release the hold.
+    // Square is down. Nothing has been charged, so say so; the caller releases the week claim.
     logger.error('Gift card lookup failed', { error: String(err) })
     return errorResponse('We couldn’t check that gift card just now. Nothing was charged. Please try again, or use a card.', 503, 'unavailable')
   }
   if (!card) return errorResponse('That doesn’t look like a gift card. Use a card instead.', 400, 'invalid')
+  if (card.state !== 'ACTIVE') return errorResponse('That gift card can’t be used right now. Use a card instead.', 400, 'invalid')
   if (card.balanceCents < totalCents) {
     return errorResponse(giftCardShortMessage(card.balanceCents, totalCents), 402, 'gift_card_short', {
       balanceCents: card.balanceCents,

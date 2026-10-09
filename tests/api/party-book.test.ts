@@ -458,16 +458,47 @@ describe('POST /api/party/book.json', () => {
     })
 
     describe('paying with a gift card', () => {
-      it('refuses a card that cannot cover the fee: nothing ordered or charged, the date released', async () => {
+      it('refuses a card that cannot cover the fee before anything is held: no booking, order or charge', async () => {
         mockFromNonce.mockResolvedValue({ id: 'gc-1', gan: '7783', balanceCents: 2500, state: 'ACTIVE' })
         const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
         expect(res.status).toBe(402)
         const json = await res.json()
         expect(json).toMatchObject({ code: 'gift_card_short', balanceCents: 2500, totalCents: basePriceCents })
         expect(json.detail).toBe(`That gift card has $25.00 on it — this booking is $${(basePriceCents / 100).toFixed(2)}. Nothing was charged. Use a card instead.`)
+        expect(mockCreateBooking).not.toHaveBeenCalled()
+        expect(mockCancelBooking).not.toHaveBeenCalled()
         expect(mockCreateOrder).not.toHaveBeenCalled()
         expect(mockProcessPayment).not.toHaveBeenCalled()
-        expect(mockCancelBooking).toHaveBeenCalledTimes(1)
+      })
+
+      it('refuses a short card on a themed party without claiming the table', async () => {
+        mockFromNonce.mockResolvedValue({ id: 'gc-1', gan: '7783', balanceCents: basePriceCents, state: 'ACTIVE' })
+        const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift', theme: { themeId: 'gilded', serves: 10 } })))
+        expect(res.status).toBe(402)
+        expect((await res.json()).totalCents).toBe(basePriceCents + GILDED_10_PRICE_CENTS)
+        expect(mockClaimWeek).not.toHaveBeenCalled()
+        expect(mockReleaseWeekClaim).not.toHaveBeenCalled()
+        expect(mockCreateBooking).not.toHaveBeenCalled()
+      })
+
+      it('never re-checks a resumed checkout: a card the first try spent is not refused, and the booking is kept', async () => {
+        isStartOpen.mockResolvedValue(false)
+        mockBookingHeldBy.mockResolvedValue({
+          ...makeMockBooking('booking-first-try'),
+          customerNote: JSON.stringify({ attempt: ATTEMPT, craft: { id: 'craft-1' } }),
+        })
+        mockGetPartyRecord.mockResolvedValue({ bookingId: 'booking-first-try', hostToken: 'token-from-first-try' })
+        mockFindOrderPayment.mockResolvedValue({ ...makeMockPayment(), id: 'pay-first-try' })
+        // The first charge spent the card, so its balance is now short.
+        mockFromNonce.mockResolvedValue({ id: 'gc-1', gan: '7783', balanceCents: 0, state: 'ACTIVE' })
+
+        const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT, sourceKind: 'gift_card', paymentToken: 'cnon:gift-again' })))
+
+        expect(res.status).toBe(200)
+        expect(mockFromNonce).not.toHaveBeenCalled()
+        expect(mockFindOrderPayment).toHaveBeenCalled()
+        expect(mockCancelBooking).not.toHaveBeenCalled()
+        expect(mockProcessPayment).not.toHaveBeenCalled()
       })
 
       it('goes ahead when the balance covers the fee', async () => {
@@ -478,21 +509,31 @@ describe('POST /api/party/book.json', () => {
         expect(mockProcessPayment).toHaveBeenCalledTimes(1)
       })
 
-      it('refuses a token that is not a gift card, releasing the date', async () => {
+      it('refuses a card that is not active, even with a balance', async () => {
+        mockFromNonce.mockResolvedValue({ id: 'gc-1', gan: '7783', balanceCents: basePriceCents, state: 'DEACTIVATED' })
+        const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
+        expect(res.status).toBe(400)
+        expect((await res.json()).code).toBe('invalid')
+        expect(mockCreateBooking).not.toHaveBeenCalled()
+      })
+
+      it('refuses a token that is not a gift card, holding nothing', async () => {
         mockFromNonce.mockResolvedValue(null)
         const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:card' })))
         expect(res.status).toBe(400)
         expect((await res.json()).code).toBe('invalid')
         expect(mockCreateOrder).not.toHaveBeenCalled()
-        expect(mockCancelBooking).toHaveBeenCalledTimes(1)
+        expect(mockCreateBooking).not.toHaveBeenCalled()
+        expect(mockCancelBooking).not.toHaveBeenCalled()
       })
 
-      it('answers unavailable and releases the date when the card lookup throws', async () => {
+      it('answers unavailable, holding nothing, when the card lookup throws', async () => {
         mockFromNonce.mockRejectedValue(new Error('Square 503'))
         const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
         expect(res.status).toBe(503)
         expect((await res.json()).code).toBe('unavailable')
-        expect(mockCancelBooking).toHaveBeenCalledTimes(1)
+        expect(mockCreateBooking).not.toHaveBeenCalled()
+        expect(mockCancelBooking).not.toHaveBeenCalled()
         expect(mockCreateOrder).not.toHaveBeenCalled()
         expect(mockAlertOwners).not.toHaveBeenCalled()
       })

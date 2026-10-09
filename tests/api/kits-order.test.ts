@@ -246,6 +246,9 @@ describe('POST /api/kits/order.json', () => {
     expect(json.detail).toBe('That gift card has $25.00 on it — this booking is $50.00. Nothing was charged. Use a card instead.')
     expect(mockCreateOrder).not.toHaveBeenCalled()
     expect(mockProcessPayment).not.toHaveBeenCalled()
+    // No customer note for an order that never existed.
+    expect(mockFindOrCreate).not.toHaveBeenCalled()
+    expect(mockAppendNote).not.toHaveBeenCalled()
     // The week is free again: the same order with a card still gets it.
     expect((await POST(ctx(makeBody()))).status).toBe(200)
   })
@@ -256,6 +259,14 @@ describe('POST /api/kits/order.json', () => {
     expect(res.status).toBe(200)
     expect(mockCreateOrder).toHaveBeenCalledTimes(1)
     expect(mockProcessPayment).toHaveBeenCalledTimes(1)
+  })
+
+  it('a gift card that is not active is refused even with a balance: 400, nothing ordered', async () => {
+    mockFromNonce.mockResolvedValue({ id: 'gc-1', gan: '7783', balanceCents: 5000, state: 'BLOCKED' })
+    const res = await POST(ctx(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
+    expect(res.status).toBe(400)
+    expect((await res.json()).code).toBe('invalid')
+    expect(mockCreateOrder).not.toHaveBeenCalled()
   })
 
   it('a failed card lookup: 503 unavailable, claim released, nothing ordered', async () => {

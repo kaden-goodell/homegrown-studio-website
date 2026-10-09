@@ -35,7 +35,9 @@ export async function sendWorkshopConfirmation(input: {
 
   const { origin } = input
   const endIso = addMinutesIso(workshop.startAt, workshop.durationMinutes)
-  const waiverUrl = `${origin}/waiver?workshop=${encodeURIComponent(input.bookingId)}`
+  // The waiver page reads `workshop` as the class schedule id and `booking` as
+  // the seat booking — the same link the booking modal builds.
+  const waiverUrl = `${origin}/waiver?workshop=${encodeURIComponent(workshop.scheduleId)}&booking=${encodeURIComponent(input.bookingId)}`
   const workshopUrl = `${origin}/workshops?w=${encodeURIComponent(workshop.id)}`
   const calendarEvent = {
     title: `${workshop.name} at Hometown Studio`,
@@ -60,7 +62,10 @@ export async function sendWorkshopConfirmation(input: {
     waiverUrl,
     workshopUrl,
     directionsUrl: `https://maps.google.com/?q=${encodeURIComponent('Hometown Studio, 525 Hughes Rd, Suite F, Madison, AL 35758')}`,
-    policyLine: checkoutPolicySummary.workshop,
+    // A free seat has nothing to refund; ask them to free it up instead.
+    policyLine: input.comped
+      ? 'Can’t make it? Text or email us so we can pass your seat to someone else'
+      : checkoutPolicySummary.workshop,
     policyUrl: `${origin}${POLICY_PATH}#${POLICY_ANCHORS.workshops}`,
     googleCalendarUrl: googleCalendarUrl(calendarEvent),
     icsContent: buildIcs(calendarEvent),

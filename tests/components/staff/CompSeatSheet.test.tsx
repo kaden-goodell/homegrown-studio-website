@@ -45,4 +45,22 @@ describe('CompSeatSheet', () => {
     expect(body).toMatchObject({ scheduleId: 'SCHED123', email: 'ada@x.com', seats: 1, picks: [{ seat: 1, optionId: 'color', choice: 'Orange' }] })
     expect(screen.getByText(/Recorded\. They’ll get the usual confirmation email\./)).toBeTruthy()
   })
+
+  it('lets the seats field be cleared and retyped, and clamps it on leaving', () => {
+    render(<CompSeatSheet event={event} options={options} onRecorded={() => {}} onClose={() => {}} />)
+    const seats = screen.getByLabelText('Seats') as HTMLInputElement
+    fireEvent.change(seats, { target: { value: '' } })
+    expect(seats.value).toBe('')
+    fireEvent.change(seats, { target: { value: '3' } })
+    expect(screen.getByLabelText('Seat 3 · Pumpkin color')).toBeTruthy()
+    fireEvent.change(seats, { target: { value: '' } })
+    fireEvent.blur(seats)
+    expect(seats.value).toBe('1')
+  })
+
+  it('marks name and email required', () => {
+    render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    for (const l of ['First name', 'Last name', 'Email']) expect((screen.getByLabelText(l) as HTMLInputElement).required).toBe(true)
+    expect((screen.getByLabelText('Phone (optional)') as HTMLInputElement).required).toBe(false)
+  })
 })

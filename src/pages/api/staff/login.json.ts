@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { checkPasscode, passcodeConfigured, clearStaffCookie } from '@lib/staff-auth'
 import { listStaff } from '@lib/staff-directory'
 import { rateLimited } from '@lib/rate-limit'
+import { recordAudit } from '@lib/audit'
 
 export const prerender = false
 
@@ -20,6 +21,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const body = await request.json().catch(() => null)
   const passcode = typeof body?.passcode === 'string' ? body.passcode : ''
   if (!checkPasscode(passcode)) {
+    // A wrong passcode has no staff identity yet; log where it came from.
+    // (A good one is logged at pick.json, once a person is chosen. Rate-limited
+    // requests return above, so this can't be used to flood the log.)
+    await recordAudit({
+      by: { id: 'unknown', name: 'Unknown (wrong passcode)', role: 'crew' },
+      action: 'staff.login-refused',
+      target: { kind: 'staff-login', id: String(clientAddress ?? 'unknown') },
+    })
     return new Response(JSON.stringify({ error: 'Incorrect passcode.' }), { status: 401 })
   }
   return new Response(JSON.stringify({ data: { staff: await listStaff() } }), {

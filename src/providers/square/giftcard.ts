@@ -32,27 +32,33 @@ export class SquareGiftCardProvider implements GiftCardProvider {
     this.locationId = config.locationId
   }
 
+  /**
+   * Create a DIGITAL card and ACTIVATE it with the amount in one step. Square
+   * only accepts ADJUST_INCREMENT on a card that is already ACTIVE, so a fresh
+   * card is loaded the way the crew-credit script does it (live-proven).
+   */
   async mint({ amountCents, idempotencyKey }: { amountCents: number; idempotencyKey: string }): Promise<GiftCard> {
-    const gc: any = this.client.giftCards as any
-    const created: any = await gc.create({
+    const gc = this.client.giftCards
+    const created = await gc.create({
       idempotencyKey: `${idempotencyKey}-create`,
       locationId: this.locationId,
       giftCard: { type: 'DIGITAL' },
     })
-    const id = created.giftCard.id
+    const id = created.giftCard?.id
+    if (!id) throw new Error('Square returned no gift card id')
     await gc.activities.create({
       idempotencyKey: `${idempotencyKey}-load`,
       giftCardActivity: {
-        type: 'ADJUST_INCREMENT',
+        type: 'ACTIVATE',
         locationId: this.locationId,
         giftCardId: id,
-        adjustIncrementActivityDetails: {
+        activateActivityDetails: {
           amountMoney: { amount: BigInt(amountCents), currency: 'USD' },
-          reason: 'COMPLIMENTARY',
+          buyerPaymentInstrumentIds: ['complimentary'],
         },
       },
     })
-    const after: any = await gc.get({ id })
+    const after = await gc.get({ id })
     logger.info('Gift card minted', { id, amountCents })
     return toCard(after.giftCard)
   }
@@ -69,9 +75,11 @@ export class SquareGiftCardProvider implements GiftCardProvider {
     return this.lookup((gc) => gc.getFromGan({ gan }))
   }
 
-  private async lookup(call: (gc: any) => Promise<any>): Promise<GiftCard | null> {
+  private async lookup(
+    call: (gc: ReturnType<typeof createSquareClient>['giftCards']) => Promise<{ giftCard?: unknown }>,
+  ): Promise<GiftCard | null> {
     try {
-      const r = await call(this.client.giftCards as any)
+      const r = await call(this.client.giftCards)
       return r?.giftCard ? toCard(r.giftCard) : null
     } catch (e) {
       if (isNotFound(e)) return null

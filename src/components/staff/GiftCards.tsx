@@ -44,7 +44,7 @@ export default function GiftCards({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [made, setMade] = useState<{ gan: string; recorded: boolean } | null>(null)
-  const [copied, setCopied] = useState(false)
+  const [copied, setCopied] = useState<'no' | 'copied' | 'selected'>('no')
   const numberRef = useRef<HTMLElement>(null)
 
   const load = useCallback(async () => {
@@ -64,10 +64,11 @@ export default function GiftCards({
   async function make() {
     setError('')
     setMade(null)
-    setCopied(false)
+    setCopied('no')
     const amountDollars = Number(amount)
-    if (!amountDollars || amountDollars <= 0) {
-      setError('Pick or type an amount.')
+    // Mirrors the server's rule: whole dollars, $1 to $500.
+    if (!Number.isInteger(amountDollars) || amountDollars < 1 || amountDollars > 500) {
+      setError('Pick or type a whole-dollar amount from $1 to $500.')
       return
     }
     setBusy(true)
@@ -101,7 +102,7 @@ export default function GiftCards({
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(made.gan)
-        setCopied(true)
+        setCopied('copied')
         return
       }
     } catch {
@@ -114,6 +115,7 @@ export default function GiftCards({
       const sel = window.getSelection()
       sel?.removeAllRanges()
       sel?.addRange(range)
+      setCopied('selected')
     }
   }
 
@@ -168,7 +170,11 @@ export default function GiftCards({
           >
             {group(made.gan)}
           </code>
-          <button type="button" onClick={copy} style={btn()}>{copied ? 'Copied' : 'Copy'}</button>
+          <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+            <button type="button" onClick={copy} style={btn()}>{copied === 'copied' ? 'Copied' : 'Copy'}</button>
+            <a href={`sms:?&body=${encodeURIComponent(`Your Hometown Studio gift card: ${group(made.gan)}`)}`} style={btn()}>Text it</a>
+            {copied === 'selected' && <span role="status" style={{ fontSize: '0.8125rem' }}>Selected — press Copy on your keyboard or menu.</span>}
+          </div>
           <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.7rem 0 0' }}>
             Hand this number to them — it works online for parties and kits, and at the register.
           </p>
@@ -189,7 +195,8 @@ export default function GiftCards({
               <li key={c.id} style={{ fontSize: '0.875rem', color: 'var(--color-dark)' }}>
                 {c.forWhom} · {formatCents(c.amountCents)} ·{' '}
                 {c.balanceCents === null ? 'balance unavailable' : `${formatCents(c.balanceCents)} left`} ·{' '}
-                {new Date(c.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' })} · {c.by.name}
+                {new Date(c.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' })} · {c.by.name}{' '}
+                <button type="button" onClick={() => { setCopied('no'); setMade({ gan: c.gan, recorded: true }) }} style={{ ...btn(), padding: '0.1rem 0.5rem', fontSize: '0.8125rem' }} aria-label={`Show the number for ${c.forWhom}`}>Number</button>
               </li>
             ))}
           </ul>

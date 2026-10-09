@@ -175,7 +175,7 @@ describe('POST /api/workshops/book.json', () => {
       expect(mail.timeRange).toBe('7 – 9 PM')
       expect(mail.seats).toBe(2)
       expect(mail.totalChargedCents).toBe(8000)
-      expect(mail.waiverUrl).toBe('https://ourhometownstudio.com/waiver?workshop=clsbk_1')
+      expect(mail.waiverUrl).toBe('https://ourhometownstudio.com/waiver?workshop=clssch_kinusaiga&booking=clsbk_1')
       expect(mail.workshopUrl).toBe('https://ourhometownstudio.com/workshops?w=clsschi_kinusaiga')
       expect(mail.policyLine).toMatch(/48\+ hours/)
       expect(mail.policyUrl).toBe('https://ourhometownstudio.com/policies#workshops')

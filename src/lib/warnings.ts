@@ -28,7 +28,7 @@ import type { Workshop } from '@providers/interfaces/workshop'
 
 const logger = createLogger('warnings')
 
-export type WarningCode = 'class-over-party' | 'class-over-class' | 'oversold' | 'party-on-closed-day' | 'picks-missing' | 'capacity-unknown'
+export type WarningCode = 'class-over-party' | 'class-over-class' | 'oversold' | 'party-on-closed-day' | 'picks-missing' | 'capacity-unknown' | 'recorded-over-sold'
 
 export interface Warning {
   code: WarningCode
@@ -184,17 +184,21 @@ function partyOnClosedDay(s: Scan): Warning[] {
 }
 
 /**
- * Seats sold, minus seats with a pick on record: someone booked outside our
- * site. With no capacity to count against, says so instead of going quiet.
+ * Seats sold against seats on record, both ways:
+ * - picks-missing: sold minus recorded — someone booked outside our site.
+ *   Only for a class that asks questions; with no capacity to count against,
+ *   says so instead of going quiet.
+ * - recorded-over-sold: recorded minus sold — a seat was recorded here (a
+ *   comp, say) but never added in Square, so Square can still sell it.
  */
-async function picksMissing(s: Scan): Promise<Warning[]> {
+async function seatCounts(s: Scan): Promise<Warning[]> {
   const checked = await Promise.all(
     s.classes.map(async (c): Promise<Warning[]> => {
       const { span, workshop } = c
       const options = c.meta?.options ?? []
-      if (options.length === 0) return []
       const capacity = capacityOf(c)
       if (capacity === null) {
+        if (options.length === 0) return []
         return [{
           code: 'capacity-unknown',
           eventKind: 'workshop',
@@ -206,18 +210,35 @@ async function picksMissing(s: Scan): Promise<Warning[]> {
         }]
       }
       const sold = capacity - workshop.availableCapacity
-      const picked = (await listSeatChoicesByEvent('workshop', span.id)).reduce((n, r) => n + r.seats, 0)
-      const missing = sold - picked
-      if (missing <= 0) return []
-      return [{
-        code: 'picks-missing',
-        eventKind: 'workshop',
-        eventId: span.id,
-        when: span.startIso,
-        title: span.name,
-        detail: `${span.name}: ${missing} seat${missing === 1 ? ' has' : 's have'} no ${options[0].label.toLowerCase()}.`,
-        action: 'Call the customer.',
-      }]
+      const records = await listSeatChoicesByEvent('workshop', span.id)
+      if (options.length === 0 && records.length === 0) return []
+      const recorded = records.reduce((n, r) => n + r.seats, 0)
+      const out: Warning[] = []
+      const missing = sold - recorded
+      if (options.length > 0 && missing > 0) {
+        out.push({
+          code: 'picks-missing',
+          eventKind: 'workshop',
+          eventId: span.id,
+          when: span.startIso,
+          title: span.name,
+          detail: `${span.name}: ${missing} seat${missing === 1 ? ' has' : 's have'} no ${options[0].label.toLowerCase()}.`,
+          action: 'Call the customer.',
+        })
+      }
+      const extra = recorded - sold
+      if (extra > 0) {
+        out.push({
+          code: 'recorded-over-sold',
+          eventKind: 'workshop',
+          eventId: span.id,
+          when: span.startIso,
+          title: span.name,
+          detail: `${span.name} · ${extra} recorded seat${extra === 1 ? '' : 's'} more than Square shows —`,
+          action: 'someone was recorded here but not added in Square.',
+        })
+      }
+      return out
     }),
   )
   return checked.flat()
@@ -225,7 +246,7 @@ async function picksMissing(s: Scan): Promise<Warning[]> {
 
 export async function listWarnings({ from, to }: { from: string; to: string }): Promise<Warning[]> {
   const s = await scan(from, to)
-  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s), ...(await picksMissing(s))].sort((a, b) =>
+  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s), ...(await seatCounts(s))].sort((a, b) =>
     a.when.localeCompare(b.when),
   )
 }

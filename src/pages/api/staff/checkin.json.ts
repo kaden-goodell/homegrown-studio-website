@@ -434,6 +434,17 @@ export const POST: APIRoute = async ({ request }) => {
   }
 
   if (denyReason) {
+    // A refused pickup (wrong code, lockout, not on the list) is the custody
+    // event most worth checking afterward, so it goes in the audit log too.
+    if (action === 'pickup' || action === 'pickup-override') {
+      await recordAudit({
+        by: staff,
+        action: 'custody.refused',
+        target: { kind: 'household', id: recordId, ...(waiverRecord ? { label: signerName } : {}) },
+        details: { eventKind: kind, eventId: id, day, attempted: action, reason: denyReason },
+        ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
+      })
+    }
     // Carry the live checkin state along with the denial (fix round 1,
     // Important 4) — a wrong-code/lock/not-authorized response still
     // committed mutations to `finalState` (codeAttempts++, lockedAt, …), and

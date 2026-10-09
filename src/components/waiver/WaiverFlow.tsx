@@ -11,7 +11,7 @@ interface Props {
   /** Human-readable label shown to the guest so they can see which party their
    *  signature attaches to. Derived server-side from the party record. */
   partyLabel?: string
-  /** Present when opened from a workshop confirmation — /waiver?workshop={bookingId} */
+  /** Present when opened from a workshop confirmation — /waiver?workshop={classScheduleId}&booking={bookingId} */
   workshopId?: string
   /** Human-readable label for a workshop event (title + when), resolved
    *  server-side via `getEvent('workshop', id)` — the workshop counterpart
