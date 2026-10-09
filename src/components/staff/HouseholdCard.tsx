@@ -67,7 +67,7 @@ function StatusPill({ status, hereCount, total, dropOff }: { status: Status; her
     out: { bg: 'rgba(120,120,120,0.14)', fg: '#555', icon: '✓', label: 'All picked up' },
   }[status]
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.28rem 0.7rem', borderRadius: '999px', fontSize: '0.75rem', fontWeight: 700, background: map.bg, color: map.fg, whiteSpace: 'nowrap' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.3rem', padding: '0.28rem 0.7rem', borderRadius: '999px', fontSize: '0.8125rem', fontWeight: 700, background: map.bg, color: map.fg, whiteSpace: 'nowrap' }}>
       {map.icon} {map.label}
     </span>
   )
@@ -196,12 +196,12 @@ export default function HouseholdCard({
   function stateLabel(p: Person, st: PersonState) {
     const pr = presence[p.id]
     if (st === 'here') {
-      const label = <span style={{ fontSize: '0.78rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>● here {pr ? formatTime(pr.inAt) : ''}</span>
+      const label = <span style={{ fontSize: '0.875rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>● here {pr ? formatTime(pr.inAt) : ''}</span>
       if (dropOff) return label
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
           {label}
-          <button type="button" onClick={(e) => { e.preventDefault(); act({ action: 'undo-checkin', personIds: [p.id] }) }} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}>Undo</button>
+          <button type="button" onClick={(e) => { e.preventDefault(); act({ action: 'undo-checkin', personIds: [p.id] }) }} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.8125rem' }}>Undo</button>
         </span>
       )
     }
@@ -209,17 +209,17 @@ export default function HouseholdCard({
       const releasedTo = h.checkin.releasedTo?.[p.id]
       return (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem' }}>
-          <span style={{ fontSize: '0.78rem', color: '#666', fontWeight: 700, whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: '0.875rem', color: '#666', fontWeight: 700, whiteSpace: 'nowrap' }}>
             ✓ left {pr?.outAt ? formatTime(pr.outAt) : ''}{releasedTo?.name ? ` · ${releasedTo.name}` : ''}
           </span>
-          <button type="button" onClick={() => act({ action: 'undo-pickup', personIds: [p.id] })} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.7rem' }}>Undo</button>
+          <button type="button" onClick={() => act({ action: 'undo-pickup', personIds: [p.id] })} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.8125rem' }}>Undo</button>
         </span>
       )
     }
     if (expected == null) return null
     return expected.includes(p.id)
-      ? <span style={{ fontSize: '0.7rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>crafting</span>
-      : <span style={{ fontSize: '0.7rem', color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>not crafting</span>
+      ? <span style={{ fontSize: '0.8125rem', color: 'rgb(21,128,61)', fontWeight: 700, whiteSpace: 'nowrap' }}>crafting</span>
+      : <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>not crafting</span>
   }
 
   // Big, obvious check box on the left of a person row (or a spacer to keep alignment).
@@ -244,9 +244,9 @@ export default function HouseholdCard({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap' }}>
         <div>
           <span style={{ fontWeight: 700, color: 'var(--color-dark)', fontSize: '1.2rem' }}>{h.signer}</span>
-          <a href={`tel:${h.phone}`} style={{ display: 'block', fontSize: '0.8125rem', color: 'var(--color-primary)', textDecoration: 'none' }}>📞 {h.phone}</a>
+          <a href={`tel:${h.phone}`} style={{ display: 'block', fontSize: '0.875rem', color: 'var(--color-primary)', textDecoration: 'none' }}>📞 {h.phone}</a>
           {seats && seats.seats === 0 && (
-            <p role="alert" data-testid="seats-line" style={{ margin: '0.15rem 0 0', fontSize: '0.8125rem', fontWeight: 700, color: '#b45309' }}>
+            <p role="alert" data-testid="seats-line" style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', fontWeight: 700, color: '#b45309' }}>
               No seat on record. If they didn’t book online, use Sell a seat or Comp a seat.
             </p>
           )}
@@ -264,16 +264,16 @@ export default function HouseholdCard({
             const diff = crafting - seats.seats
             return (
               <>
-                <p data-testid="seats-line" style={{ margin: '0.15rem 0 0', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                <p data-testid="seats-line" style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>
                   {seats.seats} seat{seats.seats === 1 ? '' : 's'} ({kindLabel}) · {crafting} crafting
                 </p>
                 {diff > 0 && (
-                  <p role="alert" style={{ margin: '0.15rem 0 0', fontSize: '0.8125rem', fontWeight: 700, color: '#b45309' }}>
+                  <p role="alert" style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', fontWeight: 700, color: '#b45309' }}>
                     {diff} more crafting than seats. Use Sell a seat or Comp a seat for {diff === 1 ? 'the extra one' : `the extra ${diff}`}.
                   </p>
                 )}
                 {diff < 0 && (
-                  <p style={{ margin: '0.15rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+                  <p style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
                     {-diff} seat{diff === -1 ? '' : 's'} not used yet.
                   </p>
                 )}
@@ -281,7 +281,7 @@ export default function HouseholdCard({
             )
           })()}
           {picks && picks.length > 0 && (
-            <p style={{ margin: '0.15rem 0 0', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)' }}>Picks: {picksShort(picks)}</p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>Picks: {picksShort(picks)}</p>
           )}
         </div>
         <StatusPill status={status} hereCount={herePeople.length} total={people.length} dropOff={dropOff} />
@@ -312,7 +312,7 @@ export default function HouseholdCard({
               {leftBox(p, st)}
               <span style={{ fontSize: '0.95rem' }}>{p.icon}</span>
               <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '1.0625rem' }}>{p.name}</span>
-              {p.sub && <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>{p.sub}</span>}
+              {p.sub && <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{p.sub}</span>}
               {p.duplicateOf && <Badge tone="muted">also on {p.duplicateOf}’s RSVP</Badge>}
               {stateLabel(p, st)}
               <span style={{ marginLeft: 'auto', display: 'inline-flex', gap: '0.3rem', flexWrap: 'wrap' }}>
@@ -331,17 +331,17 @@ export default function HouseholdCard({
         </p>
       )}
       {h.responsibleAdult && (
-        <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.15rem 0 0' }}>
+        <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.15rem 0 0' }}>
           <strong style={{ color: 'var(--color-dark)' }}>With:</strong> {h.responsibleAdult}
         </p>
       )}
       {dropOff && h.notAuthorized && (
-        <p style={{ fontSize: '0.8125rem', color: '#b91c1c', fontWeight: 700, margin: '0.5rem 0 0', background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '0.5rem', padding: '0.4rem 0.6rem' }}>
+        <p style={{ fontSize: '0.875rem', color: '#b91c1c', fontWeight: 700, margin: '0.5rem 0 0', background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '0.5rem', padding: '0.4rem 0.6rem' }}>
           ⛔ May NOT collect: {h.notAuthorized}
         </p>
       )}
       {dropOff && (
-        <div style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.4rem 0 0' }}>
+        <div style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.4rem 0 0' }}>
           <strong style={{ color: 'var(--color-dark)' }}>Pickup:</strong>{' '}
           {h.authorizedPickup.length > 0
             ? h.authorizedPickup.map((p) => (p.phone ? `${p.name} · ${p.phone}` : p.name)).join(', ')
@@ -376,7 +376,7 @@ export default function HouseholdCard({
         <div style={{ marginTop: '0.5rem', display: 'flex', justifyContent: 'flex-end' }}>
           {resetPending ? (
             <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
-              <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Really reset? Clears this family’s arrival times.</span>
+              <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Really reset? Clears this family’s arrival times.</span>
               <button type="button" onClick={handleResetTap} style={{ ...btn(), color: '#b91c1c', borderColor: 'rgba(185,28,28,0.35)' }}>Reset</button>
               <button type="button" onClick={() => { if (resetTimerRef.current) clearTimeout(resetTimerRef.current); setResetPending(false) }} style={btn()}>Keep</button>
             </span>

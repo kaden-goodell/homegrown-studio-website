@@ -124,12 +124,12 @@ export default function EventList({
       {/* One source down — the rest of the list is real, so say what's missing
           in one quiet line instead of blanking the day (F2). */}
       {!error && downSources.length > 0 && (
-        <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0 0 0.6rem', fontWeight: 600 }}>
+        <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0 0 0.6rem', fontWeight: 600 }}>
           {downSources.map((s) => SOURCE_LABEL[s]).join(' and ')} unavailable right now —{' '}
           <button
             type="button"
             onClick={() => load(cursor)}
-            style={{ ...btn(), padding: '0.15rem 0.45rem', fontSize: '0.78125rem' }}
+            style={{ ...btn(), padding: '0.15rem 0.45rem', fontSize: '0.8125rem' }}
           >
             Retry
           </button>
@@ -159,9 +159,12 @@ export default function EventList({
                 {e.dropOff && <Badge tone="alert">DROP-OFF</Badge>}
                 {multiDay && <Badge tone="muted">Day {dayIndex + 1} of {e.days.length}</Badge>}
               </span>
-              <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{formatTime(e.startIso)}</span>
+              <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{formatTime(e.startIso)}</span>
             </div>
-            <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
+            <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
+              {e.kind === 'workshop' && typeof e.capacity === 'number' && typeof e.seats === 'number' && (
+                <><strong style={{ color: 'var(--color-dark)' }}>{e.capacity - e.seats}</strong> of {e.capacity} sold · </>
+              )}
               <strong style={{ color: 'var(--color-dark)' }}>{e.rsvpCount}</strong> RSVP’d · <strong style={{ color: 'var(--color-dark)' }}>{e.hereNow}</strong> here
             </p>
           </button>

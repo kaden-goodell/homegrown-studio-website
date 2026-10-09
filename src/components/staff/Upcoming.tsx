@@ -85,9 +85,9 @@ export default function Upcoming({
                 <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{p.title || `${p.craftName} Party`}</span>
                 {p.themeName && <Badge tone="muted">🎀 {p.themeName}</Badge>}
               </span>
-              <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{formatWhen(p.startIso)}</span>
+              <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{formatWhen(p.startIso)}</span>
             </div>
-            <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
+            <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
               Host: {p.hostName}{p.hostPhone ? ` · ${p.hostPhone}` : ''} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl on file)
             </p>
           </button>

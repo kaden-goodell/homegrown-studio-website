@@ -17,7 +17,7 @@ const btn = (primary = false): CSSProperties => ({
   border: primary ? 'none' : '1px solid rgba(var(--color-primary-rgb),0.3)',
   background: primary ? 'var(--color-primary)' : 'transparent',
   color: primary ? '#fff' : 'var(--color-dark)',
-  fontSize: '0.8125rem',
+  fontSize: '0.875rem',
   fontWeight: 600,
   cursor: 'pointer',
 })

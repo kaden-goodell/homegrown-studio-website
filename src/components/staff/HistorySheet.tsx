@@ -84,9 +84,9 @@ export default function HistorySheet({
           <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)' }}>🕘 History — {h.signer}</h3>
           <button type="button" onClick={onClose} aria-label="Close" style={{ ...btn(), padding: '0.35rem 0.6rem' }}>✕</button>
         </div>
-        <p style={{ margin: '0.3rem 0 0', fontSize: '0.78125rem', color: 'var(--color-muted)' }}>Read-only — every custody action recorded for this household, newest first.</p>
+        <p style={{ margin: '0.3rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Read-only — every custody action recorded for this household, newest first.</p>
 
-        {error && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginTop: '1rem', fontWeight: 600 }}>{error}</p>}
+        {error && <p style={{ color: '#b91c1c', fontSize: '0.875rem', marginTop: '1rem', fontWeight: 600 }}>{error}</p>}
         {!error && events === null && <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', marginTop: '1rem' }}>Loading…</p>}
         {!error && events !== null && events.length === 0 && (
           <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', marginTop: '1rem' }}>No custody events recorded yet.</p>
@@ -97,21 +97,21 @@ export default function HistorySheet({
             <div key={i} style={{ borderTop: i === 0 ? 'none' : '1px solid rgba(var(--color-primary-rgb),0.12)', padding: '0.65rem 0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 700, color: 'var(--color-dark)', fontSize: '0.875rem' }}>{ACTION_LABEL[e.action] ?? e.action}</span>
-                <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>{formatWhen(e.at)}</span>
+                <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>{formatWhen(e.at)}</span>
               </div>
               {e.personIds.length > 0 && (
-                <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--color-dark)' }}>
+                <p style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)' }}>
                   {e.personIds.map((pid) => personName(h, pid)).join(', ')}
                 </p>
               )}
               {(e.by?.name || e.collectedBy || e.reason) && (
-                <p style={{ margin: '0.2rem 0 0', fontSize: '0.78125rem', color: 'var(--color-muted)' }}>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
                   {e.by?.name ? `by ${e.by.name}` : 'by (unrecorded)'}
                   {e.collectedBy ? ` · collected by ${e.collectedBy}` : ''}
                   {e.reason ? ` · reason: ${e.reason}` : ''}
                 </p>
               )}
-              {e.note && <p style={{ margin: '0.2rem 0 0', fontSize: '0.78125rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>{e.note}</p>}
+              {e.note && <p style={{ margin: '0.2rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>{e.note}</p>}
             </div>
           ))}
         </div>

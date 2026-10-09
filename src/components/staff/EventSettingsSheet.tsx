@@ -21,7 +21,7 @@ const btn = (primary = false): React.CSSProperties => ({
   border: primary ? 'none' : '1px solid rgba(var(--color-primary-rgb),0.3)',
   background: primary ? 'var(--color-primary)' : 'transparent',
   color: primary ? '#fff' : 'var(--color-dark)',
-  fontSize: '0.8125rem',
+  fontSize: '0.875rem',
   fontWeight: 600,
   cursor: 'pointer',
 })
@@ -34,7 +34,7 @@ const chip: React.CSSProperties = {
   borderRadius: '999px',
   background: 'rgba(var(--color-primary-rgb),0.1)',
   border: '1px solid rgba(var(--color-primary-rgb),0.25)',
-  fontSize: '0.8125rem',
+  fontSize: '0.875rem',
   color: 'var(--color-dark)',
 }
 
@@ -173,7 +173,7 @@ export default function EventSettingsSheet({
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '0.5rem' }}>
           <div>
             <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)' }}>Event settings</h3>
-            <p style={{ margin: '0.15rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{event.title}</p>
+            <p style={{ margin: '0.15rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>{event.title}</p>
           </div>
           <button type="button" onClick={onClose} aria-label="Close" style={{ ...btn(), padding: '0.35rem 0.6rem' }}>✕</button>
         </div>
@@ -189,7 +189,7 @@ export default function EventSettingsSheet({
             />
             Drop-off event
           </label>
-          <p style={{ margin: '0.25rem 0 0', fontSize: '0.78125rem', color: 'var(--color-muted)' }}>
+          <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
             Studio-run only (camps/PNO) — parties are never drop-off.
           </p>
 
@@ -229,7 +229,7 @@ export default function EventSettingsSheet({
               </span>
             ))}
             {!addingDay && (
-              <button type="button" onClick={() => setAddingDay(true)} disabled={busy} style={{ ...btn(), padding: '0.3rem 0.65rem', fontSize: '0.78125rem' }}>
+              <button type="button" onClick={() => setAddingDay(true)} disabled={busy} style={{ ...btn(), padding: '0.3rem 0.65rem', fontSize: '0.8125rem' }}>
                 + Add day
               </button>
             )}
@@ -258,10 +258,10 @@ export default function EventSettingsSheet({
           <Capacity event={event} busy={busy} onSave={(capacity) => save({ capacity })} />
         )}
 
-        {error && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginTop: '0.8rem', fontWeight: 600 }}>{error}</p>}
+        {error && <p style={{ color: '#b91c1c', fontSize: '0.875rem', marginTop: '0.8rem', fontWeight: 600 }}>{error}</p>}
 
         {event.by && event.updatedAt && (
-          <p style={{ marginTop: '1rem', fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+          <p style={{ marginTop: '1rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
             Last changed by {event.by.name}, {formatWhen(event.updatedAt)}
           </p>
         )}
@@ -271,7 +271,7 @@ export default function EventSettingsSheet({
 }
 
 const sectionTitle: React.CSSProperties = { margin: '0 0 0.4rem', fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-dark)' }
-const hint: React.CSSProperties = { margin: '0.25rem 0 0', fontSize: '0.78125rem', color: 'var(--color-muted)' }
+const hint: React.CSSProperties = { margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }
 const textInput: React.CSSProperties = {
   minHeight: '2.75rem',
   padding: '0.4rem 0.6rem',
@@ -381,7 +381,7 @@ function SeatQuestions({ saved, busy, onSave }: { saved: SeatOption[]; busy: boo
             type="button"
             onClick={() => setDraft((d) => d.filter((_, j) => j !== i))}
             disabled={busy}
-            style={{ ...btn(), marginTop: '0.5rem', padding: '0.3rem 0.65rem', fontSize: '0.78125rem', minHeight: '2.75rem' }}
+            style={{ ...btn(), marginTop: '0.5rem', padding: '0.3rem 0.65rem', fontSize: '0.8125rem', minHeight: '2.75rem' }}
           >
             Remove question
           </button>
@@ -392,7 +392,7 @@ function SeatQuestions({ saved, busy, onSave }: { saved: SeatOption[]; busy: boo
           type="button"
           onClick={() => setDraft((d) => [...d, { id: '', label: '', choices: [] }])}
           disabled={busy}
-          style={{ ...btn(), marginTop: '0.6rem', padding: '0.3rem 0.65rem', fontSize: '0.78125rem', minHeight: '2.75rem' }}
+          style={{ ...btn(), marginTop: '0.6rem', padding: '0.3rem 0.65rem', fontSize: '0.8125rem', minHeight: '2.75rem' }}
         >
           + Add a question
         </button>

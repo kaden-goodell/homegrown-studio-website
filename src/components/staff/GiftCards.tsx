@@ -158,13 +158,13 @@ export default function GiftCards({ staff }: { staff: StaffMember }) {
           <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
             <button type="button" onClick={copy} style={btn()}>{copied === 'copied' ? 'Copied' : 'Copy'}</button>
             <a href={`sms:?&body=${encodeURIComponent(`Your Hometown Studio gift card: ${group(made.gan)}`)}`} style={btn()}>Text it</a>
-            {copied === 'selected' && <span role="status" style={{ fontSize: '0.8125rem' }}>Selected — press Copy on your keyboard or menu.</span>}
+            {copied === 'selected' && <span role="status" style={{ fontSize: '0.875rem' }}>Selected — press Copy on your keyboard or menu.</span>}
           </div>
           <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.7rem 0 0' }}>
             Hand this number to them — it works online for parties and kits, and at the register.
           </p>
           {!made.recorded && (
-            <p style={{ fontSize: '0.8125rem', color: '#b91c1c', margin: '0.5rem 0 0' }}>
+            <p style={{ fontSize: '0.875rem', color: '#b91c1c', margin: '0.5rem 0 0' }}>
               This card was made but not saved to the list below. Keep this number.
             </p>
           )}
@@ -181,7 +181,7 @@ export default function GiftCards({ staff }: { staff: StaffMember }) {
                 {c.forWhom} · {formatCents(c.amountCents)} ·{' '}
                 {c.balanceCents === null ? 'balance unavailable' : `${formatCents(c.balanceCents)} left`} ·{' '}
                 {new Date(c.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' })} · {c.by.name}{' '}
-                <button type="button" onClick={() => { setCopied('no'); setMade({ gan: c.gan, recorded: true }) }} style={{ ...btn(), padding: '0.1rem 0.5rem', fontSize: '0.8125rem' }} aria-label={`Show the number for ${c.forWhom}`}>Number</button>
+                <button type="button" onClick={() => { setCopied('no'); setMade({ gan: c.gan, recorded: true }) }} style={{ ...btn(), padding: '0.1rem 0.5rem', fontSize: '0.875rem' }} aria-label={`Show the number for ${c.forWhom}`}>Number</button>
               </li>
             ))}
           </ul>

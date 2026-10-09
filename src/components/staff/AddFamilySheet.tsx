@@ -55,9 +55,9 @@ export default function AddFamilySheet({
             <p style={{ margin: 0, fontWeight: 700, color: 'rgb(21,128,61)' }}>✓ Added and marked here</p>
             {issued.oneTimeCode && (
               <>
-                <p style={{ margin: '0.9rem 0 0.2rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Pickup code</p>
+                <p style={{ margin: '0.9rem 0 0.2rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>Pickup code</p>
                 <p style={{ margin: 0, fontSize: '2.25rem', fontWeight: 800, letterSpacing: '0.2em', color: 'var(--color-dark)' }}>{issued.oneTimeCode}</p>
-                <p style={{ margin: '0.4rem 0 0', fontSize: '0.8125rem', color: issued.smsFailed ? '#b91c1c' : 'var(--color-muted)', fontWeight: issued.smsFailed ? 700 : 400 }}>
+                <p style={{ margin: '0.4rem 0 0', fontSize: '0.875rem', color: issued.smsFailed ? '#b91c1c' : 'var(--color-muted)', fontWeight: issued.smsFailed ? 700 : 400 }}>
                   {issued.smsFailed ? 'The text did not send — read the code to the parent.' : 'Texted to the parent.'}
                 </p>
               </>

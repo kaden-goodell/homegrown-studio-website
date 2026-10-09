@@ -41,15 +41,15 @@ export default function CheckInFlow({
         <p role="status" style={{ margin: 0, fontWeight: 700, color: 'rgb(21,128,61)' }}>✓ On the {e.title} roster and marked here</p>
         {added.oneTimeCode && (
           <>
-            <p style={{ margin: '0.9rem 0 0.2rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Pickup code</p>
+            <p style={{ margin: '0.9rem 0 0.2rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>Pickup code</p>
             <p style={{ margin: 0, fontSize: '2.25rem', fontWeight: 800, letterSpacing: '0.2em', color: 'var(--color-dark)' }}>{added.oneTimeCode}</p>
-            <p style={{ margin: '0.4rem 0 0', fontSize: '0.8125rem', color: added.smsFailed ? '#b91c1c' : 'var(--color-muted)', fontWeight: added.smsFailed ? 700 : 400 }}>
+            <p style={{ margin: '0.4rem 0 0', fontSize: '0.875rem', color: added.smsFailed ? '#b91c1c' : 'var(--color-muted)', fontWeight: added.smsFailed ? 700 : 400 }}>
               {added.smsFailed ? 'The text did not send — read the code to the parent.' : 'Texted to the parent.'}
             </p>
           </>
         )}
         {e.kind === 'workshop' && (
-          <p style={{ margin: '0.8rem 0 0', fontSize: '0.8125rem', color: 'var(--color-dark)' }}>
+          <p style={{ margin: '0.8rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)' }}>
             Didn’t book online? Open the roster and use <strong>Sell a seat</strong> or <strong>Comp a seat</strong>.
           </p>
         )}
@@ -71,7 +71,7 @@ export default function CheckInFlow({
           <button key={`${e.kind}:${e.id}`} type="button" onClick={() => setChoice({ type: 'event', event: e })} style={option}>
             <span>{ICON[e.kind] ?? '•'}</span>
             <span style={{ flex: 1 }}>{e.title}</span>
-            <span style={{ color: 'var(--color-muted)', fontSize: '0.8125rem' }}>{formatTime(e.startIso)}</span>
+            <span style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>{formatTime(e.startIso)}</span>
           </button>
         ))}
         {cafeOpen && (
@@ -82,7 +82,7 @@ export default function CheckInFlow({
         {todayEvents !== null && events.length === 0 && !cafeOpen && (
           <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', margin: '0 0 0.5rem' }}>
             Nothing on today.{' '}
-            <button type="button" onClick={() => setChoice({ type: 'cafe' })} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.8125rem' }}>Log a walk-in visit anyway</button>
+            <button type="button" onClick={() => setChoice({ type: 'cafe' })} style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.875rem' }}>Log a walk-in visit anyway</button>
           </p>
         )}
       </div>

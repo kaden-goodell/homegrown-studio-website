@@ -217,17 +217,17 @@ export default function IncidentSheet({
         ) : (
           <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <div>
-              <p style={{ margin: '0 0 0.2rem', fontSize: '0.75rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reporter</p>
+              <p style={{ margin: '0 0 0.2rem', fontSize: '0.8125rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Reporter</p>
               <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-dark)', fontWeight: 600 }}>{staff.name}</p>
             </div>
 
             <div>
-              <p style={{ margin: '0 0 0.2rem', fontSize: '0.75rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Event</p>
+              <p style={{ margin: '0 0 0.2rem', fontSize: '0.8125rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Event</p>
               <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-dark)', fontWeight: 600 }}>{eventLabel}</p>
             </div>
 
             <label style={{ display: 'block' }}>
-              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.75rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>When</span>
+              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.8125rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>When</span>
               <input
                 type="datetime-local"
                 value={toLocalInput(at)}
@@ -237,7 +237,7 @@ export default function IncidentSheet({
             </label>
 
             <div>
-              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.75rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Who</span>
+              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.8125rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Who</span>
               {people.length > 0 && (
                 <>
                   <input
@@ -249,7 +249,7 @@ export default function IncidentSheet({
                   />
                   <div style={{ maxHeight: '10rem', overflowY: 'auto', border: '1px solid rgba(var(--color-primary-rgb),0.2)', borderRadius: '0.6rem' }}>
                     {visiblePeople.length === 0 && (
-                      <p style={{ margin: 0, padding: '0.5rem 0.7rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>No match.</p>
+                      <p style={{ margin: 0, padding: '0.5rem 0.7rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>No match.</p>
                     )}
                     {visiblePeople.map((p) => (
                       <label key={p.key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.4rem 0.7rem', borderBottom: '1px solid rgba(var(--color-primary-rgb),0.08)', cursor: 'pointer' }}>
@@ -269,7 +269,7 @@ export default function IncidentSheet({
             </div>
 
             <label style={{ display: 'block' }}>
-              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.75rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>What happened</span>
+              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.8125rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>What happened</span>
               <textarea
                 value={what}
                 onChange={(e) => setWhat(e.target.value)}
@@ -279,7 +279,7 @@ export default function IncidentSheet({
             </label>
 
             <label style={{ display: 'block' }}>
-              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.75rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>First aid given</span>
+              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.8125rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>First aid given</span>
               <textarea
                 value={firstAid}
                 onChange={(e) => setFirstAid(e.target.value)}
@@ -289,19 +289,19 @@ export default function IncidentSheet({
             </label>
 
             <label style={{ display: 'block' }}>
-              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.75rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Witnesses</span>
+              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.8125rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Witnesses</span>
               <input value={witnesses} onChange={(e) => setWitnesses(e.target.value)} style={{ ...field, width: '100%', boxSizing: 'border-box' }} />
             </label>
 
             <div>
-              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.75rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Parent notified?</span>
+              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.8125rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Parent notified?</span>
               <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
                 {HOW_OPTIONS.map((o) => (
                   <button
                     key={o.value}
                     type="button"
                     onClick={() => setHow(o.value)}
-                    style={{ ...btn(how === o.value), padding: '0.4rem 0.7rem', fontSize: '0.78125rem' }}
+                    style={{ ...btn(how === o.value), padding: '0.4rem 0.7rem', fontSize: '0.8125rem' }}
                   >
                     {o.label}
                   </button>
@@ -318,16 +318,16 @@ export default function IncidentSheet({
             </div>
 
             <label style={{ display: 'block' }}>
-              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.75rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Follow-up needed</span>
+              <span style={{ display: 'block', margin: '0 0 0.3rem', fontSize: '0.8125rem', color: 'var(--color-muted)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Follow-up needed</span>
               <input value={followUp} onChange={(e) => setFollowUp(e.target.value)} style={{ ...field, width: '100%', boxSizing: 'border-box' }} />
             </label>
 
-            {error && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', margin: 0, fontWeight: 600 }}>{error}</p>}
+            {error && <p style={{ color: '#b91c1c', fontSize: '0.875rem', margin: 0, fontWeight: 600 }}>{error}</p>}
 
             <button type="button" onClick={save} disabled={busy} style={{ ...btn(true), padding: '0.75rem', opacity: busy ? 0.6 : 1 }}>
               {busy ? 'Saving…' : 'Save incident'}
             </button>
-            <p style={{ margin: 0, fontSize: '0.75rem', color: 'var(--color-muted)' }}>Reported {formatWhen(nowIso)}</p>
+            <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Reported {formatWhen(nowIso)}</p>
           </div>
         )}
       </div>

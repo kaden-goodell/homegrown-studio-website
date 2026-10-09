@@ -11,22 +11,25 @@ export const card: CSSProperties = {
   marginBottom: '0.9rem',
 }
 
+/** iPad-at-the-counter sizes: 44px tap targets, 15px button text. */
 export const btn = (primary = false): CSSProperties => ({
-  padding: '0.55rem 0.9rem',
+  padding: '0.6rem 1rem',
+  minHeight: '2.75rem',
   borderRadius: '0.625rem',
   border: primary ? 'none' : '1px solid rgba(var(--color-primary-rgb),0.3)',
   background: primary ? 'var(--color-primary)' : 'transparent',
   color: primary ? '#fff' : 'var(--color-dark)',
-  fontSize: '0.8125rem',
+  fontSize: '0.9375rem',
   fontWeight: 600,
   cursor: 'pointer',
 })
 
+/** 16px text: anything smaller makes iPad Safari zoom the page on focus. */
 export const field: CSSProperties = {
-  padding: '0.5rem 0.7rem',
+  padding: '0.65rem 0.8rem',
   borderRadius: '0.5rem',
   border: '1px solid rgba(var(--color-primary-rgb),0.3)',
-  fontSize: '0.875rem',
+  fontSize: '1rem',
 }
 
 export function Badge({ tone, wrap, children }: { tone: 'alert' | 'muted'; wrap?: boolean; children: ReactNode }) {
@@ -34,7 +37,7 @@ export function Badge({ tone, wrap, children }: { tone: 'alert' | 'muted'; wrap?
     ? { bg: 'rgba(185,28,28,0.1)', fg: '#b91c1c', bd: 'rgba(185,28,28,0.3)' }
     : { bg: 'rgba(90,90,90,0.08)', fg: '#4b5563', bd: 'rgba(90,90,90,0.22)' }
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.15rem 0.5rem', borderRadius: '0.5rem', fontSize: '0.7rem', fontWeight: 700, background: t.bg, color: t.fg, border: `1px solid ${t.bd}`, whiteSpace: wrap ? 'normal' : 'nowrap' }}>
+    <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.2rem 0.55rem', borderRadius: '0.5rem', fontSize: '0.875rem', fontWeight: 700, background: t.bg, color: t.fg, border: `1px solid ${t.bd}`, whiteSpace: wrap ? 'normal' : 'nowrap' }}>
       {children}
     </span>
   )

@@ -48,9 +48,9 @@ export default function PickStaff({
       <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.35rem' }}>
         Who’s on the iPad?
       </h2>
-      <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '1rem' }}>Pick your name to sign in.</p>
+      <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', marginBottom: '1rem' }}>Pick your name to sign in.</p>
       {error && (
-        <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginBottom: '0.6rem' }}>
+        <p style={{ color: '#b91c1c', fontSize: '0.875rem', marginBottom: '0.6rem' }}>
           {error}
           {showBack && (
             <>

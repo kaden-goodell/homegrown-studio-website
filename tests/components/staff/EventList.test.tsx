@@ -59,4 +59,12 @@ describe('EventList day in the address', () => {
     await waitFor(() => expect(dates()).toEqual(['2026-10-17']))
     expect(screen.getByText(/^Tomorrow · /)).toBeTruthy()
   })
+
+  it('shows seats sold of capacity on a class row', async () => {
+    fetchMock.mockImplementation(async () => ({ ok: true, json: async () => ({ data: { events: [
+      { kind: 'workshop', id: 'clssch_a', title: 'Fall Earring Bar', startIso: '2026-10-17T00:00:00Z', days: ['2026-10-16'], dropOff: false, capacity: 35, seats: 23, rsvpCount: 4, hereNow: 0 },
+    ], sources: {} } }) }))
+    render(<EventList date={TODAY} stepper={false} onOpenRoster={() => {}} />)
+    expect(await screen.findByText(/of 35 sold/)).toHaveTextContent('12 of 35 sold')
+  })
 })

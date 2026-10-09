@@ -164,9 +164,9 @@ export default function PickupPanel({
       {/* Pickup code — shown ONCE, right after it's issued or resent */}
       {dropOff && revealCode && (
         <div style={{ marginBottom: '0.7rem', background: 'rgba(var(--color-primary-rgb),0.1)', border: '1px solid rgba(var(--color-primary-rgb),0.4)', borderRadius: '0.6rem', padding: '0.7rem 0.8rem', textAlign: 'center' }}>
-          <span style={{ fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)', fontWeight: 700 }}>Pickup code — give to parent now</span>
+          <span style={{ fontSize: '0.8125rem', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--color-primary)', fontWeight: 700 }}>Pickup code — give to parent now</span>
           <div style={{ fontSize: '2rem', fontWeight: 800, letterSpacing: '0.25em', color: 'var(--color-dark)', margin: '0.1rem 0' }}>{revealCode}</div>
-          <p style={{ fontSize: '0.7rem', color: smsFailed ? '#b91c1c' : 'var(--color-muted)', fontWeight: smsFailed ? 700 : 400, margin: '0 0 0.5rem' }}>
+          <p style={{ fontSize: '0.8125rem', color: smsFailed ? '#b91c1c' : 'var(--color-muted)', fontWeight: smsFailed ? 700 : 400, margin: '0 0 0.5rem' }}>
             {smsFailed ? 'Text didn’t send — tell the parent the code.' : 'Texted to the parent — won’t be shown again.'}
           </p>
           <button type="button" onClick={() => onCodeIssued(null, false)} style={btn(true)}>Parent has it — hide</button>
@@ -177,9 +177,9 @@ export default function PickupPanel({
       {gated && (
         <div style={{ marginBottom: '0.7rem' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem' }}>
-            <p style={{ margin: '0 0 0.4rem', fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-dark)' }}>Who’s collecting?</p>
+            <p style={{ margin: '0 0 0.4rem', fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-dark)' }}>Who’s collecting?</p>
             {!editingList && (
-              <button type="button" onClick={openEditList} style={{ ...btn(), padding: '0.15rem 0.5rem', fontSize: '0.72rem', color: 'var(--color-muted)', borderColor: 'transparent' }}>
+              <button type="button" onClick={openEditList} style={{ ...btn(), padding: '0.15rem 0.5rem', fontSize: '0.8125rem', color: 'var(--color-muted)', borderColor: 'transparent' }}>
                 Edit list
               </button>
             )}
@@ -205,9 +205,9 @@ export default function PickupPanel({
                 </div>
               ))}
               <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button type="button" onClick={() => setEditRows((rows) => [...rows, { name: '', phone: '' }])} style={{ ...btn(), fontSize: '0.78125rem' }}>+ Add</button>
-                <button type="button" disabled={busy} onClick={saveEditList} style={{ ...btn(true), fontSize: '0.78125rem' }}>Save</button>
-                <button type="button" onClick={() => setEditingList(false)} style={{ ...btn(), fontSize: '0.78125rem' }}>Cancel</button>
+                <button type="button" onClick={() => setEditRows((rows) => [...rows, { name: '', phone: '' }])} style={{ ...btn(), fontSize: '0.8125rem' }}>+ Add</button>
+                <button type="button" disabled={busy} onClick={saveEditList} style={{ ...btn(true), fontSize: '0.8125rem' }}>Save</button>
+                <button type="button" onClick={() => setEditingList(false)} style={{ ...btn(), fontSize: '0.8125rem' }}>Cancel</button>
               </div>
             </div>
           ) : (
@@ -217,7 +217,7 @@ export default function PickupPanel({
                   key={p.name}
                   type="button"
                   onClick={() => pickChip(p.name)}
-                  style={{ ...btn(collectedBy.trim().toLowerCase() === p.name.trim().toLowerCase()), padding: '0.35rem 0.75rem', fontSize: '0.8125rem' }}
+                  style={{ ...btn(collectedBy.trim().toLowerCase() === p.name.trim().toLowerCase()), padding: '0.35rem 0.75rem', fontSize: '0.875rem' }}
                 >
                   {p.name}
                 </button>
@@ -225,7 +225,7 @@ export default function PickupPanel({
               <button
                 type="button"
                 onClick={() => pickChip(h.signer)}
-                style={{ ...btn(collectedBy.trim().toLowerCase() === h.signer.trim().toLowerCase()), padding: '0.35rem 0.75rem', fontSize: '0.8125rem' }}
+                style={{ ...btn(collectedBy.trim().toLowerCase() === h.signer.trim().toLowerCase()), padding: '0.35rem 0.75rem', fontSize: '0.875rem' }}
               >
                 {h.signer} (parent)
               </button>
@@ -240,7 +240,7 @@ export default function PickupPanel({
                 style={{ ...field, width: '100%', boxSizing: 'border-box' }}
               />
               {showIdCheckbox && (
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', fontSize: '0.8125rem', color: 'var(--color-dark)', cursor: 'pointer' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginTop: '0.5rem', fontSize: '0.875rem', color: 'var(--color-dark)', cursor: 'pointer' }}>
                   <input type="checkbox" checked={idChecked} onChange={(e) => setIdChecked(e.target.checked)} style={{ width: '1.1rem', height: '1.1rem', accentColor: 'var(--color-primary)' }} />
                   Not on the list — I checked their photo ID
                 </label>
@@ -248,7 +248,7 @@ export default function PickupPanel({
 
               <div style={{ marginTop: '0.6rem' }}>
                 {locked ? (
-                  <p style={{ margin: 0, fontSize: '0.8125rem', color: '#b91c1c', fontWeight: 700 }}>Locked after 5 wrong codes — use Override.</p>
+                  <p style={{ margin: 0, fontSize: '0.875rem', color: '#b91c1c', fontWeight: 700 }}>Locked after 5 wrong codes — use Override.</p>
                 ) : (
                   <>
                     <input
@@ -260,7 +260,7 @@ export default function PickupPanel({
                       style={{ ...field, width: '6.5rem' }}
                     />
                     {h.checkin.codeAttempts > 0 && (
-                      <span style={{ marginLeft: '0.5rem', fontSize: '0.78125rem', color: '#b91c1c', fontWeight: 600 }}>
+                      <span style={{ marginLeft: '0.5rem', fontSize: '0.8125rem', color: '#b91c1c', fontWeight: 600 }}>
                         Doesn’t match · {attemptsLeft} tries left
                       </span>
                     )}
@@ -284,8 +284,8 @@ export default function PickupPanel({
         </div>
       )}
 
-      {err && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', margin: '0 0 0.5rem', fontWeight: 600 }}>{err}</p>}
-      {resendToast && <p style={{ color: 'var(--color-muted)', fontSize: '0.8125rem', margin: '0 0 0.5rem', fontWeight: 600 }}>{resendToast}</p>}
+      {err && <p style={{ color: '#b91c1c', fontSize: '0.875rem', margin: '0 0 0.5rem', fontWeight: 600 }}>{err}</p>}
+      {resendToast && <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', margin: '0 0 0.5rem', fontWeight: 600 }}>{resendToast}</p>}
 
       <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
         <button
@@ -298,7 +298,7 @@ export default function PickupPanel({
         </button>
 
         {gated && (
-          <button type="button" onClick={() => setOverrideOpen(true)} style={{ ...btn(), color: 'var(--color-muted)', borderColor: 'transparent', fontSize: '0.78125rem' }}>
+          <button type="button" onClick={() => setOverrideOpen(true)} style={{ ...btn(), color: 'var(--color-muted)', borderColor: 'transparent', fontSize: '0.8125rem' }}>
             Override…
           </button>
         )}
@@ -306,25 +306,25 @@ export default function PickupPanel({
         {dropOff && (
           resendChoosing ? (
             <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-              <button type="button" disabled={busy} onClick={() => doResend('Parent didn’t get the text')} style={{ ...btn(), fontSize: '0.78125rem' }}>Parent didn’t get the text</button>
+              <button type="button" disabled={busy} onClick={() => doResend('Parent didn’t get the text')} style={{ ...btn(), fontSize: '0.8125rem' }}>Parent didn’t get the text</button>
               <input
                 value={resendOtherText}
                 onChange={(e) => setResendOtherText(e.target.value)}
                 placeholder="Other reason…"
-                style={{ ...field, width: '9rem', fontSize: '0.78125rem' }}
+                style={{ ...field, width: '9rem', fontSize: '0.8125rem' }}
               />
               <button
                 type="button"
                 disabled={busy || !resendOtherText.trim()}
                 onClick={() => doResend(resendOtherText.trim())}
-                style={{ ...btn(), fontSize: '0.78125rem', opacity: !resendOtherText.trim() ? 0.5 : 1 }}
+                style={{ ...btn(), fontSize: '0.8125rem', opacity: !resendOtherText.trim() ? 0.5 : 1 }}
               >
                 Send
               </button>
-              <button type="button" onClick={() => setResendChoosing(false)} style={{ ...btn(), fontSize: '0.78125rem' }}>Cancel</button>
+              <button type="button" onClick={() => setResendChoosing(false)} style={{ ...btn(), fontSize: '0.8125rem' }}>Cancel</button>
             </span>
           ) : (
-            <button type="button" onClick={() => setResendChoosing(true)} style={{ ...btn(), fontSize: '0.78125rem' }}>
+            <button type="button" onClick={() => setResendChoosing(true)} style={{ ...btn(), fontSize: '0.8125rem' }}>
               {h.checkin.hasPickupCode ? 'Re-send code' : 'Issue pickup code'}
             </button>
           )
@@ -351,7 +351,7 @@ export default function PickupPanel({
                 Override before ever picking a chip left this blank with no
                 way to fill it in, so "Release without code" always 400'd. */}
             <div style={{ marginTop: '0.8rem' }}>
-              <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.3rem' }}>Who’s collecting?</label>
+              <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.3rem' }}>Who’s collecting?</label>
               <input
                 value={collectedBy}
                 onChange={(e) => setCollectedBy(e.target.value)}
@@ -385,7 +385,7 @@ export default function PickupPanel({
               📞 Call {h.signer} — {h.phone}
             </a>
 
-            {err && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginTop: '0.7rem', fontWeight: 600 }}>{err}</p>}
+            {err && <p style={{ color: '#b91c1c', fontSize: '0.875rem', marginTop: '0.7rem', fontWeight: 600 }}>{err}</p>}
 
             <button
               type="button"

@@ -119,8 +119,8 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
         <span style={{ fontWeight: 700, color: 'var(--color-dark)' }}>{order.contact.name}</span>
         <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: statusTone }}>{statusLabelFor(order)}</span>
-          <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>#{order.reference}</span>
+          <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: statusTone }}>{statusLabelFor(order)}</span>
+          <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>#{order.reference}</span>
         </span>
       </div>
 
@@ -135,15 +135,15 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
         ))}
       </div>
 
-      <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.5rem 0 0' }}>
+      <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.5rem 0 0' }}>
         <a href={`tel:${order.contact.phone}`} style={{ color: 'var(--color-primary)', textDecoration: 'none' }}>📞 {order.contact.phone}</a>
         {order.contact.address ? <> · 📍 {order.contact.address}</> : null}
       </p>
-      <p style={{ fontSize: '0.8125rem', color: 'var(--color-dark)', margin: '0.35rem 0 0' }}>
+      <p style={{ fontSize: '0.875rem', color: 'var(--color-dark)', margin: '0.35rem 0 0' }}>
         <strong>Pick up</strong> {fmtDay(order.pickupDate)} · <strong>Party</strong> {fmtDay(order.partyDate)}
         {isThemed && <> · <strong>Return by</strong> {fmtDay(order.returnBy)}, {kitConfig.returnWindow}</>}
       </p>
-      <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0.2rem 0 0' }}>
+      <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.2rem 0 0' }}>
         Charged {formatCents(order.totalChargedCents)}
         {order.depositRefund
           ? ` · deposit ${formatCents(order.depositRefund.amountCents)} refunded ${fmtDay(order.depositRefund.at.slice(0, 10))}`
@@ -152,12 +152,12 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
       {/* Deposit-only orders: the balance is collected on the POS at pickup —
           make it impossible to hand a kit over without seeing the number. */}
       {!!order.balanceDueCents && order.status === 'upcoming' && (
-        <p style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'rgb(180,120,20)', margin: '0.3rem 0 0' }}>
+        <p style={{ fontSize: '0.875rem', fontWeight: 700, color: 'rgb(180,120,20)', margin: '0.3rem 0 0' }}>
           💵 Collect {formatCents(order.balanceDueCents)} at pickup (of {formatCents(order.quoteTotalCents ?? 0)} total)
         </p>
       )}
 
-      {err && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginTop: '0.5rem', fontWeight: 600 }}>{err}</p>}
+      {err && <p style={{ color: '#b91c1c', fontSize: '0.875rem', marginTop: '0.5rem', fontWeight: 600 }}>{err}</p>}
 
       {/* ── Actions by status ── */}
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.7rem', alignItems: 'center' }}>
@@ -173,7 +173,7 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
         )}
         {order.status === 'upcoming' && panel === 'cancel' && (
           <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+            <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>
               Cancel and refund {formatCents(cancelRefund)}?{freeCancel ? '' : ` (${formatCents(kitConfig.assemblyFeeCents)} assembly fee kept)`}
             </span>
             <button type="button" disabled={busy} onClick={() => run(KIT_CANCEL, { orderId: order.orderId })} style={{ ...btn(), color: '#b91c1c', borderColor: 'rgba(185,28,28,0.35)' }}>Confirm cancel</button>
@@ -192,7 +192,7 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
                 💬 Text reminder
               </button>
               {lastReminder && (
-                <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+                <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
                   reminded {fmtDay(lastReminder.at.slice(0, 10))}
                 </span>
               )}
@@ -217,7 +217,7 @@ function KitOrderCard({ order, onAction }: { order: KitOrder; onAction: (path: s
         )}
         {order.status === 'out' && panel === 'forfeit' && (
           <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Forfeit the whole {formatCents(deposit)} deposit? No refund.</span>
+            <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Forfeit the whole {formatCents(deposit)} deposit? No refund.</span>
             <button type="button" disabled={busy} onClick={() => run(KIT_RETURN, { orderId: order.orderId, action: 'forfeit', note: note.trim() || undefined })} style={{ ...btn(), color: '#b91c1c', borderColor: 'rgba(185,28,28,0.35)' }}>Confirm forfeit</button>
             <button type="button" disabled={busy} onClick={() => setPanel('return')} style={btn()}>Back</button>
           </span>
@@ -418,9 +418,9 @@ export default function StaffConsole() {
     return (
       <div style={{ ...card, background: 'rgba(255,255,255,0.85)', maxWidth: '22rem', margin: '0 auto', textAlign: 'center' }}>
         <h2 style={{ fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.35rem' }}>Staff check-in</h2>
-        <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', marginBottom: '1rem' }}>Enter the staff passcode.</p>
+        <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', marginBottom: '1rem' }}>Enter the staff passcode.</p>
         <input type="password" value={passcode} onChange={(e) => setPasscode(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && doLogin()} placeholder="Passcode" style={{ ...field, width: '100%', marginBottom: '0.6rem' }} />
-        {loginError && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', marginBottom: '0.6rem' }}>{loginError}</p>}
+        {loginError && <p style={{ color: '#b91c1c', fontSize: '0.875rem', marginBottom: '0.6rem' }}>{loginError}</p>}
         <button type="button" onClick={doLogin} style={{ ...btn(true), width: '100%', padding: '0.65rem' }}>Enter</button>
       </div>
     )
@@ -516,7 +516,7 @@ export default function StaffConsole() {
           <div style={{ background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.35)', borderRadius: '0.8rem', padding: '0.8rem 1rem', marginBottom: '1rem' }}>
             <strong style={{ color: '#b91c1c', fontSize: '0.9rem' }}>⚠ Over-committed weeks</strong>
             {radar.map((r) => (
-              <p key={`${r.themeId}-${r.weekKey}`} style={{ fontSize: '0.8125rem', color: '#b91c1c', margin: '0.35rem 0 0' }}>
+              <p key={`${r.themeId}-${r.weekKey}`} style={{ fontSize: '0.875rem', color: '#b91c1c', margin: '0.35rem 0 0' }}>
                 Week of {fmtDay(r.weekKey)}: {themeDisplay(r.themeId)} committed {r.committed}/{r.owned} — call somebody.
               </p>
             ))}
@@ -557,7 +557,7 @@ export default function StaffConsole() {
                   <div key={o.orderId} style={{ borderTop: '1px solid rgba(var(--color-primary-rgb),0.12)', marginTop: '0.7rem', paddingTop: '0.6rem' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem', flexWrap: 'wrap' }}>
                       <span style={{ fontWeight: 600, color: 'var(--color-dark)', fontSize: '0.9rem' }}>{o.contact.name}</span>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--color-muted)' }}>
+                      <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
                         {o.status !== 'upcoming' && <strong style={{ color: 'var(--color-dark)' }}>{statusLabelFor(o)} · </strong>}
                         party {fmtDay(o.partyDate)} · #{o.reference}
                       </span>

@@ -218,7 +218,7 @@ export default function Roster({
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.8rem', flexWrap: 'wrap' }}>
         <button type="button" onClick={onBack} style={{ ...btn(), minHeight: '2.75rem', fontSize: '0.9rem' }}>← {backLabel}</button>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5rem', position: 'relative' }}>
-          {stale && <span style={{ fontSize: '0.8125rem', color: 'var(--color-muted)' }}>⚠ May be out of date</span>}
+          {stale && <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>⚠ May be out of date</span>}
           <button
             type="button"
             aria-label="More"
@@ -283,7 +283,7 @@ export default function Roster({
           ]).map((st) => (
             <div key={st.sub} style={{ padding: '0.55rem 0.3rem', borderRadius: '0.7rem', background: 'rgba(var(--color-primary-rgb),0.07)' }}>
               <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--color-dark)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{st.n}</div>
-              <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-muted)' }}>{st.sub}</div>
+              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-muted)' }}>{st.sub}</div>
             </div>
           ))}
         </div>
@@ -298,7 +298,7 @@ export default function Roster({
               <button
                 type="button"
                 onClick={() => setIncidentsOpen(true)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.3rem 0.6rem', borderRadius: '0.5rem', fontSize: '0.8125rem', fontWeight: 700, background: 'rgba(185,28,28,0.1)', color: '#b91c1c', border: '1px solid rgba(185,28,28,0.3)', cursor: 'pointer' }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.3rem 0.6rem', borderRadius: '0.5rem', fontSize: '0.875rem', fontWeight: 700, background: 'rgba(185,28,28,0.1)', color: '#b91c1c', border: '1px solid rgba(185,28,28,0.3)', cursor: 'pointer' }}
               >
                 🚑 Incidents ({incidents.length})
               </button>
@@ -314,7 +314,7 @@ export default function Roster({
       </div>
 
       {picksUnknown && (
-        <p style={{ margin: '0 0 0.8rem', fontSize: '0.8125rem', color: 'var(--color-muted)', textAlign: 'center' }}>Picks unavailable — reload the page</p>
+        <p style={{ margin: '0 0 0.8rem', fontSize: '0.875rem', color: 'var(--color-muted)', textAlign: 'center' }}>Picks unavailable — reload the page</p>
       )}
       {choices && options.length > 0 && (
         <div data-testid="picks-totals" style={{ ...card, background: 'rgba(255,255,255,0.85)' }}>
@@ -385,12 +385,12 @@ export default function Roster({
             </div>
             {incidents.map((inc) => (
               <div key={inc.id} style={{ ...card, background: 'rgba(255,255,255,0.85)' }}>
-                <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-muted)' }}>
                   {formatWhen(inc.at)} · {inc.who.length ? inc.who.map((w) => w.name).join(', ') : 'Unnamed'} · filed by {inc.by.name}
                 </p>
                 <p style={{ margin: '0.4rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)' }}>{inc.what}</p>
-                {inc.firstAid && <p style={{ margin: '0.3rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}><strong style={{ color: 'var(--color-dark)' }}>First aid:</strong> {inc.firstAid}</p>}
-                <p style={{ margin: '0.3rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+                {inc.firstAid && <p style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}><strong style={{ color: 'var(--color-dark)' }}>First aid:</strong> {inc.firstAid}</p>}
+                <p style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
                   {inc.parentNotified.how === 'not-yet' ? 'Parent not yet notified' : `Parent notified (${inc.parentNotified.how}${inc.parentNotified.at ? `, ${formatWhen(inc.parentNotified.at)}` : ''})`}
                 </p>
                 <a href={`/staff/incident-print?id=${encodeURIComponent(inc.id)}`} target="_blank" rel="noopener noreferrer" style={{ display: 'inline-flex', alignItems: 'center', marginTop: '0.5rem', ...btn(), textDecoration: 'none' }}>
@@ -417,7 +417,7 @@ export default function Roster({
             No RSVPs yet — anyone who signs the agreement for this event will appear here, or tap “+ Add family”.
           </p>
           {event.dropOff && (
-            <p style={{ margin: '0.5rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+            <p style={{ margin: '0.5rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
               Send them the link: <strong style={{ color: 'var(--color-dark)', wordBreak: 'break-all' }}>{waiverLink}</strong>
             </p>
           )}

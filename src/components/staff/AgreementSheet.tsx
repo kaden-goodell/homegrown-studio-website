@@ -10,7 +10,7 @@ import { formatMonthDayYear } from '@lib/studio-time'
 export default function AgreementSheet({ h, dropOff, onClose }: { h: Household; dropOff: boolean; onClose: () => void }) {
   const expired = Date.parse(h.validUntil) < Date.now()
   const row = { margin: '0 0 0.55rem', fontSize: '0.9rem', color: 'var(--color-dark)' } as const
-  const label = { display: 'block', fontSize: '0.75rem', fontWeight: 700, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' } as const
+  const label = { display: 'block', fontSize: '0.8125rem', fontWeight: 700, color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.04em' } as const
   const none = <span style={{ color: 'var(--color-muted)' }}>none</span>
   const health = (allergies: string, meds?: string) => (
     <>

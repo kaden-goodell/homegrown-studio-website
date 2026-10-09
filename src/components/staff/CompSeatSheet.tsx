@@ -92,7 +92,7 @@ export default function CompSeatSheet({
     }
   }
 
-  const label = { display: 'block', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.2rem' } as const
+  const label = { display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.2rem' } as const
   const input = { ...field, width: '100%', boxSizing: 'border-box' } as const
   const row = { marginBottom: '0.65rem' } as const
 
@@ -124,13 +124,13 @@ export default function CompSeatSheet({
         </p>
         {signedOut && !done && (
           <div style={{ margin: '0 0 1.1rem', padding: '0.75rem', borderRadius: '0.6rem', background: 'rgba(245, 158, 11, 0.12)' }}>
-            <p style={{ margin: '0 0 0.5rem', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+            <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>
               Add them in Square first, then tap “I added them in Square”.
             </p>
             <a href={squareUrl} target="_blank" rel="noopener" style={{ ...btn(true), textDecoration: 'none', display: 'inline-block' }}>
               Open this class in Square
             </a>
-            <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+            <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
               <li>Add attendee</li>
               <li>Pick or create the person</li>
               <li>Add to class, then {sell ? 'Take payment' : 'Skip payment'}</li>
@@ -147,7 +147,7 @@ export default function CompSeatSheet({
                 <p style={{ margin: '0 0 0.35rem', fontWeight: 800, fontSize: '1.05rem', color: 'var(--color-dark)' }}>
                   Now take {done.dueCents !== null ? money(done.dueCents) : 'the payment'} at the register
                 </p>
-                <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--color-dark)' }}>
+                <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-dark)' }}>
                   In Square, open {event.title}, tap {done.name}, then Take payment.
                 </p>
               </div>

@@ -138,7 +138,7 @@ function ResultCard({
         <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '1.0625rem', color: 'var(--color-dark)' }}>
           GOOD TO GO — {h.firstName} {h.lastName}
         </h3>
-        <p style={{ margin: '0.35rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+        <p style={{ margin: '0.35rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
           Signed {formatMonthDay(h.signedAt)} · {h.agreementVersion} · valid through {formatMonthYear(h.validUntil)}
         </p>
         {h.kids.length > 0 && (
@@ -152,7 +152,7 @@ function ResultCard({
 
         <div style={{ marginTop: '0.9rem', borderTop: '1px solid rgba(var(--color-primary-rgb),0.12)', paddingTop: '0.8rem' }}>
           {alreadyHere && (
-            <p style={{ margin: '0 0 0.5rem', fontSize: '0.8125rem', color: 'rgb(21,128,61)', fontWeight: 700 }}>
+            <p style={{ margin: '0 0 0.5rem', fontSize: '0.875rem', color: 'rgb(21,128,61)', fontWeight: 700 }}>
               ✓ Here today{shownAt ? ` · ${formatTime(shownAt)}` : ''}
             </p>
           )}
@@ -170,7 +170,7 @@ function ResultCard({
               </label>
             )
           })}
-          {error && <p style={{ color: '#b91c1c', fontSize: '0.8125rem', margin: '0.4rem 0 0', fontWeight: 600 }}>{error}</p>}
+          {error && <p style={{ color: '#b91c1c', fontSize: '0.875rem', margin: '0.4rem 0 0', fontWeight: 600 }}>{error}</p>}
           <button
             type="button"
             disabled={busy || personIdsFor(h).every((id) => sel[id] === false)}
@@ -180,7 +180,7 @@ function ResultCard({
             {event ? '✓ Add & mark here' : '✓ Here for Craft Café'}
           </button>
           {!event && todayEvents && todayEvents.length > 0 && onAddToEvent && (
-            <div style={{ marginTop: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', fontSize: '0.78125rem', color: 'var(--color-muted)' }}>
+            <div style={{ marginTop: '0.7rem', display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
               <span>Here for an event? →</span>
               {todayEvents.map((e) => {
                 const rsvpd = !!e.rsvpWaiverIds?.includes(h.recordId)
@@ -189,7 +189,7 @@ function ResultCard({
                     key={`${e.kind}:${e.id}`}
                     type="button"
                     onClick={() => onAddToEvent(e, h)}
-                    style={{ ...btn(rsvpd), padding: '0.3rem 0.65rem', fontSize: '0.75rem', minHeight: '2rem' }}
+                    style={{ ...btn(rsvpd), padding: '0.3rem 0.65rem', fontSize: '0.8125rem', minHeight: '2rem' }}
                   >
                     {e.title} {formatTime(e.startIso)}
                   </button>
@@ -208,7 +208,7 @@ function ResultCard({
       <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 700, fontSize: '1.0625rem', color: 'var(--color-dark)' }}>
         {h.outdated ? `UPDATED AGREEMENT — ${h.firstName} ${h.lastName} needs to sign again` : `EXPIRED — ${h.firstName} ${h.lastName}`}
       </h3>
-      <p style={{ margin: '0.35rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+      <p style={{ margin: '0.35rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
         Signed {formatMonthDayYear(h.signedAt)} · {h.outdated ? `${h.agreementVersion} is out of date` : `expired ${formatMonthDayYear(h.validUntil)}`}
       </p>
       <div style={{ display: 'flex', gap: '0.6rem', marginTop: '0.8rem', flexWrap: 'wrap' }}>
@@ -308,7 +308,7 @@ export default function DoorSearch(props: {
       />
 
       {loading && results === null && (
-        <p style={{ color: 'var(--color-muted)', fontSize: '0.8125rem', marginTop: '0.6rem' }}>Searching…</p>
+        <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', marginTop: '0.6rem' }}>Searching…</p>
       )}
 
       {error && results !== null && (
@@ -325,13 +325,13 @@ export default function DoorSearch(props: {
               <button type="button" onClick={() => setQrOpen(true)} style={{ ...btn(), minHeight: '2.75rem', flex: '1 1 8rem' }}>Show QR</button>
               <button type="button" onClick={() => signOnIpad(doorEvent)} style={{ ...btn(true), minHeight: '2.75rem', flex: '1 1 8rem' }}>Sign on this iPad</button>
             </div>
-            <p style={{ margin: '0.7rem 0 0', fontSize: '0.78125rem', color: 'var(--color-muted)' }}>
+            <p style={{ margin: '0.7rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
               Under 19? A parent signs from their phone — the QR works for that too.
             </p>
           </div>
         ) : (
           <div style={{ marginTop: '0.8rem' }}>
-            <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '0 0 0.5rem' }}>{results.length} matches — pick one:</p>
+            <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0 0 0.5rem' }}>{results.length} matches — pick one:</p>
             {results.map((h) => (
               <button
                 key={h.recordId}
@@ -341,9 +341,9 @@ export default function DoorSearch(props: {
               >
                 <span>
                   <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{h.firstName} {h.lastName}</span>
-                  {h.contactHint && <span style={{ marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--color-muted)' }}>{h.contactHint}</span>}
+                  {h.contactHint && <span style={{ marginLeft: '0.5rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{h.contactHint}</span>}
                 </span>
-                <span style={{ fontSize: '0.75rem', color: h.covered ? 'rgb(21,128,61)' : 'rgb(180,120,20)', fontWeight: 700 }}>
+                <span style={{ fontSize: '0.8125rem', color: h.covered ? 'rgb(21,128,61)' : 'rgb(180,120,20)', fontWeight: 700 }}>
                   {h.covered ? 'good to go' : h.outdated ? 'sign again' : 'expired'}
                 </span>
               </button>
