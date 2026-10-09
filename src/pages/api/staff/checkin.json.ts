@@ -228,11 +228,11 @@ export const POST: APIRoute = async ({ request }) => {
 
         case 'undo-checkin': {
           const ids = asIds(body?.personIds)
-          const prevPresence = JSON.stringify(dayState.presence)
+          const prevPresence = { ...dayState.presence }
           const wasLocked = !!state.lockedAt
           if (ids.length === 0) dayState.presence = {}
           else for (const id of ids) delete dayState.presence[id]
-          const clearedIds = ids.length === 0 ? Object.keys(JSON.parse(prevPresence)) : ids
+          const clearedIds = ids.length === 0 ? Object.keys(prevPresence) : ids
           for (const id of clearedIds) delete state.releasedTo[id]
           // No one left on-site FOR THIS DAY, and this is the event's last
           // day → retire the code and pickup note. Otherwise keep it — a
@@ -243,7 +243,8 @@ export const POST: APIRoute = async ({ request }) => {
             state.codeAttempts = 0
             state.lockedAt = null
           }
-          state.events.push({ at: nowIso, action: 'undo-checkin', personIds: clearedIds, note: `cleared: ${prevPresence}`, day, by })
+          const clearedPresence = Object.fromEntries(clearedIds.filter((id) => prevPresence[id]).map((id) => [id, prevPresence[id]]))
+          state.events.push({ at: nowIso, action: 'undo-checkin', personIds: clearedIds, clearedPresence, day, by })
           // A Reset can silently clear an active lockout (fix round 1
           // addendum, finding 6) — log it so the audit trail shows the lock
           // was lifted and why, same as reissue-code's own 'unlocked' event.

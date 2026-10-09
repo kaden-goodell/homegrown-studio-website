@@ -80,6 +80,8 @@ export interface CheckinEvent {
   /** On an `incident` action, the `IncidentRecord.id` this entry cross-
    *  references (HOM-215) — the full report lives in `incident-store`. */
   incidentId?: string
+  /** On an `undo-checkin`, the check-in times that were cleared (person id → presence). */
+  clearedPresence?: Record<string, PersonPresence>
 }
 
 export interface CheckinState {

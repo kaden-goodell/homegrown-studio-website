@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { btn } from '@components/staff/ui'
-import { formatWhen } from '@lib/studio-time'
+import { formatTime, formatWhen } from '@lib/studio-time'
 import type { Household } from '@components/staff/HouseholdCard'
 import type { EventKind } from '@lib/events'
 import type { CheckinEvent } from '@lib/checkin-store'
@@ -28,6 +28,22 @@ function personName(h: Household, personId: string): string {
   const m = personId.match(/^child:(\d+)$/)
   if (m) return h.children[Number(m[1])]?.name ?? personId
   return personId
+}
+
+/**
+ * The check-in times an undo cleared, as plain words. New events carry them
+ * in `clearedPresence`; older ones stored them as a raw "cleared: {…}" note.
+ */
+export function clearedLine(h: Household, e: CheckinEvent): string | null {
+  let cleared = e.clearedPresence
+  if (!cleared && e.note?.startsWith('cleared: ')) {
+    try { cleared = JSON.parse(e.note.slice('cleared: '.length)) } catch { return null }
+  }
+  if (!cleared) return null
+  const parts = Object.entries(cleared).map(([pid, p]) =>
+    `${personName(h, pid)} at ${formatTime(p.inAt)}${p.outAt ? ` (left ${formatTime(p.outAt)})` : ''}`,
+  )
+  return parts.length ? `Had been checked in: ${parts.join(', ')}` : 'No one was checked in yet'
 }
 
 /**
@@ -111,7 +127,11 @@ export default function HistorySheet({
                   {e.reason ? ` · reason: ${e.reason}` : ''}
                 </p>
               )}
-              {e.note && <p style={{ margin: '0.2rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>{e.note}</p>}
+              {(() => {
+                const cleared = clearedLine(h, e)
+                const text = cleared ?? (e.note && !e.note.startsWith('cleared: ') ? e.note : null)
+                return text ? <p style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)', fontStyle: 'italic' }}>{text}</p> : null
+              })()}
             </div>
           ))}
         </div>
