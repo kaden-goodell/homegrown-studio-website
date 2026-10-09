@@ -8,10 +8,12 @@ import { SquareClient, SquareEnvironment } from 'square'
  * whichever craft item is also in the "Most Popular" category gets the badge in
  * the booking UI. You can also manage this straight from the Square Dashboard
  * (Items → edit item → Categories → add/remove "Most Popular"); this script
- * just does it in one shot and guarantees only one craft carries the badge.
+ * just does it in one shot. Several crafts can carry the badge (use --add).
  *
  * Usage:
- *   npx tsx scripts/set-popular-craft.ts --name "Patch & Personalize"
+ *   npx tsx scripts/set-popular-craft.ts --name "Patch & Personalize"         # only this one
+ *   npx tsx scripts/set-popular-craft.ts --name "Patch & Personalize" --add   # this one too
+ *   npx tsx scripts/set-popular-craft.ts --name "Patch & Personalize" --remove
  *   npx tsx scripts/set-popular-craft.ts --clear
  */
 
@@ -21,6 +23,9 @@ const argv = process.argv.slice(2)
 const flag = (n: string) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : undefined }
 const targetName = flag('name')
 const clearOnly = argv.includes('--clear')
+// --add badges this craft and leaves the others; --remove takes it off just this one.
+const addOnly = argv.includes('--add')
+const removeOnly = argv.includes('--remove')
 
 const CATEGORY_NAME = 'Most Popular'
 const PARTY_CRAFTS_CATEGORY = 'Crafts'
@@ -54,7 +59,7 @@ async function main() {
 
   console.log(`"${CATEGORY_NAME}" category id: ${popularCatId}`)
 
-  // Read-modify-write each party craft so only the target carries the badge.
+  // Read-modify-write each party craft whose badge needs to change.
   for await (const obj of await client.catalog.list({ types: 'ITEM' })) {
     const o = obj as any
     const cats: any[] = o.itemData?.categories ?? []
@@ -62,7 +67,11 @@ async function main() {
     if (!isCraft) continue
 
     const hasBadge = cats.some((c) => c.id === popularCatId)
-    const wantsBadge = !clearOnly && o.itemData?.name === targetName
+    const isTarget = o.itemData?.name === targetName
+    const wantsBadge = clearOnly ? false
+      : addOnly ? (isTarget || hasBadge)
+      : removeOnly ? (hasBadge && !isTarget)
+      : isTarget
     if (hasBadge === wantsBadge) continue
 
     const next = wantsBadge
@@ -83,7 +92,9 @@ async function main() {
     console.log(`${wantsBadge ? 'added badge to' : 'removed badge from'} "${o.itemData?.name}"`)
   }
 
-  if (targetName) console.log(`Done — "${targetName}" is now the Most Popular craft.`)
+  if (targetName && addOnly) console.log(`Done — "${targetName}" now has the Most Popular badge too.`)
+  else if (targetName && removeOnly) console.log(`Done — badge removed from "${targetName}".`)
+  else if (targetName) console.log(`Done — "${targetName}" is now the Most Popular craft.`)
   else console.log('Done — badge cleared from all crafts.')
 }
 
