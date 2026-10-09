@@ -43,6 +43,8 @@ Parties and kits are charged through Square's Payments API, which does accept gi
 
 ### C. Comp a seat (`/staff` → class roster → "Comp a seat")
 
+**Revised 2026-10-08 (Kaden: staff should not have to open Square):** the server makes the dashboard call itself with a saved Square sign-in (`src/lib/square-dashboard.ts`, saved by `scripts/save-square-session.ts` into the `square-session` blob store; verified working from Netlify). One form → one no-payment Square booking per seat → seat-choices record (`bookingId` = first `clsbk_`, `squareBookingIds`) → normal email. Expired sign-in → 409 `square_signed_out` → the sheet shows the Square link and records with `alreadyInSquare: true`. Partial success keeps and records only the seats Square added; nothing is ever cancelled. The daily 7 AM job checks the sign-in (keeping it in use, saving refreshed cookies) and emails the owners when it has expired. Previews simulate and never call Square. The two-step text below is the original design, kept for history.
+
 **Deviation recorded 2026-10-08:** the first draft had the staff page call Square's dashboard endpoint directly. A live probe from the studio origin fails (`Failed to fetch`): Square sends no CORS allowance, so that call works only from inside an app.squareup.com tab. The flow below keeps the outcome and routes the one Square step through Square's own screen.
 
 - Lives on the class roster (`Roster.tsx`), next to the existing actions, drop-off or not. Opens a right-side sheet (same pattern as `AddFamilySheet`).

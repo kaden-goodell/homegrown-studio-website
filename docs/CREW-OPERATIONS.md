@@ -175,13 +175,22 @@ Nothing blocks you, so the **audit log** is the check (see the end of this secti
   says how much is on it.
 - **Workshop seats can't take a gift card online.** Comp a seat instead (below).
 
-**Comp a seat** (workshops only — Square first, then record it here):
+**Comp a seat** (workshops only):
 1. Open the class roster on `/staff` → **Comp a seat**.
-2. **Step 1:** tap "Open this class in Square". In Square: **Add attendee** → pick or create
-   the person → **Add to class** → choose **Skip** at payment.
-3. **Step 2:** back here, record the same person: name, email, seats, and picks.
-4. They get the normal confirmation email and show on the roster as comped.
-- Skipping the Square step means the seat isn't really held. Always do Square first.
+2. Fill in name, email, seats, and picks → **Add comped seat**.
+3. The site adds them to the class in Square with no charge (Square shows "Not yet paid"),
+   puts them on the roster as comped, and sends the normal confirmation email.
+- **If it says Square's sign-in has expired:** tap "Open this class in Square", then
+  **Add attendee** → pick or create the person → **Add to class** → **Skip** payment. Come back
+  and tap **I added them in Square**. Then tell Kaden so he re-saves the sign-in.
+- If Square stops partway through a multi-seat comp, the sheet says how many seats it added.
+  Only those are recorded and emailed.
+
+**The site's Square sign-in** (Kaden): comps use a saved Square sign-in. Square ends it now
+and then, and the 7 AM email says so the morning it stops working. To re-save it: in Chrome,
+signed in at app.squareup.com, open DevTools → Network → reload → right-click any
+app.squareup.com request → Copy → Copy as cURL, then run
+`npx tsx scripts/save-square-session.ts`. It takes effect right away, with no deploy.
 
 **Audit log:** every staff action is recorded with who, what, and when — gift cards minted,
 seats comped, check-ins, overrides, kit actions, settings changes, sign-ins. Read it signed in

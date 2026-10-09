@@ -9,6 +9,7 @@ import { sendWorkshopConfirmation } from '@lib/workshop-confirmation'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { createLogger } from '@lib/logger'
 import { recordAudit } from '@lib/audit'
+import { addClassAttendee } from '@lib/square-dashboard'
 
 export const prerender = false
 
@@ -20,9 +21,18 @@ const reply = (status: number, body: unknown) =>
 const bad = (error: string, status = 400) => reply(status, { error })
 
 /**
- * Staff-only: record a comped (free) workshop seat. Staff add the seat itself
- * in Square's dashboard; this keeps the person and their picks on the roster
- * and sends the confirmation email.
+ * Staff-only: give someone a free workshop seat.
+ *
+ * Default: adds the seat in Square with no payment (through the saved Square
+ * sign-in, see square-dashboard.ts), records the person and their picks for
+ * the roster, and sends the usual confirmation email.
+ *
+ * `alreadyInSquare: true` is the fallback for when the Square sign-in has
+ * expired: staff added the seat in Square's own screen, and this only records
+ * it and sends the email.
+ *
+ * Never cancels anything. If Square adds some seats and then refuses one, the
+ * seats it added are kept and recorded, and the reply says how many.
  */
 export const POST: APIRoute = async ({ request }) => {
   const member = staffAuthorized(request)
@@ -53,20 +63,51 @@ export const POST: APIRoute = async ({ request }) => {
     const workshop = workshops.find((w) => w.scheduleId === scheduleId)
     if (!workshop) return bad('Class not found', 404)
 
-    const bookingId = 'comp_' + randomUUID().slice(0, 10)
+    const simulated = paymentBypassEnabled(request)
+    const alreadyInSquare = body.alreadyInSquare === true
+    let squareBookingIds: string[] = []
+    let seatsAdded = seats
+    let squareNote: string | null = null
+
+    if (!alreadyInSquare && !simulated) {
+      const customer = await providers.customer.findOrCreate({ email, givenName, familyName, ...(phone ? { phone } : {}) })
+      for (let i = 0; i < seats; i++) {
+        const r = await addClassAttendee({ scheduleId, startAt: workshop.startAt, customerId: customer.id })
+        if (r.ok) { squareBookingIds.push(r.bookingId); continue }
+        logger.error('Square refused a comped seat', { scheduleId, seat: i + 1, kind: r.kind, status: r.status, detail: r.detail })
+        if (squareBookingIds.length === 0) {
+          if (r.kind === 'signed_out') {
+            return reply(409, { code: 'square_signed_out', error: 'The site’s Square sign-in has expired, so the seat wasn’t added. Add them in Square instead, then tap “I added them in Square”.' })
+          }
+          return reply(r.kind === 'refused' ? 422 : 502, {
+            code: 'square_refused',
+            error: r.kind === 'refused'
+              ? `Square wouldn’t add the seat${/capacity|full|sold/i.test(r.detail) ? ' — the class looks full' : ''}. Nothing was added or sent.`
+              : 'Square didn’t answer, so we can’t tell whether the seat was added. Check the class in Square before trying again.',
+          })
+        }
+        squareNote = `Square added ${squareBookingIds.length} of ${seats} seats, then stopped. Only those ${squareBookingIds.length} are recorded and in the email.`
+        break
+      }
+      seatsAdded = squareBookingIds.length
+    }
+
+    const bookingId = squareBookingIds[0] ?? 'comp_' + randomUUID().slice(0, 10)
+    const picks = checked.value.filter((p) => p.seat <= seatsAdded)
     await saveSeatChoices({
       eventKind: 'workshop',
       eventId: scheduleId,
       bookingId,
       orderId: null,
       customer: { givenName, familyName, email, phone },
-      seats,
-      picks: checked.value,
+      seats: seatsAdded,
+      picks,
       at: new Date().toISOString(),
       attemptId: bookingId,
       comped: true,
       by: byOf(member),
-      ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
+      ...(squareBookingIds.length ? { squareBookingIds } : {}),
+      ...(simulated ? { simulated: true as const } : {}),
     })
 
     let emailSent = false
@@ -75,12 +116,12 @@ export const POST: APIRoute = async ({ request }) => {
         origin: new URL(request.url).origin,
         bookingId,
         workshop,
-        seats,
+        seats: seatsAdded,
         email,
         givenName,
         receiptUrl: null,
         options,
-        picks: checked.value,
+        picks,
         totalChargedCents: 0,
         comped: true,
       })
@@ -93,10 +134,14 @@ export const POST: APIRoute = async ({ request }) => {
       by: member,
       action: 'seat.comped',
       target: { kind: 'workshop', id: scheduleId, label: workshop.name },
-      details: { bookingId, seats, email, name: `${givenName} ${familyName}`, emailSent },
-      ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
+      details: {
+        bookingId, seats: seatsAdded, requested: seats, email, name: `${givenName} ${familyName}`, emailSent,
+        addedInSquare: alreadyInSquare ? 'by hand' : simulated ? 'simulated' : 'by the site',
+        ...(squareBookingIds.length ? { squareBookingIds: squareBookingIds.join(',') } : {}),
+      },
+      ...(simulated ? { simulated: true as const } : {}),
     })
-    return reply(200, { data: { bookingId, emailSent } })
+    return reply(200, { data: { bookingId, emailSent, seats: seatsAdded, ...(squareNote ? { warning: squareNote } : {}) } })
   } catch (err) {
     logger.error('Comp seat failed', { scheduleId, error: err instanceof Error ? err.message : String(err) })
     return bad('Couldn’t record that seat — please try again.', 503)

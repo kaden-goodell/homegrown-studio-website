@@ -16,11 +16,37 @@ describe('CompSeatSheet', () => {
   beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock) })
   afterEach(() => vi.unstubAllGlobals())
 
-  it('links to the class in Square with the id and day', () => {
+  it('is one step: no Square link until the site’s Square sign-in turns out expired', () => {
     render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
-    const a = screen.getByRole('link', { name: 'Open this class in Square' })
+    expect(screen.queryByRole('link', { name: 'Open this class in Square' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Add comped seat' })).toBeTruthy()
+  })
+
+  it('falls back to Square’s screen when the sign-in expired, then records with alreadyInSquare', async () => {
+    fetchMock
+      .mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ code: 'square_signed_out', error: 'The site’s Square sign-in has expired.' }) })
+      .mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { bookingId: 'comp_1', emailSent: true, seats: 1 } }) })
+    const onRecorded = vi.fn()
+    render(<CompSeatSheet event={event} options={[]} onRecorded={onRecorded} onClose={() => {}} />)
+    fill()
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    const a = await screen.findByRole('link', { name: 'Open this class in Square' })
     expect(a.getAttribute('href')).toBe('https://app.squareup.com/dashboard/appointments/calendar/classes/SCHED123?date=2026-10-20&view=week')
     expect(a.getAttribute('target')).toBe('_blank')
+    expect(onRecorded).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'I added them in Square' }))
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).alreadyInSquare).toBe(true)
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).alreadyInSquare).toBeUndefined()
+    expect(screen.getByText(/^Recorded\. They’ll get the usual confirmation email\./)).toBeTruthy()
+  })
+
+  it('shows Square’s partial-add warning on success', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: { bookingId: 'clsbk_1', emailSent: true, seats: 1, warning: 'Square added 1 of 2 seats, then stopped.' } }) })
+    render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    fill()
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    expect((await screen.findByRole('alert')).textContent).toMatch(/added 1 of 2 seats/)
   })
 
   it('shows the server error when a pick is missing', async () => {
@@ -28,7 +54,7 @@ describe('CompSeatSheet', () => {
     const onRecorded = vi.fn()
     render(<CompSeatSheet event={event} options={options} onRecorded={onRecorded} onClose={() => {}} />)
     fill()
-    fireEvent.click(screen.getByRole('button', { name: 'Record comped seat' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
     expect((await screen.findByRole('alert')).textContent).toBe('Pick a Pumpkin color for seat 1.')
     expect(onRecorded).not.toHaveBeenCalled()
   })
@@ -39,11 +65,11 @@ describe('CompSeatSheet', () => {
     render(<CompSeatSheet event={event} options={options} onRecorded={onRecorded} onClose={() => {}} />)
     fill()
     fireEvent.change(screen.getByLabelText('Seat 1 · Pumpkin color'), { target: { value: 'Orange' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Record comped seat' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
     await waitFor(() => expect(onRecorded).toHaveBeenCalled())
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
     expect(body).toMatchObject({ scheduleId: 'SCHED123', email: 'ada@x.com', seats: 1, picks: [{ seat: 1, optionId: 'color', choice: 'Orange' }] })
-    expect(screen.getByText(/Recorded\. They’ll get the usual confirmation email\./)).toBeTruthy()
+    expect(screen.getByText(/Added in Square, no charge\. They’ll get the usual confirmation email\./)).toBeTruthy()
   })
 
   it('lets the seats field be cleared and retyped, and clamps it on leaving', () => {

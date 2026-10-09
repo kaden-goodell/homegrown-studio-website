@@ -7,6 +7,31 @@ import { sendEmail } from '@lib/email'
 import { addDays } from '@lib/kit-dates'
 import { studioDate } from '@lib/studio-time'
 import { listWarnings, warningLine, WARNING_WINDOW_DAYS } from '@lib/warnings'
+import { providers } from '@config/providers'
+import { checkSession, loadSessionRecord } from '@lib/square-dashboard'
+
+/**
+ * The saved Square sign-in (comps use it). Checking it daily also keeps it in
+ * use. Returns a line for the email when it no longer works, else null.
+ */
+export async function squareSignInLine(now = new Date()): Promise<string | null> {
+  try {
+    const saved = await loadSessionRecord()
+    const fix = 'Until it’s re-saved, comped seats have to be added in Square by hand. To fix: copy a fresh app.squareup.com request as cURL and run npx tsx scripts/save-square-session.ts.'
+    if (!saved) return `The site has no Square sign-in saved. ${fix}`
+    const workshops = (await providers.workshop.listAllWorkshops?.()) ?? []
+    const scheduleId = workshops[0]?.scheduleId
+    if (!scheduleId) return null
+    const check = await checkSession(scheduleId)
+    if (check.state === 'connected') return null
+    if (check.state === 'error') return null // Square hiccup; tomorrow's check will tell
+    const lasted = saved.savedAt ? Math.floor((now.getTime() - Date.parse(saved.savedAt)) / 86_400_000) : null
+    return `The site’s Square sign-in expired${lasted !== null ? ` (saved ${saved.savedAt!.slice(0, 10)}, lasted about ${lasted} day${lasted === 1 ? '' : 's'})` : ''}. ${fix}`
+  } catch (err) {
+    logger.warn('Square sign-in check failed', { error: err instanceof Error ? err.message : String(err) })
+    return null
+  }
+}
 
 export const prerender = false
 const logger = createLogger('api:jobs:daily-warnings')
@@ -61,11 +86,12 @@ export const POST: APIRoute = async ({ request }) => {
     }).catch((mailErr) => logger.error('Daily warnings failure email not sent', { error: String(mailErr) }))
     return json({ error: 'Scan failed' }, 503)
   }
-  if (warnings.length === 0) return json({ data: { count: 0, sent: false } }, 200)
+  const signIn = await squareSignInLine()
+  if (warnings.length === 0 && !signIn) return json({ data: { count: 0, sent: false } }, 200)
 
-  const lines = warnings.map(warningLine)
-  const subject = `⚠ Studio schedule needs attention (${warnings.length})`
-  const footer = 'Nothing has been changed. Each line needs a person, in Square.'
+  const lines = [...(signIn ? [signIn] : []), ...warnings.map(warningLine)]
+  const subject = warnings.length === 0 ? '⚠ The site’s Square sign-in needs re-saving' : `⚠ Studio schedule needs attention (${lines.length})`
+  const footer = 'Nothing has been changed. Each line needs a person.'
   const text = [...lines, '', `Open the staff console: ${SITE_URL}/staff`, '', footer].join('\n')
   const html = `<div style="max-width:560px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
   <p style="margin:0 0 10px;font-size:15px;font-weight:700;color:#b91c1c;">${esc(subject)}</p>
@@ -75,5 +101,5 @@ export const POST: APIRoute = async ({ request }) => {
 </div>`
 
   const { sent } = await sendEmail({ to: siteConfig.ownerEmails.join(', '), subject, html, text })
-  return json({ data: { count: warnings.length, sent } }, 200)
+  return json({ data: { count: lines.length, sent } }, 200)
 }

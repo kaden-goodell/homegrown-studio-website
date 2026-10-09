@@ -9,7 +9,15 @@ vi.mock('@lib/warnings', () => ({
 const mockSendEmail = vi.fn()
 vi.mock('@lib/email', () => ({ sendEmail: (...a: any[]) => mockSendEmail(...a) }))
 
-import { POST, dailyWarningsJobKey } from '@pages/api/jobs/daily-warnings.json'
+const mockLoadSession = vi.fn()
+const mockCheckSession = vi.fn()
+vi.mock('@lib/square-dashboard', () => ({
+  loadSessionRecord: (...a: any[]) => mockLoadSession(...a),
+  checkSession: (...a: any[]) => mockCheckSession(...a),
+}))
+vi.mock('@config/providers', () => ({ providers: { workshop: { listAllWorkshops: async () => [{ scheduleId: 'clssch_pails' }] } } }))
+
+import { POST, dailyWarningsJobKey, squareSignInLine } from '@pages/api/jobs/daily-warnings.json'
 
 const SECRET = 'a-secret-only-the-site-holds'
 const ctx = (key: string | null) =>
@@ -23,6 +31,8 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2026-10-06T12:00:00.000Z'))
   mockListWarnings.mockResolvedValue([])
   mockSendEmail.mockResolvedValue({ sent: true })
+  mockLoadSession.mockResolvedValue({ cookie: 'x', savedAt: '2026-09-26T00:00:00.000Z' })
+  mockCheckSession.mockResolvedValue({ state: 'connected' })
 })
 afterEach(() => {
   delete process.env.LOOKUP_SIGNING_SECRET
@@ -69,5 +79,27 @@ describe('POST /api/jobs/daily-warnings.json', () => {
     mockListWarnings.mockRejectedValue(new Error('Square 500'))
     mockSendEmail.mockRejectedValue(new Error('gmail down'))
     expect((await POST(ctx(dailyWarningsJobKey(SECRET)))).status).toBe(503)
+  })
+
+  it('emails the owners when the Square sign-in has expired, even with no other warnings', async () => {
+    mockCheckSession.mockResolvedValue({ state: 'expired', status: 401 })
+    const res = await POST(ctx(dailyWarningsJobKey(SECRET)))
+    expect((await res.json()).data).toEqual({ count: 1, sent: true })
+    const mail = mockSendEmail.mock.calls[0][0]
+    expect(mail.subject).toMatch(/Square sign-in/)
+    expect(mail.text).toMatch(/expired \(saved 2026-09-26, lasted about 10 days\)/)
+    expect(mail.text).toMatch(/save-square-session/)
+  })
+})
+
+describe('squareSignInLine', () => {
+  it('is quiet when connected or when Square merely hiccups', async () => {
+    expect(await squareSignInLine()).toBeNull()
+    mockCheckSession.mockResolvedValue({ state: 'error', detail: 'timeout' })
+    expect(await squareSignInLine()).toBeNull()
+  })
+  it('says so when no sign-in is saved', async () => {
+    mockLoadSession.mockResolvedValue(null)
+    expect(await squareSignInLine()).toMatch(/no Square sign-in saved/)
   })
 })

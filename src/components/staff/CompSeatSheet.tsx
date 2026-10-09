@@ -3,9 +3,11 @@ import type { SeatOption } from '@lib/seat-options'
 import { btn, field } from '@components/staff/ui'
 
 /**
- * Roster "Comp a seat": staff add the person to the class in Square (step 1),
- * then record the same seat here (step 2) so picks, roster and the usual
- * confirmation email follow. Sheet chrome copied from AddFamilySheet.
+ * Roster "Comp a seat": one form. The site adds the seat in Square with no
+ * charge, records the picks and sends the usual confirmation email.
+ * If the site's Square sign-in has expired, the sheet falls back to adding
+ * them in Square's own screen and then recording it here.
+ * Sheet chrome copied from AddFamilySheet.
  */
 export default function CompSeatSheet({
   event,
@@ -29,12 +31,13 @@ export default function CompSeatSheet({
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState(false)
+  const [done, setDone] = useState<null | { warning: string | null; byHand: boolean }>(null)
+  const [signedOut, setSignedOut] = useState(false)
 
   const key = (seat: number, optionId: string) => `${seat}:${optionId}`
   const squareUrl = `https://app.squareup.com/dashboard/appointments/calendar/classes/${event.id}?date=${event.day}&view=week`
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent, alreadyInSquare = signedOut) {
     e.preventDefault()
     if (busy) return
     setBusy(true)
@@ -55,12 +58,16 @@ export default function CompSeatSheet({
           ...(phone.trim() ? { phone: phone.trim() } : {}),
           seats,
           picks,
+          ...(alreadyInSquare ? { alreadyInSquare: true } : {}),
         }),
       })
       const body = await res.json().catch(() => ({}))
       if (res.ok) {
-        setDone(true)
+        setDone({ warning: typeof body?.data?.warning === 'string' ? body.data.warning : null, byHand: alreadyInSquare })
         onRecorded()
+      } else if (body?.code === 'square_signed_out') {
+        setSignedOut(true)
+        setError(body.error)
       } else {
         setError(typeof body?.error === 'string' && body.error ? body.error : 'Could not record that seat.')
       }
@@ -96,20 +103,30 @@ export default function CompSeatSheet({
           <button type="button" onClick={onClose} aria-label="Close" style={{ ...btn(), padding: '0.35rem 0.6rem' }}>✕</button>
         </div>
 
-        <h4 style={{ margin: '0 0 0.4rem', color: 'var(--color-dark)' }}>1 — In Square</h4>
-        <a href={squareUrl} target="_blank" rel="noopener" style={{ ...btn(true), textDecoration: 'none', display: 'inline-block' }}>
-          Open this class in Square
-        </a>
-        <ol style={{ margin: '0.5rem 0 1.1rem', paddingLeft: '1.1rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
-          <li>Add attendee</li>
-          <li>Pick or create the person</li>
-          <li>Add to class, then Skip payment</li>
-        </ol>
-
-        <h4 style={{ margin: '0 0 0.5rem', color: 'var(--color-dark)' }}>2 — Record it here</h4>
+        <p style={{ margin: '0 0 1rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
+          A free seat in <strong>{event.title}</strong>. We add them in Square with no charge and send the usual confirmation email.
+        </p>
+        {signedOut && !done && (
+          <div style={{ margin: '0 0 1.1rem', padding: '0.75rem', borderRadius: '0.6rem', background: 'rgba(245, 158, 11, 0.12)' }}>
+            <p style={{ margin: '0 0 0.5rem', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+              Add them in Square first, then tap “I added them in Square”.
+            </p>
+            <a href={squareUrl} target="_blank" rel="noopener" style={{ ...btn(true), textDecoration: 'none', display: 'inline-block' }}>
+              Open this class in Square
+            </a>
+            <ol style={{ margin: '0.5rem 0 0', paddingLeft: '1.1rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+              <li>Add attendee</li>
+              <li>Pick or create the person</li>
+              <li>Add to class, then Skip payment</li>
+            </ol>
+          </div>
+        )}
         {done ? (
           <div style={{ textAlign: 'center', padding: '1rem 0' }}>
-            <p role="status" style={{ margin: 0, fontWeight: 700, color: 'rgb(21,128,61)' }}>Recorded. They’ll get the usual confirmation email.</p>
+            <p role="status" style={{ margin: 0, fontWeight: 700, color: 'rgb(21,128,61)' }}>
+              {done.byHand ? 'Recorded.' : 'Added in Square, no charge.'} They’ll get the usual confirmation email.
+            </p>
+            {done.warning && <p role="alert" style={{ margin: '0.6rem 0 0', color: '#b45309', fontSize: '0.875rem', fontWeight: 600 }}>{done.warning}</p>}
             <button type="button" onClick={onClose} style={{ ...btn(true), marginTop: '1.2rem', padding: '0.7rem 2rem', minHeight: '2.75rem' }}>Done</button>
           </div>
         ) : (
@@ -163,7 +180,7 @@ export default function CompSeatSheet({
 
             {error && <p role="alert" style={{ margin: '0 0 0.6rem', color: '#b91c1c', fontSize: '0.875rem', fontWeight: 600 }}>{error}</p>}
             <button type="submit" disabled={busy} style={{ ...btn(true), padding: '0.7rem 1.4rem', minHeight: '2.75rem', opacity: busy ? 0.6 : 1 }}>
-              {busy ? 'Recording…' : 'Record comped seat'}
+              {busy ? (signedOut ? 'Recording…' : 'Adding…') : signedOut ? 'I added them in Square' : 'Add comped seat'}
             </button>
           </form>
         )}

@@ -50,3 +50,18 @@ describe('checkSession', () => {
     expect(await checkSession('clssch_a', COOKIE)).toEqual({ state: 'error', detail: 'offline' })
   })
 })
+
+import { mergeSetCookies } from '@lib/square-dashboard'
+describe('mergeSetCookies', () => {
+  it('replaces refreshed values and keeps the rest', () => {
+    expect(mergeSetCookies('a=1; _js_csrf=t; s=old', ['s=new; Path=/; HttpOnly'])).toBe('a=1; _js_csrf=t; s=new')
+  })
+  it('null when nothing changed or nothing was sent', () => {
+    expect(mergeSetCookies('a=1', [])).toBeNull()
+    expect(mergeSetCookies('a=1', ['a=1; Path=/'])).toBeNull()
+  })
+  it('drops cookies Square deletes', () => {
+    expect(mergeSetCookies('a=1; b=2', ['b=; Max-Age=0'])).toBe('a=1')
+    expect(mergeSetCookies('a=1; b=2', ['b=x; Expires=Thu, 01 Jan 1970 00:00:00 GMT'])).toBe('a=1')
+  })
+})

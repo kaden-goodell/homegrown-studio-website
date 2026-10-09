@@ -34,6 +34,8 @@ export interface SeatChoiceRecord {
   comped?: true
   /** The staff member who recorded a comped seat. */
   by?: By
+  /** Square class-booking ids for a comped seat added from /staff (one per seat). */
+  squareBookingIds?: string[]
 }
 
 const prefix = (eventId: string) => `seat-choices-workshop:${eventId}-`
