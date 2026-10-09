@@ -12,6 +12,15 @@ import {
 } from './calendar-view-model'
 import type { CalendarEvent, CalendarFilter } from './calendar-view-model'
 import { OPENING_DATE } from '@config/opening'
+import {
+  trackCalendarFilter,
+  trackCalendarView,
+  trackCalendarMonthNav,
+  trackCalendarDaySelect,
+  trackCalendarShowMore,
+  trackCalendarEventClick,
+  trackCalendarLoadFailed,
+} from '@lib/analytics'
 import { OPEN_WEEKDAYS, closureOn, studioOpenOn, type Holiday } from '@config/closures'
 
 /** Months the flat list view loads at once; "Show more" adds one at a time. */
@@ -424,6 +433,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
   }, [])
 
   function chooseFilter(next: CalendarFilter) {
+    if (next !== filter) trackCalendarFilter(next)
     setFilter(next)
     setSelectedDay(null)
     rememberFilter(next)
@@ -459,8 +469,9 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
       () => {
         if (!cancelled) show(false)
       },
-      () => {
+      (err) => {
         // Keep showing whatever we have, and say the rest didn't load.
+        trackCalendarLoadFailed(`list: ${err instanceof Error ? err.message : 'error'}`)
         if (!cancelled) show(true)
       },
     )
@@ -502,8 +513,9 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
       (evs) => {
         if (!cancelled) show(evs, false)
       },
-      () => {
+      (err) => {
         // Keep showing whatever we have for this month, and say it didn't load.
+        trackCalendarLoadFailed(`month ${key}: ${err instanceof Error ? err.message : 'error'}`)
         if (!cancelled) show(arrived(key), true)
       },
     )
@@ -550,6 +562,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
 
   function prevMonth() {
     if (atFirstMonth) return
+    trackCalendarMonthNav('prev')
     setSelectedDay(null)
     if (month === 0) {
       setMonth(11)
@@ -560,6 +573,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
   }
 
   function nextMonth() {
+    trackCalendarMonthNav('next')
     setSelectedDay(null)
     if (month === 11) {
       setMonth(0)
@@ -571,8 +585,17 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
 
   function handleDayClick(day: number) {
     if (eventsByDay.has(day)) {
+      if (selectedDay !== day) {
+        const m = String(month + 1).padStart(2, '0')
+        trackCalendarDaySelect(`${year}-${m}-${String(day).padStart(2, '0')}`, eventsByDay.get(day)!.length)
+      }
       setSelectedDay(selectedDay === day ? null : day)
     }
+  }
+
+  /** An event opened from the calendar (its link leads to booking or details). */
+  function eventClicked(e: CalendarEvent) {
+    trackCalendarEventClick({ eventKind: e.kind, itemId: e.id, date: e.date, bookable: !!e.href })
   }
 
   const cells: (number | null)[] = []
@@ -623,7 +646,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
         <div role="group" aria-label="View" style={viewSwitchStyle}>
           <button
             type="button"
-            onClick={() => { setView('list'); setSelectedDay(null) }}
+            onClick={() => { if (view !== 'list') trackCalendarView('list'); setView('list'); setSelectedDay(null) }}
             style={viewButtonStyle(view === 'list')}
             aria-pressed={view === 'list'}
           >
@@ -631,7 +654,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
           </button>
           <button
             type="button"
-            onClick={() => { setView('month'); setSelectedDay(null) }}
+            onClick={() => { if (view !== 'month') trackCalendarView('month'); setView('month'); setSelectedDay(null) }}
             style={viewButtonStyle(view === 'month')}
             aria-pressed={view === 'month'}
           >
@@ -847,7 +870,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                         key={e.id}
                         href={e.href}
                         title={e.title}
-                        onClick={(ev) => ev.stopPropagation()}
+                        onClick={(ev) => { ev.stopPropagation(); eventClicked(e) }}
                         style={chipStyle}
                         onMouseEnter={(ev) => (ev.currentTarget.style.filter = 'brightness(0.95)')}
                         onMouseLeave={(ev) => (ev.currentTarget.style.filter = 'none')}
@@ -998,6 +1021,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
                     <a
                       key={e.id}
                       href={href}
+                      onClick={() => eventClicked(e)}
                       style={rowStyle}
                       onMouseEnter={(ev) => (ev.currentTarget.style.background = 'rgba(var(--color-primary-rgb),0.06)')}
                       onMouseLeave={(ev) => (ev.currentTarget.style.background = 'transparent')}
@@ -1028,7 +1052,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
           {!listFailed && !nothingFurther && (
             <div style={{ textAlign: 'center', marginTop: '0.5rem' }}>
               <button
-                onClick={() => setListMonths((n) => n + 1)}
+                onClick={() => { trackCalendarShowMore(listMonths + 1); setListMonths((n) => n + 1) }}
                 disabled={listLoading || listMonthsShown !== listMonths}
                 style={{ color: 'var(--color-primary)', fontWeight: 600, fontSize: '0.9375rem', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit', opacity: listLoading ? 0.6 : 1 }}
               >
@@ -1114,7 +1138,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
               )
 
               return clickable ? (
-                <a key={e.id} href={e.href} style={rowStyle}>
+                <a key={e.id} href={e.href} onClick={() => eventClicked(e)} style={rowStyle}>
                   {inner}
                 </a>
               ) : (

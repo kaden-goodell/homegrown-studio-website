@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { trackShare } from '@lib/analytics'
 
 /**
  * A link to pass on: opens the phone's share sheet where there is one, and
@@ -11,9 +12,12 @@ interface ShareLinkProps {
   /** What the share sheet shows above the link. */
   shareTitle: string
   shareText?: string
+  /** What is being passed on, for analytics: "party_invite", "workshop_waiver"… */
+  contentType?: string
+  itemId?: string
 }
 
-export default function ShareLink({ url, label, shareTitle, shareText }: ShareLinkProps) {
+export default function ShareLink({ url, label, shareTitle, shareText, contentType = 'link', itemId }: ShareLinkProps) {
   const [done, setDone] = useState<'' | 'copied' | 'failed'>('')
 
   async function handle() {
@@ -22,6 +26,7 @@ export default function ShareLink({ url, label, shareTitle, shareText }: ShareLi
     if (nav?.share) {
       try {
         await nav.share({ title: shareTitle, text: shareText, url })
+        trackShare(contentType, 'share_sheet', itemId)
         return
       } catch (err) {
         // Closing the share sheet is not a failure, and needs no message.
@@ -31,6 +36,7 @@ export default function ShareLink({ url, label, shareTitle, shareText }: ShareLi
     try {
       await nav!.clipboard.writeText(url)
       setDone('copied')
+      trackShare(contentType, 'copy_link', itemId)
     } catch {
       setDone('failed')
     }

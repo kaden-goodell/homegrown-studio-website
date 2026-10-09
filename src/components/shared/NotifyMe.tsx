@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from 'react'
 import { partyContent } from '@config/party-content'
-import { trackNotifyMe } from '@lib/analytics'
+import { trackNotifyMe, trackNotifyMeFailed } from '@lib/analytics'
+import { whereOf } from '@lib/analytics-where'
 
 /**
  * One email field and a button: "tell me when…". Used wherever the site has
@@ -32,12 +33,19 @@ export default function NotifyMe({
 }: NotifyMeProps) {
   const id = useId()
   const inputRef = useRef<HTMLInputElement>(null)
+  const formRef = useRef<HTMLFormElement>(null)
   const [email, setEmail] = useState('')
   const [status, setStatus] = useState<Status>('idle')
   const [error, setError] = useState('')
   const [emailSent, setEmailSent] = useState(false)
 
-  function fail(message: string) {
+  /** Which page and part of it this form sits in ("book/closed", "workshops/dialog"…). */
+  function where(): string | undefined {
+    try { return formRef.current ? whereOf(formRef.current, window.location.pathname) : undefined } catch { return undefined }
+  }
+
+  function fail(message: string, reason: 'invalid' | 'rate_limited' | 'server' | 'network') {
+    trackNotifyMeFailed(interest, reason, where())
     setError(message)
     setStatus('idle')
     inputRef.current?.focus()
@@ -48,8 +56,8 @@ export default function NotifyMe({
     if (status === 'sending') return
 
     const value = email.trim()
-    if (!value) return fail('Add your email so we can reach you.')
-    if (!EMAIL_RE.test(value)) return fail('That email doesn’t look right. Check for typos.')
+    if (!value) return fail('Add your email so we can reach you.', 'invalid')
+    if (!EMAIL_RE.test(value)) return fail('That email doesn’t look right. Check for typos.', 'invalid')
 
     setError('')
     setStatus('sending')
@@ -62,14 +70,14 @@ export default function NotifyMe({
       if (res.ok) {
         const data = await res.json().catch(() => null)
         setEmailSent(data?.data?.emailSent === true)
-        trackNotifyMe(interest)
+        trackNotifyMe(interest, where())
         setStatus('done')
         return
       }
-      if (res.status === 429) return fail('That’s a lot of sign-ups from one place. Please try again in a few minutes.')
-      fail(`We couldn’t save that. Please try again, or text us at ${partyContent.textNumber}.`)
+      if (res.status === 429) return fail('That’s a lot of sign-ups from one place. Please try again in a few minutes.', 'rate_limited')
+      fail(`We couldn’t save that. Please try again, or text us at ${partyContent.textNumber}.`, 'server')
     } catch {
-      fail(`We couldn’t save that. Please try again, or text us at ${partyContent.textNumber}.`)
+      fail(`We couldn’t save that. Please try again, or text us at ${partyContent.textNumber}.`, 'network')
     }
   }
 
@@ -89,7 +97,7 @@ export default function NotifyMe({
   const errorId = `${id}-error`
 
   return (
-    <form onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%', maxWidth: '26rem', margin: '0 auto', textAlign: 'left' }}>
+    <form ref={formRef} onSubmit={handleSubmit} noValidate style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', width: '100%', maxWidth: '26rem', margin: '0 auto', textAlign: 'left' }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '0.375rem' }}>
         <label htmlFor={id} style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>
           Email address

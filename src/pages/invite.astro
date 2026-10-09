@@ -139,6 +139,7 @@ if (start && !isPast) {
             </p>
             <a
               href="/book"
+              data-track-where="invite"
               style="
                 display: inline-block;
                 font-size: 0.9375rem;
@@ -164,6 +165,8 @@ if (start && !isPast) {
             )}
             <a
               href={waiverHref}
+              data-track-event="waiver_link_click"
+              data-track-props={JSON.stringify({ source: 'invite' })}
               class="inline-block mt-5"
               style="
                 padding: 0.9rem 1.75rem;
@@ -192,6 +195,8 @@ if (start && !isPast) {
                 <div class="flex flex-wrap gap-2 justify-center">
                   <a
                     href={calendar.google}
+                    data-track-event="add_to_calendar"
+                    data-track-props={JSON.stringify({ source: 'invite', type: 'google', booking_kind: 'party' })}
                     target="_blank"
                     rel="noopener noreferrer"
                     style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(var(--color-primary-rgb),0.08); border: 1px solid rgba(var(--color-primary-rgb),0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
@@ -200,6 +205,8 @@ if (start && !isPast) {
                   </a>
                   <a
                     href={calendar.ics}
+                    data-track-event="add_to_calendar"
+                    data-track-props={JSON.stringify({ source: 'invite', type: 'ics', booking_kind: 'party' })}
                     download="hometown-party.ics"
                     style="padding: 0.5rem 0.9rem; border-radius: 999px; background: rgba(var(--color-primary-rgb),0.08); border: 1px solid rgba(var(--color-primary-rgb),0.16); color: var(--color-dark); font-size: 0.8125rem; font-weight: 600; text-decoration: none;"
                   >

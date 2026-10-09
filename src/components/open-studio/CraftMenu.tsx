@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { trackViewItemList } from '@lib/analytics'
+import { trackCraftMenu, trackViewItemList } from '@lib/analytics'
 
 interface Craft {
   id: string
@@ -37,6 +37,7 @@ export default function CraftMenu() {
         // as "we have no menu".
         console.error('service-info fetch failed:', err)
         if (!cancelled) {
+          trackCraftMenu('load_failed')
           setError(true)
           setCrafts([])
         }
@@ -61,7 +62,7 @@ export default function CraftMenu() {
       <p style={{ textAlign: 'center', color: 'var(--color-muted)' }}>
         The menu is being slow to load —{' '}
         <button
-          onClick={() => window.location.reload()}
+          onClick={() => { trackCraftMenu('retry'); window.location.reload() }}
           style={{ color: 'var(--color-primary)', textDecoration: 'underline', background: 'none', border: 'none', cursor: 'pointer', font: 'inherit' }}
         >
           give it another try

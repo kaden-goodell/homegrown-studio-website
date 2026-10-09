@@ -46,6 +46,9 @@ import {
   type AnalyticsItem,
   posthogId,
   identifyBooker,
+  trackViewItem,
+  trackShare,
+  trackAddToCalendar,
 } from '@lib/analytics'
 import { readAttribution } from '@lib/attribution'
 
@@ -751,10 +754,10 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               Arrive up to {partyConfig.hostArrivalMinutesEarly} minutes early to set up.
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 1rem', marginTop: '0.25rem' }}>
-              <a href={googleCalendarUrl(calendarEvent)} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }}>
+              <a href={googleCalendarUrl(calendarEvent)} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => trackAddToCalendar('confirmation', 'google', 'party')}>
                 Add to Google Calendar
               </a>
-              <a href={icsDataUrl(buildIcs(calendarEvent))} download="hometown-party.ics" className="btn btn-quiet" style={{ width: 'auto' }}>
+              <a href={icsDataUrl(buildIcs(calendarEvent))} download="hometown-party.ics" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => trackAddToCalendar('confirmation', 'ics', 'party')}>
                 Apple or Outlook
               </a>
             </div>
@@ -803,6 +806,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 url={inviteUrl}
                 label="Share the invitation"
                 shareTitle={partyTitle.trim() || 'You’re invited'}
+                contentType="party_invite"
               />
               <a
                 href={partyInviteMailto({
@@ -814,6 +818,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 })}
                 className="btn btn-quiet"
                 style={{ width: 'auto' }}
+                // The host writing to their own guests — a share, not a lead.
+                data-track-ignore
+                onClick={() => trackShare('party_invite', 'email')}
               >
                 Or email it to your guests
               </a>
@@ -947,7 +954,10 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                       </p>
                       <button
                         type="button"
-                        onClick={() => setExpandedCraft(expanded ? null : craft.id)}
+                        onClick={() => {
+                          if (!expanded) trackViewItem(craftItem(craft))
+                          setExpandedCraft(expanded ? null : craft.id)
+                        }}
                         aria-expanded={expanded}
                         className="btn btn-quiet"
                         style={{ width: 'auto', minHeight: '2.75rem', fontSize: '0.875rem' }}
@@ -1303,6 +1313,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             needs: its domain registration belongs to our app. The
             CLASS_BOOKING_APP_ID override is only for workshops. */}
         <PaymentForm
+          bookingKind="party"
           ref={paymentFormRef}
           environmentOverride="production"
           wallet={{ amount: (deposit / 100).toFixed(2), label: 'Hometown Studio party, studio fee', bnpl: true }}

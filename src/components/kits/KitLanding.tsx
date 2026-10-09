@@ -1,5 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import KitModal from './KitModal'
+import {
+  trackViewItemList,
+  trackSelectItem,
+  trackNotifyMe,
+  trackNotifyMeFailed,
+  trackBookingProblem,
+  type AnalyticsItem,
+} from '@lib/analytics'
 
 interface Craft {
   id: string
@@ -82,17 +90,26 @@ function WaitlistCard({ theme }: { theme: Theme }) {
   async function join() {
     if (!isValidEmail(email.trim()) || state === 'sending') return
     setState('sending')
+    const interest = `kit-theme:${theme.id}`
+    let res: Response
     try {
-      const res = await fetch('/api/party/notify-me.json', {
+      res = await fetch('/api/party/notify-me.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: email.trim(), interest: `kit-theme:${theme.id}` }),
+        body: JSON.stringify({ email: email.trim(), interest }),
       })
-      if (!res.ok) throw new Error()
-      setState('done')
     } catch {
+      trackNotifyMeFailed(interest, 'network', 'kits/theme_waitlist')
       setState('error')
+      return
     }
+    if (!res.ok) {
+      trackNotifyMeFailed(interest, res.status === 429 ? 'rate_limited' : 'server', 'kits/theme_waitlist')
+      setState('error')
+      return
+    }
+    trackNotifyMe(interest, 'kits/theme_waitlist')
+    setState('done')
   }
 
   return (
@@ -187,6 +204,7 @@ export default function KitLanding() {
       setInfo((json.data ?? json) as KitServiceInfo)
       setStatus('ready')
     } catch {
+      trackBookingProblem('kit', 'info_unavailable', 'landing')
       setStatus('error')
     }
   }
@@ -207,7 +225,25 @@ export default function KitLanding() {
     if (craft || theme) setModalOpen(true)
   }, [])
 
+  // The craft gallery as a list: which crafts people see, then which they tap.
+  const craftItem = (c: Craft, i?: number): AnalyticsItem => ({
+    item_id: c.id, item_name: c.name, item_category: 'kit', price: c.perHeadCents / 100, ...(i !== undefined ? { index: i } : {}),
+  })
+  const listSent = useRef(false)
+  useEffect(() => {
+    if (listSent.current || !info?.crafts.length) return
+    listSent.current = true
+    trackViewItemList('kit_crafts', info.crafts.map((c, i) => craftItem(c, i)))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [info])
+
+  // Plain "Build your kit" buttons carry data-track-cta (counted page-wide by
+  // analytics-auto); a craft or table card is a pick from a list.
   function openModal(opts?: { craftId?: string; themeId?: string }) {
+    const i = opts?.craftId && info ? info.crafts.findIndex((c) => c.id === opts.craftId) : -1
+    if (i >= 0 && info) trackSelectItem('kit_crafts', craftItem(info.crafts[i], i))
+    const theme = opts?.themeId ? info?.themes.find((t) => t.id === opts.themeId) : undefined
+    if (theme) trackSelectItem('kit_themes', { item_id: theme.id, item_name: theme.displayName, item_category: 'kit_theme' })
     setInitialCraftId(opts?.craftId)
     setInitialThemeId(opts?.themeId)
     setModalOpen(true)
@@ -261,8 +297,9 @@ export default function KitLanding() {
   return (
     <div>
       {/* Above-the-fold CTA — don't make the ready-to-buy scroll to the bottom. */}
-      <div style={{ textAlign: 'center', marginBottom: '3rem' }}>
+      <div data-track-where="top_cta" style={{ textAlign: 'center', marginBottom: '3rem' }}>
         <button
+          data-track-cta="kit_build_button"
           onClick={() => openModal()}
           style={{
             padding: '0.9rem 2.25rem',
@@ -346,6 +383,7 @@ export default function KitLanding() {
             <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
               <button
                 type="button"
+                data-track-cta="kit_show_all_crafts"
                 onClick={() => setShowAllCrafts(true)}
                 style={{ padding: '0.65rem 1.5rem', borderRadius: '999px', border: '1px solid rgba(var(--color-primary-rgb), 0.3)', background: 'rgba(255, 255, 255, 0.9)', color: 'var(--color-dark)', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}
               >
@@ -419,8 +457,9 @@ export default function KitLanding() {
       )}
 
       {/* Primary CTA */}
-      <div style={{ textAlign: 'center', marginBottom: '2rem' }}>
+      <div data-track-where="bottom_cta" style={{ textAlign: 'center', marginBottom: '2rem' }}>
         <button
+          data-track-cta="kit_build_button"
           onClick={() => openModal()}
           style={{
             padding: '0.9rem 2.25rem',

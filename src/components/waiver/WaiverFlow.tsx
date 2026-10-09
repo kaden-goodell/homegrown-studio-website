@@ -3,6 +3,7 @@ import { waiverContent } from '@config/waiver-content'
 import { lateFeeLine } from '@config/dropoff.config'
 import { formatCalendarDate } from '@lib/studio-time'
 import PickupFields, { type PickupRow } from '@components/waiver/PickupFields'
+import { trackWaiverSigned, trackWaiverStarted, trackWaiverStep } from '@lib/analytics'
 import { inputStyle, labelStyle, sectionHeadingStyle, sectionNoteStyle, scrollBoxStyle, cardStyle } from '@components/waiver/waiver-ui'
 
 interface Props {
@@ -91,6 +92,13 @@ function PartyLabelChip({ label }: { label: string }) {
 
 export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle, dropOff, booking, kiosk = false, returnTo = '/staff' }: Props) {
   const { form, confirmation, legalSections } = waiverContent
+
+  // Analytics: which agreement this is — counts only, never names.
+  const waiverKind = partyId ? 'party' : workshopId ? 'workshop' : 'open_studio'
+  useEffect(() => {
+    trackWaiverStarted(waiverKind, kiosk)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const [firstName, setFirstName] = useState('')
   const [lastName, setLastName] = useState('')
@@ -371,7 +379,11 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         }),
       })
       const json = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(json?.error ?? 'Something went wrong — please try again.')
+      if (!res.ok) {
+        trackWaiverStep('sign_failed', waiverKind, kiosk, { status: res.status })
+        throw new Error(json?.error ?? 'Something went wrong — please try again.')
+      }
+      trackWaiverSigned({ kind: waiverKind, kids: minors.filter((_, i) => formComing(`child:${i}`)).length, dropOff: !!dropOff, kiosk, returning: false })
       // Fresh signature — we always email a copy (HOM-216).
       setDone({
         covered: json.data.covered,
@@ -400,6 +412,9 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         body: JSON.stringify({ contact: c, partyId: partyId ?? null, workshopId: workshopId ?? null }),
       })
       const json = await res.json().catch(() => null)
+      trackWaiverStep('lookup', waiverKind, kiosk, {
+        result: !res.ok ? 'error' : json?.data?.mustResign ? 'must_resign' : json?.data?.found && json.data.recordId ? 'found' : json?.data?.expired ? 'expired' : 'new',
+      })
       if (!res.ok) {
         setError(json?.error ?? 'Something went wrong — please try again.')
       } else if (json?.data?.mustResign) {
@@ -433,6 +448,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         setMode('form')
       }
     } catch {
+      trackWaiverStep('lookup', waiverKind, kiosk, { result: 'unreachable' })
       // Graceful degradation: the lookup service hiccuped, but the full form
       // still works — tell them why they landed here instead of failing silently.
       if (c.includes('@')) setEmail(c)
@@ -474,6 +490,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       })
       const json = await res.json().catch(() => null)
       if (res.status === 401) {
+        trackWaiverStep('returning_expired', waiverKind, kiosk)
         // Session token expired — send back to lookup with a clear message.
         setReturning(null)
         setMode('lookup')
@@ -484,13 +501,24 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         // The agreement changed since this household last signed — open the
         // full form prefilled with what we have (defense in depth: the
         // lookup step should already have routed them here directly).
+        trackWaiverStep('returning_must_resign', waiverKind, kiosk)
         setFirstName(returning.firstName)
         setReturning(null)
         setFormNotice(json?.error ?? waiverContent.mustResignNotice)
         setMode('form')
         return
       }
-      if (!res.ok) throw new Error(json?.error ?? 'Something went wrong — please try again.')
+      if (!res.ok) {
+        trackWaiverStep('sign_failed', waiverKind, kiosk, { status: res.status, returning: true })
+        throw new Error(json?.error ?? 'Something went wrong — please try again.')
+      }
+      trackWaiverSigned({
+        kind: waiverKind,
+        kids: (returning?.kids ?? []).filter((_, i) => !!attending[`child:${i}`]).length,
+        dropOff: !!dropOff,
+        kiosk,
+        returning: true,
+      })
       setDone({
         covered: json.data.covered,
         validUntil: json.data.validUntil,
@@ -721,7 +749,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         </button>
         <button
           type="button"
-          onClick={() => setMode('form')}
+          onClick={() => { trackWaiverStep('lookup', waiverKind, kiosk, { result: 'skipped' }); setMode('form') }}
           style={{ display: 'block', margin: '0.9rem auto 0', background: 'none', border: 'none', color: 'var(--color-primary)', fontSize: '0.8125rem', fontWeight: 600, cursor: 'pointer' }}
         >
           First time here? Fill out the form →

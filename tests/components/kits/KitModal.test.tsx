@@ -80,3 +80,60 @@ describe('KitModal short gift card', () => {
     vi.unstubAllGlobals()
   })
 })
+
+describe('KitModal analytics', () => {
+  it('reports the funnel, and sends the visit with the order', async () => {
+    const capture = vi.fn()
+    const identify = vi.fn()
+    ;(window as any).posthog = { capture, identify, get_distinct_id: () => 'ph-1' }
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      const u = String(url)
+      const data = u.includes('service-info') ? info : u.includes('weeks') ? weeks : { reference: 'K-1', summary: { pickupDate: '2026-11-05', returnBy: '2026-11-09', returnWindow: 'by noon', totalChargedCents: 5000 } }
+      return { ok: true, status: 200, json: async () => ({ data }) }
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    render(<KitModal onClose={vi.fn()} initialCraftId="c1" />)
+    fireEvent.click(await screen.findByText('No themed table — just crafts'))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    fireEvent.click(await screen.findByRole('button', { name: /^7 / }))
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    await screen.findByTestId('payment-form')
+    for (const [label, value] of [['First Name *', 'Ada'], ['Last Name *', 'Lovelace'], ['Email *', 'ada@example.com'], ['Phone *', '(256) 555-0123']] as const) {
+      fireEvent.change(screen.getByText(label).parentElement!.querySelector('input')!, { target: { value } })
+    }
+    fireEvent.change(screen.getByPlaceholderText(/Where the party/), { target: { value: '12 Main Street, Madison' } })
+    fireEvent.click(screen.getByRole('button', { name: /Pay \$50\.00 deposit/ }))
+    await waitFor(() => expect(capture).toHaveBeenCalledWith('booking_completed', { event_type: 'kit' }))
+
+    const call = fetchMock.mock.calls.find(([u]) => String(u).includes('/api/kits/order.json'))!
+    const body = JSON.parse((call[1] as RequestInit).body as string)
+    expect(body.posthogId).toBe('ph-1')
+    expect(body).toHaveProperty('attribution')
+
+    const names = capture.mock.calls.map(([e]) => e)
+    expect(names).toEqual(expect.arrayContaining(['wizard_started', 'booking_choice', 'begin_checkout', 'add_payment_info', 'payment_completed']))
+    expect(capture).toHaveBeenCalledWith('begin_checkout', expect.objectContaining({ booking_kind: 'kit', value: 50, theme: 'none' }))
+    expect(capture).toHaveBeenCalledWith('payment_completed', expect.objectContaining({ amount: 50, kind: 'kit' }))
+    expect(identify).toHaveBeenCalledWith('ada@example.com', expect.anything())
+    // Names and emails never ride on events.
+    expect(JSON.stringify(capture.mock.calls)).not.toMatch(/Ada|Lovelace|ada@example/)
+    delete (window as any).posthog
+    vi.unstubAllGlobals()
+  })
+
+  it('records where someone stopped when they close it', async () => {
+    const capture = vi.fn()
+    ;(window as any).posthog = { capture }
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => ({ ok: true, status: 200, json: async () => ({ data: String(url).includes('weeks') ? weeks : info }) })))
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: false, media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() }))
+    const onClose = vi.fn()
+    render(<KitModal onClose={onClose} />)
+    await screen.findByText('Keychains')
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    expect(onClose).toHaveBeenCalled()
+    expect(capture).toHaveBeenCalledWith('booking_abandoned', expect.objectContaining({ booking_kind: 'kit', last_step: 'craft' }))
+    delete (window as any).posthog
+    vi.unstubAllGlobals()
+  })
+})

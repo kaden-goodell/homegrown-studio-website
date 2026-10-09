@@ -1,4 +1,5 @@
 import { PAYMENT_FORM_UNAVAILABLE, TEXT_US } from '@lib/checkout-messages'
+import { trackBookingProblem, trackGiftCardToggle, type BookingKindForAnalytics } from '@lib/analytics'
 import {
   createElement,
   forwardRef,
@@ -53,6 +54,8 @@ interface PaymentFormProps {
   /** 'allowed' (default) offers a "pay with a gift card instead" toggle;
    *  'cards-only' shows a line saying gift cards can't be used here. */
   giftCards?: 'allowed' | 'cards-only'
+  /** Which booking flow this form is in, so its problems are counted against it. */
+  bookingKind?: BookingKindForAnalytics
 }
 
 interface ClientConfig {
@@ -120,7 +123,7 @@ type WalletInstance = {
 }
 
 const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
-  function PaymentForm({ applicationIdOverride, environmentOverride, wallet, onWalletToken, canPayWithWallet, onReadyChange, giftCards = 'allowed' }: PaymentFormProps, ref) {
+  function PaymentForm({ applicationIdOverride, environmentOverride, wallet, onWalletToken, canPayWithWallet, onReadyChange, giftCards = 'allowed', bookingKind = 'other' }: PaymentFormProps, ref) {
     const [config, setConfig] = useState<ClientConfig | null>(null)
     const [loading, setLoading] = useState(true)
     const [error, setError] = useState<string | null>(null)
@@ -169,6 +172,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           }
         } catch (err) {
           if (!cancelled) {
+            trackBookingProblem(bookingKind, 'payment_form_failed', err instanceof Error ? err.message : 'config')
             setError(err instanceof Error ? err.message : 'Failed to load payment config')
           }
         } finally {
@@ -282,6 +286,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           }
         } catch (err) {
           if (!cancelled) {
+            trackBookingProblem(bookingKind, 'payment_form_failed', err instanceof Error ? err.message : 'sdk')
             setError(err instanceof Error ? err.message : 'Failed to initialize payment SDK')
           }
         }
@@ -328,6 +333,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           setGiftError(null)
         } catch {
           if (!cancelled) {
+            trackBookingProblem(bookingKind, 'gift_card_field_failed')
             setGiftError('We couldn’t load the gift card field. Please use a card instead.')
             setUseGift(false)
           }
@@ -364,9 +370,12 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
         }
         // "Cancel" means the user closed the wallet sheet — not an error worth showing.
         if (result.status !== 'CANCEL') {
-          setWalletError(result.errors?.map((e) => e.message).join(', ') ?? `${name} payment failed.`)
+          const message = result.errors?.map((e) => e.message).join(', ') ?? `${name} payment failed.`
+          trackBookingProblem(bookingKind, 'wallet_failed', `${name}: ${message}`)
+          setWalletError(message)
         }
       } catch (err) {
+        trackBookingProblem(bookingKind, 'wallet_failed', `${name}: ${err instanceof Error ? err.message : 'error'}`)
         setWalletError(err instanceof Error ? err.message : `${name} payment failed.`)
       }
     }
@@ -491,7 +500,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
                 type="button"
                 className="mt-2 text-sm underline"
                 style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit' }}
-                onClick={() => setUseGift((v) => !v)}
+                onClick={() => { trackGiftCardToggle(!useGift, bookingKind); setUseGift((v) => !v) }}
               >
                 {useGift ? 'Pay with a card instead' : 'Pay with a gift card instead'}
               </button>
@@ -578,7 +587,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
               type="button"
               className="mt-2 text-sm underline"
               style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'inherit' }}
-              onClick={() => { setGiftError(null); setUseGift((v) => !v) }}
+              onClick={() => { trackGiftCardToggle(!useGift, bookingKind); setGiftError(null); setUseGift((v) => !v) }}
             >
               {useGift ? 'Pay with a card instead' : 'Pay with a gift card instead'}
             </button>

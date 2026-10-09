@@ -6,6 +6,7 @@ import { formatMoney } from '@lib/money'
 import { canBeBooked, isSoldOut, seatsLeftLabel } from '@lib/workshop-rules'
 import { firstParagraph, notifyInterest, takeHomeLine } from '@lib/workshop-copy'
 import { whenLabel } from './workshop-view-model'
+import { trackWaitlistOpened } from '@lib/analytics'
 
 export interface WorkshopCardProps {
   workshop: WorkshopData
@@ -140,7 +141,7 @@ export default function WorkshopCard({ workshop, onBook, href }: WorkshopCardPro
           </div>
 
           {comingSoon && !asking && (
-            <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setAsking(true)}>
+            <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => { trackWaitlistOpened(workshop.id, workshop.name, 'coming_soon'); setAsking(true) }}>
               Tell me when booking opens
             </button>
           )}
@@ -154,7 +155,7 @@ export default function WorkshopCard({ workshop, onBook, href }: WorkshopCardPro
           )}
 
           {soldOut && !closed && !asking && (
-            <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => setAsking(true)}>
+            <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => { trackWaitlistOpened(workshop.id, workshop.name, 'sold_out'); setAsking(true) }}>
               Tell me if a seat opens
             </button>
           )}

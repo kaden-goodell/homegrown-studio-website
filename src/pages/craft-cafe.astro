@@ -27,7 +27,7 @@ const steps = [
         No booking, no studio fee — pick a craft from the menu and pay for what you make. Ages 8+, everyone welcome.
       </p>
       <p data-walkin="before" hidden={walkInOpen} class="mt-5 rounded-full px-5 py-2 text-sm font-semibold" style="background: var(--tone-studio-soft); color: var(--tone-studio-ink); width: fit-content; margin-inline: auto;">
-        Walk-in hours begin {OPEN_STUDIO_START_LABEL}. Until then, <a href="/workshops" class="underline">grab a workshop seat</a> or <a href="/book" class="underline">book a party</a>.
+        Walk-in hours begin {OPEN_STUDIO_START_LABEL}. Until then, <a href="/workshops" class="underline" data-track-cta="cafe_before_open_workshops">grab a workshop seat</a> or <a href="/book" class="underline" data-track-cta="cafe_before_open_party">book a party</a>.
       </p>
     </div>
 
@@ -57,7 +57,7 @@ const steps = [
       </div>
       <p class="mt-6 text-sm" style="color: var(--color-muted);">
         {siteConfig.address.street}, {siteConfig.address.city}, {siteConfig.address.state} —
-        <a href="/calendar" class="underline" style="color: var(--color-primary);">see the calendar</a>
+        <a href="/calendar" class="underline" style="color: var(--color-primary);" data-track-cta="cafe_calendar">see the calendar</a>
       </p>
     </div>
 
@@ -73,10 +73,10 @@ const steps = [
     <!-- Waiver + party cross-sell -->
     <div class="mt-16 text-center fade-in">
       <p class="text-sm" style="color: var(--color-muted);">
-        First visit? <a href="/waiver" class="underline" style="color: var(--color-primary);">Sign the waiver ahead of time</a> and skip the paperwork at the door.
+        First visit? <a href="/waiver" class="underline" style="color: var(--color-primary);" data-track-event="waiver_link_click" data-track-props='{"source":"craft_cafe"}'>Sign the waiver ahead of time</a> and skip the paperwork at the door.
       </p>
       <p class="mt-3 text-sm" style="color: var(--color-muted);">
-        Bringing a group? <a href="/book" class="underline" style="color: var(--color-primary);">Book the whole studio</a> for a private party.
+        Bringing a group? <a href="/book" class="underline" style="color: var(--color-primary);" data-track-cta="cafe_group_party">Book the whole studio</a> for a private party.
       </p>
     </div>
   </section>

@@ -5,7 +5,7 @@ import { partyConfig } from '@config/party.config'
 import { partyContent } from '@config/party-content'
 import { craftShareUrl } from '@lib/party-share'
 import { formatMoney } from '@lib/money'
-import { trackViewItemList, trackSelectItem, trackShare, trackCtaClick, type AnalyticsItem } from '@lib/analytics'
+import { trackViewItemList, trackSelectItem, trackShare, type AnalyticsItem } from '@lib/analytics'
 
 interface Craft {
   id: string
@@ -251,8 +251,9 @@ export default function PartyLanding() {
 
   function openModal(opts: { craftId?: string; date?: string } = {}) {
     const i = opts.craftId ? crafts.findIndex((c) => c.id === opts.craftId) : -1
+    // A craft card is a pick from the list. Plain "book" buttons carry
+    // data-track-cta and are counted once, page-wide, by analytics-auto.
     if (i >= 0) trackSelectItem('party_crafts', craftItem(crafts[i], i))
-    else trackCtaClick(opts.date ? 'party_date_chip' : 'party_book_button', opts.date ?? 'party_landing')
     setInitialCraftId(opts.craftId)
     setInitialDate(opts.date)
     setInitialStart(undefined)
@@ -387,7 +388,7 @@ export default function PartyLanding() {
           </div>
           {!showAllCrafts && crafts.length > CRAFT_PREVIEW_COUNT && (
             <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => { trackCtaClick('show_all_crafts', 'party_landing'); setShowAllCrafts(true) }}>
+              <button type="button" className="btn btn-secondary" data-track-cta="show_all_crafts" onClick={() => setShowAllCrafts(true)}>
                 Show all {crafts.length} crafts
               </button>
             </div>
@@ -421,6 +422,8 @@ export default function PartyLanding() {
                 <button
                   key={d}
                   type="button"
+                  data-track-cta="party_date_chip"
+                  data-track-where="open_dates"
                   onClick={() => openModal({ date: d })}
                   style={{
                     minHeight: '2.75rem',
@@ -513,7 +516,7 @@ export default function PartyLanding() {
           borderTop: '1px solid rgba(var(--color-primary-rgb), 0.12)',
           boxShadow: '0 -6px 24px rgba(var(--color-primary-rgb), 0.10)',
         }}>
-          <button type="button" className="btn btn-primary" onClick={() => openModal()} style={{ width: '100%' }}>
+          <button type="button" className="btn btn-primary" data-track-cta="party_book_button" data-track-where="sticky_bar" onClick={() => openModal()} style={{ width: '100%' }}>
             {`Book your date — ${formatMoney(partyConfig.basePriceCents)} holds it`}
           </button>
         </div>

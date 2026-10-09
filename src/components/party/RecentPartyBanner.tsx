@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { trackRecentPartyBanner } from '@lib/analytics'
 import { loadRecentParty, clearRecentParty, hostPartyUrl, RECENT_PARTY_EVENT, type RecentParty } from '@lib/recent-party'
 
 /**
@@ -51,6 +52,7 @@ export default function RecentPartyBanner() {
         </span>
         <a
           href={hostPartyUrl(recent, window.location.origin)}
+          onClick={() => trackRecentPartyBanner('open')}
           style={{
             fontSize: '0.8125rem',
             fontWeight: 700,
@@ -66,7 +68,7 @@ export default function RecentPartyBanner() {
         </a>
         <button
           type="button"
-          onClick={() => { clearRecentParty(); setRecent(null) }}
+          onClick={() => { trackRecentPartyBanner('dismiss'); clearRecentParty(); setRecent(null) }}
           aria-label="Dismiss"
           style={{
             background: 'transparent',

@@ -11,6 +11,24 @@ import {
   prevStep,
   type KitStepId,
 } from '@lib/kit-steps'
+import {
+  trackWizardStarted,
+  trackWizardStepCompleted,
+  trackPaymentStarted,
+  trackPaymentCompleted,
+  trackPaymentFailed,
+  trackBookingCompleted,
+  trackSelectItem,
+  trackBookingChoice,
+  trackBeginCheckout,
+  trackAddPaymentInfo,
+  trackBookingAbandoned,
+  trackBookingProblem,
+  type AnalyticsItem,
+  posthogId,
+  identifyBooker,
+} from '@lib/analytics'
+import { readAttribution } from '@lib/attribution'
 
 interface KitModalProps {
   onClose: () => void
@@ -178,8 +196,44 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
   const selectedTheme = hasTheme ? info?.themes.find((t) => t.id === themeChoice) ?? null : null
   const selectedTier = selectedTheme?.tiers.find((t) => t.serves === tierGuests) ?? null
 
+  // ── Analytics (same funnel as PartyModal) ─────────────────────────────────
+  useEffect(() => {
+    trackWizardStarted('kit')
+  }, [])
+  const kitItem = (c: Craft, quantity?: number): AnalyticsItem => ({
+    item_id: c.id, item_name: c.name, item_category: 'kit', price: c.perHeadCents / 100, ...(quantity ? { quantity } : {}),
+  })
+  /** Close without ordering: say where they stopped (the funnel's drop-off). */
+  function closeAndRecord() {
+    if (!completed) {
+      trackBookingAbandoned('kit', currentStep, {
+        ...(selectedCraft ? { craft: selectedCraft.name } : {}),
+        ...(themeChoice ? { theme: themeChoice } : {}),
+        ...(selectedDate ? { date: selectedDate } : {}),
+        guests,
+      })
+    }
+    onClose()
+  }
+  function chooseCraft(craft: Craft) {
+    if (selectedCraft?.id !== craft.id) trackSelectItem('kit booking', kitItem(craft))
+    setSelectedCraft(craft)
+  }
+  function chooseGuests(n: number) {
+    if (n !== guests) trackBookingChoice('kit', 'guests', n)
+    setGuests(n)
+  }
+  function chooseTheme(choice: string) {
+    if (choice !== themeChoice) trackBookingChoice('kit', 'theme', choice)
+    setThemeChoice(choice)
+  }
+  function chooseDate(date: string) {
+    if (date !== selectedDate) trackBookingChoice('kit', 'date', date)
+    setSelectedDate(date)
+  }
+
   function requestClose() {
-    if (completed || !dirty) return onClose()
+    if (completed || !dirty) return closeAndRecord()
     setConfirmDiscard(true)
   }
 
@@ -202,7 +256,8 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
     }
     document.addEventListener('keydown', handleKeyDown)
     return () => document.removeEventListener('keydown', handleKeyDown)
-  }, [dirty, completed, confirmDiscard])
+    // Step and picks too: an Escape-close reports where they stopped.
+  }, [dirty, completed, confirmDiscard, currentStep, selectedCraft, guests, themeChoice, selectedDate])
 
   // Focus trap: Tab cycles within the dialog instead of escaping to the page.
   function trapFocus(e: React.KeyboardEvent) {
@@ -255,6 +310,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
       const json = await res.json()
       setInfo((json.data ?? json) as KitServiceInfo)
     } catch (err) {
+      trackBookingProblem('kit', 'info_unavailable')
       setInfoError(err instanceof Error ? err.message : 'Failed to load kit details.')
     }
   }
@@ -292,6 +348,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
       const json = await res.json()
       setWeeks(((json.data ?? json).dates ?? []) as WeekDate[])
     } catch {
+      trackBookingProblem('kit', 'dates_unavailable')
       setWeeksError('Could not load available dates.')
     } finally {
       setLoadingWeeks(false)
@@ -348,12 +405,22 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
 
   function goNext() {
     const next = nextStep(currentStep, steps)
-    if (next) setCurrentStep(next)
+    if (!next) return
+    trackWizardStepCompleted(currentStep)
+    if (next === 'pay' && selectedCraft) {
+      trackBeginCheckout('kit', dueToday / 100, [kitItem(selectedCraft, guests)], {
+        guests,
+        theme: hasTheme ? themeChoice : 'none',
+        // The whole order, most of it paid on the POS at pickup.
+        quote_total: quoteTotal / 100,
+      })
+    }
+    setCurrentStep(next)
   }
   function handleBack() {
     const prev = prevStep(currentStep, steps)
     if (prev) setCurrentStep(prev)
-    else onClose()
+    else closeAndRecord()
   }
 
   // Pricing — deposit-only booking: $50 today (themed = the refundable rental
@@ -393,6 +460,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
 
     setError(null)
     setProcessing(true)
+    trackPaymentStarted(dueToday / 100)
 
     try {
       let token = walletToken
@@ -403,10 +471,12 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
           token = tokenized.token
           sourceKind = tokenized.kind
         } catch {
+          trackBookingProblem('kit', 'card_unreadable')
           throw new Error('Could not process your card. Please check your details and try again.')
         }
       }
 
+      trackAddPaymentInfo('kit', dueToday / 100, walletToken ? 'wallet' : sourceKind)
       const res = await fetch('/api/kits/order.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -425,21 +495,38 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
           personalizedAck: selectedCraft.personalized ? ackPersonalized : undefined,
           paymentToken: token,
           sourceKind,
+          // Where this visitor first/last came from (Google, Facebook, a texted link…).
+          attribution: readAttribution(),
+          posthogId: posthogId(),
         }),
       })
 
       if (!res.ok) {
         const errData = await res.json().catch(() => null)
+        trackBookingProblem('kit', 'order_failed', String(errData?.code ?? res.status))
         throw new Error(errData?.detail ?? 'Order failed.')
       }
 
       const json = await res.json()
       const data = json.data ?? json
-      setReference(typeof data.reference === 'string' ? data.reference : null)
-      setSummary((data.summary ?? null) as OrderSummary | null)
+      const newReference = typeof data.reference === 'string' ? data.reference : null
+      const newSummary = (data.summary ?? null) as OrderSummary | null
+      setReference(newReference)
+      setSummary(newSummary)
       setCompleted(true)
+
+      identifyBooker(email, firstName, lastName)
+      trackPaymentCompleted((newSummary?.totalChargedCents ?? dueToday) / 100, {
+        kind: 'kit',
+        transactionId: newReference,
+        items: [kitItem(selectedCraft, guests)],
+        extra: { guests, craft: selectedCraft.name, theme: hasTheme ? themeChoice : 'none', quote_total: quoteTotal / 100 },
+      })
+      trackBookingCompleted('kit')
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.')
+      const message = err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.'
+      setError(message)
+      trackPaymentFailed(message)
     } finally {
       setProcessing(false)
     }
@@ -661,8 +748,8 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                     role="button"
                     tabIndex={0}
                     aria-pressed={active}
-                    onClick={() => setSelectedCraft(craft)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedCraft(craft) } }}
+                    onClick={() => chooseCraft(craft)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseCraft(craft) } }}
                     style={{
                       borderRadius: '0.875rem',
                       border: active ? '2px solid var(--color-primary)' : '1px solid rgba(var(--color-primary-rgb), 0.18)',
@@ -756,7 +843,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
               <label style={{ ...labelStyle, marginBottom: '0.5rem' }}>What size party?</label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
                 {tierSizes.map((n) => (
-                  <button key={n} type="button" onClick={() => setGuests(n)} style={{ ...pillButtonStyle(guests === n), minWidth: '6.5rem', padding: '0.75rem 1rem' }}>
+                  <button key={n} type="button" onClick={() => chooseGuests(n)} style={{ ...pillButtonStyle(guests === n), minWidth: '6.5rem', padding: '0.75rem 1rem' }}>
                     Serves {n}
                   </button>
                 ))}
@@ -780,8 +867,8 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                     role="button"
                     tabIndex={0}
                     aria-pressed={active}
-                    onClick={() => setThemeChoice(theme.id)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setThemeChoice(theme.id) } }}
+                    onClick={() => chooseTheme(theme.id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseTheme(theme.id) } }}
                     style={{
                       display: 'flex',
                       gap: '0.875rem',
@@ -818,8 +905,8 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                 role="button"
                 tabIndex={0}
                 aria-pressed={themeChoice === 'none'}
-                onClick={() => setThemeChoice('none')}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setThemeChoice('none') } }}
+                onClick={() => chooseTheme('none')}
+                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); chooseTheme('none') } }}
                 style={{
                   padding: '0.875rem 1rem',
                   borderRadius: '0.875rem',
@@ -901,7 +988,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                             <button
                               key={d.partyDate}
                               type="button"
-                              onClick={() => setSelectedDate(d.partyDate)}
+                              onClick={() => chooseDate(d.partyDate)}
                               style={{ ...pillButtonStyle(selectedDate === d.partyDate), padding: '0.5rem 0.7rem', fontSize: '0.78rem' }}
                             >
                               {formatDayChip(d.partyDate)}
@@ -1005,6 +1092,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
             {/* Kit charges run through the standard Payments API under OUR app
                 (required for Apple Pay). No applicationIdOverride — party convention. */}
             <PaymentForm
+              bookingKind="kit"
               ref={paymentFormRef}
               environmentOverride="production"
               wallet={{ amount: (dueToday / 100).toFixed(2), label: 'Hometown Kit Deposit' }}
@@ -1157,7 +1245,7 @@ export default function KitModal({ onClose, initialCraftId, initialThemeId }: Ki
                 <button type="button" onClick={() => setConfirmDiscard(false)} autoFocus style={{ flex: 1.4, padding: '0.7rem 1rem', borderRadius: '0.75rem', border: 'none', background: 'var(--color-button)', color: '#fff', fontSize: '0.875rem', fontWeight: 600, cursor: 'pointer' }}>
                   Keep building
                 </button>
-                <button type="button" onClick={onClose} style={{ flex: 1, padding: '0.7rem 1rem', borderRadius: '0.75rem', border: '1px solid rgba(var(--color-primary-rgb), 0.3)', background: 'transparent', color: 'var(--color-muted)', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer' }}>
+                <button type="button" onClick={closeAndRecord} style={{ flex: 1, padding: '0.7rem 1rem', borderRadius: '0.75rem', border: '1px solid rgba(var(--color-primary-rgb), 0.3)', background: 'transparent', color: 'var(--color-muted)', fontSize: '0.875rem', fontWeight: 500, cursor: 'pointer' }}>
                   Close
                 </button>
               </div>

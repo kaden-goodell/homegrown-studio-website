@@ -15,6 +15,7 @@ import {
 import { inviteContent } from '@config/invite-content'
 import { waiverContent } from '@config/waiver-content'
 import { formatWhen } from '@lib/studio-time'
+import { trackAddToCalendar, trackShare, trackWaiverLinkClick } from '@lib/analytics'
 
 interface Props {
   bookingId: string
@@ -155,6 +156,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
     if (navigator.share) {
       try {
         await navigator.share({ title: heading, url: inviteUrl })
+        trackShare('party_invite', 'share_sheet')
         return
       } catch {
         /* fall through to copy */
@@ -162,6 +164,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
     }
     try {
       await navigator.clipboard.writeText(inviteUrl)
+      trackShare('party_invite', 'copy_link')
       setCopied(true)
       setTimeout(() => setCopied(false), 2500)
     } catch {
@@ -186,8 +189,8 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
           <button type="button" onClick={shareInvite} style={chip}>
             {copied ? 'Link copied' : 'Invite your guests'}
           </button>
-          <a href={googleCalendarUrl(calEvent)} target="_blank" rel="noopener noreferrer" style={chip}>Google Calendar</a>
-          <a href={icsDataUrl(buildIcs(calEvent))} download="hometown-party.ics" style={chip}>Apple / Outlook</a>
+          <a href={googleCalendarUrl(calEvent)} target="_blank" rel="noopener noreferrer" style={chip} onClick={() => trackAddToCalendar('host_dashboard', 'google', 'party')}>Google Calendar</a>
+          <a href={icsDataUrl(buildIcs(calEvent))} download="hometown-party.ics" style={chip} onClick={() => trackAddToCalendar('host_dashboard', 'ics', 'party')}>Apple / Outlook</a>
           <a
             href={partyInviteMailto({
               craftName: party.craftName,
@@ -197,10 +200,13 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
               icsUrl: partyInviteIcsUrl(bookingId, origin),
             })}
             style={chip}
+            // The host writing to their own guests — a share, not a lead.
+            data-track-ignore
+            onClick={() => trackShare('party_invite', 'email')}
           >
             Email your guests
           </a>
-          <a href={partyWaiverUrl(bookingId, origin)} target="_blank" rel="noopener noreferrer" style={chip}>
+          <a href={partyWaiverUrl(bookingId, origin)} target="_blank" rel="noopener noreferrer" style={chip} onClick={() => trackWaiverLinkClick('host_dashboard')}>
             {waiverContent.handoff.hostCta}
           </a>
         </div>

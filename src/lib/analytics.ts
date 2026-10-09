@@ -101,8 +101,22 @@ export function trackNewsletterSubscribed(): void {
 }
 
 /** A "tell me when…" sign-up. `interest` says what they were looking at. */
-export function trackNotifyMe(interest: string): void {
-  capture('notify_me_signup', { interest })
+export function trackNotifyMe(interest: string, where?: string): void {
+  capture('notify_me_signup', { interest, ...(where ? { where } : {}) })
+}
+
+/** A "tell me when…" sign-up that didn't go through. */
+export function trackNotifyMeFailed(interest: string, reason: 'invalid' | 'rate_limited' | 'server' | 'network', where?: string): void {
+  capture('notify_me_failed', { interest, reason, ...(where ? { where } : {}) })
+}
+
+/** Opened the "tell me when…" form on a class that isn't on sale yet or is full. */
+export function trackWaitlistOpened(itemId: string, itemName: string, reason: 'coming_soon' | 'sold_out'): void {
+  capture('waitlist_opened', { item_id: itemId, item_name: itemName, reason })
+}
+
+export function trackNewsletterFailed(reason: 'server' | 'network'): void {
+  capture('newsletter_failed', { reason })
 }
 
 // ── Staff operations ───────────────────────────────────────────────────────
@@ -139,7 +153,8 @@ export function trackKitOrderUpdated(action: string): void {
 
 // ── Funnel + ecommerce (GA4 recommended event names) ───────────────────────
 
-export type BookingKindForAnalytics = 'party' | 'workshop' | 'kit'
+/** `other`: a shared piece (the payment form) used outside a known flow. */
+export type BookingKindForAnalytics = 'party' | 'workshop' | 'kit' | 'other'
 
 /** One thing that can be bought, in GA4's item shape. Prices in dollars. */
 export interface AnalyticsItem {
@@ -207,4 +222,105 @@ export function trackContactClick(method: 'phone' | 'text' | 'email' | 'directio
 /** Shared a link (party invite, a class, the site). */
 export function trackShare(contentType: string, method: string, itemId?: string): void {
   capture('share', { content_type: contentType, method, ...(itemId ? { item_id: itemId } : {}) })
+}
+
+/** Turned the gift-card box on or off at checkout. */
+export function trackGiftCardToggle(on: boolean, kind: BookingKindForAnalytics = 'other'): void {
+  capture('gift_card_toggle', { on, booking_kind: kind })
+}
+
+/** Saved an event to their calendar. */
+export function trackAddToCalendar(source: 'host_dashboard' | 'invite' | 'confirmation', type: 'google' | 'ics', kind?: BookingKindForAnalytics): void {
+  capture('add_to_calendar', { source, type, ...(kind ? { booking_kind: kind } : {}) })
+}
+
+/** Followed (or passed on) a link to the participation agreement. */
+export function trackWaiverLinkClick(source: string): void {
+  capture('waiver_link_click', { source })
+}
+
+/** The "your party" banner shown to someone who just booked. */
+export function trackRecentPartyBanner(action: 'open' | 'dismiss'): void {
+  capture('recent_party_banner', { action })
+}
+
+// ── What's On calendar (/calendar) ─────────────────────────────────────────
+
+export function trackCalendarFilter(filter: string): void {
+  capture('calendar_filter', { filter })
+}
+
+export function trackCalendarView(view: 'list' | 'month'): void {
+  capture('calendar_view', { view })
+}
+
+export function trackCalendarMonthNav(direction: 'prev' | 'next' | 'today'): void {
+  capture('calendar_month_nav', { direction })
+}
+
+export function trackCalendarDaySelect(date: string, eventCount: number): void {
+  capture('calendar_day_select', { date, event_count: eventCount })
+}
+
+export function trackCalendarShowMore(shown: number): void {
+  capture('calendar_show_more', { shown })
+}
+
+export function trackCalendarEventClick(e: { eventKind: string; itemId?: string; date: string; bookable: boolean }): void {
+  capture('calendar_event_click', { event_kind: e.eventKind, date: e.date, bookable: e.bookable, ...(e.itemId ? { item_id: e.itemId } : {}) })
+}
+
+export function trackCalendarLoadFailed(detail?: string): void {
+  capture('calendar_load_failed', detail ? { detail: detail.slice(0, 100) } : {})
+}
+
+/** The Craft Café menu couldn't load, or the visitor pressed "try again". */
+export function trackCraftMenu(action: 'load_failed' | 'retry'): void {
+  capture('craft_menu', { action })
+}
+
+// ── Site navigation ────────────────────────────────────────────────────────
+
+export function trackNavMenuOpen(): void {
+  capture('nav_menu_open')
+}
+
+export function trackNavClick(label: string, where: string, href?: string): void {
+  capture('nav_click', { label: label.slice(0, 60), where, ...(href ? { link_url: href } : {}) })
+}
+
+export function trackFaqOpen(question: string, where?: string): void {
+  capture('faq_open', { question: question.slice(0, 100), ...(where ? { where } : {}) })
+}
+
+// ── Participation agreement (counts only — never names) ────────────────────
+
+/** No party or class on the link = a walk-in (Craft Café) agreement. */
+export type WaiverKindForAnalytics = 'party' | 'workshop' | 'open_studio'
+
+export function trackWaiverStarted(kind: WaiverKindForAnalytics, kiosk: boolean): void {
+  capture('waiver_started', { kind, kiosk })
+}
+
+/** A step of the agreement flow: the returning-family lookup, the form… */
+export function trackWaiverStep(step: string, kind: WaiverKindForAnalytics, kiosk: boolean, extra?: Record<string, string | number | boolean>): void {
+  capture('waiver_step', { step, kind, kiosk, ...extra })
+}
+
+export function trackWaiverSigned(d: { kind: WaiverKindForAnalytics; kids: number; dropOff: boolean; kiosk: boolean; returning?: boolean }): void {
+  capture('waiver_signed', { kind: d.kind, kids: d.kids, drop_off: d.dropOff, kiosk: d.kiosk, ...(d.returning !== undefined ? { returning: d.returning } : {}) })
+}
+
+// ── Markup-declared events ─────────────────────────────────────────────────
+
+const EVENT_NAME = /^[a-z][a-z0-9_]{1,39}$/
+
+/**
+ * An event named in page markup (`data-track-event` — see analytics-auto.ts),
+ * for .astro pages with no script of their own. Only a snake_case name and
+ * short plain values get through.
+ */
+export function trackMarkupEvent(event: string, props: Record<string, string | number | boolean>): void {
+  if (!EVENT_NAME.test(event)) return
+  capture(event, props)
 }

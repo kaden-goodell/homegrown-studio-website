@@ -1,51 +1,42 @@
 /**
  * Page-wide tracking that needs no per-button code: remembers where the
  * visitor came from, and reports every call / text / email / directions tap
- * (a lead) and every "book" call-to-action, with which part of the page it
- * was in. Loaded by Analytics.astro on every customer page.
+ * (a lead), every "book" call-to-action, header/footer navigation, the phone
+ * menu, FAQ answers opened, and any element marked `data-track-event`
+ * (with `data-track-props` JSON) — with which part of the page it was in.
+ * Anything inside `[data-track-ignore]` is left alone. Loaded by
+ * Analytics.astro on every customer page.
  */
 import { captureAttribution } from '@lib/attribution'
-import { trackContactClick, trackCtaClick } from '@lib/analytics'
+import { trackContactClick, trackCtaClick, trackFaqOpen, trackMarkupEvent, trackNavClick, trackNavMenuOpen } from '@lib/analytics'
+import { autoEventFor, whereOf } from '@lib/analytics-where'
 
-const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40)
-
-/** "home/hero", "book/footer", "craft-cafe/the-craft-menu"… */
-export function whereOf(el: Element, path: string): string {
-  const page = slug(path.replace(/^\//, '')) || 'home'
-  const marked = el.closest('[data-track-where]') as HTMLElement | null
-  if (marked?.dataset.trackWhere) return `${page}/${marked.dataset.trackWhere}`
-  if (el.closest('header')) return `${page}/header`
-  if (el.closest('footer')) return `${page}/footer`
-  if (el.closest('[role="dialog"]')) return `${page}/dialog`
-  const section = el.closest('section')
-  const heading = section?.querySelector('h1, h2, h3')?.textContent
-  return `${page}/${heading ? slug(heading) : 'page'}`
-}
-
-export function contactMethod(href: string): 'phone' | 'text' | 'email' | 'directions' | null {
-  const h = href.trim().toLowerCase()
-  if (h.startsWith('tel:')) return 'phone'
-  if (h.startsWith('sms:')) return 'text'
-  if (h.startsWith('mailto:')) return 'email'
-  if (/(google\.[a-z.]+\/maps|maps\.google\.|maps\.apple\.com|goo\.gl\/maps|maps\.app\.goo\.gl)/.test(h)) return 'directions'
-  return null
-}
+export { whereOf, contactMethod, parseTrackProps, autoEventFor } from '@lib/analytics-where'
 
 function onClick(e: MouseEvent) {
-  const target = e.target as Element | null
+  const target = e.target instanceof Element ? e.target : null
   if (!target) return
-  const link = target.closest('a[href]') as HTMLAnchorElement | null
-  const where = whereOf(target, location.pathname)
-  if (link) {
-    const method = contactMethod(link.getAttribute('href') ?? '')
-    if (method) { trackContactClick(method, where); return }
-  }
-  const cta = target.closest('[data-open-booking], a[href="/book"], a[href^="/book?"], [data-track-cta]') as HTMLElement | null
-  if (cta) {
-    const label = cta.dataset.trackCta || cta.textContent?.trim().replace(/\s+/g, ' ') || 'book'
-    trackCtaClick(label, where, (cta as HTMLAnchorElement).getAttribute?.('href') ?? undefined)
-  }
+  try {
+    const ev = autoEventFor(target, location.pathname)
+    if (!ev) return
+    if (ev.kind === 'contact') trackContactClick(ev.method, ev.where)
+    else if (ev.kind === 'cta') trackCtaClick(ev.label, ev.where, ev.href)
+    else if (ev.kind === 'nav') trackNavClick(ev.label, ev.where, ev.href)
+    else if (ev.kind === 'menu_open') trackNavMenuOpen()
+    else trackMarkupEvent(ev.event, ev.props)
+  } catch { /* analytics never gets in the way of a click */ }
+}
+
+/** `<details data-track-faq>` opened. `toggle` doesn't bubble, so listen in the capture phase. */
+function onToggle(e: Event) {
+  const el = e.target
+  if (!(el instanceof HTMLDetailsElement) || !el.open || !el.hasAttribute('data-track-faq')) return
+  try {
+    const question = el.dataset.trackFaq || el.querySelector('summary')?.textContent?.trim().replace(/\s+/g, ' ') || 'faq'
+    trackFaqOpen(question, whereOf(el, location.pathname))
+  } catch { /* ignore */ }
 }
 
 captureAttribution()
 document.addEventListener('click', onClick, { capture: true })
+document.addEventListener('toggle', onToggle, { capture: true })

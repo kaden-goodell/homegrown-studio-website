@@ -78,7 +78,20 @@ describe('NotifyMe', () => {
     render(<NotifyMe interest="kits" />)
     fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'ada@example.com' } })
     fireEvent.click(screen.getByRole('button', { name: 'Tell me when it opens' }))
-    await waitFor(() => expect(capture).toHaveBeenCalledWith('notify_me_signup', { interest: 'kits' }))
+    // `where` is the page and part of it the form sits in.
+    await waitFor(() => expect(capture).toHaveBeenCalledWith('notify_me_signup', { interest: 'kits', where: 'home/page' }))
+  })
+
+  it('records why a sign-up failed', async () => {
+    const capture = vi.fn()
+    ;(window as any).posthog = { capture }
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
+    render(<NotifyMe interest="kits" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Tell me when it opens' }))
+    expect(capture).toHaveBeenCalledWith('notify_me_failed', { interest: 'kits', reason: 'invalid', where: 'home/page' })
+    fireEvent.change(screen.getByLabelText('Email address'), { target: { value: 'ada@example.com' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Tell me when it opens' }))
+    await waitFor(() => expect(capture).toHaveBeenCalledWith('notify_me_failed', { interest: 'kits', reason: 'network', where: 'home/page' }))
   })
 
   it('keeps what was typed and offers the phone number when saving fails', async () => {

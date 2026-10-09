@@ -34,6 +34,8 @@ import {
   type AnalyticsItem,
   posthogId,
   identifyBooker,
+  trackAddToCalendar,
+  trackWaiverLinkClick,
 } from '@lib/analytics'
 import { readAttribution } from '@lib/attribution'
 
@@ -289,10 +291,10 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
           <ConfirmedBlock label="When">
             <strong>{when}</strong>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 1rem', marginTop: '0.25rem' }}>
-              <a href={googleCalendarUrl(calendarEvent)} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }}>
+              <a href={googleCalendarUrl(calendarEvent)} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => trackAddToCalendar('confirmation', 'google', 'workshop')}>
                 Add to Google Calendar
               </a>
-              <a href={icsDataUrl(buildIcs(calendarEvent))} download="hometown-workshop.ics" className="btn btn-quiet" style={{ width: 'auto' }}>
+              <a href={icsDataUrl(buildIcs(calendarEvent))} download="hometown-workshop.ics" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => trackAddToCalendar('confirmation', 'ics', 'workshop')}>
                 Apple or Outlook
               </a>
             </div>
@@ -315,7 +317,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
           )}
           <ConfirmedBlock label="Before you come">
             <p style={{ margin: '0 0 0.625rem' }}>Sign the participation agreement. It takes a minute, and saves doing it at the door.</p>
-            <a href={waiverUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary">
+            <a href={waiverUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary" onClick={() => trackWaiverLinkClick('workshop_confirmation')}>
               Sign the agreement
             </a>
             {seats > 1 && (
@@ -326,6 +328,8 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
                   label="Send the link"
                   shareTitle={`${workshop.name} at ${STUDIO_ADDRESS.name}`}
                   shareText={`I booked us into ${workshop.name}, ${when}. Sign this before we go:`}
+                  contentType="workshop_waiver"
+                  itemId={workshop.id}
                 />
               </div>
             )}
@@ -340,6 +344,8 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
               label="Share this workshop"
               shareTitle={`${workshop.name} at ${STUDIO_ADDRESS.name}`}
               shareText={`I’m going to ${workshop.name}, ${when}. Come with me:`}
+              contentType="workshop"
+              itemId={workshop.id}
             />
           </ConfirmedBlock>
 
@@ -521,6 +527,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
         </div>
 
         <PaymentForm
+          bookingKind="workshop"
           ref={paymentFormRef}
           applicationIdOverride={CLASS_BOOKING_APP_ID}
           environmentOverride="production"

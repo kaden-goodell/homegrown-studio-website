@@ -1,5 +1,5 @@
 import { useId, useState } from 'react'
-import { trackNewsletterSubscribed } from '@lib/analytics'
+import { trackNewsletterFailed, trackNewsletterSubscribed } from '@lib/analytics'
 
 interface NewsletterProps {
   variant?: 'light' | 'dark'
@@ -30,10 +30,12 @@ export default function Newsletter({ variant = 'light', preOpening = false }: Ne
         setMessage(preOpening ? 'Got it. You’ll hear from us the day booking opens.' : 'Thanks for subscribing!')
         setEmail('')
       } else {
+        trackNewsletterFailed('server')
         setStatus('error')
         setMessage('Something went wrong. Please try again.')
       }
     } catch {
+      trackNewsletterFailed('network')
       setStatus('error')
       setMessage('Something went wrong. Please try again.')
     }
