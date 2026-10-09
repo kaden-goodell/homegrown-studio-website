@@ -199,14 +199,15 @@ describe('Roster', () => {
     expect(within(sheet).getByRole('button', { name: '✓ Add & mark here' })).toBeInTheDocument()
   })
 
-  it('the "n with allergies" summary ignores "None" answers', async () => {
+  it('names who has an allergy at the top (ignoring "None"), and the no-photo families', async () => {
     mockRoster([
       household({ children: [{ name: 'A', allergies: 'None', medications: '' }], adultAllergies: 'n/a' }),
-      household({ recordId: 'wvr_2', signer: 'Pat Lee', children: [{ name: 'B', allergies: 'peanuts', medications: '' }] }),
+      household({ recordId: 'wvr_2', signer: 'Pat Lee', photoConsent: false, children: [{ name: 'B', allergies: 'peanuts', medications: '' }] }),
     ], { ...CAMP, dropOff: false })
     renderRoster()
     await screen.findAllByText('Jamie Rivera')
-    expect(screen.getByText('⚠ 1 with allergies')).toBeInTheDocument()
+    expect(screen.getByTestId('roster-allergies')).toHaveTextContent('⚠ Allergies: B (peanuts)')
+    expect(screen.getByTestId('roster-no-photos')).toHaveTextContent('🚫 No photos: Lee family')
   })
 })
 

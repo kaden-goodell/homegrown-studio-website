@@ -6,7 +6,7 @@ import AddFamilySheet from '@components/staff/AddFamilySheet'
 import CompSeatSheet from '@components/staff/CompSeatSheet'
 import type { HouseholdMatch } from '@components/staff/DoorSearch'
 import HouseholdCard, { type Household, type Checkin } from '@components/staff/HouseholdCard'
-import { card, btn, field, Badge } from '@components/staff/ui'
+import { card, btn, field, Badge, FlagBanner } from '@components/staff/ui'
 import { formatWhen, studioDate } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
 import type { EventKind, StudioEvent } from '@lib/events'
@@ -197,8 +197,14 @@ export default function Roster({
 
   const here = data.households.reduce((n, h) => n + Object.values(h.checkin.presence || {}).filter((p) => !p.outAt).length, 0)
   const coming = data.households.reduce((n, h) => n + (h.checkin.expected ? h.checkin.expected.length : 1 + h.children.length), 0)
-  const allergyCount = data.households.reduce((n, h) => n + (hasAllergy(h.adultAllergies) ? 1 : 0) + h.children.filter((c) => hasAllergy(c.allergies)).length, 0)
-  const noPhotoGroups = data.households.filter((h) => !h.photoConsent).length
+  // "Mia R. (peanuts)" for everyone with a real allergy; family last names for no-photo.
+  const short = (n: string) => { const [f, ...rest] = n.trim().split(/\s+/); const l = rest.at(-1); return l ? `${f} ${l[0]}.` : f }
+  const lastName = (n: string) => n.trim().split(/\s+/).at(-1) ?? n
+  const allergyList = data.households.flatMap((h) => [
+    ...(hasAllergy(h.adultAllergies) ? [`${short(h.signer)} (${h.adultAllergies})`] : []),
+    ...h.children.filter((c) => hasAllergy(c.allergies)).map((c) => `${short(c.name)} (${c.allergies})`),
+  ])
+  const noPhotoFamilies = data.households.filter((h) => !h.photoConsent).map((h) => lastName(h.signer))
 
   // The link a household signs for THIS event — shown on an empty drop-off
   // roster so staff can read it out or text it without leaving the screen.
@@ -288,24 +294,32 @@ export default function Roster({
           ))}
         </div>
 
-        {(allergyCount > 0 || noPhotoGroups > 0 || incidents.length > 0) && (
-          <div style={{ display: 'flex', gap: '0.5rem', justifyContent: 'center', flexWrap: 'wrap', marginTop: '0.7rem' }}>
-            {allergyCount > 0 && <Badge tone="alert">⚠ {allergyCount} with allergies</Badge>}
-            {noPhotoGroups > 0 && (
-              <Badge tone="alert" wrap>🚫 No group photos — {noPhotoGroups} {noPhotoGroups === 1 ? 'group' : 'groups'} opted out</Badge>
-            )}
-            {incidents.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setIncidentsOpen(true)}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.3rem 0.6rem', borderRadius: '0.5rem', fontSize: '0.875rem', fontWeight: 700, background: 'rgba(185,28,28,0.1)', color: '#b91c1c', border: '1px solid rgba(185,28,28,0.3)', cursor: 'pointer' }}
-              >
-                🚑 Incidents ({incidents.length})
-              </button>
-            )}
+        {incidents.length > 0 && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '0.7rem' }}>
+            <button
+              type="button"
+              onClick={() => setIncidentsOpen(true)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '0.2rem', padding: '0.3rem 0.6rem', borderRadius: '0.5rem', fontSize: '0.875rem', fontWeight: 700, background: 'rgba(185,28,28,0.1)', color: '#b91c1c', border: '1px solid rgba(185,28,28,0.3)', cursor: 'pointer' }}
+            >
+              🚑 Incidents ({incidents.length})
+            </button>
           </div>
         )}
       </div>
+
+      {/* Who to watch for, by name — one read for whoever runs the table or takes the photo. */}
+      {(allergyList.length > 0 || noPhotoFamilies.length > 0) && (
+        <div style={{ display: 'grid', gap: '0.45rem', marginBottom: '0.9rem' }}>
+          {allergyList.length > 0 && (
+            <FlagBanner tone="alert" testId="roster-allergies">⚠ Allergies: {allergyList.join(', ')}</FlagBanner>
+          )}
+          {noPhotoFamilies.length > 0 && (
+            <FlagBanner tone="warn" testId="roster-no-photos">
+              🚫 No photos: {noPhotoFamilies.join(', ')} {noPhotoFamilies.length === 1 ? 'family' : 'families'}
+            </FlagBanner>
+          )}
+        </div>
+      )}
 
       <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
         <button type="button" onClick={() => setAddFamilyOpen(true)} style={{ ...btn(true), minHeight: '2.75rem', fontSize: '0.95rem', flex: '1 1 10rem' }}>+ Add family</button>

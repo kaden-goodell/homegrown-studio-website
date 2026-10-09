@@ -102,7 +102,8 @@ describe('HouseholdCard — non-drop-off (attendance-only)', () => {
   it('keeps allergy + no-photo badges, Agreement and History; emergency and signed date live in Agreement', () => {
     renderCard(household(), false)
     expect(screen.getAllByText(/peanuts/).length).toBeGreaterThan(0)
-    expect(screen.getByText(/No photos/)).toBeInTheDocument()
+    expect(screen.getByTestId('photo-flag')).toHaveTextContent('🚫 NO PHOTOS of this family')
+    expect(screen.getByTestId('allergy-flag')).toHaveTextContent('⚠ Allergy: Kiddo (peanuts)')
     expect(screen.queryByText(/Emergency:/)).not.toBeInTheDocument()
     expect(screen.queryByText(/EXPIRED/)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Agreement/ })).toBeInTheDocument()

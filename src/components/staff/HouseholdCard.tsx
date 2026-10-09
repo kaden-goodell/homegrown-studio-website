@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { hasAllergy } from '@lib/allergy'
 import { formatTime, formatMonthDay, formatMonthYear } from '@lib/studio-time'
-import { card, btn, Badge } from '@components/staff/ui'
+import { card, btn, Badge, FlagBanner } from '@components/staff/ui'
 import PickupPanel from '@components/staff/PickupPanel'
 import AgreementSheet from '@components/staff/AgreementSheet'
 import HistorySheet from '@components/staff/HistorySheet'
@@ -114,7 +114,8 @@ export default function HouseholdCard({
   const presence = h.checkin.presence || {}
   const expected = h.checkin.expected
   const noPhoto = !h.photoConsent
-  const anyAllergy = people.some((p) => hasAllergy(p.allergies))
+  const allergyPeople = people.filter((p) => hasAllergy(p.allergies))
+  const firstName = (n: string) => n.trim().split(/\s+/)[0]
   const expired = new Date(h.validUntil).getTime() < Date.now()
 
   const stateOf = (id: string): PersonState => {
@@ -293,9 +294,15 @@ export default function HouseholdCard({
           Agreement EXPIRED — they need to sign again.
         </p>
       )}
-      {noPhoto && (
-        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-          <Badge tone="muted">🚫 No photos</Badge>
+      {/* Can't-miss flags, before anyone reads the names. */}
+      {(allergyPeople.length > 0 || noPhoto) && (
+        <div style={{ display: 'grid', gap: '0.4rem', marginTop: '0.6rem' }}>
+          {allergyPeople.length > 0 && (
+            <FlagBanner tone="alert" testId="allergy-flag">
+              ⚠ Allergy: {allergyPeople.map((p) => `${firstName(p.name)} (${p.allergies})`).join(', ')}
+            </FlagBanner>
+          )}
+          {noPhoto && <FlagBanner tone="warn" testId="photo-flag">🚫 NO PHOTOS of this family</FlagBanner>}
         </div>
       )}
 

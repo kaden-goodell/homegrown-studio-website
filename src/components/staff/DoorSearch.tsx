@@ -127,7 +127,7 @@ function ResultCard({
   const allergyChips = [
     ...h.kids.filter((k) => hasAllergy(k.allergies)).map((k) => <Badge key={k.name} tone="alert" wrap>⚠ {firstOf(k.name)}: {k.allergies}</Badge>),
     ...(hasAllergy(h.adultAllergies) ? [<Badge key="adult" tone="alert" wrap>⚠ {h.firstName}: {h.adultAllergies}</Badge>] : []),
-    ...(!h.photoConsent ? [<Badge key="photo" tone="muted">🚫 No photos</Badge>] : []),
+    ...(!h.photoConsent ? [<Badge key="photo" tone="warn">🚫 No photos</Badge>] : []),
   ]
 
   if (h.covered) {
