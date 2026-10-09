@@ -16,6 +16,7 @@ import { getEventMeta } from '@lib/event-meta'
 import { saveSeatChoices } from '@lib/seat-choices'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { cleanAttribution } from '@lib/attribution'
+import { reportBooking } from '@lib/posthog-server'
 import {
   cutoffClosedMessage,
   effectiveCutoffHours,
@@ -261,6 +262,27 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       error: err instanceof Error ? err.message : String(err),
     })
   }
+
+  await reportBooking({
+    requestUrl: request.url,
+    kind: 'workshop',
+    bookingId: booked.bookingId,
+    amountCents: workshop.priceCents * seats,
+    email,
+    firstName: givenName,
+    lastName: familyName,
+    items: [{ item_id: workshop.scheduleId, item_name: workshop.name, item_category: 'workshop', price: workshop.priceCents / 100, quantity: seats }],
+    attribution: cleanAttribution(body.attribution),
+    posthogId: body.posthogId,
+    simulated,
+    extra: {
+      seats,
+      class: workshop.name,
+      class_date: workshop.startAt.slice(0, 10),
+      days_ahead: Math.round((Date.parse(workshop.startAt) - Date.now()) / 86_400_000),
+      paid_with: String(body.sourceKind ?? 'card'),
+    },
+  })
 
   return new Response(
     JSON.stringify({

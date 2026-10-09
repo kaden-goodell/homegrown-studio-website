@@ -32,6 +32,8 @@ import {
   trackBookingAbandoned,
   trackBookingProblem,
   type AnalyticsItem,
+  posthogId,
+  identifyBooker,
 } from '@lib/analytics'
 import { readAttribution } from '@lib/attribution'
 
@@ -211,6 +213,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
             seats,
             ...(options.length > 0 ? { picks } : {}),
             attribution: readAttribution(),
+            posthogId: posthogId(),
             paymentToken: token,
             sourceKind,
           }),
@@ -237,6 +240,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
       setEmailSent(bookData.data.emailSent === true)
       setAskToLeave(false)
       setCompleted(true)
+      identifyBooker(contact.email, contact.firstName, contact.lastName)
       trackPaymentCompleted(total / 100, {
         kind: 'workshop',
         transactionId: bookData.data.bookingId ?? null,

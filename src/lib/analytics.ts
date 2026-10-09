@@ -14,6 +14,7 @@ declare global {
       capture(event: string, properties?: Record<string, unknown>): void
       identify(distinctId: string, properties?: Record<string, unknown>): void
       reset(): void
+      get_distinct_id?(): string
       logger?: {
         info(message: string, attributes?: Record<string, unknown>): void
       }
@@ -26,6 +27,20 @@ function capture(event: string, properties?: Record<string, unknown>): void {
   if (typeof window === 'undefined') return
   window.posthog?.capture(event, properties)
   window.gtag?.('event', event, properties ?? {})
+}
+
+/** This visitor's PostHog id, sent with a booking so the server's record of
+ *  it joins the visit (see posthog-server.ts). Undefined when not loaded. */
+export function posthogId(): string | undefined {
+  if (typeof window === 'undefined') return undefined
+  try { return window.posthog?.get_distinct_id?.() } catch { return undefined }
+}
+
+/** After a booking: this browser is that customer from now on (their earlier
+ *  and later visits join their person in PostHog). */
+export function identifyBooker(email: string, firstName: string, lastName: string): void {
+  if (typeof window === 'undefined' || !email) return
+  try { window.posthog?.identify(email.trim().toLowerCase(), { email: email.trim().toLowerCase(), name: `${firstName} ${lastName}`.trim() }) } catch { /* ignore */ }
 }
 
 export function trackWizardStarted(eventType: string): void {

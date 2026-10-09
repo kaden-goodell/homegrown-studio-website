@@ -13,6 +13,19 @@
     Access-Control-Allow-Headers = "Content-Type"
 
 # Rebrand (Sep 2026): the old domain stays live only to forward people to the new one.
+# PostHog through our own domain (see src/components/posthog.astro).
+[[redirects]]
+  from = "/hs-e/static/*"
+  to = "https://us-assets.i.posthog.com/static/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/hs-e/*"
+  to = "https://us.i.posthog.com/:splat"
+  status = 200
+  force = true
+
 [[redirects]]
   from = "https://homegrowncraftstudio.com/*"
   to = "https://ourhometownstudio.com/:splat"

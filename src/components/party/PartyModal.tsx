@@ -44,6 +44,8 @@ import {
   trackBookingAbandoned,
   trackBookingProblem,
   type AnalyticsItem,
+  posthogId,
+  identifyBooker,
 } from '@lib/analytics'
 import { readAttribution } from '@lib/attribution'
 
@@ -631,6 +633,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             people,
             // Where this visitor first/last came from (Google, Facebook, a texted link…).
             attribution: readAttribution(),
+            posthogId: posthogId(),
             customer: {
               firstName: contact.firstName.trim(),
               lastName: contact.lastName.trim(),
@@ -689,6 +692,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           savedAt: new Date().toISOString(),
         })
       }
+      identifyBooker(contact.email, contact.firstName, contact.lastName)
       trackPaymentCompleted((typeof data.totalCharged === 'number' ? data.totalCharged : deposit) / 100, {
         kind: 'party',
         transactionId: newBookingId,

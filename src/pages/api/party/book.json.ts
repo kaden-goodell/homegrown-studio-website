@@ -12,6 +12,7 @@ import { kitThemes } from '@config/kit-content'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { savePartyRecord, getPartyRecord, newHostToken, type PartyRecord } from '@lib/party-store'
 import { cleanAttribution } from '@lib/attribution'
+import { reportBooking } from '@lib/posthog-server'
 import { isStartOpen, studioDateOf, bookingHeldBy } from '@lib/party-availability'
 import { bookableOn } from '@lib/party-slots'
 import { partyRefundLine } from '@lib/refund-lines'
@@ -721,6 +722,28 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       minGuests: partyConfig.minGuests,
       refundLine: partyRefundLine(body.startTime),
       directionsUrl: STUDIO_DIRECTIONS_URL,
+    })
+
+    await reportBooking({
+      requestUrl: request.url,
+      kind: 'party',
+      bookingId: booking.id,
+      amountCents: Number(order.totalAmount ?? 0),
+      email: body.customer.email,
+      firstName: body.customer.firstName,
+      lastName: body.customer.lastName,
+      items: [{ item_id: body.craft.id, item_name: body.craft.name, item_category: 'party_craft', price: body.craft.perHeadCents / 100, quantity: body.people }],
+      attribution: cleanAttribution((body as { attribution?: unknown }).attribution),
+      posthogId: (body as { posthogId?: unknown }).posthogId,
+      extra: {
+        guests: body.people,
+        craft: body.craft.name,
+        party_date: body.startTime.slice(0, 10),
+        days_ahead: Math.round((Date.parse(body.startTime) - Date.now()) / 86_400_000),
+        expected_craft_revenue: (body.craft.perHeadCents * body.people) / 100,
+        paid_with: body.sourceKind ?? 'card',
+        ...(theme ? { themed_table: theme.displayName } : {}),
+      },
     })
 
     return new Response(
