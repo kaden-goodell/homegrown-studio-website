@@ -6,6 +6,7 @@ import WorkshopCard from './WorkshopCard'
 import WorkshopBookingModal from './WorkshopBookingModal'
 import { canBeBooked, isSoldOut } from '@lib/workshop-rules'
 import { byStart } from './workshop-view-model'
+import { trackViewItemList, trackSelectItem, type AnalyticsItem } from '@lib/analytics'
 import type { SeatOption } from '@lib/seat-options'
 
 export interface WorkshopData {
@@ -191,6 +192,21 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
 
   const sorted = [...workshops].sort(byStart)
 
+  // The class list as a list: which classes people see, then which they open.
+  const classItem = (w: WorkshopData, i: number): AnalyticsItem => ({
+    item_id: w.classScheduleId ?? w.id, item_name: w.name, item_category: 'workshop', price: w.price / 100, index: i,
+  })
+  const listSent = useRef(false)
+  useEffect(() => {
+    if (listSent.current || loading || sorted.length === 0) return
+    listSent.current = true
+    trackViewItemList('workshops', sorted.map(classItem))
+  }, [loading, sorted.length])
+  const openBooking = (w: WorkshopData) => {
+    trackSelectItem('workshops', classItem(w, Math.max(0, sorted.findIndex((x) => x.id === w.id))))
+    setBookingWorkshop(w)
+  }
+
   // Google is told about every workshop with a price, sold out or not (a
   // sold-out one is reported as sold out). A class with no price yet is left
   // out: it would otherwise be listed as a free event.
@@ -255,7 +271,7 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
         <div style={GRID}>
           {sorted.map((w) => (
             <div key={w.id} id={cardAnchor(w.id)} style={{ display: 'flex' }}>
-              <WorkshopCard workshop={w} onBook={setBookingWorkshop} />
+              <WorkshopCard workshop={w} onBook={openBooking} />
             </div>
           ))}
         </div>

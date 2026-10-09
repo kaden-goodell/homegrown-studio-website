@@ -4,6 +4,7 @@ import { siteConfig } from '@config/site.config'
 import Header from '@components/shared/Header.astro'
 import Footer from '@components/shared/Footer.astro'
 import Analytics from '@components/shared/Analytics.astro'
+import PostHog from '@components/posthog.astro'
 import SeoHead from '@components/shared/SeoHead.astro'
 import Shimmer from '@components/shared/Shimmer'
 import '@styles/global.css'
@@ -38,6 +39,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <SeoHead {...Astro.props} />
+    <PostHog />
     <ViewTransitions />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

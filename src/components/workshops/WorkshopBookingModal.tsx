@@ -26,7 +26,14 @@ import {
   trackPaymentFailed,
   trackBookingCompleted,
   trackWorkshopSeatBooked,
+  trackViewItem,
+  trackBeginCheckout,
+  trackAddPaymentInfo,
+  trackBookingAbandoned,
+  trackBookingProblem,
+  type AnalyticsItem,
 } from '@lib/analytics'
+import { readAttribution } from '@lib/attribution'
 
 interface WorkshopBookingModalProps {
   workshop: WorkshopData
@@ -88,6 +95,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
 
   useEffect(() => {
     trackWizardStarted('workshop')
+    trackViewItem(classItem(1))
   }, [])
 
   // The address always names the open workshop, so it can be copied and sent.
@@ -112,10 +120,19 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   const when = formatDayAndSpan(workshop.startTime, workshop.endTime)
   const seatWord = `${seats} seat${seats === 1 ? '' : 's'}`
 
+  const classItem = (quantity = seats): AnalyticsItem => ({
+    item_id: workshop.classScheduleId ?? workshop.id, item_name: workshop.name, item_category: 'workshop', price: workshop.price / 100, quantity,
+  })
+  /** Close without booking: say where they stopped (the funnel's drop-off). */
+  function closeAndRecord() {
+    if (!completed) trackBookingAbandoned('workshop', step, { class: workshop.name, seats })
+    onClose()
+  }
+
   // Closing asks first only once there is something to lose.
   const started = seats !== 1 || contactStarted(contact) || Object.keys(selections).length > 0
   function requestClose() {
-    if (completed || !started) return onClose()
+    if (completed || !started) return closeAndRecord()
     setAskToLeave(true)
   }
 
@@ -170,9 +187,11 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
         token = tokenized.token
         sourceKind = tokenized.kind
       } catch {
+        trackBookingProblem('workshop', 'card_unreadable')
         throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
       }
 
+      trackAddPaymentInfo('workshop', total / 100, sourceKind)
       let bookRes: Response
       try {
         bookRes = await fetch('/api/workshops/book.json', {
@@ -191,6 +210,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
             },
             seats,
             ...(options.length > 0 ? { picks } : {}),
+            attribution: readAttribution(),
             paymentToken: token,
             sourceKind,
           }),
@@ -217,7 +237,12 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
       setEmailSent(bookData.data.emailSent === true)
       setAskToLeave(false)
       setCompleted(true)
-      trackPaymentCompleted(total / 100)
+      trackPaymentCompleted(total / 100, {
+        kind: 'workshop',
+        transactionId: bookData.data.bookingId ?? null,
+        items: [classItem()],
+        extra: { seats, class: workshop.name },
+      })
       trackWorkshopSeatBooked(workshop.name, total / 100)
       trackBookingCompleted('workshop')
     } catch (err) {
@@ -559,6 +584,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
         onClick={() => {
           if (!picksComplete()) return
           trackWizardStepCompleted('details')
+          trackBeginCheckout('workshop', total / 100, [classItem()], { seats })
           setStep('pay')
         }}
       >
@@ -608,7 +634,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
               keepLabel: 'Keep booking',
               leaveLabel: 'Close',
               onKeep: () => setAskToLeave(false),
-              onLeave: onClose,
+              onLeave: closeAndRecord,
             }
           : null
       }

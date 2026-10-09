@@ -15,6 +15,7 @@ import type { HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, field, Badge } from '@components/staff/ui'
 import type { StaffMember } from '@lib/staff-auth'
 import { EVENT_KIND_RE, type EventKind } from '@lib/event-kinds'
+import { trackKitOrderUpdated } from '@lib/analytics'
 
 // ─── Kits phase ──────────────────────────────────────────────────────────────
 
@@ -250,6 +251,10 @@ function readOpenParam(): { kind: EventKind; id: string } | null {
   }
 }
 
+function identifyStaff(staff: StaffMember): void {
+  window.posthog?.identify(staff.id, { name: staff.name, role: staff.role })
+}
+
 export default function StaffConsole() {
   const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'today' | 'upcoming' | 'roster' | 'kits' | 'giftcards'>('checking')
   // Which list a roster was opened from, so its Back and the active tab match.
@@ -292,6 +297,7 @@ export default function StaffConsole() {
         const res = await fetch('/api/staff/me.json', { cache: 'no-store' })
         if (res.ok) {
           const json = await res.json()
+          identifyStaff(json.data.staff)
           setMe(json.data.staff)
           // `/staff?open=party:abc` (the kiosk's return path after signing for an
           // event) goes straight to that roster, then drops the param so a
@@ -337,6 +343,8 @@ export default function StaffConsole() {
         setPickBusy(false)
         return
       }
+      if (me && me.id !== json.data.staff.id) window.posthog?.reset()
+      identifyStaff(json.data.staff)
       setMe(json.data.staff)
       setPickBusy(false)
       landOnToday()
@@ -358,6 +366,7 @@ export default function StaffConsole() {
 
   async function logout() {
     await fetch('/api/staff/login.json', { method: 'DELETE' })
+    window.posthog?.reset()
     passcodeRef.current = ''
     setMe(null)
     setStaffRoster([])
@@ -394,6 +403,7 @@ export default function StaffConsole() {
       const json = await res.json().catch(() => null)
       if (!res.ok) return { error: json?.error ?? 'Something went wrong.' }
       posted = true
+      trackKitOrderUpdated(body.action ?? (path === KIT_CANCEL ? 'cancel' : path === KIT_REMIND ? 'remind' : 'unknown'))
       await loadKits()
       return {}
     } catch {

@@ -48,6 +48,8 @@ export interface PartyRecord {
   theme?: { themeId: string; displayName: string; serves: number; claimRef: string }
   /** Written by a payment-bypass booking (dev / preview). Hidden in production. */
   simulated?: true
+  /** Where the host first and last came from (Google, Facebook, a texted link…), when known. */
+  attribution?: import('@lib/attribution').Attribution
   createdAt: string // ISO
 }
 

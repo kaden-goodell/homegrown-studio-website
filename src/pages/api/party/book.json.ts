@@ -11,6 +11,7 @@ import { kitConfig } from '@config/kit.config'
 import { kitThemes } from '@config/kit-content'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { savePartyRecord, getPartyRecord, newHostToken, type PartyRecord } from '@lib/party-store'
+import { cleanAttribution } from '@lib/attribution'
 import { isStartOpen, studioDateOf, bookingHeldBy } from '@lib/party-availability'
 import { bookableOn } from '@lib/party-slots'
 import { partyRefundLine } from '@lib/refund-lines'
@@ -43,6 +44,8 @@ interface ResolvedTheme {
 
 /** Build + persist the party record for the host's management view. Returns hostToken or null. */
 async function persistParty(bookingId: string, body: BookRequest, theme?: ResolvedTheme, simulated = false): Promise<string | null> {
+  // Sent by the browser, so never trusted as-is.
+  const attribution = cleanAttribution((body as { attribution?: unknown }).attribution)
   // A retried checkout reaches here a second time for the same booking. Keep
   // the record and token from the first time: that token is already in the
   // host's confirmation email.
@@ -69,6 +72,7 @@ async function persistParty(bookingId: string, body: BookRequest, theme?: Resolv
       ? { theme: { themeId: theme.themeId, displayName: theme.displayName, serves: theme.serves, claimRef: theme.claimRef } }
       : {}),
     ...(simulated ? { simulated: true as const } : {}),
+    ...(attribution ? { attribution } : {}),
     createdAt: new Date().toISOString(),
   }
   try {

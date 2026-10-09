@@ -222,7 +222,7 @@ describe('WorkshopBookingModal — payment step', () => {
     const body = JSON.parse(init.body)
     expect(body.seats).toBe(2)
     expect(Object.keys(body).sort()).toEqual(
-      ['attemptId', 'classScheduleId', 'customer', 'paymentToken', 'seats', 'sourceKind', 'startAt', 'workshopId'],
+      ['attemptId', 'attribution', 'classScheduleId', 'customer', 'paymentToken', 'seats', 'sourceKind', 'startAt', 'workshopId'],
     )
     expect(body.customer).toEqual({ givenName: 'Alice', familyName: 'Smith', email: 'alice@test.com', phone: '(256) 555-0123' })
     expect(body.workshopId).toBe('inst-1')

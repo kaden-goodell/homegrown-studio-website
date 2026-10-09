@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { trackViewItemList } from '@lib/analytics'
 
 interface Craft {
   id: string
@@ -27,7 +28,9 @@ export default function CraftMenu() {
         if (cancelled) return
         const data = json.data ?? json
         // Crafts tagged "Parties Only" in Square stay off the café menu.
-        setCrafts(Array.isArray(data?.crafts) ? data.crafts.filter((c) => !c.partyOnly) : [])
+        const menu = Array.isArray(data?.crafts) ? data.crafts.filter((c) => !c.partyOnly) : []
+        setCrafts(menu)
+        if (menu.length) trackViewItemList('cafe_menu', menu.map((c, i) => ({ item_id: c.id, item_name: c.name, item_category: 'cafe', index: i })))
       })
       .catch((err) => {
         // Distinct from an empty catalog: a transient API blip must not read

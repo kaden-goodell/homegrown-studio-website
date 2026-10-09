@@ -3,6 +3,7 @@ import StaffHeader from '@components/staff/StaffHeader'
 import { card, btn, field } from '@components/staff/ui'
 import { formatCents } from '@lib/utils'
 import type { StaffMember } from '@lib/staff-auth'
+import { trackGiftCardCreated } from '@lib/analytics'
 
 interface CardRow {
   id: string
@@ -68,6 +69,7 @@ export default function GiftCards({ staff }: { staff: StaffMember }) {
       })
       const body = await res.json().catch(() => ({}))
       if (res.ok) {
+        trackGiftCardCreated(amountDollars)
         setMade({ gan: body.data.card.gan, recorded: true })
         setForWhom('')
         setNote('')

@@ -16,6 +16,7 @@ import { choiceTotals, type SeatOption, type SeatPick } from '@lib/seat-options'
 
 const logger = createLogger('seat-choices')
 const kv = makeKvStore('seat-choices', 'seat-choices')
+import type { Attribution } from '@lib/attribution'
 
 export interface SeatChoiceRecord {
   eventKind: 'workshop'
@@ -38,6 +39,8 @@ export interface SeatChoiceRecord {
   payAtRegister?: true
   /** Square class-booking ids for a comped seat added from /staff (one per seat). */
   squareBookingIds?: string[]
+  /** Where an online booker came from (first and last visit source). */
+  attribution?: Attribution
 }
 
 const prefix = (eventId: string) => `seat-choices-workshop:${eventId}-`

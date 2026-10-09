@@ -15,6 +15,7 @@ import { canBeBooked } from '@lib/workshop-rules'
 import { getEventMeta } from '@lib/event-meta'
 import { saveSeatChoices } from '@lib/seat-choices'
 import { paymentBypassEnabled } from '@lib/dev-flags'
+import { cleanAttribution } from '@lib/attribution'
 import {
   cutoffClosedMessage,
   effectiveCutoffHours,
@@ -228,6 +229,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         at: new Date().toISOString(),
         attemptId,
         ...(simulated ? { simulated: true as const } : {}),
+        ...(cleanAttribution(body.attribution) ? { attribution: cleanAttribution(body.attribution)! } : {}),
       })
     } catch (err) {
       logger.error('SEAT PICKS NOT SAVED (booking is paid)', {

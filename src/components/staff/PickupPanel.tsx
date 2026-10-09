@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { btn, field } from '@components/staff/ui'
 import type { Household } from '@components/staff/HouseholdCard'
+import { trackPickupCodeReissued, trackStaffCheckoutCompleted, trackStaffPickupOverridden } from '@lib/analytics'
 
 type PostFn = (recordId: string, extra: any) => Promise<{ error?: string; oneTimeCode?: string; smsFailed?: boolean }>
 
@@ -102,7 +103,10 @@ export default function PickupPanel({
     })
     setBusy(false)
     if (r.error) setErr(r.error)
-    else reset()
+    else {
+      trackStaffCheckoutCompleted(selectedOut.length, code.trim().length > 0)
+      reset()
+    }
   }
 
   async function doOverride() {
@@ -120,6 +124,7 @@ export default function PickupPanel({
     })
     setBusy(false)
     if (r.error) { setErr(r.error); return }
+    trackStaffPickupOverridden(selectedOut.length, overrideReason)
     setOverrideOpen(false)
     setOverrideReason('')
     setOverrideText('')
@@ -155,6 +160,7 @@ export default function PickupPanel({
     const r = await post(h.recordId, { action: 'reissue-code', day, reason })
     setBusy(false)
     if (r.error) { setErr(r.error); return }
+    trackPickupCodeReissued()
     onCodeIssued(r.oneTimeCode ?? null, !!r.smsFailed)
     setResendToast(r.smsFailed ? 'Text didn’t send — tell the parent the code.' : `New code texted to ${h.phone}`)
   }

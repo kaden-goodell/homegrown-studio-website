@@ -37,7 +37,15 @@ import {
   trackPaymentCompleted,
   trackPaymentFailed,
   trackBookingCompleted,
+  trackSelectItem,
+  trackBookingChoice,
+  trackBeginCheckout,
+  trackAddPaymentInfo,
+  trackBookingAbandoned,
+  trackBookingProblem,
+  type AnalyticsItem,
 } from '@lib/analytics'
+import { readAttribution } from '@lib/attribution'
 
 interface PartyModalProps {
   onClose: () => void
@@ -307,7 +315,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       setBookedDates(data.bookedDates ?? [])
       setTimesByDate(data.times ?? {})
     } catch {
-      if (!isCancelled()) setDatesError(true)
+      if (!isCancelled()) { setDatesError(true); trackBookingProblem('party', 'dates_unavailable') }
     } finally {
       if (!isCancelled()) setLoadingDates(false)
     }
@@ -424,6 +432,22 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     }
   }, [themeTierAvailable, selectedTheme])
 
+  // ── Analytics ─────────────────────────────────────────────────────────────
+  const craftItem = (c: Craft, quantity?: number): AnalyticsItem => ({
+    item_id: c.id, item_name: c.name, item_category: 'party', price: c.perHeadCents / 100, ...(quantity ? { quantity } : {}),
+  })
+  /** Close without booking: say where they stopped (the funnel's drop-off). */
+  function closeAndRecord() {
+    if (!completed) {
+      trackBookingAbandoned('party', currentStep, {
+        ...(selectedCraft ? { craft: selectedCraft.name } : {}),
+        ...(selectedSlot ? { start: selectedSlot.startAt } : {}),
+        guests: people,
+      })
+    }
+    onClose()
+  }
+
   // ── Moving through the steps ──────────────────────────────────────────────
   const stepIdx = stepIndex(currentStep, steps)
 
@@ -446,6 +470,14 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     const next = nextStep(currentStep, steps)
     if (next) {
       trackWizardStepCompleted(currentStep)
+      if (currentStep === 'who') trackBookingChoice('party', 'guests', people)
+      if (next === 'pay' && selectedCraft) {
+        trackBeginCheckout('party', deposit / 100, [craftItem(selectedCraft, people)], {
+          guests: people,
+          // What the crafts should bring in at the studio, on top of the fee paid online.
+          expected_craft_revenue: (selectedCraft.perHeadCents * people) / 100,
+        })
+      }
       setCurrentStep(next)
     }
   }
@@ -459,17 +491,21 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   }
 
   function requestClose() {
-    if (completed || (!touched && !contactStarted(contact))) return onClose()
+    if (completed || (!touched && !contactStarted(contact))) return closeAndRecord()
     setAskToLeave(true)
   }
 
   function chooseCraft(craft: Craft) {
+    if (selectedCraft?.id !== craft.id) trackSelectItem('party booking', craftItem(craft))
     setSelectedCraft(craft)
     setStepProblem('')
   }
 
   async function chooseDate(date: string, options: { byCustomer: boolean } = { byCustomer: true }) {
-    if (options.byCustomer) setTouched(true)
+    if (options.byCustomer) {
+      setTouched(true)
+      if (date) trackBookingChoice('party', 'date', date)
+    }
     setSelectedDate(date)
     setSelectedSlot(null)
     setSlotsError(false)
@@ -496,6 +532,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
   function chooseSlot(slot: Slot) {
     setTouched(true)
+    trackBookingChoice('party', 'time', slot.startAt)
     setSelectedSlot(slot)
     setStepProblem('')
   }
@@ -511,6 +548,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
    * everything they typed still in place.
    */
   async function recoverFromLostTime() {
+    trackBookingProblem('party', 'time_taken')
     const date = selectedSlot ? selectedDate : ''
     setSelectedSlot(null)
     setSlotSettled(false) // brings the date step back if a link had removed it
@@ -565,10 +603,12 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           token = tokenized.token
           sourceKind = tokenized.kind
         } catch {
+          trackBookingProblem('party', 'card_unreadable')
           throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
         }
       }
 
+      trackAddPaymentInfo('party', deposit / 100, walletToken ? 'wallet' : sourceKind)
       let bookRes: Response
       try {
         bookRes = await fetch('/api/party/book.json', {
@@ -589,6 +629,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               imageUrl: selectedCraft.imageUrl ?? '',
             },
             people,
+            // Where this visitor first/last came from (Google, Facebook, a texted link…).
+            attribution: readAttribution(),
             customer: {
               firstName: contact.firstName.trim(),
               lastName: contact.lastName.trim(),
@@ -647,7 +689,12 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           savedAt: new Date().toISOString(),
         })
       }
-      trackPaymentCompleted(deposit / 100)
+      trackPaymentCompleted((typeof data.totalCharged === 'number' ? data.totalCharged : deposit) / 100, {
+        kind: 'party',
+        transactionId: newBookingId,
+        items: [craftItem(selectedCraft, people)],
+        extra: { guests: people, craft: selectedCraft.name, expected_craft_revenue: (selectedCraft.perHeadCents * people) / 100 },
+      })
       trackBookingCompleted('party')
     } catch (err) {
       const message = err instanceof Error ? err.message : partyMessages.unavailable
@@ -1402,7 +1449,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               keepLabel: 'Keep booking',
               leaveLabel: 'Close',
               onKeep: () => setAskToLeave(false),
-              onLeave: onClose,
+              onLeave: closeAndRecord,
             }
           : null
       }

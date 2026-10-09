@@ -8,6 +8,7 @@ import HistorySheet from '@components/staff/HistorySheet'
 import type { EventKind } from '@lib/events'
 import type { AuthorizedPickup } from '@lib/waiver-store'
 import { picksShort, type SeatPick } from '@lib/seat-options'
+import { trackStaffCheckinCompleted } from '@lib/analytics'
 
 export interface Presence {
   inAt: string
@@ -179,7 +180,10 @@ export default function HouseholdCard({
     setErr(null)
     const r = await post(h.recordId, { day, ...extra })
     if (r.error) setErr(r.error)
-    else if (r.oneTimeCode) { setRevealCode(r.oneTimeCode); setSmsFailed(!!r.smsFailed) }
+    else {
+      if (extra.action === 'checkin') trackStaffCheckinCompleted(extra.personIds.length, dropOff)
+      if (r.oneTimeCode) { setRevealCode(r.oneTimeCode); setSmsFailed(!!r.smsFailed) }
+    }
   }
 
   function handleResetTap() {

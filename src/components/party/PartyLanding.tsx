@@ -5,6 +5,7 @@ import { partyConfig } from '@config/party.config'
 import { partyContent } from '@config/party-content'
 import { craftShareUrl } from '@lib/party-share'
 import { formatMoney } from '@lib/money'
+import { trackViewItemList, trackSelectItem, trackShare, trackCtaClick, type AnalyticsItem } from '@lib/analytics'
 
 interface Craft {
   id: string
@@ -237,7 +238,21 @@ export default function PartyLanding() {
     if (start || date || craft) setModalOpen(true)
   }, [])
 
+  const craftItem = (c: Craft, i?: number): AnalyticsItem => ({
+    item_id: c.id, item_name: c.name, item_category: 'party_craft', price: c.perHeadCents / 100, ...(i !== undefined ? { index: i } : {}),
+  })
+  // The craft gallery as a list: which crafts people see, then which they tap.
+  const listSent = useRef(false)
+  useEffect(() => {
+    if (listSent.current || crafts.length === 0) return
+    listSent.current = true
+    trackViewItemList('party_crafts', crafts.map((c, i) => craftItem(c, i)))
+  }, [crafts.length])
+
   function openModal(opts: { craftId?: string; date?: string } = {}) {
+    const i = opts.craftId ? crafts.findIndex((c) => c.id === opts.craftId) : -1
+    if (i >= 0) trackSelectItem('party_crafts', craftItem(crafts[i], i))
+    else trackCtaClick(opts.date ? 'party_date_chip' : 'party_book_button', opts.date ?? 'party_landing')
     setInitialCraftId(opts.craftId)
     setInitialDate(opts.date)
     setInitialStart(undefined)
@@ -245,6 +260,7 @@ export default function PartyLanding() {
   }
 
   async function shareCraft(craft: Craft) {
+    trackShare('party_craft', typeof navigator.share === 'function' ? 'share_sheet' : 'copy_link', craft.id)
     const url = craftShareUrl(craft.id, window.location.origin)
     const text = `Look at this — we could make ${craft.name} at Hometown Studio!`
     if (navigator.share) {
@@ -371,7 +387,7 @@ export default function PartyLanding() {
           </div>
           {!showAllCrafts && crafts.length > CRAFT_PREVIEW_COUNT && (
             <div style={{ textAlign: 'center', marginTop: '1.5rem' }}>
-              <button type="button" className="btn btn-secondary" onClick={() => setShowAllCrafts(true)}>
+              <button type="button" className="btn btn-secondary" onClick={() => { trackCtaClick('show_all_crafts', 'party_landing'); setShowAllCrafts(true) }}>
                 Show all {crafts.length} crafts
               </button>
             </div>

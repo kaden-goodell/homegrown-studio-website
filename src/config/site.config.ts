@@ -392,8 +392,8 @@ export const siteConfig: SiteConfig = {
   analytics: {
     provider: 'posthog',
     config: {
-      apiKey: env.POSTHOG_API_KEY || '',
-      host: env.POSTHOG_HOST || 'https://app.posthog.com',
+      apiKey: env.PUBLIC_POSTHOG_PROJECT_TOKEN || '',
+      host: env.PUBLIC_POSTHOG_HOST || '',
     },
   },
   testimonials: {
