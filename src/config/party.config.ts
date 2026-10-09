@@ -60,10 +60,11 @@ export const partyConfig = {
   bookingWindowDays: 90,
   /**
    * The least notice a party needs, in days: a party on the 20th can be booked
-   * up to and including the 15th. Gives time to order supplies (Kaden, 27 Sep
-   * 2026). Enforced in the same place as the window.
+   * up to and including the 13th. A week out — five business days to order
+   * supplies (Kaden, 9 Oct 2026; was 5 days from 27 Sep). Enforced in the same
+   * place as the window.
    */
-  minLeadDays: 5,
+  minLeadDays: 7,
   /** Earliest bookable party date (YYYY-MM-DD, studio-local): the weekend
    *  after the grand opening (see opening.ts). No date before this is offered
    *  OR accepted — enforced in partyStartsForDate, which also backs the book

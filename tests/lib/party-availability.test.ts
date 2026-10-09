@@ -31,7 +31,7 @@ vi.mock('@config/site.config', () => ({
 // ── Deterministic clock ───────────────────────────────────────────────────────
 // Use a far-future Saturday so openPartyStarts won't filter any starts as past.
 // 2027-08-07 is a Saturday; the one Saturday party slot is 1:30 PM CT
-const FAKE_NOW = new Date('2027-08-01T12:00:00.000Z').getTime() // well before the Saturday
+const FAKE_NOW = new Date('2027-07-30T12:00:00.000Z').getTime() // more than a week before the Saturday
 
 const TEST_DATE = '2027-08-07' // Saturday
 

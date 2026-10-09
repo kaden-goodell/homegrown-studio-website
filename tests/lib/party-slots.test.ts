@@ -12,7 +12,7 @@ const NOV_3 = new Date('2026-11-03T18:00:00.000Z')
 describe('bookableDates', () => {
   it('uses the settings, not numbers typed here', () => {
     expect(partyConfig.bookingWindowDays).toBe(90)
-    expect(partyConfig.minLeadDays).toBe(5)
+    expect(partyConfig.minLeadDays).toBe(7)
   })
 
   it('before parties start, begins on the first party day (the weekend after opening) and ends 90 days from today', () => {
@@ -23,8 +23,8 @@ describe('bookableDates', () => {
     expect(bookableDates(OCT_20)).toEqual({ first: '2026-11-07', last: '2027-01-18' })
   })
 
-  it('once parties have started, starts 5 days from today', () => {
-    expect(bookableDates(NOV_3)).toEqual({ first: '2026-11-08', last: '2027-02-01' })
+  it('once parties have started, starts a week (7 days) from today', () => {
+    expect(bookableDates(NOV_3)).toEqual({ first: '2026-11-10', last: '2027-02-01' })
   })
 
   it('counts days on the studio calendar, not the UTC one', () => {
@@ -33,13 +33,13 @@ describe('bookableDates', () => {
     expect(bookableDates(lateEvening).first).toBe('2026-11-07')
     // 11:30 PM Central on 3 Nov (CST) is already 4 Nov in UTC.
     const lateNov3 = new Date('2026-11-04T05:30:00.000Z')
-    expect(bookableDates(lateNov3).first).toBe('2026-11-08')
+    expect(bookableDates(lateNov3).first).toBe('2026-11-10')
   })
 
   it('crosses the clock change and the year end without slipping a day', () => {
     // Window set on 30 Oct (CDT) runs across the 1 Nov clock change.
     expect(bookableDates(new Date('2026-10-30T17:00:00.000Z')).last).toBe('2027-01-28')
-    expect(bookableDates(new Date('2026-11-04T18:00:00.000Z')).first).toBe('2026-11-09')
+    expect(bookableDates(new Date('2026-11-04T18:00:00.000Z')).first).toBe('2026-11-11')
     expect(bookableDates(new Date('2026-12-20T18:00:00.000Z')).last).toBe('2027-03-20')
   })
 })
@@ -55,7 +55,8 @@ describe('bookableOn', () => {
   it('accepts both ends of the window', () => {
     expect(bookableOn('2026-11-07', OCT_20)).toBe('ok')
     expect(bookableOn('2027-01-18', OCT_20)).toBe('ok')
-    expect(bookableOn('2026-11-08', NOV_3)).toBe('ok')
+    expect(bookableOn('2026-11-10', NOV_3)).toBe('ok')
+    expect(bookableOn('2026-11-09', NOV_3)).toBe('too_soon')
     expect(bookableOn('2027-02-01', NOV_3)).toBe('ok')
   })
 })
@@ -80,9 +81,12 @@ describe('partyStartsForDate', () => {
     expect(partyStartsForDate('2027-01-09', SEP_27)).toEqual([])
   })
 
-  it('offers nothing with less than 5 days\' notice', () => {
-    expect(partyStartsForDate('2026-11-07', NOV_3)).toEqual([]) // Saturday, 4 days away
-    expect(partyStartsForDate('2026-11-08', NOV_3).length).toBeGreaterThan(0) // Sunday, 5 days away
+  it('offers nothing with less than a week\'s (7 days\') notice', () => {
+    expect(partyStartsForDate('2026-11-08', NOV_3)).toEqual([]) // Sunday, 5 days away
+    const sat7 = new Date('2026-11-07T18:00:00.000Z') // noon Central, Saturday
+    expect(partyStartsForDate('2026-11-14', sat7).length).toBeGreaterThan(0) // next Saturday, exactly 7 days
+    const sun8 = new Date('2026-11-08T18:00:00.000Z')
+    expect(partyStartsForDate('2026-11-14', sun8)).toEqual([]) // 6 days away
   })
 
   it('offers nothing before parties start (opening weekend included)', () => {
