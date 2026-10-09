@@ -25,6 +25,9 @@ export const partyConfig = {
     /** Marker category — crafts tagged here are bookable for parties but left
      *  off the Craft Café menu. Manage from Square or `scripts/set-party-only.ts`. */
     partyOnlyCategoryId: 'JQ3QDTNFUZQH3H2DKP3IQTDA',
+    /** Marker category — the reverse: Craft Café menu only, never offered for
+     *  parties or take-home kits. `scripts/set-party-only.ts --cafe`. */
+    cafeOnlyCategoryId: 'OYJ4G6TF6C2HRGWIF2RDEXCQ',
     /** Non-bookable Open Studio display item (flow='display', windows in the
      *  programDates custom attribute). Currently the TEST item created
      *  2026-07-18 for pre-launch flow testing (windows = Jul 23–Aug 2 open

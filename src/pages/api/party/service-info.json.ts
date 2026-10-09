@@ -13,6 +13,9 @@ const logger = createLogger('api:party:service-info')
 export const GET: APIRoute = async ({ url }) => {
   // includeTest=1 is the staff smoke-test lane — surfaces TEST— items.
   const includeTest = url.searchParams.get('includeTest') === '1'
+  // ?menu=cafe is the Craft Café menu: it also wants the café-only crafts,
+  // which parties never offer (the café menu drops the parties-only ones itself).
+  const forCafe = url.searchParams.get('menu') === 'cafe'
   const startTime = Date.now()
   try {
     const client = createSquareClient(
@@ -78,6 +81,8 @@ export const GET: APIRoute = async ({ url }) => {
       imageUrl: string | null
       personalized: boolean
       popular: boolean
+      partyOnly: boolean
+      cafeOnly: boolean
     }> = craftItems
       .map((o) => {
         // A craft with multiple variations shows a price RANGE; the exact variant
@@ -97,6 +102,9 @@ export const GET: APIRoute = async ({ url }) => {
         const partyOnly = (o.itemData?.categories ?? []).some(
           (c: any) => c.id === partyConfig.square.partyOnlyCategoryId
         )
+        const cafeOnly = (o.itemData?.categories ?? []).some(
+          (c: any) => c.id === partyConfig.square.cafeOnlyCategoryId
+        )
         return {
           id: o.id as string,
           name: (o.itemData?.name ?? '') as string,
@@ -107,10 +115,12 @@ export const GET: APIRoute = async ({ url }) => {
           personalized,
           popular,
           partyOnly,
+          cafeOnly,
         }
       })
       // Popular first (the gallery previews only the first few cards), then
       // alphabetical within each group.
+      .filter((c) => forCafe || !c.cafeOnly)
       .sort((a, b) => Number(!!b.popular) - Number(!!a.popular) || a.name.localeCompare(b.name))
 
     // In-studio themed-table add-on: stocked themes only, and only when the kit

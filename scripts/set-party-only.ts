@@ -2,7 +2,8 @@ import 'dotenv/config'
 import { SquareClient, SquareEnvironment } from 'square'
 
 /**
- * Keep a craft off the Craft Café menu while it stays bookable for parties.
+ * Keep a craft off the Craft Café menu while it stays bookable for parties —
+ * or, with --cafe, the reverse: Craft Café only, never on parties or kits.
  *
  * "Parties only" is a marker CATEGORY in Square (same mechanism as "Most
  * Popular" and "Personalized"): a craft also in it is hidden from /craft-cafe.
@@ -12,6 +13,8 @@ import { SquareClient, SquareEnvironment } from 'square'
  * Usage:
  *   npx tsx scripts/set-party-only.ts --name "Patch & Personalize"          # parties only
  *   npx tsx scripts/set-party-only.ts --name "Patch & Personalize" --off    # back on the café menu
+ *   npx tsx scripts/set-party-only.ts --name "Earring Bar" --cafe            # Craft Café only
+ *   npx tsx scripts/set-party-only.ts --name "Earring Bar" --cafe --off      # back on parties too
  */
 
 const client = new SquareClient({ token: process.env.SQUARE_ACCESS_TOKEN!, environment: SquareEnvironment.Production })
@@ -19,10 +22,13 @@ const argv = process.argv.slice(2)
 const flag = (n: string) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : undefined }
 const targetName = flag('name')
 const off = argv.includes('--off')
-const CATEGORY_NAME = 'Parties Only'
+const cafe = argv.includes('--cafe')
+const CATEGORY_NAME = cafe ? 'Café Only' : 'Parties Only'
+const ON = cafe ? 'Craft Café only' : 'parties only'
+const OFF = cafe ? 'back on parties' : 'back on the café menu'
 
 if (!targetName) {
-  console.error('Usage: set-party-only.ts --name "<craft name>" [--off]')
+  console.error('Usage: set-party-only.ts --name "<craft name>" [--cafe] [--off]')
   process.exit(1)
 }
 
@@ -53,14 +59,14 @@ async function main() {
     found = true
     const cats: any[] = o.itemData?.categories ?? []
     const has = cats.some((c) => c.id === catId)
-    if (has === !off) { console.log(`"${targetName}" is already ${off ? 'on the café menu' : 'parties only'}.`); continue }
+    if (has === !off) { console.log(`"${targetName}" is already ${off ? OFF : ON}.`); continue }
     const fresh: any = ((await client.catalog.object.get({ objectId: o.id })) as any).object
     fresh.itemData.categories = off ? cats.filter((c) => c.id !== catId) : [...cats, { id: catId }]
     delete fresh.updatedAt
     delete fresh.createdAt
     delete fresh.versionUpdatedAt
     await client.catalog.batchUpsert({ idempotencyKey: `party-only-${o.id}-${Date.now()}`, batches: [{ objects: [fresh] }] })
-    console.log(`"${targetName}" is now ${off ? 'back on the café menu' : 'parties only'}.`)
+    console.log(`"${targetName}" is now ${off ? OFF : ON}.`)
   }
   if (!found) { console.error(`No craft named "${targetName}".`); process.exit(1) }
 }

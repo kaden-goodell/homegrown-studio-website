@@ -22,6 +22,10 @@ export interface CatalogCraft {
   imageUrl: string | null
   personalized: boolean
   popular: boolean
+  /** Tagged "Parties Only": bookable for parties, not on the café menu. */
+  partyOnly: boolean
+  /** Tagged "Café Only": Craft Café menu only — never a party or kit craft. */
+  cafeOnly: boolean
 }
 
 /** Staff-only smoke-test items ("TEST — Dollar Craft") share the real category;
@@ -30,6 +34,8 @@ export function isTestCraft(name: string | undefined | null): boolean {
   return (name ?? '').trim().toUpperCase().startsWith('TEST')
 }
 
+/** Crafts for parties and take-home kits. Café-only crafts are left out (they
+ *  are never sold that way), so a kit can't be priced or ordered with one. */
 export async function fetchPartyCrafts(
   opts: { includeTest?: boolean } = {},
 ): Promise<CatalogCraft[]> {
@@ -73,6 +79,9 @@ export async function fetchPartyCrafts(
       const partyOnly = (o.itemData?.categories ?? []).some(
         (c: any) => c.id === partyConfig.square.partyOnlyCategoryId
       )
+      const cafeOnly = (o.itemData?.categories ?? []).some(
+        (c: any) => c.id === partyConfig.square.cafeOnlyCategoryId
+      )
       return {
         id: o.id as string,
         name: (o.itemData?.name ?? '') as string,
@@ -83,7 +92,9 @@ export async function fetchPartyCrafts(
         personalized,
         popular,
         partyOnly,
+        cafeOnly,
       }
     })
+    .filter((c) => !c.cafeOnly)
     .sort((a, b) => Number(!!b.popular) - Number(!!a.popular) || a.name.localeCompare(b.name))
 }

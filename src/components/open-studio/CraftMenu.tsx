@@ -21,7 +21,7 @@ export default function CraftMenu() {
     setError(false)
     // NOTE: this endpoint wraps its payload as { data: { crafts, ... } } —
     // unwrap exactly like PartyLanding/PartyModal do (json.data ?? json).
-    fetch('/api/party/service-info.json')
+    fetch('/api/party/service-info.json?menu=cafe')
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`service-info ${r.status}`))))
       .then((json: { data?: { crafts?: Craft[] }; crafts?: Craft[] }) => {
         if (cancelled) return
