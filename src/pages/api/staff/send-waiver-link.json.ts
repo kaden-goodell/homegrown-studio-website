@@ -6,6 +6,7 @@ import { quoConfigured, sendQuoText } from '@lib/quo'
 import { siteConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
 import { recordAudit } from '@lib/audit'
+import { withUtm } from '@lib/utm'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 
 export const prerender = false
@@ -43,7 +44,7 @@ export const POST: APIRoute = async ({ request }) => {
 
     if (!quoConfigured()) return json({ data: { sent: false } }, 200)
 
-    const link = `${siteConfig.url}/waiver?${kind}=${encodeURIComponent(id)}`
+    const link = withUtm(`${siteConfig.url}/waiver?${kind}=${encodeURIComponent(id)}`, { source: 'text', medium: 'sms', campaign: 'waiver_link' })
     const content = `Hometown Studio: please sign the participation agreement for ${event.title}: ${link}`
 
     try {

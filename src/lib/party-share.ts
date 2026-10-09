@@ -96,6 +96,10 @@ export function partyInviteUrl(
     start: input.startIso,
   })
   if (input.title) params.set('title', input.title)
+  // Hosts send this to their guests: a guest who books later came from a party.
+  params.set('utm_source', 'party_invite')
+  params.set('utm_medium', 'referral')
+  params.set('utm_campaign', 'party_invite')
   return `${origin}/invite?${params.toString()}`
 }
 

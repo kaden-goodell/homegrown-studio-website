@@ -31,14 +31,14 @@ const WORKSHOP = {
 const SITE = 'https://ourhometownstudio.com'
 
 describe('sendSignupNewsEmail', () => {
-  it('says what opened and links straight to it', async () => {
+  it('says what opened and links straight to it, tagged as the sign-up email', async () => {
     const { sent } = await email.sendSignupNewsEmail({ to: 'ada@example.com', items: [PARTY], siteUrl: SITE })
     expect(sent).toBe(true)
     const mail = mockSendMail.mock.calls[0][0]
     expect(mail.to).toBe('ada@example.com')
     expect(mail.subject).toBe('Saturday, October 24 is open for a party at Hometown Studio')
     expect(mail.text).toContain('Book October 24: https://ourhometownstudio.com/book?date=2026-10-24')
-    expect(mail.html).toContain('href="https://ourhometownstudio.com/book?date=2026-10-24"')
+    expect(mail.html).toContain('href="https://ourhometownstudio.com/book?date=2026-10-24&amp;utm_source=email&amp;utm_medium=email&amp;utm_campaign=signup_news"')
     expect(mail.html).toContain('>Book October 24</a>')
     for (const body of [mail.text, mail.html]) {
       expect(body).toContain('Saturday, October 24 is open for a party')
@@ -53,8 +53,8 @@ describe('sendSignupNewsEmail', () => {
     await email.sendSignupNewsEmail({ to: 'ada@example.com', items: [PARTY, WORKSHOP], siteUrl: `${SITE}/` })
     const mail = mockSendMail.mock.calls[0][0]
     expect(mail.subject).toBe('What you asked about is open at Hometown Studio')
-    expect(mail.html).toContain('href="https://ourhometownstudio.com/book?date=2026-10-24"')
-    expect(mail.html).toContain('href="https://ourhometownstudio.com/workshops?w=clsschi_kinusaiga"')
+    expect(mail.html).toContain('href="https://ourhometownstudio.com/book?date=2026-10-24&amp;utm_source=email&amp;utm_medium=email&amp;utm_campaign=signup_news"')
+    expect(mail.html).toContain('href="https://ourhometownstudio.com/workshops?w=clsschi_kinusaiga&amp;utm_source=email&amp;utm_medium=email&amp;utm_campaign=signup_news"')
     expect(mail.text).toContain('You asked us to tell you about these. Here they are.')
   })
 

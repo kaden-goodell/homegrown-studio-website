@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { createLogger } from '@lib/logger'
 import { providers } from '@config/providers'
+import { reportServerEvent } from '@lib/posthog-server'
 
 export const POST: APIRoute = async ({ request }) => {
   const logger = createLogger('api:customer:subscribe')
@@ -21,6 +22,7 @@ export const POST: APIRoute = async ({ request }) => {
       duration_ms: Date.now() - startTime,
       email: body.email,
     })
+    await reportServerEvent({ requestUrl: request.url, event: 'newsletter_saved', distinctId: String(body.email), posthogId: body.posthogId })
     return new Response(JSON.stringify({ data: { success: true } }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },

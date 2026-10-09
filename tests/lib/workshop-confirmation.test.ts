@@ -66,6 +66,6 @@ describe('sendWorkshopConfirmation', () => {
   it('carries the class schedule and the booking id in the waiver URL, built from the origin', async () => {
     const sent = await sendWorkshopConfirmation(base)
     expect(sent).toBe(true)
-    expect(sendEmail.mock.calls[0][0].waiverUrl).toBe('https://ourhometownstudio.com/waiver?workshop=sched_1&booking=clsbk_9')
+    expect(sendEmail.mock.calls[0][0].waiverUrl).toBe('https://ourhometownstudio.com/waiver?workshop=sched_1&booking=clsbk_9&utm_source=email&utm_medium=email&utm_campaign=workshop_confirmation')
   })
 })

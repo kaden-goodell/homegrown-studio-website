@@ -85,3 +85,33 @@ export async function reportBooking(b: ServerBooking): Promise<void> {
     })
   } catch { /* analytics never fails a booking */ }
 }
+
+/** Any other server-side fact (a sign-up, a signed agreement…). Same rules:
+ *  live site only, never throws. `distinctId` is the person's email when known. */
+export async function reportServerEvent(e: {
+  requestUrl: string
+  event: string
+  distinctId?: string | null
+  properties?: Record<string, unknown>
+  posthogId?: unknown
+  simulated?: boolean
+}): Promise<void> {
+  const token = import.meta.env.PUBLIC_POSTHOG_PROJECT_TOKEN
+  if (!token || e.simulated || !reportsFrom(e.requestUrl)) return
+  const anon = typeof e.posthogId === 'string' && e.posthogId.length > 0 && e.posthogId.length < 200 ? e.posthogId : null
+  const id = e.distinctId?.trim().toLowerCase() || anon || `server-${e.event}`
+  try {
+    await fetch(`${HOST}/batch/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        api_key: token,
+        batch: [
+          ...(e.distinctId && anon ? [{ event: '$identify', distinct_id: id, properties: { $anon_distinct_id: anon, $set: { email: id } } }] : []),
+          { event: e.event, distinct_id: id, timestamp: new Date().toISOString(), properties: { ...(e.properties ?? {}), source_of_event: 'server', ...(!e.distinctId && !anon ? { $process_person_profile: false } : {}) } },
+        ],
+      }),
+      signal: AbortSignal.timeout(2500),
+    })
+  } catch { /* analytics never fails the request */ }
+}

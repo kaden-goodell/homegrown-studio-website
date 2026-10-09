@@ -28,6 +28,7 @@ import { partyInviteUrl, googleCalendarUrl, buildIcs, addMinutesIso } from '@lib
 import { inviteContent } from '@config/invite-content'
 import { formatSlotLabel, formatCalendarDate } from '@lib/studio-time'
 import { lookupHouseholdEntry } from '@lib/waiver-store'
+import { withUtm } from '@lib/utm'
 import type { Booking } from '@providers/interfaces/booking'
 
 const logger = createLogger('api:party:book')
@@ -680,7 +681,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     // No party page (the record could not be saved): say so, and tell a person.
     // The email must never point somewhere else in its place.
     const hostPageUrl = hostToken
-      ? `${origin}/party/${encodeURIComponent(booking.id)}?key=${encodeURIComponent(hostToken)}`
+      ? withUtm(`${origin}/party/${encodeURIComponent(booking.id)}?key=${encodeURIComponent(hostToken)}`, { source: 'email', medium: 'email', campaign: 'party_confirmation' })
       : null
     if (!hostToken) {
       await alertOwners(

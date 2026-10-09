@@ -8,6 +8,7 @@ import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
 import { partyInviteMailto, partyInviteIcsUrl } from '@lib/party-share'
 import { buildAgreementCopy, buildDropOffDetails, type BuildAgreementCopyInput, type BuildDropOffDetailsInput } from '@lib/agreement-email'
+import { withUtm } from '@lib/utm'
 import { formatWhen } from '@lib/studio-time'
 
 const logger = createLogger('email')
@@ -277,7 +278,7 @@ export async function sendSignupNewsEmail(input: {
   if (input.items.length === 0) return { sent: false }
   const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
   const phone = siteConfig.contactPhone
-  const url = (path: string) => `${input.siteUrl.replace(/\/$/, '')}${path}`
+  const url = (path: string) => withUtm(`${input.siteUrl.replace(/\/$/, '')}${path}`, { source: 'email', medium: 'email', campaign: 'signup_news' })
   const one = input.items.length === 1
   const opener = one ? 'You asked us to tell you when this happened. It has.' : 'You asked us to tell you about these. Here they are.'
   const why = 'You are getting this because you left your email at ourhometownstudio.com and asked to be told. We will not email you about this again.'

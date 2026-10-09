@@ -7,6 +7,7 @@ import { buildIcs, googleCalendarUrl, addMinutesIso } from '@lib/party-share'
 import { formatSlotLabel } from '@lib/studio-time'
 import { summarize } from '@lib/seo'
 import { PICKS_FINAL_LINE, seatPickLines, type SeatOption, type SeatPick } from '@lib/seat-options'
+import { withUtm } from '@lib/utm'
 import type { Workshop } from '@providers/interfaces/workshop'
 
 const TZ = partyConfig.timezone
@@ -39,8 +40,9 @@ export async function sendWorkshopConfirmation(input: {
   const endIso = addMinutesIso(workshop.startAt, workshop.durationMinutes)
   // The waiver page reads `workshop` as the class schedule id and `booking` as
   // the seat booking — the same link the booking modal builds.
-  const waiverUrl = `${origin}/waiver?workshop=${encodeURIComponent(workshop.scheduleId)}&booking=${encodeURIComponent(input.bookingId)}`
-  const workshopUrl = `${origin}/workshops?w=${encodeURIComponent(workshop.id)}`
+  const waiverUrl = withUtm(`${origin}/waiver?workshop=${encodeURIComponent(workshop.scheduleId)}&booking=${encodeURIComponent(input.bookingId)}`, { source: 'email', medium: 'email', campaign: 'workshop_confirmation' })
+  // Forwarded to friends: a visit from it is word of mouth.
+  const workshopUrl = withUtm(`${origin}/workshops?w=${encodeURIComponent(workshop.id)}`, { source: 'friend', medium: 'referral', campaign: 'workshop_share' })
   const calendarEvent = {
     title: `${workshop.name} at Hometown Studio`,
     startIso: workshop.startAt,

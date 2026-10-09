@@ -22,6 +22,7 @@ import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { verifyReuseToken } from '@lib/reuse-token'
 import { getEvent, isEventPast, type EventKind as StudioEventKind, type StudioEvent } from '@lib/events'
+import { reportServerEvent } from '@lib/posthog-server'
 import { sendAgreementCopyEmail, sendDropOffDetailsEmail } from '@lib/email'
 
 export const prerender = false
@@ -645,12 +646,27 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const reuseId = typeof body.reuseRecordId === 'string' ? body.reuseRecordId.trim() : ''
     const reuseToken = typeof body.reuseToken === 'string' ? body.reuseToken.trim() : ''
     if (reuseId) {
-      return handleReuse(reuseId, reuseToken, partyId, workshopId, bookingId, body.attending, responsibleAdult, body.pickupUpdate, now, clientAddress, userAgent)
+      return reportSigned(request.url, true, partyId, workshopId,
+        await handleReuse(reuseId, reuseToken, partyId, workshopId, bookingId, body.attending, responsibleAdult, body.pickupUpdate, now, clientAddress, userAgent))
     }
 
-    return handleFresh(body, partyId, workshopId, bookingId, responsibleAdult, now, clientAddress, userAgent)
+    return reportSigned(request.url, false, partyId, workshopId,
+      await handleFresh(body, partyId, workshopId, bookingId, responsibleAdult, now, clientAddress, userAgent))
   } catch (err) {
     logger.error('Waiver signing failed', { error: err instanceof Error ? err.message : String(err) })
     return bad('Something went wrong saving your signature — please try again or sign at the front desk.', 500)
   }
+}
+
+/** Counts only (how many people, for what): never names. */
+async function reportSigned(requestUrl: string, reused: boolean, partyId: string | null, workshopId: string | null, res: Response): Promise<Response> {
+  if (res.status === 200) {
+    const covered = await res.clone().json().then((j) => (Array.isArray(j?.data?.covered) ? j.data.covered.length : null)).catch(() => null)
+    await reportServerEvent({
+      requestUrl,
+      event: 'agreement_signed',
+      properties: { reused_signature: reused, event_kind: partyId ? 'party' : workshopId ? 'workshop' : 'none', people_covered: covered },
+    })
+  }
+  return res
 }

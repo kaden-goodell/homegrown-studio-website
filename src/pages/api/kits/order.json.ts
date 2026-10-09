@@ -29,6 +29,8 @@ import type { LedgerRecord } from '@lib/kit-ledger'
 import { sendKitConfirmationEmail } from '@lib/email'
 import { fetchPartyCrafts } from '@lib/craft-catalog'
 import { lookupHouseholdEntry } from '@lib/waiver-store'
+import { reportBooking } from '@lib/posthog-server'
+import { cleanAttribution } from '@lib/attribution'
 import { formatCalendarDate } from '@lib/studio-time'
 
 const logger = createLogger('api:kits:order')
@@ -485,6 +487,21 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     } catch (err) {
       logger.error('Kit order Slack notify failed', { error: String(err) })
     }
+
+    const [kitFirst, ...kitRest] = record.contact.name.trim().split(/\s+/)
+    await reportBooking({
+      requestUrl: request.url,
+      kind: 'kit',
+      bookingId: reference,
+      amountCents: record.totalChargedCents,
+      email: record.contact.email,
+      firstName: kitFirst ?? '',
+      lastName: kitRest.join(' '),
+      items: record.crafts.map((c) => ({ item_id: c.craftId, item_name: c.name, item_category: 'kit_craft', price: c.perHeadCents / 100, quantity: c.qty })),
+      attribution: cleanAttribution((body as { attribution?: unknown })?.attribution),
+      posthogId: (body as { posthogId?: unknown })?.posthogId,
+      extra: { guests: record.guests, balance_due: (record.balanceDueCents ?? 0) / 100, quote_total: (record.quoteTotalCents ?? 0) / 100, ...(theme ? { themed_table: theme.displayName } : {}) },
+    })
 
     return okResponse({
       orderId: order.id,

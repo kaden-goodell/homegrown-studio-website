@@ -9,6 +9,7 @@ import { askedLine } from '@lib/signup-ledger'
 import { remember } from '@lib/short-memory'
 import { longDate } from '@lib/notify-context'
 import { OPENING_DATE } from '@config/opening'
+import { reportServerEvent } from '@lib/posthog-server'
 import { partyConfig } from '@config/party.config'
 
 const logger = createLogger('api:party:notify-me')
@@ -90,6 +91,13 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       error: err instanceof Error ? err.message : String(err),
     })
   }
+  await reportServerEvent({
+    requestUrl: request.url,
+    event: 'signup_saved',
+    distinctId: email,
+    posthogId: body?.posthogId,
+    properties: { interest: interest || 'booking_opening', interest_kind: interest.split(':')[0] || 'booking_opening', saved, email_sent: emailSent },
+  })
   return json({ data: { ok: true, emailSent } }, 200)
 }
 
