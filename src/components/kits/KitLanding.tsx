@@ -329,7 +329,7 @@ export default function KitLanding() {
                   )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', flex: 1, padding: '1rem 1.125rem 1.25rem' }}>
-                  <span style={{ fontSize: '1.0625rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)' }}>{craft.name}</span>
+                  <span style={{ fontSize: '1.0625rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.3, minHeight: '2.6em' }}>{craft.name}</span>
                   {craft.description && (
                     <p style={{ margin: '0.4rem 0 0', fontSize: '0.8125rem', lineHeight: 1.5, color: 'var(--color-muted)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                       {craft.description}

@@ -85,7 +85,7 @@ export default function CraftMenu() {
           )}
           <div style={{ padding: '1.25rem' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem' }}>
-              <h3 className="font-heading" style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--color-dark)' }}>{c.name}</h3>
+              <h3 className="font-heading" style={{ fontSize: '1.125rem', fontWeight: 700, color: 'var(--color-dark)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.3, minHeight: '2.6em' }}>{c.name}</h3>
             </div>
             {c.description && (
               <p

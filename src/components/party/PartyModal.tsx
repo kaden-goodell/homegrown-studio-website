@@ -869,7 +869,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                   </div>
                   <div style={{ padding: '0.875rem 1rem 0' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.75rem' }}>
-                      <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)' }}>{craft.name}</span>
+                      <span style={{ fontSize: '1rem', fontWeight: 600, color: 'var(--color-dark)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.3, minHeight: '2.6em' }}>{craft.name}</span>
                       <span style={{ fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)', flexShrink: 0 }}>
                         {perPersonLabel(craft.perHeadCents, craft.perHeadMaxCents)} a person
                       </span>

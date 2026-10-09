@@ -330,7 +330,7 @@ export default function PartyLanding() {
                     )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', flex: 1, width: '100%', padding: '1rem 1.125rem 1.25rem', boxSizing: 'border-box' }}>
-                    <span style={{ fontSize: '1.0625rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)' }}>{craft.name}</span>
+                    <span style={{ fontSize: '1.0625rem', fontFamily: 'var(--font-heading)', fontWeight: 600, color: 'var(--color-dark)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', lineHeight: 1.3, minHeight: '2.6em' }}>{craft.name}</span>
                     {/* Always rendered, so a craft with no description is still the same height */}
                     <p style={craftDescriptionStyle}>
                       {craft.description}
