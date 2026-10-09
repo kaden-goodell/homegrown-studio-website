@@ -13,7 +13,7 @@
  * class-creation script). Never prints the session.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { checkSession, cookieFromCurl, saveSession } from '../src/lib/square-dashboard'
@@ -29,7 +29,9 @@ async function firstScheduleId(): Promise<string> {
 }
 
 async function main() {
-  const pasted = execFileSync('pbpaste', { encoding: 'utf8' })
+  // Piped in (`… < file`) or, by default, the clipboard.
+  const fromStdin = !process.stdin.isTTY
+  const pasted = fromStdin ? readFileSync(0, 'utf8') : execFileSync('pbpaste', { encoding: 'utf8' })
   const cookie = cookieFromCurl(pasted)
   if (!cookie) {
     console.error('✗ The clipboard has no Square sign-in in it. Copy a request to app.squareup.com as cURL (see the top of this file) and run again.')
@@ -62,8 +64,10 @@ async function main() {
   writeFileSync('captures/.square-session', cookie, { mode: 0o600 })
   console.log('✓ Saved for local dev and the class-creation script.')
   // Clear the clipboard so the sign-in isn't left lying around.
-  spawnSync('pbcopy', { input: '' })
-  console.log('Clipboard cleared.')
+  if (!fromStdin) {
+    spawnSync('pbcopy', { input: '' })
+    console.log('Clipboard cleared.')
+  }
 }
 
 main().catch((err) => {
