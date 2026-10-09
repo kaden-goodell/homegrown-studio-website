@@ -16,6 +16,7 @@ import { card, btn, field, Badge } from '@components/staff/ui'
 import type { StaffMember } from '@lib/staff-auth'
 import { EVENT_KIND_RE, type EventKind } from '@lib/event-kinds'
 import { trackKitOrderUpdated } from '@lib/analytics'
+import { posthogOperationalLogger } from '@lib/posthog-logger'
 
 // ─── Kits phase ──────────────────────────────────────────────────────────────
 
@@ -403,7 +404,9 @@ export default function StaffConsole() {
       const json = await res.json().catch(() => null)
       if (!res.ok) return { error: json?.error ?? 'Something went wrong.' }
       posted = true
-      trackKitOrderUpdated(body.action ?? (path === KIT_CANCEL ? 'cancel' : path === KIT_REMIND ? 'remind' : 'unknown'))
+      const action = body.action ?? (path === KIT_CANCEL ? 'cancel' : path === KIT_REMIND ? 'remind' : 'unknown')
+      trackKitOrderUpdated(action)
+      posthogOperationalLogger.info('kit order updated', { operation: 'kit_order_update', action })
       await loadKits()
       return {}
     } catch {

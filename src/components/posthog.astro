@@ -1,10 +1,15 @@
 ---
+/** Staff tools (console, counter iPad) and the agreement show families'
+ *  names, allergies and pickup people as page text, which input masking does
+ *  not hide: those pages send events but are never session-recorded. */
+const { noRecording = false } = Astro.props as { noRecording?: boolean }
 const apiKey = import.meta.env.PUBLIC_POSTHOG_PROJECT_TOKEN
 const apiHost = import.meta.env.PUBLIC_POSTHOG_HOST
 const isDevelopment = import.meta.env.DEV
+const environment = import.meta.env.MODE
 ---
 
-<script is:inline define:vars={{ apiKey, apiHost, isDevelopment }}>
+<script is:inline define:vars={{ apiKey, apiHost, isDevelopment, environment, noRecording }}>
   if (!apiKey || !apiHost) {
     if (isDevelopment) {
       const missingVariable = !apiKey
@@ -26,10 +31,17 @@ const isDevelopment = import.meta.env.DEV
         capture_unhandled_rejections: true,
         capture_console_errors: false,
       },
+      disable_session_recording: noRecording,
+      logs: {
+        serviceName: 'hometown-studio-staff-web',
+        environment,
+      },
       session_recording: {
         maskAllInputs: true,
         maskInputOptions: { password: true, email: true, tel: true },
       },
     })
+  } else {
+    window.posthog.set_config({ disable_session_recording: noRecording })
   }
 </script>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { btn, field } from '@components/staff/ui'
 import type { Household } from '@components/staff/HouseholdCard'
 import { trackPickupCodeReissued, trackStaffCheckoutCompleted, trackStaffPickupOverridden } from '@lib/analytics'
+import { posthogOperationalLogger } from '@lib/posthog-logger'
 
 type PostFn = (recordId: string, extra: any) => Promise<{ error?: string; oneTimeCode?: string; smsFailed?: boolean }>
 
@@ -105,6 +106,11 @@ export default function PickupPanel({
     if (r.error) setErr(r.error)
     else {
       trackStaffCheckoutCompleted(selectedOut.length, code.trim().length > 0)
+      posthogOperationalLogger.info('staff checkout completed', {
+        operation: 'checkout',
+        person_count: selectedOut.length,
+        pickup_code_used: code.trim().length > 0,
+      })
       reset()
     }
   }

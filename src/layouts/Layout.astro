@@ -48,7 +48,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <SeoHead {...Astro.props} />
-    <PostHog />
+    <PostHog noRecording={!!bare || Astro.url.pathname.startsWith('/waiver')} />
     <ViewTransitions />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

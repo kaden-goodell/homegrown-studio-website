@@ -4,6 +4,7 @@ import { card, btn, field } from '@components/staff/ui'
 import { formatCents } from '@lib/utils'
 import type { StaffMember } from '@lib/staff-auth'
 import { trackGiftCardCreated } from '@lib/analytics'
+import { posthogOperationalLogger } from '@lib/posthog-logger'
 
 interface CardRow {
   id: string
@@ -70,6 +71,10 @@ export default function GiftCards({ staff }: { staff: StaffMember }) {
       const body = await res.json().catch(() => ({}))
       if (res.ok) {
         trackGiftCardCreated(amountDollars)
+        posthogOperationalLogger.info('gift card created', {
+          operation: 'gift_card_create',
+          amount_dollars: amountDollars,
+        })
         setMade({ gan: body.data.card.gan, recorded: true })
         setForWhom('')
         setNote('')

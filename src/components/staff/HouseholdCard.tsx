@@ -9,6 +9,7 @@ import type { EventKind } from '@lib/events'
 import type { AuthorizedPickup } from '@lib/waiver-store'
 import { picksShort, type SeatPick } from '@lib/seat-options'
 import { trackStaffCheckinCompleted } from '@lib/analytics'
+import { posthogOperationalLogger } from '@lib/posthog-logger'
 
 export interface Presence {
   inAt: string
@@ -181,7 +182,14 @@ export default function HouseholdCard({
     const r = await post(h.recordId, { day, ...extra })
     if (r.error) setErr(r.error)
     else {
-      if (extra.action === 'checkin') trackStaffCheckinCompleted(extra.personIds.length, dropOff)
+      if (extra.action === 'checkin') {
+        trackStaffCheckinCompleted(extra.personIds.length, dropOff)
+        posthogOperationalLogger.info('staff check-in completed', {
+          operation: 'checkin',
+          person_count: extra.personIds.length,
+          drop_off: dropOff,
+        })
+      }
       if (r.oneTimeCode) { setRevealCode(r.oneTimeCode); setSmsFailed(!!r.smsFailed) }
     }
   }

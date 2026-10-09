@@ -14,6 +14,9 @@ declare global {
       capture(event: string, properties?: Record<string, unknown>): void
       identify(distinctId: string, properties?: Record<string, unknown>): void
       reset(): void
+      logger?: {
+        info(message: string, attributes?: Record<string, unknown>): void
+      }
     }
     gtag?: (...args: unknown[]) => void
   }
