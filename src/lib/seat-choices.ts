@@ -74,6 +74,8 @@ export interface RosterChoices {
   totals: Record<string, Record<string, number>>
   /** Lower-cased booking email → that family's picks (all their bookings). */
   byEmail: Record<string, SeatPick[]>
+  /** Lower-cased booking email → seats that family has (paid + comped), across their bookings. */
+  seatsByEmail: Record<string, { seats: number; comped: number }>
   /** Paid or comped bookings whose email matches no signed agreement for this class. */
   unmatched: { name: string; email: string; seats: number; picks: SeatPick[]; comped: boolean }[]
   /** Seats Square says are sold (capacity − left), or null when unknown. */
@@ -89,13 +91,16 @@ export function summarizeChoices(
 ): RosterChoices {
   const signed = new Set(signerEmails.map((e) => e.trim().toLowerCase()))
   const byEmail: Record<string, SeatPick[]> = {}
+  const seatsByEmail: RosterChoices['seatsByEmail'] = {}
   const unmatched: RosterChoices['unmatched'] = []
   for (const r of records) {
     const email = r.customer.email.trim().toLowerCase()
     byEmail[email] = [...(byEmail[email] ?? []), ...r.picks]
+    const had = seatsByEmail[email] ?? { seats: 0, comped: 0 }
+    seatsByEmail[email] = { seats: had.seats + r.seats, comped: had.comped + (r.comped === true ? r.seats : 0) }
     if (!signed.has(email)) {
       unmatched.push({ name: `${r.customer.givenName} ${r.customer.familyName}`.trim() + (r.simulated ? ' (test)' : ''), email, seats: r.seats, picks: r.picks, comped: r.comped === true })
     }
   }
-  return { totals: choiceTotals(options, records.flatMap((r) => r.picks)), byEmail, unmatched, seatsSold }
+  return { totals: choiceTotals(options, records.flatMap((r) => r.picks)), byEmail, seatsByEmail, unmatched, seatsSold }
 }

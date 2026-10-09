@@ -398,7 +398,7 @@ export default function Roster({
           code belong to one day's roster, and carried straight over when staff
           switched days on a multi-day camp. */}
       {visibleHouseholds.map((h) => (
-        <HouseholdCard key={`${h.recordId}:${data.day}`} h={h} dropOff={event.dropOff} kind={kind} id={id} day={data.day} post={post} picks={choices?.byEmail[h.email.trim().toLowerCase()]} />
+        <HouseholdCard key={`${h.recordId}:${data.day}`} h={h} dropOff={event.dropOff} kind={kind} id={id} day={data.day} post={post} picks={choices?.byEmail[h.email.trim().toLowerCase()]} seats={choices?.seatsByEmail?.[h.email.trim().toLowerCase()]} />
       ))}
 
       {choices && choices.unmatched.length > 0 && (

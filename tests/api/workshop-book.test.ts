@@ -509,10 +509,18 @@ describe('POST /api/workshops/book.json', () => {
       expect(mockSaveSeatChoices).not.toHaveBeenCalled()
     })
 
-    it('stores nothing for a class with no questions', async () => {
+    it('still records the seats for a class with no questions (the roster compares seats with crafters)', async () => {
       mockGetEventMeta.mockResolvedValue(null)
       await POST(ctx(body()))
-      expect(mockSaveSeatChoices).not.toHaveBeenCalled()
+      expect(mockSaveSeatChoices).toHaveBeenCalledTimes(1)
+      expect(mockSaveSeatChoices.mock.calls[0][0]).toMatchObject({ picks: [] })
+    })
+
+    it('a failed save with no picks fails nothing and alerts no one', async () => {
+      mockGetEventMeta.mockResolvedValue(null)
+      mockSaveSeatChoices.mockRejectedValue(new Error('blobs down'))
+      expect((await POST(ctx(body()))).status).toBe(200)
+      expect(mockAlertOwners).not.toHaveBeenCalled()
     })
 
     it('a failed save never fails a paid booking, and the owners are told', async () => {

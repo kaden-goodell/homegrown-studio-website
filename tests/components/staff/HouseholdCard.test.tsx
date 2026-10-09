@@ -168,3 +168,36 @@ describe('HouseholdCard — seat picks', () => {
     expect(screen.getByText(/none given — call the signer/)).toBeInTheDocument()
   })
 })
+
+describe('seats vs crafting', () => {
+  const post = vi.fn(async () => ({}))
+  const card = (h: Household, seats?: { seats: number; comped: number }) =>
+    render(<HouseholdCard h={h} dropOff={false} kind="workshop" id="clssch_x" day="2026-10-17" post={post} seats={seats} />)
+  const withExpected = (expected: string[]) => household({}, { checkin: { ...household().checkin, expected } })
+
+  it('shows comped seats and who checked as crafting, quiet when they match', () => {
+    card(withExpected(['adult', 'child:0', 'child:1']), { seats: 3, comped: 3 })
+    expect(screen.getByTestId('seats-line').textContent).toBe('3 seats (comped) · 3 crafting')
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('flags more crafting than seats', () => {
+    const h = household({}, {
+      children: [1, 2, 3, 4].map((n) => ({ name: `Kid ${n}`, allergies: '', medications: '' })), childCount: 4,
+    })
+    card(h, { seats: 3, comped: 3 }) // no checklist: everyone on the agreement counts
+    expect(screen.getByTestId('seats-line').textContent).toBe('3 seats (comped) · 5 crafting')
+    expect(screen.getByRole('alert').textContent).toBe('2 more crafting than seats. Take payment at the register or comp 2 more seats.')
+  })
+
+  it('notes unused seats, and mixes paid with comped', () => {
+    card(withExpected(['adult', 'child:0']), { seats: 3, comped: 1 })
+    expect(screen.getByTestId('seats-line').textContent).toBe('3 seats (1 comped, 2 paid) · 2 crafting')
+    expect(screen.getByText('1 seat not used yet.')).toBeTruthy()
+  })
+
+  it('shows nothing when there is no booking record', () => {
+    card(household())
+    expect(screen.queryByTestId('seats-line')).toBeNull()
+  })
+})

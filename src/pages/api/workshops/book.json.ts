@@ -213,7 +213,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // the money is taken. A failed write never fails the booking: the picks are
   // in the customer's email and in the owner alert (Square's booking note may
   // have been dropped on a retry), so a person can add them by hand.
-  if (picks.length > 0) {
+  // Every paid booking gets a record (picks or not): the roster compares a
+  // family's seats with who they check as crafting.
+  {
     try {
       await saveSeatChoices({
         eventKind: 'workshop',
@@ -232,7 +234,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         bookingId: booked.bookingId,
         error: err instanceof Error ? err.message : String(err),
       })
-      await alertOwners(
+      if (picks.length > 0) await alertOwners(
         `${simulated ? '(test booking, no action needed) ' : ''}Seat picks not saved: ${givenName} ${familyName}, ${workshop.name}, ${formatSlotLabel(workshop.startAt)}. ${note}. Booking ${booked.bookingId} is ${simulated ? 'simulated' : 'paid'}; ${simulated ? 'ignore this' : 'add these picks by hand'}.`,
       ).catch(() => undefined)
     }
