@@ -118,6 +118,30 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   // `subline` is the confirmation-screen line under the headline — varies by
   // path (fresh sign with an emailed copy vs. returning RSVP), see HOM-216.
   const [done, setDone] = useState<{ covered: string[]; validUntil: string; subline: string; kidsComing: boolean } | null>(null)
+  // Kiosk only: signing at the counter means they're here — marked straight away.
+  const [arrival, setArrival] = useState<null | { marked: boolean; code?: string; smsFailed?: boolean }>(null)
+
+  /**
+   * On the studio iPad, a family that just signed is standing at the counter:
+   * mark them here (on the event's roster, or as a Craft Café visit) with no
+   * extra staff step. Uses the staff endpoints, so it only works in a browser
+   * signed in to /staff; anywhere else it's refused and nothing changes.
+   */
+  async function markArrived(recordId: string, people: string[]) {
+    if (!kiosk || !recordId || people.length === 0) return
+    const event = partyId ? { kind: 'party', id: partyId } : workshopId ? { kind: 'workshop', id: workshopId } : null
+    try {
+      const res = await fetch(event ? '/api/staff/rsvp.json' : '/api/staff/open-studio.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(event ? { kind: event.kind, id: event.id, recordId, attending: people } : { recordId, personIds: people }),
+      })
+      const json = await res.json().catch(() => null)
+      setArrival(res.ok ? { marked: true, code: json?.data?.oneTimeCode, smsFailed: !!json?.data?.smsFailed } : { marked: false })
+    } catch {
+      setArrival({ marked: false })
+    }
+  }
 
   // Returning-customer lookup: start on the lookup step; fall through to the
   // full form for new/expired households. Kiosk mode skips straight to the
@@ -355,6 +379,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         subline: confirmation.emailedCopyLine.replace('{email}', email.trim()),
         kidsComing: minors.some((_, i) => formComing(`child:${i}`)),
       })
+      await markArrived(json.data.recordId, ['adult', ...minors.map((_, i) => `child:${i}`)].filter(formComing))
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong — please try again.')
@@ -472,6 +497,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         subline: confirmation.subline,
         kidsComing: (returning?.kids ?? []).some((_, i) => !!attending[`child:${i}`]),
       })
+      await markArrived(json.data.waiverId ?? returning.recordId, Object.entries(attending).filter(([, coming]) => coming).map(([id]) => id))
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong — please try again.')
@@ -493,7 +519,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     setPickupRows([]); setNotAuthorized(''); setAdultAllergies('')
     setPhotoConsent(true); setAgreeRelease(false); setSignature('')
     setResponsibleAdult(''); setSignerPresent(null)
-    setError(null); setFormNotice(null); setDone(null)
+    setError(null); setFormNotice(null); setDone(null); setArrival(null)
     try {
       history.replaceState(null, '', returnTo)
     } catch {
@@ -541,9 +567,26 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         <p style={{ ...sectionNoteStyle, maxWidth: '22rem', margin: '0 auto 0.5rem' }}>
           {firstName.trim() ? `Thanks, ${firstName.trim()}!` : 'Thanks!'}
         </p>
-        <p style={{ ...sectionNoteStyle, maxWidth: '22rem', margin: '0 auto 1.5rem' }}>
+        <p style={{ ...sectionNoteStyle, maxWidth: '22rem', margin: '0 auto 1rem' }}>
           Valid through <strong>{validDate}</strong>.
         </p>
+        {arrival?.marked && (
+          <p data-testid="kiosk-arrived" style={{ margin: '0 auto 1rem', fontWeight: 700, color: 'rgb(21,128,61)' }}>✓ Checked in — you’re all set.</p>
+        )}
+        {arrival?.code && (
+          <div style={{ margin: '0 auto 1.25rem' }}>
+            <p style={{ ...sectionNoteStyle, margin: '0 0 0.2rem' }}>Pickup code</p>
+            <p style={{ margin: 0, fontSize: '2.25rem', fontWeight: 800, letterSpacing: '0.2em', color: 'var(--color-dark)' }}>{arrival.code}</p>
+            <p style={{ ...sectionNoteStyle, margin: '0.3rem 0 0', ...(arrival.smsFailed ? { color: '#b91c1c', fontWeight: 700 } : {}) }}>
+              {arrival.smsFailed ? 'The text didn’t send. Write this down or show the staff.' : 'We texted it to you too.'}
+            </p>
+          </div>
+        )}
+        {arrival && !arrival.marked && (
+          <p data-testid="kiosk-not-arrived" style={{ ...sectionNoteStyle, margin: '0 auto 1.25rem', fontWeight: 600 }}>
+            Staff: tap ✓ Here for them on the roster.
+          </p>
+        )}
         <button
           type="button"
           onClick={kioskReturn}

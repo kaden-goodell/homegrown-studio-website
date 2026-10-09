@@ -219,4 +219,62 @@ describe('WaiverFlow — kiosk mode (HOM-209)', () => {
       expect(screen.getByText(/Pick at least one person who’s coming/)).toBeInTheDocument()
     })
   })
+
+  describe('signing at the counter marks them here', () => {
+    function mockFetch(staffOk: boolean, staffData: object = {}) {
+      return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any) => {
+        if (String(url).startsWith('/api/waiver/sign.json')) {
+          return { ok: true, json: async () => ({ data: { recordId: 'wvr_new', covered: ['Sarah Rivera'], validUntil: '2027-08-03T00:00:00.000Z' } }) } as Response
+        }
+        return { ok: staffOk, status: staffOk ? 200 : 401, json: async () => (staffOk ? { data: staffData } : { error: 'Unauthorized' }) } as Response
+      })
+    }
+    const submit = async () => { await act(async () => { fireEvent.click(screen.getByText(waiverContent.form.submitLabel)) }) }
+
+    it('for an event: adds them to that roster, marked here, with no staff step', async () => {
+      const f = mockFetch(true)
+      const { container } = render(<WaiverFlow kiosk workshopId="clssch_a" eventTitle="Fall Earring Bar" returnTo="/staff" />)
+      fillMinimalForm(container)
+      await submit()
+      expect(await screen.findByTestId('kiosk-arrived')).toHaveTextContent('Checked in')
+      const call = f.mock.calls.find((c) => String(c[0]) === '/api/staff/rsvp.json')!
+      expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({ kind: 'workshop', id: 'clssch_a', recordId: 'wvr_new', attending: ['adult'] })
+    })
+
+    it('with no event: logs a Craft Café visit', async () => {
+      const f = mockFetch(true)
+      const { container } = render(<WaiverFlow kiosk returnTo="/staff" />)
+      fillMinimalForm(container)
+      await submit()
+      await screen.findByTestId('kiosk-arrived')
+      const call = f.mock.calls.find((c) => String(c[0]) === '/api/staff/open-studio.json')!
+      expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({ recordId: 'wvr_new', personIds: ['adult'] })
+    })
+
+    it('shows the pickup code a drop-off check-in issues', async () => {
+      mockFetch(true, { oneTimeCode: '4821' })
+      const { container } = render(<WaiverFlow kiosk workshopId="clssch_a" eventTitle="Camp" returnTo="/staff" />)
+      fillMinimalForm(container)
+      await submit()
+      expect(await screen.findByText('4821')).toBeInTheDocument()
+    })
+
+    it('if the iPad is not signed in to /staff, nothing is marked and staff are told to tap ✓ Here', async () => {
+      mockFetch(false)
+      const { container } = render(<WaiverFlow kiosk workshopId="clssch_a" eventTitle="Fall Earring Bar" returnTo="/staff" />)
+      fillMinimalForm(container)
+      await submit()
+      expect(await screen.findByTestId('kiosk-not-arrived')).toHaveTextContent('Staff: tap ✓ Here')
+    })
+
+    it('a parent signing on their own phone (not kiosk) never calls the staff side', async () => {
+      const f = mockFetch(true)
+      const { container } = render(<WaiverFlow workshopId="clssch_a" eventTitle="Fall Earring Bar" />)
+      fireEvent.click(screen.getByText(/new here|first time|sign the agreement/i, { selector: 'button' }))
+      fillMinimalForm(container)
+      await submit()
+      await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).startsWith('/api/waiver/sign.json'))).toBe(true))
+      expect(f.mock.calls.some((c) => String(c[0]).startsWith('/api/staff/'))).toBe(false)
+    })
+  })
 })
