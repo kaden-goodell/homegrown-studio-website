@@ -201,3 +201,11 @@ describe('seats vs crafting', () => {
     expect(screen.queryByTestId('seats-line')).toBeNull()
   })
 })
+
+describe('Agreement button', () => {
+  it('opens the signed agreement from the card', () => {
+    render(<HouseholdCard h={household()} dropOff={false} kind="workshop" id="clssch_x" day="2026-10-17" post={vi.fn(async () => ({}))} />)
+    fireEvent.click(screen.getByRole('button', { name: '📄 Agreement' }))
+    expect(screen.getByRole('dialog', { name: 'Jamie Rivera\'s agreement' })).toBeTruthy()
+  })
+})

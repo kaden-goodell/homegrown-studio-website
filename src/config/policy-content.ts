@@ -133,32 +133,32 @@ export const policySections: PolicySection[] = [
     id: POLICY_ANCHORS.records,
     title: 'Records',
     intro:
-      'Signing a participation agreement means we’re keeping some records about your household — here’s exactly what, why, and for how long (HOM-217).',
+      'When you sign our participation agreement, we keep a few details about your family. Here’s what we keep and why.',
     rules: [
       {
         heading: 'What we keep',
         body:
-          'Names of every signer and child on the agreement (and each child’s date of birth), allergy/medical notes, your emergency contact if you give one, who’s authorized to pick up a child at a drop-off event, and the signature itself (when it was signed, which agreement version, and the device/IP it was signed from).',
+          'The names of everyone on the agreement, each child’s birthday, any allergy or medical notes, your emergency contact if you give one, and who can pick up your kids from a drop-off class. We also keep the signature itself: when you signed, which version you signed, and basic details about the device and internet connection you signed from.',
       },
       {
         heading: 'Why',
         body:
-          'This is the exact information a legal claim needs and the information a first-aid or custody decision at the door needs — the two reasons this data exists. In Alabama, a minor’s injury claim is tolled until they turn 19, then they have two more years to file, so a signature from a young child today can still matter well into their twenties.',
+          'To keep everyone safe at the studio. It tells us about allergies at the craft table, who’s allowed at pickup, and who to call if something happens. It’s also our record that the agreement was signed.',
       },
       {
         heading: 'How long',
         body:
-          'Indefinitely — we never delete a signed record. A weekly export backs everything up off-platform so a site outage or a change of hosting provider can’t take the evidence with it.',
+          'We keep signed agreements for good. A question about a child’s visit can come up years later, so we don’t delete them, and we keep a backup copy in case anything happens to our website.',
       },
       {
         heading: 'Who can see it',
         body:
-          'The studio’s owners and on-shift crew, for check-in/pickup and safety purposes only. It’s never sold, shared with advertisers, or used for anything beyond running the studio safely.',
+          'Only the owners and the staff working that day, for check-in, pickup, and safety. We never sell it or share it with advertisers.',
       },
       {
-        heading: 'Requesting a copy or correction',
+        heading: 'Getting a copy or fixing something',
         body:
-          'Email us (the address in the footer below) and we’ll send you a copy of what’s on file or fix anything that’s wrong.',
+          'Email us at the address below and we’ll send you a copy of what we have, or fix anything that’s wrong.',
       },
     ],
   },

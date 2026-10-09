@@ -217,7 +217,7 @@ export default function Roster({
 
   return (
     <div>
-      <StaffHeader title="Roster" staff={staff} onSwitch={onSwitch} onKits={onKits} onGiftCards={onGiftCards} onLogout={onLogout} event={event} households={data.households} day={data.day} />
+      <StaffHeader title="Roster" staff={staff} onSwitch={onSwitch} onKits={onKits} onGiftCards={onGiftCards} onLogout={onLogout} event={event} households={data.households} day={data.day} onCheckIn={() => setAddFamilyOpen(true)} />
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
         <button type="button" onClick={onBack} style={btn()}>← Today</button>
         <button type="button" onClick={() => setAddFamilyOpen(true)} style={btn(true)}>+ Add family</button>

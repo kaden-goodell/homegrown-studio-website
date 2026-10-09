@@ -1,5 +1,8 @@
 import { useState, type CSSProperties } from 'react'
 import IncidentSheet from '@components/staff/IncidentSheet'
+import CheckInSheet from '@components/staff/CheckInSheet'
+import type { HouseholdMatch } from '@components/staff/DoorSearch'
+import type { EventKind } from '@lib/events'
 import type { Household } from '@components/staff/HouseholdCard'
 import type { StudioEvent } from '@lib/events'
 
@@ -33,6 +36,8 @@ export default function StaffHeader({
   event,
   households,
   day,
+  onCheckIn,
+  onOpenRoster,
 }: {
   title: string
   staff: StaffHeaderMember
@@ -43,8 +48,12 @@ export default function StaffHeader({
   event?: StudioEvent | null
   households?: Household[]
   day?: string
+  /** A roster opens its own "+ Add family" (pointed at that event); every other screen gets the general Check in sheet. */
+  onCheckIn?: () => void
+  onOpenRoster?: (e: { kind: EventKind; id: string; title: string; addFamily?: { household?: HouseholdMatch } }) => void
 }) {
   const [incidentOpen, setIncidentOpen] = useState(false)
+  const [checkInOpen, setCheckInOpen] = useState(false)
 
   return (
     <>
@@ -62,6 +71,22 @@ export default function StaffHeader({
           <button type="button" onClick={onLogout} style={btn()}>Log out</button>
         </div>
       </div>
+
+      {/* Always there, bottom-right, on every signed-in screen. */}
+      <button
+        type="button"
+        onClick={() => (onCheckIn ? onCheckIn() : setCheckInOpen(true))}
+        aria-label="Check in a family"
+        style={{
+          position: 'fixed', right: '1rem', bottom: 'calc(1rem + env(safe-area-inset-bottom, 0px))', zIndex: 120,
+          padding: '0.9rem 1.3rem', minHeight: '3.25rem', borderRadius: '999px', border: 'none',
+          background: 'var(--color-primary)', color: '#fff', fontSize: '1rem', fontWeight: 700,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.25)', cursor: 'pointer',
+        }}
+      >
+        ✓ Check in
+      </button>
+      {checkInOpen && <CheckInSheet onOpenRoster={onOpenRoster} onClose={() => setCheckInOpen(false)} />}
 
       {incidentOpen && (
         <IncidentSheet

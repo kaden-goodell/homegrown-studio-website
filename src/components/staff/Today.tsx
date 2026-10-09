@@ -85,7 +85,7 @@ export default function Today({
   if (view === 'allParties') {
     return (
       <div>
-        <StaffHeader title="All upcoming parties" staff={staff} onSwitch={onSwitch} onKits={onKits} onGiftCards={onGiftCards} onLogout={onLogout} />
+        <StaffHeader title="All upcoming parties" staff={staff} onSwitch={onSwitch} onKits={onKits} onGiftCards={onGiftCards} onLogout={onLogout} onOpenRoster={onOpenRoster} />
         <button type="button" onClick={() => setView('main')} style={{ ...btn(), marginBottom: '1rem' }}>← Today</button>
         {partiesError && (
           <div style={{ background: 'rgba(185,28,28,0.08)', border: '1px solid rgba(185,28,28,0.3)', borderRadius: '0.6rem', padding: '0.7rem 0.9rem', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.6rem', flexWrap: 'wrap' }}>
@@ -119,7 +119,7 @@ export default function Today({
 
   return (
     <div>
-      <StaffHeader title={`Today · ${formatCalendarDay(today)}`} staff={staff} onSwitch={onSwitch} onKits={onKits} onGiftCards={onGiftCards} onLogout={onLogout} />
+      <StaffHeader title={`Today · ${formatCalendarDay(today)}`} staff={staff} onSwitch={onSwitch} onKits={onKits} onGiftCards={onGiftCards} onLogout={onLogout} onOpenRoster={onOpenRoster} />
 
       {openStudioCount !== null && (
         <p style={{ fontSize: '0.8125rem', color: 'var(--color-muted)', margin: '-0.4rem 0 1rem', fontWeight: 600 }}>

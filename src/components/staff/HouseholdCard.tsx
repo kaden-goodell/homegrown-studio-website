@@ -3,6 +3,7 @@ import { hasAllergy } from '@lib/allergy'
 import { formatTime, formatMonthDay, formatMonthYear } from '@lib/studio-time'
 import { card, btn, Badge } from '@components/staff/ui'
 import PickupPanel from '@components/staff/PickupPanel'
+import AgreementSheet from '@components/staff/AgreementSheet'
 import HistorySheet from '@components/staff/HistorySheet'
 import type { EventKind } from '@lib/events'
 import type { AuthorizedPickup } from '@lib/waiver-store'
@@ -158,6 +159,7 @@ export default function HouseholdCard({
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Read-only custody-log sheet (HOM-217) — "History" button below.
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [agreementOpen, setAgreementOpen] = useState(false)
 
   useEffect(() => {
     return () => {
@@ -279,13 +281,22 @@ export default function HouseholdCard({
           Signed {formatMonthDay(h.signedAt)} · {h.agreementVersion} ·{' '}
           {expired ? <span style={{ color: '#b91c1c', fontWeight: 700 }}>EXPIRED</span> : `valid to ${formatMonthYear(h.validUntil)}`}
         </p>
-        <button
-          type="button"
-          onClick={() => setHistoryOpen(true)}
-          style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.7rem', color: 'var(--color-muted)' }}
-        >
-          🕘 History
-        </button>
+        <span style={{ display: 'inline-flex', gap: '0.35rem' }}>
+          <button
+            type="button"
+            onClick={() => setAgreementOpen(true)}
+            style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.7rem', color: 'var(--color-muted)' }}
+          >
+            📄 Agreement
+          </button>
+          <button
+            type="button"
+            onClick={() => setHistoryOpen(true)}
+            style={{ ...btn(), padding: '0.2rem 0.5rem', fontSize: '0.7rem', color: 'var(--color-muted)' }}
+          >
+            🕘 History
+          </button>
+        </span>
       </div>
 
       {/* Card-level scan strip: any allergy or no-photo in this family */}
@@ -392,6 +403,7 @@ export default function HouseholdCard({
         </div>
       )}
 
+      {agreementOpen && <AgreementSheet h={h} dropOff={dropOff} onClose={() => setAgreementOpen(false)} />}
       {historyOpen && <HistorySheet h={h} kind={kind} id={id} onClose={() => setHistoryOpen(false)} />}
     </div>
   )

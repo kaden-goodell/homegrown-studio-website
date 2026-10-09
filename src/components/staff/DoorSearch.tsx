@@ -61,7 +61,7 @@ const personIdsFor = (h: HouseholdMatch) => ['adult', ...h.kids.map((_, i) => `c
 
 /** Walk-in: sign with no event. Event mode: sign FOR that event, then land back
  *  on its roster. */
-function signOnIpad(event?: DoorEvent) {
+export function signOnIpad(event?: DoorEvent) {
   if (!event) { location.assign('/waiver?kiosk=1&return=/staff'); return }
   location.assign(`/waiver?kiosk=1&${event.kind}=${encodeURIComponent(event.id)}&return=${encodeURIComponent(`/staff?open=${event.kind}:${event.id}`)}`)
 }

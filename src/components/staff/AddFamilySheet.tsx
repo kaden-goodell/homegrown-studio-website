@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import DoorSearch, { type AddedResult, type DoorEvent, type HouseholdMatch } from '@components/staff/DoorSearch'
 import { btn } from '@components/staff/ui'
+import { NewFamilyButton } from '@components/staff/CheckInSheet'
 
 /**
  * Roster "+ Add family": the Today door search, pointed at one event. Sheet
@@ -64,7 +65,10 @@ export default function AddFamilySheet({
             <button type="button" onClick={onClose} style={{ ...btn(true), marginTop: '1.2rem', padding: '0.7rem 2rem', minHeight: '2.75rem' }}>Done</button>
           </div>
         ) : (
-          <DoorSearch mode="event" event={event} initialHousehold={initialHousehold} onAdded={handleAdded} />
+          <>
+            {!initialHousehold && <NewFamilyButton event={event} />}
+            <DoorSearch mode="event" event={event} initialHousehold={initialHousehold} onAdded={handleAdded} />
+          </>
         )}
       </div>
     </div>
