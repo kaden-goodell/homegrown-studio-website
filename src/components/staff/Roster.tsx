@@ -40,21 +40,16 @@ function fmtSeg(ymd: string): string {
  */
 export default function Roster({
   staff,
-  onSwitch,
-  onKits,
-  onGiftCards,
-  onLogout,
   onBack,
+  backLabel = 'Today',
   kind,
   id,
   addFamily,
 }: {
   staff: StaffMember
-  onSwitch: () => void
-  onKits: () => void
-  onGiftCards: () => void
-  onLogout: () => void
   onBack: () => void
+  /** "← Today" or "← Parties": where Back goes. */
+  backLabel?: string
   kind: EventKind
   id: string
   /** Open "+ Add family" on arrival — with this household already found when
@@ -182,8 +177,8 @@ export default function Roster({
   if (!data) {
     return (
       <div>
-        <StaffHeader title="Roster" staff={staff} onSwitch={onSwitch} onKits={onKits} onGiftCards={onGiftCards} onLogout={onLogout} />
-        <button type="button" onClick={onBack} style={{ ...btn(), marginBottom: '1rem' }}>← Today</button>
+        <StaffHeader title="Roster" staff={staff} />
+        <button type="button" onClick={onBack} style={{ ...btn(), marginBottom: '1rem' }}>← {backLabel}</button>
         {netErrorBanner || <p style={{ textAlign: 'center', color: 'var(--color-muted)' }}>Loading…</p>}
       </div>
     )
@@ -218,9 +213,9 @@ export default function Roster({
 
   return (
     <div>
-      <StaffHeader title="Roster" staff={staff} onSwitch={onSwitch} onKits={onKits} onGiftCards={onGiftCards} onLogout={onLogout} event={event} households={data.households} day={data.day} onCheckIn={() => setAddFamilyOpen(true)} />
+      <StaffHeader title="Roster" staff={staff} event={event} households={data.households} day={data.day} onCheckIn={() => setAddFamilyOpen(true)} />
       <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap' }}>
-        <button type="button" onClick={onBack} style={btn()}>← Today</button>
+        <button type="button" onClick={onBack} style={btn()}>← {backLabel}</button>
         <button type="button" onClick={() => setAddFamilyOpen(true)} style={btn(true)}>+ Add family</button>
         {kind === 'workshop' && <button type="button" onClick={() => setSellSeatOpen(true)} style={btn()}>Sell a seat</button>}
         {kind === 'workshop' && <button type="button" onClick={() => setCompSeatOpen(true)} style={btn()}>Comp a seat</button>}

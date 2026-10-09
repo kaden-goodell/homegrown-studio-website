@@ -78,9 +78,6 @@ function renderRoster() {
   return render(
     <Roster
       staff={staff}
-      onSwitch={vi.fn()}
-      onKits={vi.fn()} onGiftCards={vi.fn()}
-      onLogout={vi.fn()}
       onBack={vi.fn()}
       kind="workshop"
       id="cs-camp"
@@ -157,7 +154,7 @@ describe('Roster', () => {
 
     vi.restoreAllMocks()
     mockRoster([household()], { ...CAMP, kind: 'party', dropOff: false })
-    render(<Roster staff={staff} onSwitch={vi.fn()} onKits={vi.fn()} onGiftCards={vi.fn()} onLogout={vi.fn()} onBack={vi.fn()} kind="party" id="cs-camp" />)
+    render(<Roster staff={staff} onBack={vi.fn()} kind="party" id="cs-camp" />)
     await screen.findAllByText('Jamie Rivera')
     expect(screen.queryByRole('button', { name: 'Comp a seat' })).not.toBeInTheDocument()
   })
@@ -195,7 +192,7 @@ describe('Roster', () => {
       adultAllergies: '', photoConsent: true, openStudioToday: false,
     }
     render(
-      <Roster staff={staff} onSwitch={vi.fn()} onKits={vi.fn()} onGiftCards={vi.fn()} onLogout={vi.fn()} onBack={vi.fn()} kind="workshop" id="cs-camp" addFamily={{ household: found }} />,
+      <Roster staff={staff} onBack={vi.fn()} kind="workshop" id="cs-camp" addFamily={{ household: found }} />,
     )
     const sheet = await screen.findByRole('dialog', { name: 'Add a family to Fall Camp' })
     expect(within(sheet).getByText(/GOOD TO GO — Sam Lee/)).toBeInTheDocument()

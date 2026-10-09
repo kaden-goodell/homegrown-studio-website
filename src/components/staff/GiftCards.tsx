@@ -24,19 +24,7 @@ const group = (gan: string) => gan.replace(/\s+/g, '').replace(/(.{4})(?=.)/g, '
 
 /** Staff screen: mint a gift card (e.g. for a giveaway winner), copy its
  *  number, and see what's left on every card made so far. */
-export default function GiftCards({
-  staff,
-  onSwitch,
-  onKits,
-  onLogout,
-  onBack,
-}: {
-  staff: StaffMember
-  onSwitch: () => void
-  onKits: () => void
-  onLogout: () => void
-  onBack: () => void
-}) {
+export default function GiftCards({ staff }: { staff: StaffMember }) {
   const [cards, setCards] = useState<CardRow[]>([])
   const [amount, setAmount] = useState('')
   const [forWhom, setForWhom] = useState('')
@@ -121,10 +109,7 @@ export default function GiftCards({
 
   return (
     <div>
-      <StaffHeader title="Gift cards" staff={staff} onSwitch={onSwitch} onKits={onKits} onGiftCards={() => {}} onLogout={onLogout} />
-      <div style={{ marginBottom: '1rem' }}>
-        <button type="button" onClick={onBack} style={btn()}>← Today</button>
-      </div>
+      <StaffHeader title="Gift cards" staff={staff} />
 
       <div style={card}>
         <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.7rem' }}>

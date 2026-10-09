@@ -29,7 +29,7 @@ function mockApi(post: { status: number; body: any }, list: any[] = []) {
 }
 
 function renderScreen() {
-  return render(<GiftCards staff={staff} onSwitch={vi.fn()} onKits={vi.fn()} onLogout={vi.fn()} onBack={vi.fn()} />)
+  return render(<GiftCards staff={staff} />)
 }
 
 describe('GiftCards', () => {

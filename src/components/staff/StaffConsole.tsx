@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { formatCents } from '@lib/utils'
 import { kitConfig } from '@config/kit.config'
 import { kitThemes } from '@config/kit-content'
@@ -6,6 +6,8 @@ import { addDays } from '@lib/kit-dates'
 import PickStaff from '@components/staff/PickStaff'
 import StaffHeader from '@components/staff/StaffHeader'
 import Today from '@components/staff/Today'
+import Parties from '@components/staff/Parties'
+import { StaffNavContext, type StaffNav, type StaffTab } from '@components/staff/nav'
 import GiftCards from '@components/staff/GiftCards'
 import Roster from '@components/staff/Roster'
 import type { HouseholdMatch } from '@components/staff/DoorSearch'
@@ -248,7 +250,9 @@ function readOpenParam(): { kind: EventKind; id: string } | null {
 }
 
 export default function StaffConsole() {
-  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'today' | 'roster' | 'kits' | 'giftcards'>('checking')
+  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'today' | 'parties' | 'roster' | 'kits' | 'giftcards'>('checking')
+  // Which list a roster was opened from, so its Back and the active tab match.
+  const [lastList, setLastList] = useState<'today' | 'parties'>('today')
   const [kitBuckets, setKitBuckets] = useState<KitBuckets | null>(null)
   const [radar, setRadar] = useState<RadarRow[]>([])
   const [assembly, setAssembly] = useState<KitAssembly | null>(null)
@@ -401,6 +405,7 @@ export default function StaffConsole() {
    *  `getEvent`/`roster.json` resolves (party, workshop) — HOM-213 replaced
    *  the party-only screen with a generalized one. */
   function openRoster(e: { kind: EventKind; id: string; title: string; addFamily?: { household?: HouseholdMatch } }) {
+    if (phase === 'today' || phase === 'parties') setLastList(phase)
     setRosterTarget({ kind: e.kind, id: e.id, ...(e.addFamily ? { addFamily: e.addFamily } : {}) })
     setPhase('roster')
   }
@@ -444,28 +449,42 @@ export default function StaffConsole() {
     </div>
   )
 
+  const activeTab: StaffTab = phase === 'roster' ? lastList : phase === 'parties' || phase === 'kits' || phase === 'giftcards' ? phase : 'today'
+  const nav: StaffNav = {
+    active: activeTab,
+    go: (tab) => {
+      setRosterTarget(null)
+      if (tab === 'kits') { loadKits(); return }
+      setPhase(tab)
+    },
+    switchStaff,
+    logout,
+  }
+  const withNav = (node: ReactNode) => <StaffNavContext.Provider value={nav}>{node}</StaffNavContext.Provider>
+
   if (phase === 'today') {
-    return <Today staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onGiftCards={() => setPhase('giftcards')} onLogout={logout} onOpenRoster={openRoster} />
+    return withNav(<Today staff={me} onOpenRoster={openRoster} />)
+  }
+
+  if (phase === 'parties') {
+    return withNav(<Parties staff={me} onOpenRoster={openRoster} />)
   }
 
   if (phase === 'giftcards') {
-    return <GiftCards staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onLogout={logout} onBack={() => setPhase('today')} />
+    return withNav(<GiftCards staff={me} />)
   }
 
   if (phase === 'roster' && rosterTarget) {
-    return (
+    return withNav(
       <Roster
         key={`${rosterTarget.kind}:${rosterTarget.id}`}
         staff={me}
-        onSwitch={switchStaff}
-        onKits={() => loadKits()}
-        onGiftCards={() => setPhase('giftcards')}
-        onLogout={logout}
-        onBack={() => { setRosterTarget(null); setPhase('today') }}
+        onBack={() => { setRosterTarget(null); setPhase(lastList) }}
+        backLabel={lastList === 'parties' ? 'Parties' : 'Today'}
         kind={rosterTarget.kind}
         id={rosterTarget.id}
         addFamily={rosterTarget.addFamily}
-      />
+      />,
     )
   }
 
@@ -481,11 +500,10 @@ export default function StaffConsole() {
       ['recentlySettled', 'Recently settled'],
     ]
     const empty = kitBuckets && sections.every(([k]) => kitBuckets[k].length === 0)
-    return (
+    return withNav(
       <div>
-        <StaffHeader title="Kits" staff={me} onSwitch={switchStaff} onKits={() => loadKits()} onGiftCards={() => setPhase('giftcards')} onLogout={logout} />
+        <StaffHeader title="Kits" staff={me} />
         <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1rem', flexWrap: 'wrap' }}>
-          <button type="button" onClick={() => setPhase('today')} style={btn()}>← Today</button>
           <button type="button" onClick={() => loadKits()} style={btn()}>↻ Refresh</button>
         </div>
         {netErrorBanner}
@@ -568,7 +586,7 @@ export default function StaffConsole() {
             {kitBuckets[key].map((o) => <KitOrderCard key={o.orderId} order={o} onAction={kitAction} />)}
           </section>
         ))}
-      </div>
+      </div>,
     )
   }
 

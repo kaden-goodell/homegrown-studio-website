@@ -38,14 +38,14 @@ describe('StaffConsole ?open=', () => {
     history.replaceState(null, '', '/staff')
     serve()
     render(<StaffConsole />)
-    await screen.findByText(/Today ·/)
+    expect((await screen.findByRole('button', { name: 'Today' })).getAttribute('aria-current')).toBe('page')
   })
 
   it('ignores a malformed open value (lands on Today, still strips it)', async () => {
     history.replaceState(null, '', '/staff?open=program:zzz')
     serve()
     render(<StaffConsole />)
-    await screen.findByText(/Today ·/)
+    expect((await screen.findByRole('button', { name: 'Today' })).getAttribute('aria-current')).toBe('page')
     await waitFor(() => expect(window.location.search).toBe(''))
   })
 
@@ -53,7 +53,7 @@ describe('StaffConsole ?open=', () => {
     history.replaceState(null, '', `/staff?open=${v}`)
     serve()
     render(<StaffConsole />)
-    await screen.findByText(/Today ·/)
+    expect((await screen.findByRole('button', { name: 'Today' })).getAttribute('aria-current')).toBe('page')
     await waitFor(() => expect(window.location.search).toBe(''))
   })
 })
