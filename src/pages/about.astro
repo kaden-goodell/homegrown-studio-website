@@ -60,6 +60,16 @@ const rendered = await Promise.all(
       )}
     </div>
 
+    <img
+      src="/images/about/kaden-and-catherine.jpg"
+      alt="Kaden and Catherine smiling at sunset in the mountains"
+      width="1600"
+      height="900"
+      class="w-full h-auto rounded-2xl mb-10 fade-in"
+      style="aspect-ratio: 16 / 9; object-fit: cover; object-position: center 35%;"
+      loading="eager"
+    />
+
     {rendered.map(({ entry, Content, paragraphs }) => (
       <article class="mb-16 fade-in">
         <div class="glass rounded-2xl px-8 py-10 sm:px-12 sm:py-12">
