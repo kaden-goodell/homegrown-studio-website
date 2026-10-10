@@ -246,6 +246,12 @@ export function trackRecentPartyBanner(action: 'open' | 'dismiss'): void {
   capture('recent_party_banner', { action })
 }
 
+// ── Name change card (Homegrown → Hometown) ────────────────────────────────
+
+export function trackRenameNotice(action: 'shown' | 'got_it' | 'close'): void {
+  capture('rename_notice', { action })
+}
+
 // ── What's On calendar (/calendar) ─────────────────────────────────────────
 
 export function trackCalendarFilter(filter: string): void {

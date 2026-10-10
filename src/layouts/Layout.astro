@@ -7,6 +7,7 @@ import Analytics from '@components/shared/Analytics.astro'
 import PostHog from '@components/posthog.astro'
 import SeoHead from '@components/shared/SeoHead.astro'
 import Shimmer from '@components/shared/Shimmer'
+import RenameNotice from '@components/shared/RenameNotice'
 import '@styles/global.css'
 import '@styles/textures.css'
 import '@styles/animations.css'
@@ -100,6 +101,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
       </main>
     )}
     {!bare && <Footer transition:persist />}
+    {!bare && <RenameNotice client:idle transition:persist />}
     <script>import '@lib/fade-in'</script>
     {/* Staff tools (the console, the counter-iPad agreement) aren't visitors. */}
     {!bare && <Analytics />}
