@@ -111,6 +111,6 @@ describe('party dates on a closed day', () => {
   it('leaves the closed weekend out of a run of dates', () => {
     const starts = partyStartsInRange('2026-12-18T05:00:00Z', '2027-01-04T05:00:00Z', beforeChristmas)
     const days = Array.from(new Set(starts.map((s) => new Date(s).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' }))))
-    expect(days).toEqual(['2026-12-19', '2026-12-20', '2027-01-02', '2027-01-03'])
+    expect(days).toEqual(['2026-12-18', '2026-12-19', '2026-12-20', '2027-01-02', '2027-01-03'])
   })
 })

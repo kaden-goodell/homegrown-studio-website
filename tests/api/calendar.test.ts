@@ -35,6 +35,11 @@ vi.mock('@config/opening', async (importOriginal) => ({
 import { GET } from '@pages/api/calendar.json'
 import { forgetAll } from '@lib/short-memory'
 
+// Pins the normal weekly rules; one-off party days are in party-date-overrides.test.ts.
+vi.mock('@config/party.config', async (orig) => ({ ...(await orig<typeof import('@config/party.config')>()), partyDateOverrides: {} }))
+vi.mock('../config/party.config', async (orig) => ({ ...(await orig<typeof import('../../src/config/party.config')>()), partyDateOverrides: {} }))
+
+
 function workshop(over: Record<string, unknown> = {}) {
   return {
     id: 'w1',

@@ -23,10 +23,34 @@ describe('one-off party days (partyDateOverrides)', () => {
   })
 
   it('starts the date range at the one-off day', () => {
-    expect(bookableDates(now).first).toBe('2026-10-24')
+    expect(bookableDates(now).first).toBe('2026-10-22')
   })
 
   it('still needs a week of notice', () => {
     expect(partyStartsForDate('2026-10-24', new Date('2026-10-20T17:00:00Z'))).toEqual([])
+  })
+})
+
+describe('Thursday and Friday parties', () => {
+  const now = new Date('2026-10-09T17:00:00Z')
+
+  it('Thu Oct 22 has two parties, 4:00 and 6:30', () => {
+    expect(partyStartsForDate('2026-10-22', now)).toEqual(['2026-10-22T21:00:00.000Z', '2026-10-22T23:30:00.000Z'])
+  })
+
+  it('Fri Oct 23 has one, at 4:00, before the evening class', () => {
+    expect(partyStartsForDate('2026-10-23', now)).toEqual(['2026-10-23T21:00:00.000Z'])
+  })
+
+  it('carries on every Thursday and Friday at 4:00, before and after Nov 7', () => {
+    expect(partyStartsForDate('2026-11-05', new Date('2026-10-20T17:00:00Z'))).toEqual(['2026-11-05T22:00:00.000Z'])
+    expect(partyStartsForDate('2026-11-13', now)).toEqual(['2026-11-13T22:00:00.000Z'])
+    expect(partyStartsForDate('2026-11-19', now)).toEqual(['2026-11-19T22:00:00.000Z'])
+  })
+
+  it('never on Monday to Wednesday', () => {
+    expect(partyStartsForDate('2026-11-09', now)).toEqual([])
+    expect(partyStartsForDate('2026-11-10', now)).toEqual([])
+    expect(partyStartsForDate('2026-11-11', now)).toEqual([])
   })
 })

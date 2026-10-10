@@ -88,7 +88,7 @@ export const partyConfig = {
  * Party start schedule per weekday (0=Sun … 6=Sat), in studio-local time. Starts
  * step by (durationMinutes + cleanupBufferMinutes) from `firstStart`, while
  * start + party + cleanup ≤ `lastWrap`, so the evening workshop slot stays clear.
- * Weekdays not listed have no parties.
+ * Weekdays not listed have no parties (Mon–Wed).
  * Weekend shape (Kaden, 8 Oct 2026):
  *   Sat: Craft Café 9–12 · party 1:30 · workshop 4–6 · workshop 7–9
  *   Sun: party 1:00 · party 3:30 · workshop 6–8
@@ -98,6 +98,11 @@ export const partyConfig = {
  */
 export const partyDays: Record<number, { firstStart: string; lastWrap: string }> = {
   0: { firstStart: '13:00', lastWrap: '18:00' }, // Sunday: 1:00, 3:30
+  // Thursday and Friday (Kaden, 9 Oct 2026): one party at 4:00, before the
+  // evening class. A class at 6:00 leaves no time to clean up, so that day's
+  // 4:00 steps aside on its own.
+  4: { firstStart: '16:00', lastWrap: '18:30' }, // Thursday: 4:00
+  5: { firstStart: '16:00', lastWrap: '18:30' }, // Friday: 4:00
   6: { firstStart: '13:30', lastWrap: '16:00' }, // Saturday: 1:30 only
 }
 
@@ -110,5 +115,13 @@ export const partyDays: Record<number, { firstStart: string; lastWrap: string }>
  *   (the last party ends 8:30; cleanup runs past the 9pm close).
  */
 export const partyDateOverrides: Record<string, { firstStart: string; lastWrap: string }> = {
+  // Thursday/Friday parties start Oct 22 (Kaden, 9 Oct 2026), ahead of the
+  // regular Nov 7 start: Thu Oct 22 gets two (4:00 and 6:30), the rest the
+  // usual 4:00 until the weekly schedule takes over on Nov 7.
+  '2026-10-22': { firstStart: '16:00', lastWrap: '21:00' },
+  '2026-10-23': { firstStart: '16:00', lastWrap: '18:30' },
+  '2026-10-29': { firstStart: '16:00', lastWrap: '18:30' },
+  '2026-11-05': { firstStart: '16:00', lastWrap: '18:30' },
+  '2026-11-06': { firstStart: '16:00', lastWrap: '18:30' },
   '2026-10-24': { firstStart: '09:00', lastWrap: '21:30' },
 }

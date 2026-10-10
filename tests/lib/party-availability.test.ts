@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { studioDayUtcRange } from '@lib/studio-time'
 
+// Pins the normal weekly rules; one-off party days are in party-date-overrides.test.ts.
+vi.mock('@config/party.config', async (orig) => ({ ...(await orig<typeof import('@config/party.config')>()), partyDateOverrides: {} }))
+vi.mock('../config/party.config', async (orig) => ({ ...(await orig<typeof import('../../src/config/party.config')>()), partyDateOverrides: {} }))
+
+
 // ── Provider mock ─────────────────────────────────────────────────────────────
 // Must be declared before any dynamic import of the module under test.
 const mockListBookings = vi.fn()
