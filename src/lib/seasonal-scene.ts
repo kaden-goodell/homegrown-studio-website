@@ -47,7 +47,7 @@ const LEAF_COLORS = ['#b5532a', '#c8692b', '#c99a2e', '#8f3a22', '#a8742c', '#7d
 const SNOW_COLORS = ['#a9bccd', '#b9c9d8', '#9fb3c6', '#c5d2de']
 
 // Per laptop-sized screen, scaled by area (same rule as the glitter).
-const PER_SCREEN: Record<Exclude<Season, 'glitter'>, number> = { fall: 30, winter: 45 }
+const PER_SCREEN: Record<Exclude<Season, 'glitter'>, number> = { fall: 30, winter: 80 }
 const REFERENCE_AREA = 1440 * 900
 const MIN_COUNT = 8
 
@@ -81,7 +81,7 @@ function makeDrifter(season: Exclude<Season, 'glitter'>, width: number, height: 
     tumbleRate: leaf ? rand(0.8, 2.2) : 0,
     catchWind: leaf ? rand(0.6, 1.3) : rand(0.4, 0.8),
     vx: 0,
-    shape: leaf ? Math.floor(Math.random() * 3) : Math.random() < 0.55 ? 0 : 1,
+    shape: leaf ? Math.floor(Math.random() * 3) : Math.random() < 0.4 ? 0 : 1, // snow: 60% six-armed flakes, 40% soft dots
   }
 }
 
