@@ -92,7 +92,7 @@ export default function RenameNotice() {
         Same studio, new name
       </h2>
       <p style={{ fontSize: '0.9375rem', lineHeight: 1.55, margin: '0 0 0.6rem' }}>
-        If you knew us as Homegrown Studio, you're in the right place. Sadly, we've had to change our name, and
+        If you knew us as Homegrown Studio, you're in the right place. Sadly, we're changing our name, and
         yes, we know it's confusing. We're a little confused too.
       </p>
       <p style={{ fontSize: '0.9375rem', lineHeight: 1.55, margin: '0 0 1rem' }}>
