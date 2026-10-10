@@ -26,6 +26,7 @@ Paragraphs are separated by a blank line (the modal renders `white-space: pre-li
 - Tween-friendly but not corny; cute, not stupid. A little dry wit is welcome ("the notebook nobody else is allowed to read"), one touch per description at most.
 - Second person / "everyone" — never "girls", "kids", "birthday", or "party" in names or copy. Crafts are for everyone, any occasion (see memory: audience-framing).
 - Concrete nouns over adjectives: "fuzzy pom-poms", "gold carabiners", not "a wide variety of fun embellishments".
+- **No colons** in customer copy (Kaden 10/9: "Dead giveaway it's AI"). Use a period or a comma.
 - Banned: "one-of-a-kind creation", "uniquely yours", "unleash your creativity", "perfect mix of", exclamation-mark stacking, "at Hometown Studio's …!" openers, em-dash pileups.
 - Never invent facts. If the materials, take-home count, or age aren't known, ask — don't guess. Flag any assumption when presenting the draft.
 
@@ -39,7 +40,7 @@ Catherine approved this exact shape and rejected the specific version ("she didn
 
 1. **Hook:** what you make, and who leads it when it is a guest instructor ("with Mrs. Megan, the owner of Nutmeg's Cookies"). Instructors get "Mrs./Mr. + first name" when Kaden gives it that way.
 2. **"Learn to …" paragraph** (optional for new workshops, see above): the skills you learn or what you do, then `No experience needed.` (or an equivalent reassurance). **Never add "with help at the table" / "at every table" / "step-by-step help"** (Kaden 10/9: "Of course there is help."). A guest instructor is named in the hook instead. Also no filler tails like "then finish it your way" / "paint it your way" (Kaden 10/9) — stop at what they do.
-3. **Take-home + age:** `Each guest goes home with the <thing> they make. Ages 8 and up.` Generic take-home — never a count, a design, a color, or packaging. Add `This is a drop-off class: parents can head out and come back for pickup.` only when Kaden says the class is drop-off.
+3. **Take-home + age:** `Each guest goes home with the <thing> they make. Ages 8 and up.` Generic take-home — never a count, a design, a color, or packaging. Add `This is a drop-off class, so parents can head out and come back for pickup.` only when Kaden says the class is drop-off.
 
 Stay vague on anything we might not do exactly (10/9: no "with a clasp" on the rondelle necklace — don't name findings/hardware): no exact designs, counts, colors, menus, combos, or "in a box". "If you are too specific and we don't do it exactly, people will complain." Say the kind of thing, not the inventory. (Concrete nouns were the OLD rule for party crafts — keep those light on specifics too.)
 
@@ -48,7 +49,7 @@ Approved example — **Halloween Cookie Decorating**
 >
 > Learn to outline, flood, and add the details, with Mrs. Megan guiding the whole table. No experience needed.
 >
-> Each guest goes home with the cookies they decorate. Ages 8 and up. This is a drop-off class: parents can head out and come back for pickup.
+> Each guest goes home with the cookies they decorate. Ages 8 and up. This is a drop-off class, so parents can head out and come back for pickup.
 
 ## Names
 
