@@ -6,7 +6,7 @@ import { dashboardFetch } from '../src/lib/square-dashboard'
  * Reschedule a class (Square class schedule) via the dashboard session.
  * Reads the cookie from captures/.square-session (see save-square-session.ts).
  *
- *   npx tsx scripts/move-class.ts --workshop clssch_… --start 2026-10-17T19:00 [--dry-run]
+ *   npx tsx scripts/move-class.ts --workshop clssch_… --start 2026-10-17T19:00 [--duration 60] [--dry-run]
  *
  * --start is America/Chicago local time. Refuses a class with bookings.
  */
@@ -15,6 +15,8 @@ const flag = (n: string) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? 
 const id = flag('workshop')
 const start = flag('start')
 const dry = argv.includes('--dry-run')
+const duration = flag('duration') ? Number(flag('duration')) : undefined
+if (duration !== undefined && !(duration > 0 && duration <= 600)) { console.error('--duration must be minutes (1–600)'); process.exit(1) }
 if (!id || !start || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(start)) { console.error('Usage: --workshop clssch_… --start YYYY-MM-DDTHH:mm'); process.exit(1) }
 
 /** Chicago local → UTC ISO (handles CDT/CST). */
@@ -35,12 +37,13 @@ async function main() {
   const live = (schedule.class_bookings ?? []).filter((b: any) => !/CANCEL|DECLIN/.test(b.status ?? ''))
   if (live.length) { console.error(`Refusing: ${live.length} booking(s) on this class. Move it in Square so they are told.`); process.exit(1) }
   const startAt = chicagoToUtc(start!)
-  const body = { class_schedule: { ...schedule, start_at: startAt } }
+  const body = { class_schedule: { ...schedule, start_at: startAt, ...(duration ? { duration_minutes: duration } : {}) } }
   if (body.class_schedule.resource_id === '') delete body.class_schedule.resource_id
-  console.log(`${schedule.start_at} → ${startAt}`)
+  console.log(`${schedule.start_at} (${schedule.duration_minutes} min) → ${startAt} (${duration ?? schedule.duration_minutes} min)`)
   if (dry) return
   const put = await dashboardFetch(path, { method: 'PUT', body }, cookie)
   if (!put || !put.ok) { console.error('Move failed', put?.status, await put?.text()); process.exit(1) }
-  console.log('Moved.', (await put.json()).class_schedule?.start_at)
+  const saved = (await put.json()).class_schedule
+  console.log('Saved.', saved?.start_at, `${saved?.duration_minutes} min`)
 }
 main().catch((e) => { console.error(e); process.exit(1) })
