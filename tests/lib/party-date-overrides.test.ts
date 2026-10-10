@@ -7,10 +7,11 @@ describe('one-off party days (partyDateOverrides)', () => {
   it('opens Sat Oct 24 all day even though parties start Nov 7', () => {
     const starts = partyStartsForDate('2026-10-24', now)
     expect(starts).toEqual([
-      '2026-10-24T15:00:00.000Z', // 10:00 CDT
-      '2026-10-24T17:30:00.000Z', // 12:30
-      '2026-10-24T20:00:00.000Z', // 3:00
-      '2026-10-24T22:30:00.000Z', // 5:30
+      '2026-10-24T14:00:00.000Z', // 9:00 CDT
+      '2026-10-24T16:30:00.000Z', // 11:30
+      '2026-10-24T19:00:00.000Z', // 2:00
+      '2026-10-24T21:30:00.000Z', // 4:30
+      '2026-10-25T00:00:00.000Z', // 7:00
     ])
     expect(bookableOn('2026-10-24', now)).toBe('ok')
   })
