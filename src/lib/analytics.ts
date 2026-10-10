@@ -195,7 +195,9 @@ export function trackAddPaymentInfo(kind: BookingKindForAnalytics, value: number
 
 /** A choice inside a booking flow: the date, the time, the guest count… */
 export function trackBookingChoice(kind: BookingKindForAnalytics, choice: string, value?: string | number): void {
-  capture('booking_choice', { booking_kind: kind, choice, ...(value !== undefined ? { choice_value: value } : {}) })
+  // Each choice gets its own property (chosen_date, chosen_guests…): one shared
+  // property got typed as a date by PostHog, which then read 30 guests as Jan 30.
+  capture('booking_choice', { booking_kind: kind, choice, ...(value !== undefined ? { [`chosen_${choice.replace(/[^a-z0-9_]/gi, '_').slice(0, 30)}`]: value } : {}) })
 }
 
 /** Closed a booking flow without finishing. `lastStep` is where they were. */
