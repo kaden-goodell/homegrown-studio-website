@@ -103,6 +103,16 @@ describe('POST /api/party/available-dates.json', () => {
     expect(data.bookedDates).toEqual(['2026-11-07'])
   })
 
+  it('does not call a day "Booked" when a class took its only party time', async () => {
+    mockListAllWorkshops.mockResolvedValue([
+      // Thu 12 Nov, 6–8 PM CST: no room for the 4:00 party and its cleanup.
+      { id: 'e', scheduleId: 'clssch_earrings', name: 'Christmas Earring Bar', startAt: '2026-11-13T00:00:00.000Z', durationMinutes: 120 },
+    ])
+    const { data } = await ask()
+    expect(data.dates).not.toContain('2026-11-12')
+    expect(data.bookedDates).not.toContain('2026-11-12')
+  })
+
   it('ignores cancelled bookings and bookings for other services', async () => {
     mockListBookings.mockResolvedValue([
       { status: 'cancelled', slot: { startAt: '2026-11-08T21:30:00.000Z', serviceVariationId: VARIATION } },

@@ -71,9 +71,11 @@ export const POST: APIRoute = async ({ request }) => {
     }
     const dates = Object.keys(times).sort()
 
-    // Dates we offer that have no time left: shown as "Booked", so a customer
-    // can tell "taken" from "not offered".
-    const bookedDates = Array.from(new Set(starts.map((s) => localDate(s))))
+    // Dates whose party times were all taken by other parties: shown as
+    // "Booked", so a customer can tell "taken" from "not offered". A day a
+    // class has taken (e.g. a 6:00 class over the 4:00 weeknight party) is
+    // simply not offered — it was never booked.
+    const bookedDates = Array.from(new Set(unblocked.map((s) => localDate(s))))
       .filter((d) => !times[d])
       .sort()
 
