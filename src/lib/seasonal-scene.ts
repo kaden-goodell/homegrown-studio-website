@@ -90,15 +90,17 @@ export function createDrifters(season: Exclude<Season, 'glitter'>, width: number
 }
 
 /**
- * The breeze at time t (seconds), px/s, positive = to the right. Slow layered
- * waves make it rise and fall, with an occasional gust; it never stops dead
- * and mostly blows one way, the way a real afternoon breeze does.
+ * The breeze at time t (seconds), px/s, positive = to the right. It slowly
+ * swings between blowing left and blowing right (a couple of minutes each way,
+ * never on a beat), with calmer stretches as it turns and the odd short gust in
+ * whichever direction it's blowing.
  */
 export function breezeAt(t: number): number {
-  const base = 10 + 8 * Math.sin(t * 0.07) // the day's prevailing drift
-  const swell = 12 * Math.sin(t * 0.23 + 1.3) * Math.sin(t * 0.051)
-  const gust = Math.max(0, Math.sin(t * 0.13 + 0.4)) ** 6 * 38 // rare, short pushes
-  return base + swell + gust
+  // Two slow, unrelated waves: the direction drifts instead of flipping on a schedule.
+  const prevailing = 14 * Math.sin(t * 0.041) + 7 * Math.sin(t * 0.017 + 2.1)
+  const swell = 10 * Math.sin(t * 0.23 + 1.3) * Math.sin(t * 0.051)
+  const gust = Math.max(0, Math.sin(t * 0.13 + 0.4)) ** 6 * 32 * Math.sign(prevailing || 1)
+  return prevailing + swell + gust
 }
 
 /** Move every drifter forward by dt seconds; ones that leave the screen come back in at the top. */
@@ -115,7 +117,14 @@ export function stepDrifters(ds: Drifter[], season: Exclude<Season, 'glitter'>, 
     const lift = season === 'fall' ? 0.75 + 0.25 * Math.abs(Math.cos(d.swayPhase)) : 1
     d.x += (d.vx + Math.cos(d.swayPhase) * d.swayAmp * d.swayRate) * dt
     d.y += d.fall * lift * dt
-    if (d.y > height + 40 || d.x > width + 80 || d.x < -80) ds[i] = makeDrifter(season, width, height, false)
+    if (d.y > height + 40 || d.x > width + 80 || d.x < -80) {
+      const fresh = makeDrifter(season, width, height, false)
+      // Enter upwind: shift the start against the breeze by about half of how
+      // far it will be carried on the way down, so no side of the screen goes bare.
+      const carried = wind * fresh.catchWind * (height / fresh.fall)
+      fresh.x -= Math.max(-width * 0.6, Math.min(width * 0.6, carried * 0.5))
+      ds[i] = fresh
+    }
   }
 }
 

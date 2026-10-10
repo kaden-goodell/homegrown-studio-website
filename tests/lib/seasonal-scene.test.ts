@@ -23,12 +23,17 @@ describe('seasonFor', () => {
 })
 
 describe('the breeze', () => {
-  it('always blows gently to one side and never storms', () => {
+  it('blows both ways over time, and never storms', () => {
+    let left = 0, right = 0
     for (let t = 0; t < 3600; t += 0.5) {
       const b = breezeAt(t)
-      expect(b).toBeGreaterThan(-12)
-      expect(b).toBeLessThan(70)
+      expect(Math.abs(b)).toBeLessThan(70)
+      if (b < -5) left++
+      if (b > 5) right++
     }
+    // Over an hour it spends real time blowing each way.
+    expect(left).toBeGreaterThan(1000)
+    expect(right).toBeGreaterThan(1000)
   })
 })
 
