@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro'
 import { bookingsOpen } from '@lib/bookings-gate'
 import { OPENING_DATE } from '@config/opening'
-import { closures, daysOf, reopensOn } from '@config/closures'
+import { closures, closureOn, daysOf, reopensOn } from '@config/closures'
 import { longDate } from '@lib/notify-context'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
@@ -149,7 +149,9 @@ export const GET: APIRoute = async ({ url, request }) => {
     includePartySlots ? partyAvailable : [],
     partyBooked,
   )
-  const events = built.filter((e) => e.date >= OPENING_DATE && inRange(e.date))
+  // Walk-in hours come from Square and don't know about closures: a closed day
+  // never shows Craft Café (e.g. Sat 28 Nov, Thanksgiving weekend).
+  const events = built.filter((e) => e.date >= OPENING_DATE && inRange(e.date) && !(e.kind === 'open-studio' && closureOn(e.date)))
   if (months.includes(OPENING_DATE.slice(0, 7))) {
     events.unshift({
       id: 'grand-opening',
