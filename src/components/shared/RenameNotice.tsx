@@ -97,7 +97,7 @@ export default function RenameNotice() {
       </p>
       <p style={{ fontSize: '0.9375rem', lineHeight: 1.55, margin: '0 0 1rem' }}>
         We're Hometown Studio now. Same crafts, same people, same glitter we'll never fully get out of the carpet.
-        We'll tell the whole story on our socials as soon as we clear it through our attorneys.
+        We'll tell the whole story on our socials as soon as our attorneys clear what we can share.
       </p>
       <button
         type="button"
