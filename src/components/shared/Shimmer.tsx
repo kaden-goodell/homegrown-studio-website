@@ -15,8 +15,14 @@
  * The everyday glitter holds still while a booking panel is open, stops while
  * the tab is hidden, and is off on the pages listed in SHIMMER_OFF_PATHS. With
  * "reduce motion" on it is a still image.
+ *
+ * SEASONS (seasonal-scene.ts): fall swaps the everyday glitter for leaves on a
+ * breeze, winter for snowflakes; spring and summer keep the glitter. Preview
+ * any of them with ?season=fall|winter|glitter. The celebration burst is
+ * always glitter.
  */
 import { useEffect, useRef } from 'react'
+import { seasonFor, createDrifters, stepDrifters, drawDrifters, type Drifter } from '@lib/seasonal-scene'
 
 interface Particle {
   x: number
@@ -126,9 +132,14 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
 
     resize()
     let particles = createParticles(window.innerWidth, window.innerHeight)
+    const season = seasonFor(new Date(), new URLSearchParams(window.location.search).get('season'))
+    let drifters: Drifter[] = season === 'glitter' ? [] : createDrifters(season, window.innerWidth, window.innerHeight)
+    let clock = Math.random() * 600 // start somewhere in the breeze's cycle
 
     // Static render for reduced motion
-    if (prefersReduced) {
+    if (prefersReduced && season !== 'glitter') {
+      drawDrifters(ctx, drifters, season, 0.6)
+    } else if (prefersReduced) {
       for (const p of particles) {
         ctx.globalAlpha = p.maxOpacity * 0.3
         ctx.fillStyle = p.color
@@ -158,6 +169,14 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
 
       const w = canvas!.width / dpr
       const h = canvas!.height / dpr
+
+      if (season !== 'glitter') {
+        clock += dt
+        stepDrifters(drifters, season, clock, Math.min(dt, 0.1), w, h)
+        drawDrifters(ctx!, drifters, season)
+        animId = requestAnimationFrame(draw)
+        return
+      }
 
       for (const p of particles) {
         const prevPhase = p.phase
@@ -225,6 +244,7 @@ export default function Shimmer({ enabled }: { enabled: boolean }) {
       if (Math.abs(window.innerWidth - laidOutWidth) > 100) {
         laidOutWidth = window.innerWidth
         particles = createParticles(window.innerWidth, window.innerHeight)
+        if (season !== 'glitter') drifters = createDrifters(season, window.innerWidth, window.innerHeight)
       }
     }
     window.addEventListener('resize', onResize)

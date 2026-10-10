@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, cleanup } from '@testing-library/react'
 import Shimmer, { CELEBRATE_EVENT, shimmerAllowedOn } from '@components/shared/Shimmer'
 
+// These tests cover the glitter and the panel/tab/page rules; the fall and
+// winter skies are tested in tests/lib/seasonal-scene.test.ts.
+vi.mock('@lib/seasonal-scene', async (orig) => ({ ...(await orig<typeof import('@lib/seasonal-scene')>()), seasonFor: () => 'glitter' }))
+
 /** Frames the component has asked for and not yet cancelled. */
 let frames = new Map<number, FrameRequestCallback>()
 let nextFrameId = 0
