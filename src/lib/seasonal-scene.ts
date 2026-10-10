@@ -1,8 +1,9 @@
 /**
  * The seasonal sky behind every page (drawn by Shimmer.tsx):
- *   fall (Sep–Nov)   leaves drifting down on a breeze
  *   winter (Dec–Feb) snowflakes
  *   otherwise        nothing here — Shimmer keeps its glitter
+ * Fall leaves are built and can be previewed with ?season=fall, but are not
+ * on by date (Kaden, 9 Oct 2026: "no leaves… keep the Christmas ones").
  *
  * Kept free of React and the DOM (except the canvas context it is handed) so
  * the season rule and the motion can be tested on their own.
@@ -14,7 +15,6 @@ export type Season = 'fall' | 'winter' | 'glitter'
 export function seasonFor(date: Date, override?: string | null): Season {
   if (override === 'fall' || override === 'winter' || override === 'glitter') return override
   const month = date.getMonth() // 0 = January
-  if (month >= 8 && month <= 10) return 'fall'
   if (month === 11 || month <= 1) return 'winter'
   return 'glitter'
 }

@@ -2,10 +2,11 @@ import { describe, it, expect } from 'vitest'
 import { seasonFor, breezeAt, createDrifters, stepDrifters, countFor } from '@lib/seasonal-scene'
 
 describe('seasonFor', () => {
-  it('fall is September through November', () => {
-    expect(seasonFor(new Date(2026, 8, 1))).toBe('fall')
-    expect(seasonFor(new Date(2026, 9, 16))).toBe('fall')
-    expect(seasonFor(new Date(2026, 10, 30))).toBe('fall')
+  it('fall keeps the glitter (leaves are preview-only for now)', () => {
+    expect(seasonFor(new Date(2026, 8, 1))).toBe('glitter')
+    expect(seasonFor(new Date(2026, 9, 16))).toBe('glitter')
+    expect(seasonFor(new Date(2026, 10, 30))).toBe('glitter')
+    expect(seasonFor(new Date(2026, 9, 16), 'fall')).toBe('fall')
   })
   it('winter is December through February', () => {
     expect(seasonFor(new Date(2026, 11, 1))).toBe('winter')
@@ -18,7 +19,7 @@ describe('seasonFor', () => {
   })
   it('a ?season= preview wins, junk is ignored', () => {
     expect(seasonFor(new Date(2027, 6, 4), 'winter')).toBe('winter')
-    expect(seasonFor(new Date(2026, 9, 16), 'snow')).toBe('fall')
+    expect(seasonFor(new Date(2026, 9, 16), 'snow')).toBe('glitter')
   })
 })
 

@@ -16,8 +16,9 @@
  * the tab is hidden, and is off on the pages listed in SHIMMER_OFF_PATHS. With
  * "reduce motion" on it is a still image.
  *
- * SEASONS (seasonal-scene.ts): fall swaps the everyday glitter for leaves on a
- * breeze, winter for snowflakes; spring and summer keep the glitter. Preview
+ * SEASONS (seasonal-scene.ts): winter (Dec–Feb) swaps the everyday glitter
+ * for snowflakes; the rest of the year keeps the glitter. Leaves exist but are
+ * preview-only for now. Preview
  * any of them with ?season=fall|winter|glitter. The celebration burst is
  * always glitter.
  */
