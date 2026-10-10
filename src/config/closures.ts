@@ -19,12 +19,14 @@ export interface Closure {
 }
 
 /** The holidays the calendar knows how to dress up for (colours in global.css). */
-export type Holiday = 'halloween' | 'christmas'
+export type Holiday = 'halloween' | 'thanksgiving' | 'christmas'
 
 export const closures: Closure[] = [
   // Kaden, 27 Sep 2026: closed Friday to Sunday of Halloween weekend, and from
   // 21 December to New Year's Day, opening again on Saturday 2 January.
   { from: '2026-10-30', to: '2026-11-01', name: 'Halloween weekend', holiday: 'halloween' },
+  // Kaden, 9 Oct 2026: closed Thanksgiving and the Friday after.
+  { from: '2026-11-26', to: '2026-11-27', name: 'Thanksgiving', holiday: 'thanksgiving' },
   { from: '2026-12-21', to: '2027-01-01', name: 'the Christmas holidays', holiday: 'christmas' },
 ]
 

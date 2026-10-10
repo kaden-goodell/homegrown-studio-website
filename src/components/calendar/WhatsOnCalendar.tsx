@@ -135,10 +135,12 @@ const colorOf = (e: CalendarEvent) => (e.holiday ? `var(--holiday-${e.holiday})`
 const softOf = (e: CalendarEvent) => (e.holiday ? `var(--holiday-${e.holiday}-soft)` : KIND_SOFT[e.kind])
 const inkOf = (e: CalendarEvent) => (e.holiday ? `var(--holiday-${e.holiday}-ink)` : KIND_INK[e.kind])
 
-/** Stripes for a day closed for a holiday: pumpkin orange, or a candy cane. */
+/** Stripes for a day closed for a holiday: pumpkin orange, warm brown, or a candy cane. */
 const HOLIDAY_STRIPES: Record<Holiday, string> = {
   halloween:
     'repeating-linear-gradient(135deg, color-mix(in srgb, var(--holiday-halloween) 30%, white) 0 7px, color-mix(in srgb, var(--holiday-halloween) 12%, white) 7px 14px)',
+  thanksgiving:
+    'repeating-linear-gradient(135deg, color-mix(in srgb, var(--holiday-thanksgiving) 28%, white) 0 7px, color-mix(in srgb, var(--holiday-thanksgiving) 10%, white) 7px 14px)',
   christmas:
     'repeating-linear-gradient(135deg, color-mix(in srgb, var(--holiday-christmas) 38%, white) 0 7px, white 7px 14px)',
 }
