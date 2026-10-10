@@ -41,7 +41,7 @@ Catherine approved this exact shape and rejected the specific version ("she didn
 2. **"Learn to …" paragraph** (optional for new workshops, see above): the skills you learn or what you do, who guides the table, then `No experience needed.` (or an equivalent reassurance).
 3. **Take-home + age:** `Each guest goes home with the <thing> they make. Ages 8 and up.` Generic take-home — never a count, a design, a color, or packaging. Add `This is a drop-off class: parents can head out and come back for pickup.` only when Kaden says the class is drop-off.
 
-Stay vague on anything we might not do exactly: no exact designs, counts, colors, menus, combos, or "in a box". "If you are too specific and we don't do it exactly, people will complain." Say the kind of thing, not the inventory. (Concrete nouns were the OLD rule for party crafts — keep those light on specifics too.)
+Stay vague on anything we might not do exactly (10/9: no "with a clasp" on the rondelle necklace — don't name findings/hardware): no exact designs, counts, colors, menus, combos, or "in a box". "If you are too specific and we don't do it exactly, people will complain." Say the kind of thing, not the inventory. (Concrete nouns were the OLD rule for party crafts — keep those light on specifics too.)
 
 Approved example — **Halloween Cookie Decorating**
 > Decorate Halloween cookies with Mrs. Megan, the owner of Nutmeg's Cookies.
