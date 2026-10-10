@@ -15,6 +15,12 @@ vi.mock('@lib/bookings-gate', () => ({
 
 import { POST } from '@pages/api/party/available-dates.json'
 
+// These tests pin the normal weekly rules; one-off party days
+// (partyDateOverrides) are covered in party-date-overrides.test.ts.
+vi.mock('@config/party.config', async (orig) => ({ ...(await orig<typeof import('@config/party.config')>()), partyDateOverrides: {} }))
+vi.mock('../config/party.config', async (orig) => ({ ...(await orig<typeof import('../../src/config/party.config')>()), partyDateOverrides: {} }))
+
+
 // Noon Central on Sunday 27 Sep 2026. Parties start Sat 7 Nov, so dates run 7 Nov to 11 Nov.
 const NOW = new Date('2026-09-27T17:00:00.000Z')
 const VARIATION = 'var-party'

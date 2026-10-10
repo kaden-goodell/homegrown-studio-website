@@ -100,3 +100,14 @@ export const partyDays: Record<number, { firstStart: string; lastWrap: string }>
   0: { firstStart: '13:00', lastWrap: '18:00' }, // Sunday: 1:00, 3:30
   6: { firstStart: '13:30', lastWrap: '16:00' }, // Saturday: 1:30 only
 }
+
+/**
+ * One-off party days that replace the weekday schedule for that date, and are
+ * offered even before `bookingOpensDate` (lead time, window and closures still
+ * apply). Same shape as partyDays.
+ *   2026-10-24: Kaden opened that Saturday to parties all day (9 Oct 2026):
+ *   10:00 · 12:30 · 3:00 · 5:30, each 90 min + the hour's cleanup.
+ */
+export const partyDateOverrides: Record<string, { firstStart: string; lastWrap: string }> = {
+  '2026-10-24': { firstStart: '10:00', lastWrap: '21:00' },
+}

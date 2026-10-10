@@ -8,7 +8,7 @@
  * `firstStart`, while start + party + cleanup ≤ `lastWrap` (keeps the evening
  * workshop slot clear). See `partyDays` in party.config.ts.
  */
-import { partyConfig, partyDays } from '../config/party.config'
+import { partyConfig, partyDays, partyDateOverrides } from '../config/party.config'
 import { closureOn } from '../config/closures'
 
 const DAY_MS = 86_400_000
@@ -84,9 +84,12 @@ function studioDatePlus(days: number, now: Date): string {
  */
 export function bookableDates(now: Date = new Date()): { first: string; last: string } {
   const soonest = studioDatePlus(partyConfig.minLeadDays, now)
+  // A one-off party day before opening pulls the start of the range back to it.
+  const early = Object.keys(partyDateOverrides).filter((d) => d >= soonest && d < partyConfig.bookingOpensDate).sort()[0]
+  const opens = early ?? partyConfig.bookingOpensDate
   return {
     // YYYY-MM-DD strings compare lexically.
-    first: soonest > partyConfig.bookingOpensDate ? soonest : partyConfig.bookingOpensDate,
+    first: soonest > opens ? soonest : opens,
     last: studioDatePlus(partyConfig.bookingWindowDays, now),
   }
 }
@@ -96,7 +99,7 @@ export function bookableOn(
   ymd: string,
   now: Date = new Date(),
 ): 'ok' | 'before_opening' | 'closed' | 'too_soon' | 'too_far' {
-  if (ymd < partyConfig.bookingOpensDate) return 'before_opening'
+  if (ymd < partyConfig.bookingOpensDate && !partyDateOverrides[ymd]) return 'before_opening'
   if (closureOn(ymd)) return 'closed'
   const { first, last } = bookableDates(now)
   if (ymd < first) return 'too_soon'
@@ -113,7 +116,7 @@ export function partyStartsForDate(ymd: string, now: Date = new Date()): string[
   if (bookableOn(ymd, now) !== 'ok') return []
   const [y, m, d] = ymd.split('-').map(Number)
   const weekday = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()
-  const cfg = partyDays[weekday]
+  const cfg = partyDateOverrides[ymd] ?? partyDays[weekday]
   if (!cfg) return []
 
   const step = partyConfig.durationMinutes + partyConfig.cleanupBufferMinutes

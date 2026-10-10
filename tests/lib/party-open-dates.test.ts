@@ -16,6 +16,12 @@ vi.mock('@providers/square/client', () => ({
 
 import { openPartyStartsInWindow } from '@lib/party-open-dates'
 
+// These tests pin the normal weekly rules; one-off party days
+// (partyDateOverrides) are covered in party-date-overrides.test.ts.
+vi.mock('@config/party.config', async (orig) => ({ ...(await orig<typeof import('@config/party.config')>()), partyDateOverrides: {} }))
+vi.mock('../config/party.config', async (orig) => ({ ...(await orig<typeof import('../../src/config/party.config')>()), partyDateOverrides: {} }))
+
+
 const VARIATION = 'PARTY_VARIATION'
 const NOW = new Date('2026-10-10T15:00:00.000Z') // window: Nov 7 (first party weekend) to Jan 8 (90 days)
 const dayOf = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })

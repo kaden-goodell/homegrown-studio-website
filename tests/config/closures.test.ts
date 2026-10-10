@@ -1,6 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { closures, closureOn, studioOpenOn, daysOf, reopensOn, type Closure } from '@config/closures'
 import { bookableOn, partyStartsForDate, partyStartsInRange } from '@lib/party-slots'
+
+// These tests pin the normal weekly rules; one-off party days
+// (partyDateOverrides) are covered in party-date-overrides.test.ts.
+vi.mock('@config/party.config', async (orig) => ({ ...(await orig<typeof import('@config/party.config')>()), partyDateOverrides: {} }))
+vi.mock('../config/party.config', async (orig) => ({ ...(await orig<typeof import('../../src/config/party.config')>()), partyDateOverrides: {} }))
+
 
 const HALLOWEEN: Closure = { from: '2026-10-30', to: '2026-11-01', name: 'Halloween weekend', holiday: 'halloween' }
 const CHRISTMAS: Closure = { from: '2026-12-21', to: '2027-01-01', name: 'the Christmas holidays', holiday: 'christmas' }

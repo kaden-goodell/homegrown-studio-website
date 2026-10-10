@@ -1,6 +1,12 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { partyConfig } from '@config/party.config'
 import { bookableDates, bookableOn, partyStartsForDate, partyStartsInRange, localDate } from '@lib/party-slots'
+
+// These tests pin the normal weekly rules; one-off party days
+// (partyDateOverrides) are covered in party-date-overrides.test.ts.
+vi.mock('@config/party.config', async (orig) => ({ ...(await orig<typeof import('@config/party.config')>()), partyDateOverrides: {} }))
+vi.mock('../config/party.config', async (orig) => ({ ...(await orig<typeof import('../../src/config/party.config')>()), partyDateOverrides: {} }))
+
 
 // Noon Central on Sunday 27 Sep 2026. Opening day is Fri 16 Oct 2026.
 const SEP_27 = new Date('2026-09-27T17:00:00.000Z')
@@ -114,3 +120,4 @@ describe('partyStartsInRange', () => {
     }
   })
 })
+
