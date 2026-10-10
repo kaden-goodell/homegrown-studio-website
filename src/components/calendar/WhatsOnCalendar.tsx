@@ -95,6 +95,8 @@ interface WhatsOnCalendarProps {
    * Optional initial events (e.g. SSR-rendered first month). After mount the
    * component fetches per-month from /api/calendar.json and state takes over.
    */
+  /** Which view opens first. The month grid unless asked otherwise. */
+  initialView?: 'list' | 'month'
   events?: CalendarEvent[]
 }
 
@@ -400,7 +402,7 @@ function LoadNotice({ failed, busy, onRetry }: { failed: boolean; busy: boolean;
   )
 }
 
-export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnCalendarProps) {
+export default function WhatsOnCalendar({ events: initialEvents = [], initialView = 'month' }: WhatsOnCalendarProps) {
   const now = new Date()
   // Pre-opening, there's nothing before opening month — start the month grid there.
   const opening = new Date(OPENING_DATE + 'T12:00:00')
@@ -408,7 +410,8 @@ export default function WhatsOnCalendar({ events: initialEvents = [] }: WhatsOnC
   const [year, setYear] = useState(start.getFullYear())
   const [month, setMonth] = useState(start.getMonth())
   const [selectedDay, setSelectedDay] = useState<number | null>(null)
-  const [view, setView] = useState<'list' | 'month'>('list')
+  // Month grid first (Kaden, 9 Oct 2026: "the button says calendar"); List is one tap away.
+  const [view, setView] = useState<'list' | 'month'>(initialView)
   const [compact, setCompact] = useState(false)
   const [events, setEvents] = useState<CalendarEvent[]>(initialEvents)
   const [loading, setLoading] = useState(false)

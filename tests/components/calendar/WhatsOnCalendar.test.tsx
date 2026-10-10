@@ -93,12 +93,23 @@ async function rowFor(title: string): Promise<HTMLElement> {
   return el.parentElement!.parentElement!
 }
 
+describe('first view', () => {
+  beforeEach(setUp)
+  afterEach(tearDown)
+
+  it('opens on the month grid (the page is called Calendar)', () => {
+    render(<WhatsOnCalendar />)
+    expect(screen.getByRole('button', { name: 'Month' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: 'List' })).toHaveAttribute('aria-pressed', 'false')
+  })
+})
+
 describe('WhatsOnCalendar list rows (HOM-179)', () => {
   beforeEach(setUp)
   afterEach(tearDown)
 
   it('renders a workshop as one link: title, then kind · time · price · seats, then "Book ›"', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     const row = await rowFor('Fall Earring Bar')
     expect(row.tagName).toBe('A')
     expect(row).toHaveAttribute('href', '/workshops?w=abc')
@@ -107,7 +118,7 @@ describe('WhatsOnCalendar list rows (HOM-179)', () => {
   })
 
   it('renders party availability as "Private party times" with a "Pick a time ›" link to the day', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     const row = await rowFor('Private party times')
     expect(row.tagName).toBe('A')
     expect(row).toHaveAttribute('href', `/book?date=${SATURDAY}`)
@@ -116,7 +127,7 @@ describe('WhatsOnCalendar list rows (HOM-179)', () => {
   })
 
   it('links a Craft Café row without offering a booking action', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     const row = await rowFor('Craft Café')
     expect(row.tagName).toBe('A')
     expect(row).toHaveAttribute('href', '/craft-cafe')
@@ -124,7 +135,7 @@ describe('WhatsOnCalendar list rows (HOM-179)', () => {
   })
 
   it('renders a row that cannot be tapped as a plain row', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     const row = await rowFor('1 party booked')
     expect(row.tagName).toBe('DIV')
     expect(row).not.toHaveAttribute('href')
@@ -137,7 +148,7 @@ describe('WhatsOnCalendar list rows (HOM-179)', () => {
       { id: 'party-booked-2', kind: 'party-booked', title: 'Booked · private party', date: SATURDAY, startTime: '10:30', bookable: false },
       { id: 'party-booked-3', kind: 'party-booked', title: 'Booked · private party', date: SATURDAY, startTime: '15:30', bookable: false },
     ])
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     const row = await rowFor('3 parties booked')
     expect(row.tagName).toBe('DIV')
     expect(spaced(row.textContent)).toBe('3 parties bookedfrom 10:30 AM')
@@ -148,7 +159,7 @@ describe('WhatsOnCalendar list rows (HOM-179)', () => {
     stubCalendarApi([
       { ...EVENTS[6], remainingSeats: 0, soldOut: true, bookable: false },
     ])
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     const row = await rowFor('Fall Earring Bar')
     expect(row.tagName).toBe('A')
     expect(row).toHaveAttribute('href', '/workshops?w=abc')
@@ -157,14 +168,14 @@ describe('WhatsOnCalendar list rows (HOM-179)', () => {
   })
 
   it('gives every row a tap area at least 44px tall', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     for (const title of ['Fall Earring Bar', 'Private party times', 'Craft Café', '1 party booked']) {
       expect(await rowFor(title)).toHaveStyle({ minHeight: '2.75rem' })
     }
   })
 
   it('sets the title dark at weight 600 and keeps line two out of the kind colours', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     const title = await screen.findByText('Fall Earring Bar')
     expect(title).toHaveStyle({ color: 'var(--color-dark)', fontWeight: '600', fontSize: '0.9375rem' })
     const meta = title.nextElementSibling as HTMLElement
@@ -172,7 +183,7 @@ describe('WhatsOnCalendar list rows (HOM-179)', () => {
   })
 
   it('orders the day by start time, earliest at the top', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     const first = await rowFor('Fall Earring Bar')
     const titles = Array.from(first.parentElement!.children).map((row) => row.firstElementChild!.firstElementChild!.textContent)
     // 9:00 party times (party first on a tie), 9:00 open studio, 1:00 booked party, 7:00 workshop
@@ -180,14 +191,14 @@ describe('WhatsOnCalendar list rows (HOM-179)', () => {
   })
 
   it('shows no emoji on party rows', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     expect((await rowFor('Private party times')).textContent).not.toMatch(/🎉/)
     expect((await rowFor('1 party booked')).textContent).not.toMatch(/🎉/)
   })
 
   it('makes the Grand Opening a tappable row: title, then "Doors open. Come see the studio."', async () => {
     stubCalendarApi([GRAND_OPENING])
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     const row = await rowFor('Grand Opening')
     expect(row.tagName).toBe('A')
     expect(row).toHaveAttribute('href', '/')
@@ -195,13 +206,13 @@ describe('WhatsOnCalendar list rows (HOM-179)', () => {
   })
 
   it('pads the day card 1.25rem/1.5rem on wide screens and 1rem under 550px', async () => {
-    const { unmount } = render(<WhatsOnCalendar />)
+    const { unmount } = render(<WhatsOnCalendar initialView="list" />)
     const wide = (await rowFor('Fall Earring Bar')).parentElement!.parentElement!
     expect(wide).toHaveStyle({ padding: '1.25rem 1.5rem' })
     unmount()
 
     stubMatchMedia(true)
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     const narrow = (await rowFor('Fall Earring Bar')).parentElement!.parentElement!
     expect(narrow).toHaveStyle({ padding: '1rem' })
   })
@@ -212,7 +223,7 @@ describe('WhatsOnCalendar month view', () => {
   afterEach(tearDown)
 
   it('makes the Craft Café chip a link and drops the emoji from the party chip', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
 
     const studio = await screen.findByTitle('Craft Café')
@@ -242,7 +253,7 @@ describe('WhatsOnCalendar month view', () => {
       booked('d', '16:30'),
       EVENTS[6], // the 7 PM workshop
     ])
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
 
     const workshop = await screen.findByTitle('Fall Earring Bar')
@@ -258,7 +269,7 @@ describe('WhatsOnCalendar month view', () => {
 
   it('makes the Grand Opening chip a link', async () => {
     stubCalendarApi([GRAND_OPENING])
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
     const chip = await screen.findByTitle('Grand Opening')
     expect(chip.tagName).toBe('A')
@@ -266,7 +277,7 @@ describe('WhatsOnCalendar month view', () => {
   })
 
   it('sets chip labels in dark text and keeps the kind colour on the edge', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
     const chip = await screen.findByTitle('Fall Earring Bar')
     expect(chip).toHaveStyle({ color: 'var(--color-dark)', background: 'var(--tone-workshop-soft)' })
@@ -275,7 +286,7 @@ describe('WhatsOnCalendar month view', () => {
 
   it('gives "Event" and "Party Available" different colours', async () => {
     stubCalendarApi([GRAND_OPENING, EVENTS[0]])
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
     const event = await screen.findByTitle('Grand Opening')
     const party = await screen.findByTitle('Party available · 9:00 AM')
@@ -302,7 +313,7 @@ describe('WhatsOnCalendar month view', () => {
 
     it('wears the holiday\'s colours on its chip, not the usual event colour', async () => {
       stubCalendarApi([HALLOWEEN])
-      render(<WhatsOnCalendar />)
+      render(<WhatsOnCalendar initialView="list" />)
       fireEvent.click(screen.getByRole('button', { name: 'Month' }))
       const chip = await screen.findByTitle('Closed for Halloween weekend')
       expect(chip.style.borderLeft).toBe('3px solid var(--holiday-halloween)')
@@ -313,7 +324,7 @@ describe('WhatsOnCalendar month view', () => {
 
     it('stripes the day, and keeps the stripes when the day is hovered', async () => {
       stubCalendarApi([HALLOWEEN])
-      render(<WhatsOnCalendar />)
+      render(<WhatsOnCalendar initialView="list" />)
       fireEvent.click(screen.getByRole('button', { name: 'Month' }))
       const cell = await cellFor('Closed for Halloween weekend')
       expect(cell.style.backgroundImage).toContain('--holiday-halloween')
@@ -326,7 +337,7 @@ describe('WhatsOnCalendar month view', () => {
     it('stripes every day of the Christmas holidays like a candy cane, with or without a row on it', async () => {
       vi.setSystemTime(new Date('2026-12-01T17:00:00.000Z'))
       stubCalendarApi([])
-      render(<WhatsOnCalendar />)
+      render(<WhatsOnCalendar initialView="list" />)
       // The month view opens on the current month once the opening month has passed.
       fireEvent.click(screen.getByRole('button', { name: 'Month' }))
       expect(await screen.findByText('December 2026')).toBeInTheDocument()
@@ -338,7 +349,7 @@ describe('WhatsOnCalendar month view', () => {
 
     it('shows in the list in the holiday\'s colours, with the day it reopens', async () => {
       stubCalendarApi([HALLOWEEN])
-      render(<WhatsOnCalendar />)
+      render(<WhatsOnCalendar initialView="list" />)
       const row = await rowFor('Closed for Halloween weekend')
       expect(row.textContent).toContain('We reopen Thursday, November 5.')
       expect(row.style.backgroundImage).toContain('--holiday-halloween')
@@ -348,13 +359,13 @@ describe('WhatsOnCalendar month view', () => {
 
   it('always shows the "Closed" key, even for a month with nothing in it', async () => {
     stubCalendarApi([])
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
     expect(await screen.findByText("Closed")).toBeInTheDocument()
   })
 
   it('disables "Previous month" on the opening month and enables it after', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
     const prev = screen.getByRole('button', { name: 'Previous month' })
     expect(screen.getByText('October 2026')).toBeInTheDocument()
@@ -381,7 +392,7 @@ describe('WhatsOnCalendar month view', () => {
       ...EVENTS,
       { id: 'workshop-one', kind: 'workshop', title: 'Solo Night', date: '2026-10-23', startTime: '19:00', endTime: '21:00', price: 3500, currency: 'USD', bookable: true, href: '/workshops?w=one' },
     ])
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
 
     // Saturday: party times, open studio, booked party, workshop.
@@ -407,7 +418,7 @@ describe('WhatsOnCalendar filters (HOM-192)', () => {
   beforeEach(() => stubCalendarApi([GRAND_OPENING, ...EVENTS]))
 
   it('offers Everything, Workshops and Party dates, with Everything chosen', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     expect(chip('Everything')).toHaveAttribute('aria-pressed', 'true')
     expect(chip('Workshops')).toHaveAttribute('aria-pressed', 'false')
@@ -420,7 +431,7 @@ describe('WhatsOnCalendar filters (HOM-192)', () => {
   })
 
   it('"Workshops" leaves only workshop rows', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(chip('Workshops'))
     expect(chip('Workshops')).toHaveAttribute('aria-pressed', 'true')
@@ -429,14 +440,14 @@ describe('WhatsOnCalendar filters (HOM-192)', () => {
   })
 
   it('"Party dates" leaves open party times and booked parties', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(chip('Party dates'))
     expect(listTitles()).toEqual(['Private party times', '1 party booked'])
   })
 
   it('filters the month grid too', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(chip('Workshops'))
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
@@ -453,7 +464,7 @@ describe('WhatsOnCalendar filters (HOM-192)', () => {
   })
 
   it('does not ask the server again when the filter changes', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(chip('Workshops'))
     fireEvent.click(chip('Party dates'))
@@ -462,12 +473,12 @@ describe('WhatsOnCalendar filters (HOM-192)', () => {
   })
 
   it('remembers the choice for the visit', async () => {
-    const { unmount } = render(<WhatsOnCalendar />)
+    const { unmount } = render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(chip('Party dates'))
     unmount()
 
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Private party times')
     expect(chip('Party dates')).toHaveAttribute('aria-pressed', 'true')
     expect(listTitles()).toEqual(['Private party times', '1 party booked'])
@@ -475,7 +486,7 @@ describe('WhatsOnCalendar filters (HOM-192)', () => {
 
   it('ignores a remembered value it does not know', async () => {
     sessionStorage.setItem('calendar-filter', 'kits')
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     expect(chip('Everything')).toHaveAttribute('aria-pressed', 'true')
   })
@@ -487,7 +498,7 @@ describe('WhatsOnCalendar filters (HOM-192)', () => {
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('denied')
     })
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(chip('Workshops'))
     expect(chip('Workshops')).toHaveAttribute('aria-pressed', 'true')
@@ -496,7 +507,7 @@ describe('WhatsOnCalendar filters (HOM-192)', () => {
 
   it('says so when the filter leaves nothing, and offers the way back', async () => {
     stubCalendarApi(EVENTS.filter((e) => e.kind !== 'workshop'))
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Private party times')
     fireEvent.click(chip('Workshops'))
     expect(screen.getByText('No workshops on the calendar yet.')).toBeInTheDocument()
@@ -532,7 +543,7 @@ describe('WhatsOnCalendar when loading goes wrong (HOM-192)', () => {
   for (const [what, answer] of [['the network fails', 'network'], ['the server answers 500', 500]] as const) {
     it(`says it could not load when ${what}, never "nothing scheduled"`, async () => {
       stubAnswers(answer)
-      render(<WhatsOnCalendar />)
+      render(<WhatsOnCalendar initialView="list" />)
       expect(await screen.findByText(FAILED)).toBeInTheDocument()
       expect(screen.queryByText(/Nothing scheduled yet/)).toBeNull()
       expect(screen.queryByText(/Nothing further scheduled/)).toBeNull()
@@ -547,7 +558,7 @@ describe('WhatsOnCalendar when loading goes wrong (HOM-192)', () => {
 
   it('"Try again" asks again and shows the calendar when it arrives', async () => {
     stubAnswers(500, { events: EVENTS })
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
     expect(await screen.findByText('Fall Earring Bar')).toBeInTheDocument()
     expect(screen.queryByText(FAILED)).toBeNull()
@@ -559,7 +570,7 @@ describe('WhatsOnCalendar when loading goes wrong (HOM-192)', () => {
 
   it('shows what did arrive, with a warning, when part of the calendar is missing', async () => {
     stubAnswers({ events: EVENTS, incomplete: true })
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     expect(await screen.findByText('Fall Earring Bar')).toBeInTheDocument()
     expect(screen.getByText(PARTIAL)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Try again' })).toHaveClass('btn', 'btn-secondary')
@@ -568,7 +579,7 @@ describe('WhatsOnCalendar when loading goes wrong (HOM-192)', () => {
 
   it('puts the warning above the events', async () => {
     stubAnswers({ events: EVENTS, incomplete: true })
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     const row = await rowFor('Fall Earring Bar')
     const warning = screen.getByText(PARTIAL)
     expect(warning.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
@@ -576,14 +587,14 @@ describe('WhatsOnCalendar when loading goes wrong (HOM-192)', () => {
 
   it('warns, rather than saying "nothing scheduled", when a partial answer is empty', async () => {
     stubAnswers({ events: [], incomplete: true })
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     expect(await screen.findByText(PARTIAL)).toBeInTheDocument()
     expect(screen.queryByText(/Nothing scheduled yet/)).toBeNull()
   })
 
   it('"Try again" after a partial answer really asks again, and drops the warning once whole', async () => {
     stubAnswers({ events: EVENTS.slice(0, 6), incomplete: true }, { events: EVENTS })
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Private party times')
     expect(screen.queryByText('Fall Earring Bar')).toBeNull()
 
@@ -595,7 +606,7 @@ describe('WhatsOnCalendar when loading goes wrong (HOM-192)', () => {
 
   it('does not treat a partial month as fetched: the month grid asks again', async () => {
     stubAnswers({ events: EVENTS.slice(0, 6), incomplete: true }, { events: EVENTS })
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Private party times')
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
     expect(await screen.findByTitle('Fall Earring Bar')).toBeInTheDocument()
@@ -605,7 +616,7 @@ describe('WhatsOnCalendar when loading goes wrong (HOM-192)', () => {
 
   it('says so in the month grid too, and "Try again" reloads the month', async () => {
     stubAnswers({ events: EVENTS }, 'network', { events: [] })
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
     // October came with the list; January has to be asked for.
@@ -619,7 +630,7 @@ describe('WhatsOnCalendar when loading goes wrong (HOM-192)', () => {
 
   it('keeps the list on screen when "Show more" fails', async () => {
     stubAnswers({ events: EVENTS }, 503)
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(screen.getByRole('button', { name: /Show more/ }))
     expect(await screen.findByText(FAILED)).toBeInTheDocument()
@@ -643,7 +654,7 @@ describe('WhatsOnCalendar "Show more" (HOM-192)', () => {
   }
 
   it('swaps the button for "Nothing further scheduled yet." after a month that adds nothing', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(screen.getByRole('button', { name: /Show more/ }))
     expect(await screen.findByText('Nothing further scheduled yet.')).toBeInTheDocument()
@@ -654,7 +665,7 @@ describe('WhatsOnCalendar "Show more" (HOM-192)', () => {
 
   it('keeps the button while months keep adding something', async () => {
     stubCalendarApi([...EVENTS, JANUARY_PARTY])
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(screen.getByRole('button', { name: /Show more/ }))
     await vi.waitFor(() => expect(screen.getAllByText('Private party times')).toHaveLength(2))
@@ -664,7 +675,7 @@ describe('WhatsOnCalendar "Show more" (HOM-192)', () => {
 
   it('judges "adds nothing" by what the filter shows', async () => {
     stubCalendarApi([...EVENTS, JANUARY_PARTY])
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(screen.getByRole('button', { name: 'Workshops' }))
     fireEvent.click(screen.getByRole('button', { name: /Show more/ }))
@@ -681,26 +692,26 @@ describe('WhatsOnCalendar loading', () => {
   afterEach(tearDown)
 
   it('asks for the whole list in one request', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     expect(calls()).toEqual(['/api/calendar.json?month=2026-10&months=3'])
   })
 
   it('says it is loading before anything arrives, never "nothing scheduled"', () => {
     vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise(() => {})))
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     expect(screen.getByRole('status', { name: 'Loading the calendar' })).toBeInTheDocument()
     expect(screen.queryByText(/Nothing scheduled yet/)).toBeNull()
   })
 
   it('says nothing is scheduled only once it knows', async () => {
     stubCalendarApi([])
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     expect(await screen.findByText(/Nothing scheduled yet/)).toBeInTheDocument()
   })
 
   it('opens the month grid from what the list already fetched, without asking again', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
     expect(await screen.findByTitle('Craft Café')).toBeInTheDocument()
@@ -708,7 +719,7 @@ describe('WhatsOnCalendar loading', () => {
   })
 
   it('"Show more" asks only for the month it does not have', async () => {
-    render(<WhatsOnCalendar />)
+    render(<WhatsOnCalendar initialView="list" />)
     await rowFor('Fall Earring Bar')
     fireEvent.click(screen.getByRole('button', { name: /Show more/ }))
     await vi.waitFor(() => expect(calls()).toHaveLength(2))

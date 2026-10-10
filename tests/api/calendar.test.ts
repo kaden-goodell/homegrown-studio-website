@@ -226,8 +226,8 @@ describe('GET /api/calendar.json', () => {
     })
     // The Sunday falls in November, and shows there.
     const november = await closedIn('2026-11')
-    expect(november.map((e: any) => e.date)).toEqual(['2026-11-01', '2026-11-26', '2026-11-27'])
-    expect(november[1]).toMatchObject({ title: 'Closed for Thanksgiving', holiday: 'thanksgiving' })
+    expect(november.map((e: any) => e.date)).toEqual(['2026-11-01', '2026-11-26', '2026-11-27', '2026-11-28', '2026-11-29'])
+    expect(november[1]).toMatchObject({ title: 'Closed for Thanksgiving weekend', holiday: 'thanksgiving' })
   })
 
   it('closes every day from 21 December to New Year\'s Day, not one day of it', async () => {
