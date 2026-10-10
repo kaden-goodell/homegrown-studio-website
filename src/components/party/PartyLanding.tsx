@@ -3,7 +3,7 @@ import PartyModal from './PartyModal'
 import NotifyMe from '@components/shared/NotifyMe'
 import { partyConfig } from '@config/party.config'
 import { partyContent } from '@config/party-content'
-import { craftShareUrl } from '@lib/party-share'
+import { craftShareUrl, PICKED_CRAFT_KEY } from '@lib/party-share'
 import { formatMoney } from '@lib/money'
 import { trackViewItemList, trackSelectItem, trackShare, type AnalyticsItem } from '@lib/analytics'
 
@@ -254,7 +254,13 @@ export default function PartyLanding() {
     // A craft card is a pick from the list. Plain "book" buttons carry
     // data-track-cta and are counted once, page-wide, by analytics-auto.
     if (i >= 0) trackSelectItem('party_crafts', craftItem(crafts[i], i))
-    setInitialCraftId(opts.craftId)
+    // Tapping another date keeps the craft they already picked this visit.
+    let remembered: string | undefined
+    if (!opts.craftId) {
+      try { remembered = sessionStorage.getItem(PICKED_CRAFT_KEY) ?? undefined } catch { /* storage blocked */ }
+      if (remembered && !crafts.some((c) => c.id === remembered)) remembered = undefined
+    }
+    setInitialCraftId(opts.craftId ?? remembered)
     setInitialDate(opts.date)
     setInitialStart(undefined)
     setModalOpen(true)

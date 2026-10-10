@@ -150,3 +150,7 @@ export function partyInviteMailto(input: {
   ].join('\n')
   return `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`
 }
+
+/** sessionStorage key: the craft picked earlier in this visit, so opening
+ *  another date keeps it (written by PartyModal, read by PartyLanding). */
+export const PICKED_CRAFT_KEY = 'hs_party_craft'

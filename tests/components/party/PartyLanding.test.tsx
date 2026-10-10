@@ -255,6 +255,31 @@ describe('opening the booking panel', () => {
     expect(await screen.findByTestId('party-modal')).toHaveAttribute('data-date', '2026-10-17')
   })
 
+  it('keeps the craft picked earlier this visit when another date is opened', async () => {
+    const store = new Map([['hs_party_craft', 'BLING']])
+    vi.stubGlobal('sessionStorage', { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => void store.set(k, v) })
+    mockApi()
+    render(<PartyLanding />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sat, Oct 17' }))
+
+    const modal = await screen.findByTestId('party-modal')
+    expect(modal).toHaveAttribute('data-craft', 'BLING')
+    expect(modal).toHaveAttribute('data-date', '2026-10-17')
+    vi.unstubAllGlobals()
+  })
+
+  it('ignores a remembered craft that is no longer offered', async () => {
+    vi.stubGlobal('sessionStorage', { getItem: () => 'GONE', setItem: () => undefined })
+    mockApi()
+    render(<PartyLanding />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Sat, Oct 17' }))
+
+    expect(await screen.findByTestId('party-modal')).toHaveAttribute('data-craft', '')
+    vi.unstubAllGlobals()
+  })
+
   it('opens on a shared craft link (?craft=)', async () => {
     window.history.replaceState({}, '', '/book?craft=KEY')
     mockApi()

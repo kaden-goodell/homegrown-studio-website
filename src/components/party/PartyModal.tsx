@@ -25,6 +25,7 @@ import {
   partyInviteUrl,
   partyInviteMailto,
   partyInviteIcsUrl,
+  PICKED_CRAFT_KEY,
 } from '@lib/party-share'
 import { formatTime, formatSlotLabel, formatDayAndSpan } from '@lib/studio-time'
 import { saveRecentParty } from '@lib/recent-party'
@@ -504,6 +505,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     if (selectedCraft?.id !== craft.id) trackSelectItem('party booking', craftItem(craft))
     setSelectedCraft(craft)
     setStepProblem('')
+    // Remembered for this visit: opening another date keeps the craft.
+    try { sessionStorage.setItem(PICKED_CRAFT_KEY, craft.id) } catch { /* storage blocked */ }
   }
 
   async function chooseDate(date: string, options: { byCustomer: boolean } = { byCustomer: true }) {
