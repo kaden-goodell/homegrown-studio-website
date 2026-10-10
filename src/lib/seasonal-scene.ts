@@ -47,7 +47,7 @@ const LEAF_COLORS = ['#b5532a', '#c8692b', '#c99a2e', '#8f3a22', '#a8742c', '#7d
 const SNOW_COLORS = ['#a9bccd', '#b9c9d8', '#9fb3c6', '#c5d2de']
 
 // Per laptop-sized screen, scaled by area (same rule as the glitter).
-const PER_SCREEN: Record<Exclude<Season, 'glitter'>, number> = { fall: 22, winter: 45 }
+const PER_SCREEN: Record<Exclude<Season, 'glitter'>, number> = { fall: 30, winter: 45 }
 const REFERENCE_AREA = 1440 * 900
 const MIN_COUNT = 8
 
