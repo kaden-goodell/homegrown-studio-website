@@ -103,3 +103,24 @@ describe('ContactFields', () => {
     expect(screen.getByLabelText('Phone')).toHaveValue('256')
   })
 })
+
+describe('ContactFields — "Did you mean…?"', () => {
+  it('offers the common-domain fix once the email is left, and one tap takes it', () => {
+    render(<Harness />)
+    const email = screen.getByLabelText('Email') as HTMLInputElement
+    fireEvent.change(email, { target: { value: 'jane@gmial.com' } })
+    expect(screen.queryByText(/Did you mean/)).toBeNull()
+    fireEvent.blur(email)
+    fireEvent.click(screen.getByRole('button', { name: 'jane@gmail.com' }))
+    expect(email.value).toBe('jane@gmail.com')
+    expect(screen.queryByText(/Did you mean/)).toBeNull()
+  })
+
+  it('says nothing about a normal address', () => {
+    render(<Harness />)
+    const email = screen.getByLabelText('Email')
+    fireEvent.change(email, { target: { value: 'jane@gmail.com' } })
+    fireEvent.blur(email)
+    expect(screen.queryByText(/Did you mean/)).toBeNull()
+  })
+})

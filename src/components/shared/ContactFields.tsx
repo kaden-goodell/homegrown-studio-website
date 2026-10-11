@@ -6,6 +6,7 @@ import {
   type Contact,
   type ContactField,
 } from '@lib/contact-rules'
+import { suggestEmailFix } from '@lib/email-typos'
 import '../../styles/booking-panel.css'
 
 /**
@@ -96,7 +97,28 @@ const ContactFields = forwardRef<ContactFieldsHandle, ContactFieldsProps>(functi
             {problem}
           </p>
         )}
+        {name === 'email' && !problem && checked.email && emailSuggestion(value.email)}
       </div>
+    )
+  }
+
+  /** "Did you mean jane@gmail.com?" under a common-domain typo, once the field is left. One tap fixes it. */
+  function emailSuggestion(email: string) {
+    const fix = suggestEmailFix(email)
+    if (!fix) return null
+    return (
+      <p className="field-hint" style={{ margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>
+        Did you mean{' '}
+        <button
+          type="button"
+          onClick={() => onChange({ ...value, email: fix })}
+          disabled={disabled}
+          style={{ background: 'none', border: 0, padding: 0, font: 'inherit', fontWeight: 600, color: 'var(--color-primary)', textDecoration: 'underline', textUnderlineOffset: '2px', cursor: 'pointer' }}
+        >
+          {fix}
+        </button>
+        ?
+      </p>
     )
   }
 
