@@ -15,6 +15,8 @@ export interface SiteConfig {
    *  Catherine's address is her Workspace login, assumed from the 9/27/2026
    *  rebrand domain switch — verify with Kaden if a send bounces. */
   ownerEmails: string[]
+  /** Who gets the monthly tax split (src/lib/tax-report.ts). */
+  taxReportEmails: string[]
   contactPhone: string
   address: {
     street: string
@@ -227,6 +229,7 @@ export const siteConfig: SiteConfig = {
   url: SITE_URL,
   contactEmail: 'contact@ourhometownstudio.com', // real Workspace alias; hello@ does not exist
   ownerEmails: ['kaden@ourhometownstudio.com', 'catherine@ourhometownstudio.com'],
+  taxReportEmails: ['kaden@ourhometownstudio.com'],
   contactPhone: '(256) 464-1710',
   address: {
     street: '525 Hughes Rd, Suite F',
