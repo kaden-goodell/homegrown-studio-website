@@ -5,6 +5,7 @@ import { STUDIO_ADDRESS, STUDIO_ADDRESS_LINE, STUDIO_DIRECTIONS_URL } from '@con
 import { newAttemptId } from '@lib/checkout-attempt'
 import { messageForFailure, outcomeUnknown, workshopMessages, UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
 import { contactStarted, EMPTY_CONTACT, type Contact } from '@lib/contact-rules'
+import { rememberContact, rememberedContact } from '@lib/remembered-contact'
 import { formatMoney } from '@lib/money'
 import { googleCalendarUrl, buildIcs, icsDataUrl } from '@lib/party-share'
 import { workshopRefundLine } from '@lib/refund-lines'
@@ -65,7 +66,9 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   // Kept when the seat count drops, so a seat added back shows its pick.
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [pickProblem, setPickProblem] = useState<string | null>(null)
-  const [contact, setContact] = useState<Contact>(EMPTY_CONTACT)
+  // A second class this visit starts with the first booking's details.
+  const [initialContact] = useState<Contact>(() => rememberedContact() ?? EMPTY_CONTACT)
+  const [contact, setContact] = useState<Contact>(initialContact)
   const [agreedToPolicy, setAgreedToPolicy] = useState(false)
   const [policyProblem, setPolicyProblem] = useState(false)
 
@@ -135,7 +138,8 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   }
 
   // Closing asks first only once there is something to lose.
-  const started = seats !== 1 || contactStarted(contact) || Object.keys(selections).length > 0
+  // (Details filled in from an earlier booking aren't anything to lose.)
+  const started = seats !== 1 || (contact !== initialContact && contactStarted(contact)) || Object.keys(selections).length > 0
   function requestClose() {
     if (completed || !started) return closeAndRecord()
     setAskToLeave(true)
@@ -244,6 +248,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
       setAskToLeave(false)
       setCompleted(true)
       identifyBooker(contact.email, contact.firstName, contact.lastName)
+      rememberContact(contact)
       trackPaymentCompleted(total / 100, {
         kind: 'workshop',
         transactionId: bookData.data.bookingId ?? null,

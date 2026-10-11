@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from '@testing-library/rea
 import WorkshopBookingModal from '@components/workshops/WorkshopBookingModal'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import { CONTACT_MESSAGES } from '@lib/contact-rules'
+import { _forgetContact } from '@lib/remembered-contact'
 
 // The real form loads Square's Web Payments SDK; stand in a ref that tokenizes
 // and reports itself ready (or not, when a test says so).
@@ -95,6 +96,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  _forgetContact()
   paymentFormReady = true
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
@@ -634,3 +636,31 @@ describe('WorkshopBookingModal — a question for each seat', () => {
     expect(screen.getByText('Pumpkin color: Lavender ×2')).toBeInTheDocument()
   })
 })
+
+describe('WorkshopBookingModal — a second class this visit', () => {
+  it('opens with the first booking’s name, email and phone filled in', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(booked()))
+    await goToPayment()
+    await pay()
+    expect(await screen.findByText('You’re booked')).toBeInTheDocument()
+    cleanupAll()
+
+    open(makeWorkshop({ id: 'inst-2', name: 'Bedazzled Pumpkin Pails' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByTestId('payment-form')
+    expect((screen.getByLabelText('First name') as HTMLInputElement).value).toBe('Alice')
+    expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe('alice@test.com')
+    expect((screen.getByLabelText('Phone (optional)') as HTMLInputElement).value).toBe('(256) 555-0123')
+  })
+
+  it('starts blank when nothing was booked yet', async () => {
+    open()
+    fireEvent.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByTestId('payment-form')
+    expect((screen.getByLabelText('First name') as HTMLInputElement).value).toBe('')
+  })
+})
+
+function cleanupAll() {
+  document.body.innerHTML = ''
+}
