@@ -60,13 +60,18 @@ export function makeKvStore(
   const logger = createLogger(`kv:${storeName}`)
   let warnedNoEtag = false
 
-  // undefined = not yet probed; null = unavailable (use fs); object = available
-  let blobStore: any | null | undefined = _testOpts?._blobStore !== undefined
-    ? _testOpts._blobStore  // injected — skip probe
-    : undefined
+  // undefined = not yet probed; false = unavailable (use fs); true = available.
+  // Only the ANSWER is kept, never the store handle: a handle carries the
+  // access token of the request that made it, and that token expires. A warm
+  // server kept one handle for hours and every read then failed with
+  // "Token expired" (11 Oct 2026: classes listed without their seat question,
+  // so two customers' bookings were refused until they refreshed).
+  let blobsAvailable: boolean | undefined
+  const injected = _testOpts?._blobStore
 
   async function resolveBlobStore(): Promise<any | null> {
-    if (blobStore !== undefined) return blobStore
+    if (injected !== undefined) return injected
+    if (blobsAvailable === false) return null
     try {
       const { getStore } = await import('@netlify/blobs')
       // Strong consistency is required: the CAS write loops (setIfMatch) read an
@@ -75,8 +80,10 @@ export function makeKvStore(
       // lose every retry (RSVPs silently vanish from rosters) and a just-signed
       // guest doesn't appear on refresh. Slight read-latency cost — right trade.
       const store = getStore({ name: storeName, consistency: 'strong' })
+      if (blobsAvailable === true) return store
       await store.get('__probe__') // throws outside Netlify → fs fallback
-      blobStore = store
+      blobsAvailable = true
+      return store
     } catch (err) {
       // On a Netlify deploy the blob store IS the data. Falling back to local
       // files there would silently read "nothing on file" for every record
@@ -90,9 +97,9 @@ export function makeKvStore(
         })
         throw new Error(`Blob store "${storeName}" is unavailable`)
       }
-      blobStore = null
+      blobsAvailable = false
+      return null
     }
-    return blobStore
   }
 
   async function fsDir(): Promise<URL> {
