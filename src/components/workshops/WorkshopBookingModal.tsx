@@ -6,7 +6,7 @@ import { newAttemptId } from '@lib/checkout-attempt'
 import { messageForFailure, outcomeUnknown, workshopMessages, UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
 import { contactStarted, EMPTY_CONTACT, type Contact } from '@lib/contact-rules'
 import { rememberContact, rememberedContact } from '@lib/remembered-contact'
-import { taxCents, percentLabel } from '@lib/tax'
+import { taxCents } from '@lib/tax'
 import { formatMoney } from '@lib/money'
 import { googleCalendarUrl, buildIcs, icsDataUrl } from '@lib/party-share'
 import { workshopRefundLine } from '@lib/refund-lines'
@@ -555,7 +555,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
           </div>
           {tax > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.9375rem', color: 'var(--color-dark)', marginTop: '0.25rem' }}>
-              <span>Sales tax ({percentLabel(workshop.taxPercent!)})</span>
+              <span>Tax</span>
               <span>{formatMoney(tax, workshop.currency)}</span>
             </div>
           )}
@@ -566,7 +566,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
             </div>
           )}
           {!taxKnown && (
-            <p style={{ margin: '0.375rem 0 0', fontSize: '0.8125rem', color: 'var(--color-text)' }}>Any sales tax is added when you pay.</p>
+            <p style={{ margin: '0.375rem 0 0', fontSize: '0.8125rem', color: 'var(--color-text)' }}>Any tax is added when you pay.</p>
           )}
           {picks.length > 0 && (
             <p style={{ margin: '0.375rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>{picksNote(options, picks)}</p>

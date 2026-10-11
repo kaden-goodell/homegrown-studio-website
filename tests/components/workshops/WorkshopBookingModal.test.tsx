@@ -700,7 +700,7 @@ describe('WorkshopBookingModal — sales tax from Square', () => {
     const fetchMock = vi.fn().mockResolvedValue(booked({ totalChargedCents: 4905 }))
     vi.stubGlobal('fetch', fetchMock)
     await goToPayment(makeWorkshop({ taxPercent: 9 }))
-    expect(screen.getByText('Sales tax (9%)')).toBeInTheDocument()
+    expect(screen.getByText('Tax')).toBeInTheDocument()
     expect(screen.getByText('$4.05')).toBeInTheDocument()
     expect(paymentFormProps.wallet).toEqual(expect.objectContaining({ amount: '49.05' }))
     await pay('$49.05')
@@ -709,12 +709,12 @@ describe('WorkshopBookingModal — sales tax from Square', () => {
 
   it('says tax may be added when Square’s rate could not be read', async () => {
     await goToPayment(makeWorkshop())
-    expect(screen.getByText('Any sales tax is added when you pay.')).toBeInTheDocument()
+    expect(screen.getByText('Any tax is added when you pay.')).toBeInTheDocument()
   })
 
   it('shows no tax line for a class Square does not tax', async () => {
     await goToPayment(makeWorkshop({ taxPercent: 0 }))
-    expect(screen.queryByText(/Sales tax/)).toBeNull()
-    expect(screen.queryByText('Any sales tax is added when you pay.')).toBeNull()
+    expect(screen.queryByText('Tax')).toBeNull()
+    expect(screen.queryByText('Any tax is added when you pay.')).toBeNull()
   })
 })
