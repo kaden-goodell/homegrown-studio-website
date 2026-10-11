@@ -376,7 +376,7 @@ describe('POST /api/party/book.json', () => {
       expect(res.status).toBe(200)
       expect((await res.json()).data.bookingId).toBe('booking-paid-earlier')
       expect(mockCancelBooking).not.toHaveBeenCalled()
-      expect(mockAlertOwners).not.toHaveBeenCalled()
+      expect(mockAlertOwners.mock.calls.filter(([m]: any[]) => !String(m).startsWith('New '))).toEqual([])
     })
 
     it('confirms when the charge got no answer but the order turns out to be paid', async () => {
@@ -386,7 +386,7 @@ describe('POST /api/party/book.json', () => {
       const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
 
       expect(res.status).toBe(200)
-      expect(mockAlertOwners).not.toHaveBeenCalled()
+      expect(mockAlertOwners.mock.calls.filter(([m]: any[]) => !String(m).startsWith('New '))).toEqual([])
     })
 
     it('does not ask whether the order is paid after a plain decline', async () => {
@@ -454,7 +454,7 @@ describe('POST /api/party/book.json', () => {
       expect(json.detail).toMatch(/declined/i)
       expect(json.detail).not.toMatch(/CARD_DECLINED|Status code/)
       expect(mockCancelBooking).toHaveBeenCalledWith('booking-declined', expect.anything())
-      expect(mockAlertOwners).not.toHaveBeenCalled()
+      expect(mockAlertOwners.mock.calls.filter(([m]: any[]) => !String(m).startsWith('New '))).toEqual([])
     })
 
     describe('paying with a gift card', () => {
@@ -535,7 +535,7 @@ describe('POST /api/party/book.json', () => {
         expect(mockCreateBooking).not.toHaveBeenCalled()
         expect(mockCancelBooking).not.toHaveBeenCalled()
         expect(mockCreateOrder).not.toHaveBeenCalled()
-        expect(mockAlertOwners).not.toHaveBeenCalled()
+        expect(mockAlertOwners.mock.calls.filter(([m]: any[]) => !String(m).startsWith('New '))).toEqual([])
       })
 
       it('under simulated payments, checks only a mock gift card token', async () => {

@@ -13,6 +13,7 @@ import { formatSlotLabel } from '@lib/studio-time'
 import { sendWorkshopConfirmation } from '@lib/workshop-confirmation'
 import { issueEmailFixTicket, onFileToAskAbout, type EmailFixTicket } from '@lib/email-fix'
 import { taxCents } from '@lib/tax'
+import { announceBooking } from '@lib/booking-alert'
 import { canBeBooked } from '@lib/workshop-rules'
 import { getEventMeta } from '@lib/event-meta'
 import { saveSeatChoices } from '@lib/seat-choices'
@@ -274,6 +275,19 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     logger.error('Workshop confirmation email failed (booking still confirmed)', {
       bookingId: booked.bookingId,
       error: err instanceof Error ? err.message : String(err),
+    })
+  }
+
+  if (!simulated) {
+    await announceBooking({
+      kind: 'class',
+      who: `${givenName} ${familyName}`,
+      what: `${seats} seat${seats === 1 ? '' : 's'}, ${workshop.name}`,
+      when: formatSlotLabel(workshop.startAt),
+      paidCents: chargedCents,
+      email,
+      ...(phone ? { phone } : {}),
+      ...(note ? { extra: note } : {}),
     })
   }
 

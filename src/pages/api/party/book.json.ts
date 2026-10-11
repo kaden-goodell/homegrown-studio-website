@@ -25,6 +25,7 @@ import { claimWeek, confirmWeekClaim, releaseWeekClaim, listKitOrders, kitOrderT
 import type { LedgerRecord } from '@lib/kit-ledger'
 import { sendPartyConfirmationEmail } from '@lib/email'
 import { issueEmailFixTicket, onFileToAskAbout } from '@lib/email-fix'
+import { announceBooking } from '@lib/booking-alert'
 import { partyInviteUrl, googleCalendarUrl, buildIcs, addMinutesIso } from '@lib/party-share'
 import { inviteContent } from '@config/invite-content'
 import { formatSlotLabel, formatCalendarDate } from '@lib/studio-time'
@@ -735,6 +736,17 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       minGuests: partyConfig.minGuests,
       refundLine: partyRefundLine(body.startTime),
       directionsUrl: STUDIO_DIRECTIONS_URL,
+    })
+
+    await announceBooking({
+      kind: 'party',
+      who: `${body.customer.firstName} ${body.customer.lastName}`,
+      what: `${body.craft.name} party, about ${body.people} guests`,
+      when: slotLabel,
+      paidCents: Number(order.totalAmount ?? 0),
+      email: body.customer.email,
+      ...(body.customer.phone ? { phone: body.customer.phone } : {}),
+      ...(theme ? { extra: `With ${theme.displayName}` } : {}),
     })
 
     await reportBooking({

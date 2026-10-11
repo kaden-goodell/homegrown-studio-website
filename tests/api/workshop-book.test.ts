@@ -139,6 +139,11 @@ describe('POST /api/workshops/book.json', () => {
       expect(mockRelease).not.toHaveBeenCalled()
     })
 
+    it('texts the owners that someone booked (both phones are in OWNER_ALERT_NUMBERS)', async () => {
+      await POST(ctx(body()))
+      expect(mockAlertOwners).toHaveBeenCalledWith(expect.stringMatching(/^New class booking: Ada Lovelace, 2 seats, /))
+    })
+
     it('charges under a key made from the attempt ID, the same on every retry', async () => {
       await POST(ctx(body()))
       await POST(ctx(body()))
@@ -318,7 +323,7 @@ describe('POST /api/workshops/book.json', () => {
 
     it('does not alert the owners or send an email', async () => {
       await POST(ctx(body()))
-      expect(mockAlertOwners).not.toHaveBeenCalled()
+      expect(mockAlertOwners.mock.calls.filter(([m]: any[]) => !String(m).startsWith('New '))).toEqual([])
       expect(mockSendEmail).not.toHaveBeenCalled()
     })
   })
@@ -520,7 +525,7 @@ describe('POST /api/workshops/book.json', () => {
       mockGetEventMeta.mockResolvedValue(null)
       mockSaveSeatChoices.mockRejectedValue(new Error('blobs down'))
       expect((await POST(ctx(body()))).status).toBe(200)
-      expect(mockAlertOwners).not.toHaveBeenCalled()
+      expect(mockAlertOwners.mock.calls.filter(([m]: any[]) => !String(m).startsWith('New '))).toEqual([])
     })
 
     it('a failed save never fails a paid booking, and the owners are told', async () => {
@@ -585,3 +590,4 @@ describe('POST /api/workshops/book.json', () => {
     expect((await blocked.json()).detail).not.toMatch(TECHNICAL)
   })
 })
+
