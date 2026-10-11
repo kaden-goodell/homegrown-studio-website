@@ -38,6 +38,7 @@ import {
   trackWaiverLinkClick,
 } from '@lib/analytics'
 import { readAttribution } from '@lib/attribution'
+import NewClassesSignup from './NewClassesSignup'
 
 interface WorkshopBookingModalProps {
   workshop: WorkshopData
@@ -503,6 +504,9 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
               )}
             </div>
           )}
+        </div>
+        <div style={{ marginTop: '1.5rem' }}>
+          <NewClassesSignup />
         </div>
       </div>
     )
