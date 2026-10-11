@@ -162,15 +162,12 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
     return false
   }
 
-  async function handlePay(e?: FormEvent) {
-    e?.preventDefault()
-    if (processing || !paymentReady) return
+  /** Everything but the payment itself is in order. Says what's missing, field by field, and goes to the first one. */
+  function readyToPay(): boolean {
     if (!picksComplete(true)) {
       setStep('details')
-      return
+      return false
     }
-
-    // Say what's missing, field by field, and go to the first one.
     const contactOk = contactRef.current?.check() ?? false
     if (!agreedToPolicy) {
       setPolicyProblem(true)
@@ -181,8 +178,16 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
     }
     if (!contactOk || !agreedToPolicy) {
       setError(null)
-      return
+      return false
     }
+    return true
+  }
+
+  /** `walletToken`: Google Pay (or Apple Pay, if Square ever allows it here) already approved the payment. */
+  async function handlePay(e?: FormEvent, walletToken?: string) {
+    e?.preventDefault()
+    if (processing || (!walletToken && !paymentReady)) return
+    if (!readyToPay()) return
 
     setError(null)
     setProcessing(true)
@@ -190,14 +195,19 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
 
     try {
       let token: string
-      let sourceKind: 'card' | 'gift_card'
-      try {
-        const tokenized = await paymentFormRef.current!.tokenize()
-        token = tokenized.token
-        sourceKind = tokenized.kind
-      } catch {
-        trackBookingProblem('workshop', 'card_unreadable')
-        throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
+      let sourceKind: 'card' | 'gift_card' | 'wallet'
+      if (walletToken) {
+        token = walletToken
+        sourceKind = 'wallet'
+      } else {
+        try {
+          const tokenized = await paymentFormRef.current!.tokenize()
+          token = tokenized.token
+          sourceKind = tokenized.kind
+        } catch {
+          trackBookingProblem('workshop', 'card_unreadable')
+          throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
+        }
       }
 
       trackAddPaymentInfo('workshop', total / 100, sourceKind)
@@ -541,6 +551,14 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
           applicationIdOverride={CLASS_BOOKING_APP_ID}
           environmentOverride="production"
           giftCards="cards-only"
+          // Google Pay. Apple Pay is asked for too but Square refuses it on the
+          // class-booking route ("domain not registered", 11 Oct 2026), so it
+          // stays hidden — and appears by itself if Square ever allows it.
+          wallet={{ amount: (total / 100).toFixed(2), label: `Hometown Studio, ${workshop.name}` }}
+          onWalletToken={(token) => handlePay(undefined, token)}
+          // Runs before the wallet sheet opens, so nobody approves in their
+          // wallet and then meets a form error. Marks what's missing as it goes.
+          canPayWithWallet={() => (readyToPay() ? null : 'Add the details marked above first.')}
           onReadyChange={setPaymentReady}
         />
 

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within, act } from '@testing-library/react'
 import WorkshopBookingModal from '@components/workshops/WorkshopBookingModal'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import { CONTACT_MESSAGES } from '@lib/contact-rules'
@@ -664,3 +664,33 @@ describe('WorkshopBookingModal — a second class this visit', () => {
 function cleanupAll() {
   document.body.innerHTML = ''
 }
+
+describe('WorkshopBookingModal — Google Pay', () => {
+  it('offers a wallet for the class total', async () => {
+    await goToPayment(makeWorkshop(), 2)
+    expect(paymentFormProps.wallet).toEqual({ amount: '90.00', label: expect.stringContaining('Hometown Studio') })
+  })
+
+  it('will not open the wallet until the details are in, and says so', async () => {
+    open()
+    fireEvent.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByTestId('payment-form')
+    let answer: string | null = null
+    act(() => { answer = (paymentFormProps.canPayWithWallet as () => string | null)() })
+    expect(answer).toBe('Add the details marked above first.')
+  })
+
+  it('books with the wallet’s token, marked as a wallet payment', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(booked())
+    vi.stubGlobal('fetch', fetchMock)
+    await goToPayment()
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect((paymentFormProps.canPayWithWallet as () => string | null)()).toBeNull()
+    await act(async () => { await (paymentFormProps.onWalletToken as (t: string) => Promise<void>)('cnon:google-pay') })
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body)
+    expect(body.paymentToken).toBe('cnon:google-pay')
+    expect(body.sourceKind).toBe('wallet')
+    expect(await screen.findByText('You’re booked')).toBeInTheDocument()
+  })
+})
