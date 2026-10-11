@@ -56,7 +56,7 @@ import { studioDate, studioDayUtcRange } from '../src/lib/studio-time'
  */
 
 const WORKSHOP_CATEGORY_ID = 'QXN2HDQQG2YBZBNLLKNFTZRC'
-const DEFAULT_TEAM_MEMBER_ID = 'TMeIN-kxF-ZVhTVj' // Kaden Goodell
+const DEFAULT_TEAM_MEMBER_ID = 'TMnRaFgOE4r0ip7o' // Catherine Goodell — Square's class emails name her (Kaden, 11 Oct 2026)
 const SCHEDULE_URL = 'https://app.squareup.com/appointments/api/class-schedules'
 
 // ---- args ----
