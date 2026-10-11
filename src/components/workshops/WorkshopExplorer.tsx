@@ -22,6 +22,8 @@ export interface WorkshopData {
   duration: number
   price: number
   currency: string
+  /** Tax added on top at checkout, in percent, from Square. Absent = couldn't read it. */
+  taxPercent?: number
   /** No price yet: shown as "Coming soon", cannot be booked. */
   comingSoon?: boolean
   remainingSeats: number | null

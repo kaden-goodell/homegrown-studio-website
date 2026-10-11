@@ -11,6 +11,12 @@ export interface Workshop {
   durationMinutes: number
   priceCents: number
   priceCurrency: string
+  /**
+   * Tax Square adds on top of the price, in percent (e.g. 9), read from the
+   * class's catalog item and the location's tax settings. 0 = none. Absent
+   * when we couldn't read it.
+   */
+  taxPercent?: number
   availableCapacity: number
   /** Seats the class holds in all (Square's instance `capacity`). Absent when Square doesn't say. */
   totalCapacity?: number
@@ -36,6 +42,8 @@ export interface SeatBooking {
   orderId: string | null
   status: string
   receiptUrl: string | null
+  /** What the card was actually charged, tax included, when Square says. */
+  totalChargedCents?: number | null
 }
 
 export interface WorkshopProvider {

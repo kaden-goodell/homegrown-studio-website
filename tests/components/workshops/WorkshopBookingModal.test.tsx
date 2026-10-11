@@ -694,3 +694,27 @@ describe('WorkshopBookingModal — Google Pay', () => {
     expect(await screen.findByText('You’re booked')).toBeInTheDocument()
   })
 })
+
+describe('WorkshopBookingModal — sales tax from Square', () => {
+  it('shows the tax line and charges the total with tax, so the button matches the card', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(booked({ totalChargedCents: 4905 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await goToPayment(makeWorkshop({ taxPercent: 9 }))
+    expect(screen.getByText('Sales tax (9%)')).toBeInTheDocument()
+    expect(screen.getByText('$4.05')).toBeInTheDocument()
+    expect(paymentFormProps.wallet).toEqual(expect.objectContaining({ amount: '49.05' }))
+    await pay('$49.05')
+    expect(await screen.findByText(/\$49\.05 paid, tax included/)).toBeInTheDocument()
+  })
+
+  it('says tax may be added when Square’s rate could not be read', async () => {
+    await goToPayment(makeWorkshop())
+    expect(screen.getByText('Any sales tax is added when you pay.')).toBeInTheDocument()
+  })
+
+  it('shows no tax line for a class Square does not tax', async () => {
+    await goToPayment(makeWorkshop({ taxPercent: 0 }))
+    expect(screen.queryByText(/Sales tax/)).toBeNull()
+    expect(screen.queryByText('Any sales tax is added when you pay.')).toBeNull()
+  })
+})

@@ -40,3 +40,21 @@ describe('EmailCheck', () => {
     expect(screen.getByLabelText('The right email')).toBeTruthy()
   })
 })
+
+describe('EmailCheck — a skipped "Did you mean…?"', () => {
+  it('asks once more on the booked screen, and one tap sends it to the fixed address', async () => {
+    const fetchMock = ok({ email: 'jane@gmail.com', resent: true, token: 't2' })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<EmailCheck check={{ token: 't1', sentTo: 'jane@gmial.com', onFile: null }} />)
+    expect(screen.getByText('jane@gmail.com')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, send it there' }))
+    await waitFor(() => expect(screen.getByText('Sent to jane@gmail.com.')).toBeTruthy())
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).email).toBe('jane@gmail.com')
+    expect(screen.queryByRole('button', { name: 'Yes, send it there' })).toBeNull()
+  })
+
+  it('stays quiet for a normal address', () => {
+    render(<EmailCheck check={{ token: 't1', sentTo: 'jane@gmail.com', onFile: null }} />)
+    expect(screen.queryByText(/Did you mean/)).toBeNull()
+  })
+})

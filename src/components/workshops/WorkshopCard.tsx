@@ -133,7 +133,7 @@ export default function WorkshopCard({ workshop, onBook, href }: WorkshopCardPro
               <span className="chip tone-event">Coming soon</span>
             ) : (
               <span style={{ fontSize: '1rem', fontWeight: 700 }}>
-                {`${formatMoney(workshop.price, workshop.currency)} per seat`}
+                {`${formatMoney(workshop.price, workshop.currency)} per seat${workshop.taxPercent ? " + tax" : ""}`}
               </span>
             )}
             {soldOut && <span className="chip">Sold out</span>}

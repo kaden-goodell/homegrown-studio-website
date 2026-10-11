@@ -12,6 +12,7 @@ import { alertOwners } from '@lib/owner-alert'
 import { formatSlotLabel } from '@lib/studio-time'
 import { sendWorkshopConfirmation } from '@lib/workshop-confirmation'
 import { issueEmailFixTicket, onFileToAskAbout, type EmailFixTicket } from '@lib/email-fix'
+import { taxCents } from '@lib/tax'
 import { canBeBooked } from '@lib/workshop-rules'
 import { getEventMeta } from '@lib/event-meta'
 import { saveSeatChoices } from '@lib/seat-choices'
@@ -150,7 +151,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     logger.error('Customer lookup failed — continuing', { error: String(customerLookup.reason) })
   }
 
-  let booked: { bookingId: string; orderId: string | null; status: string; receiptUrl: string | null }
+  let booked: { bookingId: string; orderId: string | null; status: string; receiptUrl: string | null; totalChargedCents?: number | null }
   if (simulated) {
     // Simulated payments (local dev, deploy previews): every refusal above has
     // already run. Nothing is held or charged; carry on as a paid booking.
@@ -250,6 +251,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       ).catch(() => undefined)
     }
   }
+  // What the card paid, tax included: Square's figure when it gives one.
+  const chargedCents = typeof booked.totalChargedCents === 'number'
+    ? booked.totalChargedCents
+    : workshop.priceCents * seats + taxCents(workshop.priceCents * seats, workshop.taxPercent)
   let emailSent = false
   try {
     emailSent = await sendWorkshopConfirmation({
@@ -262,7 +267,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       receiptUrl: booked.receiptUrl,
       options: settings.options,
       picks,
-      totalChargedCents: workshop.priceCents * seats,
+      totalChargedCents: chargedCents,
       ...(onFile ? { alsoTo: onFile } : {}),
     })
   } catch (err) {
@@ -300,6 +305,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         orderId: booked.orderId,
         status: booked.status,
         receiptUrl: booked.receiptUrl,
+        totalChargedCents: chargedCents,
         emailSent,
         // "Wrong email? Fix it" / "Which email is right?" on the booked screen.
         emailCheck: {

@@ -134,7 +134,7 @@ describe('SquareWorkshopProvider — holding and paying for seats', () => {
 
       const booked = await pay(new SquareWorkshopProvider(config))
 
-      expect(booked).toEqual({ bookingId: 'clsbk_1', orderId: 'order-1', status: 'accepted', receiptUrl: 'https://squareup.com/receipt/1' })
+      expect(booked).toEqual({ bookingId: 'clsbk_1', orderId: 'order-1', status: 'accepted', receiptUrl: 'https://squareup.com/receipt/1', totalChargedCents: null })
       const [url, init] = fetchSpy.mock.calls[0]
       expect(url).toBe(`${BASE}/class_bookings/clsbk_1/complete?unit_token=LOC123`)
       expect(JSON.parse(init.body)).toEqual({

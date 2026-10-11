@@ -1,4 +1,5 @@
 import { useId, useState } from 'react'
+import { suggestEmailFix } from '@lib/email-typos'
 
 /**
  * The "where did your confirmation go" line on a You're-booked screen, with
@@ -6,6 +7,7 @@ import { useId, useState } from 'react'
  * went to "…phptography@gmail.com"):
  *
  *   - "Wrong email? Fix it": type the right one, the same confirmation is sent there.
+ *   - A common slip they skipped past on the form ("gmial.com"): asked once more, one tap.
  *   - When their phone matched a Square record whose email is a letter or two
  *     off, both got the email; one question settles which is theirs.
  *
@@ -89,6 +91,15 @@ export default function EmailCheck({ check, onEmailChanged }: EmailCheckProps) {
             ))}
           </div>
         </div>
+      )}
+
+      {!onFile && !editing && !note && suggestEmailFix(email) && (
+        <p style={{ ...small, marginTop: '0.625rem' }}>
+          Did you mean <strong>{suggestEmailFix(email)}</strong>?{' '}
+          <button type="button" className="btn btn-quiet" style={{ width: 'auto' }} disabled={busy} onClick={() => send(suggestEmailFix(email)!, 'fix')}>
+            Yes, send it there
+          </button>
+        </p>
       )}
 
       {!onFile && !editing && (

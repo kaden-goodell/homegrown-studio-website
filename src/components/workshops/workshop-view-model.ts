@@ -62,6 +62,7 @@ export function toWorkshopData(w: Workshop): WorkshopData {
     duration: w.durationMinutes,
     price: w.priceCents,
     currency: w.priceCurrency,
+    ...(typeof w.taxPercent === 'number' ? { taxPercent: w.taxPercent } : {}),
     comingSoon: !canBeBooked(w.priceCents),
     remainingSeats: w.availableCapacity,
     classScheduleId: w.scheduleId,

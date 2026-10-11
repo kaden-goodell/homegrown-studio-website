@@ -6,6 +6,7 @@ import { newAttemptId } from '@lib/checkout-attempt'
 import { messageForFailure, outcomeUnknown, workshopMessages, UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
 import { contactStarted, EMPTY_CONTACT, type Contact } from '@lib/contact-rules'
 import { rememberContact, rememberedContact } from '@lib/remembered-contact'
+import { taxCents, percentLabel } from '@lib/tax'
 import { formatMoney } from '@lib/money'
 import { googleCalendarUrl, buildIcs, icsDataUrl } from '@lib/party-share'
 import { workshopRefundLine } from '@lib/refund-lines'
@@ -126,7 +127,13 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   // The most seats on offer: what's left in the class, and never more than one booking can hold.
   const maxSeats = Math.max(1, Math.min(workshop.remainingSeats ?? MAX_SEATS_PER_BOOKING, MAX_SEATS_PER_BOOKING))
   const cappedByBooking = (workshop.remainingSeats ?? Infinity) > MAX_SEATS_PER_BOOKING
-  const total = workshop.price * seats
+  // Square adds its sales tax on top of the price; show it before they pay.
+  const subtotal = workshop.price * seats
+  const tax = taxCents(subtotal, workshop.taxPercent)
+  const total = subtotal + tax
+  const taxKnown = typeof workshop.taxPercent === 'number'
+  const totalLabel = tax > 0 ? `${formatMoney(total, workshop.currency)} incl. tax` : formatMoney(total, workshop.currency)
+  const [chargedCents, setChargedCents] = useState<number | null>(null)
   const when = formatDayAndSpan(workshop.startTime, workshop.endTime)
   const seatWord = `${seats} seat${seats === 1 ? '' : 's'}`
 
@@ -258,6 +265,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
       setBookingId(bookData.data.bookingId ?? null)
       setEmailSent(bookData.data.emailSent === true)
       setEmailCheck(bookData.data.emailCheck ?? null)
+      if (typeof bookData.data.totalChargedCents === 'number') setChargedCents(bookData.data.totalChargedCents)
       setAskToLeave(false)
       setCompleted(true)
       identifyBooker(contact.email, contact.firstName, contact.lastName)
@@ -300,7 +308,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
         heading="You’re booked"
         what={
           <>
-            {seatWord} for <strong>{workshop.name}</strong>, {formatMoney(total, workshop.currency)} paid.
+            {seatWord} for <strong>{workshop.name}</strong>, {formatMoney(chargedCents ?? total, workshop.currency)} paid{tax > 0 || (chargedCents ?? 0) > subtotal ? ', tax included' : ''}.
           </>
         }
         email={contact.email.trim()}
@@ -543,8 +551,23 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
             <span>
               {workshop.name}, {seatWord} × {formatMoney(workshop.price, workshop.currency)}
             </span>
-            <strong>{formatMoney(total, workshop.currency)}</strong>
+            <span>{formatMoney(subtotal, workshop.currency)}</span>
           </div>
+          {tax > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.9375rem', color: 'var(--color-dark)', marginTop: '0.25rem' }}>
+              <span>Sales tax ({percentLabel(workshop.taxPercent!)})</span>
+              <span>{formatMoney(tax, workshop.currency)}</span>
+            </div>
+          )}
+          {tax > 0 && (
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.9375rem', color: 'var(--color-dark)', marginTop: '0.375rem', paddingTop: '0.375rem', borderTop: '1px solid var(--color-line)' }}>
+              <strong>Total</strong>
+              <strong>{formatMoney(total, workshop.currency)}</strong>
+            </div>
+          )}
+          {!taxKnown && (
+            <p style={{ margin: '0.375rem 0 0', fontSize: '0.8125rem', color: 'var(--color-text)' }}>Any sales tax is added when you pay.</p>
+          )}
           {picks.length > 0 && (
             <p style={{ margin: '0.375rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>{picksNote(options, picks)}</p>
           )}
@@ -631,7 +654,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
           setStep('pay')
         }}
       >
-        Continue · {formatMoney(total, workshop.currency)}
+        Continue · {totalLabel}
       </button>
     )
   } else {
@@ -660,7 +683,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
       summary={
         completed ? undefined : (
           <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
-            {when} · {seatWord} · <strong>{formatMoney(total, workshop.currency)}</strong>
+            {when} · {seatWord} · <strong>{totalLabel}</strong>
           </p>
         )
       }

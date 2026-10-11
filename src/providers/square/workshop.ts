@@ -153,6 +153,7 @@ export class SquareWorkshopProvider implements WorkshopProvider {
       orderId: done.order_id ?? null,
       status: done.status,
       receiptUrl: done.order?.receipt_url ?? null,
+      totalChargedCents: typeof done.order?.total_money?.amount === 'number' ? done.order.total_money.amount : null,
     }
   }
 
@@ -247,7 +248,7 @@ export class SquareWorkshopProvider implements WorkshopProvider {
         error: err instanceof Error ? err.message : String(err),
       })
       // Workshops still render without images.
-      return new Map<string, { card?: string; flyer?: string }>()
+      return new Map<string, { card?: string; flyer?: string; taxPercent?: number }>()
     })
 
     const response = await fetch(
@@ -304,6 +305,7 @@ export class SquareWorkshopProvider implements WorkshopProvider {
       if (!imgs) continue
       if (imgs.card) w.imageUrl = imgs.card
       if (imgs.flyer) w.flyerUrl = imgs.flyer
+      if (typeof imgs.taxPercent === 'number') w.taxPercent = imgs.taxPercent
     }
 
     return workshops
@@ -317,21 +319,42 @@ export class SquareWorkshopProvider implements WorkshopProvider {
    * used as the card fallback (preserves current behavior for items that
    * were uploaded before captions were a convention).
    */
-  private async fetchWorkshopImageMap(): Promise<Map<string, { card?: string; flyer?: string }>> {
+  private async fetchWorkshopImageMap(): Promise<Map<string, { card?: string; flyer?: string; taxPercent?: number }>> {
     const client = createSquareClient(this.config)
     const nameToImageIds = new Map<string, string[]>()
+    const nameToTaxIds = new Map<string, string[]>()
     const imageIds = new Set<string>()
 
     for await (const obj of await client.catalog.list({ types: 'ITEM' })) {
       const item = obj as any
       const name: string | undefined = item.itemData?.name
+      if (!name) continue
+      if (item.itemData?.productType === 'CLASS_TICKET') nameToTaxIds.set(name.toLowerCase(), item.itemData?.taxIds ?? [])
       const ids: string[] = item.itemData?.imageIds ?? []
-      if (!name || ids.length === 0) continue
+      if (ids.length === 0) continue
       nameToImageIds.set(name.toLowerCase(), ids)
       for (const id of ids) imageIds.add(id)
     }
 
-    if (imageIds.size === 0) return new Map()
+    // The tax Square adds at checkout: the item's enabled, added-on-top taxes
+    // that apply at this location. Read here so the site never shows one
+    // price and charges another (11 Oct 2026: $25 shown, $27.25 charged).
+    const addOnPercent = new Map<string, number>()
+    for await (const obj of await client.catalog.list({ types: 'TAX' })) {
+      const tax = obj as any
+      const data = tax.taxData
+      const here = tax.presentAtAllLocations || (tax.presentAtLocationIds ?? []).includes(this.config.locationId)
+      if (!data?.enabled || tax.isDeleted || !here || data.inclusionType !== 'ADDITIVE') continue
+      const pct = Number(data.percentage)
+      if (Number.isFinite(pct) && pct > 0) addOnPercent.set(tax.id, pct)
+    }
+
+    const result = new Map<string, { card?: string; flyer?: string; taxPercent?: number }>()
+    for (const [name, taxIds] of nameToTaxIds) {
+      result.set(name, { taxPercent: taxIds.reduce((sum, id) => sum + (addOnPercent.get(id) ?? 0), 0) })
+    }
+
+    if (imageIds.size === 0) return result
 
     const batchResp: any = await client.catalog.batchGet({ objectIds: Array.from(imageIds) })
     const idToImage = new Map<string, { url: string; caption: string }>()
@@ -343,9 +366,8 @@ export class SquareWorkshopProvider implements WorkshopProvider {
       })
     }
 
-    const result = new Map<string, { card?: string; flyer?: string }>()
     for (const [name, ids] of nameToImageIds) {
-      const slot: { card?: string; flyer?: string } = {}
+      const slot: { card?: string; flyer?: string; taxPercent?: number } = { ...result.get(name) }
       for (const id of ids) {
         const img = idToImage.get(id)
         if (!img) continue
@@ -357,7 +379,7 @@ export class SquareWorkshopProvider implements WorkshopProvider {
         const first = idToImage.get(ids[0])
         if (first) slot.card = first.url
       }
-      if (slot.card || slot.flyer) result.set(name, slot)
+      if (slot.card || slot.flyer || typeof slot.taxPercent === 'number') result.set(name, slot)
     }
     return result
   }
