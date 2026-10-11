@@ -30,7 +30,9 @@ const environment = import.meta.env.MODE
       api_host: '/hs-e',
       ui_host: apiHost.replace('.i.posthog.com', '.posthog.com'),
       person_profiles: 'identified_only',
-      capture_pageview: true,
+      // 'history_change': also count moving between pages inside the site
+      // (view transitions swap the page without a reload).
+      capture_pageview: 'history_change',
       capture_pageleave: true,
       // Where people click and how far they scroll, per page; page speed.
       enable_heatmaps: true,

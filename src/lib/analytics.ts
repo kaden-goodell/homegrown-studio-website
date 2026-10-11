@@ -1,5 +1,6 @@
 /**
- * Typed analytics wrapper — dual-dispatches every event to PostHog and GA4.
+ * Typed analytics wrapper — dispatches every event to PostHog and GA4, and the
+ * ones ads can use to the Meta Pixel (see meta-pixel.ts).
  *
  * Each function no-ops for any backend that isn't loaded (neither script is
  * present without its key — see Analytics.astro), so components can call these
@@ -7,6 +8,8 @@
  * additionally fires a GA4 `purchase` event with value, which is what Google
  * Ads conversion import keys on (HOM-150).
  */
+
+import { toMetaEvent } from './meta-pixel'
 
 declare global {
   interface Window {
@@ -27,6 +30,8 @@ function capture(event: string, properties?: Record<string, unknown>): void {
   if (typeof window === 'undefined') return
   window.posthog?.capture(event, properties)
   window.gtag?.('event', event, properties ?? {})
+  const meta = toMetaEvent(event, properties)
+  if (meta) window.fbq?.('track', meta[0], meta[1])
 }
 
 /** This visitor's PostHog id, sent with a booking so the server's record of
@@ -77,6 +82,7 @@ export function trackPaymentCompleted(
       ...(details?.items ? { items: details.items } : {}),
       ...(details ? { booking_kind: details.kind, ...details.extra } : {}),
     })
+    window.fbq?.('track', 'Purchase', { value: amount, currency: 'USD' }, details?.transactionId ? { eventID: details.transactionId } : undefined)
   }
 }
 
