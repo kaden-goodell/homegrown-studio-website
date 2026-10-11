@@ -38,7 +38,7 @@ export class SquareCustomerProvider implements CustomerProvider {
     if (searchResult.customers && searchResult.customers.length > 0) {
       const existing = searchResult.customers[0]
       logger.info('Found existing customer', { email: params.email, id: existing.id })
-      return mapSquareCustomer(existing)
+      return { ...mapSquareCustomer(existing), matchedBy: 'email' }
     }
 
     // Step 1b: No email match — try phone, so a returning customer using a
@@ -55,7 +55,7 @@ export class SquareCustomerProvider implements CustomerProvider {
       if (phoneResult.customers && phoneResult.customers.length > 0) {
         const existing = phoneResult.customers[0]
         logger.info('Found existing customer by phone', { phone: e164, id: existing.id })
-        return mapSquareCustomer(existing)
+        return { ...mapSquareCustomer(existing), matchedBy: 'phone' }
       }
     }
 
@@ -69,7 +69,7 @@ export class SquareCustomerProvider implements CustomerProvider {
       })
 
       logger.info('Created new customer', { email: params.email, id: createResult.customer?.id })
-      return mapSquareCustomer(createResult.customer!)
+      return { ...mapSquareCustomer(createResult.customer!), matchedBy: 'new' }
     } catch (error: any) {
       // Step 3: Handle race condition — new profiles can take up to 30s to be searchable.
       // If create fails with a duplicate error, retry search once.
@@ -89,7 +89,7 @@ export class SquareCustomerProvider implements CustomerProvider {
         if (retryResult.customers && retryResult.customers.length > 0) {
           const found = retryResult.customers[0]
           logger.info('Found customer on retry', { email: params.email, id: found.id })
-          return mapSquareCustomer(found)
+          return { ...mapSquareCustomer(found), matchedBy: 'email' }
         }
       }
 
@@ -145,6 +145,11 @@ export class SquareCustomerProvider implements CustomerProvider {
       note: note.slice(0, 4000),
     })
     logger.info('Appended customer note', { customerId, line })
+  }
+
+  async updateEmail(customerId: string, email: string): Promise<void> {
+    await this.client.customers.update({ customerId, emailAddress: email })
+    logger.info('Updated customer email', { customerId, email })
   }
 }
 

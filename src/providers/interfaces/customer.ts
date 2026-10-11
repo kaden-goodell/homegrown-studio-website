@@ -4,6 +4,8 @@ export interface Customer {
   givenName: string
   familyName?: string
   phone?: string
+  /** How findOrCreate found them: their email, their phone (the email on file may differ), or a new record. */
+  matchedBy?: 'email' | 'phone' | 'new'
 }
 
 /** A customer record as the sign-up emails need it: who, and what is written on their record. */
@@ -45,6 +47,9 @@ export interface CustomerProvider {
    * so the note field is the durable place for lookup metadata.
    */
   appendNote(customerId: string, line: string): Promise<void>
+
+  /** Change the email on a customer's record (a booker fixing a typo). */
+  updateEmail(customerId: string, email: string): Promise<void>
 
   /**
    * Everyone with an email address and something written in their note.

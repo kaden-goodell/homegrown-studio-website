@@ -24,6 +24,7 @@ import { tierFor, weekKeyFor } from '@lib/kit-dates'
 import { claimWeek, confirmWeekClaim, releaseWeekClaim, listKitOrders, kitOrderToLedgerRecord } from '@lib/kit-store'
 import type { LedgerRecord } from '@lib/kit-ledger'
 import { sendPartyConfirmationEmail } from '@lib/email'
+import { issueEmailFixTicket, onFileToAskAbout } from '@lib/email-fix'
 import { partyInviteUrl, googleCalendarUrl, buildIcs, addMinutesIso } from '@lib/party-share'
 import { inviteContent } from '@config/invite-content'
 import { formatSlotLabel, formatCalendarDate } from '@lib/studio-time'
@@ -310,6 +311,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           googleCalendarUrl: googleCalendarUrl(bypassCalEvent),
           icsContent: buildIcs(bypassCalEvent),
           bookingRef: bookingId,
+          bookingId,
           agreementLine: await agreementLineFor(body.customer.email),
         })
       : { sent: false }
@@ -323,6 +325,11 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           totalCharged: partyConfig.basePriceCents + (theme?.priceCents ?? 0),
           emailSent: bypassEmailSent,
           customer: { id: 'dev-customer' },
+          emailCheck: {
+            token: issueEmailFixTicket({ kind: 'party', bookingId, customerId: '', typed: body.customer.email, onFile: null, matchedBy: 'unknown' }),
+            sentTo: body.customer.email,
+            onFile: null,
+          },
         },
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -450,6 +457,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     }
 
     logger.info('Customer resolved', { customerId: customer.id })
+    // The email on their Square record, when the phone matched it and it is a
+    // letter or two off what they typed: we can't tell which is the typo.
+    const onFile = onFileToAskAbout(body.customer.email, customer)
 
     // Step 3: Create the single whole-room booking FIRST — before charging.
     // If this fails the customer has not been charged. Craft selection is stored
@@ -718,6 +728,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       googleCalendarUrl: googleCalendarUrl(calEvent),
       icsContent: buildIcs(calEvent),
       bookingRef: booking.id,
+      bookingId: booking.id,
+      ...(onFile ? { alsoTo: onFile } : {}),
       agreementLine: await agreementLineFor(body.customer.email),
       arriveEarlyMinutes: partyConfig.hostArrivalMinutesEarly,
       minGuests: partyConfig.minGuests,
@@ -758,6 +770,12 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           emailSent,
           customer: {
             id: customer.id,
+          },
+          // "Wrong email? Fix it" / "Which email is right?" on the booked screen.
+          emailCheck: {
+            token: issueEmailFixTicket({ kind: 'party', bookingId: booking.id, customerId: customer.id, typed: body.customer.email, onFile, matchedBy: customer.matchedBy ?? 'unknown' }),
+            sentTo: body.customer.email,
+            onFile,
           },
         },
       }),

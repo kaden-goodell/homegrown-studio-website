@@ -33,6 +33,8 @@ export async function sendWorkshopConfirmation(input: {
   comped?: boolean
   /** Added at the door; paid at the register. */
   dueAtStudioCents?: number
+  /** Also send to this address (the one on their Square record, a letter or two off what they typed). */
+  alsoTo?: string
 }): Promise<boolean> {
   const { workshop } = input
 
@@ -53,6 +55,8 @@ export async function sendWorkshopConfirmation(input: {
 
   const { sent } = await sendWorkshopConfirmationEmail({
     to: input.email,
+    alsoTo: input.alsoTo,
+    bookingId: input.bookingId,
     firstName: input.givenName,
     workshopName: workshop.name,
     summary: summarize(workshop.description, 280),

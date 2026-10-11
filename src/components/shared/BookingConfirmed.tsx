@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from 'react'
+import EmailCheck, { type EmailCheckData } from '@components/shared/EmailCheck'
 
 /**
  * The top of every confirmation screen, so a party and a workshop look alike:
@@ -14,10 +15,13 @@ interface BookingConfirmedProps {
   email: string
   /** Only true when the server says the email went out. */
   emailSent: boolean
+  /** From the booking answer: lets them fix a mistyped email from this screen. */
+  emailCheck?: EmailCheckData | null
+  onEmailChanged?: (email: string) => void
   children?: ReactNode
 }
 
-export default function BookingConfirmed({ heading, what, email, emailSent, children }: BookingConfirmedProps) {
+export default function BookingConfirmed({ heading, what, email, emailSent, emailCheck, onEmailChanged, children }: BookingConfirmedProps) {
   useEffect(() => {
     try {
       window.dispatchEvent(new CustomEvent('hometown:celebrate'))
@@ -51,6 +55,9 @@ export default function BookingConfirmed({ heading, what, email, emailSent, chil
           {heading}
         </h3>
         <p style={{ margin: 0, fontSize: '1rem', color: 'var(--color-dark)', lineHeight: 1.5 }}>{what}</p>
+        {emailSent && emailCheck ? (
+          <EmailCheck check={emailCheck} onEmailChanged={onEmailChanged} />
+        ) : (
         <p role="status" style={{ margin: '0.5rem 0 0', fontSize: '0.9375rem', color: 'var(--color-text)', lineHeight: 1.5 }}>
           {emailSent ? (
             <>
@@ -60,6 +67,7 @@ export default function BookingConfirmed({ heading, what, email, emailSent, chil
             'We couldn’t send your confirmation email, so please take a screenshot of this page.'
           )}
         </p>
+        )}
       </div>
       {children}
     </div>

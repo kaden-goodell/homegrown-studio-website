@@ -44,3 +44,29 @@ export function verifyReuseToken(recordId: string, token: string, now = Date.now
   const b = Buffer.from(expected)
   return a.length === b.length && timingSafeEqual(a, b)
 }
+
+/**
+ * A small signed note the server hands the browser and later trusts back —
+ * e.g. "this browser just booked X as customer Y" for fixing a mistyped email.
+ * Readable (not secret), but any change breaks the signature.
+ */
+export function issueSignedToken(payload: Record<string, unknown>, ttlMs: number, now = Date.now()): string {
+  const body = Buffer.from(JSON.stringify({ ...payload, exp: now + ttlMs })).toString('base64url')
+  return `${body}.${sig(`signed.${body}`)}`
+}
+
+export function readSignedToken<T extends Record<string, unknown>>(token: unknown, now = Date.now()): T | null {
+  if (typeof token !== 'string' || token.length > 4000) return null
+  const [body, mac] = token.split('.')
+  if (!body || !mac) return null
+  const a = Buffer.from(mac)
+  const b = Buffer.from(sig(`signed.${body}`))
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return null
+  try {
+    const data = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'))
+    if (typeof data?.exp !== 'number' || data.exp < now) return null
+    return data as T
+  } catch {
+    return null
+  }
+}

@@ -16,6 +16,7 @@ import type { WorkshopData } from './WorkshopExplorer'
 import BookingPanel from '@components/shared/BookingPanel'
 import BookingConfirmed, { ConfirmedBlock } from '@components/shared/BookingConfirmed'
 import ContactFields, { type ContactFieldsHandle } from '@components/shared/ContactFields'
+import type { EmailCheckData } from '@components/shared/EmailCheck'
 import ShareLink from '@components/shared/ShareLink'
 import PaymentForm from '@components/checkout/PaymentForm'
 import type { PaymentFormRef } from '@components/checkout/PaymentForm'
@@ -79,6 +80,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null)
   const [bookingId, setBookingId] = useState<string | null>(null)
   const [emailSent, setEmailSent] = useState(false)
+  const [emailCheck, setEmailCheck] = useState<EmailCheckData | null>(null)
   const [askToLeave, setAskToLeave] = useState(false)
 
   const paymentFormRef = useRef<PaymentFormRef>(null)
@@ -255,6 +257,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
       setReceiptUrl(bookData.data.receiptUrl ?? null)
       setBookingId(bookData.data.bookingId ?? null)
       setEmailSent(bookData.data.emailSent === true)
+      setEmailCheck(bookData.data.emailCheck ?? null)
       setAskToLeave(false)
       setCompleted(true)
       identifyBooker(contact.email, contact.firstName, contact.lastName)
@@ -302,6 +305,8 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
         }
         email={contact.email.trim()}
         emailSent={emailSent}
+        emailCheck={emailCheck}
+        onEmailChanged={(next) => rememberContact({ ...contact, email: next })}
       >
         <div style={{ marginTop: '1.25rem' }}>
           <ConfirmedBlock label="When">

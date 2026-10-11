@@ -5,6 +5,7 @@ import BookingPanel from '@components/shared/BookingPanel'
 import BookingConfirmed, { ConfirmedBlock } from '@components/shared/BookingConfirmed'
 import ContactFields, { type ContactFieldsHandle } from '@components/shared/ContactFields'
 import NotifyMe from '@components/shared/NotifyMe'
+import type { EmailCheckData } from '@components/shared/EmailCheck'
 import ShareLink from '@components/shared/ShareLink'
 import PartyPriceSummary from './PartyPriceSummary'
 import { partyConfig } from '@config/party.config'
@@ -230,6 +231,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [bookingId, setBookingId] = useState<string | null>(null)
   const [hostToken, setHostToken] = useState<string | null>(null)
   const [emailSent, setEmailSent] = useState(false)
+  const [emailCheck, setEmailCheck] = useState<EmailCheckData | null>(null)
   const [partyTitle, setPartyTitle] = useState('')
   const [paymentReady, setPaymentReady] = useState(false)
   const paymentFormRef = useRef<PaymentFormRef>(null)
@@ -683,6 +685,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       setBookingId(newBookingId)
       setHostToken(newHostToken)
       setEmailSent(data.emailSent === true)
+      setEmailCheck(data.emailCheck ?? null)
       setAskToLeave(false)
       setCompleted(true)
 
@@ -749,6 +752,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         }
         email={contact.email.trim()}
         emailSent={emailSent}
+        emailCheck={emailCheck}
       >
         <div style={{ marginTop: '1.25rem' }}>
           <ConfirmedBlock label="When">

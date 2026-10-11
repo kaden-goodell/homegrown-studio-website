@@ -3,7 +3,8 @@
  * behind the roster totals, the family's "Picks" line and the print sheet.
  * Square only ever gets a booking note.
  *
- * Written once, after the charge succeeds. Never edited afterwards: "you
+ * Written once, after the charge succeeds. Never edited afterwards (except a
+ * mistyped email, updateSeatChoiceEmail): "you
  * pick what you get", and a swap is noted in the family's History by hand.
  *
  * Netlify Blobs in prod, `.data/seat-choices/` on disk in dev.
@@ -112,4 +113,14 @@ export function summarizeChoices(
     }
   }
   return { totals: choiceTotals(options, records.flatMap((r) => r.picks)), byEmail, seatsByEmail, unmatched, seatsSold }
+}
+
+/** A booker fixed a mistyped email (email-fix.ts). The one edit this record allows. */
+export async function updateSeatChoiceEmail(eventId: string, bookingId: string, email: string): Promise<boolean> {
+  const raw = await kv.get(seatChoiceKey(eventId, bookingId))
+  if (!raw) return false
+  const record = JSON.parse(raw) as SeatChoiceRecord
+  await kv.set(seatChoiceKey(eventId, bookingId), JSON.stringify({ ...record, customer: { ...record.customer, email } }))
+  logger.info('Seat choices email corrected', { eventId, bookingId })
+  return true
 }

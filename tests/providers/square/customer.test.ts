@@ -66,6 +66,7 @@ describe('SquareCustomerProvider', () => {
         givenName: 'Alice',
         familyName: 'Smith',
         phone: '555-0100',
+        matchedBy: 'email',
       })
       expect(mockSearch).toHaveBeenCalledOnce()
       expect(mockCreate).not.toHaveBeenCalled()
@@ -96,6 +97,7 @@ describe('SquareCustomerProvider', () => {
         givenName: 'Bob',
         familyName: 'Jones',
         phone: '555-0200',
+        matchedBy: 'new',
       })
       expect(mockSearch).toHaveBeenCalledOnce()
       expect(mockCreate).toHaveBeenCalledWith({
@@ -140,6 +142,7 @@ describe('SquareCustomerProvider', () => {
         givenName: 'Carol',
         familyName: 'White',
         phone: undefined,
+        matchedBy: 'email',
       })
       expect(mockSearch).toHaveBeenCalledTimes(2)
       expect(mockCreate).toHaveBeenCalledOnce()
@@ -186,9 +189,10 @@ describe('SquareCustomerProvider', () => {
         givenName: 'Map',
         familyName: 'Test',
         phone: '555-MAP',
+        matchedBy: 'email',
       })
       // Verify no extra fields leaked through
-      expect(Object.keys(result)).toEqual(['id', 'email', 'givenName', 'familyName', 'phone'])
+      expect(Object.keys(result)).toEqual(['id', 'email', 'givenName', 'familyName', 'phone', 'matchedBy'])
     })
   })
 

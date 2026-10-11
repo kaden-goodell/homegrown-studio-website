@@ -19,13 +19,13 @@ export class MockCustomerProvider implements CustomerProvider {
     phone?: string
   }): Promise<Customer> {
     const existing = this.customers.get(params.email)
-    if (existing) return existing
+    if (existing) return { ...existing, matchedBy: 'email' }
 
     // Phone fallback — mirrors the Square provider's email-then-phone lookup.
     if (params.phone) {
       const digits = params.phone.replace(/\D/g, '')
       for (const c of this.customers.values()) {
-        if (c.phone && c.phone.replace(/\D/g, '') === digits) return c
+        if (c.phone && c.phone.replace(/\D/g, '') === digits) return { ...c, matchedBy: 'phone' }
       }
     }
 
@@ -38,7 +38,7 @@ export class MockCustomerProvider implements CustomerProvider {
       phone: params.phone,
     }
     this.customers.set(params.email, customer)
-    return customer
+    return { ...customer, matchedBy: 'new' }
   }
 
   async subscribe(_email: string, _note?: string): Promise<void> {}
@@ -50,6 +50,15 @@ export class MockCustomerProvider implements CustomerProvider {
       if (c.email && lines?.length) found.push({ id: c.id, email: c.email, note: lines.join('\n') })
     }
     return found
+  }
+
+  async updateEmail(customerId: string, email: string): Promise<void> {
+    for (const [key, c] of this.customers) {
+      if (c.id !== customerId) continue
+      this.customers.delete(key)
+      this.customers.set(email, { ...c, email })
+      return
+    }
   }
 
   async appendNote(customerId: string, line: string): Promise<void> {

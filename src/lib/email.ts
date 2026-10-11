@@ -10,6 +10,7 @@ import { partyInviteMailto, partyInviteIcsUrl } from '@lib/party-share'
 import { buildAgreementCopy, buildDropOffDetails, type BuildAgreementCopyInput, type BuildDropOffDetailsInput } from '@lib/agreement-email'
 import { withUtm } from '@lib/utm'
 import { formatWhen } from '@lib/studio-time'
+import { keepConfirmationCopy, type BookingKind, type ConfirmationMessage } from '@lib/confirmation-copies'
 
 const logger = createLogger('email')
 
@@ -62,6 +63,33 @@ export async function sendEmail(input: {
   }
 }
 
+/** What every booking confirmation can also take: a second address, and a booking id to keep a copy under. */
+export interface ConfirmationExtras {
+  /**
+   * Also send it here, separately: the email on their Square record when it is
+   * a letter or two off what they typed — we can't tell which is the typo.
+   */
+  alsoTo?: string
+  /** Keep a copy (confirmation-copies.ts) so a mistyped address can be fixed later. */
+  bookingId?: string
+}
+
+async function sendConfirmation(
+  input: { to: string } & ConfirmationExtras,
+  kind: BookingKind,
+  message: ConfirmationMessage,
+): Promise<{ sent: boolean }> {
+  const first = await sendEmail({ to: input.to, ...message })
+  const extra = input.alsoTo && input.alsoTo.toLowerCase() !== input.to.toLowerCase()
+    ? await sendEmail({ to: input.alsoTo, ...message })
+    : null
+  if (input.bookingId) {
+    const sentTo = [first.sent ? input.to : null, extra?.sent ? input.alsoTo! : null].filter((x): x is string => !!x)
+    await keepConfirmationCopy(kind, input.bookingId, message, sentTo)
+  }
+  return first
+}
+
 /**
  * The signer's retained copy of the agreement — HOM-216. Thin wrapper: assembly lives in `buildAgreementCopy` (testable
  * without SMTP); this just sends what it builds.
@@ -77,7 +105,7 @@ export async function sendDropOffDetailsEmail(input: BuildDropOffDetailsInput): 
   return sendEmail({ to: input.record.adult.email, subject, html, text })
 }
 
-export async function sendPartyConfirmationEmail(input: {
+export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   to: string; hostName: string; craftName: string; craftDescription?: string; craftImageUrl?: string; slotLabel: string
   /** Per-person craft price in cents; max set when the craft has a price range. */
   perHeadCents?: number; perHeadMaxCents?: number
@@ -200,8 +228,7 @@ export async function sendPartyConfirmationEmail(input: {
   const safeCraftName = input.craftName.replace(/[\r\n]+/g, ' ')
   // Slot in the subject: more useful at a glance, and unique subjects keep
   // Gmail from threading multiple bookings and trimming "repeated" content.
-  return sendEmail({
-    to: input.to,
+  return sendConfirmation(input, 'party', {
     subject: `You're booked — ${safeCraftName}, ${input.slotLabel}`,
     html,
     text,
@@ -325,7 +352,7 @@ export async function sendSignupNewsEmail(input: {
  * Workshop seat confirmation. Ours, not Square's: it carries what the customer
  * needs to turn up (when, where, the agreement to sign) in the studio's voice.
  */
-export async function sendWorkshopConfirmationEmail(input: {
+export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & {
   to: string
   firstName: string
   workshopName: string
@@ -435,8 +462,7 @@ export async function sendWorkshopConfirmationEmail(input: {
   <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}${input.bookingRef ? ` &middot; Booking ref ${esc(input.bookingRef)}` : ''}</p>
 </div>`
   const safeName = input.workshopName.replace(/[\r\n]+/g, ' ')
-  return sendEmail({
-    to: input.to,
+  return sendConfirmation(input, 'workshop', {
     subject: `You're booked — ${safeName}, ${input.whenLabel}`,
     html,
     text,

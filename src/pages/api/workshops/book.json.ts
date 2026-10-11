@@ -11,6 +11,7 @@ import { workshopMessages, TEXT_US } from '@lib/checkout-messages'
 import { alertOwners } from '@lib/owner-alert'
 import { formatSlotLabel } from '@lib/studio-time'
 import { sendWorkshopConfirmation } from '@lib/workshop-confirmation'
+import { issueEmailFixTicket, onFileToAskAbout, type EmailFixTicket } from '@lib/email-fix'
 import { canBeBooked } from '@lib/workshop-rules'
 import { getEventMeta } from '@lib/event-meta'
 import { saveSeatChoices } from '@lib/seat-choices'
@@ -135,8 +136,15 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const note = picksNote(settings.options, picks)
 
   let customerId: string | undefined
+  // The email on their Square record, when the phone matched it and it is a
+  // letter or two off what they typed: we can't tell which is the typo.
+  let onFile: string | null = null
+  let matchedBy: EmailFixTicket['matchedBy'] = 'unknown'
   if (customerLookup.status === 'fulfilled') {
     customerId = customerLookup.value.id
+    const found = customerLookup.value as { email?: string; matchedBy?: EmailFixTicket['matchedBy'] }
+    matchedBy = found.matchedBy ?? 'unknown'
+    onFile = onFileToAskAbout(email, found)
   } else {
     // Not fatal: the booking service keeps its own contact for the customer.
     logger.error('Customer lookup failed — continuing', { error: String(customerLookup.reason) })
@@ -255,6 +263,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       options: settings.options,
       picks,
       totalChargedCents: workshop.priceCents * seats,
+      ...(onFile ? { alsoTo: onFile } : {}),
     })
   } catch (err) {
     logger.error('Workshop confirmation email failed (booking still confirmed)', {
@@ -292,6 +301,12 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         status: booked.status,
         receiptUrl: booked.receiptUrl,
         emailSent,
+        // "Wrong email? Fix it" / "Which email is right?" on the booked screen.
+        emailCheck: {
+          token: issueEmailFixTicket({ kind: 'workshop', bookingId: booked.bookingId, customerId: simulated ? '' : customerId ?? '', typed: email, onFile, matchedBy, eventId: workshop.scheduleId }),
+          sentTo: email,
+          onFile,
+        },
       },
     }),
     { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
