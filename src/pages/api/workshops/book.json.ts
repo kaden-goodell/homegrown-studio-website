@@ -177,6 +177,27 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       return fail(code === 'sold_out' || code === 'already_booked' ? 409 : 502, code)
     }
 
+    // ── 2b. Make the order cover every seat ───────────────────────────────────
+    // Square holds one seat per booking whatever we ask for, so a 2-seat hold
+    // would charge for 1. Fix the order first; if that can't be done, charge
+    // nothing (the hold expires on its own).
+    if (seats > 1) {
+      try {
+        const { totalCents } = await providers.workshop.setSeatCount({ reservation, seats })
+        if (totalCents < workshop.priceCents * seats) {
+          throw new Error(`order total ${totalCents} is below ${seats} seats at ${workshop.priceCents}`)
+        }
+      } catch (err) {
+        logger.error('Could not make the order cover every seat — not charging', {
+          bookingId: reservation.bookingId,
+          seats,
+          error: err instanceof Error ? err.message : String(err),
+        })
+        await providers.workshop.releaseSeats(reservation.bookingId).catch(() => undefined)
+        return fail(502, 'unavailable')
+      }
+    }
+
     // ── 3. Charge and confirm ─────────────────────────────────────────────────
       try {
       booked = await providers.workshop.payForSeats({

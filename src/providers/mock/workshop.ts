@@ -81,6 +81,10 @@ export class MockWorkshopProvider implements WorkshopProvider {
     return { bookingId: `mock-seat-${n}`, contactToken: `mock-contact-${n}`, orderId: `mock-order-${n}` }
   }
 
+  async setSeatCount(params: { reservation: SeatReservation; seats: number }): Promise<{ totalCents: number }> {
+    return { totalCents: 2500 * params.seats }
+  }
+
   /** Payment token 'FAIL' is refused, like the mock payment provider. */
   async payForSeats(params: { reservation: SeatReservation; paymentToken: string }): Promise<SeatBooking> {
     if (params.paymentToken === 'FAIL') {

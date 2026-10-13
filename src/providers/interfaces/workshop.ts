@@ -95,6 +95,13 @@ export interface WorkshopProvider {
   }): Promise<SeatReservation>
 
   /**
+   * Make the held booking's order cover `seats` seats, before paying for it.
+   * Throws SeatBookingError (phase 'reserve', 'refused') if it can't: then
+   * nothing may be charged. Returns the order total in cents, tax included.
+   */
+  setSeatCount(params: { reservation: SeatReservation; seats: number }): Promise<{ totalCents: number }>
+
+  /**
    * Charge for a reservation and confirm it, as one step: both happen or
    * neither does. `idempotencyKey` makes a repeat safe.
    * Throws SeatBookingError (phase 'pay'): `refused` means nothing was

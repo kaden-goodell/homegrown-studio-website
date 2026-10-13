@@ -6,6 +6,7 @@ const mockReserve = vi.fn()
 const mockPay = vi.fn()
 const mockRelease = vi.fn()
 const mockGetWorkshop = vi.fn()
+const mockSetSeatCount = vi.fn()
 const mockListWorkshops = vi.fn()
 
 vi.mock('@config/providers', () => ({
@@ -16,6 +17,7 @@ vi.mock('@config/providers', () => ({
       reserveSeats: (...a: any[]) => mockReserve(...a),
       payForSeats: (...a: any[]) => mockPay(...a),
       releaseSeats: (...a: any[]) => mockRelease(...a),
+      setSeatCount: (...a: any[]) => mockSetSeatCount(...a),
       getWorkshop: (...a: any[]) => mockGetWorkshop(...a),
       listWorkshops: (...a: any[]) => mockListWorkshops(...a),
     },
@@ -103,6 +105,7 @@ beforeEach(async () => {
   mockReserve.mockResolvedValue({ bookingId: 'clsbk_1', contactToken: 'contact-1', orderId: 'order-1' })
   mockPay.mockResolvedValue({ bookingId: 'clsbk_1', orderId: 'order-1', status: 'accepted', receiptUrl: 'https://squareup.com/receipt/1' })
   mockRelease.mockResolvedValue(undefined)
+  mockSetSeatCount.mockImplementation(async ({ seats }: any) => ({ totalCents: 4360 * seats }))
   mockGetWorkshop.mockResolvedValue(workshop)
   mockListWorkshops.mockResolvedValue([workshop])
   mockAlertOwners.mockResolvedValue({ attempted: 2, sent: 2 })
@@ -113,6 +116,40 @@ beforeEach(async () => {
 afterEach(() => vi.useRealTimers())
 
 describe('POST /api/workshops/book.json', () => {
+  describe('more than one seat (Square holds one seat per booking)', () => {
+    it('makes the order cover every seat before charging', async () => {
+      const order: string[] = []
+      mockSetSeatCount.mockImplementation(async ({ seats }: any) => { order.push('seats'); return { totalCents: 4360 * seats } })
+      mockPay.mockImplementation(async () => { order.push('pay'); return { bookingId: 'clsbk_1', orderId: 'order-1', status: 'accepted', receiptUrl: null } })
+      const res = await POST(ctx(body({ seats: 2 })))
+      expect(res.status).toBe(200)
+      expect(mockSetSeatCount).toHaveBeenCalledWith({ reservation: { bookingId: 'clsbk_1', contactToken: 'contact-1', orderId: 'order-1' }, seats: 2 })
+      expect(order).toEqual(['seats', 'pay'])
+    })
+
+    it('leaves a 1-seat order alone', async () => {
+      const res = await POST(ctx(body({ seats: 1 })))
+      expect(res.status).toBe(200)
+      expect(mockSetSeatCount).not.toHaveBeenCalled()
+      expect(mockPay).toHaveBeenCalledTimes(1)
+    })
+
+    it('charges nothing when the order cannot be made to cover every seat', async () => {
+      mockSetSeatCount.mockRejectedValue(new Error('refused'))
+      const res = await POST(ctx(body({ seats: 2 })))
+      expect(res.status).toBe(502)
+      expect((await res.json()).code).toBe('unavailable')
+      expect(mockPay).not.toHaveBeenCalled()
+    })
+
+    it('charges nothing when the order total is still short of every seat', async () => {
+      mockSetSeatCount.mockResolvedValue({ totalCents: 4360 })
+      const res = await POST(ctx(body({ seats: 2 })))
+      expect(res.status).toBe(502)
+      expect(mockPay).not.toHaveBeenCalled()
+    })
+  })
+
   it('refuses a gift card outright: 400, no seats held', async () => {
     const res = await POST(ctx(body({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
     expect(res.status).toBe(400)

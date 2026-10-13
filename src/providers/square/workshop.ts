@@ -106,6 +106,62 @@ export class SquareWorkshopProvider implements WorkshopProvider {
     }
   }
 
+  /**
+   * Square's classes service books one seat per booking: it ignores the
+   * `quantity` we send and drafts a 1-seat order (Maxie, 12 Oct 2026: 2 seats
+   * held, 1 charged). The draft order lives in our own account, so before the
+   * charge we set its seat line to the real count; /complete then charges the
+   * order's full total. Throws SeatBookingError (phase 'reserve', 'refused')
+   * whenever the order can't be confirmed at `seats` — the caller must not
+   * charge then. Returns the order total (tax included), in cents.
+   */
+  async setSeatCount(params: { reservation: SeatReservation; seats: number }): Promise<{ totalCents: number }> {
+    const { reservation, seats } = params
+    const refuse = (why: string, status?: number): never => {
+      logger.error('Seat count not set on the order', { bookingId: reservation.bookingId, orderId: reservation.orderId, seats, why })
+      throw new SeatBookingError('square', 'reserve', 'refused', `seat count: ${why}`, status)
+    }
+    if (!reservation.orderId) return refuse('the hold came back without an order')
+    const base = this.config.environment === 'production' ? 'https://connect.squareup.com/v2' : 'https://connect.squareupsandbox.com/v2'
+    const headers = {
+      Authorization: `Bearer ${this.config.accessToken}`,
+      'Content-Type': 'application/json',
+      'Square-Version': '2025-01-23',
+    }
+    const call = async (init?: RequestInit): Promise<any> => {
+      let res: Response
+      try {
+        res = await fetch(`${base}/orders/${reservation.orderId}`, { headers, ...init })
+      } catch (err) {
+        return refuse(err instanceof Error ? err.message : String(err))
+      }
+      const text = await res.text().catch(() => '')
+      if (!res.ok) return refuse(text.slice(0, 300) || `status ${res.status}`, res.status)
+      return JSON.parse(text).order
+    }
+
+    const order = await call()
+    const lines = order?.line_items ?? []
+    if (order?.state !== 'DRAFT' || lines.length !== 1) {
+      return refuse(`unexpected order (state ${order?.state}, ${lines.length} lines)`)
+    }
+    let updated = order
+    if (lines[0].quantity !== String(seats)) {
+      updated = await call({
+        method: 'PUT',
+        body: JSON.stringify({
+          order: { location_id: order.location_id, version: order.version, line_items: [{ uid: lines[0].uid, quantity: String(seats) }] },
+          idempotency_key: `${reservation.bookingId}-seats-${seats}`,
+        }),
+      })
+    }
+    if (updated?.line_items?.[0]?.quantity !== String(seats) || typeof updated?.total_money?.amount !== 'number') {
+      return refuse('the order did not take the new seat count')
+    }
+    logger.info('Seat count set on the order', { bookingId: reservation.bookingId, seats, totalCents: updated.total_money.amount })
+    return { totalCents: updated.total_money.amount }
+  }
+
   async payForSeats(params: {
     reservation: SeatReservation
     scheduleId: string

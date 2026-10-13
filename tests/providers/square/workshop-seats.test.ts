@@ -200,3 +200,42 @@ describe('SquareWorkshopProvider — holding and paying for seats', () => {
     })
   })
 })
+
+describe('SquareWorkshopProvider — setSeatCount', () => {
+  const ORDERS = 'https://connect.squareup.com/v2/orders/order-1'
+  const draft = (qty: string, total: number) => ({
+    order: { id: 'order-1', location_id: 'LOC123', version: 1, state: 'DRAFT', line_items: [{ uid: 'line-1', quantity: qty }], total_money: { amount: total } },
+  })
+
+  it('raises the seat line on the held order to the real count and returns the new total', async () => {
+    const spy = stubFetch(async (_url: string, init?: any) =>
+      init?.method === 'PUT' ? answer(200, draft('2', 5450)) : answer(200, draft('1', 2725)),
+    )
+    const out = await new SquareWorkshopProvider(config).setSeatCount({ reservation, seats: 2 })
+    expect(out).toEqual({ totalCents: 5450 })
+    const [url, init] = spy.mock.calls[1]
+    expect(url).toBe(ORDERS)
+    expect(init.method).toBe('PUT')
+    expect(init.headers.Authorization).toBe('Bearer x')
+    expect(JSON.parse(init.body).order).toEqual({ location_id: 'LOC123', version: 1, line_items: [{ uid: 'line-1', quantity: '2' }] })
+  })
+
+  it('refuses (so nothing gets charged) when Square will not change the order', async () => {
+    stubFetch(async (_url: string, init?: any) =>
+      init?.method === 'PUT' ? answer(400, { errors: [{ code: 'BAD_REQUEST' }] }) : answer(200, draft('1', 2725)),
+    )
+    const err = await caught(new SquareWorkshopProvider(config).setSeatCount({ reservation, seats: 2 }))
+    expect(err).toMatchObject({ phase: 'reserve', kind: 'refused' })
+  })
+
+  it('refuses when the order is no longer a draft', async () => {
+    stubFetch(async () => answer(200, { order: { ...draft('1', 2725).order, state: 'OPEN' } }))
+    const err = await caught(new SquareWorkshopProvider(config).setSeatCount({ reservation, seats: 2 }))
+    expect(err).toMatchObject({ kind: 'refused' })
+  })
+
+  it('refuses when the hold has no order', async () => {
+    const err = await caught(new SquareWorkshopProvider(config).setSeatCount({ reservation: { ...reservation, orderId: null }, seats: 2 }))
+    expect(err).toMatchObject({ kind: 'refused' })
+  })
+})
