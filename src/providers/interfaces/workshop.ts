@@ -95,13 +95,6 @@ export interface WorkshopProvider {
   }): Promise<SeatReservation>
 
   /**
-   * Make the held booking's order cover `seats` seats, before paying for it.
-   * Throws SeatBookingError (phase 'reserve', 'refused') if it can't: then
-   * nothing may be charged. Returns the order total in cents, tax included.
-   */
-  setSeatCount(params: { reservation: SeatReservation; seats: number }): Promise<{ totalCents: number }>
-
-  /**
    * Charge for a reservation and confirm it, as one step: both happen or
    * neither does. `idempotencyKey` makes a repeat safe.
    * Throws SeatBookingError (phase 'pay'): `refused` means nothing was
@@ -116,14 +109,6 @@ export interface WorkshopProvider {
     /** Used only if the reservation carries no contact token. */
     fallbackCustomerId?: string
   }): Promise<SeatBooking>
-
-  /**
-   * Square opens an unpaid order for a seat added from the dashboard. For a
-   * guest seat whose money was taken on another booking, take that order to
-   * $0 (a discount named `label`) and close it, so Square shows nothing owed.
-   * Safe to repeat. Throws if Square won't.
-   */
-  settleGuestSeat(params: { orderId: string; label: string }): Promise<void>
 
   /** Let held seats go, after a refused payment. Throws if the backend won't. */
   releaseSeats(bookingId: string): Promise<void>

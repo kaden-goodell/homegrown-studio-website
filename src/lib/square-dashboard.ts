@@ -150,20 +150,3 @@ export async function addClassAttendee(params: { scheduleId: string; startAt: st
   } catch { /* fall through */ }
   return { ok: false, kind: 'no_answer', status: res.status, detail: 'Square answered without a booking id.' }
 }
-
-/**
- * The order Square opened for one booking on a class, read from the class
- * itself (Square lists every booking with its order there). Null when the
- * session can't read it or the booking isn't listed.
- */
-export async function classBookingOrderId(scheduleId: string, bookingId: string): Promise<string | null> {
-  try {
-    const res = await dashboardFetch(`/appointments/api/class-schedules/${encodeURIComponent(scheduleId)}`)
-    if (!res?.ok) return null
-    const body = (await res.json()) as { class_schedule?: { class_bookings?: { id?: string; order_id?: string }[] }; class_bookings?: { id?: string; order_id?: string }[] }
-    const bookings = body.class_schedule?.class_bookings ?? body.class_bookings ?? []
-    return bookings.find((b) => b.id === bookingId)?.order_id ?? null
-  } catch {
-    return null
-  }
-}

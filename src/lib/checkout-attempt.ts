@@ -55,11 +55,12 @@ export function newAttemptId(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`
 }
 
-export type AttemptStep = 'book' | 'order' | 'pay'
+/** `pay-<seat>`: a class seat after the first, each its own charge. */
+export type AttemptStep = 'book' | 'order' | 'pay' | `pay-${number}`
 
 /**
  * The idempotency key for one step of an attempt. Square's tightest limit is
- * 45 characters (payments); a UUID plus a short step name is at most 42.
+ * 45 characters (payments); a UUID plus a short step name is at most 43 (`:pay-20`).
  */
 export function attemptKey(attemptId: string, step: AttemptStep): string {
   return `${attemptId}:${step}`

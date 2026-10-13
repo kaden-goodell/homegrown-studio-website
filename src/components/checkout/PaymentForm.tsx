@@ -380,6 +380,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
       }
     }
 
+    const mockTokens = useRef(0)
     const tokenize = useCallback(async (): Promise<{ token: string; kind: 'card' | 'gift_card' }> => {
       const giftOn = useGift && giftCards === 'allowed'
       if (isMockMode) {
@@ -388,7 +389,9 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
           const short = /^cents:(\d+)$/.exec(value)
           return { token: short ? `mock-gift-cents:${short[1]}` : `mock-gift:${value}`, kind: 'gift_card' }
         }
-        return { token: 'mock-payment-token', kind: 'card' }
+        // Like a real card form, each call gives a new token (a class sends one per seat).
+        mockTokens.current += 1
+        return { token: mockTokens.current === 1 ? 'mock-payment-token' : `mock-payment-token-${mockTokens.current}`, kind: 'card' }
       }
 
       const field = giftOn ? giftRef.current : cardRef.current

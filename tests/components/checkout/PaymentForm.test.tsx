@@ -81,6 +81,8 @@ describe('PaymentForm with a caller-supplied app id', () => {
     await screen.findByText(/Card number placeholder/)
     expect(squareScripts()).toBe(before)
     expect(await ref.current!.tokenize()).toEqual({ token: 'mock-payment-token', kind: 'card' })
+    // Like a real card form, the next call is a new token (a class sends one per seat).
+    expect(await ref.current!.tokenize()).toEqual({ token: 'mock-payment-token-2', kind: 'card' })
   })
 
   it('does not load the Square SDK while the config is still loading', () => {

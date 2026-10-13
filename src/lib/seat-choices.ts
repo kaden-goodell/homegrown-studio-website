@@ -124,17 +124,3 @@ export async function updateSeatChoiceEmail(eventId: string, bookingId: string, 
   logger.info('Seat choices email corrected', { eventId, bookingId })
   return true
 }
-
-/** Guest seats added in Square after the booking (guest-seat-job.ts): note their booking ids. */
-export async function addSquareBookingId(eventId: string, bookingId: string, squareBookingId: string): Promise<boolean> {
-  for (let attempt = 0; attempt < 5; attempt++) {
-    const { value, etag } = await kv.getWithMeta(seatChoiceKey(eventId, bookingId))
-    if (!value) return false
-    const record = JSON.parse(value) as SeatChoiceRecord
-    const ids = record.squareBookingIds ?? [record.bookingId]
-    if (ids.includes(squareBookingId)) return true
-    if (await kv.setIfMatch(seatChoiceKey(eventId, bookingId), JSON.stringify({ ...record, squareBookingIds: [...ids, squareBookingId] }), etag, true)) return true
-  }
-  logger.error('Guest seat booking id not noted on the seat record', { eventId, bookingId, squareBookingId })
-  return false
-}

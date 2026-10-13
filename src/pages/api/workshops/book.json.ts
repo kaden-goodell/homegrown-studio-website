@@ -12,7 +12,7 @@ import { alertOwners } from '@lib/owner-alert'
 import { formatSlotLabel } from '@lib/studio-time'
 import { sendWorkshopConfirmation } from '@lib/workshop-confirmation'
 import { issueEmailFixTicket, onFileToAskAbout, type EmailFixTicket } from '@lib/email-fix'
-import { issueGuestSeatTicket, startGuestSeats } from '@lib/guest-seat-job'
+import { guestSeatName } from '@lib/guest-seats'
 import { taxCents } from '@lib/tax'
 import { announceBooking } from '@lib/booking-alert'
 import { canBeBooked } from '@lib/workshop-rules'
@@ -51,6 +51,18 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  * full. If the charge gets no answer, the seats stay held and the owners are
  * told, because the customer may have paid.
  */
+/**
+ * One payment token per seat, all different (a token pays once). A 1-seat
+ * booking may send the older single `paymentToken`. Null when they don't add up.
+ */
+export function paymentTokensFor(body: any, seats: number): string[] | null {
+  const raw: unknown[] = Array.isArray(body?.paymentTokens) ? body.paymentTokens : seats === 1 && body?.paymentToken ? [body.paymentToken] : []
+  if (raw.length !== seats) return null
+  if (!raw.every((t) => typeof t === 'string' && t.length > 0 && t.length <= 4000)) return null
+  if (new Set(raw).size !== seats) return null
+  return raw as string[]
+}
+
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!bookingsOpen(request, 'workshops')) return bookingsClosedResponse()
   if (rateLimited(`workshop-book:${clientAddress}`, 5, 60_000)) {
@@ -66,7 +78,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
   const { classScheduleId, startAt, customer, paymentToken, verificationToken } = body ?? {}
   if (!classScheduleId || !startAt || Number.isNaN(Date.parse(String(startAt)))) return fail(400, 'invalid')
-  if (!paymentToken) return fail(400, 'invalid')
+  if (!paymentToken && !Array.isArray(body.paymentTokens)) return fail(400, 'invalid')
   if (body.sourceKind === 'gift_card') {
     return fail(400, 'invalid', `Gift cards can’t be used for class seats — ${TEXT_US} and we’ll add you.`)
   }
@@ -153,58 +165,83 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     logger.error('Customer lookup failed — continuing', { error: String(customerLookup.reason) })
   }
 
+  // Square counts one person per class booking, so every seat is its own
+  // booking and its own charge: seat 1 in the booker's name, seats 2+ as
+  // named guests ("Maxie Gardner (guest 2 of 3)"), shared with staff seats
+  // (src/lib/guest-seats.ts). A card token pays once, so the card form sends
+  // one token per seat.
   let booked: { bookingId: string; orderId: string | null; status: string; receiptUrl: string | null; totalChargedCents?: number | null }
+  let seatsBooked = seats
+  const squareBookingIds: string[] = []
+  // Which seat numbers were paid (a later one can be declined).
+  const paidSeats: number[] = []
+  let chargedSum: number | null = 0
   if (simulated) {
     // Simulated payments (local dev, deploy previews): every refusal above has
     // already run. Nothing is held or charged; carry on as a paid booking.
     logger.warn('Payment bypassed (simulated booking)', { workshopId: workshop.id, name: workshop.name, seats })
     booked = { bookingId: `bypass-${attemptId}`, orderId: null, status: 'accepted', receiptUrl: null }
+    chargedSum = null
   } else {
-    // ── 2. Hold the seats ─────────────────────────────────────────────────────
-    let reservation: SeatReservation
-    try {
-      reservation = await providers.workshop.reserveSeats({
-        scheduleId: String(classScheduleId),
-        startAt: String(startAt),
+    // ── 2. One payment token per seat, all different ─────────────────────────
+    const tokens = paymentTokensFor(body, seats)
+    if (!tokens) {
+      logger.error('Refused: not one distinct payment token per seat', {
         seats,
-        customer: { givenName, familyName, email },
-        ...(note ? { note } : {}),
+        tokens: Array.isArray(body.paymentTokens) ? body.paymentTokens.length : body.paymentToken ? 1 : 0,
+        distinct: Array.isArray(body.paymentTokens) ? new Set(body.paymentTokens).size : null,
+        sourceKind: String(body.sourceKind ?? 'card'),
       })
+      return fail(400, 'invalid', seats > 1 && body.sourceKind === 'wallet'
+        ? 'Google Pay covers one seat at a time. For more seats, pay with a card. Nothing was charged.'
+        : 'We couldn’t set up a payment for every seat. Nothing was charged. Please try again.')
+    }
+
+    // ── 3. A guest record per extra seat, so Square's roster names each one ──
+    const seatCustomer: (string | undefined)[] = [customerId]
+    const seatPerson = (seat: number) =>
+      seat === 1 ? { givenName, familyName, email } : { givenName, familyName: guestSeatName(familyName, seat, seats), email }
+    try {
+      // All at once, so a big group takes no longer than two seats.
+      seatCustomer.push(...(await Promise.all(Array.from({ length: seats - 1 }, (_, i) => providers.customer.createGuest({
+        givenName,
+        familyName: guestSeatName(familyName, i + 2, seats),
+        note: `Online seat ${i + 2} of ${seats} with ${givenName} ${familyName} <${email}>, ${workshop.name}.`,
+      })))).map((c) => c.id))
     } catch (err) {
-      const seatError = asSeatBookingError(err)
-      const raw = seatError?.raw ?? String(err)
+      logger.error('Could not create a guest customer before booking — refusing', { error: err instanceof Error ? err.message : String(err) })
+      return fail(502, 'unavailable')
+    }
+
+    // ── 4. Hold every seat (nothing charged) ─────────────────────────────────
+    const held = await Promise.allSettled(Array.from({ length: seats }, (_, i) => providers.workshop.reserveSeats({
+      scheduleId: String(classScheduleId),
+      startAt: String(startAt),
+      seats: 1,
+      customer: seatPerson(i + 1),
+      ...(note && i === 0 ? { note } : {}),
+    })))
+    const holds: SeatReservation[] = held.flatMap((h) => (h.status === 'fulfilled' ? [h.value] : []))
+    // Held, unpaid seats. Square often won't cancel a hold; it expires by itself.
+    const letGo = async (bookingIds: string[]) => {
+      await Promise.all(bookingIds.map((id) => providers.workshop.releaseSeats(id).catch(() => undefined)))
+    }
+    const notHeld = held.find((h): h is PromiseRejectedResult => h.status === 'rejected')
+    if (notHeld) {
+      const seatError = asSeatBookingError(notHeld.reason)
+      const raw = seatError?.raw ?? String(notHeld.reason)
       const code = seatError?.kind === 'refused' ? classifyClassBookingError(raw, 'create') : 'unavailable'
-      logger.error('Could not hold seats', { code, raw: raw.slice(0, 500) })
+      logger.error('Could not hold seats', { held: holds.length, of: seats, code, raw: raw.slice(0, 500) })
+      await letGo(holds.map((h) => h.bookingId))
       return fail(code === 'sold_out' || code === 'already_booked' ? 409 : 502, code)
     }
 
-    // ── 2b. Make the order cover every seat ───────────────────────────────────
-    // Square holds one seat per booking whatever we ask for, so a 2-seat hold
-    // would charge for 1. Fix the order first; if that can't be done, charge
-    // nothing (the hold expires on its own).
-    if (seats > 1) {
-      try {
-        const { totalCents } = await providers.workshop.setSeatCount({ reservation, seats })
-        if (totalCents < workshop.priceCents * seats) {
-          throw new Error(`order total ${totalCents} is below ${seats} seats at ${workshop.priceCents}`)
-        }
-      } catch (err) {
-        logger.error('Could not make the order cover every seat — not charging', {
-          bookingId: reservation.bookingId,
-          seats,
-          error: err instanceof Error ? err.message : String(err),
-        })
-        await providers.workshop.releaseSeats(reservation.bookingId).catch(() => undefined)
-        return fail(502, 'unavailable')
-      }
-    }
-
-    // ── 3. Charge and confirm ─────────────────────────────────────────────────
-      try {
+    // ── 5. Charge seat 1 ─────────────────────────────────────────────────────
+    try {
       booked = await providers.workshop.payForSeats({
-        reservation,
+        reservation: holds[0],
         scheduleId: String(classScheduleId),
-        paymentToken: String(paymentToken),
+        paymentToken: tokens[0],
         verificationToken: verificationToken ? String(verificationToken) : undefined,
         idempotencyKey: attemptKey(attemptId, 'pay'),
         fallbackCustomerId: customerId,
@@ -217,32 +254,79 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       if (refused) {
         // The service said no, so nothing was charged. Let the seats go.
         const code = classifyClassBookingError(raw, 'complete')
-        logger.error('Seat payment refused — releasing seats', { bookingId: reservation.bookingId, code, raw: raw.slice(0, 500) })
+        logger.error('Seat payment refused — releasing seats', { bookingId: holds[0].bookingId, code, raw: raw.slice(0, 500) })
         try {
-          await providers.workshop.releaseSeats(reservation.bookingId)
+          await providers.workshop.releaseSeats(holds[0].bookingId)
         } catch (releaseErr) {
           logger.error('HELD SEATS NOT RELEASED after a refused payment', {
-            bookingId: reservation.bookingId,
+            bookingId: holds[0].bookingId,
             error: releaseErr instanceof Error ? releaseErr.message : String(releaseErr),
           })
         }
+        await letGo(holds.slice(1).map((h) => h.bookingId))
         return fail(code === 'card_declined' ? 402 : code === 'sold_out' || code === 'already_booked' ? 409 : 502, code)
       }
 
       // No answer. The charge may have gone through: keep the seats, tell a person.
       logger.error('SEAT PAYMENT OUTCOME UNKNOWN — seats kept, needs a person', {
-        bookingId: reservation.bookingId,
+        bookingId: holds[0].bookingId,
         attemptId,
         raw: raw.slice(0, 500),
       })
       await alertOwners(
-        `Workshop payment unclear: ${givenName} ${familyName} (${email}${phone ? `, ${phone}` : ''}), ${seats} seat${seats === 1 ? '' : 's'}, ${formatSlotLabel(String(startAt))}.${note ? ` Picks: ${note}.` : ''} Check Square for the payment, then confirm with them or cancel booking ${reservation.bookingId}.`,
+        `Workshop payment unclear: ${givenName} ${familyName} (${email}${phone ? `, ${phone}` : ''}), ${seats} seat${seats === 1 ? '' : 's'}, ${formatSlotLabel(String(startAt))}.${note ? ` Picks: ${note}.` : ''} Check Square for the payment, then confirm with them or cancel booking ${holds[0].bookingId}.`,
       ).catch(() => undefined)
       return fail(502, 'unknown_outcome')
+    }
+    squareBookingIds.push(booked.bookingId)
+    paidSeats.push(1)
+    chargedSum = typeof booked.totalChargedCents === 'number' ? booked.totalChargedCents : null
+
+    // ── 6. Charge seats 2+, all at once ──────────────────────────────────────
+    // Seat 1 is paid, so the booking stands whatever happens here. A seat that
+    // is declined is let go (never charged); one with no answer is kept for a
+    // person to check. The owners are told either way.
+    const rest = await Promise.allSettled(holds.slice(1).map((hold, i) => providers.workshop.payForSeats({
+      reservation: hold,
+      scheduleId: String(classScheduleId),
+      paymentToken: tokens[i + 1],
+      idempotencyKey: attemptKey(attemptId, `pay-${i + 2}`),
+      fallbackCustomerId: seatCustomer[i + 1],
+    })))
+    const declined: number[] = []
+    const unclear: number[] = []
+    rest.forEach((r, i) => {
+      const seat = i + 2
+      if (r.status === 'fulfilled') {
+        paidSeats.push(seat)
+        squareBookingIds.push(r.value.bookingId)
+        chargedSum = chargedSum !== null && typeof r.value.totalChargedCents === 'number' ? chargedSum + r.value.totalChargedCents : null
+        return
+      }
+      const seatError = asSeatBookingError(r.reason)
+      const raw = seatError?.raw ?? String(r.reason)
+      ;(seatError?.kind === 'refused' ? declined : unclear).push(seat)
+      logger.error('Extra seat not paid — the booking keeps the seats that were', { bookingId: booked.bookingId, seat, of: seats, kind: seatError?.kind ?? 'unknown', raw: raw.slice(0, 500) })
+    })
+    seatsBooked = paidSeats.length
+    if (declined.length > 0 || unclear.length > 0) {
+      await letGo(declined.map((seat) => holds[seat - 1].bookingId))
+      const who = `${givenName} ${familyName} (${email}${phone ? `, ${phone}` : ''})`
+      const list = (xs: number[]) => xs.join(', ')
+      await alertOwners(
+        `Partly booked: ${who} asked for ${seats} seats in ${workshop.name}, ${formatSlotLabel(workshop.startAt)}. ${seatsBooked} paid and booked.` +
+          (declined.length ? ` Seat${declined.length === 1 ? '' : 's'} ${list(declined)} declined: not booked, not charged.` : '') +
+          (unclear.length ? ` Seat${unclear.length === 1 ? '' : 's'} ${list(unclear)}: payment unclear. Check Square (booking${unclear.length === 1 ? '' : 's'} ${unclear.map((seat) => holds[seat - 1].bookingId).join(', ')}).` : '') +
+          ' They were told on screen.',
+      ).catch(() => undefined)
     }
   }
 
   // ── Paid and confirmed. Nothing below may turn this into a failure. ────────
+  // Only the seats actually paid for (a later seat can be declined).
+  const paidPicks = simulated || paidSeats.length === seats
+    ? picks
+    : picks.filter((p) => paidSeats.includes(p.seat)).map((p) => ({ ...p, seat: paidSeats.indexOf(p.seat) + 1 }))
   // The structured picks behind the roster (spec C/D). Written only now, once
   // the money is taken. A failed write never fails the booking: the picks are
   // in the customer's email and in the owner alert (Square's booking note may
@@ -257,12 +341,12 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         bookingId: booked.bookingId,
         orderId: booked.orderId,
         customer: { givenName, familyName, email, phone },
-        seats,
-        picks,
+        seats: seatsBooked,
+        picks: paidPicks,
         at: new Date().toISOString(),
         attemptId,
         ...(simulated ? { simulated: true as const } : {}),
-        ...(seats > 1 && !simulated ? { squareBookingIds: [booked.bookingId] } : {}),
+        ...(squareBookingIds.length > 1 ? { squareBookingIds } : {}),
         ...(cleanAttribution(body.attribution) ? { attribution: cleanAttribution(body.attribution)! } : {}),
       })
     } catch (err) {
@@ -275,37 +359,22 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       ).catch(() => undefined)
     }
   }
-  // Seats 2+ as their own attendees in Square, so the class's head count is
-  // right (Square counts one person per booking). Their money is already in,
-  // on this booking. Done in the background so this reply never waits on it.
-  if (seats > 1 && !simulated) {
-    const job = {
-      scheduleId: workshop.scheduleId,
-      startAt: workshop.startAt,
-      className: workshop.name,
-      holder: { givenName, familyName, email },
-      totalSeats: seats,
-      paidBookingId: booked.bookingId,
-    }
-    await startGuestSeats(new URL(request.url).origin, issueGuestSeatTicket(job), job).catch(() => false)
-  }
-
   // What the card paid, tax included: Square's figure when it gives one.
-  const chargedCents = typeof booked.totalChargedCents === 'number'
-    ? booked.totalChargedCents
-    : workshop.priceCents * seats + taxCents(workshop.priceCents * seats, workshop.taxPercent)
+  const chargedCents = chargedSum !== null
+    ? chargedSum
+    : workshop.priceCents * seatsBooked + taxCents(workshop.priceCents * seatsBooked, workshop.taxPercent)
   let emailSent = false
   try {
     emailSent = await sendWorkshopConfirmation({
       origin: new URL(request.url).origin,
       bookingId: booked.bookingId,
       workshop,
-      seats,
+      seats: seatsBooked,
       email,
       givenName,
       receiptUrl: booked.receiptUrl,
       options: settings.options,
-      picks,
+      picks: paidPicks,
       totalChargedCents: chargedCents,
       ...(onFile ? { alsoTo: onFile } : {}),
     })
@@ -320,7 +389,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     await announceBooking({
       kind: 'class',
       who: `${givenName} ${familyName}`,
-      what: `${seats} seat${seats === 1 ? '' : 's'}, ${workshop.name}`,
+      what: `${seatsBooked} seat${seatsBooked === 1 ? '' : 's'}, ${workshop.name}`,
       when: formatSlotLabel(workshop.startAt),
       paidCents: chargedCents,
       email,
@@ -333,16 +402,16 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     requestUrl: request.url,
     kind: 'workshop',
     bookingId: booked.bookingId,
-    amountCents: workshop.priceCents * seats,
+    amountCents: workshop.priceCents * seatsBooked,
     email,
     firstName: givenName,
     lastName: familyName,
-    items: [{ item_id: workshop.scheduleId, item_name: workshop.name, item_category: 'workshop', price: workshop.priceCents / 100, quantity: seats }],
+    items: [{ item_id: workshop.scheduleId, item_name: workshop.name, item_category: 'workshop', price: workshop.priceCents / 100, quantity: seatsBooked }],
     attribution: cleanAttribution(body.attribution),
     posthogId: body.posthogId,
     simulated,
     extra: {
-      seats,
+      seats: seatsBooked,
       class: workshop.name,
       class_date: workshop.startAt.slice(0, 10),
       days_ahead: Math.round((Date.parse(workshop.startAt) - Date.now()) / 86_400_000),
@@ -358,6 +427,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         status: booked.status,
         receiptUrl: booked.receiptUrl,
         totalChargedCents: chargedCents,
+        seatsBooked,
+        seatsRequested: seats,
         emailSent,
         // "Wrong email? Fix it" / "Which email is right?" on the booked screen.
         emailCheck: {

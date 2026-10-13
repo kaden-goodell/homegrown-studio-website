@@ -9,13 +9,16 @@ import { _forgetContact } from '@lib/remembered-contact'
 // and reports itself ready (or not, when a test says so).
 let paymentFormReady = true
 let paymentFormProps: Record<string, unknown> = {}
+// A real card form gives a new token on every call; `sameToken` fakes one that doesn't.
+let tokenCalls = 0
+let sameToken = false
 vi.mock('@components/checkout/PaymentForm', async () => {
   const { forwardRef, useImperativeHandle, useEffect } = await import('react')
   return {
     default: forwardRef((props: { onReadyChange?: (ready: boolean) => void }, ref: any) => {
       paymentFormProps = props
       useImperativeHandle(ref, () => ({
-        tokenize: async () => ({ token: 'cnon:test-token', kind: 'card' }),
+        tokenize: async () => ({ token: sameToken ? 'cnon:test-token' : `cnon:test-token-${++tokenCalls}`, kind: 'card' }),
         tokenizeAndVerify: async () => ({ token: 'cnon:test-token' }),
       }))
       useEffect(() => {
@@ -88,6 +91,8 @@ const booked = (over: Record<string, unknown> = {}) =>
   serverSays(200, { data: { bookingId: 'wkbk-1', receiptUrl: 'https://squareup.com/receipt/1', emailSent: true, ...over } })
 
 beforeEach(() => {
+  tokenCalls = 0
+  sameToken = false
   vi.stubGlobal(
     'matchMedia',
     vi.fn().mockImplementation((query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
@@ -224,8 +229,11 @@ describe('WorkshopBookingModal — payment step', () => {
     const body = JSON.parse(init.body)
     expect(body.seats).toBe(2)
     expect(Object.keys(body).sort()).toEqual(
-      ['attemptId', 'attribution', 'classScheduleId', 'customer', 'paymentToken', 'seats', 'sourceKind', 'startAt', 'workshopId'],
+      ['attemptId', 'attribution', 'classScheduleId', 'customer', 'paymentTokens', 'seats', 'sourceKind', 'startAt', 'workshopId'],
     )
+    // One token per seat, each different (a token pays once).
+    expect(body.paymentTokens).toHaveLength(2)
+    expect(new Set(body.paymentTokens).size).toBe(2)
     expect(body.customer).toEqual({ givenName: 'Alice', familyName: 'Smith', email: 'alice@test.com', phone: '(256) 555-0123' })
     expect(body.workshopId).toBe('inst-1')
     expect(body.sourceKind).toBe('card')
@@ -665,10 +673,43 @@ function cleanupAll() {
   document.body.innerHTML = ''
 }
 
-describe('WorkshopBookingModal — Google Pay', () => {
-  it('offers a wallet for the class total', async () => {
+describe('WorkshopBookingModal — one charge per seat', () => {
+  it('stops before booking if the card form hands back the same token twice: nothing sent, nothing charged', async () => {
+    sameToken = true
+    const fetchMock = vi.fn().mockResolvedValue(booked())
+    vi.stubGlobal('fetch', fetchMock)
     await goToPayment(makeWorkshop(), 2)
-    expect(paymentFormProps.wallet).toEqual({ amount: '90.00', label: expect.stringContaining('Hometown Studio') })
+    await pay('$90')
+    expect(await screen.findByText('We couldn’t set up a payment for every seat. Nothing was charged. Please try again.')).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('says plainly when only some seats went through', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(booked({ seatsBooked: 2, seatsRequested: 3, totalChargedCents: 9000 })))
+    await goToPayment(makeWorkshop(), 3)
+    await pay('$135')
+    await screen.findByText('You’re booked')
+    expect(screen.getByText(/2 seats for/)).toHaveTextContent('2 seats for Candle Making, $90 paid. You asked for 3 seats. 1 didn’t go through, so it wasn’t booked or charged.')
+  })
+
+  it('every seat booked: no such line', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(booked({ seatsBooked: 2, seatsRequested: 2 })))
+    await goToPayment(makeWorkshop(), 2)
+    await pay('$90')
+    await screen.findByText('You’re booked')
+    expect(screen.queryByText(/You asked for/)).not.toBeInTheDocument()
+  })
+})
+
+describe('WorkshopBookingModal — Google Pay', () => {
+  it('offers a wallet for one seat, at the class total', async () => {
+    await goToPayment(makeWorkshop(), 1)
+    expect(paymentFormProps.wallet).toEqual({ amount: '45.00', label: expect.stringContaining('Hometown Studio') })
+  })
+
+  it('offers no wallet for more than one seat (each seat is its own charge)', async () => {
+    await goToPayment(makeWorkshop(), 2)
+    expect(paymentFormProps.wallet).toBeUndefined()
   })
 
   it('will not open the wallet until the details are in, and says so', async () => {
@@ -689,7 +730,7 @@ describe('WorkshopBookingModal — Google Pay', () => {
     await act(async () => { await (paymentFormProps.onWalletToken as (t: string) => Promise<void>)('cnon:google-pay') })
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
     const body = JSON.parse(fetchMock.mock.calls[0][1].body)
-    expect(body.paymentToken).toBe('cnon:google-pay')
+    expect(body.paymentTokens).toEqual(['cnon:google-pay'])
     expect(body.sourceKind).toBe('wallet')
     expect(await screen.findByText('You’re booked')).toBeInTheDocument()
   })

@@ -134,6 +134,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   const taxKnown = typeof workshop.taxPercent === 'number'
   const totalLabel = tax > 0 ? `${formatMoney(total, workshop.currency)} incl. tax` : formatMoney(total, workshop.currency)
   const [chargedCents, setChargedCents] = useState<number | null>(null)
+  const [partly, setPartly] = useState<{ booked: number; asked: number } | null>(null)
   const when = formatDayAndSpan(workshop.startTime, workshop.endTime)
   const seatWord = `${seats} seat${seats === 1 ? '' : 's'}`
 
@@ -203,19 +204,28 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
     trackPaymentStarted(total / 100)
 
     try {
-      let token: string
+      // Square books and charges each seat on its own, and a card token pays
+      // once, so the card form makes one token per seat (same card, typed once).
+      const tokens: string[] = []
       let sourceKind: 'card' | 'gift_card' | 'wallet'
       if (walletToken) {
-        token = walletToken
+        tokens.push(walletToken)
         sourceKind = 'wallet'
       } else {
         try {
-          const tokenized = await paymentFormRef.current!.tokenize()
-          token = tokenized.token
-          sourceKind = tokenized.kind
+          sourceKind = 'card'
+          for (let seat = 1; seat <= seats; seat++) {
+            const tokenized = await paymentFormRef.current!.tokenize()
+            tokens.push(tokenized.token)
+            sourceKind = tokenized.kind
+          }
         } catch {
           trackBookingProblem('workshop', 'card_unreadable')
           throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
+        }
+        if (new Set(tokens).size !== tokens.length) {
+          trackBookingProblem('workshop', 'card_unreadable')
+          throw new Error('We couldn’t set up a payment for every seat. Nothing was charged. Please try again.')
         }
       }
 
@@ -240,7 +250,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
             ...(options.length > 0 ? { picks } : {}),
             attribution: readAttribution(),
             posthogId: posthogId(),
-            paymentToken: token,
+            paymentTokens: tokens,
             sourceKind,
           }),
         })
@@ -266,6 +276,12 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
       setEmailSent(bookData.data.emailSent === true)
       setEmailCheck(bookData.data.emailCheck ?? null)
       if (typeof bookData.data.totalChargedCents === 'number') setChargedCents(bookData.data.totalChargedCents)
+      // A later seat can be declined after the first is paid: show what was booked.
+      const booked = bookData.data.seatsBooked
+      if (typeof booked === 'number' && booked >= 1 && booked < seats) {
+        setPartly({ booked, asked: seats })
+        setSeats(booked)
+      }
       setAskToLeave(false)
       setCompleted(true)
       identifyBooker(contact.email, contact.firstName, contact.lastName)
@@ -309,6 +325,14 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
         what={
           <>
             {seatWord} for <strong>{workshop.name}</strong>, {formatMoney(chargedCents ?? total, workshop.currency)} paid{tax > 0 || (chargedCents ?? 0) > subtotal ? ', tax included' : ''}.
+            {partly && (
+              <>
+                {' '}
+                <strong>
+                  You asked for {partly.asked} seats. {partly.asked - partly.booked === 1 ? '1 didn’t' : `${partly.asked - partly.booked} didn’t`} go through, so {partly.asked - partly.booked === 1 ? 'it wasn’t' : 'they weren’t'} booked or charged.
+                </strong>
+              </>
+            )}
           </>
         }
         email={contact.email.trim()}
@@ -582,7 +606,9 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
           // Google Pay. Apple Pay is asked for too but Square refuses it on the
           // class-booking route ("domain not registered", 11 Oct 2026), so it
           // stays hidden — and appears by itself if Square ever allows it.
-          wallet={{ amount: (total / 100).toFixed(2), label: `Hometown Studio, ${workshop.name}` }}
+          // Google Pay pays for one seat: each seat is its own charge, and its
+          // sheet can't be opened again without another tap.
+          wallet={seats === 1 ? { amount: (total / 100).toFixed(2), label: `Hometown Studio, ${workshop.name}` } : undefined}
           onWalletToken={(token) => handlePay(undefined, token)}
           // Runs before the wallet sheet opens, so nobody approves in their
           // wallet and then meets a form error. Marks what's missing as it goes.

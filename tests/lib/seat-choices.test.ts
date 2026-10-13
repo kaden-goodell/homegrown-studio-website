@@ -114,19 +114,3 @@ describe('summarizeChoices seatsByEmail', () => {
     expect(r.unmatched).toEqual([])
   })
 })
-
-import { addSquareBookingId } from '@lib/seat-choices'
-describe('addSquareBookingId', () => {
-  it('adds guest seat booking ids to the record, once each, after the first booking', async () => {
-    const id = `clssch_g${Date.now()}`
-    await saveSeatChoices(record(id, 'clsbk_1'))
-    expect(await addSquareBookingId(id, 'clsbk_1', 'clsbk_g1')).toBe(true)
-    expect(await addSquareBookingId(id, 'clsbk_1', 'clsbk_g1')).toBe(true)
-    expect(await addSquareBookingId(id, 'clsbk_1', 'clsbk_g2')).toBe(true)
-    const [r] = await listSeatChoicesByEvent('workshop', id)
-    expect(r.squareBookingIds).toEqual(['clsbk_1', 'clsbk_g1', 'clsbk_g2'])
-  })
-  it('false when there is no record', async () => {
-    expect(await addSquareBookingId(`clssch_none${Date.now()}`, 'clsbk_x', 'clsbk_g')).toBe(false)
-  })
-})

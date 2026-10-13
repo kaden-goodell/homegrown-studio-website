@@ -106,62 +106,6 @@ export class SquareWorkshopProvider implements WorkshopProvider {
     }
   }
 
-  /**
-   * Square's classes service books one seat per booking: it ignores the
-   * `quantity` we send and drafts a 1-seat order (Maxie, 12 Oct 2026: 2 seats
-   * held, 1 charged). The draft order lives in our own account, so before the
-   * charge we set its seat line to the real count; /complete then charges the
-   * order's full total. Throws SeatBookingError (phase 'reserve', 'refused')
-   * whenever the order can't be confirmed at `seats` — the caller must not
-   * charge then. Returns the order total (tax included), in cents.
-   */
-  async setSeatCount(params: { reservation: SeatReservation; seats: number }): Promise<{ totalCents: number }> {
-    const { reservation, seats } = params
-    const refuse = (why: string, status?: number): never => {
-      logger.error('Seat count not set on the order', { bookingId: reservation.bookingId, orderId: reservation.orderId, seats, why })
-      throw new SeatBookingError('square', 'reserve', 'refused', `seat count: ${why}`, status)
-    }
-    if (!reservation.orderId) return refuse('the hold came back without an order')
-    const base = this.config.environment === 'production' ? 'https://connect.squareup.com/v2' : 'https://connect.squareupsandbox.com/v2'
-    const headers = {
-      Authorization: `Bearer ${this.config.accessToken}`,
-      'Content-Type': 'application/json',
-      'Square-Version': '2025-01-23',
-    }
-    const call = async (init?: RequestInit): Promise<any> => {
-      let res: Response
-      try {
-        res = await fetch(`${base}/orders/${reservation.orderId}`, { headers, ...init })
-      } catch (err) {
-        return refuse(err instanceof Error ? err.message : String(err))
-      }
-      const text = await res.text().catch(() => '')
-      if (!res.ok) return refuse(text.slice(0, 300) || `status ${res.status}`, res.status)
-      return JSON.parse(text).order
-    }
-
-    const order = await call()
-    const lines = order?.line_items ?? []
-    if (order?.state !== 'DRAFT' || lines.length !== 1) {
-      return refuse(`unexpected order (state ${order?.state}, ${lines.length} lines)`)
-    }
-    let updated = order
-    if (lines[0].quantity !== String(seats)) {
-      updated = await call({
-        method: 'PUT',
-        body: JSON.stringify({
-          order: { location_id: order.location_id, version: order.version, line_items: [{ uid: lines[0].uid, quantity: String(seats) }] },
-          idempotency_key: `${reservation.bookingId}-seats-${seats}`,
-        }),
-      })
-    }
-    if (updated?.line_items?.[0]?.quantity !== String(seats) || typeof updated?.total_money?.amount !== 'number') {
-      return refuse('the order did not take the new seat count')
-    }
-    logger.info('Seat count set on the order', { bookingId: reservation.bookingId, seats, totalCents: updated.total_money.amount })
-    return { totalCents: updated.total_money.amount }
-  }
-
   async payForSeats(params: {
     reservation: SeatReservation
     scheduleId: string
@@ -211,39 +155,6 @@ export class SquareWorkshopProvider implements WorkshopProvider {
       receiptUrl: done.order?.receipt_url ?? null,
       totalChargedCents: typeof done.order?.total_money?.amount === 'number' ? done.order.total_money.amount : null,
     }
-  }
-
-  async settleGuestSeat(params: { orderId: string; label: string }): Promise<void> {
-    const { orderId, label } = params
-    const base = this.config.environment === 'production' ? 'https://connect.squareup.com/v2' : 'https://connect.squareupsandbox.com/v2'
-    const headers = { Authorization: `Bearer ${this.config.accessToken}`, 'Content-Type': 'application/json', 'Square-Version': '2025-01-23' }
-    const call = async (path: string, init?: RequestInit): Promise<any> => {
-      const res = await fetch(`${base}${path}`, { headers, ...init })
-      const text = await res.text().catch(() => '')
-      if (!res.ok) throw new Error(`Square ${res.status}: ${text.slice(0, 300)}`)
-      return JSON.parse(text)
-    }
-    let order = (await call(`/orders/${orderId}`)).order
-    if (order.state === 'COMPLETED' && order.total_money?.amount === 0) return
-    if (order.state !== 'OPEN' || (order.tenders ?? []).length > 0) {
-      throw new Error(`guest seat order ${orderId} is ${order.state} with ${(order.tenders ?? []).length} payments; leaving it alone`)
-    }
-    if (order.total_money?.amount !== 0) {
-      order = (await call(`/orders/${orderId}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          idempotency_key: `settle-${orderId}`,
-          order: { location_id: order.location_id, version: order.version, discounts: [{ uid: 'guest-seat', name: label, type: 'FIXED_PERCENTAGE', percentage: '100', scope: 'ORDER' }] },
-        }),
-      })).order
-      if (order.total_money?.amount !== 0) throw new Error(`guest seat order ${orderId} still totals ${order.total_money?.amount}`)
-    }
-    const paid = (await call(`/orders/${orderId}/pay`, {
-      method: 'POST',
-      body: JSON.stringify({ idempotency_key: `settle-pay-${orderId}`, order_version: order.version, payment_ids: [] }),
-    })).order
-    if (paid.state !== 'COMPLETED') throw new Error(`guest seat order ${orderId} is ${paid.state} after settling`)
-    logger.info('Guest seat order settled at $0', { orderId, label })
   }
 
   async releaseSeats(bookingId: string): Promise<void> {

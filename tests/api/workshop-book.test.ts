@@ -6,18 +6,17 @@ const mockReserve = vi.fn()
 const mockPay = vi.fn()
 const mockRelease = vi.fn()
 const mockGetWorkshop = vi.fn()
-const mockSetSeatCount = vi.fn()
+const mockCreateGuest = vi.fn()
 const mockListWorkshops = vi.fn()
 
 vi.mock('@config/providers', () => ({
   providers: {
-    customer: { findOrCreate: (...a: any[]) => mockFindOrCreate(...a) },
+    customer: { findOrCreate: (...a: any[]) => mockFindOrCreate(...a), createGuest: (...a: any[]) => mockCreateGuest(...a) },
     giftcard: { fromNonce: vi.fn(), mint: vi.fn(), get: vi.fn(), fromGan: vi.fn() },
     workshop: {
       reserveSeats: (...a: any[]) => mockReserve(...a),
       payForSeats: (...a: any[]) => mockPay(...a),
       releaseSeats: (...a: any[]) => mockRelease(...a),
-      setSeatCount: (...a: any[]) => mockSetSeatCount(...a),
       getWorkshop: (...a: any[]) => mockGetWorkshop(...a),
       listWorkshops: (...a: any[]) => mockListWorkshops(...a),
     },
@@ -71,14 +70,15 @@ const workshop = {
 }
 
 function body(overrides: Record<string, any> = {}) {
+  const seats = overrides.seats ?? 2
   return {
     attemptId: ATTEMPT,
     workshopId: workshop.id,
     classScheduleId: workshop.scheduleId,
     startAt: START,
-    seats: 2,
+    seats,
     customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com', phone: '(256) 555-0123' },
-    paymentToken: 'cnon:card-ok',
+    paymentTokens: Array.from({ length: Number.isInteger(seats) && seats > 0 && seats < 100 ? seats : 1 }, (_, i) => `cnon:card-ok-${i + 1}`),
     ...overrides,
   }
 }
@@ -107,10 +107,14 @@ beforeEach(async () => {
   vi.resetModules()
   mockGetEventMeta.mockResolvedValue(null)
   mockFindOrCreate.mockResolvedValue({ id: 'cust-1' })
-  mockReserve.mockResolvedValue({ bookingId: 'clsbk_1', contactToken: 'contact-1', orderId: 'order-1' })
-  mockPay.mockResolvedValue({ bookingId: 'clsbk_1', orderId: 'order-1', status: 'accepted', receiptUrl: 'https://squareup.com/receipt/1' })
+  let held = 0
+  mockReserve.mockImplementation(async () => { held++; return { bookingId: `clsbk_${held}`, contactToken: `contact-${held}`, orderId: `order-${held}` } })
+  mockPay.mockImplementation(async ({ reservation }: any) => ({
+    bookingId: reservation.bookingId, orderId: reservation.orderId, status: 'accepted',
+    receiptUrl: `https://squareup.com/receipt/${reservation.bookingId.split('_')[1]}`,
+  }))
   mockRelease.mockResolvedValue(undefined)
-  mockSetSeatCount.mockImplementation(async ({ seats }: any) => ({ totalCents: 4360 * seats }))
+  mockCreateGuest.mockImplementation(async ({ familyName }: any) => ({ id: `guest:${familyName}` }))
   mockGetWorkshop.mockResolvedValue(workshop)
   mockListWorkshops.mockResolvedValue([workshop])
   mockAlertOwners.mockResolvedValue({ attempted: 2, sent: 2 })
@@ -122,73 +126,161 @@ beforeEach(async () => {
 afterEach(() => vi.useRealTimers())
 
 describe('POST /api/workshops/book.json', () => {
-  describe('more than one seat (Square holds one seat per booking)', () => {
-    it('makes the order cover every seat before charging', async () => {
-      const order: string[] = []
-      mockSetSeatCount.mockImplementation(async ({ seats }: any) => { order.push('seats'); return { totalCents: 4360 * seats } })
-      mockPay.mockImplementation(async () => { order.push('pay'); return { bookingId: 'clsbk_1', orderId: 'order-1', status: 'accepted', receiptUrl: null } })
-      const res = await POST(ctx(body({ seats: 2 })))
-      expect(res.status).toBe(200)
-      expect(mockSetSeatCount).toHaveBeenCalledWith({ reservation: { bookingId: 'clsbk_1', contactToken: 'contact-1', orderId: 'order-1' }, seats: 2 })
-      expect(order).toEqual(['seats', 'pay'])
-    })
-
-    it('leaves a 1-seat order alone', async () => {
-      const res = await POST(ctx(body({ seats: 1 })))
-      expect(res.status).toBe(200)
-      expect(mockSetSeatCount).not.toHaveBeenCalled()
-      expect(mockPay).toHaveBeenCalledTimes(1)
-    })
-
-    it('after the charge, hands seats 2+ to the guest-seat job, with everything it needs', async () => {
+  describe('more than one seat: every seat is its own Square booking and its own charge', () => {
+    it('holds each seat (seat 1 in the booker’s name, the rest as named guests), then charges each with its own token', async () => {
       const res = await POST(ctx(body({ seats: 3 })))
       expect(res.status).toBe(200)
-      expect(mockStartGuestSeats).toHaveBeenCalledTimes(1)
-      const [origin, ticket, job] = mockStartGuestSeats.mock.calls[0]
-      expect(origin).toBe('https://ourhometownstudio.com')
-      expect(ticket).toBe('ticket:clsbk_1:3')
-      expect(job).toEqual({
-        scheduleId: 'clssch_kinusaiga',
-        startAt: START,
-        className: 'Kinusaiga',
-        holder: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com' },
-        totalSeats: 3,
-        paidBookingId: 'clsbk_1',
-      })
-      expect(mockStartGuestSeats.mock.invocationCallOrder[0]).toBeGreaterThan(mockPay.mock.invocationCallOrder[0])
-      expect(mockStartGuestSeats.mock.invocationCallOrder[0]).toBeGreaterThan(mockSaveSeatChoices.mock.invocationCallOrder[0])
+      expect(mockReserve.mock.calls.map((c) => [c[0].seats, c[0].customer.familyName])).toEqual([
+        [1, 'Lovelace'], [1, 'Lovelace (guest 2 of 3)'], [1, 'Lovelace (guest 3 of 3)'],
+      ])
+      expect(mockReserve.mock.calls.every((c) => c[0].customer.email === 'ada@example.com')).toBe(true)
+      expect(mockPay.mock.calls.map((c) => [c[0].reservation.bookingId, c[0].paymentToken, c[0].idempotencyKey, c[0].fallbackCustomerId])).toEqual([
+        ['clsbk_1', 'cnon:card-ok-1', `${ATTEMPT}:pay`, 'cust-1'],
+        ['clsbk_2', 'cnon:card-ok-2', `${ATTEMPT}:pay-2`, 'guest:Lovelace (guest 2 of 3)'],
+        ['clsbk_3', 'cnon:card-ok-3', `${ATTEMPT}:pay-3`, 'guest:Lovelace (guest 3 of 3)'],
+      ])
+      // Every hold before any charge.
+      expect(Math.max(...mockReserve.mock.invocationCallOrder)).toBeLessThan(Math.min(...mockPay.mock.invocationCallOrder))
+      expect(mockCreateGuest.mock.calls[0][0]).toEqual({ givenName: 'Ada', familyName: 'Lovelace (guest 2 of 3)', note: 'Online seat 2 of 3 with Ada Lovelace <ada@example.com>, Kinusaiga.' })
+      const { data } = await res.json()
+      expect(data).toMatchObject({ bookingId: 'clsbk_1', seatsBooked: 3, seatsRequested: 3 })
+      expect(mockSaveSeatChoices.mock.calls[0][0]).toMatchObject({ seats: 3, squareBookingIds: ['clsbk_1', 'clsbk_2', 'clsbk_3'] })
+      expect(mockRelease).not.toHaveBeenCalled()
     })
 
-    it('a 1-seat booking starts no guest-seat job', async () => {
-      await POST(ctx(body({ seats: 1 })))
-      expect(mockStartGuestSeats).not.toHaveBeenCalled()
+    it('adds up what Square charged for every seat', async () => {
+      mockPay.mockImplementation(async ({ reservation }: any) => ({ bookingId: reservation.bookingId, orderId: null, status: 'accepted', receiptUrl: null, totalChargedCents: 4360 }))
+      const { data } = await (await POST(ctx(body({ seats: 2 })))).json()
+      expect(data.totalChargedCents).toBe(8720)
+      expect(mockSendEmail.mock.calls[0][0]).toMatchObject({ seats: 2, totalChargedCents: 8720 })
     })
 
-    it('a booking that was refused starts no guest-seat job', async () => {
-      mockPay.mockRejectedValue(Object.assign(new Error('declined'), { name: 'SeatBookingError', kind: 'refused', phase: 'pay', raw: 'CARD_DECLINED', status: 402 }))
-      await POST(ctx(body({ seats: 2 })))
-      expect(mockStartGuestSeats).not.toHaveBeenCalled()
-    })
-
-    it('a guest-seat job that cannot start never fails the paid booking', async () => {
-      mockStartGuestSeats.mockRejectedValue(new Error('boom'))
-      const res = await POST(ctx(body({ seats: 2 })))
+    it('a 1-seat booking makes no guest and takes the older single token too', async () => {
+      const res = await POST(ctx(body({ seats: 1, paymentTokens: undefined, paymentToken: 'cnon:only' })))
       expect(res.status).toBe(200)
+      expect(mockCreateGuest).not.toHaveBeenCalled()
+      expect(mockReserve).toHaveBeenCalledTimes(1)
+      expect(mockPay.mock.calls[0][0].paymentToken).toBe('cnon:only')
     })
 
-    it('charges nothing when the order cannot be made to cover every seat', async () => {
-      mockSetSeatCount.mockRejectedValue(new Error('refused'))
-      const res = await POST(ctx(body({ seats: 2 })))
-      expect(res.status).toBe(502)
-      expect((await res.json()).code).toBe('unavailable')
+    for (const [why, tokens] of [
+      ['one token for two seats', ['cnon:a']],
+      ['the same token twice (a token pays once)', ['cnon:a', 'cnon:a']],
+      ['three tokens for two seats', ['cnon:a', 'cnon:b', 'cnon:c']],
+      ['an empty token', ['cnon:a', '']],
+    ] as const) {
+      it(`refuses ${why}: nothing held, nothing charged`, async () => {
+        const res = await POST(ctx(body({ seats: 2, paymentTokens: tokens })))
+        expect(res.status).toBe(400)
+        expect((await res.json()).detail).toBe('We couldn’t set up a payment for every seat. Nothing was charged. Please try again.')
+        expect(mockReserve).not.toHaveBeenCalled()
+        expect(mockPay).not.toHaveBeenCalled()
+        expect(mockCreateGuest).not.toHaveBeenCalled()
+      })
+    }
+
+    it('refuses an older page that sends one token for several seats', async () => {
+      const res = await POST(ctx(body({ seats: 2, paymentTokens: undefined, paymentToken: 'cnon:x' })))
+      expect(res.status).toBe(400)
       expect(mockPay).not.toHaveBeenCalled()
     })
 
-    it('charges nothing when the order total is still short of every seat', async () => {
-      mockSetSeatCount.mockResolvedValue({ totalCents: 4360 })
+    it('says Google Pay covers one seat at a time', async () => {
+      const res = await POST(ctx(body({ seats: 2, paymentTokens: undefined, paymentToken: 'wallet:x', sourceKind: 'wallet' })))
+      expect(res.status).toBe(400)
+      expect((await res.json()).detail).toBe('Google Pay covers one seat at a time. For more seats, pay with a card. Nothing was charged.')
+      expect(mockReserve).not.toHaveBeenCalled()
+    })
+
+    it('charges nothing when a later seat can’t be held, and lets the held ones go', async () => {
+      let n = 0
+      mockReserve.mockImplementation(async () => {
+        n++
+        if (n === 2) throw Object.assign(new Error('full'), { name: 'SeatBookingError', kind: 'refused', phase: 'reserve', raw: 'capacity reached', status: 400 })
+        return { bookingId: `clsbk_${n}`, contactToken: null, orderId: `order-${n}` }
+      })
+      const res = await POST(ctx(body({ seats: 3 })))
+      expect(res.status).toBe(409)
+      expect(mockPay).not.toHaveBeenCalled()
+      expect(mockRelease).toHaveBeenCalledWith('clsbk_1')
+    })
+
+    it('charges nothing when a guest record can’t be made', async () => {
+      mockCreateGuest.mockRejectedValue(new Error('customers down'))
       const res = await POST(ctx(body({ seats: 2 })))
       expect(res.status).toBe(502)
+      expect(mockReserve).not.toHaveBeenCalled()
       expect(mockPay).not.toHaveBeenCalled()
+    })
+
+    it('seat 1 declined: nothing charged, every hold let go', async () => {
+      mockPay.mockRejectedValue(Object.assign(new Error('declined'), { name: 'SeatBookingError', kind: 'refused', phase: 'pay', raw: 'CARD_DECLINED', status: 402 }))
+      const res = await POST(ctx(body({ seats: 3 })))
+      expect(res.status).toBe(402)
+      expect(mockPay).toHaveBeenCalledTimes(1)
+      expect(mockRelease.mock.calls.map((c) => c[0]).sort()).toEqual(['clsbk_1', 'clsbk_2', 'clsbk_3'])
+      expect(mockSaveSeatChoices).not.toHaveBeenCalled()
+    })
+
+    it('a later seat declined: the paid seats stand, that one is let go, the owners told, the customer sees how many', async () => {
+      mockPay.mockImplementation(async ({ reservation }: any) => {
+        if (reservation.bookingId === 'clsbk_3') throw Object.assign(new Error('declined'), { name: 'SeatBookingError', kind: 'refused', phase: 'pay', raw: 'CARD_DECLINED', status: 402 })
+        return { bookingId: reservation.bookingId, orderId: null, status: 'accepted', receiptUrl: null, totalChargedCents: 4360 }
+      })
+      const res = await POST(ctx(body({ seats: 4, picks: undefined })))
+      expect(res.status).toBe(200)
+      const { data } = await res.json()
+      expect(data).toMatchObject({ seatsBooked: 3, seatsRequested: 4, totalChargedCents: 13080 })
+      expect(mockPay).toHaveBeenCalledTimes(4)
+      expect(mockRelease.mock.calls.map((c) => c[0])).toEqual(['clsbk_3'])
+      expect(mockSaveSeatChoices.mock.calls[0][0]).toMatchObject({ seats: 3, squareBookingIds: ['clsbk_1', 'clsbk_2', 'clsbk_4'] })
+      expect(mockSendEmail.mock.calls[0][0]).toMatchObject({ seats: 3 })
+      const partly = mockAlertOwners.mock.calls.map((c) => c[0]).find((t: string) => t.startsWith('Partly booked'))
+      expect(partly).toMatch(/asked for 4 seats in Kinusaiga, .*\. 3 paid and booked\. Seat 3 declined: not booked, not charged\. They were told on screen\.$/)
+    })
+
+    it('a later seat with no answer: keeps that seat’s hold for a person to check, and says which booking', async () => {
+      mockPay.mockImplementation(async ({ reservation }: any) => {
+        if (reservation.bookingId === 'clsbk_2') throw Object.assign(new Error('timeout'), { name: 'SeatBookingError', kind: 'no_answer', phase: 'pay', raw: 'timeout' })
+        return { bookingId: reservation.bookingId, orderId: null, status: 'accepted', receiptUrl: null }
+      })
+      const res = await POST(ctx(body({ seats: 3, picks: undefined })))
+      expect(res.status).toBe(200)
+      expect((await res.json()).data).toMatchObject({ seatsBooked: 2, seatsRequested: 3 })
+      expect(mockRelease).not.toHaveBeenCalled()
+      const partly = mockAlertOwners.mock.calls.map((c) => c[0]).find((t: string) => t.startsWith('Partly booked'))
+      expect(partly).toMatch(/2 paid and booked\. Seat 2: payment unclear\. Check Square \(booking clsbk_2\)\./)
+    })
+
+    it('every seat 2+ declined after seat 1 paid: one seat booked, the rest let go', async () => {
+      mockPay.mockImplementation(async ({ reservation }: any) => {
+        if (reservation.bookingId !== 'clsbk_1') throw Object.assign(new Error('declined'), { name: 'SeatBookingError', kind: 'refused', phase: 'pay', raw: 'CARD_DECLINED', status: 402 })
+        return { bookingId: reservation.bookingId, orderId: null, status: 'accepted', receiptUrl: null }
+      })
+      const { data } = await (await POST(ctx(body({ seats: 3, picks: undefined })))).json()
+      expect(data).toMatchObject({ seatsBooked: 1, seatsRequested: 3 })
+      expect(mockRelease.mock.calls.map((c) => c[0]).sort()).toEqual(['clsbk_2', 'clsbk_3'])
+    })
+
+    it('only the paid seats’ picks are kept', async () => {
+      mockGetEventMeta.mockResolvedValue({ options: [PAILS], signupCutoffHours: null })
+      mockPay.mockImplementation(async ({ reservation }: any) => {
+        if (reservation.bookingId === 'clsbk_2') throw Object.assign(new Error('declined'), { name: 'SeatBookingError', kind: 'refused', phase: 'pay', raw: 'CARD_DECLINED', status: 402 })
+        return { bookingId: reservation.bookingId, orderId: null, status: 'accepted', receiptUrl: null }
+      })
+      await POST(ctx(body({ seats: 2, picks: TWO_PICKS })))
+      expect(mockSaveSeatChoices.mock.calls[0][0].picks).toEqual([TWO_PICKS[0]])
+    })
+
+    it('a paid seat after a declined one keeps its pick, renumbered', async () => {
+      mockGetEventMeta.mockResolvedValue({ options: [PAILS], signupCutoffHours: null })
+      mockPay.mockImplementation(async ({ reservation }: any) => {
+        if (reservation.bookingId === 'clsbk_2') throw Object.assign(new Error('declined'), { name: 'SeatBookingError', kind: 'refused', phase: 'pay', raw: 'CARD_DECLINED', status: 402 })
+        return { bookingId: reservation.bookingId, orderId: null, status: 'accepted', receiptUrl: null }
+      })
+      const three = [...TWO_PICKS, { seat: 3, optionId: 'pumpkin-color', choice: 'Light Pink' }]
+      await POST(ctx(body({ seats: 3, picks: three })))
+      expect(mockSaveSeatChoices.mock.calls[0][0].picks).toEqual([TWO_PICKS[0], { seat: 2, optionId: 'pumpkin-color', choice: 'Light Pink' }])
     })
   })
 
@@ -203,18 +295,18 @@ describe('POST /api/workshops/book.json', () => {
   })
 
   describe('a booking that goes through', () => {
-    it('holds the seats, charges once, and confirms', async () => {
+    it('holds each seat, charges each once, and confirms', async () => {
       const res = await POST(ctx(body()))
       expect(res.status).toBe(200)
       const { data } = await res.json()
       expect(data).toMatchObject({ bookingId: 'clsbk_1', status: 'accepted', receiptUrl: 'https://squareup.com/receipt/1', emailSent: true })
-      expect(mockReserve).toHaveBeenCalledWith({
+      expect(mockReserve).toHaveBeenNthCalledWith(1, {
         scheduleId: 'clssch_kinusaiga',
         startAt: START,
-        seats: 2,
+        seats: 1,
         customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com' },
       })
-      expect(mockPay).toHaveBeenCalledTimes(1)
+      expect(mockPay).toHaveBeenCalledTimes(2)
       expect(mockRelease).not.toHaveBeenCalled()
     })
 
@@ -226,8 +318,8 @@ describe('POST /api/workshops/book.json', () => {
     it('charges under a key made from the attempt ID, the same on every retry', async () => {
       await POST(ctx(body()))
       await POST(ctx(body()))
-      expect(mockPay.mock.calls[0][0].idempotencyKey).toBe(`${ATTEMPT}:pay`)
-      expect(mockPay.mock.calls[1][0].idempotencyKey).toBe(`${ATTEMPT}:pay`)
+      // Two seats per try: seat 1 then seat 2, the same keys on the retry.
+      expect(mockPay.mock.calls.map((c) => c[0].idempotencyKey)).toEqual([`${ATTEMPT}:pay`, `${ATTEMPT}:pay-2`, `${ATTEMPT}:pay`, `${ATTEMPT}:pay-2`])
     })
 
     it('uses a key of its own when the browser sends no usable attempt ID', async () => {
@@ -459,7 +551,7 @@ describe('POST /api/workshops/book.json', () => {
       ['a body that is not JSON', '{nope'],
       ['no workshop', body({ classScheduleId: '' })],
       ['a start time that is not one', body({ startAt: 'soon' })],
-      ['no payment', body({ paymentToken: '' })],
+      ['no payment', body({ paymentTokens: undefined, paymentToken: '' })],
       ['no last name', body({ customer: { givenName: 'Ada', familyName: '', email: 'ada@example.com' } })],
       ['a bad email', body({ customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@' } })],
       ['no seats', body({ seats: 0 })],
@@ -487,7 +579,8 @@ describe('POST /api/workshops/book.json', () => {
     it('exactly the most seats is fine', async () => {
       const res = await POST(ctx(body({ seats: 20 })))
       expect(res.status).toBe(200)
-      expect(mockReserve.mock.calls[0][0].seats).toBe(20)
+      expect(mockReserve).toHaveBeenCalledTimes(20)
+      expect(mockPay).toHaveBeenCalledTimes(20)
     })
   })
 
@@ -545,13 +638,15 @@ describe('POST /api/workshops/book.json', () => {
       withPails()
       expect((await POST(ctx(body({ picks: TWO_PICKS })))).status).toBe(200)
       expect(mockGetEventMeta).toHaveBeenCalledWith('workshop', 'clssch_kinusaiga')
-      expect(mockReserve).toHaveBeenCalledWith({
+      // The note goes on seat 1's booking only (it covers every seat).
+      expect(mockReserve).toHaveBeenNthCalledWith(1, {
         scheduleId: 'clssch_kinusaiga',
         startAt: START,
-        seats: 2,
+        seats: 1,
         customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com' },
         note: 'Pumpkin color: Black ×1, Lavender ×1',
       })
+      expect(mockReserve.mock.calls[1][0].note).toBeUndefined()
     })
   })
 
@@ -570,7 +665,7 @@ describe('POST /api/workshops/book.json', () => {
         picks: TWO_PICKS,
         at: '2026-10-10T17:00:00.000Z',
         attemptId: ATTEMPT,
-        squareBookingIds: ['clsbk_1'],
+        squareBookingIds: ['clsbk_1', 'clsbk_2'],
       })
       expect(mockSaveSeatChoices.mock.invocationCallOrder[0]).toBeGreaterThan(mockPay.mock.invocationCallOrder[0])
     })
