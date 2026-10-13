@@ -179,9 +179,11 @@ describe('POST /api/workshops/book.json', () => {
       })
     }
 
-    it('refuses an older page that sends one token for several seats', async () => {
+    it('tells an out-of-date page (one token for several seats) to reload, charging nothing', async () => {
       const res = await POST(ctx(body({ seats: 2, paymentTokens: undefined, paymentToken: 'cnon:x' })))
       expect(res.status).toBe(400)
+      expect((await res.json()).detail).toBe('This page is out of date. Reload it and book again. Nothing was charged.')
+      expect(mockReserve).not.toHaveBeenCalled()
       expect(mockPay).not.toHaveBeenCalled()
     })
 

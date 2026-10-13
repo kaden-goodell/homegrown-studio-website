@@ -194,7 +194,11 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       })
       return fail(400, 'invalid', seats > 1 && body.sourceKind === 'wallet'
         ? 'Google Pay covers one seat at a time. For more seats, pay with a card. Nothing was charged.'
-        : 'We couldn’t set up a payment for every seat. Nothing was charged. Please try again.')
+        // A page loaded before multi-seat checkout went live sends one token
+        // for every seat; trying again there would fail the same way.
+        : !Array.isArray(body.paymentTokens)
+          ? 'This page is out of date. Reload it and book again. Nothing was charged.'
+          : 'We couldn’t set up a payment for every seat. Nothing was charged. Please try again.')
     }
 
     // ── 3. A guest record per extra seat, so Square's roster names each one ──
