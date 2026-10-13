@@ -65,3 +65,29 @@ describe('mergeSetCookies', () => {
     expect(mergeSetCookies('a=1; b=2', ['b=x; Expires=Thu, 01 Jan 1970 00:00:00 GMT'])).toBe('a=1')
   })
 })
+
+import { addClassAttendee, classBookingOrderId } from '@lib/square-dashboard'
+describe('addClassAttendee / classBookingOrderId', () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.unstubAllEnvs() })
+  it('returns the new seat’s booking and order', async () => {
+    vi.stubEnv('SQUARE_DASHBOARD_COOKIE', COOKIE)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ class_booking: { id: 'clsbk_g1', order_id: 'order-g1' } }), { status: 200 })))
+    expect(await addClassAttendee({ scheduleId: 's', startAt: 'a', customerId: 'c' })).toEqual({ ok: true, bookingId: 'clsbk_g1', orderId: 'order-g1' })
+  })
+  it('order is null when Square leaves it out', async () => {
+    vi.stubEnv('SQUARE_DASHBOARD_COOKIE', COOKIE)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ class_booking: { id: 'clsbk_g1' } }), { status: 200 })))
+    expect(await addClassAttendee({ scheduleId: 's', startAt: 'a', customerId: 'c' })).toEqual({ ok: true, bookingId: 'clsbk_g1', orderId: null })
+  })
+  it('finds a booking’s order on the class', async () => {
+    vi.stubEnv('SQUARE_DASHBOARD_COOKIE', COOKIE)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ class_schedule: { class_bookings: [{ id: 'clsbk_a', order_id: 'o_a' }, { id: 'clsbk_g1', order_id: 'o_g1' }] } }), { status: 200 })))
+    expect(await classBookingOrderId('clssch_a', 'clsbk_g1')).toBe('o_g1')
+    expect(await classBookingOrderId('clssch_a', 'clsbk_zz')).toBeNull()
+  })
+  it('null when the session can’t read the class', async () => {
+    vi.stubEnv('SQUARE_DASHBOARD_COOKIE', COOKIE)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 401 })))
+    expect(await classBookingOrderId('clssch_a', 'clsbk_g1')).toBeNull()
+  })
+})

@@ -239,3 +239,57 @@ describe('SquareWorkshopProvider — setSeatCount', () => {
     expect(err).toMatchObject({ kind: 'refused' })
   })
 })
+
+describe('SquareWorkshopProvider — settleGuestSeat', () => {
+  const ORDER = 'https://connect.squareup.com/v2/orders/order-g1'
+  const order = (over: Record<string, unknown> = {}) => ({ order: { id: 'order-g1', location_id: 'LOC123', version: 3, state: 'OPEN', tenders: [], total_money: { amount: 2725 }, ...over } })
+
+  it('takes an open guest-seat order to $0 under the label, then closes it with no payment', async () => {
+    const spy = stubFetch(async (url: string, init?: any) => {
+      if (init?.method === 'PUT') return answer(200, order({ version: 4, total_money: { amount: 0 } }))
+      if (url.endsWith('/pay')) return answer(200, order({ version: 5, state: 'COMPLETED', total_money: { amount: 0 } }))
+      return answer(200, order())
+    })
+    await new SquareWorkshopProvider(config).settleGuestSeat({ orderId: 'order-g1', label: 'Paid on booking clsbk_1' })
+    const [, put] = spy.mock.calls[1]
+    expect(spy.mock.calls[1][0]).toBe(ORDER)
+    expect(JSON.parse(put.body).order).toEqual({
+      location_id: 'LOC123', version: 3,
+      discounts: [{ uid: 'guest-seat', name: 'Paid on booking clsbk_1', type: 'FIXED_PERCENTAGE', percentage: '100', scope: 'ORDER' }],
+    })
+    const [payUrl, pay] = spy.mock.calls[2]
+    expect(payUrl).toBe(`${ORDER}/pay`)
+    expect(JSON.parse(pay.body)).toMatchObject({ order_version: 4, payment_ids: [] })
+  })
+
+  it('does nothing to an order already settled (safe to repeat)', async () => {
+    const spy = stubFetch(async () => answer(200, order({ state: 'COMPLETED', total_money: { amount: 0 } })))
+    await new SquareWorkshopProvider(config).settleGuestSeat({ orderId: 'order-g1', label: 'x' })
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('closes an order already at $0 without discounting it again', async () => {
+    const spy = stubFetch(async (url: string) =>
+      url.endsWith('/pay') ? answer(200, order({ state: 'COMPLETED', total_money: { amount: 0 } })) : answer(200, order({ total_money: { amount: 0 } })))
+    await new SquareWorkshopProvider(config).settleGuestSeat({ orderId: 'order-g1', label: 'x' })
+    expect(spy.mock.calls.map((c) => c[1]?.method ?? 'GET')).toEqual(['GET', 'POST'])
+  })
+
+  it('never touches an order someone has paid toward', async () => {
+    const spy = stubFetch(async () => answer(200, order({ tenders: [{ id: 't1' }] })))
+    await expect(new SquareWorkshopProvider(config).settleGuestSeat({ orderId: 'order-g1', label: 'x' })).rejects.toThrow(/leaving it alone/)
+    expect(spy).toHaveBeenCalledTimes(1)
+  })
+
+  it('stops if the discount didn’t bring it to $0, and never closes it', async () => {
+    const spy = stubFetch(async (_url: string, init?: any) =>
+      init?.method === 'PUT' ? answer(200, order({ total_money: { amount: 100 } })) : answer(200, order()))
+    await expect(new SquareWorkshopProvider(config).settleGuestSeat({ orderId: 'order-g1', label: 'x' })).rejects.toThrow(/still totals 100/)
+    expect(spy).toHaveBeenCalledTimes(2)
+  })
+
+  it('reports Square refusing', async () => {
+    stubFetch(async () => answer(404, { errors: [{ code: 'NOT_FOUND' }] }))
+    await expect(new SquareWorkshopProvider(config).settleGuestSeat({ orderId: 'order-g1', label: 'x' })).rejects.toThrow(/Square 404/)
+  })
+})

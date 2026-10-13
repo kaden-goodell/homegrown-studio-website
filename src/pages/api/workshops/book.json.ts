@@ -12,6 +12,7 @@ import { alertOwners } from '@lib/owner-alert'
 import { formatSlotLabel } from '@lib/studio-time'
 import { sendWorkshopConfirmation } from '@lib/workshop-confirmation'
 import { issueEmailFixTicket, onFileToAskAbout, type EmailFixTicket } from '@lib/email-fix'
+import { issueGuestSeatTicket, startGuestSeats } from '@lib/guest-seat-job'
 import { taxCents } from '@lib/tax'
 import { announceBooking } from '@lib/booking-alert'
 import { canBeBooked } from '@lib/workshop-rules'
@@ -261,6 +262,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         at: new Date().toISOString(),
         attemptId,
         ...(simulated ? { simulated: true as const } : {}),
+        ...(seats > 1 && !simulated ? { squareBookingIds: [booked.bookingId] } : {}),
         ...(cleanAttribution(body.attribution) ? { attribution: cleanAttribution(body.attribution)! } : {}),
       })
     } catch (err) {
@@ -273,6 +275,21 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       ).catch(() => undefined)
     }
   }
+  // Seats 2+ as their own attendees in Square, so the class's head count is
+  // right (Square counts one person per booking). Their money is already in,
+  // on this booking. Done in the background so this reply never waits on it.
+  if (seats > 1 && !simulated) {
+    const job = {
+      scheduleId: workshop.scheduleId,
+      startAt: workshop.startAt,
+      className: workshop.name,
+      holder: { givenName, familyName, email },
+      totalSeats: seats,
+      paidBookingId: booked.bookingId,
+    }
+    await startGuestSeats(new URL(request.url).origin, issueGuestSeatTicket(job), job).catch(() => false)
+  }
+
   // What the card paid, tax included: Square's figure when it gives one.
   const chargedCents = typeof booked.totalChargedCents === 'number'
     ? booked.totalChargedCents

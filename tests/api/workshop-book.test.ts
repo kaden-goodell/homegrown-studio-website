@@ -38,6 +38,11 @@ vi.mock('@lib/seat-choices', () => ({ saveSeatChoices: (...a: any[]) => mockSave
 
 let bypassOn = false
 vi.mock('@lib/dev-flags', () => ({ paymentBypassEnabled: () => bypassOn }))
+const mockStartGuestSeats = vi.fn()
+vi.mock('@lib/guest-seat-job', () => ({
+  issueGuestSeatTicket: (job: any) => `ticket:${job.paidBookingId}:${job.totalSeats}`,
+  startGuestSeats: (...a: any[]) => mockStartGuestSeats(...a),
+}))
 
 const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
 const TWO_PICKS = [
@@ -111,6 +116,7 @@ beforeEach(async () => {
   mockAlertOwners.mockResolvedValue({ attempted: 2, sent: 2 })
   mockSendEmail.mockResolvedValue({ sent: true })
   mockSaveSeatChoices.mockResolvedValue(undefined)
+  mockStartGuestSeats.mockResolvedValue(true)
   POST = (await import('@pages/api/workshops/book.json')).POST
 })
 afterEach(() => vi.useRealTimers())
@@ -132,6 +138,42 @@ describe('POST /api/workshops/book.json', () => {
       expect(res.status).toBe(200)
       expect(mockSetSeatCount).not.toHaveBeenCalled()
       expect(mockPay).toHaveBeenCalledTimes(1)
+    })
+
+    it('after the charge, hands seats 2+ to the guest-seat job, with everything it needs', async () => {
+      const res = await POST(ctx(body({ seats: 3 })))
+      expect(res.status).toBe(200)
+      expect(mockStartGuestSeats).toHaveBeenCalledTimes(1)
+      const [origin, ticket, job] = mockStartGuestSeats.mock.calls[0]
+      expect(origin).toBe('https://ourhometownstudio.com')
+      expect(ticket).toBe('ticket:clsbk_1:3')
+      expect(job).toEqual({
+        scheduleId: 'clssch_kinusaiga',
+        startAt: START,
+        className: 'Kinusaiga',
+        holder: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com' },
+        totalSeats: 3,
+        paidBookingId: 'clsbk_1',
+      })
+      expect(mockStartGuestSeats.mock.invocationCallOrder[0]).toBeGreaterThan(mockPay.mock.invocationCallOrder[0])
+      expect(mockStartGuestSeats.mock.invocationCallOrder[0]).toBeGreaterThan(mockSaveSeatChoices.mock.invocationCallOrder[0])
+    })
+
+    it('a 1-seat booking starts no guest-seat job', async () => {
+      await POST(ctx(body({ seats: 1 })))
+      expect(mockStartGuestSeats).not.toHaveBeenCalled()
+    })
+
+    it('a booking that was refused starts no guest-seat job', async () => {
+      mockPay.mockRejectedValue(Object.assign(new Error('declined'), { name: 'SeatBookingError', kind: 'refused', phase: 'pay', raw: 'CARD_DECLINED', status: 402 }))
+      await POST(ctx(body({ seats: 2 })))
+      expect(mockStartGuestSeats).not.toHaveBeenCalled()
+    })
+
+    it('a guest-seat job that cannot start never fails the paid booking', async () => {
+      mockStartGuestSeats.mockRejectedValue(new Error('boom'))
+      const res = await POST(ctx(body({ seats: 2 })))
+      expect(res.status).toBe(200)
     })
 
     it('charges nothing when the order cannot be made to cover every seat', async () => {
@@ -528,6 +570,7 @@ describe('POST /api/workshops/book.json', () => {
         picks: TWO_PICKS,
         at: '2026-10-10T17:00:00.000Z',
         attemptId: ATTEMPT,
+        squareBookingIds: ['clsbk_1'],
       })
       expect(mockSaveSeatChoices.mock.invocationCallOrder[0]).toBeGreaterThan(mockPay.mock.invocationCallOrder[0])
     })

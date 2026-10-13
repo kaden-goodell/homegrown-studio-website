@@ -213,6 +213,39 @@ export class SquareWorkshopProvider implements WorkshopProvider {
     }
   }
 
+  async settleGuestSeat(params: { orderId: string; label: string }): Promise<void> {
+    const { orderId, label } = params
+    const base = this.config.environment === 'production' ? 'https://connect.squareup.com/v2' : 'https://connect.squareupsandbox.com/v2'
+    const headers = { Authorization: `Bearer ${this.config.accessToken}`, 'Content-Type': 'application/json', 'Square-Version': '2025-01-23' }
+    const call = async (path: string, init?: RequestInit): Promise<any> => {
+      const res = await fetch(`${base}${path}`, { headers, ...init })
+      const text = await res.text().catch(() => '')
+      if (!res.ok) throw new Error(`Square ${res.status}: ${text.slice(0, 300)}`)
+      return JSON.parse(text)
+    }
+    let order = (await call(`/orders/${orderId}`)).order
+    if (order.state === 'COMPLETED' && order.total_money?.amount === 0) return
+    if (order.state !== 'OPEN' || (order.tenders ?? []).length > 0) {
+      throw new Error(`guest seat order ${orderId} is ${order.state} with ${(order.tenders ?? []).length} payments; leaving it alone`)
+    }
+    if (order.total_money?.amount !== 0) {
+      order = (await call(`/orders/${orderId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          idempotency_key: `settle-${orderId}`,
+          order: { location_id: order.location_id, version: order.version, discounts: [{ uid: 'guest-seat', name: label, type: 'FIXED_PERCENTAGE', percentage: '100', scope: 'ORDER' }] },
+        }),
+      })).order
+      if (order.total_money?.amount !== 0) throw new Error(`guest seat order ${orderId} still totals ${order.total_money?.amount}`)
+    }
+    const paid = (await call(`/orders/${orderId}/pay`, {
+      method: 'POST',
+      body: JSON.stringify({ idempotency_key: `settle-pay-${orderId}`, order_version: order.version, payment_ids: [] }),
+    })).order
+    if (paid.state !== 'COMPLETED') throw new Error(`guest seat order ${orderId} is ${paid.state} after settling`)
+    logger.info('Guest seat order settled at $0', { orderId, label })
+  }
+
   async releaseSeats(bookingId: string): Promise<void> {
     const res = await fetch(this.classesUrl(`/class_bookings/${bookingId}/cancel`), {
       method: 'POST',

@@ -98,5 +98,7 @@ export class MockWorkshopProvider implements WorkshopProvider {
     }
   }
 
+  async settleGuestSeat(_params: { orderId: string; label: string }): Promise<void> {}
+
   async releaseSeats(_bookingId: string): Promise<void> {}
 }

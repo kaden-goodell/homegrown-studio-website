@@ -10,6 +10,7 @@ import { paymentBypassEnabled } from '@lib/dev-flags'
 import { createLogger } from '@lib/logger'
 import { recordAudit } from '@lib/audit'
 import { addClassAttendee } from '@lib/square-dashboard'
+import { addGuestSeats } from '@lib/guest-seats'
 
 export const prerender = false
 
@@ -75,41 +76,38 @@ export const POST: APIRoute = async ({ request }) => {
 
     if (!alreadyInSquare && !simulated) {
       const customer = await providers.customer.findOrCreate({ email, givenName, familyName, ...(phone ? { phone } : {}) })
-      for (let i = 0; i < seats; i++) {
-        // Square lists one attendee per customer per class, so seats 2+ go to
-        // name-only guest customers ("Gia Winner (guest 2 of 3)").
-        let customerId = customer.id
-        if (i > 0) {
-          try {
-            customerId = (await providers.customer.createGuest({
-              givenName,
-              familyName: `${familyName} (guest ${i + 1} of ${seats})`,
-              note: `${what} ${i + 1} of ${seats} with ${givenName} ${familyName} <${email}>, ${workshop.name}.`,
-            })).id
-          } catch (err) {
-            refusal = `guest customer: ${err instanceof Error ? err.message.slice(0, 150) : String(err)}`
-            logger.error('Could not create a guest customer for a comped seat', { scheduleId, seat: i + 1, error: refusal })
-            squareNote = `Square added ${squareBookingIds.length} of ${seats} seats, then stopped. Only those ${squareBookingIds.length} are recorded and in the email.`
-            break
-          }
+      const first = await addClassAttendee({ scheduleId, startAt: workshop.startAt, customerId: customer.id })
+      if (!first.ok) {
+        logger.error('Square refused a comped seat', { scheduleId, seat: 1, kind: first.kind, status: first.status, detail: first.detail })
+        if (first.kind === 'signed_out') {
+          return reply(409, { code: 'square_signed_out', error: 'The site’s Square sign-in has expired, so the seat wasn’t added. Add them in Square instead, then tap “I added them in Square”.' })
         }
-        const r = await addClassAttendee({ scheduleId, startAt: workshop.startAt, customerId })
-        if (r.ok) { squareBookingIds.push(r.bookingId); continue }
-        logger.error('Square refused a comped seat', { scheduleId, seat: i + 1, kind: r.kind, status: r.status, detail: r.detail })
-        if (squareBookingIds.length === 0) {
-          if (r.kind === 'signed_out') {
-            return reply(409, { code: 'square_signed_out', error: 'The site’s Square sign-in has expired, so the seat wasn’t added. Add them in Square instead, then tap “I added them in Square”.' })
-          }
-          return reply(r.kind === 'refused' ? 422 : 502, {
-            code: 'square_refused',
-            error: r.kind === 'refused'
-              ? `Square wouldn’t add the seat${/capacity|full|sold/i.test(r.detail) ? ' — the class looks full' : ''}. Nothing was added or sent.`
-              : 'Square didn’t answer, so we can’t tell whether the seat was added. Check the class in Square before trying again.',
-          })
+        return reply(first.kind === 'refused' ? 422 : 502, {
+          code: 'square_refused',
+          error: first.kind === 'refused'
+            ? `Square wouldn’t add the seat${/capacity|full|sold/i.test(first.detail) ? ' — the class looks full' : ''}. Nothing was added or sent.`
+            : 'Square didn’t answer, so we can’t tell whether the seat was added. Check the class in Square before trying again.',
+        })
+      }
+      squareBookingIds.push(first.bookingId)
+      // Square lists one attendee per customer per class, so seats 2+ go to
+      // name-only guest customers ("Gia Winner (guest 2 of 3)"), shared with
+      // the online booking (src/lib/guest-seats.ts).
+      if (seats > 1) {
+        const guests = await addGuestSeats({
+          scheduleId,
+          startAt: workshop.startAt,
+          className: workshop.name,
+          holder: { givenName, familyName, email },
+          firstSeat: 2,
+          totalSeats: seats,
+          what,
+        })
+        squareBookingIds.push(...guests.bookingIds)
+        if (guests.stopped) {
+          refusal = `${guests.stopped.kind}${guests.stopped.status ? ` ${guests.stopped.status}` : ''}: ${guests.stopped.detail.slice(0, 150)}`
+          squareNote = `Square added ${squareBookingIds.length} of ${seats} seats, then stopped. Only those ${squareBookingIds.length} are recorded and in the email.`
         }
-        refusal = `${r.kind}${r.status ? ` ${r.status}` : ''}: ${r.detail.slice(0, 150)}`
-        squareNote = `Square added ${squareBookingIds.length} of ${seats} seats, then stopped. Only those ${squareBookingIds.length} are recorded and in the email.`
-        break
       }
       seatsAdded = squareBookingIds.length
     }

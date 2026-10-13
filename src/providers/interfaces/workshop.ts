@@ -117,6 +117,14 @@ export interface WorkshopProvider {
     fallbackCustomerId?: string
   }): Promise<SeatBooking>
 
+  /**
+   * Square opens an unpaid order for a seat added from the dashboard. For a
+   * guest seat whose money was taken on another booking, take that order to
+   * $0 (a discount named `label`) and close it, so Square shows nothing owed.
+   * Safe to repeat. Throws if Square won't.
+   */
+  settleGuestSeat(params: { orderId: string; label: string }): Promise<void>
+
   /** Let held seats go, after a refused payment. Throws if the backend won't. */
   releaseSeats(bookingId: string): Promise<void>
 }

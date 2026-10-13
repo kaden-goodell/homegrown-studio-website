@@ -119,7 +119,7 @@ export async function checkSession(scheduleId: string, cookie?: string): Promise
 }
 
 export type AddAttendeeResult =
-  | { ok: true; bookingId: string }
+  | { ok: true; bookingId: string; orderId: string | null }
   | { ok: false; kind: 'signed_out' | 'refused' | 'no_answer'; status?: number; detail: string }
 
 /**
@@ -145,8 +145,25 @@ export async function addClassAttendee(params: { scheduleId: string; startAt: st
   if (res.status === 401 || res.status === 403) return { ok: false, kind: 'signed_out', status: res.status, detail: text.slice(0, 300) }
   if (!res.ok) return { ok: false, kind: res.status >= 500 ? 'no_answer' : 'refused', status: res.status, detail: text.slice(0, 300) }
   try {
-    const id = (JSON.parse(text) as { class_booking?: { id?: string } }).class_booking?.id
-    if (id) return { ok: true, bookingId: id }
+    const booking = (JSON.parse(text) as { class_booking?: { id?: string; order_id?: string } }).class_booking
+    if (booking?.id) return { ok: true, bookingId: booking.id, orderId: booking.order_id ?? null }
   } catch { /* fall through */ }
   return { ok: false, kind: 'no_answer', status: res.status, detail: 'Square answered without a booking id.' }
+}
+
+/**
+ * The order Square opened for one booking on a class, read from the class
+ * itself (Square lists every booking with its order there). Null when the
+ * session can't read it or the booking isn't listed.
+ */
+export async function classBookingOrderId(scheduleId: string, bookingId: string): Promise<string | null> {
+  try {
+    const res = await dashboardFetch(`/appointments/api/class-schedules/${encodeURIComponent(scheduleId)}`)
+    if (!res?.ok) return null
+    const body = (await res.json()) as { class_schedule?: { class_bookings?: { id?: string; order_id?: string }[] }; class_bookings?: { id?: string; order_id?: string }[] }
+    const bookings = body.class_schedule?.class_bookings ?? body.class_bookings ?? []
+    return bookings.find((b) => b.id === bookingId)?.order_id ?? null
+  } catch {
+    return null
+  }
 }
