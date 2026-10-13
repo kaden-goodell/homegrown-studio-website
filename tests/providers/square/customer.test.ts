@@ -72,6 +72,35 @@ describe('SquareCustomerProvider', () => {
       expect(mockCreate).not.toHaveBeenCalled()
     })
 
+    it('adds the phone just given to a profile found by email that has none', async () => {
+      mockSearch.mockResolvedValue({ customers: [{ id: 'cust-m', givenName: 'Melissa', emailAddress: 'm@example.com' }] })
+      mockUpdate.mockResolvedValue({})
+      const c = await provider.findOrCreate({ email: 'm@example.com', givenName: 'Melissa', phone: '(828) 551-9345' })
+      expect(mockUpdate).toHaveBeenCalledWith({ customerId: 'cust-m', phoneNumber: '+18285519345' })
+      expect(c.id).toBe('cust-m')
+      expect(c.matchedBy).toBe('email')
+    })
+
+    it('never replaces a phone already on the profile', async () => {
+      mockSearch.mockResolvedValue({ customers: [{ id: 'cust-m', emailAddress: 'm@example.com', phoneNumber: '+12565550000' }] })
+      await provider.findOrCreate({ email: 'm@example.com', givenName: 'M', phone: '8285519345' })
+      expect(mockUpdate).not.toHaveBeenCalled()
+    })
+
+    it('leaves the profile alone when no usable phone was given', async () => {
+      mockSearch.mockResolvedValue({ customers: [{ id: 'cust-m', emailAddress: 'm@example.com' }] })
+      await provider.findOrCreate({ email: 'm@example.com', givenName: 'M' })
+      await provider.findOrCreate({ email: 'm@example.com', givenName: 'M', phone: '12' })
+      expect(mockUpdate).not.toHaveBeenCalled()
+    })
+
+    it('a failed phone update never fails the lookup', async () => {
+      mockSearch.mockResolvedValue({ customers: [{ id: 'cust-m', emailAddress: 'm@example.com' }] })
+      mockUpdate.mockRejectedValue(new Error('Square 500'))
+      const c = await provider.findOrCreate({ email: 'm@example.com', givenName: 'M', phone: '8285519345' })
+      expect(c.id).toBe('cust-m')
+    })
+
     it('creates a new customer when search returns empty', async () => {
       mockSearch.mockResolvedValue({ customers: [] })
       mockCreate.mockResolvedValue({

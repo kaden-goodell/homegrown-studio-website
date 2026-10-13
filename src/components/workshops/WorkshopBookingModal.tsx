@@ -568,7 +568,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   function renderPay() {
     return (
       <form id={formId} onSubmit={handlePay} noValidate>
-        <ContactFields ref={contactRef} value={contact} onChange={setContact} phoneRequired={false} disabled={processing} />
+        <ContactFields ref={contactRef} value={contact} onChange={setContact} phoneRequired disabled={processing} />
 
         <div style={{ margin: '1.25rem 0', padding: '0.875rem 1rem', borderRadius: '0.75rem', background: 'var(--color-sand)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.9375rem', color: 'var(--color-dark)' }}>

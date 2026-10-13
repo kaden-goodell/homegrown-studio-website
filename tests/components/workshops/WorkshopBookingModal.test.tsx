@@ -60,8 +60,8 @@ function addSeats(extra: number) {
   for (let i = 0; i < extra; i++) fireEvent.click(screen.getByRole('button', { name: 'More seats' }))
 }
 
-function fillContact(values: Partial<Record<'First name' | 'Last name' | 'Email' | 'Phone (optional)', string>> = {}) {
-  const all = { 'First name': 'Alice', 'Last name': 'Smith', Email: 'alice@test.com', 'Phone (optional)': '(256) 555-0123', ...values }
+function fillContact(values: Partial<Record<'First name' | 'Last name' | 'Email' | 'Phone', string>> = {}) {
+  const all = { 'First name': 'Alice', 'Last name': 'Smith', Email: 'alice@test.com', 'Phone': '(256) 555-0123', ...values }
   for (const [label, value] of Object.entries(all)) {
     fireEvent.change(screen.getByLabelText(label), { target: { value } })
   }
@@ -241,14 +241,15 @@ describe('WorkshopBookingModal — payment step', () => {
     expect(await screen.findByText('You’re booked')).toBeInTheDocument()
   })
 
-  it('leaves the phone out of the request when none was given', async () => {
+  it('will not pay without a phone number, and says so under the field', async () => {
     const fetchMock = vi.fn().mockResolvedValue(booked())
     vi.stubGlobal('fetch', fetchMock)
     await goToPayment()
-    fireEvent.change(screen.getByLabelText('Phone (optional)'), { target: { value: '' } })
-    await pay()
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body).customer).toEqual({ givenName: 'Alice', familyName: 'Smith', email: 'alice@test.com' })
+    fireEvent.change(screen.getByLabelText('Phone'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Pay $45' }))
+    expect(await screen.findByText('Add a 10-digit phone number so we can reach you on the day.')).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('submits when Enter is pressed in a field', async () => {
@@ -278,6 +279,7 @@ describe('WorkshopBookingModal — what is missing is said, not hidden', () => {
       CONTACT_MESSAGES.firstName,
       CONTACT_MESSAGES.lastName,
       CONTACT_MESSAGES.emailMissing,
+      CONTACT_MESSAGES.phone,
       'Tick the box to agree to the booking and cancellation policy.',
     ])
     expect(screen.getByLabelText('First name')).toHaveFocus()
@@ -658,7 +660,7 @@ describe('WorkshopBookingModal — a second class this visit', () => {
     await screen.findByTestId('payment-form')
     expect((screen.getByLabelText('First name') as HTMLInputElement).value).toBe('Alice')
     expect((screen.getByLabelText('Email') as HTMLInputElement).value).toBe('alice@test.com')
-    expect((screen.getByLabelText('Phone (optional)') as HTMLInputElement).value).toBe('(256) 555-0123')
+    expect((screen.getByLabelText('Phone') as HTMLInputElement).value).toBe('(256) 555-0123')
   })
 
   it('starts blank when nothing was booked yet', async () => {

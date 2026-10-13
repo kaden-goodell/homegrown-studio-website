@@ -14,6 +14,7 @@ import { sendWorkshopConfirmation } from '@lib/workshop-confirmation'
 import { issueEmailFixTicket, onFileToAskAbout, type EmailFixTicket } from '@lib/email-fix'
 import { guestSeatName } from '@lib/guest-seats'
 import { taxCents } from '@lib/tax'
+import { isPhone, CONTACT_MESSAGES } from '@lib/contact-rules'
 import { announceBooking } from '@lib/booking-alert'
 import { canBeBooked } from '@lib/workshop-rules'
 import { getEventMeta } from '@lib/event-meta'
@@ -89,6 +90,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const phone = String(customer?.phone ?? '').trim()
   if (!givenName || !familyName) return fail(400, 'invalid', 'Add your first and last name.')
   if (!EMAIL_RE.test(email)) return fail(400, 'invalid', 'That email doesn’t look right. Check for typos.')
+  // Every booking needs a way to reach them on the day (Kaden, 12 Oct 2026).
+  if (!isPhone(phone)) return fail(400, 'invalid', CONTACT_MESSAGES.phone)
 
   const seats = Number(body.seats ?? 1)
   if (!Number.isInteger(seats) || seats < 1) return fail(400, 'invalid')

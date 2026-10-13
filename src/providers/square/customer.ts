@@ -38,7 +38,7 @@ export class SquareCustomerProvider implements CustomerProvider {
     if (searchResult.customers && searchResult.customers.length > 0) {
       const existing = searchResult.customers[0]
       logger.info('Found existing customer', { email: params.email, id: existing.id })
-      return { ...mapSquareCustomer(existing), matchedBy: 'email' }
+      return { ...mapSquareCustomer(await this.fillMissingPhone(existing, params.phone)), matchedBy: 'email' }
     }
 
     // Step 1b: No email match — try phone, so a returning customer using a
@@ -94,6 +94,25 @@ export class SquareCustomerProvider implements CustomerProvider {
       }
 
       throw error
+    }
+  }
+
+  /**
+   * A profile found by email that has no phone gets the one just given, so a
+   * phone from a later booking or a waiver is never dropped. A phone already
+   * on file is never replaced (it may be a spouse's, or the new one a typo).
+   * Best-effort: a failed update never fails the booking or signature.
+   */
+  private async fillMissingPhone<T extends { id?: string; phoneNumber?: string | null }>(existing: T, phone?: string): Promise<T> {
+    const e164 = toE164(phone)
+    if (!e164 || existing.phoneNumber || !existing.id) return existing
+    try {
+      await this.client.customers.update({ customerId: existing.id, phoneNumber: e164 })
+      logger.info('Added phone to existing customer', { id: existing.id })
+      return { ...existing, phoneNumber: e164 }
+    } catch (err) {
+      logger.warn('Could not add phone to existing customer', { id: existing.id, error: err instanceof Error ? err.message : String(err) })
+      return existing
     }
   }
 

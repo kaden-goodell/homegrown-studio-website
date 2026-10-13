@@ -595,6 +595,8 @@ describe('POST /api/workshops/book.json', () => {
       ['a start time that is not one', body({ startAt: 'soon' })],
       ['no payment', body({ paymentTokens: undefined, paymentToken: '' })],
       ['no last name', body({ customer: { givenName: 'Ada', familyName: '', email: 'ada@example.com' } })],
+      ['no phone', body({ customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com' } })],
+      ['a phone that is too short', body({ customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com', phone: '555-0123' } })],
       ['a bad email', body({ customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@' } })],
       ['no seats', body({ seats: 0 })],
       ['half a seat', body({ seats: 1.5 })],
