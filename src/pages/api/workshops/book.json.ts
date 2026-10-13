@@ -63,7 +63,7 @@ export function paymentTokensFor(body: any, seats: number): string[] | null {
   return raw as string[]
 }
 
-export const POST: APIRoute = async ({ request, clientAddress }) => {
+export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   if (!bookingsOpen(request, 'workshops')) return bookingsClosedResponse()
   if (rateLimited(`workshop-book:${clientAddress}`, 5, 60_000)) {
     return fail(429, 'unavailable', 'That’s a lot of attempts in a row. Give it a minute, then try again.')
@@ -367,61 +367,81 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const chargedCents = chargedSum !== null
     ? chargedSum
     : workshop.priceCents * seatsBooked + taxCents(workshop.priceCents * seatsBooked, workshop.taxPercent)
-  let emailSent = false
-  try {
-    emailSent = await sendWorkshopConfirmation({
-      origin: new URL(request.url).origin,
-      bookingId: booked.bookingId,
-      workshop,
-      seats: seatsBooked,
-      email,
-      givenName,
-      receiptUrl: booked.receiptUrl,
-      options: settings.options,
-      picks: paidPicks,
-      totalChargedCents: chargedCents,
-      ...(onFile ? { alsoTo: onFile } : {}),
-    })
-  } catch (err) {
-    logger.error('Workshop confirmation email failed (booking still confirmed)', {
-      bookingId: booked.bookingId,
-      error: err instanceof Error ? err.message : String(err),
-    })
+  // ── The email, the owners' text and analytics: all at once, and on Netlify
+  // after the reply, so the customer sees "You're booked" as soon as the money
+  // and the record are in. A confirmation that fails to send then texts the
+  // owners, since the booked screen has already said it is on its way.
+  const paidBooking = booked
+  const finishing = async (): Promise<boolean> => {
+    const [sent] = await Promise.all([
+      sendWorkshopConfirmation({
+        origin: new URL(request.url).origin,
+        bookingId: paidBooking.bookingId,
+        workshop,
+        seats: seatsBooked,
+        email,
+        givenName,
+        receiptUrl: paidBooking.receiptUrl,
+        options: settings.options,
+        picks: paidPicks,
+        totalChargedCents: chargedCents,
+        ...(onFile ? { alsoTo: onFile } : {}),
+      }).catch((err) => {
+        logger.error('Workshop confirmation email failed (booking still confirmed)', {
+          bookingId: paidBooking.bookingId,
+          error: err instanceof Error ? err.message : String(err),
+        })
+        return false
+      }),
+      simulated
+        ? Promise.resolve()
+        : announceBooking({
+            kind: 'class',
+            who: `${givenName} ${familyName}`,
+            what: `${seatsBooked} seat${seatsBooked === 1 ? '' : 's'}, ${workshop.name}`,
+            when: formatSlotLabel(workshop.startAt),
+            paidCents: chargedCents,
+            email,
+            ...(phone ? { phone } : {}),
+            ...(note ? { extra: note } : {}),
+          }),
+      reportBooking({
+        requestUrl: request.url,
+        kind: 'workshop',
+        bookingId: paidBooking.bookingId,
+        amountCents: workshop.priceCents * seatsBooked,
+        email,
+        firstName: givenName,
+        lastName: familyName,
+        items: [{ item_id: workshop.scheduleId, item_name: workshop.name, item_category: 'workshop', price: workshop.priceCents / 100, quantity: seatsBooked }],
+        attribution: cleanAttribution(body.attribution),
+        posthogId: body.posthogId,
+        simulated,
+        extra: {
+          seats: seatsBooked,
+          class: workshop.name,
+          class_date: workshop.startAt.slice(0, 10),
+          days_ahead: Math.round((Date.parse(workshop.startAt) - Date.now()) / 86_400_000),
+          paid_with: String(body.sourceKind ?? 'card'),
+        },
+      }).catch(() => undefined),
+    ])
+    return sent
   }
-
-  if (!simulated) {
-    await announceBooking({
-      kind: 'class',
-      who: `${givenName} ${familyName}`,
-      what: `${seatsBooked} seat${seatsBooked === 1 ? '' : 's'}, ${workshop.name}`,
-      when: formatSlotLabel(workshop.startAt),
-      paidCents: chargedCents,
-      email,
-      ...(phone ? { phone } : {}),
-      ...(note ? { extra: note } : {}),
-    })
+  let emailSent: boolean
+  const netlify = (locals as { netlify?: { context?: { waitUntil?: (p: Promise<unknown>) => void } } } | undefined)?.netlify?.context
+  if (typeof netlify?.waitUntil === 'function') {
+    netlify.waitUntil(finishing().then(async (sent) => {
+      if (sent || simulated) return
+      await alertOwners(
+        `Confirmation email didn't send: ${givenName} ${familyName} <${email}>, ${seatsBooked} seat${seatsBooked === 1 ? '' : 's'}, ${workshop.name}, ${formatSlotLabel(workshop.startAt)}. The booking is paid (${paidBooking.bookingId}); please send them the details.`,
+      ).catch(() => undefined)
+    }).catch(() => undefined))
+    emailSent = true
+  } else {
+    // Local dev and tests: no Netlify context, so finish before replying.
+    emailSent = await finishing()
   }
-
-  await reportBooking({
-    requestUrl: request.url,
-    kind: 'workshop',
-    bookingId: booked.bookingId,
-    amountCents: workshop.priceCents * seatsBooked,
-    email,
-    firstName: givenName,
-    lastName: familyName,
-    items: [{ item_id: workshop.scheduleId, item_name: workshop.name, item_category: 'workshop', price: workshop.priceCents / 100, quantity: seatsBooked }],
-    attribution: cleanAttribution(body.attribution),
-    posthogId: body.posthogId,
-    simulated,
-    extra: {
-      seats: seatsBooked,
-      class: workshop.name,
-      class_date: workshop.startAt.slice(0, 10),
-      days_ahead: Math.round((Date.parse(workshop.startAt) - Date.now()) / 86_400_000),
-      paid_with: String(body.sourceKind ?? 'card'),
-    },
-  })
 
   return new Response(
     JSON.stringify({

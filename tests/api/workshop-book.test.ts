@@ -126,6 +126,46 @@ beforeEach(async () => {
 afterEach(() => vi.useRealTimers())
 
 describe('POST /api/workshops/book.json', () => {
+  describe('after the reply (Netlify waitUntil)', () => {
+    function withNetlify(payload: any) {
+      const later: Promise<unknown>[] = []
+      const c = ctx(payload)
+      c.locals = { netlify: { context: { waitUntil: (p: Promise<unknown>) => { later.push(p) } } } }
+      return { c, later }
+    }
+
+    it('answers "booked" without waiting for the email, the owners’ text or analytics', async () => {
+      let sendEmail!: (v: { sent: boolean }) => void
+      mockSendEmail.mockReturnValue(new Promise((r) => { sendEmail = r }))
+      const { c, later } = withNetlify(body())
+      const res = await POST(c)
+      expect(res.status).toBe(200)
+      expect((await res.json()).data).toMatchObject({ bookingId: 'clsbk_1', emailSent: true })
+      expect(later).toHaveLength(1)
+      // The text to the owners went out alongside the still-sending email.
+      expect(mockAlertOwners).toHaveBeenCalledWith(expect.stringMatching(/^New class booking: Ada Lovelace, 2 seats, /))
+      sendEmail({ sent: true })
+      await Promise.all(later)
+      expect(mockAlertOwners.mock.calls.filter((c) => !String(c[0]).startsWith('New '))).toEqual([])
+    })
+
+    it('texts the owners when the confirmation then fails to send', async () => {
+      mockSendEmail.mockResolvedValue({ sent: false })
+      const { c, later } = withNetlify(body())
+      await POST(c)
+      await Promise.all(later)
+      const failed = mockAlertOwners.mock.calls.map((x) => x[0]).find((t: string) => t.startsWith('Confirmation email didn'))
+      expect(failed).toMatch(/^Confirmation email didn't send: Ada Lovelace <ada@example\.com>, 2 seats, Kinusaiga, .*\(clsbk_1\); please send them the details\.$/)
+    })
+
+    it('a crash after the reply never reaches the customer', async () => {
+      mockSendEmail.mockRejectedValue(new Error('smtp down'))
+      const { c, later } = withNetlify(body())
+      expect((await POST(c)).status).toBe(200)
+      await expect(Promise.all(later)).resolves.toBeDefined()
+    })
+  })
+
   describe('more than one seat: every seat is its own Square booking and its own charge', () => {
     it('holds each seat (seat 1 in the booker’s name, the rest as named guests), then charges each with its own token', async () => {
       const res = await POST(ctx(body({ seats: 3 })))
