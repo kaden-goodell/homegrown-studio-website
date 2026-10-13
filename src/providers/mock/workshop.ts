@@ -94,5 +94,9 @@ export class MockWorkshopProvider implements WorkshopProvider {
     }
   }
 
+  async getSeatBooking(bookingId: string): Promise<{ id: string; status: string; startAt: string; scheduleId: string } | null> {
+    return { id: bookingId, status: 'accepted', startAt: '', scheduleId: '' }
+  }
+
   async releaseSeats(_bookingId: string): Promise<void> {}
 }

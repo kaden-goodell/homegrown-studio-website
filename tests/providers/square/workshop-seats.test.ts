@@ -200,3 +200,21 @@ describe('SquareWorkshopProvider — holding and paying for seats', () => {
     })
   })
 })
+
+describe('SquareWorkshopProvider — getSeatBooking', () => {
+  it('reads one booking’s status from Square’s booking service', async () => {
+    const spy = stubFetch(async () => answer(200, { class_booking: { id: 'clsbk_1', status: 'accepted', start_at: '2026-10-18T18:00:00Z', class_schedule_id: 'clssch_1' } }))
+    expect(await new SquareWorkshopProvider(config).getSeatBooking('clsbk_1')).toEqual({ id: 'clsbk_1', status: 'accepted', startAt: '2026-10-18T18:00:00Z', scheduleId: 'clssch_1' })
+    expect(spy.mock.calls[0][0]).toBe(`${BASE}/class_bookings/clsbk_1?unit_token=LOC123`)
+  })
+  it('null when Square has no such booking', async () => {
+    stubFetch(async () => answer(404, {}))
+    expect(await new SquareWorkshopProvider(config).getSeatBooking('clsbk_x')).toBeNull()
+  })
+  it('throws (never "cancelled") when Square can’t be asked', async () => {
+    stubFetch(async () => answer(503, 'down'))
+    await expect(new SquareWorkshopProvider(config).getSeatBooking('clsbk_1')).rejects.toThrow(/503/)
+    stubFetch(async () => answer(200, {}))
+    await expect(new SquareWorkshopProvider(config).getSeatBooking('clsbk_1')).rejects.toThrow(/no booking/)
+  })
+})

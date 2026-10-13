@@ -157,6 +157,15 @@ export class SquareWorkshopProvider implements WorkshopProvider {
     }
   }
 
+  async getSeatBooking(bookingId: string): Promise<{ id: string; status: string; startAt: string; scheduleId: string } | null> {
+    const res = await fetch(this.classesUrl(`/class_bookings/${encodeURIComponent(bookingId)}`), { headers: BUYER_HEADERS })
+    if (res.status === 404) return null
+    if (!res.ok) throw new Error(`Square answered ${res.status} for booking ${bookingId}`)
+    const b = (await res.json())?.class_booking
+    if (!b?.id || typeof b.status !== 'string') throw new Error(`Square sent no booking for ${bookingId}`)
+    return { id: b.id, status: b.status, startAt: b.start_at ?? '', scheduleId: b.class_schedule_id ?? '' }
+  }
+
   async releaseSeats(bookingId: string): Promise<void> {
     const res = await fetch(this.classesUrl(`/class_bookings/${bookingId}/cancel`), {
       method: 'POST',

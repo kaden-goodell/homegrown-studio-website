@@ -3,7 +3,7 @@ import { hasAllergy } from '@lib/allergy'
 import { staffAuthorized } from '@lib/staff-auth'
 import { lookupHouseholdEntry, lookupHouseholdsByName, type HouseholdOnFile } from '@lib/waiver-store'
 import { getOpenStudioDay, type OpenStudioDay } from '@lib/open-studio-store'
-import { substantiveSince, compareVersions } from '@config/waiver-content'
+import { agreementState, isCurrent } from '@lib/waiver-coverage'
 import { studioDate } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
 
@@ -51,6 +51,7 @@ export const GET: APIRoute = async ({ request, url }) => {
   const today = studioDate(new Date().toISOString())
   const openStudioDay = await getOpenStudioDay(today).catch((): OpenStudioDay => ({}))
 
+  const now = new Date()
   const data = households.map((h) => ({
     recordId: h.recordId,
     firstName: h.firstName,
@@ -61,8 +62,8 @@ export const GET: APIRoute = async ({ request, url }) => {
     validUntil: h.validUntil,
     // An unexpired signature older than the current agreement is NOT covered:
     // they never agreed to the current terms (drop-off terms live in v3+).
-    outdated: compareVersions(h.agreementVersion, substantiveSince) < 0,
-    covered: new Date(h.validUntil).getTime() > Date.now() && compareVersions(h.agreementVersion, substantiveSince) >= 0,
+    outdated: agreementState(h, now) === 'outdated',
+    covered: isCurrent(h, now),
     // "None"/"n/a" are not allergies — the door flags only real ones.
     kids: h.minors.map((m) => ({ name: m.name, allergies: hasAllergy(m.allergies) ? m.allergies : '' })),
     adultAllergies: hasAllergy(h.adultAllergies) ? h.adultAllergies : '',

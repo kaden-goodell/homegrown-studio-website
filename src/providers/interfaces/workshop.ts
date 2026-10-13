@@ -110,6 +110,13 @@ export interface WorkshopProvider {
     fallbackCustomerId?: string
   }): Promise<SeatBooking>
 
+  /**
+   * One class booking as Square has it now. Null when Square has no such
+   * booking. Throws when Square can't be asked (callers must treat that as
+   * "don't know", never as cancelled).
+   */
+  getSeatBooking(bookingId: string): Promise<{ id: string; status: string; startAt: string; scheduleId: string } | null>
+
   /** Let held seats go, after a refused payment. Throws if the backend won't. */
   releaseSeats(bookingId: string): Promise<void>
 }
