@@ -202,7 +202,12 @@ export default function TeachForm() {
         {input('takeHome', 'What do people take home?')}
         {choice('audience', 'Who is it for?', [['kids', 'Kids & teens'], ['adults', 'Adults'], ['both', 'Both']])}
         {(v.audience === 'kids' || v.audience === 'both') && choice('dropOffOk', 'Could parents drop kids off?', [['yes', 'Yes'], ['no', 'No']])}
-        {pair(input('length', 'How long', { placeholder: 'e.g. 2 hours' }), pair(input('groupMin', 'Fewest people', { inputMode: 'numeric' }), input('groupMax', 'Most people', { inputMode: 'numeric' })))}
+        {input('length', 'How long', { placeholder: 'e.g. 2 hours' })}
+        {/* Always side by side, even on a phone: two short numbers. */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+          {input('groupMin', 'Fewest people', { inputMode: 'numeric' })}
+          {input('groupMax', 'Most people', { inputMode: 'numeric' })}
+        </div>
         {pair(input('price', 'Price you’d like per person', { placeholder: 'e.g. $45' }), input('suppliesCost', 'Supplies cost per person', { placeholder: 'e.g. $12' }))}
         {textarea('needs', 'What would you need from us?', { hint: 'Tables, outlets, a sink, an oven, how messy it gets.' })}
       </>)}
