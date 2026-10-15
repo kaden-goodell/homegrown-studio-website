@@ -70,16 +70,22 @@ const preview = tapped
   {...preview}
 >
   <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-20" style="padding-top: 5.5rem;">
-    <div class="mb-6 fade-in">
+    <div class="mb-6 md:mb-8 md:text-center fade-in">
       <p class="eyebrow tone-workshop mb-2">Upcoming</p>
-      <h1 class="text-4xl sm:text-5xl font-heading font-bold" style="color: var(--color-dark);">Workshops</h1>
-      <p class="text-base sm:text-lg mt-3 max-w-xl" style="color: var(--color-text);">
+      <h1 class="text-4xl sm:text-5xl lg:text-6xl font-heading font-bold" style="color: var(--color-dark);">Workshops</h1>
+      <p class="text-base sm:text-lg mt-3 max-w-xl md:mx-auto" style="color: var(--color-text);">
         Guided craft classes at 525 Hughes Rd in Madison. Every supply and the teaching are included.
       </p>
     </div>
 
-    <!-- What a class is like, said once for every class (Kaden, 15 Oct 2026). -->
-    <div class="rounded-2xl px-5 py-4 mb-8 max-w-2xl" style="background: var(--color-sand); color: var(--color-text); font-size: 0.9375rem; line-height: 1.55;">
+    <!-- What a class is like, said once for every class (Kaden, 15 Oct 2026).
+         Phones: the three-line box. Wide screens: one quiet line (his pick 2). -->
+    <ul class="hidden md:flex flex-wrap justify-center gap-x-7 gap-y-2 -mt-2 mb-9 p-0 list-none text-sm" style="color: var(--color-text);">
+      <li class="flex items-center gap-2"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 50%; background: var(--color-primary);"></span>Every supply set out, step by step help</li>
+      <li class="flex items-center gap-2"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 50%; background: var(--color-primary);"></span>About two hours, come with a friend or solo</li>
+      <li class="flex items-center gap-2"><span aria-hidden="true" style="width: 6px; height: 6px; border-radius: 50%; background: var(--color-primary);"></span>Kids’ classes are drop-off</li>
+    </ul>
+    <div class="md:hidden rounded-2xl px-5 py-4 mb-8 max-w-2xl" style="background: var(--color-sand); color: var(--color-text); font-size: 0.9375rem; line-height: 1.55;">
       <p class="m-0"><strong style="color: var(--color-dark);">Show up and make something.</strong> We set out every supply and walk you through it, step by step.</p>
       <p class="mt-2 mb-0"><strong style="color: var(--color-dark);">About two hours,</strong> small tables, lots of chatting. Come with a friend or come on your own.</p>
       <p class="mt-2 mb-0"><strong style="color: var(--color-dark);">Kids’ classes are drop-off,</strong> so parents get two hours to themselves.</p>

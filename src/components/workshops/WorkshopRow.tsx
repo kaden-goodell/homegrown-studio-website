@@ -1,11 +1,6 @@
-import { useState } from 'react'
 import type { WorkshopData } from './WorkshopExplorer'
-import NotifyMe from '@components/shared/NotifyMe'
-import { formatMoney } from '@lib/money'
-import { canBeBooked, isSoldOut, seatsLeftLabel } from '@lib/workshop-rules'
-import { ageLabel, isDropOff, notifyInterest } from '@lib/workshop-copy'
 import { studioClock } from './workshop-view-model'
-import { trackWaitlistOpened } from '@lib/analytics'
+import { workshopStatus, WorkshopWaitlist } from './workshop-status'
 
 export interface WorkshopRowProps {
   workshop: WorkshopData
@@ -34,19 +29,7 @@ export function rowWhen(w: Pick<WorkshopData, 'date' | 'startTime'>): string {
  * booking panel; a sold-out or not-yet-on-sale row offers the email sign-up.
  */
 export default function WorkshopRow({ workshop, onBook }: WorkshopRowProps) {
-  const [asking, setAsking] = useState(false)
-
-  const comingSoon = !canBeBooked(workshop.price)
-  const soldOut = !comingSoon && isSoldOut(workshop.remainingSeats)
-  const closed = !comingSoon && workshop.signupClosed === true
-  const bookable = !comingSoon && !soldOut && !closed
-  const seats = bookable ? seatsLeftLabel(workshop.remainingSeats) : ''
-  const meta = [
-    comingSoon ? '' : formatMoney(workshop.price, workshop.currency),
-    ageLabel(workshop.description),
-    isDropOff(workshop.description) ? 'Drop-off' : '',
-  ].filter(Boolean).join(' · ')
-  const status = comingSoon ? 'Coming soon' : soldOut ? 'Sold out' : closed ? 'Sign-ups closed' : seats
+  const { soldOut, bookable, meta, status } = workshopStatus(workshop)
 
   const body = (
     <>
@@ -117,32 +100,7 @@ export default function WorkshopRow({ workshop, onBook }: WorkshopRowProps) {
         <div style={rowStyle}>{body}</div>
       )}
 
-      {comingSoon && !asking && (
-        <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => { trackWaitlistOpened(workshop.id, workshop.name, 'coming_soon'); setAsking(true) }}>
-          Tell me when booking opens
-        </button>
-      )}
-      {comingSoon && asking && (
-        <NotifyMe
-          interest={notifyInterest('workshop-soon', workshop.name, workshop.date)}
-          buttonLabel="Tell me when booking opens"
-          note="One email when this workshop opens for booking. Nothing else."
-          successText="Got it. We’ll email you when this one opens."
-        />
-      )}
-      {soldOut && !closed && !asking && (
-        <button type="button" className="btn btn-secondary" style={{ width: '100%' }} onClick={() => { trackWaitlistOpened(workshop.id, workshop.name, 'sold_out'); setAsking(true) }}>
-          Tell me if a seat opens
-        </button>
-      )}
-      {soldOut && !closed && asking && (
-        <NotifyMe
-          interest={notifyInterest('workshop-waitlist', workshop.name, workshop.date)}
-          buttonLabel="Tell me if a seat opens"
-          note="One email if a seat opens. Nothing else."
-          successText="Got it. If a seat opens we’ll email you, and it goes to whoever books first."
-        />
-      )}
+      <WorkshopWaitlist workshop={workshop} />
     </article>
   )
 }

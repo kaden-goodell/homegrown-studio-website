@@ -3,6 +3,7 @@ import NotifyMe from '@components/shared/NotifyMe'
 import { jsonLdString, workshopEventsJsonLd } from '@lib/seo'
 import { SITE_URL } from '@config/site-url'
 import WorkshopRow from './WorkshopRow'
+import WorkshopTile from './WorkshopTile'
 import { audienceOf, type Audience } from '@lib/workshop-copy'
 import WorkshopBookingModal from './WorkshopBookingModal'
 import { canBeBooked, isSoldOut } from '@lib/workshop-rules'
@@ -54,6 +55,22 @@ export interface WorkshopExplorerProps {
 }
 
 const LIST = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 22rem), 1fr))', gap: '0.75rem', alignItems: 'start' } as const
+
+const TILES = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(16rem, 1fr))', gap: '1.5rem' } as const
+
+/** Phones get the compact rows (Kaden's pick A); 768px and wider get the photo cards (pick 2). */
+function useWide(): boolean {
+  const [wide, setWide] = useState(false)
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return
+    const m = window.matchMedia('(min-width: 768px)')
+    const update = () => setWide(m.matches)
+    update()
+    m.addEventListener?.('change', update)
+    return () => m.removeEventListener?.('change', update)
+  }, [])
+  return wide
+}
 
 /** A class within the next 7 days goes under "This week". */
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000
@@ -119,6 +136,7 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
   const [failed, setFailed] = useState(false)
   const [bookingWorkshop, setBookingWorkshop] = useState<WorkshopData | null>(null)
   const [filter, setFilter] = useState<Filter>('all')
+  const wide = useWide()
   // What a link to one workshop (?w=<id>) led to, when it was not a booking panel.
   const [notice, setNotice] = useState('')
   const linkFollowed = useRef(false)
@@ -268,7 +286,7 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
         </div>
       ) : (
         <div>
-          <div role="group" aria-label="Who it's for" style={{ display: 'flex', gap: '0.5rem', margin: '0 0 1rem', maxWidth: '30rem' }}>
+          <div role="group" aria-label="Who it's for" style={{ display: 'flex', gap: '0.5rem', margin: wide ? '0 auto 1.5rem' : '0 0 1rem', maxWidth: wide ? '26rem' : '30rem' }}>
             {FILTERS.map((f) => (
               <button
                 key={f.id}
@@ -311,10 +329,10 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
               list.length > 0 && (
                 <section aria-label={title} style={{ marginBottom: '1.5rem' }}>
                   <h2 className="eyebrow" style={{ margin: '0 0 0.6rem', fontSize: '0.75rem' }}>{title}</h2>
-                  <div style={LIST}>
+                  <div style={wide ? TILES : LIST}>
                     {list.map((w) => (
                       <div key={w.id} id={cardAnchor(w.id)} style={{ display: 'flex' }}>
-                        <WorkshopRow workshop={w} onBook={openBooking} />
+                        {wide ? <WorkshopTile workshop={w} onBook={openBooking} /> : <WorkshopRow workshop={w} onBook={openBooking} />}
                       </div>
                     ))}
                   </div>

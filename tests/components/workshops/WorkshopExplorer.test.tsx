@@ -8,6 +8,9 @@ vi.mock('@components/workshops/WorkshopRow', () => ({
   ),
 }))
 
+vi.mock('@components/workshops/WorkshopTile', () => ({
+  default: ({ workshop }: { workshop: { id: string; name: string } }) => <div data-testid={`tile-${workshop.id}`}>{workshop.name}</div>,
+}))
 vi.mock('@components/workshops/WorkshopBookingModal', () => ({
   default: ({ workshop }: { workshop: { name: string } }) => <div data-testid="booking-modal">Modal for {workshop.name}</div>,
 }))
@@ -337,5 +340,22 @@ describe('WorkshopExplorer — Kids & teens / Adults switch and This week', () =
     expect(screen.getByText(/No kids’ classes posted right now/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'See all classes' }))
     expect(names()).toEqual(['Kinusaiga'])
+  })
+})
+
+describe('WorkshopExplorer — phone rows vs wide-screen cards', () => {
+  const setWidth = (wide: boolean) =>
+    vi.stubGlobal('matchMedia', vi.fn((q: string) => ({ matches: wide && q.includes('768'), media: q, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  it('phones get the compact rows', () => {
+    setWidth(false)
+    render(<WorkshopExplorer workshops={mockWorkshops} />)
+    expect(screen.getAllByTestId(/^workshop-/)).toHaveLength(2)
+    expect(screen.queryAllByTestId(/^tile-/)).toHaveLength(0)
+  })
+  it('768px and wider get the photo cards', () => {
+    setWidth(true)
+    render(<WorkshopExplorer workshops={mockWorkshops} />)
+    expect(screen.getAllByTestId(/^tile-/)).toHaveLength(2)
+    expect(screen.queryAllByTestId(/^workshop-/)).toHaveLength(0)
   })
 })
