@@ -1,0 +1,23 @@
+---
+export const prerender = true
+
+import Layout from '@layouts/Layout.astro'
+import TeachForm from '@components/teach/TeachForm'
+---
+
+<Layout
+  title="Teach a Class"
+  description="Local makers: teach a class at Hometown Studio in Madison, AL. Tell us about you and what you'd teach."
+>
+  <section class="max-w-2xl mx-auto px-4 sm:px-6 pb-20" style="padding-top: 5.5rem;">
+    <div class="mb-6 md:text-center fade-in">
+      <p class="eyebrow tone-workshop mb-2">For artists</p>
+      <h1 class="text-4xl sm:text-5xl font-heading font-bold" style="color: var(--color-dark);">Teach a class at Hometown Studio</h1>
+      <p class="text-base sm:text-lg mt-3" style="color: var(--color-text);">
+        We’re always looking for local makers to teach. You bring the craft, we bring the room, the tables, and the people.
+        Tell us about you and what you’d teach, and we’ll get back to you.
+      </p>
+    </div>
+    <TeachForm client:load />
+  </section>
+</Layout>

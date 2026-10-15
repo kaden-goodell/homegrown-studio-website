@@ -412,6 +412,7 @@ export const siteConfig: SiteConfig = {
     { label: 'Workshops', href: '/workshops' },
     { label: 'Craft Café', href: '/craft-cafe' },
     { label: 'Calendar', href: '/calendar' },
+    { label: 'Teach', href: '/teach' },
     { label: 'About', href: '/about' },
   ],
   navCta: { label: 'Book a Party', href: '/book' },
