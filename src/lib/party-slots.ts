@@ -8,7 +8,9 @@
  * `firstStart`, while start + party + cleanup ≤ `lastWrap` (keeps the evening
  * workshop slot clear). See `partyDays` in party.config.ts.
  */
-import { partyConfig, partyDays, partyDateOverrides, partyFreeDays } from '../config/party.config'
+import { partyConfig, partyDays, partyDateOverrides, CAFE_PARTY_GAP_MINUTES } from '../config/party.config'
+import { cafeHoursOn } from '../config/hours'
+import { cafeRunsOn } from './cafe-days'
 import { closureOn } from '../config/closures'
 
 const DAY_MS = 86_400_000
@@ -114,7 +116,6 @@ export function bookableOn(
  */
 export function partyStartsForDate(ymd: string, now: Date = new Date()): string[] {
   if (bookableOn(ymd, now) !== 'ok') return []
-  if (partyFreeDays[ymd]) return []
   const [y, m, d] = ymd.split('-').map(Number)
   const weekday = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()
   const cfg = partyDateOverrides[ymd] ?? partyDays[weekday]
@@ -129,6 +130,18 @@ export function partyStartsForDate(ymd: string, now: Date = new Date()): string[
     const hh = String(Math.floor(t / 60)).padStart(2, '0')
     const mm = String(t % 60).padStart(2, '0')
     out.push(localToUtcISO(ymd, `${hh}:${mm}`))
+  }
+  // Parties step aside for Craft Café, with a gap before and after.
+  const cafe = cafeRunsOn(ymd) ? cafeHoursOn(ymd) : null
+  if (cafe) {
+    const gap = CAFE_PARTY_GAP_MINUTES * 60_000
+    const opens = Date.parse(localToUtcISO(ymd, cafe.opens)) - gap
+    const closes = Date.parse(localToUtcISO(ymd, cafe.closes)) + gap
+    return out.filter((iso) => {
+      const start = Date.parse(iso)
+      const end = start + partyConfig.durationMinutes * 60_000
+      return end <= opens || start >= closes
+    })
   }
   return out
 }

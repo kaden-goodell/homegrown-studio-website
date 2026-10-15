@@ -123,10 +123,33 @@ describe('partyStartsInRange', () => {
 
 
 import { partyStartsForDate as startsOn } from '@lib/party-slots'
-describe('party-free days (Craft Café grand opening, Sat Nov 7)', () => {
-  it('offers no party times on Nov 7, though a normal Saturday has its 1:30', () => {
-    const now = new Date('2026-10-15T15:00:00Z')
+describe('parties step aside for Craft Café, an hour each side', () => {
+  const now = new Date('2026-10-15T15:00:00Z')
+  it('the all-day grand opening (Sat Nov 7, café 9 AM to 9 PM) leaves no party times', () => {
     expect(startsOn('2026-11-07', now)).toEqual([])
-    expect(startsOn('2026-11-14', now)).toHaveLength(1)
+  })
+  it('a normal Saturday keeps its 1:30 party: the café closes at noon, 90 minutes before', () => {
+    expect(startsOn('2026-11-14', now)).toEqual(['2026-11-14T19:30:00.000Z'])
+  })
+  it('a party starting less than an hour after the café closes is dropped; exactly an hour is fine', async () => {
+    vi.resetModules()
+    vi.doMock('../../src/config/hours', async (orig) => ({
+      ...(await orig<typeof import('../../src/config/hours')>()),
+      cafeHoursOn: (ymd: string) => (ymd === '2026-11-14' ? { opens: '09:00', closes: '12:31' } : null),
+    }))
+    const late = await import('@lib/party-slots')
+    expect(late.partyStartsForDate('2026-11-14', now)).toEqual([])
+    vi.doMock('../../src/config/hours', async (orig) => ({
+      ...(await orig<typeof import('../../src/config/hours')>()),
+      cafeHoursOn: (ymd: string) => (ymd === '2026-11-14' ? { opens: '09:00', closes: '12:30' } : null),
+    }))
+    vi.resetModules()
+    const exact = await import('@lib/party-slots')
+    expect(exact.partyStartsForDate('2026-11-14', now)).toEqual(['2026-11-14T19:30:00.000Z'])
+    vi.doUnmock('../../src/config/hours')
+    vi.resetModules()
+  })
+  it('days without a café are untouched (Sundays keep 1:00 and 3:30)', () => {
+    expect(startsOn('2026-11-15', now)).toHaveLength(2)
   })
 })

@@ -115,13 +115,12 @@ export const partyDays: Record<number, { firstStart: string; lastWrap: string }>
  *   (the last party ends 8:30; cleanup runs past the 9pm close).
  */
 /**
- * Days with no party times at all, whatever the weekday schedule says.
- * Craft Café special days (src/config/hours.ts) belong here: a party can't
- * have the room while the café runs all day.
+ * Parties step aside for Craft Café: no party may come within this many
+ * minutes of the café's hours, before or after (Kaden, 15 Oct 2026: "an hour
+ * before and after"). A café running all day (the Nov 7 grand opening) leaves
+ * no party times at all.
  */
-export const partyFreeDays: Record<string, string> = {
-  '2026-11-07': 'Craft Café grand opening',
-}
+export const CAFE_PARTY_GAP_MINUTES = 60
 
 export const partyDateOverrides: Record<string, { firstStart: string; lastWrap: string }> = {
   // Thursday/Friday parties start Oct 22 (Kaden, 9 Oct 2026), ahead of the
