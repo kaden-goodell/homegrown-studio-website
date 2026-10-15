@@ -873,10 +873,11 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
                           style={
                             e.holiday
                               ? undefined
-                              : { overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: chips.length <= 1 ? 3 : 2, overflowWrap: 'anywhere', minWidth: 0 }
+                              : { overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: chips.length <= 3 ? 3 : 2, overflowWrap: 'anywhere', minWidth: 0 }
                           }
                         >
-                          {e.title}
+                          {/* The time is already at the front of the chip: "4pm Party available", not "… · 4:00 PM". */}
+                          {time ? e.title.replace(/\s*·\s*\d{1,2}:\d{2}\s*[AP]M$/i, '') : e.title}
                         </span>
                       </>
                     )
