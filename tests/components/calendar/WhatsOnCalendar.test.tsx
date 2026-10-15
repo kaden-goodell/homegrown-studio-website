@@ -230,7 +230,7 @@ describe('WhatsOnCalendar month view', () => {
     expect(studio.tagName).toBe('A')
     expect(studio).toHaveAttribute('href', '/craft-cafe')
 
-    const party = await screen.findByTitle('4 party times open')
+    const party = await screen.findByTitle('4 party times')
     expect(party).toHaveAttribute('href', `/book?date=${SATURDAY}`)
 
     const booked = await screen.findByTitle('1 party booked')
@@ -453,13 +453,13 @@ describe('WhatsOnCalendar filters (HOM-192)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
     expect(await screen.findByTitle('Fall Earring Bar')).toBeInTheDocument()
     expect(screen.queryByTitle('Craft Café')).toBeNull()
-    expect(screen.queryByTitle('4 party times open')).toBeNull()
+    expect(screen.queryByTitle('4 party times')).toBeNull()
     expect(screen.queryByTitle('1 party booked')).toBeNull()
     expect(screen.queryByTitle('Grand Opening')).toBeNull()
 
     fireEvent.click(chip('Party dates'))
     expect(screen.queryByTitle('Fall Earring Bar')).toBeNull()
-    expect(screen.getByTitle('4 party times open')).toBeInTheDocument()
+    expect(screen.getByTitle('4 party times')).toBeInTheDocument()
     expect(screen.getByTitle('1 party booked')).toBeInTheDocument()
   })
 

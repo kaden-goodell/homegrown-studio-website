@@ -158,7 +158,7 @@ const KIND_LABELS: Record<CalendarEvent['kind'], string> = {
 
 /**
  * Collapse a day's individual party-available slots into ONE inviting chip for
- * the month grid ("4 party times open" → /book with the date preselected).
+ * the month grid ("4 party times" → /book with the date preselected).
  * The selected-day detail below the grid still lists each time individually.
  */
 function aggregatePartySlots(dayEvents: CalendarEvent[]): CalendarEvent[] {
@@ -169,7 +169,7 @@ function aggregatePartySlots(dayEvents: CalendarEvent[]): CalendarEvent[] {
   const aggregate: CalendarEvent = {
     id: `party-available-agg-${date}`,
     kind: 'party-available',
-    title: `${partySlots.length} party times open`,
+    title: `${partySlots.length} party times`,
     date,
     startTime: partySlots[0].startTime,
     bookable: true,
