@@ -22,7 +22,8 @@ describe('formatMoney', () => {
 describe('seatsLeftLabel', () => {
   it('speaks only when 8 or fewer remain', () => {
     expect(seatsLeftLabel(35)).toBe('')
-    expect(seatsLeftLabel(9)).toBe('')
+    expect(seatsLeftLabel(9)).toBe('9 seats left')
+    expect(seatsLeftLabel(10)).toBe('')
     expect(seatsLeftLabel(8)).toBe('8 seats left')
   })
   it('gets the singular right', () => {

@@ -95,8 +95,8 @@ describe('WorkshopCard', () => {
     expect(screen.getByTestId('workshop-photo').style.aspectRatio).toBe('4 / 3')
   })
 
-  it('says nothing about seats when more than 8 are left, or when the number is unknown', () => {
-    const { unmount } = render(<WorkshopCard workshop={makeWorkshop({ remainingSeats: 9 })} />)
+  it('says nothing about seats when 10 or more are left, or when the number is unknown', () => {
+    const { unmount } = render(<WorkshopCard workshop={makeWorkshop({ remainingSeats: 10 })} />)
     expect(screen.queryByText(/seats? left/)).toBeNull()
     unmount()
 

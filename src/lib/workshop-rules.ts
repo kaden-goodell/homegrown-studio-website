@@ -16,9 +16,9 @@ export function canBeBooked(priceCents: unknown): boolean {
 }
 
 /** Seats are mentioned only once this few remain. Above that, a number reads as an empty room. */
-export const SEATS_LEFT_THRESHOLD = 8
+export const SEATS_LEFT_THRESHOLD = 9
 
-/** "3 seats left" / "1 seat left" when 8 or fewer remain, otherwise empty. Never for zero: that is "Sold out". */
+/** "3 seats left" / "1 seat left" only when fewer than 10 remain (Kaden, 15 Oct 2026: a big number reads as "nobody's booked"), otherwise empty. Never for zero: that is "Sold out". */
 export function seatsLeftLabel(remaining?: number | null): string {
   if (remaining == null || remaining <= 0 || remaining > SEATS_LEFT_THRESHOLD) return ''
   return remaining === 1 ? '1 seat left' : `${remaining} seats left`

@@ -263,7 +263,8 @@ describe('seatsLeftLabel', () => {
   it('is shown only when 8 or fewer seats remain', () => {
     expect(seatsLeftLabel(8)).toBe('8 seats left')
     expect(seatsLeftLabel(3)).toBe('3 seats left')
-    expect(seatsLeftLabel(9)).toBe('')
+    expect(seatsLeftLabel(9)).toBe('9 seats left')
+    expect(seatsLeftLabel(10)).toBe('')
     expect(seatsLeftLabel(20)).toBe('')
   })
 
