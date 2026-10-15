@@ -38,6 +38,8 @@ export interface StudioEvent {
   signupCutoffHours?: number | null
   /** Seats the class holds in all: Square's figure, else the class's own setting. */
   capacity?: number
+  /** Guests the host booked (parties only). */
+  guests?: number
   /** Present only when an event-meta override exists for this event. */
   updatedAt?: string
   by?: By
@@ -93,6 +95,7 @@ function partyEvent(id: string, p: PartyRecord, meta: EventMeta | null): StudioE
     dropOff: meta?.dropOff ?? p.dropOff ?? false,
     options: [],
     signupCutoffHours: null,
+    ...(typeof p.guestCount === 'number' ? { guests: p.guestCount } : {}),
     ...(meta ? { updatedAt: meta.updatedAt, by: meta.by } : {}),
   }
 }

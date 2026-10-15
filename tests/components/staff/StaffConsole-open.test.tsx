@@ -34,26 +34,26 @@ describe('StaffConsole ?open=', () => {
     expect(screen.getByRole('button', { name: '+ Add family' })).toBeInTheDocument()
   })
 
-  it('without the param it lands on Today', async () => {
+  it('without the param it lands on This week', async () => {
     history.replaceState(null, '', '/staff')
     serve()
     render(<StaffConsole />)
-    expect((await screen.findByRole('button', { name: 'Today' })).getAttribute('aria-current')).toBe('page')
+    expect((await screen.findByRole('button', { name: 'This week' })).getAttribute('aria-current')).toBe('page')
   })
 
-  it('ignores a malformed open value (lands on Today, still strips it)', async () => {
+  it('ignores a malformed open value (lands on This week, still strips it)', async () => {
     history.replaceState(null, '', '/staff?open=program:zzz')
     serve()
     render(<StaffConsole />)
-    expect((await screen.findByRole('button', { name: 'Today' })).getAttribute('aria-current')).toBe('page')
+    expect((await screen.findByRole('button', { name: 'This week' })).getAttribute('aria-current')).toBe('page')
     await waitFor(() => expect(window.location.search).toBe(''))
   })
 
-  it.each(['party:../../x', 'program:abc', 'party:a/b', 'party:'])('ignores open=%s (lands on Today, strips it)', async (v) => {
+  it.each(['party:../../x', 'program:abc', 'party:a/b', 'party:'])('ignores open=%s (lands on This week, strips it)', async (v) => {
     history.replaceState(null, '', `/staff?open=${v}`)
     serve()
     render(<StaffConsole />)
-    expect((await screen.findByRole('button', { name: 'Today' })).getAttribute('aria-current')).toBe('page')
+    expect((await screen.findByRole('button', { name: 'This week' })).getAttribute('aria-current')).toBe('page')
     await waitFor(() => expect(window.location.search).toBe(''))
   })
 })

@@ -7,6 +7,8 @@ import PickStaff from '@components/staff/PickStaff'
 import StaffHeader from '@components/staff/StaffHeader'
 import Today from '@components/staff/Today'
 import Upcoming from '@components/staff/Upcoming'
+import ThisWeek from '@components/staff/ThisWeek'
+import SwitchPersonSheet from '@components/staff/SwitchPersonSheet'
 import { readDayParam, writeDayParam } from '@components/staff/EventList'
 import { StaffNavContext, type StaffNav, type StaffTab } from '@components/staff/nav'
 import GiftCards from '@components/staff/GiftCards'
@@ -257,15 +259,16 @@ function identifyStaff(staff: StaffMember): void {
 }
 
 export default function StaffConsole() {
-  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'today' | 'upcoming' | 'roster' | 'kits' | 'giftcards'>('checking')
+  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'week' | 'today' | 'upcoming' | 'roster' | 'kits' | 'giftcards'>('checking')
   // Which list a roster was opened from, so its Back and the active tab match.
-  const [lastList, setLastList] = useState<'today' | 'upcoming'>('today')
+  const [lastList, setLastList] = useState<'week' | 'today' | 'upcoming'>('week')
   const [kitBuckets, setKitBuckets] = useState<KitBuckets | null>(null)
   const [radar, setRadar] = useState<RadarRow[]>([])
   const [assembly, setAssembly] = useState<KitAssembly | null>(null)
   const [passcode, setPasscode] = useState('')
   const [loginError, setLoginError] = useState<string | null>(null)
   const [staffRoster, setStaffRoster] = useState<StaffMember[]>([])
+  const [switchOpen, setSwitchOpen] = useState(false)
   const [me, setMe] = useState<StaffMember | null>(null)
   const [pickBusy, setPickBusy] = useState(false)
   const [pickError, setPickError] = useState<string | null>(null)
@@ -285,7 +288,8 @@ export default function StaffConsole() {
     const target = pendingOpen.current
     pendingOpen.current = null
     // A ?day in the address means someone was looking ahead: land back on Upcoming.
-    if (target) { setRosterTarget(target); setPhase('roster') } else setPhase(readDayParam() ? 'upcoming' : 'today')
+    // Otherwise land on This week (Kaden, 15 Oct 2026: the default page).
+    if (target) { setRosterTarget(target); setPhase('roster') } else setPhase(readDayParam() ? 'upcoming' : 'week')
   }
 
   // Recover the signed-in staffer from the identity cookie on mount, so a
@@ -355,14 +359,10 @@ export default function StaffConsole() {
     }
   }
 
-  /** Back to the name grid without re-entering the passcode. Only works if
-   *  the passcode is still in memory (this browser session logged in the
-   *  normal way) — a session recovered from the cookie after a reload never
-   *  saw the passcode, so Switch falls back to asking for it again. */
+  /** "Switch person": a flyout of the team, no passcode screen (Kaden,
+   *  15 Oct 2026). Being signed in on this device is the proof. */
   function switchStaff() {
-    setPickError(null)
-    setPickAuthFailed(false)
-    setPhase(passcodeRef.current ? 'pick' : 'login')
+    setSwitchOpen(true)
   }
 
   async function logout() {
@@ -420,7 +420,7 @@ export default function StaffConsole() {
    *  `getEvent`/`roster.json` resolves (party, workshop) — HOM-213 replaced
    *  the party-only screen with a generalized one. */
   function openRoster(e: { kind: EventKind; id: string; title: string; addFamily?: { household?: HouseholdMatch } }) {
-    if (phase === 'today' || phase === 'upcoming') setLastList(phase)
+    if (phase === 'week' || phase === 'today' || phase === 'upcoming') setLastList(phase)
     setRosterTarget({ kind: e.kind, id: e.id, ...(e.addFamily ? { addFamily: e.addFamily } : {}) })
     setPhase('roster')
   }
@@ -464,7 +464,7 @@ export default function StaffConsole() {
     </div>
   )
 
-  const activeTab: StaffTab = phase === 'roster' ? lastList : phase === 'upcoming' || phase === 'kits' || phase === 'giftcards' ? phase : 'today'
+  const activeTab: StaffTab = phase === 'roster' ? lastList : phase === 'week' || phase === 'upcoming' || phase === 'kits' || phase === 'giftcards' ? phase : 'today'
   const nav: StaffNav = {
     active: activeTab,
     go: (tab) => {
@@ -476,7 +476,23 @@ export default function StaffConsole() {
     switchStaff,
     logout,
   }
-  const withNav = (node: ReactNode) => <StaffNavContext.Provider value={nav}>{node}</StaffNavContext.Provider>
+  const withNav = (node: ReactNode) => (
+    <StaffNavContext.Provider value={nav}>
+      {node}
+      {switchOpen && me && (
+        <SwitchPersonSheet
+          current={me}
+          onClose={() => setSwitchOpen(false)}
+          onSwitched={(staff) => { setMe(staff); setSwitchOpen(false) }}
+          onSignedOut={() => { setSwitchOpen(false); setMe(null); setPhase('login') }}
+        />
+      )}
+    </StaffNavContext.Provider>
+  )
+
+  if (phase === 'week') {
+    return withNav(<ThisWeek staff={me} onOpenRoster={openRoster} />)
+  }
 
   if (phase === 'today') {
     return withNav(<Today staff={me} onOpenRoster={openRoster} />)
@@ -496,7 +512,7 @@ export default function StaffConsole() {
         key={`${rosterTarget.kind}:${rosterTarget.id}`}
         staff={me}
         onBack={() => { setRosterTarget(null); setPhase(lastList) }}
-        backLabel={lastList === 'upcoming' ? 'Upcoming' : 'Today'}
+        backLabel={lastList === 'upcoming' ? 'Upcoming' : lastList === 'week' ? 'This week' : 'Today'}
         kind={rosterTarget.kind}
         id={rosterTarget.id}
         addFamily={rosterTarget.addFamily}
