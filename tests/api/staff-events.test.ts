@@ -13,6 +13,9 @@ const listing = (events: any[], sources: any = { parties: 'ok', workshops: 'ok' 
 const mockListRsvpsByEvent = vi.fn()
 vi.mock('@lib/rsvp-store', () => ({ listRsvpsByEvent: (...a: any[]) => mockListRsvpsByEvent(...a) }))
 
+const mockSeatChoices = vi.fn()
+vi.mock('@lib/seat-choices', () => ({ listSeatChoicesByEvent: (...a: any[]) => mockSeatChoices(...a) }))
+
 const mockGetCheckin = vi.fn()
 vi.mock('@lib/checkin-store', async (importOriginal) => {
   const actual: any = await importOriginal()
@@ -147,5 +150,38 @@ describe('GET /api/staff/events.json', () => {
     mockListEvents.mockResolvedValue(listing([], { parties: 'error', workshops: 'error' }))
     const res = await GET(ctx('?date=2026-10-20'))
     expect(res.status).toBe(503)
+  })
+
+  describe('prep list on classes with seat questions', () => {
+    const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
+    const cls = (over: any = {}) => ({ kind: 'workshop', id: 'clssch_p', title: 'Pails', startIso: '2026-10-18T18:00:00Z', days: ['2026-10-18'], dropOff: true, capacity: 35, seats: 29, options: [PAILS], ...over })
+    const rec = (choices: string[]) => ({ picks: choices.map((choice, i) => ({ seat: i + 1, optionId: 'pumpkin-color', choice })) })
+
+    it('adds the counts and how many sold seats have no pick', async () => {
+      mockListEvents.mockResolvedValue(listing([cls()]))
+      mockListRsvpsByEvent.mockResolvedValue([])
+      mockSeatChoices.mockResolvedValue([rec(['Lavender', 'Black']), rec(['Lavender'])])
+      const body = await (await GET(ctx('?date=2026-10-18'))).json()
+      expect(body.data.events[0].prep).toEqual([
+        { id: 'pumpkin-color', label: 'Pumpkin color', counts: [{ choice: 'Lavender', n: 2 }, { choice: 'Black', n: 1 }], unpicked: 3 },
+      ])
+    })
+
+    it('a class without questions, or a party, gets no prep and no extra lookups', async () => {
+      mockListEvents.mockResolvedValue(listing([cls({ options: [] }), { kind: 'party', id: 'bk1', title: 'Party', startIso: '2026-10-18T18:00:00Z', days: ['2026-10-18'], dropOff: false }]))
+      mockListRsvpsByEvent.mockResolvedValue([])
+      const body = await (await GET(ctx('?date=2026-10-18'))).json()
+      expect(body.data.events.map((e: any) => e.prep)).toEqual([undefined, undefined])
+      expect(mockSeatChoices).not.toHaveBeenCalled()
+    })
+
+    it('a failed picks read leaves the line off but still shows the day', async () => {
+      mockListEvents.mockResolvedValue(listing([cls()]))
+      mockListRsvpsByEvent.mockResolvedValue([])
+      mockSeatChoices.mockRejectedValue(new Error('blobs down'))
+      const res = await GET(ctx('?date=2026-10-18'))
+      expect(res.status).toBe(200)
+      expect((await res.json()).data.events[0].prep).toBeUndefined()
+    })
   })
 })

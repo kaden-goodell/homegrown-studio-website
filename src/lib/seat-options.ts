@@ -256,3 +256,30 @@ export function picksShort(picks: SeatPick[]): string {
   for (const p of picks) counts.set(p.choice, (counts.get(p.choice) ?? 0) + 1)
   return [...counts].map(([c, n]) => `${c} ×${n}`).join(', ')
 }
+
+/** One question's prep list: each choice and how many seats picked it, most first. */
+export interface PrepOption {
+  id: string
+  label: string
+  counts: { choice: string; n: number }[]
+  /** Seats sold with no pick for this question yet (e.g. added in Square by hand). */
+  unpicked: number
+}
+
+/**
+ * What to get ready for a class (Kaden, 15 Oct 2026: "so we can prepare a
+ * little better"), shared by the Today list and the roster's Prep card.
+ * `seatsSold` null = unknown, so nothing is called unpicked.
+ */
+export function prepOptions(options: SeatOption[], totals: Record<string, Record<string, number>>, seatsSold: number | null): PrepOption[] {
+  return options.map((o) => {
+    const t = totals[o.id] ?? {}
+    const counts = o.choices
+      .map((choice, i) => ({ choice, n: t[choice] ?? 0, i }))
+      .filter((c) => c.n > 0)
+      .sort((a, b) => b.n - a.n || a.i - b.i)
+      .map(({ choice, n }) => ({ choice, n }))
+    const picked = counts.reduce((s, c) => s + c.n, 0)
+    return { id: o.id, label: o.label, counts, unpicked: seatsSold === null ? 0 : Math.max(0, seatsSold - picked) }
+  })
+}

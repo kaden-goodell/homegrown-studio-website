@@ -11,7 +11,7 @@ import { formatWhen, studioDate } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
 import type { EventKind, StudioEvent } from '@lib/events'
 import type { IncidentRecord } from '@lib/incident-store'
-import { picksShort, totalsLine } from '@lib/seat-options'
+import { picksShort, prepOptions } from '@lib/seat-options'
 import type { RosterChoices } from '@lib/seat-choices'
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
@@ -330,22 +330,42 @@ export default function Roster({
       {picksUnknown && (
         <p style={{ margin: '0 0 0.8rem', fontSize: '0.875rem', color: 'var(--color-muted)', textAlign: 'center' }}>Picks unavailable — reload the page</p>
       )}
-      {choices && options.length > 0 && (
-        <div data-testid="picks-totals" style={{ ...card, background: 'rgba(255,255,255,0.85)' }}>
-          {options.map((o) => {
-            const totals = choices.totals[o.id] ?? {}
-            const picked = Object.values(totals).reduce((n, x) => n + x, 0)
-            return (
-              <p key={o.id} style={{ margin: 0, fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-dark)' }}>
-                <span>{totalsLine(o, totals)}</span>{' '}
-                <span style={{ fontWeight: 400, color: 'var(--color-muted)' }}>
-                  {choices.seatsSold !== null ? `(${choices.seatsSold} seats sold)` : `(${picked} seats picked)`}
-                </span>
-              </p>
-            )
-          })}
-        </div>
-      )}
+      {choices && options.length > 0 && (() => {
+        const prep = prepOptions(options, choices.totals, choices.seatsSold)
+        const picked = Math.max(...prep.map((o) => o.counts.reduce((n, c) => n + c.n, 0)), 0)
+        const seats = choices.seatsSold ?? picked
+        return (
+          <section data-testid="picks-totals" aria-label="Prep" style={{ ...card, background: 'rgba(255,255,255,0.92)', borderLeft: '4px solid var(--color-primary)' }}>
+            <p style={{ margin: '0 0 0.5rem', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--color-primary)' }}>
+              PREP · {seats} SEAT{seats === 1 ? '' : 'S'}
+            </p>
+            {prep.map((o) => (
+              <div key={o.id} style={{ marginBottom: '0.6rem' }}>
+                <p style={{ margin: '0 0 0.25rem', fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-dark)' }}>{o.label}</p>
+                {o.counts.length === 0 ? (
+                  <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--color-muted)' }}>No picks yet</p>
+                ) : (
+                  <table style={{ borderCollapse: 'collapse', fontSize: '1rem', color: 'var(--color-dark)' }}>
+                    <tbody>
+                      {o.counts.map((c) => (
+                        <tr key={c.choice}>
+                          <td style={{ padding: '0.15rem 1.5rem 0.15rem 0.25rem' }}>{c.choice}</td>
+                          <td style={{ padding: '0.15rem 0', fontWeight: 700, fontVariantNumeric: 'tabular-nums', textAlign: 'right' }}>{c.n}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+                {o.unpicked > 0 && (
+                  <p role="note" style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: 'var(--color-error)' }}>
+                    ⚠ {o.unpicked} seat{o.unpicked === 1 ? ' has' : 's have'} no pick yet
+                  </p>
+                )}
+              </div>
+            ))}
+          </section>
+        )
+      })()}
 
       {addFamilyOpen && (
         <AddFamilySheet

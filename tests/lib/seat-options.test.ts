@@ -204,3 +204,23 @@ describe('roster wording', () => {
     expect(picksShort([p(1, 'Lavender'), p(2, 'Lavender'), p(3, 'Black')])).toBe('Lavender ×2, Black ×1')
   })
 })
+
+import { prepOptions } from '@lib/seat-options'
+describe('prepOptions (the Today line and the roster Prep card)', () => {
+  const pails = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
+  it('lists each picked choice with its count, most first, ties in the class’s order', () => {
+    expect(prepOptions([pails], { 'pumpkin-color': { Lavender: 3, Black: 2, 'Light Pink': 2 } }, 7)).toEqual([
+      { id: 'pumpkin-color', label: 'Pumpkin color', counts: [{ choice: 'Lavender', n: 3 }, { choice: 'Light Pink', n: 2 }, { choice: 'Black', n: 2 }], unpicked: 0 },
+    ])
+  })
+  it('says how many sold seats have no pick yet', () => {
+    expect(prepOptions([pails], { 'pumpkin-color': { Lavender: 3 } }, 5)[0].unpicked).toBe(2)
+  })
+  it('calls nothing unpicked when seats sold is unknown, or picks exceed it', () => {
+    expect(prepOptions([pails], { 'pumpkin-color': { Lavender: 3 } }, null)[0].unpicked).toBe(0)
+    expect(prepOptions([pails], { 'pumpkin-color': { Lavender: 3 } }, 2)[0].unpicked).toBe(0)
+  })
+  it('a question with no picks has an empty list', () => {
+    expect(prepOptions([pails], {}, 4)[0]).toEqual({ id: 'pumpkin-color', label: 'Pumpkin color', counts: [], unpicked: 4 })
+  })
+})

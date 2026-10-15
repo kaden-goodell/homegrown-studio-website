@@ -230,7 +230,7 @@ describe('Roster — seat picks (spec D)', () => {
     })
   }
 
-  it('shows the totals strip, the family’s picks, and who has paid but not signed in', async () => {
+  it('shows the Prep card, the family’s picks, and who has paid but not signed in', async () => {
     serveRoster({
       totals: { 'pumpkin-color': { Lavender: 6, Black: 4, 'Light Pink': 3, 'Light Blue': 2 } },
       byEmail: { 'jamie@x.com': [p(1, 'Lavender'), p(2, 'Lavender')] },
@@ -238,12 +238,23 @@ describe('Roster — seat picks (spec D)', () => {
       seatsSold: 15,
     })
     renderRoster()
-    expect(await screen.findByText('Pumpkin color — Lavender 6 · Black 4 · Light Pink 3 · Light Blue 2')).toBeInTheDocument()
-    expect(screen.getByText('(15 seats sold)')).toBeInTheDocument()
+    const prep = await screen.findByRole('region', { name: 'Prep' })
+    expect(within(prep).getByText('PREP · 15 SEATS')).toBeInTheDocument()
+    expect(within(prep).getByText('Pumpkin color')).toBeInTheDocument()
+    // One row per color, most first.
+    expect(within(prep).getAllByRole('row').map((r) => r.textContent)).toEqual(['Lavender6', 'Black4', 'Light Pink3', 'Light Blue2'])
+    expect(within(prep).queryByRole('note')).toBeNull()
     expect(screen.getByText('Picks: Lavender ×2')).toBeInTheDocument()
     expect(screen.getByText('Paid or comped, not signed in yet')).toBeInTheDocument()
     expect(screen.getByText('Bo Test · 1 seat · Picks: Black ×1')).toBeInTheDocument()
     expect(screen.queryByText('comped')).toBeNull()
+  })
+
+  it('warns when some sold seats have no pick yet (e.g. added in Square by hand)', async () => {
+    serveRoster({ totals: { 'pumpkin-color': { Lavender: 3, Black: 2 } }, byEmail: {}, unmatched: [], seatsSold: 7 })
+    renderRoster()
+    const prep = await screen.findByRole('region', { name: 'Prep' })
+    expect(within(prep).getByRole('note')).toHaveTextContent('⚠ 2 seats have no pick yet')
   })
 
   it('marks a comped seat with a badge', async () => {
@@ -257,10 +268,12 @@ describe('Roster — seat picks (spec D)', () => {
     expect(await screen.findByText('comped')).toBeInTheDocument()
   })
 
-  it('counts picked seats when Square gave no capacity', async () => {
+  it('counts picked seats when Square gave no capacity, and calls nothing unpicked', async () => {
     serveRoster({ totals: { 'pumpkin-color': { Lavender: 2, Black: 1 } }, byEmail: {}, unmatched: [], seatsSold: null })
     renderRoster()
-    expect(await screen.findByText('(3 seats picked)')).toBeInTheDocument()
+    const prep = await screen.findByRole('region', { name: 'Prep' })
+    expect(within(prep).getByText('PREP · 3 SEATS')).toBeInTheDocument()
+    expect(within(prep).queryByRole('note')).toBeNull()
     expect(screen.queryByText('Paid or comped, not signed in yet')).toBeNull()
   })
 
@@ -268,7 +281,7 @@ describe('Roster — seat picks (spec D)', () => {
     serveRoster(null, { ...PAILS_EVENT, options: [] })
     renderRoster()
     await screen.findAllByText('Jamie Rivera')
-    expect(screen.queryByText(/^Pumpkin color —/)).toBeNull()
+    expect(screen.queryByRole('region', { name: 'Prep' })).toBeNull()
     expect(screen.queryByText(/^Picks:/)).toBeNull()
   })
 

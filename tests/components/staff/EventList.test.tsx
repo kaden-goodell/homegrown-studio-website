@@ -67,4 +67,31 @@ describe('EventList day in the address', () => {
     render(<EventList date={TODAY} stepper={false} onOpenRoster={() => {}} />)
     expect(await screen.findByText(/of 35 sold/)).toHaveTextContent('12 of 35 sold')
   })
+
+  const row = (over: any) => ({ kind: 'workshop', id: 'clssch_p', title: 'Bedazzled Pumpkin Pails', startIso: '2026-10-18T18:00:00Z', days: ['2026-10-18'], dropOff: true, capacity: 35, seats: 28, rsvpCount: 3, hereNow: 0, ...over })
+  const serve = (events: any[]) => fetchMock.mockImplementation(async () => ({ ok: true, json: async () => ({ data: { events, sources: {} } }) }))
+
+  it('shows the prep line under a class with picks', async () => {
+    serve([row({ prep: [{ id: 'pumpkin-color', label: 'Pumpkin color', counts: [{ choice: 'Lavender', n: 3 }, { choice: 'Black', n: 2 }], unpicked: 2 }] })])
+    render(<EventList date={TODAY} stepper={false} onOpenRoster={() => {}} />)
+    const line = await screen.findByTestId('prep-line')
+    expect(line).toHaveTextContent('PREPLavender 3 · Black 2 · 2 no pick yet')
+  })
+
+  it('names each question when a class asks more than one', async () => {
+    serve([row({ prep: [
+      { id: 'a', label: 'Pumpkin color', counts: [{ choice: 'Black', n: 1 }], unpicked: 0 },
+      { id: 'b', label: 'Ribbon', counts: [{ choice: 'Gold', n: 1 }], unpicked: 0 },
+    ] })])
+    render(<EventList date={TODAY} stepper={false} onOpenRoster={() => {}} />)
+    const lines = await screen.findAllByTestId('prep-line')
+    expect(lines.map((l) => l.textContent)).toEqual(['PREPPumpkin color: Black 1', 'PREPRibbon: Gold 1'])
+  })
+
+  it('no prep line for a class without questions', async () => {
+    serve([row({})])
+    render(<EventList date={TODAY} stepper={false} onOpenRoster={() => {}} />)
+    await screen.findByText(/of 35 sold/)
+    expect(screen.queryByTestId('prep-line')).toBeNull()
+  })
 })

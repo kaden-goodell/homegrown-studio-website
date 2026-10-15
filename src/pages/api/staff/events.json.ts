@@ -3,6 +3,8 @@ import { staffAuthorized } from '@lib/staff-auth'
 import { listEvents, eventKey } from '@lib/events'
 import { listRsvpsByEvent } from '@lib/rsvp-store'
 import { getCheckin, presenceOn } from '@lib/checkin-store'
+import { listSeatChoicesByEvent } from '@lib/seat-choices'
+import { choiceTotals, prepOptions, type PrepOption, type SeatOption } from '@lib/seat-options'
 import { createLogger } from '@lib/logger'
 
 export const prerender = false
@@ -36,7 +38,7 @@ export const GET: APIRoute = async ({ request, url }) => {
         // shouldn't include attendance from a different day (HOM-213).
         const hereNow = checkins.reduce((n, c) => n + Object.values(presenceOn(c, date)).filter((p) => !p.outAt).length, 0)
         // `rsvpWaiverIds` lets the door screen highlight the event a household already RSVP'd to.
-        return { ...e, rsvpCount: rsvps.length, hereNow, rsvpWaiverIds: rsvps.map((r) => r.waiverId) }
+        return { ...e, rsvpCount: rsvps.length, hereNow, rsvpWaiverIds: rsvps.map((r) => r.waiverId), ...(await prepFor(e)) }
       }),
     )
     return new Response(JSON.stringify({ data: { events: withCounts, sources } }), {
@@ -46,5 +48,24 @@ export const GET: APIRoute = async ({ request, url }) => {
   } catch (err) {
     logger.error('Events load failed', { date, error: err instanceof Error ? err.message : String(err) })
     return new Response(JSON.stringify({ error: 'Couldn’t reach storage — check wifi and try again.' }), { status: 503 })
+  }
+}
+
+/**
+ * A workshop with seat questions carries its prep list ("Lavender 3 ·
+ * Black 2"), so Today shows it without opening the roster. Never fails the
+ * day: a read that fails just leaves the line off.
+ */
+async function prepFor(e: { kind: string; id: string; capacity?: number; seats?: number; options?: SeatOption[] }): Promise<{ prep?: PrepOption[] }> {
+  if (e.kind !== 'workshop') return {}
+  try {
+    const options = e.options ?? []
+    if (options.length === 0) return {}
+    const records = await listSeatChoicesByEvent('workshop', e.id)
+    const sold = typeof e.capacity === 'number' && typeof e.seats === 'number' ? e.capacity - e.seats : null
+    return { prep: prepOptions(options, choiceTotals(options, records.flatMap((r) => r.picks)), sold) }
+  } catch (err) {
+    logger.warn('Prep list not built', { id: e.id, error: err instanceof Error ? err.message : String(err) })
+    return {}
   }
 }

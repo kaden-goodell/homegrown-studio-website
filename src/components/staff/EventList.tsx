@@ -3,9 +3,12 @@ import { card, btn, Badge } from '@components/staff/ui'
 import { formatTime, formatCalendarDay } from '@lib/studio-time'
 import { addDays } from '@lib/kit-dates'
 import type { EventKind, EventSources, StudioEvent } from '@lib/events'
+import type { PrepOption } from '@lib/seat-options'
 
 export interface EventRow extends StudioEvent {
   rsvpCount: number
+  /** What to get ready (classes with seat questions): "Lavender 3 · Black 2". */
+  prep?: PrepOption[]
   hereNow: number
   rsvpWaiverIds?: string[]
 }
@@ -167,6 +170,14 @@ export default function EventList({
               )}
               <strong style={{ color: 'var(--color-dark)' }}>{e.rsvpCount}</strong> RSVP’d · <strong style={{ color: 'var(--color-dark)' }}>{e.hereNow}</strong> here
             </p>
+            {e.prep?.map((o) => (
+              <p key={o.id} data-testid="prep-line" style={{ margin: '0.4rem 0 0', fontSize: '0.9rem', color: 'var(--color-dark)', lineHeight: 1.45 }}>
+                <span style={{ fontSize: '0.7rem', fontWeight: 700, letterSpacing: '0.1em', color: 'var(--color-primary)', marginRight: '0.45rem' }}>PREP</span>
+                {e.prep!.length > 1 && <span style={{ color: 'var(--color-muted)' }}>{o.label}: </span>}
+                {o.counts.length ? o.counts.map((c) => `${c.choice} ${c.n}`).join(' · ') : <span style={{ color: 'var(--color-muted)' }}>no picks yet</span>}
+                {o.unpicked > 0 && o.counts.length > 0 && <span style={{ color: 'var(--color-muted)' }}>{` · ${o.unpicked} no pick yet`}</span>}
+              </p>
+            ))}
           </button>
         )
       })}
