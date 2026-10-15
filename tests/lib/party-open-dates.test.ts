@@ -46,9 +46,9 @@ describe('openPartyStartsInWindow', () => {
   it('lists the party days (Thu–Sun) inside the booking window, and nothing past it', async () => {
     const starts = await openPartyStartsInWindow(NOW)
     const open = days(starts)
-    // Parties start Sat 7 Nov; the Halloween weekend before it is closed anyway.
-    expect(open[0]).toBe('2026-11-07')
-    expect(open.slice(0, 6)).toEqual(['2026-11-07', '2026-11-08', '2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15'])
+    // Parties start the weekend of 7 Nov; Sat 7 Nov itself is the Craft Café grand opening (no parties).
+    expect(open[0]).toBe('2026-11-08')
+    expect(open.slice(0, 5)).toEqual(['2026-11-08', '2026-11-12', '2026-11-13', '2026-11-14', '2026-11-15'])
     // The window ends Fri 8 Jan, a party day itself (4:00); nothing later.
     expect(open[open.length - 1]).toBe('2027-01-08')
     expect(open.every((d) => d <= '2027-01-08')).toBe(true)
@@ -71,8 +71,8 @@ describe('openPartyStartsInWindow', () => {
   })
 
   it('counts a cancelled booking as free', async () => {
-    mockListBookings.mockResolvedValue([booked('2026-11-07T19:30:00.000Z', { status: 'cancelled' })])
-    expect(await openPartyStartsInWindow(NOW)).toContain('2026-11-07T19:30:00.000Z')
+    mockListBookings.mockResolvedValue([booked('2026-11-14T19:30:00.000Z', { status: 'cancelled' })])
+    expect(await openPartyStartsInWindow(NOW)).toContain('2026-11-14T19:30:00.000Z')
   })
 
   it('offers nothing at all in the days the studio is closed for Christmas', async () => {

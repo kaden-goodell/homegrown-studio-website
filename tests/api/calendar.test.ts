@@ -197,9 +197,11 @@ describe('GET /api/calendar.json', () => {
     const parties = body.events.filter((e: any) => e.kind === 'party-available')
     expect(parties.length).toBeGreaterThan(0)
     for (const p of parties) expect(p.date.startsWith('2026-11')).toBe(true)
-    // Parties start on Saturday 7 Nov, after the clocks change; a Saturday has one party, at 1:30 PM.
-    expect(parties[0]).toMatchObject({ date: '2026-11-07', startTime: '13:30' })
-    expect(parties.filter((p: any) => p.date === '2026-11-07')).toHaveLength(1)
+    // Parties start the weekend of 7 Nov, but Sat 7 Nov is the all-day Craft Café grand
+    // opening (no parties), so the first is Sun 8 Nov at 1:00. A Saturday has one party, at 1:30 PM.
+    expect(parties.filter((p: any) => p.date === '2026-11-07')).toHaveLength(0)
+    expect(parties[0]).toMatchObject({ date: '2026-11-08', startTime: '13:00' })
+    expect(parties.filter((p: any) => p.date === '2026-11-14')).toEqual([expect.objectContaining({ startTime: '13:30' })])
   })
 
   it('offers no party time on a day the studio has closed', async () => {

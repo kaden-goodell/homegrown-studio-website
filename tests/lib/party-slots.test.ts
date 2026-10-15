@@ -69,8 +69,8 @@ describe('bookableOn', () => {
 
 describe('partyStartsForDate', () => {
   it('offers a Saturday its one party time (1:30 PM) for a date inside the window', () => {
-    // Saturday 7 Nov 2026: 1:30 PM Central (CST, UTC-6).
-    expect(partyStartsForDate('2026-11-07', SEP_27)).toEqual(['2026-11-07T19:30:00.000Z'])
+    // Saturday 14 Nov 2026: 1:30 PM Central (CST, UTC-6).
+    expect(partyStartsForDate('2026-11-14', SEP_27)).toEqual(['2026-11-14T19:30:00.000Z'])
   })
 
   it('offers a Sunday two party times (1:00 and 3:30 PM)', () => {
@@ -110,7 +110,7 @@ describe('partyStartsInRange', () => {
   it('never returns a party time outside the window, however wide the range asked for', () => {
     const starts = partyStartsInRange('2026-09-27T17:00:00.000Z', '2027-03-01T06:00:00.000Z', SEP_27)
     const dates = [...new Set(starts.map((s) => localDate(s)))]
-    expect(dates[0]).toBe('2026-11-07') // first Saturday on or after the party start date
+    expect(dates[0]).toBe('2026-11-08') // Sat 7 Nov is the Craft Café grand opening, so the first party day is Sun 8 Nov
     // The window ends Sat 26 Dec, but the studio is closed 21 Dec to 1 Jan: the last party day is Sun 20 Dec.
     expect(dates[dates.length - 1]).toBe('2026-12-20')
     for (const d of dates) {
@@ -121,3 +121,12 @@ describe('partyStartsInRange', () => {
   })
 })
 
+
+import { partyStartsForDate as startsOn } from '@lib/party-slots'
+describe('party-free days (Craft Café grand opening, Sat Nov 7)', () => {
+  it('offers no party times on Nov 7, though a normal Saturday has its 1:30', () => {
+    const now = new Date('2026-10-15T15:00:00Z')
+    expect(startsOn('2026-11-07', now)).toEqual([])
+    expect(startsOn('2026-11-14', now)).toHaveLength(1)
+  })
+})

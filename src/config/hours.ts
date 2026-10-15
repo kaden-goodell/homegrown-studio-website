@@ -33,6 +33,37 @@ export const CAFE_HOURS: HoursEntry[] = [
   { days: ['Saturday'], opens: '09:00', closes: '12:00' },
 ]
 
+/**
+ * One-off Craft Café days that replace the weekly hours for that date, on
+ * top of (or instead of) CAFE_HOURS. Party times are kept off these days too
+ * (see `partyFreeDays` in party.config.ts).
+ */
+export interface CafeSpecialDay {
+  /** Studio-local YYYY-MM-DD. */
+  date: string
+  /** HH:MM, 24-hour */
+  opens: string
+  /** HH:MM, 24-hour */
+  closes: string
+  name: string
+}
+
+export const CAFE_SPECIAL_DAYS: CafeSpecialDay[] = [
+  // Kaden, 15 Oct 2026: "Make craft cafe all day November 7th. We're going to
+  // do a big giant grand opening." All day = the Saturday studio hours.
+  { date: '2026-11-07', opens: '09:00', closes: '21:00', name: 'Craft Café grand opening' },
+]
+
+/** Café hours on a date: a special day wins over the weekly hours. Null when there's no café that day. */
+export function cafeHoursOn(ymd: string): { opens: string; closes: string } | null {
+  const special = CAFE_SPECIAL_DAYS.find((d) => d.date === ymd)
+  if (special) return { opens: special.opens, closes: special.closes }
+  const [y, m, d] = ymd.split('-').map(Number)
+  const weekday = (['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const)[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
+  const weekly = CAFE_HOURS.find((h) => h.days.includes(weekday))
+  return weekly ? { opens: weekly.opens, closes: weekly.closes } : null
+}
+
 function parts(hhmm: string): { hour: number; minute: string; period: 'AM' | 'PM' } {
   const [h, m] = hhmm.split(':').map(Number)
   return { hour: h % 12 === 0 ? 12 : h % 12, minute: String(m).padStart(2, '0'), period: h < 12 ? 'AM' : 'PM' }

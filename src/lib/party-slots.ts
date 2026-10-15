@@ -8,7 +8,7 @@
  * `firstStart`, while start + party + cleanup ≤ `lastWrap` (keeps the evening
  * workshop slot clear). See `partyDays` in party.config.ts.
  */
-import { partyConfig, partyDays, partyDateOverrides } from '../config/party.config'
+import { partyConfig, partyDays, partyDateOverrides, partyFreeDays } from '../config/party.config'
 import { closureOn } from '../config/closures'
 
 const DAY_MS = 86_400_000
@@ -114,6 +114,7 @@ export function bookableOn(
  */
 export function partyStartsForDate(ymd: string, now: Date = new Date()): string[] {
   if (bookableOn(ymd, now) !== 'ok') return []
+  if (partyFreeDays[ymd]) return []
   const [y, m, d] = ymd.split('-').map(Number)
   const weekday = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()
   const cfg = partyDateOverrides[ymd] ?? partyDays[weekday]

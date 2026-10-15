@@ -246,10 +246,11 @@ describe('bookingOpensDate clamp', () => {
 
   it('offers starts on the first party weekday on/after opening', async () => {
     const { partyStartsForDate } = await import('@lib/party-slots')
-    const { partyConfig } = await import('@config/party.config')
+    const { partyConfig, partyFreeDays } = await import('@config/party.config')
     const openMs = new Date(partyConfig.bookingOpensDate + 'T12:00:00Z').getTime()
     let ms = openMs
-    for (let i = 0; i < 8 && !isPartyWeekday(ms); i++) ms += DAY
+    // A party-free day (the Nov 7 Craft Café grand opening) is skipped like a non-party weekday.
+    for (let i = 0; i < 8 && (!isPartyWeekday(ms) || partyFreeDays[ymd(ms)]); i++) ms += DAY
     // Asked ten days before opening, so the date is inside the booking window.
     expect(partyStartsForDate(ymd(ms), new Date(openMs - 10 * DAY)).length).toBeGreaterThan(0)
   })

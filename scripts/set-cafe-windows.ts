@@ -1,7 +1,7 @@
 /**
  * Writes the Craft Café (walk-in) windows onto the Square display item the
  * calendar reads (`partyConfig.square.openStudioItemId`): one window per
- * Saturday, CAFE_HOURS, from OPEN_STUDIO_START_DATE for `--months N` (default
+ * Saturday (CAFE_HOURS, or a CAFE_SPECIAL_DAYS entry for that date), from OPEN_STUDIO_START_DATE for `--months N` (default
  * 4), skipping closed days. Also names the item "Craft Café" so the
  * dashboard matches the site.
  *
@@ -14,12 +14,10 @@
  */
 import 'dotenv/config'
 import { SquareClient, SquareEnvironment } from 'square'
-import { CAFE_HOURS } from '../src/config/hours'
+import { cafeHoursOn } from '../src/config/hours'
 import { OPEN_STUDIO_START_DATE } from '../src/config/opening'
 import { studioOpenOn } from '../src/config/closures'
 import { partyConfig } from '../src/config/party.config'
-
-const WEEKDAY: Record<string, number> = { Sunday: 0, Monday: 1, Tuesday: 2, Wednesday: 3, Thursday: 4, Friday: 5, Saturday: 6 }
 
 const args = process.argv.slice(2)
 const write = args.includes('--write')
@@ -36,21 +34,15 @@ function addDays(ymd: string, n: number): string {
   const t = new Date(Date.UTC(y, m - 1, d + n))
   return t.toISOString().slice(0, 10)
 }
-function weekdayOf(ymd: string): number {
-  const [y, m, d] = ymd.split('-').map(Number)
-  return new Date(Date.UTC(y, m - 1, d)).getUTCDay()
-}
 
 const start = OPEN_STUDIO_START_DATE
 const end = addDays(start, Math.round(months * 30.4))
 const windows: string[] = []
 for (let day = start; day <= end; day = addDays(day, 1)) {
   if (!studioOpenOn(day)) continue
-  for (const h of CAFE_HOURS) {
-    if (h.days.some((name) => WEEKDAY[name] === weekdayOf(day))) {
-      windows.push(`${day}T${h.opens}-${h.closes}`)
-    }
-  }
+  // A special day (the Nov 7 grand opening) wins over the weekly hours.
+  const h = cafeHoursOn(day)
+  if (h) windows.push(`${day}T${h.opens}-${h.closes}`)
 }
 
 // Square caps a string custom attribute at 255 characters — about eleven

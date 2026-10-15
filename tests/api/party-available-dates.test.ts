@@ -49,8 +49,9 @@ describe('POST /api/party/available-dates.json', () => {
     const { data } = await ask()
     // Parties start the weekend of 7 Nov (Halloween weekend is closed); the window ends Sat 26 Dec,
     // which is inside the Christmas closure, so the last party day is Sun 20 Dec.
-    expect(data.dates[0]).toBe('2026-11-07')
-    expect(data.dates[1]).toBe('2026-11-08')
+    // Sat 7 Nov is the all-day Craft Café grand opening: no parties.
+    expect(data.dates[0]).toBe('2026-11-08')
+    expect(data.dates).not.toContain('2026-11-07')
     expect(data.dates[data.dates.length - 1]).toBe('2026-12-20')
     expect(data.dates.every((d: string) => d >= '2026-11-07' && d <= '2026-12-26')).toBe(true)
     expect(data.dates.filter((d: string) => d >= '2026-12-21')).toEqual([])
@@ -66,14 +67,14 @@ describe('POST /api/party/available-dates.json', () => {
   it('sends the open times with each date, so the panel need not ask again', async () => {
     const { data } = await ask()
     // Saturday has one party time (1:30 PM CST), Sunday two (1:00 and 3:30 PM CST).
-    expect(data.times['2026-11-07'].map((t: any) => t.startAt)).toEqual(['2026-11-07T19:30:00.000Z'])
+    expect(data.times['2026-11-14'].map((t: any) => t.startAt)).toEqual(['2026-11-14T19:30:00.000Z'])
     expect(data.times['2026-11-08'].map((t: any) => t.startAt)).toEqual([
       '2026-11-08T19:00:00.000Z',
       '2026-11-08T21:30:00.000Z',
     ])
-    expect(data.times['2026-11-07'][0]).toEqual({
-      startAt: '2026-11-07T19:30:00.000Z',
-      endAt: '2026-11-07T21:00:00.000Z',
+    expect(data.times['2026-11-14'][0]).toEqual({
+      startAt: '2026-11-14T19:30:00.000Z',
+      endAt: '2026-11-14T21:00:00.000Z',
       durationMinutes: 90,
     })
     expect(Object.keys(data.times).sort()).toEqual(data.dates)
@@ -96,11 +97,11 @@ describe('POST /api/party/available-dates.json', () => {
   })
 
   it('lists a Saturday as booked once its single 1:30 PM time is taken', async () => {
-    mockListBookings.mockResolvedValue([booked('2026-11-07T19:30:00.000Z')])
+    mockListBookings.mockResolvedValue([booked('2026-11-14T19:30:00.000Z')])
     const { data } = await ask()
-    expect(data.dates).not.toContain('2026-11-07')
-    expect(data.dates[0]).toBe('2026-11-08')
-    expect(data.bookedDates).toEqual(['2026-11-07'])
+    expect(data.dates).not.toContain('2026-11-14')
+    expect(data.dates).toContain('2026-11-15')
+    expect(data.bookedDates).toEqual(['2026-11-14'])
   })
 
   it('does not call a day "Booked" when a class took its only party time', async () => {
