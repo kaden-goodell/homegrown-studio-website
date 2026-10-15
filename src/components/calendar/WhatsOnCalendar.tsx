@@ -858,8 +858,10 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
                       borderRadius: '4px',
                       padding: '3px 6px',
                       overflow: 'hidden',
-                      // A closure is the only thing on its day: let its name run to a second line.
-                      whiteSpace: e.holiday ? 'normal' : 'nowrap',
+                      // Names wrap instead of cutting off ("2 party times o…"), with
+                      // more room on a quiet day (Kaden, 15 Oct 2026). A closure is
+                      // the only thing on its day and runs as long as it needs.
+                      whiteSpace: 'normal',
                       textDecoration: 'none',
                       cursor: clickable ? 'pointer' : 'default',
                       transition: 'filter 0.15s ease',
@@ -867,7 +869,15 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
                     const inner = (
                       <>
                         {time && <span style={{ flexShrink: 0, fontSize: '0.625rem', fontWeight: 700, color: inkOf(e), letterSpacing: '0.02em' }}>{time}</span>}
-                        <span style={e.holiday ? undefined : { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{e.title}</span>
+                        <span
+                          style={
+                            e.holiday
+                              ? undefined
+                              : { overflow: 'hidden', display: '-webkit-box', WebkitBoxOrient: 'vertical', WebkitLineClamp: chips.length <= 1 ? 3 : 2, overflowWrap: 'anywhere', minWidth: 0 }
+                          }
+                        >
+                          {e.title}
+                        </span>
                       </>
                     )
                     return clickable ? (
