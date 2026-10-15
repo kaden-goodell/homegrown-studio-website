@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { rateLimited } from '@lib/rate-limit'
 import { checkApplication, saveApplication, emailOwners, emailArtist } from '@lib/artist-applications'
+import { alertOwners } from '@lib/owner-alert'
 import { createLogger } from '@lib/logger'
 
 export const prerender = false
@@ -34,7 +35,18 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     return json(502, { error: 'We couldn’t send that just now. Please try again in a minute.' })
   }
   const adminUrl = `${new URL(request.url).origin}/admin`
-  const [owners, artist] = await Promise.all([emailOwners(app, checked.photos, adminUrl), emailArtist(app)])
+  const [owners, artist] = await Promise.all([
+    emailOwners(app, checked.photos, adminUrl),
+    emailArtist(app),
+    alertOwners(applicationText(app.about.name, app.about.business, app.classIdea.what, adminUrl)).catch(() => undefined),
+  ])
   logger.info('Artist application received', { id: app.id, ownersEmailed: owners, artistEmailed: artist })
   return json(200, { data: { ok: true } })
+}
+
+/** "New teacher application: Lou Maker (Lou Makes), Linocut printing. Details in your email and at …/admin." */
+export function applicationText(name: string, business: string, what: string, adminUrl: string): string {
+  const idea = what.replace(/\s+/g, ' ').trim()
+  const short = idea.length > 70 ? `${idea.slice(0, 67).trimEnd()}…` : idea
+  return `New teacher application: ${name}${business ? ` (${business})` : ''}, ${short.replace(/[.]$/, '')}. Details in your email and at ${adminUrl.replace(/^https?:\/\//, '')}.`
 }
