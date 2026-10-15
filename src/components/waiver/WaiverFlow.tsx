@@ -177,13 +177,18 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
   // RSVP "who's coming" for the returning-household path: person id → coming?
   const [attending, setAttending] = useState<Record<string, boolean>>({})
   // Same idea for the fresh-form path — the signer may be dropping off, not
-  // crafting. `false` = not coming; missing key defaults to coming.
+  // crafting. `false` = not coming; a missing key defaults to coming online.
+  // On the studio iPad nobody is ticked until they say so: signing there
+  // checks in exactly the people crafting (Kaden, 15 Oct 2026).
   const [formAttending, setFormAttending] = useState<Record<string, boolean>>({})
-  const formComing = (id: string) => formAttending[id] !== false
+  const formComing = (id: string) => (kiosk ? formAttending[id] === true : formAttending[id] !== false)
 
   // Any event context RSVPs; only parties ask the responsible-adult question
   // (workshops have no drop-off/responsible-adult concept server-side).
   const hasEvent = !!(partyId || workshopId)
+  // Who's crafting is asked for any event, and on the studio iPad for a Craft
+  // Café walk-in too (that sign-in checks people in).
+  const asksWhoCrafts = hasEvent || kiosk
 
   const fullName = `${firstName.trim()} ${lastName.trim()}`.trim()
   const signatureMatches =
@@ -310,8 +315,8 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
       if (!emName) m.push('an emergency contact name')
       if (!emPhoneOk) m.push('an emergency contact phone (at least 10 digits)')
     }
-    if (hasEvent && !['adult', ...minors.map((_, i) => `child:${i}`)].some((id) => formAttending[id] !== false)) {
-      m.push('at least one person coming')
+    if (asksWhoCrafts && !['adult', ...minors.map((_, i) => `child:${i}`)].some(formComing)) {
+      m.push(kiosk ? 'who’s making a craft' : 'at least one person coming')
     }
     if (kidsWithoutSigner && signerPresent === null) {
       m.push("whether you’ll be at the party with your kids")
@@ -328,7 +333,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
     }
     if (!signatureMatches) m.push('your typed signature (must match your name exactly)')
     return m
-  }, [firstName, lastName, email, phone, ageConfirmed, minors, emergencyName, emergencyPhone, agreeRelease, signatureMatches, partyId, formAttending, kidsWithoutSigner, signerPresent, responsibleAdult, dropOff, pickupRows])
+  }, [firstName, lastName, email, phone, ageConfirmed, minors, emergencyName, emergencyPhone, agreeRelease, signatureMatches, partyId, formAttending, kiosk, asksWhoCrafts, kidsWithoutSigner, signerPresent, responsibleAdult, dropOff, pickupRows])
 
   const canSubmit = missing.length === 0 && !submitting
 
@@ -1130,8 +1135,8 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
         ))}
       </div>
 
-      {/* Who's coming — any event context (party, workshop), incl. the staff kiosk */}
-      {hasEvent && (
+      {/* Who's crafting — any event context (party, workshop), and every sign-in on the studio iPad */}
+      {asksWhoCrafts && (
         <div style={cardStyle}>
           <h2 style={sectionHeadingStyle}>Who’s making a craft?</h2>
           <p style={sectionNoteStyle}>
@@ -1153,7 +1158,7 @@ export default function WaiverFlow({ partyId, partyLabel, workshopId, eventTitle
           ))}
           {!['adult', ...minors.map((_, i) => `child:${i}`)].some(formComing) && (
             <p style={{ fontSize: '0.8125rem', color: 'rgb(185,28,28)', margin: '0.4rem 0 0', fontWeight: 600 }}>
-              Pick at least one person who’s coming.
+              {kiosk ? 'Check who’s making a craft today.' : 'Pick at least one person who’s coming.'}
             </p>
           )}
           {kidsWithoutSigner && presenceBlock('wv')}

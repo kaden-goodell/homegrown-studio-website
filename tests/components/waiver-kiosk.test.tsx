@@ -13,7 +13,7 @@ function mockSignSuccess() {
 /** Fills every field the full form requires to submit, using ids (several
  *  labels — "Phone", "Name" — are ambiguous between the adult and emergency
  *  sections, so ids are the reliable selector here). */
-function fillMinimalForm(container: HTMLElement) {
+function fillMinimalForm(container: HTMLElement, opts: { crafting?: boolean } = {}) {
   const set = (id: string, value: string) => {
     const el = container.querySelector(`#${id}`) as HTMLInputElement
     fireEvent.change(el, { target: { value } })
@@ -26,6 +26,8 @@ function fillMinimalForm(container: HTMLElement) {
   set('wv-em-name', 'Bob Rivera')
   set('wv-em-phone', '2565559999')
   fireEvent.click(screen.getByText(waiverContent.form.photoNo))
+  // On the studio iPad nobody is ticked as crafting until they say so.
+  if (opts.crafting !== false) fireEvent.click(screen.getByLabelText(/Sarah Rivera \(you\)/))
   // The assent box is the LAST checkbox (an event form has "who's coming" boxes before it).
   fireEvent.click(Array.from(container.querySelectorAll('input[type="checkbox"]')).at(-1)!)
   set('wv-signature', 'Sarah Rivera')
@@ -212,11 +214,17 @@ describe('WaiverFlow — kiosk mode (HOM-209)', () => {
       expect(replaceSpy).toHaveBeenCalledWith('/staff?open=party:p1')
     })
 
-    it('blocks Submit until at least one person is coming', async () => {
+    it('nobody starts ticked as crafting, and Submit waits until someone is', async () => {
       const { container } = render(<WaiverFlow kiosk workshopId="cs-1" returnTo="/staff?open=workshop:cs-1" />)
-      fillMinimalForm(container)
-      fireEvent.click(screen.getByLabelText(/Sarah Rivera \(you\)/)) // untick the only person
-      expect(screen.getByText(/Pick at least one person who’s coming/)).toBeInTheDocument()
+      fillMinimalForm(container, { crafting: false })
+      expect(screen.getByLabelText(/Sarah Rivera \(you\)/)).not.toBeChecked()
+      expect(screen.getByText('Check who’s making a craft today.')).toBeInTheDocument()
+      expect(screen.getByText(waiverContent.form.submitLabel).closest('button')).toBeDisabled()
+    })
+
+    it('a Craft Café walk-in (no event) is asked who’s crafting too', () => {
+      render(<WaiverFlow kiosk returnTo="/staff" />)
+      expect(screen.getByText('Who’s making a craft?')).toBeInTheDocument()
     })
   })
 
@@ -239,6 +247,20 @@ describe('WaiverFlow — kiosk mode (HOM-209)', () => {
       expect(await screen.findByTestId('kiosk-arrived')).toHaveTextContent('Checked in')
       const call = f.mock.calls.find((c) => String(c[0]) === '/api/staff/rsvp.json')!
       expect(JSON.parse((call[1] as RequestInit).body as string)).toEqual({ kind: 'workshop', id: 'clssch_a', recordId: 'wvr_new', attending: ['adult'] })
+    })
+
+    it('checks in only the people ticked as crafting, not everyone on the waiver', async () => {
+      const f = mockFetch(true)
+      const { container } = render(<WaiverFlow kiosk workshopId="clssch_a" eventTitle="Pails" returnTo="/staff" />)
+      fireEvent.click(screen.getByText(waiverContent.form.addMinorLabel))
+      fireEvent.change(container.querySelector('#wv-minor-name-0') as HTMLInputElement, { target: { value: 'Mia Rivera' } })
+      fireEvent.change(container.querySelector('#wv-minor-dob-0') as HTMLInputElement, { target: { value: '2016-05-01' } })
+      fillMinimalForm(container, { crafting: false })
+      fireEvent.click(screen.getByRole('checkbox', { name: /Mia Rivera/ })) // only the child crafts; mom watches
+      await submit()
+      await screen.findByTestId('kiosk-arrived')
+      const call = f.mock.calls.find((c) => String(c[0]) === '/api/staff/rsvp.json')!
+      expect(JSON.parse((call[1] as RequestInit).body as string).attending).toEqual(['child:0'])
     })
 
     it('with no event: logs a Craft Café visit', async () => {
@@ -271,7 +293,7 @@ describe('WaiverFlow — kiosk mode (HOM-209)', () => {
       const f = mockFetch(true)
       const { container } = render(<WaiverFlow workshopId="clssch_a" eventTitle="Fall Earring Bar" />)
       fireEvent.click(screen.getByText(/new here|first time|sign the agreement/i, { selector: 'button' }))
-      fillMinimalForm(container)
+      fillMinimalForm(container, { crafting: false }) // online, everyone starts ticked
       await submit()
       await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).startsWith('/api/waiver/sign.json'))).toBe(true))
       expect(f.mock.calls.some((c) => String(c[0]).startsWith('/api/staff/'))).toBe(false)
