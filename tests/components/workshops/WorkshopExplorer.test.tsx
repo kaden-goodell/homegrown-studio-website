@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import WorkshopExplorer from '@components/workshops/WorkshopExplorer'
 
-vi.mock('@components/workshops/WorkshopCard', () => ({
+vi.mock('@components/workshops/WorkshopRow', () => ({
   default: ({ workshop }: { workshop: { id: string; name: string } }) => (
     <div data-testid={`workshop-${workshop.id}`}>{workshop.name}</div>
   ),
@@ -291,5 +291,51 @@ describe('WorkshopExplorer — a link to one workshop (?w=<id>)', () => {
 
     expect(screen.queryByRole('status')).toBeNull()
     expect(screen.queryByTestId('booking-modal')).toBeNull()
+  })
+})
+
+describe('WorkshopExplorer — Kids & teens / Adults switch and This week', () => {
+  const kid = { ...mockWorkshops[0], id: 'k', name: 'Pumpkin Pails', description: 'Bedazzle a pail.\n\nEach guest goes home with the pail. Ages 8 and up.', startTime: '2026-10-18T18:00:00Z', date: '2026-10-18' }
+  const teen = { ...mockWorkshops[0], id: 't', name: 'Craft Club', description: 'Bulletin boards.\n\nEach guest goes home with a board. Grades 9–12 only.', startTime: '2026-10-19T00:00:00Z', date: '2026-10-18' }
+  const adult = { ...mockWorkshops[0], id: 'a', name: 'Kinusaiga', description: 'Fabric art.\n\nEach guest goes home with a panel. Ages 18 and up.', startTime: '2026-10-25T00:00:00Z', date: '2026-10-24' }
+  const unknown = { ...mockWorkshops[0], id: 'u', name: 'Mystery', description: 'Something.', startTime: '2026-10-26T00:00:00Z', date: '2026-10-25' }
+  const names = () => screen.queryAllByTestId(/^workshop-/).map((c) => c.textContent)
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-15T15:00:00Z'))
+  })
+  afterEach(() => vi.useRealTimers())
+
+  it('starts on All and shows every class', () => {
+    render(<WorkshopExplorer workshops={[adult, kid, teen, unknown]} />)
+    expect(screen.getByRole('button', { name: 'All' })).toHaveAttribute('aria-pressed', 'true')
+    expect(names()).toEqual(['Pumpkin Pails', 'Craft Club', 'Kinusaiga', 'Mystery'])
+  })
+
+  it('Kids & teens shows ages-under-18 and grades classes only; Adults the 18+ ones', () => {
+    render(<WorkshopExplorer workshops={[adult, kid, teen, unknown]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Kids & teens' }))
+    expect(names()).toEqual(['Pumpkin Pails', 'Craft Club'])
+    fireEvent.click(screen.getByRole('button', { name: 'Adults' }))
+    expect(names()).toEqual(['Kinusaiga'])
+    fireEvent.click(screen.getByRole('button', { name: 'All' }))
+    expect(names()).toHaveLength(4)
+  })
+
+  it('splits into This week (next 7 days) and Coming up', () => {
+    render(<WorkshopExplorer workshops={[adult, kid]} />)
+    const week = screen.getByRole('region', { name: 'This week' })
+    const later = screen.getByRole('region', { name: 'Coming up' })
+    expect(within(week).getByText('Pumpkin Pails')).toBeInTheDocument()
+    expect(within(later).getByText('Kinusaiga')).toBeInTheDocument()
+  })
+
+  it('a filter with nothing in it says so and offers All', () => {
+    render(<WorkshopExplorer workshops={[adult]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Kids & teens' }))
+    expect(screen.getByText(/No kids’ classes posted right now/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'See all classes' }))
+    expect(names()).toEqual(['Kinusaiga'])
   })
 })

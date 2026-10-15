@@ -2,7 +2,8 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import NotifyMe from '@components/shared/NotifyMe'
 import { jsonLdString, workshopEventsJsonLd } from '@lib/seo'
 import { SITE_URL } from '@config/site-url'
-import WorkshopCard from './WorkshopCard'
+import WorkshopRow from './WorkshopRow'
+import { audienceOf, type Audience } from '@lib/workshop-copy'
 import WorkshopBookingModal from './WorkshopBookingModal'
 import { canBeBooked, isSoldOut } from '@lib/workshop-rules'
 import { byStart } from './workshop-view-model'
@@ -52,7 +53,17 @@ export interface WorkshopExplorerProps {
   workshops?: WorkshopData[]
 }
 
-const GRID = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(16rem, 1fr))', gap: '1.5rem' } as const
+const LIST = { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 22rem), 1fr))', gap: '0.75rem', alignItems: 'start' } as const
+
+/** A class within the next 7 days goes under "This week". */
+const WEEK_MS = 7 * 24 * 60 * 60 * 1000
+
+type Filter = 'all' | Audience
+const FILTERS: { id: Filter; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'kids', label: 'Kids & teens' },
+  { id: 'adults', label: 'Adults' },
+]
 
 /** Where a card sits on the page, so a link to a sold-out workshop can bring it into view. */
 const cardAnchor = (id: string) => `workshop-card-${id}`
@@ -72,43 +83,28 @@ function Bar({ width, height, strong = false, marginTop = 0 }: { width: string; 
   )
 }
 
-/**
- * Placeholder cards shown while workshops load, so navigation feels instant.
- * Same shape as WorkshopCard (4:3 photo, title, four lines of description,
- * take-home line, price row, button), so the page does not jump when the
- * real cards arrive.
- */
+/** Placeholder rows shown while workshops load, the same shape as WorkshopRow so nothing jumps. */
 function WorkshopSkeleton() {
   return (
-    <div style={GRID} aria-hidden="true">
+    <div style={LIST} aria-hidden="true">
       {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
           style={{
-            borderRadius: '1rem',
-            overflow: 'hidden',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.875rem',
+            padding: '0.5rem',
+            borderRadius: '0.875rem',
             background: 'var(--color-surface)',
             border: '1px solid var(--color-line)',
           }}
         >
-          <div className="animate-pulse" style={{ aspectRatio: '4 / 3', background: 'rgba(var(--color-primary-rgb), 0.08)' }} />
-          <div style={{ padding: '1.25rem' }}>
-            <Bar width="60%" height="1.25rem" strong />
-            {/* Description: four lines of 0.9375rem text at 1.5 line height. */}
-            <div style={{ height: '5.625rem', marginTop: '0.5rem', paddingTop: '0.3rem' }}>
-              <Bar width="100%" height="0.75rem" />
-              <Bar width="95%" height="0.75rem" marginTop="0.65rem" />
-              <Bar width="70%" height="0.75rem" marginTop="0.65rem" />
-            </div>
-            {/* Take-home line: two lines of 0.8125rem text at 1.4 line height. */}
-            <div style={{ height: '2.275rem', marginTop: '0.75rem', paddingTop: '0.25rem' }}>
-              <Bar width="80%" height="0.6875rem" />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', minHeight: '1.75rem', marginTop: '1rem', marginBottom: '0.875rem' }}>
-              <Bar width="40%" height="1rem" strong />
-              <Bar width="25%" height="0.875rem" />
-            </div>
-            <Bar width="100%" height="3rem" />
+          <div className="animate-pulse" style={{ width: '5.25rem', height: '5.25rem', borderRadius: '0.625rem', background: 'rgba(var(--color-primary-rgb), 0.08)', flexShrink: 0 }} />
+          <div style={{ flex: 1 }}>
+            <Bar width="45%" height="0.7rem" />
+            <Bar width="80%" height="1rem" strong marginTop="0.5rem" />
+            <Bar width="55%" height="0.7rem" marginTop="0.5rem" />
           </div>
         </div>
       ))}
@@ -122,6 +118,7 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
   // The lookup failed. Never shown as "no workshops": that would be a guess.
   const [failed, setFailed] = useState(false)
   const [bookingWorkshop, setBookingWorkshop] = useState<WorkshopData | null>(null)
+  const [filter, setFilter] = useState<Filter>('all')
   // What a link to one workshop (?w=<id>) led to, when it was not a booking panel.
   const [notice, setNotice] = useState('')
   const linkFollowed = useRef(false)
@@ -270,12 +267,66 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
           </p>
         </div>
       ) : (
-        <div style={GRID}>
-          {sorted.map((w) => (
-            <div key={w.id} id={cardAnchor(w.id)} style={{ display: 'flex' }}>
-              <WorkshopCard workshop={w} onBook={openBooking} />
-            </div>
-          ))}
+        <div>
+          <div role="group" aria-label="Who it's for" style={{ display: 'flex', gap: '0.5rem', margin: '0 0 1rem', maxWidth: '30rem' }}>
+            {FILTERS.map((f) => (
+              <button
+                key={f.id}
+                type="button"
+                aria-pressed={filter === f.id}
+                onClick={() => setFilter(f.id)}
+                style={{
+                  flex: 1,
+                  padding: '0.55rem 0.5rem',
+                  borderRadius: '999px',
+                  border: `1px solid ${filter === f.id ? 'var(--color-primary)' : 'var(--color-line)'}`,
+                  background: filter === f.id ? 'var(--color-primary)' : 'var(--color-surface)',
+                  color: filter === f.id ? 'var(--color-button-text)' : 'var(--color-dark)',
+                  font: 'inherit',
+                  fontSize: '0.875rem',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                }}
+              >
+                {f.label}
+              </button>
+            ))}
+          </div>
+          {(() => {
+            const shown = sorted.filter((w) => filter === 'all' || audienceOf(w.description) === filter)
+            if (shown.length === 0) {
+              return (
+                <p style={{ margin: '0.5rem 0 0', fontSize: '0.9375rem', color: 'var(--color-muted)' }}>
+                  {filter === 'kids' ? 'No kids’ classes posted right now.' : 'No adult classes posted right now.'}{' '}
+                  <button type="button" onClick={() => setFilter('all')} style={{ background: 'none', border: 0, padding: 0, font: 'inherit', color: 'var(--color-primary)', textDecoration: 'underline', cursor: 'pointer' }}>
+                    See all classes
+                  </button>
+                </p>
+              )
+            }
+            const soon = Date.now() + WEEK_MS
+            const thisWeek = shown.filter((w) => (Date.parse(w.startTime) || Infinity) <= soon)
+            const later = shown.filter((w) => !thisWeek.includes(w))
+            const section = (title: string, list: WorkshopData[]) =>
+              list.length > 0 && (
+                <section aria-label={title} style={{ marginBottom: '1.5rem' }}>
+                  <h2 className="eyebrow" style={{ margin: '0 0 0.6rem', fontSize: '0.75rem' }}>{title}</h2>
+                  <div style={LIST}>
+                    {list.map((w) => (
+                      <div key={w.id} id={cardAnchor(w.id)} style={{ display: 'flex' }}>
+                        <WorkshopRow workshop={w} onBook={openBooking} />
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )
+            return (
+              <>
+                {section('This week', thisWeek)}
+                {section('Coming up', later)}
+              </>
+            )
+          })()}
         </div>
       )}
 

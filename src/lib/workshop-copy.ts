@@ -75,3 +75,33 @@ export function notifyInterest(kind: 'workshop-soon' | 'workshop-waitlist', name
   const room = INTEREST_MAX - kind.length - 1 - 1 - date.length
   return `${kind}:${name.trim().slice(0, Math.max(room, 0)).trim()} ${date}`
 }
+
+/** Who a class is for, for the Kids & teens / Adults switch on /workshops. */
+export type Audience = 'kids' | 'adults'
+
+/**
+ * "Ages 8 and up" → kids; "Ages 18 and up" → adults; "Grades 9–12" → kids
+ * (teens). Read from the studio's own description; null when it says neither,
+ * and such a class shows only under All.
+ */
+export function audienceOf(description?: string | null): Audience | null {
+  const text = paragraphs(description).join(' ')
+  const ages = text.match(/\bAges (\d{1,2}) and up\b/i)
+  if (ages) return Number(ages[1]) < 18 ? 'kids' : 'adults'
+  if (/\bGrades? \d{1,2}\s*[–-]\s*\d{1,2}\b/i.test(text)) return 'kids'
+  return null
+}
+
+/** "Ages 8+", "Ages 18+", "Grades 9–12", or '' when the description doesn't say. */
+export function ageLabel(description?: string | null): string {
+  const text = paragraphs(description).join(' ')
+  const ages = text.match(/\bAges (\d{1,2}) and up\b/i)
+  if (ages) return `Ages ${ages[1]}+`
+  const grades = text.match(/\bGrades? (\d{1,2})\s*[–-]\s*(\d{1,2})\b/i)
+  return grades ? `Grades ${grades[1]}–${grades[2]}` : ''
+}
+
+/** The description says parents can leave ("This is a drop-off class…"). */
+export function isDropOff(description?: string | null): boolean {
+  return /\bdrop-off class\b/i.test(paragraphs(description).join(' '))
+}

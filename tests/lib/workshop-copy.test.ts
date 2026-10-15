@@ -129,3 +129,28 @@ describe('notifyInterest', () => {
     expect(notifyInterest('workshop-waitlist', name, '2026-10-16')).toBe(`workshop-waitlist:${'x'.repeat(50)} 2026-10-16`)
   })
 })
+
+import { audienceOf, ageLabel, isDropOff } from '@lib/workshop-copy'
+describe('audienceOf / ageLabel / isDropOff (the studio’s own descriptions)', () => {
+  const kids = 'Spell any word.\n\nEach guest goes home with the keychain they make. Ages 8 and up. This is a drop-off class, so parents can head out and come back for pickup.'
+  const teens = 'A craft night.\n\nEach guest goes home with the board. Grades 9–12 only. This is a drop-off class.'
+  const adults = 'Fabric art.\n\nEach guest goes home with the panel they make. Ages 18 and up.'
+  it('reads who a class is for', () => {
+    expect(audienceOf(kids)).toBe('kids')
+    expect(audienceOf(teens)).toBe('kids')
+    expect(audienceOf(adults)).toBe('adults')
+    expect(audienceOf('Ages 12 and up.')).toBe('kids')
+    expect(audienceOf('Something with no age.')).toBeNull()
+    expect(audienceOf(null)).toBeNull()
+  })
+  it('labels the ages', () => {
+    expect(ageLabel(kids)).toBe('Ages 8+')
+    expect(ageLabel(teens)).toBe('Grades 9–12')
+    expect(ageLabel(adults)).toBe('Ages 18+')
+    expect(ageLabel('nothing')).toBe('')
+  })
+  it('spots a drop-off class', () => {
+    expect(isDropOff(kids)).toBe(true)
+    expect(isDropOff(adults)).toBe(false)
+  })
+})
