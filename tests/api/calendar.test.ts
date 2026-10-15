@@ -259,20 +259,20 @@ describe('GET /api/calendar.json', () => {
     expect((await closedIn('2027-01')).map((e: any) => e.date)).toEqual(['2027-01-01'])
   })
 
-  it('shows the Grand Opening marker in the opening month only', async () => {
-    expect(ids((await getMonth('2026-10')).body)).toContain('grand-opening')
-    expect(ids((await getMonth('2026-11')).body)).not.toContain('grand-opening')
+  it('shows the Grand Opening marker in its own month only (Sat Nov 7, not the Oct 16 doors-open day)', async () => {
+    expect(ids((await getMonth('2026-11')).body)).toContain('grand-opening')
+    expect(ids((await getMonth('2026-10')).body)).not.toContain('grand-opening')
   })
 
   it('makes the Grand Opening a tappable row with its own line and no emoji (HOM-192)', async () => {
-    const { body } = await getMonth('2026-10')
+    const { body } = await getMonth('2026-11')
     const row = body.events.find((e: any) => e.id === 'grand-opening')
     expect(row).toEqual({
       id: 'grand-opening',
       kind: 'event',
       title: 'Grand Opening',
       detail: 'Doors open. Come see the studio.',
-      date: '2026-10-16',
+      date: '2026-11-07',
       bookable: false,
       // The homepage has no #opening anchor, so the row leads to the top of it.
       href: '/',

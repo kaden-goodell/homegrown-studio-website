@@ -1,4 +1,4 @@
-import { OPENING_DATE } from './opening'
+import { OPENING_DATE, GRAND_OPENING_DATE } from './opening'
 import { SITE_URL } from './site-url'
 import { STUDIO_HOURS, CAFE_HOURS, formatHours } from './hours'
 
@@ -92,8 +92,10 @@ export interface SiteConfig {
    */
   hours: { days: string; time: string }[]
   cafeHours: { days: string; time: string }[]
-  /** Grand-opening date (ISO). Drives the pre-launch banner; remove after opening. */
+  /** The day the doors open (ISO). */
   openingDate: string
+  /** The grand opening celebration (ISO): the homepage banner and the calendar marker. */
+  grandOpeningDate: string
   /** Header call-to-action button (rendered as a pill, not a text link). */
   navCta: { label: string; href: string }
   /** From header for transactional email (see `@lib/email`) — always set below;
@@ -242,6 +244,7 @@ export const siteConfig: SiteConfig = {
   /** Craft Café walk-in hours (Saturday mornings) — what "walk-in hours" means on the site. */
   cafeHours: formatHours(CAFE_HOURS),
   openingDate: OPENING_DATE,
+  grandOpeningDate: GRAND_OPENING_DATE,
   theme: {
     // These six override the matching tokens in src/styles/global.css (the
     // layouts inject them). Craft colours and button tokens live in global.css.

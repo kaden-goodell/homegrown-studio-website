@@ -65,8 +65,11 @@ const steps = [
   { n: '3', title: 'Show up and make', text: 'Everything’s set up when you arrive. We handle the rest.' },
 ]
 
-const showOpeningBanner = new Date() < new Date(siteConfig.openingDate + 'T00:00:00-05:00')
-const openingLabel = new Date(siteConfig.openingDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
+// The banner announces the grand opening (Nov 7), and goes away that day.
+const showOpeningBanner = new Date() < new Date(siteConfig.grandOpeningDate + 'T00:00:00-06:00')
+// "You'll hear from us the day booking opens" is about the doors opening (Oct 16), not the banner.
+const preOpening = new Date() < new Date(siteConfig.openingDate + 'T00:00:00-05:00')
+const openingLabel = new Date(siteConfig.grandOpeningDate + 'T12:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric' })
 const testimonials = siteConfig.testimonials?.items ?? []
 ---
 
@@ -77,10 +80,10 @@ const testimonials = siteConfig.testimonials?.items ?? []
     </div>
   )}
   {showOpeningBanner && (
-    <script is:inline define:vars={{ openingDate: siteConfig.openingDate }}>
+    <script is:inline define:vars={{ openingDate: siteConfig.grandOpeningDate }}>
       // Page is prerendered; without this, a stale build would keep announcing the
       // opening after opening day until the next production deploy. Self-hide at runtime.
-      if (new Date() >= new Date(openingDate + 'T00:00:00-05:00')) {
+      if (new Date() >= new Date(openingDate + 'T00:00:00-06:00')) {
         document.getElementById('opening-banner')?.remove()
       }
     </script>
@@ -257,7 +260,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
   {siteConfig.features.newsletter && (
     <section class="py-12 sm:py-16 px-4">
       <div class="glass rounded-2xl max-w-2xl mx-auto px-8 py-14 sm:px-14">
-        <Newsletter client:visible preOpening={showOpeningBanner} />
+        <Newsletter client:visible preOpening={preOpening} />
       </div>
     </section>
   )}

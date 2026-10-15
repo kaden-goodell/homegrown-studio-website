@@ -12,6 +12,14 @@
 export const OPENING_DATE = '2026-10-16'
 
 /**
+ * The big celebration (Kaden, 15 Oct 2026: "move the Grand Opening tag over
+ * to Nov 7th"): the calendar's Grand Opening marker and the homepage banner.
+ * Not the day the doors open (OPENING_DATE), which still gates the calendar
+ * and everything else. Craft Café runs all day that day (hours.ts).
+ */
+export const GRAND_OPENING_DATE = '2026-11-07'
+
+/**
  * Private parties and the Craft Café both start the weekend after the
  * Halloween break (Sat 7 Nov 2026); until then the studio runs workshops
  * only (Kaden, 8 Oct 2026). No party date before this is offered or
