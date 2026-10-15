@@ -1,4 +1,5 @@
 import { useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
+import '../../styles/booking-panel.css'
 import { suggestEmailFix } from '@lib/email-typos'
 
 const MAX_PHOTOS = 6

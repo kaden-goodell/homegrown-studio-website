@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import '../../styles/booking-panel.css'
 import type { ArtistApplication, ApplicationStatus } from '@lib/artist-applications'
 
 const STATUSES: [ApplicationStatus, string][] = [['new', 'New'], ['talking', 'Talking'], ['booked', 'Booked'], ['not-now', 'Not now']]
