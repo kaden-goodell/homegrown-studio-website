@@ -6,7 +6,7 @@
  * listed on the owner-only /admin page with a status the owners set.
  */
 import { decodePhotos, MAX_PHOTO_BYTES } from '@lib/form-photos'
-import { submissionStore, answerLines, emailOwnersCopy, emailGotIt } from '@lib/submissions'
+import { submissionStore, ownerEmailTextOf, emailOwnersCopy, emailGotIt, type OwnerEmail } from '@lib/submissions'
 
 export const MAX_PHOTOS = 6
 export { MAX_PHOTO_BYTES }
@@ -109,27 +109,39 @@ export const setApplicationStatus = (id: string, status: ApplicationStatus, now 
 const AUDIENCE: Record<string, string> = { kids: 'Kids & teens', adults: 'Adults', both: 'Both' }
 const OFTEN: Record<string, string> = { 'one-time': 'One-time', monthly: 'Monthly', series: 'A series' }
 
-/** The owners' email: every answer, in the form's order, blanks left out. */
-export function ownerEmailText(app: ArtistApplication, adminUrl: string): string {
+/** The owners' email: every answer, grouped like the form, blanks left out. */
+export function ownerEmail(app: ArtistApplication, adminUrl: string): OwnerEmail {
   const c = app.classIdea
-  const lines: [string, string][] = [
-    ['Name', app.about.name], ['Business', app.about.business], ['Email', app.about.email], ['Phone', app.about.phone], ['City', app.about.city],
-    ['Instagram', app.links.instagram], ['Website', app.links.website], ['TikTok', app.links.tiktok], ['Etsy', app.links.etsy], ['Video', app.links.video],
-    ['Class idea', c.what], ['Takes home', c.takeHome], ['For', AUDIENCE[c.audience] ?? ''], ['Drop-off OK', c.dropOffOk === 'yes' ? 'Yes' : c.dropOffOk === 'no' ? 'No' : ''],
-    ['Length', c.length], ['Group size', [c.groupMin, c.groupMax].filter(Boolean).join(' to ')], ['Price per person', c.price], ['Supplies per person', c.suppliesCost],
-    ['Needs from us', c.needs], ['Teaching experience', app.experience], ['Days and times', app.when.days], ['How often', OFTEN[app.when.howOften] ?? ''],
-  ]
-  return [
-    ...answerLines(lines),
-    '',
-    `${app.photos} photo${app.photos === 1 ? '' : 's'} attached.`,
-    `All applications: ${adminUrl}`,
-  ].join('\n')
+  const idea = c.what.replace(/\s+/g, ' ').trim()
+  return {
+    kicker: 'Teacher application',
+    title: `${app.about.name}${app.about.business ? ` · ${app.about.business}` : ''}`,
+    summary: idea.length > 90 ? `${idea.slice(0, 87).trimEnd()}…` : idea,
+    person: { name: app.about.name, email: app.about.email, phone: app.about.phone },
+    sections: [
+      { title: 'About them', rows: [['City', app.about.city], ['Instagram', app.links.instagram], ['Website', app.links.website], ['TikTok', app.links.tiktok], ['Etsy', app.links.etsy]] },
+      {
+        title: 'The class',
+        rows: [
+          ['Class idea', c.what], ['Takes home', c.takeHome], ['For', AUDIENCE[c.audience] ?? ''], ['Drop-off OK', c.dropOffOk === 'yes' ? 'Yes' : c.dropOffOk === 'no' ? 'No' : ''],
+          ['Length', c.length], ['Group size', [c.groupMin, c.groupMax].filter(Boolean).join(' to ')], ['Price per person', c.price], ['Supplies per person', c.suppliesCost],
+          ['Needs from us', c.needs],
+        ],
+      },
+      { title: 'Their work', rows: [['Video', app.links.video], ['Teaching experience', app.experience]] },
+      { title: 'When', rows: [['Days and times', app.when.days], ['How often', OFTEN[app.when.howOften] ?? '']] },
+    ],
+    photosNote: `${app.photos} photo${app.photos === 1 ? '' : 's'} of their work attached.`,
+    adminUrl,
+    adminLabel: 'All applications',
+  }
 }
+
+export const ownerEmailText = (app: ArtistApplication, adminUrl: string) => ownerEmailTextOf(ownerEmail(app, adminUrl))
 
 export function emailOwners(app: ArtistApplication, photos: Buffer[], adminUrl: string): Promise<boolean> {
   const subject = `Teach a class: ${app.about.name}${app.about.business ? ` (${app.about.business})` : ''}`
-  return emailOwnersCopy({ subject, text: ownerEmailText(app, adminUrl), photos, replyTo: app.about.email })
+  return emailOwnersCopy({ subject, email: ownerEmail(app, adminUrl), photos })
 }
 
 /** The artist's copy: short, and no promised timeline (Kaden). */

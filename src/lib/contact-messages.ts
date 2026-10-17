@@ -3,7 +3,7 @@
  * emailed to the owners (Reply goes to the sender) with a short text, and
  * listed on the owner-only /admin page as New or Replied.
  */
-import { submissionStore, answerLines, emailOwnersCopy, emailGotIt } from '@lib/submissions'
+import { submissionStore, ownerEmailTextOf, emailOwnersCopy, emailGotIt, type OwnerEmail } from '@lib/submissions'
 import { TOPICS, STATUSES, STATUS_LABEL, topicLabel, type ContactMessage, type MessageStatus } from '@lib/contact-options'
 
 export { TOPICS, STATUSES, STATUS_LABEL, topicLabel }
@@ -41,14 +41,19 @@ export const saveMessage = (value: NewMessage, now = new Date()) => store.save(v
 export const listMessages = () => store.list()
 export const setMessageStatus = (id: string, status: MessageStatus, now = new Date()) => store.setStatus(id, status, now)
 
-export function ownerEmailText(m: ContactMessage, adminUrl: string): string {
-  return [
-    ...answerLines([['Name', m.name], ['Email', m.email], ['Phone', m.phone], ['About', topicLabel(m.topic)], ['Message', m.message]]),
-    '',
-    'Hit Reply to answer them.',
-    `All messages: ${adminUrl}`,
-  ].join('\n')
+export function ownerEmail(m: ContactMessage, adminUrl: string): OwnerEmail {
+  return {
+    kicker: 'Message from the website',
+    title: m.name,
+    summary: topicLabel(m.topic) && m.topic !== 'other' ? `About ${topicLabel(m.topic).replace(/^A /, 'a ')}` : undefined,
+    person: { name: m.name, email: m.email, phone: m.phone },
+    sections: [{ title: 'Message', rows: [['About', topicLabel(m.topic)], ['Message', m.message]] }],
+    adminUrl,
+    adminLabel: 'All messages',
+  }
 }
+
+export const ownerEmailText = (m: ContactMessage, adminUrl: string) => ownerEmailTextOf(ownerEmail(m, adminUrl))
 
 /** "New message from Dana Planner about a party: Can we bring our own cake? Details in your email and at …/admin." */
 export function ownerText(m: ContactMessage, adminUrl: string): string {
@@ -60,7 +65,7 @@ export function ownerText(m: ContactMessage, adminUrl: string): string {
 
 export function emailOwners(m: ContactMessage, adminUrl: string): Promise<boolean> {
   const about = topicLabel(m.topic)
-  return emailOwnersCopy({ subject: `Message from ${m.name}${about && m.topic !== 'other' ? ` (${about})` : ''}`, text: ownerEmailText(m, adminUrl), replyTo: m.email })
+  return emailOwnersCopy({ subject: `Message from ${m.name}${about && m.topic !== 'other' ? ` (${about})` : ''}`, email: ownerEmail(m, adminUrl) })
 }
 
 export function emailSender(m: ContactMessage): Promise<boolean> {

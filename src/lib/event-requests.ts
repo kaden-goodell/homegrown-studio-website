@@ -8,7 +8,7 @@
  * listed on the owner-only /admin page with a status the owners set.
  */
 import { decodePhotos } from '@lib/form-photos'
-import { submissionStore, answerLines, emailOwnersCopy, emailGotIt } from '@lib/submissions'
+import { submissionStore, ownerEmailTextOf, emailOwnersCopy, emailGotIt, type OwnerEmail } from '@lib/submissions'
 import { studioDate, formatCalendarDay } from '@lib/studio-time'
 import {
   MAX_PHOTOS, MAX_GUESTS, KINDS, CRAFTERS, PLACES, SETTINGS, YES_NO, CRAFT_PICKS, EXTRAS, EXTRA_CHOICES, BUDGETS, CONTACT_BY, STATUSES, STATUS_LABEL,
@@ -138,46 +138,48 @@ export const setRequestStatus = (id: string, status: RequestStatus, now = new Da
 
 // ── Words for the owners ────────────────────────────────────────────────────
 
-/** The owners' email: every answer, in the form's order, blanks left out. */
-export function ownerEmailText(r: EventRequest, adminUrl: string): string {
+/** The owners' email: every answer, grouped like the form, blanks left out. */
+export function ownerEmail(r: EventRequest, adminUrl: string): OwnerEmail {
   const e = r.event
   const w = r.where
   const c = r.craft
-  const lines: [string, string][] = [
-    ['Name', r.about.name], ['Email', r.about.email], ['Phone', r.about.phone], ['Business, school or church', r.about.org],
-    ['Best way to reach them', label(CONTACT_BY, r.about.contactBy)],
-    ['Kind of event', kindLabel(r)],
-    ['Date', whenLabel(r)],
-    ['Backup date', e.backupDate ? formatCalendarDay(e.backupDate) : ''],
-    ['Flexible on the date', e.flexible ? 'Yes' : ''],
-    ['How long', e.length],
-    ['Guests', String(e.guests)],
-    ['Who’s crafting', crafterLabel(r)],
-    ['Where', label(PLACES, w.place)],
-    ['Address', w.address],
-    ['Indoors or outdoors', label(SETTINGS, w.setting)],
-    ['Tables and chairs there', label(YES_NO, w.tables)],
-    ['Sink nearby', label(YES_NO, w.sink)],
-    ['Can set up from', w.setupFrom],
-    ['Getting in', w.access],
-    ['Craft', label(CRAFT_PICKS, c.pick)],
-    ['Their vision', c.vision],
-    ['Theme or colors', c.theme],
-    ['Personalized', c.personalized],
-    ['Inspiration link', c.link],
-    ...extrasLines(r),
-    ['Food allergies', r.allergies],
-    ['Budget', label(BUDGETS, r.budget)],
-    ['How they heard about us', r.about.heard],
-    ['Anything else', r.notes],
-  ]
-  return [
-    ...answerLines(lines),
-    '',
-    ...(r.photos ? [`${r.photos} inspiration photo${r.photos === 1 ? '' : 's'} attached.`] : []),
-    `All requests: ${adminUrl}`,
-  ].join('\n')
+  return {
+    kicker: 'Private event request',
+    title: `${r.about.name}${r.about.org ? ` · ${r.about.org}` : ''}`,
+    summary: [kindLabel(r), whenLabel(r), `${e.guests} guest${e.guests === 1 ? '' : 's'}`, label(PLACES, w.place)].filter(Boolean).join(' · '),
+    person: { name: r.about.name, email: r.about.email, phone: r.about.phone },
+    sections: [
+      {
+        title: 'The event',
+        rows: [
+          ['Kind of event', kindLabel(r)], ['Date', whenLabel(r)], ['Backup date', e.backupDate ? formatCalendarDay(e.backupDate) : ''],
+          ['Flexible on the date', e.flexible ? 'Yes' : ''], ['How long', e.length], ['Guests', String(e.guests)], ['Who’s crafting', crafterLabel(r)],
+        ],
+      },
+      {
+        title: 'Where',
+        rows: [
+          ['Where', label(PLACES, w.place)], ['Address', w.address], ['Indoors or outdoors', label(SETTINGS, w.setting)],
+          ['Tables and chairs there', label(YES_NO, w.tables)], ['Sink nearby', label(YES_NO, w.sink)], ['Can set up from', w.setupFrom], ['Getting in', w.access],
+        ],
+      },
+      { title: 'The craft', rows: [['Craft', label(CRAFT_PICKS, c.pick)], ['Their vision', c.vision], ['Theme or colors', c.theme], ['Personalized', c.personalized], ['Inspiration link', c.link]] },
+      { title: 'Extras', rows: [...extrasLines(r), ['Food allergies', r.allergies]] },
+      {
+        title: 'More',
+        rows: [
+          ['Budget', label(BUDGETS, r.budget)], ['Business, school or church', r.about.org], ['Best way to reach them', label(CONTACT_BY, r.about.contactBy)],
+          ['How they heard about us', r.about.heard], ['Anything else', r.notes],
+        ],
+      },
+    ],
+    photosNote: r.photos ? `${r.photos} inspiration photo${r.photos === 1 ? '' : 's'} attached.` : undefined,
+    adminUrl,
+    adminLabel: 'All requests',
+  }
 }
+
+export const ownerEmailText = (r: EventRequest, adminUrl: string) => ownerEmailTextOf(ownerEmail(r, adminUrl))
 
 /** The owners' text: who, what, when, how many, where. */
 export function ownerText(r: EventRequest, adminUrl: string): string {
@@ -186,7 +188,7 @@ export function ownerText(r: EventRequest, adminUrl: string): string {
 }
 
 export function emailOwners(r: EventRequest, photos: Buffer[], adminUrl: string): Promise<boolean> {
-  return emailOwnersCopy({ subject: `Private event: ${r.about.name}, ${whenLabel(r)}`, text: ownerEmailText(r, adminUrl), photos, replyTo: r.about.email })
+  return emailOwnersCopy({ subject: `Private event: ${r.about.name}, ${whenLabel(r)}`, email: ownerEmail(r, adminUrl), photos })
 }
 
 /** The customer's copy: short, and no promised timeline (Kaden). */
