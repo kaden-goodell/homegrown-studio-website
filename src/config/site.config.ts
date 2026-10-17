@@ -168,8 +168,12 @@ export interface SlackConfig {
 
 export interface NavItem {
   label: string
-  href: string
+  /** A page. A group (with `children`) has none: its label opens the list. */
+  href?: string
   icon?: string
+  /** One short line under the label in a group's list. */
+  note?: string
+  children?: NavItem[]
 }
 
 // Vite/Astro loads .env into import.meta.env for server-side code;
@@ -410,13 +414,27 @@ export const siteConfig: SiteConfig = {
     fromAddress: 'contact@ourhometownstudio.com', // From header; must be a verified Gmail "Send mail as" alias of GMAIL_USER
     fromName: 'Hometown Studio',
   },
+  // Two groups keep the row short (Kaden picked this 17 Oct 2026). Take Home
+  // Kits shows only while kits are live (see @lib/nav).
   nav: [
-    { label: 'Parties', href: '/book' },
+    {
+      label: 'Parties & Events',
+      children: [
+        { label: 'Parties', href: '/book', note: 'Our weekend times. Book online in minutes.' },
+        { label: 'Private Events', href: '/private-events', note: 'Your day and time, at the studio or your place.' },
+        { label: 'Take Home Kits', href: '/kits' },
+      ],
+    },
     { label: 'Workshops', href: '/workshops' },
     { label: 'Craft Café', href: '/craft-cafe' },
     { label: 'Calendar', href: '/calendar' },
-    { label: 'Teach', href: '/teach' },
-    { label: 'About', href: '/about' },
+    {
+      label: 'About',
+      children: [
+        { label: 'Our Story', href: '/about' },
+        { label: 'Teach a Class', href: '/teach' },
+      ],
+    },
   ],
   navCta: { label: 'Book a Party', href: '/book' },
 }

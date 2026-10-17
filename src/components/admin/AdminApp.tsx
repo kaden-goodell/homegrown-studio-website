@@ -1,29 +1,41 @@
-import { useEffect, useState, type FormEvent } from 'react'
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react'
 import '../../styles/booking-panel.css'
 import type { ArtistApplication, ApplicationStatus } from '@lib/artist-applications'
+import type { EventRequest } from '@lib/event-request-options'
+import { STATUS_LABEL as REQUEST_LABEL, STATUSES as REQUEST_STATUSES, type RequestStatus } from '@lib/event-request-options'
+import { EventRequestCard } from './EventRequestCard'
+import { StatusPills } from './StatusPills'
 
 const STATUSES: [ApplicationStatus, string][] = [['new', 'New'], ['talking', 'Talking'], ['booked', 'Booked'], ['not-now', 'Not now']]
 const AUDIENCE: Record<string, string> = { kids: 'Kids & teens', adults: 'Adults', both: 'Both' }
 const OFTEN: Record<string, string> = { 'one-time': 'One-time', monthly: 'Monthly', series: 'A series' }
 
+type Tab = 'events' | 'teachers'
+
 /**
- * /admin: owner-only tools. For now, the artist applications from /teach,
- * each moved along New → Talking → Booked → Not now.
+ * /admin: owner-only tools. Private event requests from /private-events
+ * (New → Quoted → Booked → Not this time) and teacher applications from
+ * /teach (New → Talking → Booked → Not now).
  */
 export default function AdminApp() {
   const [state, setState] = useState<'loading' | 'signed-out' | 'ready' | 'error'>('loading')
   const [apps, setApps] = useState<ArtistApplication[]>([])
+  const [requests, setRequests] = useState<EventRequest[]>([])
+  const [tab, setTab] = useState<Tab>('events')
   const [passcode, setPasscode] = useState('')
   const [loginError, setLoginError] = useState('')
-  const [show, setShow] = useState<ApplicationStatus | 'all'>('all')
 
   async function load() {
     setState('loading')
     try {
-      const res = await fetch('/api/admin/applications.json', { cache: 'no-store' })
-      if (res.status === 401) return setState('signed-out')
-      if (!res.ok) throw new Error(String(res.status))
-      setApps((await res.json()).data.applications)
+      const [a, r] = await Promise.all([
+        fetch('/api/admin/applications.json', { cache: 'no-store' }),
+        fetch('/api/admin/event-requests.json', { cache: 'no-store' }),
+      ])
+      if (a.status === 401 || r.status === 401) return setState('signed-out')
+      if (!a.ok || !r.ok) throw new Error(`${a.status}/${r.status}`)
+      setApps((await a.json()).data.applications)
+      setRequests((await r.json()).data.requests)
       setState('ready')
     } catch {
       setState('error')
@@ -40,11 +52,19 @@ export default function AdminApp() {
     load()
   }
 
-  async function move(id: string, status: ApplicationStatus) {
+  async function moveApp(id: string, status: ApplicationStatus) {
     const res = await fetch('/api/admin/applications.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) })
     if (res.ok) {
       const { application } = (await res.json()).data
       setApps((list) => list.map((a) => (a.id === id ? application : a)))
+    }
+  }
+
+  async function moveRequest(id: string, status: RequestStatus) {
+    const res = await fetch('/api/admin/event-requests.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) })
+    if (res.ok) {
+      const { request } = (await res.json()).data
+      setRequests((list) => list.map((r) => (r.id === id ? request : r)))
     }
   }
 
@@ -62,18 +82,57 @@ export default function AdminApp() {
     )
   }
 
-  const shown = apps.filter((a) => show === 'all' || a.status === show)
-  const count = (s: ApplicationStatus) => apps.filter((a) => a.status === s).length
+  const newCount = (list: { status: string }[]) => list.filter((x) => x.status === 'new').length
+  const tabLabel = (label: string, list: { status: string }[]) => (newCount(list) ? `${label} (${newCount(list)} new)` : label)
+  return (
+    <div style={{ display: 'grid', gap: '1.25rem' }}>
+      <div role="tablist" aria-label="Admin" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+        {([['events', tabLabel('Private events', requests)], ['teachers', tabLabel('Teachers', apps)]] as [Tab, string][]).map(([t, l]) => (
+          <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={tab === t ? 'btn btn-primary' : 'btn btn-secondary'}>{l}</button>
+        ))}
+      </div>
+      {tab === 'events' ? (
+        <StatusList
+          title="Private event requests"
+          items={requests}
+          statuses={REQUEST_STATUSES.map((s) => [s, REQUEST_LABEL[s]] as [RequestStatus, string])}
+          empty="No requests yet. They’ll show up here when people use ourhometownstudio.com/private-events."
+          render={(r) => <EventRequestCard key={r.id} request={r} onMove={moveRequest} />}
+        />
+      ) : (
+        <StatusList
+          title="Teacher applications"
+          items={apps}
+          statuses={STATUSES}
+          empty="No applications yet. They’ll show up here when artists use ourhometownstudio.com/teach."
+          render={(a) => <Application key={a.id} app={a} onMove={moveApp} />}
+        />
+      )}
+    </div>
+  )
+}
+
+/** A heading, "All / New / …" filters with counts, then the matching cards. */
+function StatusList<S extends string, T extends { id: string; status: S }>({ title, items, statuses, empty, render }: {
+  title: string
+  items: T[]
+  statuses: [S, string][]
+  empty: string
+  render: (item: T) => ReactNode
+}) {
+  const [show, setShow] = useState<S | 'all'>('all')
+  const shown = items.filter((x) => show === 'all' || x.status === show)
+  const count = (s: S) => items.filter((x) => x.status === s).length
   return (
     <div style={{ display: 'grid', gap: '1rem' }}>
-      <h1 className="font-heading" style={{ margin: 0, fontSize: '1.75rem', color: 'var(--color-dark)' }}>Teacher applications</h1>
+      <h1 className="font-heading" style={{ margin: 0, fontSize: '1.75rem', color: 'var(--color-dark)' }}>{title}</h1>
       <div role="group" aria-label="Show" style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem' }}>
-        {([['all', `All (${apps.length})`], ...STATUSES.map(([s, l]) => [s, `${l} (${count(s)})`])] as [ApplicationStatus | 'all', string][]).map(([s, l]) => (
+        {([['all', `All (${items.length})`], ...statuses.map(([s, l]) => [s, `${l} (${count(s)})`])] as [S | 'all', string][]).map(([s, l]) => (
           <button key={s} type="button" aria-pressed={show === s} onClick={() => setShow(s)} className={show === s ? 'btn btn-primary' : 'btn btn-secondary'} style={{ padding: '0.4rem 0.9rem', fontSize: '0.85rem' }}>{l}</button>
         ))}
       </div>
-      {shown.length === 0 && <p style={{ color: 'var(--color-muted)' }}>{apps.length === 0 ? 'No applications yet. They’ll show up here when artists use ourhometownstudio.com/teach.' : 'None here.'}</p>}
-      {shown.map((a) => <Application key={a.id} app={a} onMove={move} />)}
+      {shown.length === 0 && <p style={{ color: 'var(--color-muted)' }}>{items.length === 0 ? empty : 'None here.'}</p>}
+      {shown.map(render)}
     </div>
   )
 }
@@ -93,11 +152,7 @@ function Application({ app, onMove }: { app: ArtistApplication; onMove: (id: str
           <h2 className="font-heading" style={{ margin: 0, fontSize: '1.2rem', color: 'var(--color-dark)' }}>{app.about.name}{app.about.business ? ` · ${app.about.business}` : ''}</h2>
           <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-muted)' }}>{new Date(app.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Chicago' })}{app.about.city ? ` · ${app.about.city}` : ''}</p>
         </div>
-        <div role="group" aria-label={`Status for ${app.about.name}`} style={{ display: 'flex', gap: '0.3rem', flexWrap: 'wrap' }}>
-          {STATUSES.map(([s, l]) => (
-            <button key={s} type="button" aria-pressed={app.status === s} onClick={() => onMove(app.id, s)} className={app.status === s ? 'btn btn-primary' : 'btn btn-secondary'} style={{ padding: '0.3rem 0.7rem', fontSize: '0.8rem' }}>{l}</button>
-          ))}
-        </div>
+        <StatusPills name={app.about.name} current={app.status} statuses={STATUSES} onMove={(s) => onMove(app.id, s)} />
       </div>
       <p style={{ margin: 0, display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
         <a href={`mailto:${app.about.email}`} style={{ color: 'var(--color-primary)' }}>{app.about.email}</a>

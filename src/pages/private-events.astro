@@ -1,0 +1,27 @@
+---
+export const prerender = true
+
+import Layout from '@layouts/Layout.astro'
+import PrivateEventForm from '@components/private-events/PrivateEventForm'
+---
+
+<Layout
+  title="Private Events"
+  description="Book Hometown Studio for a private craft event in Madison, AL, on a day or time we're not normally open, at the studio or at your place."
+>
+  <section class="max-w-2xl mx-auto px-4 sm:px-6 pb-20" style="padding-top: 5.5rem;">
+    <div class="mb-6 md:text-center fade-in">
+      <p class="eyebrow tone-event mb-2">Private events</p>
+      <h1 class="text-4xl sm:text-5xl font-heading font-bold" style="color: var(--color-dark);">Your event, at the studio or your place</h1>
+      <p class="text-base sm:text-lg mt-3" style="color: var(--color-text);">
+        Want a day or time we’re not normally open, or want us to come to you? Tell us what you have in mind and we’ll put together a price.
+        Every private event is priced on its own.
+      </p>
+      <p class="text-sm mt-3" style="color: var(--color-muted);">
+        Want one of our weekend times? <a href="/book" style="color: var(--color-primary); text-decoration: underline;">Book a party online</a>.
+        An adult stays with any kids the whole time.
+      </p>
+    </div>
+    <PrivateEventForm client:load />
+  </section>
+</Layout>

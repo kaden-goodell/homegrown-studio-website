@@ -10,13 +10,13 @@ import { makeKvStore } from '@lib/blob-store'
 import { sendEmail } from '@lib/email'
 import { siteConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
+import { decodePhotos, photoAttachments, MAX_PHOTO_BYTES } from '@lib/form-photos'
 
 const logger = createLogger('artist-applications')
 const kv = makeKvStore('artist-applications', 'artist-applications')
 
 export const MAX_PHOTOS = 6
-/** Per photo, after the phone has shrunk it (about 1600px JPEG). */
-export const MAX_PHOTO_BYTES = 1_200_000
+export { MAX_PHOTO_BYTES }
 export const STATUSES = ['new', 'talking', 'booked', 'not-now'] as const
 export type ApplicationStatus = (typeof STATUSES)[number]
 export const STATUS_LABEL: Record<ApplicationStatus, string> = { new: 'New', talking: 'Talking', booked: 'Booked', 'not-now': 'Not now' }
@@ -82,17 +82,9 @@ export function checkApplication(body: any): Checked {
   }
   if (!classIdea.what) return { ok: false, field: 'what', error: 'Tell us what you’d teach.' }
 
-  const raw: unknown[] = Array.isArray(body?.photos) ? body.photos : []
-  if (raw.length === 0) return { ok: false, field: 'photos', error: 'Add at least one photo of your work.' }
-  if (raw.length > MAX_PHOTOS) return { ok: false, field: 'photos', error: `Up to ${MAX_PHOTOS} photos.` }
-  const photos: Buffer[] = []
-  for (const p of raw) {
-    const m = typeof p === 'string' ? /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/.exec(p) : null
-    if (!m) return { ok: false, field: 'photos', error: 'One of the photos couldn’t be read. Try a different one.' }
-    const bytes = Buffer.from(m[2], 'base64')
-    if (bytes.length === 0 || bytes.length > MAX_PHOTO_BYTES) return { ok: false, field: 'photos', error: 'One of the photos is too large. Try a different one.' }
-    photos.push(bytes)
-  }
+  const decoded = decodePhotos(body?.photos, MAX_PHOTOS, { required: true })
+  if (!decoded.ok) return { ok: false, field: 'photos', error: decoded.error }
+  const photos = decoded.photos
 
   return {
     ok: true,
@@ -180,7 +172,7 @@ export async function emailOwners(app: ArtistApplication, photos: Buffer[], admi
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const html = `<pre style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;white-space:pre-wrap;">${esc(text)}</pre>`
   const subject = `Teach a class: ${app.about.name}${app.about.business ? ` (${app.about.business})` : ''}`
-  const attachments = photos.map((p, n) => ({ filename: `photo-${n + 1}.jpg`, content: p.toString('base64'), contentType: 'image/jpeg', encoding: 'base64' }))
+  const attachments = photoAttachments(photos)
   const sent = await Promise.all(siteConfig.ownerEmails.map((to) => sendEmail({ to, subject, text, html, attachments }).then((r) => r.sent).catch(() => false)))
   return sent.some(Boolean)
 }

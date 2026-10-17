@@ -1,7 +1,7 @@
 /**
  * Behaviour for the site header (src/components/shared/Header.astro): the
- * phone menu button, the scrolled state, and the underline on the current
- * page's link.
+ * phone menu button, the wide-screen menu groups ("Parties & Events ▾"), the
+ * scrolled state, and the underline on the current page's link.
  *
  * Everything listens on `document` and looks the header up when it is needed,
  * so it keeps working after in-site navigation whether the header was carried
@@ -13,7 +13,9 @@
 const MENU_BUTTON = '#menu-button'
 const MENU = '#mobile-menu'
 /** The menu's booking button is a button, not a page in the nav. */
-const NAV_LINKS = '.header-link, .mobile-link:not(.mobile-link-cta)'
+const NAV_LINKS = 'a.header-link, a.nav-sub, .mobile-link:not(.mobile-link-cta)'
+/** A group's button; its list is the element right after it. */
+const GROUP_BUTTON = '.nav-group-btn'
 
 /** "/about/" and "/about" are the same page. The homepage stays "/". */
 export function normalizePath(path: string): string {
@@ -59,6 +61,26 @@ export function syncActiveLinks(pathname: string = window.location.pathname): vo
     if (active) el.setAttribute('aria-current', 'page')
     else el.removeAttribute('aria-current')
   })
+  syncActiveGroups(pathname)
+}
+
+/** Close every wide-screen menu group except `keep`. */
+export function closeGroups(keep?: Element | null): void {
+  document.querySelectorAll(GROUP_BUTTON).forEach((b) => {
+    if (b !== keep) b.setAttribute('aria-expanded', 'false')
+  })
+}
+
+function openGroupButton(): HTMLElement | null {
+  return document.querySelector<HTMLElement>(`${GROUP_BUTTON}[aria-expanded='true']`)
+}
+
+/** A group's button is underlined while you're on any of its pages. */
+function syncActiveGroups(pathname: string): void {
+  document.querySelectorAll<HTMLElement>(`${GROUP_BUTTON}[data-nav-paths]`).forEach((b) => {
+    const active = (b.dataset.navPaths ?? '').split(' ').some((href) => isActivePath(href, pathname))
+    b.classList.toggle('is-active', active)
+  })
 }
 
 function syncScrolled(): void {
@@ -75,6 +97,15 @@ export function initSiteHeader(): void {
 
   document.addEventListener('click', (e) => {
     const target = e.target instanceof Element ? e.target : null
+    const group = target?.closest(GROUP_BUTTON)
+    if (group) {
+      const open = group.getAttribute('aria-expanded') === 'true'
+      closeGroups(group)
+      group.setAttribute('aria-expanded', open ? 'false' : 'true')
+      return
+    }
+    // A page in a group was chosen, or the press landed outside the groups.
+    if (!target?.closest('.nav-panel') || target.closest('a')) closeGroups()
     if (target?.closest(MENU_BUTTON)) {
       if (isMenuOpen()) closeMenu({ returnFocus: true })
       else openMenu()
@@ -85,13 +116,22 @@ export function initSiteHeader(): void {
   })
 
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && isMenuOpen()) closeMenu({ returnFocus: true })
+    if (e.key !== 'Escape') return
+    const group = openGroupButton()
+    if (group) {
+      closeGroups()
+      group.focus({ preventScroll: true })
+      return
+    }
+    if (isMenuOpen()) closeMenu({ returnFocus: true })
   })
 
   // Tabbing on past the last link leaves the menu; don't leave it hanging open.
   document.addEventListener('focusout', (e) => {
-    if (!isMenuOpen()) return
     const next = e.relatedTarget instanceof Element ? e.relatedTarget : null
+    // Tabbing out of an open group closes it.
+    if (next && openGroupButton() && !next.closest('.nav-group')) closeGroups()
+    if (!isMenuOpen()) return
     if (next && !next.closest(`${MENU}, ${MENU_BUTTON}`)) closeMenu()
   })
 
@@ -111,6 +151,7 @@ export function initSiteHeader(): void {
 
   document.addEventListener('astro:page-load', () => {
     syncActiveLinks()
+    closeGroups()
     closeMenu()
     syncScrolled()
   })

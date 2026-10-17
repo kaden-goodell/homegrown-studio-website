@@ -224,3 +224,106 @@ describe('site header', () => {
     })
   })
 })
+
+/** The wide-screen groups ("Parties & Events ▾"), as Header.astro renders them. */
+const GROUPED = `
+  <header id="site-header">
+    <nav>
+      <ul class="header-links">
+        <li class="nav-group">
+          <button type="button" class="header-link nav-group-btn" aria-expanded="false" aria-controls="nav-group-0" data-nav-paths="/book /private-events">Parties &amp; Events</button>
+          <div class="nav-panel" id="nav-group-0"><ul class="nav-panel-list">
+            <li><a class="nav-sub" href="/book">Parties</a></li>
+            <li><a class="nav-sub" href="/private-events">Private Events</a></li>
+          </ul></div>
+        </li>
+        <li><a class="header-link" href="/workshops">Workshops</a></li>
+        <li class="nav-group">
+          <button type="button" class="header-link nav-group-btn" aria-expanded="false" aria-controls="nav-group-4" data-nav-paths="/about /teach">About</button>
+          <div class="nav-panel" id="nav-group-4"><ul class="nav-panel-list">
+            <li><a class="nav-sub" href="/about">Our Story</a></li>
+            <li><a class="nav-sub" href="/teach">Teach a Class</a></li>
+          </ul></div>
+        </li>
+      </ul>
+      <div class="header-mobile">
+        <button type="button" id="menu-button" aria-expanded="false" aria-controls="mobile-menu" aria-label="Menu"></button>
+        <div id="mobile-menu"><ul><li><a class="mobile-link" href="/workshops">Workshops</a></li></ul></div>
+      </div>
+    </nav>
+  </header>
+  <main><a id="outside" href="/somewhere">Somewhere</a></main>
+`
+
+describe('menu groups', () => {
+  const parties = () => document.querySelector<HTMLButtonElement>('[aria-controls="nav-group-0"]')!
+  const about = () => document.querySelector<HTMLButtonElement>('[aria-controls="nav-group-4"]')!
+  const open = (b: HTMLElement) => b.getAttribute('aria-expanded') === 'true'
+
+  beforeEach(() => {
+    document.body.innerHTML = GROUPED
+    document.body.addEventListener('click', (e) => e.preventDefault())
+    window.history.replaceState({}, '', '/')
+    initSiteHeader()
+  })
+
+  it('a press opens a group, and a second press closes it', () => {
+    parties().click()
+    expect(open(parties())).toBe(true)
+    parties().click()
+    expect(open(parties())).toBe(false)
+  })
+
+  it('only one group is open at a time', () => {
+    parties().click()
+    about().click()
+    expect(open(parties())).toBe(false)
+    expect(open(about())).toBe(true)
+  })
+
+  it('closes when a page in it is chosen', () => {
+    parties().click()
+    document.querySelector<HTMLAnchorElement>('a[href="/private-events"]')!.click()
+    expect(open(parties())).toBe(false)
+  })
+
+  it('closes on a press outside it', () => {
+    parties().click()
+    document.getElementById('outside')!.click()
+    expect(open(parties())).toBe(false)
+  })
+
+  it('closes on Escape and puts focus back on its button', () => {
+    parties().click()
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    expect(open(parties())).toBe(false)
+    expect(document.activeElement).toBe(parties())
+  })
+
+  it('closes when focus tabs out of it, but not while it moves inside', () => {
+    parties().click()
+    const sub = document.querySelector<HTMLAnchorElement>('a[href="/book"]')!
+    parties().dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: sub }))
+    expect(open(parties())).toBe(true)
+    sub.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: document.querySelector('a[href="/workshops"]') }))
+    expect(open(parties())).toBe(false)
+  })
+
+  it('underlines the group while you are on one of its pages, and marks the page', () => {
+    window.history.replaceState({}, '', '/private-events/')
+    document.dispatchEvent(new Event('astro:page-load'))
+    expect(parties().classList.contains('is-active')).toBe(true)
+    expect(about().classList.contains('is-active')).toBe(false)
+    expect(document.querySelector('a[href="/private-events"]')!.getAttribute('aria-current')).toBe('page')
+    window.history.replaceState({}, '', '/teach')
+    document.dispatchEvent(new Event('astro:page-load'))
+    expect(parties().classList.contains('is-active')).toBe(false)
+    expect(about().classList.contains('is-active')).toBe(true)
+  })
+
+  it('closes on in-site navigation', () => {
+    parties().click()
+    document.dispatchEvent(new Event('astro:page-load'))
+    expect(open(parties())).toBe(false)
+  })
+})

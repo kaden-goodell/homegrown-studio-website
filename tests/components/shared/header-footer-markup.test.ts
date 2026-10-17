@@ -170,3 +170,29 @@ describe('footer text', () => {
     for (const r of rules(footer)) expect(r.body, r.selector).not.toMatch(/opacity\s*:/)
   })
 })
+
+describe('menu groups ("Parties & Events ▾")', () => {
+  it('each group label is a real button that says whether its list is open', () => {
+    const button = tag(header, 'nav-group-btn')
+    expect(button.startsWith('<button')).toBe(true)
+    expect(button).toContain('type="button"')
+    expect(button).toContain('aria-expanded="false"')
+    expect(button).toContain('aria-controls=')
+  })
+
+  it('the pages in a group are at least 44px tall', () => {
+    expect(rule(header, '.nav-sub')).toMatch(TAP)
+  })
+
+  it('opens from its button, and on hover only where there is a mouse (an iPad’s hover sticks)', () => {
+    expect(header).toContain(".nav-group-btn[aria-expanded='true'] + .nav-panel")
+    const hover = header.match(/@media \(hover: hover\) \{([\s\S]*?)\n  \}/)?.[1] ?? ''
+    expect(hover).toContain('.nav-group:hover .nav-panel')
+    expect(header.replace(/@media \(hover: hover\) \{[\s\S]*?\n  \}/, '')).not.toContain(':hover .nav-panel')
+  })
+
+  it('the header and footer build the menu from the same place', () => {
+    expect(header).toMatch(/buildNav\(siteConfig/)
+    expect(footer).toMatch(/flatNav\(buildNav\(siteConfig/)
+  })
+})

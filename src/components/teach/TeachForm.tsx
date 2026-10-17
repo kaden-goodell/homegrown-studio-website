@@ -1,29 +1,7 @@
-import { useId, useRef, useState, type FormEvent, type ReactNode } from 'react'
-import '../../styles/booking-panel.css'
-import { suggestEmailFix } from '@lib/email-typos'
+import { useId, useState, type FormEvent } from 'react'
+import { Section, Pair, Side, TextField, TextArea, Choice, PhotoPicker, Honeypot, SentCard, sendForm, FieldError, type Photo } from '@components/forms/form-kit'
 
 const MAX_PHOTOS = 6
-/** Photos are shrunk on the phone before they're sent, so they upload fast on any signal. */
-const MAX_EDGE = 1600
-
-type Photo = { key: string; dataUrl: string }
-
-/** A picked photo as a ~1600px JPEG. Null when the browser can't read it. */
-async function shrink(file: File): Promise<string | null> {
-  try {
-    const bitmap = await createImageBitmap(file)
-    const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height))
-    const canvas = document.createElement('canvas')
-    canvas.width = Math.round(bitmap.width * scale)
-    canvas.height = Math.round(bitmap.height * scale)
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return null
-    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height)
-    return canvas.toDataURL('image/jpeg', 0.8)
-  } catch {
-    return null
-  }
-}
 
 const EMPTY = {
   name: '', business: '', email: '', phone: '', city: '',
@@ -45,217 +23,97 @@ export default function TeachForm() {
   const [problem, setProblem] = useState<{ field: string; error: string } | null>(null)
   const [sending, setSending] = useState(false)
   const [done, setDone] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
 
-  const set = (k: keyof Values) => (e: { target: { value: string } }) => setV((x) => ({ ...x, [k]: e.target.value }))
   const errorFor = (field: string) => (problem?.field === field ? problem.error : '')
-
-  async function addPhotos(files: FileList | null) {
-    if (!files) return
-    const room = MAX_PHOTOS - photos.length
-    const picked = Array.from(files).slice(0, room)
-    const shrunk = await Promise.all(picked.map(shrink))
-    const good = shrunk.filter((d): d is string => !!d).map((dataUrl) => ({ key: `${Date.now()}-${Math.random()}`, dataUrl }))
-    setPhotos((p) => [...p, ...good].slice(0, MAX_PHOTOS))
-    if (good.length < picked.length) setProblem({ field: 'photos', error: 'One of the photos couldn’t be read. Try a different one.' })
-    else if (problem?.field === 'photos') setProblem(null)
-    if (fileRef.current) fileRef.current.value = ''
-  }
+  const bind = (k: keyof Values) => ({ id: `${id}-${k}`, value: v[k], onChange: (val: string) => setV((x) => ({ ...x, [k]: val })), error: errorFor(k) })
 
   async function submit(e: FormEvent) {
     e.preventDefault()
     if (sending) return
     setProblem(null)
     setSending(true)
-    try {
-      const res = await fetch('/api/teach/apply.json', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          about: { name: v.name, business: v.business, email: v.email, phone: v.phone, city: v.city },
-          links: { instagram: v.instagram, website: v.website, tiktok: v.tiktok, etsy: v.etsy, video: v.video },
-          classIdea: { what: v.what, takeHome: v.takeHome, audience: v.audience, dropOffOk: v.dropOffOk, length: v.length, groupMin: v.groupMin, groupMax: v.groupMax, price: v.price, suppliesCost: v.suppliesCost, needs: v.needs },
-          experience: v.experience,
-          when: { days: v.days, howOften: v.howOften },
-          photos: photos.map((p) => p.dataUrl),
-          company: v.company,
-        }),
-      })
-      const data = await res.json().catch(() => null)
-      if (!res.ok) {
-        const field = data?.field ?? 'form'
-        setProblem({ field, error: data?.error ?? 'We couldn’t send that just now. Please try again in a minute.' })
-        document.getElementById(`${id}-${field}`)?.scrollIntoView?.({ block: 'center' })
-        return
-      }
-      setDone(true)
-      window.scrollTo?.({ top: 0 })
-    } catch {
-      setProblem({ field: 'form', error: 'We couldn’t send that just now. Check your connection and try again.' })
-    } finally {
-      setSending(false)
+    const result = await sendForm('/api/teach/apply.json', {
+      about: { name: v.name, business: v.business, email: v.email, phone: v.phone, city: v.city },
+      links: { instagram: v.instagram, website: v.website, tiktok: v.tiktok, etsy: v.etsy, video: v.video },
+      classIdea: { what: v.what, takeHome: v.takeHome, audience: v.audience, dropOffOk: v.dropOffOk, length: v.length, groupMin: v.groupMin, groupMax: v.groupMax, price: v.price, suppliesCost: v.suppliesCost, needs: v.needs },
+      experience: v.experience,
+      when: { days: v.days, howOften: v.howOften },
+      photos: photos.map((p) => p.dataUrl),
+      company: v.company,
+    })
+    setSending(false)
+    if (!result.ok) {
+      setProblem({ field: result.field, error: result.error })
+      document.getElementById(`${id}-${result.field}`)?.scrollIntoView?.({ block: 'center' })
+      return
     }
+    setDone(true)
+    window.scrollTo?.({ top: 0 })
   }
 
-  if (done) {
-    return (
-      <div role="status" className="glass rounded-2xl" style={{ padding: '2rem 1.5rem', textAlign: 'center' }}>
-        <p className="font-heading" style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700, color: 'var(--color-dark)' }}>Thanks, we got it.</p>
-        <p style={{ margin: '0.5rem 0 0', color: 'var(--color-text)' }}>We’ll be in touch.</p>
-      </div>
-    )
-  }
-
-  const input = (k: keyof Values, label: string, opts: { required?: boolean; type?: string; inputMode?: 'email' | 'tel' | 'url' | 'numeric' | 'text'; autoComplete?: string; placeholder?: string } = {}) => (
-    <div className="field">
-      <label className="field-label" htmlFor={`${id}-${k}`}>
-        {label}
-        {!opts.required && <span className="field-optional"> (optional)</span>}
-      </label>
-      <input
-        id={`${id}-${k}`}
-        className="field-input"
-        type={opts.type ?? 'text'}
-        inputMode={opts.inputMode}
-        autoComplete={opts.autoComplete ?? 'off'}
-        placeholder={opts.placeholder}
-        required={opts.required}
-        value={v[k]}
-        onChange={set(k)}
-        aria-invalid={errorFor(k) ? true : undefined}
-      />
-      {k === 'email' && suggestEmailFix(v.email) && (
-        <p className="field-hint" style={{ margin: '0.25rem 0 0', fontSize: '0.875rem' }}>
-          Did you mean{' '}
-          <button type="button" onClick={() => setV((x) => ({ ...x, email: suggestEmailFix(x.email)! }))} style={{ background: 'none', border: 0, padding: 0, font: 'inherit', color: 'var(--color-primary)', textDecoration: 'underline', cursor: 'pointer' }}>
-            {suggestEmailFix(v.email)}
-          </button>
-          ?
-        </p>
-      )}
-      {errorFor(k) && <p role="alert" className="field-error">{errorFor(k)}</p>}
-    </div>
-  )
-
-  const textarea = (k: keyof Values, label: string, opts: { required?: boolean; hint?: string } = {}) => (
-    <div className="field">
-      <label className="field-label" htmlFor={`${id}-${k}`}>
-        {label}
-        {!opts.required && <span className="field-optional"> (optional)</span>}
-      </label>
-      {opts.hint && <p style={{ margin: '0 0 0.35rem', fontSize: '0.85rem', color: 'var(--color-muted)' }}>{opts.hint}</p>}
-      <textarea id={`${id}-${k}`} className="field-input" rows={3} required={opts.required} value={v[k]} onChange={set(k)} aria-invalid={errorFor(k) ? true : undefined} style={{ resize: 'vertical' }} />
-      {errorFor(k) && <p role="alert" className="field-error">{errorFor(k)}</p>}
-    </div>
-  )
-
-  const choice = (k: keyof Values, label: string, options: [string, string][]) => (
-    <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
-      <legend className="field-label">{label}<span className="field-optional"> (optional)</span></legend>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
-        {options.map(([value, text]) => (
-          <button
-            key={value}
-            type="button"
-            aria-pressed={v[k] === value}
-            onClick={() => setV((x) => ({ ...x, [k]: x[k] === value ? '' : value }))}
-            style={{
-              padding: '0.5rem 1rem',
-              borderRadius: '999px',
-              border: `1px solid ${v[k] === value ? 'var(--color-primary)' : 'var(--color-field-border)'}`,
-              background: v[k] === value ? 'var(--color-primary)' : 'var(--color-surface)',
-              color: v[k] === value ? 'var(--color-button-text)' : 'var(--color-dark)',
-              font: 'inherit',
-              fontSize: '0.9rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
-          >
-            {text}
-          </button>
-        ))}
-      </div>
-    </fieldset>
-  )
-
-  const section = (title: string, children: ReactNode) => (
-    <section className="glass rounded-2xl" style={{ padding: '1.25rem', display: 'grid', gap: '1rem' }}>
-      <h2 className="font-heading" style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700, color: 'var(--color-dark)' }}>{title}</h2>
-      {children}
-    </section>
-  )
-  const pair = (a: ReactNode, b: ReactNode) => <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))', gap: '1rem' }}>{a}{b}</div>
+  if (done) return <SentCard />
 
   return (
     <form onSubmit={submit} noValidate style={{ display: 'grid', gap: '1.25rem' }}>
-      {section('About you', <>
-        {input('name', 'Your name', { required: true, autoComplete: 'name' })}
-        {input('business', 'Business name', { autoComplete: 'organization' })}
-        {pair(input('email', 'Email', { required: true, type: 'email', inputMode: 'email', autoComplete: 'email' }), input('phone', 'Phone', { required: true, type: 'tel', inputMode: 'tel', autoComplete: 'tel' }))}
-        {input('city', 'City', { autoComplete: 'address-level2' })}
-        {pair(input('instagram', 'Instagram', { placeholder: '@yourname' }), input('website', 'Website', { type: 'url', inputMode: 'url' }))}
-        {pair(input('tiktok', 'TikTok', { placeholder: '@yourname' }), input('etsy', 'Etsy'))}
-      </>)}
+      <Section title="About you">
+        <TextField {...bind('name')} label="Your name" required autoComplete="name" />
+        <TextField {...bind('business')} label="Business name" autoComplete="organization" />
+        <Pair>
+          <TextField {...bind('email')} label="Email" required type="email" inputMode="email" autoComplete="email" />
+          <TextField {...bind('phone')} label="Phone" required type="tel" inputMode="tel" autoComplete="tel" />
+        </Pair>
+        <TextField {...bind('city')} label="City" autoComplete="address-level2" />
+        <Pair>
+          <TextField {...bind('instagram')} label="Instagram" placeholder="@yourname" />
+          <TextField {...bind('website')} label="Website" type="url" inputMode="url" />
+        </Pair>
+        <Pair>
+          <TextField {...bind('tiktok')} label="TikTok" placeholder="@yourname" />
+          <TextField {...bind('etsy')} label="Etsy" />
+        </Pair>
+      </Section>
 
-      {section('Your class', <>
-        {textarea('what', 'What would you teach?', { required: true, hint: 'A sentence or two about the class.' })}
-        {input('takeHome', 'What do people take home?')}
-        {choice('audience', 'Who is it for?', [['kids', 'Kids & teens'], ['adults', 'Adults'], ['both', 'Both']])}
-        {(v.audience === 'kids' || v.audience === 'both') && choice('dropOffOk', 'Could parents drop kids off?', [['yes', 'Yes'], ['no', 'No']])}
-        {input('length', 'How long', { placeholder: 'e.g. 2 hours' })}
-        {/* Always side by side, even on a phone: two short numbers. */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-          {input('groupMin', 'Fewest people', { inputMode: 'numeric' })}
-          {input('groupMax', 'Most people', { inputMode: 'numeric' })}
-        </div>
-        {pair(input('price', 'Price you’d like per person', { placeholder: 'e.g. $45' }), input('suppliesCost', 'Supplies cost per person', { placeholder: 'e.g. $12' }))}
-        {textarea('needs', 'What would you need from us?', { hint: 'Tables, outlets, a sink, an oven, how messy it gets.' })}
-      </>)}
+      <Section title="Your class">
+        <TextArea {...bind('what')} label="What would you teach?" required hint="A sentence or two about the class." />
+        <TextField {...bind('takeHome')} label="What do people take home?" />
+        <Choice {...bind('audience')} label="Who is it for?" options={[['kids', 'Kids & teens'], ['adults', 'Adults'], ['both', 'Both']]} />
+        {(v.audience === 'kids' || v.audience === 'both') && <Choice {...bind('dropOffOk')} label="Could parents drop kids off?" options={[['yes', 'Yes'], ['no', 'No']]} />}
+        <TextField {...bind('length')} label="How long" placeholder="e.g. 2 hours" />
+        <Side>
+          <TextField {...bind('groupMin')} label="Fewest people" inputMode="numeric" />
+          <TextField {...bind('groupMax')} label="Most people" inputMode="numeric" />
+        </Side>
+        <Pair>
+          <TextField {...bind('price')} label="Price you’d like per person" placeholder="e.g. $45" />
+          <TextField {...bind('suppliesCost')} label="Supplies cost per person" placeholder="e.g. $12" />
+        </Pair>
+        <TextArea {...bind('needs')} label="What would you need from us?" hint="Tables, outlets, a sink, an oven, how messy it gets." />
+      </Section>
 
-      {section('Your work', <>
-        <div className="field" id={`${id}-photos`}>
-          <p className="field-label" style={{ margin: 0 }}>Photos of your work</p>
-          <p style={{ margin: '0 0 0.5rem', fontSize: '0.85rem', color: 'var(--color-muted)' }}>Finished pieces or past classes. At least one, up to {MAX_PHOTOS}.</p>
-          {photos.length > 0 && (
-            <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 0.75rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(5.5rem, 1fr))', gap: '0.5rem' }}>
-              {photos.map((p, i) => (
-                <li key={p.key} style={{ position: 'relative' }}>
-                  <img src={p.dataUrl} alt={`Photo ${i + 1}`} style={{ width: '100%', aspectRatio: '1', objectFit: 'cover', borderRadius: '0.5rem', display: 'block' }} />
-                  <button
-                    type="button"
-                    aria-label={`Remove photo ${i + 1}`}
-                    onClick={() => setPhotos((list) => list.filter((x) => x.key !== p.key))}
-                    style={{ position: 'absolute', top: 4, right: 4, width: 26, height: 26, borderRadius: '50%', border: 0, background: 'rgba(0,0,0,.6)', color: '#fff', cursor: 'pointer', lineHeight: 1 }}
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          {photos.length < MAX_PHOTOS && (
-            <label className="btn btn-secondary" style={{ display: 'inline-flex', cursor: 'pointer' }}>
-              {photos.length ? 'Add more photos' : 'Add photos'}
-              <input ref={fileRef} type="file" accept="image/*" multiple onChange={(e) => addPhotos(e.target.files)} style={{ position: 'absolute', width: 1, height: 1, opacity: 0 }} />
-            </label>
-          )}
-          {errorFor('photos') && <p role="alert" className="field-error">{errorFor('photos')}</p>}
-        </div>
-        {input('video', 'Link to a video', { type: 'url', inputMode: 'url', placeholder: 'Instagram reel, TikTok or YouTube' })}
-        {textarea('experience', 'Teaching experience', { hint: 'Where you’ve taught, and for how long.' })}
-      </>)}
+      <Section title="Your work">
+        <PhotoPicker
+          id={`${id}-photos`}
+          label="Photos of your work"
+          hint={`Finished pieces or past classes. At least one, up to ${MAX_PHOTOS}.`}
+          required
+          photos={photos}
+          onChange={setPhotos}
+          max={MAX_PHOTOS}
+          error={errorFor('photos')}
+          onError={(error) => setProblem((p) => (error ? { field: 'photos', error } : p?.field === 'photos' ? null : p))}
+        />
+        <TextField {...bind('video')} label="Link to a video" type="url" inputMode="url" placeholder="Instagram reel, TikTok or YouTube" />
+        <TextArea {...bind('experience')} label="Teaching experience" hint="Where you’ve taught, and for how long." />
+      </Section>
 
-      {section('When', <>
-        {textarea('days', 'Which days and times work for you?')}
-        {choice('howOften', 'How often?', [['one-time', 'One-time'], ['monthly', 'Monthly'], ['series', 'A series']])}
-      </>)}
+      <Section title="When">
+        <TextArea {...bind('days')} label="Which days and times work for you?" />
+        <Choice {...bind('howOften')} label="How often?" options={[['one-time', 'One-time'], ['monthly', 'Monthly'], ['series', 'A series']]} />
+      </Section>
 
-      {/* People never see this; bots fill it in. */}
-      <div aria-hidden="true" style={{ position: 'absolute', left: '-10000px', width: 1, height: 1, overflow: 'hidden' }}>
-        <label>Company<input tabIndex={-1} autoComplete="off" value={v.company} onChange={set('company')} /></label>
-      </div>
+      <Honeypot value={v.company} onChange={(company) => setV((x) => ({ ...x, company }))} />
 
-      {errorFor('form') && <p role="alert" className="field-error">{errorFor('form')}</p>}
+      <FieldError error={errorFor('form')} />
       <button type="submit" className="btn btn-primary" disabled={sending} style={{ width: '100%' }}>
         {sending ? 'Sending…' : 'Send'}
       </button>

@@ -1,45 +1,11 @@
 ---
 import { siteConfig } from '@config/site.config'
 import { normalizePath } from '@lib/site-header'
+import { buildNav, flatNav, navHoldsPath, type NavItem } from '@lib/nav'
 
-interface NavItem {
-  label: string
-  href: string
-}
-
-let navItems: NavItem[]
-
-if (siteConfig.nav && siteConfig.nav.length > 0) {
-  navItems = siteConfig.nav
-} else {
-  navItems = [
-    { label: 'Home', href: '/' },
-    { label: 'About', href: '/about' },
-  ]
-  if (siteConfig.features.workshops) {
-    navItems.push({ label: 'Workshops', href: '/workshops' })
-  }
-  if (siteConfig.features.programs?.enabled) {
-    navItems.push({ label: 'Programs', href: '/programs' })
-  }
-  if (siteConfig.features.parties.enabled) {
-    navItems.push({ label: 'Book a Party', href: '/book' })
-  }
-  if (siteConfig.features.gallery) {
-    navItems.push({ label: 'Gallery', href: '/gallery' })
-  }
-}
-
-// Kits joins the nav when the feature is live (or in local dev, where the
-// /kits page is always previewable) — inserted after "Parties".
-if (siteConfig.features.kits.enabled || import.meta.env.DEV) {
-  const partiesIdx = navItems.findIndex((i) => i.href === '/book')
-  navItems = [
-    ...navItems.slice(0, partiesIdx + 1),
-    { label: 'Take-Home Kits', href: '/kits' },
-    ...navItems.slice(partiesIdx + 1),
-  ]
-}
+// Grouped menu from site.config. Take Home Kits shows while kits are live
+// (and always in local dev, where /kits is previewable).
+const navItems = buildNav(siteConfig, { kitsVisible: siteConfig.features.kits.enabled || import.meta.env.DEV })
 
 /** Craft colour for each offering's nav link (defined in global.css). */
 const TONE_BY_HREF: Record<string, string> = {
@@ -48,7 +14,10 @@ const TONE_BY_HREF: Record<string, string> = {
   '/craft-cafe': 'tone-studio',
   '/calendar': 'tone-event',
   '/kits': 'tone-kit',
+  '/private-events': 'tone-event',
 }
+/** A group takes its first page's colour ("Parties & Events" is the party pink). */
+const toneOf = (item: NavItem) => TONE_BY_HREF[(item.href ?? item.children?.[0]?.href) as string]
 
 // Normalize trailing slash so /programs/ matches nav href "/programs".
 // Astro can serve some routes with a trailing slash even when others don't
@@ -77,13 +46,42 @@ const opensBooking = normalizePath(siteConfig.navCta.href) === '/book'
 
     {/* Desktop nav */}
     <ul class="header-links">
-      {navItems.map((item) => (
+      {navItems.map((item, i) => item.children ? (
+        <li class="nav-group">
+          <button
+            type="button"
+            class:list={['header-link', 'nav-group-btn', toneOf(item), navHoldsPath(item, currentPath) && 'is-active']}
+            aria-expanded="false"
+            aria-controls={`nav-group-${i}`}
+            data-nav-paths={flatNav(item.children).map((c) => c.href).join(' ')}
+          >
+            {item.label}
+            <svg class="nav-chevron" viewBox="0 0 12 12" aria-hidden="true"><path d="M2.5 4.5 6 8l3.5-3.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </button>
+          <div class="nav-panel" id={`nav-group-${i}`}>
+            <ul class="nav-panel-list">
+              {item.children.map((child) => (
+                <li>
+                  <a
+                    href={child.href}
+                    class:list={['nav-sub', toneOf(child), currentPath === child.href && 'is-active']}
+                    aria-current={currentPath === child.href ? 'page' : undefined}
+                  >
+                    <span class="nav-sub-label">{child.label}</span>
+                    {child.note && <span class="nav-sub-note">{child.note}</span>}
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </li>
+      ) : (
         <li>
           <a
             href={item.href}
             class:list={[
               'header-link',
-              TONE_BY_HREF[item.href],
+              toneOf(item),
               currentPath === item.href && 'is-active',
             ]}
             aria-current={currentPath === item.href ? 'page' : undefined}
@@ -119,13 +117,31 @@ const opensBooking = normalizePath(siteConfig.navCta.href) === '/book'
 
       <div id="mobile-menu" class="mobile-drawer">
         <ul class="mobile-links">
-          {navItems.map((item) => (
+          {navItems.map((item) => item.children ? (
+            <li class="mobile-group">
+              <p class="mobile-group-label">{item.label}</p>
+              <ul class="mobile-sublinks">
+                {item.children.map((child) => (
+                  <li>
+                    <a
+                      href={child.href}
+                      class:list={['mobile-link', toneOf(child), child.note && 'has-note', currentPath === child.href && 'is-active']}
+                      aria-current={currentPath === child.href ? 'page' : undefined}
+                    >
+                      {child.label}
+                      {child.note && <span class="mobile-note">{child.note}</span>}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </li>
+          ) : (
             <li>
               <a
                 href={item.href}
                 class:list={[
                   'mobile-link',
-                  TONE_BY_HREF[item.href],
+                  toneOf(item),
                   currentPath === item.href && 'is-active',
                 ]}
                 aria-current={currentPath === item.href ? 'page' : undefined}
@@ -203,7 +219,7 @@ const opensBooking = normalizePath(siteConfig.navCta.href) === '/book'
   }
 
   /* Desktop links (≥1024px; below that the burger + Book pill carry the nav,
-     because six links + the brand + the pill need ~870px even when tight —
+     because the links + the brand + the pill need ~870px even when tight —
      at 768–1023px they wrapped onto two lines and overflowed the screen) */
   .header-links {
     display: none;
@@ -310,6 +326,93 @@ const opensBooking = normalizePath(siteConfig.navCta.href) === '/book'
     transform-origin: left center;
   }
 
+  /* Menu groups (wide screens): the label is a button; its list drops below.
+     It opens on a press, and on hover where there is a mouse (a touch screen's
+     "hover" sticks, so iPads use the press only). */
+  .nav-group {
+    position: relative;
+  }
+  .nav-group-btn {
+    gap: 0.3rem;
+    border: 0;
+    background: none;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .nav-chevron {
+    width: 0.7rem;
+    height: 0.7rem;
+    transition: transform 0.25s ease;
+  }
+  .nav-group-btn[aria-expanded='true'] .nav-chevron {
+    transform: rotate(180deg);
+  }
+  .nav-panel {
+    position: absolute;
+    top: 100%;
+    left: 50%;
+    z-index: 60;
+    min-width: 21rem;
+    padding: 0.5rem;
+    border-radius: 1rem;
+    border: 1px solid rgba(var(--color-primary-rgb), 0.1);
+    background: rgba(250, 248, 245, 0.98);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 16px 40px rgba(var(--color-primary-rgb), 0.16);
+    opacity: 0;
+    visibility: hidden;
+    transform: translate(-50%, 6px);
+    transition: opacity 0.2s ease, transform 0.2s ease, visibility 0.2s ease;
+  }
+  .nav-group-btn[aria-expanded='true'] + .nav-panel {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, 0);
+  }
+  @media (hover: hover) {
+    .nav-group:hover .nav-panel {
+      opacity: 1;
+      visibility: visible;
+      transform: translate(-50%, 0);
+    }
+  }
+  .nav-panel-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: 0.15rem;
+  }
+  .nav-sub {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 0.1rem;
+    min-height: 2.75rem;
+    padding: 0.55rem 0.85rem;
+    border-radius: 0.65rem;
+    border-left: 3px solid transparent;
+    text-decoration: none;
+    transition: background-color 0.2s ease;
+  }
+  .nav-sub:hover,
+  .nav-sub.is-active {
+    background: rgba(var(--color-primary-rgb), 0.06);
+    border-left-color: var(--tone, var(--color-primary));
+    text-decoration: none;
+  }
+  .nav-sub-label {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--color-dark);
+  }
+  .nav-sub-note {
+    font-size: 0.8rem;
+    line-height: 1.35;
+    color: var(--color-muted);
+  }
+
   /* Mobile burger — two lines that morph to X */
   .header-mobile {
     display: block;
@@ -404,12 +507,41 @@ const opensBooking = normalizePath(siteConfig.navCta.href) === '/book'
   .mobile-link.is-active {
     color: var(--color-dark);
   }
+  .mobile-link.has-note {
+    flex-direction: column;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 0.2rem;
+    padding: 0.75rem 0;
+  }
+  .mobile-note {
+    font-size: 0.8rem;
+    letter-spacing: 0;
+    text-transform: none;
+    color: var(--color-muted);
+  }
+  .mobile-group-label {
+    margin: 1rem 0 0;
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--color-primary);
+  }
+  .mobile-links > li:first-child .mobile-group-label {
+    margin-top: 0;
+  }
+  .mobile-sublinks {
+    list-style: none;
+    margin: 0;
+    padding: 0 0 0 0.75rem;
+  }
   .mobile-link-cta {
     gap: 0.35rem;
     color: var(--color-primary);
     font-weight: 600;
   }
-  .mobile-links li:last-child .mobile-link {
+  .mobile-links > li:last-child > .mobile-link {
     border-bottom: none;
   }
 </style>
