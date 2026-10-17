@@ -30,6 +30,8 @@ let _transport: any = null
 
 export async function sendEmail(input: {
   to: string; subject: string; html: string; text: string
+  /** Where a reply goes: the person who filled in a form, so the owners can just hit Reply. */
+  replyTo?: string
   /** `encoding: 'base64'` tells nodemailer to decode `content` before
    *  sending — needed for binary attachments (e.g. the HOM-217 archive zip),
    *  where `content` is a base64 string rather than plain text like the
@@ -54,6 +56,7 @@ export async function sendEmail(input: {
       // "Send mail as" alias of GMAIL_USER; otherwise Gmail rewrites From to GMAIL_USER.
       from: `"${siteConfig.email.fromName}" <${siteConfig.email.fromAddress}>`,
       to: input.to, subject: input.subject, html: input.html, text: input.text,
+      ...(input.replyTo ? { replyTo: input.replyTo } : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     })
     return { sent: true }

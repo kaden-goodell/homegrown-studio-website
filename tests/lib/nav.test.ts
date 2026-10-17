@@ -26,12 +26,12 @@ describe('the site menu (Kaden picked option A, 17 Oct 2026)', () => {
     expect(labels(withKits[0].children!)).toEqual(['Parties', 'Private Events', 'Take Home Kits'])
   })
 
-  it('About holds Our Story and Teach a Class', () => {
-    expect(nav[4].children).toEqual([{ label: 'Our Story', href: '/about' }, { label: 'Teach a Class', href: '/teach' }])
+  it('About holds Our Story, Teach a Class and Contact', () => {
+    expect(nav[4].children).toEqual([{ label: 'Our Story', href: '/about' }, { label: 'Teach a Class', href: '/teach' }, { label: 'Contact', href: '/contact' }])
   })
 
   it('the footer gets every page, in order, groups opened up', () => {
-    expect(flatNav(nav).map((i) => i.href)).toEqual(['/book', '/private-events', '/workshops', '/craft-cafe', '/calendar', '/about', '/teach'])
+    expect(flatNav(nav).map((i) => i.href)).toEqual(['/book', '/private-events', '/workshops', '/craft-cafe', '/calendar', '/about', '/teach', '/contact'])
   })
 
   it('a group holds the page you are on when any of its pages is it', () => {

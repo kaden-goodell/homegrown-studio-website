@@ -433,6 +433,7 @@ export const siteConfig: SiteConfig = {
       children: [
         { label: 'Our Story', href: '/about' },
         { label: 'Teach a Class', href: '/teach' },
+        { label: 'Contact', href: '/contact' },
       ],
     },
   ],

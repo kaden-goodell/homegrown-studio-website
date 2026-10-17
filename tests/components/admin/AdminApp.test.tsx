@@ -18,7 +18,7 @@ const request = (over: any = {}) => ({
   where: { place: 'yours', address: '100 Main St', setting: 'indoors', tables: 'yes', sink: 'no', setupFrom: '1 PM', access: '' },
   craft: { pick: 'custom', vision: 'Desk plants', theme: '', personalized: '', link: 'pinterest.com/pin/1' },
   extras: { food: 'studio', drinks: '', dessert: '', decor: '', tableware: '', favors: '' },
-  allergies: '', budget: '500-1000',
+  allergies: '', budget: '1000-2500',
   about: { name: 'Dana Planner', email: 'dana@example.com', phone: '(256) 555-0142', org: 'Rocket Co', contactBy: 'text', heard: '' },
   notes: '', ...over,
 })
@@ -27,7 +27,9 @@ const request = (over: any = {}) => ({
  * Answers by address: the two lists, sign-in, and the status moves. `lists`
  * starts signed out when `signedOut` is set, until a sign-in succeeds.
  */
-function server({ apps = [app()], requests = [request()], signedOut = false, passcodeOk = true }: any = {}) {
+const message = (over: any = {}) => ({ id: '2026-10-17-11111111', at: '2026-10-17T16:00:00Z', status: 'new', photos: 0, name: 'Sam Asker', email: 'sam@example.com', phone: '(256) 555-0177', topic: 'cafe', message: 'Are you open on Thanksgiving weekend?', ...over })
+
+function server({ apps = [app()], requests = [request()], messages = [message()], signedOut = false, passcodeOk = true }: any = {}) {
   let out = signedOut
   return vi.fn(async (url: string, init?: any) => {
     if (url === '/api/admin/login.json') {
@@ -43,6 +45,10 @@ function server({ apps = [app()], requests = [request()], signedOut = false, pas
     if (url === '/api/admin/event-requests.json') {
       if (init?.method === 'POST') { const b = JSON.parse(init.body); return ok({ data: { request: { ...requests.find((r: any) => r.id === b.id), status: b.status } } }) }
       return ok({ data: { requests } })
+    }
+    if (url === '/api/admin/messages.json') {
+      if (init?.method === 'POST') { const b = JSON.parse(init.body); return ok({ data: { message: { ...messages.find((m: any) => m.id === b.id), status: b.status } } }) }
+      return ok({ data: { messages } })
     }
     throw new Error(`unexpected ${url}`)
   })
@@ -69,7 +75,7 @@ describe('AdminApp (/admin)', () => {
     expect(screen.getByText('Prefers text')).toBeInTheDocument()
     expect(screen.getByText('100 Main St')).toBeInTheDocument()
     expect(screen.getByText('Please provide')).toBeInTheDocument()
-    expect(screen.getByText('$500 to $1,000')).toBeInTheDocument()
+    expect(screen.getByText('$1,000 to $2,500')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'pinterest.com/pin/1' })).toHaveAttribute('href', 'https://pinterest.com/pin/1')
     expect(screen.getByAltText('Dana Planner, inspiration photo 1')).toHaveAttribute('src', '/api/admin/event-request-photo?id=2026-10-17-abcdef12&n=0')
   })
@@ -121,12 +127,27 @@ describe('AdminApp (/admin)', () => {
   })
 
   it('empty lists say where things come from', async () => {
-    vi.stubGlobal('fetch', server({ apps: [], requests: [] }))
+    vi.stubGlobal('fetch', server({ apps: [], requests: [], messages: [] }))
     render(<AdminApp />)
     expect(await screen.findByText(/ourhometownstudio.com\/private-events/)).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: 'Private events' })).toBeInTheDocument()
     teachers()
     expect(screen.getByText(/ourhometownstudio.com\/teach/)).toBeInTheDocument()
+  })
+
+  it('the Messages tab shows each message and marks it Replied', async () => {
+    const fetchMock = server()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<AdminApp />)
+    await screen.findByText('Dana Planner · Rocket Co')
+    fireEvent.click(screen.getByRole('tab', { name: 'Messages (1 new)' }))
+    expect(screen.getByText('Are you open on Thanksgiving weekend?')).toBeInTheDocument()
+    expect(screen.getByText(/Craft Café/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'sam@example.com' })).toHaveAttribute('href', 'mailto:sam@example.com')
+    const group = screen.getByRole('group', { name: 'Status for Sam Asker' })
+    fireEvent.click(within(group).getByRole('button', { name: 'Replied' }))
+    expect(await within(group).findByRole('button', { name: 'Replied', pressed: true })).toBeInTheDocument()
+    expect(await screen.findByRole('tab', { name: 'Messages' })).toBeInTheDocument()
   })
 
   it('a list that fails to load offers to try again', async () => {

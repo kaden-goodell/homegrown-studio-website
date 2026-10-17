@@ -7,21 +7,15 @@
  * in prod, .data/ in dev), emailed to the owners with the photos attached, and
  * listed on the owner-only /admin page with a status the owners set.
  */
-import { randomUUID } from 'node:crypto'
-import { makeKvStore } from '@lib/blob-store'
-import { sendEmail } from '@lib/email'
-import { decodePhotos, photoAttachments } from '@lib/form-photos'
+import { decodePhotos } from '@lib/form-photos'
+import { submissionStore, answerLines, emailOwnersCopy, emailGotIt } from '@lib/submissions'
 import { studioDate, formatCalendarDay } from '@lib/studio-time'
-import { siteConfig } from '@config/site.config'
-import { createLogger } from '@lib/logger'
 import {
   MAX_PHOTOS, MAX_GUESTS, KINDS, CRAFTERS, PLACES, SETTINGS, YES_NO, CRAFT_PICKS, EXTRAS, EXTRA_CHOICES, BUDGETS, CONTACT_BY, STATUSES, STATUS_LABEL,
   type ExtraKey, type RequestStatus, type Values, type EventRequest,
   label, clock12, kindLabel, whenLabel, crafterLabel, extrasLines,
 } from '@lib/event-request-options'
 
-const logger = createLogger('event-requests')
-const kv = makeKvStore('event-requests', 'event-requests')
 
 export { MAX_PHOTOS, MAX_GUESTS, KINDS, CRAFTERS, PLACES, SETTINGS, YES_NO, CRAFT_PICKS, EXTRAS, EXTRA_CHOICES, BUDGETS, CONTACT_BY, STATUSES, STATUS_LABEL }
 export { clock12, kindLabel, whenLabel, crafterLabel, extrasLines }
@@ -134,47 +128,13 @@ export function checkRequest(body: any, now = new Date()): Checked {
   }
 }
 
-const requestKey = (id: string) => `req-${id}`
-const photoKey = (id: string, n: number) => `photo-${id}-${n}`
-const ID_RE = /^\d{4}-\d{2}-\d{2}-[0-9a-f]{8}$/
+const store = submissionStore<RequestStatus, EventRequest>({ store: 'event-requests', prefix: 'req', maxPhotos: MAX_PHOTOS, statuses: STATUSES })
 
-export async function saveRequest(value: NewRequest, photos: Buffer[], now = new Date()): Promise<EventRequest> {
-  const req: EventRequest = { ...value, id: `${now.toISOString().slice(0, 10)}-${randomUUID().slice(0, 8)}`, at: now.toISOString(), status: 'new', photos: photos.length }
-  // Photos first: a request never points at a photo that isn't there.
-  for (let n = 0; n < photos.length; n++) await kv.set(photoKey(req.id, n), JSON.stringify(photos[n].toString('base64')))
-  await kv.set(requestKey(req.id), JSON.stringify(req))
-  logger.info('Event request saved', { id: req.id, photos: photos.length })
-  return req
-}
-
-export async function listRequests(): Promise<EventRequest[]> {
-  const keys = (await kv.list()).filter((k) => k.startsWith('req-'))
-  const all = await Promise.all(keys.map(async (k) => {
-    const raw = await kv.get(k)
-    return raw ? (JSON.parse(raw) as EventRequest) : null
-  }))
-  return all.filter((r): r is EventRequest => r !== null).sort((a, b) => b.at.localeCompare(a.at))
-}
-
-export async function getRequest(id: string): Promise<EventRequest | null> {
-  if (!ID_RE.test(id)) return null
-  const raw = await kv.get(requestKey(id))
-  return raw ? (JSON.parse(raw) as EventRequest) : null
-}
-
-export async function getRequestPhoto(id: string, n: number): Promise<Buffer | null> {
-  if (!ID_RE.test(id) || !Number.isInteger(n) || n < 0 || n >= MAX_PHOTOS) return null
-  const raw = await kv.get(photoKey(id, n))
-  return raw ? Buffer.from(JSON.parse(raw) as string, 'base64') : null
-}
-
-export async function setRequestStatus(id: string, status: RequestStatus, now = new Date()): Promise<EventRequest | null> {
-  const req = await getRequest(id)
-  if (!req || !STATUSES.includes(status)) return null
-  const next = { ...req, status, statusAt: now.toISOString() }
-  await kv.set(requestKey(id), JSON.stringify(next))
-  return next
-}
+export const saveRequest = (value: NewRequest, photos: Buffer[], now = new Date()) => store.save(value, photos, now)
+export const listRequests = () => store.list()
+export const getRequest = (id: string) => store.get(id)
+export const getRequestPhoto = (id: string, n: number) => store.getPhoto(id, n)
+export const setRequestStatus = (id: string, status: RequestStatus, now = new Date()) => store.setStatus(id, status, now)
 
 // ── Words for the owners ────────────────────────────────────────────────────
 
@@ -212,7 +172,7 @@ export function ownerEmailText(r: EventRequest, adminUrl: string): string {
     ['Anything else', r.notes],
   ]
   return [
-    ...lines.filter(([, v]) => v).map(([k, v]) => `${k}\n  ${v.replace(/\n/g, '\n  ')}`),
+    ...answerLines(lines),
     '',
     ...(r.photos ? [`${r.photos} inspiration photo${r.photos === 1 ? '' : 's'} attached.`] : []),
     `All requests: ${adminUrl}`,
@@ -225,29 +185,11 @@ export function ownerText(r: EventRequest, adminUrl: string): string {
   return `New private event request: ${r.about.name}${what ? `, ${what.toLowerCase()}` : ''}, ${whenLabel(r)}, ${r.event.guests} guest${r.event.guests === 1 ? '' : 's'}, ${r.where.place === 'yours' ? 'at their place' : 'at the studio'}. Details in your email and at ${adminUrl.replace(/^https?:\/\//, '')}.`
 }
 
-export async function emailOwners(r: EventRequest, photos: Buffer[], adminUrl: string): Promise<boolean> {
-  const text = ownerEmailText(r, adminUrl)
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const html = `<pre style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;white-space:pre-wrap;">${esc(text)}</pre>`
-  const subject = `Private event: ${r.about.name}, ${whenLabel(r)}`
-  const attachments = photoAttachments(photos)
-  const sent = await Promise.all(siteConfig.ownerEmails.map((to) => sendEmail({ to, subject, text, html, attachments }).then((x) => x.sent).catch(() => false)))
-  return sent.some(Boolean)
+export function emailOwners(r: EventRequest, photos: Buffer[], adminUrl: string): Promise<boolean> {
+  return emailOwnersCopy({ subject: `Private event: ${r.about.name}, ${whenLabel(r)}`, text: ownerEmailText(r, adminUrl), photos, replyTo: r.about.email })
 }
 
 /** The customer's copy: short, and no promised timeline (Kaden). */
-export async function emailCustomer(r: EventRequest): Promise<boolean> {
-  const first = r.about.name.split(/\s+/)[0]
-  const text = [
-    `Hi ${first},`,
-    '',
-    'Thanks, we got it. We’ll be in touch.',
-    '',
-    'Hometown Studio',
-    '525 Hughes Rd, Suite F, Madison, AL 35758',
-  ].join('\n')
-  const html = `<div style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;color:#3d3630;line-height:1.55;max-width:520px">
-  <p>Hi ${first.replace(/[<>&]/g, '')},</p><p>Thanks, we got it. We’ll be in touch.</p>
-  <p style="font-size:12px;color:#6f635b">Hometown Studio &middot; 525 Hughes Rd, Suite F, Madison, AL 35758</p></div>`
-  return (await sendEmail({ to: r.about.email, subject: 'Your private event request at Hometown Studio', text, html }).catch(() => ({ sent: false }))).sent
+export function emailCustomer(r: EventRequest): Promise<boolean> {
+  return emailGotIt({ to: r.about.email, name: r.about.name, subject: 'Your private event request at Hometown Studio' })
 }

@@ -25,7 +25,7 @@ describe('checkRequest', () => {
     expect(c.value.event).toMatchObject({ kind: 'team', date: '2026-11-21', backupDate: '2026-11-22', flexible: true, startTime: '14:00', guests: 18 })
     expect(c.value.where).toMatchObject({ place: 'yours', address: '100 Main St, Huntsville, AL', tables: 'yes', sink: 'no' })
     expect(c.value.extras).toEqual({ food: 'studio', drinks: 'guest', dessert: 'none', decor: '', tableware: 'studio', favors: '' })
-    expect(c.value.budget).toBe('500-1000')
+    expect(c.value.budget).toBe('1000-2500')
   })
 
   it('needs only the date, guests, where, and name, email and phone', () => {
@@ -137,7 +137,7 @@ describe('words for the owners', () => {
 
   it('the email lists every answer and leaves blanks out', () => {
     const text = ownerEmailText(req(), 'https://x.test/admin')
-    for (const line of ['Dana Planner', 'Rocket Co', 'Team building', 'Sat Nov 21 at 2:00 PM', 'Sun Nov 22', 'At your place', '100 Main St', 'Something custom', 'Blue and gold', 'Food\n  Please provide', 'Drinks\n  I’ll bring it', 'Cake or dessert\n  Not needed', 'One peanut allergy', '$500 to $1,000', 'Facebook', '1 inspiration photo attached.', 'All requests: https://x.test/admin']) {
+    for (const line of ['Dana Planner', 'Rocket Co', 'Team building', 'Sat Nov 21 at 2:00 PM', 'Sun Nov 22', 'At your place', '100 Main St', 'Something custom', 'Blue and gold', 'Food\n  Please provide', 'Drinks\n  I’ll bring it', 'Cake or dessert\n  Not needed', 'One peanut allergy', '$1,000 to $2,500', 'Facebook', '1 inspiration photo attached.', 'All requests: https://x.test/admin']) {
       expect(text).toContain(line)
     }
     expect(text).not.toContain('Decorations')

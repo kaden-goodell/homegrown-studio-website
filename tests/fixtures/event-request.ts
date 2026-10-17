@@ -8,7 +8,7 @@ export const goodBody = (over: any = {}) => ({
   craft: { pick: 'custom', vision: 'Something we can put on our desks', theme: 'Blue and gold', personalized: 'Names', link: 'pinterest.com/pin/1' },
   extras: { food: 'studio', drinks: 'guest', dessert: 'none', decor: '', tableware: 'studio', favors: '' },
   allergies: 'One peanut allergy',
-  budget: '500-1000',
+  budget: '1000-2500',
   about: { name: 'Dana Planner', email: 'dana@example.com', phone: '(256) 555-0142', org: 'Rocket Co', contactBy: 'text', heard: 'Facebook' },
   notes: 'Thanks!',
   photos: [PHOTO],

@@ -5,15 +5,8 @@
  * prod, .data/ in dev), emailed to the owners with the photos attached, and
  * listed on the owner-only /admin page with a status the owners set.
  */
-import { randomUUID } from 'node:crypto'
-import { makeKvStore } from '@lib/blob-store'
-import { sendEmail } from '@lib/email'
-import { siteConfig } from '@config/site.config'
-import { createLogger } from '@lib/logger'
-import { decodePhotos, photoAttachments, MAX_PHOTO_BYTES } from '@lib/form-photos'
-
-const logger = createLogger('artist-applications')
-const kv = makeKvStore('artist-applications', 'artist-applications')
+import { decodePhotos, MAX_PHOTO_BYTES } from '@lib/form-photos'
+import { submissionStore, answerLines, emailOwnersCopy, emailGotIt } from '@lib/submissions'
 
 export const MAX_PHOTOS = 6
 export { MAX_PHOTO_BYTES }
@@ -105,46 +98,13 @@ export function checkApplication(body: any): Checked {
   }
 }
 
-const appKey = (id: string) => `app-${id}`
-const photoKey = (id: string, n: number) => `photo-${id}-${n}`
+const store = submissionStore<ApplicationStatus, ArtistApplication>({ store: 'artist-applications', prefix: 'app', maxPhotos: MAX_PHOTOS, statuses: STATUSES })
 
-export async function saveApplication(value: Omit<ArtistApplication, 'id' | 'at' | 'status' | 'photos'>, photos: Buffer[], now = new Date()): Promise<ArtistApplication> {
-  const app: ArtistApplication = { ...value, id: `${now.toISOString().slice(0, 10)}-${randomUUID().slice(0, 8)}`, at: now.toISOString(), status: 'new', photos: photos.length }
-  // Photos first: an application never points at a photo that isn't there.
-  for (let n = 0; n < photos.length; n++) await kv.set(photoKey(app.id, n), JSON.stringify(photos[n].toString('base64')))
-  await kv.set(appKey(app.id), JSON.stringify(app))
-  logger.info('Artist application saved', { id: app.id, photos: photos.length })
-  return app
-}
-
-export async function listApplications(): Promise<ArtistApplication[]> {
-  const keys = (await kv.list()).filter((k) => k.startsWith('app-'))
-  const apps = await Promise.all(keys.map(async (k) => {
-    const raw = await kv.get(k)
-    return raw ? (JSON.parse(raw) as ArtistApplication) : null
-  }))
-  return apps.filter((a): a is ArtistApplication => a !== null).sort((a, b) => b.at.localeCompare(a.at))
-}
-
-export async function getApplication(id: string): Promise<ArtistApplication | null> {
-  if (!/^[0-9-]{10}-[0-9a-f]{8}$/.test(id)) return null
-  const raw = await kv.get(appKey(id))
-  return raw ? (JSON.parse(raw) as ArtistApplication) : null
-}
-
-export async function getApplicationPhoto(id: string, n: number): Promise<Buffer | null> {
-  if (!/^[0-9-]{10}-[0-9a-f]{8}$/.test(id) || !Number.isInteger(n) || n < 0 || n >= MAX_PHOTOS) return null
-  const raw = await kv.get(photoKey(id, n))
-  return raw ? Buffer.from(JSON.parse(raw) as string, 'base64') : null
-}
-
-export async function setApplicationStatus(id: string, status: ApplicationStatus, now = new Date()): Promise<ArtistApplication | null> {
-  const app = await getApplication(id)
-  if (!app || !STATUSES.includes(status)) return null
-  const next = { ...app, status, statusAt: now.toISOString() }
-  await kv.set(appKey(id), JSON.stringify(next))
-  return next
-}
+export const saveApplication = (value: Omit<ArtistApplication, 'id' | 'at' | 'status' | 'photos'>, photos: Buffer[], now = new Date()) => store.save(value, photos, now)
+export const listApplications = () => store.list()
+export const getApplication = (id: string) => store.get(id)
+export const getApplicationPhoto = (id: string, n: number) => store.getPhoto(id, n)
+export const setApplicationStatus = (id: string, status: ApplicationStatus, now = new Date()) => store.setStatus(id, status, now)
 
 const AUDIENCE: Record<string, string> = { kids: 'Kids & teens', adults: 'Adults', both: 'Both' }
 const OFTEN: Record<string, string> = { 'one-time': 'One-time', monthly: 'Monthly', series: 'A series' }
@@ -160,36 +120,19 @@ export function ownerEmailText(app: ArtistApplication, adminUrl: string): string
     ['Needs from us', c.needs], ['Teaching experience', app.experience], ['Days and times', app.when.days], ['How often', OFTEN[app.when.howOften] ?? ''],
   ]
   return [
-    ...lines.filter(([, v]) => v).map(([k, v]) => `${k}\n  ${v.replace(/\n/g, '\n  ')}`),
+    ...answerLines(lines),
     '',
     `${app.photos} photo${app.photos === 1 ? '' : 's'} attached.`,
     `All applications: ${adminUrl}`,
   ].join('\n')
 }
 
-export async function emailOwners(app: ArtistApplication, photos: Buffer[], adminUrl: string): Promise<boolean> {
-  const text = ownerEmailText(app, adminUrl)
-  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  const html = `<pre style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;white-space:pre-wrap;">${esc(text)}</pre>`
+export function emailOwners(app: ArtistApplication, photos: Buffer[], adminUrl: string): Promise<boolean> {
   const subject = `Teach a class: ${app.about.name}${app.about.business ? ` (${app.about.business})` : ''}`
-  const attachments = photoAttachments(photos)
-  const sent = await Promise.all(siteConfig.ownerEmails.map((to) => sendEmail({ to, subject, text, html, attachments }).then((r) => r.sent).catch(() => false)))
-  return sent.some(Boolean)
+  return emailOwnersCopy({ subject, text: ownerEmailText(app, adminUrl), photos, replyTo: app.about.email })
 }
 
 /** The artist's copy: short, and no promised timeline (Kaden). */
-export async function emailArtist(app: ArtistApplication): Promise<boolean> {
-  const first = app.about.name.split(/\s+/)[0]
-  const text = [
-    `Hi ${first},`,
-    '',
-    'Thanks, we got it. We’ll be in touch.',
-    '',
-    'Hometown Studio',
-    '525 Hughes Rd, Suite F, Madison, AL 35758',
-  ].join('\n')
-  const html = `<div style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:15px;color:#3d3630;line-height:1.55;max-width:520px">
-  <p>Hi ${first.replace(/[<>&]/g, '')},</p><p>Thanks, we got it. We’ll be in touch.</p>
-  <p style="font-size:12px;color:#6f635b">Hometown Studio &middot; 525 Hughes Rd, Suite F, Madison, AL 35758</p></div>`
-  return (await sendEmail({ to: app.about.email, subject: 'Thanks for wanting to teach at Hometown Studio', text, html }).catch(() => ({ sent: false }))).sent
+export function emailArtist(app: ArtistApplication): Promise<boolean> {
+  return emailGotIt({ to: app.about.email, name: app.about.name, subject: 'Thanks for wanting to teach at Hometown Studio' })
 }

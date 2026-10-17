@@ -5,22 +5,26 @@ import type { EventRequest } from '@lib/event-request-options'
 import { STATUS_LABEL as REQUEST_LABEL, STATUSES as REQUEST_STATUSES, type RequestStatus } from '@lib/event-request-options'
 import { EventRequestCard } from './EventRequestCard'
 import { StatusPills } from './StatusPills'
+import { MessageCard } from './MessageCard'
+import { STATUSES as MESSAGE_STATUSES, STATUS_LABEL as MESSAGE_LABEL, type ContactMessage, type MessageStatus } from '@lib/contact-options'
 
 const STATUSES: [ApplicationStatus, string][] = [['new', 'New'], ['talking', 'Talking'], ['booked', 'Booked'], ['not-now', 'Not now']]
 const AUDIENCE: Record<string, string> = { kids: 'Kids & teens', adults: 'Adults', both: 'Both' }
 const OFTEN: Record<string, string> = { 'one-time': 'One-time', monthly: 'Monthly', series: 'A series' }
 
-type Tab = 'events' | 'teachers'
+type Tab = 'events' | 'messages' | 'teachers'
 
 /**
  * /admin: owner-only tools. Private event requests from /private-events
- * (New → Quoted → Booked → Not this time) and teacher applications from
- * /teach (New → Talking → Booked → Not now).
+ * (New → Quoted → Booked → Not this time), messages from /contact (New →
+ * Replied), and teacher applications from /teach (New → Talking → Booked →
+ * Not now).
  */
 export default function AdminApp() {
   const [state, setState] = useState<'loading' | 'signed-out' | 'ready' | 'error'>('loading')
   const [apps, setApps] = useState<ArtistApplication[]>([])
   const [requests, setRequests] = useState<EventRequest[]>([])
+  const [messages, setMessages] = useState<ContactMessage[]>([])
   const [tab, setTab] = useState<Tab>('events')
   const [passcode, setPasscode] = useState('')
   const [loginError, setLoginError] = useState('')
@@ -28,14 +32,16 @@ export default function AdminApp() {
   async function load() {
     setState('loading')
     try {
-      const [a, r] = await Promise.all([
+      const [a, r, m] = await Promise.all([
         fetch('/api/admin/applications.json', { cache: 'no-store' }),
         fetch('/api/admin/event-requests.json', { cache: 'no-store' }),
+        fetch('/api/admin/messages.json', { cache: 'no-store' }),
       ])
-      if (a.status === 401 || r.status === 401) return setState('signed-out')
-      if (!a.ok || !r.ok) throw new Error(`${a.status}/${r.status}`)
+      if ([a, r, m].some((x) => x.status === 401)) return setState('signed-out')
+      if (![a, r, m].every((x) => x.ok)) throw new Error(`${a.status}/${r.status}/${m.status}`)
       setApps((await a.json()).data.applications)
       setRequests((await r.json()).data.requests)
+      setMessages((await m.json()).data.messages)
       setState('ready')
     } catch {
       setState('error')
@@ -68,6 +74,14 @@ export default function AdminApp() {
     }
   }
 
+  async function moveMessage(id: string, status: MessageStatus) {
+    const res = await fetch('/api/admin/messages.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id, status }) })
+    if (res.ok) {
+      const { message } = (await res.json()).data
+      setMessages((list) => list.map((m) => (m.id === id ? message : m)))
+    }
+  }
+
   if (state === 'loading') return <p style={{ color: 'var(--color-muted)' }}>Loading…</p>
   if (state === 'error') return <p role="alert">Couldn’t load just now. <button type="button" className="btn btn-secondary" onClick={load}>Try again</button></p>
   if (state === 'signed-out') {
@@ -87,11 +101,11 @@ export default function AdminApp() {
   return (
     <div style={{ display: 'grid', gap: '1.25rem' }}>
       <div role="tablist" aria-label="Admin" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-        {([['events', tabLabel('Private events', requests)], ['teachers', tabLabel('Teachers', apps)]] as [Tab, string][]).map(([t, l]) => (
+        {([['events', tabLabel('Private events', requests)], ['messages', tabLabel('Messages', messages)], ['teachers', tabLabel('Teachers', apps)]] as [Tab, string][]).map(([t, l]) => (
           <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={tab === t ? 'btn btn-primary' : 'btn btn-secondary'}>{l}</button>
         ))}
       </div>
-      {tab === 'events' ? (
+      {tab === 'events' && (
         <StatusList
           title="Private event requests"
           items={requests}
@@ -99,7 +113,17 @@ export default function AdminApp() {
           empty="No requests yet. They’ll show up here when people use ourhometownstudio.com/private-events."
           render={(r) => <EventRequestCard key={r.id} request={r} onMove={moveRequest} />}
         />
-      ) : (
+      )}
+      {tab === 'messages' && (
+        <StatusList
+          title="Messages"
+          items={messages}
+          statuses={MESSAGE_STATUSES.map((s) => [s, MESSAGE_LABEL[s]] as [MessageStatus, string])}
+          empty="No messages yet. They’ll show up here when people use ourhometownstudio.com/contact."
+          render={(m) => <MessageCard key={m.id} message={m} onMove={moveMessage} />}
+        />
+      )}
+      {tab === 'teachers' && (
         <StatusList
           title="Teacher applications"
           items={apps}

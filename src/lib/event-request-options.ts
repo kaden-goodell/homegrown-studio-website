@@ -32,7 +32,7 @@ export const EXTRAS = [
 ] as const
 /** Who handles an extra: the studio, the customer, or nobody. */
 export const EXTRA_CHOICES = [['studio', 'Please provide'], ['guest', 'I’ll bring it'], ['none', 'Not needed']] as const
-export const BUDGETS = [['under-500', 'Under $500'], ['500-1000', '$500 to $1,000'], ['1000-2000', '$1,000 to $2,000'], ['2000-plus', '$2,000 or more'], ['unsure', 'Not sure yet']] as const
+export const BUDGETS = [['under-1000', 'Under $1,000'], ['1000-2500', '$1,000 to $2,500'], ['2500-plus', '$2,500 or more']] as const
 export const CONTACT_BY = [['text', 'Text'], ['call', 'Call'], ['email', 'Email']] as const
 
 export type Values<T extends readonly (readonly [string, string])[]> = T[number][0]

@@ -30,7 +30,7 @@ describe('PrivateEventForm (/private-events)', () => {
     pick(/What would you like to make/, 'Something custom')
     pick(/^Food/, 'Please provide')
     pick(/^Drinks/, 'I’ll bring it')
-    pick(/Your budget/, '$500 to $1,000')
+    pick(/Your budget/, '$1,000 to $2,500')
     fill(/^Your name/, 'Dana Planner')
     fill(/^Email/, 'dana@example.com')
     fill(/^Phone/, '(256) 555-0142')
@@ -47,7 +47,7 @@ describe('PrivateEventForm (/private-events)', () => {
     expect(body.where).toMatchObject({ place: 'yours', address: '100 Main St', sink: 'no' })
     expect(body.craft.pick).toBe('custom')
     expect(body.extras).toEqual({ food: 'studio', drinks: 'guest', dessert: '', decor: '', tableware: '', favors: '' })
-    expect(body.budget).toBe('500-1000')
+    expect(body.budget).toBe('1000-2500')
     expect(body.about).toMatchObject({ name: 'Dana Planner', email: 'dana@example.com', phone: '(256) 555-0142', contactBy: 'text' })
     expect(body.photos).toEqual(['data:image/jpeg;base64,AAAA'])
     expect(body.company).toBe('')
@@ -80,6 +80,13 @@ describe('PrivateEventForm (/private-events)', () => {
       const group = screen.getByRole('group', { name: new RegExp(`^${extra}`) })
       expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['Please provide', 'I’ll bring it', 'Not needed'])
     }
+  })
+
+  it('the budget is optional, with three ranges and no "not sure"', () => {
+    render(<PrivateEventForm />)
+    const group = screen.getByRole('group', { name: /^Your budget/ })
+    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['Under $1,000', '$1,000 to $2,500', '$2,500 or more'])
+    expect(group.querySelector('legend .field-optional')).not.toBeNull()
   })
 
   it('marks only the date, guests, where and contact details as required', () => {
