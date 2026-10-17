@@ -111,10 +111,12 @@ describe('the price line', () => {
     expect(partyPriceLine(null)).toBe(`${FEE} today holds your date. Crafts are paid at the studio for whoever comes.`)
   })
 
-  it('shows the sentence without a craft price first, then fills it in', async () => {
+  it('holds the craft price\'s place with a pulsing block while it loads, then fills it in', async () => {
     mockApi()
-    render(<PartyPriceLine />)
-    expect(screen.getByText(`${FEE} today holds your date. Crafts are paid at the studio for whoever comes.`)).toBeInTheDocument()
+    const { container } = render(<PartyPriceLine />)
+    const line = container.querySelector('p')!
+    expect(line).toHaveTextContent(`${FEE} today holds your date. Crafts from a person, paid at the studio for whoever comes.`)
+    expect(line.querySelector('.animate-pulse')).not.toBeNull()
     expect(
       await screen.findByText(`${FEE} today holds your date. Crafts from $15 a person, paid at the studio for whoever comes.`),
     ).toBeInTheDocument()
@@ -309,6 +311,27 @@ describe('opening the booking panel', () => {
 
     expect(screen.queryByRole('button', { name: /start a booking/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Book a Party' })).not.toBeInTheDocument()
+  })
+})
+
+describe('while the crafts load', () => {
+  it('shows six pulsing card outlines in their place, then the real cards', async () => {
+    mockApi()
+    const { container } = render(<PartyLanding />)
+    expect(screen.getByRole('heading', { name: 'Pick your craft' })).toBeInTheDocument()
+    expect(container.querySelectorAll('[aria-hidden="true"] .animate-pulse').length).toBeGreaterThan(0)
+    const outlines = () => Array.from(container.querySelectorAll('div[aria-hidden="true"]')).filter((el) => el.querySelector(':scope > .animate-pulse'))
+    expect(outlines()).toHaveLength(6)
+    await settled()
+    expect(outlines()).toHaveLength(0)
+    expect(screen.getAllByText('Book this craft').length).toBeGreaterThan(0)
+  })
+
+  it('shows pulsing date chips while the dates load', () => {
+    mockApi()
+    const { container } = render(<PartyLanding />)
+    const status = container.querySelector('#open-dates [role="status"]') as HTMLElement
+    expect(status.querySelectorAll('.animate-pulse').length).toBe(7)
   })
 })
 

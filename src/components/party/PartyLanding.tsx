@@ -138,11 +138,49 @@ function useServiceInfo(): { info: ServiceInfo | null; status: LoadStatus } {
  * book.astro (the hero and the closing section).
  */
 export function PartyPriceLine() {
-  const { info } = useServiceInfo()
+  const { info, status } = useServiceInfo()
+  const fee = formatMoney(partyConfig.basePriceCents)
   return (
     <p style={{ margin: '1rem auto 0', maxWidth: '34rem', fontSize: '0.9375rem', fontWeight: 600, lineHeight: 1.5, color: 'var(--color-dark)' }}>
-      {partyPriceLine(lowestCraftCents(info?.crafts ?? []))}
+      {status === 'loading' ? (
+        // Same words as the loaded sentence, with a pulsing stand-in for the
+        // craft price, so the line doesn't rewrap when the price arrives.
+        <>
+          {fee} today holds your date. Crafts from{' '}
+          <span className="animate-pulse" aria-hidden="true" style={{ ...pulseBlock, display: 'inline-block', width: '2.6em', height: '1em', verticalAlign: '-0.12em' }} />{' '}
+          a person, paid at the studio for whoever comes.
+        </>
+      ) : partyPriceLine(lowestCraftCents(info?.crafts ?? []))}
     </p>
+  )
+}
+
+/** The pulsing fill for anything still loading (same tint as the workshops list). */
+const pulseBlock: CSSProperties = { background: 'rgba(var(--color-primary-rgb), 0.08)', borderRadius: '0.375rem' }
+
+/**
+ * A craft card's outline while the crafts load: the same box, image, title,
+ * four description lines and link line as a real card, so the page below
+ * doesn't jump when the crafts arrive.
+ */
+function CraftCardSkeleton() {
+  return (
+    <div aria-hidden="true" style={{ display: 'flex', flexDirection: 'column', borderRadius: '1rem', overflow: 'hidden', border: '1px solid rgba(var(--color-primary-rgb), 0.15)', background: 'rgba(255, 255, 255, 0.9)' }}>
+      <div className="animate-pulse" style={{ ...pulseBlock, borderRadius: 0, width: '100%', aspectRatio: '4 / 3' }} />
+      <div style={{ padding: '1rem 1.125rem 1.25rem' }}>
+        <div style={{ fontSize: '1.0625rem', lineHeight: 1.3, height: '2.6em', display: 'flex', alignItems: 'flex-start' }}>
+          <div className="animate-pulse" style={{ ...pulseBlock, width: '60%', height: '1.1em' }} />
+        </div>
+        <div style={{ ...craftDescriptionStyle, display: 'grid', gridTemplateRows: 'repeat(4, 1fr)', alignItems: 'center' }}>
+          {['100%', '95%', '88%', '55%'].map((w) => (
+            <div key={w} className="animate-pulse" style={{ ...pulseBlock, width: w, height: '0.8em' }} />
+          ))}
+        </div>
+        <div style={{ paddingTop: '0.85rem', fontSize: '0.8125rem', lineHeight: 1.5, height: '1.5em', boxSizing: 'content-box' }}>
+          <div className="animate-pulse" style={{ ...pulseBlock, width: '6.5rem', height: '1em' }} />
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -297,7 +335,7 @@ export default function PartyLanding() {
   return (
     <div ref={rootRef} style={{ paddingBottom: isMobile ? '4.5rem' : 0 }}>
       {/* Craft gallery — see what you'll make before you book */}
-      {crafts.length > 0 && (
+      {(crafts.length > 0 || infoStatus === 'loading') && (
         <div style={{ marginBottom: '3.5rem' }}>
           <h2 style={sectionHeadingStyle}>
             Pick your craft
@@ -306,6 +344,7 @@ export default function PartyLanding() {
             Every guest makes one — you choose which. Tap share to send a favorite to your group.
           </p>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(17rem, 1fr))', gap: '1.5rem' }}>
+            {infoStatus === 'loading' && Array.from({ length: CRAFT_PREVIEW_COUNT }, (_, i) => <CraftCardSkeleton key={i} />)}
             {(showAllCrafts ? crafts : crafts.slice(0, CRAFT_PREVIEW_COUNT)).map((craft) => (
               <div
                 key={craft.id}
@@ -413,9 +452,19 @@ export default function PartyLanding() {
           Next open dates
         </h2>
         {datesStatus === 'loading' && (
-          <p role="status" style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: 0, minHeight: '5.5rem' }}>
-            Checking open dates…
-          </p>
+          <div role="status">
+            <span className="sr-only">Checking open dates…</span>
+            <div aria-hidden="true">
+              <div style={{ fontSize: '0.875rem', lineHeight: 1.5, height: '1.5em', margin: '0 0 1.25rem', display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
+                <div className="animate-pulse" style={{ ...pulseBlock, width: 'min(22rem, 90%)', height: '1em' }} />
+              </div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'center' }}>
+                {Array.from({ length: 6 }, (_, i) => (
+                  <div key={i} className="animate-pulse" style={{ ...pulseBlock, borderRadius: '2rem', width: '7.25rem', height: '2.75rem' }} />
+                ))}
+              </div>
+            </div>
+          </div>
         )}
         {datesStatus === 'ready' && nextDates.length > 0 && (
           <>
