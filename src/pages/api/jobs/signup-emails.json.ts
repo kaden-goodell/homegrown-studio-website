@@ -54,7 +54,7 @@ interface Due {
 async function cutoffFor(scheduleId: string): Promise<CutoffSettings | null> {
   try {
     const meta = await getEventMeta('workshop', scheduleId)
-    return { options: meta?.options ?? [], signupCutoffHours: meta?.signupCutoffHours ?? null }
+    return { options: meta?.options ?? [], signupCutoffHours: meta?.signupCutoffHours ?? null, madeToOrder: meta?.madeToOrder ?? false }
   } catch (err) {
     logger.error('Event settings unreadable: no email about this workshop this time', { scheduleId, error: String(err) })
     return null

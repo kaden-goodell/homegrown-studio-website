@@ -175,3 +175,18 @@ describe('event-meta — class capacity', () => {
     expect((await getEventMeta('workshop', id))!.capacity).toBeNull()
   })
 })
+
+describe('event-meta — made to order', () => {
+  it('is off by default, and on an old record without it', async () => {
+    expect((await setEventMeta('workshop', 'w_mto0_' + Date.now(), { capacity: 10 }, by)).madeToOrder).toBe(false)
+  })
+
+  it('saves, logs, keeps across other changes, and turns off', async () => {
+    const id = 'w_mto_' + Date.now()
+    const m = await setEventMeta('workshop', id, { madeToOrder: true }, by)
+    expect(m.madeToOrder).toBe(true)
+    expect(m.history.at(-1)).toMatchObject({ by, madeToOrder: true })
+    expect((await setEventMeta('workshop', id, { capacity: 12 }, by)).madeToOrder).toBe(true)
+    expect((await setEventMeta('workshop', id, { madeToOrder: false }, by)).madeToOrder).toBe(false)
+  })
+})

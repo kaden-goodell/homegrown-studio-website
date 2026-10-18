@@ -89,6 +89,15 @@ describe('cutoff', () => {
     expect(effectiveCutoffHours({ options: [], signupCutoffHours: 6 })).toBe(6)
   })
 
+  it('a made-to-order class closes 24 hours early with no questions; its own setting still wins', () => {
+    expect(effectiveCutoffHours({ options: [], signupCutoffHours: null, madeToOrder: true })).toBe(24)
+    expect(effectiveCutoffHours({ options: [], signupCutoffHours: 48, madeToOrder: true })).toBe(48)
+    expect(effectiveCutoffHours({ options: [], signupCutoffHours: null, madeToOrder: false })).toBe(0)
+    // Cookies (Sun 18 Oct, 4 PM) close at 4 PM Saturday.
+    const start = '2026-10-18T21:00:00.000Z'
+    expect(isSignupClosed(start, { options: [], signupCutoffHours: null, madeToOrder: true }, new Date('2026-10-18T15:00:00.000Z'))).toBe(true)
+  })
+
   it('Pails (Sun 18 Oct, 1 PM) closes at 1 PM Saturday', () => {
     const start = '2026-10-18T18:00:00.000Z'
     expect(signupClosesAt(start, { options: [PAILS], signupCutoffHours: null })).toBe('2026-10-17T18:00:00.000Z')

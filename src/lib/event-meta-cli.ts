@@ -15,7 +15,7 @@ export interface SetEventArgs {
 
 export const SET_EVENT_USAGE =
   'Usage: set-event.ts (--workshop <clssch_id> | --party <bookingId>) [--on | --off] [--days a,b] ' +
-  '[--option "Label=Choice|Choice" …] [--no-options] [--cutoff <hours> | --cutoff default] [--capacity <seats> | --capacity none] [--show]'
+  '[--option "Label=Choice|Choice" …] [--no-options] [--cutoff <hours> | --cutoff default] [--capacity <seats> | --capacity none] [--made-to-order | --not-made-to-order] [--show]'
 
 export function parseSetEventArgs(argv: string[]): SetEventArgs | { error: string } {
   const flag = (n: string) => {
@@ -62,6 +62,11 @@ export function parseSetEventArgs(argv: string[]): SetEventArgs | { error: strin
     const checked = validateCapacity(capacity === 'none' ? null : Number(capacity))
     if (!checked.ok) return { error: checked.error }
     patch.capacity = checked.value
+  }
+
+  if (has('made-to-order') || has('not-made-to-order')) {
+    if (kind !== 'workshop') return { error: 'Made to order is for classes (--workshop) only.' }
+    patch.madeToOrder = has('made-to-order')
   }
 
   return { kind, id, show: has('show'), patch }

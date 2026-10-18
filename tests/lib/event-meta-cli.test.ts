@@ -43,6 +43,12 @@ describe('parseSetEventArgs', () => {
     expect(parseSetEventArgs(['--party', 'bk_1', '--capacity', '12'])).toEqual({ error: 'Capacity is for classes (--workshop) only.' })
   })
 
+  it('--made-to-order and --not-made-to-order flip the flag, classes only', () => {
+    expect(parseSetEventArgs(['--workshop', 'c', '--made-to-order'])).toMatchObject({ patch: { madeToOrder: true } })
+    expect(parseSetEventArgs(['--workshop', 'c', '--not-made-to-order'])).toMatchObject({ patch: { madeToOrder: false } })
+    expect(parseSetEventArgs(['--party', 'bk_1', '--made-to-order'])).toEqual({ error: 'Made to order is for classes (--workshop) only.' })
+  })
+
   it('refuses questions or a cutoff on a party', () => {
     expect(parseSetEventArgs(['--party', 'bk_1', '--option', 'A=B|C'])).toEqual({ error: 'Questions for each seat are for classes (--workshop) only.' })
     expect(parseSetEventArgs(['--party', 'bk_1', '--cutoff', '24'])).toEqual({ error: 'Sign-up cutoffs are for classes (--workshop) only.' })

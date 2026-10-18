@@ -11,7 +11,7 @@ import {
   type SeatOption,
 } from '@lib/seat-options'
 
-type EventPatch = { dropOff?: boolean; days?: string[] | null; options?: SeatOption[]; signupCutoffHours?: number | null; capacity?: number | null }
+type EventPatch = { dropOff?: boolean; days?: string[] | null; options?: SeatOption[]; signupCutoffHours?: number | null; capacity?: number | null; madeToOrder?: boolean }
 
 const ENDPOINT = '/api/staff/event-meta.json'
 
@@ -252,6 +252,9 @@ export default function EventSettingsSheet({
           <SeatQuestions saved={event.options ?? []} busy={busy} onSave={(options) => save({ options })} />
         )}
         {event.kind === 'workshop' && (
+          <MadeToOrder on={event.madeToOrder === true} busy={busy} onSave={(madeToOrder) => save({ madeToOrder })} />
+        )}
+        {event.kind === 'workshop' && (
           <SignupCutoff event={event} busy={busy} onSave={(hours) => save({ signupCutoffHours: hours })} />
         )}
         {event.kind === 'workshop' && (
@@ -420,12 +423,53 @@ function SeatQuestions({ saved, busy, onSave }: { saved: SeatOption[]; busy: boo
 }
 
 /**
+ * "Made to order" (Kaden, 18 Oct 2026): the class is made ahead for each
+ * person, so sign-ups close 24 hours early, picks or no picks.
+ */
+function MadeToOrder({ on, busy, onSave }: { on: boolean; busy: boolean; onSave: (on: boolean) => Promise<void> }) {
+  const [confirming, setConfirming] = useState<boolean | null>(null)
+  return (
+    <div style={{ marginTop: '1.1rem' }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-dark)', cursor: busy ? 'default' : 'pointer' }}>
+        <input type="checkbox" checked={on} disabled={busy} onChange={(e) => setConfirming(e.target.checked)} />
+        Made to order
+      </label>
+      <p style={hint}>Made ahead for each person, so sign-ups close 24 hours before.</p>
+      {confirming !== null && (
+        <div style={confirmBox}>
+          <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--color-dark)', fontWeight: 600 }}>
+            {confirming
+              ? 'Mark this class made to order? Sign-ups will close 24 hours before it starts.'
+              : 'Turn off made to order for this class?'}
+          </p>
+          <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.6rem' }}>
+            <button type="button" onClick={() => setConfirming(null)} style={btn()}>Cancel</button>
+            <button
+              type="button"
+              onClick={async () => {
+                const next = confirming
+                setConfirming(null)
+                await onSave(next)
+              }}
+              disabled={busy}
+              style={btn(true)}
+            >
+              {confirming ? 'Yes, made to order' : 'Yes, turn off'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/**
  * "Sign-ups close" (spec A): whole hours before the class. Blank means the
- * default (0 h, or 24 h once the class asks questions), shown greyed.
+ * default (0 h, or 24 h once the class asks questions or is made to order), shown greyed.
  */
 function SignupCutoff({ event, busy, onSave }: { event: StudioEvent; busy: boolean; onSave: (hours: number | null) => Promise<void> }) {
   const saved = event.signupCutoffHours ?? null
-  const fallback = effectiveCutoffHours({ options: event.options ?? [], signupCutoffHours: null })
+  const fallback = effectiveCutoffHours({ options: event.options ?? [], signupCutoffHours: null, madeToOrder: event.madeToOrder })
   const [value, setValue] = useState(saved === null ? '' : String(saved))
   const [confirming, setConfirming] = useState(false)
 

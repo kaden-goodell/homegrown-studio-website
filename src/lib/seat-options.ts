@@ -24,6 +24,8 @@ export interface SeatPick {
 export interface CutoffSettings {
   options: SeatOption[]
   signupCutoffHours: number | null
+  /** Made ahead for each person (e.g. cookies baked to the headcount). */
+  madeToOrder?: boolean
 }
 
 export const MAX_OPTIONS = 3
@@ -121,9 +123,9 @@ export function validateCapacity(raw: unknown): Result<number | null> {
   return { ok: false, error: `Capacity is 1 to ${MAX_CAPACITY} seats, in whole seats.` }
 }
 
-/** 0 h for a plain class, 24 h once it asks questions; a class's own setting wins. */
+/** 0 h for a plain class, 24 h once it asks questions or is made to order; a class's own setting wins. */
 export function effectiveCutoffHours(s: CutoffSettings): number {
-  return s.signupCutoffHours ?? (s.options.length > 0 ? DEFAULT_CUTOFF_HOURS_WITH_OPTIONS : 0)
+  return s.signupCutoffHours ?? (s.options.length > 0 || s.madeToOrder ? DEFAULT_CUTOFF_HOURS_WITH_OPTIONS : 0)
 }
 
 /**

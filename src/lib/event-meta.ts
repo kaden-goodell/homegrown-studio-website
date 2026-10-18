@@ -27,6 +27,7 @@ export interface EventMetaHistoryEntry {
   options?: SeatOption[]
   signupCutoffHours?: number | null
   capacity?: number | null
+  madeToOrder?: boolean
 }
 
 export interface EventMeta {
@@ -35,8 +36,10 @@ export interface EventMeta {
   days: string[] | null
   /** Per-seat questions; [] = none. */
   options: SeatOption[]
-  /** null = the default (0 h, or 24 h once the class asks questions). */
+  /** null = the default (0 h, or 24 h once the class asks questions or is made to order). */
   signupCutoffHours: number | null
+  /** Made ahead for each person, so sign-ups close a day early (Kaden, 18 Oct 2026). */
+  madeToOrder: boolean
   /** Seats the class holds; null = unknown (Square's buyer API never says). */
   capacity: number | null
   updatedAt: string // ISO
@@ -51,6 +54,7 @@ export interface EventMetaPatch {
   options?: SeatOption[]
   signupCutoffHours?: number | null
   capacity?: number | null
+  madeToOrder?: boolean
 }
 
 function key(kind: string, id: string): string {
@@ -59,7 +63,7 @@ function key(kind: string, id: string): string {
 
 export function emptyEventMeta(): EventMeta {
   return {
-    dropOff: false, days: null, options: [], signupCutoffHours: null, capacity: null,
+    dropOff: false, days: null, options: [], signupCutoffHours: null, capacity: null, madeToOrder: false,
     updatedAt: new Date(0).toISOString(), by: { id: '', name: '' }, history: [],
   }
 }
@@ -74,6 +78,7 @@ export function normalizeEventMeta(raw: any): EventMeta {
     options: options.ok ? options.value : [],
     signupCutoffHours: cutoff.ok ? cutoff.value : null,
     capacity: capacity.ok ? capacity.value : null,
+    madeToOrder: raw?.madeToOrder === true,
     updatedAt: typeof raw?.updatedAt === 'string' ? raw.updatedAt : new Date(0).toISOString(),
     by: raw?.by && typeof raw.by === 'object'
       ? { id: String(raw.by.id ?? ''), name: String(raw.by.name ?? '') }
@@ -116,15 +121,17 @@ export function mergeEventMeta(current: EventMeta, patch: EventMetaPatch, by: By
   }
   const dropOff = patch.dropOff ?? current.dropOff
   const days = patch.days !== undefined ? patch.days : current.days
+  const madeToOrder = patch.madeToOrder ?? current.madeToOrder
   return {
     dropOff,
     days,
     options,
     signupCutoffHours,
     capacity,
+    madeToOrder,
     updatedAt: now,
     by,
-    history: [...current.history, { at: now, by, dropOff, days, options, signupCutoffHours, capacity }].slice(-HISTORY_CAP),
+    history: [...current.history, { at: now, by, dropOff, days, options, signupCutoffHours, capacity, madeToOrder }].slice(-HISTORY_CAP),
   }
 }
 
@@ -144,7 +151,7 @@ export async function setEventMeta(kind: string, id: string, patch: EventMetaPat
     const next = mergeEventMeta(current, patch, by, new Date().toISOString(), hasPicks)
     if (await kv.setIfMatch(k, JSON.stringify(next), etag, value !== null)) {
       logger.info('Event meta set', {
-        kind, id, dropOff: next.dropOff, days: next.days, options: next.options.length, signupCutoffHours: next.signupCutoffHours, capacity: next.capacity,
+        kind, id, dropOff: next.dropOff, days: next.days, options: next.options.length, signupCutoffHours: next.signupCutoffHours, capacity: next.capacity, madeToOrder: next.madeToOrder,
       })
       return next
     }

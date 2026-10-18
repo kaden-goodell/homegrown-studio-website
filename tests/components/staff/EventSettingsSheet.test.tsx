@@ -137,3 +137,31 @@ describe('EventSettingsSheet — capacity', () => {
     expect(screen.getByText('Whole seats, 1 to 999.')).toBeInTheDocument()
   })
 })
+
+describe('EventSettingsSheet — made to order', () => {
+  it('a party has no made-to-order switch', async () => {
+    serve({ ...CLASS, kind: 'party' })
+    await open({ ...CLASS, kind: 'party' })
+    expect(screen.queryByLabelText('Made to order')).toBeNull()
+  })
+
+  it('turns on after a confirm, and the default cutoff becomes 24 hours', async () => {
+    const spy = serve(CLASS)
+    await open()
+    fireEvent.click(screen.getByLabelText('Made to order'))
+    expect(screen.getByText('Mark this class made to order? Sign-ups will close 24 hours before it starts.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, made to order' }))
+    await waitFor(() => expect(posted(spy)).toEqual([{ kind: 'workshop', id: 'clssch_pails', madeToOrder: true }]))
+    await waitFor(() => expect(screen.getByLabelText('Sign-ups close')).toHaveAttribute('placeholder', '24 (default)'))
+  })
+
+  it('turns off after a confirm', async () => {
+    const on = { ...CLASS, madeToOrder: true }
+    const spy = serve(on)
+    await open(on)
+    expect(screen.getByLabelText('Made to order')).toBeChecked()
+    fireEvent.click(screen.getByLabelText('Made to order'))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, turn off' }))
+    await waitFor(() => expect(posted(spy)).toEqual([{ kind: 'workshop', id: 'clssch_pails', madeToOrder: false }]))
+  })
+})

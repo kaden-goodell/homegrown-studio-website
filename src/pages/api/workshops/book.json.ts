@@ -143,6 +143,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const settings: CutoffSettings = {
     options: metaLookup.value?.options ?? [],
     signupCutoffHours: metaLookup.value?.signupCutoffHours ?? null,
+    madeToOrder: metaLookup.value?.madeToOrder ?? false,
   }
   if (isSignupClosed(workshop.startAt, settings)) {
     return fail(409, 'not_open', cutoffClosedMessage(effectiveCutoffHours(settings)))
