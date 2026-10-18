@@ -52,6 +52,7 @@ function req(body: unknown) {
   return { request: new Request('http://localhost/api/staff/comp-seat.json', { method: 'POST', body: JSON.stringify(body) }) } as any
 }
 const good = {
+  sendEmail: true,
   scheduleId: 'clssch_pails', givenName: 'Gia', familyName: 'Winner', email: 'gia@x.com', seats: 2,
   picks: [{ seat: 1, optionId: 'pumpkin-color', choice: 'Lavender' }, { seat: 2, optionId: 'pumpkin-color', choice: 'Black' }],
 }
@@ -276,5 +277,16 @@ describe('POST /api/staff/comp-seat.json — a picked customer and their waiver'
     const res = await POST(req(picked))
     expect(res.status).toBe(200)
     expect((await res.json()).data.warning).toMatch(/didn’t make it onto the roster/)
+  })
+})
+
+describe('POST /api/staff/comp-seat.json — the confirmation email', () => {
+  it('sends nothing unless asked', async () => {
+    const { sendEmail, ...quiet } = good
+    const res = await POST(req(quiet))
+    expect(res.status).toBe(200)
+    expect((await res.json()).data.emailSent).toBe(false)
+    expect(mockSend).not.toHaveBeenCalled()
+    expect(mockSave).toHaveBeenCalled()
   })
 })

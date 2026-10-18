@@ -9,7 +9,7 @@ const last4 = (phone: string) => phone.replace(/\D/g, '').slice(-4)
 
 /**
  * Roster "Comp a seat": one form. The site adds the seat in Square with no
- * charge, records the picks and sends the usual confirmation email.
+ * charge and records the picks; the confirmation email goes only if ticked.
  * If the site's Square sign-in has expired, the sheet falls back to adding
  * them in Square's own screen and then recording it here.
  * Sheet chrome copied from AddFamilySheet.
@@ -46,7 +46,8 @@ export default function CompSeatSheet({
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<null | { warning: string | null; byHand: boolean; dueCents: number | null; name: string }>(null)
+  const [done, setDone] = useState<null | { warning: string | null; byHand: boolean; dueCents: number | null; name: string; emailed: boolean }>(null)
+  const [notify, setNotify] = useState(false)
   const sell = mode === 'sell'
   const money = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`
   const [signedOut, setSignedOut] = useState(false)
@@ -139,6 +140,7 @@ export default function CompSeatSheet({
           ...(household ? { waiverId: household.recordId, people: chosenInOrder.map((p) => p.id), guests: guestNames } : {}),
           ...(alreadyInSquare ? { alreadyInSquare: true } : {}),
           ...(sell ? { payAtRegister: true } : {}),
+          sendEmail: notify,
         }),
       })
       const body = await res.json().catch(() => ({}))
@@ -148,6 +150,7 @@ export default function CompSeatSheet({
           byHand: alreadyInSquare,
           dueCents: typeof body?.data?.dueCents === 'number' ? body.data.dueCents : null,
           name: `${givenName.trim()} ${familyName.trim()}`,
+          emailed: body?.data?.emailSent === true,
         })
         onRecorded()
       } else if (body?.code === 'square_signed_out') {
@@ -190,8 +193,8 @@ export default function CompSeatSheet({
 
         <p style={{ margin: '0 0 1rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
           {sell
-            ? <>A seat in <strong>{event.title}</strong>{priceCents ? ` (${money(priceCents)} each)` : ''}, paid at the register. We add them in Square and send the confirmation email, then you take the payment.</>
-            : <>A free seat in <strong>{event.title}</strong>. We add them in Square with no charge and send the usual confirmation email.</>}
+            ? <>A seat in <strong>{event.title}</strong>{priceCents ? ` (${money(priceCents)} each)` : ''}, paid at the register. We add them in Square, then you take the payment.</>
+            : <>A free seat in <strong>{event.title}</strong>. We add them in Square with no charge.</>}
         </p>
         {signedOut && !done && (
           <div style={{ margin: '0 0 1.1rem', padding: '0.75rem', borderRadius: '0.6rem', background: 'rgba(245, 158, 11, 0.12)' }}>
@@ -211,7 +214,7 @@ export default function CompSeatSheet({
         {done ? (
           <div style={{ textAlign: 'center', padding: '1rem 0' }}>
             <p role="status" style={{ margin: 0, fontWeight: 700, color: 'rgb(21,128,61)' }}>
-              {done.byHand ? 'Recorded.' : sell ? 'Added in Square.' : 'Added in Square, no charge.'} They’ll get the usual confirmation email.
+              {done.byHand ? 'Recorded.' : sell ? 'Added in Square.' : 'Added in Square, no charge.'} {done.emailed ? 'They’ll get the usual confirmation email.' : 'No email sent.'}
             </p>
             {sell && !done.byHand && (
               <div data-testid="take-payment" style={{ margin: '0.9rem 0 0', padding: '0.8rem', borderRadius: '0.6rem', background: 'rgba(245, 158, 11, 0.14)', textAlign: 'left' }}>
@@ -359,6 +362,11 @@ export default function CompSeatSheet({
                 )
               }),
             )}
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0.2rem 0 0.8rem', fontSize: '0.9rem', color: 'var(--color-dark)', cursor: 'pointer' }}>
+              <input type="checkbox" checked={notify} onChange={(e) => setNotify(e.target.checked)} />
+              Email them a confirmation
+            </label>
 
             {error && <p role="alert" style={{ margin: '0 0 0.6rem', color: '#b91c1c', fontSize: '0.875rem', fontWeight: 600 }}>{error}</p>}
             <button type="submit" disabled={busy} style={{ ...btn(true), padding: '0.7rem 1.4rem', minHeight: '2.75rem', opacity: busy ? 0.6 : 1 }}>

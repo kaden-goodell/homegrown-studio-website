@@ -29,8 +29,9 @@ const alreadyInSquareOf = (body: any) => body.alreadyInSquare === true
  * Staff-only: give someone a free workshop seat.
  *
  * Default: adds the seat in Square with no payment (through the saved Square
- * sign-in, see square-dashboard.ts), records the person and their picks for
- * the roster, and sends the usual confirmation email.
+ * sign-in, see square-dashboard.ts) and records the person and their picks for
+ * the roster. The usual confirmation email goes only when `sendEmail: true`
+ * (Kaden, 18 Oct 2026: seats are often added after the fact).
  *
  * `alreadyInSquare: true` is the fallback for when the Square sign-in has
  * expired: staff added the seat in Square's own screen, and this only records
@@ -180,7 +181,8 @@ export const POST: APIRoute = async ({ request }) => {
     }
 
     let emailSent = false
-    try {
+    const sendEmail = body.sendEmail === true
+    if (sendEmail) try {
       emailSent = await sendWorkshopConfirmation({
         origin: new URL(request.url).origin,
         bookingId,
@@ -197,7 +199,7 @@ export const POST: APIRoute = async ({ request }) => {
     } catch (err) {
       logger.error('Comp seat confirmation email failed', { bookingId, error: err instanceof Error ? err.message : String(err) })
     }
-    if (!emailSent) logger.warn('Comp seat confirmation not sent', { bookingId })
+    if (sendEmail && !emailSent) logger.warn('Comp seat confirmation not sent', { bookingId })
 
     await recordAudit({
       by: member,

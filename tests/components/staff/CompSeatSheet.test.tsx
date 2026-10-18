@@ -199,3 +199,28 @@ describe('CompSeatSheet — find a customer, then who’s coming', () => {
     expect(screen.getByLabelText('Find a customer')).toHaveValue('')
   })
 })
+
+describe('CompSeatSheet — the confirmation email', () => {
+  const fetchMock = vi.fn()
+  beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock) })
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('is off unless ticked, and the done screen says no email went', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: { bookingId: 'b1', emailSent: false, seats: 1 } }) })
+    render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    expect(screen.getByLabelText('Email them a confirmation')).not.toBeChecked()
+    fill()
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    expect(await screen.findByText(/Added in Square, no charge\. No email sent\./)).toBeTruthy()
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).sendEmail).toBe(false)
+  })
+
+  it('sends it when ticked', async () => {
+    fetchMock.mockResolvedValue({ ok: true, status: 200, json: async () => ({ data: { bookingId: 'b1', emailSent: true, seats: 1 } }) })
+    render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    fill()
+    fireEvent.click(screen.getByLabelText('Email them a confirmation'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    await waitFor(() => expect(JSON.parse(fetchMock.mock.calls[0][1].body).sendEmail).toBe(true))
+  })
+})
