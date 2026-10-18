@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { WorkshopData } from './WorkshopExplorer'
 import NotifyMe from '@components/shared/NotifyMe'
+import RequestSpot from './RequestSpot'
 import { formatMoney } from '@lib/money'
 import { canBeBooked, isSoldOut, seatsLeftLabel } from '@lib/workshop-rules'
 import { ageLabel, isDropOff, notifyInterest } from '@lib/workshop-copy'
@@ -25,7 +26,7 @@ export function workshopStatus(w: WorkshopData) {
   return { comingSoon, soldOut, closed, bookable, seats, meta, status }
 }
 
-/** The email sign-up a not-yet-on-sale or sold-out workshop offers instead of booking. */
+/** What a workshop offers instead of booking: the email sign-up when not yet on sale or sold out, a call when sign-ups closed early. */
 export function WorkshopWaitlist({ workshop }: { workshop: WorkshopData }) {
   const [asking, setAsking] = useState(false)
   const { comingSoon, soldOut, closed } = workshopStatus(workshop)
@@ -43,6 +44,7 @@ export function WorkshopWaitlist({ workshop }: { workshop: WorkshopData }) {
       </button>
     )
   }
+  if (closed && !soldOut) return <RequestSpot />
   if (soldOut && !closed) {
     return asking ? (
       <NotifyMe

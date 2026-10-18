@@ -7,6 +7,7 @@ import { canBeBooked, isSoldOut, seatsLeftLabel } from '@lib/workshop-rules'
 import { firstParagraph, notifyInterest, takeHomeLine } from '@lib/workshop-copy'
 import { whenLabel } from './workshop-view-model'
 import { trackWaitlistOpened } from '@lib/analytics'
+import RequestSpot from './RequestSpot'
 
 export interface WorkshopCardProps {
   workshop: WorkshopData
@@ -184,6 +185,7 @@ export default function WorkshopCard({ workshop, onBook, href }: WorkshopCardPro
               Sign-ups closed
             </p>
           )}
+          {closed && !soldOut && <RequestSpot />}
           {!comingSoon && !soldOut && !closed && href && (
             <a className="btn btn-primary" style={{ width: '100%' }} href={href}>
               See details and book

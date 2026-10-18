@@ -44,10 +44,16 @@ describe('WorkshopRow', () => {
     expect(screen.getByRole('button', { name: 'Tell me when booking opens' })).toBeInTheDocument()
   })
 
-  it('sign-ups closed: says so, not bookable', () => {
+  it('sign-ups closed: says so, not bookable, and offers to call about a spot', () => {
     render(<WorkshopRow workshop={{ ...base, signupClosed: true }} />)
     expect(screen.getByText('Sign-ups closed')).toBeInTheDocument()
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.queryByRole('button', { name: /See details and book/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Request a spot' }))
+    const dialog = screen.getByRole('dialog', { name: 'Request a spot' })
+    expect(dialog).toHaveTextContent('Sign-ups close early so we can get everything ready for each person. Sometimes we have a spare, so give us a call and we’ll check.')
+    expect(screen.getByRole('link', { name: 'Call (256) 464-1710' })).toHaveAttribute('href', 'tel:+12564641710')
+    fireEvent.click(screen.getByRole('button', { name: 'Never mind' }))
+    expect(screen.queryByRole('dialog')).toBeNull()
   })
 
   it('times read "1 PM", "7:30 PM", "10 AM"', () => {

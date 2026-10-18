@@ -259,6 +259,8 @@ describe('WorkshopCard — a sold-out workshop', () => {
     expect(screen.getByText('Sign-ups closed')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'See details and book' })).toBeNull()
     expect(screen.queryByText('6 seats left')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Request a spot' }))
+    expect(screen.getByRole('link', { name: 'Call (256) 464-1710' })).toHaveAttribute('href', 'tel:+12564641710')
   })
 
   it('a sold-out class past its cutoff says both, and offers no waitlist', () => {
@@ -266,6 +268,7 @@ describe('WorkshopCard — a sold-out workshop', () => {
     expect(screen.getByText('Sold out')).toBeInTheDocument()
     expect(screen.getByText('Sign-ups closed')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Tell me if a seat opens' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Request a spot' })).toBeNull()
   })
 
   it('on the home page, a closed class has no link to book', () => {

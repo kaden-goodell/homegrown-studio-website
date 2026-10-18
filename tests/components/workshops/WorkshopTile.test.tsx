@@ -28,9 +28,9 @@ describe('WorkshopTile (wide screens)', () => {
     expect(screen.queryByRole('button', { name: 'See details and book' })).toBeNull()
     expect(screen.getByRole('button', { name: 'Tell me if a seat opens' })).toBeInTheDocument()
   })
-  it('sign-ups closed: says so, nothing to press', () => {
+  it('sign-ups closed: says so, and the only thing to press is Request a spot', () => {
     render(<WorkshopTile workshop={{ ...base, signupClosed: true }} />)
     expect(screen.getByText('Sign-ups closed')).toBeInTheDocument()
-    expect(screen.queryByRole('button')).toBeNull()
+    expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Request a spot'])
   })
 })
