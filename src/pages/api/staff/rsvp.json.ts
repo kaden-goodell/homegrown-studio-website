@@ -1,11 +1,10 @@
 import type { APIRoute } from 'astro'
 import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { getEvent, resolveEventDay, EVENT_KIND_RE } from '@lib/events'
-import { getWaiverRecord, upsertWaiverInEventIndex } from '@lib/waiver-store'
-import { upsertRsvp, getRsvp } from '@lib/rsvp-store'
+import { getWaiverRecord } from '@lib/waiver-store'
+import { addAttending } from '@lib/attending'
 import { substantiveSince, compareVersions } from '@config/waiver-content'
-import { effectivePickup, storablePickup } from '@lib/pickup'
-import { markPresent, migrateCheckinOnReplace } from '@lib/checkin-actions'
+import { markPresent } from '@lib/checkin-actions'
 import { createLogger } from '@lib/logger'
 import { recordAudit } from '@lib/audit'
 import { paymentBypassEnabled } from '@lib/dev-flags'
@@ -73,40 +72,16 @@ export const POST: APIRoute = async ({ request }) => {
   const day = resolveEventDay(event, requestedDay)
 
   try {
-    // upsertRsvp replaces the whole record, so a household that already RSVP'd
-    // (the designed path: Today's highlighted chip) must have its pickup /
-    // may-NOT-collect list, booking ref and responsible adult carried over,
-    // and its attending widened — never narrowed.
-    const existing = await getRsvp(kind as DoorKind, id, recordId)
-    const everyone = ['adult', ...waiver.minors.map((_, i) => `child:${i}`)]
-    const attendingNow = existing ? [...new Set([...(existing.attending ?? everyone), ...people])] : people
-    // The household's pickup list / may-NOT-collect follow it to this event.
-    const eff = await effectivePickup({ waiver })
-    // Store the RAW note (a "None" clear persists); never drop an existing RSVP's pickup.
-    const pickup = storablePickup(eff) ?? existing?.pickup ?? null
-    const rsvp = await upsertRsvp({
-      ...(existing ? { id: existing.id, ref: existing.ref } : {}),
-      ...(pickup ? { pickup } : {}),
-      waiverId: recordId,
-      event: { kind: kind as DoorKind, id },
-      attending: attendingNow,
-      responsibleAdult: existing?.responsibleAdult ?? null,
-      at: new Date().toISOString(),
-      ip: null,
-      userAgent: null,
-      by,
-    })
-    const { replacedRecordId } = await upsertWaiverInEventIndex(kind as DoorKind, id, waiver, rsvp.id)
-    await migrateCheckinOnReplace(kind as DoorKind, id, replacedRecordId, recordId)
+    const { rsvp, alreadyRsvpd } = await addAttending({ kind: kind as DoorKind, id, waiver, people, by })
     const { state, oneTimeCode, smsFailed } = await markPresent({
       event, kind: kind as DoorKind, id, recordId, waiverRecord: waiver,
-      personIds: people, day, by, ...(kind === 'party' && !existing ? { expected: people } : {}),
+      personIds: people, day, by, ...(kind === 'party' && !alreadyRsvpd ? { expected: people } : {}),
     })
     await recordAudit({
       by: staff,
       action: 'rsvp.updated',
       target: { kind: 'household', id: recordId, label: `${waiver.adult.firstName} ${waiver.adult.lastName}`.trim() },
-      details: { eventKind: kind, eventId: id, day, people: people.length, alreadyRsvpd: !!existing },
+      details: { eventKind: kind, eventId: id, day, people: people.length, alreadyRsvpd },
       ...(paymentBypassEnabled(request) ? { simulated: true as const } : {}),
     })
     return json({

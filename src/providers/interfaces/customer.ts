@@ -56,4 +56,10 @@ export interface CustomerProvider {
    * The sign-up emails read this to find who is still waiting to hear.
    */
   listWithNotes(): Promise<CustomerNote[]>
+
+  /** Every customer, for the staff "Find a customer" search (/staff Comp a seat). */
+  listDirectory(): Promise<Customer[]>
+
+  /** One customer by id; null when there is none. */
+  getById(customerId: string): Promise<Customer | null>
 }

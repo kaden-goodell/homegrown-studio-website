@@ -1,6 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { SeatOption } from '@lib/seat-options'
 import { btn, field } from '@components/staff/ui'
+
+interface FoundCustomer { id: string; givenName: string; familyName: string; email: string; phone: string }
+interface Household { recordId: string; status: 'ok' | 'expired' | 'outdated'; people: { id: string; name: string; adult: boolean }[] }
+
+const last4 = (phone: string) => phone.replace(/\D/g, '').slice(-4)
 
 /**
  * Roster "Comp a seat": one form. The site adds the seat in Square with no
@@ -8,6 +13,10 @@ import { btn, field } from '@components/staff/ui'
  * If the site's Square sign-in has expired, the sheet falls back to adding
  * them in Square's own screen and then recording it here.
  * Sheet chrome copied from AddFamilySheet.
+ *
+ * "Find a customer" (Kaden, 18 Oct 2026) picks a known Square customer; if
+ * they have a waiver in date, the Seats box becomes "Who's coming" — one seat
+ * per person checked, plus anyone not on the waiver by name.
  */
 export default function CompSeatSheet({
   event,
@@ -42,7 +51,65 @@ export default function CompSeatSheet({
   const money = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`
   const [signedOut, setSignedOut] = useState(false)
 
-  const key = (seat: number, optionId: string) => `${seat}:${optionId}`
+  const [query, setQuery] = useState('')
+  const [found, setFound] = useState<FoundCustomer[]>([])
+  const [picked, setPicked] = useState<null | { customer: FoundCustomer; household: Household | null }>(null)
+  const [chosen, setChosen] = useState<string[]>([])
+  const [guests, setGuests] = useState<string[]>([])
+
+  useEffect(() => {
+    if (picked || query.trim().length < 2) { setFound([]); return }
+    const q = query.trim()
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/staff/customers.json?q=${encodeURIComponent(q)}`, { cache: 'no-store' })
+        const body = await res.json().catch(() => ({}))
+        setFound(res.ok && Array.isArray(body?.data) ? body.data : [])
+      } catch {
+        setFound([])
+      }
+    }, 250)
+    return () => clearTimeout(t)
+  }, [query, picked])
+
+  async function pick(c: FoundCustomer) {
+    setError(null)
+    try {
+      const res = await fetch(`/api/staff/customers.json?id=${encodeURIComponent(c.id)}`, { cache: 'no-store' })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(typeof body?.error === 'string' ? body.error : 'Couldn’t load that customer.'); return }
+      const customer: FoundCustomer = body.data.customer
+      setPicked({ customer, household: body.data.household ?? null })
+      setGivenName(customer.givenName)
+      setFamilyName(customer.familyName)
+      setEmail(customer.email)
+      setPhone(customer.phone)
+      setChosen([])
+      setGuests([])
+      setSelections({})
+    } catch {
+      setError('Could not reach the server. Try again.')
+    }
+  }
+
+  function notThem() {
+    setPicked(null)
+    setQuery('')
+    setGivenName(''); setFamilyName(''); setEmail(''); setPhone('')
+    setChosen([]); setGuests([]); setSelections({})
+  }
+
+  // "Who's coming" replaces the Seats box when the picked customer's waiver is in date.
+  const household = picked?.household?.status === 'ok' ? picked.household : null
+  const chosenInOrder = household ? household.people.filter((p) => chosen.includes(p.id)) : []
+  const guestNames = guests.map((g) => g.trim())
+  // One token per seat, so a pick stays with its person when others are ticked or unticked.
+  const seatTokens = household
+    ? [...chosenInOrder.map((p) => ({ token: p.id, name: p.name })), ...guestNames.map((g, i) => ({ token: `guest:${i}`, name: g || `Guest ${i + 1}` }))]
+    : Array.from({ length: seats }, (_, i) => ({ token: `seat:${i + 1}`, name: `Seat ${i + 1}` }))
+  const seatCount = seatTokens.length
+
+  const key = (token: string, optionId: string) => `${token}|${optionId}`
   const squareUrl = `https://app.squareup.com/dashboard/appointments/calendar/classes/${event.id}?date=${event.day}&view=week`
 
   async function submit(e: React.FormEvent, alreadyInSquare = signedOut) {
@@ -50,8 +117,10 @@ export default function CompSeatSheet({
     if (busy) return
     setBusy(true)
     setError(null)
-    const picks = Array.from({ length: seats }, (_, i) => i + 1).flatMap((seat) =>
-      options.map((o) => ({ seat, optionId: o.id, choice: selections[key(seat, o.id)] ?? '' })),
+    if (household && seatCount === 0) { setError('Pick who’s coming.'); setBusy(false); return }
+    if (household && guestNames.some((g) => !g)) { setError('Add a name for everyone not on the waiver, or remove the empty line.'); setBusy(false); return }
+    const picks = seatTokens.flatMap((t, i) =>
+      options.map((o) => ({ seat: i + 1, optionId: o.id, choice: selections[key(t.token, o.id)] ?? '' })),
     )
     try {
       const res = await fetch('/api/staff/comp-seat.json', {
@@ -64,8 +133,10 @@ export default function CompSeatSheet({
           familyName: familyName.trim(),
           email: email.trim(),
           ...(phone.trim() ? { phone: phone.trim() } : {}),
-          seats,
+          seats: seatCount,
           picks,
+          ...(picked ? { customerId: picked.customer.id } : {}),
+          ...(household ? { waiverId: household.recordId, people: chosenInOrder.map((p) => p.id), guests: guestNames } : {}),
           ...(alreadyInSquare ? { alreadyInSquare: true } : {}),
           ...(sell ? { payAtRegister: true } : {}),
         }),
@@ -157,39 +228,124 @@ export default function CompSeatSheet({
           </div>
         ) : (
           <form onSubmit={submit}>
-            <div style={row}>
-              <label htmlFor="comp-given" style={label}>First name</label>
-              <input id="comp-given" required value={givenName} onChange={(e) => setGivenName(e.target.value)} style={input} autoComplete="off" />
-            </div>
-            <div style={row}>
-              <label htmlFor="comp-family" style={label}>Last name</label>
-              <input id="comp-family" required value={familyName} onChange={(e) => setFamilyName(e.target.value)} style={input} autoComplete="off" />
-            </div>
-            <div style={row}>
-              <label htmlFor="comp-email" style={label}>Email</label>
-              <input id="comp-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} style={input} autoComplete="off" />
-            </div>
-            <div style={row}>
-              <label htmlFor="comp-phone" style={label}>Phone (optional)</label>
-              <input id="comp-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} style={input} autoComplete="off" />
-            </div>
-            <div style={row}>
-              <label htmlFor="comp-seats" style={label}>Seats</label>
-              <input
-                id="comp-seats" type="number" min={1} max={10} value={seatsText}
-                onChange={(e) => setSeatsText(e.target.value)}
-                onBlur={() => setSeatsText(String(seats))}
-                style={{ ...input, width: '6rem' }}
-              />
-            </div>
+            {!picked && (
+              <div style={row}>
+                <label htmlFor="comp-find" style={label}>Find a customer</label>
+                <input id="comp-find" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name, email or phone" style={input} autoComplete="off" />
+                {found.length > 0 && (
+                  <ul aria-label="Matching customers" style={{ listStyle: 'none', margin: '0.35rem 0 0', padding: 0, display: 'grid', gap: '0.3rem' }}>
+                    {found.map((c) => (
+                      <li key={c.id}>
+                        <button type="button" onClick={() => pick(c)} style={{ ...btn(), width: '100%', textAlign: 'left', fontWeight: 400 }}>
+                          <strong>{c.givenName} {c.familyName}</strong>
+                          <span style={{ color: 'var(--color-muted)' }}>{[c.email, c.phone ? `••${last4(c.phone)}` : ''].filter(Boolean).map((x) => ` · ${x}`).join('')}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <p style={{ margin: '0.35rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Or type someone new below.</p>
+              </div>
+            )}
 
-            {options.length > 0 && Array.from({ length: seats }, (_, i) => i + 1).map((seat) =>
+            {picked ? (
+              <div data-testid="picked-customer" style={{ ...row, padding: '0.7rem 0.8rem', borderRadius: '0.6rem', background: 'rgba(var(--color-primary-rgb), 0.08)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', alignItems: 'baseline' }}>
+                  <strong style={{ color: 'var(--color-dark)' }}>{picked.customer.givenName} {picked.customer.familyName}</strong>
+                  <button type="button" onClick={notThem} style={{ border: 'none', background: 'none', padding: 0, color: 'var(--color-primary)', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem' }}>Not them</button>
+                </div>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
+                  {[picked.customer.email, picked.customer.phone ? `••${last4(picked.customer.phone)}` : ''].filter(Boolean).join(' · ') || 'No email or phone in Square'}
+                </p>
+                {!picked.customer.email && (
+                  <div style={{ marginTop: '0.5rem' }}>
+                    <label htmlFor="comp-email" style={label}>Email</label>
+                    <input id="comp-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} style={input} autoComplete="off" />
+                  </div>
+                )}
+              </div>
+            ) : (
+              <>
+                <div style={row}>
+                  <label htmlFor="comp-given" style={label}>First name</label>
+                  <input id="comp-given" required value={givenName} onChange={(e) => setGivenName(e.target.value)} style={input} autoComplete="off" />
+                </div>
+                <div style={row}>
+                  <label htmlFor="comp-family" style={label}>Last name</label>
+                  <input id="comp-family" required value={familyName} onChange={(e) => setFamilyName(e.target.value)} style={input} autoComplete="off" />
+                </div>
+                <div style={row}>
+                  <label htmlFor="comp-email" style={label}>Email</label>
+                  <input id="comp-email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} style={input} autoComplete="off" />
+                </div>
+                <div style={row}>
+                  <label htmlFor="comp-phone" style={label}>Phone (optional)</label>
+                  <input id="comp-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} style={input} autoComplete="off" />
+                </div>
+              </>
+            )}
+
+            {household ? (
+              <fieldset style={{ ...row, border: 'none', padding: 0, margin: '0 0 0.65rem' }}>
+                <legend style={label}>Who’s coming</legend>
+                {household.people.map((p) => (
+                  <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', fontSize: '0.95rem', color: 'var(--color-dark)', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={chosen.includes(p.id)}
+                      onChange={(e) => setChosen((c) => (e.target.checked ? [...c, p.id] : c.filter((x) => x !== p.id)))}
+                    />
+                    {p.name}{p.adult ? ' (adult)' : ''}
+                  </label>
+                ))}
+                {guests.map((g, i) => (
+                  <div key={i} style={{ display: 'flex', gap: '0.4rem', marginTop: '0.35rem' }}>
+                    <input
+                      aria-label={`Name of guest ${i + 1}`}
+                      value={g}
+                      onChange={(e) => { const v = e.target.value; setGuests((list) => list.map((x, j) => (j === i ? v : x))) }}
+                      placeholder="Their name"
+                      style={input}
+                      autoComplete="off"
+                    />
+                    <button type="button" aria-label={`Remove guest ${i + 1}`} onClick={() => setGuests((list) => list.filter((_, j) => j !== i))} style={{ ...btn(), padding: '0.35rem 0.6rem' }}>✕</button>
+                  </div>
+                ))}
+                {seatCount < 10 && (
+                  <button type="button" onClick={() => setGuests((list) => [...list, ''])} style={{ border: 'none', background: 'none', padding: '0.4rem 0 0', color: 'var(--color-primary)', fontWeight: 600, cursor: 'pointer', fontSize: '0.875rem' }}>
+                    + Add someone not on the waiver
+                  </button>
+                )}
+                {guests.length > 0 && (
+                  <p style={{ margin: '0.25rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>They’ll sign the waiver at the door.</p>
+                )}
+              </fieldset>
+            ) : (
+              <>
+                {picked && (
+                  <p style={{ margin: '0 0 0.65rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>
+                    {picked.household ? 'Their waiver is out of date, so they’ll sign again at the door.' : 'No waiver on file yet, so they’ll sign at the door.'}
+                  </p>
+                )}
+                <div style={row}>
+                  <label htmlFor="comp-seats" style={label}>Seats</label>
+                  <input
+                    id="comp-seats" type="number" min={1} max={10} value={seatsText}
+                    onChange={(e) => setSeatsText(e.target.value)}
+                    onBlur={() => setSeatsText(String(seats))}
+                    style={{ ...input, width: '6rem' }}
+                  />
+                </div>
+              </>
+            )}
+
+            {options.length > 0 && seatTokens.map((t) =>
               options.map((o) => {
-                const k = key(seat, o.id)
-                const id = `comp-pick-${seat}-${o.id}`
+                const k = key(t.token, o.id)
+                const id = `comp-pick-${t.token.replace(':', '-')}-${o.id}`
                 return (
                   <div key={k} style={row}>
-                    <label htmlFor={id} style={label}>Seat {seat} · {o.label}</label>
+                    <label htmlFor={id} style={label}>{t.name} · {o.label}</label>
                     <select
                       id={id}
                       value={selections[k] ?? ''}

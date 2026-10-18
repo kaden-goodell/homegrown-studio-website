@@ -40,6 +40,8 @@ export interface SeatChoiceRecord {
   payAtRegister?: true
   /** Square class-booking ids for a comped seat added from /staff (one per seat). */
   squareBookingIds?: string[]
+  /** Who sits in each seat (index 0 = seat 1), when staff picked them from a waiver. */
+  seatNames?: string[]
   /** Where an online booker came from (first and last visit source). */
   attribution?: Attribution
 }

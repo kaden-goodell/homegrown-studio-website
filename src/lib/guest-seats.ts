@@ -29,6 +29,9 @@ export interface GuestSeatsResult {
 
 export const guestSeatName = (familyName: string, seat: number, of: number) => `${familyName} (guest ${seat} of ${of})`
 
+/** A named extra seat ("Flynn (with Ashley Singleton)"), when staff picked who's coming. */
+export const namedSeatFamily = (holder: { givenName: string; familyName: string }) => `(with ${holder.givenName} ${holder.familyName})`
+
 export interface GuestSeatParams {
   scheduleId: string
   startAt: string
@@ -37,6 +40,8 @@ export interface GuestSeatParams {
   totalSeats: number
   /** e.g. "Comped seat", "Door seat". Goes in each guest's Square note. */
   what: string
+  /** Who sits in each seat, in seat order (index 0 = seat 1); unnamed seats get "(guest N of M)". */
+  seatNames?: string[]
 }
 
 export type OneGuestSeat =
@@ -46,11 +51,12 @@ export type OneGuestSeat =
 /** Add guest seat number `seat` (2 or more) of `totalSeats`. */
 export async function addOneGuestSeat(params: GuestSeatParams & { seat: number }): Promise<OneGuestSeat> {
   const { scheduleId, startAt, className, holder, totalSeats, what, seat } = params
+  const name = params.seatNames?.[seat - 1]?.trim()
   let customerId: string
   try {
     customerId = (await providers.customer.createGuest({
-      givenName: holder.givenName,
-      familyName: guestSeatName(holder.familyName, seat, totalSeats),
+      givenName: name || holder.givenName,
+      familyName: name ? namedSeatFamily(holder) : guestSeatName(holder.familyName, seat, totalSeats),
       note: `${what} ${seat} of ${totalSeats} with ${holder.givenName} ${holder.familyName} <${holder.email}>, ${className}.`,
     })).id
   } catch (err) {

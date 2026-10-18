@@ -101,3 +101,101 @@ describe('CompSeatSheet', () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body).payAtRegister).toBe(true)
   })
 })
+
+describe('CompSeatSheet — find a customer, then who’s coming', () => {
+  const fetchMock = vi.fn()
+  const ASH = { id: 'C1', givenName: 'Ashley', familyName: 'Singleton', email: 'ash@x.com', phone: '+12519794753' }
+  const HOUSE = { recordId: 'wvr_ash', status: 'ok', people: [
+    { id: 'adult', name: 'Ashley Singleton', adult: true },
+    { id: 'child:0', name: 'Flynn', adult: false },
+    { id: 'child:1', name: 'Rowan', adult: false },
+  ] }
+  const answer = (data: unknown, ok = true) => ({ ok, status: ok ? 200 : 404, json: async () => ({ data }) })
+  function routes(household: unknown) {
+    fetchMock.mockImplementation(async (url: string, init?: any) => {
+      if (init?.method === 'POST') return answer({ bookingId: 'clsbk_1', emailSent: true, seats: 2 })
+      if (url.includes('?q=')) return answer([ASH])
+      return answer({ customer: ASH, household })
+    })
+  }
+  beforeEach(() => { fetchMock.mockReset(); vi.stubGlobal('fetch', fetchMock) })
+  afterEach(() => vi.unstubAllGlobals())
+
+  async function findAshley() {
+    fireEvent.change(screen.getByLabelText('Find a customer'), { target: { value: 'sing' } })
+    fireEvent.click(await screen.findByRole('button', { name: /Ashley Singleton/ }))
+    await screen.findByTestId('picked-customer')
+  }
+
+  it('lists matches with the last 4 of the phone, and fills the person in on a tap', async () => {
+    routes(null)
+    render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    await findAshley()
+    expect(screen.getByTestId('picked-customer')).toHaveTextContent('ash@x.com · ••4753')
+    expect(screen.queryByLabelText('First name')).toBeNull()
+    expect(screen.getByText('No waiver on file yet, so they’ll sign at the door.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Seats')).toBeInTheDocument()
+  })
+
+  it('with a waiver in date, seats whoever is ticked plus named guests, picks per person', async () => {
+    routes(HOUSE)
+    const onRecorded = vi.fn()
+    render(<CompSeatSheet event={event} options={options} onRecorded={onRecorded} onClose={() => {}} />)
+    await findAshley()
+    expect(screen.queryByLabelText('Seats')).toBeNull()
+    fireEvent.click(screen.getByLabelText('Rowan'))
+    fireEvent.click(screen.getByLabelText('Flynn'))
+    fireEvent.click(screen.getByRole('button', { name: '+ Add someone not on the waiver' }))
+    fireEvent.change(screen.getByLabelText('Name of guest 1'), { target: { value: 'Sam Lee' } })
+    fireEvent.change(screen.getByLabelText('Flynn · Pumpkin color'), { target: { value: 'White' } })
+    fireEvent.change(screen.getByLabelText('Rowan · Pumpkin color'), { target: { value: 'Orange' } })
+    fireEvent.change(screen.getByLabelText('Sam Lee · Pumpkin color'), { target: { value: 'Orange' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    const sent = JSON.parse(fetchMock.mock.calls.find((c) => c[1]?.method === 'POST')![1].body)
+    expect(sent).toMatchObject({
+      customerId: 'C1', waiverId: 'wvr_ash', people: ['child:0', 'child:1'], guests: ['Sam Lee'], seats: 3,
+      givenName: 'Ashley', familyName: 'Singleton', email: 'ash@x.com',
+      picks: [
+        { seat: 1, optionId: 'color', choice: 'White' },
+        { seat: 2, optionId: 'color', choice: 'Orange' },
+        { seat: 3, optionId: 'color', choice: 'Orange' },
+      ],
+    })
+  })
+
+  it('a pick stays with its person when someone else is ticked', async () => {
+    routes(HOUSE)
+    render(<CompSeatSheet event={event} options={options} onRecorded={() => {}} onClose={() => {}} />)
+    await findAshley()
+    fireEvent.click(screen.getByLabelText('Flynn'))
+    fireEvent.change(screen.getByLabelText('Flynn · Pumpkin color'), { target: { value: 'White' } })
+    fireEvent.click(screen.getByLabelText('Ashley Singleton (adult)'))
+    expect(screen.getByLabelText('Flynn · Pumpkin color')).toHaveValue('White')
+    expect(screen.getByLabelText('Ashley Singleton · Pumpkin color')).toHaveValue('')
+  })
+
+  it('says to pick someone before sending, and a lapsed waiver falls back to Seats', async () => {
+    routes(HOUSE)
+    const { unmount } = render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    await findAshley()
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    expect(await screen.findByText('Pick who’s coming.')).toBeInTheDocument()
+    expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'POST')).toBe(false)
+    unmount()
+    routes({ ...HOUSE, status: 'expired' })
+    render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    await findAshley()
+    expect(screen.getByText('Their waiver is out of date, so they’ll sign again at the door.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Seats')).toBeInTheDocument()
+  })
+
+  it('“Not them” goes back to typing someone new', async () => {
+    routes(null)
+    render(<CompSeatSheet event={event} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    await findAshley()
+    fireEvent.click(screen.getByRole('button', { name: 'Not them' }))
+    expect(screen.getByLabelText('First name')).toHaveValue('')
+    expect(screen.getByLabelText('Find a customer')).toHaveValue('')
+  })
+})

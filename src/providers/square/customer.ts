@@ -152,6 +152,23 @@ export class SquareCustomerProvider implements CustomerProvider {
     return found
   }
 
+  async listDirectory(): Promise<Customer[]> {
+    const found: Customer[] = []
+    const pages = await this.client.customers.list({ limit: 100, sortField: 'DEFAULT', sortOrder: 'ASC' })
+    for await (const c of pages as AsyncIterable<any>) if (c?.id) found.push(mapSquareCustomer(c))
+    return found
+  }
+
+  async getById(customerId: string): Promise<Customer | null> {
+    try {
+      const res = await this.client.customers.get({ customerId })
+      return res.customer ? mapSquareCustomer(res.customer) : null
+    } catch (err: any) {
+      if (err?.statusCode === 404) return null
+      throw err
+    }
+  }
+
   async appendNote(customerId: string, line: string): Promise<void> {
     // Read-modify-write: newest line first so staff see the latest at a glance.
     const current = await this.client.customers.get({ customerId })

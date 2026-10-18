@@ -61,6 +61,15 @@ export class MockCustomerProvider implements CustomerProvider {
     }
   }
 
+  async listDirectory(): Promise<Customer[]> {
+    return [...this.customers.values()]
+  }
+
+  async getById(customerId: string): Promise<Customer | null> {
+    for (const c of this.customers.values()) if (c.id === customerId) return c
+    return null
+  }
+
   async appendNote(customerId: string, line: string): Promise<void> {
     const notes = this.notes.get(customerId) ?? []
     notes.unshift(line)

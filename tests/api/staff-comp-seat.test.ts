@@ -11,10 +11,24 @@ vi.mock('@lib/staff-auth', () => ({
 const mockList = vi.fn()
 const mockFindOrCreate = vi.fn()
 const mockGuest = vi.fn()
+const mockGetById = vi.fn()
 vi.mock('@config/providers', () => ({ providers: {
   workshop: { listAllWorkshops: (...a: any[]) => mockList(...a) },
-  customer: { findOrCreate: (...a: any[]) => mockFindOrCreate(...a), createGuest: (...a: any[]) => mockGuest(...a) },
+  customer: { findOrCreate: (...a: any[]) => mockFindOrCreate(...a), createGuest: (...a: any[]) => mockGuest(...a), getById: (...a: any[]) => mockGetById(...a) },
 } }))
+
+const mockWaiver = vi.fn()
+vi.mock('@lib/waiver-store', () => ({ getWaiverRecord: (...a: any[]) => mockWaiver(...a) }))
+const mockAttending = vi.fn()
+vi.mock('@lib/attending', () => ({
+  addAttending: (...a: any[]) => mockAttending(...a),
+  personIdsOf: (w: any) => ['adult', ...w.minors.map((_: any, i: number) => `child:${i}`)],
+}))
+const ASHLEY = {
+  id: 'wvr_ash', agreementVersion: 'v1', validUntil: '2099-01-01T00:00:00.000Z',
+  adult: { firstName: 'Ashley', lastName: 'Singleton' },
+  minors: [{ name: 'Flynn' }, { name: 'Rowan' }],
+}
 
 const mockAdd = vi.fn()
 vi.mock('@lib/square-dashboard', () => ({ addClassAttendee: (...a: any[]) => mockAdd(...a) }))
@@ -52,6 +66,9 @@ beforeEach(async () => {
   mockSend.mockResolvedValue(true)
   mockFindOrCreate.mockResolvedValue({ id: 'CUST_GIA' })
   mockGuest.mockResolvedValue({ id: 'CUST_GUEST' })
+  mockGetById.mockResolvedValue({ id: 'CUST_ASH', email: 'ash@x.com', givenName: 'Ashley', familyName: 'Singleton' })
+  mockWaiver.mockResolvedValue(ASHLEY)
+  mockAttending.mockResolvedValue({ alreadyRsvpd: false })
   let n = 0
   mockAdd.mockImplementation(async () => ({ ok: true, bookingId: `clsbk_${++n}` }))
   POST = (await import('@pages/api/staff/comp-seat.json')).POST
@@ -206,5 +223,58 @@ describe('POST /api/staff/comp-seat.json', () => {
     expect(mockSend.mock.calls[0][0].comped).toBeUndefined()
     expect(mockAudit.mock.calls[0][0]).toMatchObject({ action: 'seat.sold-at-door', details: expect.objectContaining({ dueCents: 5000 }) })
     expect(mockGuest.mock.calls[0][0].note).toMatch(/^Door seat 2 of 2/)
+  })
+})
+
+describe('POST /api/staff/comp-seat.json — a picked customer and their waiver', () => {
+  const picked = {
+    scheduleId: 'clssch_pails', givenName: 'Ashley', familyName: 'Singleton', email: 'ash@x.com',
+    customerId: 'CUST_ASH', waiverId: 'wvr_ash', people: ['child:0', 'child:1'], guests: ['Sam Lee'],
+    picks: [1, 2, 3].map((seat) => ({ seat, optionId: 'pumpkin-color', choice: 'Black' })),
+  }
+
+  it('seats each person picked, on the picked customer, named in Square, and marks them attending', async () => {
+    const res = await POST(req(picked))
+    expect(res.status).toBe(200)
+    expect((await res.json()).data.seats).toBe(3)
+    expect(mockFindOrCreate).not.toHaveBeenCalled()
+    expect(mockAdd.mock.calls[0][0].customerId).toBe('CUST_ASH')
+    expect(mockGuest.mock.calls.map((c) => [c[0].givenName, c[0].familyName])).toEqual([
+      ['Rowan', '(with Ashley Singleton)'],
+      ['Sam Lee', '(with Ashley Singleton)'],
+    ])
+    expect(mockSave.mock.calls[0][0]).toMatchObject({ seats: 3, seatNames: ['Flynn', 'Rowan', 'Sam Lee'] })
+    expect(mockAttending).toHaveBeenCalledWith(expect.objectContaining({ kind: 'workshop', id: 'clssch_pails', waiver: ASHLEY, people: ['child:0', 'child:1'] }))
+  })
+
+  it('marks only the people whose seats Square took', async () => {
+    mockAdd
+      .mockResolvedValueOnce({ ok: true, bookingId: 'clsbk_1' })
+      .mockResolvedValueOnce({ ok: false, kind: 'refused', status: 400, detail: 'class full' })
+    const res = await POST(req(picked))
+    expect((await res.json()).data.seats).toBe(1)
+    expect(mockAttending.mock.calls[0][0].people).toEqual(['child:0'])
+  })
+
+  it('404s a customer who is no longer in Square, before adding anything', async () => {
+    mockGetById.mockResolvedValue(null)
+    const res = await POST(req(picked))
+    expect(res.status).toBe(404)
+    expect(mockAdd).not.toHaveBeenCalled()
+  })
+
+  it('refuses a lapsed waiver, someone not on it, or nobody picked', async () => {
+    mockWaiver.mockResolvedValueOnce({ ...ASHLEY, validUntil: '2020-01-01T00:00:00.000Z' })
+    expect((await POST(req(picked))).status).toBe(409)
+    expect((await POST(req({ ...picked, people: ['child:7'] }))).status).toBe(400)
+    expect((await POST(req({ ...picked, people: [], guests: [], picks: [] }))).status).toBe(400)
+    expect(mockAdd).not.toHaveBeenCalled()
+  })
+
+  it('still answers 200 with a note when the roster write fails after Square took the seats', async () => {
+    mockAttending.mockRejectedValue(new Error('storage down'))
+    const res = await POST(req(picked))
+    expect(res.status).toBe(200)
+    expect((await res.json()).data.warning).toMatch(/didn’t make it onto the roster/)
   })
 })

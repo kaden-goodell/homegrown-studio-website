@@ -39,6 +39,14 @@ describe('guest seats (staff Comp / Sell a seat)', () => {
     ])
   })
 
+  it('gives a seat the name of who sits in it, when staff picked them', async () => {
+    await addGuestSeats({ ...base, totalSeats: 3, firstSeat: 2, seatNames: ['Maxie Gardner', 'Flynn', ''] })
+    expect(mockGuest.mock.calls.map((c) => [c[0].givenName, c[0].familyName])).toEqual([
+      ['Flynn', '(with Maxie Gardner)'],
+      ['Maxie', 'Gardner (guest 3 of 3)'],
+    ])
+  })
+
   it('stops at the first seat Square won’t add, keeping the ones it did, with Square’s reason', async () => {
     mockAdd
       .mockResolvedValueOnce({ ok: true, bookingId: 'clsbk_g1', orderId: 'o1' })
