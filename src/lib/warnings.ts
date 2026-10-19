@@ -29,7 +29,7 @@ import { getClass, listClasses } from '@lib/classes/class-store'
 import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
 import { listPosNeedsDays, listRefundFlags, listUnmatchedPos, type RefundFlag } from '@lib/classes/square-events'
 import { onStaffConsole } from '@lib/classes/staff-view'
-import { listDoorUnpaid } from '@lib/classes/door-unpaid'
+import { listCounterMatchChecks, listDoorUnpaid } from '@lib/classes/door-unpaid'
 import type { ScheduledClass } from '@lib/classes/types'
 import { formatMoney } from '@lib/money'
 
@@ -38,7 +38,7 @@ const logger = createLogger('warnings')
 export type WarningCode =
   | 'class-over-party' | 'class-over-class' | 'oversold' | 'party-on-closed-day' | 'picks-missing' | 'capacity-unknown' | 'recorded-over-sold'
   // our own classes (Task 14): read-only for the crew; owners decide on /admin
-  | 'below-minimum' | 'pos-unmatched' | 'pos-needs-days' | 'refund-flag' | 'door-unpaid' | 'classes-unreadable'
+  | 'below-minimum' | 'pos-unmatched' | 'pos-needs-days' | 'refund-flag' | 'door-unpaid' | 'counter-match-check' | 'classes-unreadable'
 
 export interface Warning {
   code: WarningCode
@@ -59,6 +59,8 @@ export const WARNING_WINDOW_DAYS = 60
 
 /** "Sun Oct 18 · <detail> <action>" — the one line format, on the panel and in the email. */
 export function warningLine(w: Warning): string {
+  // These already name their day (and the class), so the line doesn't repeat it.
+  if (w.code === 'door-unpaid' || w.code === 'counter-match-check') return `${w.detail.replace(/\.$/, '')}. ${w.action}`
   return `${formatCalendarDay(studioDate(w.when))} · ${w.detail} ${w.action}`
 }
 
@@ -273,12 +275,13 @@ export const OWNERS_DECIDE = 'An owner decides on /admin.'
 async function ownClassWarnings(from: string, to: string, now: Date): Promise<Warning[]> {
   const startIso = studioDayUtcRange(from).startIso
   const endIso = studioDayUtcRange(to).endIso
-  const [classes, unmatched, needsDays, flags, unpaid] = await Promise.all([
+  const [classes, unmatched, needsDays, flags, unpaid, matches] = await Promise.all([
     listClasses({ fromIso: startIso, toIso: endIso }),
     listUnmatchedPos(),
     listPosNeedsDays(),
     listRefundFlags(),
     listDoorUnpaid(now),
+    listCounterMatchChecks(now),
   ])
   const shown = classes.filter(onStaffConsole)
   const byId = new Map<string, ScheduledClass>(shown.map((c) => [c.id, c]))
@@ -327,7 +330,13 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
   for (const u of unpaid) {
     out.push({
       code: 'door-unpaid', eventKind: 'workshop', eventId: u.classId, when: u.sessionStartIso, title: u.className,
-      detail: `${u.name || 'A door seat'} · ${u.className} · ${formatCalendarDay(u.day)}: not paid at the counter yet.`, action: OWNERS_DECIDE,
+      detail: `${u.name || 'A door seat'} · ${u.className} · ${formatCalendarDay(u.day)} · not paid at the counter yet`, action: OWNERS_DECIDE,
+    })
+  }
+  for (const m of matches) {
+    out.push({
+      code: 'counter-match-check', eventKind: 'workshop', eventId: m.classId, when: m.at, title: m.className,
+      detail: `Counter sale on ${formatCalendarDay(m.day)} was matched to ${m.name}. Check it was them.`, action: OWNERS_DECIDE,
     })
   }
   for (const f of flags) {

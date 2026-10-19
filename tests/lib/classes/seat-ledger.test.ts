@@ -474,9 +474,14 @@ describe('door seats paid at the counter (Task 14)', () => {
     const cls = make(4)
     const q = quote(cls, { passId: 'day', sessionIds: ['ses_b'], tickets: { person: 1 } }, NOW, 9)
     if (!q.ok) throw new Error(q.error)
-    const held = await hold(cls, q.value, { bookingId: 'bkg_door1', passId: 'day', source: 'door-counter', customer: cust, ttlMinutes: 10, by }, NOW)
+    // taken at the door on Fri Oct 23 (the day of ses_b), before it starts
+    const TAKEN = new Date('2026-10-23T17:30:00.000Z')
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(TAKEN)
+    const held = await hold(cls, q.value, { bookingId: 'bkg_door1', passId: 'day', source: 'door-counter', customer: cust, ttlMinutes: 10, by }, TAKEN)
     expect(held.ok).toBe(true)
-    await confirm(cls.id, 'bkg_door1', { orderId: null, paymentId: null }, { cls, quote: q.value, input: { bookingId: 'bkg_door1', passId: 'day', source: 'door-counter', customer: cust, ttlMinutes: 10 } }, NOW)
+    await confirm(cls.id, 'bkg_door1', { orderId: null, paymentId: null }, { cls, quote: q.value, input: { bookingId: 'bkg_door1', passId: 'day', source: 'door-counter', customer: cust, ttlMinutes: 10 } }, TAKEN)
+    vi.useRealTimers()
     const sale = { bookingId: 'bkg_pos_O1', orderId: 'O1', paymentId: 'PAY1', chargedCents: 1090, saleIso: '2026-10-23T19:00:00.000Z', lines: [{ lineUid: 'L1', passId: 'day', ticketTypeId: 'person', sessionIds: ['ses_a'], units: [{ priceCents: 1000, taxCents: 90 }] }] }
     // R32: a sale on another day never pays it; it is its own counter seat
     const other = await recordPos(cls, { ...sale, bookingId: 'bkg_pos_O0', orderId: 'O0', saleIso: '2026-10-22T19:00:00.000Z' }, NOW)
@@ -491,5 +496,46 @@ describe('door seats paid at the counter (Task 14)', () => {
     await recordPos(cls, { ...sale, bookingId: 'bkg_pos_O2', orderId: 'O2' }, NOW)
     lines = (await getLedger(cls.id)).lines.filter((l) => l.bookingId !== 'bkg_pos_O0')
     expect(lines.map((l) => l.source)).toEqual(['door-counter', 'pos'])
+  })
+})
+
+describe('R32/N1/R34: which door seat a counter sale pays', () => {
+  async function doorSeat(cls: ScheduledClass, bookingId: string, passId: string, sessionIds: string[], at: Date, who = cust) {
+    const qq = quote(cls, { passId, ...(passId === 'day' ? { sessionIds } : {}), tickets: { person: 1 } }, at, 9, { door: true })
+    if (!qq.ok) throw new Error(qq.error)
+    const inp = { bookingId, passId, source: 'door-counter' as const, customer: who, ttlMinutes: 10 }
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(at)
+    await hold(cls, qq.value, inp, at)
+    await confirm(cls.id, bookingId, { orderId: null, paymentId: null }, { cls, quote: qq.value, input: inp }, at)
+    vi.useRealTimers()
+  }
+  const sale = (orderId: string, passId: string, saleIso: string) => ({
+    bookingId: `bkg_pos_${orderId}`, orderId, paymentId: `P_${orderId}`, chargedCents: 3270, saleIso,
+    lines: [{ lineUid: `L_${orderId}`, passId, ticketTypeId: 'person', sessionIds: ['ses_a', 'ses_b'], units: [{ priceCents: 3000, taxCents: 270 }] }],
+  })
+
+  it('N1: a multi-day door seat taken on day 1 is never paid by someone else’s sale on day 2', async () => {
+    const { recordPos } = await import('@lib/classes/seat-ledger')
+    const cls = make(4)
+    await doorSeat(cls, 'bkg_dora', 'all', ['ses_a', 'ses_b'], new Date('2026-10-22T17:00:00.000Z'))
+    const got = await recordPos(cls, sale('W1', 'all', '2026-10-23T17:00:00.000Z'), NOW)
+    expect(got.map((l) => l.source)).toEqual(['pos'])
+    const dora = (await getLedger(cls.id)).lines.find((l) => l.bookingId === 'bkg_dora')!
+    expect(dora.square.orderId).toBeNull()
+  })
+
+  it('R34: two unpaid door seats that day: the oldest is paid and marked for a person to check', async () => {
+    const { recordPos, markCounterMatchChecked } = await import('@lib/classes/seat-ledger')
+    const cls = make(4)
+    await doorSeat(cls, 'bkg_first', 'all', ['ses_a', 'ses_b'], new Date('2026-10-22T16:00:00.000Z'))
+    await doorSeat(cls, 'bkg_second', 'all', ['ses_a', 'ses_b'], new Date('2026-10-22T16:30:00.000Z'))
+    await recordPos(cls, sale('M1', 'all', '2026-10-22T17:00:00.000Z'), NOW)
+    const lines = (await getLedger(cls.id)).lines
+    const first = lines.find((l) => l.bookingId === 'bkg_first')!
+    expect(first.square.orderId).toBe('M1')
+    expect(first.counterMatch).toMatchObject({ orderId: 'M1', candidates: 2, checked: null })
+    expect(lines.find((l) => l.bookingId === 'bkg_second')!.square.orderId).toBeNull()
+    await markCounterMatchChecked(cls.id, first.id, by)
+    expect((await getLedger(cls.id)).lines.find((l) => l.id === first.id)!.counterMatch!.checked).toMatchObject({ by })
   })
 })

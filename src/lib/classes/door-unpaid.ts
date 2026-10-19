@@ -51,3 +51,35 @@ export async function listDoorUnpaid(now: Date): Promise<DoorUnpaid[]> {
   }
   return out.sort((a, b) => a.sessionStartIso.localeCompare(b.sessionStartIso))
 }
+
+/** R34: a counter sale matched to one of several unpaid door seats that day; a person checks it was them. */
+export interface CounterMatchCheck {
+  id: string
+  kind: 'counter-match-check'
+  classId: string
+  className: string
+  lineId: string
+  bookingId: string
+  orderId: string
+  name: string
+  /** studio day of the sale */
+  day: string
+  at: string
+}
+
+export async function listCounterMatchChecks(now: Date): Promise<CounterMatchCheck[]> {
+  const classes = await listClasses({ fromIso: new Date(now.getTime() - DOOR_UNPAID_LOOKBACK_DAYS * 86_400_000).toISOString(), toIso: new Date(now.getTime() + 400 * 86_400_000).toISOString() })
+  const out: CounterMatchCheck[] = []
+  for (const cls of classes) {
+    for (const l of (await getLedger(cls.id)).lines) {
+      if (!l.counterMatch || l.counterMatch.checked) continue
+      const c = l.customer
+      out.push({
+        id: `counter-match-${cls.id}-${l.id}`, kind: 'counter-match-check', classId: cls.id, className: cls.content.name, lineId: l.id,
+        bookingId: l.bookingId, orderId: l.counterMatch.orderId, name: c ? `${c.givenName} ${c.familyName}`.trim() : 'a door seat',
+        day: studioDate(l.counterMatch.at), at: l.counterMatch.at,
+      })
+    }
+  }
+  return out.sort((a, b) => a.at.localeCompare(b.at))
+}
