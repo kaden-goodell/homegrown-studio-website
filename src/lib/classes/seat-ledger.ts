@@ -177,8 +177,9 @@ export async function hold(cls: ScheduledClass, q: Quote, input: HoldInput, now:
  * money, so it never refuses a paid booking: if the hold ran out, was swept or
  * was released, the seats are written again from `fallback` (capacity
  * ignored). Any confirmed seat on a session now over capacity is marked
- * `overCapacity` for staff to sort out. Already-confirmed bookings are
- * returned unchanged (safe to retry).
+ * `overCapacity` for staff to sort out. A booking with any confirmed or
+ * refunded seat and no held seat is already paid and recorded: its paid lines
+ * are returned unchanged and nothing is rebuilt (safe to retry or replay).
  */
 export async function confirm(
   classId: string,
@@ -188,11 +189,13 @@ export async function confirm(
   now: Date,
 ): Promise<LedgerLine[]> {
   return mutate(classId, (cur) => {
-    const mine = cur.lines.filter((l) => l.bookingId === bookingId && (l.state === 'held' || l.state === 'confirmed'))
-    if (mine.length && mine.every((l) => l.state === 'confirmed')) return { next: null, result: mine }
+    const isPaid = (l: LedgerLine) => l.bookingId === bookingId && (l.state === 'confirmed' || l.state === 'refunded')
+    const hasHeld = cur.lines.some((l) => l.bookingId === bookingId && l.state === 'held')
+    const paid = cur.lines.filter(isPaid)
+    if (!hasHeld && paid.length) return { next: null, result: paid }
     const sq = (l: LedgerLine) => ({ ...l.square, orderId: square.orderId, paymentId: square.paymentId })
     let lines: LedgerLine[]
-    if (mine.length) {
+    if (hasHeld) {
       // Convert this booking's holds (even expired, unswept ones); sweep everyone else's expired holds.
       lines = cur.lines
         .filter((l) => l.bookingId === bookingId || !isExpiredHold(l, now))
@@ -213,7 +216,7 @@ export async function confirm(
         ? { ...l, overCapacity: true }
         : l,
     )
-    return { next: { ...cur, lines }, result: lines.filter((l) => l.bookingId === bookingId && l.state === 'confirmed') }
+    return { next: { ...cur, lines }, result: lines.filter(isPaid) }
   })
 }
 
@@ -234,6 +237,8 @@ const refundedOn = (l: LedgerLine) => l.refunds.reduce((s, r) => s + r.cents, 0)
 /**
  * Records a refund of `cents` on EACH listed line (the money goes back
  * elsewhere; this only records it). Refuses more than a line has left to give back.
+ * A line that already carries a refund with the same non-null squareRefundId is
+ * skipped, so a retried refund is recorded once.
  */
 export async function recordRefund(
   classId: string,
@@ -242,15 +247,21 @@ export async function recordRefund(
 ): Promise<LedgerLine[]> {
   if (!Number.isInteger(input.cents) || input.cents < 0) throw new Error('A refund has to be whole cents of zero or more.')
   return mutate(classId, (cur) => {
+    const seen = (l: LedgerLine) => input.squareRefundId !== null && l.refunds.some((r) => r.squareRefundId === input.squareRefundId)
+    const todo = new Set<string>()
     for (const id of lineIds) {
       const l = cur.lines.find((x) => x.id === id)
       if (!l) throw new Error('One of those seats is not on this class.')
+      if (seen(l)) continue
+      todo.add(id)
       if (l.state !== 'confirmed' && l.state !== 'refunded') throw new Error('Only paid seats can be refunded.')
       if (refundedOn(l) + input.cents > paidOn(l)) throw new Error('That is more than was paid for this seat.')
     }
+    const result = () => cur.lines.filter((l) => lineIds.includes(l.id))
+    if (!todo.size) return { next: null, result: result() }
     const at = new Date().toISOString()
     const entry = { at, cents: input.cents, reason: input.reason, by: input.by, freedSeat: input.freeSeat, squareRefundId: input.squareRefundId }
-    const lines = cur.lines.map((l) => (lineIds.includes(l.id) ? { ...l, state: 'refunded' as const, refunds: [...l.refunds, entry] } : l))
+    const lines = cur.lines.map((l) => (todo.has(l.id) ? { ...l, state: 'refunded' as const, refunds: [...l.refunds, entry] } : l))
     return { next: { ...cur, lines }, result: lines.filter((l) => lineIds.includes(l.id)) }
   })
 }

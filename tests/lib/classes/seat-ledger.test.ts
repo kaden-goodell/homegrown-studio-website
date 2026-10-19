@@ -265,6 +265,54 @@ describe('seat ledger', () => {
     expect((await getLedger(cls.id)).lines).toHaveLength(2)
   })
 
+  for (const freeSeat of [true, false]) {
+    it(`confirm after a refund (freeSeat ${freeSeat}) never rebuilds the seats`, async () => {
+      const cls = make(2)
+      const f = fb(cls, { tickets: { person: 2 } }, { bookingId: `bkg_rf${freeSeat}` })
+      await hold(cls, f.quote, f.input, NOW)
+      const paid = await confirm(cls.id, f.input.bookingId as string, { orderId: 'o', paymentId: 'p' }, f, NOW)
+      await recordRefund(cls.id, paid.map((l) => l.id), { cents: 3270, reason: 'Sick', by, freeSeat, squareRefundId: 'rf' })
+      const before = await getLedger(cls.id)
+      const takenBefore = seatsTaken(before, 'ses_a', NOW)
+      expect(takenBefore).toBe(freeSeat ? 0 : 2)
+      const again = await confirm(cls.id, f.input.bookingId as string, { orderId: 'o', paymentId: 'p' }, f, later(60))
+      expect(again.map((l) => l.state)).toEqual(['refunded', 'refunded'])
+      const after = await getLedger(cls.id)
+      expect(after).toEqual(before)
+      expect(seatsTaken(after, 'ses_a', NOW)).toBe(takenBefore)
+    })
+  }
+
+  it('confirm after a goodwill refund on one seat of two returns both paid seats, no rebuild', async () => {
+    const cls = make(2)
+    const f = fb(cls, { tickets: { person: 2 } }, { bookingId: 'bkg_gw' })
+    await hold(cls, f.quote, f.input, NOW)
+    const [l1] = await confirm(cls.id, 'bkg_gw', { orderId: 'o', paymentId: 'p' }, f, NOW)
+    await recordRefund(cls.id, [l1.id], { cents: 500, reason: 'Goodwill', by, freeSeat: false, squareRefundId: null })
+    const again = await confirm(cls.id, 'bkg_gw', { orderId: 'o', paymentId: 'p' }, f, NOW)
+    expect(again.map((l) => l.state).sort()).toEqual(['confirmed', 'refunded'])
+    expect((await getLedger(cls.id)).lines).toHaveLength(2)
+  })
+
+  it('a retried refund with the same Square refund id is recorded once', async () => {
+    const cls = make(2)
+    const f = fb(cls, {}, { bookingId: 'bkg_rr' })
+    await hold(cls, f.quote, f.input, NOW)
+    const [l] = await confirm(cls.id, 'bkg_rr', { orderId: 'o', paymentId: 'p' }, f, NOW)
+    const r = { cents: 2000, reason: 'part', by, freeSeat: false, squareRefundId: 'rf_same' }
+    await recordRefund(cls.id, [l.id], r)
+    const again = await recordRefund(cls.id, [l.id], r) // 4000 would be over the 3270 paid; skipped, not refused
+    expect(again[0].refunds).toHaveLength(1)
+    // a different refund id is a new refund
+    const third = await recordRefund(cls.id, [l.id], { ...r, cents: 1000, squareRefundId: 'rf_other' })
+    expect(third[0].refunds.map((x) => x.squareRefundId)).toEqual(['rf_same', 'rf_other'])
+    // null ids are never treated as duplicates
+    const fourth = await recordRefund(cls.id, [l.id], { ...r, cents: 100, squareRefundId: null })
+    const fifth = await recordRefund(cls.id, [l.id], { ...r, cents: 100, squareRefundId: null })
+    expect(fourth[0].refunds).toHaveLength(3)
+    expect(fifth[0].refunds).toHaveLength(4)
+  })
+
   it('release frees held seats but never confirmed ones', async () => {
     const cls = make(2)
     await hold(cls, q(cls), input({ bookingId: 'bkg_h' }), NOW)
