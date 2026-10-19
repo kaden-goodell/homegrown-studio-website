@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 import type { AdminParty, AdminPartyGuest } from '@pages/api/admin/party.json'
 import { closureOn, OPEN_WEEKDAYS } from '@config/closures'
-import { CAFE_HOURS, CAFE_SPECIAL_DAYS, cafeHoursOn } from '@config/hours'
+import { cafeHoursEntries, cafeHoursOn } from '@config/hours'
+import { useStudio } from '../shell/studio'
 import { partyConfig } from '@config/party.config'
 import { formatMoney } from '@lib/money'
 import { timeSpan as formatTimeSpan, clockRange } from '../shell/time'
@@ -51,7 +52,8 @@ export function DaySheet({ day }: { day: string }) {
   const list = items ?? []
   // The closure itself is not "a thing on": the count and Print skip it.
   const things = list.filter((i) => i.kind !== 'closed')
-  const closure = closureOn(day)
+  const { days } = useStudio()
+  const closure = closureOn(day, days.closures)
   const shut = !!closure || !OPEN_WEEKDAYS.has(weekday(day))
   const weekdayName = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long' })
   return (
@@ -145,9 +147,10 @@ export function BlockedSheet({ day, id }: { day: string; id: string }) {
 /** Craft Café on a day: walk-in, read only. Its hours are set under More. */
 export function CafeSheet({ day }: { day: string }) {
   const { open } = useSheet()
-  const hours = cafeHoursOn(day)
-  const special = CAFE_SPECIAL_DAYS.find((d) => d.date === day)
-  const weekly = CAFE_HOURS.map((h) => `Every ${h.days.join(' and ')}, ${clockRange(h.opens, h.closes)}.`).join(' ')
+  const { days } = useStudio()
+  const hours = cafeHoursOn(day, days.cafe)
+  const special = days.cafe.special.find((d) => d.date === day)
+  const weekly = cafeHoursEntries(days.cafe).map((h) => `Every ${h.days.join(' and ')}, ${clockRange(h.opens, h.closes)}.`).join(' ')
   return (
     <SheetFrame
       title={special ? `Craft Café · ${special.name.replace(/^Craft Café /, '')}` : 'Craft Café'}
@@ -159,7 +162,7 @@ export function CafeSheet({ day }: { day: string }) {
         <p>Pay per craft at the counter.</p>
       </div>
       <p className="adm-note" style={{ marginTop: '0.75rem' }}>
-        {special ? 'A special day: these hours replace the usual Saturday hours.' : weekly}
+        {special ? 'A special day: these hours replace the usual hours for that day.' : weekly}
       </p>
     </SheetFrame>
   )
@@ -168,7 +171,8 @@ export function CafeSheet({ day }: { day: string }) {
 /** A closed day: nothing can be booked. Closed days are listed under More. */
 export function ClosedSheet({ day }: { day: string }) {
   const { open } = useSheet()
-  const c = closureOn(day)
+  const { days } = useStudio()
+  const c = closureOn(day, days.closures)
   const range = c ? (c.from === c.to ? dayLabel(c.from) : `${dayLabel(c.from)} – ${dayLabel(c.to)}`) : dayLabel(day)
   return (
     <SheetFrame

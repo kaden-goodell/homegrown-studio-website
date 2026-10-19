@@ -5,7 +5,7 @@ vi.mock('@components/admin/classes/photo', () => ({
   uploadPhoto: vi.fn(async () => ({ url: 'https://x.test/api/admin/classes/photo.json?id=abc' })),
 }))
 
-import { NewClassSheet, ADDED, defaultDay } from '@components/admin/sheets/NewClassSheet'
+import { NewClassSheet, ADDED, defaultDay, nextOpenDay } from '@components/admin/sheets/NewClassSheet'
 import { at, cls, content, lib, ok, posts, refuse, renderSheet } from './harness'
 
 const CLASSES = '/api/admin/classes/classes.json'
@@ -367,8 +367,8 @@ describe('New class, fix round 2', () => {
       vi.stubGlobal('fetch', f)
       renderSheet(<NewClassSheet from={{ kind: 'class', id: 'cls_1' }} />)
       await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Pottery'))
-      // Sat Sep 26 moves on by whole weeks: Sat Oct 31 is the first on or after Thu Oct 29, but it's the Halloween closure, so Sat Nov 7.
-      expect(within(date1()).getByLabelText('Day')).toHaveValue('2026-11-07')
+      // RM1 (R37): Sat Sep 26 moves on by whole weeks to the first Saturday on or after the next open day from today (Thu Oct 22): Sat Oct 24.
+      expect(within(date1()).getByLabelText('Day')).toHaveValue('2026-10-24')
       fireEvent.change(within(date1()).getByLabelText('Day'), { target: { value: '2026-10-01' } })
       fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
       const dates = date1().parentElement as HTMLElement
@@ -376,6 +376,27 @@ describe('New class, fix round 2', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('RM1: last Saturday’s class (Oct 17) run again on Monday Oct 19 lands on Sat Oct 24, not a week further', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-19T15:00:00Z'))
+    try {
+      const theClass = cls({ libraryId: null, sessions: [{ id: 'ses_1', startIso: at('2026-10-17', '15:00'), endIso: at('2026-10-17', '17:00'), capacity: 10 }] })
+      vi.stubGlobal('fetch', server({ theClass }))
+      renderSheet(<NewClassSheet from={{ kind: 'class', id: 'cls_1' }} />)
+      await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Pottery'))
+      expect(within(date1()).getByLabelText('Day')).toHaveValue('2026-10-24')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('the first open day skips the owners’ saved closed days too', () => {
+    const snow = [{ from: '2026-10-29', to: '2026-10-30', name: 'a snow day' }]
+    expect(defaultDay('2026-10-19', snow)).toBe('2026-10-31')
+    expect(nextOpenDay('2026-10-19', snow)).toBe('2026-10-22')
+    expect(nextOpenDay('2026-10-29', snow)).toBe('2026-10-31')
   })
 
   it('N2: an Add that turns out to be a replay of an earlier one (different from what was sent) says so and opens it', async () => {

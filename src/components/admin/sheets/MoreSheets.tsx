@@ -1,7 +1,5 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { MonthReport } from '@pages/api/admin/reports.json'
-import { closures } from '@config/closures'
-import { CAFE_HOURS, CAFE_SPECIAL_DAYS, STUDIO_HOURS, type HoursEntry } from '@config/hours'
 import { clock, clockRange } from '../shell/time'
 import { partyConfig, partyDateOverrides, partyDays } from '@config/party.config'
 import { OWNERS, type Owner } from '@lib/admin-who'
@@ -16,12 +14,6 @@ import { useToast } from '../shell/Toast'
 export const WhoContext = createContext<{ who: Owner | null; setWho: (o: Owner) => void }>({ who: null, setWho: () => {} })
 
 const WEEKDAY_PLURAL = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays']
-
-/** "Thursday & Friday", "4–9 PM": the site's hours list in /admin's time format. */
-function hoursRows(list: HoursEntry[]): { days: string; time: string }[] {
-  const join = (d: string[]) => (d.length <= 1 ? d.join('') : `${d.slice(0, -1).join(', ')} & ${d[d.length - 1]}`)
-  return list.map((h) => ({ days: join(h.days), time: clockRange(h.opens, h.closes) }))
-}
 
 /** The party start times a day shape gives: every party-plus-cleanup from the first start until the last wrap. */
 export function startsFor(cfg: { firstStart: string; lastWrap: string }): string[] {
@@ -85,39 +77,6 @@ export function PartiesSetupSheet() {
         `${c.perHeadMaxCents > c.perHeadCents ? `${formatMoney(c.perHeadCents)}–${formatMoney(c.perHeadMaxCents)}` : formatMoney(c.perHeadCents)} a guest`,
         c.id,
       ))}
-    </SheetFrame>
-  )
-}
-
-/** Hours and Craft Café, read only until the next update makes them editable. */
-export function HoursSheet() {
-  const now = today()
-  const special = CAFE_SPECIAL_DAYS.filter((d) => d.date >= now)
-  const cafe = CAFE_HOURS[0]
-  return (
-    <SheetFrame tall title="Hours & Craft Café" subtitle={cafe ? `${cafe.days.join(' and ')}s ${clockRange(cafe.opens, cafe.closes)}` : undefined}>
-      <p className="adm-note">Changing hours here comes in the next update.</p>
-      <p className="adm-lbl">Craft Café · walk-in</p>
-      {hoursRows(CAFE_HOURS).map((h) => kv(`Every ${h.days}`, h.time))}
-      <p className="adm-lbl">Special days</p>
-      {special.length ? special.map((d) => kv(`${dayLabel(d.date)} · ${d.name}`, clockRange(d.opens, d.closes), d.date)) : <p className="adm-muted adm-small">None coming up.</p>}
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>A special day replaces the Saturday hours for that day. Closed days beat both.</p>
-      <p className="adm-lbl">Studio hours</p>
-      {hoursRows(STUDIO_HOURS).map((h) => kv(h.days, h.time))}
-    </SheetFrame>
-  )
-}
-
-export function ClosedDaysSheet() {
-  const now = today()
-  const coming = closures.filter((c) => c.to >= now)
-  return (
-    <SheetFrame tall title="Closed days" subtitle={`${coming.length} coming up`}>
-      {coming.length === 0 && <p className="adm-empty">No closed days coming up.</p>}
-      {coming.map((c) => kv(c.name[0].toUpperCase() + c.name.slice(1), c.from === c.to ? dayLabel(c.from) : `${dayLabel(c.from)} – ${dayLabel(c.to)}`, c.from))}
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>
-        Nothing can be booked on closed days. The studio is also closed every Monday to Wednesday. Adding closed days here comes in the next update.
-      </p>
     </SheetFrame>
   )
 }

@@ -1,9 +1,9 @@
 import { useContext, useEffect, useState } from 'react'
-import { closures } from '@config/closures'
 import { api, SEED } from './classes/api'
-import { today } from './classes/dates'
 import type { MorePage, Sheet } from './shell/router'
 import { WhoContext } from './sheets/MoreSheets'
+import { useStudio } from './shell/studio'
+import { closedComing } from './sheets/SettingsSheets'
 
 const ROWS: [MorePage, string, string][] = [
   ['parties', 'Parties setup', 'Party times, the $300 package, guests, crafts'],
@@ -24,8 +24,7 @@ export default function More({ onOpen, onSignOut }: { onOpen: (s: Sheet) => void
     api<{ sandbox: boolean }>(SEED).then((r) => { if (live) setSandbox(r.ok && r.data?.sandbox === true) })
     return () => { live = false }
   }, [])
-  const now = today()
-  const coming = closures.filter((c) => c.to >= now).length
+  const coming = closedComing(useStudio().days.closures)
   return (
     <>
       <div className="adm-top">

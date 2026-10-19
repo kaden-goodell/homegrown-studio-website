@@ -54,7 +54,7 @@ const status = (code: number, body: unknown = {}) => ({ ok: false, status: code,
 
 /** The admin routes, by address. `fail` makes one path answer 500; `signedOut` starts at 401 until a sign-in works. */
 function server(o: any = {}) {
-  const { apps = [app()], requests = [request()], messages = [message()], items = calendar, signedOut = false, passcodeOk = true, sandbox = false, fail = [] as string[], postFails = [] as string[] } = o
+  const { apps = [app()], requests = [request()], messages = [message()], items = calendar, signedOut = false, passcodeOk = true, sandbox = false, fail = [] as string[], postFails = [] as string[], settings = null, todo = [] } = o
   let out = signedOut
   const fn = vi.fn(async (url: string, init?: any) => {
     const path = url.split('?')[0]
@@ -72,7 +72,10 @@ function server(o: any = {}) {
       case '/api/admin/applications.json': return post ? ok({ data: { application: { ...apps.find((a: any) => a.id === post.id), status: post.status } } }) : ok({ data: { applications: apps } })
       case '/api/admin/event-requests.json': return post ? ok({ data: { request: { ...requests.find((r: any) => r.id === post.id), status: post.status } } }) : ok({ data: { requests } })
       case '/api/admin/messages.json': return post ? ok({ data: { message: { ...messages.find((m: any) => m.id === post.id), status: post.status } } }) : ok({ data: { messages } })
-      case '/api/admin/to-decide.json': return ok({ data: { items: [] } })
+      case '/api/admin/to-decide.json': return ok({ data: { items: todo } })
+      case '/api/admin/settings.json':
+        if (!settings) return status(503, { error: 'The studio settings couldn’t be reached. Try again.' })
+        return ok({ data: { settings } })
       case '/api/admin/classes/calendar.json': return ok({ data: { items } })
       case '/api/admin/classes/classes.json': return ok({ data: { classes: [sched], seatsTaken: {} } })
       case '/api/admin/classes/bookings.json': return ok({ data: { class: sched, bookings: [] } })
@@ -327,6 +330,17 @@ describe('Home', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Messages: 1' }))
     expect(await screen.findByRole('heading', { name: 'Inbox' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Messages 1' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('a closed day the owners saved on /admin shows on Home and in More’s count (not just the config)', async () => {
+    const settings = {
+      cafeWeekly: [{ weekday: 'Saturday', opens: '09:00', closes: '12:00' }], cafeSpecialDays: [],
+      closures: [{ id: 'clo_1', from: TODAY, to: TODAY, name: 'a deep clean' }], updatedAt: 'u1', by: null, history: [],
+    }
+    await signedIn(server({ items: [], settings }))
+    expect(await screen.findByText('The studio is closed today. Closed for a deep clean.')).toBeInTheDocument()
+    tab('More')
+    expect(await screen.findByText('1 coming up')).toBeInTheDocument()
   })
 
   it('a closed day says so; the buttons open their sheets', async () => {

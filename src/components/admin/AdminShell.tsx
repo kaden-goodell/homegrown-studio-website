@@ -24,8 +24,10 @@ import { ClassSheet, EditClassSheet } from './sheets/ClassSheet'
 import { LibraryEditSheet, LibraryItemSheet } from './sheets/LibrarySheets'
 import { NewClassSheet, RunAgainSheet, ScheduleFromLibrarySheet } from './sheets/NewClassSheet'
 import {
-  BookPartySheet, ClosedDaysSheet, ComingSheet, HoursSheet, PartiesSetupSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet,
+  BookPartySheet, ComingSheet, PartiesSetupSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet,
 } from './sheets/MoreSheets'
+import { ClosedDaysSheet, HoursSheet } from './sheets/SettingsSheets'
+import { StudioProvider } from './shell/studio'
 
 const LABEL: Record<Tab, string> = { home: 'Home', calendar: 'Calendar', classes: 'Classes', inbox: 'Inbox', more: 'More' }
 const ICON: Record<Tab, ReactNode> = {
@@ -349,6 +351,7 @@ function Shell({ who, onSignedOut }: { who: Owner; onSignedOut: () => void }) {
 
   return (
     <RefreshContext.Provider value={refresh}>
+      <StudioProvider>
       <ShellContext.Provider value={shellInfo}>
       <div className={`adm adm-shell${panel ? ' is-paneled' : ''}`}>
         <nav className="adm-tabbar" aria-label="Admin sections" inert={covered}>
@@ -394,6 +397,7 @@ function Shell({ who, onSignedOut }: { who: Owner; onSignedOut: () => void }) {
         )}
       </div>
       </ShellContext.Provider>
+      </StudioProvider>
     </RefreshContext.Provider>
   )
 }

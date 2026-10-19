@@ -2185,3 +2185,20 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
   width: 1.4rem;
   height: 1.4rem;
 }
+
+/* ---------------------------------------------------------------- 11b-C: Hours & Craft Café, Closed days */
+.adm-setrow {
+  align-items: center;
+}
+.adm-setrow > .adm-btn.is-sm {
+  width: auto;
+  flex: none;
+  color: var(--color-dark);
+}
+.adm-setrow-wrap > .adm-panel {
+  margin: 0.5rem 0 0.75rem;
+}
+.adm-sheet-body > .adm-date + .adm-date,
+.adm-sheet-body > fieldset.adm-date {
+  margin-bottom: 0.6rem;
+}

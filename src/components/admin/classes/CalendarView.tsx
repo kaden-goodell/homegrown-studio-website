@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 import { closureOn, OPEN_WEEKDAYS, type Closure } from '@config/closures'
+import { useStudio } from '../shell/studio'
 import { useCalendar, useShell } from '../shell/data'
 import { byDay, Failed, ItemRow, itemKey, itemName, itemTag, itemTime, Key, KIND_STYLE, Seg, sheetOf, Skeleton } from '../shell/items'
 import { sheetToken, type Sheet } from '../shell/router'
@@ -71,6 +72,7 @@ export default function CalendarView({ initialDay, onOpen }: {
   onOpen: (s: Sheet, data?: unknown) => void
 }) {
   const wide = useWide()
+  const studio = useStudio()
   const { activeToken } = useShell()
   const [box, width] = useWidth<HTMLDivElement>()
   const [view, setView] = useState<View>('week')
@@ -214,7 +216,7 @@ export default function CalendarView({ initialDay, onOpen }: {
               const list = map.get(d) ?? []
               const shown = list.filter((i) => i.kind !== 'closed')
               const inMonth = d.slice(0, 7) === day.slice(0, 7)
-              const closure = closureOn(d)
+              const closure = closureOn(d, studio.days.closures)
               const shut = !closure && quietClosed(d, list)
               const things = shown.length === 1 ? '1 thing on' : `${shown.length} things on`
               const active = !!activeToken && (activeToken === `day-${d}` || list.some((i) => isActive(i, d)))
