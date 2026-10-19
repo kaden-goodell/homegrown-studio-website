@@ -524,14 +524,15 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
       ? `${origin}/waiver?workshop=${encodeURIComponent(own.classId)}&booking=${encodeURIComponent(b.bookingId)}`
       : `${origin}/waiver`
     const sessions = own.sessions.filter((s) => b.sessionIds.includes(s.id))
-    const one = sessions.length === 1 ? sessions[0] : null
-    const calendarEvent = one && {
+    // Every date goes in the calendar file; Google's link holds one, so it shows only for a single date.
+    const calendarEvents = sessions.map((s) => ({
       title: `${workshop.name} at ${STUDIO_ADDRESS.name}`,
-      startIso: one.startIso,
-      endIso: one.endIso,
+      startIso: s.startIso,
+      endIso: s.endIso,
       details: `Your class at ${STUDIO_ADDRESS.name}.\n\nSign the participation agreement before you come. ${waiverUrl}`,
       location: `${STUDIO_ADDRESS.name}, ${STUDIO_ADDRESS_LINE}`,
-    }
+    }))
+    const calendarEvent = calendarEvents.length === 1 ? calendarEvents[0] : null
     const paid = b.chargedCents ?? q?.totalCents ?? 0
     return (
       <BookingConfirmed
@@ -550,13 +551,15 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
             {sessions.map((s) => (
               <div key={s.id}><strong>{formatDayAndSpan(s.startIso, s.endIso)}</strong></div>
             ))}
-            {calendarEvent && (
+            {calendarEvents.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 1rem', marginTop: '0.25rem' }}>
-                <a href={googleCalendarUrl(calendarEvent)} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => trackAddToCalendar('confirmation', 'google', 'workshop')}>
-                  Add to Google Calendar
-                </a>
-                <a href={icsDataUrl(buildIcs(calendarEvent))} download="hometown-class.ics" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => trackAddToCalendar('confirmation', 'ics', 'workshop')}>
-                  Apple or Outlook
+                {calendarEvent && (
+                  <a href={googleCalendarUrl(calendarEvent)} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => trackAddToCalendar('confirmation', 'google', 'workshop')}>
+                    Add to Google Calendar
+                  </a>
+                )}
+                <a href={icsDataUrl(buildIcs(calendarEvents))} download="hometown-class.ics" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => trackAddToCalendar('confirmation', 'ics', 'workshop')}>
+                  {calendarEvent ? 'Apple or Outlook' : 'Add every date to your calendar'}
                 </a>
               </div>
             )}
