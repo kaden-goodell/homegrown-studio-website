@@ -33,53 +33,10 @@ describe('POST /api/booking/availability.json', () => {
   })
 })
 
-describe('POST /api/booking/create.json', () => {
-  it('returns booking with id and status', async () => {
-    const { POST } = await import('@pages/api/booking/create.json')
-    const ctx = createMockContext({
-      method: 'POST',
-      body: {
-        slotId: 'mock-slot-2026-03-10-0',
-        customerId: 'cust-1',
-        eventType: 'pottery-class',
-      },
-    })
-    const response = await POST(ctx)
-    expect(response.status).toBe(200)
-    const json = await response.json()
-    expect(json).toHaveProperty('data')
-    expect(json.data).toHaveProperty('id')
-    expect(json.data).toHaveProperty('status')
-  })
-})
-
-describe('POST /api/booking/cancel.json', () => {
-  it('returns success', async () => {
-    // First create a booking so we can cancel it
-    const { POST: createPost } = await import('@pages/api/booking/create.json')
-    const createCtx = createMockContext({
-      method: 'POST',
-      body: {
-        slotId: 'mock-slot-2026-03-10-0',
-        customerId: 'cust-1',
-        eventType: 'pottery-class',
-      },
-    })
-    const createRes = await createPost(createCtx)
-    const created = await createRes.json()
-
-    const { POST } = await import('@pages/api/booking/cancel.json')
-    const ctx = createMockContext({
-      method: 'POST',
-      body: {
-        bookingId: created.data.id,
-        bookingVersion: 1,
-      },
-    })
-    const response = await POST(ctx)
-    expect(response.status).toBe(200)
-    const json = await response.json()
-    expect(json).toHaveProperty('data')
-    expect(json.data).toEqual({ success: true })
+describe('retired booking endpoints', () => {
+  // No page used them, and cancel took any Square booking id with no sign-in.
+  it('create.json and cancel.json are gone', async () => {
+    const pages = import.meta.glob('/src/pages/api/booking/*.ts')
+    expect(Object.keys(pages).some((p) => /\/(create|cancel)\.json\.ts$/.test(p))).toBe(false)
   })
 })

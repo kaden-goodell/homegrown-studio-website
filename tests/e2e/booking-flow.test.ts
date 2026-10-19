@@ -59,7 +59,6 @@ vi.mock('@config/providers', () => ({
 
 // Import API routes after mocking
 const workshopAvailability = await import('../../src/pages/api/workshops/availability.json')
-const bookingCreate = await import('../../src/pages/api/booking/create.json')
 const customerFindOrCreate = await import('../../src/pages/api/customer/find-or-create.json')
 const checkoutCreateOrder = await import('../../src/pages/api/checkout/create-order.json')
 const checkoutProcessPayment = await import('../../src/pages/api/checkout/process-payment.json')
@@ -157,55 +156,5 @@ describe('Booking flow integration', () => {
     const payRes = await checkoutProcessPayment.POST(payCtx)
     const payData = await payRes.json()
     expect(payData.data.status).toBe('completed')
-
-    // Step 6: Create booking
-    mockCreateBooking.mockResolvedValue({
-      id: 'BK1',
-      status: 'confirmed',
-      slot: availData.data[0],
-      customerId: 'CUST1',
-      eventType: 'EVT1',
-      createdAt: '2026-03-14T08:00:00Z',
-    })
-
-    const bookCtx = {
-      request: makeRequest({
-        slotId: '2026-03-15T10:00:00Z',
-        customerId: 'CUST1',
-        eventType: 'EVT1',
-        guestCount: 4,
-        orderIdRef: 'ORD1',
-      }),
-    } as any
-    const bookRes = await bookingCreate.POST(bookCtx)
-    const bookData = await bookRes.json()
-    expect(bookData.data.id).toBe('BK1')
-    expect(bookData.data.status).toBe('confirmed')
-  })
-
-  it('handles API errors gracefully with notifications', async () => {
-    mockCreateBooking.mockRejectedValue(new Error('Square API unavailable'))
-    mockNotificationSend.mockResolvedValue(undefined)
-
-    const bookCtx = {
-      request: makeRequest({
-        slotId: '2026-03-15T10:00:00Z',
-        customerId: 'CUST1',
-        eventType: 'EVT1',
-      }),
-    } as any
-    const bookRes = await bookingCreate.POST(bookCtx)
-    expect(bookRes.status).toBe(500)
-
-    const errorData = await bookRes.json()
-    expect(errorData.error).toBeTruthy()
-
-    // Should have sent a failure notification
-    expect(mockNotificationSend).toHaveBeenCalledWith(
-      expect.objectContaining({
-        type: 'api-failure',
-        severity: 'warning',
-      })
-    )
   })
 })
