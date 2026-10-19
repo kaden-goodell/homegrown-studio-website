@@ -190,3 +190,4 @@ A hidden $5 / $1 test class on prod, before any customer uses it:
 - Refunds: owners, and crew with a reason (logged with their name).
 - Assigning staff is /admin only. Crew mark availability and ask to work things; they never assign. A future general manager gets /admin.
 - Scheduling edits the details right there. Saving offers "Just this date" or "Also update the library". Every library save is a version (who, when, what changed); an old version can be restored. A scheduled class records the version it came from, so a library change never alters a booked class.
+- Multi-day classes choose per class: sign-ups close before the first session, or people can join partway. Joining partway is its own pass (the remaining sessions, its own price); a class may offer either, both, or neither.
