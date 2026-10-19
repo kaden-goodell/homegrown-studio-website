@@ -63,6 +63,11 @@ export interface RefundBook<W> {
   canEmail(rec: SavedRefundRequest, written: W): boolean
   /** called only by the claimRequestEmail winner (R30); true = sent */
   email(rec: SavedRefundRequest, written: W): Promise<boolean>
+  /**
+   * Square's refund id arrived for a request already written without it ("It went through", then Square's
+   * refund): remember it on the booking's own record. Never writes money. Optional (classes keep it on the request only).
+   */
+  noteSquareId?(rec: SavedRefundRequest, squareRefundId: string): Promise<void>
   audit(rec: SavedRefundRequest, squareRefundId: string, how?: 'checked-in-square' | 'square-webhook'): Promise<void>
   /** "I checked Square": the person's check, audited when it changed something */
   auditCheck(rec: SavedRefundRequest, cleared: NonNullable<SavedRefundRequest['cleared']>): Promise<void>
@@ -352,8 +357,9 @@ export async function claimSquareRefundWith(
   // Nothing there to write it to: not ours to claim; the caller records Square's refund as money.
   if (!book) return false
   if (found.status === 'done') {
-    // Already written ("It went through"): just remember Square's id for it.
+    // Already written ("It went through"): just remember Square's id for it (on the request, and on the record when the book keeps it).
     if (!found.squareRefundId) await changeRefundRequest(found.classId, found.bookingId, found.id, (r) => (r.squareRefundId ? null : { ...r, squareRefundId: refund.id }))
+    if (book.noteSquareId) await book.noteSquareId(found, refund.id).catch(() => undefined)
     return true
   }
   const written = await book.write(found, refund.id)

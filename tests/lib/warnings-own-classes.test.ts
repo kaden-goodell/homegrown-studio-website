@@ -21,6 +21,7 @@ vi.mock('@lib/classes/square-events', () => ({
 
 import { listWarnings, warningLine, OWNERS_DECIDE } from '@lib/warnings'
 import { defaultRules } from '@lib/classes/validate'
+import { createPartyRecord } from '@lib/party-store'
 
 const NOW = new Date('2026-10-15T15:00:00.000Z')
 const WINDOW = { from: '2026-10-15', to: '2026-10-25' }
@@ -84,6 +85,20 @@ describe('warnings for our own classes', () => {
     ])
     // each carries a stable id, so the daily email can tell a new one from one already shown
     expect(list.map((w) => w.itemId)).toEqual(['unmatched-O1-L1', 'days-1', 'f1', 'f2'])
+  })
+
+  it('a refund flag on a party names the party and opens it, never "A class"', async () => {
+    const id = `pty_warn${Date.now().toString(36)}`
+    await createPartyRecord({
+      bookingId: id, hostToken: 't', craftName: 'Pails', startIso: '2026-11-14T19:30:00.000Z', durationMinutes: 90, hostName: 'Stefanie Justice',
+      hostEmail: '', guestCount: 12, title: null, dropOff: false, createdAt: '', source: 'ours', status: 'booked',
+    })
+    own.flags = [{ id: 'fp', kind: 'refund-failed', classId: 'party', bookingId: id, paymentId: 'p', squareRefundId: 'r', cents: 5000, refundCents: 5000, status: 'FAILED', at: '2026-10-14T16:00:00.000Z', resolved: null }]
+    const list = await listWarnings(WINDOW, { now: NOW })
+    expect(list).toEqual([expect.objectContaining({
+      code: 'refund-flag', eventKind: 'party', eventId: id, title: 'The Justice party', itemId: 'fp',
+      detail: 'The Justice party: Square couldn’t finish a $50 refund.',
+    })])
   })
 
   it('a class store that can’t be read says so in one line (never an all clear), and the rest still shows', async () => {

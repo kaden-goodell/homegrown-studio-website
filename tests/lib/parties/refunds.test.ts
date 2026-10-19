@@ -13,7 +13,8 @@ vi.mock('@lib/email', () => ({ sendRefundEmail: mocks.email }))
 
 import { createPartyRecord, getPartyRecord, type PartyRecord, type PartyRefund } from '@lib/party-store'
 import { partyLabel, partyRefundBook, planPartyRefund, recordSquarePartyRefund, MORE_THAN_LEFT } from '@lib/parties/refunds'
-import { refundBookFor } from '@lib/booking-core/refund-books'
+import { claimSquareRefund, refundBookFor, UnknownRefundScope } from '@lib/booking-core/refund-books'
+import { createRefundRequest } from '@lib/classes/refund-requests'
 import { NOT_PAID_HERE, refundKeyRaw } from '@lib/booking-core/refund-words'
 import type { SavedRefundRequest } from '@lib/classes/refund-requests'
 
@@ -54,7 +55,7 @@ describe('partyRefundBook', () => {
     const r = record()
     await createPartyRecord(r)
     const book = (await partyRefundBook(r.bookingId, { ask: { partyId: r.bookingId, chargeId: 'chg_1', cents: 100, reason: '' } }))!
-    const fields = ['scope', 'label', 'kind', 'logTag', 'unreachable', 'inputHash', 'plan', 'stillFits', 'noteFailed', 'write', 'afterWrite', 'current', 'describe', 'canEmail', 'email', 'audit', 'auditCheck']
+    const fields = ['scope', 'label', 'kind', 'logTag', 'unreachable', 'inputHash', 'plan', 'stillFits', 'noteFailed', 'write', 'noteSquareId', 'afterWrite', 'current', 'describe', 'canEmail', 'email', 'audit', 'auditCheck']
     for (const f of fields) expect(book[f as keyof typeof book], f).toBeDefined()
     expect(book).toMatchObject({ scope: { classId: 'party', bookingId: r.bookingId }, label: 'the Justice party', kind: 'amount', logTag: 'parties/refund' })
     expect(book.inputHash).not.toBe('')
@@ -99,7 +100,7 @@ describe('partyRefundBook', () => {
     const req = saved(r)
     expect(book.canEmail(req, { ...r, hostEmail: '' })).toBe(false)
     expect(await book.email(req, r)).toBe(true)
-    expect(mocks.email).toHaveBeenCalledWith({ to: 'stef@example.com', givenName: 'Stefanie', className: 'the Justice party', cents: 5000, keptSeat: true })
+    expect(mocks.email).toHaveBeenCalledWith({ to: 'stef@example.com', givenName: 'Stefanie', className: 'your party', cents: 5000, keptSeat: true, party: { startIso: r.startIso } })
     await book.audit(req, 'sq_1', 'square-webhook')
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'party-refund', target: { kind: 'party', id: r.bookingId, label: 'the Justice party' }, details: expect.objectContaining({ via: 'square-webhook' }) }))
     await book.auditCheck(req, { at: '', by: { id: 'sam', name: 'Sam' }, role: 'crew', outcome: 'did-not-go-through', reason: 'Not there' })
@@ -140,5 +141,15 @@ describe('booking-core/refund-books', () => {
     expect((await refundBookFor({ classId: 'party', bookingId: r.bookingId }))?.logTag).toBe('parties/refund')
     expect((await refundBookFor({ classId: 'cls_any', bookingId: 'bkg_1' }))?.logTag).toBe('classes/refund')
     await expect(refundBookFor({ classId: 'kits', bookingId: 'x' })).rejects.toThrow(/No refund book/)
+  })
+
+  it('a saved request with an unknown scope is not claimed (Square\'s refund is then recorded the usual way); refundBookFor still throws', async () => {
+    const r = record()
+    await createRefundRequest({ ...saved(r, { status: 'pending', squareRefundId: null }), classId: 'kits', bookingId: 'kit_1', paymentId: 'pay_kit', totalCents: 900 })
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    expect(await claimSquareRefund({ id: 'sq_kit', paymentId: 'pay_kit', cents: 900 }, [{ classId: 'kits', bookingId: 'kit_1' }])).toBe(false)
+    expect(err).toHaveBeenCalledWith(expect.stringMatching(/No refund book for the scope "kits"/))
+    err.mockRestore()
+    await expect(refundBookFor({ classId: 'kits', bookingId: 'kit_1' })).rejects.toBeInstanceOf(UnknownRefundScope)
   })
 })

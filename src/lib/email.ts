@@ -669,17 +669,32 @@ export async function sendRefundEmail(input: {
   last4?: string
   /** true when the refund left them booked */
   keptSeat: boolean
+  /**
+   * A party refund: the host's own wording ("for your party on Saturday,
+   * November 14"), never the surname label used on /admin. `className` is
+   * then unused. `startIso` null → "for your party."
+   */
+  party?: { startIso: string | null }
 }): Promise<{ sent: boolean }> {
   const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
   const phone = siteConfig.contactPhone
   const amount = formatMoney(input.cents)
   const card = input.last4 ? `the card ending in ${input.last4}` : 'your card'
   const hi = input.givenName ? `Hi ${input.givenName},` : 'Hi,'
-  const lines = [
-    `We refunded ${amount} to ${card} for ${input.className}.`,
-    input.keptSeat ? 'You are still booked, so we will see you there.' : 'We hope to see you at another class soon.',
-    ...(phone ? [`Questions? Text us at ${phone}.`] : []),
-  ]
+  const partyDay = input.party?.startIso && !Number.isNaN(Date.parse(input.party.startIso))
+    ? new Date(input.party.startIso).toLocaleDateString('en-US', { timeZone: 'America/Chicago', weekday: 'long', month: 'long', day: 'numeric' })
+    : null
+  const lines = input.party
+    ? [
+      `We refunded ${amount} to ${card} for your party${partyDay ? ` on ${partyDay}` : ''}.`,
+      input.keptSeat ? 'Your party is still booked, so we will see you then.' : 'We hope to craft with you again soon.',
+      ...(phone ? [`Questions? Text us at ${phone}.`] : []),
+    ]
+    : [
+      `We refunded ${amount} to ${card} for ${input.className}.`,
+      input.keptSeat ? 'You are still booked, so we will see you there.' : 'We hope to see you at another class soon.',
+      ...(phone ? [`Questions? Text us at ${phone}.`] : []),
+    ]
   const text = [hi, ``, ...lines.flatMap((l) => [l, ``]), `Hometown Studio · ${address}`].join('\n')
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
   const P = 'margin:0 0 10px;font-size:15px;color:#3d3630;line-height:1.55'

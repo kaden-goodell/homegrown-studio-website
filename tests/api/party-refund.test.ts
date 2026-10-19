@@ -30,7 +30,7 @@ import { listRefundRequests } from '@lib/classes/refund-requests'
 import {
   AGAIN_IS_STALE, NOT_PAID_HERE, refundKey, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN, STILL_WAITING_ON_SQUARE,
 } from '@lib/booking-core/refund-words'
-import { MORE_THAN_LEFT, SIMULATED_CHARGE } from '@lib/parties/refunds'
+import { MORE_THAN_LEFT, recordSquarePartyRefund, SIMULATED_CHARGE } from '@lib/parties/refunds'
 import { handleRefund } from '@lib/classes/square-events'
 
 const cookie = () => adminCookie().split(';')[0]
@@ -119,7 +119,7 @@ describe('owner refunds', () => {
     // A refund never changes status, items, the time or a payment in flight.
     expect(after).toMatchObject({ status: 'booked', items: p.rec.items, startIso: p.rec.startIso, endIso: p.rec.endIso, paying: null, charges: p.rec.charges })
     expect(mocks.email).toHaveBeenCalledTimes(2)
-    expect(mocks.email).toHaveBeenCalledWith(expect.objectContaining({ to: 'stef@example.com', givenName: 'Stefanie', className: 'the Justice party', cents: 5000, keptSeat: true }))
+    expect(mocks.email).toHaveBeenCalledWith(expect.objectContaining({ to: 'stef@example.com', givenName: 'Stefanie', className: 'your party', cents: 5000, keptSeat: true, party: { startIso: p.rec.startIso } }))
     expect(mocks.audit.mock.calls.filter((c) => c[0].action === 'party-refund')).toHaveLength(2)
   })
 
@@ -231,5 +231,40 @@ describe('one email per request (R30)', () => {
     expect(mocks.email).toHaveBeenCalledTimes(1)
     expect(mocks.audit.mock.calls.filter((c) => c[0].action === 'party-refund')).toHaveLength(1)
     expect((await listRefundRequests('party', p.id))[0]).toMatchObject({ status: 'done', squareRefundId: 'RF_hook_1' })
+  })
+})
+
+describe('fix round 1', () => {
+  it('"It went through", then Square\'s refund arrives (webhook and nightly): one entry, which learns the Square id; one email', async () => {
+    const p = await party()
+    await recordPartyPayment(p.paymentId, p.id, 'chg_1')
+    mocks.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    await admin(ask(p.id, 5000))
+    const requestId = (await requests(p.id)).body.data.requests[0].requestId
+    expect((await admin({ action: 'clear', partyId: p.id, requestId, outcome: 'went-through', reason: 'Saw it' })).status).toBe(200)
+    const sq = { id: 'RF_late_1', status: 'COMPLETED', amount_money: { amount: 5000, currency: 'USD' }, payment_id: p.paymentId }
+    expect(await handleRefund(sq, new Date())).toEqual({ action: 'ignored', why: 'ours' })
+    expect(await handleRefund(sq, new Date())).toMatchObject({ action: 'ignored' })
+    const after = (await getPartyRecord(p.id))!
+    expect(after.refunds).toEqual([expect.objectContaining({ cents: 5000, role: 'owner', requestId, squareRefundId: 'RF_late_1' })])
+    expect((await listRefundRequests('party', p.id))[0]).toMatchObject({ status: 'done', squareRefundId: 'RF_late_1' })
+    expect(mocks.email).toHaveBeenCalledTimes(1)
+    // A different Square refund of the same amount is its own money.
+    expect(await handleRefund({ ...sq, id: 'RF_other_1' }, new Date())).toMatchObject({ action: 'recorded', recordedCents: 5000 })
+    expect((await getPartyRecord(p.id))!.refunds!.map((f) => f.role)).toEqual(['owner', 'square'])
+  })
+
+  it('a turned-down refund sent again once the payment reached Square\'s 20-refund cap is refused plainly', async () => {
+    const nineteen = (id: string): PartyRefund[] => Array.from({ length: 19 }, (_, i) => ({
+      id: `prf_${i}`, chargeId: 'chg_1', paymentId: `pay_${id}`, cents: 100, reason: '', by: null, role: 'owner',
+      squareRefundId: `sq19_${i}`, requestId: null, at: '2026-10-19T00:00:00.000Z',
+    }))
+    const p = await party((id) => ({ refunds: nineteen(id) }))
+    mocks.refundPayment.mockResolvedValueOnce({ id: 'rf_no', status: 'FAILED' })
+    expect((await admin(ask(p.id, 1000, { attempt: 'tok_cap001' }))).status).toBe(502)
+    await recordSquarePartyRefund(p.id, 'chg_1', { id: 'sq_20th', paymentId: p.paymentId, cents: 100 })
+    const again = await admin(ask(p.id, 1000, { attempt: 'tok_cap001' }))
+    expect(again).toMatchObject({ status: 409, body: { error: 'This payment has had 20 refunds, the most Square allows on one payment.' } })
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(1)
   })
 })

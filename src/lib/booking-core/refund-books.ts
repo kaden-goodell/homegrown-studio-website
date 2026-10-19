@@ -19,6 +19,11 @@ import { partyRefundBook } from '@lib/parties/refunds'
 import type { Cents } from '@lib/classes/types'
 import { claimSquareRefundWith, PARTY_SCOPE, type RefundBook, type RefundScope } from './refund-runner'
 
+/** A saved request whose scope no book knows (never written by our own code; a corrupted document). */
+export class UnknownRefundScope extends Error {
+  constructor(public scope: string) { super(`No refund book for the scope "${scope}"`) }
+}
+
 /**
  * The book for a scope. Its books are write-side only: resolved from the
  * scope alone they carry no ask, so they write, email and audit saved
@@ -28,7 +33,7 @@ import { claimSquareRefundWith, PARTY_SCOPE, type RefundBook, type RefundScope }
 export async function refundBookFor(scope: RefundScope, hint: { label?: string } = {}): Promise<RefundBook<unknown> | null> {
   if (scope.classId === PARTY_SCOPE) return partyRefundBook(scope.bookingId, hint) as Promise<RefundBook<unknown> | null>
   if (scope.classId.startsWith('cls_')) return classRefundBook(scope.classId, scope.bookingId, hint) as Promise<RefundBook<unknown>>
-  throw new Error(`No refund book for the scope "${scope.classId}"`)
+  throw new UnknownRefundScope(scope.classId)
 }
 
 /**
@@ -42,5 +47,15 @@ export function claimSquareRefund(
   bookings: { classId: string; bookingId: string; label?: string }[],
   opts: { requestIds?: string[]; exactOnly?: boolean } = {},
 ): Promise<boolean> {
-  return claimSquareRefundWith(refundBookFor, refund, bookings, opts)
+  // A request no book can write is not claimed: the caller records Square's refund the usual way (every Square
+  // refund recorded), and the stuck request shows up as "no answer" after a day. Every other caller still throws.
+  return claimSquareRefundWith(async (scope, hint) => {
+    try {
+      return await refundBookFor(scope, hint)
+    } catch (e) {
+      if (!(e instanceof UnknownRefundScope)) throw e
+      console.error(`[refund-books] ${e.message}: Square refund ${refund.id} recorded the usual way instead`)
+      return null
+    }
+  }, refund, bookings, opts)
 }

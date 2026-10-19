@@ -173,11 +173,15 @@ export async function partyRefundBook(
     },
     async stillFits(rec) {
       const r = await read()
+      // At Square's cap a resend would only be refused there: say so plainly instead.
+      if (onPayment(r, rec.paymentId).length >= SQUARE_REFUND_CAP) throw new RefundError(409, refundCapMessage())
       return isOurs(r) && rec.totalCents <= refundableOn(r, rec.lines[0]?.id ?? '')
     },
     // The failure count lives on the saved request itself (the runner bumps it); planPartyRefund reads it there.
     noteFailed: async () => undefined,
     write: (rec, squareRefundId) => writeRequest(partyId, rec, squareRefundId),
+    // Fills the Square id on this request's own entry (writeRequest never adds money for a request already written).
+    noteSquareId: async (rec, squareRefundId) => { await writeRequest(partyId, rec, squareRefundId) },
     // Nothing is freed by a party refund: the time stays booked (cancel is its own action).
     afterWrite: async () => undefined,
     current: () => read(),
@@ -185,8 +189,9 @@ export async function partyRefundBook(
     canEmail: (_rec, r) => !!r.hostEmail,
     async email(rec, r) {
       return (await sendRefundEmail({
-        to: r.hostEmail, givenName: (r.hostName ?? '').trim().split(/\s+/)[0] ?? '', className: label, cents: rec.totalCents,
-        keptSeat: r.status !== 'cancelled',
+        // The host reads "your party on Saturday, November 14", never their own surname as a label.
+        to: r.hostEmail, givenName: (r.hostName ?? '').trim().split(/\s+/)[0] ?? '', className: 'your party', cents: rec.totalCents,
+        keptSeat: r.status !== 'cancelled', party: { startIso: r.startIso || null },
       })).sent
     },
     audit: (rec, squareRefundId, how) => auditRefund(rec, label, squareRefundId, how),

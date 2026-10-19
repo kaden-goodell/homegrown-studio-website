@@ -32,6 +32,9 @@ import { onStaffConsole } from '@lib/classes/staff-view'
 import { listCounterMatchChecks, listDoorUnpaid } from '@lib/classes/door-unpaid'
 import type { ScheduledClass } from '@lib/classes/types'
 import { formatMoney } from '@lib/money'
+import { getPartyRecord } from '@lib/party-store'
+import { partyLabel } from '@lib/parties/refunds'
+import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
 
 const logger = createLogger('warnings')
 
@@ -329,6 +332,13 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
     })
   }
   for (const f of flags) {
+    if (f.classId === PARTY_SCOPE) {
+      // A refund on a party: named and opened as that party (bookingId = the party id), never "A class".
+      const rec = await getPartyRecord(f.bookingId).catch(() => null)
+      const name = capitalize(rec ? partyLabel(rec) : 'a party')
+      out.push({ code: 'refund-flag', eventKind: 'party', eventId: f.bookingId, when: f.at, title: name, itemId: f.id, detail: refundFlagDetail(f, name), action: OWNERS_DECIDE })
+      continue
+    }
     const name = await nameOf(f.classId)
     out.push({ code: 'refund-flag', eventKind: 'workshop', eventId: f.classId, when: f.at, title: name, itemId: f.id, detail: refundFlagDetail(f, name), action: OWNERS_DECIDE })
   }

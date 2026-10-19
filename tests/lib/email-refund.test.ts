@@ -32,4 +32,16 @@ describe('sendRefundEmail', () => {
     expect(m.text).toContain('$5 to your card')
     expect(m.text).toContain('still booked')
   })
+  it('a party refund: "your party on <day>", still booked or craft again; never the surname label', async () => {
+    await email.sendRefundEmail({ to: 'stef@example.com', givenName: 'Stefanie', className: 'your party', cents: 5000, keptSeat: true, party: { startIso: '2026-11-14T19:30:00.000Z' } })
+    let m = mockSendMail.mock.calls[0][0]
+    expect(m.text).toContain('We refunded $50 to your card for your party on Saturday, November 14.')
+    expect(m.text).toContain('Your party is still booked, so we will see you then.')
+    expect(m.text).not.toMatch(/class|Justice/)
+    await email.sendRefundEmail({ to: 'stef@example.com', givenName: 'Stefanie', className: 'your party', cents: 5000, keptSeat: false, party: { startIso: null } })
+    m = mockSendMail.mock.calls[1][0]
+    expect(m.text).toContain('We refunded $50 to your card for your party.')
+    expect(m.text).toContain('We hope to craft with you again soon.')
+    expect(m.text).not.toContain('class')
+  })
 })
