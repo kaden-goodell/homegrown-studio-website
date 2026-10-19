@@ -321,6 +321,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
 
   function choosePass(id: string) {
     if (id === passId) return
+    setOver(false)
     setPassId(id)
     setPicked([])
     setPickNote(null)
@@ -339,6 +340,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
 
   function toggleSession(id: string) {
     setProblem(null)
+    setOver(false)
     setPickNote(null)
     if (picked.includes(id)) return setPicked(picked.filter((x) => x !== id))
     if (choose === 1) return setPicked([id])
@@ -730,6 +732,11 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
               )
             })}
             {left && <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-text)' }}>{left}</p>}
+            {needsOver && (
+              <p role="status" data-testid="door-full" style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: '#b45309' }}>
+                {choose ? 'That day is full.' : 'This option is full.'} Tick Add over capacity to seat them anyway.
+              </p>
+            )}
             {needsOver && (
               <label style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', minHeight: '2.75rem', cursor: 'pointer', fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
                 <input type="checkbox" checked={over} onChange={(e) => { setOver(e.target.checked); setProblem(null) }} style={{ width: '1.25rem', height: '1.25rem', accentColor: 'var(--color-primary)' }} />

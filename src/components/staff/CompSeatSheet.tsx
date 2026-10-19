@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { SeatOption } from '@lib/seat-options'
 import { btn, field } from '@components/staff/ui'
 import ClassBookingPanel from '@components/classes/ClassBookingPanel'
@@ -60,7 +60,7 @@ export default function CompSeatSheet({
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<null | { warning: string | null; byHand: boolean; dueCents: number | null; name: string; emailed: boolean; over: { sold: number; capacity: number } | null }>(null)
+  const [done, setDone] = useState<null | { warning: string | null; byHand: boolean; dueCents: number | null; name: string; emailed: boolean; over: { sold: number; capacity: number } | null; ringUp: string }>(null)
   const [notify, setNotify] = useState(false)
   const sell = mode === 'sell'
   const money = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`
@@ -79,10 +79,11 @@ export default function CompSeatSheet({
   /** the server said full (someone else took the last seat): only Cancel or Add over capacity */
   const [refused, setRefused] = useState(false)
   /** one token per add from this sheet, so a retry after a lost reply never adds the seats twice */
-  const [attempt] = useState(() => {
+  const newAttempt = () => {
     const c = (globalThis as { crypto?: Crypto }).crypto
     return c?.randomUUID ? c.randomUUID() : `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`
-  })
+  }
+  const attemptRef = useRef(newAttempt())
   /** with a household picked: each person's ticket (Adult, Kid…) */
   const [personType, setPersonType] = useState<Record<string, string>>({})
   async function loadClass() {
@@ -217,6 +218,10 @@ export default function CompSeatSheet({
     return q.ok ? q.value.totalCents : null
   })()
 
+  // N3: a different ask (person, option, days, seats, picks) is a new add, never a replay of the last one.
+  const askShape = JSON.stringify([givenName.trim(), familyName.trim(), email.trim(), phone.trim(), passId, days, ownTickets, selections, chosen, guests, personType])
+  useEffect(() => { attemptRef.current = newAttempt() }, [askShape])
+
   const key = (token: string, optionId: string) => `${token}|${optionId}`
   const squareUrl = `https://app.squareup.com/dashboard/appointments/calendar/classes/${event.id}?date=${event.day}&view=week`
 
@@ -249,7 +254,7 @@ export default function CompSeatSheet({
           ...(phone.trim() ? { phone: phone.trim() } : {}),
           seats: seatCount,
           picks,
-          ...(own ? { passId, tickets: ownTickets, attempt, ...(chooseN ? { sessionIds: days } : {}), ...(overCapacity ? { overCapacity: true } : {}) } : {}),
+          ...(own ? { passId, tickets: ownTickets, attempt: attemptRef.current, ...(chooseN ? { sessionIds: days } : {}), ...(overCapacity ? { overCapacity: true } : {}) } : {}),
           ...(picked ? { customerId: picked.customer.id } : {}),
           ...(household ? { waiverId: household.recordId, people: chosenInOrder.map((p) => p.id), guests: guestNames } : {}),
           ...(alreadyInSquare ? { alreadyInSquare: true } : {}),
@@ -266,6 +271,8 @@ export default function CompSeatSheet({
           name: `${givenName.trim()} ${familyName.trim()}`,
           emailed: body?.data?.emailSent === true,
           over: body?.data?.over && typeof body.data.over.sold === 'number' ? body.data.over : null,
+          // "1 × Adult, 1 × Kid": what to ring up at the register (R32: today, so it pays this seat)
+          ringUp: soldTypes.filter((t) => (ownTickets[t.id] ?? 0) > 0).map((t) => `${ownTickets[t.id]} × ${t.label}`).join(', '),
         })
         onRecorded()
       } else if (own && body?.code === 'sold_out') {
@@ -410,7 +417,7 @@ export default function CompSeatSheet({
                   Now take {done.dueCents !== null ? money2(done.dueCents) : 'the payment'} at the counter
                 </p>
                 <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-dark)' }}>
-                  In Square, ring up {event.title}{pass ? `, ${pass.label}` : ''}. That sale pays {done.name}’s seat.
+                  Ring up {done.ringUp || `${event.title}${pass ? `, ${pass.label}` : ''}`} at the register today to pay for this seat.
                 </p>
               </div>
             )}

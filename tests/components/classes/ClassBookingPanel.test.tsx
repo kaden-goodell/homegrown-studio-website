@@ -425,8 +425,10 @@ describe('ClassBookingPanel — door mode on a full day', () => {
     expect(pressed(/One day/)).toBe('true')
     expect(pressed(/Sat, Oct 24/)).toBe('true')
     expect(screen.getByRole('button', { name: /Sat, Oct 24/ })).toHaveTextContent('Full')
+    // N6: the full line shows as soon as the full day is picked, before Continue
+    expect(screen.getByTestId('door-full')).toHaveTextContent('That day is full.')
     cont()
-    expect(await screen.findByText('That day is full. Tick Add over capacity to seat them anyway.')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('That day is full. Tick Add over capacity to seat them anyway.')
     fireEvent.click(screen.getByLabelText('Add over capacity'))
     cont()
     await screen.findByTestId('payment-form')
@@ -445,5 +447,16 @@ describe('ClassBookingPanel — door mode on a full day', () => {
     expect(pressed(/Sun, Oct 25/)).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: /Back/ }))
     expect(exit).toHaveBeenCalled()
+  })
+
+  it('N5: the over-capacity tick clears when the day changes', () => {
+    vi.setSystemTime(new Date('2026-10-24T18:30:00Z'))
+    const cls = make({ passes: [{ id: 'day', label: 'One day', covers: { kind: 'choose', count: 1 } }], prices: { day: { person: 1500 } } }, [sess('ses_a', 24, 1), sess('ses_b', 25, 1)])
+    const workshop = toPublicClass(cls, { classId: cls.id, lines: [...taken(1, ['ses_a']), ...taken(1, ['ses_b'])] }, new Date(), { door: true })
+    render(<ClassBookingPanel workshop={workshop} onClose={vi.fn()} door initialSessionId="ses_a" syncUrl={false} />)
+    fireEvent.click(screen.getByLabelText('Add over capacity'))
+    expect((screen.getByLabelText('Add over capacity') as HTMLInputElement).checked).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: /Sun, Oct 25/ }))
+    expect((screen.getByLabelText('Add over capacity') as HTMLInputElement).checked).toBe(false)
   })
 })
