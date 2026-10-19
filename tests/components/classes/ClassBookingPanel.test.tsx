@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { useState } from 'react'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import ClassBookingPanel from '@components/classes/ClassBookingPanel'
 import { toPublicClass } from '@lib/classes/public-view'
@@ -125,6 +126,22 @@ describe('ClassBookingPanel — passes and days', () => {
   })
 })
 
+describe('ClassBookingPanel — small rules', () => {
+  it('Continue carries no total', () => {
+    open()
+    expect(screen.getByRole('button', { name: /^Continue/ })).toHaveTextContent(/^Continue$/)
+  })
+  it('a tap past N days says how to change, and keeps the picks', () => {
+    open(make({ passes: [{ id: 'two', label: 'Two days', covers: { kind: 'choose', count: 2 } }], prices: { two: { person: 2500 } } }))
+    fireEvent.click(screen.getByRole('button', { name: /Sat, Oct 24/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Sun, Oct 25/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Mon, Oct 26/ }))
+    expect(screen.getByText('You’ve picked 2 days. Tap one to change it.')).toHaveAttribute('aria-live', 'polite')
+    expect(pressed(/Mon, Oct 26/)).toBe('false')
+    expect(pressed(/Sat, Oct 24/)).toBe('true')
+  })
+})
+
 describe('ClassBookingPanel — counters', () => {
   it('stop at the seats left on every session the pass needs', () => {
     open(make(), taken(6, ['ses_c']))
@@ -220,10 +237,38 @@ describe('ClassBookingPanel — paying', () => {
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ passId: 'day', sessionIds: ['ses_b'] })
   })
 
-  it('keeps the attempt after an unclear answer or a try still running, and starts a new one after a decline', async () => {
+  it.each([
+    ['unknown_outcome', 502, 'We’re not sure that went through. Check your email before trying again.'],
+    ['in_progress', 409, 'We’re still finishing your last try. Give it a minute, then check your email before trying again.'],
+  ])('after %s it says the server’s words and offers only Close, no paying again', async (code, status, detail) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(serverSays(status as number, { code, detail })))
+    const { onClose } = open()
+    cont()
+    await screen.findByTestId('payment-form')
+    fillContact()
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent(detail as string)
+    expect(screen.queryByRole('button', { name: /^Pay/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /back/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /More seats/ })).toBeNull()
+    const closes = screen.getAllByRole('button', { name: 'Close' })
+    fireEvent.click(closes[closes.length - 1])
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('a dropped connection is treated the same way', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new TypeError('network')))
+    open()
+    cont()
+    await screen.findByTestId('payment-form')
+    fillContact()
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('We’re not sure that went through')
+    expect(screen.queryByRole('button', { name: /^Pay/ })).toBeNull()
+  })
+
+  it('a decline starts a new attempt', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(serverSays(502, { code: 'unknown_outcome', detail: 'We’re not sure that went through.' }))
-      .mockResolvedValueOnce(serverSays(409, { code: 'in_progress', detail: 'We’re still finishing your last try. Give it a minute, then check your email before trying again.' }))
       .mockResolvedValueOnce(serverSays(402, { code: 'card_declined', detail: 'Your card was declined. Nothing was charged. Try another card.' }))
       .mockResolvedValueOnce(bookedReply())
     vi.stubGlobal('fetch', fetchMock)
@@ -231,25 +276,17 @@ describe('ClassBookingPanel — paying', () => {
     cont()
     await screen.findByTestId('payment-form')
     fillContact()
-    const pay = () => fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
-    pay()
-    await screen.findByText('We’re not sure that went through.')
-    pay()
-    await screen.findByText(/check your email before trying again/)
-    pay()
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
     await screen.findByText(/Your card was declined/)
-    pay()
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
     await screen.findByText('You’re booked')
     const ids = fetchMock.mock.calls.map((c) => JSON.parse(c[1].body).attemptId)
-    expect(ids[0]).toBe(ids[1])
-    expect(ids[1]).toBe(ids[2])
-    expect(ids[3]).not.toBe(ids[2])
+    expect(ids[1]).not.toBe(ids[0])
   })
 
-  it('a sold-out answer says so and starts a new attempt', async () => {
-    const fetchMock = vi.fn()
-      .mockResolvedValueOnce(serverSays(409, { code: 'sold_out', detail: 'That class is full on Sat, Oct 24. Nothing was charged.' }))
-      .mockResolvedValueOnce(serverSays(409, { code: 'sold_out', detail: 'That class is full on Sat, Oct 24. Nothing was charged.' }))
+  it('a sold-out answer says so, starts a new attempt and asks for fresh seat counts', async () => {
+    const soldOut = serverSays(409, { code: 'sold_out', detail: 'That class is full on Sat, Oct 24. Nothing was charged.' })
+    const fetchMock = vi.fn(async (url: string) => (url === '/api/classes/cls_1.json' ? serverSays(404, {}) : soldOut))
     vi.stubGlobal('fetch', fetchMock)
     open()
     cont()
@@ -257,10 +294,42 @@ describe('ClassBookingPanel — paying', () => {
     fillContact()
     fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
     await screen.findByText('That class is full on Sat, Oct 24. Nothing was charged.')
+    await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[0] === '/api/classes/cls_1.json')).toBe(true))
     fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
-    const ids = fetchMock.mock.calls.map((c) => JSON.parse(c[1].body).attemptId)
+    const books = () => fetchMock.mock.calls.filter((c) => c[0] === '/api/classes/book.json')
+    await waitFor(() => expect(books()).toHaveLength(2))
+    const ids = books().map((c) => JSON.parse((c as any)[1].body).attemptId)
     expect(ids[1]).not.toBe(ids[0])
+  })
+
+  it('after sold out, fresh counts lower the counter cap and a full day can’t be picked', async () => {
+    const cls = make()
+    const fresh = toPublicClass(cls, { classId: 'cls_1', lines: [...taken(6, ['ses_a']), ...taken(8, ['ses_b'])] }, NOW).own!
+    const fetchMock = vi.fn(async (url: string) =>
+      url === '/api/classes/cls_1.json'
+        ? serverSays(200, { workshop: { own: fresh } })
+        : serverSays(409, { code: 'sold_out', detail: 'Only 2 seats are left on Sat, Oct 24. Nothing was charged.' }),
+    )
+    vi.stubGlobal('fetch', fetchMock)
+    // The parent swaps the fresh counts in, as the list and the class page do.
+    function Host() {
+      const [w, setW] = useState(() => toPublicClass(cls, { classId: 'cls_1', lines: [] }, NOW))
+      return <ClassBookingPanel workshop={w} onClose={() => {}} syncUrl={false} onAvailability={(own) => setW((x) => ({ ...x, own }))} />
+    }
+    render(<Host />)
+    fireEvent.click(screen.getByRole('button', { name: /One day/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Sat, Oct 24/ }))
+    more(); more(); more()
+    cont()
+    await screen.findByTestId('payment-form')
+    fillContact()
+    fireEvent.click(screen.getByRole('button', { name: /^Pay/ }))
+    await screen.findByText(/Only 2 seats are left/)
+    await waitFor(() => expect(screen.getByRole('button', { name: /^Pay/ })).toHaveTextContent('Pay $32.70'))
+    fireEvent.click(screen.getByRole('button', { name: /back/i }))
+    expect(screen.getByRole('button', { name: 'More seats' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Sun, Oct 25/ })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Sun, Oct 25/ })).toHaveTextContent('Sold out')
   })
 })
 
@@ -270,6 +339,26 @@ describe('ClassBookingPanel — each person’s picks and extras', () => {
     prices: { all: { person: 2000 } },
     questions: [{ id: 'q_color', label: 'Glaze color', choices: ['Blue', 'Green'] }],
     addOns: [{ id: 'add_glitter', label: 'Glitter', priceCents: 300, maxPerSeat: 2 }],
+  })
+
+  it('answers stay with their person when another ticket type is added', () => {
+    open(make({
+      ticketTypes: [{ id: 'adult', label: 'Adult' }, { id: 'kid', label: 'Kid' }],
+      passes: [{ id: 'all', label: 'Full', covers: { kind: 'all' } }],
+      prices: { all: { adult: 2000, kid: 1500 } },
+      questions: [{ id: 'q_color', label: 'Glaze color', choices: ['Blue', 'Green'] }],
+    }))
+    fireEvent.click(screen.getByRole('button', { name: 'More kids' }))
+    cont()
+    let selects = screen.getAllByLabelText('Glaze color')
+    fireEvent.change(selects[0], { target: { value: 'Blue' } }) // Adult 1
+    fireEvent.change(selects[1], { target: { value: 'Green' } }) // Kid 1
+    fireEvent.click(screen.getByRole('button', { name: /back/i }))
+    fireEvent.click(screen.getByRole('button', { name: 'More adults' }))
+    cont()
+    selects = screen.getAllByLabelText('Glaze color')
+    // Adult 1, Adult 2, Kid 1: the kid keeps Green, the new adult starts empty.
+    expect(selects.map((s) => (s as HTMLSelectElement).value)).toEqual(['Blue', '', 'Green'])
   })
 
   it('asks every person, then prices the extras into the total', async () => {

@@ -5,6 +5,8 @@ import { workshopStatus } from '@components/workshops/workshop-status'
 import { classAvailability, withSeatsSold } from '@lib/classes/public-class'
 import ClassBookingPanel from './ClassBookingPanel'
 
+export const BOOKING_NOT_OPEN = 'Booking opens soon. Check back, or see what’s on the calendar.'
+
 /**
  * /classes/<id>: one of our own classes on its own page, link-only ones too.
  * The card, with the booking panel open straight away when it can be booked.
@@ -15,12 +17,13 @@ export default function ClassPage({ workshop: initial, bookingsOpen }: { worksho
   const [open, setOpen] = useState(canBook)
   return (
     <div style={{ maxWidth: '26rem', margin: '0 auto', display: 'flex' }}>
-      <WorkshopTile workshop={workshop} onBook={bookingsOpen ? () => setOpen(true) : undefined} />
+      <WorkshopTile workshop={workshop} onBook={() => setOpen(true)} {...(bookingsOpen ? {} : { closedNote: BOOKING_NOT_OPEN })} />
       {open && canBook && workshop.own && (
         <ClassBookingPanel
           workshop={workshop}
           syncUrl={false}
           onClose={() => setOpen(false)}
+          onAvailability={(own) => setWorkshop((w) => ({ ...w, own, ...classAvailability(own) }))}
           onBooked={(sessionIds, seats) =>
             setWorkshop((w) => {
               if (!w.own) return w

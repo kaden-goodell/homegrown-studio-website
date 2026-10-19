@@ -56,9 +56,6 @@ const description = workshop
     {workshop ? (
       <Fragment>
         <p class="eyebrow tone-workshop mb-4 text-center">Class</p>
-        {bookingsOpen ? null : (
-          <p class="text-center mb-6" style="color: var(--color-text);">Booking opens soon. Check back, or see what’s on the calendar.</p>
-        )}
         <ClassPage client:load workshop={workshop} bookingsOpen={bookingsOpen} />
         <p class="mt-8 text-center text-sm">
           <a href="/workshops" class="underline" style="color: var(--color-primary);">See all workshops</a>

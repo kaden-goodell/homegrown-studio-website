@@ -45,6 +45,8 @@ export interface ClassBookingPanelProps {
   onClose: () => void
   /** Once booked: the sessions and the seats bought, so the list can show what is left. */
   onBooked?: (sessionIds: string[], seats: number) => void
+  /** Fresh seat counts from the server (after a "sold out" answer): the parent swaps them in. */
+  onAvailability?: (own: OwnClassData) => void
   /** Keep ?w=<id> in the address while open (the /workshops list). Off on /classes/<id>. */
   syncUrl?: boolean
 }
@@ -134,7 +136,7 @@ function Counter({ label, value, canLess, canMore, onLess, onMore, spoken }: {
  * shown is worked out here with the same `quote` the server uses; the server
  * prices it again from the class and charges its own total.
  */
-export default function ClassBookingPanel({ workshop, onClose, onBooked, syncUrl = true }: ClassBookingPanelProps) {
+export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvailability, syncUrl = true }: ClassBookingPanelProps) {
   const own = workshop.own!
   const cls = useMemo(() => asScheduledClass(own, workshop.name), [own, workshop.name])
   const shownPasses = own.passes.filter((p) => p.state !== 'closed')
@@ -150,8 +152,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, syncUrl
     const first = soldTypes(firstOpen?.id ?? '')[0]
     return first ? { [first.id]: 1 } : {}
   })
-  const [seatInfo, setSeatInfo] = useState<SeatInfo[]>([])
+  // Each person's picks, kept per ticket type, so changing one count never moves answers between people.
+  const [seatInfo, setSeatInfo] = useState<Record<string, SeatInfo[]>>({})
   const [problem, setProblem] = useState<string | null>(null)
+  const [pickNote, setPickNote] = useState<string | null>(null)
+  // The server couldn't say how the last try ended (or it is still running): no editing and paying again here.
+  const [stuck, setStuck] = useState<string | null>(null)
 
   const [initialContact] = useState<Contact>(() => rememberedContact() ?? EMPTY_CONTACT)
   const [contact, setContact] = useState<Contact>(initialContact)
@@ -177,7 +183,15 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, syncUrl
   const total = seatTypes.length
   const needsSeats = own.questions.length > 0 || own.addOns.length > 0
   const steps: Step[] = needsSeats ? ['details', 'seats', 'pay'] : ['details', 'pay']
-  const seats = Array.from({ length: total }, (_, i) => seatInfo[i] ?? EMPTY_SEAT)
+  /** Seat i (in ticket type order) → its ticket type and its place among that type. */
+  const seatSlot = (i: number) => {
+    const t = seatTypes[i]
+    return { typeId: t.id, k: seatTypes.slice(0, i).filter((x) => x.id === t.id).length }
+  }
+  const seats = seatTypes.map((_, i) => {
+    const { typeId, k } = seatSlot(i)
+    return seatInfo[typeId]?.[k] ?? EMPTY_SEAT
+  })
 
   // Seats left on every session this booking needs.
   const pickedSessions = own.sessions.filter((s) => picked.includes(s.id))
@@ -230,10 +244,44 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, syncUrl
     }
   }, [workshop.id, syncUrl])
 
+  // New seat counts from the server: drop days that are now full or closed, and
+  // bring the counts down to what is left.
+  useEffect(() => {
+    setPicked((p) => {
+      const still = p.filter((id) => own.sessions.some((s) => s.id === id && !s.closed && s.left > 0))
+      return still.length === p.length ? p : still
+    })
+  }, [own])
+  useEffect(() => {
+    if (total <= maxSeats) return
+    let over = total - maxSeats
+    setCounts((c) => {
+      const next = { ...c }
+      for (const t of [...own.ticketTypes].reverse()) {
+        const cut = Math.min(over, next[t.id] ?? 0)
+        if (cut) next[t.id] -= cut
+        over -= cut
+      }
+      return next
+    })
+  }, [maxSeats])
+
+  async function refreshAvailability() {
+    try {
+      const res = await fetch(`/api/classes/${encodeURIComponent(own.classId)}.json`, { cache: 'no-store' })
+      if (!res.ok) return
+      const fresh = (await res.json().catch(() => null))?.workshop?.own as OwnClassData | undefined
+      if (fresh) onAvailability?.(fresh)
+    } catch {
+      // The sold-out message stands on its own.
+    }
+  }
+
   function choosePass(id: string) {
     if (id === passId) return
     setPassId(id)
     setPicked([])
+    setPickNote(null)
     setProblem(null)
     // Keep only tickets this pass sells.
     const sold = new Set(soldTypes(id).map((t) => t.id))
@@ -249,20 +297,21 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, syncUrl
 
   function toggleSession(id: string) {
     setProblem(null)
-    setPicked((p) => {
-      if (p.includes(id)) return p.filter((x) => x !== id)
-      if (choose === 1) return [id]
-      return p.length >= choose ? p : [...p, id]
-    })
+    setPickNote(null)
+    if (picked.includes(id)) return setPicked(picked.filter((x) => x !== id))
+    if (choose === 1) return setPicked([id])
+    if (picked.length >= choose) return setPickNote(`You’ve picked ${choose} days. Tap one to change it.`)
+    setPicked([...picked, id])
   }
 
   function setSeat(i: number, change: (s: SeatInfo) => SeatInfo) {
     setProblem(null)
-    setSeatInfo((list) => {
-      const next = [...list]
-      for (let k = next.length; k <= i; k++) next[k] = EMPTY_SEAT
-      next[i] = change(next[i] ?? EMPTY_SEAT)
-      return next
+    const { typeId, k } = seatSlot(i)
+    setSeatInfo((all) => {
+      const list = [...(all[typeId] ?? [])]
+      for (let j = list.length; j <= k; j++) list[j] = EMPTY_SEAT
+      list[k] = change(list[k] ?? EMPTY_SEAT)
+      return { ...all, [typeId]: list }
     })
   }
 
@@ -411,7 +460,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, syncUrl
         })
       } catch {
         // The request left and nothing came back. It may have gone through.
-        throw new Error(UNKNOWN_OUTCOME_MESSAGE)
+        setStuck(UNKNOWN_OUTCOME_MESSAGE)
+        return
       }
 
       if (!res.ok) {
@@ -422,11 +472,20 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, syncUrl
         const keep = outcomeUnknown(failure) || body?.code === 'in_progress'
         if (!keep) attemptId.current = newAttemptId()
         if (body?.code) trackBookingProblem('workshop', String(body.code))
-        throw new Error(messageForFailure(failure, CLASS_MESSAGES))
+        const message = messageForFailure(failure, CLASS_MESSAGES)
+        if (keep) {
+          setStuck(message)
+          return
+        }
+        if (body?.code === 'sold_out') void refreshAvailability()
+        throw new Error(message)
       }
 
       const data = (await res.json().catch(() => null))?.data
-      if (!data) throw new Error(UNKNOWN_OUTCOME_MESSAGE)
+      if (!data) {
+        setStuck(UNKNOWN_OUTCOME_MESSAGE)
+        return
+      }
       const charged = typeof data.totalChargedCents === 'number' ? data.totalChargedCents : null
       setBooked({
         bookingId: data.bookingId ?? null,
@@ -580,6 +639,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, syncUrl
                   )
                 })}
               </div>
+              <p role="status" aria-live="polite" style={{ margin: pickNote ? '0.5rem 0 0' : 0, fontSize: '0.875rem', color: 'var(--color-text)' }}>{pickNote}</p>
             </div>
           )}
 
@@ -761,9 +821,11 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, syncUrl
   let footer
   if (booked) {
     footer = <button type="button" className="btn btn-primary" onClick={finish}>Done</button>
+  } else if (stuck) {
+    footer = <button type="button" className="btn btn-primary" onClick={onClose}>Close</button>
   } else if (step !== 'pay') {
-    const estimate = step === 'details' && !needsSeats && q ? ` · ${formatMoney(q.totalCents, workshop.currency)}` : ''
-    footer = <button type="button" className="btn btn-primary" onClick={next}>Continue{estimate}</button>
+    // No total here: only the Pay button carries it.
+    footer = <button type="button" className="btn btn-primary" onClick={next}>Continue</button>
   } else {
     footer = (
       <>
@@ -780,7 +842,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, syncUrl
   return (
     <BookingPanel
       title={workshop.name}
-      onRequestClose={booked ? finish : requestClose}
+      onRequestClose={booked ? finish : stuck ? onClose : requestClose}
       stepKey={booked ? 'confirmed' : step}
       stepName={booked ? undefined : STEP_NAMES[step]}
       stepNumber={steps.indexOf(step) + 1}
@@ -792,7 +854,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, syncUrl
           </p>
         )
       }
-      onBack={!booked && step !== 'details' && !processing ? back : undefined}
+      onBack={!booked && !stuck && step !== 'details' && !processing ? back : undefined}
       footer={footer}
       leavePrompt={
         askToLeave && !booked
@@ -807,7 +869,9 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, syncUrl
           : null
       }
     >
-      {booked ? renderConfirmation() : step === 'details' ? renderDetails() : step === 'seats' ? renderSeats() : renderPay()}
+      {booked ? renderConfirmation() : stuck ? (
+        <p role="alert" style={{ margin: 0, fontSize: '0.9375rem', lineHeight: 1.6, color: 'var(--color-dark)' }}>{stuck}</p>
+      ) : step === 'details' ? renderDetails() : step === 'seats' ? renderSeats() : renderPay()}
     </BookingPanel>
   )
 }

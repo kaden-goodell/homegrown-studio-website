@@ -4,7 +4,7 @@ import { jsonLdString, workshopEventsJsonLd } from '@lib/seo'
 import { SITE_URL } from '@config/site-url'
 import WorkshopRow from './WorkshopRow'
 import WorkshopTile from './WorkshopTile'
-import { audienceOf, type Audience } from '@lib/workshop-copy'
+import { audienceOf, audienceOfAges, type Audience } from '@lib/workshop-copy'
 import WorkshopBookingModal from './WorkshopBookingModal'
 import { canBeBooked, isSoldOut } from '@lib/workshop-rules'
 import { byStart } from './workshop-view-model'
@@ -317,7 +317,7 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
             ))}
           </div>
           {(() => {
-            const shown = sorted.filter((w) => filter === 'all' || audienceOf(w.description) === filter)
+            const shown = sorted.filter((w) => filter === 'all' || (w.own ? audienceOfAges(w.own.rules.ages, w.description) : audienceOf(w.description)) === filter)
             if (shown.length === 0) {
               return (
                 <p style={{ margin: '0.5rem 0 0', fontSize: '0.9375rem', color: 'var(--color-muted)' }}>
@@ -366,6 +366,12 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
         <ClassBookingPanel
           workshop={bookingWorkshop}
           onClose={() => setBookingWorkshop(null)}
+          // Fresh seat counts (after "sold out"): the panel and the list behind it.
+          onAvailability={(own) => {
+            const update = (w: WorkshopData) => (w.id === bookingWorkshop.id ? { ...w, own, ...classAvailability(own) } : w)
+            setBookingWorkshop((b) => (b ? update(b) : b))
+            setWorkshops((list) => list.map(update))
+          }}
           // The list is cached for a minute: take the seats off here rather than ask again.
           onBooked={(sessionIds, seats) =>
             setWorkshops((list) =>

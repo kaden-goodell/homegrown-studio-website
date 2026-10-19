@@ -92,6 +92,20 @@ export function audienceOf(description?: string | null): Audience | null {
   return null
 }
 
+/**
+ * Who a class's free-text ages line is for: "8 and up", "Ages 8+", "18 or
+ * older" → kids under 18, adults from 18; null when it names no age. Falls
+ * back to the description (our classes keep ages in their rules).
+ */
+export function audienceOfAges(ages: string | null | undefined, description?: string | null): Audience | null {
+  const text = (ages ?? '').trim()
+  const n = text.match(/\b(\d{1,2})\s*(?:\+|and up\b|or older\b|and older\b)/i) ?? text.match(/^(?:ages?\s*)?(\d{1,2})\s*$/i)
+  if (n) return Number(n[1]) < 18 ? 'kids' : 'adults'
+  if (/\bGrades? \d{1,2}\s*[–-]\s*\d{1,2}\b/i.test(text)) return 'kids'
+  if (/\badults?\b/i.test(text)) return 'adults'
+  return audienceOf(description)
+}
+
 /** "Ages 8+", "Ages 18+", "Grades 9–12", or '' when the description doesn't say. */
 export function ageLabel(description?: string | null): string {
   const text = paragraphs(description).join(' ')

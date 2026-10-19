@@ -6,6 +6,8 @@ import { rowWhen } from './WorkshopRow'
 export interface WorkshopTileProps {
   workshop: WorkshopData
   onBook?: (workshop: WorkshopData) => void
+  /** Booking isn't open on this page yet: this line instead of the Book button. */
+  closedNote?: string
 }
 
 /**
@@ -13,7 +15,7 @@ export interface WorkshopTileProps {
  * 15 Oct 2026): a 4:3 photo with the date on it, the name, a one-line hook,
  * "$25 · Ages 8+ · Drop-off", and the Book button. Phones get WorkshopRow.
  */
-export default function WorkshopTile({ workshop, onBook }: WorkshopTileProps) {
+export default function WorkshopTile({ workshop, onBook, closedNote }: WorkshopTileProps) {
   const { soldOut, closed, bookable, meta, status } = workshopStatus(workshop)
   const hook = firstParagraph(workshop.description)
 
@@ -70,7 +72,8 @@ export default function WorkshopTile({ workshop, onBook }: WorkshopTileProps) {
         )}
         {/* Pinned to the bottom, so buttons line up along a row. */}
         <div style={{ marginTop: 'auto', paddingTop: '0.75rem' }}>
-          {bookable && (
+          {bookable && closedNote && <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-text)' }}>{closedNote}</p>}
+          {bookable && !closedNote && (
             <button type="button" className="btn btn-primary" style={{ width: '100%' }} onClick={() => onBook?.(workshop)}>
               See details and book
             </button>

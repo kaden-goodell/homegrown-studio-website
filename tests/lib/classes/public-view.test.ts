@@ -131,3 +131,16 @@ describe('public view — card copy', () => {
     expect(workshopStatus(toPublicClass(c, ledger(), NOW)).meta).toBe('From $15 · Ages 8+ · Drop-off')
   })
 })
+
+describe('who a class is for, from its ages line', () => {
+  it('reads the rules first, then the description', async () => {
+    const { audienceOfAges } = await import('@lib/workshop-copy')
+    expect(audienceOfAges('8 and up')).toBe('kids')
+    expect(audienceOfAges('Ages 8+')).toBe('kids')
+    expect(audienceOfAges('18 and up')).toBe('adults')
+    expect(audienceOfAges('21+')).toBe('adults')
+    expect(audienceOfAges('Grades 3–5')).toBe('kids')
+    expect(audienceOfAges('', 'Paint.\n\nAges 12 and up.')).toBe('kids')
+    expect(audienceOfAges('')).toBeNull()
+  })
+})

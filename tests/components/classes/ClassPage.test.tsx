@@ -34,5 +34,7 @@ describe('ClassPage (/classes/<id>)', () => {
     unmount()
     render(<ClassPage workshop={toPublicClass(cls(), { classId: 'cls_1', lines: [] }, NOW)} bookingsOpen={false} />)
     expect(screen.queryByTestId('class-panel')).toBeNull()
+    expect(screen.queryByRole('button', { name: /book/i })).toBeNull()
+    expect(screen.getByText('Booking opens soon. Check back, or see what’s on the calendar.')).toBeInTheDocument()
   })
 })

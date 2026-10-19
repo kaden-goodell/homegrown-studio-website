@@ -371,4 +371,13 @@ describe('WorkshopExplorer — our own classes', () => {
     expect(screen.getByTestId('class-panel')).toHaveTextContent('Clay Camp')
     expect(screen.queryByTestId('booking-modal')).toBeNull()
   })
+
+  it('the Kids & teens filter reads our class’s ages line', () => {
+    const ours = { ...mockWorkshops[1], id: 'cls_2', name: 'Clay Camp', description: 'Make a pot.', own: { classId: 'cls_2', sessions: [], passes: [], ticketTypes: [], prices: {}, questions: [], addOns: [], rules: { ages: '8 and up' } as any, instructor: null, taxPercent: 9 } }
+    render(<WorkshopExplorer workshops={[ours]} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Kids & teens' }))
+    expect(screen.getByTestId('workshop-cls_2')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Adults' }))
+    expect(screen.queryByTestId('workshop-cls_2')).toBeNull()
+  })
 })
