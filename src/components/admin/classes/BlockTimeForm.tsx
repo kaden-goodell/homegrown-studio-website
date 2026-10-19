@@ -13,8 +13,15 @@ import { box, errorText, input, muted, row } from './ui'
  * owner can block anyway; nothing booked changes either way. Below, the
  * blocks coming up, each removable after a second tap.
  */
-export default function BlockTimeForm() {
-  const [day, setDay] = useState(today())
+export default function BlockTimeForm({ initialDay, onDirtyChange, onBlocked }: {
+  initialDay?: string
+  /** Something typed that isn't saved yet (for the sheet's leave prompt). */
+  onDirtyChange?: (dirty: boolean) => void
+  /** Blocked: the sheet closes and says so; without it the form says so itself. */
+  onBlocked?: (b: BlockedTime, clashes: Busy[]) => void
+} = {}) {
+  const first = initialDay ?? today()
+  const [day, setDay] = useState(first)
   const [from, setFrom] = useState('09:00')
   const [to, setTo] = useState('12:00')
   const [allDay, setAllDay] = useState(false)
@@ -32,6 +39,8 @@ export default function BlockTimeForm() {
     if (r.ok && r.data) { setList(r.data.blocked); setListError('') } else setListError(r.error ?? '')
   }
   useEffect(() => { load() }, [])
+  const dirty = day !== first || from !== '09:00' || to !== '12:00' || allDay || reason.trim() !== ''
+  useEffect(() => { onDirtyChange?.(dirty) }, [dirty])
 
   const span = () => (allDay
     ? { startIso: toIsoAt(day, '00:00'), endIso: toIsoAt(addDays(day, 1), '00:00') }
@@ -48,6 +57,10 @@ export default function BlockTimeForm() {
     setBusy(false)
     if (r.ok && r.data) {
       setClash(false)
+      if (onBlocked) {
+        onDirtyChange?.(false)
+        return onBlocked(r.data.blocked, r.data.clashes)
+      }
       const over = r.data.clashes.map((c) => c.label)
       setDone(over.length ? `Blocked. It sits on ${over.join(', ')}. Nothing booked was changed.` : 'Blocked.')
       setReason('')

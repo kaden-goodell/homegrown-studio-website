@@ -62,4 +62,11 @@ describe('PrintDay', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Print' }))
     expect(print).toHaveBeenCalled()
   })
+
+  it('inside a sheet the sheet’s × closes it, so there is no Back', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ data: dayData }) })))
+    render(<PrintDay day={DAY} hideBack onBack={() => {}} />)
+    await screen.findByRole('region', { name: 'Pottery' })
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+  })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { render, screen, fireEvent, within } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import ClassList from '@components/admin/classes/ClassList'
 import { localToUtcISO } from '@lib/party-slots'
 
@@ -35,21 +35,13 @@ describe('ClassList', () => {
     expect(onNew).toHaveBeenCalled()
   })
 
-  it('set up sandbox shows the ids and the two commands', async () => {
-    vi.stubGlobal('fetch', server('ok'))
-    render(<ClassList onOpen={() => {}} onNew={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Set up sandbox' }))
-    const out = await screen.findByRole('region', { name: 'Sandbox' })
-    expect(within(out).getByText(/CAT1/, { selector: 'p' })).toBeInTheDocument()
-    expect(within(out).getByText('npx netlify env:set A CAT1')).toBeInTheDocument()
-    expect(within(out).getByText('npx netlify env:set B TAX1')).toBeInTheDocument()
-  })
-
-  it('set up sandbox disappears when the server says it does not apply', async () => {
-    vi.stubGlobal('fetch', server('refuse'))
-    render(<ClassList onOpen={() => {}} onNew={() => {}} />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Set up sandbox' }))
-    await screen.findByText('This only runs against the Square sandbox.')
+  it('never offers Set up sandbox (it moved to More, shown only on the sandbox); the header can be left to the shell', async () => {
+    const fetchMock = server()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<ClassList hideHeader onOpen={() => {}} onNew={() => {}} />)
+    await screen.findByRole('button', { name: /Pottery/ })
     expect(screen.queryByRole('button', { name: 'Set up sandbox' })).toBeNull()
+    expect(screen.queryByRole('heading', { name: 'Classes' })).toBeNull()
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes('seed-sandbox'))).toBe(false)
   })
 })

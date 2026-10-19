@@ -19,11 +19,15 @@ const nameOf = (b: BookingView) => (b.customer ? `${b.customer.givenName} ${b.cu
  * Refund button (RefundPanel). From here the class can be edited,
  * run again on new dates, or cancelled (which never refunds anyone).
  */
-export default function ClassBookings({ id, onEdit, onBack, onDuplicated }: {
+export default function ClassBookings({ id, onEdit, onBack, onDuplicated, onLoaded, hideHeader }: {
   id: string
   onEdit: (cls: ScheduledClass) => void
   onBack: () => void
   onDuplicated?: (cls: ScheduledClass) => void
+  /** The class as loaded (a sheet uses it for its title). */
+  onLoaded?: (cls: ScheduledClass) => void
+  /** Inside an /admin sheet: the sheet shows the name and its × closes. */
+  hideHeader?: boolean
 }) {
   const [cls, setCls] = useState<ScheduledClass | null>(null)
   const [bookings, setBookings] = useState<BookingView[]>([])
@@ -39,7 +43,7 @@ export default function ClassBookings({ id, onEdit, onBack, onDuplicated }: {
     setError('')
     setStale(false)
     const r = await api<{ class: ScheduledClass; bookings: BookingView[] }>(`${BOOKINGS}?id=${encodeURIComponent(id)}`)
-    if (r.ok && r.data) { setCls(r.data.class); setBookings(r.data.bookings) } else setError(r.error ?? '')
+    if (r.ok && r.data) { setCls(r.data.class); setBookings(r.data.bookings); onLoaded?.(r.data.class) } else setError(r.error ?? '')
   }
   useEffect(() => { load() }, [id])
 
@@ -63,7 +67,7 @@ export default function ClassBookings({ id, onEdit, onBack, onDuplicated }: {
   if (!cls) {
     return (
       <div style={{ display: 'grid', gap: '1rem' }}>
-        <button type="button" className="btn btn-secondary" style={{ justifySelf: 'start' }} onClick={onBack}>Back</button>
+        {!hideHeader && <button type="button" className="btn btn-secondary" style={{ justifySelf: 'start' }} onClick={onBack}>Back</button>}
         {error ? <p role="alert" style={errorText}>{error} <button type="button" className="btn btn-secondary" onClick={load}>Try again</button></p> : <p style={muted}>Loading…</p>}
       </div>
     )
@@ -76,10 +80,12 @@ export default function ClassBookings({ id, onEdit, onBack, onDuplicated }: {
 
   return (
     <div style={{ display: 'grid', gap: '1rem' }}>
-      <div style={{ ...row, justifyContent: 'space-between' }}>
-        <h1 className="font-heading" style={{ margin: 0, fontSize: '1.6rem', color: 'var(--color-dark)' }}>{c.name}</h1>
-        <button type="button" className="btn btn-secondary" onClick={onBack}>Back</button>
-      </div>
+      {!hideHeader && (
+        <div style={{ ...row, justifyContent: 'space-between' }}>
+          <h1 className="font-heading" style={{ margin: 0, fontSize: '1.6rem', color: 'var(--color-dark)' }}>{c.name}</h1>
+          <button type="button" className="btn btn-secondary" onClick={onBack}>Back</button>
+        </div>
+      )}
       <p style={{ margin: 0, fontWeight: 600 }}>{STATUS[cls.status]}</p>
       <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
         {cls.sessions.map((s) => (

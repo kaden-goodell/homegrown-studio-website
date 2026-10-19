@@ -2,13 +2,12 @@
 export const prerender = false
 
 import Layout from '@layouts/Layout.astro'
-import AdminApp from '@components/admin/AdminApp'
+import AdminShell from '@components/admin/AdminShell'
 ---
 
-{/* Owner-only business tools, separate from the staff console (Kaden, 15 Oct 2026). */}
+{/* Owner-only business tools, separate from the staff console (Kaden, 15 Oct 2026).
+    The shell lays itself out: a bottom tab bar on a phone, a sidebar from 900px,
+    content up to 1200px wide (admin.css). */}
 <Layout title="Admin" description="Hometown Studio admin." noindex bare>
-  <section class="max-w-3xl mx-auto px-4 sm:px-6 pt-8 pb-24">
-    <p class="text-xs font-semibold tracking-[0.18em] uppercase mb-4" style="color: var(--color-muted);">Hometown Studio · Admin</p>
-    <AdminApp client:load />
-  </section>
+  <AdminShell client:load />
 </Layout>

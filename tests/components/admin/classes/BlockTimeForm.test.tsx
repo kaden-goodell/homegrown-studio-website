@@ -91,3 +91,21 @@ describe('BlockTimeForm', () => {
     expect(JSON.parse(fetchMock.mock.calls.find((c) => c[1]?.method === 'POST')![1].body)).toEqual({ action: 'remove', id: 'blk_1' })
   })
 })
+
+describe('BlockTimeForm inside an /admin sheet', () => {
+  it('starts on the day it was opened for, reports typing, and hands the block up instead of saying so itself', async () => {
+    vi.stubGlobal('fetch', server())
+    const onDirty = vi.fn(), onBlocked = vi.fn()
+    render(<BlockTimeForm initialDay={DAY} onDirtyChange={onDirty} onBlocked={onBlocked} />)
+    await screen.findByText('No blocked time coming up.')
+    expect(screen.getByLabelText('Day')).toHaveValue(DAY)
+    expect(onDirty).toHaveBeenLastCalledWith(false)
+    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Deep clean' } })
+    expect(onDirty).toHaveBeenLastCalledWith(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Block this time' }))
+    await waitFor(() => expect(onBlocked).toHaveBeenCalled())
+    expect(onBlocked.mock.calls[0][0]).toMatchObject({ id: 'blk_new', startIso: localToUtcISO(DAY, '09:00'), endIso: localToUtcISO(DAY, '12:00') })
+    expect(onDirty).toHaveBeenLastCalledWith(false)
+    expect(screen.queryByText('Blocked.')).toBeNull()
+  })
+})

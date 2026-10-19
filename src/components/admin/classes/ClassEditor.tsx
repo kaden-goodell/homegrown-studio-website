@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { agesLabel } from '@lib/workshop-copy'
 import WorkshopTile from '@components/workshops/WorkshopTile'
 import type { PersonToTell } from '@lib/classes/admin-actions'
@@ -11,7 +11,7 @@ import { previewData } from './preview'
 import { box, errorText, input, muted, row, warnText } from './ui'
 
 export type EditorMode =
-  | { kind: 'new' }
+  | { kind: 'new'; day?: string }
   | { kind: 'from-library'; lib: LibraryClass }
   | { kind: 'edit'; cls: ScheduledClass }
   | { kind: 'library'; lib?: LibraryClass }
@@ -113,7 +113,9 @@ function initialForm(mode: EditorMode): Form {
     }
     default: {
       const c = blankContent()
-      return toForm(c, [newSessionRow(c)], 'open')
+      const row = newSessionRow(c)
+      if (!mode.day) return toForm(c, [row], 'open')
+      return toForm(c, [{ ...row, day: mode.day, end: addMinutes(mode.day, row.start, c.defaultMinutes).time }], 'open')
     }
   }
 }
@@ -254,8 +256,19 @@ function previewOf(f: Form) {
  * them. Beside it, the real public card, live. Used to add a class, schedule
  * one from the library, edit a scheduled class, or keep a library class.
  */
-export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorMode; onSaved: (s: EditorSaved) => void; onCancel: () => void }) {
-  const [f, setF] = useState<Form>(() => initialForm(mode))
+export default function ClassEditor({ mode, onSaved, onCancel, onDirtyChange, hideHeader }: {
+  mode: EditorMode
+  onSaved: (s: EditorSaved) => void
+  onCancel: () => void
+  /** The form differs from what was last loaded or saved (for the sheet's leave prompt). */
+  onDirtyChange?: (dirty: boolean) => void
+  /** Inside an /admin sheet: the sheet shows the title and its × closes. */
+  hideHeader?: boolean
+}) {
+  const [baseline, setBaseline] = useState<Form>(() => initialForm(mode))
+  const [f, setF] = useState<Form>(baseline)
+  const dirty = useMemo(() => JSON.stringify(f) !== JSON.stringify(baseline), [f, baseline])
+  useEffect(() => { onDirtyChange?.(dirty) }, [dirty])
   const [cls, setCls] = useState<ScheduledClass | null>(mode.kind === 'edit' ? mode.cls : null)
   const [errors, setErrors] = useState<Errors>({})
   const [saving, setSaving] = useState(false)
@@ -266,7 +279,7 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
   const [photoState, setPhotoState] = useState<'idle' | 'uploading'>('idle')
   const [photoError, setPhotoError] = useState('')
   const [open, setOpen] = useState<Record<SectionKey, boolean>>(() => {
-    const init = initialForm(mode)
+    const init = baseline
     return {
       basics: true, sessions: true,
       prices: !isSimple(init),
@@ -311,6 +324,7 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
         const r = await api<{ library: LibraryClass }>(LIBRARY, { action: 'save', ...(mode.lib ? { id: mode.lib.id } : {}), content: b.content, note: '' })
         if (!r.ok || !r.data) return showErrors({ [sectionOf(r.extra.field, f)]: r.error })
         setNotice('Saved to the library.')
+        setBaseline(f)
         return onSaved({ lib: r.data.library })
       }
       if (mode.kind === 'edit' && cls) {
@@ -329,6 +343,7 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
         setCls(r.data.class)
         setToTell(confirmMove && r.data.peopleToTell?.length ? { people: r.data.peopleToTell, also: alsoLibrary } : null)
         setNotice(confirmMove ? 'Moved. Let the people below know.' : 'Saved.')
+        setBaseline(f)
         if (r.warning) setWarning(r.warning)
         return onSaved({ cls: r.data.class, warning: r.warning })
       }
@@ -351,6 +366,7 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
         }
       }
       setCls(created)
+      setBaseline(f)
       setNotice('Added.')
       if (warn) setWarning(warn)
       return onSaved({ cls: created, warning: warn })
@@ -364,7 +380,9 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
     const r = await api<{ class: ScheduledClass }>(`${BOOKINGS}?id=${encodeURIComponent(cls.id)}`)
     if (!r.ok || !r.data) return showErrors({ form: r.error })
     setCls(r.data.class)
-    setF(toForm(r.data.class.content, r.data.class.sessions.map(sessionRow), r.data.class.status))
+    const fresh = toForm(r.data.class.content, r.data.class.sessions.map(sessionRow), r.data.class.status)
+    setF(fresh)
+    setBaseline(fresh)
     setErrors({})
     setStale(false)
     setToTell(null)
@@ -394,10 +412,12 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
         .price-grid { border-collapse: collapse; width: 100%; }
         .price-grid th, .price-grid td { padding: 0.3rem; text-align: left; vertical-align: top; }
       `}</style>
-      <div style={{ ...row, justifyContent: 'space-between' }}>
-        <h1 className="font-heading" style={{ margin: 0, fontSize: '1.6rem', color: 'var(--color-dark)' }}>{title}</h1>
-        <button type="button" className="btn btn-secondary" onClick={onCancel}>Back</button>
-      </div>
+      {!hideHeader && (
+        <div style={{ ...row, justifyContent: 'space-between' }}>
+          <h1 className="font-heading" style={{ margin: 0, fontSize: '1.6rem', color: 'var(--color-dark)' }}>{title}</h1>
+          <button type="button" className="btn btn-secondary" onClick={onCancel}>Back</button>
+        </div>
+      )}
       {cls?.status === 'cancelled' && <p style={warnText}>This class is cancelled. Duplicate it to run it again.</p>}
       <div className="class-editor">
         <form onSubmit={(e) => { e.preventDefault(); save(false) }} style={{ display: 'grid', gap: '0.75rem', minWidth: 0 }}>

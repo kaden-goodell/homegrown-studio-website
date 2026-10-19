@@ -15,6 +15,9 @@ export const today = (now = new Date()) => localDate(now.toISOString())
 /** The Sunday on or before the day. */
 export const weekStart = (ymd: string) => addDays(ymd, -weekday(ymd))
 
+/** The Monday on or before the day: /admin's weeks run Monday to Sunday, so a weekend stays together. */
+export const weekStartMonday = (ymd: string) => addDays(ymd, -((weekday(ymd) + 6) % 7))
+
 export function monthStart(ymd: string): string {
   return `${ymd.slice(0, 7)}-01`
 }

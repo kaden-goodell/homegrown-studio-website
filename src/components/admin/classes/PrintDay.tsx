@@ -15,7 +15,7 @@ const counts = (m: Record<string, number>) => Object.entries(m).filter(([, n]) =
  * waiver signed or not), what to prepare, then parties and the rest of the day.
  * The Print button prints just this sheet.
  */
-export default function PrintDay({ day: initialDay, onBack }: { day: string; onBack: () => void }) {
+export default function PrintDay({ day: initialDay, onBack, hideBack }: { day: string; onBack: () => void; hideBack?: boolean }) {
   const [day, setDay] = useState(initialDay)
   const [data, setData] = useState<DayData | null>(null)
   const [error, setError] = useState('')
@@ -47,7 +47,7 @@ export default function PrintDay({ day: initialDay, onBack }: { day: string; onB
         .print-day th, .print-day td { text-align: left; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--color-line); vertical-align: top; }
       `}</style>
       <div className="no-print" style={row}>
-        <button type="button" className="btn btn-secondary" onClick={onBack}>Back</button>
+        {!hideBack && <button type="button" className="btn btn-secondary" onClick={onBack}>Back</button>}
         <label style={{ display: 'grid', gap: '0.2rem' }}>
           <span className="field-label">Day</span>
           <input className="field-input" type="date" value={day} onChange={(e) => e.target.value && setDay(e.target.value)} />

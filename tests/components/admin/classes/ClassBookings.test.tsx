@@ -77,4 +77,14 @@ describe('ClassBookings', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Edit class' }))
     expect(onEdit.mock.calls[0][0].id).toBe('cls_1')
   })
+
+  it('inside a sheet: no heading or Back of its own, and it hands up the class once loaded', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ok({ data: { class: cls(), bookings: [] } })))
+    const onLoaded = vi.fn()
+    render(<ClassBookings id="cls_1" hideHeader onLoaded={onLoaded} onEdit={() => {}} onBack={() => {}} />)
+    await screen.findByRole('button', { name: 'Edit class' })
+    expect(onLoaded.mock.calls[0][0].id).toBe('cls_1')
+    expect(screen.queryByRole('heading', { name: 'Pottery' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+  })
 })

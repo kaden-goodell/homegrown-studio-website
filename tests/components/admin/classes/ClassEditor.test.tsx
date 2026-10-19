@@ -290,3 +290,26 @@ describe('ClassEditor, a library class', () => {
     expect(posts(fetchMock)[0]).toMatchObject({ url: '/api/admin/classes/library.json', body: { action: 'save', content: { name: 'Candles' } } })
   })
 })
+
+describe('ClassEditor inside an /admin sheet', () => {
+  it('reports unsaved changes as you type, and none once saved', async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: any) => ok({ data: { class: cls({ updatedAt: 'u2', content: content(JSON.parse(init.body).content) }) } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const onDirty = vi.fn()
+    render(<ClassEditor mode={{ kind: 'edit', cls: cls() }} hideHeader onDirtyChange={onDirty} onSaved={() => {}} onCancel={() => {}} />)
+    expect(onDirty).toHaveBeenLastCalledWith(false)
+    expect(screen.queryByRole('button', { name: 'Back' })).toBeNull()
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Pottery 2' } })
+    expect(onDirty).toHaveBeenLastCalledWith(true)
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Pottery' } })
+    expect(onDirty).toHaveBeenLastCalledWith(false)
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Pottery 2' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(onDirty).toHaveBeenLastCalledWith(false))
+  })
+
+  it('a new class from a day starts on that day', () => {
+    render(<ClassEditor mode={{ kind: 'new', day: '2031-04-02' }} onSaved={() => {}} onCancel={() => {}} />)
+    expect(screen.getByLabelText('Session 1 day')).toHaveValue('2031-04-02')
+  })
+})
