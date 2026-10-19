@@ -8,9 +8,13 @@ const alertOwners = vi.fn()
 vi.mock('@lib/owner-alert', () => ({ alertOwners: (...a: unknown[]) => alertOwners(...a) }))
 const updateSeatChoiceEmail = vi.fn()
 vi.mock('@lib/seat-choices', () => ({ updateSeatChoiceEmail: (...a: unknown[]) => updateSeatChoiceEmail(...a) }))
-const getPartyRecord = vi.fn()
 const savePartyRecord = vi.fn()
-vi.mock('@lib/party-store', () => ({ getPartyRecord: (...a: unknown[]) => getPartyRecord(...a), savePartyRecord: (...a: unknown[]) => savePartyRecord(...a) }))
+const updatePartyRecord = vi.fn()
+vi.mock('@lib/party-store', async () => {
+  const real = await vi.importActual<typeof import('@lib/party-store')>('@lib/party-store')
+  return { PartyNotFoundError: real.PartyNotFoundError, savePartyRecord: (...a: unknown[]) => savePartyRecord(...a), updatePartyRecord: (...a: unknown[]) => updatePartyRecord(...a) }
+})
+import { PartyNotFoundError } from '@lib/party-store'
 const getConfirmationCopy = vi.fn()
 vi.mock('@lib/confirmation-copies', () => ({ getConfirmationCopy: (...a: unknown[]) => getConfirmationCopy(...a), noteResent: vi.fn(async () => {}) }))
 
@@ -64,10 +68,25 @@ describe('POST /api/booking/fix-email.json', () => {
     expect(alertOwners).toHaveBeenCalledWith(expect.stringContaining('attacker@example.com'))
   })
 
-  it('updates a party’s host email', async () => {
-    getPartyRecord.mockResolvedValue({ bookingId: 'pb_1', hostEmail: TYPO })
-    await call({ token: issueEmailFixTicket(ticket({ kind: 'party', bookingId: 'pb_1', eventId: undefined })), email: RIGHT })
-    expect(savePartyRecord).toHaveBeenCalledWith(expect.objectContaining({ hostEmail: RIGHT }))
+  it('updates a party’s host email, keeping a payment written at the same moment', async () => {
+    // The stored record as the compare-and-set update reads it: a payment landed after the ticket was issued.
+    const charge = { id: 'chg_1', paymentId: 'p1', cents: 30000 }
+    let saved: any = null
+    updatePartyRecord.mockImplementation(async (id: string, fn: (r: any) => any, change: string) => {
+      saved = fn({ bookingId: id, hostEmail: TYPO, charges: [charge] })
+      return { ...saved, history: [{ change }] }
+    })
+    const res = await call({ token: issueEmailFixTicket(ticket({ kind: 'party', bookingId: 'pb_1', eventId: undefined })), email: RIGHT })
+    expect(res.status).toBe(200)
+    expect(updatePartyRecord).toHaveBeenCalledWith('pb_1', expect.any(Function), 'Host email changed', null)
+    expect(saved).toEqual({ bookingId: 'pb_1', hostEmail: RIGHT, charges: [charge] })
+    expect(savePartyRecord).not.toHaveBeenCalled()
+  })
+
+  it('a party with no record here is left alone quietly', async () => {
+    updatePartyRecord.mockRejectedValue(new PartyNotFoundError('pb_9'))
+    const res = await call({ token: issueEmailFixTicket(ticket({ kind: 'party', bookingId: 'pb_9', eventId: undefined })), email: RIGHT })
+    expect(res.status).toBe(200)
   })
 
   it('refuses a forged or missing ticket, and a bad email', async () => {

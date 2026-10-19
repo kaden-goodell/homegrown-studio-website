@@ -6,7 +6,7 @@ import { readEmailFixTicket, issueEmailFixTicket, planEmailFix } from '@lib/emai
 import { getConfirmationCopy, noteResent } from '@lib/confirmation-copies'
 import { sendEmail } from '@lib/email'
 import { updateSeatChoiceEmail } from '@lib/seat-choices'
-import { getPartyRecord, savePartyRecord } from '@lib/party-store'
+import { updatePartyRecord, PartyNotFoundError } from '@lib/party-store'
 import { alertOwners } from '@lib/owner-alert'
 
 export const prerender = false
@@ -49,11 +49,12 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     if (ticket.kind === 'workshop' && ticket.eventId) {
       await updateSeatChoiceEmail(ticket.eventId, ticket.bookingId, email)
     } else if (ticket.kind === 'party') {
-      const record = await getPartyRecord(ticket.bookingId)
-      if (record) await savePartyRecord({ ...record, hostEmail: email })
+      // Compare-and-set on the record as stored, so a payment written at the same moment stays.
+      await updatePartyRecord(ticket.bookingId, (r) => ({ ...r, hostEmail: email }), 'Host email changed', null)
     }
   } catch (err) {
-    logger.error('Booking record email not updated', { bookingId: ticket.bookingId, error: String(err) })
+    // No party record here: nothing to change, as before.
+    if (!(err instanceof PartyNotFoundError)) logger.error('Booking record email not updated', { bookingId: ticket.bookingId, error: String(err) })
   }
 
   // Their Square profile, only where that's safe (email-fix.ts).

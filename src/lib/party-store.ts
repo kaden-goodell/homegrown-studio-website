@@ -7,11 +7,25 @@
  * and emergency contacts, so the party page must never be a guessable URL.
  *
  * Netlify Blobs in prod, `.data/parties/` on disk in dev.
+ *
+ * Two kinds of record share the store, keyed by `bookingId`:
+ * - parties booked in Square (legacy, no `source`): read only; the Square
+ *   booking id is the key, so RSVPs, waivers and check-ins keep working;
+ * - our own parties (`source: 'ours'`, ids `pty_…`, stage 2): what was bought
+ *   (`items`, each keeping the price it was sold at), every payment
+ *   (`charges`) and refund (`refunds`), the payment-link key, and a history.
+ *
+ * Writes: `createPartyRecord` is create-only (a retry finds the first try's
+ * party, R35); `updatePartyRecord` is compare-and-set (3 attempts) so a
+ * payment and an email fix landing together both stay. `savePartyRecord`
+ * (unconditional) is left only for the old Square booking route.
  */
 import { randomUUID } from 'node:crypto'
 import { createLogger } from '@lib/logger'
 import { isPreviewOrDev } from '@lib/deploy-context'
 import { makeKvStore } from '@lib/blob-store'
+import type { By } from '@lib/staff-auth'
+import type { Cents } from '@lib/parties/types'
 
 const logger = createLogger('party-store')
 const kv = makeKvStore('parties', 'parties')
@@ -51,12 +65,92 @@ export interface PartyRecord {
   /** Where the host first and last came from (Google, Facebook, a texted link…), when known. */
   attribution?: import('@lib/attribution').Attribution
   createdAt: string // ISO
+
+  // ---- stage 2: our own parties. All optional: legacy records load unchanged; no `source` = 'square'.
+  source?: 'square' | 'ours'
+  status?: 'booked' | 'cancelled'
+  /** start + package minutes + extra minutes (cleanup not included) */
+  endIso?: string
+  packageId?: string
+  /** resolved on the server from the catalog */
+  craftId?: string
+  /** What was bought, each at the price it was sold at (a later price change never touches these). */
+  items?: PartyItem[]
+  charges?: PartyCharge[]
+  refunds?: PartyRefund[]
+  /** Payment-link key, separate from hostToken (S2-R6: the host page shows other families' details). */
+  payToken?: string
+  /** One payment in flight (link or admin card); see claimPaying in ./parties/money. */
+  paying?: { attemptId: string; until: string } | null
+  linkSent?: { at: string; by: By | null; email: boolean; text: boolean }[]
+  cancelled?: { at: string; by: By; note: string }
+  /** R6: paid after its time was taken by someone else; warned, never refunded automatically. */
+  overlap?: true
+  /** oldest first, capped at PARTY_HISTORY_CAP */
+  history?: { at: string; by: By | null; change: string }[]
+}
+
+export interface PartyItem {
+  id: string
+  kind: 'package' | 'addon'
+  /** the package or extra id in Parties setup */
+  refId: string
+  label: string
+  qty: number
+  unitCents: Cents
+  cents: Cents
+  extraMinutes: number
+  /** the charge that paid it; null = still due */
+  chargeId: string | null
+  addedAt: string
+  by: By | null
+}
+
+export interface PartyCharge {
+  id: string
+  via: 'online' | 'admin-card' | 'link'
+  orderId: string
+  paymentId: string
+  /** what Square took (its order total, R14) */
+  cents: Cents
+  /** what we quoted for the items */
+  quotedCents: Cents
+  itemIds: string[]
+  receiptUrl: string | null
+  at: string
+  by: By | null
+  simulated?: true
+}
+
+export interface PartyRefund {
+  id: string
+  chargeId: string
+  paymentId: string
+  cents: Cents
+  reason: string
+  by: By | null
+  role: 'owner' | 'crew' | 'square'
+  squareRefundId: string | null
+  requestId: string | null
+  at: string
+}
+
+export const PARTY_HISTORY_CAP = 100
+const ATTEMPTS = 3
+
+/** Ours (stage 2) rather than booked in Square. */
+export const isOurs = (r: PartyRecord): boolean => r.source === 'ours'
+
+/** No such party here (or a simulated one in production). */
+export class PartyNotFoundError extends Error {
+  constructor(public id: string) { super('That party does not exist.') }
 }
 
 export function newHostToken(): string {
   return randomUUID().replace(/-/g, '')
 }
 
+/** Unconditional write. Only the old Square booking route still uses it (removed in stage 2 Task 7). */
 export async function savePartyRecord(record: PartyRecord): Promise<void> {
   await kv.set(record.bookingId, JSON.stringify(record, null, 2))
   logger.info('Party stored', { bookingId: record.bookingId })
@@ -72,6 +166,54 @@ export async function getPartyRecord(bookingId: string): Promise<PartyRecord | n
   if (!json) return null
   const record: PartyRecord = JSON.parse(json)
   return visibleHere(record) ? record : null
+}
+
+/**
+ * Create-only (R35): when a record with this id is already stored (a retry, or
+ * the same booking sent twice) nothing is written and the stored one comes back.
+ */
+export async function createPartyRecord(r: PartyRecord): Promise<{ kind: 'created' | 'exists'; rec: PartyRecord }> {
+  if (await kv.setIfMatch(r.bookingId, JSON.stringify(r, null, 2), null, false)) {
+    logger.info('Party created', { bookingId: r.bookingId })
+    return { kind: 'created', rec: r }
+  }
+  const json = await kv.get(r.bookingId)
+  if (!json) throw new Error('Party create lost a race but nothing is stored')
+  return { kind: 'exists', rec: JSON.parse(json) as PartyRecord }
+}
+
+/**
+ * Compare-and-set update, 3 attempts, each on the record as just read, so a
+ * write made in between (a payment, a refund) is never lost. `fn` returns the
+ * new record, or null for "no change" (nothing written, current one returned).
+ * Adds `{ at, by, change }` to the history (last PARTY_HISTORY_CAP kept).
+ * Throws PartyNotFoundError when there is no such party (or it is hidden here).
+ */
+export async function updatePartyRecord(
+  id: string,
+  fn: (r: PartyRecord) => PartyRecord | null,
+  change: string,
+  by: By | null,
+): Promise<PartyRecord> {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const { value, etag } = await kv.getWithMeta(id)
+    if (!value) throw new PartyNotFoundError(id)
+    const cur = JSON.parse(value) as PartyRecord
+    if (!visibleHere(cur)) throw new PartyNotFoundError(id)
+    const changed = fn(structuredClone(cur))
+    if (changed === null) return cur
+    const at = new Date().toISOString()
+    const next: PartyRecord = {
+      ...changed,
+      bookingId: cur.bookingId,
+      history: [...(changed.history ?? []), { at, by, change }].slice(-PARTY_HISTORY_CAP),
+    }
+    if (await kv.setIfMatch(id, JSON.stringify(next, null, 2), etag, true)) {
+      logger.info('Party updated', { bookingId: id, change })
+      return next
+    }
+  }
+  throw new Error('Someone else changed this party at the same moment. Try again.')
 }
 
 /** Constant-ish check that the supplied token matches the party's host token. */
