@@ -434,6 +434,16 @@ export default function CompSeatSheet({
           </div>
         ) : own && !ownData ? (
           <p style={{ color: 'var(--color-muted)' }}>Loading…</p>
+        ) : own && ownData && !ownData.passes.some((p) => p.state !== 'closed') ? (
+          // R33: nothing can be added (the server would refuse); say why up front.
+          <div role="status" data-testid="signups-closed" style={{ padding: '0.75rem', borderRadius: '0.6rem', background: 'rgba(245, 158, 11, 0.12)' }}>
+            <p style={{ margin: '0 0 0.6rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+              {ownData.rules.joinPartway
+                ? 'Sign-ups for this class have closed.'
+                : 'Sign-ups for this class closed when it started. Turn on joining partway in /admin to add people now.'}
+            </p>
+            <button type="button" onClick={onClose} style={btn()}>Close</button>
+          </div>
         ) : own && payWay === null ? (
           <div role="group" aria-label="How are they paying?" style={{ display: 'grid', gap: '0.6rem' }}>
             <p style={{ margin: 0, fontWeight: 700, color: 'var(--color-dark)' }}>How are they paying?</p>

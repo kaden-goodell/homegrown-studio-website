@@ -373,4 +373,13 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
     fireEvent.click(screen.getByRole('button', { name: /Back/ }))
     expect(await screen.findByRole('button', { name: 'Pay at the counter' })).toBeTruthy()
   })
+
+  it('R33: no joining partway and the class has started: says so, offers nothing the server would refuse', async () => {
+    const closed = { ...workshop, own: { ...own, rules: { ...own.rules, joinPartway: false }, passes: own.passes.map((p) => ({ ...p, state: 'closed' })), sessions: own.sessions.map((x) => ({ ...x, closed: true })) } }
+    fetchMock.mockImplementation(async () => ({ ok: true, status: 200, json: async () => ({ workshop: closed }) }))
+    render(<CompSeatSheet mode="sell" event={ownEvent} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    expect(await screen.findByTestId('signups-closed')).toHaveTextContent('Sign-ups for this class closed when it started. Turn on joining partway in /admin to add people now.')
+    expect(screen.queryByRole('button', { name: 'Pay on the iPad' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Pay at the counter' })).toBeNull()
+  })
 })

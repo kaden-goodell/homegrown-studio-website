@@ -28,12 +28,15 @@ export function viewableByLink(cls: ScheduledClass): boolean {
 export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, opts: SaleOptions = {}): WorkshopData {
   const c = cls.content
   const sessionsSorted = [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))
+  // R33: at the door, a class that doesn't take people partway closes as a whole once its first session has run,
+  // so no pass is offered that the server would refuse.
+  const wholeClassClosed = !!opts.door && !c.rules.joinPartway && sessionsSorted.length > 0 && Date.parse(sessionsSorted[0].endIso) <= now.getTime()
   const sessions: PublicSession[] = sessionsSorted.map((s) => ({
     id: s.id,
     startIso: s.startIso,
     endIso: s.endIso,
     left: Math.max(0, s.capacity - seatsTaken(ledger, s.id, now)),
-    closed: opts.door ? Date.parse(s.endIso) <= now.getTime() : cutoffRefusal(cls, [s.id], now) !== null,
+    closed: opts.door ? wholeClassClosed || Date.parse(s.endIso) <= now.getTime() : cutoffRefusal(cls, [s.id], now) !== null,
   }))
 
   const sellable = new Set(sellableCells(c).map((cell) => cell.passId))
