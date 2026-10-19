@@ -84,7 +84,7 @@ const s = (start: string, end: string, capacity = 10, id = newId('ses')) => ({ i
 describe('validateSessions', () => {
   it('sorts by start', () => {
     const r = validateSessions([s('2026-11-02T18:00:00Z', '2026-11-02T20:00:00Z'), s('2026-11-01T18:00:00Z', '2026-11-01T20:00:00Z')])
-    expect(r.ok && r.value.map((x) => x.startIso)).toEqual(['2026-11-01T18:00:00Z', '2026-11-02T18:00:00Z'])
+    expect(r.ok && r.value.map((x) => x.startIso)).toEqual(['2026-11-01T18:00:00.000Z', '2026-11-02T18:00:00.000Z'])
   })
   it('refuses end before or at start', () => {
     expect(validateSessions([s('2026-11-01T18:00:00Z', '2026-11-01T18:00:00Z')]).ok).toBe(false)
