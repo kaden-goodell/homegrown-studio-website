@@ -25,15 +25,24 @@ import { createLogger } from '@lib/logger'
 import { formatCalendarDay, formatTime, formatTimeSpan, studioDate, studioDayUtcRange } from '@lib/studio-time'
 import { classSpanOf, classesOverlap, partyBlocksClass, partyName, partySpanOf, type ClassSpan, type PartySpan } from '@lib/conflicts'
 import type { Workshop } from '@providers/interfaces/workshop'
+import { getClass, listClasses } from '@lib/classes/class-store'
+import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
+import { listPosNeedsDays, listRefundFlags, listUnmatchedPos, type RefundFlag } from '@lib/classes/square-events'
+import { onStaffConsole } from '@lib/classes/staff-view'
+import type { ScheduledClass } from '@lib/classes/types'
+import { formatMoney } from '@lib/money'
 
 const logger = createLogger('warnings')
 
-export type WarningCode = 'class-over-party' | 'class-over-class' | 'oversold' | 'party-on-closed-day' | 'picks-missing' | 'capacity-unknown' | 'recorded-over-sold'
+export type WarningCode =
+  | 'class-over-party' | 'class-over-class' | 'oversold' | 'party-on-closed-day' | 'picks-missing' | 'capacity-unknown' | 'recorded-over-sold'
+  // our own classes (Task 14): read-only for the crew; owners decide on /admin
+  | 'below-minimum' | 'pos-unmatched' | 'pos-needs-days' | 'refund-flag'
 
 export interface Warning {
   code: WarningCode
   eventKind: 'workshop' | 'party'
-  /** Class schedule id or party booking id: what the panel opens. */
+  /** Class schedule id or party booking id: what the panel opens. '' = nothing to open (a counter sale that matched no class). */
   eventId: string
   /** ISO start of the event the line is about. */
   when: string
@@ -246,9 +255,93 @@ async function seatCounts(s: Scan): Promise<Warning[]> {
   return checked.flat()
 }
 
-export async function listWarnings({ from, to }: { from: string; to: string }): Promise<Warning[]> {
-  const s = await scan(from, to)
-  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s), ...(await seatCounts(s))].sort((a, b) =>
+/** Where the crew send anything about our own classes that needs a decision. */
+export const OWNERS_DECIDE = 'An owner decides on /admin.'
+
+/**
+ * Our own classes, from the seat ledger and what Square told us (Task 14):
+ * - oversold: a session with more seats than it holds ("41 of 40"), e.g. a
+ *   paid seat whose hold ran out, a counter sale, or one more squeezed in
+ * - below-minimum: fewer booked than the class needs to run, before its decide-by
+ * - pos-unmatched / pos-needs-days: counter sales nobody has sorted out yet
+ * - refund-flag: refunds made in Square, or ours still waiting on Square
+ * The last three aren't tied to the window: they stay until someone decides.
+ * Read-only: nothing here frees, moves or refunds anything.
+ */
+async function ownClassWarnings(from: string, to: string, now: Date): Promise<Warning[]> {
+  const startIso = studioDayUtcRange(from).startIso
+  const endIso = studioDayUtcRange(to).endIso
+  const [classes, unmatched, needsDays, flags] = await Promise.all([
+    listClasses({ fromIso: startIso, toIso: endIso }),
+    listUnmatchedPos(),
+    listPosNeedsDays(),
+    listRefundFlags(),
+  ])
+  const shown = classes.filter(onStaffConsole)
+  const byId = new Map<string, ScheduledClass>(shown.map((c) => [c.id, c]))
+  const out: Warning[] = []
+  for (const cls of shown) {
+    const ledger = await getLedger(cls.id)
+    const name = cls.content.name
+    const sessions = [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))
+    for (const s of sessions) {
+      if (s.startIso > endIso || s.endIso < startIso) continue
+      const sold = seatsTaken(ledger, s.id, now)
+      if (sold > s.capacity) {
+        out.push({
+          code: 'oversold', eventKind: 'workshop', eventId: cls.id, when: s.startIso, title: name,
+          detail: `${name} ${formatTime(s.startIso)}: ${sold} of ${s.capacity} booked.`, action: OWNERS_DECIDE,
+        })
+      }
+    }
+    const min = cls.content.rules.minimumToRun
+    const first = sessions[0]
+    if (min && first && Date.parse(first.startIso) > now.getTime() && first.startIso <= endIso) {
+      const booked = seatsTaken(ledger, first.id, now)
+      if (booked < min.count) {
+        out.push({
+          code: 'below-minimum', eventKind: 'workshop', eventId: cls.id, when: first.startIso, title: name,
+          detail: `${name} has ${booked} of the ${min.count} it needs to run, decide by ${formatCalendarDay(studioDate(min.decideByIso))} ${formatTime(min.decideByIso)}.`,
+          action: OWNERS_DECIDE,
+        })
+      }
+    }
+  }
+  for (const u of unmatched) {
+    out.push({
+      code: 'pos-unmatched', eventKind: 'workshop', eventId: '', when: u.at, title: u.name,
+      detail: `A counter sale of ${u.name}${u.qty > 1 ? ` ×${u.qty}` : ''} didn’t match a class.`, action: OWNERS_DECIDE,
+    })
+  }
+  const nameOf = async (classId: string) => byId.get(classId)?.content.name ?? (await getClass(classId))?.content.name ?? 'A class'
+  for (const d of needsDays) {
+    const name = await nameOf(d.classId)
+    out.push({
+      code: 'pos-needs-days', eventKind: 'workshop', eventId: d.classId, when: d.at, title: name,
+      detail: `A counter sale of ${name} needs its day picked.`, action: OWNERS_DECIDE,
+    })
+  }
+  for (const f of flags) {
+    const name = await nameOf(f.classId)
+    out.push({ code: 'refund-flag', eventKind: 'workshop', eventId: f.classId, when: f.at, title: name, detail: refundFlagDetail(f, name), action: OWNERS_DECIDE })
+  }
+  return out
+}
+
+function refundFlagDetail(f: RefundFlag, name: string): string {
+  const money = formatMoney(f.refundCents ?? f.cents)
+  switch (f.kind) {
+    case 'plain-refund': return `${name}: ${money} was refunded in Square. Should a seat be freed?`
+    case 'refund-failed': return `${name}: Square couldn’t finish a ${money} refund.`
+    case 'refund-unconfirmed': return `${name}: a ${money} refund is still waiting on Square.`
+    case 'refund-unfinished': return `${name}: a ${money} refund checked in Square was never finished.`
+    default: return `${name}: a refund needs a look.`
+  }
+}
+
+export async function listWarnings({ from, to }: { from: string; to: string }, opts: { now?: Date } = {}): Promise<Warning[]> {
+  const [s, own] = await Promise.all([scan(from, to), ownClassWarnings(from, to, opts.now ?? new Date())])
+  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s), ...(await seatCounts(s)), ...own].sort((a, b) =>
     a.when.localeCompare(b.when),
   )
 }

@@ -90,4 +90,17 @@ describe('WarningsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findByText('⚠ Needs attention (1)')).toBeInTheDocument()
   })
+
+  it('a counter sale that matched no class has nothing to open; a class line opens its roster', async () => {
+    const unmatched = { code: 'pos-unmatched', eventKind: 'workshop', eventId: '', title: 'Old camp', when: '2026-10-14T15:00:00.000Z', detail: '', action: '', line: 'Wed Oct 14 · A counter sale of Old camp didn’t match a class. An owner decides on /admin.' }
+    const over = { code: 'oversold', eventKind: 'workshop', eventId: 'cls_camp', title: 'Clay Camp', when: '2026-10-18T18:00:00.000Z', detail: '', action: '', line: 'Sun Oct 18 · Clay Camp 1:00 PM: 41 of 40 booked. An owner decides on /admin.' }
+    serve({ status: 200, body: { data: { warnings: [unmatched, over] } } })
+    const open = vi.fn()
+    render(<WarningsPanel onOpenEvent={open} />)
+    await screen.findByText(/41 of 40 booked/)
+    const buttons = screen.getAllByRole('button', { name: 'Open' })
+    expect(buttons).toHaveLength(1)
+    fireEvent.click(buttons[0])
+    expect(open).toHaveBeenCalledWith({ kind: 'workshop', id: 'cls_camp', title: 'Clay Camp' })
+  })
 })

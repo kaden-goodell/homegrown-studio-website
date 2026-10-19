@@ -22,7 +22,8 @@ const box: CSSProperties = {
 /**
  * "Needs attention" (spec G): red, at the top of Today, fetched on every load.
  * Nothing is dismissible and nothing here fixes anything: each line says what
- * a person does, in Square. A scan that couldn't run says so, in red, rather
+ * a person does (in Square, or for our own classes, an owner on /admin). A
+ * line with nothing to open (a counter sale that matched no class) has no Open. A scan that couldn't run says so, in red, rather
  * than showing nothing (which would read as all clear).
  */
 export default function WarningsPanel({ onOpenEvent }: { onOpenEvent: (e: { kind: EventKind; id: string; title: string }) => void }) {
@@ -76,13 +77,15 @@ export default function WarningsPanel({ onOpenEvent }: { onOpenEvent: (e: { kind
             style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.35rem 0', borderTop: i === 0 ? 'none' : '1px solid rgba(185,28,28,0.15)' }}
           >
             <span style={{ flex: 1, fontSize: '0.875rem', color: 'var(--color-dark)' }}>{w.line}</span>
-            <button
-              type="button"
-              onClick={() => onOpenEvent({ kind: w.eventKind, id: w.eventId, title: w.title })}
-              style={{ ...btn(), minHeight: 44, minWidth: 44 }}
-            >
-              Open
-            </button>
+            {w.eventId && (
+              <button
+                type="button"
+                onClick={() => onOpenEvent({ kind: w.eventKind, id: w.eventId, title: w.title })}
+                style={{ ...btn(), minHeight: 44, minWidth: 44 }}
+              >
+                Open
+              </button>
+            )}
           </li>
         ))}
       </ul>
