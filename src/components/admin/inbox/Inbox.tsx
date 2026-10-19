@@ -35,17 +35,15 @@ export default function Inbox({ segment, onSegment, onOpen }: {
         </div>
         <span className="adm-small adm-muted">{inbox.loaded ? `${inbox.total} waiting` : ''}</span>
       </div>
+      {/* Whole labels with a count each; beside a panel the row scrolls sideways rather than clipping a label. */}
       <Seg
         tight
+        className="is-scroll"
         label="Show"
         value={segment}
         onChange={onSegment}
-        options={[
-          ['request', `Requests ${counts.request}`],
-          ['message', `Messages ${counts.message}`],
-          ['teacher', `Teachers ${counts.teacher}`],
-          ['todo', `To decide ${counts.todo}`],
-        ]}
+        options={([['request', 'Requests'], ['message', 'Messages'], ['teacher', 'Teachers'], ['todo', 'To decide']] as [InboxSegment, string][])
+          .map(([k, l]) => [k, <>{l} <span className="adm-segn">{counts[k]}</span></>])}
       />
       {segment === 'todo'
         ? <ToDecide onOpen={onOpen} />

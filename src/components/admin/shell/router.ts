@@ -19,11 +19,16 @@ export const MORE_PAGES: MorePage[] = ['parties', 'hours', 'closed', 'staff', 'p
 
 /** Every sheet /admin can open, as data. */
 export type Sheet =
+  /** A class: Bookings · Details · Dates. `edit-<id>` is the same sheet on Details. */
   | { kind: 'class'; id: string }
   | { kind: 'edit'; id: string }
   | { kind: 'new'; day?: string }
-  | { kind: 'libnew' }
+  /** Run a class again: New class filled in from it, a week on. */
+  | { kind: 'again'; id: string }
+  /** A library class: Schedule it, Edit details, Archive, Earlier versions. */
+  | { kind: 'lib'; id: string }
   | { kind: 'libedit'; id: string }
+  /** Schedule a library class: New class filled in from it. */
   | { kind: 'libsched'; id: string }
   | { kind: 'block'; day?: string }
   | { kind: 'print'; day: string }
@@ -47,7 +52,6 @@ export function sheetToken(s: Sheet): string | null {
     case 'new': t = s.day ? `new-${s.day}` : 'new'; break
     case 'block': t = s.day ? `block-${s.day}` : 'block'; break
     case 'book-party': t = s.day ? `book-party-${s.day}` : 'book-party'; break
-    case 'libnew': t = 'libnew'; break
     case 'print': case 'day': case 'cafe': case 'closed': t = `${s.kind}-${s.day}`; break
     case 'legacy': case 'blocked': case 'party': t = `${s.kind}-${s.day}-${s.id}`; break
     case 'more': t = `more-${s.page}`; break
@@ -66,7 +70,6 @@ export function parseSheet(token: string): Sheet | null {
   if (token === 'new') return { kind: 'new' }
   if (token === 'block') return { kind: 'block' }
   if (token === 'book-party') return { kind: 'book-party' }
-  if (token === 'libnew') return { kind: 'libnew' }
   for (const k of ['new', 'block', 'book-party', 'print', 'day', 'cafe', 'closed'] as const) {
     if (!token.startsWith(`${k}-`)) continue
     const day = dayAfter(`${k}-`)
@@ -82,7 +85,7 @@ export function parseSheet(token: string): Sheet | null {
     const page = token.slice(5) as MorePage
     return MORE_PAGES.includes(page) ? { kind: 'more', page } : null
   }
-  for (const k of ['class', 'edit', 'libedit', 'libsched', 'request', 'message', 'teacher', 'todo'] as const) {
+  for (const k of ['class', 'edit', 'again', 'libedit', 'libsched', 'lib', 'request', 'message', 'teacher', 'todo'] as const) {
     if (token.startsWith(`${k}-`) && token.length > k.length + 1) return { kind: k, id: token.slice(k.length + 1) } as Sheet
   }
   return null
@@ -107,13 +110,13 @@ export function homeTabOf(s: Sheet): Tab {
   switch (s.kind) {
     case 'request': case 'message': case 'teacher': case 'todo': return 'inbox'
     case 'more': return 'more'
-    case 'libnew': case 'libedit': case 'libsched': return 'classes'
+    case 'lib': case 'libedit': case 'libsched': case 'again': return 'classes'
     case 'day': case 'legacy': case 'blocked': case 'party': case 'cafe': case 'closed': return 'calendar'
     default: return 'home'
   }
 }
 
-/** Sheets that hold a form: on an iPad they open as a centred card, not a side panel. */
+/** Sheets that hold a long form: on an iPad they open as a centred card, not a side panel. (A class's own sheet stays a panel.) */
 export function isFormSheet(s: Sheet): boolean {
-  return s.kind === 'new' || s.kind === 'edit' || s.kind === 'libnew' || s.kind === 'libedit' || s.kind === 'libsched'
+  return s.kind === 'new' || s.kind === 'again' || s.kind === 'libedit' || s.kind === 'libsched'
 }

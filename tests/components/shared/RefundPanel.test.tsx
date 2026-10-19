@@ -235,4 +235,19 @@ describe('RefundPanel', () => {
     expect(screen.getByText('Refund this at the register, where it was rung up.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Refund' })).toBeNull()
   })
+
+  it('/admin hands in its own sender, so the owner’s name and the sign-in check go with every refund call', async () => {
+    const send = vi.fn(async (_url: string, _body: unknown) => ({ ok: true, status: 200, data: { cents: 6000, emailed: false }, extra: {} }))
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<RefundPanel classId="cls_1" booking={booking} send={send as any} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm refund' }))
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1))
+    expect(send.mock.calls[0][0]).toBe('/api/admin/classes/refund.json')
+    expect(send.mock.calls[0][1]).toMatchObject({ classId: 'cls_1', kind: 'booking' })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(await screen.findByText(/Refunded \$60/)).toBeInTheDocument()
+  })
 })
+

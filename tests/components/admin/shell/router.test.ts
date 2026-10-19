@@ -21,7 +21,8 @@ describe('/admin address tokens', () => {
     { kind: 'message', id: '2026-10-17-11111111' },
     { kind: 'teacher', id: '2026-10-15-abcdef12' },
     { kind: 'todo', id: 'd1' },
-    { kind: 'libnew' },
+    { kind: 'again', id: 'cls_abc123' },
+    { kind: 'lib', id: 'lib_1' },
     { kind: 'libedit', id: 'lib_1' },
     { kind: 'libsched', id: 'lib_1' },
     { kind: 'more', page: 'hours' },
@@ -50,6 +51,14 @@ describe('/admin address tokens', () => {
     expect(homeTabOf({ kind: 'party', day: '2026-10-24', id: 'p' })).toBe('calendar')
     expect(homeTabOf({ kind: 'new' })).toBe('home')
     expect(isFormSheet({ kind: 'new' })).toBe(true)
+    expect(isFormSheet({ kind: 'again', id: 'cls_1' })).toBe(true)
     expect(isFormSheet({ kind: 'day', day: '2026-10-24' })).toBe(false)
+    // A class's own sheet (Bookings · Details · Dates) is a side panel on an iPad, even on Details.
+    expect(isFormSheet({ kind: 'class', id: 'cls_1' })).toBe(false)
+    expect(isFormSheet({ kind: 'edit', id: 'cls_1' })).toBe(false)
+    expect(homeTabOf({ kind: 'lib', id: 'lib_1' })).toBe('classes')
+    expect(homeTabOf({ kind: 'again', id: 'cls_1' })).toBe('classes')
+    // "Add a class to the library" is gone: every class gets there on its own.
+    expect(parseHash('#libnew')).toEqual({})
   })
 })

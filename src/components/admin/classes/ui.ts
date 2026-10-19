@@ -9,6 +9,5 @@ export const box: CSSProperties = {
 export const muted: CSSProperties = { color: 'var(--color-muted)', margin: 0 }
 export const errorText: CSSProperties = { color: '#b91c1c', margin: 0, fontWeight: 600 }
 export const warnText: CSSProperties = { color: '#92400e', margin: 0, fontWeight: 600 }
-export const quiet: CSSProperties = {}
 /** 16px so iPad Safari doesn't zoom on focus. */
 export const input: CSSProperties = { fontSize: '1rem', minHeight: '2.75rem', width: '100%', boxSizing: 'border-box' }

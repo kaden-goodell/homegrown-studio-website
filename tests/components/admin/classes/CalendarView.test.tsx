@@ -188,7 +188,7 @@ describe('CalendarView', () => {
       expect(await screen.findByRole('button', { name: /Show Mon–Wed/ })).toHaveAttribute('aria-expanded', 'false')
     })
 
-    it('month: a usual closed weekday is a quiet shaded cell with no word; a named closure shows its name', async () => {
+    it('month: a usual closed weekday is a quiet shaded cell with no word; a named closure is in its colours, says Closed on a phone, and names itself in its label', async () => {
       vi.stubGlobal('fetch', server([]))
       render(<CalendarView initialDay="2026-10-14" onOpen={() => {}} />)
       fireEvent.click(await screen.findByRole('button', { name: 'Month' }))
@@ -197,7 +197,8 @@ describe('CalendarView', () => {
       expect(mon.textContent).toBe('19')
       const fri = screen.getByRole('button', { name: 'Fri Oct 30, closed for Halloween weekend' })
       expect(fri).toHaveClass('is-holiday', 'h-halloween')
-      expect(fri).toHaveTextContent('Halloween')
+      // A phone cell is too small for "Halloween" or "Thanksgiving": it says Closed (carried from 11b-A re-review 2).
+      expect(fri.textContent).toBe('30Closed')
       expect(screen.getByRole('button', { name: 'Thu Oct 22, 0 things on' })).not.toHaveClass('is-shut')
     })
 

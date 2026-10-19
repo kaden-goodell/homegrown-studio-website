@@ -248,7 +248,7 @@ describe('sheets', () => {
     fireEvent.click(await within(dialog()).findByRole('button', { name: /Pottery/ }))
     await waitFor(() => expect(screen.getAllByRole('dialog')).toHaveLength(1))
     expect(window.location.hash).toBe('#class-cls_a')
-    expect(await within(dialog()).findByRole('button', { name: 'Edit class' })).toBeInTheDocument()
+    expect(await within(dialog()).findByRole('button', { name: 'Bookings' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('× and Escape close; focus goes back to what opened it; the page behind is inert on a phone', async () => {
@@ -502,15 +502,23 @@ describe('Inbox', () => {
 })
 
 describe('Classes tab', () => {
-  it('a class opens its bookings in a sheet; Edit replaces it with the form, details filled in', async () => {
+  it('a class opens its one sheet on Bookings; Details shows the form filled in, in the same sheet; #edit- opens it on Details', async () => {
     await signedIn()
     tab('Classes')
     fireEvent.click(await screen.findByRole('button', { name: /Pottery/ }))
     expect(await within(dialog()).findByRole('heading', { name: 'Pottery' })).toBeInTheDocument()
-    fireEvent.click(await within(dialog()).findByRole('button', { name: 'Edit class' }))
+    expect(await within(dialog()).findByRole('button', { name: 'Bookings' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Details' }))
     await waitFor(() => expect(within(dialog()).getByLabelText('Name')).toHaveValue('Pottery'))
     expect(screen.getAllByRole('dialog')).toHaveLength(1)
-    expect(window.location.hash).toBe('#edit-cls_a')
+    expect(window.location.hash).toBe('#class-cls_a')
+  })
+
+  it('an #edit- address (an old link or a refresh) opens the same class sheet on Details', async () => {
+    window.history.replaceState(null, '', '/admin#edit-cls_a')
+    await signedIn()
+    expect(await within(dialog()).findByRole('button', { name: 'Details' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await within(dialog()).findByLabelText('Name')).toHaveValue('Pottery')
   })
 
   it('the library and Block time open', async () => {
@@ -678,7 +686,9 @@ describe('fix round 1', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Library' }))
     await screen.findByText(/Nothing in the library yet/)
     expect(screen.queryByRole('button', { name: 'Add a class to the library' })).toBeNull()
-    expect(screen.getByRole('button', { name: '+ New class' })).toBeInTheDocument()
+    // The header's + New class, and the empty library's own (the button that fixes it).
+    expect(screen.getAllByRole('button', { name: '+ New class' })).toHaveLength(2)
+    expect(screen.getByText('Every class you add lands here on its own. Tap one to run it again.')).toBeInTheDocument()
   })
 
   it('the class form and Block time keep their buttons in the sheet’s pinned footer, not mid-form', async () => {
@@ -760,13 +770,13 @@ describe('fix round 1', () => {
     expect(row).not.toHaveTextContent('Square class')
   })
 
-  it('round 2: the old class form keeps its messages in the body; the footer holds only full-width buttons', async () => {
+  it('round 2: New class keeps its messages in the body; the footer holds Add class and a quiet Save as draft (no "Add and keep in the library")', async () => {
     await signedIn()
     fireEvent.click(await screen.findByRole('button', { name: '+ New class' }))
     const foot = await waitFor(() => { const f = dialog().querySelector('.adm-sheet-foot'); if (!f) throw new Error('no footer'); return f })
     expect(foot.querySelectorAll('p, ul')).toHaveLength(0)
-    expect(within(foot as HTMLElement).getAllByRole('button').map((b) => b.textContent)).toEqual(['Add class', 'Add and keep in the library'])
-    expect(foot.querySelector('.adm-savebtns')).not.toBeNull()
+    expect(within(foot as HTMLElement).getAllByRole('button').map((b) => b.textContent)).toEqual(['Add class', 'Save as draft'])
+    expect(within(dialog()).getByText('It goes into your library on its own, so you can run it again later.')).toBeInTheDocument()
   })
 
   it('round 2: the inbox Status label is a section label with room under the Next note', async () => {
@@ -779,3 +789,83 @@ describe('fix round 1', () => {
     expect(label.previousElementSibling).toHaveClass('adm-note')
   })
 })
+
+describe('11b-B: carried from the 11b-A review', () => {
+  it('Inbox counts leave out a record that can’t be shown', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    await signedIn(server({ requests: [{ id: 'bad-1', status: 'new', about: { name: 'Broken' } }, request()] }))
+    const nav = screen.getByRole('navigation', { name: 'Admin sections' })
+    await waitFor(() => expect(within(nav).getByRole('button', { name: /^Inbox/ })).toHaveTextContent('3'))
+    tab('Inbox')
+    expect(await screen.findByRole('button', { name: 'Requests 1' })).toBeInTheDocument()
+    expect(screen.getByText('3 waiting')).toBeInTheDocument()
+    err.mockRestore()
+  })
+
+  it('Inbox segments are whole words with a count, on a row that scrolls rather than clipping', async () => {
+    await signedIn()
+    tab('Inbox')
+    const seg = (await screen.findByRole('button', { name: 'To decide 0' })).parentElement!
+    expect(seg).toHaveClass('adm-seg', 'is-scroll')
+    expect(within(seg).getAllByRole('button').map((b) => b.textContent)).toEqual(['Requests 1', 'Messages 1', 'Teachers 1', 'To decide 0'])
+  })
+
+  it('a half-broken request still shows the person, their phone and email; only the broken part is skipped', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    window.history.replaceState(null, '', '/admin#request-2026-10-17-abcdef12')
+    await signedIn(server({ requests: [request({ where: undefined })] }))
+    const sheet = await screen.findByRole('dialog', { name: 'Dana Planner' })
+    const reach = within(sheet).getByRole('region', { name: 'How to reach them' })
+    expect(within(reach).getByText('(256) 555-0142')).toBeInTheDocument()
+    expect(within(reach).getByText('dana@example.com')).toBeInTheDocument()
+    expect(within(sheet).getAllByText('One item couldn’t be shown.').length).toBeGreaterThan(0)
+    expect(within(sheet).getByRole('region', { name: 'The craft' })).toBeInTheDocument()
+    expect(within(sheet).getByRole('link', { name: 'Call' })).toBeInTheDocument()
+    err.mockRestore()
+  })
+
+  it('a sheet’s Try again loads the item again, so a fixed record shows', async () => {
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const requests: any[] = [{ id: 'bad-1', status: 'new', about: { name: 'Broken' } }]
+    window.history.replaceState(null, '', '/admin#request-bad-1')
+    const f = await signedIn(server({ requests }))
+    const sheet = await screen.findByRole('dialog', { name: 'Something went wrong' })
+    requests[0] = request({ id: 'bad-1' })
+    const before = f.mock.calls.filter((c: any) => c[0] === '/api/admin/event-requests.json').length
+    fireEvent.click(within(sheet).getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByRole('dialog', { name: 'Dana Planner' })).toBeInTheDocument()
+    expect(f.mock.calls.filter((c: any) => c[0] === '/api/admin/event-requests.json').length).toBeGreaterThan(before)
+    err.mockRestore()
+  })
+
+  it('the Day sheet’s count leaves out the closure itself, and an empty closed day has no Print', async () => {
+    const closed = { kind: 'closed', id: 'x1', label: 'Halloween weekend', startIso: at('2026-10-30', '00:00'), endIso: at('2026-10-31', '00:00') }
+    window.history.replaceState(null, '', '/admin#day-2026-10-30')
+    await signedIn(server({ items: [closed] }))
+    const sheet = await screen.findByRole('dialog', { name: 'Fri Oct 30' })
+    expect(await within(sheet).findByText(/Closed for Halloween weekend/)).toBeInTheDocument()
+    expect(within(sheet).queryByText(/thing on/)).toBeNull()
+    expect(within(sheet).queryByRole('button', { name: 'Print this day' })).toBeNull()
+    expect(within(sheet).getByRole('button', { name: '+ New class on this day' })).toBeInTheDocument()
+  })
+
+  it('every class entry point opens the one class sheet: Home rows, Calendar items, Classes rows, the Day sheet', async () => {
+    await signedIn()
+    const check = async () => {
+      expect(await within(dialog()).findByRole('button', { name: 'Bookings' })).toHaveAttribute('aria-pressed', 'true')
+      expect(window.location.hash).toBe('#class-cls_a')
+      fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }))
+      await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    }
+    // Home: this week's row.
+    fireEvent.click(await screen.findByRole('button', { name: /Pottery/ }))
+    await check()
+    tab('Calendar')
+    fireEvent.click(await screen.findByRole('button', { name: /Pottery/ }))
+    await check()
+    tab('Classes')
+    fireEvent.click(await screen.findByRole('button', { name: /Pottery/ }))
+    await check()
+  })
+})
+

@@ -25,7 +25,9 @@ const dim = (disabled: boolean): CSSProperties => (disabled ? { opacity: 0.5, cu
 const hintText: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--color-muted)' }
 
 const OFFLINE = "Couldn't reach the studio. Check the connection and try again."
-interface Reply<T> { ok: boolean; status: number; data?: T; error?: string; extra: Record<string, any> }
+export interface Reply<T> { ok: boolean; status: number; data?: T; error?: string; extra: Record<string, any> }
+/** How the panel posts: /admin passes its own (who is signed in, and a 401 back to sign-in); /staff uses the plain one here. */
+export type Send = <T>(url: string, body: unknown) => Promise<Reply<T>>
 async function api<T>(url: string, body: unknown): Promise<Reply<T>> {
   try {
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -66,7 +68,7 @@ type Kind = 'booking' | 'person' | 'session' | 'custom'
  * one token per "Already refunded" answer, reused across retries (R31); when
  * a retry finds its own repeat already finished, it shows as refunded.
  */
-export default function RefundPanel({ classId, booking, ticketLabel, endpoint = ADMIN_REFUND, reasonRequired = false, last4, waiting: waitingProp = null, counterSalesAtRegister = false, onDone }: {
+export default function RefundPanel({ classId, booking, ticketLabel, endpoint = ADMIN_REFUND, reasonRequired = false, last4, waiting: waitingProp = null, counterSalesAtRegister = false, send = api, onDone }: {
   classId: string
   booking: BookingView
   ticketLabel?: (ticketTypeId: string) => string
@@ -78,6 +80,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   waiting?: WaitingRefund | null
   /** /staff: a counter (POS) sale is refunded at the register where it was rung up, not from here */
   counterSalesAtRegister?: boolean
+  send?: Send
   onDone?: () => void
 }) {
   const all = booking.refundable ?? []
@@ -140,7 +143,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
     setError('')
     const body: Record<string, unknown> = { action: 'free-seat', classId, bookingId: booking.bookingId, reason: reason.trim() }
     if (freeWho !== 'all') body.lineIds = [freeWho]
-    const r = await api<{ lines: unknown[] }>(endpoint, body)
+    const r = await send<{ lines: unknown[] }>(endpoint, body)
     setBusy(false)
     if (!r.ok) { setError(r.error ?? ''); return }
     setDone(freeWho === 'all' && holding.length > 1 ? 'Seats freed.' : 'Seat freed.')
@@ -169,7 +172,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
     if (kind === 'custom') body.cents = amountCents
     // "Refund again" names the refund it repeats and keeps its one token across retries.
     if (again && againOf) body.again = againOf
-    const r = await api<{ cents: number; emailed: boolean; already?: { message: string; askedId?: string; latest: { requestId: string; cents: number } } }>(endpoint, body)
+    const r = await send<{ cents: number; emailed: boolean; already?: { message: string; askedId?: string; latest: { requestId: string; cents: number } } }>(endpoint, body)
     setBusy(false)
     if (!r.ok || !r.data) {
       setError(r.error ?? '')
@@ -206,7 +209,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
     if (!waiting) return
     setBusy(true)
     setError('')
-    const r = await api<{ status: string }>(endpoint, {
+    const r = await send<{ status: string }>(endpoint, {
       action: 'clear-request', classId, bookingId: booking.bookingId, requestId: waiting.requestId, outcome, reason: seen.trim(),
     })
     setBusy(false)

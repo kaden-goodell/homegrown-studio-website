@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { SafeRow } from '../shell/Boundary'
 import type { ArtistApplication } from '@lib/artist-applications'
 import type { ContactMessage } from '@lib/contact-options'
 import {
@@ -12,8 +13,17 @@ type Row = [string, ReactNode]
 const external = (href: string) => (/^https?:\/\//.test(href) ? href : `https://${href}`)
 const link = (text: string, href: string) => <a href={href} target="_blank" rel="noreferrer noopener">{text}</a>
 
-/** A titled group of answers; groups with nothing in them are left out. */
-function Group({ title, rows }: { title: string; rows: Row[] }) {
+/**
+ * A titled group of answers; groups with nothing in them are left out. Rows
+ * can be a function, read while drawing inside the group's own boundary, so
+ * one half-broken part of a record (no "where" on a request) loses only its
+ * group and the person's name, phone and email still show.
+ */
+function Group({ title, rows }: { title: string; rows: Row[] | (() => Row[]) }) {
+  return <SafeRow><GroupInner title={title} rows={rows} /></SafeRow>
+}
+function GroupInner({ title, rows: given }: { title: string; rows: Row[] | (() => Row[]) }) {
+  const rows = typeof given === 'function' ? given() : given
   const shown = rows.filter(([, v]) => v !== '' && v !== null && v !== undefined && v !== false)
   if (!shown.length) return null
   return (
@@ -44,38 +54,38 @@ function Photos({ count, src, alt }: { count: number; src: (n: number) => string
 
 /** Every answer on a private event request, grouped like the form. */
 export function RequestAnswers({ r }: { r: EventRequest }) {
-  const e = r.event, w = r.where, c = r.craft
+  const e = () => r.event, w = () => r.where, c = () => r.craft
   return (
     <>
-      <Group title="The event" rows={[
+      <Group title="The event" rows={() => [
         ['What', kindLabel(r)],
         ['When', dayAndStart(r.event.date, r.event.startTime)],
-        ['Guests', `${e.guests}`],
-        ['Where', label(PLACES, w.place)],
-        ['Backup date', e.backupDate ? dayLabel(e.backupDate) : ''],
-        ['Flexible on the date', e.flexible ? 'Yes' : ''],
-        ['How long', e.length],
+        ['Guests', `${e().guests}`],
+        ['Where', label(PLACES, w().place)],
+        ['Backup date', e().backupDate ? dayLabel(e().backupDate) : ''],
+        ['Flexible on the date', e().flexible ? 'Yes' : ''],
+        ['How long', e().length],
         ['Who’s crafting', crafterLabel(r)],
         ['Prefers', r.about.contactBy ? label(CONTACT_BY, r.about.contactBy) : ''],
       ]} />
-      <Group title="Where" rows={[
-        ['Address', w.address],
-        ['Indoors or outdoors', label(SETTINGS, w.setting)],
-        ['Tables and chairs there', label(YES_NO, w.tables)],
-        ['Sink nearby', label(YES_NO, w.sink)],
-        ['Can set up from', w.setupFrom],
-        ['Getting in', w.access],
+      <Group title="Where" rows={() => [
+        ['Address', w().address],
+        ['Indoors or outdoors', label(SETTINGS, w().setting)],
+        ['Tables and chairs there', label(YES_NO, w().tables)],
+        ['Sink nearby', label(YES_NO, w().sink)],
+        ['Can set up from', w().setupFrom],
+        ['Getting in', w().access],
       ]} />
-      <Group title="The craft" rows={[
-        ['Wants', label(CRAFT_PICKS, c.pick)],
-        ['Their vision', c.vision],
-        ['Theme or colors', c.theme],
-        ['Personalized', c.personalized],
-        ['Inspiration', c.link ? link(c.link, external(c.link)) : ''],
+      <Group title="The craft" rows={() => [
+        ['Wants', label(CRAFT_PICKS, c().pick)],
+        ['Their vision', c().vision],
+        ['Theme or colors', c().theme],
+        ['Personalized', c().personalized],
+        ['Inspiration', c().link ? link(c().link, external(c().link)) : ''],
       ]} />
-      <Photos count={r.photos} src={(n) => `/api/admin/event-request-photo?id=${encodeURIComponent(r.id)}&n=${n}`} alt={(n) => `${r.about.name}, inspiration photo ${n + 1}`} />
-      <Group title="Extras" rows={[...extrasLines(r), ['Food allergies', r.allergies] as Row]} />
-      <Group title="More" rows={[
+      <Photos count={r.photos ?? 0} src={(n) => `/api/admin/event-request-photo?id=${encodeURIComponent(r.id)}&n=${n}`} alt={(n) => `${r.about.name}, inspiration photo ${n + 1}`} />
+      <Group title="Extras" rows={() => [...extrasLines(r), ['Food allergies', r.allergies] as Row]} />
+      <Group title="More" rows={() => [
         ['Budget', label(BUDGETS, r.budget)],
         ['Heard about us', r.about.heard],
         ['Anything else', r.notes],

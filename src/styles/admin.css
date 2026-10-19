@@ -1613,3 +1613,531 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
   display: grid !important;
   gap: 0.5rem;
 }
+
+/* ── 11b-B: class sheet, New class, library ───────────────────────────── */
+/* Plain lists inside panels and sheets. */
+.adm-plain {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+.adm-plain li {
+  overflow-wrap: anywhere;
+}
+.adm-center {
+  text-align: center;
+}
+.adm-selectable {
+  user-select: all;
+  -webkit-user-select: all;
+  overflow-wrap: anywhere;
+  font-weight: 600;
+  color: var(--color-dark);
+}
+/* A field with its own error under it; a hint under the box. */
+.adm-fldwrap {
+  min-width: 0;
+}
+.adm-fldwrap > .adm-fld {
+  margin-bottom: 0.75rem;
+}
+.adm-fldwrap > .adm-fielderr {
+  margin: -0.5rem 0 0.75rem;
+}
+.adm-fielderr {
+  font-size: 0.88rem;
+  margin: 0 0 0.75rem;
+}
+.adm-hint {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  font-weight: 400;
+}
+.adm-fld input[aria-invalid='true'] {
+  border-color: var(--color-error);
+}
+.adm-pricenote {
+  align-self: center;
+  margin: 0 0 0.75rem;
+}
+/* The one date picker: a fieldset per date. */
+.adm-dates {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 0.75rem;
+}
+.adm-date {
+  border: 1px solid var(--adm-line);
+  border-radius: 0.9rem;
+  padding: 0.25rem 0.75rem 0.5rem;
+  margin: 0;
+  min-width: 0;
+  display: grid;
+  gap: 0;
+}
+.adm-date legend {
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-muted);
+  padding: 0 0.3rem;
+}
+.adm-date .adm-fld {
+  margin-bottom: 0.5rem;
+}
+.adm-date .adm-btn.is-sm {
+  justify-self: start;
+}
+.adm-bare {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.adm-bare:disabled {
+  opacity: 0.7;
+}
+/* Photo picker: a thumbnail, then Choose / Change / Remove. */
+.adm-photo {
+  display: grid;
+  grid-template-columns: 6rem minmax(0, 1fr);
+  gap: 0.75rem;
+  align-items: center;
+  margin: 0 0 0.9rem;
+}
+.adm-photo > .adm-fielderr {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.adm-photo-thumb {
+  width: 6rem;
+  aspect-ratio: 4 / 3;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: var(--adm-sand);
+  display: grid;
+  place-items: center;
+  color: var(--color-muted);
+}
+.adm-photo-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.adm-photo-thumb svg {
+  width: 2rem;
+  height: 2rem;
+}
+.adm-photo-side {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+}
+.adm-photo-side b {
+  color: var(--color-dark);
+}
+.adm-photo-btns {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-top: 0.2rem;
+}
+/* More options: a real heading with a button, a chevron that turns. */
+.adm-fold-h {
+  margin: 0.25rem 0 0.5rem;
+  font-size: 1rem;
+}
+.adm-fold {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 2.875rem;
+  padding: 0 0.85rem;
+  border-radius: 0.75rem;
+  border: 1.5px solid var(--adm-line-strong);
+  background: var(--adm-surface);
+  color: var(--color-dark);
+  font-weight: 600;
+  font-size: 0.95rem;
+  text-align: left;
+}
+.adm-fold-sum {
+  flex: 1;
+  min-width: 0;
+  font-weight: 500;
+  font-size: 0.82rem;
+  color: var(--color-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
+}
+/* A CSS chevron: sits on the text's centre line at any size. */
+.adm-chevron {
+  flex: none;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: translateY(-25%) rotate(45deg);
+  transition: transform 0.2s;
+}
+[aria-expanded='true'] > .adm-chevron {
+  transform: translateY(25%) rotate(225deg);
+}
+.adm-more {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0 0 0.75rem;
+}
+.adm-sub {
+  border-top: 1px solid var(--adm-line);
+  padding-top: 0.75rem;
+  margin-top: 0.25rem;
+  display: grid;
+  gap: 0.5rem;
+}
+.adm-sub h4 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-muted);
+}
+.adm-sub .adm-fld {
+  margin-bottom: 0.5rem;
+}
+.adm-sub > .adm-btn.is-sm,
+.adm-pkg > .adm-btn.is-sm,
+.adm-inline > .adm-btn.is-sm {
+  justify-self: start;
+}
+/* One card per way to book: its name, what it includes, a price box per kind of seat. */
+.adm-pkg {
+  display: grid;
+  gap: 0;
+  padding: 0.6rem 0.75rem 0.4rem;
+  border-radius: 0.9rem;
+  background: var(--adm-sand);
+}
+.adm-inline {
+  display: grid;
+  gap: 0.25rem;
+}
+.adm-check {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 2.75rem;
+  color: var(--color-dark);
+}
+.adm-check input {
+  width: 1.375rem;
+  height: 1.375rem;
+  flex: none;
+}
+/* Minimum to run: "Needs [6] by [day] [time]". */
+.adm-min {
+  border: 0;
+  padding: 0;
+  margin: 0.25rem 0 0;
+  min-width: 0;
+}
+.adm-min legend {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-dark);
+  padding: 0;
+  margin-bottom: 0.3rem;
+}
+.adm-minrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--color-dark);
+}
+.adm-minrow input {
+  min-height: 2.875rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.75rem;
+  border: 1.5px solid var(--color-field-border);
+  background: var(--adm-surface);
+  color: var(--color-dark);
+  font-size: 1rem;
+  min-width: 0;
+}
+.adm-minrow input[inputmode='numeric'] {
+  width: 4.5rem;
+}
+.adm-minrow input[type='date'] {
+  flex: 1 1 9rem;
+}
+.adm-minrow input[type='time'] {
+  flex: 1 1 7rem;
+}
+/* Preview: a button, then the real public card. */
+.adm-preview {
+  display: grid;
+  justify-items: end;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+}
+.adm-preview-card {
+  justify-self: stretch;
+  max-width: 22rem;
+  width: 100%;
+  margin: 0 auto 0.5rem;
+}
+/* Footers: one line saying what to fix, then the buttons; a quiet text button. */
+.adm-footline {
+  color: var(--color-error);
+  font-weight: 600;
+  font-size: 0.88rem;
+  text-align: center;
+}
+.adm-quiet {
+  min-height: 2.75rem;
+  border: 0;
+  background: none;
+  color: var(--color-primary);
+  font-weight: 600;
+  font-size: 0.9rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.adm-quiet[disabled] {
+  opacity: 0.5;
+}
+/* Class sheet: per-date seats, booking cards, the red Cancel at the bottom. */
+.adm-perdate {
+  margin: 0 0 0.75rem;
+}
+.adm-perdate li {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: 0.88rem;
+}
+.adm-bkc {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0 0 0.6rem;
+  border-bottom: 1px solid var(--adm-line);
+}
+.adm-bkc .adm-bk {
+  border-bottom: 0;
+  padding-bottom: 0;
+}
+.adm-bkc.is-gone .adm-bk b {
+  color: var(--color-muted);
+}
+.adm-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.9rem;
+}
+.adm-links a {
+  color: var(--color-primary);
+  overflow-wrap: anywhere;
+}
+.adm-warntext {
+  color: var(--k-warn-ink);
+  font-weight: 600;
+}
+.adm-cancelbtn,
+.adm-again {
+  margin-top: 1rem;
+}
+.adm-sheet-body .adm-panel {
+  margin: 0 0 0.75rem;
+}
+/* New class › From a past class: one row per library class. */
+.adm-libpick {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0 0 0.5rem;
+}
+.adm-libc {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  width: 100%;
+  padding: 0.4rem;
+  border-radius: 0.9rem;
+  border: 1.5px solid var(--adm-line);
+  background: var(--adm-surface);
+  text-align: left;
+  color: var(--color-dark);
+}
+.adm-libc[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: rgba(var(--color-primary-rgb), 0.08);
+}
+.adm-libc .adm-rm {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+}
+.adm-libc small {
+  color: var(--color-muted);
+  font-size: 0.8rem;
+}
+.adm-thumb {
+  flex: none;
+  width: 3.5rem;
+  aspect-ratio: 4 / 3;
+  border-radius: 0.5rem;
+  overflow: hidden;
+  background: var(--adm-sand);
+}
+.adm-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+/* Library tiles and the library sheet. */
+.adm-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  gap: 0.6rem;
+  margin: 0 0 0.75rem;
+}
+.adm-tile {
+  display: grid;
+  gap: 0.2rem;
+  align-content: start;
+  padding: 0.45rem 0.45rem 0.6rem;
+  border-radius: 1rem;
+  border: 1px solid var(--adm-line);
+  background: var(--adm-surface);
+  box-shadow: var(--adm-shadow);
+  text-align: left;
+  color: var(--color-dark);
+  min-width: 0;
+  width: 100%;
+}
+.adm-tile b {
+  font-size: 0.92rem;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.adm-tile small {
+  font-size: 0.78rem;
+  color: var(--color-muted);
+}
+.adm-tile.is-gone {
+  opacity: 0.6;
+}
+.adm-tile-img {
+  display: block;
+  aspect-ratio: 4 / 3;
+  border-radius: 0.7rem;
+  overflow: hidden;
+  background: var(--adm-sand);
+  margin-bottom: 0.25rem;
+}
+.adm-tile-img img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.adm-libphoto {
+  aspect-ratio: 4 / 3;
+  max-height: 14rem;
+  width: 100%;
+  border-radius: 1rem;
+  overflow: hidden;
+  background: var(--adm-sand);
+  display: grid;
+  place-items: center;
+  margin: 0 0 0.75rem;
+}
+.adm-libphoto img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.adm-versionsbtn {
+  margin: 0.75rem 0 0.25rem;
+}
+.adm-row.is-gone b {
+  color: var(--color-muted);
+  text-decoration: line-through;
+}
+.adm-fold-group {
+  margin-top: 1rem;
+}
+.adm-fold-group summary {
+  min-height: 2.75rem;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+  color: var(--color-muted);
+  cursor: pointer;
+}
+
+/* ── 11b-B: carried polish from 11b-A ─────────────────────────────────── */
+/* Call and Email stay the same height: the address is one line (the link carries all of it). */
+.adm-contactcol {
+  align-content: start;
+}
+.adm-addr {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  overflow-wrap: normal;
+}
+/* Month: the open day is filled; today keeps its ring, so the two never look alike. */
+.adm-mday.is-active {
+  outline: none;
+  background: rgba(var(--color-primary-rgb), 0.16);
+}
+/* Inbox segments beside a panel: whole labels, scrolling sideways rather than clipping. */
+.adm-seg.is-scroll {
+  overflow-x: auto;
+  scroll-snap-type: x proximity;
+  scrollbar-width: none;
+}
+.adm-seg.is-scroll::-webkit-scrollbar {
+  display: none;
+}
+.adm-seg.is-scroll button {
+  flex: 1 0 auto;
+  overflow: visible;
+  text-overflow: clip;
+  scroll-snap-align: start;
+  padding: 0 0.6rem;
+}
+.adm-segn {
+  display: inline-block;
+  min-width: 1.2rem;
+  margin-left: 0.25rem;
+  padding: 0 0.3rem;
+  border-radius: 999px;
+  background: rgba(var(--color-primary-rgb), 0.12);
+  font-size: 0.72rem;
+  line-height: 1.2rem;
+}
+/* The fold pill's chevron: the same CSS chevron as More options, on the text's centre line. */
+.adm-foldpill .adm-chevron {
+  width: 0.4rem;
+  height: 0.4rem;
+}
+/* A hint under its box: close to it, then the usual space. */
+.adm-fld.has-hint {
+  margin-bottom: 0.25rem;
+}
+.adm-fldwrap > .adm-hint {
+  display: block;
+  margin: 0 0 0.75rem;
+}

@@ -49,11 +49,13 @@ export function DaySheet({ day }: { day: string }) {
   const { open } = useSheet()
   const { items, error, retry } = useCalendar(day, addDays(day, 1))
   const list = items ?? []
+  // The closure itself is not "a thing on": the count and Print skip it.
+  const things = list.filter((i) => i.kind !== 'closed')
   const closure = closureOn(day)
   const shut = !!closure || !OPEN_WEEKDAYS.has(weekday(day))
   const weekdayName = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long' })
   return (
-    <SheetFrame title={dayLabel(day)} subtitle={items && list.length ? (list.length === 1 ? '1 thing on' : `${list.length} things on`) : undefined}>
+    <SheetFrame title={dayLabel(day)} subtitle={items && things.length ? (things.length === 1 ? '1 thing on' : `${things.length} things on`) : undefined}>
       {error && <Failed message={error} onRetry={retry} />}
       {!error && !items && <Skeleton rows={2} label="Loading the day" />}
       {items && list.map((i) => <ItemRow key={itemKey(i)} item={i} onOpen={() => open(sheetOf(i, day), i)} />)}
@@ -69,7 +71,7 @@ export function DaySheet({ day }: { day: string }) {
           ? <p className="adm-small adm-muted" style={{ textAlign: 'center' }}>{closure ? 'Parties can’t be booked on closed days.' : `Parties can’t be booked on ${weekdayName}s.`}</p>
           : <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'book-party', day })}>+ Book a party on this day</button>}
         <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'block', day })}>Block time on this day</button>
-        <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'print', day })}>Print this day</button>
+        {!(shut && items && !things.length) && <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'print', day })}>Print this day</button>}
       </div>
     </SheetFrame>
   )

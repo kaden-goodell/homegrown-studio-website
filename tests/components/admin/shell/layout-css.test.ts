@@ -64,4 +64,23 @@ describe('admin.css', () => {
     expect(css).toMatch(/\.adm-main \.adm-seg\.is-wrap button \{\s*flex: 1 1 0;/)
     expect(css).not.toMatch(/^\s*\.adm-seg\.is-wrap button \{\s*flex: 1 1 0;/m)
   })
+
+  it('11b-B: Call and Email are the same height: the column starts at the top and the address is one line with an ellipsis', () => {
+    expect(blocks('.adm-contactcol').join('\n')).toContain('align-content: start')
+    const addr = blocks('.adm-addr').join('\n')
+    expect(addr).toContain('white-space: nowrap')
+    expect(addr).toContain('text-overflow: ellipsis')
+  })
+
+  it('11b-B: in the month, the open day is filled and today keeps its ring, so they never look alike', () => {
+    const active = blocks('.adm-mday.is-active')
+    expect(active[active.length - 1]).toMatch(/outline: none;[\s\S]*background:/)
+    expect(blocks('.adm-mday.is-today').join('\n')).toContain('border: 2px solid var(--color-primary)')
+  })
+
+  it('11b-B: the fold pill uses the CSS chevron, not a character that sits off the baseline', () => {
+    const view = readFileSync('src/components/admin/classes/CalendarView.tsx', 'utf8')
+    expect(view).not.toContain('⌄')
+    expect(view).toContain('adm-chevron')
+  })
 })

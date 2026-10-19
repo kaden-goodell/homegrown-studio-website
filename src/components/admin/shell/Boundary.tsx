@@ -4,8 +4,19 @@ import { Component, type ReactNode } from 'react'
  * One part of /admin that failed to draw (a bad stored record, a bug) says so
  * with Try again, and the rest keeps working. One per tab and one per sheet.
  */
-export class Boundary extends Component<{ children: ReactNode; fallback?: (retry: () => void) => ReactNode; name: string; onRetry?: () => void }, { failed: boolean }> {
+export class Boundary extends Component<{
+  children: ReactNode
+  fallback?: (retry: () => void) => ReactNode
+  name: string
+  onRetry?: () => void
+  /** When any of these change (fresh data arrived after Try again), draw again. */
+  resetKeys?: unknown[]
+}, { failed: boolean }> {
   state = { failed: false }
+  componentDidUpdate(prev: { resetKeys?: unknown[] }) {
+    const a = prev.resetKeys ?? [], b = this.props.resetKeys ?? []
+    if (this.state.failed && (a.length !== b.length || a.some((x, i) => x !== b[i]))) this.setState({ failed: false })
+  }
   static getDerivedStateFromError() {
     return { failed: true }
   }

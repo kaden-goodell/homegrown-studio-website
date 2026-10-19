@@ -19,7 +19,10 @@ import { ToastHost } from './shell/Toast'
 import { useWide } from './shell/useWide'
 import { rememberedOwner, rememberOwner } from './shell/who'
 import { BlockedSheet, CafeSheet, ClosedSheet, DaySheet, LegacySheet, PartySheet } from './sheets/CalendarSheets'
-import { BlockSheet, ClassSheet, EditClassSheet, LibraryEditSheet, LibraryScheduleSheet, NewClassSheet, PrintSheet } from './sheets/ClassSheets'
+import { BlockSheet, PrintSheet } from './sheets/ClassSheets'
+import { ClassSheet, EditClassSheet } from './sheets/ClassSheet'
+import { LibraryEditSheet, LibraryItemSheet } from './sheets/LibrarySheets'
+import { NewClassSheet, RunAgainSheet, ScheduleFromLibrarySheet } from './sheets/NewClassSheet'
 import {
   BookPartySheet, ClosedDaysSheet, ComingSheet, HoursSheet, PartiesSetupSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet,
 } from './sheets/MoreSheets'
@@ -379,6 +382,9 @@ function Shell({ who, onSignedOut }: { who: Owner; onSignedOut: () => void }) {
               <Boundary
                 key={open.n}
                 name="sheet"
+                // Try again loads the item again: drawing the same bad record would only fail again.
+                onRetry={() => { refresh.bump(); inbox.retryAll() }}
+                resetKeys={[refresh.version, inbox.request.items, inbox.message.items, inbox.teacher.items, inbox.todo.items]}
                 fallback={(retry) => <SheetFrame title="Something went wrong"><Crashed onRetry={retry} /></SheetFrame>}
               >
                 <SheetContent sheet={open.sheet} />
@@ -397,9 +403,10 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
     case 'class': return <ClassSheet id={s.id} />
     case 'edit': return <EditClassSheet id={s.id} />
     case 'new': return <NewClassSheet day={s.day} />
-    case 'libnew': return <LibraryEditSheet />
+    case 'again': return <RunAgainSheet id={s.id} />
+    case 'lib': return <LibraryItemSheet id={s.id} />
     case 'libedit': return <LibraryEditSheet id={s.id} />
-    case 'libsched': return <LibraryScheduleSheet id={s.id} />
+    case 'libsched': return <ScheduleFromLibrarySheet id={s.id} />
     case 'block': return <BlockSheet day={s.day} />
     case 'print': return <PrintSheet day={s.day} />
     case 'day': return <DaySheet day={s.day} />

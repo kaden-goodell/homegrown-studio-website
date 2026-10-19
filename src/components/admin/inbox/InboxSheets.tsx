@@ -53,6 +53,15 @@ export function InboxItemSheet({ kind, id }: { kind: InboxKind; id: string }) {
         options={d.statuses as [string, string][]}
         onChange={(s) => inbox.setStatus(kind, id, s, d.statuses.find(([v]) => v === s)?.[1] ?? s)}
       />
+      {(d.phone || d.email) && (
+        <section aria-label="How to reach them">
+          <h3 className="adm-group-h">How to reach them</h3>
+          <dl className="adm-ans">
+            {d.phone && <div><dt>Phone</dt><dd className="adm-selectable">{d.phone}</dd></div>}
+            {d.email && <div><dt>Email</dt><dd className="adm-selectable">{d.email}</dd></div>}
+          </dl>
+        </section>
+      )}
       {kind === 'request' && <RequestAnswers r={item as EventRequest} />}
       {kind === 'message' && <MessageAnswers m={item as ContactMessage} />}
       {kind === 'teacher' && <TeacherAnswers a={item as ArtistApplication} />}

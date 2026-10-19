@@ -119,7 +119,7 @@ export default function CalendarView({ initialDay, onOpen }: {
               aria-expanded={unfold}
               onClick={() => setUnfoldWeek(unfold ? null : days[0])}
             >
-              {unfold ? `Hide ${span}` : `Show ${span}`} <span aria-hidden="true">⌄</span>
+              {unfold ? `Hide ${span}` : `Show ${span}`} <i className="adm-chevron" aria-hidden="true" />
             </button>
           </div>,
         )
@@ -233,7 +233,8 @@ export default function CalendarView({ initialDay, onOpen }: {
                   onClick={() => openDay(d)}
                 >
                   <span>{Number(d.slice(8))}</span>
-                  {closure && <span className="adm-hname" aria-hidden="true">{closureShort(closure)}</span>}
+                  {/* Small cells (phone, beside a panel) say "Closed"; the colour says which holiday and the name is in the label and the sheet. */}
+                  {closure && <span className="adm-hname" aria-hidden="true">{monthChips ? closureShort(closure) : 'Closed'}</span>}
                   {shown.length > 0 && !wide && <span className="adm-n" aria-hidden="true">{shown.length}</span>}
                   {shown.length > 0 && wide && !monthChips && (
                     <span className="adm-dots" aria-hidden="true">

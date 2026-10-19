@@ -6,6 +6,7 @@ import type { ToDecideItem } from '@pages/api/admin/to-decide.json'
 import { api, APPLICATIONS, MESSAGES, REQUESTS, TO_DECIDE } from '../classes/api'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
 import type { InboxKind } from '../shell/router'
+import { describeItem } from './describe'
 
 export interface Source<T> {
   items: T[] | null
@@ -38,6 +39,16 @@ export function useInbox(): InboxApi {
   const v = useContext(InboxContext)
   if (!v) throw new Error('useInbox outside InboxProvider')
   return v
+}
+
+/** A record the list can show (a bad stored one shows "One item couldn't be shown" and isn't counted). */
+function readable(kind: InboxKind, x: InboxItem): boolean {
+  try {
+    describeItem(kind, x)
+    return true
+  } catch {
+    return false
+  }
 }
 
 /** One list that loads on its own, with its own error and Try again. */
@@ -110,11 +121,11 @@ export function InboxProvider({ children }: { children: ReactNode }) {
     })
   }, [toast, send])
 
-  const fresh = (list: { status: string }[] | null) => (list ?? []).filter((x) => x.status === 'new').length
+  const fresh = (kind: InboxKind, list: InboxItem[] | null) => (list ?? []).filter((x) => x.status === 'new' && readable(kind, x)).length
   const counts = {
-    request: fresh(request.items),
-    message: fresh(message.items),
-    teacher: fresh(teacher.items),
+    request: fresh('request', request.items),
+    message: fresh('message', message.items),
+    teacher: fresh('teacher', teacher.items),
     todo: (todo.items ?? []).filter((t) => !t.done).length,
   }
   const value: InboxApi = {
