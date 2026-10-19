@@ -81,6 +81,9 @@ const WEBHOOK_EVENTS = [
   'payment.updated',
   'order.created',
   'order.updated',
+  // Our own classes: refunds made in Square reach the seat list
+  'refund.created',
+  'refund.updated',
 ]
 
 async function setupWebhooks() {

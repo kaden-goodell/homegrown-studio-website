@@ -60,15 +60,33 @@ npx tsx scripts/setup-square.ts
 # Production
 SQUARE_ACCESS_TOKEN=your_production_token \
 SQUARE_ENVIRONMENT=production \
-SQUARE_WEBHOOK_URL=https://homegrowncraftstudio.com/api/webhooks/square.json \
+SQUARE_WEBHOOK_URL=https://ourhometownstudio.com/api/webhooks/square.json \
 npx tsx scripts/setup-square.ts
 ```
 
 The script will:
 - Create 5 booking custom attribute definitions (event_type, guest_count, add_ons, order_id, special_requests)
-- Create a webhook subscription for booking and payment events
+- Create a webhook subscription for booking, order, payment and refund events
 - Validate that expected catalog categories exist
 - Print a summary of what was created, skipped, or warned about
+
+### Webhook subscription (own classes)
+
+The site needs Square's webhooks so counter (POS) sales and refunds made in
+Square reach our class seat list. In the Square Developer Dashboard >
+Webhooks, the subscription must have:
+
+- **URL:** `https://ourhometownstudio.com/api/webhooks/square.json`
+  (the old `homegrowncraftstudio.com` domain redirects, and Square does not
+  follow a redirect on a webhook)
+- **Events:** `order.updated`, `payment.updated`, `refund.created`, `refund.updated`
+
+Then copy its signature key into `SQUARE_WEBHOOK_SIGNATURE_KEY` and the same
+URL into `SQUARE_WEBHOOK_URL` (below). Without the key every webhook is
+refused (500); with a different URL every signature check fails (403). A
+nightly catch-up (3 AM) also picks up sales and refunds from the last 48
+hours; an owner signed in to /admin can run it now with a POST to
+`/api/jobs/reconcile-classes.json?force=1`.
 
 ## 5. Configure Environment Variables
 
@@ -81,7 +99,9 @@ Set these in **Site configuration > Environment variables**:
 | `SQUARE_ACCESS_TOKEN` | Your Square API access token |
 | `SQUARE_ENVIRONMENT` | `production` |
 | `SQUARE_WEBHOOK_SIGNATURE_KEY` | From Square Developer Dashboard > Webhooks |
-| `SQUARE_WEBHOOK_URL` | `https://homegrowncraftstudio.com/api/webhooks/square.json` |
+| `SQUARE_WEBHOOK_URL` | `https://ourhometownstudio.com/api/webhooks/square.json` (exactly; the old domain redirects and Square won't follow a redirect) |
+| `SQUARE_CLASSES_CATEGORY_ID` | The Square category our class items go in |
+| `SQUARE_CLASS_TAX_ID` | The Square tax for taxable classes (without it a taxable class stays off the POS) |
 | `SLACK_WEBHOOK_URL` | Slack incoming webhook URL for notifications |
 
 ### Local Development (.env)
