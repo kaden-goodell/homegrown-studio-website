@@ -13,8 +13,8 @@
  *
  * Our own classes (stage 1): families come from the seat ledger, every line
  * that still holds a seat (confirmed, or refunded with the seat kept) on a
- * session later today. A class that meets on several days gets its reminder
- * on each of those days. A counter sale with no name yet has no one to
+ * session later today (every sitting, when a class meets twice in a day). A
+ * class that meets on several days gets its reminder on each of those days. A counter sale with no name yet has no one to
  * contact and is skipped.
  *
  * Signed: any one of (a) a signature made for this very booking (the waiver
@@ -77,7 +77,13 @@ export interface ReminderPlan {
   notes?: string[]
 }
 
-const familyKey = (r: SeatChoiceRecord) => r.customer.email.trim().toLowerCase() || `phone:${r.customer.phone.replace(/\D/g, '').slice(-10)}`
+/** Email, else phone, else the booking itself: two people with neither are never merged into one. */
+const familyKey = (r: Pick<SeatChoiceRecord, 'customer' | 'bookingId'>) => {
+  const email = r.customer.email.trim().toLowerCase()
+  if (email) return email
+  const phone = r.customer.phone.replace(/\D/g, '').slice(-10)
+  return phone ? `phone:${phone}` : `booking:${r.bookingId}`
+}
 
 /** Is this record's seat still booked in Square, for this class at this time? */
 async function stillBooked(r: SeatChoiceRecord, w: Workshop): Promise<boolean> {
@@ -119,25 +125,29 @@ interface OwnBooking {
 }
 
 /**
- * Bookings on our own classes with a session later today: one per booking,
- * from the ledger lines that still hold a seat on that session. Lines with no
- * name (a counter sale not yet named) are skipped: there is no one to contact.
- * Throws when the classes or a ledger can't be read.
+ * Bookings on our own classes with a session later today: one per booking per
+ * session (a class can sit twice in a day), from the ledger lines that still
+ * hold a seat on it. Lines with no name (a counter sale not yet named) are
+ * skipped: there is no one to contact. Throws when the classes or a ledger
+ * can't be read.
  */
 async function ownClassBookingsToday(day: string, now: Date): Promise<OwnBooking[]> {
   const { startIso, endIso } = studioDayUtcRange(day)
   const classes = (await listClasses({ fromIso: startIso, toIso: endIso })).filter(onStaffConsole)
   const out: OwnBooking[] = []
   for (const cls of classes) {
-    const session = sessionsOn(cls, day).find((x) => Date.parse(x.startIso) > now.getTime())
-    if (!session) continue
+    const later = sessionsOn(cls, day).filter((x) => Date.parse(x.startIso) > now.getTime())
+    if (!later.length) continue
     const ledger = await getLedger(cls.id)
     const seen = new Set<string>()
-    for (const l of ledger.lines) {
-      if (!holdsSeat(l) || !l.sessionIds.includes(session.id) || !l.customer) continue
-      if (seen.has(l.bookingId)) continue
-      seen.add(l.bookingId)
-      out.push({ bookingId: l.bookingId, customer: l.customer, cls: { scheduleId: cls.id, name: cls.content.name, startAt: session.startIso, bookingId: l.bookingId } })
+    for (const session of later) {
+      for (const l of ledger.lines) {
+        if (!holdsSeat(l) || !l.sessionIds.includes(session.id) || !l.customer) continue
+        const k = `${l.bookingId}|${session.id}`
+        if (seen.has(k)) continue
+        seen.add(k)
+        out.push({ bookingId: l.bookingId, customer: l.customer, cls: { scheduleId: cls.id, name: cls.content.name, startAt: session.startIso, bookingId: l.bookingId } })
+      }
     }
   }
   return out.sort((a, b) => Date.parse(a.cls.startAt) - Date.parse(b.cls.startAt))
@@ -151,8 +161,8 @@ export async function planWaiverReminders(now: Date): Promise<ReminderPlan> {
 
   type Seen = Family & { states: string[]; whys: string[] }
   const families = new Map<string, Seen>()
-  const familyOf = (r: Pick<SeatChoiceRecord, 'customer'>): Seen => {
-    const key = familyKey(r as SeatChoiceRecord)
+  const familyOf = (r: Pick<SeatChoiceRecord, 'customer' | 'bookingId'>): Seen => {
+    const key = familyKey(r)
     const f: Seen = families.get(key) ?? {
       key,
       givenName: r.customer.givenName,

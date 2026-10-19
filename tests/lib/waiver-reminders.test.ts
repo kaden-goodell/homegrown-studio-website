@@ -410,6 +410,55 @@ describe('our own classes', () => {
     expect(classList(plan.remind[0].classes)).toBe('Bedazzled Pumpkin Pails at 1 PM and Wheel Pottery at 2 PM')
   })
 
+  it('a class that sits twice today reminds the families of both sittings, and the summary lists them all', async () => {
+    const twice = {
+      ...POTTERY,
+      sessions: [
+        { id: 'am', startIso: '2026-10-18T15:00:00.000Z', endIso: '2026-10-18T17:00:00.000Z', capacity: 8 },
+        { id: 'pm', startIso: '2026-10-18T19:00:00.000Z', endIso: '2026-10-18T21:00:00.000Z', capacity: 8 },
+      ],
+    }
+    const a = line({ sessionIds: ['am'] })
+    const b = line({ sessionIds: ['pm'] })
+    withLines([a, b], twice)
+    const run = await runWaiverReminders(NOW, 'https://example.com')
+    expect(run.sent.map((x) => [x.family.email, x.family.classes[0].startAt])).toEqual([
+      [a.customer!.email, '2026-10-18T15:00:00.000Z'],
+      [b.customer!.email, '2026-10-18T19:00:00.000Z'],
+    ])
+    const summary = ownerSummary(run.plan, run.sent)!.text
+    expect(summary).toContain('Wheel Pottery at 10 AM')
+    expect(summary).toContain('Wheel Pottery at 2 PM')
+  })
+
+  it('two named seats with no email or phone stay two entries for the owners, never merged', async () => {
+    withLines([
+      line({ customer: { givenName: 'Ann', familyName: 'One', email: '', phone: '' } }),
+      line({ customer: { givenName: 'Bea', familyName: 'Two', email: '', phone: '' } }),
+    ])
+    const plan = await planWaiverReminders(NOW)
+    expect(plan.unsure.map((f) => [f.givenName, f.why])).toEqual([['Ann', 'no email or phone to reach them'], ['Bea', 'no email or phone to reach them']])
+  })
+
+  it('Sun Nov 1 (clocks go back): 9 AM CST is the run, and today is studio time', async () => {
+    const nov1 = new Date('2026-11-01T15:00:00.000Z') // 9 AM CST
+    const dst = {
+      ...POTTERY,
+      sessions: [
+        { id: 'aft', startIso: '2026-11-01T19:00:00.000Z', endIso: '2026-11-01T21:00:00.000Z', capacity: 8 },
+        { id: 'eve', startIso: '2026-11-02T00:30:00.000Z', endIso: '2026-11-02T02:00:00.000Z', capacity: 8 },
+        { id: 'mon', startIso: '2026-11-02T06:30:00.000Z', endIso: '2026-11-02T08:00:00.000Z', capacity: 8 },
+      ],
+    }
+    const a = line({ sessionIds: ['aft'] }); const b = line({ sessionIds: ['eve'] }); const c = line({ sessionIds: ['mon'] })
+    withLines([a, b, c], dst)
+    const plan = await planWaiverReminders(nov1)
+    expect(plan.day).toBe('2026-11-01')
+    expect(plan.remind.map((f) => f.email)).toEqual([a.customer!.email, b.customer!.email])
+    expect(shortTime('2026-11-01T19:00:00.000Z')).toBe('1 PM')
+    expect(shortTime('2026-11-02T00:30:00.000Z')).toBe('6:30 PM')
+  })
+
   it('our classes unreadable: Square’s classes still go, and the owners are told to check by hand', async () => {
     own.fail = true
     mockWorkshops.mockResolvedValue([PAILS])
