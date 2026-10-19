@@ -68,6 +68,10 @@ export function parseSetEventArgs(argv: string[]): SetEventArgs | { error: strin
   const ticketArgs = argv.flatMap((a, i) => (a === '--ticket' && argv[i + 1] !== undefined ? [argv[i + 1]] : []))
   if (ticketArgs.length > 0 || has('no-tickets')) {
     if (kind !== 'workshop') return { error: 'Ticket types are for classes (--workshop) only.' }
+    // Square classes charge their own price whatever the held order says (live
+    // test 18 Oct 2026: a $1 Kid seat was authorized at $5.45, then voided), so
+    // ticket types can't be switched on until classes leave Square's class API.
+    if (!has('no-tickets')) return { error: 'Ticket types are switched off: Square charges the class price for every seat. Use one price per person.' }
     if (has('no-tickets')) patch.tickets = null
     else {
       // "Kid=15:min=1" → label Kid, $15, at least 1. The first has no price: it is the class's own.

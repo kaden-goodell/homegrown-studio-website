@@ -49,12 +49,9 @@ describe('parseSetEventArgs', () => {
     expect(parseSetEventArgs(['--party', 'bk_1', '--made-to-order'])).toEqual({ error: 'Made to order is for classes (--workshop) only.' })
   })
 
-  it('--ticket sets ticket types; the first is the class price', () => {
-    expect(parseSetEventArgs(['--workshop', 'c', '--ticket', 'Adult:min=1', '--ticket', 'Kid=15:min=1'])).toMatchObject({
-      patch: { tickets: [{ id: 'adult', label: 'Adult', priceCents: null, min: 1 }, { id: 'kid', label: 'Kid', priceCents: 1500, min: 1 }] },
-    })
+  it('--ticket is switched off (Square charges the class price); --no-tickets still clears', () => {
+    expect(parseSetEventArgs(['--workshop', 'c', '--ticket', 'Adult:min=1', '--ticket', 'Kid=15:min=1'])).toEqual({ error: 'Ticket types are switched off: Square charges the class price for every seat. Use one price per person.' })
     expect(parseSetEventArgs(['--workshop', 'c', '--no-tickets'])).toMatchObject({ patch: { tickets: null } })
-    expect(parseSetEventArgs(['--workshop', 'c', '--ticket', 'Adult'])).toEqual({ error: 'Ticket types come in 2 to 4, or none.' })
     expect(parseSetEventArgs(['--party', 'b', '--ticket', 'Adult', '--ticket', 'Kid=15'])).toEqual({ error: 'Ticket types are for classes (--workshop) only.' })
   })
 
