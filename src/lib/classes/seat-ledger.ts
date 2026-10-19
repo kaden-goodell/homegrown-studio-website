@@ -32,6 +32,8 @@ export interface LedgerLine {
   by: By | null
   refunds: { at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null }[]
   at: string
+  /** set by confirm when a paid seat landed on a session already full (the hold had run out and the seat was taken) */
+  overCapacity?: boolean
 }
 export interface Ledger { classId: string; lines: LedgerLine[] }
 
@@ -106,6 +108,43 @@ async function mutate<T>(classId: string, fn: (cur: Ledger) => { next: Ledger | 
   })
 }
 
+/** One held (or, with expires null, confirmed) line per seat in the quote; add-on lines folded into their seat. */
+function buildLines(q: Quote, input: HoldInput, now: Date, expires: string | null): LedgerLine[] {
+  return q.lines.filter((l) => l.kind === 'seat').map((sl) => {
+    const addOns: Record<string, number> = {}
+    let addOnCents = 0, addOnTaxCents = 0
+    for (const al of q.lines) {
+      if (al.kind !== 'addon' || al.seat !== sl.seat) continue
+      const addId = (al.variationKey ?? '').replace(/^addon:/, '')
+      addOns[addId] = (addOns[addId] ?? 0) + 1
+      addOnCents += al.cents
+      addOnTaxCents += al.taxCents
+    }
+    return {
+      id: newId('led'),
+      bookingId: input.bookingId,
+      sessionIds: [...q.sessionIds],
+      ticketTypeId: sl.ticketTypeId,
+      passId: input.passId,
+      seat: sl.seat + 1,
+      priceCents: sl.cents,
+      taxCents: sl.taxCents,
+      addOns,
+      addOnCents,
+      addOnTaxCents,
+      answers: { ...(input.seats?.[sl.seat]?.answers ?? {}) },
+      source: input.source,
+      state: 'held',
+      holdExpiresAt: expires,
+      customer: input.customer,
+      square: { orderId: null, paymentId: null, lineUid: null },
+      by: input.by ?? null,
+      refunds: [],
+      at: now.toISOString(),
+    }
+  })
+}
+
 export async function hold(cls: ScheduledClass, q: Quote, input: HoldInput, now: Date): Promise<HoldResult> {
   const sessions = q.sessionIds.map((id) => {
     const s = cls.sessions.find((x) => x.id === id)
@@ -128,54 +167,50 @@ export async function hold(cls: ScheduledClass, q: Quote, input: HoldInput, now:
         if (left < q.seats) return { next: null, result: { ok: false, reason: 'sold_out', sessionId: s.id, left: Math.max(0, left) } }
       }
     }
-    const at = now.toISOString()
-    const expires = new Date(now.getTime() + input.ttlMinutes * 60_000).toISOString()
-    const lines: LedgerLine[] = seatLines.map((sl) => {
-      const addOns: Record<string, number> = {}
-      let addOnCents = 0, addOnTaxCents = 0
-      for (const al of q.lines) {
-        if (al.kind !== 'addon' || al.seat !== sl.seat) continue
-        const addId = (al.variationKey ?? '').replace(/^addon:/, '')
-        addOns[addId] = (addOns[addId] ?? 0) + 1
-        addOnCents += al.cents
-        addOnTaxCents += al.taxCents
-      }
-      return {
-        id: newId('led'),
-        bookingId: input.bookingId,
-        sessionIds: [...q.sessionIds],
-        ticketTypeId: sl.ticketTypeId,
-        passId: input.passId,
-        seat: sl.seat + 1,
-        priceCents: sl.cents,
-        taxCents: sl.taxCents,
-        addOns,
-        addOnCents,
-        addOnTaxCents,
-        answers: { ...(input.seats?.[sl.seat]?.answers ?? {}) },
-        source: input.source,
-        state: 'held',
-        holdExpiresAt: expires,
-        customer: input.customer,
-        square: { orderId: null, paymentId: null, lineUid: null },
-        by: input.by ?? null,
-        refunds: [],
-        at,
-      }
-    })
+    const lines = buildLines(q, input, now, new Date(now.getTime() + input.ttlMinutes * 60_000).toISOString())
     return { next: { classId: cls.id, lines: [...kept, ...lines] }, result: { ok: true, lines } }
   })
 }
 
-/** Held → confirmed for a booking. Already-confirmed lines are returned unchanged (safe to retry). */
-export async function confirm(classId: string, bookingId: string, square: { orderId: string; paymentId: string | null }): Promise<LedgerLine[]> {
+/**
+ * Held → confirmed for a booking. Called only after Square has taken the
+ * money, so it never refuses a paid booking: if the hold ran out, was swept or
+ * was released, the seats are written again from `fallback` (capacity
+ * ignored). Any confirmed seat on a session now over capacity is marked
+ * `overCapacity` for staff to sort out. Already-confirmed bookings are
+ * returned unchanged (safe to retry).
+ */
+export async function confirm(
+  classId: string,
+  bookingId: string,
+  square: { orderId: string; paymentId: string | null },
+  fallback: { cls: ScheduledClass; quote: Quote; input: HoldInput },
+  now: Date,
+): Promise<LedgerLine[]> {
   return mutate(classId, (cur) => {
     const mine = cur.lines.filter((l) => l.bookingId === bookingId && (l.state === 'held' || l.state === 'confirmed'))
-    if (!mine.length) throw new Error('That booking has no seats on hold any more.')
-    if (mine.every((l) => l.state === 'confirmed')) return { next: null, result: mine }
-    const lines = cur.lines.map((l) =>
-      l.bookingId === bookingId && l.state === 'held'
-        ? { ...l, state: 'confirmed' as const, holdExpiresAt: null, square: { ...l.square, orderId: square.orderId, paymentId: square.paymentId } }
+    if (mine.length && mine.every((l) => l.state === 'confirmed')) return { next: null, result: mine }
+    const sq = (l: LedgerLine) => ({ ...l.square, orderId: square.orderId, paymentId: square.paymentId })
+    let lines: LedgerLine[]
+    if (mine.length) {
+      // Convert this booking's holds (even expired, unswept ones); sweep everyone else's expired holds.
+      lines = cur.lines
+        .filter((l) => l.bookingId === bookingId || !isExpiredHold(l, now))
+        .map((l) => (l.bookingId === bookingId && l.state === 'held'
+          ? { ...l, state: 'confirmed' as const, holdExpiresAt: null, square: sq(l) }
+          : l))
+    } else {
+      const fresh = buildLines(fallback.quote, { ...fallback.input, bookingId }, now, null)
+        .map((l) => ({ ...l, state: 'confirmed' as const, square: sq(l) }))
+      lines = [...cur.lines.filter((l) => !isExpiredHold(l, now)), ...fresh]
+    }
+    const after: Ledger = { ...cur, lines }
+    const over = new Set(
+      fallback.cls.sessions.filter((s) => seatsTaken(after, s.id, now) > s.capacity).map((s) => s.id),
+    )
+    lines = lines.map((l) =>
+      l.bookingId === bookingId && l.state === 'confirmed' && !l.overCapacity && l.sessionIds.some((id) => over.has(id))
+        ? { ...l, overCapacity: true }
         : l,
     )
     return { next: { ...cur, lines }, result: lines.filter((l) => l.bookingId === bookingId && l.state === 'confirmed') }

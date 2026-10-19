@@ -68,6 +68,8 @@ let b = 0
 const input = (o: Record<string, unknown> = {}) => ({
   bookingId: `bkg_t${++b}`, passId: 'all', source: 'online' as const, customer: cust, ttlMinutes: 10, ...o,
 })
+const fb = (cls: ScheduledClass, r: Partial<BookingRequest> = {}, o: Record<string, unknown> = {}) =>
+  ({ cls, quote: q(cls, r), input: input(o) })
 const later = (min: number) => new Date(NOW.getTime() + min * 60_000)
 
 beforeEach(() => { hook.key = null; hook.compete = null; hook.loseAll = 0 })
@@ -180,7 +182,7 @@ describe('seat ledger', () => {
   it('confirm moves held to confirmed, clears expiry, records Square, and is idempotent', async () => {
     const cls = make(2)
     await hold(cls, q(cls, { tickets: { person: 2 } }), input({ bookingId: 'bkg_c' }), NOW)
-    const lines = await confirm(cls.id, 'bkg_c', { orderId: 'ord_1', paymentId: 'pay_1' })
+    const lines = await confirm(cls.id, 'bkg_c', { orderId: 'ord_1', paymentId: 'pay_1' }, fb(cls, { tickets: { person: 2 } }), NOW)
     expect(lines).toHaveLength(2)
     for (const l of lines) {
       expect(l.state).toBe('confirmed')
@@ -189,20 +191,85 @@ describe('seat ledger', () => {
     }
     // still counts long after the hold would have expired
     expect(seatsTaken(await getLedger(cls.id), 'ses_a', later(600))).toBe(2)
-    const again = await confirm(cls.id, 'bkg_c', { orderId: 'ord_1', paymentId: 'pay_1' })
+    const again = await confirm(cls.id, 'bkg_c', { orderId: 'ord_1', paymentId: 'pay_1' }, fb(cls, { tickets: { person: 2 } }), NOW)
     expect(again).toEqual(lines)
   })
 
-  it('confirm of an unknown booking throws a plain sentence', async () => {
+  it('confirm after the hold expired and was swept re-creates the seats as confirmed', async () => {
+    const cls = make(3)
+    const f = fb(cls, { tickets: { person: 2 } }, { bookingId: 'bkg_late' })
+    await hold(cls, f.quote, f.input, NOW)
+    await hold(cls, q(cls, { passId: 'day', sessionIds: ['ses_b'] }), input({ passId: 'day' }), later(30)) // sweeps bkg_late
+    expect((await getLedger(cls.id)).lines.some((l) => l.bookingId === 'bkg_late')).toBe(false)
+    const lines = await confirm(cls.id, 'bkg_late', { orderId: 'ord_l', paymentId: 'pay_l' }, f, later(31))
+    expect(lines).toHaveLength(2)
+    for (const l of lines) {
+      expect(l).toMatchObject({ bookingId: 'bkg_late', state: 'confirmed', holdExpiresAt: null, priceCents: 3000, customer: cust })
+      expect(l.square).toMatchObject({ orderId: 'ord_l', paymentId: 'pay_l' })
+      expect(l.overCapacity).toBeUndefined()
+    }
+    expect(lines.map((l) => l.seat)).toEqual([1, 2])
+    const led = await getLedger(cls.id)
+    expect(seatsTaken(led, 'ses_a', later(31))).toBe(2)
+    expect(seatsTaken(led, 'ses_b', later(31))).toBe(3) // full, not over
+  })
+
+  it('confirm when the seat was taken meanwhile: confirmed, marked over capacity, capacity + 1 taken', async () => {
+    const cls = make(1)
+    const f = fb(cls, {}, { bookingId: 'bkg_slow' })
+    await hold(cls, f.quote, f.input, NOW)
+    const other = await hold(cls, q(cls), input({ bookingId: 'bkg_fast' }), later(11)) // sweeps bkg_slow, takes the seat
+    expect(other.ok).toBe(true)
+    const lines = await confirm(cls.id, 'bkg_slow', { orderId: 'o', paymentId: 'p' }, f, later(12))
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ state: 'confirmed', overCapacity: true })
+    expect(seatsTaken(await getLedger(cls.id), 'ses_a', later(12))).toBe(2)
+  })
+
+  it('confirm of an expired but unswept hold that another seat now crowds: confirmed and marked over capacity', async () => {
+    const cls = make(1)
+    hook.key = `ledger-${cls.id}`
+    const f = fb(cls, {}, { bookingId: 'bkg_old' })
+    await hold(cls, f.quote, f.input, NOW)
+    // another server's hold lands without sweeping (its write keeps bkg_old's expired line)
+    const cur = await getLedger(cls.id)
+    const stranger = { ...cur.lines[0], id: 'led_x', bookingId: 'bkg_x', holdExpiresAt: later(30).toISOString() }
+    hook.compete = async (kv) => { await kv.set(hook.key!, JSON.stringify({ ...cur, lines: [...cur.lines, stranger] })) }
+    await setNames(cls.id, [cur.lines[0].id], cust) // a write that loses to the stranger once, then retries
+    const lines = await confirm(cls.id, 'bkg_old', { orderId: 'o', paymentId: 'p' }, f, later(11))
+    expect(lines).toHaveLength(1)
+    expect(lines[0].id).toBe(cur.lines[0].id) // the original line, converted
+    expect(lines[0]).toMatchObject({ state: 'confirmed', overCapacity: true, holdExpiresAt: null })
+    expect(seatsTaken(await getLedger(cls.id), 'ses_a', later(11))).toBe(2)
+  })
+
+  it('confirm after release still records the paid seats', async () => {
     const cls = make(2)
-    await expect(confirm(cls.id, 'bkg_nope', { orderId: 'o', paymentId: null })).rejects.toThrow(/hold/)
+    const f = fb(cls, {}, { bookingId: 'bkg_rel' })
+    await hold(cls, f.quote, f.input, NOW)
+    await release(cls.id, 'bkg_rel')
+    const lines = await confirm(cls.id, 'bkg_rel', { orderId: 'o', paymentId: 'p' }, f, NOW)
+    expect(lines).toHaveLength(1)
+    expect(lines[0].state).toBe('confirmed')
+    const led = await getLedger(cls.id)
+    expect(led.lines.filter((l) => l.bookingId === 'bkg_rel').map((l) => l.state).sort()).toEqual(['confirmed', 'released'])
+    expect(seatsTaken(led, 'ses_a', NOW)).toBe(1)
+  })
+
+  it('repeated confirm after re-creation adds no duplicates', async () => {
+    const cls = make(2)
+    const f = fb(cls, { tickets: { person: 2 } }, { bookingId: 'bkg_rep' })
+    const a = await confirm(cls.id, 'bkg_rep', { orderId: 'o', paymentId: 'p' }, f, NOW)
+    const b2 = await confirm(cls.id, 'bkg_rep', { orderId: 'o', paymentId: 'p' }, f, NOW)
+    expect(b2).toEqual(a)
+    expect((await getLedger(cls.id)).lines).toHaveLength(2)
   })
 
   it('release frees held seats but never confirmed ones', async () => {
     const cls = make(2)
     await hold(cls, q(cls), input({ bookingId: 'bkg_h' }), NOW)
     await hold(cls, q(cls), input({ bookingId: 'bkg_p' }), NOW)
-    await confirm(cls.id, 'bkg_p', { orderId: 'o', paymentId: 'p' })
+    await confirm(cls.id, 'bkg_p', { orderId: 'o', paymentId: 'p' }, fb(cls), NOW)
     await release(cls.id, 'bkg_h')
     await release(cls.id, 'bkg_p')
     const led = await getLedger(cls.id)
@@ -214,7 +281,7 @@ describe('seat ledger', () => {
   it('refund with freeSeat true frees the seat; false keeps it taken', async () => {
     const cls = make(2)
     await hold(cls, q(cls, { tickets: { person: 2 } }), input({ bookingId: 'bkg_r' }), NOW)
-    const [l1, l2] = await confirm(cls.id, 'bkg_r', { orderId: 'o', paymentId: 'p' })
+    const [l1, l2] = await confirm(cls.id, 'bkg_r', { orderId: 'o', paymentId: 'p' }, fb(cls, { tickets: { person: 2 } }), NOW)
     const r1 = await recordRefund(cls.id, [l1.id], { cents: 3270, reason: 'Sick', by, freeSeat: true, squareRefundId: 'rf_1' })
     expect(r1[0].state).toBe('refunded')
     expect(r1[0].refunds[0]).toMatchObject({ cents: 3270, reason: 'Sick', by, freedSeat: true, squareRefundId: 'rf_1' })
@@ -227,7 +294,7 @@ describe('seat ledger', () => {
     const cls = make(2, { addOns: [{ id: 'add_f', label: 'Frame', priceCents: 500, maxPerSeat: 1 }] })
     const seats = [{ answers: {}, addOns: { add_f: 1 } }]
     await hold(cls, q(cls, { seats }), input({ bookingId: 'bkg_x', seats }), NOW)
-    const [l] = await confirm(cls.id, 'bkg_x', { orderId: 'o', paymentId: 'p' })
+    const [l] = await confirm(cls.id, 'bkg_x', { orderId: 'o', paymentId: 'p' }, fb(cls, { seats }, { seats }), NOW)
     // paid 3000 + 270 + 500 + 45 = 3815
     await recordRefund(cls.id, [l.id], { cents: 3000, reason: 'part', by, freeSeat: false, squareRefundId: null })
     await expect(recordRefund(cls.id, [l.id], { cents: 816, reason: 'rest', by, freeSeat: true, squareRefundId: null }))
