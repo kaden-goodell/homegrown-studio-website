@@ -87,6 +87,16 @@ describe('tellOwnersOfDrift', () => {
     expect(mockSendEmail.mock.calls[0][0].text).toBe('Square total differed by $0.50 on party pty_1 (quote $10.00, Square $10.50). Check the party prices.')
   })
 
+  it('escapes the reference and hint in the HTML, keeps the text plain', async () => {
+    mockSendEmail.mockResolvedValue(true)
+    await tellOwnersOfDrift('s', 'party <b>Jo & "Al"</b>', 1000, 1050, 'See <i>this</i>')
+    const mail = mockSendEmail.mock.calls[0][0]
+    expect(mail.text).toBe('Square total differed by $0.50 on party <b>Jo & "Al"</b> (quote $10.00, Square $10.50). See <i>this</i>')
+    expect(mail.html).toBe(
+      '<p>Square total differed by $0.50 on party &lt;b&gt;Jo &amp; &quot;Al&quot;&lt;/b&gt; (quote $10.00, Square $10.50). See &lt;i&gt;this&lt;/i&gt;</p>',
+    )
+  })
+
   it('never throws when the email fails', async () => {
     mockSendEmail.mockRejectedValue(new Error('smtp down'))
     await expect(tellOwnersOfDrift('s', 'r', 1000, 1050, '')).resolves.toBeUndefined()
@@ -116,16 +126,30 @@ describe('chargeOrder', () => {
   it('declined: a 4xx refusal is not charged, with Square’s codes, and the order is not asked', async () => {
     mockProcessPayment.mockRejectedValue(declinedErr)
     const r = await chargeOrder(input)
-    expect(r).toMatchObject({ kind: 'declined', codes: ['CARD_DECLINED'] })
+    expect(r).toMatchObject({ kind: 'declined', reason: 'declined', codes: ['CARD_DECLINED'], error: declinedErr })
+    expect(r).not.toHaveProperty('paymentId')
     expect(mockFindOrderPayment).not.toHaveBeenCalled()
+  })
+
+  it('a direct charge is not marked recovered', async () => {
+    mockProcessPayment.mockResolvedValue(paidPayment)
+    const r = await chargeOrder(input)
+    expect(r).toEqual({ kind: 'paid', payment: paidPayment })
   })
 
   it('unclear charge asks the order: paid there → paid', async () => {
     mockProcessPayment.mockRejectedValue(timeoutErr)
     mockFindOrderPayment.mockResolvedValue(paidPayment)
     const r = await chargeOrder(input)
-    expect(r).toMatchObject({ kind: 'paid', payment: paidPayment })
+    expect(r).toEqual({ kind: 'paid', payment: paidPayment, recovered: true })
     expect(mockFindOrderPayment).toHaveBeenCalledWith('ORDER1')
+  })
+
+  it('unclear charge, the order shows a failed payment → declined (failed) with its id, not recovered', async () => {
+    mockProcessPayment.mockRejectedValue(timeoutErr)
+    mockFindOrderPayment.mockResolvedValue({ ...paidPayment, id: 'PAY_FAILED', status: 'failed' })
+    const r = await chargeOrder(input)
+    expect(r).toEqual({ kind: 'declined', reason: 'failed', codes: [], paymentId: 'PAY_FAILED' })
   })
 
   it('IDEMPOTENCY_KEY_REUSED is unclear, never declined', async () => {
@@ -153,7 +177,7 @@ describe('chargeOrder', () => {
   it('status failed → declined', async () => {
     mockProcessPayment.mockResolvedValue({ ...paidPayment, status: 'failed' })
     const r = await chargeOrder(input)
-    expect(r).toMatchObject({ kind: 'declined', codes: [] })
+    expect(r).toEqual({ kind: 'declined', reason: 'failed', codes: [], paymentId: 'PAY1' })
   })
 
   it('no payment returned → unknown', async () => {

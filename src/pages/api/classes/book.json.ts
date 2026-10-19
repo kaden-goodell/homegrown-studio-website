@@ -255,7 +255,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   // ── 4. Charge ───────────────────────────────────────────────────────────────
   const result = await chargeOrder({ orderId: order.orderId, amountCents: charged, paymentToken, email, attemptId })
   if (result.kind === 'declined') {
-    if (result.paymentId !== undefined) {
+    if (result.reason === 'failed') {
       logger.error('Class payment failed — releasing seats', { bookingId, paymentId: result.paymentId })
       await letGo('payment failed')
     } else {

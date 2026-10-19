@@ -14,6 +14,7 @@
 import { createHash } from 'node:crypto'
 import { recordAudit } from '@lib/audit'
 import { makeKvStore } from '@lib/blob-store'
+import { CREATE_KEY_RE } from '@lib/booking-core/ids'
 import type { By } from '@lib/staff-auth'
 import { formatDay, formatTime } from '@lib/studio-time'
 import { addBlocked, listBlocked, removeBlocked, type BlockedTime } from './blocked-time'
@@ -285,7 +286,6 @@ function usualFrom(content: ClassContent, sessions: Session[]): ClassContent {
 // ── Create keys (R35) and linking to the library (R36) ──────────────────────
 
 const createKeys = makeKvStore('class-create-keys', 'class-create-keys')
-const CREATE_KEY_RE = /^[A-Za-z0-9_-]{8,80}$/
 const digest = (s: string) => createHash('sha256').update(s).digest('hex')
 interface Reserved { classId: string; libraryId: string }
 

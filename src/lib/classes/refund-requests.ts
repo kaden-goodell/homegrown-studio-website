@@ -13,6 +13,11 @@
  *
  * One document per booking (CAS-written), so the webhook can find our request
  * for a refund on that booking's payment.
+ *
+ * `classId` is the SCOPE, not necessarily a class: a class id for class
+ * bookings; 'party' is reserved for parties (bookingId = the party id). The
+ * format is unchanged, so every saved request keeps loading. The shared
+ * runner (booking-core/refund-runner) is what reads and writes these.
  */
 import { createHash } from 'node:crypto'
 import { makeKvStore } from '@lib/blob-store'
@@ -25,6 +30,7 @@ export interface SavedRefundRequest {
   id: string
   /** hash of the request's inputs (class, booking, kind, seats, amount, free-seat choice), without the attempt token */
   inputHash: string
+  /** the scope: a class id, or 'party' */
   classId: string
   bookingId: string
   paymentId: string

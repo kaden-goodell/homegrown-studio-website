@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactElement } from 'react'
-import { screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { act, screen, fireEvent, within, waitFor } from '@testing-library/react'
 import { ClosedDaysSheet, HoursSheet } from '@components/admin/sheets/SettingsSheets'
 import { StudioProvider, useStudio } from '@components/admin/shell/studio'
 import { at, ok, posts, refuse, renderSheet } from './harness'
@@ -37,6 +37,33 @@ function server(o: { square?: any; booked?: any[]; stale?: boolean; fail?: boole
   })
   return fn
 }
+/*
+ * Cheap stand-ins for getByRole('button' | 'group', { name }) over the whole page. Same rule (a button's name is
+ * its aria-label, else its text; a group's is its legend or aria-label), without testing-library working out the
+ * accessible name of every element on each call (~100× slower here). Under a loaded full run those role queries,
+ * repeated by findBy polling, ran this file into the 5 s test timeout.
+ */
+const nameOf = (el: Element) => (el.getAttribute('aria-label') ?? el.textContent ?? '').replace(/\s+/g, ' ').trim()
+const one = <T extends Element>(what: string, hits: T[]): T => {
+  if (hits.length !== 1) throw new Error(`expected one ${what}, found ${hits.length}`)
+  return hits[0]
+}
+const button = (name: string) => one(`button "${name}"`, [...document.querySelectorAll('button')].filter((b) => nameOf(b) === name)) as HTMLButtonElement
+const group = (name: string) => one(`group "${name}"`, [
+  ...[...document.querySelectorAll('fieldset')].filter((f) => !f.hasAttribute('aria-label') && f.querySelector(':scope > legend')?.textContent?.trim() === name),
+  ...[...document.querySelectorAll('[role="group"][aria-label], fieldset[aria-label]')].filter((g) => g.getAttribute('aria-label') === name),
+]) as HTMLElement
+/**
+ * Found, then React's pending effects flushed before the test types: the form's mount effect (show someone else's
+ * save) must not run after the first keystroke. A person can't type that fast; a quick query can.
+ */
+const settled = async <T,>(find: () => T): Promise<T> => {
+  await waitFor(find)
+  await act(async () => {})
+  return find()
+}
+const findButton = (name: string) => settled(() => button(name))
+const findGroup = (name: string) => settled(() => group(name))
 const sheet = (ui: ReactElement) => renderSheet(<StudioProvider>{ui}</StudioProvider>)
 const footer = () => document.querySelector('.adm-sheet-foot') as HTMLElement
 
@@ -50,11 +77,11 @@ describe('More › Hours & Craft Café', () => {
   it('shows the weekly hours, special days coming up, and studio hours; Save waits for a change', async () => {
     vi.stubGlobal('fetch', server())
     sheet(<HoursSheet />)
-    const set = await screen.findByRole('group', { name: 'Saturdays' })
+    const set = await findGroup('Saturdays')
     expect(within(set).getByLabelText('Opens')).toHaveValue('09:00')
     expect(screen.getByText('Saturdays 9 AM–12 PM')).toBeInTheDocument()
     expect(screen.getByText('Sat Nov 7 · Craft Café grand opening')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Save café hours' })).toBeDisabled()
+    expect(button('Save café hours')).toBeDisabled()
     expect(screen.getByText('A special day replaces the usual hours for that day. Closed days beat both.')).toBeInTheDocument()
     expect(screen.getByText('Thursday & Friday')).toBeInTheDocument()
   })
@@ -63,14 +90,14 @@ describe('More › Hours & Craft Café', () => {
     const f = server()
     vi.stubGlobal('fetch', f)
     const { dirty } = sheet(<HoursSheet />)
-    const sat = await screen.findByRole('group', { name: 'Saturdays' }, { timeout: 3000 })
+    const sat = await findGroup('Saturdays')
     fireEvent.change(within(sat).getByLabelText('Closes'), { target: { value: '13:00' } })
     fireEvent.change(screen.getByLabelText('Add another day'), { target: { value: 'Sunday' } })
-    const sun = screen.getByRole('group', { name: 'Sundays' })
+    const sun = group('Sundays')
     fireEvent.change(within(sun).getByLabelText('Opens'), { target: { value: '13:00' } })
     fireEvent.change(within(sun).getByLabelText('Closes'), { target: { value: '15:00' } })
     expect(dirty()).toBe(true)
-    fireEvent.click(screen.getByRole('button', { name: 'Save café hours' }))
+    fireEvent.click(button('Save café hours'))
     expect(await screen.findByText('Café hours saved.')).toBeInTheDocument()
     const body = posts(f, SETTINGS)[0].body
     expect(body.expectedUpdatedAt).toBeNull()
@@ -83,9 +110,9 @@ describe('More › Hours & Craft Café', () => {
     const f = server()
     vi.stubGlobal('fetch', f)
     sheet(<HoursSheet />)
-    const sat = await screen.findByRole('group', { name: 'Saturdays' }, { timeout: 3000 })
+    const sat = await findGroup('Saturdays')
     fireEvent.change(within(sat).getByLabelText('Closes'), { target: { value: '08:00' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save café hours' }))
+    fireEvent.click(button('Save café hours'))
     expect(screen.getByRole('alert')).toHaveTextContent('Saturday: it has to close after it opens.')
     expect(posts(f, SETTINGS)).toHaveLength(0)
   })
@@ -94,8 +121,8 @@ describe('More › Hours & Craft Café', () => {
     const f = server()
     vi.stubGlobal('fetch', f)
     sheet(<HoursSheet />)
-    fireEvent.click(await screen.findByRole('button', { name: '+ Add a special day' }))
-    const set = screen.getByRole('group', { name: 'New special day' })
+    fireEvent.click(await findButton('+ Add a special day'))
+    const set = group('New special day')
     fireEvent.change(within(set).getByLabelText('Day'), { target: { value: '2026-11-26' } })
     expect(within(set).getByText('That day is closed for Thanksgiving. Closed days beat special hours.')).toBeInTheDocument()
     fireEvent.change(within(set).getByLabelText('Day'), { target: { value: '2026-12-12' } })
@@ -104,12 +131,12 @@ describe('More › Hours & Craft Café', () => {
     expect(await screen.findByText('Added Sat Dec 12. It’s on the calendar.')).toBeInTheDocument()
     expect(posts(f, SETTINGS)[0].body.cafeSpecialDays).toContainEqual({ date: '2026-12-12', opens: '09:00', closes: '17:00', name: 'Holiday market' })
     expect(screen.getByText('Sat Dec 12 · Holiday market')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    fireEvent.click(button('Undo'))
     await waitFor(() => expect(posts(f, SETTINGS)).toHaveLength(2))
     expect(posts(f, SETTINGS)[1].body.cafeSpecialDays.map((d: any) => d.date)).toEqual(['2026-11-07'])
     expect(posts(f, SETTINGS)[1].body.expectedUpdatedAt).toBe('saved-1')
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Remove Sat Nov 7' }))
+    fireEvent.click(await findButton('Remove Sat Nov 7'))
     expect(await screen.findByText('Removed Sat Nov 7. Usual hours that day.')).toBeInTheDocument()
     expect(posts(f, SETTINGS)[2].body.cafeSpecialDays).toEqual([])
   })
@@ -118,9 +145,9 @@ describe('More › Hours & Craft Café', () => {
     const f = server({ square: { status: 'failed', message: 'Square didn’t take the new café hours.' } })
     vi.stubGlobal('fetch', f)
     sheet(<HoursSheet />)
-    const sat = await screen.findByRole('group', { name: 'Saturdays' }, { timeout: 3000 })
+    const sat = await findGroup('Saturdays')
     fireEvent.change(within(sat).getByLabelText('Opens'), { target: { value: '10:00' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save café hours' }))
+    fireEvent.click(button('Save café hours'))
     expect(await screen.findByText('Café hours saved. Square didn’t update.', undefined, { timeout: 3000 })).toBeInTheDocument()
     const panel = screen.getByText('Saved here. Square didn’t take the new café hours.').closest('.adm-panel') as HTMLElement
     fireEvent.click(within(panel).getByRole('button', { name: 'Try again' }))
@@ -131,9 +158,9 @@ describe('More › Hours & Craft Café', () => {
   it('the test site: saved, and Square is said to be skipped', async () => {
     vi.stubGlobal('fetch', server({ square: { status: 'skipped', message: 'Square café hours not updated on the test site.' } }))
     sheet(<HoursSheet />)
-    const sat = await screen.findByRole('group', { name: 'Saturdays' }, { timeout: 3000 })
+    const sat = await findGroup('Saturdays')
     fireEvent.change(within(sat).getByLabelText('Opens'), { target: { value: '10:00' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save café hours' }))
+    fireEvent.click(button('Save café hours'))
     expect(await screen.findByText('Café hours saved. Square café hours not updated on the test site.')).toBeInTheDocument()
   })
 
@@ -141,12 +168,12 @@ describe('More › Hours & Craft Café', () => {
     const f = server({ stale: true })
     vi.stubGlobal('fetch', f)
     sheet(<HoursSheet />)
-    const sat = await screen.findByRole('group', { name: 'Saturdays' }, { timeout: 3000 })
+    const sat = await findGroup('Saturdays')
     fireEvent.change(within(sat).getByLabelText('Opens'), { target: { value: '10:00' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save café hours' }))
+    fireEvent.click(button('Save café hours'))
     expect(await screen.findByText('Someone else changed these settings. Check them and save again.')).toBeInTheDocument()
-    expect(within(screen.getByRole('group', { name: 'Saturdays' })).getByLabelText('Opens')).toHaveValue('10:00')
-    fireEvent.click(screen.getByRole('button', { name: 'Save café hours' }))
+    expect(within(group('Saturdays')).getByLabelText('Opens')).toHaveValue('10:00')
+    fireEvent.click(button('Save café hours'))
     await screen.findByText('Café hours saved.')
     expect(posts(f, SETTINGS)[1].body.expectedUpdatedAt).toBe('other-1')
   })
@@ -197,7 +224,7 @@ describe('More › Closed days', () => {
     expect(within(panel).getByText('The Justice party · Sat Dec 5 · 1:30–4 PM')).toBeInTheDocument()
     expect(within(panel).getByText(/nothing was cancelled/)).toBeInTheDocument()
     await waitFor(() => expect(dirty()).toBe(false))
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    fireEvent.click(button('Undo'))
     await waitFor(() => expect(posts(f, SETTINGS)).toHaveLength(2))
     expect(posts(f, SETTINGS)[1].body.closures.map((c: any) => c.name)).toEqual(['Halloween weekend', 'Thanksgiving'])
   })
@@ -206,15 +233,15 @@ describe('More › Closed days', () => {
     const f = server()
     vi.stubGlobal('fetch', f)
     sheet(<ClosedDaysSheet />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Remove Thanksgiving' }))
-    const ask = screen.getByRole('group', { name: 'Open Thu Nov 26 – Fri Nov 27 again?' })
+    fireEvent.click(await findButton('Remove Thanksgiving'))
+    const ask = group('Open Thu Nov 26 – Fri Nov 27 again?')
     fireEvent.click(within(ask).getByRole('button', { name: 'Keep it closed' }))
     expect(posts(f, SETTINGS)).toHaveLength(0)
-    fireEvent.click(screen.getByRole('button', { name: 'Remove Thanksgiving' }))
-    fireEvent.click(within(screen.getByRole('group', { name: 'Open Thu Nov 26 – Fri Nov 27 again?' })).getByRole('button', { name: 'Open these days' }))
+    fireEvent.click(button('Remove Thanksgiving'))
+    fireEvent.click(within(group('Open Thu Nov 26 – Fri Nov 27 again?')).getByRole('button', { name: 'Open these days' }))
     expect(await screen.findByText('Opened Thu Nov 26 – Fri Nov 27 again.')).toBeInTheDocument()
     expect(posts(f, SETTINGS)[0].body.closures.map((c: any) => c.name)).toEqual(['Halloween weekend'])
-    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    fireEvent.click(button('Undo'))
     await waitFor(() => expect(posts(f, SETTINGS)).toHaveLength(2))
     expect(posts(f, SETTINGS)[1].body.closures.map((c: any) => c.name)).toEqual(['Halloween weekend', 'Thanksgiving'])
   })
@@ -233,7 +260,7 @@ describe('More › Closed days', () => {
     vi.stubGlobal('fetch', vi.fn(async () => refuse(503, { error: 'The studio settings couldn’t be reached. Try again.' })))
     sheet(<ClosedDaysSheet />)
     expect(await screen.findByText('The studio settings couldn’t be reached. Try again.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+    expect(button('Try again')).toBeInTheDocument()
   })
 })
 

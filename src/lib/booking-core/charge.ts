@@ -26,6 +26,7 @@ export const HOLD_MINUTES = 10
 export const UNCLEAR_HOLD_HOURS = 24
 
 const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`
+const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 export type DriftVerdict =
   | { kind: 'same' }
@@ -55,7 +56,8 @@ export async function tellOwnersOfDrift(subject: string, ref: string, quoteCents
     : `Square total was ${dollars(-drift)} lower than the quote on ${ref} ${totals}.`
   const note = hint ? `${base.endsWith('.') ? base : `${base}.`} ${hint}` : base
   try {
-    await sendEmail({ to: siteConfig.ownerEmails.join(', '), subject, text: note, html: `<p>${note}</p>` })
+    // The reference and hint can carry a customer-typed name: escaped in the HTML, plain in the text.
+    await sendEmail({ to: siteConfig.ownerEmails.join(', '), subject, text: note, html: `<p>${esc(note)}</p>` })
   } catch {
     /* the email is a courtesy; the booking goes on */
   }
@@ -63,7 +65,8 @@ export async function tellOwnersOfDrift(subject: string, ref: string, quoteCents
 
 export type ChargeResult =
   | { kind: 'paid'; payment: Payment; recovered?: true }
-  | { kind: 'declined'; codes: string[]; error?: unknown; paymentId?: string }
+  /** reason: 'declined' = Square refused the card (4xx); 'failed' = a payment came back marked failed (paymentId set) */
+  | { kind: 'declined'; reason: 'declined' | 'failed'; codes: string[]; error?: unknown; paymentId?: string }
   | { kind: 'unknown'; error: unknown }
 
 /**
@@ -92,7 +95,7 @@ export async function chargeOrder(input: {
       idempotencyKey: attemptKey(input.attemptId, input.step ?? 'pay'),
     })
   } catch (err) {
-    if (chargeOutcomeOf(err) === 'not_charged') return { kind: 'declined', codes: squareErrorCodes(err), error: err }
+    if (chargeOutcomeOf(err) === 'not_charged') return { kind: 'declined', reason: 'declined', codes: squareErrorCodes(err), error: err }
     // Before saying "we're not sure", ask whether the order shows as paid.
     try {
       payment = await providers.payment.findOrderPayment(input.orderId)
@@ -101,7 +104,7 @@ export async function chargeOrder(input: {
     recovered = true
   }
   if (!payment) return { kind: 'unknown', error: new Error('no payment returned') }
-  if (payment.status === 'failed') return { kind: 'declined', codes: [], paymentId: payment.id }
+  if (payment.status === 'failed') return { kind: 'declined', reason: 'failed', codes: [], paymentId: payment.id }
   return recovered ? { kind: 'paid', payment, recovered: true } : { kind: 'paid', payment }
 }
 

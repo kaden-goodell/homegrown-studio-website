@@ -10,7 +10,20 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
 
 const fill = (label: RegExp, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
-const pick = (group: RegExp, option: string) => fireEvent.click(within(screen.getByRole('group', { name: group })).getByRole('button', { name: option }))
+/**
+ * The question's fieldset, found by its legend. Same as getByRole('group', { name }) (a fieldset's name is its
+ * legend), without working out the accessible name of every element on this long form each time: that made the
+ * many-question test take seconds and time out under a loaded full run.
+ */
+const questions = (name: RegExp) =>
+  [...document.querySelectorAll('fieldset > legend')].filter((l) => name.test(l.textContent ?? '')).map((l) => l.parentElement as HTMLElement)
+const group = (name: RegExp) => {
+  const hits = questions(name)
+  if (hits.length !== 1) throw new Error(`expected one question matching ${name}, found ${hits.length}`)
+  return hits[0]
+}
+const send = () => fireEvent.click(screen.getByText('Send', { selector: 'button' }))
+const pick = (name: RegExp, option: string) => fireEvent.click(within(group(name)).getByRole('button', { name: option }))
 
 describe('PrivateEventForm (/private-events)', () => {
   it('sends every answer, then says thanks with no timeline', async () => {
@@ -38,7 +51,7 @@ describe('PrivateEventForm (/private-events)', () => {
     const input = document.querySelector('input[type=file]') as HTMLInputElement
     fireEvent.change(input, { target: { files: [new File(['x'], 'p.jpg', { type: 'image/jpeg' })] } })
     await screen.findByAltText('Photo 1')
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    send()
 
     expect(await screen.findByText('Thanks, we got it.')).toBeInTheDocument()
     expect(fetchMock.mock.calls[0][0]).toBe('/api/private-events/request.json')
@@ -56,10 +69,10 @@ describe('PrivateEventForm (/private-events)', () => {
   it('asks about the address, tables and sink only when it’s at their place', () => {
     render(<PrivateEventForm />)
     expect(screen.queryByLabelText(/^Address/)).toBeNull()
-    expect(screen.queryByRole('group', { name: /A sink nearby/ })).toBeNull()
+    expect(questions(/A sink nearby/)[0] ?? null).toBeNull()
     pick(/Where is it/, 'At your place')
     expect(screen.getByLabelText(/^Address/)).toBeInTheDocument()
-    expect(screen.getByRole('group', { name: /Tables and chairs/ })).toBeInTheDocument()
+    expect(group(/Tables and chairs/)).toBeInTheDocument()
     pick(/Where is it/, 'At the studio')
     expect(screen.queryByLabelText(/^Address/)).toBeNull()
   })
@@ -77,16 +90,16 @@ describe('PrivateEventForm (/private-events)', () => {
   it('every extra has the same three answers', () => {
     render(<PrivateEventForm />)
     for (const extra of ['Food', 'Drinks', 'Cake or dessert', 'Decorations or a theme setup', 'Plates, cups and napkins', 'Party favors or goodie bags']) {
-      const group = screen.getByRole('group', { name: new RegExp(`^${extra}`) })
-      expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['Please provide', 'I’ll bring it', 'Not needed'])
+      const g = group(new RegExp(`^${extra}`))
+      expect(within(g).getAllByRole('button').map((b) => b.textContent)).toEqual(['Please provide', 'I’ll bring it', 'Not needed'])
     }
   })
 
   it('the budget is optional, with three ranges and no "not sure"', () => {
     render(<PrivateEventForm />)
-    const group = screen.getByRole('group', { name: /^Your budget/ })
-    expect(within(group).getAllByRole('button').map((b) => b.textContent)).toEqual(['Under $1,000', '$1,000 to $2,500', '$2,500 or more'])
-    expect(group.querySelector('legend .field-optional')).not.toBeNull()
+    const g = group(/^Your budget/)
+    expect(within(g).getAllByRole('button').map((b) => b.textContent)).toEqual(['Under $1,000', '$1,000 to $2,500', '$2,500 or more'])
+    expect(g.querySelector('legend .field-optional')).not.toBeNull()
   })
 
   it('marks only the date, guests, where and contact details as required', () => {
@@ -101,7 +114,7 @@ describe('PrivateEventForm (/private-events)', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, json: async () => ({ error: 'Pick a date.', field: 'date' }) }))
     render(<PrivateEventForm />)
     fill(/^Your name/, 'Dana')
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    send()
     expect(await screen.findByText('Pick a date.')).toBeInTheDocument()
     expect(screen.getByLabelText(/^Date/)).toHaveAttribute('aria-invalid', 'true')
     expect(screen.getByLabelText(/^Your name/)).toHaveValue('Dana')
@@ -110,7 +123,7 @@ describe('PrivateEventForm (/private-events)', () => {
   it('a dropped connection says so', async () => {
     vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
     render(<PrivateEventForm />)
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    send()
     expect(await screen.findByText(/Check your connection/)).toBeInTheDocument()
   })
 })
