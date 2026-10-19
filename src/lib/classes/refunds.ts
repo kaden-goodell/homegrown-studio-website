@@ -17,8 +17,8 @@ import { getClass } from './class-store'
 import { getLedger, noteRefundFailed, recordRefund, type Ledger, type LedgerLine } from './seat-ledger'
 import type { Cents } from './types'
 import {
-  changeRefundRequest, createRefundRequest, hashOf, listRefundRequests, markRequestDone, markRequestSent,
-  UNCONFIRMED_AFTER_MS, type SavedRefundRequest,
+  changeRefundRequest, claimRequestEmail, createRefundRequest, hashOf, listRefundRequests, markRequestDone, markRequestSent,
+  releaseRequestEmail, UNCONFIRMED_AFTER_MS, type SavedRefundRequest,
 } from './refund-requests'
 
 export type RefundKind = 'booking' | 'person' | 'session' | 'custom'
@@ -34,8 +34,12 @@ export const SQUARE_NO_ANSWER = "Square didn't confirm the refund. Try again. It
 export const SQUARE_TURNED_DOWN = "Square turned the refund down, so nothing was refunded. Try again."
 export const ALREADY_FREE = 'That seat is already free.'
 
+export const NOT_WAITING = "That refund isn't waiting on Square any more."
+export const STILL_WAITING_ON_SQUARE = 'A refund on this booking is still waiting on Square. Check it in Square first.'
+
 export class RefundError extends Error {
-  constructor(public status: number, message: string) {
+  /** `extra` goes into the reply next to the error (e.g. the refund still waiting on Square) */
+  constructor(public status: number, message: string, public extra?: Record<string, unknown>) {
     super(message)
   }
 }
@@ -254,10 +258,11 @@ function continuing(saved: SavedRefundRequest[], id: string | null, inputHash: s
  * goes on the booking's other paid seats in seat order. Entries already
  * written for this same Square refund don't count against what's left.
  */
-function fitSplit(ledger: Ledger, rec: SavedRefundRequest, squareRefundId: string): Record<string, Cents> {
+function fitSplit(ledger: Ledger, rec: SavedRefundRequest, squareRefundId: string | null): Record<string, Cents> {
   const booking = ledger.lines.filter((l) => l.bookingId === rec.bookingId && (l.state === 'confirmed' || l.state === 'refunded'))
     .sort((a, b) => a.seat - b.seat)
-  const left = new Map(booking.map((l) => [l.id, paidOn(l) - l.refunds.filter((r) => r.squareRefundId !== squareRefundId).reduce((s, r) => s + r.cents, 0)]))
+  const same = (r: LedgerLine['refunds'][number]) => squareRefundId !== null && r.squareRefundId === squareRefundId
+  const left = new Map(booking.map((l) => [l.id, paidOn(l) - l.refunds.filter((r) => !same(r)).reduce((s, r) => s + r.cents, 0)]))
   const out: Record<string, Cents> = {}
   let spill = 0
   for (const x of rec.lines) {
@@ -278,7 +283,7 @@ function fitSplit(ledger: Ledger, rec: SavedRefundRequest, squareRefundId: strin
 }
 
 /** Puts a saved request on the ledger (by the person who asked). Shared with Square's webhook. */
-async function writeToLedger(rec: SavedRefundRequest, squareRefundId: string): Promise<LedgerLine[]> {
+async function writeToLedger(rec: SavedRefundRequest, squareRefundId: string | null): Promise<LedgerLine[]> {
   const cents = fitSplit(await getLedger(rec.classId), rec, squareRefundId)
   const asked = new Set(rec.lines.map((x) => x.id))
   // Seats asked about: as asked (a seat with nothing landing on it is still written when freeing).
@@ -306,6 +311,33 @@ async function auditRefund(rec: SavedRefundRequest, label: string, squareRefundI
 }
 
 /**
+ * The customer's refund email, at most once per request whoever finishes it
+ * (our reply, Square's webhook, the nightly run, or "It went through").
+ * Returns true when the customer has been emailed for this request.
+ */
+async function emailOnce(rec: SavedRefundRequest, lines: LedgerLine[], className: string): Promise<boolean> {
+  const customer = lines.find((l) => l.customer?.email)?.customer
+  if (!customer) return false
+  if (!(await claimRequestEmail(rec.classId, rec.bookingId, rec.id).catch(() => false))) {
+    const now = (await listRefundRequests(rec.classId, rec.bookingId).catch(() => [])).find((r) => r.id === rec.id)
+    return !!now?.emailedAt
+  }
+  try {
+    const sent = (await sendRefundEmail({
+      to: customer.email, givenName: customer.givenName, className, cents: rec.totalCents, keptSeat: !rec.freeSeat,
+    })).sent
+    if (!sent) await releaseRequestEmail(rec.classId, rec.bookingId, rec.id).catch(() => undefined)
+    return sent
+  } catch (e) {
+    // Name or code only: the message can carry the customer's address.
+    const code = (e as { code?: unknown })?.code
+    console.warn(`[classes/refund] email for ${rec.bookingId} failed: ${e instanceof Error ? e.name : 'unknown'}${typeof code === 'string' ? ` ${code}` : ''}`)
+    await releaseRequestEmail(rec.classId, rec.bookingId, rec.id).catch(() => undefined)
+    return false
+  }
+}
+
+/**
  * Refund a class booking (all or part). `actor` is who asked: an owner from
  * /admin or anyone from /staff.
  *
@@ -321,7 +353,8 @@ export async function refundClassBooking(req: RefundRequest, actor: { by: By; ro
   const now = new Date()
   const inputHash = inputHashOf(cls.id, req)
   const tokenId = req.attempt ? hashOf('refund-attempt', inputHash, req.attempt) : null
-  let rec = continuing(await listRefundRequests(cls.id, req.bookingId), tokenId, inputHash, now.getTime())
+  const saved = await listRefundRequests(cls.id, req.bookingId)
+  let rec = continuing(saved, tokenId, inputHash, now.getTime())
 
   if (rec?.status === 'done') {
     // Already refunded and saved (by our earlier try or Square's webhook): say so, refund nothing more.
@@ -331,6 +364,13 @@ export async function refundClassBooking(req: RefundRequest, actor: { by: By; ro
   }
 
   if (!rec) {
+    // A different refund while one has no answer from Square: refused until a person checks Square (R29).
+    const waiting = saved.find((r) => r.status === 'pending' && !r.squareRefundId)
+    if (waiting) {
+      throw new RefundError(409, STILL_WAITING_ON_SQUARE, {
+        pending: { requestId: waiting.id, cents: waiting.totalCents, at: waiting.createdAt, by: waiting.by, kind: waiting.kind },
+      })
+    }
     const plan = planRefund(await getLedger(cls.id), req)
     const at = now.toISOString()
     rec = await createRefundRequest({
@@ -391,19 +431,7 @@ export async function refundClassBooking(req: RefundRequest, actor: { by: By; ro
     await onSeatFreed(cls.id, sessionIds).catch(() => undefined)
   }
 
-  let emailed = false
-  const customer = lines.find((l) => l.customer?.email)?.customer
-  if (customer) {
-    try {
-      emailed = (await sendRefundEmail({
-        to: customer.email, givenName: customer.givenName, className: cls.content.name, cents: rec.totalCents, keptSeat: !rec.freeSeat,
-      })).sent
-    } catch (e) {
-      // Name or code only: the message can carry the customer's address.
-      const code = (e as { code?: unknown })?.code
-      console.warn(`[classes/refund] email for ${req.bookingId} failed: ${e instanceof Error ? e.name : 'unknown'}${typeof code === 'string' ? ` ${code}` : ''}`)
-    }
-  }
+  const emailed = await emailOnce(rec, lines, cls.content.name)
 
   // Audited once: by whichever of us and Square's webhook saved it first.
   if (first) await auditRefund(rec, cls.content.name, refundId)
@@ -423,21 +451,87 @@ export async function claimSquareRefund(refund: { id: string; paymentId: string;
   let label = ''
   for (const b of bookings) {
     const saved = await listRefundRequests(b.classId, b.bookingId)
+    const sameMoney = (r: SavedRefundRequest) => !r.squareRefundId && r.paymentId === refund.paymentId && r.totalCents === refund.cents
     const hit = saved.find((r) => r.squareRefundId === refund.id)
-      ?? saved.filter((r) => r.status === 'pending' && !r.squareRefundId && r.paymentId === refund.paymentId && r.totalCents === refund.cents)
-        .sort((a, c) => a.createdAt.localeCompare(c.createdAt))[0]
+      ?? saved.filter((r) => r.status === 'pending' && sameMoney(r)).sort((a, c) => a.createdAt.localeCompare(c.createdAt))[0]
+      // a person said "It went through" before Square's refund reached us: it is that one
+      ?? saved.filter((r) => r.status === 'done' && r.cleared?.outcome === 'went-through' && sameMoney(r))[0]
     if (hit) { found = hit; label = b.label ?? ''; break }
   }
   if (!found) return false
-  if (found.status !== 'done') {
-    await markRequestSent(found.classId, found.bookingId, found.id, refund.id)
-    const lines = await writeToLedger(found, refund.id)
-    if (await markRequestDone(found.classId, found.bookingId, found.id, refund.id)) {
-      await auditRefund(found, label || found.classId, refund.id, 'square-webhook').catch(() => undefined)
-    }
-    if (found.freeSeat) await onSeatFreed(found.classId, [...new Set(lines.flatMap((l) => l.sessionIds))]).catch(() => undefined)
+  if (found.status === 'done') {
+    // Already on the ledger ("It went through"): just remember Square's id for it.
+    if (!found.squareRefundId) await changeRefundRequest(found.classId, found.bookingId, found.id, (r) => (r.squareRefundId ? null : { ...r, squareRefundId: refund.id }))
+    return true
   }
+  await markRequestSent(found.classId, found.bookingId, found.id, refund.id)
+  const lines = await writeToLedger(found, refund.id)
+  if (await markRequestDone(found.classId, found.bookingId, found.id, refund.id)) {
+    await auditRefund(found, label || found.classId, refund.id, 'square-webhook').catch(() => undefined)
+  }
+  if (found.freeSeat) await onSeatFreed(found.classId, [...new Set(lines.flatMap((l) => l.sessionIds))]).catch(() => undefined)
+  const className = label || (await getClass(found.classId))?.content.name || ''
+  await emailOnce(found, lines, className)
   return true
+}
+
+export type ClearOutcome = 'went-through' | 'did-not-go-through'
+
+/**
+ * A person checked Square for a refund that never got an answer (R29).
+ * - 'went-through': saved on the ledger exactly as asked (by who asked),
+ *   noted as checked by this person, customer emailed once.
+ * - 'did-not-go-through': nothing saved; the request stops blocking new
+ *   refunds. Asking the same refund again re-sends its key, so if it had in
+ *   fact gone through Square hands that refund back instead of a second one.
+ */
+export async function clearRefundRequest(
+  input: { classId: string; bookingId: string; requestId: string; outcome: ClearOutcome; reason: string },
+  actor: { by: By; role: 'owner' | 'crew' },
+): Promise<{ status: SavedRefundRequest['status']; lines: LedgerLine[] }> {
+  if (input.outcome !== 'went-through' && input.outcome !== 'did-not-go-through') throw new RefundError(400, 'Pick whether it went through in Square.')
+  const cls = input.classId ? await getClass(input.classId) : null
+  if (!cls) throw new RefundError(404, 'That class does not exist.')
+  const rec = (await listRefundRequests(cls.id, input.bookingId)).find((r) => r.id === input.requestId)
+  if (!rec) throw new RefundError(404, 'That refund is not on this booking.')
+  const cleared = { at: new Date().toISOString(), by: actor.by, role: actor.role, outcome: input.outcome, reason: input.reason }
+  const waiting = (r: SavedRefundRequest) => r.status === 'pending' && !r.squareRefundId
+
+  // Claim it first, so two people checking at once can't both save it.
+  let claimed = false
+  const next = await changeRefundRequest(cls.id, input.bookingId, rec.id, (r) => {
+    if (!waiting(r)) return null
+    claimed = true
+    return input.outcome === 'went-through' ? { ...r, status: 'sent', cleared } : { ...r, status: 'turned-down', cleared }
+  })
+  if (!claimed || !next) throw new RefundError(409, NOT_WAITING)
+
+  const checked = () => recordAudit({
+    by: { ...actor.by, role: actor.role },
+    action: 'class-refund-checked',
+    target: { kind: 'class', id: cls.id, label: cls.content.name },
+    details: { bookingId: rec.bookingId, requestId: rec.id, outcome: input.outcome, reason: input.reason, cents: rec.totalCents },
+  }).catch(() => undefined)
+
+  if (input.outcome === 'did-not-go-through') {
+    await checked()
+    return { status: next.status, lines: [] }
+  }
+  let lines: LedgerLine[]
+  try {
+    lines = await writeToLedger(next, null)
+  } catch (e) {
+    // Put it back as waiting so the check can be done again.
+    await changeRefundRequest(cls.id, input.bookingId, rec.id, (r) => (r.status === 'sent' && !r.squareRefundId ? { ...r, status: 'pending', cleared: undefined } : null)).catch(() => undefined)
+    console.error(`[classes/refund] checked refund on ${rec.bookingId} not saved: ${e instanceof Error ? e.message : e}`)
+    throw new RefundError(503, "The class records couldn't be reached. Try again.")
+  }
+  await markRequestDone(cls.id, input.bookingId, rec.id, null, { answered: true })
+  if (next.freeSeat) await onSeatFreed(cls.id, [...new Set(lines.flatMap((l) => l.sessionIds))]).catch(() => undefined)
+  await emailOnce(next, lines, cls.content.name)
+  await auditRefund(next, cls.content.name, '', 'checked-in-square').catch(() => undefined)
+  await checked()
+  return { status: 'done', lines }
 }
 
 /**
@@ -513,11 +607,21 @@ export async function refundReply(request: Request, actor: { by: By; role: 'owne
       const r = await freeSeatOnly(typeof body.classId === 'string' ? body.classId : '', typeof body.bookingId === 'string' ? body.bookingId : '', lineIds, actor, reason)
       return json(200, { data: r })
     }
+    if (body && typeof body === 'object' && body.action === 'clear-request') {
+      const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : ''
+      if (opts.reasonRequired && reason.length < 3) throw new RefundError(400, 'Add what you saw in Square.')
+      const str = (v: unknown) => (typeof v === 'string' ? v : '')
+      const r = await clearRefundRequest(
+        { classId: str(body.classId), bookingId: str(body.bookingId), requestId: str(body.requestId), outcome: body.outcome as ClearOutcome, reason },
+        actor,
+      )
+      return json(200, { data: r })
+    }
     const req = readRefundBody(body, opts)
     const r = await refundClassBooking(req, actor)
     return json(200, { data: r })
   } catch (e) {
-    if (e instanceof RefundError) return json(e.status, { error: e.message })
+    if (e instanceof RefundError) return json(e.status, { error: e.message, ...(e.extra ?? {}) })
     const msg = e instanceof Error ? e.message : String(e)
     console.error(`[classes/refund] ${msg}`)
     return json(503, { error: "The class records couldn't be reached. Try again." })

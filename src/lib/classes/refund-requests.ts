@@ -45,6 +45,10 @@ export interface SavedRefundRequest {
   squareRefundId: string | null
   /** true once our own reply told the person it worked (a webhook-finished request is not answered yet) */
   answered: boolean
+  /** set once the customer's refund email is claimed: one email per request, whoever finishes it */
+  emailedAt?: string | null
+  /** a person checked Square for a request that had no answer */
+  cleared?: { at: string; by: By; role: 'owner' | 'crew'; outcome: 'went-through' | 'did-not-go-through'; reason: string }
   createdAt: string
   updatedAt: string
 }
@@ -103,12 +107,12 @@ export function markRequestSent(classId: string, bookingId: string, id: string, 
 }
 
 /** On the ledger. Returns true only for the call that moved it to done. */
-export async function markRequestDone(classId: string, bookingId: string, id: string, squareRefundId: string, opts: { answered?: boolean } = {}): Promise<boolean> {
+export async function markRequestDone(classId: string, bookingId: string, id: string, squareRefundId: string | null, opts: { answered?: boolean } = {}): Promise<boolean> {
   let flipped = false
   await changeRefundRequest(classId, bookingId, id, (r) => {
     if (r.status === 'done') return opts.answered && !r.answered ? { ...r, answered: true } : null
     flipped = true
-    return { ...r, status: 'done', squareRefundId: r.squareRefundId ?? squareRefundId, answered: !!opts.answered }
+    return { ...r, status: 'done', squareRefundId: r.squareRefundId || squareRefundId || null, answered: !!opts.answered }
   })
   return flipped
 }
@@ -122,3 +126,19 @@ export async function allRefundRequests(): Promise<SavedRefundRequest[]> {
 
 /** A request older than this with no refund from Square is shown to the owners. */
 export const UNCONFIRMED_AFTER_MS = 24 * 3_600_000
+
+/** Claims the customer email for this request. True only for the one caller that should send it. */
+export async function claimRequestEmail(classId: string, bookingId: string, id: string): Promise<boolean> {
+  let mine = false
+  await changeRefundRequest(classId, bookingId, id, (r) => {
+    if (r.emailedAt) return null
+    mine = true
+    return { ...r, emailedAt: new Date().toISOString() }
+  })
+  return mine
+}
+
+/** Gives the claim back after a send that failed, so a later finish can try again. */
+export async function releaseRequestEmail(classId: string, bookingId: string, id: string): Promise<void> {
+  await changeRefundRequest(classId, bookingId, id, (r) => (r.emailedAt ? { ...r, emailedAt: null } : null))
+}
