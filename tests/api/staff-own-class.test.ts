@@ -144,6 +144,33 @@ describe('Comp a seat on our class', () => {
     expect(live[0].bookingId).toBe(again.body.data.bookingId)
   })
 
+  it('m3: a hold that ran out is never rebuilt past capacity on a retry: full is refused, unless Add over capacity was ticked', async () => {
+    const cls = await createClass({ content: content({ questions: [] }), sessions: sessions(), status: 'open', by })
+    const ask = { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 1 }, attempt: 'sheet-attempt-m3' }
+    confirmFail.n = 1
+    expect((await post(compRoute, ask)).status).toBe(503)
+    vi.setSystemTime(new Date(NOW.getTime() + 11 * 60_000)) // the hold ran out
+    // meanwhile someone filled Wednesday
+    expect((await post(compRoute, { ...ask, attempt: 'other-sheet', givenName: 'Ben', tickets: { adult: 2 } })).status).toBe(200)
+    const full = await post(compRoute, ask)
+    expect(full.status).toBe(409)
+    expect(full.body).toMatchObject({ code: 'sold_out', error: expect.stringMatching(/^That class is full on /) })
+    const squeezed = await post(compRoute, { ...ask, overCapacity: true })
+    expect(squeezed.status).toBe(200)
+    expect(squeezed.body.data.over).toEqual({ sold: 3, capacity: 2 })
+  })
+
+  it('m4: a retry of an add that went in answers Added even after the session has ended', async () => {
+    const cls = await createClass({ content: content({ questions: [] }), sessions: sessions(), status: 'open', by })
+    const ask = { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_tue'], tickets: { adult: 1 }, attempt: 'sheet-attempt-m4' }
+    const first = await post(compRoute, ask)
+    expect(first.status).toBe(200)
+    vi.setSystemTime(new Date('2026-10-20T18:00:00.000Z')) // Tuesday's session is over
+    const again = await post(compRoute, ask)
+    expect(again.status).toBe(200)
+    expect(again.body.data).toMatchObject({ replayed: true, bookingId: first.body.data.bookingId, seats: 1 })
+  })
+
   it('a seat with no pick is refused with what is missing', async () => {
     const cls = await createClass({ content: content(), sessions: sessions(), status: 'open', by })
     const r = await post(compRoute, { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 1 } })

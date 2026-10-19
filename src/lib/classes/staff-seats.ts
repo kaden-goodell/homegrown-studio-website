@@ -46,13 +46,6 @@ export async function addDoorSeats(input: {
 }): Promise<DoorSeatResult> {
   const { cls, mode } = input
   const now = input.now ?? new Date()
-  if (cls.status !== 'open' && cls.status !== 'closed') return { ok: false, status: 409, error: 'That class isn’t running.' }
-  const priced = quote(cls, input.request, now, CLASS_TAX_PERCENT, { door: true })
-  if (!priced.ok) return { ok: false, status: priced.field ? 400 : 409, error: priced.error }
-  // A comp is a $0 seat: nothing to refund and nothing owed.
-  const q: Quote = mode === 'comp'
-    ? { ...priced.value, lines: priced.value.lines.map((l) => ({ ...l, cents: 0, taxCents: 0 })), subtotalCents: 0, taxCents: 0, totalCents: 0 }
-    : priced.value
   const bookingId = input.attempt ? bookingIdFor(`door:${cls.id}:${input.attempt}`) : newId('bkg')
   const overOf = async (sessionIds: string[]) => {
     const ledger = await getLedger(cls.id)
@@ -63,6 +56,26 @@ export async function addDoorSeats(input: {
     }
     return worst
   }
+  const answer = async (done: LedgerLine[], q: Quote): Promise<DoorSeatResult> => {
+    const due = mode === 'comp' ? 0 : done.reduce((a, l) => a + l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents, 0)
+    return { ok: true, bookingId, lines: done, quote: q, dueCents: due, over: await overOf(done[0].sessionIds), replayed: true }
+  }
+  // m4: a retry of an add that already went in answers "Added" first, before any price or closed check.
+  if (input.attempt) {
+    const done = (await getLedger(cls.id)).lines.filter((l) => l.bookingId === bookingId && (l.state === 'confirmed' || l.state === 'refunded'))
+    if (done.length) {
+      const sessionIds = done[0].sessionIds
+      return answer(done, { sessionIds, seats: done.length, lines: [], subtotalCents: 0, taxCents: 0, totalCents: 0 })
+    }
+  }
+
+  if (cls.status !== 'open' && cls.status !== 'closed') return { ok: false, status: 409, error: 'That class isn’t running.' }
+  const priced = quote(cls, input.request, now, CLASS_TAX_PERCENT, { door: true })
+  if (!priced.ok) return { ok: false, status: priced.field ? 400 : 409, error: priced.error }
+  // A comp is a $0 seat: nothing to refund and nothing owed.
+  const q: Quote = mode === 'comp'
+    ? { ...priced.value, lines: priced.value.lines.map((l) => ({ ...l, cents: 0, taxCents: 0 })), subtotalCents: 0, taxCents: 0, totalCents: 0 }
+    : priced.value
   const holdInput: HoldInput = {
     bookingId, passId: input.request.passId, source: mode, customer: input.customer, ttlMinutes: 10, by: input.by,
     ...(input.request.seats ? { seats: input.request.seats } : {}),
@@ -72,19 +85,17 @@ export async function addDoorSeats(input: {
   /**
    * A retry of the same attempt (N2). Only CONFIRMED seats count as added. A
    * hold still running from a try that failed before confirming is confirmed
-   * now; a hold that ran out is no seat at all (null: hold afresh).
+   * now (m3: only while it is still running; never rebuilt past capacity). A
+   * hold that ran out is no seat at all (null: hold afresh, capacity checked
+   * again unless the crew ticked Add over capacity).
    */
   const replay = async (): Promise<DoorSeatResult | null> => {
     const mine = (await getLedger(cls.id)).lines.filter((l) => l.bookingId === bookingId)
-    let done = mine.filter((l) => l.state === 'confirmed' || l.state === 'refunded')
-    if (!done.length) {
-      const live = mine.some((l) => l.state === 'held' && !!l.holdExpiresAt && Date.parse(l.holdExpiresAt) > now.getTime())
-      if (!live) return null
-      done = await confirm(cls.id, bookingId, square, { cls, quote: q, input: holdInput }, now)
-      if (!done.length) return null
-    }
-    const due = mode === 'comp' ? 0 : done.reduce((a, l) => a + l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents, 0)
-    return { ok: true, bookingId, lines: done, quote: q, dueCents: due, over: await overOf(done[0].sessionIds), replayed: true }
+    const done = mine.filter((l) => l.state === 'confirmed' || l.state === 'refunded')
+    if (done.length) return answer(done, q)
+    if (!mine.some((l) => l.state === 'held')) return null
+    const confirmed = await confirm(cls.id, bookingId, square, { cls, quote: q, input: holdInput }, new Date(), { requireLiveHold: true })
+    return confirmed.length ? answer(confirmed, q) : null
   }
   if (input.attempt) {
     const again = await replay()
