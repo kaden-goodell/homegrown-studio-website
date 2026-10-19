@@ -52,6 +52,7 @@ export default function RecentPartyBanner() {
         </span>
         <a
           href={hostPartyUrl(recent, window.location.origin)}
+          className="ph-no-capture"
           onClick={() => trackRecentPartyBanner('open')}
           style={{
             fontSize: '0.8125rem',

@@ -782,7 +782,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           {hostPageUrl ? (
             <ConfirmedBlock label="Your party page">
               <p style={{ margin: '0 0 0.625rem' }}>See who’s coming and manage the details. Keep this link: it’s also in your email.</p>
-              <a href={hostPageUrl} className="btn btn-primary">
+              <a href={hostPageUrl} className="btn btn-primary ph-no-capture">
                 Open your party page
               </a>
             </ConfirmedBlock>

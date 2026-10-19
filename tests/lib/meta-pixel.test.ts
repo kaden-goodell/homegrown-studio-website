@@ -50,3 +50,11 @@ describe('party host pages stay private', () => {
     expect(layout).toContain('<meta name="referrer" content="same-origin" />')
   })
 })
+
+describe('links that carry a party host key', () => {
+  it('are never recorded by PostHog click capture', async () => {
+    const { readFileSync } = await import('node:fs')
+    expect(readFileSync('src/components/party/PartyModal.tsx', 'utf8')).toContain('<a href={hostPageUrl} className="btn btn-primary ph-no-capture">')
+    expect(readFileSync('src/components/party/RecentPartyBanner.tsx', 'utf8')).toMatch(/href=\{hostPartyUrl\([^)]*\)\}\s*className="ph-no-capture"/)
+  })
+})
