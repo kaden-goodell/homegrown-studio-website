@@ -14,6 +14,7 @@ import { Failed, ItemRow, itemKey, itemName, itemTime, Seg, sheetOf, Skeleton } 
 import { SheetFrame, useSheet } from '../shell/Sheet'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
 import { smsHref, telHref } from '../inbox/describe'
+import { ContactButton } from '../inbox/InboxSheets'
 
 /** The item a sheet is about: handed over by the list that opened it, or found again on its day (after a refresh). */
 function useItem(day: string, id: string): { item: CalendarItem | null; loading: boolean; error: string; retry: () => void } {
@@ -64,7 +65,9 @@ export function DaySheet({ day }: { day: string }) {
       )}
       <div className="adm-stack" style={{ marginTop: '0.75rem' }}>
         <button type="button" className="adm-btn is-pri" onClick={() => open({ kind: 'new', day })}>+ New class on this day</button>
-        <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'book-party', day })}>+ Book a party on this day</button>
+        {shut
+          ? <p className="adm-small adm-muted" style={{ textAlign: 'center' }}>{closure ? 'Parties can’t be booked on closed days.' : `Parties can’t be booked on ${weekdayName}s.`}</p>
+          : <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'book-party', day })}>+ Book a party on this day</button>}
         <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'block', day })}>Block time on this day</button>
         <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'print', day })}>Print this day</button>
       </div>
@@ -205,8 +208,8 @@ export function PartySheet({ day, id }: { day: string; id: string }) {
   const footer = phone
     ? (
       <div className="adm-two">
-        <a className="adm-btn is-ghost adm-contact" href={telHref(phone)}>Call<small>{phone}</small></a>
-        <a className="adm-btn is-ghost adm-contact" href={smsHref(phone)}>Text<small>{phone}</small></a>
+        <ContactButton label="Call" href={telHref(phone)} text={phone} />
+        <ContactButton label="Text" href={smsHref(phone)} text={phone} />
       </div>
     )
     : undefined

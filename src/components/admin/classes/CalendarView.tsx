@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
-import { OPEN_WEEKDAYS } from '@config/closures'
+import { closureOn, OPEN_WEEKDAYS, type Closure } from '@config/closures'
 import { useCalendar, useShell } from '../shell/data'
 import { byDay, Failed, ItemRow, itemKey, itemName, itemTag, itemTime, Key, KIND_STYLE, Seg, sheetOf, Skeleton } from '../shell/items'
 import { sheetToken, type Sheet } from '../shell/router'
@@ -26,13 +26,21 @@ export function rangeOf(view: View, day: string): { from: string; days: string[]
 }
 
 const WEEKDAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
-/** Narrower than this, seven columns get too thin: the week shows as a list of days instead. */
-export const GRID_MIN_PX = 640
+/**
+ * Narrower than this, seven columns get too thin: the week shows as a list of
+ * days instead. iPad portrait (820px: 708px of content, with or without a
+ * panel) gets the list; iPad landscape (1024px: 756px of content) the grid.
+ */
+export const GRID_MIN_PX = 720
+/** Narrower than this, month cells show coloured dots and a count, not name stubs. */
+export const MONTH_CHIPS_MIN_PX = 560
 
 const shortDay = (d: string) => dayLabel(d).split(' ')[0]
-/** A day the studio is shut and nothing is on: a usual closed weekday (Mon–Wed) with nothing booked, or a closure. */
-const isClosedDay = (d: string, list: CalendarItem[]) =>
-  list.length ? list.every((i) => i.kind === 'closed') : !OPEN_WEEKDAYS.has(weekday(d))
+/** A usual closed weekday (Mon–Wed) with nothing on it. */
+const quietClosed = (d: string, list: CalendarItem[]) => !list.length && !OPEN_WEEKDAYS.has(weekday(d))
+const HOLIDAY_NAME: Record<string, string> = { halloween: 'Halloween', thanksgiving: 'Thanksgiving', christmas: 'Christmas' }
+/** What a named closure is called in a small month cell. */
+const closureShort = (c: Closure) => (c.holiday ? HOLIDAY_NAME[c.holiday] : c.name.replace(/^the /, ''))
 
 /** The width of an element, kept up to date (0 until it has been laid out). */
 function useWidth<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
@@ -67,13 +75,16 @@ export default function CalendarView({ initialDay, onOpen }: {
   const [box, width] = useWidth<HTMLDivElement>()
   const [view, setView] = useState<View>('week')
   const [day, setDay] = useState(initialDay ?? today())
-  const [unfold, setUnfold] = useState(false)
+  /** The week whose closed weekdays are shown; a different week starts folded again. */
+  const [unfoldWeek, setUnfoldWeek] = useState<string | null>(null)
   const { days } = rangeOf(view, day)
   const { items, error, retry } = useCalendar(days[0], addDays(days[days.length - 1], 1))
   const map = items ? byDay(items) : null
   const now = today()
   const showsToday = days.includes(now) && (view === 'week' || day.slice(0, 7) === now.slice(0, 7))
   const grid = wide && !(width > 0 && width < GRID_MIN_PX)
+  const unfold = view === 'week' && unfoldWeek === days[0]
+  const monthChips = wide && !(width > 0 && width < MONTH_CHIPS_MIN_PX)
 
   // The item whose sheet is open stays in view.
   useEffect(() => {
@@ -89,28 +100,39 @@ export default function CalendarView({ initialDay, onOpen }: {
 
   function dayList(m: Map<string, CalendarItem[]>): ReactNode[] {
     const out: ReactNode[] = []
+    const foldable = (d: string) => d !== now && quietClosed(d, m.get(d) ?? [])
     for (let n = 0; n < days.length; n++) {
       const d = days[n]
       const list = m.get(d) ?? []
-      if (!unfold && !list.length && !OPEN_WEEKDAYS.has(weekday(d))) {
-        // Fold a run of closed weekdays with nothing on into one row.
+      let usually = false
+      if (foldable(d) && (n === 0 || !foldable(days[n - 1]))) {
+        // A run of closed weekdays with nothing on: one row with a Show pill (today never folds).
         let last = n
-        while (last + 1 < days.length && !(m.get(days[last + 1]) ?? []).length && !OPEN_WEEKDAYS.has(weekday(days[last + 1]))) last++
-        const label = `Closed ${shortDay(d)}${last > n ? `–${shortDay(days[last])}` : ''}`
+        while (last + 1 < days.length && foldable(days[last + 1])) last++
+        const span = `${shortDay(d)}${last > n ? `–${shortDay(days[last])}` : ''}`
         out.push(
-          <button key={`closed-${d}`} type="button" className="adm-closedrow" aria-expanded={false} onClick={() => setUnfold(true)}>
-            <span>{label}</span><em>Show</em>
-          </button>,
+          <div key={`fold-${d}`} className="adm-foldrow">
+            <span>Closed {span}</span>
+            <button
+              type="button"
+              className="adm-foldpill"
+              aria-expanded={unfold}
+              onClick={() => setUnfoldWeek(unfold ? null : days[0])}
+            >
+              {unfold ? `Hide ${span}` : `Show ${span}`} <span aria-hidden="true">⌄</span>
+            </button>
+          </div>,
         )
-        n = last
-        continue
+        if (!unfold) { n = last; continue }
       }
+      if (foldable(d)) usually = true
       out.push(
         <section key={d} aria-label={dayLabel(d)}>
           <div className="adm-dayh">
             <h3 className={d === now ? 'is-today' : undefined}>{dayLabel(d)}{d === now ? ' · Today' : ''}</h3>
             <button type="button" className="adm-plus" aria-label={`Add on ${dayLabel(d)}`} onClick={() => openDay(d)}>+</button>
           </div>
+          {(usually || (d === now && quietClosed(d, list))) && <p className="adm-usually">Usually closed</p>}
           {list.map((i) => <ItemRow key={itemKey(i)} item={i} active={isActive(i, d)} onOpen={() => openItem(i, d)} />)}
           {!list.length && (
             <button type="button" className="adm-empty" onClick={() => openDay(d)}>Nothing on this day<em>+ Add</em></button>
@@ -142,22 +164,24 @@ export default function CalendarView({ initialDay, onOpen }: {
       {map && view === 'week' && !grid && (
         <>
           {dayList(map)}
-          {unfold && <button type="button" className="adm-btn is-ghost is-sm" style={{ marginTop: '0.75rem' }} onClick={() => setUnfold(false)}>Fold the closed days</button>}
         </>
       )}
       {map && view === 'week' && grid && (
-        <div className="adm-wgrid">
+        <div
+          className="adm-wgrid"
+          style={{ gridTemplateColumns: days.map((d) => (quietClosed(d, map.get(d) ?? []) ? 'minmax(0, 0.5fr)' : 'minmax(0, 1fr)')).join(' ') }}
+        >
           {days.map((d) => {
             const [wd, , date] = dayLabel(d).split(' ')
             const list = map.get(d) ?? []
-            const shut = !list.length && !OPEN_WEEKDAYS.has(weekday(d))
+            const shut = quietClosed(d, list)
             return (
               <section key={d} aria-label={dayLabel(d)} className={`adm-wcol${d === now ? ' is-today' : ''}`}>
                 <h3 className={`adm-wh${d === now ? ' is-today' : ''}`}>
                   <span>{wd} {date}</span>
                   <button type="button" className="adm-plus" aria-label={`Add on ${dayLabel(d)}`} onClick={() => openDay(d)}>+</button>
                 </h3>
-                {shut && <span className="adm-mclosed">Closed</span>}
+                {shut && <p className="adm-usually">Usually closed</p>}
                 {list.map((i) => {
                   const tag = itemTag(i)
                   const active = isActive(i, d)
@@ -188,27 +212,39 @@ export default function CalendarView({ initialDay, onOpen }: {
             {WEEKDAYS.map((w, n) => <span key={n} className="adm-wd" aria-hidden="true">{w}</span>)}
             {days.map((d) => {
               const list = map.get(d) ?? []
+              const shown = list.filter((i) => i.kind !== 'closed')
               const inMonth = d.slice(0, 7) === day.slice(0, 7)
-              const shut = isClosedDay(d, list)
-              const things = list.length === 1 ? '1 thing on' : `${list.length} things on`
-              const label = shut
-                ? `${dayLabel(d)}, closed${list[0] ? ` (${itemName(list[0])})` : ''}`
-                : `${dayLabel(d)}, ${things}${list.length ? `: ${list.map(itemName).join(', ')}` : ''}`
+              const closure = closureOn(d)
+              const shut = !closure && quietClosed(d, list)
+              const things = shown.length === 1 ? '1 thing on' : `${shown.length} things on`
+              const active = !!activeToken && (activeToken === `day-${d}` || list.some((i) => isActive(i, d)))
+              const label = closure
+                ? `${dayLabel(d)}, closed for ${closure.name}${shown.length ? `; ${things}: ${shown.map(itemName).join(', ')}` : ''}`
+                : shut
+                  ? `${dayLabel(d)}, usually closed`
+                  : `${dayLabel(d)}, ${things}${shown.length ? `: ${shown.map(itemName).join(', ')}` : ''}`
               return (
                 <button
                   key={d}
                   type="button"
-                  className={`adm-mday${inMonth ? '' : ' is-out'}${d === now ? ' is-today' : ''}${shut ? ' is-closed' : ''}`}
+                  className={`adm-mday${inMonth ? '' : ' is-out'}${d === now ? ' is-today' : ''}${shut ? ' is-shut' : ''}${closure ? ` is-holiday h-${closure.holiday ?? 'none'}` : ''}${active ? ' is-active' : ''}`}
                   aria-label={label}
+                  aria-current={active ? 'true' : undefined}
                   onClick={() => openDay(d)}
                 >
                   <span>{Number(d.slice(8))}</span>
-                  {shut && <span className="adm-mclosed" aria-hidden="true">Closed</span>}
-                  {!shut && list.length > 0 && !wide && <span className="adm-n" aria-hidden="true">{list.length}</span>}
-                  {!shut && list.length > 0 && wide && list.slice(0, 3).map((i) => (
+                  {closure && <span className="adm-hname" aria-hidden="true">{closureShort(closure)}</span>}
+                  {shown.length > 0 && !wide && <span className="adm-n" aria-hidden="true">{shown.length}</span>}
+                  {shown.length > 0 && wide && !monthChips && (
+                    <span className="adm-dots" aria-hidden="true">
+                      {shown.slice(0, 4).map((i) => <i key={itemKey(i)} className={KIND_STYLE[i.kind].className} />)}
+                      <b>{shown.length}</b>
+                    </span>
+                  )}
+                  {shown.length > 0 && monthChips && shown.slice(0, 3).map((i) => (
                     <span key={itemKey(i)} className={`adm-mi ${KIND_STYLE[i.kind].className}`} aria-hidden="true">{itemName(i)}</span>
                   ))}
-                  {!shut && wide && list.length > 3 && <span className="adm-mi" aria-hidden="true">+{list.length - 3} more</span>}
+                  {monthChips && shown.length > 3 && <span className="adm-mi" aria-hidden="true">+{shown.length - 3} more</span>}
                 </button>
               )
             })}

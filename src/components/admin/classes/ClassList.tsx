@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ScheduledClass } from '@lib/classes/types'
-import { formatDayAndSpan } from '@lib/studio-time'
+import { dayAndSpan as formatDayAndSpan } from '../shell/time'
 import { api, CLASSES } from './api'
 import { addDays, dayStartIso, today } from './dates'
 import { box, errorText, muted, row } from './ui'

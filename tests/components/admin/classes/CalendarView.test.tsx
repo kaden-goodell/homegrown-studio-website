@@ -101,8 +101,8 @@ describe('CalendarView', () => {
     await screen.findByText('March 2031')
     const last = new URL(fetchMock.mock.calls[fetchMock.mock.calls.length - 1][0], 'https://x.test')
     expect(last.searchParams.get('from')).toBe(localToUtcISO('2031-02-24', '00:00'))
-    const cell = await screen.findByRole('button', { name: /^Wed Mar 12, 7 things on: Closed for Thanksgiving, Craft Café, Pottery/ })
-    expect(cell).toHaveTextContent('7')
+    const cell = await screen.findByRole('button', { name: /^Wed Mar 12, 6 things on: Craft Café, Pottery/ })
+    expect(cell).toHaveTextContent('6')
     expect(screen.getByRole('button', { name: 'Fri Mar 14, 0 things on' })).toBeInTheDocument()
     fireEvent.click(cell)
     expect(onOpen).toHaveBeenLastCalledWith({ kind: 'day', day: DAY })
@@ -116,10 +116,10 @@ describe('CalendarView', () => {
     expect(wed).toHaveClass('adm-wcol')
     expect(within(wed).getByRole('button', { name: /Pottery/ })).toHaveClass('adm-chip')
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
-    const cell = await screen.findByRole('button', { name: /^Wed Mar 12, 7 things on/ })
-    expect(cell).toHaveTextContent('Closed for Thanksgiving')
+    const cell = await screen.findByRole('button', { name: /^Wed Mar 12, 6 things on/ })
+    expect(cell).toHaveTextContent('Craft Café')
     expect(cell).toHaveTextContent('Pottery')
-    expect(cell).toHaveTextContent('+4 more')
+    expect(cell).toHaveTextContent('+3 more')
   })
 
   it('the colours fold away behind Key', async () => {
@@ -145,9 +145,9 @@ describe('CalendarView', () => {
     const width = (px: number) => Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => px })
     afterEach(() => { delete (HTMLElement.prototype as any).clientWidth })
 
-    it('beside a side panel, where seven columns would be under 640px, the week is a day list and the open item stays highlighted', async () => {
+    it('beside a side panel, or on iPad portrait, where seven columns would be under 720px, the week is a day list and the open item stays highlighted', async () => {
       wide(true)
-      width(500)
+      width(708)
       vi.stubGlobal('fetch', server())
       render(
         <ShellContext.Provider value={{ paneled: true, activeToken: `party-${DAY}-bk_1` }}>
@@ -162,9 +162,9 @@ describe('CalendarView', () => {
       expect(screen.getByRole('button', { name: /Pottery/ })).not.toHaveClass('is-active')
     })
 
-    it('wide enough, the seven columns come back (they never scroll sideways: see layout-css.test)', async () => {
+    it('wide enough (720px+, iPad landscape), the seven columns come back (they never scroll sideways: see layout-css.test)', async () => {
       wide(true)
-      width(900)
+      width(756)
       vi.stubGlobal('fetch', server())
       render(<CalendarView initialDay={DAY} onOpen={() => {}} />)
       expect(await screen.findByRole('button', { name: /Pottery/ })).toHaveClass('adm-chip')
@@ -175,22 +175,71 @@ describe('CalendarView', () => {
     it('closed weekdays with nothing on fold into one row, which opens them back up', async () => {
       vi.stubGlobal('fetch', server())
       render(<CalendarView initialDay={DAY} onOpen={() => {}} />)
-      const fold = await screen.findByRole('button', { name: /Closed Mon–Tue/ })
+      const fold = await screen.findByRole('button', { name: /Show Mon–Tue/ })
+      expect(fold).toHaveAttribute('aria-expanded', 'false')
       expect(screen.queryByRole('region', { name: 'Mon Mar 10' })).toBeNull()
       fireEvent.click(fold)
-      expect(screen.getByRole('region', { name: 'Mon Mar 10' })).toBeInTheDocument()
+      expect(fold).toHaveAttribute('aria-expanded', 'true')
+      expect(fold).toHaveTextContent('Hide Mon–Tue')
+      expect(screen.getByRole('region', { name: 'Mon Mar 10' })).toHaveTextContent('Usually closed')
       expect(screen.getByRole('region', { name: 'Tue Mar 11' })).toBeInTheDocument()
+      // Another week starts folded again.
+      fireEvent.click(screen.getByRole('button', { name: 'Next week' }))
+      expect(await screen.findByRole('button', { name: /Show Mon–Wed/ })).toHaveAttribute('aria-expanded', 'false')
     })
 
-    it('month: a closed day says Closed, not a count', async () => {
+    it('month: a usual closed weekday is a quiet shaded cell with no word; a named closure shows its name', async () => {
+      vi.stubGlobal('fetch', server([]))
+      render(<CalendarView initialDay="2026-10-14" onOpen={() => {}} />)
+      fireEvent.click(await screen.findByRole('button', { name: 'Month' }))
+      const mon = await screen.findByRole('button', { name: 'Mon Oct 19, usually closed' })
+      expect(mon).toHaveClass('is-shut')
+      expect(mon.textContent).toBe('19')
+      const fri = screen.getByRole('button', { name: 'Fri Oct 30, closed for Halloween weekend' })
+      expect(fri).toHaveClass('is-holiday', 'h-halloween')
+      expect(fri).toHaveTextContent('Halloween')
+      expect(screen.getByRole('button', { name: 'Thu Oct 22, 0 things on' })).not.toHaveClass('is-shut')
+    })
+
+    it('today never folds, even on a closed weekday', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] })
+      vi.setSystemTime(new Date('2031-03-10T15:00:00Z'))
+      vi.stubGlobal('fetch', server([]))
+      render(<CalendarView initialDay={DAY} onOpen={() => {}} />)
+      const mon = await screen.findByRole('region', { name: 'Mon Mar 10' })
+      expect(mon).toHaveTextContent('Today')
+      expect(mon).toHaveTextContent('Usually closed')
+      expect(screen.getByRole('button', { name: /Show Tue–Wed/ })).toBeInTheDocument()
+      vi.useRealTimers()
+    })
+
+    it('iPad month beside a panel: dots and a count, and the open day is marked', async () => {
+      wide(true)
+      width(400)
+      vi.stubGlobal('fetch', server())
+      render(
+        <ShellContext.Provider value={{ paneled: true, activeToken: `day-${DAY}` }}>
+          <CalendarView initialDay={DAY} onOpen={() => {}} />
+        </ShellContext.Provider>,
+      )
+      fireEvent.click(await screen.findByRole('button', { name: 'Month' }))
+      const cell = await screen.findByRole('button', { name: /^Wed Mar 12, 6 things on/ })
+      expect(cell).toHaveClass('is-active')
+      expect(cell.querySelectorAll('.adm-dots i')).toHaveLength(4)
+      expect(cell.querySelector('.adm-dots b')).toHaveTextContent('6')
+      expect(cell.querySelector('.adm-mi')).toBeNull()
+    })
+
+    it('the week grid gives a shut, empty day a half-width column marked Usually closed', async () => {
+      wide(true)
+      width(1000)
       vi.stubGlobal('fetch', server())
       render(<CalendarView initialDay={DAY} onOpen={() => {}} />)
       await screen.findByRole('button', { name: /Pottery/ })
-      fireEvent.click(screen.getByRole('button', { name: 'Month' }))
-      const mon = await screen.findByRole('button', { name: 'Mon Mar 17, closed' })
-      expect(mon).toHaveTextContent('Closed')
-      expect(mon).toHaveClass('is-closed')
-      expect(screen.getByRole('button', { name: /^Wed Mar 12, 7 things on/ })).not.toHaveClass('is-closed')
+      const grid = document.querySelector<HTMLElement>('.adm-wgrid')!
+      expect(grid.style.gridTemplateColumns.split(/\)\s+/)[0]).toContain('0.5fr')
+      expect(screen.getByRole('region', { name: 'Mon Mar 10' })).toHaveTextContent('Usually closed')
+      expect(screen.getByRole('region', { name: 'Wed Mar 12' })).not.toHaveTextContent('Usually closed')
     })
 
     it('times are one line: one format, a no-break space before AM/PM', async () => {

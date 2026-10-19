@@ -42,4 +42,26 @@ describe('admin.css', () => {
   it('the base button reset has no specificity, so the site buttons keep their colours', () => {
     expect(css).toContain(':where(.adm button)')
   })
+
+  it('fix round 2: with a side panel open the toast stops at the panel’s edge (N1)', () => {
+    expect(css).toMatch(/body:has\(\.adm-sheet-layer\.is-panel\) \.adm-toasts \{\s*right: calc\(var\(--adm-panel-w\) \+ 1rem\);/)
+  })
+
+  it('fix round 2: the paragraph reset has no specificity, so notes and labels keep their spacing', () => {
+    expect(css).toContain(':where(.adm) :where(p)')
+    expect(css).not.toMatch(/^\.adm p \{/m)
+  })
+
+  it('fix round 2: Needs you is 2×2 on iPad portrait and beside a panel; chips never break mid-word', () => {
+    expect(css).toMatch(/@media \(min-width: 768px\) and \(max-width: 1023px\) \{\s*\.adm-need \{\s*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/)
+    expect(css).toMatch(/\.adm-shell\.is-paneled \.adm-need \{\s*grid-template-columns: repeat\(2/)
+    const chipRules = blocks('.adm-chip b').join('\n')
+    expect(chipRules).toContain('overflow-wrap: normal')
+    expect(chipRules).toContain('-webkit-line-clamp: 2')
+  })
+
+  it('fix round 2: a 4-way status control only goes to one row on the page, never in a sheet or panel', () => {
+    expect(css).toMatch(/\.adm-main \.adm-seg\.is-wrap button \{\s*flex: 1 1 0;/)
+    expect(css).not.toMatch(/^\s*\.adm-seg\.is-wrap button \{\s*flex: 1 1 0;/m)
+  })
 })

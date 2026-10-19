@@ -1,7 +1,10 @@
 /** How each inbox item reads in a list row and at the top of its sheet. */
 import type { ApplicationStatus, ArtistApplication } from '@lib/artist-applications'
 import { STATUSES as MSG_STATUSES, STATUS_LABEL as MSG_LABEL, topicLabel, type ContactMessage } from '@lib/contact-options'
-import { STATUSES as REQ_STATUSES, STATUS_LABEL as REQ_LABEL, kindLabel, whenLabel, type EventRequest } from '@lib/event-request-options'
+import { STATUSES as REQ_STATUSES, STATUS_LABEL as REQ_LABEL, kindLabel, type EventRequest } from '@lib/event-request-options'
+import { localDate } from '@lib/party-slots'
+import { dayLabel } from '../classes/dates'
+import { dayAndStart } from '../shell/time'
 import type { InboxKind } from '../shell/router'
 
 export interface Described {
@@ -27,7 +30,7 @@ export interface Described {
 const APP_STATUSES: ApplicationStatus[] = ['new', 'talking', 'booked', 'not-now']
 const APP_LABEL: Record<ApplicationStatus, string> = { new: 'New', talking: 'Talking', booked: 'Booked', 'not-now': 'Not now' }
 
-const sent = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' })
+const sent = (iso: string) => dayLabel(localDate(iso))
 const quote = (s: string, n = 60) => `“${s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s}”`
 
 export function describeItem(kind: InboxKind, item: EventRequest | ContactMessage | ArtistApplication): Described {
@@ -39,7 +42,7 @@ export function describeItem(kind: InboxKind, item: EventRequest | ContactMessag
       title: r.about.name,
       kind: 'Private event',
       sheetLabel: `${r.about.org ? `${r.about.org} · ` : ''}Private event request · Sent ${sent(r.at)}`,
-      head: [kindLabel(r), whenLabel(r), `${r.event.guests} guest${r.event.guests === 1 ? '' : 's'}`].filter(Boolean).join(' · '),
+      head: [kindLabel(r), dayAndStart(r.event.date, r.event.startTime), `${r.event.guests} guest${r.event.guests === 1 ? '' : 's'}`].filter(Boolean).join(' · '),
       next,
       statuses: REQ_STATUSES.map((s) => [s, REQ_LABEL[s]]),
       statusLabel: REQ_LABEL[r.status] ?? r.status,

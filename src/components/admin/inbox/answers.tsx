@@ -3,9 +3,10 @@ import type { ArtistApplication } from '@lib/artist-applications'
 import type { ContactMessage } from '@lib/contact-options'
 import {
   PLACES, SETTINGS, YES_NO, CRAFT_PICKS, BUDGETS, CONTACT_BY,
-  label, kindLabel, whenLabel, crafterLabel, extrasLines, type EventRequest,
+  label, kindLabel, crafterLabel, extrasLines, type EventRequest,
 } from '@lib/event-request-options'
-import { formatCalendarDay } from '@lib/studio-time'
+import { dayLabel } from '../classes/dates'
+import { dayAndClock, dayAndStart } from '../shell/time'
 
 type Row = [string, ReactNode]
 const external = (href: string) => (/^https?:\/\//.test(href) ? href : `https://${href}`)
@@ -48,10 +49,10 @@ export function RequestAnswers({ r }: { r: EventRequest }) {
     <>
       <Group title="The event" rows={[
         ['What', kindLabel(r)],
-        ['When', whenLabel(r)],
+        ['When', dayAndStart(r.event.date, r.event.startTime)],
         ['Guests', `${e.guests}`],
         ['Where', label(PLACES, w.place)],
-        ['Backup date', e.backupDate ? formatCalendarDay(e.backupDate) : ''],
+        ['Backup date', e.backupDate ? dayLabel(e.backupDate) : ''],
         ['Flexible on the date', e.flexible ? 'Yes' : ''],
         ['How long', e.length],
         ['Who’s crafting', crafterLabel(r)],
@@ -87,7 +88,7 @@ export function MessageAnswers({ m }: { m: ContactMessage }) {
   return (
     <Group title="Their message" rows={[
       ['Message', m.message],
-      ['Sent', new Date(m.at).toLocaleString('en-US', { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' })],
+      ['Sent', dayAndClock(m.at)],
     ]} />
   )
 }

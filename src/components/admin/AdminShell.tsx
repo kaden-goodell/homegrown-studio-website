@@ -245,7 +245,7 @@ function Shell({ who, onSignedOut }: { who: Owner; onSignedOut: () => void }) {
       setTab(t)
       tabRef.current = t
       history.replaceState(state(), '', `#${t}`)
-      window.scrollTo?.(0, 0)
+      window.scrollTo?.({ top: 0, behavior: 'instant' })
     })
   }, [guard])
 
@@ -320,7 +320,8 @@ function Shell({ who, onSignedOut }: { who: Owner; onSignedOut: () => void }) {
     Object.assign(b, { position: 'fixed', top: `-${y}px`, width: '100%', overflow: 'hidden' })
     return () => {
       Object.assign(b, was)
-      window.scrollTo?.(0, y)
+      // Instant: the site sets scroll-behavior: smooth on html, which would glide the page back down.
+      window.scrollTo?.({ top: y, behavior: 'instant' })
     }
   }, [locked])
   const sheetApi: SheetApi = {
@@ -363,7 +364,7 @@ function Shell({ who, onSignedOut }: { who: Owner; onSignedOut: () => void }) {
           ))}
         </nav>
         <main className="adm-main" inert={covered} aria-label={LABEL[tab]}>
-          <Boundary key={tab} name={`${tab} tab`}>
+          <Boundary key={tab} name={`${tab} tab`} onRetry={() => { refresh.bump(); inbox.retryAll() }}>
             {tab === 'home' && <Home who={who} onOpen={openSheet} onInbox={showInbox} />}
             {tab === 'calendar' && <CalendarView onOpen={openSheet} />}
             {tab === 'classes' && <ClassesTab onOpen={openSheet} />}

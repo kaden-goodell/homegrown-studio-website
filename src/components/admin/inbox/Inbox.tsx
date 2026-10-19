@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { ToDecideItem } from '@pages/api/admin/to-decide.json'
 import { Failed, Seg, Skeleton } from '../shell/items'
+import { SafeRow } from '../shell/Boundary'
 import type { InboxKind, Sheet } from '../shell/router'
 import { describeItem } from './describe'
 import { useInbox, type InboxItem } from './InboxData'
@@ -75,20 +76,25 @@ function KindList({ kind, onOpen }: { kind: InboxKind; onOpen: (s: Sheet) => voi
       )}
       {items.length === 0 && <p className="adm-empty">{EMPTY[kind]}</p>}
       {items.length > 0 && shown.length === 0 && <p className="adm-empty">Nothing new. Tap New only to see everything.</p>}
-      {shown.map((x) => {
-        const d = describeItem(kind, x)
-        return (
-          <button key={x.id} type="button" className="adm-ibx" onClick={() => onOpen({ kind, id: x.id })}>
-            <span className="adm-tp">
-              <b>{d.name}</b>
-              <span className={`adm-badge ${x.status === 'new' ? 'is-new' : 'is-done'}`}>{d.statusLabel}</span>
-            </span>
-            <small>{d.kind} · {d.head}</small>
-            {d.next && <span className="adm-nx">Next: {d.next}</span>}
-          </button>
-        )
-      })}
+      {shown.map((x) => (
+        <SafeRow key={x.id}><InboxRow kind={kind} item={x} onOpen={onOpen} /></SafeRow>
+      ))}
     </>
+  )
+}
+
+/** One folded row: name, status, what it is and when, and what to do next. */
+function InboxRow({ kind, item: x, onOpen }: { kind: InboxKind; item: InboxItem; onOpen: (s: Sheet) => void }) {
+  const d = describeItem(kind, x)
+  return (
+    <button type="button" className="adm-ibx" onClick={() => onOpen({ kind, id: x.id })}>
+      <span className="adm-tp">
+        <b>{d.name}</b>
+        <span className={`adm-badge ${x.status === 'new' ? 'is-new' : 'is-done'}`}>{d.statusLabel}</span>
+      </span>
+      <small>{d.kind} · {d.head}</small>
+      {d.next && <span className="adm-nx">Next: {d.next}</span>}
+    </button>
   )
 }
 

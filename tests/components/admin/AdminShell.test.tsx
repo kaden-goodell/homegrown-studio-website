@@ -333,10 +333,8 @@ describe('Home', () => {
     vi.setSystemTime(new Date('2026-10-30T15:00:00Z'))
     await signedIn(server({ items: [] }))
     expect(await screen.findByText('The studio is closed today. Closed for Halloween weekend.')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Print today' }))
-    expect(dialog()).toHaveAccessibleName('Print a day')
-    expect(window.location.hash).toBe('#print-2026-10-30')
-    fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }))
+    // Nothing to print on a closed day with nothing on.
+    expect(screen.queryByRole('button', { name: 'Print today' })).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: '+ Book a party' }))
     expect(within(dialog()).getByRole('link', { name: 'Open the party booking page' })).toHaveAttribute('href', '/book')
   })
@@ -359,9 +357,10 @@ describe('Calendar sheets', () => {
     const sheet = dialog()
     expect(await within(sheet).findByText('Stefanie Justice')).toBeInTheDocument()
     expect(within(sheet).getByText('Beaded Necklace')).toBeInTheDocument()
-    expect(within(sheet).getByRole('link', { name: /Call/ })).toHaveAttribute('href', 'tel:2565550199')
-    expect(within(sheet).getByRole('link', { name: /Text/ })).toHaveAttribute('href', 'sms:2565550199')
-    expect(within(sheet).getByRole('link', { name: /Text/ })).toHaveTextContent('(256) 555-0199')
+    expect(within(sheet).getByRole('link', { name: 'Call' })).toHaveAttribute('href', 'tel:2565550199')
+    expect(within(sheet).getByRole('link', { name: 'Text' })).toHaveAttribute('href', 'sms:2565550199')
+    // The number shows under the buttons as plain text you can select.
+    expect(within(sheet).getAllByText('(256) 555-0199', { selector: '.adm-addr' })).toHaveLength(2)
     fireEvent.click(within(sheet).getByRole('button', { name: 'Guests' }))
     expect(within(sheet).getByText('Ann Guest')).toBeInTheDocument()
     expect(within(sheet).getByText('Waiver signed')).toBeInTheDocument()
@@ -391,7 +390,7 @@ describe('Inbox', () => {
     await signedIn()
     tab('Inbox')
     const row = await screen.findByRole('button', { name: /Dana Planner · Rocket Co/ })
-    expect(row).toHaveTextContent('Private event · Team building · Sat Nov 21 at 2:00 PM · 18 guests')
+    expect(row).toHaveTextContent('Private event · Team building · Sat Nov 21 · 2 PM · 18 guests')
     expect(row).toHaveTextContent('Next: Reply with dates and a quote')
     fireEvent.click(row)
     const sheet = dialog()
@@ -401,9 +400,10 @@ describe('Inbox', () => {
     expect(within(sheet).getByText('Text')).toBeInTheDocument()
     expect(within(sheet).getByRole('link', { name: 'pinterest.com/pin/1' })).toHaveAttribute('href', 'https://pinterest.com/pin/1')
     expect(within(sheet).getByAltText('Dana Planner, inspiration photo 1')).toHaveAttribute('src', '/api/admin/event-request-photo?id=2026-10-17-abcdef12&n=0')
-    expect(within(sheet).getByRole('link', { name: /Email/ })).toHaveAttribute('href', 'mailto:dana@example.com')
-    expect(within(sheet).getByRole('link', { name: /Email/ })).toHaveTextContent('dana@example.com')
-    expect(within(sheet).getByRole('link', { name: /Call/ })).toHaveAttribute('href', 'tel:2565550142')
+    expect(within(sheet).getByRole('link', { name: 'Email' })).toHaveAttribute('href', 'mailto:dana@example.com')
+    expect(within(sheet).getByText('dana@example.com', { selector: '.adm-addr' })).toBeInTheDocument()
+    expect(within(sheet).getByRole('link', { name: 'Call' })).toHaveAttribute('href', 'tel:2565550142')
+    expect(within(sheet).getByText('(256) 555-0142', { selector: '.adm-addr' })).toBeInTheDocument()
     expect(sheet).toHaveAccessibleName('Dana Planner')
     expect(within(sheet).getByText(/Rocket Co · Private event request/)).toBeInTheDocument()
     expect(within(sheet).getByRole('heading', { name: 'The event', level: 3 })).toBeInTheDocument()
@@ -589,12 +589,13 @@ describe('More', () => {
 describe('fix round 1', () => {
   const legacy = { kind: 'legacy-class', id: 'clssch_9', label: 'Needlepoint 101', startIso: at('2026-10-25', '18:00'), endIso: at('2026-10-25', '20:00') }
 
-  it('a part that fails to draw says so with Try again; the rest of /admin keeps working', async () => {
+  it('a bad record is skipped on its own row; the rest of the list and /admin keep working', async () => {
     const err = vi.spyOn(console, 'error').mockImplementation(() => {})
-    await signedIn(server({ requests: [{ id: 'bad-1', status: 'new', about: { name: 'Broken' } }] }))
+    await signedIn(server({ requests: [{ id: 'bad-1', status: 'new', about: { name: 'Broken' } }, request()] }))
     tab('Inbox')
-    expect(await screen.findByText('Something went wrong showing this.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+    expect(await screen.findByText('One item couldn’t be shown.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Dana Planner/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Inbox' })).toBeInTheDocument()
     tab('More')
     expect(await screen.findByRole('heading', { name: 'More' })).toBeInTheDocument()
     expect(err).toHaveBeenCalled()
@@ -619,10 +620,17 @@ describe('fix round 1', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Block time' }))
     expect(document.body.style.position).toBe('fixed')
     expect(document.body.style.overflow).toBe('hidden')
+    const scrollTo = vi.fn()
+    vi.stubGlobal('scrollTo', scrollTo)
     fireEvent.click(within(dialog()).getByRole('button', { name: 'Close' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
     expect(document.body.style.position).toBe('')
     expect(document.body.style.overflow).toBe('')
+    // Instant, never smooth: the site sets scroll-behavior: smooth on html.
+    expect(scrollTo).toHaveBeenCalledWith({ top: 0, behavior: 'instant' })
+    tab('More')
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: 0, behavior: 'instant' })
+    for (const c of scrollTo.mock.calls) expect(c[0]).toMatchObject({ behavior: 'instant' })
   })
 
   it('Home on a closed day: "The studio is closed today." and what is next', async () => {
@@ -636,16 +644,21 @@ describe('fix round 1', () => {
     await signedIn(server({ items: [] }))
     fireEvent.click(await screen.findByRole('button', { name: /Nothing on today/ }))
     expect(dialog()).toHaveAccessibleName('Fri Oct 23')
+    // Let the Day sheet's own calendar load land inside the test.
+    expect(await within(dialog()).findByText('Nothing on this day yet.')).toBeInTheDocument()
   })
 
   it('the Day sheet on a closed weekday says so, and every add button reads the same', async () => {
     await signedIn()
     tab('Calendar')
     // Monday has a class today, so only Tuesday and Wednesday fold.
-    fireEvent.click(await screen.findByRole('button', { name: /Closed Tue–Wed/ }))
+    fireEvent.click(await screen.findByRole("button", { name: /Show Tue–Wed/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Add on Tue Oct 20' }))
     expect(await within(dialog()).findByText(/usually closed on Tuesdays/)).toBeInTheDocument()
-    expect(within(dialog()).getByRole('button', { name: '+ Book a party on this day' })).toBeInTheDocument()
+    // Parties can't be booked on a closed weekday, so the sheet says so instead of offering it.
+    expect(within(dialog()).queryByRole('button', { name: '+ Book a party on this day' })).toBeNull()
+    expect(within(dialog()).getByText('Parties can’t be booked on Tuesdays.')).toBeInTheDocument()
+    expect(within(dialog()).getByRole('button', { name: '+ New class on this day' })).toBeInTheDocument()
   })
 
   it('Classes › Upcoming lists the classes still run from Square, read only', async () => {
@@ -724,5 +737,45 @@ describe('fix round 1', () => {
     expect(note().textContent).toBe('')
     await act(async () => release())
     await waitFor(() => expect(note().textContent).toBe('3 waiting'))
+  })
+
+  it('round 2: "Next up" on a closed day skips blocked time', async () => {
+    const items = [
+      { kind: 'blocked', id: 'blk_7', label: 'Deep clean', startIso: at('2026-10-22', '09:00'), endIso: at('2026-10-22', '12:00') },
+      { kind: 'party', id: 'bk_9', label: 'the Justice party', startIso: at('2026-10-24', '13:30'), endIso: at('2026-10-24', '15:00'), guests: 14 },
+    ]
+    await signedIn(server({ items }))
+    expect(await screen.findByText('Next up: Sat Oct 24 · The Justice party')).toBeInTheDocument()
+  })
+
+  it('round 2: Square classes are grouped under one heading per day, with one label', async () => {
+    const two = [legacy, { ...legacy, id: 'clssch_10', label: 'Kinusaiga', startIso: at('2026-10-25', '14:00'), endIso: at('2026-10-25', '16:00') }]
+    await signedIn(server({ items: [...calendar, ...two] }))
+    tab('Classes')
+    const sun = await within(await screen.findByRole('region', { name: 'Still run from Square' })).findByRole('region', { name: 'Sun Oct 25' })
+    expect(within(sun).getAllByRole('button')).toHaveLength(2)
+    expect(screen.getAllByText('Sun Oct 25', { selector: '.adm-dayname' })).toHaveLength(1)
+    const row = within(sun).getByRole('button', { name: /Kinusaiga/ })
+    expect(row).toHaveTextContent('In Square')
+    expect(row).not.toHaveTextContent('Square class')
+  })
+
+  it('round 2: the old class form keeps its messages in the body; the footer holds only full-width buttons', async () => {
+    await signedIn()
+    fireEvent.click(await screen.findByRole('button', { name: '+ New class' }))
+    const foot = await waitFor(() => { const f = dialog().querySelector('.adm-sheet-foot'); if (!f) throw new Error('no footer'); return f })
+    expect(foot.querySelectorAll('p, ul')).toHaveLength(0)
+    expect(within(foot as HTMLElement).getAllByRole('button').map((b) => b.textContent)).toEqual(['Add class', 'Add and keep in the library'])
+    expect(foot.querySelector('.adm-savebtns')).not.toBeNull()
+  })
+
+  it('round 2: the inbox Status label is a section label with room under the Next note', async () => {
+    await signedIn()
+    tab('Inbox')
+    fireEvent.click(await screen.findByRole('button', { name: /Dana Planner/ }))
+    const label = within(dialog()).getByRole('heading', { name: 'Status', level: 3 })
+    expect(label).toHaveClass('adm-lbl')
+    expect(label).not.toHaveAttribute('style')
+    expect(label.previousElementSibling).toHaveClass('adm-note')
   })
 })

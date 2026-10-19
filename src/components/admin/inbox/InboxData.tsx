@@ -26,6 +26,8 @@ interface InboxApi {
   loaded: boolean
   /** Optimistic: the status changes at once; Undo puts it back; a failed save puts it back and says so. */
   setStatus: (kind: InboxKind, id: string, status: string, label: string) => void
+  /** Load all four lists again. */
+  retryAll: () => void
 }
 
 const ENDPOINT: Record<InboxKind, string> = { request: REQUESTS, message: MESSAGES, teacher: APPLICATIONS }
@@ -39,7 +41,7 @@ export function useInbox(): InboxApi {
 }
 
 /** One list that loads on its own, with its own error and Try again. */
-function useSource<T>(url: string, key: string) {
+function useSource<T>(url: string, key: string, onFresh?: () => void) {
   const [items, setItems] = useState<T[] | null>(null)
   const [error, setError] = useState('')
   const [tries, setTries] = useState(0)
@@ -48,7 +50,7 @@ function useSource<T>(url: string, key: string) {
     setError('')
     api<Record<string, T[]>>(url).then((r) => {
       if (!live) return
-      if (r.ok && r.data && Array.isArray(r.data[key])) setItems(r.data[key])
+      if (r.ok && r.data && Array.isArray(r.data[key])) { setItems(r.data[key]); onFresh?.() }
       else setError(r.error ?? 'That didn’t load.')
     })
     return () => { live = false }
@@ -64,16 +66,17 @@ function useSource<T>(url: string, key: string) {
  */
 export function InboxProvider({ children }: { children: ReactNode }) {
   const toast = useToast()
-  const request = useSource<EventRequest>(REQUESTS, 'requests')
-  const message = useSource<ContactMessage>(MESSAGES, 'messages')
-  const teacher = useSource<ArtistApplication>(APPLICATIONS, 'applications')
+  /** The status each item shows right now, set as it changes, so two quick taps never undo to the wrong one. Fresh lists start it over. */
+  const shown = useRef(new Map<string, string>())
+  const forget = (kind: InboxKind) => () => { for (const k of [...shown.current.keys()]) if (k.startsWith(`${kind}:`)) shown.current.delete(k) }
+  const request = useSource<EventRequest>(REQUESTS, 'requests', forget('request'))
+  const message = useSource<ContactMessage>(MESSAGES, 'messages', forget('message'))
+  const teacher = useSource<ArtistApplication>(APPLICATIONS, 'applications', forget('teacher'))
   const todo = useSource<ToDecideItem>(TO_DECIDE, 'items')
   const sources = { request, message, teacher }
   const ref = useRef(sources)
   ref.current = sources
 
-  /** The status each item shows right now, set as it changes, so two quick taps never undo to the wrong one. */
-  const shown = useRef(new Map<string, string>())
   const put = (kind: InboxKind, id: string, status: string) => {
     shown.current.set(`${kind}:${id}`, status)
     ref.current[kind].setItems((list: any[] | null) => (list ?? []).map((x) => (x.id === id ? { ...x, status } : x)) as any)
@@ -118,6 +121,7 @@ export function InboxProvider({ children }: { children: ReactNode }) {
     request, message, teacher, todo, counts,
     total: counts.request + counts.message + counts.teacher + counts.todo,
     loaded: [request, message, teacher, todo].every((x) => x.items !== null || !!x.error),
+    retryAll: () => { for (const x of [request, message, teacher, todo]) x.retry() },
     setStatus,
   }
   return <InboxContext.Provider value={value}>{children}</InboxContext.Provider>

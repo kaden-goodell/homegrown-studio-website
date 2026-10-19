@@ -124,7 +124,8 @@
 .adm-small {
   font-size: 0.85rem;
 }
-.adm p {
+/* No specificity: .adm-note, .adm-lbl and friends keep their own margins (fix round 2). */
+:where(.adm) :where(p) {
   margin: 0;
 }
 .adm-dayname {
@@ -1423,8 +1424,9 @@
 .adm-seg.is-wrap button {
   flex: 1 1 calc(50% - 3px);
 }
+/* On a wide page (not in a sheet, which is phone-width or a 440px panel) four fit on one row. */
 @media (min-width: 768px) {
-  .adm-seg.is-wrap button {
+  .adm-main .adm-seg.is-wrap button {
     flex: 1 1 0;
   }
 }
@@ -1467,4 +1469,147 @@ body:has(.adm-sheet-layer:not(.is-panel)) .adm-toasts {
   min-width: 0;
   max-width: 100%;
   box-sizing: border-box;
+}
+
+/* ── Fix round 2 ──────────────────────────────────────────────────────── */
+/* Section labels are labels whatever element carries them (h3 for headings' sake). */
+.adm-lbl {
+  font-family: var(--font-body);
+  line-height: 1.3;
+}
+.adm-note + .adm-lbl,
+.adm-sheet-body .adm-note + .adm-lbl {
+  margin-top: 1rem;
+}
+/* iPad: with a side panel open, the toast stays over the page column and never covers the panel (its Call button). */
+body:has(.adm-sheet-layer.is-panel) .adm-toasts {
+  right: calc(var(--adm-panel-w) + 1rem);
+}
+/* Needs you: 2×2 where four across would squeeze the labels (iPad portrait, or beside a panel). */
+.adm-need button {
+  min-width: 0;
+}
+.adm-need small {
+  overflow-wrap: break-word;
+}
+@media (min-width: 768px) and (max-width: 1023px) {
+  .adm-need {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.adm-shell.is-paneled .adm-need {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+/* Chip names: whole words only, at most two lines, then an ellipsis (the full name is in the sheet and the title). */
+.adm-chip b {
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: auto;
+}
+/* Closed days in the week grid and the month. */
+.adm-usually {
+  font-size: 0.75rem;
+  color: var(--color-muted);
+  font-style: italic;
+  margin: 0 0 0.25rem;
+}
+.adm-mday.is-shut {
+  background: var(--k-block-soft);
+  color: var(--color-muted);
+}
+.adm-mday.is-holiday {
+  background: var(--holiday-color-soft, #fdebd9);
+  color: var(--holiday-color-ink, #8a3f00);
+  border-color: var(--holiday-color, #e8761c);
+}
+.adm-mday.h-halloween { --holiday-color: var(--holiday-halloween); --holiday-color-soft: var(--holiday-halloween-soft); --holiday-color-ink: var(--holiday-halloween-ink); }
+.adm-mday.h-thanksgiving { --holiday-color: var(--holiday-thanksgiving); --holiday-color-soft: var(--holiday-thanksgiving-soft); --holiday-color-ink: var(--holiday-thanksgiving-ink); }
+.adm-mday.h-christmas { --holiday-color: var(--holiday-christmas); --holiday-color-soft: var(--holiday-christmas-soft); --holiday-color-ink: var(--holiday-christmas-ink); }
+.adm-hname {
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.1;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+.adm-mday.is-active {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+/* Narrow month cells (beside a panel): coloured dots and a count instead of name stubs. */
+.adm-dots {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 2px;
+  align-items: center;
+}
+.adm-dots i {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--k);
+}
+.adm-dots b {
+  font-size: 0.68rem;
+  color: var(--color-dark);
+}
+/* The fold pill for closed weekdays. */
+.adm-foldpill {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  min-height: 2.75rem;
+  padding: 0 0.85rem;
+  border-radius: 999px;
+  border: 1px solid var(--adm-line-strong);
+  background: var(--adm-surface);
+  color: var(--color-primary);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.adm-foldpill span[aria-hidden] {
+  transition: transform 0.2s;
+}
+.adm-foldpill[aria-expanded='true'] span[aria-hidden] {
+  transform: rotate(180deg);
+}
+.adm-foldrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  margin: 0.9rem 0 0.2rem;
+  padding: 0.25rem 0.4rem 0.25rem 0.75rem;
+  border-radius: 0.75rem;
+  background: repeating-linear-gradient(45deg, #efe9e3 0 6px, #f8f5f2 6px 12px);
+  color: var(--color-muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+/* Sheet footers: the old class form's buttons, full width like every other footer. */
+.adm-sheet-foot .btn {
+  width: 100%;
+}
+/* Contact footer: the button, then the number or address as text you can select. */
+.adm-contactcol {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.adm-addr {
+  font-size: 0.8rem;
+  color: var(--color-muted);
+  text-align: center;
+  user-select: all;
+  -webkit-user-select: all;
+  overflow-wrap: anywhere;
+}
+/* The old class form's buttons in a sheet footer: one full-width stack, like every footer. */
+.adm-savebtns > div {
+  display: grid !important;
+  gap: 0.5rem;
 }

@@ -10,17 +10,23 @@ import { useInbox, type InboxItem } from './InboxData'
 
 const TITLE: Record<InboxKind, string> = { request: 'Request', message: 'Message', teacher: 'Teacher' }
 
-/** Call and Email as links, with the number and address showing too. */
+/** A contact button with what it dials or writes to underneath, as text you can select and copy. */
+export function ContactButton({ label, href, text, primary }: { label: string; href: string; text: string; primary?: boolean }) {
+  return (
+    <div className="adm-contactcol">
+      <a className={`adm-btn ${primary ? 'is-pri' : 'is-ghost'}`} href={href}>{label}</a>
+      <span className="adm-addr">{text}</span>
+    </div>
+  )
+}
+
+/** Call and Email as links, with the number and address showing underneath. */
 export function ContactFooter({ phone, email }: { phone: string; email: string }) {
   if (!phone && !email) return null
   return (
     <div className="adm-two">
-      {phone
-        ? <a className="adm-btn is-ghost adm-contact" href={telHref(phone)}>Call<small>{phone}</small></a>
-        : <span />}
-      {email
-        ? <a className="adm-btn is-pri adm-contact" href={`mailto:${email}`}>Email<small>{email}</small></a>
-        : <span />}
+      {phone ? <ContactButton label="Call" href={telHref(phone)} text={phone} /> : <span />}
+      {email ? <ContactButton label="Email" href={`mailto:${email}`} text={email} primary /> : <span />}
     </div>
   )
 }
@@ -39,7 +45,7 @@ export function InboxItemSheet({ kind, id }: { kind: InboxKind; id: string }) {
   return (
     <SheetFrame tall title={d.title} subtitle={d.sheetLabel} footer={<ContactFooter phone={d.phone} email={d.email} />}>
       {d.next && <p className="adm-note"><b style={{ color: 'var(--color-dark)' }}>Next:</b> {d.next}</p>}
-      <h3 className="adm-lbl" style={{ marginTop: 0 }}>Status</h3>
+      <h3 className="adm-lbl">Status</h3>
       <Seg
         label={`Status for ${d.title}`}
         value={item.status}

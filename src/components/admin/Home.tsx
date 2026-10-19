@@ -42,7 +42,8 @@ export default function Home({ who, onOpen, onInbox }: {
   const next = (() => {
     for (let n = 1; n < 7; n++) {
       const d = addDays(day, n)
-      const item = (days?.get(d) ?? []).find((i) => i.kind !== 'closed')
+      // Something on: a class, a party or Craft Café, never blocked time.
+      const item = (days?.get(d) ?? []).find((i) => i.kind === 'class' || i.kind === 'legacy-class' || i.kind === 'party' || i.kind === 'cafe')
       if (item) return { day: d, item }
     }
     return null
@@ -105,7 +106,7 @@ export default function Home({ who, onOpen, onInbox }: {
         <button type="button" className="adm-btn is-ghost" onClick={() => onOpen({ kind: 'book-party' })}>+ Book a party</button>
         <button type="button" className="adm-btn is-ghost" onClick={() => onOpen({ kind: 'block' })}>Block time</button>
       </div>
-      <button type="button" className="adm-btn is-ghost is-sm" onClick={() => onOpen({ kind: 'print', day })}>Print today</button>
+      {!(shut && !todays.length) && <button type="button" className="adm-btn is-ghost is-sm" onClick={() => onOpen({ kind: 'print', day })}>Print today</button>}
     </div>
   )
 

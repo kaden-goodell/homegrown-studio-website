@@ -4,6 +4,8 @@
  * never breaks across lines.
  */
 import { studioClock } from '@lib/studio-time'
+import { localDate } from '@lib/party-slots'
+import { dayLabel } from '../classes/dates'
 
 const NBSP = ' '
 
@@ -27,4 +29,19 @@ export function clockRange(from: string, to: string): string {
 /** The same for two instants, in studio time. */
 export function timeSpan(startIso: string, endIso: string): string {
   return clockRange(studioClock(startIso), studioClock(endIso))
+}
+
+/** "Fri Oct 23 · 6–8 PM", studio time. */
+export function dayAndSpan(startIso: string, endIso: string): string {
+  return `${dayLabel(localDate(startIso))} · ${timeSpan(startIso, endIso)}`
+}
+
+/** "Sat Oct 17 · 9:14 AM", studio time. */
+export function dayAndClock(iso: string): string {
+  return `${dayLabel(localDate(iso))} · ${clock(studioClock(iso))}`
+}
+
+/** A day ("2026-11-14") and an optional start ("13:00"): "Sat Nov 14 · 1 PM". */
+export function dayAndStart(ymd: string, hhmm?: string): string {
+  return `${dayLabel(ymd)}${hhmm ? ` · ${clock(hhmm)}` : ''}`
 }

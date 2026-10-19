@@ -46,15 +46,14 @@ export default function ClassesTab({ onOpen }: { onOpen: (s: Sheet, data?: unkno
             {square.error && <Failed message={square.error} onRetry={square.retry} />}
             {!square.error && !square.items && <Skeleton rows={2} label="Loading the Square classes" />}
             {square.items && !legacy.length && <p className="adm-muted adm-small">None in the next six weeks.</p>}
-            {legacy.map((i) => {
-              const d = localDate(i.startIso)
-              return (
-                <div key={itemKey(i)}>
-                  <p className="adm-dayname">{dayLabel(d)}</p>
-                  <ItemRow item={i} tag="In Square" onOpen={() => onOpen(sheetOf(i, d), i)} />
-                </div>
-              )
-            })}
+            {[...new Set(legacy.map((i) => localDate(i.startIso)))].map((d) => (
+              <section key={d} aria-label={dayLabel(d)}>
+                <p className="adm-dayname">{dayLabel(d)}</p>
+                {legacy.filter((i) => localDate(i.startIso) === d).map((i) => (
+                  <ItemRow key={itemKey(i)} item={i} sub="" tag="In Square" onOpen={() => onOpen(sheetOf(i, d), i)} />
+                ))}
+              </section>
+            ))}
           </section>
         </>
       )}

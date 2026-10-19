@@ -4,6 +4,7 @@ import { timeSpan } from './time'
 import { localDate } from '@lib/party-slots'
 import { addDays, dayLabel } from '../classes/dates'
 import type { Sheet } from './router'
+import { SafeRow } from './Boundary'
 
 /** Each kind's name in the Key and its colour class (see admin.css). */
 export const KIND_STYLE = {
@@ -79,8 +80,14 @@ export function sheetOf(i: CalendarItem, day: string): Sheet {
 
 export const itemKey = (i: CalendarItem) => `${i.kind}-${i.id}-${i.sessionId ?? i.startIso}`
 
-/** One agenda row: time · name · what it is, with the kind's colour bar and a Draft tag. */
-export function ItemRow({ item, onOpen, active, tag: extraTag }: { item: CalendarItem; onOpen: () => void; active?: boolean; tag?: string }) {
+type RowProps = { item: CalendarItem; onOpen: () => void; active?: boolean; tag?: string; sub?: string }
+
+/** One agenda row: time · name · what it is, with the kind's colour bar and a Draft tag. A bad record shows "One item couldn't be shown" instead. */
+export function ItemRow(props: RowProps) {
+  return <SafeRow><ItemRowInner {...props} /></SafeRow>
+}
+
+function ItemRowInner({ item, onOpen, active, tag: extraTag, sub }: RowProps) {
   const tag = itemTag(item) ?? (extraTag ? { text: extraTag } : null)
   return (
     <button
@@ -93,7 +100,7 @@ export function ItemRow({ item, onOpen, active, tag: extraTag }: { item: Calenda
       <span className="adm-rt">{itemTime(item)}</span>
       <span className="adm-rm">
         <b>{itemName(item)}</b>
-        <small>{itemSub(item)}{tag && <span className={`adm-tag${tag.red ? ' is-red' : ''}`}>{tag.text}</span>}</small>
+        <small>{sub ?? itemSub(item)}{tag && <span className={`adm-tag${tag.red ? ' is-red' : ''}`}>{tag.text}</span>}</small>
       </span>
       <span className="adm-chev" aria-hidden="true">›</span>
     </button>

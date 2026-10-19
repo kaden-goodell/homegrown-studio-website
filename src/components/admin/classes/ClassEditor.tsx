@@ -408,7 +408,8 @@ export default function ClassEditor({ mode, onSaved, onCancel, onDirtyChange, hi
   const singlePass = f.passes[0]
   /** In a sheet the save buttons sit in its pinned footer (outside the form), so they save by click, not by submit. */
   const submit = inSheet ? { type: 'button' as const, onClick: () => save(false) } : { type: 'submit' as const }
-  const saveBar = (
+  /** Messages about the save (errors, who to tell): in a sheet they stay in the body, above the footer. */
+  const saveNotes = (
     <>
             {errors.form && <p role="alert" style={errorText}>{errors.form}</p>}
             {stale && <button type="button" className="btn btn-primary" onClick={reload}>Reload</button>}
@@ -424,6 +425,10 @@ export default function ClassEditor({ mode, onSaved, onCancel, onDirtyChange, hi
             )}
             {notice && <p role="status" style={{ margin: 0, fontWeight: 600 }}>{notice}</p>}
             {warning && <p role="alert" style={warnText}>{warning}</p>}
+    </>
+  )
+  const saveButtons = (
+    <>
             {!toTell?.people.length || !errors.form ? (
               <div style={row}>
                 {mode.kind === 'library' && <button {...submit} className="btn btn-primary" disabled={saving}>Save to library</button>}
@@ -608,8 +613,13 @@ export default function ClassEditor({ mode, onSaved, onCancel, onDirtyChange, hi
           </Section>
 
           {inSheet
-            ? (footer ? createPortal(<div style={{ display: 'grid', gap: '0.5rem' }}>{saveBar}</div>, footer) : null)
-            : <div style={{ ...box, position: 'sticky', bottom: 0, zIndex: 1 }}>{saveBar}</div>}
+            ? (
+              <>
+                <div style={{ display: 'grid', gap: '0.5rem' }}>{saveNotes}</div>
+                {footer && createPortal(<div className="adm-stack adm-savebtns">{saveButtons}</div>, footer)}
+              </>
+            )
+            : <div style={{ ...box, position: 'sticky', bottom: 0, zIndex: 1 }}>{saveNotes}{saveButtons}</div>}
         </form>
         <section aria-label="How the card looks" className="class-editor-preview" style={{ display: 'grid', gap: '0.5rem' }}>
           <h2 style={{ margin: 0, fontSize: '1rem', color: 'var(--color-muted)' }}>How the card looks</h2>
