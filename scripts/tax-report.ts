@@ -15,7 +15,7 @@ const month = process.argv.find((a) => /^\d{4}-\d{2}$/.test(a)) ?? previousMonth
 const config = siteConfig.providers.payment.config as SquareConfig
 const [index, orders] = await Promise.all([loadCatalogIndex(config), loadOrders(config, month)])
 const sources = await loadSourceOrders(config, orders)
-const report = renderTaxReport(month, summarizeTax(orders, index, sources), { partial: month >= new Date().toISOString().slice(0, 7) })
+const report = renderTaxReport(month, summarizeTax(orders, index, sources), { partial: month >= new Date().toISOString().slice(0, 7), classesCategoryMissing: !config.classesCategoryId })
 console.log(report.text)
 if (process.argv.includes('--email')) {
   const { sent } = await sendEmail({ to: siteConfig.taxReportEmails.join(', '), ...report })

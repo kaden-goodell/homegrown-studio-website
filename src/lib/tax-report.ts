@@ -23,16 +23,19 @@ export const BUCKET_TAX: Record<Bucket, 'use' | 'sales' | 'unsure'> = {
   classes: 'use', cafe: 'use', parties: 'use', kits: 'sales', other: 'unsure',
 }
 
-export interface ItemInfo { productType: string; categoryNames: string[] }
+export interface ItemInfo { productType: string; categoryNames: string[]; /** In our Square "Classes" category (SQUARE_CLASSES_CATEGORY_ID). */ inClasses?: boolean }
 export type CatalogIndex = Map<string, ItemInfo> // variation id → item
 
 export interface Totals { salesCents: number; taxCents: number; lines: number }
 export type TaxSummary = Record<Bucket, Totals>
 
-export function bucketFor(info: ItemInfo | undefined): Bucket {
-  if (!info) return 'other'
+/** The studio fee line on a party order is ad hoc (no catalog item); matched by name. */
+export const PARTY_FEE_PREFIX = 'Whole Studio Party'
+
+export function bucketFor(info: ItemInfo | undefined, lineName?: string): Bucket {
+  if (!info) return lineName?.startsWith(PARTY_FEE_PREFIX) ? 'parties' : 'other'
   if (info.categoryNames.some((c) => /take-home kits/i.test(c))) return 'kits'
-  if (info.productType === 'CLASS_TICKET') return 'classes'
+  if (info.inClasses || info.productType === 'CLASS_TICKET') return 'classes'
   if (info.productType === 'APPOINTMENTS_SERVICE') return 'parties'
   return 'cafe'
 }
@@ -50,24 +53,24 @@ export function summarizeTax(orders: any[], index: CatalogIndex, sources: Map<st
   const empty = (): Totals => ({ salesCents: 0, taxCents: 0, lines: 0 })
   const out: TaxSummary = { classes: empty(), cafe: empty(), parties: empty(), kits: empty(), other: empty() }
   const byId = new Map<string, any>([...sources, ...orders.filter((o) => o.id).map((o) => [o.id, o] as [string, any])])
-  const add = (catalogId: string | undefined, totalCents: number, taxCentsAmt: number, sign: 1 | -1, countLine: boolean) => {
-    const b = out[bucketFor(index.get(catalogId ?? ''))]
+  const add = (catalogId: string | undefined, totalCents: number, taxCentsAmt: number, sign: 1 | -1, countLine: boolean, name?: string) => {
+    const b = out[bucketFor(index.get(catalogId ?? ''), name)]
     b.taxCents += sign * taxCentsAmt
     b.salesCents += sign * (totalCents - taxCentsAmt)
     if (countLine) b.lines += 1
   }
   for (const order of orders) {
-    for (const line of order.line_items ?? []) add(line.catalog_object_id, cents(line.total_money), cents(line.total_tax_money), 1, true)
+    for (const line of order.line_items ?? []) add(line.catalog_object_id, cents(line.total_money), cents(line.total_tax_money), 1, true, line.name)
     for (const ret of order.returns ?? []) {
       for (const line of ret.return_line_items ?? []) {
         const source = byId.get(ret.source_order_id)
         if (line.catalog_object_id || !source || !cents(source.total_money)) {
-          add(line.catalog_object_id, cents(line.total_money), cents(line.total_tax_money), -1, false)
+          add(line.catalog_object_id, cents(line.total_money), cents(line.total_tax_money), -1, false, line.name)
           continue
         }
         const share = Math.min(1, cents(line.total_money) / cents(source.total_money))
         for (const sold of source.line_items ?? []) {
-          add(sold.catalog_object_id, Math.round(cents(sold.total_money) * share), Math.round(cents(sold.total_tax_money) * share), -1, false)
+          add(sold.catalog_object_id, Math.round(cents(sold.total_money) * share), Math.round(cents(sold.total_tax_money) * share), -1, false, sold.name)
         }
       }
     }
@@ -114,6 +117,7 @@ async function square(config: SquareConfig, path: string, body?: unknown): Promi
 }
 
 export async function loadCatalogIndex(config: SquareConfig): Promise<CatalogIndex> {
+  const classesCategoryId = config.classesCategoryId || ''
   const categories = new Map<string, string>()
   const items: any[] = []
   let cursor: string | undefined
@@ -128,8 +132,10 @@ export async function loadCatalogIndex(config: SquareConfig): Promise<CatalogInd
   const index: CatalogIndex = new Map()
   for (const item of items) {
     const d = item.item_data ?? {}
+    const ids: string[] = [...(d.categories ?? []).map((c: any) => c.id), d.category_id].filter(Boolean)
     const info: ItemInfo = {
       productType: d.product_type ?? 'REGULAR',
+      inClasses: !!classesCategoryId && ids.includes(classesCategoryId),
       categoryNames: [...(d.categories ?? []).map((c: any) => categories.get(c.id) ?? ''), categories.get(d.category_id) ?? ''].filter(Boolean),
     }
     for (const v of d.variations ?? []) index.set(v.id, info)
@@ -172,11 +178,12 @@ export async function loadSourceOrders(config: SquareConfig, orders: any[]): Pro
 const money = (c: number) => `${c < 0 ? '−' : ''}$${(Math.abs(c) / 100).toFixed(2)}`
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-export function renderTaxReport(month: string, s: TaxSummary, opts: { partial?: boolean } = {}): { subject: string; text: string; html: string } {
+export function renderTaxReport(month: string, s: TaxSummary, opts: { partial?: boolean; classesCategoryMissing?: boolean } = {}): { subject: string; text: string; html: string } {
   const monthName = new Date(`${month}-15T12:00:00Z`).toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' })
   const sum = (kind: 'use' | 'sales' | 'unsure') => (Object.keys(s) as Bucket[]).filter((b) => BUCKET_TAX[b] === kind).reduce((t, b) => t + s[b].taxCents, 0)
   const use = sum('use'), sales = sum('sales'), unsure = sum('unsure')
   const rows = (Object.keys(s) as Bucket[]).filter((b) => s[b].lines > 0 || s[b].taxCents !== 0)
+  const caveat = opts.classesCategoryMissing ? 'Note: the Classes category is not set (SQUARE_CLASSES_CATEGORY_ID), so our own classes may be under Craft Café. All are use tax, so the use-tax total is the same.' : ''
   const title = `Tax collected, ${monthName}${opts.partial ? ' (so far)' : ''}`
   const text = [
     title,
@@ -188,6 +195,7 @@ export function renderTaxReport(month: string, s: TaxSummary, opts: { partial?: 
     ...rows.map((b) => `${BUCKET_LABEL[b]}: sales ${money(s[b].salesCents)}, tax ${money(s[b].taxCents)} — ${BUCKET_TAX[b] === 'use' ? 'use tax' : BUCKET_TAX[b] === 'sales' ? 'sales tax' : 'ask Chris'}`),
     '',
     'From Square: completed orders in the month (studio time), refunds taken off. Sales are before tax.',
+    ...(caveat ? ['', caveat] : []),
   ].join('\n')
   const td = 'padding:6px 10px;border-bottom:1px solid #eee;'
   const html = `<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;color:#2b2420;line-height:1.5;">
@@ -200,6 +208,7 @@ export function renderTaxReport(month: string, s: TaxSummary, opts: { partial?: 
     ${rows.map((b) => `<tr><td style="${td}">${esc(BUCKET_LABEL[b])}</td><td style="${td}text-align:right;">${money(s[b].salesCents)}</td><td style="${td}text-align:right;">${money(s[b].taxCents)}</td><td style="${td}">${BUCKET_TAX[b] === 'use' ? 'Use tax' : BUCKET_TAX[b] === 'sales' ? 'Sales tax' : 'Ask Chris'}</td></tr>`).join('')}
   </table>
   <p style="margin:14px 0 0;font-size:13px;color:#6f635b;">From Square: completed orders in the month (studio time), refunds taken off. Sales are before tax.</p>
+  ${caveat ? `<p style="margin:8px 0 0;font-size:13px;color:#6f635b;">${esc(caveat)}</p>` : ''}
 </div>`
   return { subject: title, text, html }
 }

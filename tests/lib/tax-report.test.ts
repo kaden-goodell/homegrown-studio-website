@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { summarizeTax, monthRange, previousMonth, bucketFor, renderTaxReport, type CatalogIndex } from '@lib/tax-report'
+import { summarizeTax, monthRange, previousMonth, bucketFor, loadCatalogIndex, renderTaxReport, type CatalogIndex } from '@lib/tax-report'
 
 const index: CatalogIndex = new Map([
   ['V_CLASS', { productType: 'CLASS_TICKET', categoryNames: ['Workshop'] }],
@@ -71,5 +71,46 @@ describe('refunds', () => {
     const refund = { id: 'R1', returns: [{ source_order_id: 'O1', return_line_items: [{ total_money: { amount: 2725 }, total_tax_money: { amount: 0 } }] }] }
     const s = summarizeTax([refund], index, new Map([['O1', sale]]))
     expect(s.classes.taxCents).toBe(-225)
+  })
+})
+
+describe('our own classes and party fees', () => {
+  const idx: CatalogIndex = new Map([
+    ['V_OURS', { productType: 'REGULAR', categoryNames: ['Classes'], inClasses: true }],
+    ['V_CAFE', { productType: 'REGULAR', categoryNames: ['Crafts'] }],
+  ])
+  const named = (name: string, total: number, tax: number, id?: string) => ({ ...line(id, total, tax), name })
+
+  it('a regular item in the Classes category is a class', () => {
+    const s = summarizeTax([{ line_items: [line('V_OURS', 2725, 225)] }], idx)
+    expect(s.classes).toEqual({ salesCents: 2500, taxCents: 225, lines: 1 })
+  })
+  it('the party studio fee line is a party; a café item stays café', () => {
+    const s = summarizeTax([{ line_items: [named('Whole Studio Party — studio fee', 30000, 2700), line('V_CAFE', 109, 9), named('Custom', 100, 0)] }], idx)
+    expect(s.parties).toEqual({ salesCents: 27300, taxCents: 2700, lines: 1 })
+    expect(s.cafe.lines).toBe(1)
+    expect(s.other.lines).toBe(1)
+  })
+  it('use tax total is unchanged by the new buckets', () => {
+    const s = summarizeTax([{ line_items: [line('V_OURS', 2725, 225), named('Whole Studio Party — studio fee', 30000, 2700)] }], idx)
+    expect(s.classes.taxCents + s.parties.taxCents).toBe(2925)
+  })
+  it('loader: category set tags items; unset falls back without throwing', async () => {
+    const page = { objects: [
+      { type: 'CATEGORY', id: 'CAT', category_data: { name: 'Classes' } },
+      { type: 'ITEM', id: 'I', item_data: { categories: [{ id: 'CAT' }], variations: [{ id: 'V1' }] } },
+    ] }
+    const orig = globalThis.fetch
+    globalThis.fetch = (async () => ({ ok: true, json: async () => page })) as any
+    try {
+      const cfg = { accessToken: 't', environment: 'sandbox', locationId: 'L', applicationId: 'A' } as any
+      expect(bucketFor((await loadCatalogIndex({ ...cfg, classesCategoryId: 'CAT' })).get('V1'))).toBe('classes')
+      expect(bucketFor((await loadCatalogIndex(cfg)).get('V1'))).toBe('cafe')
+    } finally { globalThis.fetch = orig }
+  })
+  it('the report says classes may be under Craft Café when the category is missing', () => {
+    const s = summarizeTax([], idx)
+    expect(renderTaxReport('2026-10', s, { classesCategoryMissing: true }).text).toContain('may be under Craft Café')
+    expect(renderTaxReport('2026-10', s).text).not.toContain('may be under')
   })
 })

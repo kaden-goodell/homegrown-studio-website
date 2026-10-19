@@ -44,7 +44,7 @@ export const POST: APIRoute = async ({ request }) => {
     const config = siteConfig.providers.payment.config as SquareConfig
     const [index, orders] = await Promise.all([loadCatalogIndex(config), loadOrders(config, month)])
     const sources = await loadSourceOrders(config, orders)
-    const report = renderTaxReport(month, summarizeTax(orders, index, sources))
+    const report = renderTaxReport(month, summarizeTax(orders, index, sources), { classesCategoryMissing: !config.classesCategoryId })
     const { sent } = await sendEmail({ to, ...report })
     logger.info('Tax report', { month, orders: orders.length, sent })
     return json({ data: { month, orders: orders.length, sent } }, 200)
