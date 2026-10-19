@@ -13,6 +13,8 @@ import type { EventKind, StudioEvent } from '@lib/events'
 import type { IncidentRecord } from '@lib/incident-store'
 import { picksShort, prepOptions } from '@lib/seat-options'
 import type { RosterChoices } from '@lib/seat-choices'
+import RefundPanel, { STAFF_REFUND, type WaitingRefund } from '@components/shared/RefundPanel'
+import type { BookingView } from '@lib/classes/admin-actions'
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
 
@@ -23,6 +25,90 @@ interface RosterData {
   households: Household[]
   /** Seat picks (classes with questions only); null = no questions, undefined = the read failed. */
   choices?: RosterChoices | null
+  /** Our own classes: the day's bookings from the seat ledger. */
+  bookings?: (BookingView & { name: string; seatsToday: number; waiting: WaitingRefund | null })[]
+  /** Our own classes: ticket type id → label. */
+  ticketLabels?: Record<string, string>
+}
+
+/** How a seat on our class was paid, in a few words for the door. */
+function paidWay(b: BookingView): string {
+  switch (b.source) {
+    case 'online': return 'Paid online'
+    case 'door-card': return 'Paid on the iPad'
+    case 'door-counter': return b.paidHere ? 'Paid at the counter' : 'Pay at the counter'
+    case 'comp': return 'Comped'
+    case 'pos': return 'Counter sale'
+    default: return ''
+  }
+}
+
+/**
+ * A booking on one of our classes: who, how many seats today, how it was
+ * paid, and for a counter sale with no name yet, "Who is it?" from the
+ * families who signed. Refund (crew, with a reason) underneath.
+ */
+function OwnBooking({ b, classId, households, ticketLabels, onChanged }: {
+  b: NonNullable<RosterData['bookings']>[number]
+  classId: string
+  households: Household[]
+  ticketLabels: Record<string, string>
+  onChanged: () => void
+}) {
+  const [who, setWho] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const unnamed = !b.customer
+  async function saveName() {
+    if (!who || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/staff/class-names.json', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ classId, bookingId: b.bookingId, recordId: who }),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) { setError(json?.error ?? 'Couldn’t save that.'); return }
+      onChanged()
+    } catch {
+      setError('Couldn’t save — check wifi and try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const refunded = b.refundedCents > 0
+  return (
+    <li data-testid="own-booking" style={{ padding: '0.6rem 0', borderTop: '1px solid rgba(var(--color-primary-rgb),0.12)', listStyle: 'none' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <strong style={{ color: unnamed ? 'var(--color-muted)' : 'var(--color-dark)' }}>{b.name}</strong>
+        <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>
+          {`${b.seatsToday} seat${b.seatsToday === 1 ? '' : 's'} · ${paidWay(b)}`}
+          {refunded && ' · part refunded'}
+        </span>
+      </div>
+      {b.overCapacity && <p style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-error)' }}>Over capacity. An owner decides on /admin.</p>}
+      {unnamed && (
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.4rem' }}>
+          {households.length ? (
+            <>
+              <select aria-label={`Who is ${b.name}`} value={who} onChange={(e) => setWho(e.target.value)} style={{ ...field, flex: '1 1 12rem' }}>
+                <option value="">Who is it?</option>
+                {households.map((h) => <option key={h.recordId} value={h.recordId}>{h.signer}</option>)}
+              </select>
+              <button type="button" onClick={saveName} disabled={!who || busy} style={{ ...btn(true), minHeight: '2.75rem' }}>{busy ? 'Saving…' : 'Save name'}</button>
+            </>
+          ) : (
+            <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Their name comes from the waiver once they sign for this class.</span>
+          )}
+        </div>
+      )}
+      {error && <p role="alert" style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{error}</p>}
+      <div style={{ marginTop: '0.4rem' }}>
+        <RefundPanel classId={classId} booking={b} endpoint={STAFF_REFUND} reasonRequired waiting={b.waiting} ticketLabel={(t) => ticketLabels[t] ?? t} onDone={onChanged} />
+      </div>
+    </li>
+  )
 }
 
 /** "Mon 19" — short weekday + day number, studio-local calendar math (no tz shift). */
@@ -243,7 +329,7 @@ export default function Roster({
               <div onClick={() => setMoreOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 110 }} />
               <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 0.35rem)', zIndex: 111, minWidth: '12rem', padding: '0.35rem', borderRadius: '0.75rem', background: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.18)', display: 'grid', gap: '0.25rem' }}>
                 <a role="menuitem" href={`/staff/print?kind=${kind}&id=${encodeURIComponent(id)}&day=${data.day}`} target="_blank" rel="noopener noreferrer" onClick={() => setMoreOpen(false)} style={{ ...btn(), border: 'none', textDecoration: 'none', display: 'flex', alignItems: 'center', minHeight: '2.75rem', fontSize: '0.95rem' }}>🖨 Print</a>
-                <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); setEventSettingsOpen(true) }} style={{ ...btn(), border: 'none', textAlign: 'left', minHeight: '2.75rem', fontSize: '0.95rem' }}>⚙️ Event settings</button>
+                {!event.own && <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); setEventSettingsOpen(true) }} style={{ ...btn(), border: 'none', textAlign: 'left', minHeight: '2.75rem', fontSize: '0.95rem' }}>⚙️ Event settings</button>}
                 <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); refresh() }} style={{ ...btn(), border: 'none', textAlign: 'left', minHeight: '2.75rem', fontSize: '0.95rem' }}>↻ Refresh</button>
               </div>
             </>
@@ -383,7 +469,7 @@ export default function Roster({
         <CompSeatSheet
           mode="sell"
           priceCents={event.priceCents}
-          event={{ id, title: event.title, day: data.day }}
+          event={{ id, title: event.title, day: data.day, ...(event.own ? { own: true as const } : {}) }}
           options={options}
           onRecorded={refresh}
           onClose={() => setSellSeatOpen(false)}
@@ -392,7 +478,7 @@ export default function Roster({
 
       {compSeatOpen && kind === 'workshop' && (
         <CompSeatSheet
-          event={{ id, title: event.title, day: data.day }}
+          event={{ id, title: event.title, day: data.day, ...(event.own ? { own: true as const } : {}) }}
           options={options}
           onRecorded={refresh}
           onClose={() => setCompSeatOpen(false)}
@@ -437,6 +523,20 @@ export default function Roster({
             ))}
           </div>
         </div>
+      )}
+
+      {data.bookings && (
+        <section aria-label="Bookings" style={{ ...card, background: 'rgba(255,255,255,0.9)' }}>
+          <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--color-primary)' }}>
+            BOOKINGS · {data.bookings.reduce((n, b) => n + b.seatsToday, 0)} SEAT{data.bookings.reduce((n, b) => n + b.seatsToday, 0) === 1 ? '' : 'S'}
+          </p>
+          {data.bookings.length === 0 && <p style={{ margin: '0.4rem 0 0', fontSize: '0.9rem', color: 'var(--color-muted)' }}>No one booked on this day yet.</p>}
+          <ul style={{ margin: '0.3rem 0 0', padding: 0 }}>
+            {data.bookings.map((b) => (
+              <OwnBooking key={b.bookingId} b={b} classId={id} households={data.households} ticketLabels={data.ticketLabels ?? {}} onChanged={refresh} />
+            ))}
+          </ul>
+        </section>
       )}
 
       {/* Search */}
