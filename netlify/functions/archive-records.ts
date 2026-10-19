@@ -1,6 +1,7 @@
 import type { Config } from '@netlify/functions'
 import { getStore } from '@netlify/blobs'
 import { exportAll, buildArchiveAttachments, type ArchiveKvStore } from '../../src/lib/archive-export'
+import { ARCHIVE_STORES, ARCHIVE_STORE_NAMES } from '../../src/lib/archive-stores'
 
 /**
  * Weekly self-archive (HOM-217, Audit finding H3): exports every legal
@@ -21,17 +22,8 @@ import { exportAll, buildArchiveAttachments, type ArchiveKvStore } from '../../s
  */
 export const config: Config = { schedule: '0 8 * * 0' }
 
-const STORE_NAMES = [
-  'waivers',
-  'rsvps',
-  'checkins',
-  'incidents',
-  'event-meta',
-  'open-studio',
-  // NOTE: the `otps` store (HOM-218, one-time SMS codes) is deliberately
-  // excluded — it's throwaway data (10-minute TTL, consumed on use) with no
-  // legal-retention value, not a record of anything that happened.
-] as const
+// One list for the function and the manual script (src/lib/archive-stores.ts).
+const STORE_NAMES = ARCHIVE_STORE_NAMES
 
 function blobKvStore(name: string): ArchiveKvStore {
   const store = getStore({ name, consistency: 'strong' })
@@ -110,7 +102,7 @@ export default async () => {
   const dateStr = new Date().toISOString().slice(0, 10)
 
   try {
-    const stores = STORE_NAMES.map((name) => ({ name, store: blobKvStore(name) }))
+    const stores = ARCHIVE_STORES.map(({ name, maxValueBytes }) => ({ name, store: blobKvStore(name), maxValueBytes }))
     const result = await exportAll(stores)
 
     // Snapshot the full export into its own blob store, independent of email

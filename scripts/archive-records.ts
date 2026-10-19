@@ -14,13 +14,11 @@ import { writeFile } from 'node:fs/promises'
 import { makeKvStore } from '../src/lib/blob-store'
 import { exportAll, buildArchiveAttachments, type ArchiveStoreSpec } from '../src/lib/archive-export'
 import { sendEmail } from '../src/lib/email'
+import { ARCHIVE_STORES, ARCHIVE_STORE_NAMES } from '../src/lib/archive-stores'
 
-// Same store/fsDir names every store module uses (@lib/waiver-store,
-// @lib/rsvp-store, @lib/checkin-store, @lib/incident-store, @lib/event-meta,
-// @lib/open-studio-store) — identical for every one of them today.
-const STORE_NAMES = ['waivers', 'rsvps', 'checkins', 'incidents', 'event-meta', 'open-studio'] as const
-// NOTE: `otps` (HOM-218) deliberately excluded — throwaway 10-minute-TTL
-// data, no legal-retention value. Same call as the scheduled function.
+// Same list as the scheduled function (src/lib/archive-stores.ts); every
+// store module uses the same name for its store and its fs dir.
+const STORE_NAMES = ARCHIVE_STORE_NAMES
 
 function parseOut(): string | null {
   const idx = process.argv.indexOf('--out')
@@ -29,7 +27,7 @@ function parseOut(): string | null {
 
 async function main() {
   const out = parseOut()
-  const stores: ArchiveStoreSpec[] = STORE_NAMES.map((name) => ({ name, store: makeKvStore(name, name) }))
+  const stores: ArchiveStoreSpec[] = ARCHIVE_STORES.map(({ name, maxValueBytes }) => ({ name, store: makeKvStore(name, name), maxValueBytes }))
   const result = await exportAll(stores)
   const attachments = buildArchiveAttachments(result, [...STORE_NAMES])
   const dateStr = result.generatedAt.slice(0, 10)
