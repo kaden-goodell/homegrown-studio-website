@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { firstParagraph, notifyInterest, takeHomeLine } from '@lib/workshop-copy'
+import { agesLabel, firstParagraph, notifyInterest, takeHomeLine } from '@lib/workshop-copy'
 
 // The six descriptions live in Square on 27 Sep 2026, word for word. Four
 // separate their paragraphs with one line break, two with a blank line.
@@ -153,4 +153,14 @@ describe('audienceOf / ageLabel / isDropOff (the studio’s own descriptions)', 
     expect(isDropOff(kids)).toBe(true)
     expect(isDropOff(adults)).toBe(false)
   })
+})
+
+describe('agesLabel', () => {
+  it.each([
+    ['8', 'Ages 8+'], ['8+', 'Ages 8+'], ['8 and up', 'Ages 8+'], ['ages 8 and up', 'Ages 8+'],
+    ['8 & up', 'Ages 8+'], ['8 years and up', 'Ages 8+'], ['Ages 8+', 'Ages 8+'], ['8 AND UP', 'Ages 8+'],
+    ['8-12', 'Ages 8–12'], ['8 to 12', 'Ages 8–12'], ['8–12', 'Ages 8–12'],
+    ['18 and up', 'Ages 18+'], ['all ages', 'All ages'], ['All Ages', 'All ages'],
+    ['', ''], ['   ', ''], ['  Grades 9–12 ', 'Grades 9–12'], ['Adults only', 'Adults only'],
+  ])('%j -> %j', (inp, out) => expect(agesLabel(inp)).toBe(out))
 })

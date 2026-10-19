@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { agesLabel } from '@lib/workshop-copy'
 import type { ClassContent, LibraryClass, ScheduledClass } from '@lib/classes/types'
 import { ownPriceLabel } from '@lib/classes/public-class'
 import { api, LIBRARY } from './api'
@@ -81,7 +82,7 @@ function LibraryCard({ lib, onEdit, onScheduleWithEdits, onScheduled, onChanged 
         <div style={{ minWidth: 0 }}>
           <h2 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--color-dark)' }}>{c.name}{lib.archived ? ' (archived)' : ''}</h2>
           <p style={{ ...muted, fontSize: '0.9rem' }}>
-            {[priceOf(c), `${c.defaultMinutes} minutes`, `${c.defaultCapacity} seats`, c.rules.ages, `version ${v.version}`].filter(Boolean).join(' · ')}
+            {[priceOf(c), `${c.defaultMinutes} minutes`, `${c.defaultCapacity} seats`, agesLabel(c.rules.ages), `version ${v.version}`].filter(Boolean).join(' · ')}
           </p>
         </div>
       </div>

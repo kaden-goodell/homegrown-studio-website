@@ -1,4 +1,5 @@
 import { useMemo, useState, type ReactNode } from 'react'
+import { agesLabel } from '@lib/workshop-copy'
 import WorkshopTile from '@components/workshops/WorkshopTile'
 import type { PersonToTell } from '@lib/classes/admin-actions'
 import type { AddOn, ClassContent, ClassRules, ClassStatus, LibraryClass, Pass, ScheduledClass, SeatQuestion, Session, TicketType } from '@lib/classes/types'
@@ -529,7 +530,7 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
           </Section>
 
           <Section {...sectionProps('rules')}>
-            <Field label="Ages" hint="Shown on the card, like Ages 8+. Leave blank for none."><input className="field-input" style={input} value={f.rules.ages} onChange={(e) => setRules({ ages: e.target.value })} /></Field>
+            <Field label="Ages" hint={`e.g. 8 and up, 8-12, or 18 and up${f.rules.ages.trim() ? ` · Shows as: ${agesLabel(f.rules.ages)}` : ' · Leave blank for none.'}`}><input className="field-input" style={input} value={f.rules.ages} onChange={(e) => setRules({ ages: e.target.value })} /></Field>
             <Check label="Drop-off (grown-ups can leave)" checked={f.rules.dropOff} onChange={(v) => setRules({ dropOff: v })} />
             <Check label="Made to order (we prepare each seat ahead)" checked={f.rules.madeToOrder} onChange={(v) => setRules({ madeToOrder: v })} />
             <Check label="Add sales tax" checked={f.rules.taxable} onChange={(v) => setRules({ taxable: v })} />

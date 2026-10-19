@@ -4,7 +4,7 @@ import NotifyMe from '@components/shared/NotifyMe'
 import RequestSpot from './RequestSpot'
 import { formatMoney } from '@lib/money'
 import { canBeBooked, isSoldOut, seatsLeftLabel } from '@lib/workshop-rules'
-import { ageLabel, isDropOff, notifyInterest } from '@lib/workshop-copy'
+import { ageLabel, agesLabel, isDropOff, notifyInterest } from '@lib/workshop-copy'
 import { trackWaitlistOpened } from '@lib/analytics'
 import { ownPriceLabel } from '@lib/classes/public-class'
 
@@ -31,7 +31,7 @@ export function workshopStatus(w: WorkshopData) {
   const bookable = !comingSoon && !soldOut && !closed
   const seats = bookable ? seatsLeftLabel(w.remainingSeats) : ''
   /** "$25 · Ages 8+ · Drop-off" */
-  const ages = w.own ? w.own.rules.ages : ageLabel(w.description)
+  const ages = w.own ? agesLabel(w.own.rules.ages) : ageLabel(w.description)
   const dropOff = w.own ? w.own.rules.dropOff : isDropOff(w.description)
   const meta = [comingSoon ? '' : priceLabel(w), ages, dropOff ? 'Drop-off' : '']
     .filter(Boolean)

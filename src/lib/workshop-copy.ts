@@ -115,6 +115,22 @@ export function ageLabel(description?: string | null): string {
   return grades ? `Grades ${grades[1]}–${grades[2]}` : ''
 }
 
+/**
+ * Our own classes keep ages as typed ("8", "8 and up", "8-12"); this turns
+ * them into the card label the Square classes show: "Ages 8+", "Ages 8–12".
+ * Anything it doesn't recognise comes back as typed.
+ */
+export function agesLabel(ages: string | null | undefined): string {
+  const t = (ages ?? '').trim()
+  if (!t) return ''
+  if (/^all ages$/i.test(t)) return 'All ages'
+  const up = t.match(/^(?:ages?\s+)?(\d{1,2})\s*(?:\+|(?:years?\s*)?(?:and|&|or)\s*(?:up|older|over))?$/i)
+  if (up) return `Ages ${up[1]}+`
+  const range = t.match(/^(?:ages?\s+)?(\d{1,2})\s*(?:-|–|—|to)\s*(\d{1,2})$/i)
+  if (range) return `Ages ${range[1]}–${range[2]}`
+  return t
+}
+
 /** The description says parents can leave ("This is a drop-off class…"). */
 export function isDropOff(description?: string | null): boolean {
   return /\bdrop-off class\b/i.test(paragraphs(description).join(' '))

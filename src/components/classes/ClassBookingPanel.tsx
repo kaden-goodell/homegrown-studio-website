@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from 'react'
+import { agesLabel } from '@lib/workshop-copy'
 import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
 import { STUDIO_ADDRESS, STUDIO_ADDRESS_LINE, STUDIO_DIRECTIONS_URL } from '@config/studio-address'
 import { newAttemptId } from '@lib/checkout-attempt'
@@ -590,7 +591,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   // ── Step 1: what, which pass and days, how many ───────────────────────────
   function renderDetails() {
     const paragraphs = workshop.description.split(/\n\s*\n|\n/).map((p) => p.trim()).filter(Boolean)
-    const meta = [own.rules.ages, own.rules.dropOff ? 'Drop-off' : '', own.instructor ? `With ${own.instructor}` : ''].filter(Boolean).join(' · ')
+    const meta = [agesLabel(own.rules.ages), own.rules.dropOff ? 'Drop-off' : '', own.instructor ? `With ${own.instructor}` : ''].filter(Boolean).join(' · ')
     const passSessions = !choose && pass?.sessionIds ? own.sessions.filter((s) => pass.sessionIds!.includes(s.id)) : []
     const left = seatsLeftLabel(roomLeft)
     return (
