@@ -946,3 +946,128 @@ describe('PartyModal — attempt IDs', () => {
     expect(bodies[1].attemptId).not.toBe(bodies[0].attemptId)
   })
 })
+
+describe('PartyModal — fix round 1', () => {
+  const twoPackages = () =>
+    factsWith((s) => { s.packages.push(pkgOf({ id: 'pkg_table', name: 'Table party', priceCents: 20000, minutes: 120, minGuests: 6, maxGuests: 12, defaultGuests: 8, quickPicks: [6, 8, 12] })) })
+  const long = (iso: string) => ({ startAt: iso, endAt: new Date(Date.parse(iso) + 120 * 60_000).toISOString(), durationMinutes: 120 })
+
+  async function toPackage() {
+    await pickCraft()
+    next()
+    await screen.findByText('Choose your party')
+  }
+
+  it('a package of another length drops the old times, asks for the new ones, and ends the party at the new length', async () => {
+    serveFacts(twoPackages())
+    open()
+    await toPackage()
+    next()
+    fireEvent.click(await screen.findByRole('button', { name: 'Sun, Nov 8' }))
+    fireEvent.click(screen.getByRole('button', { name: '1:00 PM' }))
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    answers.availability = { body: { data: { slots: [long(SUN_1.startAt)] } } }
+    fireEvent.click(await screen.findByRole('button', { name: /Table party/ }))
+    await waitFor(() => expect(requestsTo('availability')).toHaveLength(1))
+    expect(JSON.parse(requestsTo('availability')[0][1].body)).toEqual({ date: SUN, packageId: 'pkg_table' })
+    next()
+    // The date stays; its times are the new package's; no time is chosen.
+    expect(await screen.findByRole('button', { name: '1:00 PM' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByRole('button', { name: '3:30 PM' })).toBeNull()
+    expect(screen.getByText('This package is 120 minutes.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '1:00 PM' }))
+    next()
+    await screen.findByText('About how many guests?')
+    // 10 guests fits 6 to 12: kept.
+    expect(screen.getByText('About how many guests?').parentElement).toHaveTextContent('10')
+    next()
+    await screen.findByTestId('payment-form')
+    await pay('Nov 8', '$200')
+    await screen.findByText('You’re booked')
+    expect(screen.getByText('Sun, Nov 8 · 1–3 PM')).toBeInTheDocument()
+  })
+
+  it('moves a guest count the new package can’t hold, and says so', async () => {
+    serveFacts(twoPackages())
+    open()
+    await toPackage()
+    next()
+    fireEvent.click(await screen.findByRole('button', { name: 'Sat, Nov 7' }))
+    fireEvent.click(screen.getByRole('button', { name: '1:30 PM' }))
+    next()
+    fireEvent.click(await screen.findByRole('button', { name: '20' }))
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Table party/ }))
+    expect(screen.getByRole('status')).toHaveTextContent('Changed to 12 guests, the most this package holds.')
+    next()
+    answers.availability = { body: { data: { slots: [long(SAT_1.startAt)] } } }
+    fireEvent.click(await screen.findByRole('button', { name: '1:30 PM' }))
+    next()
+    expect(await screen.findByText('Changed to 12 guests, the most this package holds.')).toBeInTheDocument()
+    expect(screen.getByText('12 guests is the most this package holds.')).toBeInTheDocument()
+  })
+
+  it('with a time fixed by a link, extra time that doesn’t fit is shown, not offered, and nothing dead-ends', async () => {
+    serveFacts(factsWith((s) => {
+      s.addOns = [
+        addOn({ id: 'add_time', label: 'Extra half hour', priceCents: 7500, extraMinutes: 30 }),
+        addOn({ id: 'add_arch', label: 'Balloon arch', priceCents: 5000 }),
+      ]
+    }))
+    answers.availability = { body: { data: { slots: [SAT_1] } } }
+    open({ initialStart: SAT_1.startAt })
+    await pickCraft()
+    await screen.findByText('Step 1 of 4')
+    answers.availability = { body: { data: { slots: [] } } }
+    next()
+    await screen.findByText('About how many guests?')
+    next()
+    const time = await screen.findByRole('button', { name: /Extra half hour/ })
+    await waitFor(() => expect(time).toBeDisabled())
+    expect(time).toHaveTextContent('Doesn’t fit this time')
+    expect(screen.getByRole('button', { name: /Balloon arch/ })).not.toBeDisabled()
+    next()
+    expect(await screen.findByTestId('payment-form')).toBeInTheDocument()
+    expect(screen.queryByText(/Go back and pick an earlier time/)).toBeNull()
+  })
+
+  it('back on the date step after adding extra time, offers only the starts that fit the whole party', async () => {
+    serveFacts(factsWith((s) => { s.addOns = [addOn({ id: 'add_time', label: 'Extra half hour', priceCents: 7500, extraMinutes: 30 })] }))
+    answers['available-dates'] = { body: { data: { dates: [SUN], bookedDates: [], times: { [SUN]: [SUN_1, SUN_3] } } } }
+    answers.availability = { body: { data: { slots: [SUN_1] } } }
+    open()
+    await pickCraft()
+    next()
+    fireEvent.click(await screen.findByRole('button', { name: 'Sun, Nov 8' }))
+    fireEvent.click(screen.getByRole('button', { name: '3:30 PM' }))
+    next()
+    await screen.findByText('About how many guests?')
+    next()
+    fireEvent.click(await screen.findByRole('button', { name: /Extra half hour/ }))
+    next()
+    expect(await screen.findByText(/Go back and pick an earlier time/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Back/ }))
+    await screen.findByText('Choose a date')
+    await waitFor(() => expect(screen.queryByRole('button', { name: '3:30 PM' })).toBeNull())
+    expect(screen.getByRole('button', { name: '1:00 PM' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('a per-guest extra offered several to a guest reads "N each"', async () => {
+    serveFacts(factsWith((s) => { s.addOns = [addOn({ id: 'add_bags', label: 'Goodie bags', priceCents: 800, per: 'guest', maxQty: 2 })] }))
+    open()
+    await toGuests()
+    next()
+    fireEvent.click(await screen.findByRole('button', { name: 'More Goodie bags' }))
+    fireEvent.click(screen.getByRole('button', { name: 'More Goodie bags' }))
+    expect(screen.getByText('2 each')).toBeInTheDocument()
+  })
+
+  it('with one package, keeps today’s words', async () => {
+    serveFacts(factsWith())
+    open()
+    await toWhen()
+    expect(screen.getByText('Every party is 90 minutes. The whole studio, just your group.')).toBeInTheDocument()
+  })
+})

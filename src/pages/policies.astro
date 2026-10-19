@@ -1,17 +1,8 @@
 ---
-export const prerender = false
+export const prerender = true
 
 import Layout from '@layouts/StaticLayout.astro'
-import { policySectionsFor } from '@config/policy-content'
-import { partyCopyFacts } from '@config/party-content'
-import { getPartySettings } from '@lib/parties/settings-store'
-import { publicPageHeaders } from '@lib/cache-headers'
-
-// The party terms quote the fee and craft minimum from the owners' Parties
-// setup (read once, never strict). Netlify keeps a ready copy (cache-headers.ts).
-const pageCache = publicPageHeaders(Astro.request, Astro.url)
-if (pageCache) for (const [k, v] of Object.entries(pageCache)) Astro.response.headers.set(k, v)
-const policySections = policySectionsFor(partyCopyFacts(await getPartySettings()))
+import { policySections } from '@config/policy-content'
 ---
 
 <Layout
@@ -42,17 +33,17 @@ const policySections = policySectionsFor(partyCopyFacts(await getPartySettings()
             {section.title}
           </h2>
           {section.intro && (
-            <p class="mb-6 text-[0.9375rem]" style="color: var(--color-muted); line-height: 1.7;">
+            <p data-policy-text={`${section.id}:intro`} class="mb-6 text-[0.9375rem]" style="color: var(--color-muted); line-height: 1.7;">
               {section.intro}
             </p>
           )}
           <dl class="space-y-6">
-            {section.rules.map((rule) => (
+            {section.rules.map((rule, i) => (
               <div>
                 <dt class="font-semibold text-base mb-1" style="color: var(--color-dark);">
                   {rule.heading}
                 </dt>
-                <dd class="text-[0.9375rem]" style="color: var(--color-text); line-height: 1.75;">
+                <dd data-policy-text={`${section.id}:${i}`} class="text-[0.9375rem]" style="color: var(--color-text); line-height: 1.75;">
                   {rule.body}
                 </dd>
               </div>
@@ -67,4 +58,9 @@ const policySections = policySectionsFor(partyCopyFacts(await getPartySettings()
       checkout and agreed to when you book.
     </p>
   </section>
+  <script>
+    // The party fee and craft minimum as the owners set them (this page is built ahead of time).
+    import { loadPartyNumbers } from '@lib/party-numbers-live'
+    loadPartyNumbers()
+  </script>
 </Layout>

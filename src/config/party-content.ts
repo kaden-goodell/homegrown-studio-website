@@ -63,11 +63,20 @@ export function partyCopyFacts(facts?: PartyFactsLike | PartyCopyFacts | null): 
   }
 }
 
+/** The cheapest package everyone can book (its own name and price), else the config's. */
+export function cheapestPackageOf(facts?: PartyFactsLike | null): { name: string; priceCents: number } {
+  const open = (facts?.packages ?? []).filter((p) => p.who === 'everyone' && !p.archived)
+  const p = open.reduce<PartyPackage | undefined>((best, x) => (!best || x.priceCents < best.priceCents ? x : best), undefined)
+  return p ? { name: p.name, priceCents: p.priceCents } : { name: CONFIG_PACKAGE_NAME, priceCents: CONFIG_COPY_FACTS.feeCents }
+}
+
 /** The lowest price a party starts from (packages everyone can book). */
 export function lowestPackageCents(facts?: PartyFactsLike | null): number {
-  const prices = (facts?.packages ?? []).filter((p) => p.who === 'everyone' && !p.archived).map((p) => p.priceCents)
-  return prices.length ? Math.min(...prices) : partyCopyFacts(facts).feeCents
+  return cheapestPackageOf(facts).priceCents
 }
+
+/** The config package's name (party-times.ts configPartySettings). */
+const CONFIG_PACKAGE_NAME = 'Whole studio'
 
 /** Policy windows (HOM-78) — all cancellation copy derives from these. */
 const REFUND_DAYS = policyWindows.partyFullRefundDays

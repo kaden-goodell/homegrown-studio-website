@@ -230,6 +230,12 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [policyProblem, setPolicyProblem] = useState(false)
   /** What is missing on the current step, said when Continue is tapped. */
   const [stepProblem, setStepProblem] = useState('')
+  /** Said when a package change moved the guest count. */
+  const [guestNote, setGuestNote] = useState('')
+  /** After a package change: drop the chosen date if the new package's dates don't include it. */
+  const dropDateIfGone = useRef(false)
+  /** With a time fixed by a link: extra-time add-on id → whether it fits that start. */
+  const [timeExtraFits, setTimeExtraFits] = useState<Record<string, boolean>>({})
   /** Checking that the chosen start still fits the party with its extra time. */
   const [checkingExtras, setCheckingExtras] = useState(false)
 
@@ -384,6 +390,13 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       const json = await res.json()
       const data = json.data ?? json
       if (isCancelled()) return
+      if (dropDateIfGone.current) {
+        dropDateIfGone.current = false
+        if (selectedDate && !(data.dates ?? []).includes(selectedDate)) {
+          setSelectedDate('')
+          setAvailableSlots([])
+        }
+      }
       setAvailableDates(data.dates ?? [])
       setBookedDates(data.bookedDates ?? [])
       setTimesByDate(data.times ?? {})
@@ -406,11 +419,15 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   }, [info, pkg.id])
 
   /** The open start times for a date, always asked fresh from the server (for this package and its extra time). */
-  async function fetchAvailability(date: string, withAddOns: Record<string, number> = chosenAddOns): Promise<Slot[]> {
+  async function fetchAvailability(
+    date: string,
+    opts: { addOns?: Record<string, number>; packageId?: string } = {},
+  ): Promise<Slot[]> {
+    const withAddOns = opts.addOns ?? chosenAddOns
     const res = await fetch('/api/party/availability.json', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, packageId: pkg.id, ...(Object.keys(withAddOns).length ? { addOns: withAddOns } : {}) }),
+      body: JSON.stringify({ date, packageId: opts.packageId ?? pkg.id, ...(Object.keys(withAddOns).length ? { addOns: withAddOns } : {}) }),
     })
     if (!res.ok) throw new Error()
     const json = await res.json()
@@ -500,7 +517,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   })
   const deposit = summary.dueTodayCents // charged today to book
   /** When the party ends: the slot's length plus any extra time. */
-  const partyEndIso = selectedSlot ? new Date(Date.parse(selectedSlot.endAt) + extraMinutes * 60_000).toISOString() : ''
+  const partyEndIso = selectedSlot ? new Date(Date.parse(selectedSlot.startAt) + (pkg.minutes + extraMinutes) * 60_000).toISOString() : ''
 
   // Guest count moved past the largest table → clear a stale choice, and say so.
   useEffect(() => {
@@ -545,6 +562,57 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     return ''
   }
 
+  // A time fixed by a link (no date step): each extra that adds time is checked
+  // against that start, and one that doesn't fit is shown as such, not offered.
+  const timeExtraIds = offeredAddOns.filter((a) => a.extraMinutes > 0).map((a) => a.id).join(',')
+  useEffect(() => {
+    if (currentStep !== 'extras' || !slotSettled || !selectedSlot || !selectedDate || !timeExtraIds) return
+    let cancelled = false
+    const start = selectedSlot.startAt
+    for (const id of timeExtraIds.split(',')) {
+      fetchAvailability(selectedDate, { addOns: { [id]: 1 } })
+        .then((slots) => {
+          if (cancelled) return
+          const fits = slots.some((sl) => sl.startAt === start)
+          setTimeExtraFits((m) => ({ ...m, [id]: fits }))
+          if (!fits) setAddOns((m) => (m[id] ? { ...m, [id]: 0 } : m))
+        })
+        .catch(() => {}) // can't tell: offered, and the server checks again when booking
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [currentStep, slotSettled, selectedSlot?.startAt, selectedDate, timeExtraIds, pkg.id])
+
+  // Back on the date step with extra time chosen: the times shown are only
+  // the starts that fit the whole party (the dates' times are for the package alone).
+  const onWhenStep = currentStep === 'when'
+  const slotsForExtras = useRef(false)
+  useEffect(() => {
+    if (!onWhenStep || !selectedDate || !info) return
+    if (extraMinutes === 0) {
+      // Extra time taken off again: back to the package's own times.
+      const known = timesByDate[selectedDate]
+      if (slotsForExtras.current && known) setAvailableSlots(known)
+      slotsForExtras.current = false
+      return
+    }
+    slotsForExtras.current = true
+    let cancelled = false
+    setLoadingSlots(true)
+    fetchAvailability(selectedDate)
+      .then((slots) => {
+        if (cancelled) return
+        setAvailableSlots(slots)
+        setSelectedSlot((cur) => (cur && !slots.some((sl) => sl.startAt === cur.startAt) ? null : cur))
+      })
+      .catch(() => !cancelled && setSlotsError(true))
+      .finally(() => !cancelled && setLoadingSlots(false))
+    return () => {
+      cancelled = true
+    }
+  }, [onWhenStep, addOnsKey])
+
   /** Extra time makes the party longer: is the chosen start still open for the longer party? */
   async function extraTimeFits(): Promise<boolean> {
     if (extraMinutes === 0 || !selectedSlot || !selectedDate) return true
@@ -565,7 +633,12 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     setStepProblem(missing)
     if (missing) return
     if (currentStep === 'extras' && !(await extraTimeFits())) {
-      setStepProblem('That start time doesn’t leave room for the extra time. Go back and pick an earlier time, or leave the extra time off.')
+      // With a time fixed by a link there is no date step to go back to.
+      setStepProblem(
+        steps.includes('when')
+          ? 'That start time doesn’t leave room for the extra time. Go back and pick an earlier time, or leave the extra time off.'
+          : 'The extra time doesn’t fit this start time. Leave it off to keep this time.',
+      )
       return
     }
     const next = nextStep(currentStep, steps)
@@ -618,8 +691,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     setStepProblem('')
     if (!date || !info) return
 
-    // The times usually came with the dates. Ask only when they didn't.
-    const known = timesByDate[date]
+    // The times usually came with the dates. Ask only when they didn't, or
+    // when extra time makes the party longer than the dates were asked for.
+    const known = extraMinutes === 0 ? timesByDate[date] : undefined
     if (known) {
       setAvailableSlots(known)
       return
@@ -652,15 +726,35 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     setStepProblem('')
     if (p.id === pkg.id) return
     setPackageId(p.id)
-    if (people < p.minGuests || people > p.maxGuests) {
-      guestsChosen.current = false
-      setPeople(p.defaultGuests)
+    // The guest count stays when it fits the new package; otherwise it moves
+    // to the nearest end, and says so.
+    guestsChosen.current = true
+    if (people > p.maxGuests) {
+      setPeople(p.maxGuests)
+      setGuestNote(`Changed to ${p.maxGuests} guests, the most this package holds.`)
+    } else if (people < p.minGuests) {
+      setPeople(p.minGuests)
+      setGuestNote(`Changed to ${p.minGuests} guests, the fewest this package takes.`)
+    } else {
+      setGuestNote('')
     }
-    if (p.minutes !== pkg.minutes && selectedSlot) {
-      setSelectedSlot(null)
-      setSlotSettled(false)
-    }
+    // Times depend on the package's length: the chosen time goes, the date
+    // stays while it is still bookable, and its times are asked for again.
+    setSelectedSlot(null)
+    setSlotSettled(false)
+    setAvailableSlots([])
     setTimesByDate({})
+    setOfferedByDate({})
+    setSlotsError(false)
+    if (selectedDate) {
+      dropDateIfGone.current = true
+      const date = selectedDate
+      setLoadingSlots(true)
+      fetchAvailability(date, { packageId: p.id })
+        .then((slots) => setAvailableSlots(slots))
+        .catch(() => setSlotsError(true))
+        .finally(() => setLoadingSlots(false))
+    }
   }
 
   /** Sets an extra to `to`, or moves it by `by` from what it is now (quick taps never use a stale count). */
@@ -675,6 +769,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
   function chooseGuests(n: number) {
     setTouched(true)
+    setGuestNote('')
     guestsChosen.current = true
     setPeople(Math.min(pkg.maxGuests, Math.max(pkg.minGuests, n)))
   }
@@ -1189,7 +1284,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
         <p style={sectionLabel}>Choose a date</p>
         <p style={{ ...helpText, marginBottom: '0.75rem' }}>
-          Every party is {pkg.minutes} minutes. The whole studio, just your group.
+          {packageChoice ? `This package is ${pkg.minutes} minutes.` : `Every party is ${pkg.minutes} minutes. The whole studio, just your group.`}
         </p>
 
         {loadingDates && <p role="status" style={helpText}>Loading dates…</p>}
@@ -1310,6 +1405,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         <p id={`${formId}-guests`} style={sectionLabel}>
           About how many guests?
         </p>
+        {guestNote && (
+          <p role="status" style={{ ...helpText, margin: '0 0 0.75rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+            {guestNote}
+          </p>
+        )}
         <div role="group" aria-labelledby={`${formId}-guests`}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.875rem' }}>
             {pkg.quickPicks.map((n) => (
@@ -1333,7 +1433,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         </div>
         <p style={{ ...helpText, margin: '0.75rem 0 1.25rem' }}>
           {atMax
-            ? `${pkg.maxGuests} guests is the most the studio holds.`
+            ? packageChoice
+              ? `${pkg.maxGuests} guests is the most this package holds.`
+              : `${pkg.maxGuests} guests is the most the studio holds.`
             : `An estimate is fine. Parties are for ${pkg.minGuests} to ${pkg.maxGuests} guests, and you pay for crafts at the studio for whoever comes.`}
         </p>
         <PartyPriceSummary summary={summary} />
@@ -1380,6 +1482,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             )
           })}
         </div>
+        {guestNote && (
+          <p role="status" style={{ ...helpText, marginTop: '0.75rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+            {guestNote}
+          </p>
+        )}
         <p style={{ ...helpText, marginTop: '0.75rem' }}>Crafts are paid at the studio for whoever comes, whichever you choose.</p>
       </div>
     )
@@ -1407,6 +1514,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   function renderAddOn(a: PartyAddOn) {
     const count = chosenAddOns[a.id] ?? 0
     const nameId = `${formId}-addon-${a.id}`
+    /** Extra time that doesn't fit the start a link fixed: shown, not offered. */
+    const doesntFit = slotSettled && a.extraMinutes > 0 && timeExtraFits[a.id] === false
     const detail = [
       addOnPriceLabel(a),
       a.extraMinutes > 0 ? `${a.extraMinutes} more minutes` : '',
@@ -1430,9 +1539,18 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     )
     if (a.maxQty <= 1) {
       return (
-        <button key={a.id} type="button" aria-pressed={count > 0} onClick={() => chooseAddOn(a, { to: count > 0 ? 0 : 1 })} style={{ ...box, minHeight: '2.75rem', cursor: 'pointer', font: 'inherit', width: '100%' }}>
+        <button
+          key={a.id}
+          type="button"
+          aria-pressed={count > 0}
+          disabled={doesntFit}
+          onClick={() => chooseAddOn(a, { to: count > 0 ? 0 : 1 })}
+          style={{ ...box, minHeight: '2.75rem', cursor: doesntFit ? 'default' : 'pointer', opacity: doesntFit ? 0.6 : 1, font: 'inherit', width: '100%' }}
+        >
           {text}
-          <span style={{ flexShrink: 0, fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-primary)' }}>{count > 0 ? 'Added' : 'Add'}</span>
+          <span style={{ flexShrink: 0, fontSize: '0.875rem', fontWeight: 600, color: doesntFit ? 'var(--color-text)' : 'var(--color-primary)' }}>
+            {doesntFit ? 'Doesn’t fit this time' : count > 0 ? 'Added' : 'Add'}
+          </span>
         </button>
       )
     }
@@ -1456,8 +1574,10 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           <button type="button" aria-label={`Fewer ${a.label}`} disabled={count === 0} onClick={() => chooseAddOn(a, { by: -1 })} style={counterButton(count === 0)}>
             <span aria-hidden="true">&minus;</span>
           </button>
-          <span aria-live="polite" style={{ minWidth: '1.5rem', textAlign: 'center', fontWeight: 600, color: 'var(--color-dark)' }}>{count}</span>
-          <button type="button" aria-label={`More ${a.label}`} disabled={count >= a.maxQty} onClick={() => chooseAddOn(a, { by: 1 })} style={counterButton(count >= a.maxQty)}>
+          <span aria-live="polite" style={{ minWidth: '1.5rem', textAlign: 'center', fontWeight: 600, color: 'var(--color-dark)', whiteSpace: 'nowrap' }}>
+            {doesntFit ? 'Doesn’t fit this time' : a.per === 'guest' ? `${count} each` : count}
+          </span>
+          <button type="button" aria-label={`More ${a.label}`} disabled={count >= a.maxQty || doesntFit} onClick={() => chooseAddOn(a, { by: 1 })} style={counterButton(count >= a.maxQty || doesntFit)}>
             <span aria-hidden="true">+</span>
           </button>
         </span>
@@ -1698,10 +1818,10 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
                 {selectedCraft.name}
               </span>
             )}
+            {packageChoice && stepIdx > stepIndex('package', steps) && <span style={chipStyle}>{pkg.name}</span>}
             {selectedSlot && !(currentStep === 'when' && whenMode === 'later') && (
               <span style={chipStyle}>{formatSlotLabel(selectedSlot.startAt)}</span>
             )}
-            {packageChoice && stepIdx > stepIndex('package', steps) && <span style={chipStyle}>{pkg.name}</span>}
             {stepIdx > stepIndex('who', steps) && <span style={chipStyle}>About {people} guests</span>}
           </div>
         ) : undefined
