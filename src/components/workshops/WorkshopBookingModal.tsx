@@ -649,12 +649,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
               <span>{formatMoney(tax, workshop.currency)}</span>
             </div>
           )}
-          {tax > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.9375rem', color: 'var(--color-dark)', marginTop: '0.375rem', paddingTop: '0.375rem', borderTop: '1px solid var(--color-line)' }}>
-              <strong>Total</strong>
-              <strong>{formatMoney(total, workshop.currency)}</strong>
-            </div>
-          )}
+          {/* No bold total here: the Pay button already says it (Kaden, 18 Oct 2026: "transparent, not scary"). */}
           {!taxKnown && (
             <p style={{ margin: '0.375rem 0 0', fontSize: '0.8125rem', color: 'var(--color-text)' }}>Any tax is added when you pay.</p>
           )}
