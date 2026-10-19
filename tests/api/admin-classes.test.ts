@@ -327,11 +327,101 @@ describe('editing a class with bookings', () => {
     expect(r.body.data.class.libraryVersion).toBe(2)
   })
 
-  it('alsoUpdateLibrary on a class with no library entry makes one', async () => {
+  it('alsoUpdateLibrary on a class added from scratch: it is already in the library, and the same details add no version', async () => {
     const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('No Lib'), sessions: [ses('2031-05-08', '17:00', '18:00')], status: 'open' })
     const r = await update({ id: c.body.data.class.id, content: c.body.data.class.content, alsoUpdateLibrary: true })
     expect(r.body.data.class.libraryId).toMatch(/^lib_/)
     expect(r.body.data.class.libraryVersion).toBe(1)
+    expect((await getLibrary(r.body.data.class.libraryId))!.versions).toHaveLength(1)
+    expect(r.body.warning).toBeUndefined()
+  })
+})
+
+describe('every new class lands in the library (R21)', () => {
+  it('from scratch: the library has it at version 1, made by the owner, with the first date as its usual length and seats; the class points at it', async () => {
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', {
+      action: 'create', content: content('Auto Macrame'), sessions: [ses('2031-11-06', '18:00', '20:30', 9)], status: 'open',
+    })
+    expect(r.status).toBe(200)
+    const cls = r.body.data.class
+    expect(cls.libraryId).toMatch(/^lib_/)
+    expect(cls.libraryVersion).toBe(1)
+    const lib = await getLibrary(cls.libraryId)
+    expect(lib!.versions).toHaveLength(1)
+    expect(lib!.versions[0]).toMatchObject({ version: 1, changed: [], by: { id: 'admin', name: 'Owner' } })
+    expect(lib!.versions[0].content).toMatchObject({ name: 'Auto Macrame', defaultMinutes: 150, defaultCapacity: 9 })
+    expect(lib!.versions[0].note).toMatch(/^Added with the class on /)
+    expect((await getClass(cls.id))!.libraryId).toBe(cls.libraryId)
+    const list = await call(library, 'GET', '/api/admin/classes/library.json')
+    expect(list.body.data.library.find((l: any) => l.id === cls.libraryId).versions[0].version).toBe(1)
+    expect(r.body.warning).toBeUndefined()
+  })
+
+  it('a refused class (a clash) adds nothing to the library', async () => {
+    const day = '2031-11-13'
+    await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('First In'), sessions: [ses(day, '17:00', '19:00')], status: 'open' })
+    const before = (await call(library, 'GET', '/api/admin/classes/library.json')).body.data.library.length
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Clasher'), sessions: [ses(day, '18:00', '19:00')], status: 'open' })
+    expect(r.status).toBe(409)
+    expect((await call(library, 'GET', '/api/admin/classes/library.json')).body.data.library.length).toBe(before)
+  })
+
+  it('a library that can’t be written never loses the class: it is added, unlinked, and the reply says so', async () => {
+    mocks.libraryDown = true
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('No Library Today'), sessions: [ses('2031-11-20', '17:00', '18:00')], status: 'draft' })
+      .finally(() => { mocks.libraryDown = false })
+    expect(r.status).toBe(200)
+    expect(r.body.data.class.libraryId).toBeNull()
+    expect(r.body.warning).toBe("Added. It didn't go into the library this time, so it won't show there.")
+  })
+
+  it('from the library with changed details: "This class and the library" saves a new version first; without it the library stays', async () => {
+    const lib = await saveLibraryVersion({ content: content('Lib Wreaths'), by: { id: 'k', name: 'K' }, note: '' })
+    const plain = await call(classes, 'POST', '/api/admin/classes/classes.json', {
+      action: 'create', libraryId: lib.id, content: content('Lib Wreaths', { description: 'Only here.' }), sessions: [ses('2031-12-04', '17:00', '18:00')], status: 'open',
+    })
+    expect(plain.body.data.class).toMatchObject({ libraryId: lib.id, libraryVersion: 1 })
+    expect(plain.body.data.class.content.description).toBe('Only here.')
+    expect((await getLibrary(lib.id))!.versions).toHaveLength(1)
+
+    const both = await call(classes, 'POST', '/api/admin/classes/classes.json', {
+      action: 'create', libraryId: lib.id, content: content('Lib Wreaths', { description: 'Everywhere.', prices: { all: { person: 3500, kid: 2000 } } }),
+      sessions: [ses('2031-12-11', '17:00', '18:00')], status: 'open', alsoUpdateLibrary: true,
+    })
+    expect(both.body.data.class).toMatchObject({ libraryId: lib.id, libraryVersion: 2 })
+    const after = await getLibrary(lib.id)
+    expect(after!.versions[1].content.description).toBe('Everywhere.')
+    expect(after!.versions[1].changed).toEqual(['Price', 'Description'])
+  })
+
+  it('library versions say what changed and who changed it (I4)', async () => {
+    const saved = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', content: content('Changes'), note: '' })
+    const id = saved.body.data.library.id
+    const req2 = new Request('https://x.test/api/admin/classes/library.json', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', cookie: cookie(), 'X-Admin-Who': 'Catherine' },
+      body: JSON.stringify({ action: 'save', id, content: content('Changes', { description: 'New words.', imageUrl: 'https://x.test/p.jpg', defaultMinutes: 120 }), note: '' }),
+    })
+    const two = await (await library.POST({ request: req2, url: new URL(req2.url) } as any)).json()
+    expect(two.data.library.versions[1]).toMatchObject({ by: { id: 'owner-catherine', name: 'Catherine' }, changed: ['Photo', 'Description', 'How long it usually runs'] })
+    const back = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'restore', id, version: 1 })
+    expect(back.body.data.library.versions[2].changed).toEqual(['Photo', 'Description', 'How long it usually runs'])
+  })
+
+  it('the library GET says when each class last ran and its usual times', async () => {
+    const lib = await saveLibraryVersion({ content: content('Runs Twice'), by: { id: 'k', name: 'K' }, note: '' })
+    const past = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', libraryId: lib.id, sessions: [ses('2031-12-18', '17:00', '19:00')], status: 'open' })
+    const future = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', libraryId: lib.id, sessions: [ses('2032-01-08', '18:00', '20:00')], status: 'open' })
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(at('2031-12-25', '12:00')))
+    try {
+      const r = await call(library, 'GET', '/api/admin/classes/library.json')
+      expect(r.body.data.runs[lib.id]).toEqual({
+        lastIso: past.body.data.class.sessions[0].startIso, nextIso: future.body.data.class.sessions[0].startIso,
+        startIso: future.body.data.class.sessions[0].startIso, endIso: future.body.data.class.sessions[0].endIso,
+      })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
@@ -382,7 +472,23 @@ describe('bookings', () => {
     })
     expect(b.picks).toEqual([{ seat: 1, ticketTypeId: 'person', answers: { q1: 'Blue' } }, { seat: 2, ticketTypeId: 'kid', answers: {} }])
     expect(b.state).toBe('part refunded')
+    expect(b.waiting).toBeNull()
+    expect(r.body.data.seatsTaken).toEqual({ [sid]: 1 })
     expect((await call(bookings, 'GET', '/api/admin/classes/bookings.json?id=cls_nope')).status).toBe(404)
+  })
+
+  it('the class list carries each class’s bookings, seats and money taken less refunds', async () => {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Totals'), sessions: [ses('2031-06-19', '17:00', '19:00')], status: 'open' })
+    const cls = c.body.data.class
+    const sid = cls.sessions[0].id
+    await seedLedger(cls.id, [
+      line({ bookingId: 'bkg_t1', sessionIds: [sid], seat: 1 }),
+      line({ bookingId: 'bkg_t1', sessionIds: [sid], seat: 2 }),
+      line({ bookingId: 'bkg_t2', sessionIds: [sid], state: 'refunded', refunds: [{ at: 'x', cents: 3270, reason: '', by: { id: 'k', name: 'K' }, freedSeat: true, squareRefundId: 'r1' }] }),
+      line({ bookingId: 'bkg_t3', sessionIds: [sid], state: 'held', holdExpiresAt: new Date(Date.now() + 600_000).toISOString() }),
+    ])
+    const r = await call(classes, 'GET', '/api/admin/classes/classes.json')
+    expect(r.body.data.totals[cls.id]).toEqual({ bookings: 2, seats: 2, cents: 6540 })
   })
 })
 

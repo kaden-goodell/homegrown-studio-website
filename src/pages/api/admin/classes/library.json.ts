@@ -1,13 +1,19 @@
 import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
-import { ActionError, json, libraryArchive, libraryList, libraryRestore, librarySave, reply } from '@lib/classes/admin-actions'
+import { ActionError, json, libraryArchive, libraryList, libraryRestore, libraryRuns, librarySave, reply } from '@lib/classes/admin-actions'
 
 export const prerender = false
 
-/** GET ?archived=1: the class library. Owners only. */
+/**
+ * GET ?archived=1: the class library, and `runs` (library id → when it last
+ * ran or next runs, and its latest class's times). Owners only.
+ */
 export const GET: APIRoute = async ({ request, url }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
-  return reply(async () => ({ data: { library: await libraryList(url.searchParams.get('archived') === '1') } }))
+  return reply(async () => {
+    const [library, runs] = await Promise.all([libraryList(url.searchParams.get('archived') === '1'), libraryRuns()])
+    return { data: { library, runs } }
+  })
 }
 
 /**

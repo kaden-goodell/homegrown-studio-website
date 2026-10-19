@@ -18,7 +18,9 @@ import { addBlocked, listBlocked, removeBlocked, type BlockedTime } from './bloc
 import { createClass, getClass, listClasses, StaleClassError, updateClass } from './class-store'
 import { archiveLibrary, getLibrary, listLibrary, restoreLibraryVersion, saveLibraryVersion } from './library-store'
 import { archiveClassInSquare, CLASS_TAX_NOT_SET, syncClassToSquare } from './square-catalog'
-import { bookingCap, remainingOn, sessionShare } from './refunds'
+import { contentChanges } from './content-diff'
+import { bookingCap, describeRequest, remainingOn, sessionShare } from './refunds'
+import { isWaiting, listRefundRequests } from './refund-requests'
 import { getLedger, seatsTaken, type Ledger, type LedgerLine } from './seat-ledger'
 import { busyBetween, clashes, clashMessage, type Busy } from './studio-schedule'
 import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass, Session } from './types'
@@ -34,6 +36,7 @@ export const ADMIN_BY: By = { id: 'admin', name: 'Owner' }
 export const SYNC_WARNING = "Saved. The POS item didn't update. Try Save again."
 export const TAX_WARNING = "Saved, but it isn't on the POS: Class tax isn't set up yet. It can't be sold until it is."
 export const LIBRARY_WARNING = "Saved. The library didn't update. Try again."
+export const NEW_LIBRARY_WARNING = "Added. It didn't go into the library this time, so it won't show there."
 export const CANCEL_WARNING = "Cancelled. The POS item didn't come off. Try Cancel again."
 
 /** A refusal the owner reads: an HTTP status, a plain sentence, and anything extra for the screen. */
@@ -181,38 +184,117 @@ export async function libraryArchive(body: { id?: unknown; archived?: unknown },
 
 // ── Scheduling ─────────────────────────────────────────────────────────────
 
-export async function classesBetween(fromIso?: string, toIso?: string): Promise<{ classes: ScheduledClass[]; seatsTaken: Record<string, number> }> {
+/** One class's bookings in a line: how many bookings, seats held, and money taken less refunds. */
+export interface ClassTotals { bookings: number; seats: number; cents: number }
+
+export async function classesBetween(fromIso?: string, toIso?: string): Promise<{ classes: ScheduledClass[]; seatsTaken: Record<string, number>; totals: Record<string, ClassTotals> }> {
   const list = await listClasses(fromIso && toIso ? { fromIso, toIso } : undefined)
   const now = new Date()
   const taken: Record<string, number> = {}
+  const totals: Record<string, ClassTotals> = {}
   await Promise.all(list.map(async (c) => {
     const ledger = await getLedger(c.id)
     for (const s of c.sessions) taken[s.id] = seatsTaken(ledger, s.id, now)
+    const views = groupBookings(ledger, now).filter((b) => b.state !== 'held')
+    totals[c.id] = {
+      bookings: views.length,
+      seats: ledger.lines.filter(isBooked).length,
+      cents: views.reduce((sum, b) => sum + b.paidCents - b.refundedCents, 0),
+    }
   }))
-  return { classes: list, seatsTaken: taken }
+  return { classes: list, seatsTaken: taken, totals }
 }
 
-/** Schedule a class from the library (its latest version, or an edited copy) or from content alone. */
-export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass }>> {
+/**
+ * For each library class, when it last ran (or first runs) and the times of
+ * its latest class, so the library can say "Last ran Oct 23" and "6–8 PM
+ * usually", and Schedule it can start at the usual time.
+ */
+export interface LibraryRun { lastIso: string | null; nextIso: string | null; startIso: string; endIso: string }
+export async function libraryRuns(now = new Date()): Promise<Record<string, LibraryRun>> {
+  const out: Record<string, LibraryRun> = {}
+  for (const c of await listClasses()) {
+    if (!c.libraryId || c.status === 'cancelled' || !c.sessions.length) continue
+    const first = c.sessions[0]
+    const r = out[c.libraryId] ?? { lastIso: null, nextIso: null, startIso: first.startIso, endIso: first.endIso }
+    if (first.startIso > r.startIso) { r.startIso = first.startIso; r.endIso = first.endIso }
+    for (const s of c.sessions) {
+      if (Date.parse(s.startIso) <= now.getTime()) { if (!r.lastIso || s.startIso > r.lastIso) r.lastIso = s.startIso }
+      else if (c.status !== 'draft' && (!r.nextIso || s.startIso < r.nextIso)) r.nextIso = s.startIso
+    }
+    out[c.libraryId] = r
+  }
+  return out
+}
+
+/** The first date's length and seats, as the library's usual ones (kept within what the library allows). */
+function usualFrom(content: ClassContent, sessions: Session[]): ClassContent {
+  const first = sessions[0]
+  if (!first) return content
+  const minutes = Math.round((Date.parse(first.endIso) - Date.parse(first.startIso)) / 60_000)
+  return {
+    ...content,
+    defaultMinutes: Math.min(1440, Math.max(5, minutes)),
+    defaultCapacity: Math.min(999, Math.max(1, first.capacity)),
+  }
+}
+
+/**
+ * Schedule a class. Every class lands in the library (R21) in this same
+ * request: from scratch (no `libraryId`) a new library entry is made at
+ * version 1 and the class points at it; from the library, the class points
+ * at its latest version, and when the owner chose "This class and the
+ * library" (`alsoUpdateLibrary`) and the details differ, a new version is
+ * saved first. A library failure never loses the class: it is added and the
+ * reply warns.
+ */
+export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass }>> {
   let libraryId: string | undefined
   let libraryVersion: number | undefined
+  let latest: LibraryClass['versions'][number] | undefined
   let raw = body.content
   if (typeof body.libraryId === 'string' && body.libraryId) {
     const lib = await getLibrary(body.libraryId)
-    const latest = lib?.versions[lib.versions.length - 1]
+    latest = lib?.versions[lib.versions.length - 1]
     if (!lib || !latest) throw new ActionError(404, 'That class is not in the library.')
     libraryId = lib.id
     libraryVersion = latest.version
     if (raw === undefined) raw = latest.content
   }
-  const content = okContent(raw)
   const sessions = okSessions(body.sessions)
+  let content = okContent(raw)
   const status = okStatus(body.status, 'draft')
   await checkClashes(sessions, content.rules.canShareRoom)
-  const created = await createClass({ content, sessions, libraryId, libraryVersion, status, by })
-  const { cls, warning } = await syncPos(created, by)
+
+  let warning: string | undefined
+  const date = formatDay(sessions[0].startIso).replace(',', '')
+  if (!libraryId) {
+    content = usualFrom(content, sessions)
+    try {
+      const lib = await saveLibraryVersion({ content, by, note: `Added with the class on ${date}` })
+      libraryId = lib.id
+      libraryVersion = lib.versions[lib.versions.length - 1].version
+      await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: content.name }, { version: libraryVersion, auto: true })
+    } catch (e) {
+      console.warn(`[classes] adding ${content.name} to the library failed: ${e instanceof Error ? e.message : e}`)
+      warning = NEW_LIBRARY_WARNING
+    }
+  } else if (body.alsoUpdateLibrary === true && latest && contentChanges(latest.content, content, { usual: false }).length) {
+    try {
+      const lib = await saveLibraryVersion({ id: libraryId, content: { ...content, defaultMinutes: latest.content.defaultMinutes, defaultCapacity: latest.content.defaultCapacity }, by, note: `Updated while scheduling ${date}` })
+      libraryVersion = lib.versions[lib.versions.length - 1].version
+      await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: content.name }, { version: libraryVersion })
+    } catch (e) {
+      console.warn(`[classes] library update for ${libraryId} failed: ${e instanceof Error ? e.message : e}`)
+      warning = "Added. The library didn't update. Save the class's details again to update it."
+    }
+  }
+
+  const created = await createClass({ content, sessions, ...(libraryId ? { libraryId } : {}), ...(libraryVersion !== undefined ? { libraryVersion } : {}), status, by })
+  const { cls, warning: posWarning } = await syncPos(created, by)
   await audit(by, 'class-create', { kind: 'class', id: cls.id, label: content.name }, { status, sessions: sessions.length, libraryId: libraryId ?? null })
-  return { data: { class: cls }, ...(warning ? { warning } : {}) }
+  const said = [warning, posWarning].filter(Boolean).join(' ') || undefined
+  return { data: { class: cls }, ...(said ? { warning: said } : {}) }
 }
 
 /** Same content on new sessions; no bookings come along. */
@@ -284,6 +366,9 @@ function checkAgainstBookings(cls: ScheduledClass, ledger: Ledger, content: Clas
   return movedWithBookings
 }
 
+/** "This class and the library" when the library already matches: nothing to save. */
+class SameAsLibrary extends Error {}
+
 export async function updateScheduledClass(body: {
   id?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; confirmMove?: unknown; expectedUpdatedAt?: unknown
 }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass; peopleToTell?: PersonToTell[] }>> {
@@ -330,6 +415,10 @@ export async function updateScheduledClass(body: {
   if (body.alsoUpdateLibrary === true) {
     try {
       const date = formatDay(saved.sessions[0].startIso).replace(',', '')
+      const current = saved.libraryId ? await getLibrary(saved.libraryId) : null
+      const latest = current?.versions[current.versions.length - 1]
+      // The library already has these details: nothing to add.
+      if (latest && !contentChanges(latest.content, saved.content, { usual: false }).length) throw new SameAsLibrary()
       const lib = await saveLibraryVersion({
         ...(saved.libraryId ? { id: saved.libraryId } : {}),
         content: saved.content,
@@ -340,8 +429,10 @@ export async function updateScheduledClass(body: {
       saved = await updateClass(saved.id, { libraryId: lib.id, libraryVersion: version }, by, `Library updated (version ${version})`)
       await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: saved.content.name }, { version, fromClass: saved.id })
     } catch (e) {
-      console.warn(`[classes] library update from ${saved.id} failed: ${e instanceof Error ? e.message : e}`)
-      libraryWarning = LIBRARY_WARNING
+      if (!(e instanceof SameAsLibrary)) {
+        console.warn(`[classes] library update from ${saved.id} failed: ${e instanceof Error ? e.message : e}`)
+        libraryWarning = LIBRARY_WARNING
+      }
     }
   }
 
@@ -467,9 +558,19 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
   }).sort((a, b) => a.at.localeCompare(b.at))
 }
 
-export async function classBookings(id: unknown): Promise<{ class: ScheduledClass; bookings: BookingView[] }> {
+/** A booking on the class sheet: with the refund still waiting on Square, if any (R29), so its row can ask someone to check. */
+export type ClassBooking = BookingView & { waiting: ReturnType<typeof describeRequest> | null }
+
+/** The class, its bookings, and seats taken on each date (holds included, as the ledger counts them). */
+export async function classBookings(id: unknown): Promise<{ class: ScheduledClass; bookings: ClassBooking[]; seatsTaken: Record<string, number> }> {
   const cls = await mustGetClass(id)
-  return { class: cls, bookings: groupBookings(await getLedger(cls.id)) }
+  const ledger = await getLedger(cls.id)
+  const now = new Date()
+  const bookings = await Promise.all(groupBookings(ledger, now).map(async (b): Promise<ClassBooking> => {
+    const waitingReq = b.paidHere ? (await listRefundRequests(cls.id, b.bookingId).catch(() => [])).find(isWaiting) : undefined
+    return { ...b, waiting: waitingReq ? describeRequest(waitingReq, ledger, cls) : null }
+  }))
+  return { class: cls, bookings, seatsTaken: Object.fromEntries(cls.sessions.map((s) => [s.id, seatsTaken(ledger, s.id, now)])) }
 }
 
 // ── Blocked time ───────────────────────────────────────────────────────────

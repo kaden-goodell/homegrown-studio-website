@@ -38,7 +38,8 @@ export interface ClassContent {
   defaultCapacity: number
   defaultMinutes: number
 }
-export interface LibraryVersion { version: number; at: string; by: { id: string; name: string }; content: ClassContent; note: string }
+/** `changed`: what this version changed from the one before, in the owner's words ("Price", "Description"); absent on old versions. */
+export interface LibraryVersion { version: number; at: string; by: { id: string; name: string }; content: ClassContent; note: string; changed?: string[] }
 export interface LibraryClass { id: string; archived: boolean; versions: LibraryVersion[] } // versions newest last
 export type ClassStatus = 'draft' | 'open' | 'closed' | 'cancelled'
 export interface ScheduledClass {

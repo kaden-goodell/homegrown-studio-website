@@ -18,7 +18,7 @@ export const GET: APIRoute = async ({ request, url }) => {
 
 /**
  * Who made the change comes from the X-Admin-Who header (see adminActor).
- * POST { action: 'create', libraryId? | content, sessions, status }
+ * POST { action: 'create', libraryId? | content, sessions, status, alsoUpdateLibrary? } (every new class lands in the library)
  *      { action: 'duplicate', id, sessions, status? }
  *      { action: 'update', id, content?, sessions?, status?, alsoUpdateLibrary?, confirmMove? }
  *      { action: 'cancel', id }

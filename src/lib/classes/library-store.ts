@@ -1,5 +1,6 @@
 import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
+import { contentChanges } from './content-diff'
 import type { ClassContent, LibraryClass } from './types'
 import { newId, validateContent } from './validate'
 
@@ -48,8 +49,10 @@ export async function saveLibraryVersion(input: { id?: string; content: ClassCon
   return mutate(id, (cur) => {
     if (input.id && !cur) throw new Error('That class is not in the library.')
     const base: LibraryClass = cur ?? { id, archived: false, versions: [] }
-    const version = (base.versions[base.versions.length - 1]?.version ?? 0) + 1
-    return { ...base, versions: [...base.versions, { version, at: new Date().toISOString(), by: input.by, content, note: input.note }] }
+    const prev = base.versions[base.versions.length - 1]
+    const version = (prev?.version ?? 0) + 1
+    const changed = prev ? contentChanges(prev.content, content) : []
+    return { ...base, versions: [...base.versions, { version, at: new Date().toISOString(), by: input.by, content, note: input.note, changed }] }
   })
 }
 
@@ -58,10 +61,12 @@ export async function restoreLibraryVersion(id: string, version: number, by: By)
     if (!cur) throw new Error('That class is not in the library.')
     const old = cur.versions.find((v) => v.version === version)
     if (!old) throw new Error('That version does not exist.')
-    const n = (cur.versions[cur.versions.length - 1]?.version ?? 0) + 1
+    const prev = cur.versions[cur.versions.length - 1]
+    const n = (prev?.version ?? 0) + 1
+    const changed = prev ? contentChanges(prev.content, old.content) : []
     return {
       ...cur,
-      versions: [...cur.versions, { version: n, at: new Date().toISOString(), by, content: structuredClone(old.content), note: `Restored version ${version}` }],
+      versions: [...cur.versions, { version: n, at: new Date().toISOString(), by, content: structuredClone(old.content), note: `Restored version ${version}`, changed }],
     }
   })
 }
