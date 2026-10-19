@@ -38,6 +38,8 @@ export interface WorkshopData {
   signupClosesAt?: string
   /** Decided on the server, so a visitor's clock doesn't matter. */
   signupClosed?: boolean
+  /** Ticket types with their prices (Adult $20, Kid $15); absent = one price per seat. */
+  tickets?: { id: string; label: string; priceCents: number; min: number }[]
 }
 
 const STUDIO_TZ = 'America/Chicago'

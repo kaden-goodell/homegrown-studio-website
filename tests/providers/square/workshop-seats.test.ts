@@ -218,3 +218,38 @@ describe('SquareWorkshopProvider — getSeatBooking', () => {
     await expect(new SquareWorkshopProvider(config).getSeatBooking('clsbk_1')).rejects.toThrow(/no booking/)
   })
 })
+
+describe('SquareWorkshopProvider — setSeatPrice', () => {
+  const ORDER = { state: 'DRAFT', version: 1, location_id: 'LOC123', line_items: [{ uid: 'li1', quantity: '1', base_price_money: { amount: 2000, currency: 'USD' } }], total_money: { amount: 2180 } }
+
+  it('reads the held order, sets the seat price and note, and returns the new total', async () => {
+    const spy = stubFetch(async (_url: string, init?: any) => init?.method === 'PUT'
+      ? answer(200, { order: { ...ORDER, version: 2, line_items: [{ uid: 'li1', quantity: '1', base_price_money: { amount: 1500, currency: 'USD' }, note: 'Kid ticket' }], total_money: { amount: 1635 } } })
+      : answer(200, { order: ORDER }))
+    const provider = new SquareWorkshopProvider(config)
+    expect(await provider.setSeatPrice({ reservation, priceCents: 1500, note: 'Kid ticket' })).toEqual({ totalCents: 1635 })
+    const put = spy.mock.calls.find((c) => c[1]?.method === 'PUT')!
+    expect(put[0]).toBe('https://connect.squareup.com/v2/orders/order-1')
+    expect(JSON.parse(put[1].body)).toEqual({
+      order: { location_id: 'LOC123', version: 1, line_items: [{ uid: 'li1', base_price_money: { amount: 1500, currency: 'USD' }, note: 'Kid ticket' }] },
+      idempotency_key: 'clsbk_1-price-1500',
+    })
+  })
+
+  it('refuses (so nothing is charged) when Square does not take the price', async () => {
+    stubFetch(async (_url: string, init?: any) => (init?.method === 'PUT' ? answer(200, { order: ORDER }) : answer(200, { order: ORDER })))
+    const err = await caught(new SquareWorkshopProvider(config).setSeatPrice({ reservation, priceCents: 1500, note: 'Kid ticket' }))
+    expect(err?.kind).toBe('refused')
+  })
+
+  it('refuses an order that is not a one-seat draft, or a hold with no order', async () => {
+    stubFetch(async () => answer(200, { order: { ...ORDER, state: 'OPEN' } }))
+    expect((await caught(new SquareWorkshopProvider(config).setSeatPrice({ reservation, priceCents: 1500, note: 'x' })))?.kind).toBe('refused')
+    expect((await caught(new SquareWorkshopProvider(config).setSeatPrice({ reservation: { ...reservation, orderId: null }, priceCents: 1500, note: 'x' })))?.kind).toBe('refused')
+  })
+
+  it('refuses when Square answers with an error', async () => {
+    stubFetch(async (_url: string, init?: any) => (init?.method === 'PUT' ? answer(400, 'VERSION_MISMATCH') : answer(200, { order: ORDER })))
+    expect((await caught(new SquareWorkshopProvider(config).setSeatPrice({ reservation, priceCents: 1500, note: 'x' })))?.kind).toBe('refused')
+  })
+})

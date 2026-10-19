@@ -70,3 +70,17 @@ describe('GET /api/workshops.json — questions and cutoff', () => {
     expect(res.headers.get('Cache-Control')).not.toContain('no-store')
   })
 })
+
+describe('GET /api/workshops.json — ticket types', () => {
+  it('lists each ticket with its real price, the first at the class price', async () => {
+    mockGetEventMeta.mockImplementation(async (_kind: string, id: string) =>
+      id === 'clssch_kinu' ? { options: [], signupCutoffHours: null, tickets: [{ id: 'adult', label: 'Adult', priceCents: null, min: 1 }, { id: 'kid', label: 'Kid', priceCents: 1500, min: 1 }] } : null,
+    )
+    const [pails, kinu] = await list()
+    expect(pails.tickets).toBeUndefined()
+    expect(kinu.tickets).toEqual([
+      { id: 'adult', label: 'Adult', priceCents: 2500, min: 1 },
+      { id: 'kid', label: 'Kid', priceCents: 1500, min: 1 },
+    ])
+  })
+})

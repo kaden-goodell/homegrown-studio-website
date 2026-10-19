@@ -761,3 +761,47 @@ describe('WorkshopBookingModal — sales tax from Square', () => {
     expect(screen.queryByText('Any tax is added when you pay.')).toBeNull()
   })
 })
+
+describe('WorkshopBookingModal — Adult and Kid tickets', () => {
+  const family = () => makeWorkshop({
+    name: 'Potholders', price: 2000, taxPercent: 9, remainingSeats: 40,
+    tickets: [{ id: 'adult', label: 'Adult', priceCents: 2000, min: 1 }, { id: 'kid', label: 'Kid', priceCents: 1500, min: 1 }],
+  })
+
+  it('starts at 1 adult and 1 kid, and never goes below either minimum', () => {
+    open(family())
+    expect(screen.queryByRole('button', { name: 'More seats' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Fewer adults' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Fewer kids' })).toBeDisabled()
+    expect(screen.getByText('$20 each')).toBeInTheDocument()
+    expect(screen.getByText('$15 each')).toBeInTheDocument()
+  })
+
+  it('totals each ticket at its own price, and sends the counts, one card token per person', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(booked({ ticketsLabel: '2 Adults, 1 Kid', totalChargedCents: 6000 }))
+    vi.stubGlobal('fetch', fetchSpy)
+    open(family())
+    fireEvent.click(screen.getByRole('button', { name: 'More adults' }))
+    fireEvent.click(screen.getByRole('button', { name: /^Continue/ }))
+    await screen.findByTestId('payment-form')
+    fillContact()
+    expect(screen.getByText('2 Adults × $20')).toBeInTheDocument()
+    expect(screen.getByText('1 Kid × $15')).toBeInTheDocument()
+    // $55 + 9% tax = $59.95
+    await pay('$59.95')
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled())
+    const sent = JSON.parse(fetchSpy.mock.calls[0][1].body)
+    expect(sent).toMatchObject({ seats: 3, tickets: { adult: 2, kid: 1 } })
+    expect(new Set(sent.paymentTokens).size).toBe(3)
+    expect(await screen.findByText(/2 Adults, 1 Kid/)).toBeInTheDocument()
+  })
+
+  it('a plain class sends no tickets', async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(booked())
+    vi.stubGlobal('fetch', fetchSpy)
+    await goToPayment()
+    await pay()
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalled())
+    expect(JSON.parse(fetchSpy.mock.calls[0][1].body).tickets).toBeUndefined()
+  })
+})

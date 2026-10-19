@@ -99,4 +99,8 @@ export class MockWorkshopProvider implements WorkshopProvider {
   }
 
   async releaseSeats(_bookingId: string): Promise<void> {}
+
+  async setSeatPrice(params: { priceCents: number }): Promise<{ totalCents: number }> {
+    return { totalCents: params.priceCents }
+  }
 }

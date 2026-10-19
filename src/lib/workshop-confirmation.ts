@@ -24,6 +24,8 @@ export async function sendWorkshopConfirmation(input: {
   bookingId: string
   workshop: Workshop
   seats: number
+  /** "1 Adult, 2 Kids" on a class with ticket types. */
+  seatsLabel?: string
   email: string
   givenName: string
   receiptUrl: string | null
@@ -64,6 +66,7 @@ export async function sendWorkshopConfirmation(input: {
     whenLabel: formatSlotLabel(workshop.startAt),
     timeRange: formatRange(studioClock(workshop.startAt), studioClock(endIso)),
     seats: input.seats,
+    ...(input.seatsLabel ? { seatsLabel: input.seatsLabel } : {}),
     totalChargedCents: input.totalChargedCents,
     ...(input.comped ? { comped: true } : {}),
     ...(input.dueAtStudioCents !== undefined ? { dueAtStudioCents: input.dueAtStudioCents } : {}),

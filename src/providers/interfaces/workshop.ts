@@ -119,4 +119,12 @@ export interface WorkshopProvider {
 
   /** Let held seats go, after a refused payment. Throws if the backend won't. */
   releaseSeats(bookingId: string): Promise<void>
+
+  /**
+   * Re-price one held seat before it is charged (a Kid ticket on a class whose
+   * Square price is the Adult one). Throws SeatBookingError ('reserve',
+   * 'refused') unless the held order now carries exactly `priceCents` — the
+   * caller must charge nothing then. Returns the order's new total, tax in.
+   */
+  setSeatPrice(params: { reservation: SeatReservation; priceCents: number; note: string }): Promise<{ totalCents: number }>
 }

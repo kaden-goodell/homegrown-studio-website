@@ -5,6 +5,7 @@
  */
 import type { EventMetaPatch } from '@lib/event-meta'
 import { validateCapacity, validateCutoffHours, type SeatOption } from '@lib/seat-options'
+import { validateTicketTypes } from '@lib/ticket-types'
 
 export interface SetEventArgs {
   kind: 'workshop' | 'party'
@@ -15,7 +16,7 @@ export interface SetEventArgs {
 
 export const SET_EVENT_USAGE =
   'Usage: set-event.ts (--workshop <clssch_id> | --party <bookingId>) [--on | --off] [--days a,b] ' +
-  '[--option "Label=Choice|Choice" …] [--no-options] [--cutoff <hours> | --cutoff default] [--capacity <seats> | --capacity none] [--made-to-order | --not-made-to-order] [--show]'
+  '[--option "Label=Choice|Choice" …] [--no-options] [--cutoff <hours> | --cutoff default] [--capacity <seats> | --capacity none] [--made-to-order | --not-made-to-order] [--ticket "Adult:min=1" --ticket "Kid=15:min=1" … | --no-tickets] [--show]'
 
 export function parseSetEventArgs(argv: string[]): SetEventArgs | { error: string } {
   const flag = (n: string) => {
@@ -62,6 +63,28 @@ export function parseSetEventArgs(argv: string[]): SetEventArgs | { error: strin
     const checked = validateCapacity(capacity === 'none' ? null : Number(capacity))
     if (!checked.ok) return { error: checked.error }
     patch.capacity = checked.value
+  }
+
+  const ticketArgs = argv.flatMap((a, i) => (a === '--ticket' && argv[i + 1] !== undefined ? [argv[i + 1]] : []))
+  if (ticketArgs.length > 0 || has('no-tickets')) {
+    if (kind !== 'workshop') return { error: 'Ticket types are for classes (--workshop) only.' }
+    if (has('no-tickets')) patch.tickets = null
+    else {
+      // "Kid=15:min=1" → label Kid, $15, at least 1. The first has no price: it is the class's own.
+      const raw = ticketArgs.map((spec) => {
+        const [head, ...opts] = spec.split(':')
+        const [label, dollars] = head.split('=')
+        const min = opts.find((o) => o.startsWith('min='))
+        return {
+          label: label.trim(),
+          ...(dollars !== undefined ? { priceCents: Math.round(Number(dollars) * 100) } : {}),
+          ...(min ? { min: Number(min.slice(4)) } : {}),
+        }
+      })
+      const checked = validateTicketTypes(raw)
+      if (!checked.ok) return { error: checked.error }
+      patch.tickets = checked.value
+    }
   }
 
   if (has('made-to-order') || has('not-made-to-order')) {

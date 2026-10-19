@@ -179,6 +179,61 @@ export class SquareWorkshopProvider implements WorkshopProvider {
   }
 
   /**
+   * One held seat's price, set on its draft order through the Orders API
+   * before /complete charges the order's total (proven on a hold 18 Oct
+   * 2026: base price changed, tax recomputed, catalog link and note kept).
+   * Anything unexpected is a refusal, so the caller charges nothing.
+   */
+  async setSeatPrice(params: { reservation: SeatReservation; priceCents: number; note: string }): Promise<{ totalCents: number }> {
+    const { reservation, priceCents, note } = params
+    const refuse = (why: string, status?: number): never => {
+      logger.error('Seat price not set on the order', { bookingId: reservation.bookingId, orderId: reservation.orderId, priceCents, why })
+      throw new SeatBookingError('square', 'reserve', 'refused', `seat price: ${why}`, status)
+    }
+    if (!reservation.orderId) return refuse('the hold came back without an order')
+    const base = this.config.environment === 'production' ? 'https://connect.squareup.com/v2' : 'https://connect.squareupsandbox.com/v2'
+    const headers = {
+      Authorization: `Bearer ${this.config.accessToken}`,
+      'Content-Type': 'application/json',
+      'Square-Version': '2025-01-23',
+    }
+    const call = async (init?: RequestInit): Promise<any> => {
+      let res: Response
+      try {
+        res = await fetch(`${base}/orders/${reservation.orderId}`, { headers, ...init })
+      } catch (err) {
+        return refuse(err instanceof Error ? err.message : String(err))
+      }
+      const text = await res.text().catch(() => '')
+      if (!res.ok) return refuse(text.slice(0, 300) || `status ${res.status}`, res.status)
+      return JSON.parse(text).order
+    }
+
+    const order = await call()
+    const lines = order?.line_items ?? []
+    if (order?.state !== 'DRAFT' || lines.length !== 1 || lines[0].quantity !== '1') {
+      return refuse(`unexpected order (state ${order?.state}, ${lines.length} lines, qty ${lines[0]?.quantity})`)
+    }
+    const updated = await call({
+      method: 'PUT',
+      body: JSON.stringify({
+        order: {
+          location_id: order.location_id,
+          version: order.version,
+          line_items: [{ uid: lines[0].uid, base_price_money: { amount: priceCents, currency: lines[0].base_price_money?.currency ?? 'USD' }, note }],
+        },
+        idempotency_key: `${reservation.bookingId}-price-${priceCents}`,
+      }),
+    })
+    const line = updated?.line_items?.[0]
+    if (updated?.state !== 'DRAFT' || line?.base_price_money?.amount !== priceCents || line?.quantity !== '1' || typeof updated?.total_money?.amount !== 'number') {
+      return refuse('the order did not take the new price')
+    }
+    logger.info('Seat price set on the order', { bookingId: reservation.bookingId, priceCents, totalCents: updated.total_money.amount })
+    return { totalCents: updated.total_money.amount }
+  }
+
+  /**
    * Every upcoming workshop, soonest first. A workshop with no seats left
    * stays in the list (pages show it as "Sold out") until its start time
    * passes; then it goes, like any other.

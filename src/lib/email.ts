@@ -367,6 +367,8 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   /** "7:00 – 9:00 PM" */
   timeRange: string
   seats: number
+  /** "1 Adult, 2 Kids" on a class with ticket types; "2 seats" otherwise. */
+  seatsLabel?: string
   totalChargedCents: number
   /** A giveaway seat: say "comped" instead of an amount paid. */
   comped?: boolean
@@ -391,7 +393,7 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const paid = dollars(input.totalChargedCents)
-  const seatWord = input.seats === 1 ? '1 seat' : `${input.seats} seats`
+  const seatWord = input.seatsLabel ?? (input.seats === 1 ? '1 seat' : `${input.seats} seats`)
   const paidWords = input.comped
     ? 'comped'
     : input.dueAtStudioCents !== undefined

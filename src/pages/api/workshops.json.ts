@@ -4,6 +4,7 @@ import { toWorkshopData, withSignupInfo } from '@components/workshops/workshop-v
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import { getEventMeta } from '@lib/event-meta'
 import type { CutoffSettings } from '@lib/seat-options'
+import { resolvedPrice, type TicketType } from '@lib/ticket-types'
 import { createLogger } from '@lib/logger'
 import { remember } from '@lib/short-memory'
 import { publicListHeaders } from '@lib/cache-headers'
@@ -17,10 +18,10 @@ const logger = createLogger('api:workshops')
  * so the list is never cached); the booking server reads them again and
  * refuses rather than sell seats without picks.
  */
-async function settingsFor(scheduleId: string): Promise<{ ok: boolean; settings: CutoffSettings; error?: string }> {
+async function settingsFor(scheduleId: string): Promise<{ ok: boolean; settings: CutoffSettings; tickets?: TicketType[] | null; error?: string }> {
   try {
     const meta = await getEventMeta('workshop', scheduleId)
-    return { ok: true, settings: { options: meta?.options ?? [], signupCutoffHours: meta?.signupCutoffHours ?? null, madeToOrder: meta?.madeToOrder ?? false } }
+    return { ok: true, settings: { options: meta?.options ?? [], signupCutoffHours: meta?.signupCutoffHours ?? null, madeToOrder: meta?.madeToOrder ?? false }, tickets: meta?.tickets ?? null }
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err)
     logger.error('Event settings unreadable for the workshop list', { scheduleId, error })
@@ -43,12 +44,15 @@ export const GET: APIRoute = async ({ request }) => {
     const now = new Date()
     workshops = await Promise.all(
       list.map(async (w) => {
-        const { ok, settings, error } = await settingsFor(w.scheduleId)
+        const { ok, settings, tickets, error } = await settingsFor(w.scheduleId)
         if (!ok) {
           failed = true
           settingsErrors.push({ scheduleId: w.scheduleId, error: error ?? 'unknown' })
         }
-        return withSignupInfo(toWorkshopData(w), settings, now)
+        const data = withSignupInfo(toWorkshopData(w), settings, now)
+        return tickets
+          ? { ...data, tickets: tickets.map((t) => ({ id: t.id, label: t.label, priceCents: resolvedPrice(t, w.priceCents), min: t.min })) }
+          : data
       }),
     )
   } catch (err) {

@@ -42,6 +42,8 @@ export interface SeatChoiceRecord {
   squareBookingIds?: string[]
   /** Who sits in each seat (index 0 = seat 1), when staff picked them from a waiver. */
   seatNames?: string[]
+  /** Each seat's ticket ("Adult", "Kid"), index 0 = seat 1, on a class with ticket types. */
+  seatTypes?: string[]
   /** Where an online booker came from (first and last visit source). */
   attribution?: Attribution
 }

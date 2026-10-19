@@ -12,6 +12,7 @@ import { makeKvStore } from '@lib/blob-store'
 import { hasSeatChoices } from '@lib/seat-choices'
 import { optionsChangeRefusal, validateCapacity, validateCutoffHours, validateOptions, SeatSettingsError, type SeatOption } from '@lib/seat-options'
 import type { By } from '@lib/staff-auth'
+import { validateTicketTypes, type TicketType } from '@lib/ticket-types'
 
 const logger = createLogger('event-meta')
 const kv = makeKvStore('event-meta', 'event-meta')
@@ -28,6 +29,7 @@ export interface EventMetaHistoryEntry {
   signupCutoffHours?: number | null
   capacity?: number | null
   madeToOrder?: boolean
+  tickets?: TicketType[] | null
 }
 
 export interface EventMeta {
@@ -42,6 +44,8 @@ export interface EventMeta {
   madeToOrder: boolean
   /** Seats the class holds; null = unknown (Square's buyer API never says). */
   capacity: number | null
+  /** Ticket types with their own prices (Adult / Kid); null = one price per seat. */
+  tickets: TicketType[] | null
   updatedAt: string // ISO
   by: By
   /** Append-only, capped at 50 (oldest dropped first). */
@@ -55,6 +59,7 @@ export interface EventMetaPatch {
   signupCutoffHours?: number | null
   capacity?: number | null
   madeToOrder?: boolean
+  tickets?: TicketType[] | null
 }
 
 function key(kind: string, id: string): string {
@@ -63,7 +68,7 @@ function key(kind: string, id: string): string {
 
 export function emptyEventMeta(): EventMeta {
   return {
-    dropOff: false, days: null, options: [], signupCutoffHours: null, capacity: null, madeToOrder: false,
+    dropOff: false, days: null, options: [], signupCutoffHours: null, capacity: null, madeToOrder: false, tickets: null,
     updatedAt: new Date(0).toISOString(), by: { id: '', name: '' }, history: [],
   }
 }
@@ -79,6 +84,7 @@ export function normalizeEventMeta(raw: any): EventMeta {
     signupCutoffHours: cutoff.ok ? cutoff.value : null,
     capacity: capacity.ok ? capacity.value : null,
     madeToOrder: raw?.madeToOrder === true,
+    tickets: (() => { const t = validateTicketTypes(raw?.tickets ?? null); return t.ok ? t.value : null })(),
     updatedAt: typeof raw?.updatedAt === 'string' ? raw.updatedAt : new Date(0).toISOString(),
     by: raw?.by && typeof raw.by === 'object'
       ? { id: String(raw.by.id ?? ''), name: String(raw.by.name ?? '') }
@@ -122,6 +128,12 @@ export function mergeEventMeta(current: EventMeta, patch: EventMetaPatch, by: By
   const dropOff = patch.dropOff ?? current.dropOff
   const days = patch.days !== undefined ? patch.days : current.days
   const madeToOrder = patch.madeToOrder ?? current.madeToOrder
+  let tickets = current.tickets
+  if (patch.tickets !== undefined) {
+    const checked = validateTicketTypes(patch.tickets)
+    if (!checked.ok) throw new SeatSettingsError(checked.error)
+    tickets = checked.value
+  }
   return {
     dropOff,
     days,
@@ -129,9 +141,10 @@ export function mergeEventMeta(current: EventMeta, patch: EventMetaPatch, by: By
     signupCutoffHours,
     capacity,
     madeToOrder,
+    tickets,
     updatedAt: now,
     by,
-    history: [...current.history, { at: now, by, dropOff, days, options, signupCutoffHours, capacity, madeToOrder }].slice(-HISTORY_CAP),
+    history: [...current.history, { at: now, by, dropOff, days, options, signupCutoffHours, capacity, madeToOrder, tickets }].slice(-HISTORY_CAP),
   }
 }
 
@@ -151,7 +164,7 @@ export async function setEventMeta(kind: string, id: string, patch: EventMetaPat
     const next = mergeEventMeta(current, patch, by, new Date().toISOString(), hasPicks)
     if (await kv.setIfMatch(k, JSON.stringify(next), etag, value !== null)) {
       logger.info('Event meta set', {
-        kind, id, dropOff: next.dropOff, days: next.days, options: next.options.length, signupCutoffHours: next.signupCutoffHours, capacity: next.capacity, madeToOrder: next.madeToOrder,
+        kind, id, dropOff: next.dropOff, days: next.days, options: next.options.length, signupCutoffHours: next.signupCutoffHours, capacity: next.capacity, madeToOrder: next.madeToOrder, tickets: next.tickets?.length ?? 0,
       })
       return next
     }

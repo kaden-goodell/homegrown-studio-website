@@ -14,6 +14,7 @@
  *   npx tsx scripts/set-event.ts --workshop clssch_… --capacity 12        (or --capacity none)
  *   npx tsx scripts/set-event.ts --workshop clssch_… --no-options
  *   npx tsx scripts/set-event.ts --workshop clssch_… --made-to-order      (or --not-made-to-order; closes sign-ups 24 h early)
+ *   npx tsx scripts/set-event.ts --workshop clssch_… --ticket "Adult:min=1" --ticket "Kid=15:min=1"   (or --no-tickets)
  *   npx tsx scripts/set-event.ts --workshop clssch_… --on | --off | --days 2026-10-18,2026-10-19
  *   npx tsx scripts/set-event.ts --workshop clssch_… --show
  *
@@ -86,7 +87,7 @@ function hasPicks(): boolean {
 function summary(m: EventMeta): string {
   const questions = m.options.map((o) => `${o.label}=${o.choices.join('|')}`).join('; ') || '(none)'
   const cutoff = `${effectiveCutoffHours(m)}h${m.signupCutoffHours === null ? ' (default)' : ''}`
-  return `dropOff=${m.dropOff} days=${m.days ? m.days.join(',') : '(single day)'} questions=${questions} cutoff=${cutoff} capacity=${m.capacity ?? '(unknown)'} madeToOrder=${m.madeToOrder}`
+  return `dropOff=${m.dropOff} days=${m.days ? m.days.join(',') : '(single day)'} questions=${questions} cutoff=${cutoff} capacity=${m.capacity ?? '(unknown)'} madeToOrder=${m.madeToOrder} tickets=${m.tickets ? m.tickets.map((t) => `${t.label}${t.priceCents === null ? '(class price)' : `=$${t.priceCents / 100}`}${t.min ? ` min ${t.min}` : ''}`).join(', ') : '(one price)'}`
 }
 
 const current = read() ?? emptyEventMeta()

@@ -22,6 +22,7 @@ import { saveSeatChoices } from '@lib/seat-choices'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { cleanAttribution } from '@lib/attribution'
 import { reportBooking } from '@lib/posthog-server'
+import { seatPlan, ticketSummary, type PlannedSeat } from '@lib/ticket-types'
 import {
   cutoffClosedMessage,
   effectiveCutoffHours,
@@ -42,7 +43,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  *   1. look the workshop up, and find or create the customer
  *      (a workshop with no price is not for sale and is refused here)
  *   1b. refuse after the class's sign-up cutoff, and unless every seat has a valid pick (nothing held yet)
- *   2. hold the seats            (nothing charged)
+ *   1c. on a class with ticket types (Adult / Kid), work out each seat's price from its settings
+ *   2. hold the seats            (nothing charged), and set each re-priced seat's price on its held order
  *   3. charge and confirm        (one step: both happen or neither)
  *   4. send our confirmation email
  *
@@ -93,7 +95,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   // Every booking needs a way to reach them on the day (Kaden, 12 Oct 2026).
   if (!isPhone(phone)) return fail(400, 'invalid', CONTACT_MESSAGES.phone)
 
-  const seats = Number(body.seats ?? 1)
+  let seats = Number(body.seats ?? 1)
   if (!Number.isInteger(seats) || seats < 1) return fail(400, 'invalid')
   if (seats > MAX_SEATS_PER_BOOKING) {
     return fail(400, 'invalid', `One booking can hold up to ${MAX_SEATS_PER_BOOKING} seats. For a bigger group, book a private party.`)
@@ -148,6 +150,21 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   if (isSignupClosed(workshop.startAt, settings)) {
     return fail(409, 'not_open', cutoffClosedMessage(effectiveCutoffHours(settings)))
   }
+  // ── 1c. Ticket types: each seat's price comes from the class's settings,
+  // never from the page. A page that doesn't send tickets for a class that
+  // has them (or does for one that doesn't) is out of date.
+  const ticketTypes = metaLookup.value?.tickets ?? null
+  let plan: PlannedSeat[] | null = null
+  if (ticketTypes) {
+    if (!body.tickets) return fail(400, 'invalid', 'This page is out of date. Reload it and book again. Nothing was charged.')
+    const planned = seatPlan(ticketTypes, body.tickets, workshop.priceCents, MAX_SEATS_PER_BOOKING)
+    if (!planned.ok) return fail(400, 'invalid', planned.error)
+    plan = planned.value
+    seats = plan.length
+  } else if (body.tickets) {
+    return fail(400, 'invalid', 'This page is out of date. Reload it and book again. Nothing was charged.')
+  }
+  const seatPrice = (seat: number) => plan ? plan[seat - 1].priceCents : workshop.priceCents
   const picksCheck = validatePicks(settings.options, seats, body.picks)
   if (!picksCheck.ok) return fail(400, 'invalid', picksCheck.error)
   const picks: SeatPick[] = picksCheck.value
@@ -242,6 +259,23 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       logger.error('Could not hold seats', { held: holds.length, of: seats, code, raw: raw.slice(0, 500) })
       await letGo(holds.map((h) => h.bookingId))
       return fail(code === 'sold_out' || code === 'already_booked' ? 409 : 502, code)
+    }
+
+    // ── 4b. Ticket prices: every held seat that isn't at the class's own
+    // price is re-priced on its order now. If any one doesn't take, nothing
+    // is charged and every hold is let go.
+    if (plan) {
+      const repriced = await Promise.allSettled(plan.map((p, i) => p.priceCents === workshop.priceCents
+        ? Promise.resolve(null)
+        : providers.workshop.setSeatPrice({ reservation: holds[i], priceCents: p.priceCents, note: `${p.label} ticket` })))
+      const priceFailed = repriced.findIndex((r) => r.status === 'rejected')
+      if (priceFailed >= 0) {
+        logger.error('Ticket price not set — releasing every seat, charging nothing', {
+          seat: priceFailed + 1, of: seats, raw: String((repriced[priceFailed] as PromiseRejectedResult).reason).slice(0, 300),
+        })
+        await letGo(holds.map((h) => h.bookingId))
+        return fail(502, 'unavailable', 'We couldn’t set up your tickets. Nothing was charged. Please try again.')
+      }
     }
 
     // ── 5. Charge seat 1 ─────────────────────────────────────────────────────
@@ -355,6 +389,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
         attemptId,
         ...(simulated ? { simulated: true as const } : {}),
         ...(squareBookingIds.length > 1 ? { squareBookingIds } : {}),
+        ...(plan ? { seatTypes: (simulated ? plan : paidSeats.map((seat) => plan![seat - 1])).map((p) => p.label) } : {}),
         ...(cleanAttribution(body.attribution) ? { attribution: cleanAttribution(body.attribution)! } : {}),
       })
     } catch (err) {
@@ -368,9 +403,13 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     }
   }
   // What the card paid, tax included: Square's figure when it gives one.
+  const paidSeatNumbers = simulated ? Array.from({ length: seats }, (_, i) => i + 1) : paidSeats
+  const paidSubtotal = paidSeatNumbers.reduce((sum, seat) => sum + seatPrice(seat), 0)
+  const paidPlan = plan ? paidSeatNumbers.map((seat) => plan![seat - 1]) : null
+  const seatsLabel = paidPlan ? ticketSummary(paidPlan) : null
   const chargedCents = chargedSum !== null
     ? chargedSum
-    : workshop.priceCents * seatsBooked + taxCents(workshop.priceCents * seatsBooked, workshop.taxPercent)
+    : paidSubtotal + taxCents(paidSubtotal, workshop.taxPercent)
   // ── The email, the owners' text and analytics: all at once, and on Netlify
   // after the reply, so the customer sees "You're booked" as soon as the money
   // and the record are in. A confirmation that fails to send then texts the
@@ -383,6 +422,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
         bookingId: paidBooking.bookingId,
         workshop,
         seats: seatsBooked,
+        ...(seatsLabel ? { seatsLabel } : {}),
         email,
         givenName,
         receiptUrl: paidBooking.receiptUrl,
@@ -402,7 +442,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
         : announceBooking({
             kind: 'class',
             who: `${givenName} ${familyName}`,
-            what: `${seatsBooked} seat${seatsBooked === 1 ? '' : 's'}, ${workshop.name}`,
+            what: `${seatsLabel ?? `${seatsBooked} seat${seatsBooked === 1 ? '' : 's'}`}, ${workshop.name}`,
             when: formatSlotLabel(workshop.startAt),
             paidCents: chargedCents,
             email,
@@ -413,16 +453,21 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
         requestUrl: request.url,
         kind: 'workshop',
         bookingId: paidBooking.bookingId,
-        amountCents: workshop.priceCents * seatsBooked,
+        amountCents: paidSubtotal,
         email,
         firstName: givenName,
         lastName: familyName,
-        items: [{ item_id: workshop.scheduleId, item_name: workshop.name, item_category: 'workshop', price: workshop.priceCents / 100, quantity: seatsBooked }],
+        items: paidPlan
+          ? [...new Map(paidPlan.map((p) => [p.typeId, p])).values()].map((p) => ({
+              item_id: `${workshop.scheduleId}:${p.typeId}`, item_name: `${workshop.name} (${p.label})`, item_category: 'workshop', price: p.priceCents / 100, quantity: paidPlan.filter((x) => x.typeId === p.typeId).length,
+            }))
+          : [{ item_id: workshop.scheduleId, item_name: workshop.name, item_category: 'workshop', price: workshop.priceCents / 100, quantity: seatsBooked }],
         attribution: cleanAttribution(body.attribution),
         posthogId: body.posthogId,
         simulated,
         extra: {
           seats: seatsBooked,
+          ...(seatsLabel ? { tickets: seatsLabel } : {}),
           class: workshop.name,
           class_date: workshop.startAt.slice(0, 10),
           days_ahead: Math.round((Date.parse(workshop.startAt) - Date.now()) / 86_400_000),
@@ -457,6 +502,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
         totalChargedCents: chargedCents,
         seatsBooked,
         seatsRequested: seats,
+        ...(seatsLabel ? { ticketsLabel: seatsLabel } : {}),
         emailSent,
         // "Wrong email? Fix it" / "Which email is right?" on the booked screen.
         emailCheck: {

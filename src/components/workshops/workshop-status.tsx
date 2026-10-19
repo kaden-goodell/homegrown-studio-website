@@ -7,6 +7,13 @@ import { canBeBooked, isSoldOut, seatsLeftLabel } from '@lib/workshop-rules'
 import { ageLabel, isDropOff, notifyInterest } from '@lib/workshop-copy'
 import { trackWaitlistOpened } from '@lib/analytics'
 
+/** "$25", or "$20 adult · $15 kid" on a class with ticket types. */
+export function priceLabel(w: Pick<WorkshopData, 'price' | 'currency' | 'tickets'>): string {
+  return w.tickets?.length
+    ? w.tickets.map((t) => `${formatMoney(t.priceCents, w.currency)} ${t.label.toLowerCase()}`).join(' · ')
+    : formatMoney(w.price, w.currency)
+}
+
 /**
  * Where one workshop stands, worked out once for both layouts on /workshops
  * (the phone row and the wide-screen card), so they can never disagree.
@@ -19,7 +26,7 @@ export function workshopStatus(w: WorkshopData) {
   const bookable = !comingSoon && !soldOut && !closed
   const seats = bookable ? seatsLeftLabel(w.remainingSeats) : ''
   /** "$25 · Ages 8+ · Drop-off" */
-  const meta = [comingSoon ? '' : formatMoney(w.price, w.currency), ageLabel(w.description), isDropOff(w.description) ? 'Drop-off' : '']
+  const meta = [comingSoon ? '' : priceLabel(w), ageLabel(w.description), isDropOff(w.description) ? 'Drop-off' : '']
     .filter(Boolean)
     .join(' · ')
   const status = comingSoon ? 'Coming soon' : soldOut ? 'Sold out' : closed ? 'Sign-ups closed' : seats

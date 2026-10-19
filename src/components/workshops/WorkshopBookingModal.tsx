@@ -63,7 +63,19 @@ const POLICY_UNTICKED = 'Tick the box to agree to the booking and cancellation p
  */
 export default function WorkshopBookingModal({ workshop, onClose, onBooked }: WorkshopBookingModalProps) {
   const [step, setStep] = useState<Step>('details')
-  const [seats, setSeats] = useState(1)
+  const [plainSeats, setSeats] = useState(1)
+  // Ticket types (Adult / Kid): a count per type, starting at each type's minimum.
+  const tickets = workshop.tickets && workshop.tickets.length > 0 ? workshop.tickets : null
+  const [ticketCounts, setTicketCounts] = useState<Record<string, number>>(() =>
+    Object.fromEntries((tickets ?? []).map((t) => [t.id, t.min])),
+  )
+  const seats = tickets ? tickets.reduce((n, t) => n + (ticketCounts[t.id] ?? 0), 0) : plainSeats
+  // "Adult", "Kid", "Kid" — who each seat is, for the pick labels.
+  const seatTypeLabels = tickets ? tickets.flatMap((t) => Array.from({ length: ticketCounts[t.id] ?? 0 }, () => t.label)) : null
+  const ticketsLabel = tickets
+    ? tickets.filter((t) => (ticketCounts[t.id] ?? 0) > 0).map((t) => `${ticketCounts[t.id]} ${ticketCounts[t.id] === 1 ? t.label : `${t.label}s`}`).join(', ')
+    : null
+  const [bookedLabel, setBookedLabel] = useState<string | null>(null)
   // One answer per seat per question, keyed by selectionKey(seat, optionId).
   // Kept when the seat count drops, so a seat added back shows its pick.
   const [selections, setSelections] = useState<Record<string, string>>({})
@@ -102,7 +114,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   const attemptId = useRef(newAttemptId())
   useEffect(() => {
     attemptId.current = newAttemptId()
-  }, [seats, picksSignature])
+  }, [seats, picksSignature, JSON.stringify(ticketCounts)])
 
   useEffect(() => {
     trackWizardStarted('workshop')
@@ -128,7 +140,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   const maxSeats = Math.max(1, Math.min(workshop.remainingSeats ?? MAX_SEATS_PER_BOOKING, MAX_SEATS_PER_BOOKING))
   const cappedByBooking = (workshop.remainingSeats ?? Infinity) > MAX_SEATS_PER_BOOKING
   // Square adds its sales tax on top of the price; show it before they pay.
-  const subtotal = workshop.price * seats
+  const subtotal = tickets ? tickets.reduce((sum, t) => sum + t.priceCents * (ticketCounts[t.id] ?? 0), 0) : workshop.price * seats
   const tax = taxCents(subtotal, workshop.taxPercent)
   const total = subtotal + tax
   const taxKnown = typeof workshop.taxPercent === 'number'
@@ -136,7 +148,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   const [chargedCents, setChargedCents] = useState<number | null>(null)
   const [partly, setPartly] = useState<{ booked: number; asked: number } | null>(null)
   const when = formatDayAndSpan(workshop.startTime, workshop.endTime)
-  const seatWord = `${seats} seat${seats === 1 ? '' : 's'}`
+  const seatWord = bookedLabel ?? ticketsLabel ?? `${seats} seat${seats === 1 ? '' : 's'}`
 
   const classItem = (quantity = seats): AnalyticsItem => ({
     item_id: workshop.classScheduleId ?? workshop.id, item_name: workshop.name, item_category: 'workshop', price: workshop.price / 100, quantity,
@@ -247,6 +259,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
               ...(contact.phone.trim() ? { phone: contact.phone.trim() } : {}),
             },
             seats,
+            ...(tickets ? { tickets: ticketCounts } : {}),
             ...(options.length > 0 ? { picks } : {}),
             attribution: readAttribution(),
             posthogId: posthogId(),
@@ -278,6 +291,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
       if (typeof bookData.data.totalChargedCents === 'number') setChargedCents(bookData.data.totalChargedCents)
       // A later seat can be declined after the first is paid: show what was booked.
       const booked = bookData.data.seatsBooked
+      if (typeof bookData.data.ticketsLabel === 'string') setBookedLabel(bookData.data.ticketsLabel)
       if (typeof booked === 'number' && booked >= 1 && booked < seats) {
         setPartly({ booked, asked: seats })
         setSeats(booked)
@@ -455,6 +469,49 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
         ))}
 
         <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid var(--color-line)' }}>
+          {tickets ? (
+            <div style={{ display: 'grid', gap: '0.75rem' }}>
+              {tickets.map((t) => {
+                const n = ticketCounts[t.id] ?? 0
+                const canLess = n > t.min
+                const canMore = seats < maxSeats
+                const labelId = `${formId}-ticket-${t.id}`
+                return (
+                  <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
+                    <div>
+                      <p id={labelId} style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>{t.label}s</p>
+                      <p style={{ margin: '0.125rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>{formatMoney(t.priceCents, workshop.currency)} each</p>
+                    </div>
+                    <div role="group" aria-labelledby={labelId} style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <button
+                        type="button"
+                        aria-label={`Fewer ${t.label.toLowerCase()}s`}
+                        onClick={() => setTicketCounts((c) => ({ ...c, [t.id]: Math.max(t.min, (c[t.id] ?? 0) - 1) }))}
+                        disabled={!canLess}
+                        style={{ ...counterButton, opacity: canLess ? 1 : 0.35, cursor: canLess ? 'pointer' : 'default' }}
+                      >
+                        <span aria-hidden="true">&minus;</span>
+                      </button>
+                      <span aria-live="polite" aria-atomic="true" style={{ minWidth: '2rem', textAlign: 'center', fontSize: '1.25rem', fontWeight: 600, color: 'var(--color-dark)' }}>
+                        <span style={{ position: 'absolute', width: 1, height: 1, overflow: 'hidden', clip: 'rect(0 0 0 0)' }}>{n} {n === 1 ? t.label : `${t.label}s`}</span>
+                        <span aria-hidden="true">{n}</span>
+                      </span>
+                      <button
+                        type="button"
+                        aria-label={`More ${t.label.toLowerCase()}s`}
+                        onClick={() => setTicketCounts((c) => ({ ...c, [t.id]: (c[t.id] ?? 0) + 1 }))}
+                        disabled={!canMore}
+                        style={{ ...counterButton, opacity: canMore ? 1 : 0.35, cursor: canMore ? 'pointer' : 'default' }}
+                      >
+                        <span aria-hidden="true">+</span>
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+              {seatsLeft && <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-text)' }}>{seatsLeft}</p>}
+            </div>
+          ) : (
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
             <div>
               <p id={`${formId}-seats`} style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>
@@ -490,6 +547,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
               </button>
             </div>
           </div>
+          )}
           {seats >= maxSeats && (
             <p role="status" style={{ margin: '0.625rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>
               {cappedByBooking ? (
@@ -517,7 +575,7 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
                         htmlFor={fieldId}
                         style={{ display: 'block', marginBottom: '0.25rem', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}
                       >
-                        Seat {seat} · {o.label}
+                        {seatTypeLabels ? `${seatTypeLabels[seat - 1]} ${seatTypeLabels.slice(0, seat).filter((l) => l === seatTypeLabels[seat - 1]).length}` : `Seat ${seat}`} · {o.label}
                       </label>
                       <select
                         id={fieldId}
@@ -572,11 +630,19 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
 
         <div style={{ margin: '1.25rem 0', padding: '0.875rem 1rem', borderRadius: '0.75rem', background: 'var(--color-sand)' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
-            <span>
-              {workshop.name}, {seatWord} × {formatMoney(workshop.price, workshop.currency)}
-            </span>
+            {tickets ? <span>{workshop.name}</span> : (
+              <span>
+                {workshop.name}, {seatWord} × {formatMoney(workshop.price, workshop.currency)}
+              </span>
+            )}
             <span>{formatMoney(subtotal, workshop.currency)}</span>
           </div>
+          {tickets && tickets.filter((t) => (ticketCounts[t.id] ?? 0) > 0).map((t) => (
+            <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.875rem', color: 'var(--color-text)', marginTop: '0.125rem' }}>
+              <span>{ticketCounts[t.id]} {ticketCounts[t.id] === 1 ? t.label : `${t.label}s`} × {formatMoney(t.priceCents, workshop.currency)}</span>
+              <span>{formatMoney(t.priceCents * (ticketCounts[t.id] ?? 0), workshop.currency)}</span>
+            </div>
+          ))}
           {tax > 0 && (
             <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.9375rem', color: 'var(--color-dark)', marginTop: '0.25rem' }}>
               <span>Tax</span>

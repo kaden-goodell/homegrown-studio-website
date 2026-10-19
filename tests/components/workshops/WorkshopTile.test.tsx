@@ -34,3 +34,10 @@ describe('WorkshopTile (wide screens)', () => {
     expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Request a spot'])
   })
 })
+
+describe('WorkshopTile — ticket types', () => {
+  it('shows each ticket’s price', () => {
+    render(<WorkshopTile workshop={{ ...base, price: 2000, tickets: [{ id: 'adult', label: 'Adult', priceCents: 2000, min: 1 }, { id: 'kid', label: 'Kid', priceCents: 1500, min: 1 }] } as any} />)
+    expect(screen.getByText(/\$20 adult · \$15 kid/)).toBeInTheDocument()
+  })
+})

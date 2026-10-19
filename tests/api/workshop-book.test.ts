@@ -8,6 +8,7 @@ const mockRelease = vi.fn()
 const mockGetWorkshop = vi.fn()
 const mockCreateGuest = vi.fn()
 const mockListWorkshops = vi.fn()
+const mockSetPrice = vi.fn()
 
 vi.mock('@config/providers', () => ({
   providers: {
@@ -17,6 +18,7 @@ vi.mock('@config/providers', () => ({
       reserveSeats: (...a: any[]) => mockReserve(...a),
       payForSeats: (...a: any[]) => mockPay(...a),
       releaseSeats: (...a: any[]) => mockRelease(...a),
+      setSeatPrice: (...a: any[]) => mockSetPrice(...a),
       getWorkshop: (...a: any[]) => mockGetWorkshop(...a),
       listWorkshops: (...a: any[]) => mockListWorkshops(...a),
     },
@@ -810,3 +812,61 @@ describe('POST /api/workshops/book.json', () => {
   })
 })
 
+
+describe('POST /api/workshops/book.json — ticket types (Adult $40 here, Kid $15)', () => {
+  const TICKETS = [{ id: 'adult', label: 'Adult', priceCents: null, min: 1 }, { id: 'kid', label: 'Kid', priceCents: 1500, min: 1 }]
+  beforeEach(() => {
+    mockGetEventMeta.mockResolvedValue({ options: [], signupCutoffHours: null, tickets: TICKETS })
+    mockSetPrice.mockImplementation(async ({ priceCents }: any) => ({ totalCents: priceCents }))
+  })
+  const ticketed = (tickets: Record<string, number>, n = Object.values(tickets).reduce((a, b) => a + b, 0)) =>
+    body({ seats: n, tickets, paymentTokens: Array.from({ length: n }, (_, i) => `cnon:card-ok-${i + 1}`) })
+
+  it('holds 1 adult and 2 kids, re-prices only the kid seats, then charges every seat', async () => {
+    const res = await POST(ctx(ticketed({ adult: 1, kid: 2 })))
+    expect(res.status).toBe(200)
+    expect(mockReserve).toHaveBeenCalledTimes(3)
+    expect(mockSetPrice.mock.calls.map((c) => [c[0].reservation.bookingId, c[0].priceCents, c[0].note]).sort()).toEqual([
+      ['clsbk_2', 1500, 'Kid ticket'],
+      ['clsbk_3', 1500, 'Kid ticket'],
+    ])
+    expect(mockPay).toHaveBeenCalledTimes(3)
+    expect(mockSaveSeatChoices.mock.calls[0][0]).toMatchObject({ seats: 3, seatTypes: ['Adult', 'Kid', 'Kid'] })
+    const data = (await res.json()).data
+    // No Square total came back in this test, so it is worked out: 40 + 15 + 15.
+    expect(data.totalChargedCents).toBe(7000)
+    expect(mockSendEmail.mock.calls[0][0].seatsLabel).toBe('1 Adult, 2 Kids')
+  })
+
+  it('charges nothing and lets every seat go when a kid price does not take', async () => {
+    mockSetPrice.mockRejectedValueOnce(new SeatBookingError('square', 'reserve', 'refused', 'seat price: the order did not take the new price'))
+    const res = await POST(ctx(ticketed({ adult: 1, kid: 1 })))
+    expect(res.status).toBe(502)
+    expect((await res.json()).detail).toBe('We couldn’t set up your tickets. Nothing was charged. Please try again.')
+    expect(mockPay).not.toHaveBeenCalled()
+    expect(mockRelease.mock.calls.map((c) => c[0]).sort()).toEqual(['clsbk_1', 'clsbk_2'])
+  })
+
+  it('refuses before holding anything: a missing minimum, or a page that sends plain seats', async () => {
+    const r1 = await POST(ctx(ticketed({ adult: 2, kid: 0 })))
+    expect(r1.status).toBe(400)
+    expect((await r1.json()).detail).toBe('Each booking needs at least 1 kid.')
+    const r2 = await POST(ctx(body({ seats: 2 })))
+    expect(r2.status).toBe(400)
+    expect((await r2.json()).detail).toMatch(/out of date/)
+    expect(mockReserve).not.toHaveBeenCalled()
+  })
+
+  it('an adult-only class (no ticket types) refuses a page that sends tickets', async () => {
+    mockGetEventMeta.mockResolvedValue(null)
+    const res = await POST(ctx(ticketed({ adult: 1, kid: 1 })))
+    expect(res.status).toBe(400)
+    expect(mockReserve).not.toHaveBeenCalled()
+  })
+
+  it('with one token per seat missing, nothing is held', async () => {
+    const res = await POST(ctx({ ...ticketed({ adult: 1, kid: 2 }), paymentTokens: ['cnon:card-ok-1', 'cnon:card-ok-2'] }))
+    expect(res.status).toBe(400)
+    expect(mockReserve).not.toHaveBeenCalled()
+  })
+})

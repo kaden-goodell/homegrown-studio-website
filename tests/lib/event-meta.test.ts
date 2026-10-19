@@ -190,3 +190,15 @@ describe('event-meta — made to order', () => {
     expect((await setEventMeta('workshop', id, { madeToOrder: false }, by)).madeToOrder).toBe(false)
   })
 })
+
+describe('event-meta — ticket types', () => {
+  it('saves, keeps across other changes, clears, and refuses bad ones', async () => {
+    const id = 'w_tix_' + Date.now()
+    const types = [{ label: 'Adult', min: 1 }, { label: 'Kid', priceCents: 1500, min: 1 }] as any
+    const m = await setEventMeta('workshop', id, { tickets: types }, by)
+    expect(m.tickets?.map((t) => [t.id, t.priceCents])).toEqual([['adult', null], ['kid', 1500]])
+    expect((await setEventMeta('workshop', id, { capacity: 40 }, by)).tickets).toHaveLength(2)
+    expect((await setEventMeta('workshop', id, { tickets: null }, by)).tickets).toBeNull()
+    expect(() => mergeEventMeta(emptyEventMeta(), { tickets: [{ label: 'Solo' }] as any }, by, '2026-10-18T00:00:00.000Z', false)).toThrow(SeatSettingsError)
+  })
+})
