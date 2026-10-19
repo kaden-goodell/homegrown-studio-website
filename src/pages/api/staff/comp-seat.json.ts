@@ -97,6 +97,7 @@ export const POST: APIRoute = async ({ request }) => {
     if (customerId && !alreadyInSquareOf(body) && !paymentBypassEnabled(request)) {
       const known = await providers.customer.getById(customerId)
       if (!known) return bad('That customer isn’t in Square anymore. Search again.', 404)
+      await providers.customer.fillInMissing(customerId, { email, givenName, familyName, ...(phone ? { phone } : {}) })
     }
 
     const simulated = paymentBypassEnabled(request)

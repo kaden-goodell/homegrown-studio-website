@@ -12,9 +12,10 @@ const mockList = vi.fn()
 const mockFindOrCreate = vi.fn()
 const mockGuest = vi.fn()
 const mockGetById = vi.fn()
+const mockFill = vi.fn()
 vi.mock('@config/providers', () => ({ providers: {
   workshop: { listAllWorkshops: (...a: any[]) => mockList(...a) },
-  customer: { findOrCreate: (...a: any[]) => mockFindOrCreate(...a), createGuest: (...a: any[]) => mockGuest(...a), getById: (...a: any[]) => mockGetById(...a) },
+  customer: { findOrCreate: (...a: any[]) => mockFindOrCreate(...a), createGuest: (...a: any[]) => mockGuest(...a), getById: (...a: any[]) => mockGetById(...a), fillInMissing: (...a: any[]) => mockFill(...a) },
 } }))
 
 const mockWaiver = vi.fn()
@@ -239,6 +240,7 @@ describe('POST /api/staff/comp-seat.json — a picked customer and their waiver'
     expect(res.status).toBe(200)
     expect((await res.json()).data.seats).toBe(3)
     expect(mockFindOrCreate).not.toHaveBeenCalled()
+    expect(mockFill).toHaveBeenCalledWith('CUST_ASH', { email: 'ash@x.com', givenName: 'Ashley', familyName: 'Singleton' })
     expect(mockAdd.mock.calls[0][0].customerId).toBe('CUST_ASH')
     expect(mockGuest.mock.calls.map((c) => [c[0].givenName, c[0].familyName])).toEqual([
       ['Rowan', '(with Ashley Singleton)'],

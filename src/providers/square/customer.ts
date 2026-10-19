@@ -38,7 +38,7 @@ export class SquareCustomerProvider implements CustomerProvider {
     if (searchResult.customers && searchResult.customers.length > 0) {
       const existing = searchResult.customers[0]
       logger.info('Found existing customer', { email: params.email, id: existing.id })
-      return { ...mapSquareCustomer(await this.fillMissingPhone(existing, params.phone)), matchedBy: 'email' }
+      return { ...mapSquareCustomer(await this.fillMissing(existing, params)), matchedBy: 'email' }
     }
 
     // Step 1b: No email match — try phone, so a returning customer using a
@@ -55,7 +55,7 @@ export class SquareCustomerProvider implements CustomerProvider {
       if (phoneResult.customers && phoneResult.customers.length > 0) {
         const existing = phoneResult.customers[0]
         logger.info('Found existing customer by phone', { phone: e164, id: existing.id })
-        return { ...mapSquareCustomer(existing), matchedBy: 'phone' }
+        return { ...mapSquareCustomer(await this.fillMissing(existing, params)), matchedBy: 'phone' }
       }
     }
 
@@ -98,20 +98,31 @@ export class SquareCustomerProvider implements CustomerProvider {
   }
 
   /**
-   * A profile found by email that has no phone gets the one just given, so a
-   * phone from a later booking or a waiver is never dropped. A phone already
-   * on file is never replaced (it may be a spouse's, or the new one a typo).
-   * Best-effort: a failed update never fails the booking or signature.
+   * A profile found by email or phone gets whatever it is missing from what
+   * was just given: phone, first name, last name, email (Kaden, 18 Oct 2026:
+   * "if something is missing it needs to be updated"). Anything already on
+   * file is never replaced (a phone may be a spouse's, a name may be spelled
+   * the way they like). Best-effort: a failed update never fails the booking.
    */
-  private async fillMissingPhone<T extends { id?: string; phoneNumber?: string | null }>(existing: T, phone?: string): Promise<T> {
-    const e164 = toE164(phone)
-    if (!e164 || existing.phoneNumber || !existing.id) return existing
+  private async fillMissing<T extends { id?: string; phoneNumber?: string | null; givenName?: string | null; familyName?: string | null; emailAddress?: string | null }>(
+    existing: T,
+    given: { phone?: string; givenName?: string; familyName?: string; email?: string },
+  ): Promise<T> {
+    if (!existing.id) return existing
+    const e164 = toE164(given.phone)
+    const blank = (v?: string | null) => !v || !v.trim()
+    const patch: { phoneNumber?: string; givenName?: string; familyName?: string; emailAddress?: string } = {}
+    if (e164 && blank(existing.phoneNumber)) patch.phoneNumber = e164
+    if (given.givenName?.trim() && blank(existing.givenName)) patch.givenName = given.givenName.trim()
+    if (given.familyName?.trim() && blank(existing.familyName)) patch.familyName = given.familyName.trim()
+    if (given.email?.trim() && blank(existing.emailAddress)) patch.emailAddress = given.email.trim()
+    if (Object.keys(patch).length === 0) return existing
     try {
-      await this.client.customers.update({ customerId: existing.id, phoneNumber: e164 })
-      logger.info('Added phone to existing customer', { id: existing.id })
-      return { ...existing, phoneNumber: e164 }
+      await this.client.customers.update({ customerId: existing.id, ...patch })
+      logger.info('Filled in a customer', { id: existing.id, fields: Object.keys(patch) })
+      return { ...existing, ...patch }
     } catch (err) {
-      logger.warn('Could not add phone to existing customer', { id: existing.id, error: err instanceof Error ? err.message : String(err) })
+      logger.warn('Could not fill in a customer', { id: existing.id, error: err instanceof Error ? err.message : String(err) })
       return existing
     }
   }
@@ -157,6 +168,15 @@ export class SquareCustomerProvider implements CustomerProvider {
     const pages = await this.client.customers.list({ limit: 100, sortField: 'DEFAULT', sortOrder: 'ASC' })
     for await (const c of pages as AsyncIterable<any>) if (c?.id) found.push(mapSquareCustomer(c))
     return found
+  }
+
+  async fillInMissing(customerId: string, given: { email?: string; givenName?: string; familyName?: string; phone?: string }): Promise<void> {
+    try {
+      const res = await this.client.customers.get({ customerId })
+      if (res.customer) await this.fillMissing(res.customer, given)
+    } catch (err) {
+      logger.warn('Could not read a customer to fill in', { id: customerId, error: err instanceof Error ? err.message : String(err) })
+    }
   }
 
   async getById(customerId: string): Promise<Customer | null> {

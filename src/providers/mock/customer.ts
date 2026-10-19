@@ -65,6 +65,19 @@ export class MockCustomerProvider implements CustomerProvider {
     return [...this.customers.values()]
   }
 
+  async fillInMissing(customerId: string, given: { email?: string; givenName?: string; familyName?: string; phone?: string }): Promise<void> {
+    for (const [key, c] of this.customers) {
+      if (c.id !== customerId) continue
+      this.customers.set(key, {
+        ...c,
+        email: c.email || given.email || '',
+        givenName: c.givenName || given.givenName || '',
+        familyName: c.familyName || given.familyName,
+        phone: c.phone || given.phone,
+      })
+    }
+  }
+
   async getById(customerId: string): Promise<Customer | null> {
     for (const c of this.customers.values()) if (c.id === customerId) return c
     return null

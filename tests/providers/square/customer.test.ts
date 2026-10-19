@@ -82,16 +82,42 @@ describe('SquareCustomerProvider', () => {
     })
 
     it('never replaces a phone already on the profile', async () => {
-      mockSearch.mockResolvedValue({ customers: [{ id: 'cust-m', emailAddress: 'm@example.com', phoneNumber: '+12565550000' }] })
+      mockSearch.mockResolvedValue({ customers: [{ id: 'cust-m', givenName: 'M', emailAddress: 'm@example.com', phoneNumber: '+12565550000' }] })
       await provider.findOrCreate({ email: 'm@example.com', givenName: 'M', phone: '8285519345' })
       expect(mockUpdate).not.toHaveBeenCalled()
     })
 
     it('leaves the profile alone when no usable phone was given', async () => {
-      mockSearch.mockResolvedValue({ customers: [{ id: 'cust-m', emailAddress: 'm@example.com' }] })
+      mockSearch.mockResolvedValue({ customers: [{ id: 'cust-m', givenName: 'M', emailAddress: 'm@example.com' }] })
       await provider.findOrCreate({ email: 'm@example.com', givenName: 'M' })
       await provider.findOrCreate({ email: 'm@example.com', givenName: 'M', phone: '12' })
       expect(mockUpdate).not.toHaveBeenCalled()
+    })
+
+    it('fills in a missing first and last name, and the phone, in one update (an email-only profile)', async () => {
+      mockSearch.mockResolvedValue({ customers: [{ id: 'cust-j', emailAddress: 'roneyjc@gmail.com' }] })
+      mockUpdate.mockResolvedValue({})
+      const c = await provider.findOrCreate({ email: 'roneyjc@gmail.com', givenName: 'Jamey', familyName: 'Roney', phone: '2565550123' })
+      expect(mockUpdate).toHaveBeenCalledOnce()
+      expect(mockUpdate).toHaveBeenCalledWith({ customerId: 'cust-j', phoneNumber: '+12565550123', givenName: 'Jamey', familyName: 'Roney' })
+      expect(c).toMatchObject({ id: 'cust-j', givenName: 'Jamey', familyName: 'Roney', phone: '+12565550123' })
+    })
+
+    it('never replaces a name already on the profile', async () => {
+      mockSearch.mockResolvedValue({ customers: [{ id: 'cust-j', givenName: 'Jaime', emailAddress: 'roneyjc@gmail.com' }] })
+      mockUpdate.mockResolvedValue({})
+      await provider.findOrCreate({ email: 'roneyjc@gmail.com', givenName: 'Jamey', familyName: 'Roney' })
+      expect(mockUpdate).toHaveBeenCalledWith({ customerId: 'cust-j', familyName: 'Roney' })
+    })
+
+    it('a profile found by phone gets its missing name and email too', async () => {
+      mockSearch
+        .mockResolvedValueOnce({ customers: [] })
+        .mockResolvedValueOnce({ customers: [{ id: 'cust-p', phoneNumber: '+12565550123' }] })
+      mockUpdate.mockResolvedValue({})
+      const c = await provider.findOrCreate({ email: 'new@x.com', givenName: 'Pat', familyName: 'Lee', phone: '256-555-0123' })
+      expect(mockUpdate).toHaveBeenCalledWith({ customerId: 'cust-p', givenName: 'Pat', familyName: 'Lee', emailAddress: 'new@x.com' })
+      expect(c.matchedBy).toBe('phone')
     })
 
     it('a failed phone update never fails the lookup', async () => {

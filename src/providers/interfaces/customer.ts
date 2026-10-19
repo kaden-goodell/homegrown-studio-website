@@ -62,4 +62,7 @@ export interface CustomerProvider {
 
   /** One customer by id; null when there is none. */
   getById(customerId: string): Promise<Customer | null>
+
+  /** Fill in whatever the customer is missing (phone, names, email); never replaces anything on file. Best-effort. */
+  fillInMissing(customerId: string, given: { email?: string; givenName?: string; familyName?: string; phone?: string }): Promise<void>
 }
