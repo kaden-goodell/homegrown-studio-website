@@ -255,6 +255,54 @@ export class Cleanup {
   }
 }
 
+// ── Stopping part way ──────────────────────────────────────────────────────
+
+/** The cleanup of the scenario running now (null between scenarios), for a stop to run. */
+export interface Pending { current: Cleanup | null }
+
+export interface StopProcess {
+  on(event: string, fn: (...a: any[]) => void): unknown
+  off(event: string, fn: (...a: any[]) => void): unknown
+}
+
+const STOP_EVENTS: Record<string, number> = { SIGINT: 130, SIGTERM: 143, uncaughtException: 1, unhandledRejection: 1 }
+
+/**
+ * On Ctrl-C, a kill, or an error nothing caught: run the running scenario's
+ * cleanups (last in, first out), sign out, then exit. Once, however many
+ * signals arrive. Returns a function that removes the handlers.
+ */
+export function onStop(opts: {
+  proc: StopProcess
+  pending: Pending
+  signOut: () => Promise<unknown>
+  log: (line: string) => void
+  secrets: (string | null)[]
+  exit: (code: number) => void
+}): () => void {
+  let stopping = false
+  const handlers = Object.entries(STOP_EVENTS).map(([event, code]) => {
+    const fn = (err?: unknown) => {
+      if (stopping) return
+      stopping = true
+      const why = event.startsWith('SIG') ? event : `${event}: ${err instanceof Error ? err.message : String(err)}`
+      opts.log(redact(`\nStopping (${why}). Cleaning up what the running scenario made…`, opts.secrets))
+      void (async () => {
+        const left = opts.pending.current
+        opts.pending.current = null
+        const done = left ? await left.run() : []
+        for (const c of done) opts.log(redact(`    ${c.ok ? 'cleaned' : 'NOT cleaned'}: ${c.label}${c.error ? ` (${c.error})` : ''}`, opts.secrets))
+        await opts.signOut().catch(() => undefined)
+        if (done.some((c) => !c.ok)) opts.log('Some cleanup failed. Run: npx tsx scripts/sandbox-e2e.ts --cleanup-only')
+        opts.exit(code)
+      })()
+    }
+    opts.proc.on(event, fn)
+    return [event, fn] as const
+  })
+  return () => { for (const [event, fn] of handlers) opts.proc.off(event, fn) }
+}
+
 // ── Scenarios and the runner ───────────────────────────────────────────────
 
 export interface Scope {
@@ -273,22 +321,24 @@ export interface Scenario<C> {
 export type Outcome = 'PASS' | 'FAIL' | 'SKIP'
 export interface ScenarioResult { id: number; title: string; outcome: Outcome; ms: number; detail: string; notes: string[]; cleanup: CleanupResult[] }
 
-export interface Args { only: number[] | null; dryRun: boolean; help: boolean }
+export interface Args { only: number[] | null; dryRun: boolean; help: boolean; cleanupOnly: boolean }
 
-/** --only 3 / --only 3,5 / --only=3, --dry-run, --help. Anything else is refused. */
+/** --only 3 / --only 3,5 / --only=3, --dry-run, --cleanup-only, --help. Anything else is refused. */
 export function parseArgs(argv: string[]): Args {
-  const out: Args = { only: null, dryRun: false, help: false }
+  const out: Args = { only: null, dryRun: false, help: false, cleanupOnly: false }
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i]
     if (a === '--dry-run') out.dryRun = true
+    else if (a === '--cleanup-only') out.cleanupOnly = true
     else if (a === '--help' || a === '-h') out.help = true
     else if (a === '--only' || a.startsWith('--only=')) {
       const raw = a === '--only' ? argv[++i] : a.slice('--only='.length)
       const ids = String(raw ?? '').split(',').map((s) => s.trim()).filter(Boolean).map(Number)
       if (!ids.length || ids.some((n) => !Number.isInteger(n) || n < 1)) throw new Error(`--only takes scenario numbers, like --only 3 or --only 3,5 (got ${raw ?? 'nothing'}).`)
       out.only = [...new Set([...(out.only ?? []), ...ids])]
-    } else throw new Error(`Unknown option ${a}. Use --only N, --dry-run or --help.`)
+    } else throw new Error(`Unknown option ${a}. Use --only N, --dry-run, --cleanup-only or --help.`)
   }
+  if (out.cleanupOnly && out.only) throw new Error('--cleanup-only runs no scenarios, so it takes no --only.')
   return out
 }
 
@@ -303,13 +353,14 @@ export function pick<C>(list: Scenario<C>[], only: number[] | null): Scenario<C>
 export async function runScenarios<C>(
   list: Scenario<C>[],
   ctx: C,
-  opts: { secrets: (string | null)[]; log?: (line: string) => void; now?: () => number },
+  opts: { secrets: (string | null)[]; log?: (line: string) => void; now?: () => number; pending?: Pending },
 ): Promise<ScenarioResult[]> {
   const log = opts.log ?? (() => undefined)
   const now = opts.now ?? (() => Date.now())
   const results: ScenarioResult[] = []
   for (const s of list) {
     const cleanup = new Cleanup()
+    if (opts.pending) opts.pending.current = cleanup
     const notes: string[] = []
     const scope: Scope = { cleanup, note: (m) => { notes.push(redact(m, opts.secrets)); log(`    note: ${redact(m, opts.secrets)}`) } }
     log(`\n[${s.id}] ${s.title}`)
@@ -330,6 +381,7 @@ export async function runScenarios<C>(
       if (outcome !== 'FAIL') outcome = 'FAIL'
       detail = detail ? `${detail}; ${what}` : what
     }
+    if (opts.pending?.current === cleanup) opts.pending.current = null
     const r: ScenarioResult = { id: s.id, title: s.title, outcome, ms: now() - started, detail, notes, cleanup: cleaned }
     log(`    ${outcome}${detail ? ` - ${detail}` : ''}`)
     results.push(r)

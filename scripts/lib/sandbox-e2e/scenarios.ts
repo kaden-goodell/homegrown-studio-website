@@ -926,3 +926,71 @@ export function blockedDay(settings: any): (ymd: string) => boolean {
 export function firstDay(now: Date, random = Math.random()): string {
   return addDays(chicagoDate(now), 90 + Math.floor(random * 210))
 }
+
+// ── After a run stopped part way ───────────────────────────────────────────
+
+/** What --cleanup-only does (also printed by --cleanup-only --dry-run). */
+export const CLEANUP_PLAN = [
+  'cancel every class whose name starts "E2E " that is not cancelled yet (cancelling never refunds anyone)',
+  'archive every library class whose name starts "E2E "',
+  'remove blocked time whose reason starts "E2E block"',
+  'remove closed days named "E2E closure …" from the studio settings',
+]
+
+const isTestName = (name: unknown) => typeof name === 'string' && name.startsWith('E2E ')
+
+/** Finds what earlier runs left behind on the preview and clears it. Only ever touches "E2E …" things. */
+export async function cleanUpLeftovers(ctx: Pick<Ctx, 'admin'>, log: (line: string) => void): Promise<{ done: string[]; failed: string[] }> {
+  const done: string[] = []
+  const failed: string[] = []
+  const step = async (label: string, fn: () => Promise<void>) => {
+    try {
+      await fn()
+      done.push(label)
+      log(`    done: ${label}`)
+    } catch (e) {
+      const msg = `${label} (${e instanceof Error ? e.message : String(e)})`
+      failed.push(msg)
+      log(`    FAILED: ${msg}`)
+    }
+  }
+
+  const classes = await ctx.admin.get('/api/admin/classes/classes.json')
+  checkStatus(classes, 200, 'List classes')
+  for (const c of (classes.body.data.classes as any[]).filter((x) => isTestName(x.content?.name) && x.status !== 'cancelled')) {
+    await step(`cancel ${c.content.name} (${c.id})`, async () => {
+      const r = await ctx.admin.post('/api/admin/classes/classes.json', { action: 'cancel', id: c.id, expectedUpdatedAt: c.updatedAt })
+      checkStatus(r, 200, 'Cancel')
+    })
+  }
+
+  const lib = await ctx.admin.get('/api/admin/classes/library.json')
+  checkStatus(lib, 200, 'List the library')
+  for (const l of (lib.body.data.library as any[]).filter((x) => !x.archived && isTestName(x.versions?.[x.versions.length - 1]?.content?.name))) {
+    await step(`archive library ${l.versions[l.versions.length - 1].content.name} (${l.id})`, async () => {
+      checkStatus(await ctx.admin.post('/api/admin/classes/library.json', { action: 'archive', id: l.id }), 200, 'Archive')
+    })
+  }
+
+  const blocked = await ctx.admin.get('/api/admin/classes/blocked.json')
+  checkStatus(blocked, 200, 'List blocked time')
+  for (const b of (blocked.body.data.blocked as any[]).filter((x) => typeof x.reason === 'string' && x.reason.startsWith('E2E block'))) {
+    await step(`unblock ${b.reason} (${b.id})`, async () => {
+      checkStatus(await ctx.admin.post('/api/admin/classes/blocked.json', { action: 'remove', id: b.id }), 200, 'Unblock')
+    })
+  }
+
+  const view = await ctx.admin.get('/api/admin/settings.json')
+  checkStatus(view, 200, 'Read settings')
+  const s = view.body.data.settings
+  const keep = (s.closures as any[]).filter((c) => !(typeof c.name === 'string' && c.name.startsWith('E2E closure')))
+  if (keep.length !== s.closures.length) {
+    await step(`remove ${s.closures.length - keep.length} "E2E closure" day(s) from the settings`, async () => {
+      const r = await ctx.admin.post('/api/admin/settings.json', {
+        cafeWeekly: s.cafeWeekly, cafeSpecialDays: s.cafeSpecialDays, closures: keep, expectedUpdatedAt: s.updatedAt,
+      })
+      checkStatus(r, 200, 'Save settings')
+    })
+  }
+  return { done, failed }
+}
