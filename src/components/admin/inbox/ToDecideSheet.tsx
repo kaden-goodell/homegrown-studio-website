@@ -4,7 +4,7 @@
  * request to /api/admin/to-decide.json, recorded with who made it. Afterwards
  * the sheet shows "Done · what was done".
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ToDecideItem } from '@pages/api/admin/to-decide.json'
 import type { ClassBooking } from '@lib/classes/admin-actions'
 import type { ScheduledClass } from '@lib/classes/types'
@@ -220,6 +220,13 @@ function CounterSale({ item }: { item: ToDecideItem }) {
   const [made, setMade] = useState<{ classId: string; seats: { lineId: string; seat: number; named: boolean }[] } | null>(null)
   const [names, setNames] = useState<Record<string, string>>({})
   const [naming, setNaming] = useState(false)
+  // N3: left during the naming step (× or back): the list still reloads, so the item reads Done.
+  const pendingFinish = useRef(false)
+  const finished = useRef(false)
+  pendingFinish.current = !!made && !finished.current
+  const finishRef = useRef(finish)
+  finishRef.current = finish
+  useEffect(() => () => { if (pendingFinish.current) finishRef.current() }, [])
 
   useEffect(() => {
     let live = true
@@ -263,6 +270,8 @@ function CounterSale({ item }: { item: ToDecideItem }) {
     setNaming(false)
     if (!r.ok) return setError(r.error ?? DIDNT_SAVE)
     toast(r.data?.named ? `Added ${r.data.named === 1 ? 'a name' : `${r.data.named} names`}.` : 'No names added.')
+    finished.current = true
+    pendingFinish.current = false
     finish()
   }
 
@@ -273,7 +282,7 @@ function CounterSale({ item }: { item: ToDecideItem }) {
         subtitle={cls?.content.name}
         footer={(
           <div className="adm-two">
-            <button type="button" className="adm-btn is-ghost" onClick={finish}>Skip</button>
+            <button type="button" className="adm-btn is-ghost" onClick={() => { finished.current = true; pendingFinish.current = false; finish() }}>Skip</button>
             <button type="button" className="adm-btn is-pri" disabled={naming} onClick={saveNames}>{naming ? 'Saving…' : 'Add names'}</button>
           </div>
         )}
@@ -440,13 +449,14 @@ function BelowMinimum({ item }: { item: ToDecideItem }) {
                 <p className="adm-selectable" aria-label="Phone numbers">{phones.join(', ')}</p>
                 <div className="adm-two">
                   <button type="button" className="adm-btn is-ghost" onClick={() => navigator.clipboard?.writeText(phones.join(', ')).then(() => toast('Copied the numbers.'), () => toast('Couldn’t copy. Press and hold the numbers to copy them.'))}>Copy the numbers</button>
-                  <a className="adm-btn is-pri" href={smsAll(phones)} onClick={() => { send({ action: 'texted' }) }}>Open Messages</a>
+                  <a className="adm-btn is-pri" href={smsAll(phones)} onClick={() => { send({ action: 'texted', toast: 'Noted: you texted the people booked. It stays here until you decide.' }) }}>Open Messages</a>
                 </div>
               </>
             )
             : <span>Nobody booked has a phone number on file.</span>}
         </div>
       )}
+      {d.note && <p className="adm-small adm-muted adm-gap-top">{`${d.note.what} · ${d.note.by}, ${dayAndClock(d.note.at)}`}</p>}
       <p className="adm-note adm-gap-top">Nothing cancels on its own. If you do cancel, do it from the class.</p>
       <button type="button" className="adm-btn is-ghost is-sm adm-gap-top" onClick={() => open({ kind: 'class', id: item.classId ?? '' })}>Open the class</button>
       <ErrorLine text={error} />

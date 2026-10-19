@@ -37,7 +37,8 @@ export interface LedgerLine {
   square: { orderId: string | null; paymentId: string | null; lineUid: string | null; chargedCents?: Cents; paymentIds?: string[] }
   by: By | null
   /** requestId: the saved refund request this entry was written for (our own refunds), so it is never written twice */
-  refunds: { at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null; requestId?: string }[]
+  /** id: set on entries written since fix round 2 (11b-C), so an Undo can take back exactly the entry its decision wrote */
+  refunds: { id?: string; at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null; requestId?: string }[]
   at: string
   /** set by confirm when a paid seat landed on a session already full (the hold had run out and the seat was taken) */
   overCapacity?: boolean
@@ -339,7 +340,7 @@ export async function recordRefund(
     const result = () => cur.lines.filter((l) => lineIds.includes(l.id))
     if (!todo.size) return { next: replacing ? cur : null, result: result() }
     const at = new Date().toISOString()
-    const entry = (id: string) => ({ at, cents: centsOf(id), reason: input.reason, by: input.by, freedSeat: input.freeSeat, squareRefundId: input.squareRefundId })
+    const entry = (id: string) => ({ id: newId('rfe'), at, cents: centsOf(id), reason: input.reason, by: input.by, freedSeat: input.freeSeat, squareRefundId: input.squareRefundId })
     const lines = cur.lines.map((l) => (todo.has(l.id) ? { ...l, state: 'refunded' as const, refunds: [...l.refunds, entry(l.id)] } : l))
     return { next: { ...cur, lines }, result: lines.filter((l) => lineIds.includes(l.id)) }
   })
@@ -614,7 +615,8 @@ export async function moveCounterPayment(classId: string, fromLineId: string, to
     }
     // Every seat of the first booking that sale paid moves, onto the right person's unpaid seats in order (as many as they have).
     const order = from.square.orderId
-    const paid = cur.lines.filter((l) => l.bookingId === from.bookingId && l.square.orderId === order && l.source === 'door-counter')
+    const paid = cur.lines.filter((l) => l.bookingId === from.bookingId && l.square.orderId === order && l.source === 'door-counter'
+      && l.passId === from.passId && l.ticketTypeId === from.ticketTypeId && l.state === 'confirmed' && !l.refunds.length)
       .sort((a, b) => (a.id === from.id ? -1 : b.id === from.id ? 1 : a.seat - b.seat))
     const targets = [to, ...cur.lines.filter((l) => l.bookingId === to.bookingId && l.id !== to.id && unpaidDoorSeat(l)
       && l.passId === from.passId && l.ticketTypeId === from.ticketTypeId).sort((a, b) => a.seat - b.seat)]
@@ -640,20 +642,37 @@ export async function moveCounterPayment(classId: string, fromLineId: string, to
 }
 
 /**
- * Undo of a "free the seat" just done in /admin › To decide: takes back the
- * no-money free-seat entry on these seats (only that kind: a refund with money
- * is never touched), so they hold their seats again.
+ * Undo of a "free the seat" just done in /admin › To decide (N1): takes back
+ * exactly the free-seat entries that decision wrote (by entry id), and only
+ * when that's still right:
+ *   - the entry is still there and moves no money (never a refund with money)
+ *   - no money refund was put on the seat after it
+ *   - every coming session the seat would hold again still has room
+ * Otherwise nothing changes and it says why.
  */
-export async function unfreeSeats(classId: string, lineIds: string[]): Promise<void> {
-  await mutate(classId, (cur) => {
-    const lines = cur.lines.map((l) => {
-      if (!lineIds.includes(l.id)) return l
-      const i = [...l.refunds].reverse().findIndex((r) => r.freedSeat && r.cents === 0 && !r.squareRefundId)
-      if (i < 0) return l
-      const at = l.refunds.length - 1 - i
-      const refunds = l.refunds.filter((_, n) => n !== at)
-      return { ...l, refunds, state: refunds.length ? l.state : 'confirmed' as const }
-    })
-    return { next: { ...cur, lines }, result: undefined }
+export async function unfreeSeats(cls: ScheduledClass, entries: { lineId: string; entryId: string }[], now = new Date()): Promise<void> {
+  if (!entries.length) throw new Error('There’s nothing here to undo.')
+  await mutate(cls.id, (cur) => {
+    let lines = cur.lines
+    for (const { lineId, entryId } of entries) {
+      const l = lines.find((x) => x.id === lineId)
+      const i = l ? l.refunds.findIndex((r) => r.id === entryId) : -1
+      if (!l || i < 0) throw new Error('That seat changed since. Open the class to sort it out.')
+      const e = l.refunds[i]
+      if (!e.freedSeat || e.cents !== 0 || e.squareRefundId) throw new Error('That can’t be undone from here.')
+      if (l.refunds.slice(i + 1).some((r) => r.cents > 0)) throw new Error('A refund was made on that seat since. Open the class to sort it out.')
+      const refunds = l.refunds.filter((_, n) => n !== i)
+      lines = lines.map((x) => (x.id === lineId ? { ...x, refunds, state: refunds.length ? x.state : 'confirmed' as const } : x))
+    }
+    // The seat comes back only where there's still room for it.
+    const after: Ledger = { ...cur, lines }
+    const touched = new Set(entries.flatMap((e) => lines.find((l) => l.id === e.lineId)?.sessionIds ?? []))
+    for (const s of cls.sessions) {
+      if (!touched.has(s.id) || Date.parse(s.startIso) <= now.getTime()) continue
+      if (seatsTaken(after, s.id, now) > s.capacity) {
+        throw new Error('That seat was taken since. Add them over capacity from the class if you need to.')
+      }
+    }
+    return { next: after, result: undefined }
   })
 }

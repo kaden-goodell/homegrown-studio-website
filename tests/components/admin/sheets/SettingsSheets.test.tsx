@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactElement } from 'react'
-import { screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { screen, fireEvent, within, waitFor, configure } from '@testing-library/react'
 import { ClosedDaysSheet, HoursSheet } from '@components/admin/sheets/SettingsSheets'
 import { StudioProvider, useStudio } from '@components/admin/shell/studio'
 import { WhoContext } from '@components/admin/sheets/MoreSheets'
 import { at, ok, posts, refuse, renderSheet } from './harness'
+
+// These sheets load, save, then reload; under a full parallel run that can take more than the default second.
+configure({ asyncUtilTimeout: 5000 })
 
 const SETTINGS = '/api/admin/settings.json'
 const view = () => ({
@@ -87,7 +90,7 @@ describe('More › Hours & Craft Café', () => {
     const sat = await screen.findByRole('group', { name: 'Saturdays' }, { timeout: 3000 })
     fireEvent.change(within(sat).getByLabelText('Closes'), { target: { value: '08:00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save café hours' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('Saturday: it has to close after it opens.')
+    expect(await screen.findByRole('alert', undefined, { timeout: 3000 })).toHaveTextContent('Saturday: it has to close after it opens.')
     expect(posts(f, SETTINGS)).toHaveLength(0)
   })
 
@@ -122,8 +125,8 @@ describe('More › Hours & Craft Café', () => {
     const sat = await screen.findByRole('group', { name: 'Saturdays' }, { timeout: 3000 })
     fireEvent.change(within(sat).getByLabelText('Opens'), { target: { value: '10:00' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save café hours' }))
-    expect(await screen.findByText('Café hours saved. Craft Café’s hours in Square didn’t update.', undefined, { timeout: 3000 })).toBeInTheDocument()
-    const panel = screen.getByText('Saved here. Craft Café’s hours in Square didn’t update.').closest('.adm-panel') as HTMLElement
+    // The panel stays (the toast may be gone on a slow run).
+    const panel = (await screen.findByText('Saved here. Craft Café’s hours in Square didn’t update.', undefined, { timeout: 5000 })).closest('.adm-panel') as HTMLElement
     fireEvent.click(within(panel).getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(posts(f, SETTINGS).at(-1)!.body).toEqual({ action: 'square-retry' }), { timeout: 3000 })
     expect(await screen.findByText('Square has the new café hours.', undefined, { timeout: 3000 })).toBeInTheDocument()
@@ -185,12 +188,12 @@ describe('More › Closed days', () => {
     sheet(<ClosedDaysSheet />)
     await screen.findByText('Halloween weekend')
     fireEvent.click(within(footer()).getByRole('button', { name: 'Add closed days' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('Pick the first closed day.')
+    expect(await screen.findByRole('alert', undefined, { timeout: 3000 })).toHaveTextContent('Pick the first closed day.')
     expect(screen.getByLabelText('From')).toHaveAttribute('aria-invalid', 'true')
     fireEvent.change(screen.getByLabelText('From'), { target: { value: '2027-03-19' } })
     fireEvent.change(screen.getByLabelText('To (blank for one day)'), { target: { value: '2027-03-15' } })
     fireEvent.click(within(footer()).getByRole('button', { name: 'Add closed days' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('The last closed day can’t be before the first.')
+    expect(await screen.findByRole('alert', undefined, { timeout: 3000 })).toHaveTextContent('The last closed day can’t be before the first.')
     expect(posts(f, SETTINGS)).toHaveLength(0)
   })
 

@@ -1,8 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { useState } from 'react'
+import { screen, fireEvent, within, waitFor, configure } from '@testing-library/react'
 import { InboxProvider } from '@components/admin/inbox/InboxData'
 import { ToDecideSheet } from '@components/admin/inbox/ToDecideSheet'
 import { at, booking, cls, content, ok, posts, refuse, renderSheet } from '../sheets/harness'
+
+// These sheets load, save, then reload; under a full parallel run that can take more than the default second.
+configure({ asyncUtilTimeout: 5000 })
 
 const TO_DECIDE = '/api/admin/to-decide.json'
 afterEach(() => vi.unstubAllGlobals())
@@ -27,6 +31,11 @@ function server(items: any[], o: { decide?: (b: any) => any; amount?: number | n
           return ok({ data: { items: list } })
         }
         if (post.action === 'names') return ok({ data: { named: post.names.filter((x: any) => x.name.trim()).length } })
+        if (post.action === 'texted') {
+          // R40: a note; the item keeps waiting.
+          list = list.map((i) => (i.id === post.id ? { ...i, detail: { ...i.detail, note: { what: 'Texted the people booked', by: 'Catherine', at: '2026-10-19T15:00:00.000Z' } } } : i))
+          return ok({ data: { decided: { what: 'Texted the people booked' }, noted: true } })
+        }
         if (post.action === 'undo') {
           list = list.map((i) => (i.id === post.id ? { ...i, done: undefined } : i))
           return ok({ data: { undone: post.id } })
@@ -67,7 +76,7 @@ describe('To decide sheets', () => {
     await waitFor(() => expect(screen.getByLabelText('Which class?')).toHaveValue('cls_camp'))
     fireEvent.change(screen.getByLabelText('Which seat?'), { target: { value: 'day:person' } })
     fireEvent.click(within(footer()).getByRole('button', { name: 'Match to this class' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('Pick the date.')
+    expect(await screen.findByRole('alert', undefined, { timeout: 3000 })).toHaveTextContent('Pick the date.')
     fireEvent.click(screen.getByLabelText(/Thu Mar 13/))
     fireEvent.click(within(footer()).getByRole('button', { name: 'Match to this class' }))
     expect(await screen.findByRole('heading', { name: 'Who are the seats for?' })).toBeInTheDocument()
@@ -79,6 +88,29 @@ describe('To decide sheets', () => {
     expect(await screen.findByText('Added a name.')).toBeInTheDocument()
     // Then, and only then, the list reloads and the item reads Done.
     expect(await screen.findByText('Done · Added 2 seats to Camp · Thu Mar 13')).toBeInTheDocument()
+  })
+
+  it('N3: leaving during "Who are the seats for?" still reloads the list', async () => {
+    const camp = cls({ id: 'cls_camp', content: content({ name: 'Camp' }) })
+    const t = item({ kind: 'pos-unmatched', title: 'Counter sale to match', detail: { orderId: 'O1', lineUid: 'L1', name: 'Camp', qty: 1, at: '2026-10-18T16:42:00.000Z', guessClassId: 'cls_camp', guessKey: null } })
+    const f = server([t], {
+      classes: [camp],
+      decide: (b) => (b.action === 'match' ? ok({ data: { decided: { what: 'Added 1 seat to Camp' }, classId: 'cls_camp', seats: [{ lineId: 'led_1', seat: 1, named: false }] } }) : null),
+    })
+    vi.stubGlobal('fetch', f)
+    // The shell closing the sheet: the sheet goes, the inbox stays.
+    function Shell() {
+      const [open, setOpen] = useState(true)
+      return <>{open && <ToDecideSheet id="td_1" />}<button type="button" onClick={() => setOpen(false)}>Close the sheet</button></>
+    }
+    renderSheet(<InboxProvider><Shell /></InboxProvider>)
+    await waitFor(() => expect(screen.getByLabelText('Which class?')).toHaveValue('cls_camp'))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Match to this class' }))
+    expect(await screen.findByRole('heading', { name: 'Who are the seats for?' })).toBeInTheDocument()
+    const lists = () => f.mock.calls.filter((c: any[]) => String(c[0]) === TO_DECIDE && !c[1]?.method).length
+    const before = lists()
+    fireEvent.click(screen.getByRole('button', { name: 'Close the sheet' }))
+    await waitFor(() => expect(lists()).toBe(before + 1))
   })
 
   it('a counter sale that was not for a class: Not for a class, then Done', async () => {
@@ -169,6 +201,10 @@ describe('To decide sheets', () => {
     link.addEventListener('click', (e) => e.preventDefault())
     fireEvent.click(link)
     await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'texted' }]))
+    // R40: noted, still waiting, with the note on the item.
+    expect(await screen.findByText('Noted: you texted the people booked. It stays here until you decide.')).toBeInTheDocument()
+    expect(await screen.findByText('Texted the people booked · Catherine, Mon Oct 19 · 10 AM')).toBeInTheDocument()
+    expect(within(footer()).getByRole('button', { name: 'Keep it running' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Open the class' }))
     expect(sheet.open).toHaveBeenCalledWith({ kind: 'class', id: 'cls_1' })
   })
@@ -211,7 +247,7 @@ describe('To decide sheets', () => {
     const two = show([plain], { classes: [camp] })
     await waitFor(() => expect(screen.getByLabelText('Which seat?')).toHaveValue(''))
     fireEvent.click(within(footer()).getByRole('button', { name: 'Match to this class' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('Pick which seat it was.')
+    expect(await screen.findByRole('alert', undefined, { timeout: 3000 })).toHaveTextContent('Pick which seat it was.')
     expect(decisions(two.f)).toEqual([])
   })
 

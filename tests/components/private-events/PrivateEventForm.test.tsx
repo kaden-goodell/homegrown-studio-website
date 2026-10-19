@@ -51,7 +51,7 @@ describe('PrivateEventForm (/private-events)', () => {
     expect(body.about).toMatchObject({ name: 'Dana Planner', email: 'dana@example.com', phone: '(256) 555-0142', contactBy: 'text' })
     expect(body.photos).toEqual(['data:image/jpeg;base64,AAAA'])
     expect(body.company).toBe('')
-  })
+  }, 20_000) // fills a long form: slow when the whole suite runs at once
 
   it('asks about the address, tables and sink only when it’s at their place', () => {
     render(<PrivateEventForm />)

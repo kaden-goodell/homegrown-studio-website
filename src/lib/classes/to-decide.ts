@@ -24,9 +24,8 @@
  * decideRefundFlag, clearRefundRequest, freeSeatOnly, recordPos, setNames,
  * markCounterMatchChecked. Server only.
  */
-import { createHash } from 'node:crypto'
 import { recordAudit } from '@lib/audit'
-import { decidedKv, minimumItemId } from './decided'
+import { decidedKv, minimumItemId, tokenOf } from './decided'
 import type { By } from '@lib/staff-auth'
 import { studioDate } from '@lib/studio-time'
 import { getClass, listClasses } from './class-store'
@@ -72,7 +71,7 @@ export interface ToDecideItem {
 export interface Decided {
   id: string; kind: ToDecideKind; title: string; head: string; classId?: string; className?: string; what: string; by: By; at: string
   /** A freed seat can be taken back for a while (the toast's Undo). */
-  undo?: { classId: string; lineIds: string[]; flagId?: string }
+  undo?: { classId: string; entries: { lineId: string; entryId: string }[]; flagId?: string }
 }
 
 export class DecideError extends Error {
@@ -95,10 +94,7 @@ const seatsText = (n: number) => (n === 1 ? '1 seat' : `${n} seats`)
 const safeKey = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '_')
 const personName = (c: LedgerLine['customer']) => (c ? `${c.givenName} ${c.familyName}`.trim() : '')
 
-/** An id the /admin address bar can carry (plain, at most 110 characters). */
-export function tokenOf(raw: string): string {
-  return /^[A-Za-z0-9._-]{1,110}$/.test(raw) ? raw : `h${createHash('sha1').update(raw).digest('hex').slice(0, 24)}`
-}
+export { tokenOf }
 
 // ---------------------------------------------------------------- decided store
 
@@ -239,7 +235,7 @@ async function minimumItems(skip: Set<string>, now: Date): Promise<ToDecideItem[
     if (now.getTime() < Date.parse(min.decideByIso) - MINIMUM_AHEAD_MS) continue
     const booked = seatsTaken(await getLedger(cls.id), first.id, now)
     if (booked >= min.count) continue
-    const id = tokenOf(minimumItemId(cls.id))
+    const id = minimumItemId(cls.id)
     if (skip.has(id)) continue
     out.push({
       id, kind: 'below-minimum', title: 'Short of its minimum', at: min.decideByIso, classId: cls.id, className: cls.content.name,
@@ -316,6 +312,16 @@ export async function listToDecide(now = new Date()): Promise<{ items: ToDecideI
     safe('counter checks', () => matchItems(skip, now)),
   ])
   const open = groups.flat().sort((a, b) => b.at.localeCompare(a.at))
+  // Notes on waiting items (R40: "Texted the people booked"), shown on the item.
+  const noteKeys = (await decidedKv.list().catch(() => [] as string[])).filter((k) => k.startsWith('note-'))
+  if (noteKeys.length) {
+    const notes = new Map((await Promise.all(noteKeys.map((k) => decidedKv.get(k).catch(() => null))))
+      .filter((j): j is string => !!j).map((j) => JSON.parse(j) as Decided).map((n) => [n.id, n]))
+    for (const i of open) {
+      const n = notes.get(i.id)
+      if (n) i.detail = { ...i.detail, note: { what: n.what, by: n.by.name, at: n.at } }
+    }
+  }
   const done = decided
     .filter((d) => Date.parse(d.at) >= now.getTime() - DONE_SHOWN_DAYS * 86_400_000)
     .sort((a, b) => b.at.localeCompare(a.at))
@@ -398,6 +404,22 @@ export interface DecideResult {
   /** pos-unmatched › match: the counter seats made, to name next. */
   seats?: { lineId: string; seat: number; named: boolean }[]
   classId?: string
+  /** a note on the item, which stays waiting (R40: Texted) */
+  noted?: true
+}
+
+/** Ids of the refund entries on these seats now. */
+async function entryIds(classId: string, lineIds: string[]): Promise<Set<string>> {
+  const l = (await getLedger(classId)).lines.filter((x) => lineIds.includes(x.id))
+  return new Set(l.flatMap((x) => x.refunds.map((r) => r.id ?? '')).filter(Boolean))
+}
+
+/** The no-money free-seat entries written on these seats since `before`. */
+async function newFreeEntries(classId: string, lineIds: string[], before: Set<string>): Promise<{ lineId: string; entryId: string }[]> {
+  const l = (await getLedger(classId)).lines.filter((x) => lineIds.includes(x.id))
+  return l.flatMap((x) => x.refunds
+    .filter((r) => r.id && !before.has(r.id) && r.freedSeat && r.cents === 0 && !r.squareRefundId)
+    .map((r) => ({ lineId: x.id, entryId: r.id! })))
 }
 
 /** Finds an open item by id; refuses one already decided or gone. */
@@ -459,14 +481,17 @@ export async function decide(id: string, action: string, body: any, by: By, now 
       }
       const lineIds = strs(body?.lineIds)
       const seats = (d.seats ?? []) as { lineId: string }[]
+      const watch = lineIds.length ? lineIds : seats.map((x) => x.lineId)
+      const before = await entryIds(item.classId!, watch)
       try {
         await asRefund(() => decideRefundFlag(str(d.flagId), 'freed-seat', actor, lineIds))
       } catch (e) {
         if (e instanceof Error && /Pick which seat/.test(e.message)) throw new DecideError(409, 'Pick which seat to free.', { needsPick: true })
         throw e
       }
-      const freed = lineIds.length ? lineIds : seats.map((s) => s.lineId)
-      return { decided: await record(item, `Freed ${seatsText(freed.length || 1)}. Back on sale`, by, action, { classId: item.classId!, lineIds: freed, flagId: str(d.flagId) }) }
+      // Only what this decision wrote can be undone (a seat already freed by someone else isn't).
+      const entries = await newFreeEntries(item.classId!, watch, before)
+      return { decided: await record(item, `Freed ${seatsText(entries.length || 1)}. Back on sale`, by, action, entries.length ? { classId: item.classId!, entries, flagId: str(d.flagId) } : undefined) }
     }
     case 'refund-failed':
       await asRefund(() => decideRefundFlag(str(d.flagId), 'dismissed', actor))
@@ -494,16 +519,27 @@ export async function decide(id: string, action: string, body: any, by: By, now 
       const sessions = (d.sessions as { id: string; startIso: string }[]).filter((s) => ids.includes(s.id))
       return { decided: await record(item, `Put on ${sessions.map((s) => dayText(studioDate(s.startIso))).join(', ')}`, by, action) }
     }
-    case 'below-minimum':
-      return { decided: await record(item, action === 'texted' ? `Texted the people booked` : 'Keeping it running', by, action) }
+    case 'below-minimum': {
+      if (action === 'keep-running') return { decided: await record(item, 'Keeping it running', by, action) }
+      // R40: texting the people booked isn't deciding: the item stays waiting (and the alerts keep coming), with a note.
+      const note: Decided = { id: item.id, kind: item.kind, title: item.title, head: item.head, classId: item.classId, className: item.className, what: 'Texted the people booked', by, at: new Date().toISOString() }
+      await decidedKv.set(`note-${item.id}`, JSON.stringify(note))
+      await recordAudit({
+        by: { ...by, role: 'owner' }, action: 'to-decide-texted', target: { kind: 'class', id: item.classId ?? '', label: item.className ?? item.title },
+        details: { item: item.id, kind: item.kind, what: note.what },
+      })
+      return { decided: note, noted: true }
+    }
     case 'door-unpaid': {
       const lineIds = strs(d.lineIds)
       if (action === 'paid') {
         await markDoorPaid(item.classId!, lineIds, by, now)
         return { decided: await record(item, 'Marked paid at the counter', by, action) }
       }
+      const before = await entryIds(item.classId!, lineIds)
       await asRefund(() => freeSeatOnly(item.classId!, str(d.bookingId), lineIds, actor, 'Not paid at the counter'))
-      return { decided: await record(item, `Freed ${seatsText(lineIds.length)}`, by, action, { classId: item.classId!, lineIds }) }
+      const entries = await newFreeEntries(item.classId!, lineIds, before)
+      return { decided: await record(item, `Freed ${seatsText(lineIds.length)}`, by, action, entries.length ? { classId: item.classId!, entries } : undefined) }
     }
     case 'counter-match-check': {
       if (action === 'confirm') {
@@ -562,7 +598,13 @@ export async function undoDecision(id: string, by: By, now = new Date()): Promis
   const d = raw ? (JSON.parse(raw) as Decided) : null
   if (!d?.undo) throw new DecideError(409, 'That can’t be undone from here.')
   if (now.getTime() - Date.parse(d.at) > UNDO_MS) throw new DecideError(409, 'Too late to undo. Open the class to change it.')
-  await unfreeSeats(d.undo.classId, d.undo.lineIds)
+  const cls = await getClass(d.undo.classId)
+  if (!cls) throw new DecideError(404, 'That class no longer exists.')
+  try {
+    await unfreeSeats(cls, d.undo.entries ?? [], now)
+  } catch (e) {
+    throw new DecideError(409, e instanceof Error ? e.message : 'That can’t be undone from here.')
+  }
   if (d.undo.flagId) await reopenRefundFlag(d.undo.flagId)
   await decidedKv.set(`done-${id}`, '')
   await recordAudit({

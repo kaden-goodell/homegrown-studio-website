@@ -80,4 +80,13 @@ describe('a decision in To decide clears it everywhere', () => {
     expect(run.already).toBe(0)
     expect(m.alert).not.toHaveBeenCalled()
   })
+
+  it('R40: Texted does not silence the /staff warning or the minimum alerts', async () => {
+    const other = { ...cls, id: 'cls_short3', content: { ...cls.content, name: 'Macramé' } }
+    m.classes = [other]
+    const item = (await listToDecide(NOW)).items.find((i) => i.kind === 'below-minimum' && i.classId === 'cls_short3' && !i.done)!
+    await decide(item.id, 'texted', {}, BY, NOW)
+    expect((await listWarnings(window, { now: NOW })).some((w) => w.code === 'below-minimum' && w.eventId === 'cls_short3')).toBe(true)
+    expect((await runMinimumToRunAlerts(NOW)).alerted.map((a) => a.classId)).toContain('cls_short3')
+  })
 })

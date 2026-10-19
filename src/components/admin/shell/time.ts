@@ -27,7 +27,8 @@ export function clock(hhmm: string): string {
 
 /** "18:00","20:00" → "6–8 PM"; "09:00","12:30" → "9 AM–12:30 PM"; "09:00","12:00" → "9 AM–noon". The period shows once when both ends share it. */
 export function clockRange(from: string, to: string): string {
-  if (named(from) || named(to)) return `${clock(from)}–${clock(to)}`
+  // At the start of a line it's "Noon–2 PM", not "noon–2 PM" (N7).
+  if (named(from) || named(to)) { const r = `${clock(from)}–${clock(to)}`; return r[0].toUpperCase() + r.slice(1) }
   const a = parts(from), b = parts(to)
   return a.period === b.period ? `${a.clock}–${b.clock}${NBSP}${b.period}` : `${a.clock}${NBSP}${a.period}–${b.clock}${NBSP}${b.period}`
 }
