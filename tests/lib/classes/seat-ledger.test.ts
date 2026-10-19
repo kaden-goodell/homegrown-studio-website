@@ -30,7 +30,7 @@ vi.mock('@lib/blob-store', async (orig) => {
   }
 })
 
-import { hold, confirm, release, recordRefund, setNames, getLedger, seatsTaken } from '@lib/classes/seat-ledger'
+import { hold, confirm, release, recordRefund, setNames, getLedger, seatsTaken, extendHold } from '@lib/classes/seat-ledger'
 import { quote, type BookingRequest } from '@lib/classes/pricing'
 import { defaultRules } from '@lib/classes/validate'
 import type { ScheduledClass, ClassContent } from '@lib/classes/types'
@@ -390,5 +390,37 @@ describe('seat ledger', () => {
 
   it('an empty ledger reads as no lines', async () => {
     expect(await getLedger('cls_never')).toEqual({ classId: 'cls_never', lines: [] })
+  })
+})
+
+describe('extendHold and the charged amount', () => {
+  it('extends only that booking’s held lines; the seats keep counting past the old expiry', async () => {
+    const cls = make(3)
+    const a = input(), other = input()
+    await hold(cls, q(cls), a, NOW)
+    await hold(cls, q(cls), other, NOW)
+    const until = later(24 * 60).toISOString()
+    expect(await extendHold(cls.id, a.bookingId, until)).toBe(1)
+    const led = await getLedger(cls.id)
+    expect(led.lines.find((l) => l.bookingId === a.bookingId)!.holdExpiresAt).toBe(until)
+    expect(led.lines.find((l) => l.bookingId === other.bookingId)!.holdExpiresAt).toBe(later(10).toISOString())
+    expect(seatsTaken(led, 'ses_a', later(60))).toBe(1)
+  })
+
+  it('leaves confirmed seats alone and answers 0 when nothing is held', async () => {
+    const cls = make(3)
+    const a = input()
+    await hold(cls, q(cls), a, NOW)
+    await confirm(cls.id, a.bookingId, { orderId: 'o', paymentId: 'p' }, fb(cls), NOW)
+    expect(await extendHold(cls.id, a.bookingId, later(999).toISOString())).toBe(0)
+    expect((await getLedger(cls.id)).lines[0].holdExpiresAt).toBeNull()
+  })
+
+  it('confirm keeps the booking’s Square total on every line', async () => {
+    const cls = make(3)
+    const a = input()
+    await hold(cls, q(cls, { tickets: { person: 2 } }), a, NOW)
+    const lines = await confirm(cls.id, a.bookingId, { orderId: 'o', paymentId: 'p', chargedCents: 6541 }, fb(cls, { tickets: { person: 2 } }), NOW)
+    expect(lines.map((l) => l.square.chargedCents)).toEqual([6541, 6541])
   })
 })

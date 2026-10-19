@@ -16,7 +16,7 @@ import { onFileToAskAbout } from '@lib/email-fix'
 import { formatSlotLabel } from '@lib/studio-time'
 import { getClass } from '@lib/classes/class-store'
 import { quote as quoteFor, type BookingRequest, type Quote } from '@lib/classes/pricing'
-import { confirm, getLedger, hold, release, type HoldInput, type LedgerLine } from '@lib/classes/seat-ledger'
+import { confirm, extendHold, getLedger, hold, release, type HoldInput, type LedgerLine } from '@lib/classes/seat-ledger'
 import {
   bookingIdFor,
   classMessages,
@@ -29,14 +29,17 @@ import {
   HOLD_MINUTES,
   PRICE_DRIFT_TOLERANCE_CENTS,
   PRICE_MISMATCH_MESSAGE,
+  UNCLEAR_HOLD_HOURS,
+  cleanSeats,
   type ClassCheckoutCode,
+  type OrderLine,
 } from '@lib/classes/checkout'
 import { sendClassConfirmation } from '@lib/classes/confirmation'
 import type { ScheduledClass } from '@lib/classes/types'
 
 const logger = createLogger('api:classes:book')
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`
+const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`
 
 /**
  * Book and pay for seats on one of our own classes: one Square order, one charge.
@@ -100,6 +103,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     return fail(502, 'unavailable')
   }
   if (!cls) return fail(404, 'not_open', 'We couldn’t find that class. Nothing was charged.')
+  // Answers only to this class's own questions reach the ledger.
+  if (req.seats) req.seats = cleanSeats(cls, req.seats)
 
   // ── A retry of this attempt? ────────────────────────────────────────────────
   const bookingId = bookingIdFor(attemptId)
@@ -116,7 +121,37 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     logger.info('Retried class checkout was already booked — returning the stored result', { bookingId })
     return success(cls, paid, { receiptUrl: null, emailSent: true, replayed: true })
   }
-  if (mine.some((l) => l.state === 'held' && l.holdExpiresAt && Date.parse(l.holdExpiresAt) > now.getTime())) {
+  const inProgress = mine.some((l) => l.state === 'held' && l.holdExpiresAt && Date.parse(l.holdExpiresAt) > now.getTime())
+
+  const who = `${givenName} ${familyName} (${email}, ${phone})`
+  // Set once the quote is known.
+  let q: Quote
+  let holdInput: HoldInput
+  let seatsLabel = ''
+  let firstStart = ''
+  let customerId: string | null = null
+  let onFile: string | null = null
+  const lookUpCustomer = async () => {
+    try {
+      const found = await providers.customer.findOrCreate({ email, givenName, familyName, phone })
+      customerId = found.id
+      onFile = onFileToAskAbout(email, found as { email?: string; matchedBy?: string })
+    } catch (err) {
+      logger.error('Customer lookup failed — continuing', { error: String(err) })
+    }
+  }
+
+  if (inProgress) {
+    // The first try is still running, or ended with no answer. If Square shows
+    // it paid, answer booked; otherwise ask them to wait. Never a second charge.
+    if (simulated) return fail(409, 'in_progress')
+    const priced = quoteFor(cls, req, now, CLASS_TAX_PERCENT)
+    const lines = priced.ok ? orderLinesFor(cls, priced.value, req.seats) : null
+    if (!priced.ok || !lines?.ok) return fail(409, 'in_progress')
+    setQuote(cls, priced.value)
+    await lookUpCustomer()
+    const recovered = await paidEarlier(cls, lines.lines)
+    if (recovered && recovered !== 'unknown') return recovered
     return fail(409, 'in_progress')
   }
 
@@ -127,29 +162,22 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     // A field problem is the page's to fix; anything else is the class having moved on.
     return priced.field ? fail(400, 'invalid', priced.error) : fail(409, 'not_open', `${priced.error} Nothing was charged.`)
   }
-  const q: Quote = priced.value
-  const cutoff = cutoffRefusal(cls, q.sessionIds, now)
+  setQuote(cls, priced.value)
+  const cutoff = cutoffRefusal(cls, q!.sessionIds, now)
   if (cutoff) return fail(409, 'not_open', cutoff)
-
-  const holdInput: HoldInput = {
-    bookingId, passId, source: 'online', customer: person, ttlMinutes: HOLD_MINUTES,
-    ...(req.seats ? { seats: req.seats } : {}),
-  }
-  const seatsLabel = seatsLabelFor(cls, q.lines.filter((l) => l.kind === 'seat'))
-  const who = `${givenName} ${familyName} (${email}, ${phone})`
-  const firstStart = cls.sessions.find((s) => s.id === q.sessionIds[0])?.startIso ?? cls.sessions[0]?.startIso ?? ''
 
   // Simulated payments (local dev and previews): hold and confirm, no Square.
   if (simulated) {
-    const held = await holdSeats(cls, q, holdInput, now)
+    const held = await holdSeats(cls, now)
     if (held) return held
     logger.warn('Payment bypassed (simulated class booking)', { classId: cls.id, bookingId })
-    const lines = await confirm(cls.id, bookingId, { orderId: `sim-${bookingId}`, paymentId: null }, { cls, quote: q, input: holdInput }, new Date())
-    return finish({ cls, q, lines, charged: q.totalCents, receiptUrl: null, simulated: true, onFile: null })
+    const orderId = `sim-${bookingId}`
+    const lines = await confirmPaid(cls, { orderId, paymentId: null, chargedCents: q!.totalCents })
+    return finish({ cls, q: q!, lines, charged: q!.totalCents, receiptUrl: null, simulated: true, onFile: null })
   }
 
   // Every line must be on the POS item before anything is held.
-  const orderLines = orderLinesFor(cls, q, req.seats)
+  const orderLines = orderLinesFor(cls, q!, req.seats)
   if (!orderLines.ok) {
     logger.error('Class not on the POS — refusing', { classId: cls.id, missing: orderLines.missing })
     await alertOwners(`Class ${cls.content.name} isn't on the POS yet. Open it in /admin and Save.`).catch(() => undefined)
@@ -157,18 +185,18 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   }
 
   // ── 2. The customer (not fatal), then hold the seats ────────────────────────
-  let customerId: string | null = null
-  let onFile: string | null = null
-  try {
-    const found = await providers.customer.findOrCreate({ email, givenName, familyName, phone })
-    customerId = found.id
-    onFile = onFileToAskAbout(email, found as { email?: string; matchedBy?: string })
-  } catch (err) {
-    logger.error('Customer lookup failed — continuing', { error: String(err) })
+  await lookUpCustomer()
+  const notHeld = await holdSeats(cls, now)
+  if (notHeld) {
+    if (notHeld.status !== 409 || (await notHeld.clone().json()).code !== 'sold_out') return notHeld
+    // Full now. If an earlier try of this attempt paid (its hold ran out and
+    // the seat was resold), the booking stands: record it, never say "not charged".
+    const recovered = await paidEarlier(cls, orderLines.lines)
+    if (recovered === 'unknown') {
+      return fail(409, 'sold_out', 'That class just filled up. If you already paid, check your email for a receipt before trying again.')
+    }
+    return recovered ?? notHeld
   }
-
-  const notHeld = await holdSeats(cls, q, holdInput, now)
-  if (notHeld) return notHeld
   const letGo = async (why: string) => {
     try {
       await release(cls!.id, bookingId)
@@ -180,32 +208,30 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   // ── 3. One Square order ─────────────────────────────────────────────────────
   let order: { orderId: string; totalCents: number }
   try {
-    order = await providers.payment.createClassOrder({
-      locationId: siteConfig.providers.booking.config.locationId,
-      customerId,
-      idempotencyKey: attemptKey(attemptId, 'order'),
-      lines: orderLines.lines,
-      referenceId: bookingId,
-    })
+    order = await createOrder(orderLines.lines)
   } catch (err) {
+    if (squareErrorCodes(err).includes('IDEMPOTENCY_KEY_REUSED')) {
+      // An earlier try of this attempt made a different order. It may be paid.
+      return unknownOutcome(cls, null, err)
+    }
     logger.error('Class order failed — releasing seats', { bookingId, error: err instanceof Error ? err.message : String(err) })
     await letGo('order failed')
     return fail(502, 'unavailable')
   }
 
   // Square's total is what is charged; our quote is for display.
-  const drift = order.totalCents - q.totalCents
+  const drift = order.totalCents - q!.totalCents
   if (drift > PRICE_DRIFT_TOLERANCE_CENTS) {
-    logger.error('Class order total far above the quote — refusing', { bookingId, orderId: order.orderId, quote: q.totalCents, square: order.totalCents })
+    logger.error('Class order total far above the quote — refusing', { bookingId, orderId: order.orderId, quote: q!.totalCents, square: order.totalCents })
     await letGo('price mismatch')
     await alertOwners(
-      `Class booking refused, price mismatch: ${cls.content.name}, booking ${bookingId}. Quote ${dollars(q.totalCents)}, Square ${dollars(order.totalCents)}. Check the class's prices on the POS. Nothing was charged.`,
+      `Class booking refused, price mismatch: ${cls.content.name}, booking ${bookingId}. Quote ${dollars(q!.totalCents)}, Square ${dollars(order.totalCents)}. Check the class's prices on the POS. Nothing was charged.`,
     ).catch(() => undefined)
     return fail(502, 'unavailable', PRICE_MISMATCH_MESSAGE)
   }
   if (drift > 0) {
-    logger.warn('Class order total a little above the quote — charging Square’s total', { bookingId, quote: q.totalCents, square: order.totalCents })
-    const note = `Square total differed by ${dollars(drift)} on booking ${bookingId} (quote ${dollars(q.totalCents)}, Square ${dollars(order.totalCents)})`
+    logger.warn('Class order total a little above the quote — charging Square’s total', { bookingId, quote: q!.totalCents, square: order.totalCents })
+    const note = `Square total differed by ${dollars(drift)} on booking ${bookingId} (quote ${dollars(q!.totalCents)}, Square ${dollars(order.totalCents)})`
     await sendEmail({
       to: siteConfig.ownerEmails.join(', '),
       subject: `Class price differed — ${cls.content.name}`,
@@ -241,17 +267,10 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       await letGo('card declined')
       return fail(402, 'card_declined')
     } else {
-      // The charge may have gone through: the seats stay held, a person settles it.
-      logger.error('CLASS PAYMENT OUTCOME UNKNOWN — seats kept, needs a person', {
-        bookingId, attemptId, orderId: order.orderId, codes: squareErrorCodes(err), error: err instanceof Error ? err.message : String(err),
-      })
-      await alertOwners(
-        `Class payment unclear: ${who}, ${seatsLabel}, ${cls.content.name}, ${formatSlotLabel(firstStart)}. Check Square for a ${dollars(charged)} payment on order ${order.orderId}. Booking ${bookingId}, attempt ${attemptId}. The seats are held, not confirmed.`,
-      ).catch(() => undefined)
-      return fail(502, 'unknown_outcome')
+      return unknownOutcome(cls, order, err)
     }
   }
-  if (!payment) return fail(502, 'unknown_outcome')
+  if (!payment) return unknownOutcome(cls, order, new Error('no payment returned'))
   if (payment.status === 'failed') {
     logger.error('Class payment failed — releasing seats', { bookingId, paymentId: payment.id })
     await letGo('payment failed')
@@ -259,27 +278,96 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   }
 
   // ── Paid. Nothing below may turn this into a failure. ───────────────────────
-  let lines: LedgerLine[]
-  try {
-    lines = await confirm(cls.id, bookingId, { orderId: order.orderId, paymentId: payment.id }, { cls, quote: q, input: holdInput }, new Date())
-  } catch (err) {
-    logger.error('PAID CLASS SEATS NOT RECORDED', { bookingId, orderId: order.orderId, error: String(err) })
-    await alertOwners(
-      `Class booked and paid, but the seats weren't recorded: ${who}, ${seatsLabel}, ${cls.content.name}, ${formatSlotLabel(firstStart)}. Order ${order.orderId}, booking ${bookingId}. Add them by hand.`,
-    ).catch(() => undefined)
-    // Answer from the quote: the customer has paid.
-    lines = q.lines.filter((l) => l.kind === 'seat').map((l) => ({
-      bookingId, ticketTypeId: l.ticketTypeId, sessionIds: q.sessionIds, square: { orderId: order.orderId, paymentId: payment!.id, lineUid: null },
-      priceCents: l.cents, taxCents: l.taxCents, addOnCents: 0, addOnTaxCents: 0,
-    })) as LedgerLine[]
-  }
-  return finish({ cls, q, lines, charged, receiptUrl: payment.receiptUrl ?? null, simulated: false, onFile })
+  const lines = await confirmPaid(cls, { orderId: order.orderId, paymentId: payment.id, chargedCents: charged })
+  return finish({ cls, q: q!, lines, charged, receiptUrl: payment.receiptUrl ?? null, simulated: false, onFile })
 
   // ── helpers (closures over this request) ────────────────────────────────────
 
-  async function holdSeats(c: ScheduledClass, qq: Quote, input: HoldInput, at: Date): Promise<Response | null> {
+  function setQuote(c: ScheduledClass, value: Quote) {
+    q = value
+    holdInput = {
+      bookingId, passId, source: 'online', customer: person, ttlMinutes: HOLD_MINUTES,
+      ...(req.seats ? { seats: req.seats } : {}),
+    }
+    seatsLabel = seatsLabelFor(c, value.lines.filter((l) => l.kind === 'seat'))
+    firstStart = c.sessions.find((s) => s.id === value.sessionIds[0])?.startIso ?? c.sessions[0]?.startIso ?? ''
+  }
+
+  function createOrder(lines: OrderLine[]) {
+    return providers.payment.createClassOrder({
+      locationId: siteConfig.providers.booking.config.locationId,
+      customerId,
+      idempotencyKey: attemptKey(attemptId, 'order'),
+      lines,
+      referenceId: bookingId,
+    })
+  }
+
+  /**
+   * Did an earlier try of this attempt pay? The same order key gives back the
+   * same order, and Square says whether it is paid. Paid → the seats are
+   * recorded (over capacity if need be) and the booked answer returned.
+   * null = Square shows no payment; 'unknown' = we couldn't ask.
+   */
+  async function paidEarlier(c: ScheduledClass, lines: OrderLine[]): Promise<Response | null | 'unknown'> {
+    let found: Awaited<ReturnType<typeof providers.payment.findOrderPayment>>
+    let order: { orderId: string; totalCents: number }
     try {
-      const held = await hold(c, qq, input, at)
+      order = await createOrder(lines)
+      found = await providers.payment.findOrderPayment(order.orderId)
+    } catch (err) {
+      logger.error('Could not ask Square whether an earlier try paid', { bookingId, error: String(err) })
+      return 'unknown'
+    }
+    if (!found || found.status !== 'completed') return null
+    logger.warn('An earlier try of this attempt was paid — recording the seats', { bookingId, orderId: order.orderId })
+    const charged = found.amount || order.totalCents
+    const confirmed = await confirmPaid(c, { orderId: order.orderId, paymentId: found.id, chargedCents: charged })
+    return finish({ cls: c, q: q!, lines: confirmed, charged, receiptUrl: found.receiptUrl ?? null, simulated: false, onFile })
+  }
+
+  /** The charge may have gone through: keep the seats a day, tell a person, say we're not sure. */
+  async function unknownOutcome(c: ScheduledClass, order: { orderId: string; totalCents: number } | null, err: unknown): Promise<Response> {
+    logger.error('CLASS PAYMENT OUTCOME UNKNOWN — seats kept, needs a person', {
+      bookingId, attemptId, orderId: order?.orderId ?? null, codes: squareErrorCodes(err), error: err instanceof Error ? err.message : String(err),
+    })
+    await keepHeld()
+    await alertOwners(
+      `Class payment unclear: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Check Square for a${order ? ` ${dollars(order.totalCents)}` : ''} payment${order ? ` on order ${order.orderId}` : ''}. Booking ${bookingId}, attempt ${attemptId}. The seats are held for a day, not confirmed.`,
+    ).catch(() => undefined)
+    return fail(502, 'unknown_outcome')
+  }
+
+  async function keepHeld() {
+    try {
+      await extendHold(cls!.id, bookingId, new Date(Date.now() + UNCLEAR_HOLD_HOURS * 3_600_000).toISOString())
+    } catch (err) {
+      logger.error('Could not extend the hold on an unclear payment', { bookingId, error: String(err) })
+    }
+  }
+
+  /** Paid: confirm the seats. Never fails the booking; a failed write tells a person and keeps the hold. */
+  async function confirmPaid(c: ScheduledClass, square: { orderId: string; paymentId: string | null; chargedCents: number }): Promise<LedgerLine[]> {
+    try {
+      return await confirm(c.id, bookingId, square, { cls: c, quote: q!, input: holdInput! }, new Date())
+    } catch (err) {
+      logger.error('PAID CLASS SEATS NOT RECORDED', { bookingId, orderId: square.orderId, error: String(err) })
+      await keepHeld()
+      await alertOwners(
+        `${simulated ? '(test booking, no action needed) ' : ''}Class booked and paid, but the seats weren't recorded: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Order ${square.orderId}, booking ${bookingId}. Add them by hand.`,
+      ).catch(() => undefined)
+      // Answer from the quote: the customer has paid.
+      return q!.lines.filter((l) => l.kind === 'seat').map((l) => ({
+        bookingId, ticketTypeId: l.ticketTypeId, sessionIds: q!.sessionIds,
+        square: { orderId: square.orderId, paymentId: square.paymentId, lineUid: null, chargedCents: square.chargedCents },
+        priceCents: l.cents, taxCents: l.taxCents, addOnCents: 0, addOnTaxCents: 0,
+      })) as LedgerLine[]
+    }
+  }
+
+  async function holdSeats(c: ScheduledClass, at: Date): Promise<Response | null> {
+    try {
+      const held = await hold(c, q!, holdInput!, at)
       if (held.ok) return null
       return fail(409, 'sold_out', soldOutMessage(c, held.sessionId, held.left))
     } catch (err) {
@@ -378,7 +466,7 @@ function success(
         orderId: first.square.orderId,
         paymentId: first.square.paymentId,
         receiptUrl: extra.receiptUrl,
-        totalChargedCents: extra.chargedCents ?? lines.reduce((s, l) => s + paidCentsOf(l), 0),
+        totalChargedCents: extra.chargedCents ?? first.square.chargedCents ?? lines.reduce((s, l) => s + paidCentsOf(l), 0),
         seatsBooked: lines.length,
         ticketsLabel: seatsLabelFor(cls, lines),
         sessionIds: first.sessionIds,

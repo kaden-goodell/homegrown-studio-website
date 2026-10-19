@@ -25,6 +25,9 @@ export const CLASS_TAX_PERCENT = 9
 /** How long a seat is held while the card is charged. */
 export const HOLD_MINUTES = 10
 
+/** A charge with no answer keeps its seats this long, for a person to settle. */
+export const UNCLEAR_HOLD_HOURS = 24
+
 /** One more answer than the shared codes: a try with this attempt is still running. */
 export type ClassCheckoutCode = CheckoutErrorCode | 'in_progress'
 
@@ -105,4 +108,18 @@ export function soldOutMessage(cls: ScheduledClass, sessionId: string, left: num
   const day = s ? ` on ${formatDay(s.startIso)}` : ''
   if (left <= 0) return `That class is full${day}. Nothing was charged.`
   return `Only ${left} seat${left === 1 ? ' is' : 's are'} left${day}. Nothing was charged.`
+}
+
+/** Seats with only this class's own question answers (other keys dropped) and add-on counts. */
+export function cleanSeats(cls: ScheduledClass, seats: unknown[]): { answers?: Record<string, string>; addOns?: Record<string, number> }[] {
+  const ids = new Set(cls.content.questions.map((q) => q.id))
+  return seats.map((raw) => {
+    const seat = (raw && typeof raw === 'object' ? raw : {}) as { answers?: unknown; addOns?: unknown }
+    const answers: Record<string, string> = {}
+    if (seat.answers && typeof seat.answers === 'object') {
+      for (const [k, v] of Object.entries(seat.answers as Record<string, unknown>)) if (ids.has(k) && typeof v === 'string') answers[k] = v
+    }
+    const addOns = seat.addOns && typeof seat.addOns === 'object' && !Array.isArray(seat.addOns) ? (seat.addOns as Record<string, number>) : undefined
+    return { answers, ...(addOns ? { addOns } : {}) }
+  })
 }

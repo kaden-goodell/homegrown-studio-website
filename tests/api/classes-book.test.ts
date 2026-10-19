@@ -34,7 +34,14 @@ vi.mock('@lib/dev-flags', () => ({ paymentBypassEnabled: () => bypassOn }))
 const classes = new Map<string, any>()
 vi.mock('@lib/classes/class-store', () => ({ getClass: async (id: string) => classes.get(id) ?? null }))
 
-import { getLedger } from '@lib/classes/seat-ledger'
+let confirmFails = false
+vi.mock('@lib/classes/seat-ledger', async (orig) => {
+  const real = await orig<typeof import('@lib/classes/seat-ledger')>()
+  return { ...real, confirm: (...a: Parameters<typeof real.confirm>) => (confirmFails ? Promise.reject(new Error('Concurrent update — please retry')) : real.confirm(...a)) }
+})
+
+import { getLedger, hold } from '@lib/classes/seat-ledger'
+import { quote } from '@lib/classes/pricing'
 import { bookingIdFor, PRICE_MISMATCH_MESSAGE, classMessages } from '@lib/classes/checkout'
 import { defaultRules } from '@lib/classes/validate'
 import { CONTACT_MESSAGES } from '@lib/contact-rules'
@@ -109,6 +116,7 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
   bypassOn = false
+  confirmFails = false
   vi.clearAllMocks()
   newAttempt()
   mockFindOrCreate.mockResolvedValue({ id: 'cust-1', email: 'ada@example.com', matchedBy: 'email' })
@@ -213,7 +221,9 @@ describe('POST /api/classes/book.json', () => {
     expect(json.detail).toMatch(/Only 2 seats are left/)
     expect(json.detail).toMatch(/Nothing was charged/)
     expect((await getLedger(cls.id)).lines).toHaveLength(0)
-    expect(mockCreateClassOrder).not.toHaveBeenCalled()
+    // The order is only made to ask whether an earlier try paid; nothing is charged.
+    expect(mockFindOrderPayment).toHaveBeenCalledWith('ORDER1')
+    expect(mockProcessPayment).not.toHaveBeenCalled()
   })
 
   it('order create fails: the hold is let go, 502, nothing charged', async () => {
@@ -337,6 +347,119 @@ describe('POST /api/classes/book.json', () => {
     expect(res.status).toBe(200)
     const lines = await linesOf(cls)
     expect(lines.every((l) => l.state === 'confirmed' && l.square.paymentId === 'PAY9')).toBe(true)
+  })
+
+  describe('a charge with no answer, and its retries', () => {
+    const HOUR = 3_600_000
+    const someoneElseTakes = async (cls: ScheduledClass, seats: number, at: Date) => {
+      const qq = quote(cls, { passId: 'all', tickets: { adult: seats } }, at, 9)
+      if (!qq.ok) throw new Error(qq.error)
+      const r = await hold(cls, qq.value, { bookingId: 'bkg_other', passId: 'all', source: 'online', customer: null, ttlMinutes: 10 }, at)
+      expect(r.ok).toBe(true)
+    }
+
+    it('keeps the seats held for 24 hours', async () => {
+      const cls = makeClass()
+      mockProcessPayment.mockRejectedValueOnce(new Error('socket hang up'))
+      expect((await POST(ctx(body(cls)))).status).toBe(502)
+      const lines = await linesOf(cls)
+      expect(lines).toHaveLength(3)
+      for (const l of lines) expect(Date.parse(l.holdExpiresAt!)).toBe(NOW.getTime() + 24 * HOUR)
+    })
+
+    it('hold ran out and the seats were resold, but Square shows it paid: booked, seats recorded over capacity', async () => {
+      const cls = makeClass({ capacity: 3 })
+      mockProcessPayment.mockRejectedValueOnce(new Error('socket hang up'))
+      expect((await POST(ctx(body(cls)))).status).toBe(502)
+      const later = new Date(NOW.getTime() + 25 * HOUR)
+      vi.setSystemTime(later)
+      await someoneElseTakes(cls, 3, later)
+      mockFindOrderPayment.mockResolvedValueOnce({ id: 'PAY1', orderId: 'ORDER1', amount: TOTAL, status: 'completed', receiptUrl: 'https://squareup.com/r/PAY1' })
+      const res = await POST(ctx(body(cls, { paymentToken: 'cnon:retyped' })))
+      const json = await res.json()
+      expect(res.status).toBe(200)
+      expect(JSON.stringify(json)).not.toMatch(/nothing was charged/i)
+      expect(json.data.totalChargedCents).toBe(TOTAL)
+      expect(mockCreateClassOrder.mock.calls[1][0].idempotencyKey).toBe(`${ATTEMPT}:order`)
+      expect(mockProcessPayment).toHaveBeenCalledTimes(1) // the first try only
+      const lines = await linesOf(cls)
+      expect(lines).toHaveLength(3)
+      expect(lines.every((l) => l.state === 'confirmed' && l.overCapacity === true && l.square.paymentId === 'PAY1')).toBe(true)
+      expect(mockSendEmail).toHaveBeenCalledTimes(1)
+    })
+
+    it('resold, and Square shows no payment: the normal sold-out answer', async () => {
+      const cls = makeClass({ capacity: 3 })
+      mockProcessPayment.mockRejectedValueOnce(new Error('socket hang up'))
+      await POST(ctx(body(cls)))
+      const later = new Date(NOW.getTime() + 25 * HOUR)
+      vi.setSystemTime(later)
+      await someoneElseTakes(cls, 3, later)
+      const res = await POST(ctx(body(cls)))
+      const json = await res.json()
+      expect(res.status).toBe(409)
+      expect(json.code).toBe('sold_out')
+      expect(mockProcessPayment).toHaveBeenCalledTimes(1)
+    })
+
+    it('hold ran out with seats still free: the retry re-holds, Square refuses the reused key, the paid order is found', async () => {
+      const cls = makeClass()
+      mockProcessPayment.mockRejectedValueOnce(new Error('socket hang up'))
+      await POST(ctx(body(cls)))
+      vi.setSystemTime(new Date(NOW.getTime() + 25 * HOUR))
+      mockProcessPayment.mockRejectedValueOnce(Object.assign(new Error('reused'), { statusCode: 400, errors: [{ code: 'IDEMPOTENCY_KEY_REUSED' }] }))
+      mockFindOrderPayment.mockResolvedValueOnce({ id: 'PAY1', orderId: 'ORDER1', amount: TOTAL, status: 'completed' })
+      const res = await POST(ctx(body(cls, { paymentToken: 'cnon:retyped' })))
+      expect(res.status).toBe(200)
+      expect((await linesOf(cls)).filter((l) => l.state === 'confirmed')).toHaveLength(3)
+    })
+
+    it('a retry while held asks Square first: paid → booked', async () => {
+      const cls = makeClass()
+      mockProcessPayment.mockRejectedValueOnce(new Error('socket hang up'))
+      await POST(ctx(body(cls)))
+      mockFindOrderPayment.mockResolvedValueOnce({ id: 'PAY1', orderId: 'ORDER1', amount: TOTAL, status: 'completed' })
+      const res = await POST(ctx(body(cls)))
+      expect(res.status).toBe(200)
+      expect((await res.json()).data.totalChargedCents).toBe(TOTAL)
+      expect(mockProcessPayment).toHaveBeenCalledTimes(1)
+      expect((await linesOf(cls)).every((l) => l.state === 'confirmed' && !l.overCapacity)).toBe(true)
+    })
+  })
+
+  it('paid but the seats could not be recorded: booked, owners told, seats held a day', async () => {
+    const cls = makeClass()
+    confirmFails = true
+    const res = await POST(ctx(body(cls)))
+    expect(res.status).toBe(200)
+    expect((await res.json()).data).toMatchObject({ totalChargedCents: TOTAL, seatsBooked: 3, orderId: 'ORDER1' })
+    expect(mockAlertOwners.mock.calls.map((c) => c[0]).join('\n')).toMatch(/weren't recorded.*ORDER1/)
+    const lines = await linesOf(cls)
+    expect(lines.every((l) => l.state === 'held' && Date.parse(l.holdExpiresAt!) === NOW.getTime() + 24 * 3_600_000)).toBe(true)
+  })
+
+  it('simulated: a confirm that fails still answers booked', async () => {
+    bypassOn = true
+    confirmFails = true
+    const res = await POST(ctx(body(makeClass({ variations: {} }))))
+    expect(res.status).toBe(200)
+  })
+
+  it('a replay answers with what Square charged, kept on the ledger', async () => {
+    const cls = makeClass()
+    squareTotal(TOTAL + 1)
+    await POST(ctx(body(cls)))
+    expect((await linesOf(cls)).every((l) => l.square.chargedCents === TOTAL + 1)).toBe(true)
+    const res = await POST(ctx(body(cls)))
+    expect((await res.json()).data).toMatchObject({ replayed: true, totalChargedCents: TOTAL + 1 })
+  })
+
+  it('answers to questions the class doesn’t ask never reach the ledger', async () => {
+    const cls = makeClass({ content: { rules: { ...defaultRules(), signupCutoffHours: 0 }, questions: [{ id: 'color', label: 'Glaze color', choices: ['Blue', 'Green'] }] } })
+    squareTotal(6540)
+    const res = await POST(ctx(body(cls, { tickets: { adult: 1 }, seats: [{ answers: { color: 'Blue', evil: 'x'.repeat(5000) } }] })))
+    expect(res.status).toBe(200)
+    expect((await linesOf(cls))[0].answers).toEqual({ color: 'Blue' })
   })
 
   it('a link-only class is bookable by its id', async () => {

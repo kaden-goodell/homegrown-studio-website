@@ -28,7 +28,8 @@ export interface LedgerLine {
   state: 'held' | 'confirmed' | 'released' | 'refunded'
   holdExpiresAt: string | null
   customer: { givenName: string; familyName: string; email: string; phone: string } | null // null = POS sale with no name yet
-  square: { orderId: string | null; paymentId: string | null; lineUid: string | null }
+  /** chargedCents: the whole booking's Square total, the same on each of its lines (set at confirm). */
+  square: { orderId: string | null; paymentId: string | null; lineUid: string | null; chargedCents?: Cents }
   by: By | null
   refunds: { at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null }[]
   at: string
@@ -184,7 +185,7 @@ export async function hold(cls: ScheduledClass, q: Quote, input: HoldInput, now:
 export async function confirm(
   classId: string,
   bookingId: string,
-  square: { orderId: string; paymentId: string | null },
+  square: { orderId: string; paymentId: string | null; chargedCents?: Cents },
   fallback: { cls: ScheduledClass; quote: Quote; input: HoldInput },
   now: Date,
 ): Promise<LedgerLine[]> {
@@ -193,7 +194,10 @@ export async function confirm(
     const hasHeld = cur.lines.some((l) => l.bookingId === bookingId && l.state === 'held')
     const paid = cur.lines.filter(isPaid)
     if (!hasHeld && paid.length) return { next: null, result: paid }
-    const sq = (l: LedgerLine) => ({ ...l.square, orderId: square.orderId, paymentId: square.paymentId })
+    const sq = (l: LedgerLine) => ({
+      ...l.square, orderId: square.orderId, paymentId: square.paymentId,
+      ...(square.chargedCents !== undefined ? { chargedCents: square.chargedCents } : {}),
+    })
     let lines: LedgerLine[]
     if (hasHeld) {
       // Convert this booking's holds (even expired, unswept ones); sweep everyone else's expired holds.
@@ -217,6 +221,21 @@ export async function confirm(
         : l,
     )
     return { next: { ...cur, lines }, result: lines.filter(isPaid) }
+  })
+}
+
+/**
+ * Keeps a booking's held seats held until `untilIso` (a charge with no answer:
+ * the customer may have paid). Only that booking's held lines change; a hold
+ * already swept is not brought back (confirm's fallback does that if paid).
+ */
+export async function extendHold(classId: string, bookingId: string, untilIso: string): Promise<number> {
+  return mutate(classId, (cur) => {
+    const mine = (l: LedgerLine) => l.bookingId === bookingId && l.state === 'held'
+    const n = cur.lines.filter(mine).length
+    if (!n) return { next: null, result: 0 }
+    const lines = cur.lines.map((l) => (mine(l) ? { ...l, holdExpiresAt: untilIso } : l))
+    return { next: { ...cur, lines }, result: n }
   })
 }
 
