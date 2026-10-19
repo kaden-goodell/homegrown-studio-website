@@ -197,7 +197,7 @@ function notOpenRefusal(s: PartySettings, offered: string): BookOutcome {
 }
 
 /** Null when the gift card can pay; otherwise the refusal. Nothing is held yet. */
-async function giftCardRefusal(token: string, totalCents: number): Promise<BookOutcome | null> {
+export async function giftCardRefusal(token: string, totalCents: number): Promise<BookOutcome | null> {
   let card: Awaited<ReturnType<typeof providers.giftcard.fromNonce>>
   try {
     card = await providers.giftcard.fromNonce(token)

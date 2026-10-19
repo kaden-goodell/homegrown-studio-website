@@ -10,6 +10,9 @@
  *     minutes) → the party is recorded from that checkout and its time
  *     booked (R15/R42 for parties); the host gets the confirmation once,
  *     the owners a text.
+ *   - Paid, and it is the order of the payment link in flight on the party
+ *     (`paying`) → those items are recorded paid (left alone for 5 minutes
+ *     while its own request may still be running).
  *   - Paid, with nothing here to record it from (no checkout; or the party is
  *     already paid by another order) → a 'paid-elsewhere' entry for /admin ›
  *     To decide, and a text to the owners.
@@ -27,6 +30,7 @@ import { partyForPayment } from './party-payments'
 import { deleteCheckout, getCheckout, savePaidElsewhere, type PartyCheckout } from './party-checkouts'
 import { releaseTime } from './party-book'
 import { confirmationDone, recordPaidParty, reportRecoveredBooking, sendPartyBookedEmail } from './checkout'
+import { linkOrderPaid } from './pay-balance'
 
 const logger = createLogger('parties:square-orders')
 
@@ -69,6 +73,12 @@ async function handle(order: any, now: Date, opts: { paymentId?: string }): Prom
   if (rec && (await partyForPayment(payment.id))) return { action: 'ignored', why: 'recorded' }
 
   if (rec?.charges?.some((c) => c.paymentId === payment.id)) return { action: 'ignored', why: 'recorded' }
+  // A payment-link order on a booked party (checked before "already paid by another order").
+  if (rec?.paying?.order) {
+    const link = await linkOrderPaid(rec, orderId, payment, now)
+    if (link === 'recorded') return { action: 'recorded', partyId }
+    if (link === 'in-flight') return { action: 'ignored', why: 'in-flight' }
+  }
   const c = await getCheckout(partyId)
 
   if (!rec && c?.draft && (c.state === 'unclear' || (c.state === 'charging' && now.getTime() - Date.parse(c.updatedAt) >= IN_FLIGHT_MS))) {

@@ -1,0 +1,17 @@
+---
+export const prerender = false
+
+import Layout from '@layouts/Layout.astro'
+import PartyPayPanel from '@components/party/PartyPayPanel'
+
+// The payment link (S2-R6: its own key `k`, never the host page key). The panel
+// asks the server for the balance; a wrong key reads like a missing party.
+const { id } = Astro.params
+const k = Astro.url.searchParams.get('k') ?? ''
+---
+
+<Layout title="Pay for your party" description="Pay for your Hometown Studio party." noindex>
+  <section class="max-w-xl mx-auto px-4 sm:px-6 py-24">
+    <PartyPayPanel client:load partyId={id ?? ''} payKey={k} />
+  </section>
+</Layout>

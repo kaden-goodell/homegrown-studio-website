@@ -81,7 +81,7 @@ export interface PartyRecord {
   /** Payment-link key, separate from hostToken (S2-R6: the host page shows other families' details). */
   payToken?: string
   /** One payment in flight (link or admin card); see claimPaying in ./parties/money. */
-  paying?: { attemptId: string; until: string } | null
+  paying?: PartyPaying | null
   linkSent?: { at: string; by: By | null; email: boolean; text: boolean }[]
   cancelled?: { at: string; by: By; note: string }
   /** The host's booking confirmation: whether it went out (written by whoever recorded the party paid). */
@@ -90,6 +90,27 @@ export interface PartyRecord {
   overlap?: true
   /** oldest first, capped at PARTY_HISTORY_CAP */
   history?: { at: string; by: By | null; change: string }[]
+}
+
+/**
+ * A payment in flight on a booked party. `attemptId` and `until` are the
+ * claim; the rest is written by the payment link (src/lib/parties/pay-balance)
+ * so a retry, Square's payment event or an owner can finish it: the exact
+ * order request (same key → Square gives back the same order), the items that
+ * order pays (items added later stay due) and what was quoted for them.
+ */
+export interface PartyPaying {
+  attemptId: string
+  until: string
+  via?: 'link' | 'admin-card'
+  /** charging: the charge is being sent; unclear: sent, no answer (kept 24 h) */
+  state?: 'charging' | 'unclear'
+  order?: { idempotencyKey: string; locationId: string; customerId: string | null; lineItems: import('@providers/interfaces/payment').LineItem[]; referenceId: string }
+  orderId?: string | null
+  itemIds?: string[]
+  quotedCents?: Cents
+  /** when this attempt last moved (claimed, charged) */
+  at?: string
 }
 
 export interface PartyItem {
@@ -133,6 +154,8 @@ export interface PartyCharge {
   at: string
   by: By | null
   simulated?: true
+  /** the payment page's attempt id (link payments): a retry of it finds this charge */
+  attemptId?: string
 }
 
 export interface PartyRefund {

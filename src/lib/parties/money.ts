@@ -45,5 +45,7 @@ export function claimPaying(
 ): { ok: true; rec: PartyRecord } | { ok: false; reason: 'busy' } {
   const p = r.paying
   if (p && p.attemptId !== attemptId && Date.parse(p.until) > now.getTime()) return { ok: false, reason: 'busy' }
-  return { ok: true, rec: { ...r, paying: { attemptId, until: new Date(now.getTime() + ttlMinutes * 60_000).toISOString() } } }
+  // The same attempt keeps what it already wrote (its order request and items); a new one starts clean.
+  const kept = p && p.attemptId === attemptId ? p : {}
+  return { ok: true, rec: { ...r, paying: { ...kept, attemptId, until: new Date(now.getTime() + ttlMinutes * 60_000).toISOString() } } }
 }

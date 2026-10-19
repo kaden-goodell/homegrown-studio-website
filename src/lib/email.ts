@@ -693,3 +693,77 @@ export async function sendRefundEmail(input: {
 </div>`
   return sendEmail({ to: input.to, subject: `Your refund from Hometown Studio`, html, text })
 }
+
+/** The plain, short shell the party payment emails share (no colons, no timelines). */
+function partyMoneyEmail(input: {
+  to: string; subject: string; givenName: string; lines: string[]
+  button?: { label: string; url: string }; link?: { label: string; url: string }
+}): Promise<{ sent: boolean }> {
+  const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
+  const phone = siteConfig.contactPhone
+  const hi = input.givenName ? `Hi ${input.givenName},` : 'Hi,'
+  const tail = phone ? [`Questions? Text us at ${phone}.`] : []
+  const text = [
+    hi, ``,
+    ...input.lines.flatMap((l) => [l, ``]),
+    ...(input.button ? [`${input.button.label}  ${input.button.url}`, ``] : []),
+    ...(input.link ? [`${input.link.label}  ${input.link.url}`, ``] : []),
+    ...tail.flatMap((l) => [l, ``]),
+    `Hometown Studio · ${address}`,
+  ].join('\n')
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const P = 'margin:0 0 10px;font-size:15px;color:#3d3630;line-height:1.55'
+  const html = `
+<div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <p style="margin:0 0 12px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
+  <p style="${P}">${esc(hi)}</p>
+  ${input.lines.map((l) => `<p style="${P}">${esc(l)}</p>`).join('\n  ')}
+  ${input.button ? `<p style="margin:18px 0;"><a href="${esc(input.button.url)}" style="display:inline-block;background:#7a4a2e;color:#fff;text-decoration:none;font-weight:700;font-size:16px;padding:12px 22px;border-radius:999px;">${esc(input.button.label)}</a></p>` : ''}
+  ${input.link ? `<p style="${P}"><a href="${esc(input.link.url)}" style="color:#7a4a2e;">${esc(input.link.label)}</a></p>` : ''}
+  ${tail.map((l) => `<p style="${P}">${esc(l)}</p>`).join('\n  ')}
+  <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
+  <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}</p>
+</div>`
+  return sendEmail({ to: input.to, subject: input.subject, html, text })
+}
+
+/**
+ * The payment link for a party an owner booked (or extras added later).
+ * DRAFT copy for Kaden. `whenLabel` reads like "Sat, Nov 8 at 1:30 PM".
+ */
+export async function sendPartyPaymentLinkEmail(input: {
+  to: string; givenName: string; whenLabel: string; dueCents: number; payUrl: string
+}): Promise<{ sent: boolean }> {
+  const amount = formatMoney(input.dueCents)
+  return partyMoneyEmail({
+    to: input.to,
+    subject: 'Pay for your party at Hometown Studio',
+    givenName: input.givenName,
+    lines: [
+      `Your party on ${input.whenLabel} is held for you.`,
+      `Pay ${amount} here to finish booking.`,
+      'Crafts are paid at the studio for whoever comes.',
+    ],
+    button: { label: `Pay ${amount}`, url: input.payUrl },
+  })
+}
+
+/** Thanks for paying the balance from a payment link. DRAFT copy for Kaden. */
+export async function sendPartyPaidEmail(input: {
+  to: string; givenName: string; whenLabel: string; paidCents: number; receiptUrl: string | null; stillDueCents?: number
+}): Promise<{ sent: boolean }> {
+  const lines = [
+    `Thank you! We got your payment of ${formatMoney(input.paidCents)} for your party on ${input.whenLabel}.`,
+    input.stillDueCents && input.stillDueCents > 0
+      ? `There is still ${formatMoney(input.stillDueCents)} to pay for extras added since.`
+      : 'Your party is all paid.',
+    'Crafts are paid at the studio for whoever comes.',
+  ]
+  return partyMoneyEmail({
+    to: input.to,
+    subject: 'Your party is paid',
+    givenName: input.givenName,
+    lines,
+    ...(input.receiptUrl ? { link: { label: 'See your receipt', url: input.receiptUrl } } : {}),
+  })
+}
