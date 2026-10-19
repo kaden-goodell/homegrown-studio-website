@@ -12,6 +12,7 @@ import { siteConfig } from '@config/site.config'
 import { formatDay } from '@lib/studio-time'
 import { squareFetch, squareSettings } from './square-api'
 import { sellableCells } from './validate'
+import { assertClassWritesAllowed } from './test-site-guard'
 import type { Cents, ScheduledClass } from './types'
 
 export interface PlannedVariation { key: string; name: string; cents: Cents }
@@ -104,6 +105,7 @@ export const CLASS_TAX_NOT_SET = "Class tax isn't set up yet."
  * ids to save on the class.
  */
 export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledClass['square']> {
+  assertClassWritesAllowed() // R41: a test site with no store of its own never writes the live POS
   const cfg = squareSettings()
   const categoryId = cfg.classesCategoryId || ''
   if (!categoryId) throw new Error("Classes category isn't set up yet.")
@@ -209,6 +211,7 @@ export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledC
  * present at no location. Never deletes; past orders still point at it.
  */
 export async function archiveClassInSquare(cls: ScheduledClass): Promise<void> {
+  assertClassWritesAllowed() // R41
   if (!cls.square.itemId) return
   const item = await fetchItem(cls.square.itemId)
   if (!item) return

@@ -11,6 +11,7 @@ import type { Quote } from './pricing'
 import type { Cents, ScheduledClass } from './types'
 import { newId } from './validate'
 import { studioDate } from '@lib/studio-time'
+import { assertClassWritesAllowed } from './test-site-guard'
 import { isExpiredHold, isPaidLine, paidOn, refundedOn, takesSeat } from './seat-status'
 export { isComing, isPaidLine, takesSeat } from './seat-status'
 
@@ -115,6 +116,7 @@ export async function getLedger(classId: string): Promise<Ledger> {
  * nothing) and a result.
  */
 async function mutate<T>(classId: string, fn: (cur: Ledger) => { next: Ledger | null; result: T }): Promise<T> {
+  assertClassWritesAllowed() // R41: never a seat in the live ledger from a test site with no store of its own
   const k = key(classId)
   return withLock(k, async () => {
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {

@@ -16,6 +16,7 @@ import { addAttending, personIdsOf } from '@lib/attending'
 import { substantiveSince, compareVersions } from '@config/waiver-content'
 import { getClass } from '@lib/classes/class-store'
 import { isOwnClassId } from '@lib/classes/staff-view'
+import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import { addDoorSeats } from '@lib/classes/staff-seats'
 import { cleanSeats, seatsLabelFor } from '@lib/classes/checkout'
 import { sendClassConfirmation } from '@lib/classes/confirmation'
@@ -70,6 +71,11 @@ export const POST: APIRoute = async ({ request }) => {
   if (familyName.length < 1 || familyName.length > 60) return bad('Add a last name (60 characters or fewer).')
   if (!EMAIL_RE.test(email)) return bad('That email doesn’t look right.')
   // Our own classes: straight to the seat ledger (no Square dashboard).
+  if (isOwnClassId(scheduleId)) {
+    // R41: a test site with no store of its own never seats anyone in the live ledger.
+    const testSite = classWritesRefusal(request)
+    if (testSite) return bad(testSite, 503)
+  }
   if (isOwnClassId(scheduleId)) return ownClassSeat(request, member, body, { givenName, familyName, email, phone })
 
   const customerId = typeof body.customerId === 'string' && body.customerId.trim() ? body.customerId.trim() : null

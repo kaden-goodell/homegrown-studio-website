@@ -29,6 +29,7 @@ import { isComing, isLiveHold, isPaidLine, paidOn, seatFreed, takesSeat } from '
 import { busyBetween, clashes, clashMessage, type Busy } from './studio-schedule'
 import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass, Session } from './types'
 import { newId, toIso, validateContent, validateSessions } from './validate'
+import { TestSiteStoreError } from './test-site-guard'
 
 /**
  * The owner when the request doesn't say which one (see adminActor in
@@ -818,6 +819,7 @@ export async function reply(fn: () => Promise<Saved<unknown>>): Promise<Response
   } catch (e) {
     if (e instanceof ActionError) return json(e.status, { error: e.message, ...e.extra })
     if (e instanceof StaleClassError) return json(409, { error: e.message, stale: true })
+    if (e instanceof TestSiteStoreError) return json(503, { error: e.message })
     const msg = e instanceof Error ? e.message : String(e)
     if (/^Concurrent update/.test(msg)) return json(409, { error: 'Someone else saved at the same moment. Try again.' })
     console.error(`[admin/classes] ${msg}`)

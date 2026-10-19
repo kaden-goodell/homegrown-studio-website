@@ -37,6 +37,7 @@ import {
 import { sendClassConfirmation } from '@lib/classes/confirmation'
 import type { ScheduledClass } from '@lib/classes/types'
 import { byOf, staffAuthorized } from '@lib/staff-auth'
+import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import type { SaleOptions } from '@lib/classes/pricing'
 
 const logger = createLogger('api:classes:book')
@@ -65,6 +66,9 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const member = door ? staffAuthorized(request) : null
   if (door && !member) return fail(401, 'invalid', 'Sign in to /staff to sell a seat at the door. Nothing was charged.')
   const sale: SaleOptions = door ? { door: true } : {}
+  // R41: a test site with no store of its own never books (or simulates paying for) a live seat.
+  const testSite = classWritesRefusal(request)
+  if (testSite) return fail(503, 'unavailable', testSite)
   if (!door && !bookingsOpen(request, 'workshops')) return bookingsClosedResponse()
   if (!door && rateLimited(`class-book:${clientAddress}`, 5, 60_000)) {
     return fail(429, 'unavailable', 'That’s a lot of attempts in a row. Give it a minute, then try again.')
