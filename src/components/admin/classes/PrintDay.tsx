@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { DayClass, DayEvent, SignedWaiver } from '@pages/api/admin/classes/day.json'
 import type { Busy } from '@lib/classes/studio-schedule'
-import { formatTimeSpan } from '@lib/studio-time'
+import { timeSpan as formatTimeSpan } from '../shell/time'
 import { api, DAY } from './api'
 import { dayLabel } from './dates'
 import { box, errorText, muted, row } from './ui'

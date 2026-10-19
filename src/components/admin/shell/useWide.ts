@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 
-/** iPad and desktop: the sidebar, side panels and the 7-column week. Phones are narrower. */
-export const WIDE_QUERY = '(min-width: 900px)'
+/** iPad (portrait too) and desktop: the sidebar, side panels and the 7-column week. Phones are narrower. */
+export const WIDE_QUERY = '(min-width: 768px)'
 
 export function useWide(): boolean {
   const get = () => typeof window !== 'undefined' && typeof window.matchMedia === 'function' && window.matchMedia(WIDE_QUERY).matches

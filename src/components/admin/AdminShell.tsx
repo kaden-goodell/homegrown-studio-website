@@ -10,10 +10,11 @@ import Inbox, { type InboxSegment } from './inbox/Inbox'
 import { InboxProvider, useInbox } from './inbox/InboxData'
 import { InboxItemSheet, ToDecideSheet } from './inbox/InboxSheets'
 import More from './More'
-import { RefreshContext } from './shell/data'
+import { RefreshContext, ShellContext } from './shell/data'
+import { Boundary, Crashed } from './shell/Boundary'
 import { Seg } from './shell/items'
 import { homeTabOf, isFormSheet, isTab, parseHash, sheetToken, TABS, type Sheet, type Tab } from './shell/router'
-import { SheetProvider, type SheetApi } from './shell/Sheet'
+import { SheetFrame, SheetProvider, type SheetApi } from './shell/Sheet'
 import { ToastHost } from './shell/Toast'
 import { useWide } from './shell/useWide'
 import { rememberedOwner, rememberOwner } from './shell/who'
@@ -92,6 +93,7 @@ function SignIn({ who: remembered, onSignedIn }: { who: Owner | null; onSignedIn
   async function submit(e: FormEvent) {
     e.preventDefault()
     if (busy) return
+    if (!passcode.trim()) return setError('Type the passcode.')
     if (!who) return setError('Pick who’s using this.')
     setError('')
     setBusy(true)
@@ -179,7 +181,10 @@ function Shell({ who, onSignedOut }: { who: Owner; onSignedOut: () => void }) {
   // A refresh on a sheet: put the tab under it in history first, so Back closes the sheet and stays in /admin.
   useEffect(() => {
     const token = first.sheet && sheetToken(first.sheet)
-    if (token) {
+    if (token && history.state?.admSheet === token) {
+      // A reload of an entry we pushed: the tab entry is already behind it.
+      pushed.current = true
+    } else if (token) {
       history.replaceState(state(), '', `#${first.tab}`)
       history.pushState(state(token), '', `#${token}`)
       pushed.current = true
@@ -304,6 +309,20 @@ function Shell({ who, onSignedOut }: { who: Owner; onSignedOut: () => void }) {
   const form = !!open && isFormSheet(open.sheet)
   const panel = wide && !!open && !form
   const modal = !panel
+  const locked = !!open && modal
+
+  // A bottom sheet or centred card: the page behind doesn't scroll, and comes back where it was.
+  useEffect(() => {
+    if (!locked) return
+    const y = window.scrollY
+    const b = document.body.style
+    const was = { position: b.position, top: b.top, width: b.width, overflow: b.overflow }
+    Object.assign(b, { position: 'fixed', top: `-${y}px`, width: '100%', overflow: 'hidden' })
+    return () => {
+      Object.assign(b, was)
+      window.scrollTo?.(0, y)
+    }
+  }, [locked])
   const sheetApi: SheetApi = {
     open: openSheet,
     close: closeSheet,
@@ -321,10 +340,12 @@ function Shell({ who, onSignedOut }: { who: Owner; onSignedOut: () => void }) {
   }
 
   const showInbox = (s: InboxSegment) => { setInboxSeg(s); goTab('inbox') }
-  const covered = !!open && modal
+  const covered = locked
+  const shellInfo = useMemo(() => ({ paneled: panel, activeToken: open ? sheetToken(open.sheet) : null }), [panel, open])
 
   return (
     <RefreshContext.Provider value={refresh}>
+      <ShellContext.Provider value={shellInfo}>
       <div className={`adm adm-shell${panel ? ' is-paneled' : ''}`}>
         <nav className="adm-tabbar" aria-label="Admin sections" inert={covered}>
           <p className="adm-tbrand">Hometown Studio</p>
@@ -342,21 +363,30 @@ function Shell({ who, onSignedOut }: { who: Owner; onSignedOut: () => void }) {
           ))}
         </nav>
         <main className="adm-main" inert={covered} aria-label={LABEL[tab]}>
-          {tab === 'home' && <Home who={who} onOpen={openSheet} onInbox={showInbox} />}
-          {tab === 'calendar' && <CalendarView onOpen={openSheet} />}
-          {tab === 'classes' && <ClassesTab onOpen={openSheet} />}
-          {tab === 'inbox' && <Inbox segment={inboxSeg} onSegment={setInboxSeg} onOpen={openSheet} />}
-          {tab === 'more' && <More onOpen={openSheet} onSignOut={signOut} />}
+          <Boundary key={tab} name={`${tab} tab`}>
+            {tab === 'home' && <Home who={who} onOpen={openSheet} onInbox={showInbox} />}
+            {tab === 'calendar' && <CalendarView onOpen={openSheet} />}
+            {tab === 'classes' && <ClassesTab onOpen={openSheet} />}
+            {tab === 'inbox' && <Inbox segment={inboxSeg} onSegment={setInboxSeg} onOpen={openSheet} />}
+            {tab === 'more' && <More onOpen={openSheet} onSignOut={signOut} />}
+          </Boundary>
         </main>
         {open && (
           <div ref={layer} className={`adm-sheet-layer ${panel ? 'is-panel' : form && wide ? 'is-modal' : 'is-bottom'}`}>
             {!panel && <button type="button" className="adm-scrim" aria-label="Close" tabIndex={-1} onClick={closeSheet} />}
             <SheetProvider value={sheetApi}>
-              <SheetContent key={open.n} sheet={open.sheet} />
+              <Boundary
+                key={open.n}
+                name="sheet"
+                fallback={(retry) => <SheetFrame title="Something went wrong"><Crashed onRetry={retry} /></SheetFrame>}
+              >
+                <SheetContent sheet={open.sheet} />
+              </Boundary>
             </SheetProvider>
           </div>
         )}
       </div>
+      </ShellContext.Provider>
     </RefreshContext.Provider>
   )
 }

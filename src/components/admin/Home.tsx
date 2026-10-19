@@ -1,8 +1,8 @@
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
-import { closureOn } from '@config/closures'
-import { addDays, dayLabel, today } from './classes/dates'
+import { closureOn, OPEN_WEEKDAYS } from '@config/closures'
+import { addDays, dayLabel, today, weekday } from './classes/dates'
 import { useCalendar } from './shell/data'
-import { byDay, Failed, ItemRow, itemKey, sheetOf, Skeleton } from './shell/items'
+import { byDay, Failed, ItemRow, itemKey, itemName, sheetOf, Skeleton } from './shell/items'
 import type { Sheet } from './shell/router'
 import { useInbox } from './inbox/InboxData'
 import { useWide } from './shell/useWide'
@@ -37,6 +37,16 @@ export default function Home({ who, onOpen, onInbox }: {
 
   const todays = (days?.get(day) ?? []).filter((i) => i.kind !== 'closed')
   const closure = closureOn(day)
+  const shut = !!closure || !OPEN_WEEKDAYS.has(weekday(day))
+  /** The first thing on after today, for "Next up" on a closed day. */
+  const next = (() => {
+    for (let n = 1; n < 7; n++) {
+      const d = addDays(day, n)
+      const item = (days?.get(d) ?? []).find((i) => i.kind !== 'closed')
+      if (item) return { day: d, item }
+    }
+    return null
+  })()
 
   const agenda = (
     <div>
@@ -44,8 +54,14 @@ export default function Home({ who, onOpen, onInbox }: {
       {error && <Failed message={error} onRetry={retry} />}
       {!error && !days && <Skeleton rows={2} label="Loading today" />}
       {days && todays.map((i) => <ItemRow key={itemKey(i)} item={i} onOpen={() => open(i, day)} />)}
-      {days && !todays.length && (
-        <p className="adm-empty">{closure ? `Nothing on today. Closed for ${closure.name}.` : 'Nothing on today.'}</p>
+      {days && !todays.length && (shut
+        ? (
+          <div className="adm-empty" style={{ display: 'grid', gap: '0.15rem' }}>
+            <span>The studio is closed today.{closure ? ` Closed for ${closure.name}.` : ''}</span>
+            {next && <span>Next up: {dayLabel(next.day)} · {itemName(next.item)}</span>}
+          </div>
+        )
+        : <button type="button" className="adm-empty" onClick={() => onOpen({ kind: 'day', day })}>Nothing on today.<em>+ Add</em></button>
       )}
       <p className="adm-lbl">This week</p>
       {!error && !days && <Skeleton rows={3} label="Loading this week" />}

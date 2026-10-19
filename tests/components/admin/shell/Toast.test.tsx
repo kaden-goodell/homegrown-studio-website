@@ -38,4 +38,9 @@ describe('admin toast', () => {
     expect(undo).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('status')).toBeEmptyDOMElement()
   })
+
+  it('the region carries the shell class, so the layout sizes it is placed by resolve wherever it is', () => {
+    render(<ToastHost><Buttons /></ToastHost>)
+    expect(screen.getByRole('status')).toHaveClass('adm', 'adm-toasts')
+  })
 })

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { agesLabel } from '@lib/workshop-copy'
 import WorkshopTile from '@components/workshops/WorkshopTile'
 import type { PersonToTell } from '@lib/classes/admin-actions'
@@ -256,7 +257,7 @@ function previewOf(f: Form) {
  * them. Beside it, the real public card, live. Used to add a class, schedule
  * one from the library, edit a scheduled class, or keep a library class.
  */
-export default function ClassEditor({ mode, onSaved, onCancel, onDirtyChange, hideHeader }: {
+export default function ClassEditor({ mode, onSaved, onCancel, onDirtyChange, hideHeader, inSheet, footer }: {
   mode: EditorMode
   onSaved: (s: EditorSaved) => void
   onCancel: () => void
@@ -264,6 +265,9 @@ export default function ClassEditor({ mode, onSaved, onCancel, onDirtyChange, hi
   onDirtyChange?: (dirty: boolean) => void
   /** Inside an /admin sheet: the sheet shows the title and its × closes. */
   hideHeader?: boolean
+  /** Inside an /admin sheet: the save bar goes into the sheet's pinned footer (`footer`), not a sticky bar mid-form. */
+  inSheet?: boolean
+  footer?: HTMLElement | null
 }) {
   const [baseline, setBaseline] = useState<Form>(() => initialForm(mode))
   const [f, setF] = useState<Form>(baseline)
@@ -402,6 +406,44 @@ export default function ClassEditor({ mode, onSaved, onCancel, onDirtyChange, hi
   const sectionProps = (k: SectionKey) => ({ title: SECTION_TITLE[k], open: open[k], onToggle: () => setOpen((o) => ({ ...o, [k]: !o[k] })), error: errors[k] })
   const singleTicket = f.ticketTypes[0]
   const singlePass = f.passes[0]
+  /** In a sheet the save buttons sit in its pinned footer (outside the form), so they save by click, not by submit. */
+  const submit = inSheet ? { type: 'button' as const, onClick: () => save(false) } : { type: 'submit' as const }
+  const saveBar = (
+    <>
+            {errors.form && <p role="alert" style={errorText}>{errors.form}</p>}
+            {stale && <button type="button" className="btn btn-primary" onClick={reload}>Reload</button>}
+            {toTell && (
+              <div style={{ display: 'grid', gap: '0.4rem' }}>
+                <ul aria-label="People to tell" style={{ margin: 0, paddingLeft: '1.2rem' }}>
+                  {toTell.people.map((p, i) => (
+                    <li key={i}>{[p.name || 'No name', p.email, p.phone].filter(Boolean).join(' · ')}{p.sessions.length ? ` (booked ${p.sessions.join(', ')})` : ''}</li>
+                  ))}
+                </ul>
+                {errors.form && <button type="button" className="btn btn-primary" disabled={saving} onClick={() => save(toTell.also, true)}>Move and I’ll tell them</button>}
+              </div>
+            )}
+            {notice && <p role="status" style={{ margin: 0, fontWeight: 600 }}>{notice}</p>}
+            {warning && <p role="alert" style={warnText}>{warning}</p>}
+            {!toTell?.people.length || !errors.form ? (
+              <div style={row}>
+                {mode.kind === 'library' && <button {...submit} className="btn btn-primary" disabled={saving}>Save to library</button>}
+                {mode.kind !== 'library' && fromLibrary && (
+                  <>
+                    <button type="button" className="btn btn-primary" disabled={saving || cls?.status === 'cancelled'} onClick={() => save(false)}>Just this date</button>
+                    <button type="button" className="btn btn-secondary" disabled={saving || cls?.status === 'cancelled'} onClick={() => save(true)}>Also update the library</button>
+                  </>
+                )}
+                {mode.kind === 'new' && (
+                  <>
+                    <button {...submit} className="btn btn-primary" disabled={saving}>Add class</button>
+                    <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => save(true)}>Add and keep in the library</button>
+                  </>
+                )}
+                {mode.kind === 'edit' && !fromLibrary && <button {...submit} className="btn btn-primary" disabled={saving || cls?.status === 'cancelled'}>Save</button>}
+              </div>
+            ) : null}
+    </>
+  )
   const title = mode.kind === 'edit' ? `Edit ${cls?.content.name ?? ''}` : mode.kind === 'library' ? (mode.lib ? 'Edit library class' : 'New library class') : mode.kind === 'from-library' ? 'Schedule from the library' : 'New class'
 
   return (
@@ -565,40 +607,9 @@ export default function ClassEditor({ mode, onSaved, onCancel, onDirtyChange, hi
             </div>
           </Section>
 
-          <div style={{ ...box, position: 'sticky', bottom: 0, zIndex: 1 }}>
-            {errors.form && <p role="alert" style={errorText}>{errors.form}</p>}
-            {stale && <button type="button" className="btn btn-primary" onClick={reload}>Reload</button>}
-            {toTell && (
-              <div style={{ display: 'grid', gap: '0.4rem' }}>
-                <ul aria-label="People to tell" style={{ margin: 0, paddingLeft: '1.2rem' }}>
-                  {toTell.people.map((p, i) => (
-                    <li key={i}>{[p.name || 'No name', p.email, p.phone].filter(Boolean).join(' · ')}{p.sessions.length ? ` (booked ${p.sessions.join(', ')})` : ''}</li>
-                  ))}
-                </ul>
-                {errors.form && <button type="button" className="btn btn-primary" disabled={saving} onClick={() => save(toTell.also, true)}>Move and I’ll tell them</button>}
-              </div>
-            )}
-            {notice && <p role="status" style={{ margin: 0, fontWeight: 600 }}>{notice}</p>}
-            {warning && <p role="alert" style={warnText}>{warning}</p>}
-            {!toTell?.people.length || !errors.form ? (
-              <div style={row}>
-                {mode.kind === 'library' && <button type="submit" className="btn btn-primary" disabled={saving}>Save to library</button>}
-                {mode.kind !== 'library' && fromLibrary && (
-                  <>
-                    <button type="button" className="btn btn-primary" disabled={saving || cls?.status === 'cancelled'} onClick={() => save(false)}>Just this date</button>
-                    <button type="button" className="btn btn-secondary" disabled={saving || cls?.status === 'cancelled'} onClick={() => save(true)}>Also update the library</button>
-                  </>
-                )}
-                {mode.kind === 'new' && (
-                  <>
-                    <button type="submit" className="btn btn-primary" disabled={saving}>Add class</button>
-                    <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => save(true)}>Add and keep in the library</button>
-                  </>
-                )}
-                {mode.kind === 'edit' && !fromLibrary && <button type="submit" className="btn btn-primary" disabled={saving || cls?.status === 'cancelled'}>Save</button>}
-              </div>
-            ) : null}
-          </div>
+          {inSheet
+            ? (footer ? createPortal(<div style={{ display: 'grid', gap: '0.5rem' }}>{saveBar}</div>, footer) : null)
+            : <div style={{ ...box, position: 'sticky', bottom: 0, zIndex: 1 }}>{saveBar}</div>}
         </form>
         <section aria-label="How the card looks" className="class-editor-preview" style={{ display: 'grid', gap: '0.5rem' }}>
           <h2 style={{ margin: 0, fontSize: '1rem', color: 'var(--color-muted)' }}>How the card looks</h2>

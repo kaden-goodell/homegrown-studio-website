@@ -32,7 +32,7 @@ export default function Inbox({ segment, onSegment, onOpen }: {
           <p className="adm-brand">Hometown Studio</p>
           <h1>Inbox</h1>
         </div>
-        <span className="adm-small adm-muted">{inbox.total} waiting</span>
+        <span className="adm-small adm-muted">{inbox.loaded ? `${inbox.total} waiting` : ''}</span>
       </div>
       <Seg
         tight

@@ -30,3 +30,7 @@ export function useCalendar(from: string, to: string) {
   }, [from, to, version, tries])
   return { items, error, retry: () => setTries((n) => n + 1) }
 }
+
+/** What the shell knows that a tab may need: a side panel is open beside it, and which sheet (its address token). */
+export const ShellContext = createContext<{ paneled: boolean; activeToken: string | null }>({ paneled: false, activeToken: null })
+export const useShell = () => useContext(ShellContext)

@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import type { BlockedTime } from '@lib/classes/blocked-time'
 import type { Busy } from '@lib/classes/studio-schedule'
 import type { LibraryClass, ScheduledClass } from '@lib/classes/types'
-import { formatTimeSpan } from '@lib/studio-time'
+import { timeSpan as formatTimeSpan } from '../shell/time'
 import { localDate } from '@lib/party-slots'
 import { api, BLOCKED, BOOKINGS, LIBRARY } from '../classes/api'
 import BlockTimeForm from '../classes/BlockTimeForm'
@@ -18,6 +18,12 @@ import { useRefresh } from '../shell/data'
 import { Failed, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet } from '../shell/Sheet'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
+
+/** A place in the sheet's pinned footer for an old screen's buttons (they portal into it). */
+function useFooterSlot() {
+  const [el, setEl] = useState<HTMLElement | null>(null)
+  return { el, slot: <div ref={setEl} /> }
+}
 
 /** One of our classes: who's booked, refunds, Edit, Run it again, Cancel. */
 export function ClassSheet({ id }: { id: string }) {
@@ -40,11 +46,11 @@ export function ClassSheet({ id }: { id: string }) {
 }
 
 /** The class form, wired to the sheet: unsaved changes ask before leaving, saves say so in a toast. */
-function Editor({ mode, onSaved }: { mode: EditorMode; onSaved: (s: EditorSaved) => void }) {
+function Editor({ mode, onSaved, footer }: { mode: EditorMode; onSaved: (s: EditorSaved) => void; footer: HTMLElement | null }) {
   const { setDirty, close } = useSheet()
   useEffect(() => () => setDirty(false), [])
   // A save makes the form clean before the sheet moves on, so moving on never asks "Leave without saving?".
-  return <ClassEditor mode={mode} hideHeader onCancel={close} onDirtyChange={setDirty} onSaved={(s) => { setDirty(false); onSaved(s) }} />
+  return <ClassEditor mode={mode} hideHeader inSheet footer={footer} onCancel={close} onDirtyChange={setDirty} onSaved={(s) => { setDirty(false); onSaved(s) }} />
 }
 
 /** Load a class for the form (handed over by the class sheet, or read again after a refresh). */
@@ -69,16 +75,18 @@ function useClass(id: string): { cls: ScheduledClass | null; error: string; retr
 }
 
 export function EditClassSheet({ id }: { id: string }) {
+  const { el, slot } = useFooterSlot()
   const { open } = useSheet()
   const { bump } = useRefresh()
   const toast = useToast()
   const { cls, error, retry } = useClass(id)
   return (
-    <SheetFrame tall title={cls ? `Edit ${cls.content.name}` : 'Edit class'} subtitle={<button type="button" className="btn-quiet" style={{ minHeight: '2.75rem' }} onClick={() => open({ kind: 'class', id })}>Back to bookings</button>}>
+    <SheetFrame tall footer={slot} title={cls ? `Edit ${cls.content.name}` : 'Edit class'} subtitle={<button type="button" className="btn-quiet" style={{ minHeight: '2.75rem' }} onClick={() => open({ kind: 'class', id })}>Back to bookings</button>}>
       {error && <Failed message={error} onRetry={retry} />}
       {!error && !cls && <Skeleton rows={4} />}
       {cls && (
         <Editor
+          footer={el}
           mode={{ kind: 'edit', cls }}
           onSaved={(s) => { bump(); toast(s.warning ?? 'Saved.') }}
         />
@@ -88,12 +96,14 @@ export function EditClassSheet({ id }: { id: string }) {
 }
 
 export function NewClassSheet({ day }: { day?: string }) {
+  const { el, slot } = useFooterSlot()
   const { open } = useSheet()
   const { bump } = useRefresh()
   const toast = useToast()
   return (
-    <SheetFrame tall title="New class" subtitle={day ? `On ${dayLabel(day)}` : undefined}>
+    <SheetFrame tall footer={slot} title="New class" subtitle={day ? `On ${dayLabel(day)}` : undefined}>
       <Editor
+          footer={el}
         mode={{ kind: 'new', ...(day ? { day } : {}) }}
         onSaved={(s) => {
           bump()
@@ -128,34 +138,37 @@ function useLibrary(id: string): { lib: LibraryClass | null; error: string; retr
 }
 
 export function LibraryEditSheet({ id }: { id?: string }) {
+  const { el, slot } = useFooterSlot()
   const { close } = useSheet()
   const { bump } = useRefresh()
   const toast = useToast()
   const { lib, error, retry } = useLibrary(id ?? '')
   const done = () => { bump(); toast('Saved to the library.'); close() }
   if (!id) {
-    return <SheetFrame tall title="New library class"><Editor mode={{ kind: 'library' }} onSaved={done} /></SheetFrame>
+    return <SheetFrame tall footer={slot} title="New library class"><Editor footer={el} mode={{ kind: 'library' }} onSaved={done} /></SheetFrame>
   }
   return (
-    <SheetFrame tall title="Edit library class" subtitle={lib?.versions[lib.versions.length - 1].content.name}>
+    <SheetFrame tall footer={slot} title="Edit library class" subtitle={lib?.versions[lib.versions.length - 1].content.name}>
       {error && <Failed message={error} onRetry={retry} />}
       {!error && !lib && <Skeleton rows={4} />}
-      {lib && <Editor mode={{ kind: 'library', lib }} onSaved={done} />}
+      {lib && <Editor footer={el} mode={{ kind: 'library', lib }} onSaved={done} />}
     </SheetFrame>
   )
 }
 
 export function LibraryScheduleSheet({ id }: { id: string }) {
+  const { el, slot } = useFooterSlot()
   const { open } = useSheet()
   const { bump } = useRefresh()
   const toast = useToast()
   const { lib, error, retry } = useLibrary(id)
   return (
-    <SheetFrame tall title="Schedule from the library" subtitle={lib?.versions[lib.versions.length - 1].content.name}>
+    <SheetFrame tall footer={slot} title="Schedule from the library" subtitle={lib?.versions[lib.versions.length - 1].content.name}>
       {error && <Failed message={error} onRetry={retry} />}
       {!error && !lib && <Skeleton rows={4} />}
       {lib && (
         <Editor
+          footer={el}
           mode={{ kind: 'from-library', lib }}
           onSaved={(s) => { bump(); toast(s.warning ?? 'Added. It’s on the calendar.'); if (s.cls) open({ kind: 'class', id: s.cls.id }) }}
         />
@@ -166,6 +179,7 @@ export function LibraryScheduleSheet({ id }: { id: string }) {
 
 /** Block time: the form, then the sheet closes with a toast that can undo it. */
 export function BlockSheet({ day }: { day?: string }) {
+  const { el, slot } = useFooterSlot()
   const { setDirty, close } = useSheet()
   const { bump } = useRefresh()
   const toast = useToast()
@@ -180,9 +194,9 @@ export function BlockSheet({ day }: { day?: string }) {
     })
   }
   return (
-    <SheetFrame tall title="Block time" subtitle={day ? dayLabel(day) : undefined}>
+    <SheetFrame tall footer={slot} title="Block time" subtitle={day ? dayLabel(day) : undefined}>
       <p className="adm-note">Customers can’t book anything in this window.</p>
-      <BlockTimeForm initialDay={day} onDirtyChange={setDirty} onBlocked={blocked} />
+      <BlockTimeForm inSheet footer={el} initialDay={day} onDirtyChange={setDirty} onBlocked={blocked} />
     </SheetFrame>
   )
 }

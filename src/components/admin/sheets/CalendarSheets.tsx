@@ -1,14 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 import type { AdminParty, AdminPartyGuest } from '@pages/api/admin/party.json'
-import { closureOn } from '@config/closures'
-import { CAFE_HOURS, CAFE_SPECIAL_DAYS, cafeHoursOn, formatRange } from '@config/hours'
+import { closureOn, OPEN_WEEKDAYS } from '@config/closures'
+import { CAFE_HOURS, CAFE_SPECIAL_DAYS, cafeHoursOn } from '@config/hours'
 import { partyConfig } from '@config/party.config'
 import { formatMoney } from '@lib/money'
-import { formatTimeSpan } from '@lib/studio-time'
+import { timeSpan as formatTimeSpan, clockRange } from '../shell/time'
 import { localDate } from '@lib/party-slots'
 import { api, BLOCKED, PARTY } from '../classes/api'
-import { addDays, dayLabel } from '../classes/dates'
+import { addDays, dayLabel, weekday } from '../classes/dates'
 import { useCalendar, useRefresh } from '../shell/data'
 import { Failed, ItemRow, itemKey, itemName, itemTime, Seg, sheetOf, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet } from '../shell/Sheet'
@@ -48,15 +48,23 @@ export function DaySheet({ day }: { day: string }) {
   const { open } = useSheet()
   const { items, error, retry } = useCalendar(day, addDays(day, 1))
   const list = items ?? []
+  const closure = closureOn(day)
+  const shut = !!closure || !OPEN_WEEKDAYS.has(weekday(day))
+  const weekdayName = new Date(`${day}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', weekday: 'long' })
   return (
     <SheetFrame title={dayLabel(day)} subtitle={items && list.length ? (list.length === 1 ? '1 thing on' : `${list.length} things on`) : undefined}>
       {error && <Failed message={error} onRetry={retry} />}
       {!error && !items && <Skeleton rows={2} label="Loading the day" />}
       {items && list.map((i) => <ItemRow key={itemKey(i)} item={i} onOpen={() => open(sheetOf(i, day), i)} />)}
       {items && !list.length && <p className="adm-empty">Nothing on this day yet.</p>}
+      {shut && (
+        <p className="adm-note" style={{ marginTop: '0.75rem' }}>
+          {closure ? `Closed for ${closure.name}: customers can’t book anything this day.` : `The studio is usually closed on ${weekdayName}s. You can still add something.`}
+        </p>
+      )}
       <div className="adm-stack" style={{ marginTop: '0.75rem' }}>
         <button type="button" className="adm-btn is-pri" onClick={() => open({ kind: 'new', day })}>+ New class on this day</button>
-        <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'book-party', day })}>Book a party on this day</button>
+        <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'book-party', day })}>+ Book a party on this day</button>
         <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'block', day })}>Block time on this day</button>
         <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'print', day })}>Print this day</button>
       </div>
@@ -134,11 +142,11 @@ export function CafeSheet({ day }: { day: string }) {
   const { open } = useSheet()
   const hours = cafeHoursOn(day)
   const special = CAFE_SPECIAL_DAYS.find((d) => d.date === day)
-  const weekly = CAFE_HOURS.map((h) => `Every ${h.days.join(' and ')}, ${formatRange(h.opens, h.closes)}.`).join(' ')
+  const weekly = CAFE_HOURS.map((h) => `Every ${h.days.join(' and ')}, ${clockRange(h.opens, h.closes)}.`).join(' ')
   return (
     <SheetFrame
       title={special ? `Craft Café · ${special.name.replace(/^Craft Café /, '')}` : 'Craft Café'}
-      subtitle={`${dayLabel(day)}${hours ? ` · ${formatRange(hours.opens, hours.closes)}` : ''}`}
+      subtitle={`${dayLabel(day)}${hours ? ` · ${clockRange(hours.opens, hours.closes)}` : ''}`}
       footer={<button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'more', page: 'hours' })}>Change café hours</button>}
     >
       <div className="adm-card">

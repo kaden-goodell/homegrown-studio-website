@@ -11,7 +11,7 @@ const STATUS_WORD: Record<string, string> = { draft: 'Draft', closed: 'Sign-ups 
  * New class starts a blank one. (Set up sandbox moved to More, shown only
  * on the sandbox.)
  */
-export default function ClassList({ onOpen, onNew, hideHeader }: { onOpen: (id: string) => void; onNew: () => void; hideHeader?: boolean }) {
+export default function ClassList({ onOpen, onNew, hideHeader, emptyText }: { onOpen: (id: string) => void; onNew: () => void; hideHeader?: boolean; emptyText?: string }) {
   const [classes, setClasses] = useState<ScheduledClass[] | null>(null)
   const [taken, setTaken] = useState<Record<string, number>>({})
   const [error, setError] = useState('')
@@ -34,7 +34,12 @@ export default function ClassList({ onOpen, onNew, hideHeader }: { onOpen: (id: 
       )}
       {error && <p role="alert" style={errorText}>{error} <button type="button" className="btn btn-secondary" onClick={load}>Try again</button></p>}
       {!error && !classes && <p style={muted}>Loading…</p>}
-      {classes && classes.length === 0 && <p style={muted}>No classes coming up. Press New class, or schedule one from the library.</p>}
+      {classes && classes.length === 0 && (
+        <div style={{ ...box, borderStyle: 'dashed' }}>
+          <p style={muted}>{emptyText ?? 'No classes coming up.'}</p>
+          <button type="button" className="btn btn-primary" style={{ justifySelf: 'start' }} onClick={onNew}>+ New class</button>
+        </div>
+      )}
       {classes?.map((c) => {
         const next = c.sessions.find((s) => Date.parse(s.endIso) > now) ?? c.sessions[c.sessions.length - 1]
         return (

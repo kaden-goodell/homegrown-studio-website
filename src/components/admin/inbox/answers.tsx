@@ -17,7 +17,7 @@ function Group({ title, rows }: { title: string; rows: Row[] }) {
   if (!shown.length) return null
   return (
     <section aria-label={title}>
-      <p className="adm-lbl">{title}</p>
+      <h3 className="adm-group-h">{title}</h3>
       <dl className="adm-ans">
         {shown.map(([k, v]) => (
           <div key={k}>

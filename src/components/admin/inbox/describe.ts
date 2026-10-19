@@ -5,7 +5,10 @@ import { STATUSES as REQ_STATUSES, STATUS_LABEL as REQ_LABEL, kindLabel, whenLab
 import type { InboxKind } from '../shell/router'
 
 export interface Described {
+  /** The row's headline: name, and the organisation or business. */
   name: string
+  /** The sheet's title: the person only (the organisation goes in the subtitle). */
+  title: string
   /** "Private event", "Message", "Teacher" */
   kind: string
   /** The sheet's subtitle: "Private event request · Sent Oct 17" */
@@ -33,8 +36,9 @@ export function describeItem(kind: InboxKind, item: EventRequest | ContactMessag
     const next = r.status === 'new' ? 'Reply with dates and a quote' : r.status === 'quoted' ? 'Mark Booked or Not this time when they answer' : ''
     return {
       name: `${r.about.name}${r.about.org ? ` · ${r.about.org}` : ''}`,
+      title: r.about.name,
       kind: 'Private event',
-      sheetLabel: `Private event request · Sent ${sent(r.at)}`,
+      sheetLabel: `${r.about.org ? `${r.about.org} · ` : ''}Private event request · Sent ${sent(r.at)}`,
       head: [kindLabel(r), whenLabel(r), `${r.event.guests} guest${r.event.guests === 1 ? '' : 's'}`].filter(Boolean).join(' · '),
       next,
       statuses: REQ_STATUSES.map((s) => [s, REQ_LABEL[s]]),
@@ -48,6 +52,7 @@ export function describeItem(kind: InboxKind, item: EventRequest | ContactMessag
     const about = topicLabel(m.topic)
     return {
       name: m.name,
+      title: m.name,
       kind: 'Message',
       sheetLabel: `Message${about ? ` about ${about.replace(/^A /, 'a ')}` : ''} · Sent ${sent(m.at)}`,
       head: [about, quote(m.message.replace(/\s+/g, ' ').trim())].filter(Boolean).join(' · '),
@@ -64,8 +69,9 @@ export function describeItem(kind: InboxKind, item: EventRequest | ContactMessag
     : a.status === 'talking' ? 'Mark Booked or Not now when you decide' : ''
   return {
     name: `${a.about.name}${a.about.business ? ` · ${a.about.business}` : ''}`,
+    title: a.about.name,
     kind: 'Teacher',
-    sheetLabel: `Teacher application · Sent ${sent(a.at)}`,
+    sheetLabel: `${a.about.business ? `${a.about.business} · ` : ''}Teacher application · Sent ${sent(a.at)}`,
     head: [a.classIdea.what, a.when.days].filter(Boolean).join(' · '),
     next,
     statuses: APP_STATUSES.map((s) => [s, APP_LABEL[s]]),

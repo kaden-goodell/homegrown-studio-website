@@ -22,6 +22,8 @@ interface InboxApi {
   /** Waiting on the owners: New requests, messages and teacher applications, and To decide items. */
   counts: Record<InboxKind | 'todo', number>
   total: number
+  /** All four lists have answered (loaded or failed). */
+  loaded: boolean
   /** Optimistic: the status changes at once; Undo puts it back; a failed save puts it back and says so. */
   setStatus: (kind: InboxKind, id: string, status: string, label: string) => void
 }
@@ -70,8 +72,12 @@ export function InboxProvider({ children }: { children: ReactNode }) {
   const ref = useRef(sources)
   ref.current = sources
 
-  const put = (kind: InboxKind, id: string, status: string) =>
+  /** The status each item shows right now, set as it changes, so two quick taps never undo to the wrong one. */
+  const shown = useRef(new Map<string, string>())
+  const put = (kind: InboxKind, id: string, status: string) => {
+    shown.current.set(`${kind}:${id}`, status)
     ref.current[kind].setItems((list: any[] | null) => (list ?? []).map((x) => (x.id === id ? { ...x, status } : x)) as any)
+  }
 
   const send = useCallback(async (kind: InboxKind, id: string, status: string) => {
     const r = await api<Record<string, InboxItem>>(ENDPOINT[kind], { id, status })
@@ -81,7 +87,7 @@ export function InboxProvider({ children }: { children: ReactNode }) {
   }, [])
 
   const setStatus = useCallback((kind: InboxKind, id: string, status: string, label: string) => {
-    const was = (ref.current[kind].items as InboxItem[] | null)?.find((x) => x.id === id)?.status
+    const was = shown.current.get(`${kind}:${id}`) ?? (ref.current[kind].items as InboxItem[] | null)?.find((x) => x.id === id)?.status
     if (!was || was === status) return
     put(kind, id, status)
     send(kind, id, status).then((ok) => {
@@ -111,6 +117,7 @@ export function InboxProvider({ children }: { children: ReactNode }) {
   const value: InboxApi = {
     request, message, teacher, todo, counts,
     total: counts.request + counts.message + counts.teacher + counts.todo,
+    loaded: [request, message, teacher, todo].every((x) => x.items !== null || !!x.error),
     setStatus,
   }
   return <InboxContext.Provider value={value}>{children}</InboxContext.Provider>

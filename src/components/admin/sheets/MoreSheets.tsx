@@ -1,7 +1,8 @@
 import { createContext, useContext, useEffect, useState } from 'react'
 import type { MonthReport } from '@pages/api/admin/reports.json'
 import { closures } from '@config/closures'
-import { CAFE_HOURS, CAFE_SPECIAL_DAYS, STUDIO_HOURS, formatHours, formatRange } from '@config/hours'
+import { CAFE_HOURS, CAFE_SPECIAL_DAYS, STUDIO_HOURS, type HoursEntry } from '@config/hours'
+import { clock, clockRange } from '../shell/time'
 import { partyConfig, partyDateOverrides, partyDays } from '@config/party.config'
 import { OWNERS, type Owner } from '@lib/admin-who'
 import { formatMoney } from '@lib/money'
@@ -16,10 +17,10 @@ export const WhoContext = createContext<{ who: Owner | null; setWho: (o: Owner) 
 
 const WEEKDAY_PLURAL = ['Sundays', 'Mondays', 'Tuesdays', 'Wednesdays', 'Thursdays', 'Fridays', 'Saturdays']
 
-/** "13:30" → "1:30 PM", "16:00" → "4 PM" */
-export function clock(hhmm: string): string {
-  const [h, m] = hhmm.split(':').map(Number)
-  return `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''} ${h < 12 ? 'AM' : 'PM'}`
+/** "Thursday & Friday", "4–9 PM": the site's hours list in /admin's time format. */
+function hoursRows(list: HoursEntry[]): { days: string; time: string }[] {
+  const join = (d: string[]) => (d.length <= 1 ? d.join('') : `${d.slice(0, -1).join(', ')} & ${d[d.length - 1]}`)
+  return list.map((h) => ({ days: join(h.days), time: clockRange(h.opens, h.closes) }))
 }
 
 /** The party start times a day shape gives: every party-plus-cleanup from the first start until the last wrap. */
@@ -94,15 +95,15 @@ export function HoursSheet() {
   const special = CAFE_SPECIAL_DAYS.filter((d) => d.date >= now)
   const cafe = CAFE_HOURS[0]
   return (
-    <SheetFrame tall title="Hours & Craft Café" subtitle={cafe ? `${cafe.days.join(' and ')}s ${formatRange(cafe.opens, cafe.closes)}` : undefined}>
+    <SheetFrame tall title="Hours & Craft Café" subtitle={cafe ? `${cafe.days.join(' and ')}s ${clockRange(cafe.opens, cafe.closes)}` : undefined}>
       <p className="adm-note">Changing hours here comes in the next update.</p>
       <p className="adm-lbl">Craft Café · walk-in</p>
-      {formatHours(CAFE_HOURS).map((h) => kv(`Every ${h.days}`, h.time))}
+      {hoursRows(CAFE_HOURS).map((h) => kv(`Every ${h.days}`, h.time))}
       <p className="adm-lbl">Special days</p>
-      {special.length ? special.map((d) => kv(`${dayLabel(d.date)} · ${d.name}`, formatRange(d.opens, d.closes), d.date)) : <p className="adm-muted adm-small">None coming up.</p>}
+      {special.length ? special.map((d) => kv(`${dayLabel(d.date)} · ${d.name}`, clockRange(d.opens, d.closes), d.date)) : <p className="adm-muted adm-small">None coming up.</p>}
       <p className="adm-note" style={{ marginTop: '0.75rem' }}>A special day replaces the Saturday hours for that day. Closed days beat both.</p>
       <p className="adm-lbl">Studio hours</p>
-      {formatHours(STUDIO_HOURS).map((h) => kv(h.days, h.time))}
+      {hoursRows(STUDIO_HOURS).map((h) => kv(h.days, h.time))}
     </SheetFrame>
   )
 }
@@ -152,14 +153,14 @@ export function ReportsSheet() {
         <>
           <div className="adm-sum">
             <div><b>{r.seatsSold}</b><small>class seats sold</small></div>
-            <div><b>{formatMoney(r.classSalesCents)}</b><small>class sales</small></div>
+            <div><b>{formatMoney(r.classSalesCents)}</b><small>class sales, before refunds</small></div>
           </div>
           <div className="adm-sum">
             <div><b>{formatMoney(r.refundedCents)}</b><small>{`refunds (${r.refunds})`}</small></div>
             <div><b>{r.partiesBooked}</b><small>parties booked</small></div>
           </div>
           <p className="adm-note" style={{ marginTop: '0.75rem' }}>
-            Covers our own classes (seats booked online, at the door and on the POS this month, with tax and extras) and parties booked on the website this month. Craft Café, party crafts and anything else rung up in Square are in Square’s reports.
+            Covers our own classes (seats booked online, at the door and on the POS this month, with tax and extras; comps count as seats at $0) and parties booked on the website this month. Refunds are this month’s, whenever the seat was sold. Craft Café, party crafts and anything else rung up in Square are in Square’s reports.
           </p>
         </>
       )}
@@ -188,6 +189,13 @@ interface Seeded { classesCategoryId: string; classTaxId: string; commands: stri
 /** The test site only: make the Classes category and the 9% sales tax in the Square sandbox. */
 export function SandboxSheet() {
   const { close } = useSheet()
+  /** Only the sandbox may run it: the sheet asks first, so an address typed on the live site shows nothing to press. */
+  const [sandbox, setSandbox] = useState<boolean | null>(null)
+  useEffect(() => {
+    let live = true
+    api<{ sandbox: boolean }>(SEED).then((r) => { if (live) setSandbox(r.ok && r.data?.sandbox === true) })
+    return () => { live = false }
+  }, [])
   const [seed, setSeed] = useState<Seeded | null>(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -198,6 +206,13 @@ export function SandboxSheet() {
     setBusy(false)
     if (r.ok && r.data) setSeed(r.data)
     else setError(r.error ?? '')
+  }
+  if (sandbox !== true) {
+    return (
+      <SheetFrame title="Set up sandbox" subtitle="For the test site only">
+        {sandbox === null ? <Skeleton rows={1} /> : <p className="adm-note">Only on the test site. This site uses the live Square account, so there is nothing to set up here.</p>}
+      </SheetFrame>
+    )
   }
   return (
     <SheetFrame

@@ -42,7 +42,7 @@ export function ToastHost({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={show}>
       {children}
-      <div className="adm-toasts" role="status" aria-live="polite">
+      <div className="adm adm-toasts" role="status" aria-live="polite">
         {toast && (
           <div key={toast.id} className="adm-toast">
             <span>{toast.text}</span>

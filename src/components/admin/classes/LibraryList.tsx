@@ -17,8 +17,10 @@ const priceOf = (c: ClassContent) => ownPriceLabel(c as unknown as Parameters<ty
  * one straight onto the calendar, change its details first, edit the library
  * copy, look back through its versions, or archive it.
  */
-export default function LibraryList({ onEdit, onNew, onScheduleWithEdits, onScheduled, hideHeader }: {
+export default function LibraryList({ onEdit, onNew, onScheduleWithEdits, onScheduled, hideHeader, hideAdd }: {
   hideHeader?: boolean
+  /** In the shell, + New class is the one way in (every class lands in the library in 11b-B). */
+  hideAdd?: boolean
   onEdit: (lib: LibraryClass) => void
   onNew: () => void
   onScheduleWithEdits: (lib: LibraryClass) => void
@@ -38,7 +40,7 @@ export default function LibraryList({ onEdit, onNew, onScheduleWithEdits, onSche
     <div style={{ display: 'grid', gap: '1rem' }}>
       <div style={{ ...row, justifyContent: hideHeader ? 'flex-end' : 'space-between' }}>
         {!hideHeader && <h1 className="font-heading" style={{ margin: 0, fontSize: '1.75rem', color: 'var(--color-dark)' }}>Class library</h1>}
-        <button type="button" className="btn btn-primary" onClick={onNew}>Add a class to the library</button>
+        {!hideAdd && <button type="button" className="btn btn-primary" onClick={onNew}>Add a class to the library</button>}
       </div>
       <div style={row}>
         <button type="button" className="btn btn-secondary" aria-pressed={archived} onClick={() => { setArchived(!archived); load(!archived) }}>

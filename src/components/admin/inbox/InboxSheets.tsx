@@ -37,18 +37,19 @@ export function InboxItemSheet({ kind, id }: { kind: InboxKind; id: string }) {
   if (!item) return <SheetFrame title={TITLE[kind]}><p className="adm-muted">This isn’t in the list any more.</p></SheetFrame>
   const d = describeItem(kind, item)
   return (
-    <SheetFrame tall title={d.name} subtitle={d.sheetLabel} footer={<ContactFooter phone={d.phone} email={d.email} />}>
+    <SheetFrame tall title={d.title} subtitle={d.sheetLabel} footer={<ContactFooter phone={d.phone} email={d.email} />}>
       {d.next && <p className="adm-note"><b style={{ color: 'var(--color-dark)' }}>Next:</b> {d.next}</p>}
-      {kind === 'request' && <RequestAnswers r={item as EventRequest} />}
-      {kind === 'message' && <MessageAnswers m={item as ContactMessage} />}
-      {kind === 'teacher' && <TeacherAnswers a={item as ArtistApplication} />}
-      <p className="adm-lbl">Status</p>
+      <h3 className="adm-lbl" style={{ marginTop: 0 }}>Status</h3>
       <Seg
-        label={`Status for ${d.name}`}
+        label={`Status for ${d.title}`}
         value={item.status}
+        className={d.statuses.length > 3 ? 'is-wrap' : undefined}
         options={d.statuses as [string, string][]}
         onChange={(s) => inbox.setStatus(kind, id, s, d.statuses.find(([v]) => v === s)?.[1] ?? s)}
       />
+      {kind === 'request' && <RequestAnswers r={item as EventRequest} />}
+      {kind === 'message' && <MessageAnswers m={item as ContactMessage} />}
+      {kind === 'teacher' && <TeacherAnswers a={item as ArtistApplication} />}
     </SheetFrame>
   )
 }

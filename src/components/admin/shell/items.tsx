@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
-import { formatTimeSpan } from '@lib/studio-time'
+import { timeSpan } from './time'
 import { localDate } from '@lib/party-slots'
 import { addDays, dayLabel } from '../classes/dates'
 import type { Sheet } from './router'
@@ -53,7 +53,7 @@ export function itemSub(i: CalendarItem): string {
 }
 
 export function itemTime(i: CalendarItem): string {
-  return i.kind === 'closed' ? 'All day' : formatTimeSpan(i.startIso, i.endIso)
+  return i.kind === 'closed' ? 'All day' : timeSpan(i.startIso, i.endIso)
 }
 
 /** Draft, Sign-ups closed. */
@@ -80,18 +80,17 @@ export function sheetOf(i: CalendarItem, day: string): Sheet {
 export const itemKey = (i: CalendarItem) => `${i.kind}-${i.id}-${i.sessionId ?? i.startIso}`
 
 /** One agenda row: time · name · what it is, with the kind's colour bar and a Draft tag. */
-export function ItemRow({ item, onOpen }: { item: CalendarItem; onOpen: () => void }) {
-  const tag = itemTag(item)
-  const time = itemTime(item)
-  const [from, to] = time.split('–')
+export function ItemRow({ item, onOpen, active, tag: extraTag }: { item: CalendarItem; onOpen: () => void; active?: boolean; tag?: string }) {
+  const tag = itemTag(item) ?? (extraTag ? { text: extraTag } : null)
   return (
     <button
       type="button"
-      className={`adm-row ${KIND_STYLE[item.kind].className}${item.kind === 'class' && item.status === 'draft' ? ' is-draft' : ''}`}
+      className={`adm-row ${KIND_STYLE[item.kind].className}${item.kind === 'class' && item.status === 'draft' ? ' is-draft' : ''}${active ? ' is-active' : ''}`}
       data-kind={item.kind}
+      aria-current={active ? 'true' : undefined}
       onClick={onOpen}
     >
-      <span className="adm-rt">{to ? <>{from}–<br />{to}</> : time}</span>
+      <span className="adm-rt">{itemTime(item)}</span>
       <span className="adm-rm">
         <b>{itemName(item)}</b>
         <small>{itemSub(item)}{tag && <span className={`adm-tag${tag.red ? ' is-red' : ''}`}>{tag.text}</span>}</small>
@@ -121,15 +120,17 @@ export function Failed({ message, onRetry }: { message: string; onRetry: () => v
 }
 
 /** A segmented control (Week | Month). */
-export function Seg<T extends string>({ value, options, onChange, label, tight }: {
+export function Seg<T extends string>({ value, options, onChange, label, tight, className }: {
   value: T
   options: [T, ReactNode][]
   onChange: (v: T) => void
   label: string
   tight?: boolean
+  /** is-view (Week | Month), is-wrap (four options, two rows on a phone). */
+  className?: string
 }) {
   return (
-    <div className={`adm-seg${tight ? ' is-tight' : ''}`} role="group" aria-label={label}>
+    <div className={`adm-seg${tight ? ' is-tight' : ''}${className ? ` ${className}` : ''}`} role="group" aria-label={label}>
       {options.map(([v, l]) => (
         <button key={v} type="button" aria-pressed={value === v} onClick={() => onChange(v)}>{l}</button>
       ))}

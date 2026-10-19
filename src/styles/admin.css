@@ -1,6 +1,6 @@
 /*
  * /admin, direction D (approved 19 Oct 2026): five tabs, one sheet at a time.
- * Phone: a bottom tab bar and bottom sheets. 900px and wider (iPad, desktop):
+ * Phone: a bottom tab bar and bottom sheets. 768px and wider (iPad, desktop):
  * a 220px sidebar and a side panel beside the page.
  * Built on the site's tokens (global.css). One card style, one heading scale.
  */
@@ -13,9 +13,6 @@
   --adm-shadow: 0 8px 24px rgba(var(--color-primary-rgb), 0.1);
   --adm-scrim: rgba(40, 28, 20, 0.42);
   --adm-error-soft: rgba(180, 35, 24, 0.08);
-  --adm-tab-h: 4.25rem;
-  --adm-side-w: 220px;
-  --adm-panel-w: 440px;
   /* kinds on the calendar */
   --k-class: var(--craft-denim);
   --k-class-soft: var(--craft-denim-soft);
@@ -61,6 +58,28 @@
   overflow: hidden;
   clip: rect(0 0 0 0);
   white-space: nowrap;
+}
+
+/*
+ * Layout sizes live on :root, not .adm: the toast region and anything else
+ * outside the shell's own box must resolve them too (fix round 1: toasts
+ * were landing below the screen). Phone < 768px; 768–1023 a 72px icon rail;
+ * 1024+ the full 220px sidebar. A side panel is min(440px, 45vw).
+ */
+:root {
+  --adm-tab-h: 4.25rem;
+  --adm-side-w: 0px;
+  --adm-panel-w: min(440px, 45vw);
+}
+@media (min-width: 768px) {
+  :root {
+    --adm-side-w: 72px;
+  }
+}
+@media (min-width: 1024px) {
+  :root {
+    --adm-side-w: 220px;
+  }
 }
 
 /* ── Type ─────────────────────────────────────────────────────────────── */
@@ -143,7 +162,7 @@
   right: 0;
   bottom: 0;
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 2px;
   margin: 0;
   padding: 0.25rem 0.4rem calc(0.4rem + env(safe-area-inset-bottom));
@@ -200,18 +219,36 @@
   line-height: 1;
 }
 
-@media (min-width: 900px) {
+@media (min-width: 768px) {
   .adm-tabbar {
     top: 0;
     right: auto;
     width: var(--adm-side-w);
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-auto-rows: min-content;
     align-content: start;
     gap: 4px;
-    padding: 1.25rem 0.75rem;
+    padding: 1rem 0.4rem;
     border-top: 0;
     border-right: 1px solid var(--adm-line);
+  }
+  /* 768–1023 (iPad portrait): an icon rail, the label under each icon. */
+  .adm-tab {
+    min-height: 3.5rem;
+    font-size: 0.72rem;
+  }
+  .adm-main {
+    margin-left: var(--adm-side-w);
+    padding: 1.25rem 1.25rem 5rem;
+    transition: margin-right 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .adm-shell.is-paneled .adm-main {
+    margin-right: var(--adm-panel-w);
+  }
+}
+@media (min-width: 1024px) {
+  .adm-tabbar {
+    padding: 1.25rem 0.75rem;
   }
   .adm-tabbar .adm-tbrand {
     display: block;
@@ -235,12 +272,7 @@
     margin-left: auto;
   }
   .adm-main {
-    margin-left: var(--adm-side-w);
     padding: 1.25rem 1.5rem 5rem;
-    transition: margin-right 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
-  }
-  .adm-shell.is-paneled .adm-main {
-    margin-right: var(--adm-panel-w);
   }
 }
 @media (min-width: 1460px) {
@@ -330,7 +362,7 @@
 }
 .adm-two {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 0.5rem;
 }
 .adm-stack {
@@ -445,7 +477,8 @@
   background: var(--k-soft, var(--adm-sand));
 }
 .adm-row .adm-rt {
-  width: 4rem;
+  min-width: 5.25rem;
+  white-space: nowrap;
   flex: none;
   font-size: 0.8rem;
   font-weight: 600;
@@ -495,14 +528,28 @@
   --k-soft: var(--k-cafe-soft);
   --k-ink: var(--k-cafe-ink);
 }
-.k-blocked,
+.k-blocked {
+  --k: #6f635b;
+  --k-soft: #e7e1da;
+  --k-ink: var(--color-dark);
+}
+/* Closed: a light hatch, so it never reads like blocked time or a busy day. */
 .k-closed {
-  --k: var(--k-block);
-  --k-soft: var(--k-block-soft);
-  --k-ink: var(--k-block-ink);
+  --k: #b9aea4;
+  --k-soft: #f6f2ee;
+  --k-ink: var(--color-muted);
+  --k-hatch: repeating-linear-gradient(45deg, #efe9e3 0 6px, #f8f5f2 6px 12px);
+}
+.adm-row.k-closed,
+.adm-chip.k-closed {
+  background: var(--k-hatch);
+}
+.adm-key .k-closed i {
+  background: repeating-linear-gradient(45deg, #b9aea4 0 3px, #f3eee9 3px 6px);
 }
 .k-class.is-draft {
-  background: repeating-linear-gradient(45deg, var(--k-class-soft) 0 8px, var(--adm-surface) 8px 16px);
+  border-left-style: dashed;
+  background: var(--adm-surface);
 }
 
 .adm-empty {
@@ -580,7 +627,7 @@
 }
 .adm-need {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.5rem;
 }
 .adm-need button {
@@ -612,15 +659,15 @@
 .adm-home-actions .adm-btn.is-sm {
   justify-self: start;
 }
-@media (min-width: 900px) {
+@media (min-width: 768px) {
   .adm-cols {
     display: grid;
-    grid-template-columns: 1.25fr 1fr;
+    grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr);
     gap: 1.75rem;
     align-items: start;
   }
   .adm-shell.is-paneled .adm-cols {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     gap: 0;
   }
   .adm-cols .adm-home-actions {
@@ -684,10 +731,6 @@
   gap: 0.4rem;
   padding-bottom: 0.4rem;
 }
-.adm-shell.is-paneled .adm-wgrid {
-  grid-template-columns: repeat(7, 8rem);
-  overflow-x: auto;
-}
 .adm-wcol {
   display: flex;
   flex-direction: column;
@@ -708,10 +751,31 @@
   gap: 2px;
   margin: 0;
   font-family: var(--font-body);
-  font-size: 0.8rem;
+  font-size: 0.82rem;
   font-weight: 700;
   line-height: 1.2;
   color: var(--color-dark);
+  white-space: nowrap;
+  min-width: 0;
+}
+.adm-wh > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* The day name gets its own line; the + sits full width under it, still 44px tall. */
+.adm-wh {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.3rem;
+}
+.adm-wh > span {
+  padding: 0.15rem 0.2rem 0;
+}
+.adm-wh .adm-plus {
+  width: 100%;
+}
+.adm-wh.is-today {
+  color: var(--color-primary);
 }
 .adm-chip {
   display: block;
@@ -733,8 +797,10 @@
 }
 .adm-chip b {
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
+  overflow-wrap: break-word;
+  hyphens: auto;
   overflow: hidden;
   font-weight: 600;
   color: var(--color-dark);
@@ -794,7 +860,7 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-@media (min-width: 900px) {
+@media (min-width: 768px) {
   .adm-mday {
     min-height: 5.5rem;
     align-items: stretch;
@@ -1134,7 +1200,7 @@
 }
 /* The old class form goes two-column by the window's width; inside a sheet it is one column, preview last. */
 .adm-sheet .class-editor {
-  grid-template-columns: 1fr !important;
+  grid-template-columns: minmax(0, 1fr) !important;
 }
 .adm-sheet .class-editor-preview {
   position: static !important;
@@ -1161,7 +1227,7 @@
   }
 }
 
-@media (min-width: 900px) {
+@media (min-width: 768px) {
   .adm-sheet-layer.is-panel {
     left: auto;
     width: var(--adm-panel-w);
@@ -1244,7 +1310,7 @@
     transform: translateY(12px);
   }
 }
-@media (min-width: 900px) {
+@media (min-width: 768px) {
   .adm-toasts {
     left: calc(var(--adm-side-w) + 1rem);
     bottom: 1.25rem;
@@ -1297,3 +1363,108 @@
   }
 }
 
+
+/* ── Fix round 1 ──────────────────────────────────────────────────────── */
+/* The calendar item whose sheet is open. */
+.adm-row.is-active,
+.adm-chip.is-active {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 1px;
+}
+.adm-chip small {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.adm-wcol {
+  min-width: 0;
+}
+/* Mon–Wed and other closed days with nothing on, folded into one quiet row. */
+.adm-closedrow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  min-height: 2.75rem;
+  margin: 0.9rem 0 0.2rem;
+  padding: 0 0.75rem;
+  border: 0;
+  border-radius: 0.75rem;
+  background: repeating-linear-gradient(45deg, #efe9e3 0 6px, #f8f5f2 6px 12px);
+  color: var(--color-muted);
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: left;
+}
+.adm-closedrow em {
+  font-style: normal;
+  color: var(--color-primary);
+  font-size: 0.82rem;
+}
+.adm-mday.is-closed {
+  background: repeating-linear-gradient(45deg, #f1ece6 0 5px, #faf8f5 5px 10px);
+  color: var(--color-muted);
+}
+.adm-mclosed {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--color-muted);
+}
+/* Week | Month doesn't need the whole width on an iPad. */
+@media (min-width: 768px) {
+  .adm-seg.is-view {
+    max-width: 360px;
+  }
+}
+/* A 4-way status control: two rows of two on a phone, so "Not this time" fits. */
+.adm-seg.is-wrap {
+  flex-wrap: wrap;
+}
+.adm-seg.is-wrap button {
+  flex: 1 1 calc(50% - 3px);
+}
+@media (min-width: 768px) {
+  .adm-seg.is-wrap button {
+    flex: 1 1 0;
+  }
+}
+/* Section labels in sheets get room above; none extra straight after a note. */
+.adm-sheet-body .adm-lbl {
+  margin-top: 1.25rem;
+}
+.adm-sheet-body .adm-lbl:first-child,
+.adm-sheet-body .adm-note + .adm-lbl {
+  margin-top: 0;
+}
+/* Group headings in an inbox item: a heading, not another label. */
+.adm-group-h {
+  margin: 1.25rem 0 0.25rem;
+  padding-top: 0.9rem;
+  border-top: 1px solid var(--adm-line);
+  font-family: var(--font-heading);
+  font-size: 1.02rem;
+  color: var(--color-dark);
+}
+/* Something in one part failed to draw. */
+.adm-crash {
+  margin: 0.75rem 0;
+}
+/* While a bottom sheet or centred card is open, the toast sits at the top so it never covers the sheet's buttons. */
+body:has(.adm-sheet-layer:not(.is-panel)) .adm-toasts {
+  top: calc(env(safe-area-inset-top) + 0.75rem);
+  bottom: auto;
+}
+/* A footer slot an old screen hasn't filled yet takes no room. */
+.adm-sheet-foot:has(> div:empty:only-child) {
+  display: none;
+}
+/* The old class form's sections are grids whose one column sized itself to the inputs' natural width, pushing them 22px past the card on a phone. */
+.adm-sheet .class-editor form,
+.adm-sheet .class-editor section {
+  grid-template-columns: minmax(0, 1fr);
+}
+.adm-sheet .class-editor :where(input, textarea, select) {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}

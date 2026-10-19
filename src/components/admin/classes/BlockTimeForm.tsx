@@ -1,7 +1,8 @@
 import { useEffect, useState, type FormEvent } from 'react'
+import { createPortal } from 'react-dom'
 import type { BlockedTime } from '@lib/classes/blocked-time'
 import type { Busy } from '@lib/classes/studio-schedule'
-import { formatTimeSpan } from '@lib/studio-time'
+import { timeSpan as formatTimeSpan } from '../shell/time'
 import { localDate } from '@lib/party-slots'
 import { api, BLOCKED } from './api'
 import { addDays, dayLabel, dayStartIso, today, toIsoAt } from './dates'
@@ -13,8 +14,11 @@ import { box, errorText, input, muted, row } from './ui'
  * owner can block anyway; nothing booked changes either way. Below, the
  * blocks coming up, each removable after a second tap.
  */
-export default function BlockTimeForm({ initialDay, onDirtyChange, onBlocked }: {
+export default function BlockTimeForm({ initialDay, onDirtyChange, onBlocked, inSheet, footer }: {
   initialDay?: string
+  /** Inside an /admin sheet: no heading of its own, and the buttons go into the sheet's pinned footer. */
+  inSheet?: boolean
+  footer?: HTMLElement | null
   /** Something typed that isn't saved yet (for the sheet's leave prompt). */
   onDirtyChange?: (dirty: boolean) => void
   /** Blocked: the sheet closes and says so; without it the form says so itself. */
@@ -71,9 +75,20 @@ export default function BlockTimeForm({ initialDay, onDirtyChange, onBlocked }: 
     setClash(r.status === 409 && Array.isArray(r.extra.clashes))
   }
 
+  const buttons = clash
+    ? (
+      <>
+        <button type="button" className="btn btn-secondary" onClick={() => { setClash(false); setError('') }}>Pick another time</button>
+        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => send(true)}>Block anyway</button>
+      </>
+    )
+    : inSheet
+      ? <button type="button" className="btn btn-primary" style={{ gridColumn: '1 / -1' }} disabled={busy} onClick={() => send(false)}>Block this time</button>
+      : <button type="submit" className="btn btn-primary" disabled={busy}>Block this time</button>
+
   return (
     <div style={{ display: 'grid', gap: '1rem' }}>
-      <h1 className="font-heading" style={{ margin: 0, fontSize: '1.75rem', color: 'var(--color-dark)' }}>Block time</h1>
+      {!inSheet && <h1 className="font-heading" style={{ margin: 0, fontSize: '1.75rem', color: 'var(--color-dark)' }}>Block time</h1>}
       <form onSubmit={(e: FormEvent) => { e.preventDefault(); send(false) }} style={box}>
         <label className="field">
           <span className="field-label">Day</span>
@@ -101,17 +116,9 @@ export default function BlockTimeForm({ initialDay, onDirtyChange, onBlocked }: 
         </label>
         {error && <p role="alert" style={errorText}>{error}</p>}
         {done && <p role="status" style={{ margin: 0, fontWeight: 600 }}>{done}</p>}
-        <div style={row}>
-          {clash
-            ? (
-              <>
-                <button type="button" className="btn btn-primary" disabled={busy} onClick={() => send(true)}>Block anyway</button>
-                <button type="button" className="btn btn-secondary" onClick={() => { setClash(false); setError('') }}>Pick another time</button>
-              </>
-            )
-            : <button type="submit" className="btn btn-primary" disabled={busy}>Block this time</button>}
-        </div>
+        {!inSheet && <div style={row}>{buttons}</div>}
       </form>
+      {inSheet && footer && createPortal(<div className="adm-two">{buttons}</div>, footer)}
       <h2 style={{ margin: 0, fontSize: '1.2rem', color: 'var(--color-dark)' }}>Coming up</h2>
       {listError && <p role="alert" style={errorText}>{listError}</p>}
       {list && list.length === 0 && <p style={muted}>No blocked time coming up.</p>}

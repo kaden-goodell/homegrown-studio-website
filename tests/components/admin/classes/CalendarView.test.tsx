@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, within } from '@testing-library/react'
 import CalendarView, { KIND_STYLE } from '@components/admin/classes/CalendarView'
 import { localToUtcISO } from '@lib/party-slots'
+import { ShellContext } from '@components/admin/shell/data'
 
 const DAY = '2031-03-12' // Wednesday
 const at = (hhmm: string, day = DAY) => localToUtcISO(day, hhmm)
@@ -124,6 +125,7 @@ describe('CalendarView', () => {
   it('the colours fold away behind Key', async () => {
     vi.stubGlobal('fetch', server())
     render(<CalendarView initialDay={DAY} onOpen={() => {}} />)
+    await screen.findByRole('button', { name: /Pottery/ })
     const key = screen.getByText('Key').closest('details')!
     expect(key).not.toHaveAttribute('open')
     expect(within(key).getByRole('list', { name: 'Colours' })).toHaveTextContent('Square class')
@@ -135,6 +137,69 @@ describe('CalendarView', () => {
     render(<CalendarView initialDay={DAY} onOpen={() => {}} />)
     expect(await screen.findByText("The calendar couldn't be loaded. Try again.")).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    expect(await screen.findByText("The calendar couldn't be loaded. Try again.")).toBeInTheDocument()
     expect(fetchMock).toHaveBeenCalledTimes(2)
+  })
+
+  describe('fix round 1', () => {
+    const width = (px: number) => Object.defineProperty(HTMLElement.prototype, 'clientWidth', { configurable: true, get: () => px })
+    afterEach(() => { delete (HTMLElement.prototype as any).clientWidth })
+
+    it('beside a side panel, where seven columns would be under 640px, the week is a day list and the open item stays highlighted', async () => {
+      wide(true)
+      width(500)
+      vi.stubGlobal('fetch', server())
+      render(
+        <ShellContext.Provider value={{ paneled: true, activeToken: `party-${DAY}-bk_1` }}>
+          <CalendarView initialDay={DAY} onOpen={() => {}} />
+        </ShellContext.Provider>,
+      )
+      const party = await screen.findByRole('button', { name: /The Sam party/ })
+      expect(party).toHaveClass('adm-row')
+      expect(party).toHaveClass('is-active')
+      expect(party).toHaveAttribute('aria-current', 'true')
+      expect(document.querySelector('.adm-wgrid')).toBeNull()
+      expect(screen.getByRole('button', { name: /Pottery/ })).not.toHaveClass('is-active')
+    })
+
+    it('wide enough, the seven columns come back (they never scroll sideways: see layout-css.test)', async () => {
+      wide(true)
+      width(900)
+      vi.stubGlobal('fetch', server())
+      render(<CalendarView initialDay={DAY} onOpen={() => {}} />)
+      expect(await screen.findByRole('button', { name: /Pottery/ })).toHaveClass('adm-chip')
+      expect(screen.getByRole('button', { name: /Pottery/ })).toHaveAttribute('title', expect.stringContaining('Pottery'))
+      expect(screen.getByRole('region', { name: 'Wed Mar 12' }).querySelector('h3')).toHaveTextContent('Wed 12')
+    })
+
+    it('closed weekdays with nothing on fold into one row, which opens them back up', async () => {
+      vi.stubGlobal('fetch', server())
+      render(<CalendarView initialDay={DAY} onOpen={() => {}} />)
+      const fold = await screen.findByRole('button', { name: /Closed Mon–Tue/ })
+      expect(screen.queryByRole('region', { name: 'Mon Mar 10' })).toBeNull()
+      fireEvent.click(fold)
+      expect(screen.getByRole('region', { name: 'Mon Mar 10' })).toBeInTheDocument()
+      expect(screen.getByRole('region', { name: 'Tue Mar 11' })).toBeInTheDocument()
+    })
+
+    it('month: a closed day says Closed, not a count', async () => {
+      vi.stubGlobal('fetch', server())
+      render(<CalendarView initialDay={DAY} onOpen={() => {}} />)
+      await screen.findByRole('button', { name: /Pottery/ })
+      fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+      const mon = await screen.findByRole('button', { name: 'Mon Mar 17, closed' })
+      expect(mon).toHaveTextContent('Closed')
+      expect(mon).toHaveClass('is-closed')
+      expect(screen.getByRole('button', { name: /^Wed Mar 12, 7 things on/ })).not.toHaveClass('is-closed')
+    })
+
+    it('times are one line: one format, a no-break space before AM/PM', async () => {
+      vi.stubGlobal('fetch', server())
+      render(<CalendarView initialDay={DAY} onOpen={() => {}} />)
+      const row = await screen.findByRole('button', { name: /Pottery/ })
+      expect(row.querySelector('.adm-rt')!.textContent).toBe('10–11:30\u00a0AM')
+      expect(screen.getByRole('button', { name: /Craft Café/ }).querySelector('.adm-rt')!.textContent).toBe('9\u00a0AM–12:30\u00a0PM')
+      expect(row.querySelector('br')).toBeNull()
+    })
   })
 })
