@@ -30,6 +30,15 @@ vi.mock('@lib/party-open-dates', () => ({ openPartyStartsInWindow: (...a: any[])
 const mockGetEventMeta = vi.fn()
 vi.mock('@lib/event-meta', () => ({ getEventMeta: (...a: any[]) => mockGetEventMeta(...a) }))
 
+const own = vi.hoisted(() => ({ classes: [] as any[], ledgers: new Map<string, any>(), fail: false }))
+vi.mock('@lib/classes/class-store', () => ({
+  listClasses: async () => { if (own.fail) throw new Error('blobs down'); return own.classes },
+}))
+vi.mock('@lib/classes/seat-ledger', async (orig) => ({
+  ...(await orig<typeof import('@lib/classes/seat-ledger')>()),
+  getLedger: async (id: string) => own.ledgers.get(id) ?? { classId: id, lines: [] },
+}))
+
 const SECRET = 'a-secret-only-the-site-holds'
 const OCT_24 = '2026-10-24T14:00:00.000Z'
 
@@ -76,6 +85,9 @@ beforeEach(async () => {
   mockOpenStarts.mockResolvedValue([OCT_24])
   mockListWithNotes.mockResolvedValue([])
   mockGetEventMeta.mockResolvedValue(null)
+  own.classes = []
+  own.ledgers.clear()
+  own.fail = false
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-10-10T15:00:00.000Z'))
   ;({ POST, jobKey } = await import('@pages/api/jobs/signup-emails.json'))
@@ -328,5 +340,80 @@ describe('a dry run', () => {
     expect(JSON.stringify(json)).not.toContain('example.com')
     expect(mockSend).not.toHaveBeenCalled()
     expect(mockAppendNote).not.toHaveBeenCalled()
+  })
+})
+
+describe('our own classes', () => {
+  // Wheel Pottery, Sat Oct 24 2 PM CDT, 2 seats, $30
+  const pottery = (over: Record<string, any> = {}) => ({
+    id: 'cls_pottery', libraryId: null, libraryVersion: null, status: 'open',
+    content: {
+      name: 'Wheel Pottery', description: '', imageUrl: null, instructor: null,
+      rules: { ages: '', dropOff: false, madeToOrder: false, taxable: true, maxPerBooking: 10, signupCutoffHours: null, minimumToRun: null, linkOnly: false, joinPartway: true, waitlistCutoffHours: 2, canShareRoom: false, ...(over.rules ?? {}) },
+      ticketTypes: [{ id: 'person', label: 'Person' }], passes: [{ id: 'all', label: 'Full', covers: { kind: 'all' } }],
+      prices: { all: { person: 3000 } }, questions: [], addOns: [], defaultCapacity: 2, defaultMinutes: 120,
+    },
+    sessions: [{ id: 'ses_1', startIso: '2026-10-24T19:00:00.000Z', endIso: '2026-10-24T21:00:00.000Z', capacity: 2 }],
+    square: { itemId: null, variations: {} }, createdAt: '', updatedAt: '', by: { id: 'k', name: 'K' }, history: [],
+    ...over,
+  })
+  const taken = (n: number) => ({
+    classId: 'cls_pottery',
+    lines: Array.from({ length: n }, (_, i) => ({
+      id: `led_${i}`, bookingId: `bkg_${i}`, sessionIds: ['ses_1'], ticketTypeId: 'person', passId: 'all', seat: 1, priceCents: 3000, taxCents: 0,
+      addOns: {}, addOnCents: 0, addOnTaxCents: 0, answers: {}, source: 'online', state: 'confirmed', holdExpiresAt: null,
+      customer: null, square: { orderId: null, paymentId: null, lineUid: null }, by: null, refunds: [], at: '',
+    })),
+  })
+
+  it('a seat opening in a sold-out class of ours emails the person who asked, linking to the class', async () => {
+    own.classes = [pottery()]
+    own.ledgers.set('cls_pottery', taken(1))
+    mockListWithNotes.mockResolvedValue([person(1, '2026-10-01 Asked to be told: workshop-waitlist:Wheel Pottery 2026-10-24')])
+    const { json } = await run()
+    expect(json.data).toMatchObject({ sent: 1 })
+    const [item] = mockSend.mock.calls[0][0].items
+    expect(item.headline).toBe('A seat has opened in Wheel Pottery')
+    expect(item.path).toBe('/workshops?w=cls_pottery')
+    expect(item.lines).toEqual(['Saturday, October 24 at 2:00 PM. $30 per seat.', '1 seat is open right now. A seat goes to whoever books it first.'])
+    for (const l of item.lines) expect(l).not.toMatch(/: /)
+  })
+
+  it('still sold out: the person keeps waiting', async () => {
+    own.classes = [pottery()]
+    own.ledgers.set('cls_pottery', taken(2))
+    mockListWithNotes.mockResolvedValue([person(1, '2026-10-01 Asked to be told: workshop-waitlist:Wheel Pottery 2026-10-24')])
+    const { json } = await run()
+    expect(json.data).toMatchObject({ sent: 0, waiting: 1 })
+    expect(mockSend).not.toHaveBeenCalled()
+  })
+
+  it('a class of ours opening for booking answers "tell me when it opens"', async () => {
+    own.classes = [pottery()]
+    mockListWithNotes.mockResolvedValue([person(1, '2026-10-01 Asked to be told: workshop-soon:Wheel Pottery 2026-10-24')])
+    await run()
+    expect(mockSend.mock.calls[0][0].items[0]).toMatchObject({ headline: 'Wheel Pottery is open for booking', path: '/workshops?w=cls_pottery' })
+  })
+
+  it('closed for sign-ups, link-only or a draft: nothing is announced', async () => {
+    mockListWithNotes.mockResolvedValue([person(1, '2026-10-01 Asked to be told: workshop-soon:Wheel Pottery 2026-10-24')])
+    for (const cls of [pottery({ status: 'closed' }), pottery({ status: 'draft' }), pottery({ rules: { linkOnly: true } })]) {
+      own.classes = [cls]
+      mockSend.mockClear()
+      await run()
+      expect(mockSend).not.toHaveBeenCalled()
+    }
+  })
+
+  it('our classes unreadable: Square’s still go out, nothing is said about ours', async () => {
+    own.fail = true
+    mockListWithNotes.mockResolvedValue([
+      person(1, '2026-10-01 Asked to be told: workshop-soon:Wheel Pottery 2026-10-24'),
+      person(2, '2026-10-01 Asked to be told: workshops:booking-opens'),
+    ])
+    const { status, json } = await run()
+    expect(status).toBe(200)
+    expect(json.data).toMatchObject({ sent: 1 })
+    expect(mockSend.mock.calls[0][0].to).toBe('person2@example.com')
   })
 })
