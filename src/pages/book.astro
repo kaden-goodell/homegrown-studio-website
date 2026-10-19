@@ -5,7 +5,8 @@ import Layout from '@layouts/Layout.astro'
 import PartyLanding, { PartyPriceLine } from '@components/party/PartyLanding'
 import RecentPartyBanner from '@components/party/RecentPartyBanner'
 import PartyFaq from '@components/party/PartyFaq.astro'
-import { partyContent } from '@config/party-content'
+import { partyContentFor, partyCopyFacts } from '@config/party-content'
+import { getPartySettings } from '@lib/parties/settings-store'
 import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
 import { OPENING_DATE } from '@config/opening'
@@ -14,7 +15,11 @@ import { longDate, partyNotifyContext } from '@lib/notify-context'
 import { formatMoney } from '@lib/money'
 import { envBookingsOpen, previewToken, hasValidPreviewCookie, previewQueryMatches, previewCookieName } from '@lib/bookings-gate'
 
-const { hero, deposit } = partyContent
+// The owners' Parties setup (the config until they first save), read once
+// for the whole page; never strict, so a store hiccup shows the last good
+// settings or the config rather than an error page.
+const copy = partyCopyFacts(await getPartySettings())
+const { hero } = partyContentFor(copy)
 const kitsLive = siteConfig.features.kits.enabled
 
 // Pre-opening gate: hide the live booking flow from the public; owner can preview
@@ -29,7 +34,7 @@ const bookingsOpen = envBookingsOpen('parties') || _previewMatch || hasValidPrev
 // If the visitor arrived from the calendar or a shared link, say back to them
 // what they were looking at, and pass it along with their email.
 const openingLabel = longDate(OPENING_DATE)
-const studioFee = formatMoney(partyConfig.basePriceCents)
+const studioFee = formatMoney(copy.feeCents)
 const { lookingAt, interest } = partyNotifyContext(Astro.url.searchParams, partyConfig.timezone)
 ---
 
@@ -53,7 +58,7 @@ const { lookingAt, interest } = partyNotifyContext(Astro.url.searchParams, party
           <p class="mt-4 text-base sm:text-lg max-w-xl mx-auto" style="color: var(--color-text);">
             Book online in a few minutes. No request form, no waiting for a call back.
           </p>
-          <PartyPriceLine client:load />
+          <PartyPriceLine client:load copy={copy} />
           <div class="mt-5 flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
             {/* data-open-booking: PartyLanding opens the booking panel on click.
                 It is a real link, so it still works before the script loads. */}
@@ -99,7 +104,7 @@ const { lookingAt, interest } = partyNotifyContext(Astro.url.searchParams, party
       )}
     </div>
     {bookingsOpen ? (
-      <PartyLanding client:load />
+      <PartyLanding client:load copy={copy} />
     ) : (
       <div class="notice-panel tone-party" id="notify">
         <p class="eyebrow mb-3">Opening soon</p>
@@ -155,13 +160,13 @@ const { lookingAt, interest } = partyNotifyContext(Astro.url.searchParams, party
         </a>
       )}
     </div>
-    <PartyFaq />
+    <PartyFaq copy={copy} />
     {bookingsOpen && (
       <div class="text-center mt-16">
         <h2 class="text-2xl sm:text-3xl font-heading font-bold" style="color: var(--color-dark);">
           Ready to pick a date?
         </h2>
-        <PartyPriceLine client:visible />
+        <PartyPriceLine client:visible copy={copy} />
         <a href="/book" data-open-booking class="btn btn-primary btn-lg mt-6">Book your date</a>
       </div>
     )}

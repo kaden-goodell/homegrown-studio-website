@@ -404,7 +404,7 @@ export async function sendPartyBookedEmail(input: {
       agreementLine: await agreementLineFor(input.email),
       arriveEarlyMinutes: partyConfig.hostArrivalMinutesEarly,
       minGuests: input.minGuests ?? partyConfig.minGuests,
-      refundLine: partyRefundLine(draft.startIso),
+      refundLine: partyRefundLine(draft.startIso, new Date(), input.chargedCents > 0 ? input.chargedCents : undefined),
       directionsUrl: STUDIO_DIRECTIONS_URL,
     })
     return sent

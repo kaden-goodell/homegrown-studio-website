@@ -4,9 +4,14 @@
  * emits FAQPage JSON-LD for them — the page's SEO/AEO surface. Unanswered
  * questions (empty `a`) stay invisible until Kaden fills them in.
  */
-import { partyContent } from '@config/party-content'
+import { partyContentFor, type PartyCopyFacts } from '@config/party-content'
 
-const answered = partyContent.faq.filter((f) => f.a.trim().length > 0)
+interface Props {
+  /** The party numbers in use (the page loads Parties setup once); the config when absent. */
+  copy?: PartyCopyFacts
+}
+
+const answered = partyContentFor(Astro.props.copy).faq.filter((f) => f.a.trim().length > 0)
 
 const schema = {
   '@context': 'https://schema.org',

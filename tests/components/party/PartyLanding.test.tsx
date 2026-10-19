@@ -6,9 +6,10 @@ import { formatMoney } from '@lib/money'
 // The booking panel is someone else's work in progress: stand in for it, and
 // show the props the page hands over.
 vi.mock('@components/party/PartyModal', () => ({
-  default: (props: { onClose: () => void; initialStart?: string; initialCraftId?: string; initialDate?: string }) => (
+  default: (props: { onClose: () => void; initialStart?: string; initialCraftId?: string; initialDate?: string; linkPackageId?: string }) => (
     <div
       data-testid="party-modal"
+      data-package={props.linkPackageId ?? ''}
       data-craft={props.initialCraftId ?? ''}
       data-date={props.initialDate ?? ''}
       data-start={props.initialStart ?? ''}
@@ -447,3 +448,34 @@ describe('headings', () => {
     await settled()
   })
 })
+
+describe('saved party settings', () => {
+  const copy = { feeCents: 35000, minutes: 120, minGuests: 12, maxGuests: 24, bookingWindowDays: 60 }
+
+  it('price change reaches /book copy: a saved $350 package', async () => {
+    mockApi()
+    render(<PartyLanding copy={copy} />)
+    expect(screen.getByText('Pay the $350 studio fee — the date is yours')).toBeInTheDocument()
+    expect(screen.getByText(/\$350 holds your date — that’s all that’s due today\./)).toHaveTextContent('(12-craft minimum)')
+    expect(screen.getByText(/\$350 holds your date/)).toHaveTextContent('the studio fee works out to about $29 each')
+    const section = await screen.findByText(/dates? open in the/)
+    expect(section).toHaveTextContent('next 60 days')
+    await settled()
+  })
+
+  it('the price line quotes the saved fee', async () => {
+    mockApi()
+    render(<PartyPriceLine copy={copy} />)
+    expect(await screen.findByText('$350 today holds your date. Crafts from $15 a person, paid at the studio for whoever comes.')).toBeInTheDocument()
+    expect(partyPriceLine(null, 35000)).toBe('$350 today holds your date. Crafts are paid at the studio for whoever comes.')
+  })
+
+  it('hands a ?package= link to the panel, and opens it', async () => {
+    window.history.replaceState({}, '', '/book?package=pkg_test')
+    mockApi()
+    render(<PartyLanding />)
+    expect(await screen.findByTestId('party-modal')).toHaveAttribute('data-package', 'pkg_test')
+    await settled()
+  })
+})
+

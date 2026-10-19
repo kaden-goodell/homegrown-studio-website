@@ -7,6 +7,7 @@
  * with it. Change policy here first, then sync the FAQ summaries.
  */
 
+import { formatMoney } from '@lib/money'
 import { partyConfig } from './party.config'
 
 /** Path + anchors for deep links from checkout and FAQs. */
@@ -42,133 +43,153 @@ export interface PolicySection {
 
 const W = policyWindows
 
-export const policySections: PolicySection[] = [
-  {
-    id: POLICY_ANCHORS.parties,
-    title: 'Private Parties',
-    intro:
-      `Your ${'$' + partyConfig.basePriceCents / 100} studio fee reserves the entire studio for your group. ` +
-      'Parties take real prep on our end — these windows exist so another group can book a date you release.',
-    rules: [
-      {
-        heading: `Cancel ${W.partyFullRefundDays}+ days before your party`,
-        body: 'Full refund of the studio fee to your original payment method. No questions, no fee.',
-      },
-      {
-        heading: `Cancel inside ${W.partyFullRefundDays} days`,
-        body:
-          'Your studio fee converts to studio credit for the full amount. Credit never expires and can be used ' +
-          'for any booking or purchase — we just can’t return it as cash once we’re inside the window.',
-      },
-      {
-        heading: 'Rescheduling',
-        body:
-          `Reschedule free to any open date with at least ${W.partyRescheduleNoticeHours} hours’ notice. ` +
-          `One thing to know: refund eligibility always counts from your original party date and doesn’t reset when you reschedule. ` +
-          `If you reschedule from inside the ${W.partyFullRefundDays}-day window, the studio fee becomes studio credit rather than refundable.`,
-      },
-      {
-        heading: 'Guest count and craft charges',
-        body:
-          `We’ll confirm your expected headcount about ${W.partyHeadcountLockDays} days before the party so we can prep stations and materials — ` +
-          `but crafts are charged at the studio for whoever actually comes, with a ${partyConfig.minGuests}-craft minimum. ` +
-          'Plan for 15 and 13 make it? You pay for 13. Beyond the minimum, a friend who can’t make it never costs you anything, ' +
-          'and day-of additions are welcome when supplies allow.',
-      },
-      {
-        heading: 'No-shows',
-        body:
-          'If your party doesn’t show up at all, the studio fee is forfeited — no refund or credit. We prepped the studio and held the date for you.',
-      },
-      {
-        heading: 'Personalized crafts',
-        body:
-          'Made-to-order items (clearly marked when you book) can’t be changed or refunded once they’re made, regardless of the windows above.',
-      },
-    ],
-  },
-  {
-    id: POLICY_ANCHORS.workshops,
-    title: 'Workshops',
-    rules: [
-      {
-        heading: `Cancel ${W.workshopRefundHours}+ hours before the workshop`,
-        body: 'Full refund to your original payment method.',
-      },
-      {
-        heading: `Inside ${W.workshopRefundHours} hours`,
-        body:
-          'Your choice of studio credit for the full amount (never expires) or a free seat transfer — give your seat ' +
-          'to someone else, or move yourself to another date of the same workshop.',
-      },
-      {
-        heading: 'If we cancel a workshop',
-        body:
-          'Occasionally a workshop doesn’t reach enough sign-ups to run. If we cancel, you choose: an automatic full refund or a free seat in another session.',
-      },
-    ],
-  },
-  {
-    id: POLICY_ANCHORS.closures,
-    title: 'Studio Closures & Refunds',
-    rules: [
-      {
-        heading: 'Weather and emergency closures',
-        body:
-          'If we have to close the studio (severe weather, emergencies), every affected booking gets the choice of a free reschedule or a full refund — always.',
-      },
-      {
-        heading: 'How refunds arrive',
-        body:
-          `Refunds go back to your original payment method and typically arrive in ${W.refundBusinessDays} business days, depending on your bank.`,
-      },
-      {
-        heading: 'Questions?',
-        body:
-          'Text or call us and we’ll sort it out — the fastest way to reach us is the number in the footer below.',
-      },
-    ],
-  },
-  {
-    id: POLICY_ANCHORS.records,
-    title: 'Records',
-    intro:
-      'When you sign our participation agreement, we keep a few details about your family. Here’s what we keep and why.',
-    rules: [
-      {
-        heading: 'What we keep',
-        body:
-          'The names of everyone on the agreement, each child’s birthday, any allergy or medical notes, your emergency contact if you give one, and who can pick up your kids from a drop-off class. We also keep the signature itself: when you signed, which version you signed, and basic details about the device and internet connection you signed from.',
-      },
-      {
-        heading: 'Why',
-        body:
-          'To keep everyone safe at the studio. It tells us about allergies at the craft table, who’s allowed at pickup, and who to call if something happens. It’s also our record that the agreement was signed.',
-      },
-      {
-        heading: 'How long',
-        body:
-          'We keep signed agreements for good. A question about a child’s visit can come up years later, so we don’t delete them, and we keep a backup copy in case anything happens to our website.',
-      },
-      {
-        heading: 'Who can see it',
-        body:
-          'Only the owners and the staff working that day, for check-in, pickup, and safety. We never sell it or share it with advertisers.',
-      },
-      {
-        heading: 'Getting a copy or fixing something',
-        body:
-          'Email us at the address below and we’ll send you a copy of what we have, or fix anything that’s wrong.',
-      },
-    ],
-  },
-]
+/** What the party terms quote from Parties setup: the default package's fee and craft minimum. */
+export interface PolicyFacts {
+  feeCents: number
+  minGuests: number
+}
+
+const CONFIG_POLICY_FACTS: PolicyFacts = { feeCents: partyConfig.basePriceCents, minGuests: partyConfig.minGuests }
+
+/** The policy page, for the party settings in use (the page loads them once and passes them in). */
+export function policySectionsFor(f: PolicyFacts = CONFIG_POLICY_FACTS): PolicySection[] {
+  return [
+    {
+      id: POLICY_ANCHORS.parties,
+      title: 'Private Parties',
+      intro:
+        `Your ${formatMoney(f.feeCents)} studio fee reserves the entire studio for your group. ` +
+        'Parties take real prep on our end — these windows exist so another group can book a date you release.',
+      rules: [
+        {
+          heading: `Cancel ${W.partyFullRefundDays}+ days before your party`,
+          body: 'Full refund of the studio fee to your original payment method. No questions, no fee.',
+        },
+        {
+          heading: `Cancel inside ${W.partyFullRefundDays} days`,
+          body:
+            'Your studio fee converts to studio credit for the full amount. Credit never expires and can be used ' +
+            'for any booking or purchase — we just can’t return it as cash once we’re inside the window.',
+        },
+        {
+          heading: 'Rescheduling',
+          body:
+            `Reschedule free to any open date with at least ${W.partyRescheduleNoticeHours} hours’ notice. ` +
+            `One thing to know: refund eligibility always counts from your original party date and doesn’t reset when you reschedule. ` +
+            `If you reschedule from inside the ${W.partyFullRefundDays}-day window, the studio fee becomes studio credit rather than refundable.`,
+        },
+        {
+          heading: 'Guest count and craft charges',
+          body:
+            `We’ll confirm your expected headcount about ${W.partyHeadcountLockDays} days before the party so we can prep stations and materials — ` +
+            `but crafts are charged at the studio for whoever actually comes, with a ${f.minGuests}-craft minimum. ` +
+            'Plan for 15 and 13 make it? You pay for 13. Beyond the minimum, a friend who can’t make it never costs you anything, ' +
+            'and day-of additions are welcome when supplies allow.',
+        },
+        {
+          heading: 'No-shows',
+          body:
+            'If your party doesn’t show up at all, the studio fee is forfeited — no refund or credit. We prepped the studio and held the date for you.',
+        },
+        {
+          heading: 'Personalized crafts',
+          body:
+            'Made-to-order items (clearly marked when you book) can’t be changed or refunded once they’re made, regardless of the windows above.',
+        },
+      ],
+    },
+    {
+      id: POLICY_ANCHORS.workshops,
+      title: 'Workshops',
+      rules: [
+        {
+          heading: `Cancel ${W.workshopRefundHours}+ hours before the workshop`,
+          body: 'Full refund to your original payment method.',
+        },
+        {
+          heading: `Inside ${W.workshopRefundHours} hours`,
+          body:
+            'Your choice of studio credit for the full amount (never expires) or a free seat transfer — give your seat ' +
+            'to someone else, or move yourself to another date of the same workshop.',
+        },
+        {
+          heading: 'If we cancel a workshop',
+          body:
+            'Occasionally a workshop doesn’t reach enough sign-ups to run. If we cancel, you choose: an automatic full refund or a free seat in another session.',
+        },
+      ],
+    },
+    {
+      id: POLICY_ANCHORS.closures,
+      title: 'Studio Closures & Refunds',
+      rules: [
+        {
+          heading: 'Weather and emergency closures',
+          body:
+            'If we have to close the studio (severe weather, emergencies), every affected booking gets the choice of a free reschedule or a full refund — always.',
+        },
+        {
+          heading: 'How refunds arrive',
+          body:
+            `Refunds go back to your original payment method and typically arrive in ${W.refundBusinessDays} business days, depending on your bank.`,
+        },
+        {
+          heading: 'Questions?',
+          body:
+            'Text or call us and we’ll sort it out — the fastest way to reach us is the number in the footer below.',
+        },
+      ],
+    },
+    {
+      id: POLICY_ANCHORS.records,
+      title: 'Records',
+      intro:
+        'When you sign our participation agreement, we keep a few details about your family. Here’s what we keep and why.',
+      rules: [
+        {
+          heading: 'What we keep',
+          body:
+            'The names of everyone on the agreement, each child’s birthday, any allergy or medical notes, your emergency contact if you give one, and who can pick up your kids from a drop-off class. We also keep the signature itself: when you signed, which version you signed, and basic details about the device and internet connection you signed from.',
+        },
+        {
+          heading: 'Why',
+          body:
+            'To keep everyone safe at the studio. It tells us about allergies at the craft table, who’s allowed at pickup, and who to call if something happens. It’s also our record that the agreement was signed.',
+        },
+        {
+          heading: 'How long',
+          body:
+            'We keep signed agreements for good. A question about a child’s visit can come up years later, so we don’t delete them, and we keep a backup copy in case anything happens to our website.',
+        },
+        {
+          heading: 'Who can see it',
+          body:
+            'Only the owners and the staff working that day, for check-in, pickup, and safety. We never sell it or share it with advertisers.',
+        },
+        {
+          heading: 'Getting a copy or fixing something',
+          body:
+            'Email us at the address below and we’ll send you a copy of what we have, or fix anything that’s wrong.',
+        },
+      ],
+    },
+  ]
+}
+
+/** The policy page from the config (the same as the settings until an owner saves Parties setup). */
+export const policySections: PolicySection[] = policySectionsFor()
+
+/** The party line beside the terms checkbox, for the package being booked. */
+export function partyCheckoutPolicySummary(minGuests: number = partyConfig.minGuests): string {
+  return (
+    `Free reschedule with ${W.partyRescheduleNoticeHours}h notice · full refund ${W.partyFullRefundDays}+ days out · ` +
+    `studio credit inside ${W.partyFullRefundDays} days · crafts billed for who comes (${minGuests} minimum)`
+  )
+}
 
 /** One-line checkout summaries — shown next to the terms checkbox. */
 export const checkoutPolicySummary = {
-  party:
-    `Free reschedule with ${W.partyRescheduleNoticeHours}h notice · full refund ${W.partyFullRefundDays}+ days out · ` +
-    `studio credit inside ${W.partyFullRefundDays} days · crafts billed for who comes (${partyConfig.minGuests} minimum)`,
+  party: partyCheckoutPolicySummary(),
   workshop:
     `Full refund ${W.workshopRefundHours}+ hours out · studio credit or free seat transfer inside ${W.workshopRefundHours} hours`,
 } as const

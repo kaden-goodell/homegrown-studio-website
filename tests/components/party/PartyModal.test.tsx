@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import PartyModal from '@components/party/PartyModal'
 import { CONTACT_MESSAGES } from '@lib/contact-rules'
+import { configPartySettings, publicPartyFacts } from '@lib/parties/party-times'
+import { CONFIG_STUDIO_DAYS } from '@config/studio-days'
+import type { PartyAddOn, PartyPackage, PartySettings } from '@lib/parties/types'
 
 // The real form loads Square's Web Payments SDK; stand in a ref that tokenizes and reports itself ready.
 let paymentFormReady = true
@@ -129,10 +132,10 @@ function fillContact() {
   }
 }
 
-async function pay(date = 'Nov 7') {
+async function pay(date = 'Nov 7', amount = '$300') {
   fillContact()
   fireEvent.click(screen.getByRole('checkbox'))
-  fireEvent.click(await screen.findByRole('button', { name: `Pay $300 and reserve ${date}` }))
+  fireEvent.click(await screen.findByRole('button', { name: `Pay ${amount} and reserve ${date}` }))
 }
 
 describe('PartyModal — the craft step', () => {
@@ -458,7 +461,7 @@ describe('PartyModal — paying', () => {
     expect(screen.getByRole('button', { name: 'Loading payment form…' })).toBeDisabled()
   })
 
-  it('sends what was chosen, under one attempt ID', async () => {
+  it('sends what was chosen, under one attempt ID, and never a price', async () => {
     open()
     await toPay()
     await pay()
@@ -466,15 +469,19 @@ describe('PartyModal — paying', () => {
     const body = JSON.parse(requestsTo('book')[0][1].body)
     expect(body).toMatchObject({
       startTime: SAT_1.startAt,
-      serviceVariationId: 'var-party',
-      serviceVariationVersion: 7,
-      people: 10,
-      craft: { id: 'c-keys', name: 'Bubble Letter Keychains', perHeadCents: 2000 },
+      packageId: 'pkg_whole',
+      guests: 10,
+      addOns: {},
+      craftId: 'c-keys',
       customer: { firstName: 'Ada', lastName: 'Lovelace', email: 'ada@example.com', phone: '(256) 555-0123' },
       paymentToken: 'cnon:test-token',
       sourceKind: 'card',
     })
     expect(body.attemptId).toMatch(/^[0-9a-f-]{36}$/)
+    // The server prices the party from the saved settings and the catalog.
+    expect(JSON.stringify(body)).not.toMatch(/cents|price|amount|durationMinutes|imageUrl/i)
+    expect(body).not.toHaveProperty('craft')
+    expect(body).not.toHaveProperty('people')
   })
 
   it('shows a short gift card message as written, and stays on the pay step', async () => {
@@ -670,5 +677,272 @@ describe('PartyModal — when the panel cannot load', () => {
     answers['service-info'] = { body: { data: serviceInfo } }
     fireEvent.click(within(alert).getByRole('button', { name: 'Try again' }))
     expect(await screen.findByText('Bubble Letter Keychains')).toBeInTheDocument()
+  })
+})
+
+// ── Parties setup reaches /book ──────────────────────────────────────────────
+
+/** The facts service-info sends: the config's Parties setup, changed as a test needs. */
+function factsWith(change: (s: PartySettings) => void = () => {}, opts: { packageId?: string } = {}) {
+  const s = configPartySettings()
+  change(s)
+  return publicPartyFacts(s, CONFIG_STUDIO_DAYS, new Date(), opts)
+}
+const addOn = (a: Partial<PartyAddOn> & Pick<PartyAddOn, 'id' | 'label' | 'priceCents'>): PartyAddOn => ({
+  per: 'party', extraMinutes: 0, maxQty: 1, online: true, archived: false, ...a,
+})
+const pkgOf = (p: Partial<PartyPackage> & Pick<PartyPackage, 'id' | 'name' | 'priceCents'>): PartyPackage => ({
+  minutes: 90, minGuests: 10, maxGuests: 30, defaultGuests: 10, quickPicks: [10, 15, 20, 25, 30], who: 'everyone', archived: false, ...p,
+})
+function serveFacts(facts: ReturnType<typeof factsWith>) {
+  answers['service-info'] = { body: { data: { ...serviceInfo, facts } } }
+}
+const payButton = (label: string) => screen.findByRole('button', { name: label })
+const bookBodies = () => requestsTo('book').map(([, init]) => JSON.parse(init.body))
+
+describe('PartyModal — saved party settings', () => {
+  it('with the config as the settings, shows the same steps, quick picks, guest limits and Pay label as today', async () => {
+    serveFacts(factsWith())
+    open()
+    expect(await screen.findByText('Step 1 of 4')).toBeInTheDocument()
+    await toGuests()
+    expect(screen.getByText('Step 3 of 4')).toBeInTheDocument()
+    expect(within(screen.getByRole('group', { name: /About how many guests/ })).getAllByRole('button').map((b) => b.textContent).slice(0, 5)).toEqual(['10', '15', '20', '25', '30'])
+    expect(screen.getByRole('button', { name: 'Fewer guests' })).toBeDisabled()
+    expect(screen.getByText('An estimate is fine. Parties are for 10 to 30 guests, and you pay for crafts at the studio for whoever comes.')).toBeInTheDocument()
+    next()
+    expect(await payButton('Pay $300 and reserve Nov 7')).toBeInTheDocument()
+    expect(screen.getByText('Step 4 of 4')).toBeInTheDocument()
+  })
+
+  it('has no extras step when no add-on is offered online', async () => {
+    serveFacts(factsWith((s) => { s.addOns = [addOn({ id: 'add_owner', label: 'Owner only', priceCents: 5000, online: false })] }))
+    open()
+    expect(await screen.findByText('Step 1 of 4')).toBeInTheDocument()
+    await toPay()
+    expect(screen.queryByText('Add extras?')).toBeNull()
+  })
+
+  it('an online add-on adds the extras step, and the Pay label includes it', async () => {
+    serveFacts(factsWith((s) => { s.addOns = [addOn({ id: 'add_arch', label: 'Balloon arch', priceCents: 5000 })] }))
+    open()
+    expect(await screen.findByText('Step 1 of 5')).toBeInTheDocument()
+    await toGuests()
+    next()
+    expect(await screen.findByText('Add extras?')).toBeInTheDocument()
+    expect(screen.getByText('Extras')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Balloon arch/ }))
+    expect(screen.getByRole('button', { name: /Balloon arch/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('region', { name: 'Price summary' })).toHaveTextContent('Balloon arch$50')
+    next()
+    await screen.findByTestId('payment-form')
+    expect(await payButton('Pay $350 and reserve Nov 7')).toBeInTheDocument()
+    await pay('Nov 7', '$350')
+    await waitFor(() => expect(requestsTo('book')).toHaveLength(1))
+    expect(bookBodies()[0].addOns).toEqual({ add_arch: 1 })
+  })
+
+  it('counts an extra offered several to a party, up to its most', async () => {
+    serveFacts(factsWith((s) => { s.addOns = [addOn({ id: 'add_balloons', label: 'Balloon bunches', priceCents: 500, maxQty: 3 })] }))
+    open()
+    await toGuests()
+    next()
+    const more = await screen.findByRole('button', { name: 'More Balloon bunches' })
+    for (let i = 0; i < 4; i++) fireEvent.click(more)
+    expect(more).toBeDisabled()
+    expect(screen.getByRole('region', { name: 'Price summary' })).toHaveTextContent('Balloon bunches × 3$15')
+    fireEvent.click(screen.getByRole('button', { name: 'Fewer Balloon bunches' }))
+    expect(screen.getByRole('region', { name: 'Price summary' })).toHaveTextContent('Balloon bunches × 2$10')
+  })
+
+  it('a per-guest add-on follows the guest count', async () => {
+    serveFacts(factsWith((s) => { s.addOns = [addOn({ id: 'add_bags', label: 'Goodie bags', priceCents: 800, per: 'guest' })] }))
+    open()
+    await toGuests()
+    next()
+    fireEvent.click(await screen.findByRole('button', { name: /Goodie bags/ }))
+    expect(screen.getByRole('region', { name: 'Price summary' })).toHaveTextContent('Goodie bags, 10 guests × $8$80')
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    fireEvent.click(await screen.findByRole('button', { name: '15' }))
+    next()
+    expect(await screen.findByRole('region', { name: 'Price summary' })).toHaveTextContent('Goodie bags, 15 guests × $8$120')
+    next()
+    expect(await payButton('Pay $420 and reserve Nov 7')).toBeInTheDocument()
+  })
+
+  it('price change reaches the Pay button: a saved $350 package', async () => {
+    serveFacts(factsWith((s) => { s.packages[0].priceCents = 35000 }))
+    open()
+    await toPay()
+    expect(await payButton('Pay $350 and reserve Nov 7')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Price summary' })).toHaveTextContent('Studio fee, holds Sat, Nov 7 at 1:30 PM$350')
+  })
+
+  it('price change reaches the refund line: a saved $350 package inside 14 days', async () => {
+    vi.setSystemTime(new Date('2026-10-30T17:00:00.000Z'))
+    serveFacts(factsWith((s) => { s.packages[0].priceCents = 35000 }))
+    open()
+    await toPay()
+    expect(screen.getByText(/so the \$350 is refundable as studio credit, not cash/)).toBeInTheDocument()
+  })
+
+  it('a 120-minute package changes the length copy, and asks for times for that package', async () => {
+    serveFacts(factsWith((s) => { s.packages[0].minutes = 120 }))
+    open()
+    await toWhen()
+    expect(screen.getByText('Every party is 120 minutes. The whole studio, just your group.')).toBeInTheDocument()
+    expect(JSON.parse(requestsTo('available-dates')[0][1].body)).toEqual({ packageId: 'pkg_whole' })
+  })
+
+  it('takes guest limits and quick picks from the package', async () => {
+    serveFacts(factsWith((s) => { Object.assign(s.packages[0], { minGuests: 6, maxGuests: 12, defaultGuests: 8, quickPicks: [6, 8, 12] }) }))
+    open()
+    await toGuests()
+    expect(screen.getByRole('button', { name: '8' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.queryByRole('button', { name: '15' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: '12' }))
+    expect(screen.getByText('12 guests is the most the studio holds.')).toBeInTheDocument()
+  })
+
+  it('?package=pkg_test shows the test package, chosen, and books it by link', async () => {
+    const test = pkgOf({ id: 'pkg_test', name: 'Test party', priceCents: 100, who: 'link' })
+    serveFacts(factsWith((s) => { s.packages.push(test) }, { packageId: 'pkg_test' }))
+    open({ linkPackageId: 'pkg_test' })
+    await pickCraft()
+    expect(String(requestsTo('service-info')[0][0])).toContain('package=pkg_test')
+    expect(screen.getByText('Step 1 of 5')).toBeInTheDocument()
+    next()
+    expect(await screen.findByText('Choose your party')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Test party/ })).toHaveAttribute('aria-pressed', 'true')
+    next()
+    await screen.findByRole('button', { name: 'Sat, Nov 7' })
+    fireEvent.click(screen.getByRole('button', { name: 'Sat, Nov 7' }))
+    fireEvent.click(await screen.findByRole('button', { name: '1:30 PM' }))
+    next()
+    await screen.findByText('About how many guests?')
+    next()
+    await screen.findByTestId('payment-form')
+    expect(await payButton('Pay $1 and reserve Nov 7')).toBeInTheDocument()
+    await pay('Nov 7', '$1')
+    await waitFor(() => expect(requestsTo('book')).toHaveLength(1))
+    expect(bookBodies()[0]).toMatchObject({ packageId: 'pkg_test', linkPackageId: 'pkg_test' })
+  })
+
+  it('offers no link-only package without its link', async () => {
+    serveFacts(factsWith())
+    open()
+    await pickCraft()
+    expect(screen.getByText('Step 1 of 4')).toBeInTheDocument()
+    expect(String(requestsTo('service-info')[0][0])).not.toContain('package=')
+  })
+
+  it('says so before paying when the extra time no longer fits the chosen start', async () => {
+    serveFacts(factsWith((s) => { s.addOns = [addOn({ id: 'add_time', label: 'Extra half hour', priceCents: 7500, extraMinutes: 30 })] }))
+    answers.availability = { body: { data: { slots: [] } } }
+    open()
+    await toGuests()
+    next()
+    fireEvent.click(await screen.findByRole('button', { name: /Extra half hour/ }))
+    next()
+    expect(await screen.findByText(/doesn’t leave room for the extra time/)).toBeInTheDocument()
+    expect(JSON.parse(requestsTo('availability')[0][1].body)).toMatchObject({ date: SAT, packageId: 'pkg_whole', addOns: { add_time: 1 } })
+    expect(screen.queryByTestId('payment-form')).toBeNull()
+  })
+})
+
+describe('PartyModal — attempt IDs', () => {
+  async function payAgain(label = 'Pay $300 and reserve Nov 7') {
+    const n = requestsTo('book').length
+    fireEvent.click(await payButton(label))
+    await waitFor(() => expect(requestsTo('book')).toHaveLength(n + 1))
+    await screen.findByRole('alert')
+  }
+
+  it('after a 402 the next submit is a new attempt; after a 502 unknown outcome, the same one', async () => {
+    answers.book = { status: 402, body: { code: 'card_declined', detail: 'Your card was declined, so we released the date. Nothing was charged. Try another card.' } }
+    open()
+    await toPay()
+    await pay()
+    await screen.findByRole('alert')
+    answers.book = { status: 502, body: { code: 'unknown_outcome', detail: 'We’re not sure that went through.' } }
+    await payAgain()
+    await payAgain()
+    const ids = bookBodies().map((b) => b.attemptId)
+    expect(ids[1]).not.toBe(ids[0])
+    expect(ids[2]).toBe(ids[1])
+  })
+
+  it('keeps the attempt after 409 in_progress (still finishing the last try)', async () => {
+    answers.book = { status: 409, body: { code: 'in_progress', detail: 'We’re still finishing your last try. Give it a minute, then check your email before trying again.' } }
+    open()
+    await toPay()
+    await pay()
+    expect(await screen.findByRole('alert')).toHaveTextContent('We’re still finishing your last try.')
+    await payAgain()
+    const ids = bookBodies().map((b) => b.attemptId)
+    expect(ids[1]).toBe(ids[0])
+    // Not sent back to pick a time: the time is the try's own.
+    expect(screen.getByTestId('payment-form')).toBeInTheDocument()
+  })
+
+  it('starts a new attempt after "Something changed" (503 unavailable)', async () => {
+    answers.book = { status: 503, body: { code: 'unavailable', detail: 'Something changed. Nothing was charged. Please try again.' } }
+    open()
+    await toPay()
+    await pay()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Something changed. Nothing was charged. Please try again.')
+    await payAgain()
+    const ids = bookBodies().map((b) => b.attemptId)
+    expect(ids[1]).not.toBe(ids[0])
+  })
+
+  it('starts a new attempt when the extras change after an unclear try', async () => {
+    serveFacts(factsWith((s) => { s.addOns = [addOn({ id: 'add_arch', label: 'Balloon arch', priceCents: 5000 })] }))
+    answers.book = { status: 502, body: { code: 'unknown_outcome', detail: 'We’re not sure that went through.' } }
+    open()
+    await toGuests()
+    next()
+    await screen.findByText('Add extras?')
+    next()
+    await screen.findByTestId('payment-form')
+    await pay()
+    await screen.findByRole('alert')
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Balloon arch/ }))
+    next()
+    await screen.findByTestId('payment-form')
+    await payAgain('Pay $350 and reserve Nov 7')
+    const ids = bookBodies().map((b) => b.attemptId)
+    expect(ids[1]).not.toBe(ids[0])
+  })
+
+  it('starts a new attempt when the package changes after an unclear try', async () => {
+    serveFacts(factsWith((s) => { s.packages.push(pkgOf({ id: 'pkg_table', name: 'Table party', priceCents: 15000 })) }))
+    answers.book = { status: 502, body: { code: 'unknown_outcome', detail: 'We’re not sure that went through.' } }
+    open()
+    await pickCraft()
+    next()
+    expect(await screen.findByText('Choose your party')).toBeInTheDocument()
+    next()
+    fireEvent.click(await screen.findByRole('button', { name: 'Sat, Nov 7' }))
+    fireEvent.click(await screen.findByRole('button', { name: '1:30 PM' }))
+    next()
+    await screen.findByText('About how many guests?')
+    next()
+    await screen.findByTestId('payment-form')
+    await pay()
+    await screen.findByRole('alert')
+    for (let i = 0; i < 3; i++) fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Table party/ }))
+    next()
+    fireEvent.click(await screen.findByRole('button', { name: '1:30 PM' }))
+    next()
+    await screen.findByText('About how many guests?')
+    next()
+    await screen.findByTestId('payment-form')
+    await payAgain('Pay $150 and reserve Nov 7')
+    const bodies = bookBodies()
+    expect(bodies[1].packageId).toBe('pkg_table')
+    expect(bodies[1].attemptId).not.toBe(bodies[0].attemptId)
   })
 })

@@ -54,8 +54,9 @@ describe('site copy', () => {
       expect(home).not.toMatch(/\$\d/)
     })
 
-    it('takes the party price from the party config', () => {
-      expect(home).toContain('formatMoney(partyConfig.basePriceCents)')
+    it('takes the party price from the saved party settings (the config until saved)', () => {
+      expect(home).toContain('lowestPackageCents(await getPartySettings())')
+      expect(home).toContain('formatMoney(partyFromCents)')
     })
 
     it('prices workshops "per seat" without naming a number', () => {

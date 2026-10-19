@@ -73,3 +73,40 @@ describe('partySummary', () => {
     expect(s.payLabel).toBe('Pay $300 and reserve your date')
   })
 })
+
+describe('partySummary with saved party settings', () => {
+  it('a saved $350 package reaches pay today, the total and the Pay button', () => {
+    const s = partySummary({ startIso: START, craft: keychains, guests: 10, pkg: { priceCents: 35000, minGuests: 12 } })
+    expect(s.today).toEqual([{ label: 'Studio fee, holds Sat, Oct 17 at 2:00 PM', amount: '$350' }])
+    expect(s.dueTodayCents).toBe(35000)
+    expect(s.atStudio[0].note).toBe('Only for guests who come. Minimum 12 crafts.')
+    expect(s.estimatedTotal).toBe('about $550')
+    expect(s.payLabel).toBe('Pay $350 and reserve Oct 17')
+  })
+
+  it('names the package when one was chosen', () => {
+    const s = partySummary({ startIso: START, guests: 10, pkg: { name: 'Table party', priceCents: 15000, minGuests: 6 } })
+    expect(s.today[0]).toEqual({ label: 'Table party, holds Sat, Oct 17 at 2:00 PM', amount: '$150' })
+  })
+
+  it('puts extras under pay today and into the button; crafts stay at the studio', () => {
+    const s = partySummary({
+      startIso: START, craft: keychains, guests: 12,
+      extras: [
+        { label: 'Extra half hour', count: 1, unitCents: 7500, cents: 7500 },
+        { label: 'Goodie bags', count: 1, forGuests: 12, unitCents: 800, cents: 9600 },
+        { label: 'Balloons', count: 3, unitCents: 500, cents: 1500 },
+        { label: 'Two bags each', count: 2, forGuests: 12, unitCents: 800, cents: 19200 },
+      ],
+    })
+    expect(s.today.slice(1)).toEqual([
+      { label: 'Extra half hour', amount: '$75' },
+      { label: 'Goodie bags, 12 guests × $8', amount: '$96' },
+      { label: 'Balloons × 3', amount: '$15' },
+      { label: 'Two bags each, 2 each for 12 guests × $8', amount: '$192' },
+    ])
+    expect(s.dueTodayCents).toBe(30000 + 7500 + 9600 + 1500 + 19200)
+    expect(s.payLabel).toBe('Pay $678 and reserve Oct 17')
+    expect(s.atStudio[0].label).toBe('Bubble Letter Keychains, about 12 guests × $20')
+  })
+})

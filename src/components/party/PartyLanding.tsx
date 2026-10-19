@@ -1,8 +1,7 @@
 import { useState, useEffect, useRef, type CSSProperties } from 'react'
 import PartyModal from './PartyModal'
 import NotifyMe from '@components/shared/NotifyMe'
-import { partyConfig } from '@config/party.config'
-import { partyContent } from '@config/party-content'
+import { CONFIG_COPY_FACTS, partyContentFor, type PartyCopyFacts } from '@config/party-content'
 import { craftShareUrl, PICKED_CRAFT_KEY } from '@lib/party-share'
 import { formatMoney } from '@lib/money'
 import { trackViewItemList, trackSelectItem, trackShare, type AnalyticsItem } from '@lib/analytics'
@@ -40,12 +39,13 @@ export function lowestCraftCents(crafts: Pick<Craft, 'perHeadCents'>[]): number 
 }
 
 /**
- * The one sentence that says what a party costs. The fee comes from config and
- * the "from" price from the craft list; with no list, the sentence goes
- * without a craft price rather than show a wrong one.
+ * The one sentence that says what a party costs. The fee comes from the party
+ * settings (the config until an owner saves) and the "from" price from the
+ * craft list; with no list, the sentence goes without a craft price rather
+ * than show a wrong one.
  */
-export function partyPriceLine(lowestCents: number | null): string {
-  const fee = formatMoney(partyConfig.basePriceCents)
+export function partyPriceLine(lowestCents: number | null, feeCents: number = CONFIG_COPY_FACTS.feeCents): string {
+  const fee = formatMoney(feeCents)
   return lowestCents === null
     ? `${fee} today holds your date. Crafts are paid at the studio for whoever comes.`
     : `${fee} today holds your date. Crafts from ${formatMoney(lowestCents)} a person, paid at the studio for whoever comes.`
@@ -53,8 +53,8 @@ export function partyPriceLine(lowestCents: number | null): string {
 
 /** The studio fee split across an example party: "$25 each", or "about $23 each" when it doesn't divide evenly. */
 export function feeShareLine(
-  feeCents: number = partyConfig.basePriceCents,
-  guests: number = partyContent.deposit.perPersonExample.guests,
+  feeCents: number = CONFIG_COPY_FACTS.feeCents,
+  guests: number = partyContentFor().deposit.perPersonExample.guests,
 ): string {
   const each = formatMoney(Math.round(feeCents / guests / 100) * 100)
   const exact = feeCents % (guests * 100) === 0
@@ -133,13 +133,18 @@ function useServiceInfo(): { info: ServiceInfo | null; status: LoadStatus } {
   return state
 }
 
+/** The party numbers the page was rendered with (book.astro loads Parties setup once and passes them). */
+interface CopyProps {
+  copy?: PartyCopyFacts
+}
+
 /**
  * The price sentence as its own island, for the parts of /book that live in
  * book.astro (the hero and the closing section).
  */
-export function PartyPriceLine() {
+export function PartyPriceLine({ copy = CONFIG_COPY_FACTS }: CopyProps = {}) {
   const { info, status } = useServiceInfo()
-  const fee = formatMoney(partyConfig.basePriceCents)
+  const fee = formatMoney(copy.feeCents)
   return (
     <p style={{ margin: '1rem auto 0', maxWidth: '34rem', fontSize: '0.9375rem', fontWeight: 600, lineHeight: 1.5, color: 'var(--color-dark)' }}>
       {status === 'loading' ? (
@@ -150,7 +155,7 @@ export function PartyPriceLine() {
           <span className="animate-pulse" aria-hidden="true" style={{ ...pulseBlock, display: 'inline-block', width: '2.6em', height: '1em', verticalAlign: '-0.12em' }} />{' '}
           a person, paid at the studio for whoever comes.
         </>
-      ) : partyPriceLine(lowestCraftCents(info?.crafts ?? []))}
+      ) : partyPriceLine(lowestCraftCents(info?.crafts ?? []), copy.feeCents)}
     </p>
   )
 }
@@ -184,7 +189,8 @@ function CraftCardSkeleton() {
   )
 }
 
-export default function PartyLanding() {
+export default function PartyLanding({ copy = CONFIG_COPY_FACTS }: CopyProps = {}) {
+  const content = partyContentFor(copy)
   const { info, status: infoStatus } = useServiceInfo()
   const crafts = info?.crafts ?? []
   const variationId = info?.variationId ?? null
@@ -198,6 +204,8 @@ export default function PartyLanding() {
   const [initialStart, setInitialStart] = useState<string | undefined>(undefined)
   const [initialCraftId, setInitialCraftId] = useState<string | undefined>(undefined)
   const [initialDate, setInitialDate] = useState<string | undefined>(undefined)
+  /** `?package=<id>`: a package booked only by link (the test package). Kept for every opening of the panel. */
+  const [linkPackageId, setLinkPackageId] = useState<string | undefined>(undefined)
   const [sharedCraftId, setSharedCraftId] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -226,7 +234,8 @@ export default function PartyLanding() {
         const res = await fetch('/api/party/available-dates.json', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ serviceVariationId: variationId }),
+          // `variationId` is the default package's id now (service-info keeps the old name).
+          body: JSON.stringify({ packageId: variationId }),
         })
         if (cancelled) return
         if (!res.ok) return setDatesStatus('error')
@@ -264,16 +273,18 @@ export default function PartyLanding() {
   }, [])
 
   // Deeplinks: ?start=<ISO> (calendar slot), ?date=<YYYY-MM-DD> (calendar day),
-  // and/or ?craft=<id> (shared craft link).
+  // ?craft=<id> (shared craft link), and/or ?package=<id> (a link-only package).
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const start = params.get('start')
     const date = params.get('date')
     const craft = params.get('craft')
+    const pkg = params.get('package')
     if (start) setInitialStart(start)
     if (date && !start) setInitialDate(date)
     if (craft) setInitialCraftId(craft)
-    if (start || date || craft) setModalOpen(true)
+    if (pkg) setLinkPackageId(pkg)
+    if (start || date || craft || pkg) setModalOpen(true)
   }, [])
 
   const craftItem = (c: Craft, i?: number): AnalyticsItem => ({
@@ -470,7 +481,7 @@ export default function PartyLanding() {
           <>
             <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0 0 1.25rem' }}>
               Parties run on weekends. {nextDates.length} date{nextDates.length === 1 ? '' : 's'} open in the
-              next {partyConfig.bookingWindowDays} days.
+              next {copy.bookingWindowDays} days.
             </p>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'center' }}>
               {nextDates.slice(0, 6).map((d) => (
@@ -504,7 +515,7 @@ export default function PartyLanding() {
         {datesStatus === 'ready' && nextDates.length === 0 && (
           <div className="tone-party">
             <p style={{ fontSize: '0.9375rem', color: 'var(--color-text)', margin: '0 auto 1.25rem', maxWidth: '30rem' }}>
-              No open dates in the next {partyConfig.bookingWindowDays} days. Leave your email and we’ll tell you when more open.
+              No open dates in the next {copy.bookingWindowDays} days. Leave your email and we’ll tell you when more open.
             </p>
             <NotifyMe
               interest="party:more-dates"
@@ -516,7 +527,7 @@ export default function PartyLanding() {
         {datesStatus === 'error' && (
           <p style={{ fontSize: '0.9375rem', color: 'var(--color-text)', margin: '0 auto', maxWidth: '30rem' }}>
             We couldn’t load the open dates. You can still choose your date when you book, or text us
-            at {partyContent.textNumber}.
+            at {content.textNumber}.
           </p>
         )}
       </section>
@@ -527,10 +538,10 @@ export default function PartyLanding() {
           The whole studio is yours
         </h3>
         <p style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--color-dark)', lineHeight: 1.6, margin: '0 0 0.5rem' }}>
-          {partyContent.deposit.positioningLine}
+          {content.deposit.positioningLine}
         </p>
         <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', lineHeight: 1.6, margin: 0 }}>
-          {partyContent.deposit.holdLine} {feeShareLine()} {partyContent.deposit.noShowLine}
+          {content.deposit.holdLine} {feeShareLine(copy.feeCents, content.deposit.perPersonExample.guests)} {content.deposit.noShowLine}
         </p>
       </div>
 
@@ -543,7 +554,7 @@ export default function PartyLanding() {
           {[
             { step: '1', text: 'Pick your craft and a date' },
             { step: '2', text: 'Tell us roughly how many guests' },
-            { step: '3', text: `Pay the ${formatMoney(partyConfig.basePriceCents)} studio fee — the date is yours` },
+            { step: '3', text: `Pay the ${formatMoney(copy.feeCents)} studio fee — the date is yours` },
             { step: '4', text: 'Guests pay for crafts at the studio, based on who comes' },
           ].map(({ step, text }) => (
             <div key={step} style={{ display: 'flex', alignItems: 'center', gap: '1rem', padding: '0.875rem 1.25rem', borderRadius: '0.75rem', background: 'rgba(255, 255, 255, 0.6)', border: '1px solid rgba(var(--color-primary-rgb), 0.08)' }}>
@@ -572,7 +583,7 @@ export default function PartyLanding() {
           boxShadow: '0 -6px 24px rgba(var(--color-primary-rgb), 0.10)',
         }}>
           <button type="button" className="btn btn-primary" data-track-cta="party_book_button" data-track-where="sticky_bar" onClick={() => openModal()} style={{ width: '100%' }}>
-            {`Book your date — ${formatMoney(partyConfig.basePriceCents)} holds it`}
+            {`Book your date — ${formatMoney(copy.feeCents)} holds it`}
           </button>
         </div>
       )}
@@ -583,6 +594,7 @@ export default function PartyLanding() {
           initialStart={initialStart}
           initialCraftId={initialCraftId}
           initialDate={initialDate}
+          linkPackageId={linkPackageId}
         />
       )}
     </div>

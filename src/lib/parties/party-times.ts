@@ -17,7 +17,7 @@
 import { partyConfig, partyDays, partyDateOverrides, CAFE_PARTY_GAP_MINUTES } from '../../config/party.config'
 import { closureOn } from '../../config/closures'
 import { STUDIO_HOURS, WEEKDAYS } from '../../config/hours'
-import type { StudioDays } from '../../config/studio-days'
+import { CONFIG_STUDIO_DAYS, type StudioDays } from '../../config/studio-days'
 import { cafeOn } from '../cafe-days'
 import { SettingsError } from '../settings-error'
 import type { PartyAddOn, PartyPackage, PartySettings, PartySettingsInput, PartyTimes, WeekdayKey } from './types'
@@ -248,6 +248,20 @@ export function publicPartyFacts(s: PartySettings, days: StudioDays, now: Date, 
   const packages = s.packages.filter((p) => !p.archived && (p.who === 'everyone' || (p.who === 'link' && opts.packageId !== undefined && p.id === opts.packageId)))
   const addOns = s.addOns.filter((a) => !a.archived && a.online)
   return { packages, addOns, times: s.times, days, ...bookableDates(s.times, now) }
+}
+
+/** The facts /book has before the saved ones arrive: the config's (first paint only). */
+export function configPublicFacts(now: Date = new Date()): PublicPartyFacts {
+  return publicPartyFacts(configPartySettings(), CONFIG_STUDIO_DAYS, now)
+}
+
+/**
+ * The facts as party settings, so the browser can run the same rules
+ * (partyStartsForDate, pricing.ts quoteParty) the server runs. Holds only
+ * what /book may know: packages it can book and online extras.
+ */
+export function settingsFromFacts(f: Pick<PublicPartyFacts, 'packages' | 'addOns' | 'times'>): PartySettings {
+  return { times: f.times, packages: f.packages, addOns: f.addOns, readSquareBookings: false, updatedAt: null, by: null, history: [] }
 }
 
 // ---------------------------------------------------------------- owner-readable words

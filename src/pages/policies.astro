@@ -1,8 +1,17 @@
 ---
-export const prerender = true
+export const prerender = false
 
 import Layout from '@layouts/StaticLayout.astro'
-import { policySections } from '@config/policy-content'
+import { policySectionsFor } from '@config/policy-content'
+import { partyCopyFacts } from '@config/party-content'
+import { getPartySettings } from '@lib/parties/settings-store'
+import { publicPageHeaders } from '@lib/cache-headers'
+
+// The party terms quote the fee and craft minimum from the owners' Parties
+// setup (read once, never strict). Netlify keeps a ready copy (cache-headers.ts).
+const pageCache = publicPageHeaders(Astro.request, Astro.url)
+if (pageCache) for (const [k, v] of Object.entries(pageCache)) Astro.response.headers.set(k, v)
+const policySections = policySectionsFor(partyCopyFacts(await getPartySettings()))
 ---
 
 <Layout

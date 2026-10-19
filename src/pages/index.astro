@@ -1,18 +1,25 @@
 ---
-export const prerender = true
+export const prerender = false
 
 import Layout from '@layouts/StaticLayout.astro'
 import { siteConfig } from '@config/site.config'
-import { partyConfig } from '@config/party.config'
+import { lowestPackageCents } from '@config/party-content'
+import { getPartySettings } from '@lib/parties/settings-store'
+import { publicPageHeaders } from '@lib/cache-headers'
 import { formatMoney } from '@lib/money'
 import { OPEN_STUDIO_START_DATE, OPEN_STUDIO_START_LABEL } from '@config/opening'
 const walkInOpen = new Date() >= new Date(OPEN_STUDIO_START_DATE + 'T00:00:00-06:00')
 import Newsletter from '@components/shared/Newsletter'
 import UpcomingWorkshops from '@components/home/UpcomingWorkshops'
 
-// Prices here come from config. This page is built ahead of time and never
-// asks Square, so anything priced in Square (crafts, workshop seats) is
-// described without a number.
+// Rendered on the server so the party price follows the owners' Parties setup
+// (read once, never strict: the config stands in if the store can't be read).
+// Netlify keeps a ready copy (see cache-headers.ts). The page never asks
+// Square, so anything priced in Square (crafts, workshop seats) is described
+// without a number.
+const pageCache = publicPageHeaders(Astro.request, Astro.url)
+if (pageCache) for (const [k, v] of Object.entries(pageCache)) Astro.response.headers.set(k, v)
+const partyFromCents = lowestPackageCents(await getPartySettings())
 const offerings = [
   {
     title: 'Craft Café',
@@ -39,7 +46,7 @@ const offerings = [
   {
     title: 'Private parties',
     tone: 'tone-party',
-    price: `Whole studio · from ${formatMoney(partyConfig.basePriceCents)}`,
+    price: `Whole studio · from ${formatMoney(partyFromCents)}`,
     description: 'The whole room for your people — birthdays, girls’ nights, showers, team nights, or just because.',
     href: '/book',
     cta: 'Plan your party',

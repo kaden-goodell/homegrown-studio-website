@@ -1,7 +1,11 @@
 /**
  * Pure step-flow model for the party booking modal.
  *
- * The canonical order is craft → when → who → pay. An exact time that arrives
+ * The canonical order is craft → package → when → who → extras → pay. The
+ * package step is there only when there is a choice to make (more than one
+ * package offered, or a link that names its own package); the extras step only
+ * when there are extras to add (online add-ons, or themed tables). An exact
+ * time that arrives
  * from a calendar link is already settled, so that step is removed and the
  * progress indicator counts only steps the customer will see.
  *
@@ -10,29 +14,37 @@
  * choice changed. The craft arrives selected, so it costs one tap.
  */
 
-export type PartyStepId = 'craft' | 'when' | 'who' | 'theme' | 'pay'
+export type PartyStepId = 'craft' | 'package' | 'when' | 'who' | 'extras' | 'pay'
 
 export interface FlowInput {
   /** A ?start deeplink matched a real available slot — drop the when step. */
   slotSettled: boolean
-  /** Themed tables exist for this booking (feature live + stocked). Absent/false drops the step. */
+  /** Themed tables exist for this booking (feature live + stocked). */
   themesAvailable?: boolean
+  /** How many add-ons /book offers. With none and no themed tables, there is no extras step. */
+  addOnCount?: number
+  /** How many packages /book offers. */
+  packageCount?: number
+  /** A `?package=` link named a package that is only booked by link (the test package). */
+  linkPackage?: boolean
 }
 
-const ORDER: PartyStepId[] = ['craft', 'when', 'who', 'theme', 'pay']
+const ORDER: PartyStepId[] = ['craft', 'package', 'when', 'who', 'extras', 'pay']
 
 const LABELS: Record<PartyStepId, string> = {
   craft: 'Craft',
+  package: 'Package',
   when: 'Date and time',
   who: 'Guests',
-  theme: 'Themed table',
+  extras: 'Extras',
   pay: 'Your details and payment',
 }
 
 export function visibleSteps(input: FlowInput): PartyStepId[] {
   return ORDER.filter((id) => {
     if (id === 'when' && input.slotSettled) return false
-    if (id === 'theme' && !input.themesAvailable) return false
+    if (id === 'package' && !((input.packageCount ?? 1) > 1 || input.linkPackage)) return false
+    if (id === 'extras' && !((input.addOnCount ?? 0) > 0 || input.themesAvailable)) return false
     return true
   })
 }

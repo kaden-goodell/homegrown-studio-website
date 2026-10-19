@@ -21,13 +21,15 @@ export function workshopRefundLine(): string {
  * For a party on a given date. The cash refund runs until a set number of
  * days before the party; a date booked inside that window is credit-only from
  * the moment it is paid, and the customer is told so before they pay.
+ * `feeCents`: what is paid to book (the package and any extras); the
+ * config's studio fee when not given.
  */
-export function partyRefundLine(startIso: string, now: Date = new Date()): string {
+export function partyRefundLine(startIso: string, now: Date = new Date(), feeCents: number = partyConfig.basePriceCents): string {
   const days = policyWindows.partyFullRefundDays
   const lastFullRefund = new Date(new Date(startIso).getTime() - days * DAY_MS)
   if (lastFullRefund.getTime() > now.getTime()) {
     return `Full refund until ${formatMonthDay(lastFullRefund.toISOString())}. After that, studio credit.`
   }
-  const fee = formatMoney(partyConfig.basePriceCents)
+  const fee = formatMoney(feeCents)
   return `This date is less than ${days} days away, so the ${fee} is refundable as studio credit, not cash. Free reschedule with ${policyWindows.partyRescheduleNoticeHours} hours’ notice.`
 }

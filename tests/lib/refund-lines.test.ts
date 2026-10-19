@@ -18,6 +18,11 @@ describe('partyRefundLine', () => {
     )
   })
 
+  it('names what was paid to book when given (the saved package and extras)', () => {
+    const now = new Date('2026-10-08T17:00:00.000Z')
+    expect(partyRefundLine(PARTY, now, 42500)).toMatch(/so the \$425 is refundable as studio credit, not cash/)
+  })
+
   it('changes at the boundary', () => {
     const justBefore = new Date(new Date(PARTY).getTime() - 14 * 86_400_000 - 60_000)
     const justAfter = new Date(new Date(PARTY).getTime() - 14 * 86_400_000 + 60_000)

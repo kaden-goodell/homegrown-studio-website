@@ -9,10 +9,12 @@ import type { EmailCheckData } from '@components/shared/EmailCheck'
 import ShareLink from '@components/shared/ShareLink'
 import PartyPriceSummary from './PartyPriceSummary'
 import { partyConfig } from '@config/party.config'
-import { partyContent } from '@config/party-content'
-import { checkoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
+import { partyContent, defaultPackageOf } from '@config/party-content'
+import { partyCheckoutPolicySummary, POLICY_PATH, POLICY_ANCHORS } from '@config/policy-content'
 import { STUDIO_ADDRESS, STUDIO_ADDRESS_LINE, STUDIO_DIRECTIONS_URL } from '@config/studio-address'
-import { bookableDates, partyStartsForDate } from '@lib/party-slots'
+import { configPublicFacts, partyStartsForDate, settingsFromFacts, type PublicPartyFacts } from '@lib/parties/party-times'
+import { quoteParty } from '@lib/parties/pricing'
+import type { PartyAddOn, PartyPackage } from '@lib/parties/types'
 import { visibleSteps, stepLabel, stepIndex, nextStep, prevStep, type PartyStepId } from '@lib/party-steps'
 import { partySummary } from '@lib/party-summary'
 import { partyRefundLine } from '@lib/refund-lines'
@@ -66,6 +68,8 @@ interface PartyModalProps {
   initialCraftId?: string
   /** Local date YYYY-MM-DD (from `?date=` / a calendar day) to preselect. */
   initialDate?: string
+  /** A package only booked by link (`/book?package=<id>`, the test package): offered and preselected. */
+  linkPackageId?: string
 }
 
 interface Craft {
@@ -89,12 +93,8 @@ interface PartyTheme {
 }
 
 interface ServiceInfo {
-  service: { id: string; name: string }
-  variationId: string
-  variationVersion: number
-  durationMinutes: number
-  basePriceCents: number
-  teamMemberId: string
+  /** What /book may know of Parties setup (the config until an owner saves). Older answers have none. */
+  facts?: PublicPartyFacts
   crafts: Craft[]
   themes?: PartyTheme[]
 }
@@ -115,6 +115,11 @@ function formatDateLabel(ymd: string): string {
   return new Date(y, m - 1, d).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+/** An add-on's price as offered: "$75", "$8 a guest". */
+function addOnPriceLabel(a: PartyAddOn): string {
+  return a.per === 'guest' ? `${formatMoney(a.priceCents)} a guest` : formatMoney(a.priceCents)
+}
+
 /** "$25" for a single price, "$30–$40" when a craft has a price range. */
 function perPersonLabel(minCents: number, maxCents?: number): string {
   return maxCents && maxCents > minCents ? `${formatMoney(minCents)}–${formatMoney(maxCents)}` : formatMoney(minCents)
@@ -125,8 +130,8 @@ function perPersonLabel(minCents: number, maxCents?: number): string {
  * later?". The first is the month of the day after the window ends: when the
  * window ends on the 11th, the rest of that month is still to come.
  */
-function laterMonths(count: number): { value: string; label: string }[] {
-  const [y, m, day] = bookableDates().last.split('-').map(Number)
+function laterMonths(count: number, lastBookable: string): { value: string; label: string }[] {
+  const [y, m, day] = lastBookable.split('-').map(Number)
   const first = new Date(y, m - 1, day + 1)
   return Array.from({ length: count }, (_, i) => {
     const d = new Date(first.getFullYear(), first.getMonth() + i, 1)
@@ -169,7 +174,7 @@ function pillStyle(active: boolean, disabled = false) {
   } as const
 }
 
-export default function PartyModal({ onClose, initialStart, initialCraftId, initialDate }: PartyModalProps) {
+export default function PartyModal({ onClose, initialStart, initialCraftId, initialDate, linkPackageId }: PartyModalProps) {
   const [currentStep, setCurrentStep] = useState<PartyStepId>('craft')
 
   // Service info
@@ -205,8 +210,15 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [expandedCraft, setExpandedCraft] = useState<string | null>(null)
   const [ackPersonalized, setAckPersonalized] = useState(false)
 
+  // Package (a step only when there is a choice) and extras. `null` = the default package.
+  const [packageId, setPackageId] = useState<string | null>(null)
+  /** Extra id → how many (per guest extras: how many for each guest). */
+  const [addOns, setAddOns] = useState<Record<string, number>>({})
+
   // Guests — anchored at a realistic party size, never 1.
   const [people, setPeople] = useState<number>(partyConfig.defaultGuests)
+  /** True once the guest count was chosen by hand; the package's default guests apply until then. */
+  const guestsChosen = useRef(false)
 
   // Optional in-studio themed table. `null` = "just crafts" (the default).
   const [selectedTheme, setSelectedTheme] = useState<PartyTheme | null>(null)
@@ -218,6 +230,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [policyProblem, setPolicyProblem] = useState(false)
   /** What is missing on the current step, said when Continue is tapped. */
   const [stepProblem, setStepProblem] = useState('')
+  /** Checking that the chosen start still fits the party with its extra time. */
+  const [checkingExtras, setCheckingExtras] = useState(false)
 
   // Leaving
   const [askToLeave, setAskToLeave] = useState(false)
@@ -243,14 +257,42 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const policyErrorId = useId()
   const partyTitleId = useId()
 
+  // ── Party settings ────────────────────────────────────────────────────────
+  // Everything about the party (packages, extras, guests, length, times) comes
+  // from the owners' Parties setup, sent with the service info. Until it has
+  // arrived, the config stands in (the same answers until an owner saves).
+  const firstPaintFacts = useMemo(() => configPublicFacts(new Date()), [])
+  const facts: PublicPartyFacts = info?.facts ?? firstPaintFacts
+  const settings = useMemo(() => settingsFromFacts(facts), [facts])
+  /** The link-only package a `?package=` link named, when /book offers it. */
+  const linkPackage = linkPackageId ? facts.packages.find((p) => p.id === linkPackageId && p.who === 'link') : undefined
+  const pkg: PartyPackage =
+    facts.packages.find((p) => p.id === packageId) ?? linkPackage ?? defaultPackageOf(facts) ?? firstPaintFacts.packages[0]
+  const packageChoice = facts.packages.length > 1 || !!linkPackage
+  const offeredAddOns = facts.addOns
+  /** The extras chosen, without the ones set to none. */
+  const chosenAddOns = useMemo(
+    () => Object.fromEntries(Object.entries(addOns).filter(([id, n]) => n > 0 && offeredAddOns.some((a) => a.id === id))),
+    [addOns, offeredAddOns],
+  )
+  const addOnsKey = JSON.stringify(Object.entries(chosenAddOns).sort())
+  // Priced exactly as the server prices it (it prices it again when booking).
+  const quoted = quoteParty(settings, { packageId: pkg.id, guests: people, addOns: chosenAddOns }, 'public', linkPackage?.id)
+  const quote = quoted.ok ? quoted.value : null
+  const extraItems = quote ? quote.items.filter((it) => it.kind === 'addon') : []
+  /** Minutes the extras add to the party (extra time). */
+  const extraMinutes = extraItems.reduce((m, it) => m + it.extraMinutes, 0)
+
   // One attempt ID per checkout. While we don't know how a try ended (dropped
-  // connection, "we're not sure"), a retry sends the same ID, so the server can
-  // recognise its own earlier booking and never book or charge twice. Changing
-  // what is being booked, or a plain "nothing was charged", starts a new one.
+  // connection, "we're not sure", "still finishing your last try"), a retry
+  // sends the same ID, so the server can recognise its own earlier booking and
+  // never book or charge twice. Changing what is being booked (time, craft,
+  // guests, package, extras, table), or a plain "nothing was charged", starts
+  // a new one.
   const attemptId = useRef(newAttemptId())
   useEffect(() => {
     attemptId.current = newAttemptId()
-  }, [selectedSlot?.startAt, selectedCraft?.id, people, selectedTheme?.id])
+  }, [selectedSlot?.startAt, selectedCraft?.id, people, selectedTheme?.id, pkg.id, addOnsKey])
 
   useEffect(() => {
     trackWizardStarted('party')
@@ -277,9 +319,26 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   }, [partyTitle, completed, bookingId, hostToken])
 
   const steps = useMemo(
-    () => visibleSteps({ slotSettled, themesAvailable: (info?.themes?.length ?? 0) > 0 }),
-    [slotSettled, info],
+    () =>
+      visibleSteps({
+        slotSettled,
+        themesAvailable: (info?.themes?.length ?? 0) > 0,
+        addOnCount: offeredAddOns.length,
+        packageCount: facts.packages.length,
+        linkPackage: !!linkPackage,
+      }),
+    [slotSettled, info, offeredAddOns.length, facts.packages.length, linkPackage],
   )
+
+  // When the settings arrive: a link package starts chosen, and the guest
+  // count starts at the package's default until the customer picks one.
+  useEffect(() => {
+    if (!info) return
+    if (linkPackage && packageId === null) setPackageId(linkPackage.id)
+  }, [info, linkPackage, packageId])
+  useEffect(() => {
+    if (!guestsChosen.current) setPeople(pkg.defaultGuests)
+  }, [pkg.id, pkg.defaultGuests])
 
   // Keep the current step valid as the flow changes under it.
   useEffect(() => {
@@ -293,7 +352,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     try {
       // ?test=1 on the page URL = staff smoke-test lane (shows TEST— crafts).
       const testLane = new URLSearchParams(window.location.search).get('test') === '1'
-      const res = await fetch(`/api/party/service-info.json${testLane ? '?includeTest=1' : ''}`, { cache: 'no-store' })
+      const q = new URLSearchParams()
+      if (testLane) q.set('includeTest', '1')
+      if (linkPackageId) q.set('package', linkPackageId)
+      const query = q.toString()
+      const res = await fetch(`/api/party/service-info.json${query ? `?${query}` : ''}`, { cache: 'no-store' })
       if (!res.ok) throw new Error()
       const json = await res.json()
       setInfo((json.data ?? json) as ServiceInfo)
@@ -308,14 +371,14 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
   // Only dates with a party time still open are offered. Their times arrive
   // with them, so picking a date shows its times at once.
-  async function loadAvailableDates(variationId: string, isCancelled: () => boolean = () => false) {
+  async function loadAvailableDates(forPackage: string, isCancelled: () => boolean = () => false) {
     setLoadingDates(true)
     setDatesError(false)
     try {
       const res = await fetch('/api/party/available-dates.json', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serviceVariationId: variationId }),
+        body: JSON.stringify({ packageId: forPackage }),
       })
       if (!res.ok) throw new Error()
       const json = await res.json()
@@ -332,21 +395,22 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     }
   }
 
+  // Party length depends on the package, so its dates are asked for again when it changes.
   useEffect(() => {
     if (!info) return
     let cancelled = false
-    loadAvailableDates(info.variationId, () => cancelled)
+    loadAvailableDates(pkg.id, () => cancelled)
     return () => {
       cancelled = true
     }
-  }, [info])
+  }, [info, pkg.id])
 
-  /** The open start times for a date, always asked fresh from the server. */
-  async function fetchAvailability(date: string, variationId: string): Promise<Slot[]> {
+  /** The open start times for a date, always asked fresh from the server (for this package and its extra time). */
+  async function fetchAvailability(date: string, withAddOns: Record<string, number> = chosenAddOns): Promise<Slot[]> {
     const res = await fetch('/api/party/availability.json', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ date, serviceVariationId: variationId }),
+      body: JSON.stringify({ date, packageId: pkg.id, ...(Object.keys(withAddOns).length ? { addOns: withAddOns } : {}) }),
     })
     if (!res.ok) throw new Error()
     const json = await res.json()
@@ -373,7 +437,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     setSlotsError(false)
     ;(async () => {
       try {
-        const slots = await fetchAvailability(date, info.variationId)
+        const slots = await fetchAvailability(date)
         if (cancelled) return
         setAvailableSlots(slots)
         const match = slots.find((s) => new Date(s.startAt).getTime() === startDate.getTime())
@@ -426,12 +490,17 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     startIso: selectedSlot?.startAt,
     craft: selectedCraft,
     guests: people,
+    // The package's name only where there was a package to choose; otherwise "Studio fee" as always.
+    pkg: { name: packageChoice ? pkg.name : undefined, priceCents: pkg.priceCents, minGuests: pkg.minGuests },
+    extras: extraItems.map((it) => ({ label: it.label, count: it.count ?? 1, forGuests: it.forGuests, unitCents: it.unitCents, cents: it.cents })),
     themedTable:
       selectedTheme && themePriceCents > 0
         ? { name: selectedTheme.displayName, serves: themeTierServes, priceCents: themePriceCents }
         : null,
   })
   const deposit = summary.dueTodayCents // charged today to book
+  /** When the party ends: the slot's length plus any extra time. */
+  const partyEndIso = selectedSlot ? new Date(Date.parse(selectedSlot.endAt) + extraMinutes * 60_000).toISOString() : ''
 
   // Guest count moved past the largest table → clear a stale choice, and say so.
   useEffect(() => {
@@ -476,14 +545,35 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     return ''
   }
 
-  function goNext() {
+  /** Extra time makes the party longer: is the chosen start still open for the longer party? */
+  async function extraTimeFits(): Promise<boolean> {
+    if (extraMinutes === 0 || !selectedSlot || !selectedDate) return true
+    setCheckingExtras(true)
+    try {
+      const slots = await fetchAvailability(selectedDate)
+      return slots.some((sl) => sl.startAt === selectedSlot.startAt)
+    } catch {
+      return true // the server checks again when booking
+    } finally {
+      setCheckingExtras(false)
+    }
+  }
+
+  async function goNext() {
+    if (checkingExtras) return
     const missing = whatIsMissing(currentStep)
     setStepProblem(missing)
     if (missing) return
+    if (currentStep === 'extras' && !(await extraTimeFits())) {
+      setStepProblem('That start time doesn’t leave room for the extra time. Go back and pick an earlier time, or leave the extra time off.')
+      return
+    }
     const next = nextStep(currentStep, steps)
     if (next) {
       trackWizardStepCompleted(currentStep)
       if (currentStep === 'who') trackBookingChoice('party', 'guests', people)
+      if (currentStep === 'package') trackBookingChoice('party', 'package', pkg.id)
+      if (currentStep === 'extras' && extraItems.length > 0) trackBookingChoice('party', 'extras', extraItems.map((it) => it.refId).join(','))
       if (next === 'pay' && selectedCraft) {
         trackBeginCheckout('party', deposit / 100, [craftItem(selectedCraft, people)], {
           guests: people,
@@ -537,7 +627,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     setAvailableSlots([])
     setLoadingSlots(true)
     try {
-      setAvailableSlots(await fetchAvailability(date, info.variationId))
+      setAvailableSlots(await fetchAvailability(date))
     } catch {
       setSlotsError(true)
     } finally {
@@ -552,9 +642,41 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     setStepProblem('')
   }
 
+  /**
+   * A package sets the length, the guest range and the fee. A longer or
+   * shorter party may not fit the time already picked, so a picked time goes
+   * when the length changes (the dates are asked for again).
+   */
+  function choosePackage(p: PartyPackage) {
+    setTouched(true)
+    setStepProblem('')
+    if (p.id === pkg.id) return
+    setPackageId(p.id)
+    if (people < p.minGuests || people > p.maxGuests) {
+      guestsChosen.current = false
+      setPeople(p.defaultGuests)
+    }
+    if (p.minutes !== pkg.minutes && selectedSlot) {
+      setSelectedSlot(null)
+      setSlotSettled(false)
+    }
+    setTimesByDate({})
+  }
+
+  /** Sets an extra to `to`, or moves it by `by` from what it is now (quick taps never use a stale count). */
+  function chooseAddOn(a: PartyAddOn, change: { to: number } | { by: number }) {
+    setTouched(true)
+    setStepProblem('')
+    setAddOns((m) => {
+      const n = 'to' in change ? change.to : (m[a.id] ?? 0) + change.by
+      return { ...m, [a.id]: Math.max(0, Math.min(a.maxQty, n)) }
+    })
+  }
+
   function chooseGuests(n: number) {
     setTouched(true)
-    setPeople(Math.min(partyConfig.maxGuests, Math.max(partyConfig.minGuests, n)))
+    guestsChosen.current = true
+    setPeople(Math.min(pkg.maxGuests, Math.max(pkg.minGuests, n)))
   }
 
   /**
@@ -571,11 +693,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     setWhenMode('pick')
     setCurrentStep('when')
     if (!info) return
-    loadAvailableDates(info.variationId)
+    loadAvailableDates(pkg.id)
     if (!date) return
     setLoadingSlots(true)
     try {
-      setAvailableSlots(await fetchAvailability(date, info.variationId))
+      setAvailableSlots(await fetchAvailability(date))
     } catch {
       setSlotsError(true)
     } finally {
@@ -631,19 +753,14 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             attemptId: attemptId.current,
+            // What was chosen, never a price: the server prices it from the
+            // saved Parties setup and the catalog.
             startTime: selectedSlot.startAt,
-            serviceVariationId: info.variationId,
-            serviceVariationVersion: info.variationVersion,
-            durationMinutes: info.durationMinutes,
-            craft: {
-              id: selectedCraft.id,
-              name: selectedCraft.name,
-              perHeadCents: selectedCraft.perHeadCents,
-              perHeadMaxCents: selectedCraft.perHeadMaxCents ?? undefined,
-              description: selectedCraft.description ?? '',
-              imageUrl: selectedCraft.imageUrl ?? '',
-            },
-            people,
+            packageId: pkg.id,
+            ...(linkPackage ? { linkPackageId: linkPackage.id } : {}),
+            guests: people,
+            addOns: chosenAddOns,
+            craftId: selectedCraft.id,
             // Where this visitor first/last came from (Google, Facebook, a texted link…).
             attribution: readAttribution(),
             posthogId: posthogId(),
@@ -668,9 +785,12 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       if (!bookRes.ok) {
         const errData = await bookRes.json().catch(() => null)
         const failure = { status: bookRes.status, body: errData }
-        // We were told plainly what happened (declined, time taken…): that
-        // attempt is over, and the next try is a new one.
-        if (!outcomeUnknown(failure)) attemptId.current = newAttemptId()
+        // We were told plainly what happened (declined, time taken, something
+        // changed…): that attempt is over, and the next try is a new one.
+        // "Still finishing your last try" is not an ending: the next try must
+        // be recognised as the same one, so it keeps the ID.
+        const keep = outcomeUnknown(failure) || errData?.code === 'in_progress'
+        if (!keep) attemptId.current = newAttemptId()
         if (errData?.code === 'slot_taken' || errData?.code === 'not_open') {
           trackPaymentFailed(errData.code)
           await recoverFromLostTime()
@@ -739,7 +859,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     const calendarEvent = {
       title: `${selectedCraft.name} party at ${STUDIO_ADDRESS.name}`,
       startIso: selectedSlot.startAt,
-      endIso: selectedSlot.endAt,
+      endIso: partyEndIso,
       details: inviteUrl
         ? `Your private party at ${STUDIO_ADDRESS.name}.\n\nInvitation link for guests: ${inviteUrl}`
         : `Your private party at ${STUDIO_ADDRESS.name}.`,
@@ -752,7 +872,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         heading="You’re booked"
         what={
           <>
-            <strong>{selectedCraft.name}</strong> party, {formatMoney(totalCharged ?? deposit)} studio fee paid.
+            <strong>{selectedCraft.name}</strong> party, {formatMoney(totalCharged ?? deposit)}{' '}
+            {extraItems.length > 0 ? 'paid' : 'studio fee paid'}.
           </>
         }
         email={contact.email.trim()}
@@ -761,7 +882,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       >
         <div style={{ marginTop: '1.25rem' }}>
           <ConfirmedBlock label="When">
-            <strong>{formatDayAndSpan(selectedSlot.startAt, selectedSlot.endAt)}</strong>
+            <strong>{formatDayAndSpan(selectedSlot.startAt, partyEndIso)}</strong>
             <p style={{ margin: '0.125rem 0 0' }}>
               Arrive up to {partyConfig.hostArrivalMinutesEarly} minutes early to set up.
             </p>
@@ -842,7 +963,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
           <ConfirmedBlock label="Before the party">
             <p style={{ margin: '0 0 0.5rem' }}>
               About a week before, we’ll text you to check your headcount. It’s for our prep only: you pay for who comes, minimum{' '}
-              {partyConfig.minGuests}.
+              {pkg.minGuests}.
             </p>
             {selectedCraft.personalized && (
               <p style={{ margin: '0 0 0.5rem' }}>
@@ -856,7 +977,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             )}
           </ConfirmedBlock>
 
-          <ConfirmedBlock label="Changing plans">{partyRefundLine(selectedSlot.startAt)}</ConfirmedBlock>
+          <ConfirmedBlock label="Changing plans">{partyRefundLine(selectedSlot.startAt, new Date(), totalCharged ?? deposit)}</ConfirmedBlock>
 
           {TEXT_US && (
             <ConfirmedBlock label="Questions">
@@ -1014,14 +1135,14 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
   /** Someone planning past the booking window: one email, and nothing to pick. */
   function renderLaterView() {
-    const months = laterMonths(6)
+    const months = laterMonths(6, facts.last)
     // A month is always named: it is what tells us when to send the email.
     const month = laterMonth || months[0].value
     return (
       <div>
         <p style={sectionLabel}>Planning something later?</p>
         <p style={{ ...helpText, marginBottom: '1rem' }}>
-          We open dates {partyConfig.bookingWindowDays} days ahead. Pick a month and leave your email, and we’ll tell you the day its dates start to open.
+          We open dates {facts.times.bookingWindowDays} days ahead. Pick a month and leave your email, and we’ll tell you the day its dates start to open.
         </p>
         <div className="field" style={{ maxWidth: '26rem', margin: '0 auto 0.75rem' }}>
           <label className="field-label" htmlFor={`${formId}-later`}>
@@ -1049,9 +1170,11 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     if (whenMode === 'later') return renderLaterView()
 
     // How many times this day offers, against how many are still open.
-    const offered = selectedDate ? offeredByDate[selectedDate] ?? partyStartsForDate(selectedDate).length : 0
+    const offered = selectedDate
+      ? offeredByDate[selectedDate] ?? partyStartsForDate(settings, selectedDate, new Date(), facts.days, { minutes: pkg.minutes }).length
+      : 0
     const someBooked = !loadingSlots && !slotsError && availableSlots.length > 0 && offered > availableSlots.length
-    const onOffer = bookableDates()
+    const onOffer = { first: facts.first, last: facts.last }
     const allDates = [...availableDates, ...bookedDates.filter((d) => d >= onOffer.first && d <= onOffer.last)].sort()
 
     return (
@@ -1066,14 +1189,14 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
 
         <p style={sectionLabel}>Choose a date</p>
         <p style={{ ...helpText, marginBottom: '0.75rem' }}>
-          Every party is {partyConfig.durationMinutes} minutes. The whole studio, just your group.
+          Every party is {pkg.minutes} minutes. The whole studio, just your group.
         </p>
 
         {loadingDates && <p role="status" style={helpText}>Loading dates…</p>}
         {datesError && (
           <div role="alert" style={{ marginBottom: '0.75rem' }}>
             <p style={{ ...helpText, color: 'var(--color-error)', marginBottom: '0.5rem' }}>{COULD_NOT_LOAD}</p>
-            <button type="button" className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => info && loadAvailableDates(info.variationId)}>
+            <button type="button" className="btn btn-secondary" style={{ width: 'auto' }} onClick={() => info && loadAvailableDates(pkg.id)}>
               Try again
             </button>
           </div>
@@ -1082,7 +1205,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         {!loadingDates && !datesError && availableDates.length === 0 && (
           <div>
             <p style={{ ...helpText, marginBottom: '0.75rem' }}>
-              Every party date in the next {partyConfig.bookingWindowDays} days is booked. Leave your email and we’ll text or email you when dates open.
+              Every party date in the next {facts.times.bookingWindowDays} days is booked. Leave your email and we’ll text or email you when dates open.
             </p>
             <NotifyMe
               interest="party:more-dates"
@@ -1151,7 +1274,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             It leads to its own view: a date is either picked here or asked about there. */}
         {!loadingDates && !datesError && availableDates.length > 0 && (
           <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--color-line)' }}>
-            <p style={helpText}>We open dates {partyConfig.bookingWindowDays} days ahead.</p>
+            <p style={helpText}>We open dates {facts.times.bookingWindowDays} days ahead.</p>
             <button
               type="button"
               className="btn btn-quiet"
@@ -1180,8 +1303,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       lineHeight: 1,
       color: 'var(--color-dark)',
     } as const
-    const atMin = people <= partyConfig.minGuests
-    const atMax = people >= partyConfig.maxGuests
+    const atMin = people <= pkg.minGuests
+    const atMax = people >= pkg.maxGuests
     return (
       <div>
         <p id={`${formId}-guests`} style={sectionLabel}>
@@ -1189,7 +1312,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         </p>
         <div role="group" aria-labelledby={`${formId}-guests`}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.875rem' }}>
-            {partyConfig.guestQuickPicks.map((n) => (
+            {pkg.quickPicks.map((n) => (
               <button key={n} type="button" aria-pressed={people === n} onClick={() => chooseGuests(n)} style={{ ...pillStyle(people === n), minWidth: '3.5rem' }}>
                 {n}
               </button>
@@ -1210,16 +1333,140 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         </div>
         <p style={{ ...helpText, margin: '0.75rem 0 1.25rem' }}>
           {atMax
-            ? `${partyConfig.maxGuests} guests is the most the studio holds.`
-            : `An estimate is fine. Parties are for ${partyConfig.minGuests} to ${partyConfig.maxGuests} guests, and you pay for crafts at the studio for whoever comes.`}
+            ? `${pkg.maxGuests} guests is the most the studio holds.`
+            : `An estimate is fine. Parties are for ${pkg.minGuests} to ${pkg.maxGuests} guests, and you pay for crafts at the studio for whoever comes.`}
         </p>
         <PartyPriceSummary summary={summary} />
       </div>
     )
   }
 
-  // In-studio themed table: its own step, present only when that product is live.
-  function renderThemeStep() {
+  /** Choosing between packages: shown only when there is more than one, or a link named one. */
+  function renderPackageStep() {
+    return (
+      <div>
+        <p style={sectionLabel}>Choose your party</p>
+        <div role="group" aria-label="Packages" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 14rem), 1fr))', gap: '0.75rem' }}>
+          {facts.packages.map((p) => {
+            const active = p.id === pkg.id
+            return (
+              <button
+                key={p.id}
+                type="button"
+                aria-pressed={active}
+                onClick={() => choosePackage(p)}
+                style={{
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '0.25rem',
+                  padding: '0.875rem 1rem',
+                  minHeight: '2.75rem',
+                  borderRadius: '0.75rem',
+                  border: active ? '2px solid var(--color-primary)' : '1.5px solid var(--color-line)',
+                  background: active ? 'rgba(var(--color-primary-rgb), 0.06)' : 'var(--color-surface)',
+                  cursor: 'pointer',
+                  textAlign: 'left',
+                  font: 'inherit',
+                }}
+              >
+                <span style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', width: '100%' }}>
+                  <span style={{ fontWeight: 600, fontSize: '1rem', color: 'var(--color-dark)' }}>{p.name}</span>
+                  <span style={{ fontWeight: 600, fontSize: '0.9375rem', color: 'var(--color-dark)', flexShrink: 0 }}>{formatMoney(p.priceCents)}</span>
+                </span>
+                <span style={{ fontSize: '0.875rem', color: 'var(--color-text)' }}>
+                  {p.minutes} minutes · {p.minGuests} to {p.maxGuests} guests
+                </span>
+              </button>
+            )
+          })}
+        </div>
+        <p style={{ ...helpText, marginTop: '0.75rem' }}>Crafts are paid at the studio for whoever comes, whichever you choose.</p>
+      </div>
+    )
+  }
+
+  /** Extras for the party, paid today: the online add-ons, and themed tables when that product is live. */
+  function renderExtrasStep() {
+    return (
+      <div>
+        {offeredAddOns.length > 0 && (
+          <div style={{ marginBottom: '1.25rem' }}>
+            <p style={sectionLabel}>Add extras?</p>
+            <p style={{ ...helpText, marginBottom: '1rem' }}>Optional, and paid today with your booking.</p>
+            <div role="group" aria-label="Extras" style={{ display: 'flex', flexDirection: 'column', gap: '0.625rem' }}>
+              {offeredAddOns.map((a) => renderAddOn(a))}
+            </div>
+          </div>
+        )}
+        {partyThemes.length > 0 && renderThemeSection()}
+        <PartyPriceSummary summary={summary} />
+      </div>
+    )
+  }
+
+  function renderAddOn(a: PartyAddOn) {
+    const count = chosenAddOns[a.id] ?? 0
+    const nameId = `${formId}-addon-${a.id}`
+    const detail = [
+      addOnPriceLabel(a),
+      a.extraMinutes > 0 ? `${a.extraMinutes} more minutes` : '',
+      a.per === 'guest' ? `for each of your ${people} guests` : '',
+    ].filter(Boolean).join(' · ')
+    const box = {
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      gap: '0.75rem',
+      padding: '0.75rem 1rem',
+      borderRadius: '0.75rem',
+      border: count > 0 ? '2px solid var(--color-primary)' : '1.5px solid var(--color-line)',
+      background: count > 0 ? 'rgba(var(--color-primary-rgb), 0.06)' : 'var(--color-surface)',
+    } as const
+    const text = (
+      <span style={{ display: 'flex', flexDirection: 'column', gap: '0.125rem', textAlign: 'left' }}>
+        <span id={nameId} style={{ fontWeight: 600, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>{a.label}</span>
+        <span style={{ fontSize: '0.875rem', color: 'var(--color-text)' }}>{detail}</span>
+      </span>
+    )
+    if (a.maxQty <= 1) {
+      return (
+        <button key={a.id} type="button" aria-pressed={count > 0} onClick={() => chooseAddOn(a, { to: count > 0 ? 0 : 1 })} style={{ ...box, minHeight: '2.75rem', cursor: 'pointer', font: 'inherit', width: '100%' }}>
+          {text}
+          <span style={{ flexShrink: 0, fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-primary)' }}>{count > 0 ? 'Added' : 'Add'}</span>
+        </button>
+      )
+    }
+    const counterButton = (disabled: boolean) =>
+      ({
+        width: '2.75rem',
+        height: '2.75rem',
+        borderRadius: '0.75rem',
+        border: '1.5px solid var(--color-field-border)',
+        background: 'var(--color-surface)',
+        fontSize: '1.25rem',
+        lineHeight: 1,
+        color: 'var(--color-dark)',
+        opacity: disabled ? 0.35 : 1,
+        cursor: disabled ? 'default' : 'pointer',
+      }) as const
+    return (
+      <div key={a.id} role="group" aria-labelledby={nameId} style={box}>
+        {text}
+        <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', flexShrink: 0 }}>
+          <button type="button" aria-label={`Fewer ${a.label}`} disabled={count === 0} onClick={() => chooseAddOn(a, { by: -1 })} style={counterButton(count === 0)}>
+            <span aria-hidden="true">&minus;</span>
+          </button>
+          <span aria-live="polite" style={{ minWidth: '1.5rem', textAlign: 'center', fontWeight: 600, color: 'var(--color-dark)' }}>{count}</span>
+          <button type="button" aria-label={`More ${a.label}`} disabled={count >= a.maxQty} onClick={() => chooseAddOn(a, { by: 1 })} style={counterButton(count >= a.maxQty)}>
+            <span aria-hidden="true">+</span>
+          </button>
+        </span>
+      </div>
+    )
+  }
+
+  // In-studio themed table: part of the extras step, present only when that product is live.
+  function renderThemeSection() {
     const cardStyle = (active: boolean) =>
       ({
         display: 'flex',
@@ -1268,7 +1515,6 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               : 'Themed tables are for parties of up to 20 guests.'}
           </p>
         )}
-        <PartyPriceSummary summary={summary} />
       </div>
     )
   }
@@ -1310,7 +1556,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
               <a href={`${POLICY_PATH}#${POLICY_ANCHORS.parties}`} target="_blank" rel="noopener" style={{ color: 'var(--color-primary)', fontWeight: 600, textDecoration: 'underline' }}>
                 booking and cancellation policy
               </a>
-              . <span style={{ color: 'var(--color-text)' }}>{checkoutPolicySummary.party}.</span>
+              . <span style={{ color: 'var(--color-text)' }}>{partyCheckoutPolicySummary(pkg.minGuests)}.</span>
             </span>
           </label>
           {policyProblem && (
@@ -1366,7 +1612,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     if (currentStep === 'craft') step = renderCraftStep(info.crafts)
     else if (currentStep === 'when') step = renderWhenStep()
     else if (currentStep === 'who') step = renderWhoStep()
-    else if (currentStep === 'theme') step = renderThemeStep()
+    else if (currentStep === 'package') step = renderPackageStep()
+    else if (currentStep === 'extras') step = renderExtrasStep()
     else step = renderPayStep()
 
     return (
@@ -1403,7 +1650,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         </button>
         {selectedSlot && (
           <p style={{ margin: '0.5rem 0 0', textAlign: 'center', fontSize: '0.8125rem', lineHeight: 1.4, color: 'var(--color-text)' }}>
-            {partyRefundLine(selectedSlot.startAt)}
+            {partyRefundLine(selectedSlot.startAt, new Date(), deposit)}
           </p>
         )}
       </>
@@ -1423,8 +1670,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             {stepProblem}
           </p>
         )}
-        <button type="button" className="btn btn-primary" onClick={goNext}>
-          {cameFromLink ? 'Book this craft' : 'Continue'}
+        <button type="button" className="btn btn-primary" onClick={goNext} disabled={checkingExtras}>
+          {checkingExtras ? 'Checking the time…' : cameFromLink ? 'Book this craft' : 'Continue'}
         </button>
       </>
     )
@@ -1454,6 +1701,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
             {selectedSlot && !(currentStep === 'when' && whenMode === 'later') && (
               <span style={chipStyle}>{formatSlotLabel(selectedSlot.startAt)}</span>
             )}
+            {packageChoice && stepIdx > stepIndex('package', steps) && <span style={chipStyle}>{pkg.name}</span>}
             {stepIdx > stepIndex('who', steps) && <span style={chipStyle}>About {people} guests</span>}
           </div>
         ) : undefined

@@ -49,25 +49,40 @@ describe('stepLabel', () => {
     expect(stepLabel('craft')).toBe('Craft')
     expect(stepLabel('when')).toBe('Date and time')
     expect(stepLabel('who')).toBe('Guests')
-    expect(stepLabel('theme')).toBe('Themed table')
+    expect(stepLabel('package')).toBe('Package')
+    expect(stepLabel('extras')).toBe('Extras')
     expect(stepLabel('pay')).toBe('Your details and payment')
   })
 })
 
-describe('themed-table step', () => {
-  it('is absent by default (feature off / no stocked themes)', () => {
-    expect(visibleSteps({ slotSettled: false })).toEqual(['craft', 'when', 'who', 'pay'])
+describe('extras step', () => {
+  it('is absent with no add-ons and no themed tables (the config today)', () => {
+    expect(visibleSteps({ slotSettled: false, addOnCount: 0, themesAvailable: false })).toEqual(['craft', 'when', 'who', 'pay'])
   })
 
-  it('appears between guests and pay when themes are available', () => {
-    expect(visibleSteps({ slotSettled: false, themesAvailable: true })).toEqual([
-      'craft', 'when', 'who', 'theme', 'pay',
-    ])
+  it('appears between guests and pay when an online add-on is offered', () => {
+    expect(visibleSteps({ slotSettled: false, addOnCount: 1 })).toEqual(['craft', 'when', 'who', 'extras', 'pay'])
+  })
+
+  it('appears between guests and pay when themed tables are available', () => {
+    expect(visibleSteps({ slotSettled: false, themesAvailable: true })).toEqual(['craft', 'when', 'who', 'extras', 'pay'])
   })
 
   it('composes with a settled time', () => {
-    expect(visibleSteps({ slotSettled: true, themesAvailable: true })).toEqual([
-      'craft', 'who', 'theme', 'pay',
-    ])
+    expect(visibleSteps({ slotSettled: true, addOnCount: 2 })).toEqual(['craft', 'who', 'extras', 'pay'])
+  })
+})
+
+describe('package step', () => {
+  it('is absent with one package', () => {
+    expect(visibleSteps({ slotSettled: false, packageCount: 1 })).toEqual(['craft', 'when', 'who', 'pay'])
+  })
+
+  it('comes after the craft, before the date, when more than one package is offered', () => {
+    expect(visibleSteps({ slotSettled: false, packageCount: 2 })).toEqual(['craft', 'package', 'when', 'who', 'pay'])
+  })
+
+  it('is shown when a link names a link-only package', () => {
+    expect(visibleSteps({ slotSettled: false, packageCount: 1, linkPackage: true })).toEqual(['craft', 'package', 'when', 'who', 'pay'])
   })
 })
