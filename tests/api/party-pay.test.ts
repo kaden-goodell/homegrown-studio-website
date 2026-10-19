@@ -482,6 +482,23 @@ describe('no answer from Square', () => {
     expect(during).toBe(until)
   })
 
+  it('a retry of the same attempt after an extra was added retries its own order (not "amount changed")', async () => {
+    const p = await linkParty()
+    m.processPayment.mockRejectedValueOnce(new Error('socket hang up'))
+    m.findOrderPayment.mockResolvedValueOnce(null)
+    const b = payBody(p)
+    expect((await pay(b)).status).toBe(502)
+    await updatePartyRecord(p.id, (r) => ({
+      ...r,
+      items: [...r.items!, { id: 'itm_after', kind: 'addon', refId: 'add_x', label: 'Balloons', qty: 1, unitCents: 2500, cents: 2500, extraMinutes: 0, chargeId: null, addedAt: NOW.toISOString(), by: owner }],
+    }), 'Extra added', owner)
+    const again = await pay(b) // the page still shows $300, the same attempt
+    expect(again.status).toBe(200)
+    expect(again.json.data).toMatchObject({ paidCents: 30000, stillDueCents: 2500 })
+    // The very same order request both times.
+    expect(m.createOrder.mock.calls[1][0]).toEqual(m.createOrder.mock.calls[0][0])
+  })
+
   it('after 24 hours a new attempt asks Square about the old order first; unpaid → it pays', async () => {
     const p = await linkParty()
     m.processPayment.mockRejectedValueOnce(new Error('socket hang up'))

@@ -43,6 +43,8 @@ const environment = import.meta.env.MODE
         capture_console_errors: false,
       },
       disable_session_recording: noRecording,
+      // Party page keys never leave in an event: src/lib/page-key.ts strips key= / k= from every URL and clicked href.
+      before_send: function (event) { return window.__hsScrubKeys ? window.__hsScrubKeys(event) : event },
       logs: {
         serviceName: 'hometown-studio-staff-web',
         environment,

@@ -52,6 +52,8 @@ export default function RecentPartyBanner() {
         </span>
         <a
           href={hostPartyUrl(recent, window.location.origin)}
+          // Carries the host key: PostHog never records this click.
+          className="ph-no-capture"
           onClick={() => trackRecentPartyBanner('open')}
           style={{
             fontSize: '0.8125rem',

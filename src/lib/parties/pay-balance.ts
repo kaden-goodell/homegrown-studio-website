@@ -149,7 +149,9 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
   }
 
   // The page showed another amount (an extra added or paid since it loaded): nothing starts.
-  if (dueCents(rec) !== input.expectedCents) return refuse(409, 'amount_changed', LINK_AMOUNT_CHANGED_MESSAGE)
+  // (A retry of this very attempt is checked against its own order's quote inside the claim instead.)
+  const retryingMine = rec.paying?.attemptId === attemptId && !!rec.paying.itemIds
+  if (!retryingMine && dueCents(rec) !== input.expectedCents) return refuse(409, 'amount_changed', LINK_AMOUNT_CHANGED_MESSAGE)
 
   const card = input.pay.kind === 'card' ? input.pay : null
   if (card?.sourceKind === 'gift_card') {

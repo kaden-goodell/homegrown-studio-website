@@ -68,6 +68,36 @@ describe('PAGE_KEY_SCRIPT', () => {
   })
 })
 
+describe('PostHog key scrubber (window.__hsScrubKeys)', () => {
+  it('drops key= and k= from every URL and clicked href in an event, keeping everything else', () => {
+    run()
+    const scrub = (window as any).__hsScrubKeys
+    const ev = scrub({
+      event: '$autocapture',
+      properties: {
+        $current_url: 'https://ourhometownstudio.com/book?package=pkg_test&key=abc#x',
+        $referrer: 'https://ourhometownstudio.com/party/pty_1?key=host123',
+        $elements: [{ tag_name: 'a', attr__href: '/party/pty_1?key=host123', attr__class: 'btn' }],
+        $elements_chain: 'a.btn:attr__href="/party/pay/pty_1?k=pay456"nth-child="1"',
+        other: '/workshops?w=abc&k=zzz&y=2',
+        n: 4,
+      },
+    })
+    expect(ev.properties.$current_url).toBe('https://ourhometownstudio.com/book?package=pkg_test#x')
+    expect(ev.properties.$referrer).toBe('https://ourhometownstudio.com/party/pty_1')
+    expect(ev.properties.$elements[0].attr__href).toBe('/party/pty_1')
+    expect(ev.properties.$elements_chain).toBe('a.btn:attr__href="/party/pay/pty_1"nth-child="1"')
+    expect(ev.properties.other).toBe('/workshops?w=abc&y=2')
+    expect(ev.properties.n).toBe(4)
+    expect(JSON.stringify(ev)).not.toMatch(/host123|pay456|zzz/)
+  })
+
+  it('PostHog runs it on every event', () => {
+    const ph = readFileSync(resolve(__dirname, '../../src/components/posthog.astro'), 'utf8')
+    expect(ph).toMatch(/before_send: function \(event\) \{ return window\.__hsScrubKeys \? window\.__hsScrubKeys\(event\) : event \}/)
+  })
+})
+
 describe('Layout', () => {
   const layout = readFileSync(resolve(__dirname, '../../src/layouts/Layout.astro'), 'utf8')
 

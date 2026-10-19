@@ -599,6 +599,8 @@ describe('PartyModal — confirmation', () => {
   it('links the party page, the agreement and the receipt', async () => {
     await bookedScreen()
     expect(screen.getByRole('link', { name: 'Open your party page' })).toHaveAttribute('href', expect.stringMatching(/\/party\/bk-1\?key=host-key$/))
+    // It carries the host key: PostHog never records the click (S2-R9a).
+    expect(screen.getByRole('link', { name: 'Open your party page' })).toHaveClass('ph-no-capture')
     expect(screen.getByRole('link', { name: 'Sign your participation agreement' })).toHaveAttribute('href', expect.stringContaining('bk-1'))
     expect(screen.getByRole('link', { name: 'View your receipt' })).toHaveAttribute('href', 'https://squareup.com/receipt/9')
   })
