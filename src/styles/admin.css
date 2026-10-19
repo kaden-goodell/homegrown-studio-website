@@ -2205,16 +2205,37 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
 
 /* ---------------------------------------------------------------- 11b-C: To decide */
 .adm-meter {
+  display: block;
+  width: 100%;
   height: 0.5rem;
+  border: 0;
   border-radius: 999px;
   background: var(--adm-line);
   overflow: hidden;
   margin: 0.25rem 0 0.75rem;
+  appearance: none;
 }
-.adm-meter > i {
-  display: block;
-  height: 100%;
+.adm-meter::-webkit-progress-bar {
+  background: var(--adm-line);
+  border-radius: 999px;
+}
+.adm-meter::-webkit-progress-value {
   background: var(--color-primary);
+  border-radius: 999px;
+}
+.adm-meter::-moz-progress-bar {
+  background: var(--color-primary);
+  border-radius: 999px;
+}
+/* small spacing helpers for sheets (fix round 1: no inline styles) */
+.adm-gap-top {
+  margin-top: 0.75rem;
+}
+.adm-gap-bottom {
+  margin-bottom: 0.75rem;
+}
+.adm-dark {
+  color: var(--color-dark);
 }
 
 /* ---------------------------------------------------------------- 11b-C: Block time (no inline styles) */
@@ -2341,4 +2362,21 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
     break-inside: avoid;
     border-color: #999 !important;
   }
+}
+.adm-lbl.adm-lbl-first {
+  margin-top: 0;
+}
+.adm-bookedlink {
+  display: block;
+  width: 100%;
+  text-align: left;
+  min-height: 2.75rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.6rem;
+  border: 1px solid var(--adm-line);
+  background: var(--adm-surface);
+  color: var(--color-dark);
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
 }

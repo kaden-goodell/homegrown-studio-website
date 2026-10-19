@@ -14,8 +14,8 @@ import { api, BOOKINGS, CLASSES } from '../classes/api'
 import { blankContent, build, fieldOf, fixLine, toForm, type Errors, type Form } from '../classes/class-form'
 import { DetailsFields, focusFirstError, PreviewButton } from '../classes/ClassDetails'
 import DateRows, { checkRows, endAfter, lengthOf, newDateRow, onOrAfter, weekLater, type DateRow } from '../classes/DateRows'
-import { addDays, dayLabel, partsOf, today, weekday } from '../classes/dates'
-import { closureOn, closures as configClosures, OPEN_WEEKDAYS, type Closure } from '@config/closures'
+import { addDays, dayLabel, nextOpenDay, partsOf, today } from '../classes/dates'
+import { closureOn, closures as configClosures, type Closure } from '@config/closures'
 import { useStudio } from '../shell/studio'
 import { latestOf, priceOf, ranText } from '../classes/labels'
 import { useLibraryList } from '../classes/library-data'
@@ -31,12 +31,7 @@ type From = { kind: 'lib'; id: string } | { kind: 'class'; id: string }
 /** The library class it links to (and its details), and the details the form was filled with. */
 interface Picked { libraryId: string | null; content: ClassContent | null; name: string; startedFrom: ClassContent }
 
-/** The first day on or after `from` the studio opens (not a usual closed weekday, not a closure). */
-export function nextOpenDay(from = today(), closed: Closure[] = configClosures): string {
-  let d = from
-  for (let i = 0; i < 400 && (!OPEN_WEEKDAYS.has(weekday(d)) || closureOn(d, closed)); i++) d = addDays(d, 1)
-  return d
-}
+export { nextOpenDay }
 
 /** A week out, then on to the next day the studio opens. `closed`: the owners' closed days (useStudio). */
 export function defaultDay(now = today(), closed: Closure[] = configClosures): string {

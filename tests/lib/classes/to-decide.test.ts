@@ -28,7 +28,8 @@ const email = vi.hoisted(() => vi.fn(async () => ({ sent: true })))
 vi.mock('@lib/email', () => ({ sendRefundEmail: email }))
 
 import { makeKvStore } from '@lib/blob-store'
-import { decide, listToDecide, nameCounterSeats, DecideError, MINIMUM_AHEAD_MS } from '@lib/classes/to-decide'
+import { decide, listToDecide, nameCounterSeats, DecideError, MINIMUM_AHEAD_MS, undoDecision, guessMatch } from '@lib/classes/to-decide'
+import { listUnmatchedPos, listRefundFlags } from '@lib/classes/square-events'
 import { getLedger, seatsTaken, type LedgerLine } from '@lib/classes/seat-ledger'
 import { changeRefundRequest, createRefundRequest, listRefundRequests } from '@lib/classes/refund-requests'
 import { defaultRules } from '@lib/classes/validate'
@@ -327,5 +328,81 @@ describe('refusals', () => {
     const id = `flag-refund-failed-${uid('z')}`
     await flagsKv.set(id, JSON.stringify({ id, kind: 'refund-failed', classId: cls.id, bookingId: 'bkg_z', paymentId: 'p1', squareRefundId: 'RF', cents: 100, status: 'FAILED', at: NOW.toISOString(), resolved: null }))
     await expect(decide(id, 'free', {}, CATHERINE, NOW)).rejects.toMatchObject({ status: 400 })
+  })
+})
+
+describe('fix round 1', () => {
+  it('a counter sale decided in To decide leaves the counter-sale list for good', async () => {
+    const orderId = uid('ORDR'), lineUid = uid('LIR')
+    await unmatchedKv.set(`unmatched-${orderId}-${lineUid}`, JSON.stringify({ orderId, lineUid, name: 'Gift wrap', qty: 1, at: '2026-10-19T15:00:00.000Z' }))
+    const item = (await items()).find((i) => i.kind === 'pos-unmatched' && i.detail.orderId === orderId)!
+    await decide(item.id, 'dismiss', {}, CATHERINE, NOW)
+    expect((await listUnmatchedPos()).some((u) => u.orderId === orderId)).toBe(false)
+  })
+
+  it('the seat a counter sale starts on: its variation, else the way to book named in it, else none', () => {
+    const cls = makeClass()
+    cls.content.name = 'Clay Camp'
+    cls.square = { itemId: 'I', variations: { 'day:person': 'VAR_DAY', 'all:person': 'VAR_ALL' } }
+    expect(guessMatch({ name: 'Old item', variationId: 'VAR_DAY' }, [cls])).toEqual({ classId: cls.id, key: 'day:person' })
+    expect(guessMatch({ name: 'Clay Camp · One day' }, [cls])).toEqual({ classId: cls.id, key: 'day:person' })
+    expect(guessMatch({ name: 'Clay Camp', variationName: 'Full series' }, [cls])).toEqual({ classId: cls.id, key: 'all:person' })
+    expect(guessMatch({ name: 'Clay Camp' }, [cls])).toEqual({ classId: cls.id, key: null })
+    expect(guessMatch({ name: 'Gift wrap' }, [cls])).toEqual({ classId: null, key: null })
+  })
+
+  it('Undo after freeing a seat: the seat holds again and the refund waits for a decision again (only for a few minutes)', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const a = line({ bookingId: 'bkg_un' })
+    await seed(cls, [a])
+    const id = `flag-plain-refund-${uid('u')}`
+    await flagsKv.set(id, JSON.stringify({ id, kind: 'plain-refund', classId: cls.id, bookingId: 'bkg_un', paymentId: 'p1', squareRefundId: uid('RF'), cents: 500, refundCents: 500, status: 'COMPLETED', at: NOW.toISOString(), resolved: null }))
+    await decide(id, 'free', {}, CATHERINE, NOW)
+    expect(seatsTaken(await getLedger(cls.id), 'ses_a', NOW)).toBe(0)
+    await undoDecision(id, CATHERINE)
+    const back = await getLedger(cls.id)
+    expect(seatsTaken(back, 'ses_a', NOW)).toBe(1)
+    expect(back.lines[0].state).toBe('confirmed')
+    expect((await listRefundFlags()).some((f) => f.id === id)).toBe(true)
+    expect((await items()).find((i) => i.id === id && !i.done)).toBeTruthy()
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'to-decide-undo' }))
+    await decide(id, 'keep', {}, CATHERINE, NOW)
+    await expect(undoDecision(id, CATHERINE)).rejects.toThrow('That can’t be undone from here.')
+  })
+
+  it('too late to undo after ten minutes', async () => {
+    const cls = makeClass({ sessions: [{ id: 'ses_a', startIso: '2026-10-18T18:00:00.000Z', endIso: '2026-10-18T20:00:00.000Z', capacity: 8 }] })
+    classes.list = [cls]
+    await seed(cls, [line({ bookingId: 'bkg_lt', source: 'door-counter', sessionIds: ['ses_a'], square: { orderId: null, paymentId: null, lineUid: null }, customer: { givenName: 'Lee', familyName: 'Late', email: '', phone: '' } })])
+    const item = (await items()).find((i) => i.kind === 'door-unpaid' && i.classId === cls.id)!
+    const r = await decide(item.id, 'free', {}, CATHERINE, NOW)
+    await expect(undoDecision(item.id, CATHERINE, new Date(Date.parse(r.decided.at) + 11 * 60_000))).rejects.toThrow(/Too late/)
+  })
+
+  it('a counter sale that paid two seats of the wrong family moves both to the right one', async () => {
+    const cls = makeClass({ sessions: [{ id: 'ses_a', startIso: '2026-10-21T18:00:00.000Z', endIso: '2026-10-21T20:00:00.000Z', capacity: 8 }] })
+    classes.list = [cls]
+    const unpaid = { orderId: null, paymentId: null, lineUid: null }
+    const sale = { orderId: 'ORD_2', paymentId: 'PAY_2', lineUid: 'LI_2', chargedCents: 6540 }
+    const at = '2026-10-20T13:00:00.000Z'
+    const w1 = line({ bookingId: 'bkg_w', seat: 1, source: 'door-counter', sessionIds: ['ses_a'], square: sale, at, counterMatch: { orderId: 'ORD_2', candidates: 2, at, checked: null } })
+    const w2 = line({ bookingId: 'bkg_w', seat: 2, source: 'door-counter', sessionIds: ['ses_a'], square: sale, at })
+    const r1 = line({ bookingId: 'bkg_r', seat: 1, source: 'door-counter', sessionIds: ['ses_a'], square: unpaid, at, customer: { givenName: 'Ray', familyName: 'Right', email: '', phone: '' } })
+    const r2 = line({ bookingId: 'bkg_r', seat: 2, source: 'door-counter', sessionIds: ['ses_a'], square: unpaid, at, customer: { givenName: 'Ray', familyName: 'Right', email: '', phone: '' } })
+    await seed(cls, [w1, w2, r1, r2])
+    const item = (await items()).find((i) => i.kind === 'counter-match-check' && i.classId === cls.id)!
+    await decide(item.id, 'move', { toLineId: r1.id }, CATHERINE, NOW)
+    const l = (await getLedger(cls.id)).lines
+    expect(l.filter((x) => x.bookingId === 'bkg_r').map((x) => x.square.orderId)).toEqual(['ORD_2', 'ORD_2'])
+    expect(l.filter((x) => x.bookingId === 'bkg_w').map((x) => x.square.orderId)).toEqual([null, null])
+  })
+
+  it('times at midnight and noon say so', async () => {
+    const cls = makeClass({ sessions: [{ id: 'ses_a', startIso: '2026-10-24T18:00:00.000Z', endIso: '2026-10-24T20:00:00.000Z', capacity: 8 }] })
+    cls.content.rules = { ...cls.content.rules, minimumToRun: { count: 6, decideByIso: '2026-10-22T05:00:00.000Z' } }
+    classes.list = [cls]
+    await seed(cls, [])
+    const item = (await listToDecide(new Date('2026-10-20T15:00:00Z'))).items.find((i) => i.kind === 'below-minimum' && i.classId === cls.id)!
+    expect(item.head).toMatch(/needed by Thu Oct 22 midnight$/)
   })
 })

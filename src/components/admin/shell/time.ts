@@ -14,14 +14,20 @@ function parts(hhmm: string) {
   return { clock: `${h % 12 || 12}${m ? `:${String(m).padStart(2, '0')}` : ''}`, period: h < 12 ? 'AM' : 'PM' }
 }
 
-/** "13:30" → "1:30 PM" */
+/** Midnight and noon by name (fix round 1): "12 AM" reads as a puzzle. */
+const named = (hhmm: string) => (hhmm.startsWith('00:00') ? 'midnight' : hhmm.startsWith('12:00') ? 'noon' : null)
+
+/** "13:30" → "1:30 PM"; "12:00" → "noon"; "00:00" → "midnight" */
 export function clock(hhmm: string): string {
+  const n = named(hhmm)
+  if (n) return n
   const p = parts(hhmm)
   return `${p.clock}${NBSP}${p.period}`
 }
 
-/** "18:00","20:00" → "6–8 PM"; "09:00","12:30" → "9 AM–12:30 PM". The period shows once when both ends share it. */
+/** "18:00","20:00" → "6–8 PM"; "09:00","12:30" → "9 AM–12:30 PM"; "09:00","12:00" → "9 AM–noon". The period shows once when both ends share it. */
 export function clockRange(from: string, to: string): string {
+  if (named(from) || named(to)) return `${clock(from)}–${clock(to)}`
   const a = parts(from), b = parts(to)
   return a.period === b.period ? `${a.clock}–${b.clock}${NBSP}${b.period}` : `${a.clock}${NBSP}${a.period}–${b.clock}${NBSP}${b.period}`
 }

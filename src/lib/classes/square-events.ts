@@ -48,7 +48,13 @@ const needsDaysKv = makeKvStore('pos-needs-days', 'pos-needs-days')
 const flagsKv = makeKvStore('refund-flags', 'refund-flags')
 const ATTEMPTS = 3
 
-export interface UnmatchedPos { orderId: string; lineUid: string; name: string; qty: number; at: string }
+export interface UnmatchedPos {
+  orderId: string; lineUid: string; name: string; qty: number; at: string
+  /** the sold item's catalog variation, and its name ("One day"), to start the owner's match on the right seat */
+  variationId?: string; variationName?: string
+  /** set once an owner matched it to a class or said it wasn't for one (/admin › To decide) */
+  resolved?: { at: string; by: By; how: 'matched' | 'not-a-class' } | null
+}
 export interface PosNeedsDays {
   id: string; classId: string; bookingId: string; lineIds: string[]; orderId: string; lineUid: string
   passId: string; sessionIds: string[]; at: string
@@ -335,7 +341,11 @@ export async function handleOrder(
 
 async function storeUnmatched(orderId: string, li: any, now: Date): Promise<void> {
   const name = [li.name, li.variation_name].filter(Boolean).join(' · ') || 'Unnamed item'
-  const entry: UnmatchedPos = { orderId, lineUid: String(li.uid), name, qty: Math.floor(Number(li.quantity)) || 0, at: now.toISOString() }
+  const entry: UnmatchedPos = {
+    orderId, lineUid: String(li.uid), name, qty: Math.floor(Number(li.quantity)) || 0, at: now.toISOString(),
+    ...(li.catalog_object_id ? { variationId: String(li.catalog_object_id) } : {}),
+    ...(li.variation_name ? { variationName: String(li.variation_name) } : {}),
+  }
   if (await putOnce(unmatchedKv, `unmatched-${safeKey(orderId)}-${safeKey(String(li.uid))}`, entry)) {
     logger.warn('POS class sale matches no class', { orderId, lineUid: li.uid, name })
   }
@@ -710,9 +720,34 @@ async function readAll<T>(kv: ReturnType<typeof makeKvStore>, prefix: string): P
   return jsons.filter((j): j is string => !!j).map((j) => JSON.parse(j) as T)
 }
 
-/** Counter sales of class items that match no class, newest first. */
+/** Counter sales of class items that match no class and no owner has decided on, newest first. */
 export async function listUnmatchedPos(): Promise<UnmatchedPos[]> {
-  return (await readAll<UnmatchedPos>(unmatchedKv, 'unmatched-')).sort((a, b) => b.at.localeCompare(a.at))
+  return (await readAll<UnmatchedPos>(unmatchedKv, 'unmatched-')).filter((u) => !u.resolved).sort((a, b) => b.at.localeCompare(a.at))
+}
+
+/** An owner matched a counter sale to a class, or said it wasn't for one: it leaves every list. */
+export async function resolveUnmatchedPos(orderId: string, lineUid: string, by: By, how: 'matched' | 'not-a-class'): Promise<void> {
+  const k = `unmatched-${safeKey(orderId)}-${safeKey(lineUid)}`
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const { value, etag } = await unmatchedKv.getWithMeta(k)
+    if (!value) return
+    const cur = JSON.parse(value) as UnmatchedPos
+    if (cur.resolved) return
+    if (await unmatchedKv.setIfMatch(k, JSON.stringify({ ...cur, resolved: { at: new Date().toISOString(), by, how } }), etag, true)) return
+  }
+  throw new Error('Concurrent update — please retry')
+}
+
+/** Undo of "Free a seat" from To decide: the refund flag waits for a decision again. */
+export async function reopenRefundFlag(id: string): Promise<void> {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const { value, etag } = await flagsKv.getWithMeta(id)
+    if (!value) return
+    const cur = JSON.parse(value) as RefundFlag
+    if (!cur.resolved) return
+    if (await flagsKv.setIfMatch(id, JSON.stringify({ ...cur, resolved: null }), etag, true)) return
+  }
+  throw new Error('Concurrent update — please retry')
 }
 
 /** Counter sales of a pick-your-days pass, put on the next session(s) until staff set the days. */

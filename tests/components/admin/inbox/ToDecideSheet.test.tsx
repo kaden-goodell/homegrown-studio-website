@@ -27,11 +27,16 @@ function server(items: any[], o: { decide?: (b: any) => any; amount?: number | n
           return ok({ data: { items: list } })
         }
         if (post.action === 'names') return ok({ data: { named: post.names.filter((x: any) => x.name.trim()).length } })
+        if (post.action === 'undo') {
+          list = list.map((i) => (i.id === post.id ? { ...i, done: undefined } : i))
+          return ok({ data: { undone: post.id } })
+        }
         {
           const answer = o.decide?.(post)
+          // Like the real server: a decision that went through comes back Done in the list.
+          const what = answer ? (answer.ok ? (answer as any).what ?? `did ${post.action}` : '') : `did ${post.action}`
+          if (!answer || answer.ok) list = list.map((i) => (i.id === post.id ? { ...i, done: what, doneBy: 'Catherine', doneAt: '2026-10-19T15:00:00.000Z' } : i))
           if (answer) return answer
-          const what = `did ${post.action}`
-          list = list.map((i) => (i.id === post.id ? { ...i, done: what, doneBy: 'Catherine', doneAt: '2026-10-19T15:00:00.000Z' } : i))
           return ok({ data: { decided: { what } } })
         }
     }
@@ -54,7 +59,7 @@ describe('To decide sheets', () => {
     const t = item({ kind: 'pos-unmatched', title: 'Counter sale to match', head: '2 × Camp rung up at the counter', detail: { orderId: 'O1', lineUid: 'L1', name: 'Camp', qty: 2, at: '2026-10-18T16:42:00.000Z', guessClassId: 'cls_camp' } })
     const { f } = show([t], {
       amount: 6540, classes: [camp],
-      decide: (b) => (b.action === 'match' ? ok({ data: { decided: { what: 'Added 2 seats to Camp · Thu Mar 13' }, classId: 'cls_camp', seats: [{ lineId: 'led_1', seat: 1, named: false }, { lineId: 'led_2', seat: 2, named: false }] } }) : null),
+      decide: (b) => (b.action === 'match' ? { ...ok({ data: { decided: { what: 'Added 2 seats to Camp · Thu Mar 13' }, classId: 'cls_camp', seats: [{ lineId: 'led_1', seat: 1, named: false }, { lineId: 'led_2', seat: 2, named: false }] } }), what: 'Added 2 seats to Camp · Thu Mar 13' } : null),
     })
     expect(await screen.findByText('$65.40')).toBeInTheDocument()
     expect(screen.getByText('Sun Oct 18 · 11:42 AM')).toBeInTheDocument()
@@ -72,6 +77,8 @@ describe('To decide sheets', () => {
     fireEvent.click(within(footer()).getByRole('button', { name: 'Add names' }))
     await waitFor(() => expect(decisions(f)[1]).toEqual({ action: 'names', classId: 'cls_camp', names: [{ lineId: 'led_1', name: 'Erin Smith' }, { lineId: 'led_2', name: '' }] }))
     expect(await screen.findByText('Added a name.')).toBeInTheDocument()
+    // Then, and only then, the list reloads and the item reads Done.
+    expect(await screen.findByText('Done · Added 2 seats to Camp · Thu Mar 13')).toBeInTheDocument()
   })
 
   it('a counter sale that was not for a class: Not for a class, then Done', async () => {
@@ -95,8 +102,19 @@ describe('To decide sheets', () => {
     expect(within(footer()).getByRole('button', { name: 'Free this seat' })).toBeDisabled()
     fireEvent.click(screen.getByLabelText('Seat 2 · Person'))
     fireEvent.click(within(footer()).getByRole('button', { name: 'Free this seat' }))
+    // Asks first, naming the person; Keep it sends nothing.
+    const ask = within(footer()).getByRole('group', { name: 'Free Tori B.’s seat?' })
+    expect(within(ask).getByText(/Tori B\. comes off the class list/)).toBeInTheDocument()
+    fireEvent.click(within(ask).getByRole('button', { name: 'Keep it' }))
+    expect(decisions(f)).toEqual([])
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Free this seat' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Free it' }))
     await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'free', lineIds: ['led_b'] }]))
     expect(await screen.findByText('Done · did free')).toBeInTheDocument()
+    expect(screen.getByText('Freed Tori B.’s seat. It’s back on sale.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Undo' }))
+    await waitFor(() => expect(decisions(f).at(-1)).toEqual({ id: 'td_1', action: 'undo' }))
+    expect(await screen.findByText('Undone. The seat is theirs again.')).toBeInTheDocument()
   })
 
   it('keep their seat', async () => {
@@ -143,7 +161,7 @@ describe('To decide sheets', () => {
     expect(screen.getByText('Thu Oct 22 · 5 PM')).toBeInTheDocument()
     expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument()
     expect(screen.getByText('Nothing cancels on its own. If you do cancel, do it from the class.')).toBeInTheDocument()
-    fireEvent.click(within(footer()).getByRole('button', { name: 'Text the 2 booked' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Text the 2 people booked' }))
     const panel = screen.getByRole('group', { name: 'Text the people booked' })
     expect(within(panel).getByLabelText('Phone numbers')).toHaveTextContent('(256) 555-0100, (256) 555-0111')
     const link = within(panel).getByRole('link', { name: 'Open Messages' })
@@ -171,13 +189,39 @@ describe('To decide sheets', () => {
     await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'paid' }]))
   })
 
+  it('a door seat: Free the seat asks first naming the person, then frees with Undo; a related counter sale is mentioned', async () => {
+    const t = item({ kind: 'door-unpaid', title: 'Not paid at the counter', className: 'Looms', detail: { name: 'Dora Door', day: '2026-10-18', seats: 1, related: 'A counter sale that day was matched to Cara One. It may have been Dora Door: see “Check a counter sale”.' } })
+    const { f } = show([t])
+    expect(await screen.findByText(/It may have been Dora Door/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Free the seat' }))
+    expect(screen.getByRole('group', { name: 'Free Dora Door’s seat?' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Free it' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'free' }]))
+    expect(await screen.findByText('Freed Dora Door’s seat.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Undo' })).toBeInTheDocument()
+  })
+
+  it('a counter sale starts on the seat its item maps to; with no clue it asks which seat', async () => {
+    const camp = cls({ id: 'cls_camp', content: content({ name: 'Camp', passes: [{ id: 'all', label: 'Full series', covers: { kind: 'all' } }, { id: 'day', label: 'One day', covers: { kind: 'choose', count: 1 } }] }) })
+    const guessed = item({ kind: 'pos-unmatched', title: 'Counter sale to match', detail: { orderId: 'O1', lineUid: 'L1', name: 'Camp · One day', qty: 1, at: '2026-10-18T16:42:00.000Z', guessClassId: 'cls_camp', guessKey: 'day:person' } })
+    const one = show([guessed], { classes: [camp] })
+    await waitFor(() => expect(screen.getByLabelText('Which seat?')).toHaveValue('day:person'))
+    one.unmount()
+    const plain = item({ kind: 'pos-unmatched', title: 'Counter sale to match', detail: { orderId: 'O1', lineUid: 'L1', name: 'Camp', qty: 1, at: '2026-10-18T16:42:00.000Z', guessClassId: 'cls_camp', guessKey: null } })
+    const two = show([plain], { classes: [camp] })
+    await waitFor(() => expect(screen.getByLabelText('Which seat?')).toHaveValue(''))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Match to this class' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Pick which seat it was.')
+    expect(decisions(two.f)).toEqual([])
+  })
+
   it('a counter sale matched to one of several door seats: Yes, or pick who it was', async () => {
     const t = item({ kind: 'counter-match-check', title: 'Check a counter sale', className: 'Looms', detail: { name: 'Cara One', lineId: 'led_c', others: [{ lineId: 'led_d', name: 'Dee Two', seat: 1 }] } })
     const { f } = show([t])
-    const moveBtn = await screen.findByRole('button', { name: 'It was the person picked' })
-    expect(moveBtn).toBeDisabled()
+    expect(await screen.findByRole('button', { name: 'Pick who it was' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Yes, it was Cara One' })).toBeInTheDocument()
     fireEvent.click(screen.getByLabelText('Dee Two'))
-    fireEvent.click(moveBtn)
+    fireEvent.click(screen.getByRole('button', { name: 'It was Dee Two' }))
     await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'move', toLineId: 'led_d' }]))
   })
 
@@ -185,6 +229,7 @@ describe('To decide sheets', () => {
     const t = item({ kind: 'door-unpaid', title: 'Not paid at the counter', className: 'Looms', detail: { name: 'Dora Door', day: '2026-10-18', seats: 1 } })
     show([t], { decide: () => refuse(503, { error: 'Didn’t save. Try again.' }) })
     fireEvent.click(await screen.findByRole('button', { name: 'Free the seat' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Free it' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Didn’t save. Try again.')
     expect(screen.getAllByText("Didn't save. Try again.").length).toBeGreaterThan(0)
   })

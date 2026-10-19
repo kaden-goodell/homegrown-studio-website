@@ -1,6 +1,7 @@
 /** Studio-day arithmetic for the admin screens. Days are YYYY-MM-DD in studio time. */
 import { localDate, localToUtcISO } from '@lib/party-slots'
 import { studioClock } from '@lib/studio-time'
+import { closureOn, closures as configClosures, OPEN_WEEKDAYS, type Closure } from '@config/closures'
 
 export function addDays(ymd: string, n: number): string {
   const [y, m, d] = ymd.split('-').map(Number)
@@ -46,4 +47,11 @@ export function dayLabel(ymd: string): string {
 /** "March 2031" */
 export function monthLabel(ymd: string): string {
   return new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-US', { timeZone: 'UTC', month: 'long', year: 'numeric' })
+}
+
+/** The first day on or after `from` the studio opens (not a usual closed weekday, not a closure). */
+export function nextOpenDay(from = today(), closed: Closure[] = configClosures): string {
+  let d = from
+  for (let i = 0; i < 400 && (!OPEN_WEEKDAYS.has(weekday(d)) || closureOn(d, closed)); i++) d = addDays(d, 1)
+  return d
 }

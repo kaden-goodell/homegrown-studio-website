@@ -6,7 +6,8 @@ import { timeSpan as formatTimeSpan } from '../shell/time'
 import { Seg } from '../shell/items'
 import { localDate } from '@lib/party-slots'
 import { api, BLOCKED } from './api'
-import { addDays, dayLabel, dayStartIso, today, toIsoAt } from './dates'
+import { addDays, dayLabel, dayStartIso, nextOpenDay, today, toIsoAt } from './dates'
+import { useStudio } from '../shell/studio'
 
 /** Why the room is held (the mock-up's Closed · Private · Setup); what customers' clash lines and the calendar call it. */
 export const BLOCK_WHY = [['Closed', 'Closed'], ['Private event', 'Private'], ['Setup', 'Setup']] as const
@@ -29,7 +30,9 @@ export default function BlockTimeForm({ initialDay, onDirtyChange, onBlocked, in
   /** Blocked: the sheet closes and says so; without it the form says so itself. */
   onBlocked?: (b: BlockedTime, clashes: Busy[]) => void
 } = {}) {
-  const first = initialDay ?? today()
+  // A day it was opened for, or the next day the studio opens (Block time on a Monday means Thursday).
+  const closed = useStudio().days.closures
+  const [first] = useState(() => initialDay ?? nextOpenDay(today(), closed))
   const [day, setDay] = useState(first)
   const [from, setFrom] = useState('09:00')
   const [to, setTo] = useState('12:00')

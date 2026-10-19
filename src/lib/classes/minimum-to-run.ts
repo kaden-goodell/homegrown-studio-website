@@ -26,6 +26,7 @@ import { partyConfig } from '@config/party.config'
 import { listClasses } from './class-store'
 import { getLedger, seatsTaken, type Ledger } from './seat-ledger'
 import { onStaffConsole } from './staff-view'
+import { decidedIds, minimumItemId } from './decided'
 import type { ScheduledClass } from './types'
 
 const logger = createLogger('classes:minimum-to-run')
@@ -95,7 +96,9 @@ export interface MinimumRun { alerted: MinimumAlert[]; failed: MinimumAlert[]; a
 export async function runMinimumToRunAlerts(now: Date): Promise<MinimumRun> {
   const horizon = new Date(now.getTime() + 400 * 86_400_000).toISOString()
   const classes = (await listClasses({ fromIso: now.toISOString(), toIso: horizon })).filter((c) => c.content.rules.minimumToRun && onStaffConsole(c))
-  const rows = await Promise.all(classes.map(async (cls) => ({ cls, ledger: await getLedger(cls.id) })))
+  // An owner who chose "Keep it running" in /admin › To decide isn't asked again.
+  const decided = await decidedIds()
+  const rows = await Promise.all(classes.filter((c) => !decided.has(minimumItemId(c.id))).map(async (cls) => ({ cls, ledger: await getLedger(cls.id) })))
   const run: MinimumRun = { alerted: [], failed: [], already: 0 }
   for (const a of minimumAlertsDue(rows, now)) {
     if (!(await claim(a, now).catch(() => false))) { run.already++; continue }

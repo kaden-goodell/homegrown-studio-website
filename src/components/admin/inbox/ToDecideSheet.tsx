@@ -21,35 +21,57 @@ import { smsAll } from '../sheets/ClassSheet'
 import { useInbox } from './InboxData'
 
 type Detail = Record<string, any>
-interface Choice { action: string; body?: Record<string, unknown> }
+interface Choice { action: string; body?: Record<string, unknown>; toast?: string; undo?: boolean }
 
-/** Sends one decision; on success the list reloads (the item comes back as Done) and a toast says what was done. */
+/**
+ * Sends one decision; on success the list reloads (the item comes back as
+ * Done) and a toast says what was done. `reload: false` keeps the item on
+ * screen for a next step (naming a counter sale's seats); `finish()` reloads
+ * after it. A freed seat's toast offers Undo.
+ */
 function useDecide(item: ToDecideItem) {
   const { todo } = useInbox()
   const { bump } = useRefresh()
   const toast = useToast()
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState('')
-  async function send(c: Choice): Promise<{ ok: boolean; data?: any; extra?: Record<string, any> }> {
+  const finish = () => { todo.retry(); bump() }
+  async function send(c: Choice, opts: { reload?: boolean } = {}): Promise<{ ok: boolean; data?: any; extra?: Record<string, any> }> {
     setBusy(c.action)
     setError('')
     const r = await api<any>(TO_DECIDE, { id: item.id, action: c.action, ...(c.body ?? {}) })
     setBusy(null)
     if (r.ok && r.data) {
-      toast(`Done. ${r.data.decided.what}.`)
-      todo.retry()
-      bump()
+      const undo = c.undo
+        ? () => { api(TO_DECIDE, { id: item.id, action: 'undo' }).then((u) => { if (u.ok) { toast('Undone. The seat is theirs again.'); finish() } else toast(u.error ?? DIDNT_SAVE) }) }
+        : undefined
+      toast(c.toast ?? `Done. ${r.data.decided.what}.`, undo ? { undo } : undefined)
+      if (opts.reload !== false) finish()
       return { ok: true, data: r.data }
     }
     setError(r.error ?? DIDNT_SAVE)
     if (r.status >= 500 || r.status === 0) toast(DIDNT_SAVE)
     return { ok: false, extra: r.extra }
   }
-  return { send, busy, error, setError }
+  return { send, busy, error, setError, finish }
 }
 
 const label = (busy: string | null, action: string, idle: string, working: string) => (busy === action ? working : idle)
 const kv = (k: string, v: string) => <div className="adm-kv" key={k}><span>{k}</span><span>{v}</span></div>
+
+/** "Free the seat?" in the sheet, naming who loses it, before anything is sent. */
+function FreeConfirm({ who, seats, busy, onKeep, onFree }: { who: string; seats: number; busy: boolean; onKeep: () => void; onFree: () => void }) {
+  return (
+    <div className="adm-panel is-warn" role="group" aria-label={`Free ${who}’s seat?`}>
+      <b>{`Free ${who}’s ${seats === 1 ? 'seat' : `${seats} seats`}?`}</b>
+      <span className="adm-small">{`${who} comes off the class list and the seat goes back on sale. No money moves.`}</span>
+      <div className="adm-two">
+        <button type="button" className="adm-btn is-ghost" onClick={onKeep}>Keep it</button>
+        <button type="button" className="adm-btn is-danger" disabled={busy} onClick={onFree}>{busy ? 'Freeing…' : 'Free it'}</button>
+      </div>
+    </div>
+  )
+}
 
 export function ToDecideSheet({ id }: { id: string }) {
   const { todo } = useInbox()
@@ -60,11 +82,12 @@ export function ToDecideSheet({ id }: { id: string }) {
   if (t.done) {
     return (
       <SheetFrame title={t.title} subtitle="Done">
-        <div className="adm-card"><p><b style={{ color: 'var(--color-dark)' }}>{t.head}</b></p></div>
-        <div className="adm-panel" style={{ marginTop: '0.75rem' }} role="status">
+        <div className="adm-card"><p><b className="adm-dark">{t.head}</b></p></div>
+        <div className="adm-panel adm-gap-top" role="status">
           <b>{`Done · ${t.done}`}</b>
           {t.doneBy && t.doneAt && <span className="adm-small">{`${t.doneBy}, ${dayAndClock(t.doneAt)}`}</span>}
         </div>
+        {t.classId && <OpenClass id={t.classId} />}
       </SheetFrame>
     )
   }
@@ -81,8 +104,13 @@ export function ToDecideSheet({ id }: { id: string }) {
   }
 }
 
+function OpenClass({ id }: { id: string }) {
+  const { open } = useSheet()
+  return <button type="button" className="adm-btn is-ghost is-sm adm-gap-top" onClick={() => open({ kind: 'class', id })}>Open the class</button>
+}
+
 function Head({ item }: { item: ToDecideItem }) {
-  return <div className="adm-card" style={{ marginBottom: '0.75rem' }}><p><b style={{ color: 'var(--color-dark)' }}>{item.head}</b></p></div>
+  return <div className="adm-card adm-gap-bottom"><p><b className="adm-dark">{item.head}</b></p></div>
 }
 
 function ErrorLine({ text }: { text: string }) {
@@ -97,7 +125,7 @@ function OneChoice({ item, note, action, button, working }: { item: ToDecideItem
     <SheetFrame title={item.title} subtitle="To decide" footer={<button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action })}>{label(busy, action, button, working)}</button>}>
       <Head item={item} />
       {kv('Refund', formatMoney((item.detail as Detail).refundCents ?? 0))}
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>{note}</p>
+      <p className="adm-note adm-gap-top">{note}</p>
       <ErrorLine text={error} />
     </SheetFrame>
   )
@@ -118,7 +146,7 @@ function Unconfirmed({ item }: { item: ToDecideItem }) {
     >
       <Head item={item} />
       {kv('Refund', formatMoney((item.detail as Detail).refundCents ?? 0))}
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>We asked Square for this refund and never heard back. Look it up in Square, then say what you saw. Nothing is sent to Square from here.</p>
+      <p className="adm-note adm-gap-top">We asked Square for this refund and never heard back. Look it up in Square, then say what you saw. Nothing is sent to Square from here.</p>
       <ErrorLine text={error} />
     </SheetFrame>
   )
@@ -130,27 +158,34 @@ function PlainRefund({ item }: { item: ToDecideItem }) {
   const { send, busy, error } = useDecide(item)
   const [picking, setPicking] = useState(false)
   const [pick, setPick] = useState<string>('')
-  async function free() {
+  const [confirming, setConfirming] = useState(false)
+  function free() {
     if (seats.length > 1 && !pick) { setPicking(true); return }
-    const r = await send({ action: 'free', body: pick ? { lineIds: [pick] } : {} })
+    setConfirming(true)
+  }
+  async function reallyFree() {
+    const r = await send({ action: 'free', body: pick ? { lineIds: [pick] } : {}, toast: `Freed ${d.name}’s seat. It’s back on sale.`, undo: true })
+    setConfirming(false)
     if (!r.ok && r.extra?.needsPick) setPicking(true)
   }
   return (
     <SheetFrame
       title={item.title}
       subtitle="To decide"
-      footer={(
-        <div className="adm-two">
-          <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => send({ action: 'keep' })}>{label(busy, 'keep', 'Keep their seat', 'Saving…')}</button>
-          <button type="button" className="adm-btn is-pri" disabled={!!busy || (picking && !pick)} onClick={free}>{label(busy, 'free', picking ? 'Free this seat' : 'Free a seat', 'Freeing…')}</button>
-        </div>
-      )}
+      footer={confirming
+        ? <FreeConfirm who={d.name} seats={1} busy={busy === 'free'} onKeep={() => setConfirming(false)} onFree={reallyFree} />
+        : (
+          <div className="adm-two">
+            <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => send({ action: 'keep' })}>{label(busy, 'keep', 'Keep their seat', 'Saving…')}</button>
+            <button type="button" className="adm-btn is-pri" disabled={!!busy || (picking && !pick)} onClick={free}>{label(busy, 'free', picking ? 'Free this seat' : 'Free a seat', 'Freeing…')}</button>
+          </div>
+        )}
     >
       <Head item={item} />
       {kv('Booking', `${d.name} · ${seats.length === 1 ? '1 seat' : `${seats.length} seats`} · ${item.className}`)}
       {kv('Refunded in Square', formatMoney(d.refundCents ?? 0))}
       {picking && (
-        <fieldset className="adm-date" style={{ marginTop: '0.75rem' }}>
+        <fieldset className="adm-date adm-gap-top">
           <legend>Which seat?</legend>
           {seats.map((s) => (
             <label key={s.lineId} className="adm-check">
@@ -160,7 +195,7 @@ function PlainRefund({ item }: { item: ToDecideItem }) {
           ))}
         </fieldset>
       )}
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>Freeing a seat puts it back on sale. It moves no money: the refund already happened in Square.</p>
+      <p className="adm-note adm-gap-top">Freeing a seat puts it back on sale. It moves no money: the refund already happened in Square.</p>
       <ErrorLine text={error} />
     </SheetFrame>
   )
@@ -172,15 +207,15 @@ const STORE_PICK = (c: ScheduledClass) => c.status !== 'cancelled'
 
 function CounterSale({ item }: { item: ToDecideItem }) {
   const d = item.detail as Detail
-  const { send, busy, error, setError } = useDecide(item)
+  const { send, busy, error, setError, finish } = useDecide(item)
   const toast = useToast()
-  const { close } = useSheet()
   const [amount, setAmount] = useState<number | null | undefined>(undefined)
   const [classes, setClasses] = useState<ScheduledClass[] | null>(null)
   const [loadError, setLoadError] = useState('')
   const [tries, setTries] = useState(0)
   const [classId, setClassId] = useState<string>(d.guessClassId ?? '')
-  const [seatKey, setSeatKey] = useState('')
+  // The seat the sold item maps to (its variation, or "One day" in its name); no guess, no default.
+  const [seatKey, setSeatKey] = useState<string>(d.guessClassId && d.guessKey ? d.guessKey : '')
   const [dates, setDates] = useState<string[]>([])
   const [made, setMade] = useState<{ classId: string; seats: { lineId: string; seat: number; named: boolean }[] } | null>(null)
   const [names, setNames] = useState<Record<string, string>>({})
@@ -205,17 +240,21 @@ function CounterSale({ item }: { item: ToDecideItem }) {
 
   const cls = classes?.find((c) => c.id === classId) ?? null
   const combos = useMemo(() => (cls ? cls.content.passes.flatMap((p) => cls.content.ticketTypes.map((t) => ({ key: `${p.id}:${t.id}`, pass: p, ticket: t }))) : []), [cls])
-  const combo = combos.find((c) => c.key === seatKey) ?? combos[0]
+  const combo = combos.find((c) => c.key === seatKey) ?? (combos.length === 1 ? combos[0] : undefined)
   const needsDates = !!combo && (combo.pass.covers.kind === 'choose' || combo.pass.covers.kind === 'remaining')
   const count = combo?.pass.covers.kind === 'choose' ? combo.pass.covers.count : null
   const sessions = cls ? [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso)) : []
 
   async function match() {
-    if (!cls || !combo) return setError('Pick a class.')
+    if (!cls) return setError('Pick a class.')
+    if (!combo) return setError('Pick which seat it was.')
     if (needsDates && !dates.length) return setError('Pick the date.')
     if (count && dates.length !== count) return setError(count === 1 ? 'Pick 1 date.' : `Pick ${count} dates.`)
-    const r = await send({ action: 'match', body: { classId: cls.id, passId: combo.pass.id, ticketTypeId: combo.ticket.id, ...(needsDates ? { sessionIds: dates } : {}) } })
-    if (r.ok && r.data?.seats?.some((s: { named: boolean }) => !s.named)) setMade({ classId: r.data.classId, seats: r.data.seats })
+    // The item stays on screen for "Who are the seats for?"; the list reloads (Done) after that step.
+    const r = await send({ action: 'match', body: { classId: cls.id, passId: combo.pass.id, ticketTypeId: combo.ticket.id, ...(needsDates ? { sessionIds: dates } : {}) } }, { reload: false })
+    if (!r.ok) return
+    if (r.data?.seats?.some((s: { named: boolean }) => !s.named)) setMade({ classId: r.data.classId, seats: r.data.seats })
+    else finish()
   }
   async function saveNames() {
     if (!made) return
@@ -224,7 +263,7 @@ function CounterSale({ item }: { item: ToDecideItem }) {
     setNaming(false)
     if (!r.ok) return setError(r.error ?? DIDNT_SAVE)
     toast(r.data?.named ? `Added ${r.data.named === 1 ? 'a name' : `${r.data.named} names`}.` : 'No names added.')
-    close()
+    finish()
   }
 
   if (made) {
@@ -234,7 +273,7 @@ function CounterSale({ item }: { item: ToDecideItem }) {
         subtitle={cls?.content.name}
         footer={(
           <div className="adm-two">
-            <button type="button" className="adm-btn is-ghost" onClick={close}>Skip</button>
+            <button type="button" className="adm-btn is-ghost" onClick={finish}>Skip</button>
             <button type="button" className="adm-btn is-pri" disabled={naming} onClick={saveNames}>{naming ? 'Saving…' : 'Add names'}</button>
           </div>
         )}
@@ -271,7 +310,7 @@ function CounterSale({ item }: { item: ToDecideItem }) {
       {classes && classes.length > 0 && (
         <label className="adm-fld">
           <span>Which class?</span>
-          <select value={classId} onChange={(e) => { setClassId(e.target.value); setSeatKey(''); setDates([]); setError('') }}>
+          <select value={classId} onChange={(e) => { setClassId(e.target.value); setSeatKey(e.target.value === d.guessClassId && d.guessKey ? d.guessKey : ''); setDates([]); setError('') }}>
             <option value="">Pick a class</option>
             {classes.map((c) => <option key={c.id} value={c.id}>{c.sessions[0] ? `${c.content.name} · ${dayLabel(localDate(c.sessions[0].startIso))}` : c.content.name}</option>)}
           </select>
@@ -280,7 +319,8 @@ function CounterSale({ item }: { item: ToDecideItem }) {
       {cls && combos.length > 1 && (
         <label className="adm-fld">
           <span>Which seat?</span>
-          <select value={combo?.key ?? ''} onChange={(e) => { setSeatKey(e.target.value); setDates([]) }}>
+          <select value={combo?.key ?? ''} onChange={(e) => { setSeatKey(e.target.value); setDates([]); setError('') }}>
+            {!combo && <option value="">Pick which seat</option>}
             {combos.map((c) => <option key={c.key} value={c.key}>{`${c.pass.label} · ${c.ticket.label}`}</option>)}
           </select>
         </label>
@@ -304,7 +344,7 @@ function CounterSale({ item }: { item: ToDecideItem }) {
       {cls && !needsDates && sessions.length > 0 && (
         <p className="adm-small adm-muted">{sessions.length === 1 ? dayAndSpan(sessions[0].startIso, sessions[0].endIso) : `Every date of the class (${sessions.length})`}</p>
       )}
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>Matching adds the seats to the class as a counter sale, even if it’s full. Nothing is charged or refunded.</p>
+      <p className="adm-note adm-gap-top">Matching adds the seats to the class as a counter sale, even if it’s full. Nothing is charged or refunded.</p>
       <ErrorLine text={error} />
     </SheetFrame>
   )
@@ -338,7 +378,7 @@ function NeedsDays({ item }: { item: ToDecideItem }) {
           </label>
         ))}
       </fieldset>
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>The seat was put on the next date for now. It moves to the day you pick, even if that day is full.</p>
+      <p className="adm-note adm-gap-top">The seat was put on the next date for now. It moves to the day you pick, even if that day is full.</p>
       <ErrorLine text={error} />
     </SheetFrame>
   )
@@ -366,7 +406,6 @@ function BelowMinimum({ item }: { item: ToDecideItem }) {
     return () => { live = false }
   }, [tries, item.classId])
   const phones = [...new Set((bookings ?? []).map((b) => b.customer?.phone ?? '').filter(Boolean))]
-  const pct = Math.min(100, Math.round((d.booked / Math.max(1, d.count)) * 100))
   return (
     <SheetFrame
       tall
@@ -375,7 +414,7 @@ function BelowMinimum({ item }: { item: ToDecideItem }) {
       footer={(
         <div className="adm-two">
           <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => send({ action: 'keep-running' })}>{label(busy, 'keep-running', 'Keep it running', 'Saving…')}</button>
-          <button type="button" className="adm-btn is-pri" aria-expanded={texting} onClick={() => setTexting(!texting)}>{bookings ? `Text the ${phones.length} booked` : 'Text the people booked'}</button>
+          <button type="button" className="adm-btn is-pri" aria-expanded={texting} onClick={() => setTexting(!texting)}>{bookings ? (phones.length === 1 ? 'Text the 1 person booked' : `Text the ${phones.length} people booked`) : 'Text the people booked'}</button>
         </div>
       )}
     >
@@ -383,7 +422,7 @@ function BelowMinimum({ item }: { item: ToDecideItem }) {
         <div><b>{`${d.booked} of ${d.count}`}</b><small>needed to run</small></div>
         <div><b>{dayAndClock(d.decideByIso)}</b><small>decide by</small></div>
       </div>
-      <div className="adm-meter" aria-hidden="true"><i style={{ width: `${pct}%` }} /></div>
+      <progress className="adm-meter" aria-hidden="true" max={Math.max(1, d.count)} value={Math.min(d.booked, d.count)} />
       {loadError && <Failed message={loadError} onRetry={() => setTries((n) => n + 1)} />}
       {!loadError && !bookings && <Skeleton rows={2} label="Loading who’s booked" />}
       {bookings && bookings.length === 0 && <p className="adm-empty">Nobody is booked yet.</p>}
@@ -393,7 +432,7 @@ function BelowMinimum({ item }: { item: ToDecideItem }) {
         return kv(name, seats === 1 ? '1 seat' : `${seats} seats`)
       })}
       {texting && (
-        <div className="adm-panel" role="group" aria-label="Text the people booked" style={{ marginTop: '0.75rem' }}>
+        <div className="adm-panel adm-gap-top" role="group" aria-label="Text the people booked">
           {phones.length
             ? (
               <>
@@ -408,8 +447,8 @@ function BelowMinimum({ item }: { item: ToDecideItem }) {
             : <span>Nobody booked has a phone number on file.</span>}
         </div>
       )}
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>Nothing cancels on its own. If you do cancel, do it from the class.</p>
-      <button type="button" className="adm-btn is-ghost is-sm" style={{ marginTop: '0.5rem' }} onClick={() => open({ kind: 'class', id: item.classId ?? '' })}>Open the class</button>
+      <p className="adm-note adm-gap-top">Nothing cancels on its own. If you do cancel, do it from the class.</p>
+      <button type="button" className="adm-btn is-ghost is-sm adm-gap-top" onClick={() => open({ kind: 'class', id: item.classId ?? '' })}>Open the class</button>
       <ErrorLine text={error} />
     </SheetFrame>
   )
@@ -420,22 +459,27 @@ function BelowMinimum({ item }: { item: ToDecideItem }) {
 function DoorUnpaid({ item }: { item: ToDecideItem }) {
   const d = item.detail as Detail
   const { send, busy, error } = useDecide(item)
+  const [confirming, setConfirming] = useState(false)
+  const who = d.name || 'this person'
   return (
     <SheetFrame
       title={item.title}
       subtitle="To decide"
-      footer={(
-        <div className="adm-two">
-          <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => send({ action: 'free' })}>{label(busy, 'free', 'Free the seat', 'Freeing…')}</button>
-          <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'paid' })}>{label(busy, 'paid', 'Mark paid at the counter', 'Saving…')}</button>
-        </div>
-      )}
+      footer={confirming
+        ? <FreeConfirm who={who} seats={d.seats} busy={busy === 'free'} onKeep={() => setConfirming(false)} onFree={() => { send({ action: 'free', toast: `Freed ${who}’s ${d.seats === 1 ? 'seat' : 'seats'}.`, undo: true }).then(() => setConfirming(false)) }} />
+        : (
+          <div className="adm-two">
+            <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => setConfirming(true)}>{d.seats === 1 ? 'Free the seat' : 'Free the seats'}</button>
+            <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'paid' })}>{label(busy, 'paid', 'Mark paid at the counter', 'Saving…')}</button>
+          </div>
+        )}
     >
       <Head item={item} />
       {kv('Who', d.name || 'No name')}
       {kv('Class', `${item.className} · ${dayLabel(d.day)}`)}
       {kv('Seats', String(d.seats))}
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>They were added at the door to pay at the counter, and no counter sale matched them. If they paid some other way, mark it paid. Freeing the seat takes them off the class list. Nothing is charged or refunded either way.</p>
+      {d.related && <p className="adm-note adm-gap-top">{d.related}</p>}
+      <p className="adm-note adm-gap-top">They were added at the door to pay at the counter, and no counter sale matched them. If they paid some other way, mark it paid. Freeing the seat takes them off the class list. Nothing is charged or refunded either way.</p>
       <ErrorLine text={error} />
     </SheetFrame>
   )
@@ -454,7 +498,7 @@ function CounterCheck({ item }: { item: ToDecideItem }) {
         <div className="adm-stack">
           <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'confirm' })}>{label(busy, 'confirm', `Yes, it was ${d.name}`, 'Saving…')}</button>
           {others.length > 0 && (
-            <button type="button" className="adm-btn is-ghost" disabled={!!busy || !pick} onClick={() => send({ action: 'move', body: { toLineId: pick } })}>{label(busy, 'move', 'It was the person picked', 'Moving…')}</button>
+            <button type="button" className="adm-btn is-ghost" disabled={!!busy || !pick} onClick={() => send({ action: 'move', body: { toLineId: pick } })}>{label(busy, 'move', pick ? `It was ${others.find((o) => o.lineId === pick)?.name}` : 'Pick who it was', 'Moving…')}</button>
           )}
         </div>
       )}
@@ -471,7 +515,7 @@ function CounterCheck({ item }: { item: ToDecideItem }) {
           ))}
         </fieldset>
       )}
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>{others.length ? 'Picking someone else moves the payment to them; the first person shows as not paid yet.' : 'Nobody else had an unpaid seat that day any more.'}</p>
+      <p className="adm-note adm-gap-top">{others.length ? `Picking someone else moves the payment to them; ${d.name} then shows as not paid yet. Anyone here also shows under “Not paid at the counter” until it’s sorted.` : 'Nobody else had an unpaid seat that day any more.'}</p>
       <ErrorLine text={error} />
     </SheetFrame>
   )

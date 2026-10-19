@@ -235,6 +235,8 @@ describe('POS sales', () => {
     const mine = (await listUnmatchedPos()).filter((u) => u.orderId === o.id)
     expect(mine).toHaveLength(2)
     expect(mine).toContainEqual(expect.objectContaining({ lineUid: gone.uid, qty: 2, name: expect.stringContaining('Old camp') }))
+    // The sold variation rides along, so /admin can start the match on the right seat.
+    expect(mine.find((u) => u.lineUid === gone.uid)).toMatchObject({ variationId: 'VAR_GONE' })
 
     sq.fail = /batch-retrieve/
     const o2 = order([lineItem('VAR_NOT_LOOKED_UP', 1, 2500)])

@@ -31,6 +31,7 @@ import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
 import { listPosNeedsDays, listRefundFlags, listUnmatchedPos, type RefundFlag } from '@lib/classes/square-events'
 import { onStaffConsole } from '@lib/classes/staff-view'
 import { listCounterMatchChecks, listDoorUnpaid } from '@lib/classes/door-unpaid'
+import { decidedIds, minimumItemId } from '@lib/classes/decided'
 import type { ScheduledClass } from '@lib/classes/types'
 import { formatMoney } from '@lib/money'
 
@@ -281,13 +282,15 @@ export const OWNERS_DECIDE = 'An owner decides on /admin.'
 async function ownClassWarnings(from: string, to: string, now: Date): Promise<Warning[]> {
   const startIso = studioDayUtcRange(from).startIso
   const endIso = studioDayUtcRange(to).endIso
-  const [classes, unmatched, needsDays, flags, unpaid, matches] = await Promise.all([
+  const [classes, unmatched, needsDays, flags, unpaid, matches, decided] = await Promise.all([
     listClasses({ fromIso: startIso, toIso: endIso }),
     listUnmatchedPos(),
     listPosNeedsDays(),
     listRefundFlags(),
     listDoorUnpaid(now),
     listCounterMatchChecks(now),
+    // What owners already decided in /admin › To decide (e.g. "Keep it running") stops showing here.
+    decidedIds(),
   ])
   const shown = classes.filter(onStaffConsole)
   const byId = new Map<string, ScheduledClass>(shown.map((c) => [c.id, c]))
@@ -308,7 +311,7 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
     }
     const min = cls.content.rules.minimumToRun
     const first = sessions[0]
-    if (min && first && Date.parse(first.startIso) > now.getTime() && first.startIso <= endIso) {
+    if (min && first && Date.parse(first.startIso) > now.getTime() && first.startIso <= endIso && !decided.has(minimumItemId(cls.id))) {
       const booked = seatsTaken(ledger, first.id, now)
       if (booked < min.count) {
         out.push({

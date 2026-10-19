@@ -612,18 +612,47 @@ export async function moveCounterPayment(classId: string, fromLineId: string, to
     if (!to || !unpaidDoorSeat(to) || to.passId !== from.passId || to.ticketTypeId !== from.ticketTypeId) {
       throw new Error('Pick someone whose seat at the door is still not paid.')
     }
+    // Every seat of the first booking that sale paid moves, onto the right person's unpaid seats in order (as many as they have).
+    const order = from.square.orderId
+    const paid = cur.lines.filter((l) => l.bookingId === from.bookingId && l.square.orderId === order && l.source === 'door-counter')
+      .sort((a, b) => (a.id === from.id ? -1 : b.id === from.id ? 1 : a.seat - b.seat))
+    const targets = [to, ...cur.lines.filter((l) => l.bookingId === to.bookingId && l.id !== to.id && unpaidDoorSeat(l)
+      && l.passId === from.passId && l.ticketTypeId === from.ticketTypeId).sort((a, b) => a.seat - b.seat)]
+    const pairs = new Map<string, LedgerLine>()
+    paid.slice(0, targets.length).forEach((p, i) => pairs.set(targets[i].id, p))
+    const moving = new Set([...pairs.values()].map((p) => p.id))
     const lines = cur.lines.map((l) => {
-      if (l.id === from.id) {
+      if (moving.has(l.id)) {
         const { counterMatch: _m, ...rest } = l
         return { ...rest, square: { orderId: null, paymentId: null, lineUid: null } }
       }
-      if (l.id === to.id) {
+      const src = pairs.get(l.id)
+      if (src) {
         return {
-          ...l, priceCents: from.priceCents, taxCents: from.taxCents, square: { ...from.square },
-          counterMatch: { ...from.counterMatch!, checked: { at: now.toISOString(), by } },
+          ...l, priceCents: src.priceCents, taxCents: src.taxCents, square: { ...src.square },
+          ...(l.id === to.id ? { counterMatch: { ...from.counterMatch!, checked: { at: now.toISOString(), by } } } : {}),
         }
       }
       return l
+    })
+    return { next: { ...cur, lines }, result: undefined }
+  })
+}
+
+/**
+ * Undo of a "free the seat" just done in /admin › To decide: takes back the
+ * no-money free-seat entry on these seats (only that kind: a refund with money
+ * is never touched), so they hold their seats again.
+ */
+export async function unfreeSeats(classId: string, lineIds: string[]): Promise<void> {
+  await mutate(classId, (cur) => {
+    const lines = cur.lines.map((l) => {
+      if (!lineIds.includes(l.id)) return l
+      const i = [...l.refunds].reverse().findIndex((r) => r.freedSeat && r.cents === 0 && !r.squareRefundId)
+      if (i < 0) return l
+      const at = l.refunds.length - 1 - i
+      const refunds = l.refunds.filter((_, n) => n !== at)
+      return { ...l, refunds, state: refunds.length ? l.state : 'confirmed' as const }
     })
     return { next: { ...cur, lines }, result: undefined }
   })
