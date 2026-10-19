@@ -15,6 +15,7 @@ import { picksShort, prepOptions } from '@lib/seat-options'
 import type { RosterChoices } from '@lib/seat-choices'
 import RefundPanel, { STAFF_REFUND, type WaitingRefund } from '@components/shared/RefundPanel'
 import type { BookingView } from '@lib/classes/admin-actions'
+import { overCapacityNote, paidWay } from '@lib/classes/booking-words'
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
 
@@ -29,18 +30,6 @@ interface RosterData {
   bookings?: (BookingView & { name: string; seatsToday: number; waiting: WaitingRefund | null })[]
   /** Our own classes: ticket type id → label. */
   ticketLabels?: Record<string, string>
-}
-
-/** How a seat on our class was paid, in a few words for the door. */
-function paidWay(b: BookingView): string {
-  switch (b.source) {
-    case 'online': return 'Paid online'
-    case 'door-card': return 'Paid on the iPad'
-    case 'door-counter': return b.paidHere ? 'Paid at the counter' : 'Pay at the counter'
-    case 'comp': return 'Comped'
-    case 'pos': return 'Counter sale'
-    default: return ''
-  }
 }
 
 /**
@@ -87,7 +76,9 @@ function OwnBooking({ b, classId, households, ticketLabels, onChanged }: {
           {refunded && ' · part refunded'}
         </span>
       </div>
-      {b.overCapacity && <p style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', fontWeight: 700, color: 'var(--color-error)' }}>Over capacity. An owner decides on /admin.</p>}
+      {overCapacityNote(b) && (
+        <p style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', ...(overCapacityNote(b) === 'Added over capacity on purpose.' ? { color: 'var(--color-muted)' } : { fontWeight: 700, color: 'var(--color-error)' }) }}>{overCapacityNote(b)}</p>
+      )}
       {unnamed && (
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.4rem' }}>
           {households.length ? (
@@ -370,14 +361,14 @@ export default function Roster({
 
         <div data-testid="roster-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.5rem', marginTop: '0.9rem' }}>
           {(kind === 'workshop' && typeof event.capacity === 'number' && typeof event.seats === 'number'
-            ? [{ n: `${event.capacity - event.seats}`, sub: `of ${event.capacity} sold` }]
-            : [{ n: `${data.summary.households}`, sub: data.summary.households === 1 ? 'family RSVP’d' : 'families RSVP’d' }]
+            ? [{ n: `${event.capacity - event.seats}`, sub: `of ${event.capacity} sold`, over: event.seats < 0 }]
+            : [{ n: `${data.summary.households}`, sub: data.summary.households === 1 ? 'family RSVP’d' : 'families RSVP’d', over: false }]
           ).concat([
-            { n: `${coming}`, sub: 'crafting' },
-            { n: `${here}`, sub: 'here now' },
+            { n: `${coming}`, sub: 'crafting', over: false },
+            { n: `${here}`, sub: 'here now', over: false },
           ]).map((st) => (
-            <div key={st.sub} style={{ padding: '0.55rem 0.3rem', borderRadius: '0.7rem', background: 'rgba(var(--color-primary-rgb),0.07)' }}>
-              <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--color-dark)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{st.n}</div>
+            <div key={st.sub} data-over={st.over ? 'true' : undefined} style={{ padding: '0.55rem 0.3rem', borderRadius: '0.7rem', background: st.over ? 'rgba(185,28,28,0.1)' : 'rgba(var(--color-primary-rgb),0.07)' }}>
+              <div style={{ fontSize: '1.6rem', fontWeight: 800, color: st.over ? 'var(--color-error)' : 'var(--color-dark)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{st.n}</div>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-muted)' }}>{st.sub}</div>
             </div>
           ))}

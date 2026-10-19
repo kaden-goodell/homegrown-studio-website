@@ -326,10 +326,11 @@ describe('Roster for one of our classes (Task 14)', () => {
     expect(rows[0]).toHaveTextContent('Gia Winner')
     expect(rows[0]).toHaveTextContent('1 seat · Paid online')
     expect(rows[1]).toHaveTextContent('Comped')
-    expect(rows[1]).toHaveTextContent('Over capacity. An owner decides on /admin.')
+    expect(rows[1]).toHaveTextContent('Added over capacity on purpose.')
     expect(within(rows[0]).getByRole('button', { name: 'Refund' })).toBeInTheDocument()
     expect(screen.getByText('3')).toBeInTheDocument() // "3 of 2 sold"
     expect(screen.getByText('of 2 sold')).toBeInTheDocument()
+    expect(screen.getByText('of 2 sold').parentElement).toHaveAttribute('data-over', 'true')
     // no Event settings for our classes: they are changed on /admin
     fireEvent.click(screen.getByRole('button', { name: 'More' }))
     expect(screen.queryByRole('menuitem', { name: /Event settings/ })).toBeNull()
