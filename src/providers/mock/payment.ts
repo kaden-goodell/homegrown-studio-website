@@ -7,6 +7,7 @@ import type {
   LineItem,
   Discount,
 } from '../interfaces/payment'
+import { taxCents } from '../../lib/tax'
 
 export class MockPaymentProvider implements PaymentProvider {
   private nextId = 1
@@ -16,6 +17,26 @@ export class MockPaymentProvider implements PaymentProvider {
   /** Records of calls, for test assertions. */
   refundCalls: { paymentId: string; amountCents: number; idempotencyKey: string; reason?: string }[] = []
   cancelOrderCalls: { orderId: string; version: number; locationId: string }[] = []
+
+  /** Catalog variation id -> price in cents, for createClassOrder (default 0). */
+  prices: Record<string, number> = {}
+  classOrderCalls: Parameters<PaymentProvider['createClassOrder']>[0][] = []
+
+  async createClassOrder(params: Parameters<PaymentProvider['createClassOrder']>[0]) {
+    this.classOrderCalls.push(params)
+    const lineTotals = params.lines.map((l) => {
+      const price = this.prices[l.catalogObjectId] ?? 0
+      const tax = taxCents(price, 9)
+      return { uid: this.generateId('mock-line'), totalCents: price + tax, taxCents: tax }
+    })
+    const sum = lineTotals.reduce((s, l) => s + l.totalCents, 0)
+    return {
+      orderId: this.generateId('mock-order'),
+      totalCents: Math.max(0, sum - (params.discount?.cents ?? 0)),
+      lineUids: lineTotals.map((l) => l.uid),
+      lineTotals,
+    }
+  }
 
   private generateId(prefix: string): string {
     return `${prefix}-${this.nextId++}`

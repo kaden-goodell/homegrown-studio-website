@@ -10,6 +10,7 @@ import type {
 } from '../interfaces/payment'
 import type { SquareConfig } from '../../config/site.config'
 import { createSquareClient } from './client'
+import { squareFetch } from '../../lib/classes/square-api'
 
 const logger = createLogger('square-payment')
 
@@ -32,6 +33,45 @@ export class SquarePaymentProvider implements PaymentProvider {
   constructor(config: SquareConfig) {
     this.config = config
     this.client = createSquareClient(config)
+  }
+
+  async createClassOrder(params: Parameters<PaymentProvider['createClassOrder']>[0]) {
+    const order: Record<string, any> = {
+      location_id: params.locationId,
+      reference_id: params.referenceId,
+      line_items: params.lines.map((l) => ({
+        catalog_object_id: l.catalogObjectId,
+        quantity: '1',
+        note: l.note.slice(0, 500),
+      })),
+      pricing_options: { auto_apply_taxes: true },
+    }
+    if (params.customerId) order.customer_id = params.customerId
+    if (params.discount) {
+      order.discounts = [
+        {
+          name: params.discount.name,
+          amount_money: { amount: params.discount.cents, currency: 'USD' },
+          scope: 'ORDER',
+        },
+      ]
+    }
+    const res = await squareFetch('/orders', {
+      method: 'POST',
+      body: JSON.stringify({ idempotency_key: params.idempotencyKey, order }),
+    })
+    const o = res?.order ?? {}
+    const items: any[] = o.line_items ?? []
+    return {
+      orderId: String(o.id),
+      totalCents: Number(o.total_money?.amount ?? 0),
+      lineUids: items.map((i) => String(i.uid)),
+      lineTotals: items.map((i) => ({
+        uid: String(i.uid),
+        totalCents: Number(i.total_money?.amount ?? 0),
+        taxCents: Number(i.total_tax_money?.amount ?? 0),
+      })),
+    }
   }
 
   async createOrder(params: {

@@ -73,6 +73,25 @@ export interface PaymentProvider {
   }): Promise<Payment>
 
   /**
+   * One Square order for a class booking: catalog lines, Square applies the
+   * tax itself. lineUids / lineTotals follow the input line order.
+   */
+  createClassOrder(params: {
+    locationId: string
+    customerId: string | null
+    idempotencyKey: string
+    lines: { catalogObjectId: string; quantity: 1; note: string }[]
+    discount?: { name: string; cents: number }
+    /** Our booking id. */
+    referenceId: string
+  }): Promise<{
+    orderId: string
+    totalCents: number
+    lineUids: string[]
+    lineTotals: { uid: string; totalCents: number; taxCents: number }[]
+  }>
+
+  /**
    * The completed payment on this order, or null if it has not been paid.
    * This is how a retried checkout learns whether its first try went through:
    * the backend is asked, nothing is remembered on our side.
