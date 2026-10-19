@@ -111,8 +111,10 @@ describe('warnings for our own classes', () => {
     own.ledgers.set('cls_camp', { classId: 'cls_camp', lines: [
       { ...seat(['ses_1']), source: 'door-counter', customer: { givenName: 'Dora', familyName: 'Door', email: '', phone: '' }, square: { orderId: 'O1', paymentId: 'P1', lineUid: 'L1' }, counterMatch: { orderId: 'O1', candidates: 2, at: '2026-10-14T20:00:00.000Z', checked: null } },
       { ...seat(['ses_1']), source: 'door-counter', counterMatch: { orderId: 'O2', candidates: 2, at: '2026-10-14T20:00:00.000Z', checked: { at: '', by: { id: 'k', name: 'K' } } } },
+      // m8: refunded with the seat freed since: no check needed
+      { ...seat(['ses_1']), source: 'door-counter', state: 'refunded', refunds: [{ at: '', cents: 0, reason: 'x', by: { id: 'k', name: 'K' }, freedSeat: true, squareRefundId: null }], counterMatch: { orderId: 'O3', candidates: 2, at: '2026-10-14T20:00:00.000Z', checked: null } },
     ] })
     const list = (await listWarnings(WINDOW, { now: NOW })).filter((w) => w.code === 'counter-match-check')
-    expect(list.map((w) => warningLine(w))).toEqual(['Counter sale on Wed Oct 14 was matched to Dora Door. Check it was them. An owner decides on /admin.'])
+    expect(list.map((w) => warningLine(w))).toEqual(['Counter sale of Clay Camp on Wed Oct 14 was matched to Dora Door. Check it was them. An owner decides on /admin.'])
   })
 })

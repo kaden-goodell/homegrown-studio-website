@@ -73,6 +73,8 @@ export async function listCounterMatchChecks(now: Date): Promise<CounterMatchChe
   for (const cls of classes) {
     for (const l of (await getLedger(cls.id)).lines) {
       if (!l.counterMatch || l.counterMatch.checked) continue
+      // m8: a seat since refunded and freed, or let go, needs no check
+      if (l.state === 'released' || (l.state === 'refunded' && l.refunds.some((r) => r.freedSeat))) continue
       const c = l.customer
       out.push({
         id: `counter-match-${cls.id}-${l.id}`, kind: 'counter-match-check', classId: cls.id, className: cls.content.name, lineId: l.id,

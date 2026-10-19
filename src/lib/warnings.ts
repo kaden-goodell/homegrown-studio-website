@@ -336,7 +336,7 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
   for (const m of matches) {
     out.push({
       code: 'counter-match-check', eventKind: 'workshop', eventId: m.classId, when: m.at, title: m.className,
-      detail: `Counter sale on ${formatCalendarDay(m.day)} was matched to ${m.name}. Check it was them.`, action: OWNERS_DECIDE,
+      detail: `Counter sale of ${m.className} on ${formatCalendarDay(m.day)} was matched to ${m.name}. Check it was them.`, action: OWNERS_DECIDE,
     })
   }
   for (const f of flags) {
