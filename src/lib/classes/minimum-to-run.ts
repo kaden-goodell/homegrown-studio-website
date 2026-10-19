@@ -8,7 +8,9 @@
  *
  * Once per class per day, however many runs: a marker is claimed before the
  * alert goes. A day when nothing reached the owners is marked failed and the
- * next run that day tries again.
+ * next run that day tries again; so is an unreadable marker, or one left
+ * "sending" for more than 15 minutes by a run that died. Once the decide-by
+ * time has passed, no alert (the dated below-minimum warning still shows).
  *
  * decideByIso is stored as a UTC instant made from the studio date and time
  * the owner picked; its day and time are read back in studio time.
@@ -50,6 +52,8 @@ export function minimumAlertsDue(rows: { cls: ScheduledClass; ledger: Ledger }[]
     if (!first || Date.parse(first.startIso) <= now.getTime()) continue
     const decideDay = studioDate(min.decideByIso)
     if (today !== decideDay && today !== addDays(decideDay, -1)) continue
+    // Past the decide-by already: no "needs 6 by" in the past (the dated warning still shows).
+    if (now.getTime() >= Date.parse(min.decideByIso)) continue
     const booked = seatsTaken(ledger, first.id, now)
     if (booked >= min.count) continue
     out.push({ classId: cls.id, name: cls.content.name, booked, count: min.count, decideByIso: min.decideByIso, day: today })
@@ -67,11 +71,21 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
 const markerKey = (a: MinimumAlert) => `min-${a.classId}-${a.day}`
 
 /** Claims today's alert for this class; false when it was already sent (or is being sent). */
+/** A run that died mid-send leaves "sending"; after this long it is tried again. */
+export const STUCK_SENDING_MS = 15 * 60_000
+
 async function claim(a: MinimumAlert, now: Date): Promise<boolean> {
   const { value, etag } = await markers.getWithMeta(markerKey(a))
   if (value) {
-    const prev = JSON.parse(value) as { state?: string }
-    if (prev.state !== 'failed') return false
+    let prev: { state?: string; at?: string } | null = null
+    try { prev = JSON.parse(value) } catch { prev = null }
+    if (prev?.state === 'sent') return false
+    if (prev?.state === 'sending') {
+      const age = now.getTime() - Date.parse(prev.at ?? '')
+      if (!(age > STUCK_SENDING_MS)) return false
+      logger.warn('A minimum-to-run alert was stuck sending; trying again', { classId: a.classId, day: a.day, since: prev.at })
+    }
+    // failed, unreadable, or stuck: claimable
   }
   return markers.setIfMatch(markerKey(a), JSON.stringify({ state: 'sending', at: now.toISOString() }), etag, value !== null)
 }

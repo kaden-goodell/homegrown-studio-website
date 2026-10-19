@@ -112,6 +112,23 @@ describe('undated items and the minimum to run', () => {
     expect(day2.text).toContain('Pumpkin Pails: 27 seats sold, 25 capacity.')
   })
 
+  it('an item decided, then back on a later day, shows in full again (the quiet day is remembered too)', async () => {
+    const u = U('u9')
+    mockListWarnings.mockResolvedValue([u])
+    await POST(ctx(dailyWarningsJobKey(SECRET)))
+    expect(mockSendEmail.mock.calls[0][0].text).toContain('Counter sale u9.')
+    vi.setSystemTime(new Date('2026-10-07T12:00:00.000Z'))
+    mockListWarnings.mockResolvedValue([])
+    await POST(ctx(dailyWarningsJobKey(SECRET)))
+    expect(mockSendEmail).toHaveBeenCalledTimes(1)
+    vi.setSystemTime(new Date('2026-10-08T12:00:00.000Z'))
+    mockListWarnings.mockResolvedValue([u])
+    await POST(ctx(dailyWarningsJobKey(SECRET)))
+    const day3 = mockSendEmail.mock.calls[1][0]
+    expect(day3.text).toContain('Counter sale u9.')
+    expect(day3.text).not.toContain('still to decide')
+  })
+
   it('checks the minimum to run every morning, and a failure there never stops the email', async () => {
     mockMinimum.mockRejectedValue(new Error('blobs down'))
     mockListWarnings.mockResolvedValue([W])

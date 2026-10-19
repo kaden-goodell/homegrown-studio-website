@@ -102,7 +102,11 @@ export const POST: APIRoute = async ({ request }) => {
     ...digest.full.map(warningLine),
     ...(digest.stillToDecide > 0 ? [stillToDecideLine(digest.stillToDecide)] : []),
   ]
-  if (lines.length === 0) return json({ data: { count: 0, sent: false } }, 200)
+  if (lines.length === 0) {
+    // Nothing open today: forget what was open, so an item that comes back is new again.
+    await digest.commit()
+    return json({ data: { count: 0, sent: false } }, 200)
+  }
 
   const onlySignIn = !!signIn && lines.length === 1
   const subject = onlySignIn ? '⚠ The site’s Square sign-in needs re-saving' : `⚠ Studio schedule needs attention (${lines.length})`

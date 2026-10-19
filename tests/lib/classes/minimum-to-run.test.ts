@@ -117,3 +117,42 @@ describe('minimum to run', () => {
     expect(minimumAlertsDue([{ cls, ledger: { classId: cls.id, lines: [] } }], WED)).toEqual([])
   })
 })
+
+describe('minimum to run, edges', () => {
+  const marker = async (cls: any, day: string, value: string) => {
+    const { makeKvStore } = await import('@lib/blob-store')
+    await makeKvStore('class-alerts', 'class-alerts').set(`min-${cls.id}-${day}`, value)
+  }
+
+  it('on the decide-by day, once the decide-by time has passed, no alert', () => {
+    const cls = potholders({ min: { count: 6, decideByIso: '2026-10-22T11:00:00.000Z' } }) // Thu 6 AM CDT
+    expect(minimumAlertsDue([{ cls, ledger: { classId: cls.id, lines: [] } }], THU)).toEqual([]) // 7 AM CDT
+    expect(minimumAlertsDue([{ cls, ledger: { classId: cls.id, lines: [] } }], WED)).toHaveLength(1)
+  })
+
+  it('an unreadable marker, or one stuck "sending" past 15 minutes, is tried again; a fresh "sending" is not', async () => {
+    const a = potholders(); const b = potholders(); const c = potholders()
+    own.classes = [a, b, c]
+    await marker(a, '2026-10-21', 'not json')
+    await marker(b, '2026-10-21', JSON.stringify({ state: 'sending', at: new Date(WED.getTime() - 20 * 60_000).toISOString() }))
+    await marker(c, '2026-10-21', JSON.stringify({ state: 'sending', at: new Date(WED.getTime() - 60_000).toISOString() }))
+    const run = await runMinimumToRunAlerts(WED)
+    expect(run.alerted.map((x) => x.classId).sort()).toEqual([a.id, b.id].sort())
+    expect(run.already).toBe(1)
+  })
+
+  it('around Sun Nov 1 (clocks go back) the days are studio days', () => {
+    const cls = potholders({
+      min: { count: 6, decideByIso: '2026-11-01T18:00:00.000Z' }, // Sun Nov 1 12 PM CST
+      sessions: [{ id: 'ses_1', startIso: '2026-11-03T18:00:00.000Z', endIso: '2026-11-03T20:00:00.000Z', capacity: 12 }],
+    })
+    const rows = [{ cls, ledger: { classId: cls.id, lines: [] } }]
+    expect(minimumAlertsDue(rows, new Date('2026-10-30T12:00:00.000Z'))).toEqual([])
+    expect(minimumAlertsDue(rows, new Date('2026-10-31T12:00:00.000Z'))).toMatchObject([{ day: '2026-10-31' }]) // 7 AM CDT Sat
+    const sun = minimumAlertsDue(rows, new Date('2026-11-01T12:00:00.000Z')) // 6 AM CST Sun
+    expect(sun).toMatchObject([{ day: '2026-11-01' }])
+    expect(minimumAlertText(sun[0])).toBe('Potholders has 0 of 6, needs 6 by Sun 12 PM')
+    // 5:30 AM UTC Nov 2 is still Sun Nov 1 11:30 PM CST, but past the decide-by
+    expect(minimumAlertsDue(rows, new Date('2026-11-02T05:30:00.000Z'))).toEqual([])
+  })
+})
