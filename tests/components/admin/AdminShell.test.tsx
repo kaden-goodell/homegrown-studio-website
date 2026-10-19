@@ -211,6 +211,20 @@ describe('tabs and the address bar', () => {
     expect(window.location.hash).toBe('#more')
   })
 
+  it('To decide feeds the Home counter and the Inbox badge (done items don’t count); a row opens its sheet', async () => {
+    const todo = [
+      { id: 'td_open', kind: 'door-unpaid', title: 'Not paid at the counter', head: 'Dora Door · 1 seat · Looms · Sun Oct 18: never rung up', hint: 'Mark it paid, or free the seat', at: '2026-10-18T18:00:00Z', className: 'Looms', detail: { name: 'Dora Door', day: '2026-10-18', seats: 1 } },
+      { id: 'td_done', kind: 'refund-failed', title: 'Refund didn’t go through', head: 'x', hint: '', at: '2026-10-17T18:00:00Z', detail: {}, done: 'Checked in Square', doneBy: 'Kaden', doneAt: '2026-10-18T18:00:00Z' },
+    ]
+    await signedIn(server({ todo }))
+    expect(await screen.findByRole('button', { name: 'To decide: 1' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: 'Inbox, 4 waiting' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'To decide: 1' }))
+    expect(await screen.findByText('Done · Checked in Square · Kaden')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Not paid at the counter/ }))
+    expect(await within(dialog()).findByRole('button', { name: 'Mark paid at the counter' })).toBeInTheDocument()
+  })
+
   it('the Inbox tab carries a count of what is waiting', async () => {
     await signedIn()
     expect(await screen.findByRole('button', { name: 'Inbox, 3 waiting' })).toBeInTheDocument()

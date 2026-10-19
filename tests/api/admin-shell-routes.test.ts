@@ -42,9 +42,20 @@ describe('owners', () => {
 })
 
 describe('to-decide.json', () => {
-  it('is an empty list for now, to owners only', async () => {
+  const post = async (body: unknown, signedIn = true) => {
+    const request = new Request('https://x.test/api/admin/to-decide.json', { method: 'POST', headers: { 'Content-Type': 'application/json', ...(signedIn ? { cookie: cookie() } : {}) }, body: JSON.stringify(body) })
+    const res: Response = await (toDecide as any).POST({ request, url: new URL(request.url) })
+    return { status: res.status, body: await res.json() }
+  }
+  it('owners only; nothing waiting is an empty list', async () => {
     expect((await get(toDecide, '/api/admin/to-decide.json', false)).status).toBe(401)
+    expect((await post({ id: 'x', action: 'keep' }, false)).status).toBe(401)
     expect(await get(toDecide, '/api/admin/to-decide.json')).toEqual({ status: 200, body: { data: { items: [] } } })
+  })
+  it('an item that isn’t waiting is a 404 with a sentence; a decision needs an id and a choice', async () => {
+    expect(await get(toDecide, '/api/admin/to-decide.json?id=gone')).toEqual({ status: 404, body: { error: 'This isn’t waiting any more.' } })
+    expect(await post({ id: 'gone', action: 'keep' })).toEqual({ status: 404, body: { error: 'This isn’t waiting any more.' } })
+    expect((await post({})).status).toBe(400)
   })
 })
 

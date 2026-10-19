@@ -660,6 +660,8 @@ export interface BookingView {
   refundable: RefundableSeat[]
   /** false = comp, POS or counter: refunds happen in Square */
   paidHere: boolean
+  /** a door seat an owner marked paid at the counter (To decide) */
+  paidAtCounter: boolean
   /** most the booking can still give back: remaining on its seats, capped at what Square charged less refunds */
   refundableCents: number
   at: string
@@ -711,6 +713,7 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
         freed: l.refunds.some((r) => r.freedSeat),
       })),
       paidHere: !!first.square.paymentId,
+      paidAtCounter: lines.some((l) => !!l.paidAtCounter),
       refundableCents: Math.min(
         lines.filter((l) => l.state === 'confirmed' || l.state === 'refunded').reduce((s, l) => s + remainingOn(l), 0),
         bookingCap(lines) ?? Infinity,

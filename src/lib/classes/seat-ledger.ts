@@ -52,7 +52,15 @@ export interface LedgerLine {
    * same request gets a new idempotency key.
    */
   refundFailures?: Record<string, number>
+  /**
+   * A "pay at the counter" door seat an owner says was paid at the counter
+   * after all (rung up some other way, so no sale matched it): it leaves
+   * /admin › To decide and reads "Paid at the counter". No money is recorded.
+   */
+  paidAtCounter?: { at: string; by: By }
 }
+/** A door seat taken "to pay at the counter" that no sale has paid and no owner has marked paid. */
+export const unpaidDoorSeat = (l: LedgerLine) => l.source === 'door-counter' && l.state === 'confirmed' && !l.square.orderId && !l.paidAtCounter
 export interface Ledger { classId: string; lines: LedgerLine[] }
 
 export type SeatInput = { answers?: Record<string, string>; addOns?: Record<string, number> }
@@ -475,7 +483,7 @@ export async function recordPos(
       // A seat the crew took at the door to be paid at the counter is this sale: it is paid now, never a second seat.
       while (have < pl.units.length) {
         // N1: the door seat was TAKEN on the sale's day, and covers a session that day.
-        const candidates = kept.filter((l) => l.source === 'door-counter' && l.state === 'confirmed' && !l.square.orderId
+        const candidates = kept.filter((l) => unpaidDoorSeat(l)
           && l.passId === pl.passId && l.ticketTypeId === pl.ticketTypeId && !claimed.has(l.id)
           && studioDate(l.at) === saleDay && l.sessionIds.some((id) => onSaleDay.has(id)))
         // oldest booking first, then its seats in order; keep filling the booking already started
@@ -570,6 +578,53 @@ export async function markCounterMatchChecked(classId: string, lineId: string, b
     const l = cur.lines.find((x) => x.id === lineId)
     if (!l?.counterMatch || l.counterMatch.checked) return { next: null, result: undefined }
     const lines = cur.lines.map((x) => (x.id === lineId ? { ...x, counterMatch: { ...x.counterMatch!, checked: { at: now.toISOString(), by } } } : x))
+    return { next: { ...cur, lines }, result: undefined }
+  })
+}
+
+/**
+ * An owner says these unpaid door seats were paid at the counter after all
+ * (To decide › Not paid at the counter). Only seats still unpaid change; the
+ * money stays in Square, nothing is recorded as paid here.
+ */
+export async function markDoorPaid(classId: string, lineIds: string[], by: By, now = new Date()): Promise<LedgerLine[]> {
+  return mutate(classId, (cur) => {
+    for (const id of lineIds) if (!cur.lines.some((l) => l.id === id)) throw new Error('One of those seats is not on this class.')
+    const change = (l: LedgerLine) => lineIds.includes(l.id) && unpaidDoorSeat(l)
+    if (!cur.lines.some(change)) return { next: null, result: [] }
+    const lines = cur.lines.map((l) => (change(l) ? { ...l, paidAtCounter: { at: now.toISOString(), by } } : l))
+    return { next: { ...cur, lines }, result: lines.filter((l) => lineIds.includes(l.id)) }
+  })
+}
+
+/**
+ * R34: a counter sale was matched to the wrong door seat. Its payment (sale,
+ * price and tax as rung up) moves to the right unpaid door seat, which counts
+ * as checked; the first seat goes back to unpaid. Refused unless `toLineId`
+ * is an unpaid door seat on the same class, pass and ticket.
+ */
+export async function moveCounterPayment(classId: string, fromLineId: string, toLineId: string, by: By, now = new Date()): Promise<void> {
+  await mutate(classId, (cur) => {
+    const from = cur.lines.find((l) => l.id === fromLineId)
+    const to = cur.lines.find((l) => l.id === toLineId)
+    if (!from?.counterMatch || !from.square.orderId) throw new Error('That counter sale is no longer on this seat.')
+    if (from.counterMatch.checked) return { next: null, result: undefined }
+    if (!to || !unpaidDoorSeat(to) || to.passId !== from.passId || to.ticketTypeId !== from.ticketTypeId) {
+      throw new Error('Pick someone whose seat at the door is still not paid.')
+    }
+    const lines = cur.lines.map((l) => {
+      if (l.id === from.id) {
+        const { counterMatch: _m, ...rest } = l
+        return { ...rest, square: { orderId: null, paymentId: null, lineUid: null } }
+      }
+      if (l.id === to.id) {
+        return {
+          ...l, priceCents: from.priceCents, taxCents: from.taxCents, square: { ...from.square },
+          counterMatch: { ...from.counterMatch!, checked: { at: now.toISOString(), by } },
+        }
+      }
+      return l
+    })
     return { next: { ...cur, lines }, result: undefined }
   })
 }

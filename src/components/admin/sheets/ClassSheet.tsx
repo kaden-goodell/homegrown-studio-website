@@ -40,7 +40,7 @@ const STATUS_NOTE: Record<Exclude<ClassStatus, 'cancelled'>, string> = {
 interface Loaded { cls: ScheduledClass; bookings: ClassBooking[]; seatsTaken: Record<string, number> }
 
 /** Several numbers in one text: iOS Messages opens a group with /open?addresses=. */
-function smsAll(phones: string[]): string {
+export function smsAll(phones: string[]): string {
   const digits = phones.map((p) => p.replace(/[^\d+]/g, ''))
   return digits.length === 1 ? smsHref(phones[0]) : `sms:/open?addresses=${digits.join(',')}`
 }

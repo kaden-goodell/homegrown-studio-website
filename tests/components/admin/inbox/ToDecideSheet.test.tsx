@@ -1,0 +1,191 @@
+import { describe, it, expect, vi, afterEach } from 'vitest'
+import { screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { InboxProvider } from '@components/admin/inbox/InboxData'
+import { ToDecideSheet } from '@components/admin/inbox/ToDecideSheet'
+import { at, booking, cls, content, ok, posts, refuse, renderSheet } from '../sheets/harness'
+
+const TO_DECIDE = '/api/admin/to-decide.json'
+afterEach(() => vi.unstubAllGlobals())
+
+const item = (over: any) => ({ id: 'td_1', title: 'Title', head: 'What happened.', hint: 'Do it', at: '2026-10-18T16:42:00.000Z', detail: {}, ...over })
+
+/** The routes the sheet and the inbox use. A decision marks the item done (as the server's list then shows it). */
+function server(items: any[], o: { decide?: (b: any) => any; amount?: number | null; classes?: any[]; bookings?: any[] } = {}) {
+  let list = items
+  return vi.fn(async (url: string, init?: any) => {
+    const path = url.split('?')[0]
+    const post = init?.method === 'POST' ? JSON.parse(init.body) : null
+    switch (path) {
+      case '/api/admin/event-requests.json': return ok({ data: { requests: [] } })
+      case '/api/admin/messages.json': return ok({ data: { messages: [] } })
+      case '/api/admin/applications.json': return ok({ data: { applications: [] } })
+      case '/api/admin/classes/classes.json': return ok({ data: { classes: o.classes ?? [], seatsTaken: {} } })
+      case '/api/admin/classes/bookings.json': return ok({ data: { class: cls(), bookings: o.bookings ?? [] } })
+      case TO_DECIDE:
+        if (!post) {
+          if (url.includes('?id=')) return ok({ data: { item: list[0], amountCents: o.amount ?? null } })
+          return ok({ data: { items: list } })
+        }
+        if (post.action === 'names') return ok({ data: { named: post.names.filter((x: any) => x.name.trim()).length } })
+        {
+          const answer = o.decide?.(post)
+          if (answer) return answer
+          const what = `did ${post.action}`
+          list = list.map((i) => (i.id === post.id ? { ...i, done: what, doneBy: 'Catherine', doneAt: '2026-10-19T15:00:00.000Z' } : i))
+          return ok({ data: { decided: { what } } })
+        }
+    }
+    throw new Error(`unexpected ${url}`)
+  })
+}
+function show(items: any[], o: Parameters<typeof server>[1] = {}, id = 'td_1') {
+  const f = server(items, o)
+  vi.stubGlobal('fetch', f)
+  const r = renderSheet(<InboxProvider><ToDecideSheet id={id} /></InboxProvider>)
+  return { f, ...r }
+}
+const footer = () => document.querySelector('.adm-sheet-foot') as HTMLElement
+const decisions = (f: any) => posts(f, TO_DECIDE).map((p: { body: any }) => p.body)
+
+describe('To decide sheets', () => {
+  it('a counter sale: when, amount and item; the guessed class; a pick-a-day class asks for its date; Match, then names', async () => {
+    const camp = cls({ id: 'cls_camp', content: content({ name: 'Camp', passes: [{ id: 'all', label: 'Full series', covers: { kind: 'all' } }, { id: 'day', label: 'One day', covers: { kind: 'choose', count: 1 } }] }),
+      sessions: [{ id: 'ses_a', startIso: at('2031-03-12', '10:00'), endIso: at('2031-03-12', '12:00'), capacity: 8 }, { id: 'ses_b', startIso: at('2031-03-13', '10:00'), endIso: at('2031-03-13', '12:00'), capacity: 8 }] })
+    const t = item({ kind: 'pos-unmatched', title: 'Counter sale to match', head: '2 × Camp rung up at the counter', detail: { orderId: 'O1', lineUid: 'L1', name: 'Camp', qty: 2, at: '2026-10-18T16:42:00.000Z', guessClassId: 'cls_camp' } })
+    const { f } = show([t], {
+      amount: 6540, classes: [camp],
+      decide: (b) => (b.action === 'match' ? ok({ data: { decided: { what: 'Added 2 seats to Camp · Thu Mar 13' }, classId: 'cls_camp', seats: [{ lineId: 'led_1', seat: 1, named: false }, { lineId: 'led_2', seat: 2, named: false }] } }) : null),
+    })
+    expect(await screen.findByText('$65.40')).toBeInTheDocument()
+    expect(screen.getByText('Sun Oct 18 · 11:42 AM')).toBeInTheDocument()
+    expect(screen.getByText('2 × Camp')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Which class?')).toHaveValue('cls_camp'))
+    fireEvent.change(screen.getByLabelText('Which seat?'), { target: { value: 'day:person' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Match to this class' }))
+    expect(screen.getByRole('alert')).toHaveTextContent('Pick the date.')
+    fireEvent.click(screen.getByLabelText(/Thu Mar 13/))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Match to this class' }))
+    expect(await screen.findByRole('heading', { name: 'Who are the seats for?' })).toBeInTheDocument()
+    expect(decisions(f)[0]).toEqual({ id: 'td_1', action: 'match', classId: 'cls_camp', passId: 'day', ticketTypeId: 'person', sessionIds: ['ses_b'] })
+    expect(screen.getByText('Done. Added 2 seats to Camp · Thu Mar 13.')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Seat 1'), { target: { value: 'Erin Smith' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add names' }))
+    await waitFor(() => expect(decisions(f)[1]).toEqual({ action: 'names', classId: 'cls_camp', names: [{ lineId: 'led_1', name: 'Erin Smith' }, { lineId: 'led_2', name: '' }] }))
+    expect(await screen.findByText('Added a name.')).toBeInTheDocument()
+  })
+
+  it('a counter sale that was not for a class: Not for a class, then Done', async () => {
+    const t = item({ kind: 'pos-unmatched', title: 'Counter sale to match', detail: { orderId: 'O1', lineUid: 'L1', name: 'Gift', qty: 1, at: '2026-10-18T16:42:00.000Z', guessClassId: null } })
+    const { f } = show([t])
+    expect(await screen.findByText('See Square')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Not for a class' }))
+    expect(await screen.findByText('Done · did dismiss')).toBeInTheDocument()
+    expect(screen.getByText('Catherine, Mon Oct 19 · 10 AM')).toBeInTheDocument()
+    expect(decisions(f)).toEqual([{ id: 'td_1', action: 'dismiss' }])
+  })
+
+  it('a refund done in Square: Free a seat asks which when several are held; Keep their seat', async () => {
+    const t = item({ kind: 'refund-plain', title: 'Refund done in Square', className: 'Looms', detail: { name: 'Tori B.', refundCents: 1635, seats: [{ lineId: 'led_a', seat: 1, label: 'Person' }, { lineId: 'led_b', seat: 2, label: 'Person' }] } })
+    const { f } = show([t])
+    expect(await screen.findByText('Tori B. · 2 seats · Looms')).toBeInTheDocument()
+    expect(screen.getByText('$16.35')).toBeInTheDocument()
+    expect(screen.getByText('Freeing a seat puts it back on sale. It moves no money: the refund already happened in Square.')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Free a seat' }))
+    expect(decisions(f)).toEqual([])
+    expect(within(footer()).getByRole('button', { name: 'Free this seat' })).toBeDisabled()
+    fireEvent.click(screen.getByLabelText('Seat 2 · Person'))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Free this seat' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'free', lineIds: ['led_b'] }]))
+    expect(await screen.findByText('Done · did free')).toBeInTheDocument()
+  })
+
+  it('keep their seat', async () => {
+    const t = item({ kind: 'refund-plain', title: 'Refund done in Square', className: 'Looms', detail: { name: 'Tori B.', refundCents: 1635, seats: [{ lineId: 'led_a', seat: 1, label: 'Person' }] } })
+    const { f } = show([t])
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep their seat' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'keep' }]))
+  })
+
+  it('refund kinds: Square couldn’t finish it (Mark as handled), half finished (Finish it), no answer (went through / didn’t)', async () => {
+    const failed = item({ id: 'td_f', kind: 'refund-failed', title: 'Refund didn’t go through', detail: { refundCents: 500 } })
+    const unfinished = item({ id: 'td_u', kind: 'refund-unfinished', title: 'Refund half finished', detail: { refundCents: 500 } })
+    const unconfirmed = item({ id: 'td_n', kind: 'refund-unconfirmed', title: 'Refund with no answer', detail: { refundCents: 500 } })
+    const one = show([failed, unfinished, unconfirmed], {}, 'td_f')
+    expect(await screen.findByText('Square couldn’t finish this refund. Check it in Square, then mark it handled.')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Mark as handled' }))
+    await waitFor(() => expect(decisions(one.f)).toEqual([{ id: 'td_f', action: 'handled' }]))
+    one.unmount()
+
+    const two = show([failed, unfinished, unconfirmed], {}, 'td_u')
+    fireEvent.click(await screen.findByRole('button', { name: 'Finish it' }))
+    await waitFor(() => expect(decisions(two.f)).toEqual([{ id: 'td_u', action: 'finish' }]))
+    two.unmount()
+
+    const three = show([failed, unfinished, unconfirmed], {}, 'td_n')
+    expect(await screen.findByText(/Look it up in Square, then say what you saw/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'It didn’t go through' }))
+    await waitFor(() => expect(decisions(three.f)).toEqual([{ id: 'td_n', action: 'did-not-go-through' }]))
+  })
+
+  it('a counter seat that needs its day: pick one, Save the day', async () => {
+    const t = item({ kind: 'pos-needs-days', title: 'Counter seat needs its day', className: 'Camp', detail: { count: 1, current: ['ses_a'], sessions: [{ id: 'ses_a', startIso: at('2031-03-12', '10:00'), endIso: at('2031-03-12', '12:00') }, { id: 'ses_b', startIso: at('2031-03-13', '10:00'), endIso: at('2031-03-13', '12:00') }] } })
+    const { f } = show([t])
+    expect(await screen.findByLabelText(/Wed Mar 12/)).toBeChecked()
+    fireEvent.click(screen.getByLabelText(/Thu Mar 13/))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save the day' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'set-days', sessionIds: ['ses_b'] }]))
+  })
+
+  it('short of its minimum: N of M and who is booked; Text the N booked shows the numbers and records it; never cancels', async () => {
+    const t = item({ kind: 'below-minimum', title: 'Short of its minimum', classId: 'cls_1', className: 'Needlepoint 101', detail: { booked: 4, count: 6, decideByIso: at('2026-10-22', '17:00'), firstStartIso: at('2026-10-25', '18:00') } })
+    const { f, sheet } = show([t], { bookings: [booking({ seats: { person: 2 } }), booking({ bookingId: 'bkg_2', customer: { givenName: 'Nora', familyName: 'F.', email: 'n@x.test', phone: '(256) 555-0111' }, seats: { person: 2 } })] })
+    expect(await screen.findByText('4 of 6')).toBeInTheDocument()
+    expect(screen.getByText('Thu Oct 22 · 5 PM')).toBeInTheDocument()
+    expect(await screen.findByText('Ada Lovelace')).toBeInTheDocument()
+    expect(screen.getByText('Nothing cancels on its own. If you do cancel, do it from the class.')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Text the 2 booked' }))
+    const panel = screen.getByRole('group', { name: 'Text the people booked' })
+    expect(within(panel).getByLabelText('Phone numbers')).toHaveTextContent('(256) 555-0100, (256) 555-0111')
+    const link = within(panel).getByRole('link', { name: 'Open Messages' })
+    expect(link).toHaveAttribute('href', 'sms:/open?addresses=2565550100,2565550111')
+    link.addEventListener('click', (e) => e.preventDefault())
+    fireEvent.click(link)
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'texted' }]))
+    fireEvent.click(screen.getByRole('button', { name: 'Open the class' }))
+    expect(sheet.open).toHaveBeenCalledWith({ kind: 'class', id: 'cls_1' })
+  })
+
+  it('keep a short class running', async () => {
+    const t = item({ kind: 'below-minimum', title: 'Short of its minimum', classId: 'cls_1', className: 'Needlepoint 101', detail: { booked: 4, count: 6, decideByIso: at('2026-10-22', '17:00') } })
+    const { f } = show([t])
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep it running' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'keep-running' }]))
+  })
+
+  it('a door seat never rung up: Mark paid at the counter, or Free the seat', async () => {
+    const t = item({ kind: 'door-unpaid', title: 'Not paid at the counter', className: 'Looms', detail: { name: 'Dora Door', day: '2026-10-18', seats: 1 } })
+    const { f } = show([t])
+    expect(await screen.findByText('Dora Door')).toBeInTheDocument()
+    expect(screen.getByText('Looms · Sun Oct 18')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Mark paid at the counter' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'paid' }]))
+  })
+
+  it('a counter sale matched to one of several door seats: Yes, or pick who it was', async () => {
+    const t = item({ kind: 'counter-match-check', title: 'Check a counter sale', className: 'Looms', detail: { name: 'Cara One', lineId: 'led_c', others: [{ lineId: 'led_d', name: 'Dee Two', seat: 1 }] } })
+    const { f } = show([t])
+    const moveBtn = await screen.findByRole('button', { name: 'It was the person picked' })
+    expect(moveBtn).toBeDisabled()
+    fireEvent.click(screen.getByLabelText('Dee Two'))
+    fireEvent.click(moveBtn)
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'move', toLineId: 'led_d' }]))
+  })
+
+  it('a refusal shows in the sheet; a failed save says Didn’t save', async () => {
+    const t = item({ kind: 'door-unpaid', title: 'Not paid at the counter', className: 'Looms', detail: { name: 'Dora Door', day: '2026-10-18', seats: 1 } })
+    show([t], { decide: () => refuse(503, { error: 'Didn’t save. Try again.' }) })
+    fireEvent.click(await screen.findByRole('button', { name: 'Free the seat' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Didn’t save. Try again.')
+    expect(screen.getAllByText("Didn't save. Try again.").length).toBeGreaterThan(0)
+  })
+})

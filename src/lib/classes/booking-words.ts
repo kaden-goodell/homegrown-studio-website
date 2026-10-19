@@ -8,6 +8,8 @@ export interface BookingWordsInput {
   source: LedgerLine['source']
   /** a Square payment is on it */
   paidHere: boolean
+  /** a door seat an owner marked paid at the counter (no sale matched it) */
+  paidAtCounter?: boolean
   overCapacity: boolean
 }
 
@@ -19,7 +21,7 @@ export function paidWay(b: BookingWordsInput): string {
   switch (b.source) {
     case 'online': return 'Paid online'
     case 'door-card': return 'Paid on the iPad'
-    case 'door-counter': return b.paidHere ? 'Paid at the counter' : 'Not paid yet'
+    case 'door-counter': return b.paidHere || b.paidAtCounter ? 'Paid at the counter' : 'Not paid yet'
     case 'comp': return 'Comped'
     case 'pos': return 'Counter sale'
     default: return ''
@@ -27,14 +29,14 @@ export function paidWay(b: BookingWordsInput): string {
 }
 
 /** A pay-at-the-counter seat nobody has rung up yet: no money has come in. */
-export const unpaidCounter = (b: Pick<BookingWordsInput, 'source' | 'paidHere'>) => b.source === 'door-counter' && !b.paidHere
+export const unpaidCounter = (b: Pick<BookingWordsInput, 'source' | 'paidHere' | 'paidAtCounter'>) => b.source === 'door-counter' && !b.paidHere && !b.paidAtCounter
 
 /**
  * The money a booking has actually brought in, less refunds: 0 for a comp and
  * for a counter seat not rung up yet (its price is only what it will cost).
  * /admin's "taken so far" and Past totals add these up.
  */
-export function takenCents(b: Pick<BookingWordsInput, 'source' | 'paidHere'> & { paidCents: number; refundedCents: number }): number {
+export function takenCents(b: Pick<BookingWordsInput, 'source' | 'paidHere' | 'paidAtCounter'> & { paidCents: number; refundedCents: number }): number {
   if (b.source === 'comp' || unpaidCounter(b)) return 0
   return Math.max(0, b.paidCents - b.refundedCents)
 }

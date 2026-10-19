@@ -38,8 +38,8 @@ export const nameOf = (b: Pick<ClassBooking, 'customer'>) => (b.customer ? `${b.
  * How a booking paid, in /staff's words (paidWay), with the money when some
  * came in: "Paid online · $76.30", "Comped", "Not paid yet" (I3).
  */
-export function moneyWords(b: Pick<ClassBooking, 'source' | 'paidHere' | 'paidCents' | 'refundedCents'>): string {
-  const way = paidWay({ source: b.source, paidHere: b.paidHere, overCapacity: false })
+export function moneyWords(b: Pick<ClassBooking, 'source' | 'paidHere' | 'paidCents' | 'refundedCents'> & { paidAtCounter?: boolean }): string {
+  const way = paidWay({ source: b.source, paidHere: b.paidHere, paidAtCounter: b.paidAtCounter, overCapacity: false })
   const money = takenCents(b) > 0 || b.refundedCents > 0 ? b.paidCents : 0
   return money ? `${way} · ${formatMoney(money)}` : way
 }

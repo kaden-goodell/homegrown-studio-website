@@ -69,17 +69,4 @@ export function InboxItemSheet({ kind, id }: { kind: InboxKind; id: string }) {
   )
 }
 
-/** A To decide item, read only until the next update gives it its buttons. */
-export function ToDecideSheet({ id }: { id: string }) {
-  const { todo } = useInbox()
-  if (todo.error && !todo.items) return <SheetFrame title="To decide"><Failed message={todo.error} onRetry={todo.retry} /></SheetFrame>
-  if (!todo.items) return <SheetFrame title="To decide"><Skeleton rows={2} /></SheetFrame>
-  const t = todo.items.find((x) => x.id === id)
-  if (!t) return <SheetFrame title="To decide"><p className="adm-muted">This isn’t in the list any more.</p></SheetFrame>
-  return (
-    <SheetFrame title={t.title} subtitle="To decide">
-      <div className="adm-card"><p><b style={{ color: 'var(--color-dark)' }}>{t.head}</b></p></div>
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>{t.done ? t.done : `Next: ${t.hint}`}</p>
-    </SheetFrame>
-  )
-}
+export { ToDecideSheet } from './ToDecideSheet'

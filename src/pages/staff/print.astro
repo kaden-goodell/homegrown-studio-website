@@ -262,7 +262,7 @@ const title = event ? `${event.title} — Roster` : 'Roster not found'
         <h2 style="font-size: 1rem; margin: 1rem 0 0.4rem;">Bookings</h2>
         <ul style="margin: 0; padding-left: 1.1rem; font-size: 0.8125rem;">
           {ownBookings.map((b) => (
-            <li class={b.overCapacity || (b.source === 'door-counter' && !b.paidHere) ? 'not-authorized' : ''}>{printLine(b)}</li>
+            <li class={b.overCapacity || (b.source === 'door-counter' && !b.paidHere && !b.paidAtCounter) ? 'not-authorized' : ''}>{printLine(b)}</li>
           ))}
         </ul>
       </>

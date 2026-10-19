@@ -9,8 +9,9 @@
  * classes and their library, every seat sold (seat ledger), blocked time,
  * counter sales still to sort out, refund flags and saved refund requests,
  * the legacy seat picks, the minimum-to-run alert markers, the New class
- * create keys (which Add made which class), and the class
- * photos. tests/lib/archive-stores.test.ts fails when a store under
+ * create keys (which Add made which class), the To decide decisions, and
+ * the class photos. Also the studio settings (Craft Café hours, special days,
+ * closed days) with their change history. tests/lib/archive-stores.test.ts fails when a store under
  * src/lib/classes is missing here.
  *
  * Deliberately left out: `otps` (one-time SMS codes, 10-minute life) and
@@ -30,6 +31,8 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'incidents' },
   { name: 'event-meta' },
   { name: 'open-studio' },
+  // Craft Café hours, special days and closed days set on /admin, with who changed them
+  { name: 'studio-settings' },
   // our own classes
   { name: 'classes' },
   { name: 'class-library' },
@@ -42,6 +45,8 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'pos-needs-days' },
   { name: 'class-alerts' },
   { name: 'class-create-keys' },
+  // who decided what in /admin › To decide
+  { name: 'to-decide' },
   // A small photo comes along; a large one is listed by key (the live store keeps it).
   { name: 'class-photos', maxValueBytes: 300 * 1024 },
 ]

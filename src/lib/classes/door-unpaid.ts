@@ -6,7 +6,7 @@
  */
 import { studioDate } from '@lib/studio-time'
 import { listClasses } from './class-store'
-import { getLedger, type LedgerLine } from './seat-ledger'
+import { getLedger, unpaidDoorSeat, type LedgerLine } from './seat-ledger'
 
 export interface DoorUnpaid {
   /** stable: one per booking */
@@ -26,8 +26,6 @@ export interface DoorUnpaid {
 
 /** How far back to look for seats never rung up. */
 export const DOOR_UNPAID_LOOKBACK_DAYS = 60
-
-const unpaidDoorSeat = (l: LedgerLine) => l.source === 'door-counter' && l.state === 'confirmed' && !l.square.orderId
 
 export async function listDoorUnpaid(now: Date): Promise<DoorUnpaid[]> {
   const classes = await listClasses({ fromIso: new Date(now.getTime() - DOOR_UNPAID_LOOKBACK_DAYS * 86_400_000).toISOString(), toIso: now.toISOString() })

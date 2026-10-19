@@ -112,7 +112,7 @@ function ToDecide({ onOpen }: { onOpen: (s: Sheet) => void }) {
             <span className={`adm-badge ${t.done ? 'is-done' : 'is-new'}`}>{t.done ? 'Done' : 'To decide'}</span>
           </span>
           <small>{t.head}</small>
-          <span className="adm-nx">{t.done ? t.done : `Next: ${t.hint}`}</span>
+          <span className="adm-nx">{t.done ? `Done · ${t.done}${t.doneBy ? ` · ${t.doneBy}` : ''}` : `Next: ${t.hint}`}</span>
         </button>
       ))}
     </>

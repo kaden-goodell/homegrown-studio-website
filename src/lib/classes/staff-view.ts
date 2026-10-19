@@ -88,7 +88,7 @@ export function dayRecords(cls: ScheduledClass, ledger: Ledger, day: string): Se
       attemptId: first.bookingId,
       ...(first.source === 'comp' ? { comped: true as const } : {}),
       // Only a door seat not yet rung up is still to pay ("Not paid yet").
-      ...(first.source === 'door-counter' && !first.square.orderId ? { payAtRegister: true as const } : {}),
+      ...(first.source === 'door-counter' && !first.square.orderId && !first.paidAtCounter ? { payAtRegister: true as const } : {}),
       ...(first.by ? { by: first.by } : {}),
     }
   })
