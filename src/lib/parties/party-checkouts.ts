@@ -30,7 +30,8 @@ export interface PartyCheckoutHost { firstName: string; lastName: string; email:
 
 export interface PartyCheckout {
   partyId: string
-  state: 'charging' | 'unclear' | 'paid-elsewhere'
+  /** retired: an unpaid try let go because the retry changed its choices; its attempt id is not used again. */
+  state: 'charging' | 'unclear' | 'paid-elsewhere' | 'retired'
   /** paid-elsewhere only */
   why?: 'no-checkout' | 'other-payment'
   startIso: string
@@ -58,6 +59,7 @@ export interface PartyCheckout {
 
 const KEY = 'open'
 const ATTEMPTS = 3
+const RETIRED_KEEP_MS = 7 * 86_400_000
 interface Doc { checkouts: PartyCheckout[] }
 
 const sameEntry = (a: PartyCheckout, b: PartyCheckout) =>
@@ -75,7 +77,9 @@ async function mutate<T>(fn: (list: PartyCheckout[]) => { next: PartyCheckout[] 
   for (let i = 0; i < ATTEMPTS; i++) {
     const { value, etag } = await kv.getWithMeta(KEY)
     const doc: Doc = value ? JSON.parse(value) : { checkouts: [] }
-    const { next, result } = fn(doc.checkouts)
+    // Retired attempts are kept a week (long enough for any page still retrying them), then dropped.
+    const cutoff = Date.now() - RETIRED_KEEP_MS
+    const { next, result } = fn(doc.checkouts.filter((c) => c.state !== 'retired' || Date.parse(c.updatedAt) > cutoff))
     if (!next) return result
     if (await kv.setIfMatch(KEY, JSON.stringify({ checkouts: next }), etag, value !== null)) return result
   }

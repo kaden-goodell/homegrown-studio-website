@@ -52,7 +52,7 @@ import type { LedgerRecord } from '@lib/kit-ledger'
 import type { By } from '@lib/staff-auth'
 import type { Payment, LineItem } from '@providers/interfaces/payment'
 import {
-  createPartyRecord, getPartyRecord, newHostToken,
+  createPartyRecord, getPartyRecord, newHostToken, updatePartyRecord,
   type PartyCharge, type PartyItem, type PartyRecord,
 } from '@lib/party-store'
 import { getPartySettings } from './settings-store'
@@ -284,10 +284,13 @@ export async function recordPaidParty(
     ...(overlap ? { overlap: true as const } : {}),
   }
   let saved: { kind: 'created' | 'exists'; rec: PartyRecord } | null = null
+  // A save that threw may still have landed: if the retry then finds it, this call made it.
+  let threw = false
   for (let i = 0; i < 2 && !saved; i++) {
     try {
       saved = await createPartyRecord(rec)
     } catch (err) {
+      threw = true
       logger.error(i === 0 ? 'Party record save failed — retrying once' : 'Party record save failed after retry (party still paid)', { partyId, error: String(err) })
     }
   }
@@ -324,8 +327,21 @@ export async function recordPaidParty(
     }
   }
   // Kept while the record is missing: a retry, the webhook or an owner can still record it from there.
-  if (!pay.simulated && saved) await deleteCheckout(partyId).catch((err) => logger.error('Party checkout not cleared', { partyId, error: String(err) }))
-  return { rec: saved?.rec ?? null, charge, created: saved?.kind === 'created' }
+  // The checkout stays until the confirmation has gone out (confirmationDone), so nothing is lost if this call stops here.
+  // Worst case of `threw`: a second email in a double-rare race, never none.
+  return { rec: saved?.rec ?? null, charge, created: saved?.kind === 'created' || (threw && saved?.kind === 'exists') }
+}
+
+/**
+ * The creator of a paid party has sent (or tried to send) its confirmation:
+ * noted on the record (replays answer with it), and only now is the checkout
+ * cleared. Kept when the record couldn't be saved, so it can still be recorded.
+ */
+export async function confirmationDone(partyId: string, rec: PartyRecord | null, sent: boolean, simulated = false): Promise<void> {
+  if (!rec) return
+  await updatePartyRecord(partyId, (r) => ({ ...r, confirmation: { at: new Date().toISOString(), sent } }), sent ? 'Confirmation emailed' : 'Confirmation email did not send', null)
+    .catch((err) => logger.error('Party confirmation not noted', { partyId, error: String(err) }))
+  if (!simulated) await deleteCheckout(partyId).catch((err) => logger.error('Party checkout not cleared', { partyId, error: String(err) }))
 }
 
 /** "Participation agreement on file …" for the email, when a valid one exists. Never fails the email. */
@@ -427,7 +443,7 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
   if (existing?.status === 'cancelled') return refuse(409, 'not_open', PARTY_CANCELLED_MESSAGE)
   if (existing) {
     logger.info('Retried party checkout was already booked — returning the stored result', { partyId })
-    return { kind: 'booked', rec: existing, charge: existing.charges?.[0] ?? null, replay: true, emailSent: true }
+    return { kind: 'booked', rec: existing, charge: existing.charges?.[0] ?? null, replay: true, emailSent: existing.confirmation?.sent === true }
   }
 
   // Nothing is written on a test site that shares the live stores (R41).
@@ -487,6 +503,9 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
       logger.error('Party checkout unreadable before booking — refusing', { partyId, error: String(err) })
       return refuse(503, 'unavailable', partyMessages.unavailable)
     }
+    // Let go earlier because its choices changed: this attempt id is spent (a new body under
+    // its order key would be refused by Square). The page starts a new attempt.
+    if (prior?.state === 'retired') return refuse(503, 'unavailable', CHOICES_CHANGED_MESSAGE)
     if (prior) {
       const recovered = await recoverPaid(partyId, input, now, prior)
       if (recovered && recovered !== 'unpaid') return recovered
@@ -495,10 +514,22 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
       if (!prior.order || !prior.draft || !sameChoices(prior, { startMs, lines: orderLines(q, theme), craftId: input.craftId, guests: input.guests, themeId: theme?.themeId })) {
         // Unpaid in Square, and the customer changed their choices (time, package, extras,
         // craft, guests, table): that order is never charged. Let it go; they start again.
+        // Still live (its own request may be charging right now), or its outcome already
+        // unclear: never let it go from here; wait (To decide has it).
+        if (prior.state === 'unclear') return { kind: 'in_progress' }
+        try {
+          const priorMs = Date.parse(prior.startIso)
+          const live = (await holdsBetween(prior.startIso, new Date(priorMs + MINUTE).toISOString(), now))
+            .some((h) => h.partyId === partyId && Date.parse(h.startIso) === priorMs)
+          if (live) return { kind: 'in_progress' }
+        } catch (err) {
+          logger.error('Party book unreadable before letting an earlier try go — refusing', { partyId, error: String(err) })
+          return refuse(503, 'unavailable', PARTY_TIMES_UNREADABLE)
+        }
         logger.warn('Retried party checkout changed its choices — earlier unpaid try let go', { partyId })
         try {
           await releaseTime(partyId, prior.startIso)
-          await deleteCheckout(partyId)
+          await saveCheckout({ ...prior, state: 'retired', updatedAt: new Date().toISOString() })
         } catch (err) {
           logger.error('Earlier party try not let go — refusing', { partyId, error: String(err) })
           return refuse(503, 'unavailable', partyMessages.unavailable)
@@ -786,7 +817,8 @@ async function recoverPaid(partyId: string, input: BookInput, now: Date, known?:
         partyId, rec: paid.rec, draft: c.draft, firstName: c.host.firstName, email: c.host.email, origin: c.origin,
         chargedCents: paid.charge.cents, receiptUrl: paid.charge.receiptUrl, craft, onFile: c.onFile ?? null, themeName: c.theme?.displayName,
       })
-    : true
+    : paid.rec?.confirmation?.sent === true
+  if (paid.created) await confirmationDone(partyId, paid.rec, emailSent)
   if (paid.created) {
     await reportRecoveredBooking(c, paid.charge.cents)
     await announceBooking({
@@ -824,11 +856,12 @@ async function finish(f: {
 }): Promise<BookOutcome> {
   const { partyId, input, draft, charge, craft } = f
   // Someone else (a concurrent retry, Square's payment event) recorded it first and told everyone: the stored answer.
-  if (f.rec && !f.created) return { kind: 'booked', rec: f.rec, charge: f.rec.charges?.[0] ?? charge, replay: true, emailSent: true, customerId: f.customerId }
+  if (f.rec && !f.created) return { kind: 'booked', rec: f.rec, charge: f.rec.charges?.[0] ?? charge, replay: true, emailSent: f.rec.confirmation?.sent === true, customerId: f.customerId }
   const emailSent = await sendPartyBookedEmail({
     partyId, rec: f.rec, draft, firstName: input.host.firstName, email: input.host.email, origin: input.origin,
     chargedCents: charge.cents, receiptUrl: charge.receiptUrl, craft, themeName: f.theme?.displayName, onFile: f.onFile, minGuests: f.minGuests,
   })
+  await confirmationDone(partyId, f.rec, emailSent, f.simulated)
   const slotLabel = formatSlotLabel(draft.startIso)
   if (!f.simulated && input.audience !== 'admin') {
     await announceBooking({

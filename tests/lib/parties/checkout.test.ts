@@ -17,7 +17,7 @@ const m = vi.hoisted(() => ({
   email: vi.fn(),
   report: vi.fn(),
   paid: new Map<string, any>(),
-  fail: { confirm: false, record: 0, readRecord: '' },
+  fail: { confirm: false, record: 0, readRecord: '', landThenThrow: 0 },
 }))
 
 vi.mock('@config/providers', () => ({
@@ -47,7 +47,7 @@ vi.mock('@lib/parties/party-book', async (orig) => {
 })
 vi.mock('@lib/party-store', async (orig) => {
   const real = await orig<typeof import('@lib/party-store')>()
-  return { ...real, getPartyRecord: async (id: string) => { if (m.fail.readRecord && id === m.fail.readRecord) throw new Error('parties store down'); return real.getPartyRecord(id) }, createPartyRecord: async (r: any) => { if (m.fail.record > 0) { m.fail.record--; throw new Error('parties store down') } return real.createPartyRecord(r) } }
+  return { ...real, getPartyRecord: async (id: string) => { if (m.fail.readRecord && id === m.fail.readRecord) throw new Error('parties store down'); return real.getPartyRecord(id) }, createPartyRecord: async (r: any) => { if (m.fail.record > 0) { m.fail.record--; throw new Error('parties store down') } if (m.fail.landThenThrow > 0) { m.fail.landThenThrow--; await real.createPartyRecord(r); throw new Error('timed out after the write') } return real.createPartyRecord(r) } }
 })
 
 import { bookParty, partyIdFor, type BookInput } from '@lib/parties/checkout'
@@ -88,6 +88,7 @@ beforeEach(() => {
   m.fail.confirm = false
   m.fail.record = 0
   m.fail.readRecord = ''
+  m.fail.landThenThrow = 0
   m.alert.mockReset().mockResolvedValue(undefined)
   m.email.mockReset().mockResolvedValue({ sent: true })
   m.report.mockReset().mockResolvedValue(undefined)
@@ -380,8 +381,12 @@ describe('fix round 2', () => {
     expect(m.createOrder).toHaveBeenCalledTimes(1)
     expect(m.createOrder.mock.calls[0][0].customerId).toBe('cust-old')
     expect(m.processPayment).not.toHaveBeenCalled()
-    expect(await getCheckout(partyIdFor(inp.key))).toBeNull()
+    expect(await getCheckout(partyIdFor(inp.key))).toMatchObject({ state: 'retired' })
     expect((await isStartOpen(start, 90)).ok).toBe(true)
+    // N7: the same attempt id again (even with the first choices) is refused plainly: no Square call.
+    m.createOrder.mockClear()
+    expect(await bookParty({ ...inp, guests: 10 }, NOW)).toMatchObject({ kind: 'refused', status: 503, message: CHOICES_CHANGED_MESSAGE })
+    expect(m.createOrder).not.toHaveBeenCalled()
   })
 
   it('N2: an earlier unpaid try for another time is let go (its hold too), and the customer starts again', async () => {
@@ -390,9 +395,14 @@ describe('fix round 2', () => {
     const inp = input(start)
     await saveCheckout(priorFor(inp, earlier))
     expect((await holdTime({ partyId: partyIdFor(inp.key), startIso: earlier, endIso: at('2027-04-02', '17:30'), ttlMinutes: 10 }, [], new Date())).ok).toBe(true)
-    expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'refused', status: 503, message: CHOICES_CHANGED_MESSAGE })
+    // N6: while that hold is live its own request may be charging: wait, let nothing go.
+    expect(await bookParty(inp, NOW)).toEqual({ kind: 'in_progress' })
+    expect(await heldBy(earlier, partyIdFor(inp.key))).toBeTruthy()
+    // Once it has run out, the unpaid try is let go.
+    vi.setSystemTime(new Date(NOW.getTime() + 11 * 60_000))
+    expect(await bookParty(inp, new Date())).toMatchObject({ kind: 'refused', status: 503, message: CHOICES_CHANGED_MESSAGE })
     expect(await heldBy(earlier, partyIdFor(inp.key))).toBeUndefined()
-    expect(await getCheckout(partyIdFor(inp.key))).toBeNull()
+    expect(await getCheckout(partyIdFor(inp.key))).toMatchObject({ state: 'retired' })
     expect(m.processPayment).not.toHaveBeenCalled()
   })
 
@@ -421,5 +431,37 @@ describe('fix round 2', () => {
     const { items, failed } = await listToDecide(NOW)
     expect(failed).not.toContain('party payments')
     expect(items.some((i) => i.kind === 'party-paid-unclear' && i.detail.partyId === partyIdFor(inp.key))).toBe(true)
+  })
+})
+
+describe('fix round 3', () => {
+  it('N5: a record save that landed but threw still counts as made here: one email, one report, then the checkout is cleared', async () => {
+    m.fail.landThenThrow = 1
+    const inp = input(at('2027-04-15', '16:00'))
+    const partyId = partyIdFor(inp.key)
+    const out = await bookParty(inp, NOW)
+    expect(out).toMatchObject({ kind: 'booked', emailSent: true })
+    expect((out as any).replay).toBe(false)
+    expect(m.email).toHaveBeenCalledTimes(1)
+    expect(m.report.mock.calls.filter(([b]) => b.bookingId === partyId)).toHaveLength(1)
+    expect(await getPartyRecord(partyId)).toMatchObject({ confirmation: { sent: true } })
+    expect(await getCheckout(partyId)).toBeNull()
+  })
+
+  it('a replay answers whether the confirmation really went out', async () => {
+    m.email.mockResolvedValueOnce({ sent: false })
+    const inp = input(at('2027-04-16', '16:00'))
+    expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'booked', emailSent: false })
+    expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'booked', replay: true, emailSent: false })
+  })
+
+  it('N6: an earlier try whose outcome is already unclear is never let go by a changed retry', async () => {
+    m.processPayment.mockRejectedValueOnce(new Error('timeout'))
+    m.findOrderPayment.mockResolvedValueOnce(null)
+    const inp = input(at('2027-04-22', '16:00'))
+    expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'unknown' })
+    expect(await bookParty({ ...inp, startIso: at('2027-04-23', '16:00') }, NOW)).toEqual({ kind: 'in_progress' })
+    expect(await getCheckout(partyIdFor(inp.key))).toMatchObject({ state: 'unclear' })
+    expect(await heldBy(at('2027-04-22', '16:00'), partyIdFor(inp.key))).toBeTruthy()
   })
 })

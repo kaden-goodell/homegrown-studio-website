@@ -26,7 +26,7 @@ import type { Payment } from '@providers/interfaces/payment'
 import { partyForPayment } from './party-payments'
 import { deleteCheckout, getCheckout, savePaidElsewhere, type PartyCheckout } from './party-checkouts'
 import { releaseTime } from './party-book'
-import { recordPaidParty, reportRecoveredBooking, sendPartyBookedEmail } from './checkout'
+import { confirmationDone, recordPaidParty, reportRecoveredBooking, sendPartyBookedEmail } from './checkout'
 
 const logger = createLogger('parties:square-orders')
 
@@ -71,7 +71,7 @@ async function handle(order: any, now: Date, opts: { paymentId?: string }): Prom
   if (rec?.charges?.some((c) => c.paymentId === payment.id)) return { action: 'ignored', why: 'recorded' }
   const c = await getCheckout(partyId)
 
-  if (!rec && c?.draft && (c.state === 'unclear' || now.getTime() - Date.parse(c.updatedAt) >= IN_FLIGHT_MS)) {
+  if (!rec && c?.draft && (c.state === 'unclear' || (c.state === 'charging' && now.getTime() - Date.parse(c.updatedAt) >= IN_FLIGHT_MS))) {
     const paid = await recordPaidParty(c, {
       orderId, paymentId: payment.id, cents: payment.amount || c.squareCents || c.quotedCents, receiptUrl: payment.receiptUrl ?? null,
     }, now)
@@ -100,11 +100,12 @@ async function handle(order: any, now: Date, opts: { paymentId?: string }): Prom
 /** The host's confirmation (once: only the call that created the record) and the owners' text. */
 export async function tellBooked(c: PartyCheckout, rec: Parameters<typeof sendPartyBookedEmail>[0]['rec'], cents: number, receiptUrl: string | null): Promise<void> {
   if (!c.draft) return
-  await sendPartyBookedEmail({
+  const sent = await sendPartyBookedEmail({
     partyId: c.partyId, rec, draft: c.draft, firstName: c.host.firstName, email: c.host.email, origin: c.origin,
     chargedCents: cents, receiptUrl, onFile: c.onFile ?? null, themeName: c.theme?.displayName,
   })
   await reportRecoveredBooking(c, cents)
+  await confirmationDone(c.partyId, rec, sent)
   await alertOwners(
     `Party booked from Square's payment: ${c.host.firstName} ${c.host.lastName} paid ${dollars(cents)} for ${formatSlotLabel(c.startIso)}. Party ${c.partyId}. It is confirmed and they were emailed.`,
   ).catch(() => undefined)

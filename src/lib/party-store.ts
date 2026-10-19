@@ -84,6 +84,8 @@ export interface PartyRecord {
   paying?: { attemptId: string; until: string } | null
   linkSent?: { at: string; by: By | null; email: boolean; text: boolean }[]
   cancelled?: { at: string; by: By; note: string }
+  /** The host's booking confirmation: whether it went out (written by whoever recorded the party paid). */
+  confirmation?: { at: string; sent: boolean }
   /** R6: paid after its time was taken by someone else; warned, never refunded automatically. */
   overlap?: true
   /** oldest first, capped at PARTY_HISTORY_CAP */
