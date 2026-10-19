@@ -19,9 +19,9 @@ import { randomUUID } from 'node:crypto'
 import { providers } from '@config/providers'
 import type { By } from '@lib/staff-auth'
 import {
-  AGAIN_IS_STALE, classRefundBook, NOT_WAITING, REFUND_JUST_MADE, RefundError, refundKey, SAVED_SPLIT_NO_LONGER_FITS,
+  AGAIN_IS_STALE, NOT_WAITING, REFUND_JUST_MADE, RefundError, refundKey, SAVED_SPLIT_NO_LONGER_FITS,
   SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN, STILL_WAITING_ON_SQUARE, type RefundPlan,
-} from '@lib/classes/refunds'
+} from './refund-words'
 import {
   changeRefundRequest, claimRequestEmail, doneAsks, hashOf, isWaiting, listRefundRequests, markRequestDone, markRequestSent,
   releaseRequestEmail, resendRefundRequest, sameAsk, saveRefundRequest, type SavedRefundRequest,
@@ -98,30 +98,17 @@ type Actor = { by: By; role: 'owner' | 'crew' }
 
 // ── Which book a scope belongs to ─────────────────────────────────────────────
 
-const scopes: { match: (scope: RefundScope) => boolean; bookFor: (scope: RefundScope) => Promise<RefundBook<unknown> | null> }[] = []
-
-/** A booking kind other than classes claims its scopes (Task 10: 'party'). The first match wins. */
-export function registerRefundScope(
-  match: (scope: RefundScope) => boolean,
-  bookFor: (scope: RefundScope) => Promise<RefundBook<unknown> | null>,
-): void {
-  scopes.push({ match, bookFor })
-}
-
-/** The scope reserved for parties: never a class, even before parties register. */
+/** The scope reserved for parties: never a class. */
 export const PARTY_SCOPE = 'party'
 
 /**
- * The book that writes refunds for a scope: a registered kind, else classes.
- * Null = nothing there to write to (a 'party' scope nobody has registered is
- * never written to a class ledger).
+ * Finds the book that writes refunds for a scope (the static list is
+ * booking-core/refund-books: classes and parties, an unknown scope throws).
+ * The runner itself knows no booking kind. `hint.label` is the name the
+ * caller already has (the webhook's class list), used before a fresh read.
+ * Null = nothing there to write to.
  */
-export async function refundBookFor(scope: RefundScope): Promise<RefundBook<unknown> | null> {
-  const hit = scopes.find((s) => s.match(scope))
-  if (hit) return hit.bookFor(scope)
-  if (scope.classId === PARTY_SCOPE) return null
-  return classRefundBook(scope.classId, scope.bookingId) as Promise<RefundBook<unknown>>
-}
+export type RefundBookFinder = (scope: RefundScope, hint?: { label?: string }) => Promise<RefundBook<unknown> | null>
 
 // ── Shared steps ──────────────────────────────────────────────────────────────
 
@@ -329,7 +316,8 @@ export async function runRefund<W>(
 
 /**
  * Square's webhook (or the nightly run) saw a COMPLETED refund on one of
- * these bookings' payment. If it is one of our saved requests (same Square
+ * these bookings' payment (callers use booking-core/refund-books'
+ * claimSquareRefund, which passes the static `bookFor`). If it is one of our saved requests (same Square
  * refund id; a request id the records already carry for it; or, unless
  * `exactOnly`, an unfinished request on that payment for exactly that
  * amount), it is saved as that request, by the person who asked, through its
@@ -339,12 +327,14 @@ export async function runRefund<W>(
  * id), then the request is marked done. A replay after a failure in between
  * finds the money already written and only finishes the request.
  */
-export async function claimSquareRefund(
+export async function claimSquareRefundWith(
+  bookFor: RefundBookFinder,
   refund: { id: string; paymentId: string; cents: Cents },
   bookings: { classId: string; bookingId: string; label?: string }[],
   opts: { requestIds?: string[]; exactOnly?: boolean } = {},
 ): Promise<boolean> {
   let found: SavedRefundRequest | null = null
+  let label: string | undefined
   for (const b of bookings) {
     const saved = await listRefundRequests(b.classId, b.bookingId)
     const sameMoney = (r: SavedRefundRequest) => !r.squareRefundId && r.paymentId === refund.paymentId && r.totalCents === refund.cents
@@ -355,10 +345,10 @@ export async function claimSquareRefund(
         // a person said "It went through" before Square's refund reached us: it is that one
         ?? saved.filter((r) => (r.status === 'done' || r.status === 'sent') && r.cleared?.outcome === 'went-through' && sameMoney(r))[0]
       ))
-    if (hit) { found = hit; break }
+    if (hit) { found = hit; label = b.label; break }
   }
   if (!found) return false
-  const book = await refundBookFor({ classId: found.classId, bookingId: found.bookingId })
+  const book = await bookFor({ classId: found.classId, bookingId: found.bookingId }, label ? { label } : undefined)
   // Nothing there to write it to: not ours to claim; the caller records Square's refund as money.
   if (!book) return false
   if (found.status === 'done') {

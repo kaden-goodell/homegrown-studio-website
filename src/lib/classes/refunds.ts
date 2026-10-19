@@ -12,7 +12,6 @@
  * runner in booking-core/refund-runner; this file is the class side of it
  * (`classRefundBook`) plus the class rules: planning, keys, words.
  */
-import { createHash } from 'node:crypto'
 import { recordAudit } from '@lib/audit'
 import { sendRefundEmail } from '@lib/email'
 import type { By } from '@lib/staff-auth'
@@ -21,34 +20,24 @@ import { getLedger, noteRefundFailed, recordRefund, recordRequestRefund, type Le
 import type { Cents, ScheduledClass } from './types'
 import { hashOf, listRefundRequests, type SavedRefundRequest } from './refund-requests'
 import {
-  claimSquareRefund, clearRequest, runRefund, type AlreadyRefunded, type RefundBook, type RefundResult as RunnerResult,
+  clearRequest, runRefund, type AlreadyRefunded, type RefundBook, type RefundResult as RunnerResult,
 } from '@lib/booking-core/refund-runner'
+import {
+  AGAIN_NEEDS_THE_SCREEN, NOT_PAID_HERE, RefundError, refundCapMessage, refundKeyRaw, SQUARE_REFUND_CAP, type RefundPlan,
+} from '@lib/booking-core/refund-words'
+
+// The shared words live in booking-core/refund-words; re-exported so older imports keep working.
+export {
+  AGAIN_IS_STALE, AGAIN_NEEDS_THE_SCREEN, NOT_PAID_HERE, NOT_WAITING, REFUND_JUST_MADE, RefundError, refundKey, refundKeyRaw,
+  SAVED_SPLIT_NO_LONGER_FITS, SQUARE_NO_ANSWER, SQUARE_REFUND_CAP, SQUARE_TURNED_DOWN, STILL_WAITING_ON_SQUARE,
+} from '@lib/booking-core/refund-words'
+export type { RefundPlan } from '@lib/booking-core/refund-words'
 
 export type RefundKind = 'booking' | 'person' | 'session' | 'custom'
 export const REFUND_KINDS: RefundKind[] = ['booking', 'person', 'session', 'custom']
 
-/** Square allows this many refunds on one payment. */
-export const SQUARE_REFUND_CAP = 20
-export const NOT_PAID_HERE = 'Refund this one in Square, where it was paid.'
 export const AT_THE_REGISTER = 'Refund this at the register, then free the seat.'
-export const SQUARE_NO_ANSWER = "Square didn't confirm the refund. Try again. It won't refund twice."
-export const SQUARE_TURNED_DOWN = "Square turned the refund down, so nothing was refunded. Try again."
 export const ALREADY_FREE = 'That seat is already free.'
-
-export const NOT_WAITING = "That refund isn't waiting on Square any more."
-export const STILL_WAITING_ON_SQUARE = 'A refund on this booking is still waiting on Square. Check it in Square first.'
-export const AGAIN_IS_STALE = 'Someone already refunded this again. Check the list.'
-export const AGAIN_NEEDS_THE_SCREEN = 'To repeat a refund, use "Refund again" on the refund screen.'
-export const REFUND_JUST_MADE = 'Another refund was just made on this booking. Look at the booking again before refunding more.'
-export const SAVED_SPLIT_NO_LONGER_FITS =
-  "That refund no longer fits what's left on this booking, so nothing was sent to Square. Look at what's left and refund again."
-
-export class RefundError extends Error {
-  /** `extra` goes into the reply next to the error (e.g. the refund still waiting on Square) */
-  constructor(public status: number, message: string, public extra?: Record<string, unknown>) {
-    super(message)
-  }
-}
 
 export interface RefundRequest {
   classId: string
@@ -73,19 +62,6 @@ export interface RefundRequest {
    * the same inputs as an earlier finished one is answered "Already refunded".
    */
   again?: { of: string; token: string }
-}
-
-export interface RefundPlan {
-  lines: { id: string; cents: Cents }[]
-  totalCents: Cents
-  paymentId: string
-  freeSeat: boolean
-  /** refunds already made on this booking (its payment), as counted for the idempotency key */
-  prior: number
-  /** times Square turned down this same request */
-  failures: number
-  /** the request's key before hashing, without the failure count */
-  rawKey: string
 }
 
 const paidOn = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
@@ -131,24 +107,6 @@ export function bookingCap(lines: LedgerLine[]): Cents | null {
   return Math.max(0, charged - lines.reduce((s, l) => s + l.refunds.reduce((a, r) => a + r.cents, 0), 0))
 }
 
-/**
- * The Square idempotency key. Built from
- * `refund:${bookingId}:${sortedLineIds}:${totalCents}:${n}` (n = refunds already
- * made on the booking), so a retry is the same key and a deliberate second
- * identical refund is a new one. A refund Square turned down (FAILED or
- * REJECTED) bumps a failure count kept for that exact request (its raw key),
- * so only a retry of that request is new; no answer keeps the same key, and
- * other requests on the booking are untouched. Square caps keys at 45
- * characters, so the string is hashed.
- */
-export function refundKeyRaw(bookingId: string, lineIds: string[], totalCents: Cents, n: number): string {
-  return `refund:${bookingId}:${[...lineIds].sort().join(',')}:${totalCents}:${n}`
-}
-export function refundKey(bookingId: string, lineIds: string[], totalCents: Cents, n: number, failures = 0): string {
-  const raw = `${refundKeyRaw(bookingId, lineIds, totalCents, n)}${failures ? `:f${failures}` : ''}`
-  return `refund:${createHash('sha256').update(raw).digest('hex').slice(0, 38)}`
-}
-
 /** What one session of a multi-session seat is worth: seat price ÷ sessions (rounded down) plus that share's tax. Add-ons are not prorated. */
 export function sessionShare(l: LedgerLine): Cents {
   const share = Math.floor(l.priceCents / l.sessionIds.length)
@@ -183,7 +141,7 @@ export function planRefund(ledger: Ledger, req: RefundRequest): RefundPlan {
 
   const prior = priorRefunds(booking, { forKey: true })
   if (priorRefunds(booking) >= SQUARE_REFUND_CAP) {
-    throw new RefundError(409, `This payment has had ${SQUARE_REFUND_CAP} refunds, the most Square allows on one payment.`)
+    throw new RefundError(409, refundCapMessage())
   }
 
   // One-session refunds keep the seat by default: one line covers the whole pass, so freeing it frees every session.
@@ -307,13 +265,15 @@ async function auditRefund(rec: SavedRefundRequest, label: string, squareRefundI
  * `cls` is read when not given (null when the class is gone: Square's refund
  * is still written to its ledger). `req` is the ask, for planning; a book
  * resolved from its scope alone (webhook, "I checked Square") has none.
+ * `label` is a name the caller already has (the webhook's class list).
  */
 export async function classRefundBook(
-  classId: string, bookingId: string, opts: { cls?: ScheduledClass | null; req?: RefundRequest } = {},
+  classId: string, bookingId: string, opts: { cls?: ScheduledClass | null; req?: RefundRequest; label?: string } = {},
 ): Promise<RefundBook<LedgerLine[]>> {
   const cls = opts.cls !== undefined ? opts.cls : await getClass(classId).catch(() => null)
   const req = opts.req
-  const label = cls?.content.name ?? ''
+  // The name the caller already had (the webhook's class list) comes first, as before the shared runner.
+  const label = opts.label || (cls?.content.name ?? '')
   return {
     scope: { classId, bookingId },
     label,
@@ -373,13 +333,6 @@ export async function refundClassBooking(req: RefundRequest, actor: { by: By; ro
   const book = await classRefundBook(cls.id, req.bookingId, { cls, req })
   return asClassResult(await runRefund(book, { attempt: req.attempt, again: req.again, reason: req.reason }, actor))
 }
-
-/**
- * Square's webhook (or the nightly run) saw a COMPLETED refund on one of
- * these bookings' payment: the shared runner's claim, writing through each
- * scope's book (classes here; parties once registered). See the runner.
- */
-export { claimSquareRefund }
 
 export type ClearOutcome = 'went-through' | 'did-not-go-through'
 

@@ -51,6 +51,8 @@ describe('PrivateEventForm (/private-events)', () => {
     const input = document.querySelector('input[type=file]') as HTMLInputElement
     fireEvent.change(input, { target: { files: [new File(['x'], 'p.jpg', { type: 'image/jpeg' })] } })
     await screen.findByAltText('Photo 1')
+    const sendButton = screen.getByText('Send', { selector: 'button' })
+    expect(within(sendButton.parentElement as HTMLElement).getByRole('button', { name: 'Send' })).toBe(sendButton)
     send()
 
     expect(await screen.findByText('Thanks, we got it.')).toBeInTheDocument()
@@ -70,9 +72,11 @@ describe('PrivateEventForm (/private-events)', () => {
     render(<PrivateEventForm />)
     expect(screen.queryByLabelText(/^Address/)).toBeNull()
     expect(questions(/A sink nearby/)[0] ?? null).toBeNull()
+    // The real accessible names, once each, scoped to the question's parent (fast): the cheap helper finds the same.
+    expect(within(group(/Where is it/).parentElement as HTMLElement).getByRole('group', { name: /Where is it/ })).toBe(group(/Where is it/))
     pick(/Where is it/, 'At your place')
     expect(screen.getByLabelText(/^Address/)).toBeInTheDocument()
-    expect(group(/Tables and chairs/)).toBeInTheDocument()
+    expect(within(group(/Tables and chairs/).parentElement as HTMLElement).getByRole('group', { name: /Tables and chairs/ })).toBe(group(/Tables and chairs/))
     pick(/Where is it/, 'At the studio')
     expect(screen.queryByLabelText(/^Address/)).toBeNull()
   })

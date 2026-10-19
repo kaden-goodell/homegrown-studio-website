@@ -92,6 +92,18 @@ function ErrorLine({ text }: { text: string }) {
 
 // ---------------------------------------------------------------- refunds
 
+/** A refund on a party (scope 'party'): a way to open that party's sheet (#party-<day>-<id>). */
+function OpenParty({ item }: { item: ToDecideItem }) {
+  const { open } = useSheet()
+  const d = item.detail as Detail
+  if (typeof d.partyId !== 'string' || typeof d.partyDay !== 'string') return null
+  return (
+    <button type="button" className="adm-btn is-ghost is-sm" style={{ marginTop: '0.5rem' }} onClick={() => open({ kind: 'party', day: d.partyDay, id: d.partyId })}>
+      Open the party
+    </button>
+  )
+}
+
 function OneChoice({ item, note, action, button, working }: { item: ToDecideItem; note: string; action: string; button: string; working: string }) {
   const { send, busy, error } = useDecide(item)
   return (
@@ -99,6 +111,7 @@ function OneChoice({ item, note, action, button, working }: { item: ToDecideItem
       <Head item={item} />
       {kv('Refund', formatMoney((item.detail as Detail).refundCents ?? 0))}
       <p className="adm-note" style={{ marginTop: '0.75rem' }}>{note}</p>
+      <OpenParty item={item} />
       <ErrorLine text={error} />
     </SheetFrame>
   )
@@ -120,6 +133,7 @@ function Unconfirmed({ item }: { item: ToDecideItem }) {
       <Head item={item} />
       {kv('Refund', formatMoney((item.detail as Detail).refundCents ?? 0))}
       <p className="adm-note" style={{ marginTop: '0.75rem' }}>We asked Square for this refund and never heard back. Look it up in Square, then say what you saw. Nothing is sent to Square from here.</p>
+      <OpenParty item={item} />
       <ErrorLine text={error} />
     </SheetFrame>
   )

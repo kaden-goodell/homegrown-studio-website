@@ -23,6 +23,11 @@
  *   by class, each capped at what it has left, and a 'refund-flags' entry per
  *   class asks a person whether to free a seat; a refund we recorded that
  *   later FAILED/REJECTED → a 'refund-failed' flag (never undone automatically).
+ * - A Square refund on one of our PARTY payments (kv 'party-payments'): one of
+ *   our saved party requests → saved as that request; else recorded at once
+ *   as money on that charge (role 'square', by Square refund id, no flag:
+ *   there is no seat to decide); FAILED/REJECTED on one of ours → a
+ *   'refund-failed' flag with the party scope (classId 'party').
  * - The nightly reconcile runs every order (COMPLETED or OPEN) and every
  *   refund of the last 48 hours through the same handlers. Catalog lookups
  *   for items that aren't ours are batched: one call per run.
@@ -35,10 +40,15 @@ import type { By } from '@lib/staff-auth'
 import { listClasses } from './class-store'
 import { squareFetch, squareSettings } from './square-api'
 import { getLedger, moveLines, paidBy, recordPos, recordRefund, type LedgerLine, type PosLineInput } from './seat-ledger'
-import { bookingCap, claimSquareRefund, freeSeatOnly, onSeatFreed } from './refunds'
+import { bookingCap, freeSeatOnly, onSeatFreed } from './refunds'
+import { claimSquareRefund } from '@lib/booking-core/refund-books'
+import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
 import { allRefundRequests, listRefundRequests, UNCONFIRMED_AFTER_MS, type SavedRefundRequest } from './refund-requests'
 import { getClass } from './class-store'
 import { handlePartyOrder } from '@lib/parties/square-orders'
+import { partyForPayment, type PartyPaymentEntry } from '@lib/parties/party-payments'
+import { partyLabel, recordSquarePartyRefund } from '@lib/parties/refunds'
+import { getPartyRecord } from '@lib/party-store'
 import type { Cents, ScheduledClass, Session } from './types'
 
 const logger = createLogger('classes:square-events')
@@ -67,6 +77,7 @@ export type RefundFlagAction = 'freed-seat' | 'kept-seat' | 'dismissed'
 export interface RefundFlag {
   id: string
   kind: RefundFlagKind
+  /** the refund's scope: a class id, or 'party' (bookingId = the party id) */
   classId: string
   bookingId: string
   paymentId: string
@@ -362,6 +373,8 @@ export type RefundOutcome =
   | { action: 'ignored'; why: 'not-ours' | 'already-recorded' | 'pending' | 'not-class-items' | 'ours' }
   | { action: 'freed'; lineIds: string[] }
   | { action: 'flagged'; kind: RefundFlagKind; recordedCents?: Cents }
+  /** a refund made in Square on a party payment, recorded as money on that party */
+  | { action: 'recorded'; partyId: string; recordedCents: Cents }
 
 interface PaidLine { classId: string; line: LedgerLine }
 
@@ -381,17 +394,17 @@ const isPaid = (l: LedgerLine) => l.state === 'confirmed' || l.state === 'refund
 const holdsSeat = (l: LedgerLine) => isPaid(l) && !l.refunds.some((r) => r.freedSeat)
 const bySquare = (r: LedgerLine['refunds'][number]) => r.by?.id === SQUARE_BY.id
 
-async function flag(kind: RefundFlagKind, refund: any, hit: PaidLine, now: Date, extra: { cents?: Cents } = {}): Promise<void> {
+async function flag(kind: RefundFlagKind, refund: any, on: { classId: string; bookingId: string }, now: Date, extra: { cents?: Cents } = {}): Promise<void> {
   // A plain refund is asked about per class (one payment can cover several); a failure once per refund.
   const id = kind === 'plain-refund'
-    ? `flag-${kind}-${safeKey(String(refund.id))}-${safeKey(hit.classId)}`
+    ? `flag-${kind}-${safeKey(String(refund.id))}-${safeKey(on.classId)}`
     : `flag-${kind}-${safeKey(String(refund.id))}`
   const entry: RefundFlag = {
-    id, kind, classId: hit.classId, bookingId: hit.line.bookingId, paymentId: String(refund.payment_id),
+    id, kind, classId: on.classId, bookingId: on.bookingId, paymentId: String(refund.payment_id),
     squareRefundId: String(refund.id), cents: extra.cents ?? money(refund.amount_money), refundCents: money(refund.amount_money),
     status: String(refund.status ?? ''), at: now.toISOString(), resolved: null,
   }
-  if (await putOnce(flagsKv, id, entry)) logger.warn('Square refund needs a person', { kind, refundId: refund.id, classId: hit.classId, bookingId: entry.bookingId })
+  if (await putOnce(flagsKv, id, entry)) logger.warn('Square refund needs a person', { kind, refundId: refund.id, classId: on.classId, bookingId: entry.bookingId })
 }
 
 /**
@@ -433,7 +446,8 @@ async function recordPlainRefund(refund: any, hits: PaidLine[], now: Date): Prom
   }
   if (rest > 0) logger.warn('Square refund is more than the seats on it have left', { refundId, unrecordedCents: rest })
   for (const classId of classIds) {
-    await flag('plain-refund', refund, hits.find((h) => h.classId === classId)!, now, { cents: onClass.get(classId) ?? 0 })
+    const hit = hits.find((h) => h.classId === classId)!
+    await flag('plain-refund', refund, { classId, bookingId: hit.line.bookingId }, now, { cents: onClass.get(classId) ?? 0 })
   }
   const recordedCents = [...onClass.values()].reduce((s, c) => s + c, 0)
   logger.info('Square plain refund recorded', { refundId, recordedCents, classes: classIds.length })
@@ -448,6 +462,9 @@ async function recordPlainRefund(refund: any, hits: PaidLine[], now: Date): Prom
 export async function handleRefund(refund: any, now: Date, opts: { order?: any; ctx?: RunContext } = {}): Promise<RefundOutcome> {
   const paymentId = refund?.payment_id
   if (!paymentId || !refund?.id) return { action: 'ignored', why: 'not-ours' }
+  // A party payment first (a read failure throws: never "not a party"; the nightly run tries again).
+  const party = await partyForPayment(String(paymentId))
+  if (party) return handlePartyRefund(refund, party, now)
   const ctx = opts.ctx ?? contextFor(await listClasses())
   // In a reconcile run the payment index says which classes to read; otherwise read them all.
   const classIds = ctx.payments ? [...(ctx.payments.get(paymentId) ?? [])] : ctx.classes.map((c) => c.id)
@@ -460,7 +477,7 @@ export async function handleRefund(refund: any, now: Date, opts: { order?: any; 
   if (status === 'FAILED' || status === 'REJECTED') {
     if (!entries.length) return { action: 'ignored', why: 'pending' }
     const hit = hits.find((h) => h.line.refunds.some((r) => r.squareRefundId === refund.id))!
-    await flag('refund-failed', refund, hit, now)
+    await flag('refund-failed', refund, { classId: hit.classId, bookingId: hit.line.bookingId }, now)
     return { action: 'flagged', kind: 'refund-failed' }
   }
   if (status !== 'COMPLETED') return { action: 'ignored', why: 'pending' }
@@ -536,6 +553,53 @@ export async function handleRefund(refund: any, now: Date, opts: { order?: any; 
   }
   logger.info('Square return freed seats', { refundId: refund.id, seats: freed.length })
   return { action: 'freed', lineIds: freed }
+}
+
+/**
+ * A refund Square made on one of our party payments (webhook, or the nightly
+ * ListPaymentRefunds run: the same path, R25). One of our saved party
+ * requests → saved as that request; already on the party → nothing; else
+ * recorded at once as money on that charge (R26). FAILED/REJECTED on a
+ * refund we recorded or sent → one 'refund-failed' flag (R24). Never
+ * refunds, cancels or changes the party's time.
+ */
+async function handlePartyRefund(refund: any, at: PartyPaymentEntry, now: Date): Promise<RefundOutcome> {
+  const { partyId, chargeId } = at
+  const rec = await getPartyRecord(partyId)
+  if (!rec) {
+    logger.error('Party payment has no party here', { partyId, refundId: refund.id })
+    return { action: 'ignored', why: 'not-ours' }
+  }
+  const refundId = String(refund.id)
+  const paymentId = String(refund.payment_id)
+  const status = String(refund.status ?? '')
+  const entries = (rec.refunds ?? []).filter((f) => f.squareRefundId === refundId)
+  const scope = { classId: PARTY_SCOPE, bookingId: partyId }
+
+  if (status === 'FAILED' || status === 'REJECTED') {
+    const sent = (await listRefundRequests(PARTY_SCOPE, partyId)).some((r) => r.squareRefundId === refundId)
+    if (!entries.length && !sent) return { action: 'ignored', why: 'pending' }
+    await flag('refund-failed', refund, scope, now)
+    return { action: 'flagged', kind: 'refund-failed' }
+  }
+  if (status !== 'COMPLETED') return { action: 'ignored', why: 'pending' }
+  const asClaimed = { id: refundId, paymentId, cents: money(refund.amount_money) }
+  const bookings = [{ ...scope, label: partyLabel(rec) }]
+  if (entries.length) {
+    if (entries.every((f) => f.role === 'square')) return { action: 'ignored', why: 'already-recorded' }
+    // Ours, its money written: finish its request if a failure in between left it open (by id only, never by amount).
+    const requestIds = [...new Set(entries.map((f) => f.requestId).filter((x): x is string => !!x))]
+    if (await claimSquareRefund(asClaimed, bookings, { requestIds, exactOnly: true })) return { action: 'ignored', why: 'ours' }
+    return { action: 'ignored', why: 'already-recorded' }
+  }
+  if (await claimSquareRefund(asClaimed, bookings)) {
+    logger.info('Square refund is one of our party refunds, saved as asked', { refundId, partyId })
+    return { action: 'ignored', why: 'ours' }
+  }
+  const recordedCents = await recordSquarePartyRefund(partyId, chargeId, asClaimed)
+  if (!recordedCents) return { action: 'ignored', why: 'already-recorded' }
+  logger.info('Square refund on a party recorded', { refundId, partyId, recordedCents })
+  return { action: 'recorded', partyId, recordedCents }
 }
 
 // ---------------------------------------------------------------- webhook + reconcile
@@ -683,7 +747,8 @@ const checkedButUnfinished = (r: SavedRefundRequest) => r.status === 'sent' && !
 
 /**
  * Flags every saved refund still pending (no Square refund id) after 24
- * hours, and every "It went through" left half-finished. Returns how many are open.
+ * hours, and every "It went through" left half-finished, classes and parties
+ * alike (party requests carry classId 'party'). Returns how many are open.
  */
 export async function flagUnconfirmedRequests(now: Date): Promise<number> {
   let open = 0

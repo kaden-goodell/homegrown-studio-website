@@ -63,6 +63,12 @@ const settled = async <T,>(find: () => T): Promise<T> => {
   return find()
 }
 const findButton = (name: string) => settled(() => button(name))
+/**
+ * The real accessible name, checked once per distinct element: getByRole scoped to the element's parent (a few
+ * nodes, so fast), which must find the same element the cheap helper found.
+ */
+const isNamed = (role: 'button' | 'group', name: string, el: HTMLElement) =>
+  expect(within(el.parentElement as HTMLElement).getByRole(role, { name })).toBe(el)
 const findGroup = (name: string) => settled(() => group(name))
 const sheet = (ui: ReactElement) => renderSheet(<StudioProvider>{ui}</StudioProvider>)
 const footer = () => document.querySelector('.adm-sheet-foot') as HTMLElement
@@ -78,9 +84,11 @@ describe('More › Hours & Craft Café', () => {
     vi.stubGlobal('fetch', server())
     sheet(<HoursSheet />)
     const set = await findGroup('Saturdays')
+    isNamed('group', 'Saturdays', set)
     expect(within(set).getByLabelText('Opens')).toHaveValue('09:00')
     expect(screen.getByText('Saturdays 9 AM–12 PM')).toBeInTheDocument()
     expect(screen.getByText('Sat Nov 7 · Craft Café grand opening')).toBeInTheDocument()
+    isNamed('button', 'Save café hours', button('Save café hours'))
     expect(button('Save café hours')).toBeDisabled()
     expect(screen.getByText('A special day replaces the usual hours for that day. Closed days beat both.')).toBeInTheDocument()
     expect(screen.getByText('Thursday & Friday')).toBeInTheDocument()
@@ -121,8 +129,11 @@ describe('More › Hours & Craft Café', () => {
     const f = server()
     vi.stubGlobal('fetch', f)
     sheet(<HoursSheet />)
-    fireEvent.click(await findButton('+ Add a special day'))
+    const add = await findButton('+ Add a special day')
+    isNamed('button', '+ Add a special day', add)
+    fireEvent.click(add)
     const set = group('New special day')
+    isNamed('group', 'New special day', set)
     fireEvent.change(within(set).getByLabelText('Day'), { target: { value: '2026-11-26' } })
     expect(within(set).getByText('That day is closed for Thanksgiving. Closed days beat special hours.')).toBeInTheDocument()
     fireEvent.change(within(set).getByLabelText('Day'), { target: { value: '2026-12-12' } })
@@ -131,6 +142,7 @@ describe('More › Hours & Craft Café', () => {
     expect(await screen.findByText('Added Sat Dec 12. It’s on the calendar.')).toBeInTheDocument()
     expect(posts(f, SETTINGS)[0].body.cafeSpecialDays).toContainEqual({ date: '2026-12-12', opens: '09:00', closes: '17:00', name: 'Holiday market' })
     expect(screen.getByText('Sat Dec 12 · Holiday market')).toBeInTheDocument()
+    isNamed('button', 'Undo', button('Undo'))
     fireEvent.click(button('Undo'))
     await waitFor(() => expect(posts(f, SETTINGS)).toHaveLength(2))
     expect(posts(f, SETTINGS)[1].body.cafeSpecialDays.map((d: any) => d.date)).toEqual(['2026-11-07'])
@@ -233,8 +245,11 @@ describe('More › Closed days', () => {
     const f = server()
     vi.stubGlobal('fetch', f)
     sheet(<ClosedDaysSheet />)
-    fireEvent.click(await findButton('Remove Thanksgiving'))
+    const remove = await findButton('Remove Thanksgiving')
+    isNamed('button', 'Remove Thanksgiving', remove)
+    fireEvent.click(remove)
     const ask = group('Open Thu Nov 26 – Fri Nov 27 again?')
+    isNamed('group', 'Open Thu Nov 26 – Fri Nov 27 again?', ask)
     fireEvent.click(within(ask).getByRole('button', { name: 'Keep it closed' }))
     expect(posts(f, SETTINGS)).toHaveLength(0)
     fireEvent.click(button('Remove Thanksgiving'))
@@ -260,7 +275,7 @@ describe('More › Closed days', () => {
     vi.stubGlobal('fetch', vi.fn(async () => refuse(503, { error: 'The studio settings couldn’t be reached. Try again.' })))
     sheet(<ClosedDaysSheet />)
     expect(await screen.findByText('The studio settings couldn’t be reached. Try again.')).toBeInTheDocument()
-    expect(button('Try again')).toBeInTheDocument()
+    isNamed('button', 'Try again', button('Try again'))
   })
 })
 

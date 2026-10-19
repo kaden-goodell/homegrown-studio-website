@@ -127,6 +127,18 @@ describe('To decide sheets', () => {
     await waitFor(() => expect(decisions(three.f)).toEqual([{ id: 'td_n', action: 'did-not-go-through' }]))
   })
 
+  it('a refund on a party: Open the party opens its sheet; a class refund has no such button', async () => {
+    const t = item({ id: 'td_p', kind: 'refund-failed', title: 'Refund didn’t go through', head: 'Square couldn’t finish a $50 refund on the Justice party.', className: 'the Justice party', detail: { refundCents: 5000, partyId: 'pty_abc123', partyDay: '2026-11-14' } })
+    const one = show([t], {}, 'td_p')
+    expect(await screen.findByText('Square couldn’t finish a $50 refund on the Justice party.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open the party' }))
+    expect(one.sheet.open).toHaveBeenCalledWith({ kind: 'party', day: '2026-11-14', id: 'pty_abc123' })
+    one.unmount()
+    show([item({ kind: 'refund-failed', title: 'Refund didn’t go through', detail: { refundCents: 500 } })])
+    expect(await screen.findByText('Square couldn’t finish this refund. Check it in Square, then mark it handled.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open the party' })).toBeNull()
+  })
+
   it('a counter seat that needs its day: pick one, Save the day', async () => {
     const t = item({ kind: 'pos-needs-days', title: 'Counter seat needs its day', className: 'Camp', detail: { count: 1, current: ['ses_a'], sessions: [{ id: 'ses_a', startIso: at('2031-03-12', '10:00'), endIso: at('2031-03-12', '12:00') }, { id: 'ses_b', startIso: at('2031-03-13', '10:00'), endIso: at('2031-03-13', '12:00') }] } })
     const { f } = show([t])

@@ -12,13 +12,14 @@ const refundPayment = vi.hoisted(() => vi.fn())
 vi.mock('@config/providers', () => ({ providers: { payment: { refundPayment } } }))
 
 import {
-  claimSquareRefund, clearRequest, refundBookFor, registerRefundScope, runRefund,
-  type RefundBook,
+  claimSquareRefundWith, clearRequest, runRefund,
+  type RefundBook, type RefundScope,
 } from '@lib/booking-core/refund-runner'
+import { refundBookFor } from '@lib/booking-core/refund-books'
 import {
   AGAIN_IS_STALE, RefundError, refundKey, refundKeyRaw, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN, STILL_WAITING_ON_SQUARE,
   type RefundPlan,
-} from '@lib/classes/refunds'
+} from '@lib/booking-core/refund-words'
 import { hashOf, listRefundRequests, type SavedRefundRequest } from '@lib/classes/refund-requests'
 
 const owner = { by: { id: 'owner1', name: 'Owner' }, role: 'owner' as const }
@@ -78,7 +79,9 @@ function fakeBooking(bookingId = `bk_${Math.random().toString(36).slice(2, 10)}`
 }
 
 let books = new Map<string, ReturnType<typeof fakeBooking>>()
-registerRefundScope((s) => s.classId === 'fake', async (s) => books.get(s.bookingId)?.book(0) ?? null)
+/** The fake kind's books, as booking-core/refund-books finds the real ones. */
+const fakeBookFor = async (s: RefundScope) => (s.classId === 'fake' ? books.get(s.bookingId)?.book(0) ?? null : null) as RefundBook<unknown> | null
+const claimSquareRefund = (...a: [Parameters<typeof claimSquareRefundWith>[1], Parameters<typeof claimSquareRefundWith>[2]]) => claimSquareRefundWith(fakeBookFor, ...a)
 
 let n = 0
 beforeEach(() => {
@@ -261,25 +264,24 @@ describe('clearRequest ("I checked Square")', () => {
   })
 })
 
-describe('refundBookFor', () => {
-  it('a registered scope answers with its own book', async () => {
-    const { scope } = setup()
-    expect((await refundBookFor(scope))?.label).toBe('the Fake booking')
-  })
-
-  it('classes are the default: any other scope gets the class book', async () => {
+describe('refundBookFor (booking-core/refund-books, a static list)', () => {
+  it('a class scope gets the class book', async () => {
     const book = await refundBookFor({ classId: 'cls_none', bookingId: 'bkg_1' })
     expect(book?.scope).toEqual({ classId: 'cls_none', bookingId: 'bkg_1' })
     expect(book?.logTag).toBe('classes/refund')
   })
 
-  it("'party' is reserved: before parties register it is never a class", async () => {
-    expect(await refundBookFor({ classId: 'party', bookingId: 'pty_1' })).toBeNull()
+  it("'party' is never a class: no such party → null", async () => {
+    expect(await refundBookFor({ classId: 'party', bookingId: 'pty_nothere' })).toBeNull()
   })
 
-  it('a registered scope with nothing to refund → null, and Square\'s refund is not claimed', async () => {
+  it('an unknown scope throws (a wiring miss surfaces instead of recording twice)', async () => {
+    await expect(refundBookFor({ classId: 'fake', bookingId: 'bk_1' })).rejects.toThrow(/No refund book/)
+  })
+
+  it('a scope with nothing to write to → Square\'s refund is not claimed', async () => {
     const lost = { classId: 'fake', bookingId: 'bk_gone' }
-    expect(await refundBookFor(lost)).toBeNull()
+    expect(await fakeBookFor(lost)).toBeNull()
     expect(await claimSquareRefund({ id: 'rf_z', paymentId: 'pay_1', cents: 1 }, [lost])).toBe(false)
   })
 })

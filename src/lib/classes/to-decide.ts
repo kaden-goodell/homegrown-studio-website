@@ -9,6 +9,8 @@
  *                        → Match to a class (seats as a counter sale) · Not for a class
  *   refund-plain         a refund made in Square: → Keep their seat · Free a seat
  *   refund-failed        Square couldn't finish one of our refunds → Mark as handled
+ *                        (class or party refunds alike: a party one reads "the
+ *                        Justice party" and its sheet opens the party)
  *   refund-unfinished    "It went through" was saved but never finished → Finish it
  *   refund-unconfirmed   our refund got no answer from Square in 24 h
  *                        → It went through · It didn't go through
@@ -47,6 +49,8 @@ import {
 } from './seat-ledger'
 import { onStaffConsole } from './staff-view'
 import { getPartyRecord } from '@lib/party-store'
+import { clearPartyRefundRequest, partyLabel } from '@lib/parties/refunds'
+import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
 import { deletePaidElsewhere, listCheckouts } from '@lib/parties/party-checkouts'
 import { confirmUnclearParty, notPaidUnclearParty, PartyUnclearError } from '@lib/parties/square-orders'
 import type { Cents, ScheduledClass } from './types'
@@ -151,11 +155,45 @@ const REFUND_KIND: Record<RefundFlag['kind'], ToDecideKind> = {
   'plain-refund': 'refund-plain', 'refund-failed': 'refund-failed', 'refund-unfinished': 'refund-unfinished', 'refund-unconfirmed': 'refund-unconfirmed',
 }
 
+/** A refund flag on a party (scope 'party'): reads "the Justice party" and opens #party-<day>-<id>. */
+async function partyRefundItem(f: RefundFlag, id: string): Promise<ToDecideItem | null> {
+  const rec = await getPartyRecord(f.bookingId).catch((e) => {
+    console.error(`[to-decide] party ${f.bookingId}: ${e instanceof Error ? e.message : String(e)}`)
+    return null
+  })
+  const label = rec ? partyLabel(rec) : 'a party'
+  const amount = money(f.refundCents ?? f.cents)
+  const base = {
+    id, kind: REFUND_KIND[f.kind], at: f.at, className: label,
+    detail: {
+      flagId: f.id, bookingId: f.bookingId, partyId: f.bookingId, partyDay: rec ? studioDate(rec.startIso) : null,
+      name: rec?.hostName || 'The host', cents: f.cents, refundCents: f.refundCents ?? f.cents, requestId: f.requestId ?? null,
+      seats: [], firstStartIso: rec?.startIso ?? null,
+    },
+  }
+  switch (f.kind) {
+    case 'refund-failed':
+      return { ...base, title: 'Refund didn’t go through', head: `Square couldn’t finish a ${amount} refund on ${label}.`, hint: 'Check it in Square' }
+    case 'refund-unfinished':
+      return { ...base, title: 'Refund half finished', head: `A ${amount} refund on ${label} was checked in Square but never finished here.`, hint: 'Finish it' }
+    case 'refund-unconfirmed':
+      return { ...base, title: 'Refund with no answer', head: `A ${amount} refund on ${label} got no answer from Square for a day.`, hint: 'Check Square, then say what you saw' }
+    default:
+      // Refunds made in Square on a party are recorded as money, with no seat to decide (S2-R24): never flagged.
+      return null
+  }
+}
+
 async function refundItems(cache: ClassCache, skip: Set<string>): Promise<ToDecideItem[]> {
   const out: ToDecideItem[] = []
   for (const f of await listRefundFlags()) {
     const id = tokenOf(f.id)
     if (skip.has(id)) continue
+    if (f.classId === PARTY_SCOPE) {
+      const item = await partyRefundItem(f, id)
+      if (item) out.push(item)
+      continue
+    }
     const cls = await classOf(cache, f.classId)
     const className = cls?.content.name ?? 'A class'
     const lines = (await getLedger(f.classId)).lines.filter((l) => l.bookingId === f.bookingId)
@@ -358,8 +396,8 @@ async function record(item: ToDecideItem, what: string, by: By, action: string):
   await decidedKv.set(`done-${item.id}`, JSON.stringify(d))
   await recordAudit({
     by: { ...by, role: 'owner' }, action: `to-decide-${action}`,
-    target: item.kind === 'party-paid-unclear'
-      ? { kind: 'party', id: String(item.detail.partyId ?? item.id), label: item.title }
+    target: item.kind === 'party-paid-unclear' || typeof item.detail.partyId === 'string'
+      ? { kind: 'party', id: String(item.detail.partyId ?? item.id), label: item.className ?? item.title }
       : { kind: item.classId ? 'class' : 'counter-sale', id: item.classId ?? String(item.detail.orderId ?? item.id), label: item.className ?? item.title },
     details: { item: item.id, kind: item.kind, what },
   })
@@ -485,11 +523,12 @@ export async function decide(id: string, action: string, body: any, by: By, now 
     case 'refund-unconfirmed': {
       const outcome = item.kind === 'refund-unfinished' || action === 'went-through' ? 'went-through' : 'did-not-go-through'
       const requestId = str(d.requestId)
-      const req = (await listRefundRequests(item.classId!, str(d.bookingId))).find((r) => r.id === requestId)
+      const partyId = str(d.partyId)
+      const req = (await listRefundRequests(partyId ? PARTY_SCOPE : item.classId!, str(d.bookingId))).find((r) => r.id === requestId)
       if (!req) throw new DecideError(404, 'That refund isn’t on the booking any more.')
-      await asRefund(() => clearRefundRequest(
-        { classId: item.classId!, bookingId: str(d.bookingId), requestId, outcome, reason: 'Checked in Square (To decide)' }, actor,
-      ))
+      await asRefund<unknown>(() => (partyId
+        ? clearPartyRefundRequest({ partyId, requestId, outcome, reason: 'Checked in Square (To decide)' }, actor)
+        : clearRefundRequest({ classId: item.classId!, bookingId: str(d.bookingId), requestId, outcome, reason: 'Checked in Square (To decide)' }, actor)))
       await decideRefundFlag(str(d.flagId), 'dismissed', actor).catch(() => undefined)
       const what = item.kind === 'refund-unfinished' ? 'Finished the refund' : outcome === 'went-through' ? 'It went through' : 'It didn’t go through'
       return { decided: await record(item, what, by, action) }

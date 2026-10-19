@@ -55,6 +55,8 @@ import {
 import { getLedger, seatsTaken, recordRefund } from '@lib/classes/seat-ledger'
 import { createRefundRequest, markRequestDone, changeRefundRequest } from '@lib/classes/refund-requests'
 import { defaultRules } from '@lib/classes/validate'
+import { createPartyRecord, getPartyRecord, updatePartyRecord, type PartyRecord } from '@lib/party-store'
+import { recordPartyPayment } from '@lib/parties/party-payments'
 import type { ScheduledClass } from '@lib/classes/types'
 
 const NOW = new Date('2026-10-20T15:00:00Z')
@@ -609,5 +611,82 @@ describe('Task 14: decisions on counter sales and Square refunds (R27)', () => {
     expect(flags).toEqual([expect.objectContaining({ kind: 'refund-unfinished', classId: cls.id, cents: 500, requestId: req.id })])
     await markRequestDone(cls.id, 'bkg_hf', req.id, null)
     expect((await listRefundFlags()).some((f) => f.bookingId === 'bkg_hf')).toBe(false)
+  })
+})
+
+describe('Square refunds on party payments (stage 2 Task 10)', () => {
+  /** A paid party of ours with its payment in the party-payments index. */
+  async function paidParty(over: Partial<PartyRecord> = {}) {
+    const id = uid('pty_')
+    const paymentId = uid('PAY')
+    await createPartyRecord({
+      bookingId: id, hostToken: 't', craftName: 'Pails', startIso: '2026-11-14T19:30:00.000Z', durationMinutes: 90, hostName: 'Stefanie Justice',
+      hostEmail: '', guestCount: 12, title: null, dropOff: false, createdAt: '2026-10-19T00:00:00.000Z', source: 'ours', status: 'booked',
+      items: [], charges: [{ id: 'chg_1', via: 'online', orderId: 'o1', paymentId, cents: 30000, quotedCents: 30000, itemIds: [], receiptUrl: null, at: '', by: null }],
+      refunds: [], ...over,
+    })
+    await recordPartyPayment(paymentId, id, 'chg_1')
+    return { id, paymentId }
+  }
+
+  it('a party refunded in Square shows once, even when the webhook and the nightly run both see it; no flag to decide', async () => {
+    classes.list = [makeClass()]
+    const p = await paidParty()
+    const rf = refund(p.paymentId, 5000)
+    expect(await handleSquareEvent(refundEvent('refund.created', rf), NOW)).toEqual({ action: 'recorded', partyId: p.id, recordedCents: 5000 })
+    sq.refundPages = [[rf]]
+    expect(await reconcileClasses(NOW)).toMatchObject({ refunds: 1, refundsHandled: 0, errors: 0 })
+    expect(await handleRefund(rf, NOW)).toEqual({ action: 'ignored', why: 'already-recorded' })
+    const rec = (await getPartyRecord(p.id))!
+    expect(rec.refunds).toEqual([expect.objectContaining({ cents: 5000, role: 'square', squareRefundId: rf.id, chargeId: 'chg_1', paymentId: p.paymentId })])
+    expect(rec.status).toBe('booked')
+    expect((await listRefundFlags()).some((f) => f.bookingId === p.id)).toBe(false)
+    // Never asked Square for anything (no order lookup, no catalog).
+    expect(sq.calls.filter((c) => !c.path.startsWith('/orders/search') && !c.path.startsWith('/refunds?'))).toEqual([])
+  })
+
+  it('the nightly run finds a party refund the webhook missed', async () => {
+    const p = await paidParty()
+    const rf = refund(p.paymentId, 2500)
+    sq.refundPages = [[rf]]
+    expect(await reconcileClasses(NOW)).toMatchObject({ refunds: 1, refundsHandled: 1, errors: 0 })
+    expect((await getPartyRecord(p.id))!.refunds!.map((f) => f.cents)).toEqual([2500])
+  })
+
+  it('a FAILED Square refund on one of our party refunds raises one flag with the party scope', async () => {
+    const p = await paidParty()
+    const rf = refund(p.paymentId, 5000, { status: 'FAILED' })
+    const entry = { id: 'prf_1', chargeId: 'chg_1', paymentId: p.paymentId, cents: 5000, reason: '', by: by, role: 'owner' as const, squareRefundId: rf.id, requestId: 'req_1', at: '' }
+    await updatePartyRecord(p.id, (r) => ({ ...r, refunds: [entry] }), 'seed', null)
+    expect(await handleRefund(rf, NOW)).toEqual({ action: 'flagged', kind: 'refund-failed' })
+    expect(await handleRefund(rf, NOW)).toEqual({ action: 'flagged', kind: 'refund-failed' })
+    const flags = (await listRefundFlags()).filter((f) => f.bookingId === p.id)
+    expect(flags).toEqual([expect.objectContaining({ kind: 'refund-failed', classId: 'party', squareRefundId: rf.id, cents: 5000 })])
+    // Never undone automatically: the refund stays on the party.
+    expect((await getPartyRecord(p.id))!.refunds).toEqual([entry])
+    // A FAILED refund that was never ours is nothing to decide.
+    expect(await handleRefund(refund(p.paymentId, 100, { status: 'FAILED' }), NOW)).toEqual({ action: 'ignored', why: 'pending' })
+  })
+
+  it('a saved party request Square never answered is flagged after 24 hours, like a class one', async () => {
+    const p = await paidParty()
+    const req = await createRefundRequest({
+      id: uid('req'), inputHash: 'h', classId: 'party', bookingId: p.id, paymentId: p.paymentId, kind: 'amount', freeSeat: false, reason: '',
+      by, role: 'owner', lines: [{ id: 'chg_1', cents: 700 }], totalCents: 700, prior: 0, rawKey: 'raw', failures: 0, idempotencyKey: 'refund:x',
+      status: 'pending', squareRefundId: null, answered: false, createdAt: '2026-10-19T10:00:00.000Z', updatedAt: '2026-10-19T10:00:00.000Z',
+    })
+    await flagUnconfirmedRequests(NOW)
+    expect((await listRefundFlags()).filter((f) => f.bookingId === p.id)).toEqual([
+      expect.objectContaining({ kind: 'refund-unconfirmed', classId: 'party', requestId: req.id, cents: 700 }),
+    ])
+  })
+
+  it('a refund on a class payment still takes the class path (the party index has no entry for it)', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const o = order([lineItem(cls.square.variations['all:person'], 1, 3000)])
+    sq.orders.set(o.id, o)
+    await handleOrder(o, NOW)
+    const out = await handleRefund(refund(o.tenders[0].payment_id, 1000), NOW)
+    expect(out).toMatchObject({ action: 'flagged', kind: 'plain-refund', recordedCents: 1000 })
   })
 })

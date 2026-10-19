@@ -32,6 +32,7 @@ import { decide, listToDecide, nameCounterSeats, DecideError, MINIMUM_AHEAD_MS }
 import { getLedger, seatsTaken, type LedgerLine } from '@lib/classes/seat-ledger'
 import { changeRefundRequest, createRefundRequest, listRefundRequests } from '@lib/classes/refund-requests'
 import { defaultRules } from '@lib/classes/validate'
+import { createPartyRecord, getPartyRecord } from '@lib/party-store'
 import { listDoorUnpaid } from '@lib/classes/door-unpaid'
 import { groupBookings } from '@lib/classes/admin-actions'
 import { paidWay } from '@lib/classes/booking-words'
@@ -228,6 +229,54 @@ describe('refunds', () => {
     expect(ledger.lines.find((l) => l.id === a.id)!.refunds.map((r) => r.cents)).toEqual([500])
     expect(ledger.lines.find((l) => l.id === b.id)!.refunds).toEqual([])
     expect((await listRefundRequests(cls.id, 'bkg_u2'))[0].status).toBe('turned-down')
+  })
+})
+
+describe('refunds on parties (scope "party")', () => {
+  async function party() {
+    const id = uid('pty_')
+    await createPartyRecord({
+      bookingId: id, hostToken: 't', craftName: 'Pails', startIso: '2026-11-14T19:30:00.000Z', durationMinutes: 90, hostName: 'Stefanie Justice',
+      hostEmail: 'stef@example.com', guestCount: 12, title: null, dropOff: false, createdAt: '2026-10-19T00:00:00.000Z', source: 'ours', status: 'booked',
+      items: [], charges: [{ id: 'chg_1', via: 'online', orderId: 'o1', paymentId: `pay_${id}`, cents: 30000, quotedCents: 30000, itemIds: [], receiptUrl: null, at: '', by: null }],
+      refunds: [],
+    })
+    return id
+  }
+  async function flag(kind: string, partyId: string, extra: Record<string, unknown> = {}) {
+    const id = `flag-${kind}-${uid('pf')}`
+    await flagsKv.set(id, JSON.stringify({ id, kind, classId: 'party', bookingId: partyId, paymentId: `pay_${partyId}`, squareRefundId: uid('RF'), cents: 5000, refundCents: 5000, status: 'FAILED', at: NOW.toISOString(), resolved: null, ...extra }))
+    return id
+  }
+  const partyItem = async (partyId: string) => (await items()).find((i) => i.detail.partyId === partyId && !i.done)!
+
+  it('Square couldn’t finish a party refund: one item reading "the Justice party" that opens the party; Mark as handled is audited on the party', async () => {
+    const partyId = await party()
+    await flag('refund-failed', partyId)
+    const item = await partyItem(partyId)
+    expect(item).toMatchObject({ kind: 'refund-failed', head: 'Square couldn’t finish a $50 refund on the Justice party.', className: 'the Justice party' })
+    expect(item.classId).toBeUndefined()
+    expect(item.detail).toMatchObject({ partyId, partyDay: '2026-11-14', refundCents: 5000 })
+    expect((await decide(item.id, 'handled', {}, CATHERINE, NOW)).decided.what).toBe('Checked in Square')
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ target: { kind: 'party', id: partyId, label: 'the Justice party' } }))
+  })
+
+  it('no answer from Square on a party refund: It went through saves it on the party once and emails the host once', async () => {
+    const partyId = await party()
+    const req = await createRefundRequest({
+      id: uid('req'), inputHash: uid('h'), classId: 'party', bookingId: partyId, paymentId: `pay_${partyId}`, kind: 'amount', freeSeat: false,
+      reason: 'Sick', by: CATHERINE, role: 'owner', lines: [{ id: 'chg_1', cents: 5000 }], totalCents: 5000, prior: 0, rawKey: 'raw', failures: 0,
+      idempotencyKey: `refund:${uid('k')}`, status: 'pending', squareRefundId: null, answered: false,
+      createdAt: '2026-10-19T10:00:00.000Z', updatedAt: '2026-10-19T10:00:00.000Z',
+    } as any)
+    await flag('refund-unconfirmed', partyId, { requestId: req.id, squareRefundId: '', status: 'pending' })
+    const item = await partyItem(partyId)
+    expect(item.head).toBe('A $50 refund on the Justice party got no answer from Square for a day.')
+    expect((await decide(item.id, 'went-through', {}, CATHERINE, NOW)).decided.what).toBe('It went through')
+    expect((await getPartyRecord(partyId))!.refunds).toEqual([expect.objectContaining({ cents: 5000, requestId: req.id, squareRefundId: null })])
+    expect((await listRefundRequests('party', partyId))[0].status).toBe('done')
+    expect(email).toHaveBeenCalledTimes(1)
+    expect((await items()).some((i) => i.detail.partyId === partyId && !i.done)).toBe(false)
   })
 })
 
