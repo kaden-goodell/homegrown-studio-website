@@ -18,7 +18,11 @@
  *                busyBetween) with clashes({ kind: 'party' }), then writes.
  *   confirmTime  held → booked. Never refuses once paid (R6): a lost hold is
  *                written back as booked, and `overlap` says it now clashes.
- *   extendHold   an unknown payment outcome keeps the hold (24 h, R15).
+ *                Store failures still throw (the caller saves the record anyway).
+ *   extendHold   an unknown payment outcome keeps the hold longer (R15).
+ *
+ * Holds only ever get longer (S2-R5a): a replay, an extension or a confirm
+ * never shortens a hold's end or its expiry.
  *   releaseTime  lets the time go (held or booked).
  *   resizeTime   extra time added or removed: the end moves, rechecked.
  *   moveTime     writes the new time (CAS); the caller then updates the party
@@ -87,15 +91,28 @@ function withLock<T>(k: string, fn: () => Promise<T>): Promise<T> {
   return run
 }
 
+// A store call inside the lock that never answers would hold up every later
+// write to that month on this server: give up after this long (throws).
+let storeTimeoutMs = 10_000
+/** Test-only: shorten the store timeout. */
+export function _setStoreTimeoutMs(ms: number): void { storeTimeoutMs = ms }
+function timed<T>(p: Promise<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error('The party book did not answer in time.')), storeTimeoutMs)
+  })
+  return Promise.race([p, late]).finally(() => clearTimeout(timer))
+}
+
 /** Read-modify-write with CAS. `fn` sees fresh data each attempt and returns the next doc (or null to write nothing). */
 async function mutate<T>(month: string, fn: (cur: MonthDoc) => { next: MonthDoc | null; result: T }, attempts = ATTEMPTS): Promise<T> {
   const k = keyOf(month)
   return withLock(k, async () => {
     for (let i = 0; i < attempts; i++) {
-      const { value, etag } = await kv.getWithMeta(k)
+      const { value, etag } = await timed(kv.getWithMeta(k))
       const { next, result } = fn(parse(month, value))
       if (!next) return result
-      if (await kv.setIfMatch(k, JSON.stringify(next), etag, value !== null)) return result
+      if (await timed(kv.setIfMatch(k, JSON.stringify(next), etag, value !== null))) return result
     }
     throw new Error(RETRY)
   })
@@ -131,59 +148,86 @@ export type HoldResult = { ok: true; replay: boolean } | { ok: false; reason: 't
 type Changed = { ok: true } | { ok: false; message: string }
 type Check = { ok: true } | { ok: false; reason: 'taken' | 'clash'; message: string }
 
-/** The candidate against the month's other live holds (taken) and everything else (clash). */
-function check(span: { startIso: string; endIso: string }, mine: PartyHold[], others: Busy[], skip: (h: PartyHold) => boolean, partyId: string): Check {
+const toIso = (s: string) => new Date(s).toISOString()
+const later = (a: string, b: string) => (Date.parse(a) >= Date.parse(b) ? a : b)
+/** The longer-lasting of two expiries; null (no expiry) wins. */
+const laterExpiry = (a: string | null, b: string | null) => (a === null || b === null ? null : later(a, b))
+
+/**
+ * The candidate against the month's live holds (taken) and everything else
+ * (clash). The locked month doc is the only source for party-book parties:
+ * entries in `others` that came from the book (`party` set) are stale copies
+ * and are ignored.
+ */
+function check(span: { startIso: string; endIso: string }, live: PartyHold[], others: Busy[], skip: (h: PartyHold) => boolean, partyId: string): Check {
   if (!endsByMidnight(span.startIso, span.endIso)) return { ok: false, reason: 'clash', message: MIDNIGHT }
   const cand = { kind: 'party' as const, ...span }
-  if (clashes(cand, mine.filter((h) => !skip(h)).map(holdBusy)).length) return { ok: false, reason: 'taken', message: TAKEN }
-  const hit = clashes({ ...cand, ignoreIds: [partyId] }, others)
+  if (clashes(cand, live.filter((h) => !skip(h)).map(holdBusy)).length) return { ok: false, reason: 'taken', message: TAKEN }
+  const hit = clashes({ ...cand, ignoreIds: [partyId] }, others.filter((b) => !b.party))
   if (hit.length) return { ok: false, reason: 'clash', message: clashMessage(hit) }
   return { ok: true }
 }
 
+/**
+ * Holds a party time. A repeat for the same party and start is a replay
+ * (ok): holds only grow, so a later end (rechecked) or a longer expiry is
+ * kept, never a shorter one.
+ */
 export async function holdTime(
   input: { partyId: string; startIso: string; endIso: string; ttlMinutes: number | null },
   others: Busy[],
   now: Date,
 ): Promise<HoldResult> {
   checkSpan(input.startIso, input.endIso)
+  const expires = input.ttlMinutes === null ? null : new Date(now.getTime() + input.ttlMinutes * 60_000).toISOString()
   return mutate<HoldResult>(monthOf(input.startIso), (cur) => {
     const live = cur.holds.filter((h) => !isExpired(h, now))
-    if (live.some((h) => sameTime(h, input.partyId, input.startIso))) return { next: null, result: { ok: true, replay: true } }
+    const mine = live.find((h) => sameTime(h, input.partyId, input.startIso))
+    if (mine) {
+      const endIso = later(mine.endIso, toIso(input.endIso))
+      const holdExpiresAt = mine.state === 'booked' ? null : laterExpiry(mine.holdExpiresAt, expires)
+      if (endIso === mine.endIso && holdExpiresAt === mine.holdExpiresAt) return { next: null, result: { ok: true, replay: true } }
+      if (endIso !== mine.endIso) {
+        const c = check({ startIso: mine.startIso, endIso }, live, others, (h) => h === mine, input.partyId)
+        if (!c.ok) return { next: null, result: c }
+      }
+      const holds = live.map((h) => (h === mine ? { ...h, endIso, holdExpiresAt } : h))
+      return { next: { month: cur.month, holds }, result: { ok: true, replay: true } }
+    }
     const c = check(input, live, others, () => false, input.partyId)
     if (!c.ok) return { next: null, result: c }
     const hold: PartyHold = {
       partyId: input.partyId,
-      startIso: new Date(input.startIso).toISOString(),
-      endIso: new Date(input.endIso).toISOString(),
+      startIso: toIso(input.startIso),
+      endIso: toIso(input.endIso),
       state: 'held',
-      holdExpiresAt: input.ttlMinutes === null ? null : new Date(now.getTime() + input.ttlMinutes * 60_000).toISOString(),
+      holdExpiresAt: expires,
       at: now.toISOString(),
     }
     // Housekeeping: expired holds (this party's own expired one included) leave the stored doc.
-    const kept = live.filter((h) => !sameTime(h, input.partyId, input.startIso))
-    return { next: { month: cur.month, holds: [...kept, hold] }, result: { ok: true, replay: false } }
+    return { next: { month: cur.month, holds: [...live, hold] }, result: { ok: true, replay: false } }
   })
 }
 
 /**
- * Held → booked, once paid. Never refuses (R6): a hold that ran out and was
- * swept is written back as booked from `endIso`, and `overlap` reports that
- * it now clashes with another party (owners sort it out; nothing is
- * refunded). Tries harder than a hold before giving up on a busy store.
+ * Held → booked, once paid. Never refuses a paid party (R6): a hold that ran
+ * out, or was swept, is written back as booked from `endIso`, and `overlap`
+ * reports that it now clashes with another party (owners sort it out; nothing
+ * is refunded). It still THROWS when the store can't be read or written (down,
+ * timed out, or 9 lost write races): the caller (Task 7) must catch that and
+ * still save the party record, with an owner alert.
  */
-export async function confirmTime(partyId: string, startIso: string, endIso?: string): Promise<{ overlap: boolean }> {
-  const now = new Date()
+export async function confirmTime(partyId: string, startIso: string, endIso: string, now: Date = new Date()): Promise<{ overlap: boolean }> {
+  checkSpan(startIso, endIso)
   return mutate(monthOf(startIso), (cur) => {
     const mine = cur.holds.find((h) => sameTime(h, partyId, startIso))
     const rest = cur.holds.filter((h) => !sameTime(h, partyId, startIso) && !isExpired(h, now))
-    const end = mine?.endIso ?? (endIso ? new Date(endIso).toISOString() : null)
-    if (!end) throw new Error('That party time is not in the book, and no end time was given to put it back.')
+    const end = mine ? later(mine.endIso, toIso(endIso)) : toIso(endIso)
     const overlap = clashes({ kind: 'party', startIso, endIso: end }, rest.map(holdBusy)).length > 0
-    if (mine?.state === 'booked') return { next: null, result: { overlap } }
+    if (mine?.state === 'booked' && mine.endIso === end) return { next: null, result: { overlap } }
     const booked: PartyHold = {
       partyId,
-      startIso: new Date(startIso).toISOString(),
+      startIso: toIso(startIso),
       endIso: end,
       state: 'booked',
       holdExpiresAt: null,
@@ -193,12 +237,34 @@ export async function confirmTime(partyId: string, startIso: string, endIso?: st
   }, ATTEMPTS * 3)
 }
 
-/** Keeps a held time until `untilIso` (an unknown payment outcome, R15). Nothing to do when the hold is gone or booked. */
-export async function extendHold(partyId: string, startIso: string, untilIso: string): Promise<void> {
-  await mutate(monthOf(startIso), (cur) => {
-    if (!cur.holds.some((h) => sameTime(h, partyId, startIso) && h.state === 'held')) return { next: null, result: undefined }
-    const holds = cur.holds.map((h) => (sameTime(h, partyId, startIso) && h.state === 'held' ? { ...h, holdExpiresAt: untilIso } : h))
-    return { next: { ...cur, holds }, result: undefined }
+/**
+ * Keeps a held time longer (an unclear payment outcome, R15). Holds only
+ * grow: `untilIso` null = no expiry; an earlier time never shortens a hold,
+ * and a never-expiring payment-link hold stays as it is. A booked time is
+ * already kept. A hold that ran out, or is gone, is put back from `endIso`
+ * when nothing in the book clashes; otherwise `held: false` and `clash`
+ * says why, so the owners can be told the time was not kept.
+ */
+export async function extendHold(
+  partyId: string, startIso: string, untilIso: string | null, endIso: string, now: Date = new Date(),
+): Promise<{ held: boolean; clash?: string }> {
+  checkSpan(startIso, endIso)
+  return mutate<{ held: boolean; clash?: string }>(monthOf(startIso), (cur) => {
+    const mine = cur.holds.find((h) => sameTime(h, partyId, startIso))
+    if (mine?.state === 'booked') return { next: null, result: { held: true } }
+    const live = cur.holds.filter((h) => !isExpired(h, now))
+    if (mine && !isExpired(mine, now)) {
+      const holdExpiresAt = laterExpiry(mine.holdExpiresAt, untilIso)
+      if (holdExpiresAt === mine.holdExpiresAt) return { next: null, result: { held: true } }
+      return { next: { ...cur, holds: live.map((h) => (h === mine ? { ...h, holdExpiresAt } : h)) }, result: { held: true } }
+    }
+    if (untilIso !== null && Date.parse(untilIso) <= now.getTime()) return { next: null, result: { held: false } }
+    // Ran out or gone: put it back if the time is still free in the book.
+    const end = mine ? later(mine.endIso, toIso(endIso)) : toIso(endIso)
+    const c = check({ startIso, endIso: end }, live, [], () => false, partyId)
+    if (!c.ok) return { next: null, result: { held: false, clash: c.message } }
+    const hold: PartyHold = { partyId, startIso: toIso(startIso), endIso: end, state: 'held', holdExpiresAt: untilIso, at: mine?.at ?? now.toISOString() }
+    return { next: { month: cur.month, holds: [...live, hold] }, result: { held: true } }
   })
 }
 
@@ -217,39 +283,52 @@ export async function resizeTime(
   checkSpan(startIso, newEndIso)
   return mutate<Changed>(monthOf(startIso), (cur) => {
     const mine = cur.holds.find((h) => sameTime(h, partyId, startIso) && !isExpired(h, now))
-    if (!mine) return { next: null, result: { ok: false as const, message: 'That party has no time held to change.' } }
+    if (!mine) return { next: null, result: { ok: false, message: 'That party has no time held to change.' } }
     const live = cur.holds.filter((h) => !isExpired(h, now))
     const c = check({ startIso, endIso: newEndIso }, live, others, (h) => h.partyId === partyId, partyId)
-    if (!c.ok) return { next: null, result: { ok: false as const, message: c.message } }
-    const holds = live.map((h) => (h === mine ? { ...h, endIso: new Date(newEndIso).toISOString() } : h))
-    return { next: { ...cur, holds }, result: { ok: true as const } }
+    if (!c.ok) return { next: null, result: { ok: false, message: c.message } }
+    const holds = live.map((h) => (h === mine ? { ...h, endIso: toIso(newEndIso) } : h))
+    return { next: { ...cur, holds }, result: { ok: true } }
   })
 }
+
+const NO_HOLD = 'That party has no time held to move.'
+const SAME_START = "That's already this party's time."
 
 /**
  * Writes the party's new time (CAS), keeping its state and expiry. The old
  * time stays held: the caller updates the party record, then calls
- * releaseTime(partyId, from.startIso).
+ * releaseTime(partyId, from.startIso). A move to the party's own start is
+ * refused (an end change there is resizeTime): the caller's release would
+ * otherwise drop its only hold.
+ *
+ * The old hold is read inside the lock: in the same month, in the very
+ * read-modify-write that writes the new time. Across months it is read
+ * under the old month's lock just before; a cancel landing between that read
+ * and the write would leave an extra hold at the new time, which the daily
+ * "Party hold with no party" warning names (moves and cancels of one party
+ * are also kept apart by the party record, Task 11).
  */
 export async function moveTime(
   partyId: string, from: { startIso: string }, to: { startIso: string; endIso: string }, others: Busy[], now: Date,
 ): Promise<Changed> {
   checkSpan(to.startIso, to.endIso)
-  const fromMonth = parse(monthOf(from.startIso), await kv.get(keyOf(monthOf(from.startIso))))
-  const old = fromMonth.holds.find((h) => sameTime(h, partyId, from.startIso) && !isExpired(h, now))
-  if (!old) return { ok: false, message: 'That party has no time held to move.' }
-  return mutate<Changed>(monthOf(to.startIso), (cur) => {
+  if (Date.parse(from.startIso) === Date.parse(to.startIso)) return { ok: false, message: SAME_START }
+  const fromMonth = monthOf(from.startIso), toMonth = monthOf(to.startIso)
+  const liveOld = (holds: PartyHold[]) => holds.find((h) => sameTime(h, partyId, from.startIso) && !isExpired(h, now))
+  const oldElsewhere = fromMonth === toMonth
+    ? null
+    : await withLock(keyOf(fromMonth), async () => liveOld(parse(fromMonth, await timed(kv.get(keyOf(fromMonth)))).holds) ?? null)
+  if (fromMonth !== toMonth && !oldElsewhere) return { ok: false, message: NO_HOLD }
+  return mutate<Changed>(toMonth, (cur) => {
+    const old = oldElsewhere ?? liveOld(cur.holds)
+    if (!old) return { next: null, result: { ok: false, message: NO_HOLD } }
     const live = cur.holds.filter((h) => !isExpired(h, now))
-    if (live.some((h) => sameTime(h, partyId, to.startIso))) return { next: null, result: { ok: true as const } }
+    if (live.some((h) => sameTime(h, partyId, to.startIso))) return { next: null, result: { ok: true } } // a retry after a move that went through
     // The party's own old time does not block its move.
     const c = check(to, live, others, (h) => h.partyId === partyId, partyId)
-    if (!c.ok) return { next: null, result: { ok: false as const, message: c.message } }
-    const moved: PartyHold = {
-      ...old,
-      startIso: new Date(to.startIso).toISOString(),
-      endIso: new Date(to.endIso).toISOString(),
-      at: now.toISOString(),
-    }
-    return { next: { ...cur, holds: [...live, moved] }, result: { ok: true as const } }
+    if (!c.ok) return { next: null, result: { ok: false, message: c.message } }
+    const moved: PartyHold = { ...old, startIso: toIso(to.startIso), endIso: toIso(to.endIso), at: now.toISOString() }
+    return { next: { ...cur, holds: [...live, moved] }, result: { ok: true } }
   })
 }

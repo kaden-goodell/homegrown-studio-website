@@ -95,7 +95,7 @@ describe('busyBetween', () => {
     const NOW = new Date('2026-10-19T15:00:00Z')
     expect((await holdTime({ partyId: 'pty_held', startIso: at(day, '13:00'), endIso: at(day, '14:30'), ttlMinutes: null }, [], NOW)).ok).toBe(true)
     expect((await holdTime({ partyId: 'pty_booked', startIso: at(day, '15:30'), endIso: at(day, '17:00'), ttlMinutes: 10 }, [], new Date())).ok).toBe(true)
-    await confirmTime('pty_booked', at(day, '15:30'))
+    await confirmTime('pty_booked', at(day, '15:30'), at(day, '17:00'))
     mocks.listBookings.mockResolvedValue([{ id: 'bk_9', status: 'accepted', slot: { startAt: at(day, '18:00'), duration: 120 } }])
     const parties = await partyBusy(at(day, '00:00'), at(day, '23:59'))
     expect(parties).toEqual([

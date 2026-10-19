@@ -4,7 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 // per key, each read and conditional write one atomic step (as on Netlify
 // Blobs). Shared across module copies, so two copies of party-book act as two
 // servers on one store. `failRead` makes every read throw (store down).
-const cas = vi.hoisted(() => ({ versions: new Map<string, number>(), queues: new Map<string, Promise<unknown>>(), failRead: false, writes: 0, lost: 0 }))
+const cas = vi.hoisted(() => ({ versions: new Map<string, number>(), queues: new Map<string, Promise<unknown>>(), failRead: false, hang: false, writes: 0, lost: 0 }))
 vi.mock('@lib/blob-store', async (orig) => {
   const real = await orig<typeof import('@lib/blob-store')>()
   const atomic = <T,>(k: string, fn: () => Promise<T>): Promise<T> => {
@@ -22,7 +22,7 @@ vi.mock('@lib/blob-store', async (orig) => {
       return {
         ...kv,
         get: (k: string) => atomic(id(k), async () => { if (cas.failRead) throw new Error('blob store down'); return kv.get(k) }),
-        getWithMeta: (k: string) => atomic(id(k), async () => {
+        getWithMeta: (k: string) => cas.hang ? (cas.hang = false, new Promise<never>(() => {})) : atomic(id(k), async () => {
           if (cas.failRead) throw new Error('blob store down')
           return { value: await kv.get(k), etag: version(k) }
         }),
@@ -39,7 +39,7 @@ vi.mock('@lib/blob-store', async (orig) => {
   }
 })
 
-import { holdsBetween, holdTime, confirmTime, extendHold, releaseTime, resizeTime, moveTime } from '@lib/parties/party-book'
+import { holdsBetween, holdTime, confirmTime, extendHold, releaseTime, resizeTime, moveTime, _setStoreTimeoutMs } from '@lib/parties/party-book'
 import { localToUtcISO } from '@lib/parties/party-times'
 import type { Busy } from '@lib/classes/studio-schedule'
 
@@ -53,7 +53,7 @@ const hold = (partyId: string, ymd: string, start: string, end: string, others: 
   holdTime({ partyId, startIso: at(ymd, start), endIso: at(ymd, end), ttlMinutes: ttl }, others, now)
 const dayOf = (ymd: string) => [at(ymd, '00:00'), at(ymd, '23:59')] as const
 
-beforeEach(() => { cas.failRead = false })
+beforeEach(() => { cas.failRead = false; cas.hang = false })
 
 // Each test uses its own far-future Sunday so the shared month docs don't collide.
 describe('party book', () => {
@@ -143,7 +143,7 @@ describe('party book', () => {
 
     const d2 = '2031-03-16', q = pid()
     await hold(q, d2, '13:00', '14:30')
-    await confirmTime(q, at(d2, '13:00'))
+    await confirmTime(q, at(d2, '13:00'), at(d2, '14:30'))
     expect(await holdsBetween(...dayOf(d2), later(60 * 24 * 365))).toEqual([expect.objectContaining({ partyId: q, state: 'booked', holdExpiresAt: null })])
   })
 
@@ -156,8 +156,8 @@ describe('party book', () => {
   it('confirm keeps the time; confirming twice is fine', async () => {
     const d = '2031-03-30', p = pid()
     await hold(p, d, '13:00', '14:30')
-    expect(await confirmTime(p, at(d, '13:00'))).toEqual({ overlap: false })
-    expect(await confirmTime(p, at(d, '13:00'))).toEqual({ overlap: false })
+    expect(await confirmTime(p, at(d, '13:00'), at(d, '14:30'))).toEqual({ overlap: false })
+    expect(await confirmTime(p, at(d, '13:00'), at(d, '14:30'))).toEqual({ overlap: false })
     expect((await hold(pid(), d, '13:00', '14:30')).ok).toBe(false)
   })
 
@@ -165,7 +165,7 @@ describe('party book', () => {
     const d = '2031-04-06', p = pid(), other = pid()
     await hold(p, d, '13:00', '14:30')
     expect((await hold(other, d, '13:00', '14:30', [], 10, later(11))).ok).toBe(true) // sweeps p's expired hold
-    expect(await confirmTime(p, at(d, '13:00'), at(d, '14:30'))).toEqual({ overlap: true })
+    expect(await confirmTime(p, at(d, '13:00'), at(d, '14:30'), later(11))).toEqual({ overlap: true })
     const list = await holdsBetween(...dayOf(d), later(11))
     expect(list.map((h) => [h.partyId, h.state]).sort()).toEqual([[other, 'held'], [p, 'booked']].sort())
   })
@@ -179,7 +179,7 @@ describe('party book', () => {
   it('extendHold keeps an unknown-outcome hold 24 hours (R15)', async () => {
     const d = '2031-04-20', p = pid()
     await hold(p, d, '13:00', '14:30')
-    await extendHold(p, at(d, '13:00'), later(24 * 60).toISOString())
+    expect(await extendHold(p, at(d, '13:00'), later(24 * 60).toISOString(), at(d, '14:30'))).toEqual({ held: true })
     expect(await holdsBetween(...dayOf(d), later(60))).toHaveLength(1)
     expect((await hold(pid(), d, '13:00', '14:30', [], 10, later(60))).ok).toBe(false)
     expect(await holdsBetween(...dayOf(d), later(24 * 60))).toEqual([])
@@ -191,7 +191,7 @@ describe('party book', () => {
     await releaseTime(p, at(d, '13:00'))
     expect(await holdsBetween(...dayOf(d), NOW)).toEqual([])
     await hold(q, d, '13:00', '14:30')
-    await confirmTime(q, at(d, '13:00'))
+    await confirmTime(q, at(d, '13:00'), at(d, '14:30'))
     await releaseTime(q, at(d, '13:00'))
     expect((await hold(pid(), d, '13:00', '14:30')).ok).toBe(true)
   })
@@ -222,7 +222,7 @@ describe('party book', () => {
   it('move within a month: new hold written (state kept), old one released by the caller', async () => {
     const d = '2031-05-25', p = pid()
     await hold(p, d, '13:00', '14:30')
-    await confirmTime(p, at(d, '13:00'))
+    await confirmTime(p, at(d, '13:00'), at(d, '14:30'))
     // the party moving over its own old time is not a clash with itself
     expect(await moveTime(p, { startIso: at(d, '13:00') }, { startIso: at(d, '14:00'), endIso: at(d, '16:00') }, [], NOW)).toEqual({ ok: true })
     let list = await holdsBetween(...dayOf(d), NOW)
@@ -243,7 +243,7 @@ describe('party book', () => {
   it('move Oct → Nov writes the new month first', async () => {
     const p = pid()
     await hold(p, '2032-10-31', '13:00', '14:30')
-    await confirmTime(p, at('2032-10-31', '13:00'))
+    await confirmTime(p, at('2032-10-31', '13:00'), at('2032-10-31', '14:30'))
     expect(await moveTime(p, { startIso: at('2032-10-31', '13:00') }, { startIso: at('2032-11-07', '13:00'), endIso: at('2032-11-07', '15:00') }, [], NOW)).toEqual({ ok: true })
     await releaseTime(p, at('2032-10-31', '13:00'))
     expect(await holdsBetween(...dayOf('2032-10-31'), NOW)).toEqual([])
@@ -272,5 +272,109 @@ describe('party book', () => {
 
   it('refuses a start not before its end', async () => {
     await expect(hold(pid(), '2031-06-15', '15:00', '15:00')).rejects.toThrow()
+  })
+
+  // ---- fix round 1: holds only grow; same-start moves refused; confirm needs the end
+
+  it('concurrent holds: two servers racing for 1:00 and 1:30, exactly one wins', async () => {
+    const d = '2031-07-06'
+    vi.resetModules()
+    const serverA = await import('@lib/parties/party-book')
+    vi.resetModules()
+    const serverB = await import('@lib/parties/party-book')
+    const lostBefore = cas.lost
+    const [a, b] = await Promise.all([
+      serverA.holdTime({ partyId: 'pty_one', startIso: at(d, '13:00'), endIso: at(d, '14:30'), ttlMinutes: 10 }, [], NOW),
+      serverB.holdTime({ partyId: 'pty_half', startIso: at(d, '13:30'), endIso: at(d, '15:00'), ttlMinutes: 10 }, [], NOW),
+    ])
+    expect([a, b].filter((r) => r.ok)).toHaveLength(1)
+    expect([a, b].filter((r) => !r.ok)).toEqual([{ ok: false, reason: 'taken', message: expect.stringMatching(/just taken/) }])
+    expect(cas.lost - lostBefore).toBe(1)
+    expect(await holdsBetween(...dayOf(d), NOW)).toHaveLength(1)
+  })
+
+  it('a move to the party\'s own start is refused, and its hold stays', async () => {
+    const d = '2031-07-13', p = pid()
+    await hold(p, d, '13:00', '14:30')
+    await confirmTime(p, at(d, '13:00'), at(d, '14:30'))
+    expect(await moveTime(p, { startIso: at(d, '13:00') }, { startIso: at(d, '13:00'), endIso: at(d, '15:00') }, [], NOW))
+      .toEqual({ ok: false, message: "That's already this party's time." })
+    expect(await holdsBetween(...dayOf(d), NOW)).toEqual([expect.objectContaining({ partyId: p, endIso: at(d, '14:30'), state: 'booked' })])
+  })
+
+  it('a stale copy of a book party in "others" never decides: the locked doc does', async () => {
+    const d = '2031-07-20', p = pid()
+    const stale: Busy = { kind: 'party', id: 'pty_gone', label: 'a party', startIso: at(d, '13:00'), endIso: at(d, '14:30'), party: { state: 'held', partyId: 'pty_gone' } }
+    expect((await hold(p, d, '13:00', '14:30', [stale])).ok).toBe(true) // released since; the doc is free
+    const rival = await hold(pid(), d, '13:30', '15:00', [])
+    expect(rival).toEqual({ ok: false, reason: 'taken', message: expect.stringMatching(/just taken/) })
+  })
+
+  it('a repeat hold only grows: a later end (rechecked) and a longer expiry are kept, never shorter', async () => {
+    const d = '2031-07-27', p = pid()
+    await hold(p, d, '13:00', '14:30', [], 10)
+    // replayed as a payment link: no expiry now
+    expect(await hold(p, d, '13:00', '14:30', [], null)).toEqual({ ok: true, replay: true })
+    expect(await holdsBetween(...dayOf(d), later(60 * 24))).toEqual([expect.objectContaining({ partyId: p, holdExpiresAt: null })])
+    // a 10-min replay does not shorten it
+    await hold(p, d, '13:00', '14:30', [], 10)
+    expect((await holdsBetween(...dayOf(d), later(60)))[0].holdExpiresAt).toBeNull()
+    // a later end is kept; a shorter end is ignored
+    expect(await hold(p, d, '13:00', '15:00')).toEqual({ ok: true, replay: true })
+    expect(await hold(p, d, '13:00', '14:00')).toEqual({ ok: true, replay: true })
+    expect((await holdsBetween(...dayOf(d), NOW))[0].endIso).toBe(at(d, '15:00'))
+    // a later end that clashes is refused
+    await hold(pid(), d, '16:00', '17:30')
+    expect(await hold(p, d, '13:00', '15:30')).toEqual({ ok: false, reason: 'taken', message: expect.any(String) })
+    expect((await holdsBetween(...dayOf(d), NOW)).find((h) => h.partyId === p)!.endIso).toBe(at(d, '15:00'))
+  })
+
+  it('extendHold never shortens, keeps a payment-link hold with no expiry, and null means no expiry', async () => {
+    const d = '2031-08-03', p = pid(), link = pid()
+    await hold(p, d, '13:00', '14:30', [], 60)
+    expect(await extendHold(p, at(d, '13:00'), later(5).toISOString(), at(d, '14:30'))).toEqual({ held: true })
+    expect((await holdsBetween(...dayOf(d), later(30))).map((h) => h.partyId)).toEqual([p]) // still the 60-min expiry
+    // unclear outcome: held until an owner sorts it out
+    expect(await extendHold(p, at(d, '13:00'), null, at(d, '14:30'))).toEqual({ held: true })
+    expect(await holdsBetween(...dayOf(d), later(60 * 24 * 7))).toEqual([expect.objectContaining({ partyId: p, holdExpiresAt: null })])
+    // a payment link's hold never expires; a 24 h extension leaves it so
+    await hold(link, d, '15:30', '17:00', [], null)
+    expect(await extendHold(link, at(d, '15:30'), later(24 * 60).toISOString(), at(d, '17:00'))).toEqual({ held: true })
+    expect((await holdsBetween(...dayOf(d), later(60 * 24 * 7))).find((h) => h.partyId === link)!.holdExpiresAt).toBeNull()
+  })
+
+  it('extendHold puts back a hold that ran out when nothing clashes, and says when it cannot', async () => {
+    const d = '2031-08-10', p = pid(), q = pid()
+    await hold(p, d, '13:00', '14:30')
+    expect(await holdsBetween(...dayOf(d), later(11))).toEqual([])
+    expect(await extendHold(p, at(d, '13:00'), later(24 * 60).toISOString(), at(d, '14:30'), later(11))).toEqual({ held: true })
+    expect(await holdsBetween(...dayOf(d), later(60))).toEqual([expect.objectContaining({ partyId: p, state: 'held' })])
+    // gone entirely and resold meanwhile
+    await hold(q, d, '15:30', '17:00')
+    await releaseTime(q, at(d, '15:30'))
+    await hold(pid(), d, '15:30', '17:00')
+    expect(await extendHold(q, at(d, '15:30'), null, at(d, '17:00'))).toEqual({ held: false, clash: expect.stringMatching(/just taken/) })
+    // a booked time is already kept
+    await confirmTime(p, at(d, '13:00'), at(d, '14:30'))
+    expect(await extendHold(p, at(d, '13:00'), later(5).toISOString(), at(d, '14:30'))).toEqual({ held: true })
+  })
+
+  it('confirm never shortens a hold; it keeps the later end', async () => {
+    const d = '2031-08-17', p = pid()
+    await hold(p, d, '13:00', '15:00')
+    expect(await confirmTime(p, at(d, '13:00'), at(d, '14:30'))).toEqual({ overlap: false })
+    expect(await holdsBetween(...dayOf(d), NOW)).toEqual([expect.objectContaining({ state: 'booked', endIso: at(d, '15:00') })])
+  })
+
+  it('a store call that never answers times out and frees the month for the next write', async () => {
+    const d = '2031-08-24'
+    _setStoreTimeoutMs(50)
+    try {
+      cas.hang = true
+      await expect(hold(pid(), d, '13:00', '14:30')).rejects.toThrow(/did not answer/)
+      expect((await hold(pid(), d, '13:00', '14:30')).ok).toBe(true)
+    } finally {
+      _setStoreTimeoutMs(10_000)
+    }
   })
 })
