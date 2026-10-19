@@ -299,7 +299,10 @@ export async function updateScheduledClass(body: {
   }
 
   if (body.sessions !== undefined || body.content !== undefined) {
-    await checkClashes(sessions, content.rules.canShareRoom, cls.id)
+    // Sessions that already ended, unchanged, are history: never re-checked (blocked time added later must not stop an edit).
+    const same = (s: Session) => cls.sessions.some((o) => o.id === s.id && o.startIso === s.startIso && o.endIso === s.endIso)
+    const toCheck = sessions.filter((s) => Date.parse(s.endIso) > now.getTime() || !same(s))
+    if (toCheck.length) await checkClashes(toCheck, content.rules.canShareRoom, cls.id)
   }
 
   const changes: string[] = []

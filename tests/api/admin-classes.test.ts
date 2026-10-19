@@ -194,6 +194,20 @@ describe('scheduling', () => {
     expect(b.status).toBe(200)
   })
 
+  it('M8: editing only the details never re-checks clashes on sessions that already ended', async () => {
+    const { createClass } = await import('@lib/classes/class-store')
+    const { addBlocked } = await import('@lib/classes/blocked-time')
+    const past = ses('2025-03-01', '10:00', '12:00')
+    const future = ses('2031-04-01', '10:00', '12:00')
+    const c = await createClass({ content: content('Started Camp'), sessions: [past, future], status: 'open', by: { id: 'admin', name: 'Owner' } })
+    await addBlocked({ startIso: past.startIso, endIso: past.endIso, reason: 'Floor redone', by: { id: 'admin', name: 'Owner' } })
+    const r = await update({ id: c.id, content: content('Started Camp', { description: 'New words.' }) })
+    expect(r.status).toBe(200)
+    // a session list with the ended one unchanged doesn't re-check it either
+    const again = await update({ id: c.id, sessions: (await getClass(c.id))!.sessions })
+    expect(again.status).toBe(200)
+  })
+
   it('moving a class past itself is not a clash with itself', async () => {
     const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Mover'), sessions: [ses('2031-02-20', '17:00', '19:00')], status: 'open' })
     const s = c.body.data.class.sessions[0]
