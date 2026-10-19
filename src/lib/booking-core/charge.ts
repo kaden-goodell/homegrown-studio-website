@@ -22,7 +22,12 @@ export const PRICE_DRIFT_TOLERANCE_CENTS = 100
 /** How long a place is held while the card is charged. */
 export const HOLD_MINUTES = 10
 
-/** A charge with no answer keeps its hold this long, for a person to settle. */
+/**
+ * Classes: a charge with no answer keeps its seats this long, for a person to
+ * settle. Parties keep their time with NO expiry instead (S2-R5a: a paid
+ * party's time is never lost), until a retry, Square's payment event or an
+ * owner in /admin › To decide settles it.
+ */
 export const UNCLEAR_HOLD_HOURS = 24
 
 const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`

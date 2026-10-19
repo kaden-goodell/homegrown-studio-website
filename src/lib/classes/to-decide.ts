@@ -46,6 +46,7 @@ import {
   getLedger, markCounterMatchChecked, markDoorPaid, moveCounterPayment, recordPos, seatsTaken, setNames, unpaidDoorSeat, type LedgerLine,
 } from './seat-ledger'
 import { onStaffConsole } from './staff-view'
+import { getPartyRecord } from '@lib/party-store'
 import { deletePaidElsewhere, listCheckouts } from '@lib/parties/party-checkouts'
 import { confirmUnclearParty, notPaidUnclearParty, PartyUnclearError } from '@lib/parties/square-orders'
 import type { Cents, ScheduledClass } from './types'
@@ -277,6 +278,11 @@ async function partyItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
     const stale = c.state === 'charging' && now.getTime() - Date.parse(c.updatedAt) >= PARTY_CHARGING_STALE_MS
     if (c.state !== 'unclear' && c.state !== 'paid-elsewhere' && !stale) continue
     const elsewhere = c.state === 'paid-elsewhere'
+    // Sorted out since (a retry, Square's payment event or an owner recorded it paid): not waiting any more.
+    if (!elsewhere) {
+      const rec = await getPartyRecord(c.partyId)
+      if (rec && (rec.charges?.length ?? 0) > 0) continue
+    }
     const id = tokenOf(elsewhere ? `ppe-${safeKey(c.orderId ?? '')}` : `ppu-${c.partyId}`)
     if (skip.has(id)) continue
     const who = `${c.host.firstName} ${c.host.lastName}`.trim() || 'Someone'

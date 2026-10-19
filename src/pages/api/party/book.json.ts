@@ -5,7 +5,8 @@ import { rateLimited } from '@lib/rate-limit'
 import { paymentBypassEnabled } from '@lib/dev-flags'
 import { isAttemptId, type CheckoutErrorCode } from '@lib/checkout-attempt'
 import { partyMessages } from '@lib/checkout-messages'
-import { bookParty, IN_PROGRESS_MESSAGE, type BookInput } from '@lib/parties/checkout'
+import { bookParty, partyIdFor, IN_PROGRESS_MESSAGE, type BookInput } from '@lib/parties/checkout'
+import { getPartyRecord, type PartyCharge, type PartyRecord } from '@lib/party-store'
 
 /**
  * Book and pay for a party online: our own party record on the shared
@@ -20,17 +21,23 @@ import { bookParty, IN_PROGRESS_MESSAGE, type BookInput } from '@lib/parties/che
  * no `packageId`) books the default package.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  if (!bookingsOpen(request, 'parties')) return bookingsClosedResponse()
-  if (rateLimited(`party-book:${clientAddress}`, 5, 60_000)) {
+  const open = bookingsOpen(request, 'parties')
+  if (open && rateLimited(`party-book:${clientAddress}`, 5, 60_000)) {
     return errorResponse('Too many booking attempts — give it a minute.', 429)
   }
   let body: any
   try {
     body = await request.json()
   } catch {
-    return errorResponse('Invalid request body', 400)
+    return open ? errorResponse('Invalid request body', 400) : bookingsClosedResponse()
   }
-  if (!body || typeof body !== 'object') return errorResponse('Invalid request body', 400)
+  if (!body || typeof body !== 'object') return open ? errorResponse('Invalid request body', 400) : bookingsClosedResponse()
+  if (!open) {
+    // A paid customer retrying after bookings closed still gets their confirmation (read only).
+    const stored = isAttemptId(body.attemptId) ? await getPartyRecord(partyIdFor(body.attemptId)).catch(() => null) : null
+    if (stored && stored.status === 'booked') return bookedResponse(stored, stored.charges?.[0] ?? null, { emailSent: true, replay: true })
+    return bookingsClosedResponse()
+  }
 
   // --- Validation (today's words) ---
   if (!body.startTime || Number.isNaN(Date.parse(String(body.startTime)))) return errorResponse('Missing party time information', 400)
@@ -96,27 +103,33 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       return errorResponse(IN_PROGRESS_MESSAGE, 409, 'in_progress')
     case 'unknown':
       return errorResponse(partyMessages.unknown_outcome, 502, 'unknown_outcome')
-    case 'booked': {
-      const { rec, charge } = out
-      return new Response(
-        JSON.stringify({
-          data: {
-            bookingId: rec.bookingId,
-            hostToken: rec.hostToken || null,
-            orderId: charge?.orderId ?? null,
-            receiptUrl: charge?.receiptUrl ?? null,
-            totalCharged: charge?.cents ?? 0,
-            emailSent: out.emailSent,
-            customer: { id: out.customerId ?? null },
-            ...(out.emailCheck ? { emailCheck: out.emailCheck } : {}),
-            ...(out.replay ? { replayed: true } : {}),
-            ...(charge?.simulated ? { simulated: true } : {}),
-          },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
-      )
-    }
+    case 'booked':
+      return bookedResponse(out.rec, out.charge, out)
   }
+}
+
+/** The booked answer (also a replay of a stored one). */
+function bookedResponse(
+  rec: PartyRecord, charge: PartyCharge | null,
+  o: { emailSent: boolean; replay: boolean; customerId?: string | null; emailCheck?: unknown },
+): Response {
+  return new Response(
+    JSON.stringify({
+      data: {
+        bookingId: rec.bookingId,
+        hostToken: rec.hostToken || null,
+        orderId: charge?.orderId ?? null,
+        receiptUrl: charge?.receiptUrl ?? null,
+        totalCharged: charge?.cents ?? 0,
+        emailSent: o.emailSent,
+        customer: { id: o.customerId ?? null },
+        ...(o.emailCheck ? { emailCheck: o.emailCheck } : {}),
+        ...(o.replay ? { replayed: true } : {}),
+        ...(charge?.simulated ? { simulated: true } : {}),
+      },
+    }),
+    { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
+  )
 }
 
 /** A plain sentence for the customer, plus a code the booking panel can act on. */

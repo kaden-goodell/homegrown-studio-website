@@ -17,6 +17,7 @@
  * Nothing here charges, cancels or refunds. Never throws to the caller.
  */
 import { providers } from '@config/providers'
+import { squareErrorCodes } from '@lib/checkout-attempt'
 import { createLogger } from '@lib/logger'
 import { alertOwners } from '@lib/owner-alert'
 import { formatSlotLabel } from '@lib/studio-time'
@@ -25,7 +26,7 @@ import type { Payment } from '@providers/interfaces/payment'
 import { partyForPayment } from './party-payments'
 import { deleteCheckout, getCheckout, savePaidElsewhere, type PartyCheckout } from './party-checkouts'
 import { releaseTime } from './party-book'
-import { recordPaidParty, sendPartyBookedEmail } from './checkout'
+import { recordPaidParty, reportRecoveredBooking, sendPartyBookedEmail } from './checkout'
 
 const logger = createLogger('parties:square-orders')
 
@@ -103,6 +104,7 @@ export async function tellBooked(c: PartyCheckout, rec: Parameters<typeof sendPa
     partyId: c.partyId, rec, draft: c.draft, firstName: c.host.firstName, email: c.host.email, origin: c.origin,
     chargedCents: cents, receiptUrl, onFile: c.onFile ?? null, themeName: c.theme?.displayName,
   })
+  await reportRecoveredBooking(c, cents)
   await alertOwners(
     `Party booked from Square's payment: ${c.host.firstName} ${c.host.lastName} paid ${dollars(cents)} for ${formatSlotLabel(c.startIso)}. Party ${c.partyId}. It is confirmed and they were emailed.`,
   ).catch(() => undefined)
@@ -115,19 +117,35 @@ export class PartyUnclearError extends Error {
   constructor(public status: number, message: string) { super(message) }
 }
 
-/** What Square says about the checkout's order: its payment, or null when unpaid. Throws PartyUnclearError when Square can't be read. */
-async function paymentOf(c: PartyCheckout): Promise<{ orderId: string; payment: Payment | null }> {
+/**
+ * What Square says about the checkout's order: its payment, or null when
+ * unpaid. `orderUnknown`: no order id was ever learned and Square refuses to
+ * give the order back (that key was first used with a different request), so
+ * this try's order can't be looked up from here. Throws PartyUnclearError
+ * when Square can't be read.
+ */
+async function paymentOf(c: PartyCheckout): Promise<{ orderId: string; payment: Payment | null; orderUnknown?: true }> {
   try {
     let orderId = c.orderId
     // Never got its order id back: the same request gives back the same order.
-    if (!orderId && c.order) orderId = (await providers.payment.createOrder(c.order)).id
-    if (!orderId) return { orderId: '', payment: null }
+    if (!orderId && c.order) {
+      try {
+        orderId = (await providers.payment.createOrder(c.order)).id
+      } catch (err) {
+        if (squareErrorCodes(err).includes('IDEMPOTENCY_KEY_REUSED')) return { orderId: '', payment: null, orderUnknown: true }
+        throw err
+      }
+    }
+    if (!orderId) return { orderId: '', payment: null, orderUnknown: true }
     const payment = await providers.payment.findOrderPayment(orderId)
     return { orderId, payment: payment && payment.status === 'completed' ? payment : null }
   } catch {
     throw new PartyUnclearError(503, 'Couldn’t reach Square to check that payment. Try again.')
   }
 }
+
+/** Owners' words when this try's order can't be found from here. */
+export const ORDER_UNKNOWN_MESSAGE = 'We can’t tell which Square order this try made, so it can’t be confirmed from here. Look for the payment in Square. If it was paid, the party is booked here by itself once Square tells us (by the next morning). If it wasn’t, choose It wasn’t paid.'
 
 /**
  * "Confirm the party": only once Square shows the order paid (the money is
@@ -136,14 +154,19 @@ async function paymentOf(c: PartyCheckout): Promise<{ orderId: string; payment: 
 export async function confirmUnclearParty(partyId: string, now: Date = new Date()): Promise<{ partyId: string; overlap: boolean }> {
   const c = await getCheckout(partyId)
   if (!c?.draft) throw new PartyUnclearError(404, 'This isn’t waiting any more.')
-  const { orderId, payment } = await paymentOf(c)
+  const { orderId, payment, orderUnknown } = await paymentOf(c)
+  if (orderUnknown) throw new PartyUnclearError(409, ORDER_UNKNOWN_MESSAGE)
   if (!payment) throw new PartyUnclearError(409, 'Square doesn’t show this order paid. If it wasn’t paid, choose It wasn’t paid.')
   const paid = await recordPaidParty(c, { orderId, paymentId: payment.id, cents: payment.amount || c.squareCents || c.quotedCents, receiptUrl: payment.receiptUrl ?? null }, now)
   if (paid.created) await tellBooked(c, paid.rec, paid.charge.cents, paid.charge.receiptUrl)
   return { partyId, overlap: !!paid.rec?.overlap }
 }
 
-/** "It wasn't paid": refused while Square shows it paid; otherwise the held time is let go. */
+/**
+ * "It wasn't paid": refused while Square shows it paid; otherwise the held
+ * time is let go. Also allowed when the order can't be looked up (the owner
+ * has checked Square; the nightly reconcile still flags any paid pty_ order).
+ */
 export async function notPaidUnclearParty(partyId: string): Promise<void> {
   const c = await getCheckout(partyId)
   if (!c) throw new PartyUnclearError(404, 'This isn’t waiting any more.')

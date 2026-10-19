@@ -429,11 +429,11 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     const offered = bookableOn(settings.times, localDate(startIso), now, days)
     if (offered !== 'ok') return notOpenRefusal(settings, offered)
   }
-  const endIso = endOf(startIso, q.minutes)
+  let endIso = endOf(startIso, q.minutes)
   const resolved = resolveTheme(input, partyId)
   if (!resolved.ok) return resolved.out
   const theme = resolved.theme
-  const quotedCents = q.totalCents + (theme?.priceCents ?? 0)
+  let quotedCents = q.totalCents + (theme?.priceCents ?? 0)
 
   // Is this party's time already held by an earlier try of this key?
   let mine: Awaited<ReturnType<typeof holdsBetween>>[number] | undefined
@@ -449,15 +449,41 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     // it paid, record it now; otherwise ask them to wait. Never a second charge.
     if (card) {
       const recovered = await recoverPaid(partyId, input, now)
-      if (recovered) return recovered
+      if (recovered && recovered !== 'unpaid') return recovered
     }
     return { kind: 'in_progress' }
   }
 
+  // An earlier try of this key left its checkout (its hold has gone: it crashed
+  // mid-charge, or its answer was lost). Ask Square about that order first, and
+  // never replace its order request: the same key with a different request is
+  // refused by Square, and that try could never be checked again.
+  let reuse: PartyCheckout | null = null
+  if (card) {
+    let prior: PartyCheckout | null
+    try {
+      prior = await getCheckout(partyId)
+    } catch (err) {
+      logger.error('Party checkout unreadable before booking — refusing', { partyId, error: String(err) })
+      return refuse(503, 'unavailable', partyMessages.unavailable)
+    }
+    if (prior) {
+      const recovered = await recoverPaid(partyId, input, now, prior)
+      if (recovered && recovered !== 'unpaid') return recovered
+      // Square couldn't be asked, or the earlier try was for another time: wait for a person.
+      if (recovered !== 'unpaid' || !prior.order || !prior.draft || Date.parse(prior.startIso) !== startMs) return { kind: 'in_progress' }
+      // Unpaid in Square: carry on with that very order request (same key → the same order).
+      reuse = prior
+      endIso = prior.endIso
+      quotedCents = prior.quotedCents
+    }
+  }
+  const minutes = reuse ? Math.round((Date.parse(reuse.endIso) - startMs) / MINUTE) : q.minutes
+
   // ── 2. The time is free (fails closed) ─────────────────────────────────────
   let open: Awaited<ReturnType<typeof checkStart>>
   try {
-    open = await checkStart(startIso, q.minutes, { admin: input.audience === 'admin', ignorePartyId: partyId }, now)
+    open = await checkStart(startIso, minutes, { admin: input.audience === 'admin', ignorePartyId: partyId }, now)
   } catch (err) {
     logger.error('Party times unreadable before booking — refusing', { partyId, error: String(err) })
     return refuse(503, 'unavailable', PARTY_TIMES_UNREADABLE)
@@ -466,7 +492,7 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     // Taken. If an earlier try of this key was charged and its hold ran out (R6), it stands.
     if (card) {
       const recovered = await recoverPaid(partyId, input, now)
-      if (recovered) return recovered
+      if (recovered && recovered !== 'unpaid') return recovered
     }
     return refuse(409, 'slot_taken', input.audience === 'admin' ? open.message : partyMessages.slot_taken)
   }
@@ -519,6 +545,8 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
       open.busy, now,
     )
     if (!held.ok) return refuse(409, 'slot_taken', input.audience === 'admin' ? held.message : partyMessages.slot_taken)
+    // A replay with no hold of ours seen a moment ago: another request with this key is running right now.
+    if (held.replay && input.pay.kind !== 'link') return { kind: 'in_progress' }
   } catch (err) {
     logger.error('Party hold failed — refusing', { partyId, error: String(err) })
     return refuse(503, 'unavailable', partyMessages.unavailable)
@@ -557,7 +585,7 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     }
   }
 
-  const draft = draftRecord(input, partyId, q, craft, theme, now)
+  const draft = reuse?.draft ?? draftRecord(input, partyId, q, craft, theme, now)
   const checkoutTheme = theme
     ? { ledgerThemeId: theme.ledgerThemeId, weekKey: theme.weekKey, claimRef: theme.claimRef, serves: theme.serves, displayName: theme.displayName }
     : undefined
@@ -590,18 +618,20 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     ...orderLineItems(q.items, q.pkg.name, q.pkg.id),
     ...(theme ? [{ catalogObjectId: theme.variationId, name: `Themed Table — ${theme.displayName}`, quantity: 1, pricePerUnit: theme.priceCents }] : []),
   ]
-  const orderRequest = {
+  const orderRequest = reuse?.order ?? {
     idempotencyKey: attemptKey(sqKey, 'order'),
     locationId: siteConfig.providers.booking.config.locationId,
     customerId,
     lineItems,
     referenceId: partyId,
   }
-  const checkout: PartyCheckout = {
-    partyId, state: 'charging', startIso, endIso, draft, order: orderRequest, orderId: null, quotedCents, squareCents: null,
-    host: input.host, origin: input.origin, via, ...(checkoutTheme ? { theme: checkoutTheme } : {}), onFile,
-    at: now.toISOString(), updatedAt: now.toISOString(),
-  }
+  const checkout: PartyCheckout = reuse
+    ? { ...reuse, state: 'charging', updatedAt: now.toISOString() }
+    : {
+        partyId, state: 'charging', startIso, endIso, draft, order: orderRequest, orderId: null, quotedCents, squareCents: null,
+        host: input.host, origin: input.origin, via, ...(checkoutTheme ? { theme: checkoutTheme } : {}), onFile,
+        at: now.toISOString(), updatedAt: now.toISOString(),
+      }
   // Kept before anything reaches Square: whatever happens next, the party can be recorded from it.
   try {
     await saveCheckout(checkout)
@@ -693,13 +723,13 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
  * R15: did an earlier try of this party pay? Re-creates its order with the
  * same request (Square gives back the same order) and asks whether it is
  * paid. Paid → the party is recorded (overlap if its time was lost) and the
- * booked answer returned. Null when there is nothing to recover from, or
- * Square shows no payment, or Square can't be asked.
+ * booked answer returned. 'unpaid' when Square shows the order unpaid; null
+ * when there is nothing to recover from, or Square can't be asked.
  */
-async function recoverPaid(partyId: string, input: BookInput, now: Date): Promise<BookOutcome | null> {
+async function recoverPaid(partyId: string, input: BookInput, now: Date, known?: PartyCheckout): Promise<BookOutcome | 'unpaid' | null> {
   let c: PartyCheckout | null
   try {
-    c = await getCheckout(partyId)
+    c = known ?? (await getCheckout(partyId))
   } catch (err) {
     logger.error('Party checkout unreadable on a retry', { partyId, error: String(err) })
     return null
@@ -714,7 +744,7 @@ async function recoverPaid(partyId: string, input: BookInput, now: Date): Promis
     logger.error('Could not ask Square whether an earlier party try paid', { partyId, error: String(earlier.error) })
     return null
   }
-  if (earlier.kind === 'unpaid') return null
+  if (earlier.kind === 'unpaid') return 'unpaid'
   logger.warn('An earlier try of this party was paid — recording it', { partyId, orderId: earlier.order.orderId })
   const pay = earlier.payment
   const paid = await recordPaidParty(c, {
@@ -728,12 +758,33 @@ async function recoverPaid(partyId: string, input: BookInput, now: Date): Promis
       })
     : true
   if (paid.created) {
+    await reportRecoveredBooking(c, paid.charge.cents)
     await announceBooking({
       kind: 'party', who: `${c.host.firstName} ${c.host.lastName}`, what: `${c.draft.craftName} party, about ${c.draft.guestCount} guests`,
       when: formatSlotLabel(c.startIso), paidCents: paid.charge.cents, email: c.host.email, ...(c.host.phone ? { phone: c.host.phone } : {}),
     })
   }
   return { kind: 'booked', rec: paid.rec ?? { ...c.draft, charges: [paid.charge] }, charge: paid.charge, replay: false, emailSent }
+}
+
+/**
+ * Analytics for a party recorded after the fact (a retry or Square's payment
+ * event found it paid). Called only by whoever created the record, so once.
+ */
+export async function reportRecoveredBooking(c: Pick<PartyCheckout, 'partyId' | 'draft' | 'host' | 'origin' | 'via'>, cents: number): Promise<void> {
+  if (!c.draft || c.via === 'admin-card') return
+  await reportBooking({
+    requestUrl: `${c.origin}/api/party/book.json`,
+    kind: 'party',
+    bookingId: c.partyId,
+    amountCents: cents,
+    email: c.host.email,
+    firstName: c.host.firstName,
+    lastName: c.host.lastName,
+    items: [{ item_id: c.draft.craftId ?? '', item_name: c.draft.craftName, item_category: 'party_craft', price: 0, quantity: c.draft.guestCount }],
+    attribution: c.draft.attribution ?? null,
+    extra: { guests: c.draft.guestCount, craft: c.draft.craftName, party_date: c.draft.startIso.slice(0, 10), recovered: true, package: c.draft.packageId ?? '' },
+  }).catch(() => undefined)
 }
 
 /** Paid (or simulated): email, owners' text, analytics, the email-fix ticket. Never fails the booking. */

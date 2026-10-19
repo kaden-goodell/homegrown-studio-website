@@ -378,6 +378,24 @@ describe('POST /api/party/book.json: one order, one charge, no Square booking', 
     }
   })
 
+  it('a paid customer retrying after bookings closed still gets their stored confirmation', async () => {
+    const b = body(at('2027-04-18', '13:00'))
+    const first = await post(b)
+    expect(first.status).toBe(200)
+    const before = process.env.BOOKINGS_OPEN
+    process.env.BOOKINGS_OPEN = ''
+    try {
+      const again = await post(b)
+      expect(again.status).toBe(200)
+      expect(again.json.data).toMatchObject({ bookingId: first.json.data.bookingId, hostToken: first.json.data.hostToken, replayed: true })
+      const { bookingsClosedResponse } = await import('@lib/bookings-gate')
+      expect((await post(body(at('2027-04-18', '15:30')))).status).toBe(bookingsClosedResponse().status)
+      expect(m.processPayment).toHaveBeenCalledTimes(1)
+    } finally {
+      process.env.BOOKINGS_OPEN = before
+    }
+  })
+
   it('refuses a date with too little notice, saying how much is needed (settings), before anything is held', async () => {
     const { status, json } = await post(body(at('2027-02-04', '16:00')))
     expect(status).toBe(409)
@@ -395,7 +413,7 @@ describe('POST /api/party/book.json: one order, one charge, no Square booking', 
 
   it('simulated payments: recorded as simulated, no Square call', async () => {
     m.bypass.on = true
-    const { status, json } = await post(body(at('2027-04-18', '15:30')))
+    const { status, json } = await post(body(at('2027-04-24', '13:30')))
     expect(status).toBe(200)
     expect(json.data.simulated).toBe(true)
     for (const f of [m.createOrder, m.processPayment, m.findOrCreate, m.createBooking]) expect(f).not.toHaveBeenCalled()

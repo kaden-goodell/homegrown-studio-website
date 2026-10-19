@@ -15,6 +15,7 @@ const m = vi.hoisted(() => ({
   findOrderPayment: vi.fn(),
   alert: vi.fn(),
   email: vi.fn(),
+  report: vi.fn(),
   paid: new Map<string, any>(),
   fail: { confirm: false, record: 0 },
 }))
@@ -35,7 +36,7 @@ vi.mock('@config/providers', () => ({
 vi.mock('@lib/owner-alert', () => ({ alertOwners: (...a: any[]) => m.alert(...a) }))
 vi.mock('@lib/email', () => ({ sendPartyConfirmationEmail: (...a: any[]) => m.email(...a), sendEmail: vi.fn() }))
 vi.mock('@lib/booking-alert', () => ({ announceBooking: vi.fn() }))
-vi.mock('@lib/posthog-server', () => ({ reportBooking: async () => undefined }))
+vi.mock('@lib/posthog-server', () => ({ reportBooking: (...a: any[]) => m.report(...a) }))
 vi.mock('@lib/craft-catalog', async (orig) => ({
   ...(await orig<typeof import('@lib/craft-catalog')>()),
   findPartyCraft: async (id: string) => (id === 'craft-1' ? { id, name: 'Tote Bags', perHeadCents: 2000, perHeadMaxCents: 2000, description: '', imageUrl: null } : null),
@@ -52,7 +53,8 @@ vi.mock('@lib/party-store', async (orig) => {
 import { bookParty, partyIdFor, type BookInput } from '@lib/parties/checkout'
 import { handlePartyOrder, confirmUnclearParty, notPaidUnclearParty } from '@lib/parties/square-orders'
 import { holdsBetween } from '@lib/parties/party-book'
-import { getCheckout, listCheckouts } from '@lib/parties/party-checkouts'
+import { getCheckout, listCheckouts, saveCheckout } from '@lib/parties/party-checkouts'
+import { ORDER_UNKNOWN_MESSAGE } from '@lib/parties/square-orders'
 import { partyTestSiteRefusal, NO_TEST_STORE } from '@lib/parties/test-site'
 import { localToUtcISO } from '@lib/parties/party-times'
 import { getPartyRecord } from '@lib/party-store'
@@ -85,6 +87,7 @@ beforeEach(() => {
   m.fail.record = 0
   m.alert.mockReset().mockResolvedValue(undefined)
   m.email.mockReset().mockResolvedValue({ sent: true })
+  m.report.mockReset().mockResolvedValue(undefined)
   m.createOrder.mockReset().mockImplementation(async (p: any) => ({ id: `ord-${p.idempotencyKey}`, version: 1, lineItems: p.lineItems, discounts: [], totalAmount: sumLines(p.lineItems), currency: 'USD', status: 'open' }))
   m.processPayment.mockReset().mockImplementation(async (p: any) => {
     const pay = { id: `pay-${p.orderId}`, orderId: p.orderId, amount: p.amount, status: 'completed', receiptUrl: null }
@@ -187,8 +190,16 @@ describe('Square says a party order is paid (webhook / nightly reconcile)', () =
     expect((await heldBy(start, partyId))?.state).toBe('booked')
     expect(await partyForPayment('pay-hook')).toMatchObject({ partyId })
     expect(m.email).toHaveBeenCalledTimes(1)
+    const reportsFor = () => m.report.mock.calls.filter(([b]) => b.bookingId === partyId)
+    expect(reportsFor()).toHaveLength(1)
+    expect(reportsFor()[0][0]).toMatchObject({ kind: 'party', amountCents: 30000, extra: expect.objectContaining({ recovered: true }) })
     expect(await handlePartyOrder(order, NOW)).toEqual({ action: 'ignored', why: 'recorded' })
     expect(m.email).toHaveBeenCalledTimes(1)
+    expect(reportsFor()).toHaveLength(1)
+
+    // M2: a checkout left behind for a party already recorded is not shown as waiting.
+    await saveCheckout({ ...(await (async () => ({ partyId, state: 'unclear', startIso: start, endIso: start, draft: null, order: null, orderId, quotedCents: 30000, squareCents: 30000, host: { firstName: 'A', lastName: 'S', email: 'a@x.co', phone: '1' }, origin: '', via: 'online', at: NOW.toISOString(), updatedAt: NOW.toISOString() }))()) } as any)
+    expect((await listToDecide(NOW)).items.some((i) => i.kind === 'party-paid-unclear' && i.detail.partyId === partyId)).toBe(false)
   })
 
   it('a checkout still being charged by its own request is left alone; an unpaid order is ignored', async () => {
@@ -269,5 +280,76 @@ describe('R41: a test site with no store of its own', () => {
       process.env.NETLIFY = prev
       ;(globalThis as any).Netlify = ctx
     }
+  })
+})
+
+describe('fix round 1', () => {
+  const priorOf = (inp: BookInput, customerId: string) => ({
+    partyId: partyIdFor(inp.key), state: 'charging' as const, startIso: inp.startIso,
+    endIso: new Date(Date.parse(inp.startIso) + 90 * 60_000).toISOString(),
+    draft: {
+      bookingId: partyIdFor(inp.key), hostToken: 'h-prior', craftName: 'Tote Bags', startIso: inp.startIso, durationMinutes: 90,
+      hostName: 'Alice Smith', hostEmail: 'alice@example.com', hostPhone: '2565551234', guestCount: 10, title: null, dropOff: false,
+      createdAt: NOW.toISOString(), source: 'ours' as const, status: 'booked' as const, endIso: new Date(Date.parse(inp.startIso) + 90 * 60_000).toISOString(),
+      packageId: 'pkg_whole', craftId: 'craft-1', payToken: 'p-prior', charges: [], refunds: [],
+      items: [{ id: 'itm_prior', kind: 'package' as const, refId: 'pkg_whole', label: 'Whole studio', qty: 1, count: 1, unitCents: 30000, cents: 30000, extraMinutes: 0, chargeId: null, addedAt: NOW.toISOString(), by: null }],
+    },
+    order: { idempotencyKey: `${inp.key}:order`, locationId: 'L', customerId, lineItems: [{ name: 'Whole Studio Party — studio fee', quantity: 1, pricePerUnit: 30000, note: 'pkg_whole' }], referenceId: partyIdFor(inp.key) },
+    orderId: null, quotedCents: 30000, squareCents: null,
+    host: inp.host, origin: 'http://localhost', via: 'online' as const, at: NOW.toISOString(), updatedAt: NOW.toISOString(),
+  })
+
+  it('I1: a retry finds the earlier try’s checkout (its hold gone): asks Square first, and reuses its order request, never a new one', async () => {
+    const inp = input(at('2027-03-07', '13:00'))
+    await saveCheckout(priorOf(inp, 'cust-old')) // the first try crashed mid-charge; its 10-minute hold has gone
+    const out = await bookParty(inp, NOW)
+    expect(out).toMatchObject({ kind: 'booked' })
+    // Same key, same request: the customer lookup giving 'cust-1' now doesn't change the order.
+    for (const [req] of m.createOrder.mock.calls) expect(req.customerId).toBe('cust-old')
+    expect(m.processPayment).toHaveBeenCalledTimes(1)
+    expect((await getPartyRecord(partyIdFor(inp.key)))!.hostToken).toBe('h-prior')
+  })
+
+  it('I1: the earlier try was paid: recorded from it, the card never charged again', async () => {
+    const inp = input(at('2027-03-07', '15:30'))
+    await saveCheckout(priorOf(inp, 'cust-old'))
+    m.paid.set(`ord-${inp.key}:order`, { id: 'pay-first', orderId: `ord-${inp.key}:order`, amount: 30000, status: 'completed', receiptUrl: null })
+    expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'booked' })
+    expect(m.processPayment).not.toHaveBeenCalled()
+    expect((await getPartyRecord(partyIdFor(inp.key)))!.charges![0].paymentId).toBe('pay-first')
+    expect(m.report.mock.calls.filter(([b]) => b.bookingId === partyIdFor(inp.key))).toHaveLength(1)
+  })
+
+  it('I1: Square can’t be asked about the earlier try: in_progress, nothing written over it', async () => {
+    const inp = input(at('2027-03-13', '13:30'))
+    const prior = priorOf(inp, 'cust-old')
+    await saveCheckout(prior)
+    m.createOrder.mockRejectedValueOnce(new Error('Square 500'))
+    expect(await bookParty(inp, NOW)).toEqual({ kind: 'in_progress' })
+    expect(m.processPayment).not.toHaveBeenCalled()
+    expect(await getCheckout(prior.partyId)).toMatchObject({ order: { customerId: 'cust-old' } })
+  })
+
+  it('I1: Square refuses the order key (used with another request) and no order id is known: Confirm refused with the owners’ words, It wasn’t paid lets the time go', async () => {
+    const start = at('2027-03-14', '13:00')
+    const inp = input(start)
+    m.createOrder.mockRejectedValue(Object.assign(new Error('reused'), { statusCode: 400, errors: [{ code: 'IDEMPOTENCY_KEY_REUSED' }] }))
+    expect(await bookParty(inp, NOW)).toEqual({ kind: 'unknown', partyId: partyIdFor(inp.key) })
+    expect(m.processPayment).not.toHaveBeenCalled()
+    expect(await getCheckout(partyIdFor(inp.key))).toMatchObject({ state: 'unclear', orderId: null })
+    const item = (await listToDecide(NOW)).items.find((i) => i.kind === 'party-paid-unclear' && i.detail.partyId === partyIdFor(inp.key))!
+    await expect(decide(item.id, 'confirm', {}, owner, NOW)).rejects.toMatchObject({ status: 409, message: ORDER_UNKNOWN_MESSAGE })
+    await decide(item.id, 'not-paid', {}, owner, NOW)
+    expect(await heldBy(start, partyIdFor(inp.key))).toBeUndefined()
+    expect(await getCheckout(partyIdFor(inp.key))).toBeNull()
+  })
+
+  it('M1: the same attempt sent twice at once: one books, the other is in_progress; one charge, the hold kept', async () => {
+    const start = at('2027-03-20', '13:30')
+    const inp = input(start)
+    const outs = await Promise.all([bookParty(inp, NOW), bookParty({ ...inp, pay: { kind: 'card', paymentToken: 'cnon:second' } }, NOW)])
+    expect(outs.map((o) => o.kind).sort()).toEqual(['booked', 'in_progress'])
+    expect(m.processPayment).toHaveBeenCalledTimes(1)
+    expect((await heldBy(start, partyIdFor(inp.key)))?.state).toBe('booked')
   })
 })
