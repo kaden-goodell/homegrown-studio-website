@@ -4,7 +4,7 @@ vi.mock('@config/providers', () => ({
   providers: { workshop: { listAllWorkshops: async () => [], listWorkshops: async () => [] }, booking: { listBookings: async () => [] } },
 }))
 vi.mock('@config/site.config', () => ({ siteConfig: { providers: { booking: { config: { locationId: 'LOC' } } } } }))
-const own = vi.hoisted(() => ({ classes: [] as any[], ledgers: new Map<string, any>(), unmatched: [] as any[], needsDays: [] as any[], flags: [] as any[], fail: false }))
+const own = vi.hoisted(() => ({ classes: [] as any[], ledgers: new Map<string, any>(), unmatched: [] as any[], needsDays: [] as any[], flags: [] as any[], paidNoSeat: [] as any[], fail: false }))
 vi.mock('@lib/classes/class-store', () => ({
   listClasses: async () => { if (own.fail) throw new Error('blobs down'); return own.classes },
   getClass: async (id: string) => own.classes.find((c) => c.id === id) ?? null,
@@ -17,6 +17,7 @@ vi.mock('@lib/classes/square-events', () => ({
   listUnmatchedPos: async () => own.unmatched,
   listPosNeedsDays: async () => own.needsDays,
   listRefundFlags: async () => own.flags,
+  openPaidNotSeated: async () => own.paidNoSeat,
 }))
 
 import { listWarnings, warningLine, OWNERS_DECIDE } from '@lib/warnings'
@@ -46,7 +47,7 @@ function camp(over: Record<string, any> = {}) {
 }
 
 beforeEach(() => {
-  own.classes = []; own.ledgers.clear(); own.unmatched = []; own.needsDays = []; own.flags = []; own.fail = false
+  own.classes = []; own.ledgers.clear(); own.unmatched = []; own.needsDays = []; own.flags = []; own.paidNoSeat = []; own.fail = false
 })
 
 describe('warnings for our own classes', () => {
@@ -84,6 +85,14 @@ describe('warnings for our own classes', () => {
     ])
     // each carries a stable id, so the daily email can tell a new one from one already shown
     expect(list.map((w) => w.itemId)).toEqual(['unmatched-O1-L1', 'days-1', 'f1', 'f2'])
+  })
+
+  it('R42: a booking Square shows paid with no seat left is on the panel until an owner sorts it out', async () => {
+    own.classes = [camp()]
+    own.paidNoSeat = [{ id: 'pns-O1', why: 'no-seats', orderId: 'O1', bookingId: 'bkg_lost', classId: 'cls_camp', paymentId: 'P1', paymentIds: ['P1'], chargedCents: 3270, customerId: null, lines: [], at: '2026-10-14T12:00:00.000Z', resolved: null }]
+    const w = (await listWarnings(WINDOW, { now: NOW })).find((x) => x.code === 'paid-not-seated')!
+    expect(w).toMatchObject({ eventId: 'cls_camp', itemId: 'pns-O1', action: OWNERS_DECIDE })
+    expect(w.detail).toBe('Clay Camp: $32.70 was paid online, but the seats were let go before the booking finished. Nothing was refunded.')
   })
 
   it('a class store that can’t be read says so in one line (never an all clear), and the rest still shows', async () => {

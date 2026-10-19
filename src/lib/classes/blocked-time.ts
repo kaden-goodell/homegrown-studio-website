@@ -1,6 +1,7 @@
 import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import { newId, toIso } from './validate'
+import { assertClassWritesAllowed } from './test-site-guard'
 
 /**
  * reason: why the room is held, as the calendar names it ("Closed", "Private
@@ -35,6 +36,7 @@ export async function listBlocked(range?: { fromIso: string; toIso: string }): P
 }
 
 export async function addBlocked(input: { startIso: string; endIso: string; reason: string; note?: string; by: By }): Promise<BlockedTime> {
+  assertClassWritesAllowed() // R41
   const startIso = toIso(input.startIso), endIso = toIso(input.endIso)
   if (!startIso || !endIso) throw new Error('Blocked time needs a start and an end time.')
   if (Date.parse(endIso) <= Date.parse(startIso)) throw new Error('Blocked time has to end after it starts.')
@@ -48,6 +50,7 @@ export async function addBlocked(input: { startIso: string; endIso: string; reas
 }
 
 export async function removeBlocked(id: string, by: By): Promise<void> {
+  assertClassWritesAllowed() // R41
   const k = key(id)
   for (let attempt = 0; attempt < 3; attempt++) {
     const { value, etag } = await kv.getWithMeta(k)

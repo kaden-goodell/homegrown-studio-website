@@ -13,8 +13,8 @@
  *   Paid, with that booking's seats still held (the charge's answer was lost,
  *   or the seats weren't written after the charge): the seats are confirmed,
  *   the same way the booking itself would (seat-ledger confirmBooking,
- *   idempotent by booking id), the owners are texted and, when the customer's
- *   own request is over, the confirmation is sent (once per booking). Paid with
+ *   idempotent by booking id), and the confirmation and owners' text go out
+ *   unless the customer's own request already sent them (one per booking). Paid with
  *   no seat left to confirm (the hold ran out and was swept) → a 'paid-not-seated'
  *   item for /admin › To decide. Never refunded, never cancelled.
  * - A 'choose' pass sold at the counter can't know its days: it is put on the
@@ -43,7 +43,7 @@ import { confirmBooking, getLedger, moveLines, paidBy, recordPos, recordRefund, 
 import { alertOwners } from '@lib/owner-alert'
 import { siteConfig } from '@config/site.config'
 import { formatSlotLabel } from '@lib/studio-time'
-import { HOLD_MINUTES, seatsLabelFor } from './checkout'
+import { seatsLabelFor } from './checkout'
 import { claimConfirmation, releaseConfirmation, sendClassConfirmation } from './confirmation'
 import { bookingCap, claimSquareRefund, freeSeatOnly, onSeatFreed } from './refunds'
 import { allRefundRequests, listRefundRequests, UNCONFIRMED_AFTER_MS, type SavedRefundRequest } from './refund-requests'
@@ -393,15 +393,6 @@ async function storeUnmatched(orderId: string, li: any, now: Date): Promise<void
 
 // ---------------------------------------------------------------- our own online bookings (R42)
 
-/** The customer's own request is over: its hold ran out, was kept a day after an unclear answer, or is older than a hold lasts. */
-function requestOver(held: LedgerLine[], now: Date): boolean {
-  return held.every((l) => {
-    const placed = Date.parse(l.at)
-    const until = l.holdExpiresAt ? Date.parse(l.holdExpiresAt) : 0
-    return until <= now.getTime() || until - placed > (HOLD_MINUTES + 1) * 60_000 || now.getTime() - placed > HOLD_MINUTES * 60_000
-  })
-}
-
 /** "Seat 1 · Glaze Red", as the booking's own confirmation says them. */
 function pickLinesOf(cls: ScheduledClass, lines: LedgerLine[]): string[] {
   const out: string[] = []
@@ -411,13 +402,18 @@ function pickLinesOf(cls: ScheduledClass, lines: LedgerLine[]): string[] {
   return out
 }
 
-/** Sends the booking's confirmation, once per booking (claimConfirmation). Never throws. */
-async function confirmByEmail(cls: ScheduledClass, lines: LedgerLine[], chargedCents: Cents): Promise<void> {
+/**
+ * The booking's confirmation and the owners' text, once per booking: only the
+ * caller that wins the one-email-per-booking marker (claimConfirmation) sends
+ * them, whether that is this webhook or the customer's own request. Never throws.
+ */
+async function confirmByEmail(cls: ScheduledClass, lines: LedgerLine[], chargedCents: Cents, ownerText: string): Promise<void> {
   const who = lines.find((l) => l.customer?.email)?.customer
-  if (!who) return
   const bookingId = lines[0].bookingId
   try {
     if (!(await claimConfirmation(bookingId))) return
+    await alertOwners(ownerText).catch(() => undefined)
+    if (!who) return
     const picks = pickLinesOf(cls, lines)
     const sent = await sendClassConfirmation({
       origin: siteConfig.url.replace(/\/$/, ''), bookingId, cls, sessionIds: lines[0].sessionIds, seats: lines.length,
@@ -470,7 +466,6 @@ async function handleOwnOrder(
   const firstStart = [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))[0]?.startIso ?? ''
 
   if (held.length) {
-    const over = requestOver(held, now)
     const { lines, changed } = await confirmBooking(cls.id, bookingId, { orderId, paymentId, chargedCents }, { cls }, now)
     if (!changed) return { ...out, skipped: 'not-ours' }
     logger.warn('Square shows our booking paid — seats confirmed from Square', { orderId, bookingId, classId: cls.id, seats: lines.length })
@@ -478,12 +473,9 @@ async function handleOwnOrder(
       by: { ...SQUARE_BY, role: 'owner' }, action: 'class-confirm-from-square', target: { kind: 'class', id: cls.id, label: cls.content.name },
       details: { bookingId, orderId, seats: lines.length },
     }).catch(() => undefined)
-    if (over) {
-      await alertOwners(
-        `Class payment cleared up: Square shows ${who(lines)} paid for ${cls.content.name}${firstStart ? `, ${formatSlotLabel(firstStart)}` : ''}. Their ${lines.length === 1 ? 'seat is' : 'seats are'} booked now. Booking ${bookingId}.`,
-      ).catch(() => undefined)
-      await confirmByEmail(cls, lines, chargedCents)
-    }
+    // Confirmation and owners' text, unless the customer's own request already sent them (one per booking).
+    await confirmByEmail(cls, lines, chargedCents,
+      `Class booked from Square's payment: ${who(lines)} paid for ${cls.content.name}${firstStart ? `, ${formatSlotLabel(firstStart)}` : ''}. ${lines.length === 1 ? 'Their seat is' : 'Their seats are'} confirmed. Booking ${bookingId}.`)
     return { ...out, confirmed: lines.length }
   }
 
@@ -510,6 +502,18 @@ async function handleOwnOrder(
 /** Paid bookings with no seat that no owner has sorted out yet, newest first. */
 export async function listPaidNotSeated(): Promise<PaidNotSeated[]> {
   return (await readAll<PaidNotSeated>(paidNotSeatedKv, 'pns-')).filter((p) => !p.resolved).sort((a, b) => b.at.localeCompare(a.at))
+}
+
+/**
+ * The ones still waiting: also leaves out any whose seats have since been
+ * recorded by that order (the customer's own retry, or an owner), as To
+ * decide and the warnings panel both show them.
+ */
+export async function openPaidNotSeated(): Promise<PaidNotSeated[]> {
+  const all = await listPaidNotSeated()
+  const seated = await Promise.all(all.map(async (p) => (await getLedger(p.classId)).lines.some((l) =>
+    l.bookingId === p.bookingId && l.square.orderId === p.orderId && (l.state === 'confirmed' || l.state === 'refunded'))))
+  return all.filter((_, i) => !seated[i])
 }
 
 /** An owner seated them or sorted it out in Square: it leaves the list. */

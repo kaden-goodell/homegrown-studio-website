@@ -1,3 +1,4 @@
+import { TestSiteStoreError } from '@lib/classes/test-site-guard'
 import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { json } from '@lib/classes/admin-actions'
@@ -91,6 +92,7 @@ export const POST: APIRoute = async ({ request }) => {
   } catch (e) {
     if (e instanceof StaleSettingsError) return json(409, { error: e.message, stale: true, current: e.current })
     if (e instanceof SettingsError) return json(e.status, { error: e.message, ...(e.field ? { field: e.field } : {}) })
+    if (e instanceof TestSiteStoreError) return json(503, { error: e.message })
     logger.error('Settings save failed', { error: e instanceof Error ? e.message : String(e) })
     return json(503, { error: 'Didn’t save. Try again.' })
   }

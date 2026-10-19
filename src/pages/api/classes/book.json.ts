@@ -418,12 +418,12 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       }
     }
     const finishing = async (): Promise<boolean> => {
-      // One confirmation per booking (T8): a retry racing the first try, or Square's webhook, may have sent it.
+      // One confirmation and one owners' note per booking (T8, R42): a retry racing the first try,
+      // or Square's payment notice, may already have sent them. Whoever claims the marker sends both.
+      const mine = await claimConfirmation(bookingId)
+      if (!mine) logger.info('Class confirmation already sent for this booking', { bookingId })
       const sendOnce = async (): Promise<boolean> => {
-        if (!(await claimConfirmation(bookingId))) {
-          logger.info('Class confirmation already sent for this booking', { bookingId })
-          return true
-        }
+        if (!mine) return true
         const sent = await sendClassConfirmation({
           origin: new URL(request.url).origin,
           bookingId, cls: c, sessionIds: qq.sessionIds, seats: qq.seats, seatsLabel,
@@ -439,7 +439,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       }
       const [sent] = await Promise.all([
         sendOnce(),
-        f.simulated
+        f.simulated || !mine
           ? Promise.resolve()
           : announceBooking({
               kind: 'class', who: `${givenName} ${familyName}`, what: `${seatsLabel}, ${c.content.name}`,

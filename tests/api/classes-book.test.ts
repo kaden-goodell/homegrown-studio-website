@@ -43,6 +43,7 @@ vi.mock('@lib/classes/seat-ledger', async (orig) => {
 })
 
 import { getLedger, hold } from '@lib/classes/seat-ledger'
+import { handleOrder } from '@lib/classes/square-events'
 import { quote } from '@lib/classes/pricing'
 import { bookingIdFor, PRICE_MISMATCH_MESSAGE, classMessages } from '@lib/classes/checkout'
 import { defaultRules } from '@lib/classes/validate'
@@ -598,6 +599,51 @@ describe('POST /api/classes/book.json', () => {
     expect(mockProcessPayment).toHaveBeenCalledTimes(1)
     expect(mockSendEmail).toHaveBeenCalledTimes(1)
     expect((await linesOf(cls)).every((l) => l.state === 'confirmed')).toBe(true)
+  })
+
+  describe('R42: Square’s payment notice and the request: one confirmation, one owners’ note', () => {
+    /** Square's order for this booking, paid, as its payment notice brings it. */
+    const paidOrder = () => ({
+      id: 'ORDER1', reference_id: bookingIdFor(ATTEMPT), state: 'COMPLETED', total_money: { amount: TOTAL, currency: 'USD' },
+      tenders: [{ id: 'PAY1', payment_id: 'PAY1' }],
+      line_items: [
+        { uid: 'u0', catalog_object_id: 'VAR_ALL_ADULT', quantity: '2', total_money: { amount: 13080 }, total_tax_money: { amount: 1080 } },
+        { uid: 'u1', catalog_object_id: 'VAR_ALL_KID', quantity: '1', total_money: { amount: 4360 }, total_tax_money: { amount: 360 } },
+      ],
+    })
+    const notice = (cls: ScheduledClass) => handleOrder(paidOrder(), new Date(), { classes: [cls], paymentCompleted: true, paymentId: 'PAY1' })
+    const ownersNotes = () => mockAnnounce.mock.calls.length + mockAlertOwners.mock.calls.filter((c) => /booked from Square/.test(String(c[0]))).length
+
+    it('a request that died with no answer, then the notice: booked, exactly one email and one owners’ note', async () => {
+      const cls = makeClass()
+      mockProcessPayment.mockRejectedValueOnce(new Error('socket hang up'))
+      expect((await POST(ctx(body(cls)))).status).toBe(502)
+      expect(await notice(cls)).toMatchObject({ confirmed: 3 })
+      await notice(cls) // a replay changes nothing
+      expect((await linesOf(cls)).every((l) => l.state === 'confirmed')).toBe(true)
+      expect(mockSendEmail).toHaveBeenCalledTimes(1)
+      expect(ownersNotes()).toBe(1)
+    })
+
+    it('a live request the notice beats: exactly one email and one owners’ note', async () => {
+      const cls = makeClass()
+      mockProcessPayment.mockImplementationOnce(async () => {
+        await notice(cls) // Square's notice lands while the charge's answer is still on its way
+        return { id: 'PAY1', orderId: 'ORDER1', amount: TOTAL, status: 'completed', receiptUrl: null }
+      })
+      expect((await POST(ctx(body(cls)))).status).toBe(200)
+      expect((await linesOf(cls)).every((l) => l.state === 'confirmed')).toBe(true)
+      expect(mockSendEmail).toHaveBeenCalledTimes(1)
+      expect(ownersNotes()).toBe(1)
+    })
+
+    it('a live request that finishes first, then the notice: exactly one email and one owners’ note', async () => {
+      const cls = makeClass()
+      expect((await POST(ctx(body(cls)))).status).toBe(200)
+      await notice(cls)
+      expect(mockSendEmail).toHaveBeenCalledTimes(1)
+      expect(ownersNotes()).toBe(1)
+    })
   })
 
   it('answers before the email, the owners’ text and analytics on Netlify', async () => {

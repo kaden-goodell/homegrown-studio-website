@@ -36,7 +36,7 @@ import { listCounterMatchChecks, listDoorUnpaid } from './door-unpaid'
 import { clearRefundRequest, freeSeatOnly, RefundError } from './refunds'
 import { listRefundRequests } from './refund-requests'
 import {
-  decideRefundFlag, listPaidNotSeated, listPosNeedsDays, listRefundFlags, listUnmatchedPos, reopenRefundFlag, resolvePaidNotSeated, resolveUnmatchedPos,
+  decideRefundFlag, listPaidNotSeated, openPaidNotSeated, listPosNeedsDays, listRefundFlags, listUnmatchedPos, reopenRefundFlag, resolvePaidNotSeated, resolveUnmatchedPos,
   seatPaidOrder, setPosDays, splitCents, type RefundFlag,
 } from './square-events'
 import { squareFetch } from './square-api'
@@ -44,6 +44,7 @@ import {
   getLedger, markCounterMatchChecked, markDoorPaid, moveCounterPayment, recordPos, seatsTaken, setNames, unfreeSeats, unpaidDoorSeat, type LedgerLine,
 } from './seat-ledger'
 import { isComing } from './seat-status'
+import { assertClassWritesAllowed, TestSiteStoreError } from './test-site-guard'
 import { onStaffConsole } from './staff-view'
 import type { Cents, ScheduledClass } from './types'
 
@@ -81,6 +82,16 @@ export interface Decided {
 
 export class DecideError extends Error {
   constructor(public status: number, message: string, public extra: Record<string, unknown> = {}) { super(message) }
+}
+
+/** R41: a test site with no store of its own decides nothing (every decision writes the live records). */
+function noTestSite(): void {
+  try {
+    assertClassWritesAllowed()
+  } catch (e) {
+    if (e instanceof TestSiteStoreError) throw new DecideError(503, e.message)
+    throw e
+  }
 }
 
 /** How long a decided item still shows as "Done". */
@@ -299,12 +310,10 @@ const dollars = (c: Cents) => `$${(c / 100).toFixed(2)}`
 
 async function paidNotSeatedItems(cache: ClassCache, skip: Set<string>): Promise<ToDecideItem[]> {
   const out: ToDecideItem[] = []
-  for (const p of await listPaidNotSeated()) {
+  // Sorted out since (the customer's retry recorded the seats, or an owner gave them) are left out.
+  for (const p of await openPaidNotSeated()) {
     const id = tokenOf(p.id)
     if (skip.has(id)) continue
-    // Sorted out since (the customer's retry recorded the seats, or an owner gave them): nothing left to decide.
-    const ledger = await getLedger(p.classId)
-    if (ledger.lines.some((l) => l.bookingId === p.bookingId && l.square.orderId === p.orderId && (l.state === 'confirmed' || l.state === 'refunded'))) continue
     const cls = await classOf(cache, p.classId)
     const className = cls?.content.name ?? 'A class'
     const seats = p.lines.reduce((n, l) => n + l.qty, 0)
@@ -481,6 +490,7 @@ export async function openItem(id: string, now = new Date()): Promise<ToDecideIt
 }
 
 export async function decide(id: string, action: string, body: any, by: By, now = new Date()): Promise<DecideResult> {
+  noTestSite()
   const item = await openItem(id, now)
   if (!ACTIONS[item.kind].includes(action)) throw new DecideError(400, 'That isn’t one of the choices for this.')
   const actor = { by, role: 'owner' as const }
@@ -633,6 +643,7 @@ export async function decide(id: string, action: string, body: any, by: By, now 
  * are the seats for?"). Only that sale's own counter seats, still unnamed.
  */
 export async function nameCounterSeats(classId: string, names: { lineId: string; name: string }[], by: By): Promise<number> {
+  noTestSite()
   const cls = await getClass(classId)
   if (!cls) throw new DecideError(404, 'That class no longer exists.')
   const ledger = await getLedger(cls.id)
@@ -664,6 +675,7 @@ export const UNDO_MS = 10 * 60_000
  * decision, only for a few minutes.
  */
 export async function undoDecision(id: string, by: By, now = new Date()): Promise<void> {
+  noTestSite()
   const raw = await decidedKv.get(`done-${id}`)
   const d = raw ? (JSON.parse(raw) as Decided) : null
   if (!d?.undo) throw new DecideError(409, 'That can’t be undone from here.')

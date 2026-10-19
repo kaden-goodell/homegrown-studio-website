@@ -28,7 +28,7 @@ import { classSpanOf, classesOverlap, partyBlocksClass, partyName, partySpanOf, 
 import type { Workshop } from '@providers/interfaces/workshop'
 import { getClass, listClasses } from '@lib/classes/class-store'
 import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
-import { listPosNeedsDays, listRefundFlags, listUnmatchedPos, type RefundFlag } from '@lib/classes/square-events'
+import { listPosNeedsDays, listRefundFlags, listUnmatchedPos, openPaidNotSeated, type RefundFlag } from '@lib/classes/square-events'
 import { onStaffConsole } from '@lib/classes/staff-view'
 import { listCounterMatchChecks, listDoorUnpaid } from '@lib/classes/door-unpaid'
 import { decidedIds, minimumItemId } from '@lib/classes/decided'
@@ -41,6 +41,8 @@ export type WarningCode =
   | 'class-over-party' | 'class-over-class' | 'oversold' | 'party-on-closed-day' | 'picks-missing' | 'capacity-unknown' | 'recorded-over-sold'
   // our own classes (Task 14): read-only for the crew; owners decide on /admin
   | 'below-minimum' | 'pos-unmatched' | 'pos-needs-days' | 'refund-flag' | 'door-unpaid' | 'counter-match-check' | 'classes-unreadable'
+  // R42: Square shows one of our online bookings paid, but its seats were let go
+  | 'paid-not-seated'
 
 export interface Warning {
   code: WarningCode
@@ -59,7 +61,7 @@ export interface Warning {
 }
 
 /** Items that aren't tied to a day: they stay until an owner decides. */
-export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check'])
+export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated'])
 
 /** Days ahead the panel and the daily email look. */
 export const WARNING_WINDOW_DAYS = 60
@@ -276,13 +278,14 @@ export const OWNERS_DECIDE = 'An owner decides on /admin.'
  * - pos-unmatched / pos-needs-days: counter sales nobody has sorted out yet
  * - refund-flag: refunds made in Square, or ours still waiting on Square
  * - door-unpaid: a "pay at the counter" seat never rung up once its session ended (R32)
- * The last four aren't tied to the window: they stay until someone decides.
+ * - paid-not-seated: Square shows one of our online bookings paid, but its seats were let go (R42)
+ * The last five aren't tied to the window: they stay until someone decides.
  * Read-only: nothing here frees, moves or refunds anything.
  */
 async function ownClassWarnings(from: string, to: string, now: Date): Promise<Warning[]> {
   const startIso = studioDayUtcRange(from).startIso
   const endIso = studioDayUtcRange(to).endIso
-  const [classes, unmatched, needsDays, flags, unpaid, matches, decided] = await Promise.all([
+  const [classes, unmatched, needsDays, flags, unpaid, matches, decided, paidNoSeat] = await Promise.all([
     listClasses({ fromIso: startIso, toIso: endIso }),
     listUnmatchedPos(),
     listPosNeedsDays(),
@@ -291,6 +294,7 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
     listCounterMatchChecks(now),
     // What owners already decided in /admin › To decide (e.g. "Keep it running") stops showing here.
     decidedIds(),
+    openPaidNotSeated(),
   ])
   const shown = classes.filter(onStaffConsole)
   const byId = new Map<string, ScheduledClass>(shown.map((c) => [c.id, c]))
@@ -346,6 +350,16 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
     out.push({
       code: 'counter-match-check', eventKind: 'workshop', eventId: m.classId, when: m.at, title: m.className, itemId: m.id,
       detail: `Counter sale of ${m.className} on ${formatCalendarDay(m.day)} was matched to ${m.name}. Check it was them.`, action: OWNERS_DECIDE,
+    })
+  }
+  for (const p of paidNoSeat) {
+    const name = await nameOf(p.classId)
+    out.push({
+      code: 'paid-not-seated', eventKind: 'workshop', eventId: p.classId, when: p.at, title: name, itemId: p.id,
+      detail: p.why === 'no-seats'
+        ? `${name}: ${formatMoney(p.chargedCents)} was paid online, but the seats were let go before the booking finished. Nothing was refunded.`
+        : `${name}: a second ${formatMoney(p.chargedCents)} payment on a booking that was already paid. Nothing was refunded.`,
+      action: OWNERS_DECIDE,
     })
   }
   for (const f of flags) {

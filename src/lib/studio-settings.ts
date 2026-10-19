@@ -16,6 +16,7 @@
  * Server only.
  */
 import { makeKvStore } from '@lib/blob-store'
+import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
 import type { By } from '@lib/staff-auth'
 import type { Closure, Holiday } from '@config/closures'
@@ -285,6 +286,7 @@ export async function saveStudioSettings(
   input: SettingsInput,
   opts: { expectedUpdatedAt: string | null; by: By; now?: Date },
 ): Promise<{ saved: StudioSettings; before: SettingsInput; changed: string[] }> {
+  assertClassWritesAllowed() // R41: never the live café hours or closed days from a test site
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const { value, etag } = await kv.getWithMeta(KEY)
     const cur = value ? parse(value) : null

@@ -56,6 +56,7 @@ import {
 import { getLedger, seatsTaken, recordRefund } from '@lib/classes/seat-ledger'
 import { makeKvStore } from '@lib/blob-store'
 import { listToDecide, decide } from '@lib/classes/to-decide'
+import { claimConfirmation } from '@lib/classes/confirmation'
 import { createRefundRequest, markRequestDone, changeRefundRequest } from '@lib/classes/refund-requests'
 import { defaultRules } from '@lib/classes/validate'
 import type { ScheduledClass } from '@lib/classes/types'
@@ -461,7 +462,7 @@ describe('R42: our own online bookings Square shows paid', () => {
     const [l] = (await getLedger(cls.id)).lines
     expect(l).toMatchObject({ state: 'confirmed', holdExpiresAt: null, square: { orderId: o.id, paymentId: o.tenders[0].payment_id, chargedCents: 3270 } })
     expect(texts).toHaveBeenCalledTimes(1)
-    expect(texts.mock.calls[0][0]).toMatch(/Lou Lost.*booked now/)
+    expect(texts.mock.calls[0][0]).toMatch(/booked from Square's payment: Lou Lost/)
     expect(confirmations).toHaveBeenCalledTimes(1)
     expect(confirmations.mock.calls[0][0]).toMatchObject({ to: 'lou@example.com', bookingId, totalChargedCents: 3270 })
     // Replays (the order event, the nightly reconcile) change nothing and send nothing more.
@@ -474,12 +475,13 @@ describe('R42: our own online bookings Square shows paid', () => {
     expect((await listPaidNotSeated()).filter((p) => p.orderId === o.id)).toEqual([])
   })
 
-  it('a hold still running (the customer’s own request is finishing): confirmed, but the request sends the email, not the webhook', async () => {
+  it('the customer’s own request already sent the confirmation: the webhook confirms the seats and sends nothing more', async () => {
     const cls = makeClass(); classes.list = [cls]
     const bookingId = `bkg_${uid('live').toLowerCase()}`
     const o = ownOrder(cls, bookingId)
     sq.orders.set(o.id, o)
     await putLines(cls.id, [ownLine(bookingId, { at: '2026-10-20T14:59:00.000Z', holdExpiresAt: '2026-10-20T15:09:00.000Z' })])
+    expect(await claimConfirmation(bookingId)).toBe(true) // the request got there first
     expect(await handleSquareEvent(paymentDone(o), NOW)).toMatchObject({ confirmed: 1 })
     expect((await getLedger(cls.id)).lines[0].state).toBe('confirmed')
     expect(texts).not.toHaveBeenCalled()
