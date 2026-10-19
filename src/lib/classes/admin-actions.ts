@@ -25,6 +25,7 @@ import { contentChanges } from './content-diff'
 import { bookingCap, describeRequest, remainingOn, sessionShare } from './refunds'
 import { isWaiting, listRefundRequests } from './refund-requests'
 import { getLedger, seatsTaken, type Ledger, type LedgerLine } from './seat-ledger'
+import { isComing, isLiveHold, isPaidLine, paidOn, seatFreed, takesSeat } from './seat-status'
 import { busyBetween, clashes, clashMessage, type Busy } from './studio-schedule'
 import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass, Session } from './types'
 import { newId, toIso, validateContent, validateSessions } from './validate'
@@ -66,19 +67,6 @@ function when(iso: string): string {
 
 const fullName = (l: LedgerLine) => (l.customer ? `${l.customer.givenName} ${l.customer.familyName}`.trim() : '')
 
-/** A seat a person holds: paid, or refunded but kept. */
-function isBooked(l: LedgerLine): boolean {
-  if (l.state === 'confirmed') return true
-  return l.state === 'refunded' && !l.refunds.some((r) => r.freedSeat)
-}
-
-/** A seat someone has or is paying for right now: booked, or an unexpired hold. */
-function holdsSeat(l: LedgerLine, now: Date): boolean {
-  if (isBooked(l)) return true
-  return l.state === 'held' && !!l.holdExpiresAt && Date.parse(l.holdExpiresAt) > now.getTime()
-}
-
-const paidOn = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
 
 /**
  * A counter (POS) sale can pay several bookings at once (one family's walk-in
@@ -228,7 +216,7 @@ export async function classesBetween(fromIso?: string, toIso?: string): Promise<
     const views = groupBookings(ledger, now).filter((b) => b.state !== 'held')
     totals[c.id] = {
       bookings: views.length,
-      seats: ledger.lines.filter(isBooked).length,
+      seats: ledger.lines.filter(isComing).length,
       // Money in: comps and counter seats not rung up yet bring in nothing (I3).
       cents: views.reduce((sum, b) => sum + takenCents(b), 0),
     }
@@ -491,7 +479,7 @@ export async function duplicateClass(body: { id?: unknown; sessions?: unknown; s
 function peopleOn(ledger: Ledger, sessions: Session[], now: Date): PersonToTell[] {
   const out = new Map<string, PersonToTell>()
   for (const l of ledger.lines) {
-    if (!holdsSeat(l, now)) continue
+    if (!takesSeat(l, now)) continue
     const mine = sessions.filter((s) => l.sessionIds.includes(s.id))
     if (!mine.length) continue
     const p = out.get(l.bookingId) ?? {
@@ -505,7 +493,7 @@ function peopleOn(ledger: Ledger, sessions: Session[], now: Date): PersonToTell[
 
 /** Refuses edits that would change what booked people have. Returns the moved sessions that have bookings. */
 function checkAgainstBookings(cls: ScheduledClass, ledger: Ledger, content: ClassContent, sessions: Session[], now: Date): Session[] {
-  const booked = ledger.lines.filter((l) => holdsSeat(l, now))
+  const booked = ledger.lines.filter((l) => takesSeat(l, now))
   const movedWithBookings: Session[] = []
   for (const old of cls.sessions) {
     const next = sessions.find((s) => s.id === old.id)
@@ -635,7 +623,7 @@ export async function updateScheduledClass(body: {
 export function bookedPeople(ledger: Ledger): BookedPerson[] {
   const out = new Map<string, BookedPerson & { sum: number; charged?: number }>()
   for (const l of ledger.lines) {
-    if (!isBooked(l)) continue
+    if (!isComing(l)) continue
     const p = out.get(l.bookingId) ?? {
       bookingId: l.bookingId, name: fullName(l), email: l.customer?.email ?? '', phone: l.customer?.phone ?? '',
       seats: 0, paidCents: 0, sum: 0, charged: chargedFor(l),
@@ -679,6 +667,13 @@ export interface BookingView {
   refundedCents: number
   refunds: LedgerLine['refunds']
   state: 'held' | 'confirmed' | 'refunded' | 'part refunded'
+  /**
+   * Seats this booking has right now (seat-status, R43): coming (confirmed, or
+   * refunded with the seat kept), or held while they pay. 0 = everyone's seat
+   * was freed: they are not coming. The print sheet, the cancel list, Text
+   * everyone and every count use this, never `state`.
+   */
+  seatsComing: number
   overCapacity: boolean
   lineIds: string[]
   /** What each paid seat can still give back, for the refund panel (the server works it out again). */
@@ -698,7 +693,7 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
   const groups = new Map<string, LedgerLine[]>()
   for (const l of ledger.lines) {
     if (l.state === 'released') continue
-    if (l.state === 'held' && (!l.holdExpiresAt || Date.parse(l.holdExpiresAt) <= now.getTime())) continue
+    if (l.state === 'held' && !isLiveHold(l, now)) continue
     groups.set(l.bookingId, [...(groups.get(l.bookingId) ?? []), l])
   }
   return [...groups.values()].map((lines) => {
@@ -730,17 +725,18 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
       refundedCents: refunds.reduce((s, r) => s + r.cents, 0),
       refunds,
       state,
+      seatsComing: lines.filter((l) => takesSeat(l, now)).length,
       overCapacity: lines.some((l) => l.overCapacity === true),
       lineIds: lines.map((l) => l.id),
-      refundable: lines.filter((l) => l.state === 'confirmed' || l.state === 'refunded').map((l) => ({
+      refundable: lines.filter(isPaidLine).map((l) => ({
         id: l.id, seat: l.seat, ticketTypeId: l.ticketTypeId, sessions: l.sessionIds.length,
         remainingCents: remainingOn(l), sessionCents: l.sessionIds.length > 1 && sessionShare(l) <= remainingOn(l) ? sessionShare(l) : 0,
-        freed: l.refunds.some((r) => r.freedSeat),
+        freed: seatFreed(l),
       })),
       paidHere: !!first.square.paymentId,
       paidAtCounter: lines.some((l) => !!l.paidAtCounter),
       refundableCents: Math.min(
-        lines.filter((l) => l.state === 'confirmed' || l.state === 'refunded').reduce((s, l) => s + remainingOn(l), 0),
+        lines.filter(isPaidLine).reduce((s, l) => s + remainingOn(l), 0),
         bookingCap(lines) ?? Infinity,
       ),
       at: first.at,

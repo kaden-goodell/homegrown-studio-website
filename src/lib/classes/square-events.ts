@@ -36,6 +36,7 @@ import { getLedger, moveLines, paidBy, recordPos, recordRefund, type LedgerLine,
 import { bookingCap, claimSquareRefund, freeSeatOnly, onSeatFreed } from './refunds'
 import { allRefundRequests, listRefundRequests, UNCONFIRMED_AFTER_MS, type SavedRefundRequest } from './refund-requests'
 import { getClass } from './class-store'
+import { isComing, isPaidLine, leftOn } from './seat-status'
 import type { Cents, ScheduledClass, Session } from './types'
 
 const logger = createLogger('classes:square-events')
@@ -377,10 +378,8 @@ async function linesForPayment(paymentId: string, classIds: string[]): Promise<P
   return out
 }
 
-const paidOn = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
-const leftOn = (l: LedgerLine) => paidOn(l) - l.refunds.reduce((s, r) => s + r.cents, 0)
-const isPaid = (l: LedgerLine) => l.state === 'confirmed' || l.state === 'refunded'
-const holdsSeat = (l: LedgerLine) => isPaid(l) && !l.refunds.some((r) => r.freedSeat)
+const isPaid = isPaidLine
+const holdsSeat = isComing
 const bySquare = (r: LedgerLine['refunds'][number]) => r.by?.id === SQUARE_BY.id
 
 async function flag(kind: RefundFlagKind, refund: any, hit: PaidLine, now: Date, extra: { cents?: Cents } = {}): Promise<void> {
@@ -851,8 +850,7 @@ export async function decideRefundFlag(
   if (action === 'freed-seat') {
     if (!lineIds.length) {
       // Never guess which person: with more than one seat still held, a person picks.
-      const holding = (await getLedger(flag.classId)).lines.filter((l) =>
-        l.bookingId === flag.bookingId && (l.state === 'confirmed' || l.state === 'refunded') && !l.refunds.some((r) => r.freedSeat))
+      const holding = (await getLedger(flag.classId)).lines.filter((l) => l.bookingId === flag.bookingId && isComing(l))
       if (holding.length > 1) throw new Error('Pick which seat to free.')
     }
     try {

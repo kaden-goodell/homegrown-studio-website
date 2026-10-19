@@ -15,6 +15,7 @@ import { sendRefundEmail } from '@lib/email'
 import type { By } from '@lib/staff-auth'
 import { getClass } from './class-store'
 import { getLedger, noteRefundFailed, recordRefund, recordRequestRefund, type Ledger, type LedgerLine } from './seat-ledger'
+import { isPaidLine, leftOn, seatFreed } from './seat-status'
 import type { Cents, ScheduledClass } from './types'
 import {
   changeRefundRequest, claimRequestEmail, hashOf, isWaiting, listRefundRequests, markRequestDone, markRequestSent,
@@ -88,9 +89,8 @@ export interface RefundPlan {
   rawKey: string
 }
 
-const paidOn = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
 /** What a line still has to give back. */
-export const remainingOn = (l: LedgerLine): Cents => paidOn(l) - l.refunds.reduce((s, r) => s + r.cents, 0)
+export const remainingOn = (l: LedgerLine): Cents => leftOn(l)
 
 /** A "free their seat" entry: no money, nothing sent to Square. */
 const isSeatOnly = (r: LedgerLine['refunds'][number]) => r.cents === 0 && r.squareRefundId === null
@@ -159,7 +159,7 @@ export function sessionShare(l: LedgerLine): Cents {
 /** Works out who gets what, refusing anything that can't be done. Pure: reads the ledger only. */
 export function planRefund(ledger: Ledger, req: RefundRequest): RefundPlan {
   const booking = ledger.lines.filter((l) => l.bookingId === req.bookingId).sort((a, b) => a.seat - b.seat)
-  const paid = booking.filter((l) => l.state === 'confirmed' || l.state === 'refunded')
+  const paid = booking.filter(isPaidLine)
   if (!paid.length) throw new RefundError(404, 'That booking is not on this class.')
   // m7: money taken at the register goes back at the register (it may have been cash).
   if (paid.some((l) => l.source === 'pos' || l.source === 'door-counter')) throw new RefundError(409, AT_THE_REGISTER)
@@ -652,9 +652,9 @@ export async function freeSeatOnly(
   const cls = classId ? await getClass(classId) : null
   if (!cls) throw new RefundError(404, 'That class does not exist.')
   const ledger = await getLedger(cls.id)
-  const paid = ledger.lines.filter((l) => l.bookingId === bookingId && (l.state === 'confirmed' || l.state === 'refunded'))
+  const paid = ledger.lines.filter((l) => l.bookingId === bookingId && isPaidLine(l))
   if (!paid.length) throw new RefundError(404, 'That booking is not on this class.')
-  const freed = (l: LedgerLine) => l.refunds.some((r) => r.freedSeat)
+  const freed = seatFreed
   let chosen: LedgerLine[]
   if (lineIds.length) {
     chosen = [...new Set(lineIds)].map((id) => {

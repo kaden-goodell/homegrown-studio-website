@@ -245,6 +245,40 @@ describe('class sheet › Cancel', () => {
     expect(screen.getByText('Cancelled. Here is who to contact.')).toBeInTheDocument()
   })
 
+  it('R43: a refund that kept the seat is still booked (cancel list, Text everyone); a booking whose seats were all freed is not', async () => {
+    const kept = booking({
+      bookingId: 'bkg_kept', customer: { givenName: 'Kay', familyName: 'Kept', email: 'kay@example.com', phone: '(256) 555-0122' },
+      seats: { person: 1 }, state: 'refunded', refundedCents: 3270, refundableCents: 0, lineIds: ['led_k'],
+      refundable: [{ id: 'led_k', seat: 1, ticketTypeId: 'person', sessions: 1, remainingCents: 0, sessionCents: 0, freed: false }],
+    })
+    const gone = booking({
+      bookingId: 'bkg_gone', customer: { givenName: 'Gus', familyName: 'Gone', email: 'gus@example.com', phone: '(256) 555-0133' },
+      seats: { person: 1 }, state: 'refunded', refundedCents: 3270, refundableCents: 0, lineIds: ['led_g'],
+      refundable: [{ id: 'led_g', seat: 1, ticketTypeId: 'person', sessions: 1, remainingCents: 0, sessionCents: 0, freed: true }],
+    })
+    vi.stubGlobal('fetch', server({ bookings: [kept, gone] }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    await screen.findByRole('article', { name: 'Kay Kept' })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Text everyone' }))
+    expect(within(screen.getByRole('group', { name: 'Text everyone' })).getByText('(256) 555-0122')).toBeInTheDocument()
+    await tabTo('Details')
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel this class' }))
+    const listed = within(screen.getByRole('group', { name: 'Cancel the class' })).getByRole('list', { name: 'Booked on this class' })
+    expect(within(listed).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Kay Kept · 1 seat · (256) 555-0122'])
+  })
+
+  it('T12: a seat freed with no money back reads "Seat freed", not "Refunded"', async () => {
+    const freed = booking({
+      seats: { person: 1 }, state: 'refunded', refundedCents: 0, lineIds: ['led_f'],
+      refundable: [{ id: 'led_f', seat: 1, ticketTypeId: 'person', sessions: 1, remainingCents: 3270, sessionCents: 0, freed: true }],
+    })
+    vi.stubGlobal('fetch', server({ bookings: [freed] }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    const row = await screen.findByRole('article', { name: 'Ada Lovelace' })
+    expect(within(row).getByText('Seat freed')).toBeInTheDocument()
+    expect(within(row).queryByText('Refunded')).toBeNull()
+  })
+
   it('a stale cancel says so and shows the class as it is now', async () => {
     let gets = 0
     const f = server({ post: () => refuse(409, { error: 'Someone else changed this class. Reload to see their changes.', stale: true }) })

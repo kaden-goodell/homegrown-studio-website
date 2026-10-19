@@ -11,6 +11,8 @@ import type { Quote } from './pricing'
 import type { Cents, ScheduledClass } from './types'
 import { newId } from './validate'
 import { studioDate } from '@lib/studio-time'
+import { isExpiredHold, isPaidLine, paidOn, refundedOn, takesSeat } from './seat-status'
+export { isComing, isPaidLine, takesSeat } from './seat-status'
 
 export type SeatSource = 'online' | 'door-card' | 'door-counter' | 'comp' | 'pos'
 export interface LedgerLine {
@@ -84,19 +86,9 @@ const key = (classId: string) => `ledger-${classId}`
 const ATTEMPTS = 3
 const RETRY = 'Concurrent update — please retry'
 
-const isExpiredHold = (l: LedgerLine, now: Date) =>
-  l.state === 'held' && (!l.holdExpiresAt || Date.parse(l.holdExpiresAt) <= now.getTime())
-
-function counts(l: LedgerLine, now: Date): boolean {
-  if (l.state === 'held') return !isExpiredHold(l, now)
-  if (l.state === 'confirmed') return true
-  if (l.state === 'refunded') return !l.refunds.some((r) => r.freedSeat)
-  return false // released
-}
-
-/** Seats taken on a session: unexpired holds + confirmed + refunds that kept the seat. */
+/** Seats taken on a session: unexpired holds + confirmed + refunds that kept the seat (seat-status.takesSeat). */
 export function seatsTaken(ledger: Ledger, sessionId: string, now: Date): number {
-  return ledger.lines.filter((l) => l.sessionIds.includes(sessionId) && counts(l, now)).length
+  return ledger.lines.filter((l) => l.sessionIds.includes(sessionId) && takesSeat(l, now)).length
 }
 
 // One server instance runs a class's read-modify-write one at a time. Across
@@ -281,9 +273,6 @@ export async function release(classId: string, bookingId: string): Promise<void>
   })
 }
 
-const paidOn = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
-const refundedOn = (l: LedgerLine) => l.refunds.reduce((s, r) => s + r.cents, 0)
-const isPaidLine = (l: LedgerLine) => l.state === 'confirmed' || l.state === 'refunded'
 
 /** Who a ledger change made from a refund done in Square itself is recorded as (see square-events SQUARE_BY). */
 const SQUARE_ACTOR_ID = 'square'

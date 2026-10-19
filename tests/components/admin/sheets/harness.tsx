@@ -53,7 +53,12 @@ export const lib = (id: string, c: ClassContent, over: Partial<LibraryClass> = {
   ...over,
 })
 
-export const booking = (over: any = {}) => ({
+/** A booking as the server sends it; seatsComing (R43) follows the seats not freed unless given. */
+export const booking = (over: any = {}) => {
+  const b = bookingBase(over)
+  return { seatsComing: b.state === 'held' ? b.lineIds.length : b.refundable.filter((s: any) => !s.freed).length, ...b }
+}
+const bookingBase = (over: any = {}) => ({
   bookingId: 'bkg_1', customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com', phone: '(256) 555-0100' },
   source: 'online', passId: 'pas_full', seats: { person: 2 }, sessionIds: ['ses_1'],
   picks: [{ seat: 1, ticketTypeId: 'person', answers: {} }, { seat: 2, ticketTypeId: 'person', answers: {} }], addOns: {},

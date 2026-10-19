@@ -39,6 +39,7 @@ import { squareFetch } from './square-api'
 import {
   getLedger, markCounterMatchChecked, markDoorPaid, moveCounterPayment, recordPos, seatsTaken, setNames, unfreeSeats, unpaidDoorSeat, type LedgerLine,
 } from './seat-ledger'
+import { isComing } from './seat-status'
 import { onStaffConsole } from './staff-view'
 import type { Cents, ScheduledClass } from './types'
 
@@ -172,7 +173,7 @@ async function refundItems(cache: ClassCache, skip: Set<string>): Promise<ToDeci
     const className = cls?.content.name ?? 'A class'
     const lines = (await getLedger(f.classId)).lines.filter((l) => l.bookingId === f.bookingId)
     const name = personName(lines.find((l) => l.customer)?.customer ?? null) || 'Someone'
-    const held = lines.filter((l) => (l.state === 'confirmed' || l.state === 'refunded') && !l.refunds.some((r) => r.freedSeat))
+    const held = lines.filter(isComing)
     const ticket = (tid: string) => cls?.content.ticketTypes.find((t) => t.id === tid)?.label ?? 'Seat'
     const first = cls ? [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))[0] : undefined
     const amount = money(f.refundCents ?? f.cents)

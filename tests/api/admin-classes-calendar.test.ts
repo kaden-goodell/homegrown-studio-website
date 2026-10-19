@@ -119,6 +119,36 @@ describe('day.json', () => {
     expect(c.bookings[0].picks[0].answers).toEqual({ q1: 'Red' })
   })
 
+  it('R43: a full refund that kept the seat is still on the sheet; a freed seat is not, and doesn’t count', async () => {
+    const cls = await createClass({ content: content('Day Sheet Kept Seat'), sessions: [{ id: 'ses_day2', startIso: at('18:00'), endIso: at('19:00'), capacity: 10 }], status: 'open', by: { id: 'a', name: 'A' } })
+    const by = { id: 'a', name: 'A' }
+    const line = (id: string, bookingId: string, seat: number, given: string, refunds: any[]) => ({
+      id, bookingId, sessionIds: ['ses_day2'], ticketTypeId: 'person', passId: 'all', seat,
+      priceCents: 2500, taxCents: 0, addOns: {}, addOnCents: 0, addOnTaxCents: 0, answers: {}, source: 'online',
+      state: refunds.length ? 'refunded' : 'confirmed', holdExpiresAt: null, customer: { givenName: given, familyName: 'X', email: `${given}@example.com`, phone: '' },
+      square: { orderId: 'o', paymentId: 'p', lineUid: null }, by: null, refunds, at: new Date().toISOString(),
+    })
+    const kept = { at: new Date().toISOString(), cents: 2500, reason: 'Goodwill', by, freedSeat: false, squareRefundId: 'r1' }
+    const freed = { at: new Date().toISOString(), cents: 2500, reason: 'Can’t come', by, freedSeat: true, squareRefundId: 'r2' }
+    await makeKvStore('seat-ledger', 'seat-ledger').set(`ledger-${cls.id}`, JSON.stringify({
+      classId: cls.id,
+      lines: [
+        line('led_k1', 'bkg_kept', 1, 'Kept', [kept]),
+        // part refunded: seat 1 freed, seat 2 still coming
+        line('led_p1', 'bkg_part', 1, 'Part', [freed]),
+        line('led_p2', 'bkg_part', 2, 'Part', []),
+        line('led_g1', 'bkg_gone', 1, 'Gone', [freed]),
+      ],
+    }))
+    const r = await call(dayRoute, `/x?day=${DAY}`)
+    const c = r.body.data.classes.find((x: any) => x.id === cls.id)
+    const ids = c.bookings.map((b: any) => b.bookingId).sort()
+    expect(ids).toEqual(['bkg_kept', 'bkg_part'])
+    const seats = c.bookings.reduce((s: number, b: any) => s + Object.values(b.seats as Record<string, number>).reduce((a, n) => a + n, 0), 0)
+    expect(seats).toBe(2)
+    expect(c.bookings.find((b: any) => b.bookingId === 'bkg_part').lineIds).toEqual(['led_p2'])
+  })
+
   it('refuses without the owner cookie', async () => {
     const r = await call(dayRoute, `/x?day=${DAY}`, false)
     expect(r.status).toBe(401)
