@@ -100,7 +100,10 @@ export const POST: APIRoute = async ({ request }) => {
     // Confirm the event resolves BEFORE writing — a typo'd/stale id used to
     // leave an orphan meta overlay behind (written, then 404'd on the read
     // back) that nothing would ever surface or clean up.
-    if (!(await getEvent(kind, id))) return bad("We couldn't find that event.", 404)
+    const before = await getEvent(kind, id)
+    if (!before) return bad("We couldn't find that event.", 404)
+    // Our own classes keep their settings on the class itself.
+    if (before.own) return bad('Change this class on /admin.', 409)
     await setEventMeta(kind, id, patch, byOf(staff))
     const event = await getEvent(kind, id)
     if (!event) return bad("We couldn't find that event.", 404)

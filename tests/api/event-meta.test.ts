@@ -40,6 +40,12 @@ beforeEach(async () => {
 })
 
 describe('POST /api/staff/event-meta.json', () => {
+  it('our own classes keep their settings on /admin: refused, nothing written', async () => {
+    mockGetEvent.mockResolvedValueOnce({ kind: 'workshop', id: 'cls_camp', title: 'Clay Camp', startIso: '2026-10-20T15:00:00.000Z', days: ['2026-10-20'], dropOff: false, own: true })
+    const res = await POST(postCtx({ kind: 'workshop', id: 'cls_camp', dropOff: true }))
+    expect(res.status).toBe(409)
+    expect((await res.json()).error).toBe('Change this class on /admin.')
+  })
   it('rejects an unauthenticated caller', async () => {
     authed = null
     const res = await POST(postCtx({ kind: 'workshop', id: 'cs1', dropOff: true }))
