@@ -44,7 +44,8 @@
 .adm *::after {
   box-sizing: border-box;
 }
-.adm button {
+/* Zero specificity, so the site's .btn-primary and friends still win inside sheets. */
+:where(.adm button) {
   font: inherit;
   color: inherit;
   cursor: pointer;
@@ -1130,6 +1131,13 @@
 /* The class screens from before the rebuild sit inside sheets; their own headings are hidden there. */
 .adm-sheet-body .btn {
   min-height: 2.75rem;
+}
+/* The old class form goes two-column by the window's width; inside a sheet it is one column, preview last. */
+.adm-sheet .class-editor {
+  grid-template-columns: 1fr !important;
+}
+.adm-sheet .class-editor-preview {
+  position: static !important;
 }
 @keyframes adm-up {
   from {
