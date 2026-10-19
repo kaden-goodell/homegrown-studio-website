@@ -156,3 +156,50 @@ describe('AdminApp (/admin)', () => {
     expect(await screen.findByRole('button', { name: 'Try again' })).toBeInTheDocument()
   })
 })
+
+describe('AdminApp class tabs', () => {
+  const sched = {
+    id: 'cls_a', libraryId: null, libraryVersion: null, status: 'open', updatedAt: 'u1', createdAt: '', by: { id: 'admin', name: 'Owner' }, history: [],
+    square: { itemId: null, variations: {} },
+    content: {
+      name: 'Pottery', description: '', imageUrl: null, instructor: null,
+      rules: { ages: '', dropOff: false, madeToOrder: false, taxable: true, maxPerBooking: 10, signupCutoffHours: null, minimumToRun: null, linkOnly: false, joinPartway: true, waitlistCutoffHours: 2, canShareRoom: false },
+      ticketTypes: [{ id: 'person', label: 'Person' }], passes: [{ id: 'all', label: 'Full class', covers: { kind: 'all' } }],
+      prices: { all: { person: 3000 } }, questions: [], addOns: [], defaultCapacity: 10, defaultMinutes: 90,
+    },
+    sessions: [{ id: 'ses_a', startIso: '2031-03-12T15:00:00.000Z', endIso: '2031-03-12T16:30:00.000Z', capacity: 10 }],
+  }
+  function classServer() {
+    const base = server()
+    return vi.fn(async (url: string, init?: any) => {
+      if (url.startsWith('/api/admin/classes/classes.json')) return ok({ data: { classes: [sched], seatsTaken: {} } })
+      if (url.startsWith('/api/admin/classes/bookings.json')) return ok({ data: { class: sched, bookings: [] } })
+      if (url.startsWith('/api/admin/classes/calendar.json')) return ok({ data: { items: [] } })
+      if (url.startsWith('/api/admin/classes/library.json')) return ok({ data: { library: [] } })
+      if (url.startsWith('/api/admin/classes/blocked.json')) return ok({ data: { blocked: [] } })
+      return base(url, init)
+    })
+  }
+
+  it('Classes: a class opens its bookings, then Edit opens the form with its details; Back returns', async () => {
+    vi.stubGlobal('fetch', classServer())
+    render(<AdminApp />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Classes' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Pottery/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit class' }))
+    expect(screen.getByLabelText('Name')).toHaveValue('Pottery')
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    expect(await screen.findByRole('button', { name: 'Edit class' })).toBeInTheDocument()
+  })
+
+  it('Calendar, Library and Block time each open', async () => {
+    vi.stubGlobal('fetch', classServer())
+    render(<AdminApp />)
+    fireEvent.click(await screen.findByRole('tab', { name: 'Calendar' }))
+    expect(await screen.findByRole('button', { name: 'Month' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Library' }))
+    expect(await screen.findByText(/Nothing in the library yet/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Block time' }))
+    expect(await screen.findByText('No blocked time coming up.')).toBeInTheDocument()
+  })
+})

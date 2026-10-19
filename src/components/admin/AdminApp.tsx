@@ -7,15 +7,30 @@ import { EventRequestCard } from './EventRequestCard'
 import { StatusPills } from './StatusPills'
 import { MessageCard } from './MessageCard'
 import { STATUSES as MESSAGE_STATUSES, STATUS_LABEL as MESSAGE_LABEL, type ContactMessage, type MessageStatus } from '@lib/contact-options'
+import CalendarView from './classes/CalendarView'
+import ClassList from './classes/ClassList'
+import LibraryList from './classes/LibraryList'
+import BlockTimeForm from './classes/BlockTimeForm'
+import ClassEditor, { type EditorMode } from './classes/ClassEditor'
+import ClassBookings from './classes/ClassBookings'
+import PrintDay from './classes/PrintDay'
 
 const STATUSES: [ApplicationStatus, string][] = [['new', 'New'], ['talking', 'Talking'], ['booked', 'Booked'], ['not-now', 'Not now']]
 const AUDIENCE: Record<string, string> = { kids: 'Kids & teens', adults: 'Adults', both: 'Both' }
 const OFTEN: Record<string, string> = { 'one-time': 'One-time', monthly: 'Monthly', series: 'A series' }
 
-type Tab = 'events' | 'messages' | 'teachers'
+type Tab = 'calendar' | 'classes' | 'library' | 'block' | 'events' | 'messages' | 'teachers'
+
+/** What covers the tab's list while open: a class form, a class's bookings, or a day to print. */
+type Panel =
+  | { kind: 'editor'; mode: EditorMode; back: Panel | null }
+  | { kind: 'bookings'; id: string }
+  | { kind: 'print'; day: string }
 
 /**
- * /admin: owner-only tools. Private event requests from /private-events
+ * /admin: owner-only tools. Classes (the calendar of everything holding the
+ * room, our classes, the class library, blocked time, a day's sheet to
+ * print), private event requests from /private-events
  * (New → Quoted → Booked → Not this time), messages from /contact (New →
  * Replied), and teacher applications from /teach (New → Talking → Booked →
  * Not now).
@@ -26,6 +41,8 @@ export default function AdminApp() {
   const [requests, setRequests] = useState<EventRequest[]>([])
   const [messages, setMessages] = useState<ContactMessage[]>([])
   const [tab, setTab] = useState<Tab>('events')
+  const [panel, setPanel] = useState<Panel | null>(null)
+  const [flash, setFlash] = useState('')
   const [passcode, setPasscode] = useState('')
   const [loginError, setLoginError] = useState('')
 
@@ -101,11 +118,50 @@ export default function AdminApp() {
   return (
     <div style={{ display: 'grid', gap: '1.25rem' }}>
       <div role="tablist" aria-label="Admin" style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-        {([['events', tabLabel('Private events', requests)], ['messages', tabLabel('Messages', messages)], ['teachers', tabLabel('Teachers', apps)]] as [Tab, string][]).map(([t, l]) => (
-          <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={tab === t ? 'btn btn-primary' : 'btn btn-secondary'}>{l}</button>
+        {([['calendar', 'Calendar'], ['classes', 'Classes'], ['library', 'Library'], ['block', 'Block time'], ['events', tabLabel('Private events', requests)], ['messages', tabLabel('Messages', messages)], ['teachers', tabLabel('Teachers', apps)]] as [Tab, string][]).map(([t, l]) => (
+          <button key={t} type="button" role="tab" aria-selected={tab === t} onClick={() => { setTab(t); setPanel(null); setFlash('') }} className={tab === t ? 'btn btn-primary' : 'btn btn-secondary'}>{l}</button>
         ))}
       </div>
-      {tab === 'events' && (
+      {flash && <p role="status" style={{ margin: 0, fontWeight: 600 }}>{flash}</p>}
+      {panel?.kind === 'editor' && (
+        <ClassEditor
+          key={JSON.stringify(panel.mode.kind) + ('cls' in panel.mode ? panel.mode.cls.id : 'lib' in panel.mode ? panel.mode.lib?.id ?? '' : '')}
+          mode={panel.mode}
+          onCancel={() => setPanel(panel.back)}
+          onSaved={(s) => {
+            // A new class or a library save goes back to its list; an edit stays open to keep working.
+            if (panel.mode.kind === 'edit') return
+            setFlash(s.warning ?? (s.lib ? 'Saved to the library.' : 'Added.'))
+            setPanel(s.cls ? { kind: 'bookings', id: s.cls.id } : null)
+          }}
+        />
+      )}
+      {panel?.kind === 'bookings' && (
+        <ClassBookings
+          key={panel.id}
+          id={panel.id}
+          onBack={() => { setPanel(null); setFlash('') }}
+          onEdit={(cls) => setPanel({ kind: 'editor', mode: { kind: 'edit', cls }, back: { kind: 'bookings', id: cls.id } })}
+          onDuplicated={(cls) => { setFlash('Added.'); setPanel({ kind: 'bookings', id: cls.id }) }}
+        />
+      )}
+      {panel?.kind === 'print' && <PrintDay day={panel.day} onBack={() => setPanel(null)} />}
+      {!panel && tab === 'calendar' && (
+        <CalendarView onOpenClass={(id) => setPanel({ kind: 'bookings', id })} onPrintDay={(day) => setPanel({ kind: 'print', day })} />
+      )}
+      {!panel && tab === 'classes' && (
+        <ClassList onOpen={(id) => setPanel({ kind: 'bookings', id })} onNew={() => setPanel({ kind: 'editor', mode: { kind: 'new' }, back: null })} />
+      )}
+      {!panel && tab === 'library' && (
+        <LibraryList
+          onNew={() => setPanel({ kind: 'editor', mode: { kind: 'library' }, back: null })}
+          onEdit={(lib) => setPanel({ kind: 'editor', mode: { kind: 'library', lib }, back: null })}
+          onScheduleWithEdits={(lib) => setPanel({ kind: 'editor', mode: { kind: 'from-library', lib }, back: null })}
+          onScheduled={(cls, warning) => { setFlash(warning ?? 'Added.'); setPanel({ kind: 'bookings', id: cls.id }) }}
+        />
+      )}
+      {!panel && tab === 'block' && <BlockTimeForm />}
+      {!panel && tab === 'events' && (
         <StatusList
           title="Private event requests"
           items={requests}
@@ -114,7 +170,7 @@ export default function AdminApp() {
           render={(r) => <EventRequestCard key={r.id} request={r} onMove={moveRequest} />}
         />
       )}
-      {tab === 'messages' && (
+      {!panel && tab === 'messages' && (
         <StatusList
           title="Messages"
           items={messages}
@@ -123,7 +179,7 @@ export default function AdminApp() {
           render={(m) => <MessageCard key={m.id} message={m} onMove={moveMessage} />}
         />
       )}
-      {tab === 'teachers' && (
+      {!panel && tab === 'teachers' && (
         <StatusList
           title="Teacher applications"
           items={apps}
