@@ -17,7 +17,7 @@ vi.mock('@config/providers', () => ({
   },
 }))
 vi.mock('@lib/party-store', () => ({ getPartyRecord: vi.fn(async () => null) }))
-vi.mock('@lib/classes/square-catalog', () => ({ syncClassToSquare: mocks.sync, archiveClassInSquare: mocks.archive }))
+vi.mock('@lib/classes/square-catalog', () => ({ syncClassToSquare: mocks.sync, archiveClassInSquare: mocks.archive, CLASS_TAX_NOT_SET: "Class tax isn't set up yet." }))
 vi.mock('@lib/classes/square-api', () => ({ squareFetch: mocks.squareFetch, squareSettings: () => ({ environment: 'sandbox' }) }))
 vi.mock('@lib/audit', () => ({ recordAudit: mocks.audit }))
 vi.mock('@lib/classes/library-store', async (importOriginal) => {
@@ -169,6 +169,14 @@ describe('scheduling', () => {
     expect(r.status).toBe(200)
     expect(r.body.warning).toBe("Saved. The POS item didn't update. Try Save again.")
     expect(await getClass(r.body.data.class.id)).not.toBeNull()
+  })
+
+  it('a taxable class with no class tax set up is saved off the POS, and the owner is told why', async () => {
+    mocks.sync.mockRejectedValueOnce(new Error("Class tax isn't set up yet."))
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('No Tax Yet'), sessions: [ses('2031-01-30', '17:00', '18:00')], status: 'open' })
+    expect(r.status).toBe(200)
+    expect(r.body.warning).toBe("Saved, but it isn't on the POS: Class tax isn't set up yet. It can't be sold until it is.")
+    expect((await getClass(r.body.data.class.id))!.square.itemId).toBeNull()
   })
 
   it('refuses a clash with the clash message, allows rooms that can share', async () => {

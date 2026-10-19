@@ -239,6 +239,17 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       html: `<p>${note}</p>`,
     }).catch(() => undefined)
   }
+  if (drift < -1) {
+    // Lower is charged as Square says, but the owners hear of it: usually a taxable class on the POS without its tax.
+    logger.warn('Class order total below the quote — charging Square’s total', { bookingId, quote: q!.totalCents, square: order.totalCents })
+    const note = `Square total was ${dollars(-drift)} lower than the quote on booking ${bookingId} (quote ${dollars(q!.totalCents)}, Square ${dollars(order.totalCents)}). Check the class's tax on the POS.`
+    await sendEmail({
+      to: siteConfig.ownerEmails.join(', '),
+      subject: `Class price differed — ${cls.content.name}`,
+      text: note,
+      html: `<p>${note}</p>`,
+    }).catch(() => undefined)
+  }
   const charged = order.totalCents
 
   // ── 4. Charge ───────────────────────────────────────────────────────────────

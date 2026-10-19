@@ -17,7 +17,7 @@ import { formatDay, formatTime } from '@lib/studio-time'
 import { addBlocked, listBlocked, removeBlocked, type BlockedTime } from './blocked-time'
 import { createClass, getClass, listClasses, StaleClassError, updateClass } from './class-store'
 import { archiveLibrary, getLibrary, listLibrary, restoreLibraryVersion, saveLibraryVersion } from './library-store'
-import { archiveClassInSquare, syncClassToSquare } from './square-catalog'
+import { archiveClassInSquare, CLASS_TAX_NOT_SET, syncClassToSquare } from './square-catalog'
 import { bookingCap, remainingOn, sessionShare } from './refunds'
 import { getLedger, seatsTaken, type Ledger, type LedgerLine } from './seat-ledger'
 import { busyBetween, clashes, clashMessage, type Busy } from './studio-schedule'
@@ -28,6 +28,7 @@ import { newId, toIso, validateContent, validateSessions } from './validate'
 export const ADMIN_BY: By = { id: 'admin', name: 'Owner' }
 
 export const SYNC_WARNING = "Saved. The POS item didn't update. Try Save again."
+export const TAX_WARNING = "Saved, but it isn't on the POS: Class tax isn't set up yet. It can't be sold until it is."
 export const LIBRARY_WARNING = "Saved. The library didn't update. Try again."
 export const CANCEL_WARNING = "Cancelled. The POS item didn't come off. Try Cancel again."
 
@@ -139,7 +140,7 @@ async function syncPos(cls: ScheduledClass): Promise<{ cls: ScheduledClass; warn
     return { cls: await updateClass(cls.id, { square }, ADMIN_BY, 'POS item updated') }
   } catch (e) {
     console.warn(`[classes] POS sync for ${cls.id} failed: ${e instanceof Error ? e.message : e}`)
-    return { cls, warning: SYNC_WARNING }
+    return { cls, warning: e instanceof Error && e.message === CLASS_TAX_NOT_SET ? TAX_WARNING : SYNC_WARNING }
   }
 }
 

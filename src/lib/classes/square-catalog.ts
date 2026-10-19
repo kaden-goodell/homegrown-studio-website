@@ -94,6 +94,9 @@ async function uploadImage(itemId: string, imageUrl: string, className: string):
   await squareFetch('/catalog/images', { method: 'POST', body: form })
 }
 
+/** Thrown (before any Square call) when a taxable class would go on the POS with no SQUARE_CLASS_TAX_ID. */
+export const CLASS_TAX_NOT_SET = "Class tax isn't set up yet."
+
 /**
  * Create or update the class's POS item. Reuses variation ids by key,
  * drops variations no longer sold (left out of the item, which Square
@@ -105,6 +108,9 @@ export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledC
   const categoryId = cfg.classesCategoryId || ''
   if (!categoryId) throw new Error("Classes category isn't set up yet.")
   const taxId = cfg.classTaxId || ''
+  // Fail closed: a taxable class put on the POS without its tax would be sold untaxed.
+  // A cancelled class is still taken off the POS.
+  if (!taxId && cls.content.rules.taxable && cls.status !== 'cancelled') throw new Error(CLASS_TAX_NOT_SET)
   const plan = variationPlan(cls)
   if (!plan.length) throw new Error('Add a price before putting this class on the POS.')
 

@@ -255,6 +255,19 @@ describe('POST /api/classes/book.json', () => {
     expect(mockOwnerEmail).not.toHaveBeenCalled()
   })
 
+  it('Square more than a cent lower (e.g. the class went out without its tax): charged, owners emailed', async () => {
+    const cls = makeClass()
+    squareTotal(TOTAL - 1440)
+    const res = await POST(ctx(body(cls)))
+    expect(res.status).toBe(200)
+    expect(mockProcessPayment.mock.calls[0][0].amount).toBe(TOTAL - 1440)
+    expect(mockOwnerEmail).toHaveBeenCalledTimes(1)
+    const mail = mockOwnerEmail.mock.calls[0][0]
+    expect(mail.subject).toMatch(/Pottery Weekend/)
+    expect(mail.text).toBe(`Square total was $14.40 lower than the quote on booking ${bookingIdFor(ATTEMPT)} (quote $174.40, Square $160.00). Check the class's tax on the POS.`)
+    expect(mockAlertOwners).not.toHaveBeenCalled()
+  })
+
   it('Square a cent higher: charged, owners emailed (not texted)', async () => {
     const cls = makeClass()
     squareTotal(TOTAL + 1)

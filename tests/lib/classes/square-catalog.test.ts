@@ -145,14 +145,27 @@ describe('syncClassToSquare', () => {
     expect(new Set(Object.values(sq.variations)).size).toBe(4)
   })
 
-  it('leaves the tax off when the class is not taxable or no tax is set up', async () => {
+  it('leaves the tax off a class that is not taxable, with or without a tax set up', async () => {
     replies.push(upsertEcho())
     const c = cls(); c.content.rules.taxable = false
     await syncClassToSquare(c)
     expect(ups()[0].body.batches[0].objects[0].item_data).not.toHaveProperty('tax_ids')
     cfg.classTaxId = ''
-    await syncClassToSquare(cls())
+    await syncClassToSquare(c)
     expect(ups()[1].body.batches[0].objects[0].item_data).not.toHaveProperty('tax_ids')
+  })
+
+  it('refuses to put a taxable class on the POS with no class tax set up, so it is never sold untaxed', async () => {
+    cfg.classTaxId = ''
+    await expect(syncClassToSquare(cls())).rejects.toThrow("Class tax isn't set up yet.")
+    expect(calls).toHaveLength(0)
+  })
+
+  it('still takes a cancelled taxable class off the POS with no class tax set up', async () => {
+    cfg.classTaxId = ''
+    replies.push(upsertEcho())
+    await syncClassToSquare(cls({ status: 'cancelled' }))
+    expect(ups()[0].body.batches[0].objects[0]).toMatchObject({ present_at_all_locations: false })
   })
 
   it('refuses when the Classes category is not set up', async () => {
