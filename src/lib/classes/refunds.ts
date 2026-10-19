@@ -249,6 +249,12 @@ export interface RefundResult {
   already?: {
     at: string | null; by: By; checkedBy?: By; message: string; count: number
     latest: { requestId: string; at: string | null; by: By; cents: Cents }
+    /**
+     * The request this ask matched. A "Refund again" retried after Square
+     * finished it gets askedId === latest.requestId: that is the screen's own
+     * repeat, done (show it as refunded, not "Already refunded").
+     */
+    askedId: string
   }
 }
 
@@ -372,6 +378,7 @@ async function doneReply(cls: ScheduledClass, rec: SavedRefundRequest, actor: { 
     already: {
       at, by: latest.by, ...(latest.cleared ? { checkedBy: latest.cleared.by } : {}), message, count,
       latest: { requestId: latest.id, at, by: latest.by, cents: latest.totalCents },
+      askedId: rec.id,
     },
   }
 }

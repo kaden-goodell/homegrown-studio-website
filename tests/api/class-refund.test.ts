@@ -949,6 +949,11 @@ describe('fix round 5: "Refund again" keeps one identity across retries (R31)', 
     expect(retry.status).toBe(200)
     expect(retry.body.data.already).toMatchObject({ count: 2 })
     expect(retry.body.data.already.message).toMatch(/^Refunded twice already, last on .+ by Owner\.$/)
+    // the screen can tell this is its own repeat, finished: askedId is the latest
+    expect(retry.body.data.already.askedId).toBe(retry.body.data.already.latest.requestId)
+    // a plain re-entry of the same refund is not the screen's own repeat
+    const plain = await admin({ ...ask, attempt: 'att-9' })
+    expect(plain.body.data.already.askedId).not.toBe(of)
     // two Square calls made: the first refund and the repeat (whose retry sent nothing)
     expect(mocks.refundPayment).toHaveBeenCalledTimes(2)
     expect((await byId(classId))[a.id].refunds.map((r) => r.cents)).toEqual([500, 500])

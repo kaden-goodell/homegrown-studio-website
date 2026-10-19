@@ -30,6 +30,8 @@ const mockReport = vi.fn()
 vi.mock('@lib/posthog-server', () => ({ reportBooking: (...a: any[]) => mockReport(...a) }))
 let bypassOn = false
 vi.mock('@lib/dev-flags', () => ({ paymentBypassEnabled: () => bypassOn }))
+let staffMember: null | { id: string; name: string; role: 'owner' | 'crew' } = null
+vi.mock('@lib/staff-auth', async (orig) => ({ ...(await orig<typeof import('@lib/staff-auth')>()), staffAuthorized: () => staffMember }))
 
 const classes = new Map<string, any>()
 vi.mock('@lib/classes/class-store', () => ({ getClass: async (id: string) => classes.get(id) ?? null }))
@@ -98,10 +100,10 @@ function body(cls: ScheduledClass, over: Record<string, any> = {}) {
 }
 
 let ip = 0
-function ctx(payload: any, address?: string) {
+function ctx(payload: any, address?: string, query = '') {
   return {
     clientAddress: address ?? `198.51.100.${++ip % 250}`,
-    request: new Request('https://ourhometownstudio.com/api/classes/book.json', {
+    request: new Request(`https://ourhometownstudio.com/api/classes/book.json${query}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: typeof payload === 'string' ? payload : JSON.stringify(payload),
     }),
@@ -116,6 +118,7 @@ beforeEach(async () => {
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
   bypassOn = false
+  staffMember = null
   confirmFails = false
   vi.clearAllMocks()
   newAttempt()
@@ -637,5 +640,37 @@ describe('POST /api/classes/book.json', () => {
     }
     expect(statuses.slice(0, 5).every((s) => s !== 429)).toBe(true)
     expect(statuses[5]).toBe(429)
+  })
+})
+
+describe('Pay on the iPad (door mode, Task 14)', () => {
+  // Sat Oct 17, 1:30 PM studio time: the Saturday session started half an hour ago.
+  const DURING = new Date('2026-10-17T18:30:00.000Z')
+  it('only signed-in staff can book in door mode', async () => {
+    vi.setSystemTime(DURING)
+    const cls = makeClass()
+    const res = await POST(ctx(body(cls, { passId: 'day', sessionIds: ['ses_sat'], tickets: { adult: 1 } }), undefined, '?door=1'))
+    expect(res.status).toBe(401)
+    expect(mockProcessPayment).not.toHaveBeenCalled()
+  })
+  it('the same checkout, seats recorded as door-card by the crew member, on a session already running', async () => {
+    vi.setSystemTime(DURING)
+    staffMember = { id: 'sam', name: 'Sam', role: 'crew' }
+    const cls = makeClass()
+    mockCreateClassOrder.mockImplementation(async (p: any) => ({ orderId: 'ORDER2', totalCents: 3815, lineUids: p.lines.map((_: any, i: number) => `u${i}`), lineTotals: [] }))
+    mockProcessPayment.mockResolvedValue({ id: 'PAY2', orderId: 'ORDER2', amount: 3815, status: 'completed', receiptUrl: null })
+    const res = await POST(ctx(body(cls, { passId: 'day', sessionIds: ['ses_sat'], tickets: { adult: 1 } }), undefined, '?door=1'))
+    expect(res.status).toBe(200)
+    const [line] = await linesOf(cls)
+    expect(line).toMatchObject({ source: 'door-card', state: 'confirmed', sessionIds: ['ses_sat'], by: { id: 'sam', name: 'Sam' }, square: { orderId: 'ORDER2', paymentId: 'PAY2' } })
+    expect(mockProcessPayment).toHaveBeenCalledTimes(1)
+  })
+  it('online, the same running session is closed', async () => {
+    vi.setSystemTime(DURING)
+    const cls = makeClass()
+    const res = await POST(ctx(body(cls, { passId: 'day', sessionIds: ['ses_sat'], tickets: { adult: 1 } })))
+    expect(res.status).toBe(400)
+    expect((await res.json()).detail).toBe('One of the days you picked has already started.')
+    expect(mockProcessPayment).not.toHaveBeenCalled()
   })
 })

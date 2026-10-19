@@ -23,6 +23,7 @@ vi.mock('@config/providers', () => ({
 import * as compRoute from '@pages/api/staff/comp-seat.json'
 import * as rosterRoute from '@pages/api/staff/roster.json'
 import * as namesRoute from '@pages/api/staff/class-names.json'
+import * as classRoute from '@pages/api/staff/class.json'
 import { createClass } from '@lib/classes/class-store'
 import { getLedger, recordPos } from '@lib/classes/seat-ledger'
 import { saveWaiverRecord, upsertWaiverInEventIndex } from '@lib/waiver-store'
@@ -173,5 +174,18 @@ describe('Roster for our class', () => {
     mocks.staff = null
     expect((await roster('cls_whatever')).status).toBe(401)
     expect((await post(namesRoute, {})).status).toBe(401)
+  })
+})
+
+describe('the class as the door sees it', () => {
+  it('a session running now is still open for a door sale', async () => {
+    const cls = await createClass({ content: content(), sessions: sessions(), status: 'open', by })
+    const request = new Request(`https://x.test/api/staff/class.json?id=${cls.id}`)
+    const res: Response = await classRoute.GET({ request, url: new URL(request.url) } as any)
+    const { workshop } = await res.json()
+    expect(workshop.own.sessions.map((s: any) => [s.id, s.closed])).toEqual([['ses_mon', true], ['ses_tue', false], ['ses_wed', false]])
+    expect(workshop.own.passes.find((p: any) => p.id === 'day').state).toBe('open')
+    mocks.staff = null
+    expect((await classRoute.GET({ request, url: new URL(request.url) } as any)).status).toBe(401)
   })
 })
