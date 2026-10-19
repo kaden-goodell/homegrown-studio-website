@@ -393,6 +393,8 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   pickLines?: string[]
   /** Shown under the picks: PICKS_FINAL_LINE. */
   picksFinalLine?: string
+  /** Every date of a class that meets more than once ("Sat, Oct 17 · 1–3 PM"). */
+  sessionLines?: string[]
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const paid = dollars(input.totalChargedCents)
@@ -410,6 +412,7 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
     `You're booked, ${input.firstName}! ${input.workshopName}`,
     ``,
     `When: ${input.whenLabel} (${input.timeRange})`,
+    ...(input.sessionLines && input.sessionLines.length > 1 ? [`Your dates:`, ...input.sessionLines.map((l) => `  ${l}`)] : []),
     `Where: Hometown Studio, ${address}`,
     `Directions: ${input.directionsUrl}`,
     `Seats: ${seatWord}, ${paidWords}`,
@@ -447,6 +450,7 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   ${input.imageUrl ? `<img src="${esc(input.imageUrl)}" alt="${esc(input.workshopName)}" width="552" style="display:block;width:100%;max-width:552px;border-radius:12px;margin:0 0 14px;" />` : ''}
   <p style="${LABEL}">When</p>
   <p style="${P}"><strong>${esc(input.whenLabel)}</strong> &middot; ${esc(input.timeRange)}</p>
+  ${input.sessionLines && input.sessionLines.length > 1 ? `<p style="${LABEL}margin-top:10px;">Your dates</p>${input.sessionLines.map((l) => `<p style="${P}margin:0 0 2px;">${esc(l)}</p>`).join('')}` : ''}
   <p style="${LABEL}margin-top:10px;">Where</p>
   <p style="${P}">Hometown Studio, ${esc(address)}<br /><a href="${esc(input.directionsUrl)}" style="${LINK}font-size:13px;">Get directions</a></p>
   <p style="${LABEL}margin-top:10px;">Your booking</p>
