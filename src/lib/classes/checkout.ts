@@ -3,9 +3,9 @@
  * (src/pages/api/classes/book.json.ts) that need no network, plus what the
  * customer reads when a booking doesn't finish.
  *
- * Server only (node:crypto).
+ * Server only.
  */
-import { createHash } from 'node:crypto'
+import { idFor } from '@lib/booking-core/ids'
 import type { CheckoutErrorCode } from '@lib/checkout-attempt'
 import { workshopMessages } from '@lib/checkout-messages'
 import { cutoffClosedMessage } from '@lib/seat-options'
@@ -22,11 +22,8 @@ import type { ScheduledClass } from './types'
  */
 export const CLASS_TAX_PERCENT = 9
 
-/** How long a seat is held while the card is charged. */
-export const HOLD_MINUTES = 10
-
-/** A charge with no answer keeps its seats this long, for a person to settle. */
-export const UNCLEAR_HOLD_HOURS = 24
+/** How long a seat is held, the drift rule (R14), the unclear-charge hold (R15): shared with parties. */
+export { HOLD_MINUTES, PRICE_DRIFT_TOLERANCE_CENTS, UNCLEAR_HOLD_HOURS } from '@lib/booking-core/charge'
 
 /** One more answer than the shared codes: a try with this attempt is still running. */
 export type ClassCheckoutCode = CheckoutErrorCode | 'in_progress'
@@ -41,18 +38,11 @@ export const classMessages: Record<ClassCheckoutCode, string> = {
 export const PRICE_MISMATCH_MESSAGE = 'We couldn’t price your booking. Nothing was charged. Please try again in a few minutes.'
 
 /**
- * Square's order total is what is charged; our quote is for display. Square a
- * little higher (rounding) is charged and the owners get an email; more than
- * this over the quote is refused.
- */
-export const PRICE_DRIFT_TOLERANCE_CENTS = 100
-
-/**
  * Our booking id for one checkout attempt. A retry with the same attempt id
  * addresses the same booking, so the ledger can tell a retry from a new sale.
  */
 export function bookingIdFor(attemptId: string): string {
-  return `bkg_${createHash('sha256').update(attemptId).digest('hex').slice(0, 16)}`
+  return idFor('bkg', attemptId)
 }
 
 /** Hours before the first session that sign-ups close. */

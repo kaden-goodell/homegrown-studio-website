@@ -4,9 +4,9 @@ import { createLogger } from '@lib/logger'
 import { rateLimited } from '@lib/rate-limit'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
-import { attemptKey, chargeOutcomeOf, isAttemptId, squareErrorCodes } from '@lib/checkout-attempt'
+import { attemptKey, isAttemptId, squareErrorCodes } from '@lib/checkout-attempt'
+import { chargeOrder, judgeDrift, paidOnOrder, tellOwnersOfDrift } from '@lib/booking-core/charge'
 import { alertOwners } from '@lib/owner-alert'
-import { sendEmail } from '@lib/email'
 import { announceBooking } from '@lib/booking-alert'
 import { reportBooking } from '@lib/posthog-server'
 import { cleanAttribution } from '@lib/attribution'
@@ -27,7 +27,6 @@ import {
   soldOutMessage,
   CLASS_TAX_PERCENT,
   HOLD_MINUTES,
-  PRICE_DRIFT_TOLERANCE_CENTS,
   PRICE_MISMATCH_MESSAGE,
   UNCLEAR_HOLD_HOURS,
   cleanSeats,
@@ -230,8 +229,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   }
 
   // Square's total is what is charged; our quote is for display.
-  const drift = order.totalCents - q!.totalCents
-  if (drift > PRICE_DRIFT_TOLERANCE_CENTS) {
+  const verdict = judgeDrift(q!.totalCents, order.totalCents, { tellBelowCents: 1 })
+  if (verdict.kind === 'refuse') {
     logger.error('Class order total far above the quote — refusing', { bookingId, orderId: order.orderId, quote: q!.totalCents, square: order.totalCents })
     await letGo('price mismatch')
     await alertOwners(
@@ -239,63 +238,37 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     ).catch(() => undefined)
     return fail(502, 'unavailable', PRICE_MISMATCH_MESSAGE)
   }
-  if (drift > 0) {
-    logger.warn('Class order total a little above the quote — charging Square’s total', { bookingId, quote: q!.totalCents, square: order.totalCents })
-    const note = `Square total differed by ${dollars(drift)} on booking ${bookingId} (quote ${dollars(q!.totalCents)}, Square ${dollars(order.totalCents)})`
-    await sendEmail({
-      to: siteConfig.ownerEmails.join(', '),
-      subject: `Class price differed — ${cls.content.name}`,
-      text: note,
-      html: `<p>${note}</p>`,
-    }).catch(() => undefined)
-  }
-  if (drift < -1) {
-    // Lower is charged as Square says, but the owners hear of it: usually a taxable class on the POS without its tax.
-    logger.warn('Class order total below the quote — charging Square’s total', { bookingId, quote: q!.totalCents, square: order.totalCents })
-    const note = `Square total was ${dollars(-drift)} lower than the quote on booking ${bookingId} (quote ${dollars(q!.totalCents)}, Square ${dollars(order.totalCents)}). Check the class's tax on the POS.`
-    await sendEmail({
-      to: siteConfig.ownerEmails.join(', '),
-      subject: `Class price differed — ${cls.content.name}`,
-      text: note,
-      html: `<p>${note}</p>`,
-    }).catch(() => undefined)
+  if (verdict.kind === 'charge-and-tell') {
+    if (verdict.driftCents > 0) {
+      logger.warn('Class order total a little above the quote — charging Square’s total', { bookingId, quote: q!.totalCents, square: order.totalCents })
+    } else {
+      // Lower is charged as Square says, but the owners hear of it: usually a taxable class on the POS without its tax.
+      logger.warn('Class order total below the quote — charging Square’s total', { bookingId, quote: q!.totalCents, square: order.totalCents })
+    }
+    await tellOwnersOfDrift(
+      `Class price differed — ${cls.content.name}`, `booking ${bookingId}`, q!.totalCents, order.totalCents,
+      verdict.driftCents > 0 ? '' : "Check the class's tax on the POS.",
+    )
   }
   const charged = order.totalCents
 
   // ── 4. Charge ───────────────────────────────────────────────────────────────
-  let payment: Awaited<ReturnType<typeof providers.payment.processPayment>> | null = null
-  try {
-    payment = await providers.payment.processPayment({
-      orderId: order.orderId,
-      paymentToken,
-      amount: charged,
-      currency: 'USD',
-      buyerEmailAddress: email,
-      idempotencyKey: attemptKey(attemptId, 'pay'),
-    })
-  } catch (err) {
-    const outcome = chargeOutcomeOf(err)
-    if (outcome === 'unknown') {
-      // Before saying "we're not sure", ask whether the order shows as paid.
-      try {
-        payment = await providers.payment.findOrderPayment(order.orderId)
-      } catch { /* still unknown */ }
-    }
-    if (payment) {
-      logger.info('Charge answer was unclear but the order is paid — confirming', { bookingId, orderId: order.orderId })
-    } else if (outcome === 'not_charged') {
-      logger.error('Class payment refused — releasing seats', { bookingId, codes: squareErrorCodes(err), error: err instanceof Error ? err.message : String(err) })
-      await letGo('card declined')
-      return fail(402, 'card_declined')
+  const result = await chargeOrder({ orderId: order.orderId, amountCents: charged, paymentToken, email, attemptId })
+  if (result.kind === 'declined') {
+    if (result.paymentId !== undefined) {
+      logger.error('Class payment failed — releasing seats', { bookingId, paymentId: result.paymentId })
+      await letGo('payment failed')
     } else {
-      return unknownOutcome(cls, order, err)
+      const err = result.error
+      logger.error('Class payment refused — releasing seats', { bookingId, codes: result.codes, error: err instanceof Error ? err.message : String(err) })
+      await letGo('card declined')
     }
-  }
-  if (!payment) return unknownOutcome(cls, order, new Error('no payment returned'))
-  if (payment.status === 'failed') {
-    logger.error('Class payment failed — releasing seats', { bookingId, paymentId: payment.id })
-    await letGo('payment failed')
     return fail(402, 'card_declined')
+  }
+  if (result.kind === 'unknown') return unknownOutcome(cls, order, result.error)
+  const payment = result.payment
+  if (result.recovered) {
+    logger.info('Charge answer was unclear but the order is paid — confirming', { bookingId, orderId: order.orderId })
   }
 
   // ── Paid. Nothing below may turn this into a failure. ───────────────────────
@@ -334,16 +307,13 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
    * null = Square shows no payment; 'unknown' = we couldn't ask.
    */
   async function paidEarlier(c: ScheduledClass, lines: OrderLine[]): Promise<Response | null | 'unknown'> {
-    let found: Awaited<ReturnType<typeof providers.payment.findOrderPayment>>
-    let order: { orderId: string; totalCents: number }
-    try {
-      order = await createOrder(lines)
-      found = await providers.payment.findOrderPayment(order.orderId)
-    } catch (err) {
-      logger.error('Could not ask Square whether an earlier try paid', { bookingId, error: String(err) })
+    const earlier = await paidOnOrder(() => createOrder(lines))
+    if (earlier.kind === 'unknown') {
+      logger.error('Could not ask Square whether an earlier try paid', { bookingId, error: String(earlier.error) })
       return 'unknown'
     }
-    if (!found || found.status !== 'completed') return null
+    if (earlier.kind === 'unpaid') return null
+    const { payment: found, order } = earlier
     logger.warn('An earlier try of this attempt was paid — recording the seats', { bookingId, orderId: order.orderId })
     const charged = found.amount || order.totalCents
     const confirmed = await confirmPaid(c, { orderId: order.orderId, paymentId: found.id, chargedCents: charged })
