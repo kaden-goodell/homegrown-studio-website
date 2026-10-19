@@ -1,172 +1,58 @@
 /**
- * Party start-time logic. We GENERATE the offered starts from config (per-weekday
- * schedule in `partyDays`) rather than filtering Square's raw availability, so exact
- * half-hour anchors (e.g. 11:30, 4:30) and per-day windows are possible. Square is
- * only consulted for existing bookings, to drop slots that are already taken.
- *
- * Schedule: starts step by (durationMinutes + cleanupBufferMinutes) from each day's
- * `firstStart`, while start + party + cleanup ≤ `lastWrap` (keeps the evening
- * workshop slot clear). See `partyDays` in party.config.ts.
+ * Party start-time logic from the config, as it has always answered. The rules
+ * themselves live in src/lib/parties/party-times.ts and take the owners' saved
+ * party settings; these are thin wrappers over them with configPartySettings()
+ * (starts step by durationMinutes + cleanupBufferMinutes from each day's
+ * `firstStart` while start + party + cleanup ≤ `lastWrap`; see `partyDays` in
+ * party.config.ts). Square is only consulted for existing bookings.
  */
-import { partyConfig, partyDays, partyDateOverrides, CAFE_PARTY_GAP_MINUTES } from '../config/party.config'
-import { cafeOn } from './cafe-days'
-import { closureOn } from '../config/closures'
+import { partyConfig } from '../config/party.config'
 import { CONFIG_STUDIO_DAYS, type StudioDays } from '../config/studio-days'
+import * as T from './parties/party-times'
 
-const DAY_MS = 86_400_000
-
-/** Local hour (0–23) of an ISO timestamp in the studio's timezone. */
-export function localHour(iso: string, tz: string = partyConfig.timezone): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    hour: '2-digit',
-    hourCycle: 'h23',
-    timeZone: tz,
-  }).formatToParts(new Date(iso))
-  return parseInt(parts.find((p) => p.type === 'hour')?.value ?? '0', 10)
-}
-
-/** Local YYYY-MM-DD of an ISO timestamp in the studio's timezone. */
-export function localDate(iso: string, tz: string = partyConfig.timezone): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    timeZone: tz,
-  }).formatToParts(new Date(iso))
-  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? ''
-  return `${get('year')}-${get('month')}-${get('day')}`
-}
-
-/** Convert a studio-local date (YYYY-MM-DD) + time (HH:MM) to a UTC ISO string. */
-export function localToUtcISO(ymd: string, hhmm: string, tz: string = partyConfig.timezone): string {
-  const [y, m, d] = ymd.split('-').map(Number)
-  const [hh, mm] = hhmm.split(':').map(Number)
-  const guess = new Date(Date.UTC(y, m - 1, d, hh, mm))
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz,
-    hour12: false,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  }).formatToParts(guess)
-  const p: Record<string, string> = {}
-  for (const x of parts) p[x.type] = x.value
-  const asSeen = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second)
-  const offset = asSeen - guess.getTime()
-  return new Date(guess.getTime() - offset).toISOString()
-}
-
-function minutesOfDay(hhmm: string): number {
-  const [h, m] = hhmm.split(':').map(Number)
-  return h * 60 + m
-}
+// The studio-local time helpers live with the pure party rules now; every
+// import of them from here keeps working.
+export { localHour, localDate, localToUtcISO } from './parties/party-times'
 
 /** Occupancy of one party (party + cleanup) in ms — used for overlap checks. */
 function occupancyMs(): number {
   return (partyConfig.durationMinutes + partyConfig.cleanupBufferMinutes) * 60_000
 }
 
-/** Studio-local YYYY-MM-DD, `days` after the studio's today. */
-function studioDatePlus(days: number, now: Date): string {
-  const [y, m, d] = localDate(now.toISOString()).split('-').map(Number)
-  const shifted = new Date(Date.UTC(y, m - 1, d + days, 12))
-  return shifted.toISOString().slice(0, 10)
-}
-
 /**
  * The dates a party can be booked for today, both ends included
- * (studio-local YYYY-MM-DD). THE single rule for "which dates are on offer":
- *   - not before opening day
- *   - not with less than `minLeadDays` notice
- *   - not further ahead than `bookingWindowDays`
- * A day inside that span can still be closed (see closures.ts): bookableOn says so.
+ * (studio-local YYYY-MM-DD), from the config: not before opening day, not
+ * with less than `minLeadDays` notice, not further ahead than
+ * `bookingWindowDays`. A day inside that span can still be closed: bookableOn
+ * says so. (Saved settings: src/lib/parties/party-times.ts.)
  */
 export function bookableDates(now: Date = new Date()): { first: string; last: string } {
-  const soonest = studioDatePlus(partyConfig.minLeadDays, now)
-  // A one-off party day before opening pulls the start of the range back to it.
-  const early = Object.keys(partyDateOverrides).filter((d) => d >= soonest && d < partyConfig.bookingOpensDate).sort()[0]
-  const opens = early ?? partyConfig.bookingOpensDate
-  return {
-    // YYYY-MM-DD strings compare lexically.
-    first: soonest > opens ? soonest : opens,
-    last: studioDatePlus(partyConfig.bookingWindowDays, now),
-  }
+  return T.bookableDates(T.configPartySettings().times, now)
 }
 
 /**
- * Why a date is or isn't on offer. The server uses this to explain a refusal.
- * `days`: the closed days and café hours in use (getStudioDays() on the
- * server); the default is the config.
+ * Why a date is or isn't on offer. `days`: the closed days and café hours in
+ * use (getStudioDays() on the server); the default is the config.
  */
 export function bookableOn(
   ymd: string,
   now: Date = new Date(),
   days: StudioDays = CONFIG_STUDIO_DAYS,
 ): 'ok' | 'before_opening' | 'closed' | 'too_soon' | 'too_far' {
-  if (ymd < partyConfig.bookingOpensDate && !partyDateOverrides[ymd]) return 'before_opening'
-  if (closureOn(ymd, days.closures)) return 'closed'
-  const { first, last } = bookableDates(now)
-  if (ymd < first) return 'too_soon'
-  if (ymd > last) return 'too_far'
-  return 'ok'
+  return T.bookableOn(T.configPartySettings().times, ymd, now, days)
 }
 
 /**
- * Offered party start ISO timestamps for a local calendar date (YYYY-MM-DD).
- * Empty for any date outside bookableDates(): this is the one choke point
- * behind availability, the dates list, the calendar and the server's re-check.
+ * Offered party start ISO timestamps for a local calendar date (YYYY-MM-DD),
+ * from the config. Empty for any date outside bookableDates().
  */
 export function partyStartsForDate(ymd: string, now: Date = new Date(), days: StudioDays = CONFIG_STUDIO_DAYS): string[] {
-  if (bookableOn(ymd, now, days) !== 'ok') return []
-  const [y, m, d] = ymd.split('-').map(Number)
-  const weekday = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()
-  const cfg = partyDateOverrides[ymd] ?? partyDays[weekday]
-  if (!cfg) return []
-
-  const step = partyConfig.durationMinutes + partyConfig.cleanupBufferMinutes
-  const first = minutesOfDay(cfg.firstStart)
-  const wrap = minutesOfDay(cfg.lastWrap)
-
-  const out: string[] = []
-  for (let t = first; t + step <= wrap; t += step) {
-    const hh = String(Math.floor(t / 60)).padStart(2, '0')
-    const mm = String(t % 60).padStart(2, '0')
-    out.push(localToUtcISO(ymd, `${hh}:${mm}`))
-  }
-  // Parties step aside for Craft Café, with a gap before and after.
-  const cafe = cafeOn(ymd, days)
-  if (cafe) {
-    const gap = CAFE_PARTY_GAP_MINUTES * 60_000
-    const opens = Date.parse(localToUtcISO(ymd, cafe.opens)) - gap
-    const closes = Date.parse(localToUtcISO(ymd, cafe.closes)) + gap
-    return out.filter((iso) => {
-      const start = Date.parse(iso)
-      const end = start + partyConfig.durationMinutes * 60_000
-      return end <= opens || start >= closes
-    })
-  }
-  return out
+  return T.partyStartsForDate(T.configPartySettings(), ymd, now, days)
 }
 
 /** All offered party starts whose start falls within [startIso, endIso], sorted. */
 export function partyStartsInRange(startIso: string, endIso: string, now: Date = new Date(), days: StudioDays = CONFIG_STUDIO_DAYS): string[] {
-  const startMs = new Date(startIso).getTime()
-  const endMs = new Date(endIso).getTime()
-  const seen = new Set<string>()
-  const out: string[] = []
-  for (let t = startMs; t <= endMs + DAY_MS; t += DAY_MS) {
-    const ymd = localDate(new Date(Math.min(t, endMs)).toISOString())
-    if (seen.has(ymd)) continue
-    seen.add(ymd)
-    for (const iso of partyStartsForDate(ymd, now, days)) {
-      const ms = new Date(iso).getTime()
-      if (ms >= startMs && ms <= endMs) out.push(iso)
-    }
-  }
-  return out.sort()
+  return T.partyStartsInRange(T.configPartySettings(), startIso, endIso, now, days)
 }
 
 /**

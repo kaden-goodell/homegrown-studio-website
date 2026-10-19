@@ -11,8 +11,9 @@
  * the legacy seat picks, the minimum-to-run alert markers, the New class
  * create keys (which Add made which class), the To decide decisions, and
  * the class photos. Also the studio settings (Craft Café hours, special days,
- * closed days) with their change history. tests/lib/archive-stores.test.ts fails when a store under
- * src/lib/classes is missing here.
+ * closed days) and the party settings (party times, packages, extras), each
+ * with their change history. tests/lib/archive-stores.test.ts fails when a
+ * store under src/lib/classes or src/lib/parties is missing here.
  *
  * Deliberately left out: `otps` (one-time SMS codes, 10-minute life) and
  * `warnings-seen` (which daily-email lines were already shown), throwaway
@@ -33,6 +34,8 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'open-studio' },
   // Craft Café hours, special days and closed days set on /admin, with who changed them
   { name: 'studio-settings' },
+  // Party times, packages and extras set in /admin › Parties setup, with who changed them
+  { name: 'party-settings' },
   // our own classes
   { name: 'classes' },
   { name: 'class-library' },

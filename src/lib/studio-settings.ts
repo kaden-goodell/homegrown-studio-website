@@ -22,6 +22,7 @@ import type { Closure, Holiday } from '@config/closures'
 import { WEEKDAYS, type CafeSpecialDay, type CafeWeekly, type Weekday } from '@config/hours'
 import { CONFIG_STUDIO_DAYS, type StudioDays } from '@config/studio-days'
 import type { CafeHours } from '@config/hours'
+import { SettingsError } from '@lib/settings-error'
 
 const logger = createLogger('studio-settings')
 const kv = makeKvStore('studio-settings', 'studio-settings')
@@ -64,9 +65,7 @@ export interface SettingsView extends SettingsInput {
   history: SettingsChange[]
 }
 
-export class SettingsError extends Error {
-  constructor(public status: number, message: string, public field?: string) { super(message) }
-}
+export { SettingsError }
 
 /** The config as editable settings. Config closures get a stable id from their first day. */
 export function configSettings(): SettingsInput {

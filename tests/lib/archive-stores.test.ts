@@ -23,6 +23,15 @@ describe('archive store list', () => {
     for (const name of found) expect(ARCHIVE_STORE_NAMES, `store "${name}" is missing from the archive`).toContain(name)
   })
 
+  it('covers every store under src/lib/parties', () => {
+    const dir = join(root, 'src/lib/parties')
+    const files = (readdirSync(dir, { recursive: true }) as string[]).filter((f) => f.endsWith('.ts'))
+    for (const f of files) expect(readFileSync(join(dir, f), 'utf8'), f).not.toMatch(/makeKvStore\(\s*[^'"`\s)]/)
+    const found = files.flatMap((f) => storeNamesIn(join(dir, f)))
+    expect(found).toContain('party-settings')
+    for (const name of found) expect(ARCHIVE_STORE_NAMES, `store "${name}" is missing from the archive`).toContain(name)
+  })
+
   it('covers the class photos and the legacy seat picks', () => {
     for (const name of [...storeNamesIn(join(root, 'src/pages/api/admin/classes/photo.json.ts')), ...storeNamesIn(join(root, 'src/lib/seat-choices.ts'))]) {
       expect(ARCHIVE_STORE_NAMES).toContain(name)
