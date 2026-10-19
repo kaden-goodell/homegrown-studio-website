@@ -1,7 +1,7 @@
 /**
  * Meta (Facebook/Instagram) Pixel — lets Kaden show ads to people who already
  * visited and lets Meta aim boosts at people who book. Live site only, never
- * on the waiver or staff pages (families' details are on those pages), and
+ * on the waiver, staff or party host pages (families' details are on those pages), and
  * with Meta's automatic form scraping turned off.
  *
  * Page changes inside the site (view transitions) don't reload the page, so
@@ -16,7 +16,7 @@ declare global {
 }
 
 const PIXEL_ID = import.meta.env.PUBLIC_META_PIXEL_ID || ''
-const PRIVATE_PATHS = /^\/(waiver|staff)(\/|$)/
+const PRIVATE_PATHS = /^\/(waiver|staff|party)(\/|$)/
 
 export function metaPixelAllowed(hostname: string, pathname: string): boolean {
   return !!PIXEL_ID && /(^|\.)ourhometownstudio\.com$/.test(hostname) && !PRIVATE_PATHS.test(pathname)

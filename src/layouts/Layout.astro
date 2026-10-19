@@ -34,9 +34,14 @@ interface Props {
    * and navigated the iPad off the console mid-pickup (F1).
    */
   bare?: boolean
+  /**
+   * Pages whose address carries a private key (a party host's page): no
+   * analytics or ad pixel at all, so the key never reaches GA, PostHog or Meta.
+   */
+  noAnalytics?: boolean
 }
 
-const { bare } = Astro.props
+const { bare, noAnalytics } = Astro.props
 const { colors, fonts, textures } = siteConfig.theme
 const textureClass = `texture-${textures.background}`
 
@@ -49,7 +54,8 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <SeoHead {...Astro.props} />
-    <PostHog noRecording={!!bare || Astro.url.pathname.startsWith('/waiver')} />
+    <meta name="referrer" content="same-origin" />
+    {!noAnalytics && <PostHog noRecording={!!bare || Astro.url.pathname.startsWith('/waiver')} />}
     <ViewTransitions />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -104,6 +110,6 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     {!bare && <RenameNotice client:idle transition:persist />}
     <script>import '@lib/fade-in'; import '@lib/nav-progress'</script>
     {/* Staff tools (the console, the counter-iPad agreement) aren't visitors. */}
-    {!bare && <Analytics />}
+    {!bare && !noAnalytics && <Analytics />}
   </body>
 </html>

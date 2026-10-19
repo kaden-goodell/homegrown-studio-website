@@ -30,3 +30,23 @@ describe('meta pixel', () => {
     expect(toMetaEvent('nav_click', {})).toBeNull()
   })
 })
+
+describe('party host pages stay private', () => {
+  it('the pixel never runs on a party host page (its address carries the host key)', async () => {
+    vi.resetModules()
+    vi.stubEnv('PUBLIC_META_PIXEL_ID', '123456789012345')
+    const { metaPixelAllowed } = await import('@lib/meta-pixel')
+    expect(metaPixelAllowed('ourhometownstudio.com', '/parties')).toBe(true)
+    expect(metaPixelAllowed('ourhometownstudio.com', '/party/abc123')).toBe(false)
+  })
+
+  it('the party host page turns analytics off and the layout honours it', async () => {
+    const { readFileSync } = await import('node:fs')
+    const page = readFileSync('src/pages/party/[id].astro', 'utf8')
+    const layout = readFileSync('src/layouts/Layout.astro', 'utf8')
+    expect(page).toMatch(/<Layout[^>]*\bnoAnalytics\b/)
+    expect(layout).toContain('{!noAnalytics && <PostHog')
+    expect(layout).toContain('!noAnalytics && <Analytics />')
+    expect(layout).toContain('<meta name="referrer" content="same-origin" />')
+  })
+})
