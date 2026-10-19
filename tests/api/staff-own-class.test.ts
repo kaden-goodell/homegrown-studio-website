@@ -95,8 +95,20 @@ describe('Comp a seat on our class', () => {
     const squeezed = await post(compRoute, { ...ask, tickets: { adult: 1 }, picks: [{ seat: 1, optionId: 'glaze', choice: 'Blue' }], overCapacity: true })
     expect(squeezed.status).toBe(200)
     expect(squeezed.body.data.overCapacity).toBe(true)
+    expect(squeezed.body.data.over).toEqual({ sold: 3, capacity: 2 })
     const r = await roster(cls.id, '2026-10-21')
     expect(r.body.data.event.capacity - r.body.data.event.seats).toBe(3) // "3 of 2"
+  })
+
+  it('M2: a retry with the same attempt (a lost reply) adds nothing and sends no second email', async () => {
+    const cls = await createClass({ content: content({ questions: [] }), sessions: sessions(), status: 'open', by })
+    const ask = { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 1 }, attempt: 'sheet-attempt-1', sendEmail: true }
+    const first = await post(compRoute, ask)
+    const again = await post(compRoute, ask)
+    expect(again.status).toBe(200)
+    expect(again.body.data).toMatchObject({ bookingId: first.body.data.bookingId, replayed: true, seats: 1 })
+    expect((await getLedger(cls.id)).lines).toHaveLength(1)
+    expect(mocks.email).toHaveBeenCalledTimes(1)
   })
 
   it('a seat with no pick is refused with what is missing', async () => {

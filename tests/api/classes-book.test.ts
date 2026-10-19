@@ -673,4 +673,18 @@ describe('Pay on the iPad (door mode, Task 14)', () => {
     expect((await res.json()).detail).toBe('One of the days you picked has already started.')
     expect(mockProcessPayment).not.toHaveBeenCalled()
   })
+  it('a full day can be paid by card at the door after the crew tick Add over capacity; online it stays sold out', async () => {
+    vi.setSystemTime(DURING)
+    staffMember = { id: 'sam', name: 'Sam', role: 'crew' }
+    const cls = makeClass({ capacity: 1 })
+    await hold(cls, quote(cls, { passId: 'day', sessionIds: ['ses_sat'], tickets: { adult: 1 } }, DURING, 9, { door: true }).value as any, { bookingId: 'bkg_other', passId: 'day', source: 'comp', customer: null, ttlMinutes: 60 }, DURING)
+    mockCreateClassOrder.mockImplementation(async (p: any) => ({ orderId: 'ORDER3', totalCents: 3815, lineUids: p.lines.map((_: any, i: number) => `u${i}`), lineTotals: [] }))
+    mockProcessPayment.mockResolvedValue({ id: 'PAY3', orderId: 'ORDER3', amount: 3815, status: 'completed', receiptUrl: null })
+    const full = await POST(ctx(body(cls, { passId: 'day', sessionIds: ['ses_sat'], tickets: { adult: 1 } }), undefined, '?door=1'))
+    expect(full.status).toBe(409)
+    newAttempt()
+    const res = await POST(ctx(body(cls, { passId: 'day', sessionIds: ['ses_sat'], tickets: { adult: 1 }, overCapacity: true }), undefined, '?door=1'))
+    expect(res.status).toBe(200)
+    expect((await linesOf(cls))[0]).toMatchObject({ source: 'door-card', overCapacity: true })
+  })
 })

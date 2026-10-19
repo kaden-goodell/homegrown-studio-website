@@ -309,6 +309,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     holdInput = {
       bookingId, passId, source: door ? 'door-card' : 'online', customer: person, ttlMinutes: HOLD_MINUTES,
       ...(member ? { by: byOf(member) } : {}),
+      // At the door the crew may seat someone on a full day on purpose (the same rule as a comp).
+      ...(door && body.overCapacity === true ? { allowOverCapacity: true } : {}),
       ...(req.seats ? { seats: req.seats } : {}),
     }
     seatsLabel = seatsLabelFor(c, value.lines.filter((l) => l.kind === 'seat'))

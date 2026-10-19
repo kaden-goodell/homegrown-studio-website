@@ -291,7 +291,15 @@ async function ownClassSeat(
     const by = byOf(member)
     const added = await addDoorSeats({
       cls, mode: payAtRegister ? 'door-counter' : 'comp', request: req, customer: person, by, overCapacity: body.overCapacity === true,
+      ...(typeof body.attempt === 'string' && /^[A-Za-z0-9_-]{6,80}$/.test(body.attempt) ? { attempt: body.attempt } : {}),
     })
+    // A retry of an add that already went in: the same answer, nothing new, no second email or audit.
+    if (added.ok && added.replayed) {
+      return reply(200, { data: {
+        bookingId: added.bookingId, emailSent: false, seats: added.lines.length, seatsLabel: seatsLabelFor(cls, added.lines), own: true, replayed: true,
+        ...(payAtRegister ? { dueCents: added.dueCents } : {}), ...(added.over ? { overCapacity: true, over: added.over } : {}),
+      } })
+    }
     if (!added.ok) return reply(added.status, { error: added.error, ...(added.code ? { code: added.code } : {}) })
 
     let rosterNote: string | null = null
@@ -319,7 +327,7 @@ async function ownClassSeat(
       })
     }
 
-    const over = added.lines.some((l) => l.overCapacity)
+    const over = !!added.over || added.lines.some((l) => l.overCapacity)
     await recordAudit({
       by: member,
       action: payAtRegister ? 'seat.sold-at-door' : 'seat.comped',
@@ -335,7 +343,7 @@ async function ownClassSeat(
         bookingId: added.bookingId, emailSent, seats: added.lines.length, seatsLabel, own: true,
         ...(payAtRegister ? { dueCents: added.dueCents } : {}),
         ...(rosterNote ? { warning: rosterNote } : {}),
-        ...(over ? { overCapacity: true } : {}),
+        ...(over ? { overCapacity: true, ...(added.over ? { over: added.over } : {}) } : {}),
       },
     })
   } catch (err) {
