@@ -27,6 +27,7 @@ import {
   BookPartySheet, ComingSheet, PartiesSetupSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet,
 } from './sheets/MoreSheets'
 import { ClosedDaysSheet, HoursSheet } from './sheets/SettingsSheets'
+import { ImportSquareSheet } from './sheets/ImportSquareSheet'
 import { StudioProvider } from './shell/studio'
 
 const LABEL: Record<Tab, string> = { home: 'Home', calendar: 'Calendar', classes: 'Classes', inbox: 'Inbox', more: 'More' }
@@ -430,6 +431,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
         case 'staff': return <ComingSheet title="Staff" stage={3} what="who can work when, and who’s on each class and party." />
         case 'promos': return <ComingSheet title="Promotions" stage={4} what="discount codes for classes and parties, and how often each is used." />
         case 'reports': return <ReportsSheet />
+        case 'import': return <ImportSquareSheet />
         case 'sandbox': return <SandboxSheet />
         case 'who': return <WhoSheet />
       }

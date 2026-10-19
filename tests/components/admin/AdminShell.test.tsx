@@ -90,6 +90,7 @@ function server(o: any = {}) {
         return ok({ data: { sandbox } })
       case '/api/admin/party.json': return ok({ data: { party, guests: [{ name: 'Ann Guest', kids: 2, coming: 3, waiver: 'current' }] } })
       case '/api/admin/reports.json': return ok({ data: { month: '2026-10', seatsSold: 74, classSalesCents: 196800, refunds: 1, refundedCents: 1635, partiesBooked: 3 } })
+      case '/api/admin/classes/import-square.json': return ok({ data: { create: [], skip: [], addPhoto: [] } })
       case '/api/party/service-info.json': return ok({ data: { crafts: [{ id: 'c1', name: 'Beaded Necklace', perHeadCents: 1800, perHeadMaxCents: 1800 }] } })
     }
     throw new Error(`unexpected ${url}`)
@@ -561,6 +562,15 @@ describe('Classes tab', () => {
 })
 
 describe('More', () => {
+  it('Bring in Square classes opens its sheet, which starts with a dry run', async () => {
+    const f = await signedIn()
+    tab('More')
+    fireEvent.click(await screen.findByRole('button', { name: /Bring in Square classes/ }))
+    expect(await within(dialog()).findByText('Nothing new to add')).toBeInTheDocument()
+    expect(window.location.hash).toBe('#more-import')
+    expect(posts(f, '/api/admin/classes/import-square.json')).toEqual([{ dryRun: true }])
+  })
+
   it('lists the setup pages; Staff and Promotions are marked as coming', async () => {
     await signedIn()
     tab('More')

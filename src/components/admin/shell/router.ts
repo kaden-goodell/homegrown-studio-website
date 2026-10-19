@@ -14,8 +14,8 @@ const TOKEN_RE = /^[A-Za-z0-9._-]{1,120}$/
 const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 
 export type InboxKind = 'request' | 'message' | 'teacher'
-export type MorePage = 'parties' | 'hours' | 'closed' | 'staff' | 'promos' | 'reports' | 'sandbox' | 'who'
-export const MORE_PAGES: MorePage[] = ['parties', 'hours', 'closed', 'staff', 'promos', 'reports', 'sandbox', 'who']
+export type MorePage = 'parties' | 'hours' | 'closed' | 'staff' | 'promos' | 'reports' | 'import' | 'sandbox' | 'who'
+export const MORE_PAGES: MorePage[] = ['parties', 'hours', 'closed', 'staff', 'promos', 'reports', 'import', 'sandbox', 'who']
 
 /** Every sheet /admin can open, as data. */
 export type Sheet =

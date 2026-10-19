@@ -50,6 +50,14 @@ export default function More({ onOpen, onSignOut }: { onOpen: (s: Sheet) => void
           )
         })}
       </ul>
+      <ul className="adm-mlist" aria-label="Classes from Square">
+        <li>
+          <button type="button" className="adm-mrow" onClick={() => onOpen({ kind: 'more', page: 'import' })}>
+            <span className="adm-rm"><b>Bring in Square classes</b><small>Add the classes Square runs now to your library</small></span>
+            <span className="adm-chev" aria-hidden="true">›</span>
+          </button>
+        </li>
+      </ul>
       <ul className="adm-mlist" aria-label="You">
         <li>
           <button type="button" className="adm-mrow" onClick={() => onOpen({ kind: 'more', page: 'who' })}>
