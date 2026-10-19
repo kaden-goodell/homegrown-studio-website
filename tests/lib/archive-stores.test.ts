@@ -10,12 +10,15 @@ import { ARCHIVE_STORES, ARCHIVE_STORE_NAMES } from '@lib/archive-stores'
 import { exportAll } from '@lib/archive-export'
 
 const root = process.cwd()
-const storeNamesIn = (file: string) => [...readFileSync(file, 'utf8').matchAll(/makeKvStore\(\s*'([^']+)'/g)].map((m) => m[1])
+const storeNamesIn = (file: string) => [...readFileSync(file, 'utf8').matchAll(/makeKvStore\(\s*(['"`])([^'"`]+)\1/g)].map((m) => m[2])
 
 describe('archive store list', () => {
   it('covers every store under src/lib/classes', () => {
     const dir = join(root, 'src/lib/classes')
-    const found = readdirSync(dir).filter((f) => f.endsWith('.ts')).flatMap((f) => storeNamesIn(join(dir, f)))
+    const files = (readdirSync(dir, { recursive: true }) as string[]).filter((f) => f.endsWith('.ts'))
+    // a store named by a variable would slip past the name check: refuse it
+    for (const f of files) expect(readFileSync(join(dir, f), 'utf8'), f).not.toMatch(/makeKvStore\(\s*[^'"`\s)]/)
+    const found = files.flatMap((f) => storeNamesIn(join(dir, f)))
     expect(found.length).toBeGreaterThan(5)
     for (const name of found) expect(ARCHIVE_STORE_NAMES, `store "${name}" is missing from the archive`).toContain(name)
   })

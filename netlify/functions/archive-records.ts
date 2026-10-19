@@ -2,6 +2,7 @@ import type { Config } from '@netlify/functions'
 import { getStore } from '@netlify/blobs'
 import { exportAll, buildArchiveAttachments, type ArchiveKvStore } from '../../src/lib/archive-export'
 import { ARCHIVE_STORES, ARCHIVE_STORE_NAMES } from '../../src/lib/archive-stores'
+import { blobStoreName } from '../../src/lib/blob-store-name'
 
 /**
  * Weekly self-archive (HOM-217, Audit finding H3): exports every legal
@@ -26,7 +27,8 @@ export const config: Config = { schedule: '0 8 * * 0' }
 const STORE_NAMES = ARCHIVE_STORE_NAMES
 
 function blobKvStore(name: string): ArchiveKvStore {
-  const store = getStore({ name, consistency: 'strong' })
+  // The deploy's own stores: a namespaced preview reads its own, never the live ones.
+  const store = getStore({ name: blobStoreName(name, process.env), consistency: 'strong' })
   return {
     async list() {
       const { blobs } = await store.list()
@@ -108,7 +110,7 @@ export default async () => {
     // Snapshot the full export into its own blob store, independent of email
     // delivery — the off-platform email copy and the on-platform snapshot
     // are each a complete backup on their own.
-    const archiveStore = getStore({ name: 'archive', consistency: 'strong' })
+    const archiveStore = getStore({ name: blobStoreName('archive', process.env), consistency: 'strong' })
     await archiveStore.set(`archive/${dateStr}.json`, JSON.stringify(result, null, 2))
 
     const attachments = buildArchiveAttachments(result, [...STORE_NAMES])

@@ -55,6 +55,28 @@ afterEach(() => {
 })
 
 describe('netlify/functions/archive-records', () => {
+  it('a namespaced deploy reads and snapshots its own stores, never the live ones', async () => {
+    process.env.STORE_NAMESPACE = 'preview'
+    const { getStore } = await import('@netlify/blobs')
+    const run = await loadFn()
+    expect((await run()).status).toBe(200)
+    const names = (getStore as any).mock.calls.map((c: any[]) => c[0].name)
+    expect(names).toContain('preview-waivers')
+    expect(names).toContain('preview-seat-ledger')
+    expect(names).toContain('preview-archive')
+    expect(names.every((n: string) => n.startsWith('preview-'))).toBe(true)
+  })
+
+  it('a sandbox deploy with no namespace is refused, loudly', async () => {
+    process.env.NETLIFY = 'true'
+    process.env.SQUARE_ENVIRONMENT = 'sandbox'
+    delete process.env.STORE_NAMESPACE
+    const run = await loadFn()
+    const res = await run()
+    expect(res.status).toBe(500)
+    expect((await res.json()).error).toMatch(/sandbox/)
+  })
+
   it('ARCHIVE_DRY_RUN=1 writes to /tmp and never touches the mailer', async () => {
     process.env.ARCHIVE_DRY_RUN = '1'
     const run = await loadFn()
