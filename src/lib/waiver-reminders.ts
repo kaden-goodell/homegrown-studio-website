@@ -11,6 +11,12 @@
  * door seat), each re-checked with Square: only a booking Square still calls
  * "accepted", for this class at this time, counts. A cancelled one is skipped.
  *
+ * Our own classes (stage 1): families come from the seat ledger, every line
+ * that still holds a seat (confirmed, or refunded with the seat kept) on a
+ * session later today. A class that meets on several days gets its reminder
+ * on each of those days. A counter sale with no name yet has no one to
+ * contact and is skipped.
+ *
  * Signed: any one of (a) a signature made for this very booking (the waiver
  * link carries the booking id), (b) an agreement on file under the booking's
  * email, (c) one under its phone. "Current" is the door check's own rule
@@ -33,6 +39,10 @@ import { withUtm } from '@lib/utm'
 import { siteConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
 import type { Workshop } from '@providers/interfaces/workshop'
+import { listClasses } from '@lib/classes/class-store'
+import { getLedger, type LedgerLine } from '@lib/classes/seat-ledger'
+import { holdsSeat, onStaffConsole, sessionsOn } from '@lib/classes/staff-view'
+import { studioDayUtcRange } from '@lib/studio-time'
 
 const logger = createLogger('waiver-reminders')
 const sentStore = makeKvStore('waiver-reminders', 'waiver-reminders')
@@ -63,6 +73,8 @@ export interface ReminderPlan {
   unsure: (Family & { why: string })[]
   /** Reminded earlier today already. */
   alreadyReminded: Family[]
+  /** Whole sources that couldn't be read (our own classes): owners told, nobody guessed at. */
+  notes?: string[]
 }
 
 const familyKey = (r: SeatChoiceRecord) => r.customer.email.trim().toLowerCase() || `phone:${r.customer.phone.replace(/\D/g, '').slice(-10)}`
@@ -100,6 +112,37 @@ async function coverage(r: SeatChoiceRecord, scheduleId: string, now: Date): Pro
   return 'none'
 }
 
+interface OwnBooking {
+  bookingId: string
+  customer: NonNullable<LedgerLine['customer']>
+  cls: ReminderClass
+}
+
+/**
+ * Bookings on our own classes with a session later today: one per booking,
+ * from the ledger lines that still hold a seat on that session. Lines with no
+ * name (a counter sale not yet named) are skipped: there is no one to contact.
+ * Throws when the classes or a ledger can't be read.
+ */
+async function ownClassBookingsToday(day: string, now: Date): Promise<OwnBooking[]> {
+  const { startIso, endIso } = studioDayUtcRange(day)
+  const classes = (await listClasses({ fromIso: startIso, toIso: endIso })).filter(onStaffConsole)
+  const out: OwnBooking[] = []
+  for (const cls of classes) {
+    const session = sessionsOn(cls, day).find((x) => Date.parse(x.startIso) > now.getTime())
+    if (!session) continue
+    const ledger = await getLedger(cls.id)
+    const seen = new Set<string>()
+    for (const l of ledger.lines) {
+      if (!holdsSeat(l) || !l.sessionIds.includes(session.id) || !l.customer) continue
+      if (seen.has(l.bookingId)) continue
+      seen.add(l.bookingId)
+      out.push({ bookingId: l.bookingId, customer: l.customer, cls: { scheduleId: cls.id, name: cls.content.name, startAt: session.startIso, bookingId: l.bookingId } })
+    }
+  }
+  return out.sort((a, b) => Date.parse(a.cls.startAt) - Date.parse(b.cls.startAt))
+}
+
 export async function planWaiverReminders(now: Date): Promise<ReminderPlan> {
   const day = studioDate(now.toISOString())
   const workshops = ((await providers.workshop.listAllWorkshops?.()) ?? [])
@@ -108,21 +151,26 @@ export async function planWaiverReminders(now: Date): Promise<ReminderPlan> {
 
   type Seen = Family & { states: string[]; whys: string[] }
   const families = new Map<string, Seen>()
+  const familyOf = (r: Pick<SeatChoiceRecord, 'customer'>): Seen => {
+    const key = familyKey(r as SeatChoiceRecord)
+    const f: Seen = families.get(key) ?? {
+      key,
+      givenName: r.customer.givenName,
+      familyName: r.customer.familyName,
+      email: r.customer.email.trim(),
+      phone: r.customer.phone.trim(),
+      classes: [],
+      states: [],
+      whys: [],
+    }
+    if (!f.phone && r.customer.phone.trim()) f.phone = r.customer.phone.trim()
+    return f
+  }
   for (const w of workshops) {
     const records = (await listSeatChoicesByEvent('workshop', w.scheduleId)).filter((r) => r.simulated !== true)
     for (const r of records) {
-      const key = familyKey(r)
-      const f: Seen = families.get(key) ?? {
-        key,
-        givenName: r.customer.givenName,
-        familyName: r.customer.familyName,
-        email: r.customer.email.trim(),
-        phone: r.customer.phone.trim(),
-        classes: [],
-        states: [],
-        whys: [],
-      }
-      if (!f.phone && r.customer.phone.trim()) f.phone = r.customer.phone.trim()
+      const f = familyOf(r)
+      const key = f.key
       let booked: boolean
       try {
         booked = await stillBooked(r, w)
@@ -145,7 +193,25 @@ export async function planWaiverReminders(now: Date): Promise<ReminderPlan> {
     }
   }
 
-  const plan: ReminderPlan = { day, remind: [], signed: [], unsure: [], alreadyReminded: [] }
+  const notes: string[] = []
+  try {
+    for (const b of await ownClassBookingsToday(day, now)) {
+      const f = familyOf(b)
+      f.classes.push(b.cls)
+      try {
+        f.states.push(await coverage(b as unknown as SeatChoiceRecord, b.cls.scheduleId, now))
+      } catch (err) {
+        f.whys.push(`couldn't read the signed agreements`)
+        logger.warn('Coverage unknown', { bookingId: b.bookingId, error: err instanceof Error ? err.message : String(err) })
+      }
+      families.set(f.key, f)
+    }
+  } catch (err) {
+    notes.push("Our own classes couldn't be read, so nobody booked in them was checked or reminded. Please check today's rosters by hand.")
+    logger.error('Own classes unreadable for waiver reminders', { error: err instanceof Error ? err.message : String(err) })
+  }
+
+  const plan: ReminderPlan = { day, remind: [], signed: [], unsure: [], alreadyReminded: [], ...(notes.length ? { notes } : {}) }
   for (const f of families.values()) {
     const { states, whys, ...family } = f
     if (family.classes.length === 0) continue
@@ -249,12 +315,17 @@ export async function runWaiverReminders(now: Date, origin: string): Promise<Rem
 }
 
 export function ownerSummary(plan: ReminderPlan, sent: ReminderRun['sent']): { subject: string; text: string } | null {
-  const any = plan.remind.length + plan.signed.length + plan.unsure.length + plan.alreadyReminded.length
+  const notes = plan.notes ?? []
+  const any = plan.remind.length + plan.signed.length + plan.unsure.length + plan.alreadyReminded.length + notes.length
   if (any === 0) return null
   const who = (f: Family) => `${f.givenName} ${f.familyName}`.trim()
   const how = (s: ReminderRun['sent'][number]) =>
     s.email && s.text ? 'emailed and texted' : s.email ? 'emailed (text failed or no phone)' : s.text ? 'texted (email failed or no email)' : 'NOT REACHED, email and text both failed'
   const lines: string[] = []
+  if (notes.length) {
+    lines.push(...notes)
+    lines.push('')
+  }
   if (sent.length) {
     lines.push('Reminded to sign (not on file yet)')
     for (const s of sent) lines.push(`  ${who(s.family)}, ${classList(s.family.classes)}, ${how(s)}${s.family.phone ? `, ${s.family.phone}` : ''}`)
@@ -276,7 +347,7 @@ export function ownerSummary(plan: ReminderPlan, sent: ReminderRun['sent']): { s
   }
   const missing = sent.length + plan.alreadyReminded.length
   return {
-    subject: `Waivers for today's classes${missing ? `, ${missing} not signed yet` : ', everyone signed'}${plan.unsure.length ? `, ${plan.unsure.length} to check` : ''}`,
+    subject: `Waivers for today's classes${missing ? `, ${missing} not signed yet` : ', everyone signed'}${plan.unsure.length || notes.length ? `, ${plan.unsure.length + notes.length} to check` : ''}`,
     text: lines.join('\n').trim(),
   }
 }

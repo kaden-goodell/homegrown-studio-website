@@ -23,7 +23,19 @@ vi.mock('@lib/quo', async (orig) => ({
   quoConfigured: () => quoOn,
 }))
 
-import { planWaiverReminders, runWaiverReminders, ownerSummary, shortTime, classList, reminderText, reminderEmail } from '@lib/waiver-reminders'
+const own = vi.hoisted(() => ({ classes: [] as any[], ledgers: new Map<string, any>(), fail: false }))
+vi.mock('@lib/classes/class-store', () => ({
+  listClasses: async (range?: { fromIso: string; toIso: string }) => {
+    if (own.fail) throw new Error('blobs down')
+    return own.classes.filter((c) => !range || c.sessions.some((x: any) => x.startIso < range.toIso && x.endIso > range.fromIso))
+  },
+}))
+vi.mock('@lib/classes/seat-ledger', async (orig) => ({
+  ...(await orig<typeof import('@lib/classes/seat-ledger')>()),
+  getLedger: async (id: string) => own.ledgers.get(id) ?? { classId: id, lines: [] },
+}))
+
+import { planWaiverReminders, runWaiverReminders, ownerSummary, shortTime, classList, reminderText, reminderEmail, waiverLink } from '@lib/waiver-reminders'
 import { substantiveSince } from '@config/waiver-content'
 
 // Sun 18 Oct 2026, 9:00 AM CDT
@@ -48,6 +60,9 @@ const accepted = (w = PAILS) => async (id: string) => ({ id, status: 'accepted',
 
 beforeEach(() => {
   vi.clearAllMocks()
+  own.classes = []
+  own.ledgers.clear()
+  own.fail = false
   quoOn = true
   mockWorkshops.mockResolvedValue([PAILS])
   mockSeats.mockResolvedValue([])
@@ -303,5 +318,107 @@ describe('wording', () => {
     expect(e.text.split('\n')[0]).toBe('Hi there,')
     expect(e.text).not.toContain('Flynn')
     expect(e.html).toContain('href="LINK"')
+  })
+})
+
+describe('our own classes', () => {
+  // Pottery meets today 2 PM and tomorrow 2 PM (CDT)
+  const POTTERY = {
+    id: 'cls_pottery', status: 'open',
+    content: { name: 'Wheel Pottery', rules: {} },
+    sessions: [
+      { id: 'ses_1', startIso: '2026-10-18T19:00:00.000Z', endIso: '2026-10-18T21:00:00.000Z', capacity: 8 },
+      { id: 'ses_2', startIso: '2026-10-19T19:00:00.000Z', endIso: '2026-10-19T21:00:00.000Z', capacity: 8 },
+    ],
+  }
+  let k = 0
+  function line(over: any = {}) {
+    k++
+    const email = over.email ?? `own${k}-${Date.now()}@example.com`
+    return {
+      id: `led_${k}`, bookingId: over.bookingId ?? `bkg_${k}`, sessionIds: over.sessionIds ?? ['ses_1', 'ses_2'], ticketTypeId: 'person', passId: 'all', seat: 1,
+      priceCents: 3000, taxCents: 0, addOns: {}, addOnCents: 0, addOnTaxCents: 0, answers: {}, source: over.source ?? 'online',
+      state: over.state ?? 'confirmed', holdExpiresAt: null,
+      customer: over.customer === null ? null : { givenName: 'Rosa', familyName: 'Diaz', email, phone: '(256) 555-0100', ...(over.customer ?? {}) },
+      square: { orderId: 'o', paymentId: 'p', lineUid: null }, by: null, refunds: over.refunds ?? [], at: '',
+    }
+  }
+  const withLines = (lines: any[], cls: any = POTTERY) => {
+    own.classes = [cls]
+    own.ledgers.set(cls.id, { classId: cls.id, lines })
+  }
+
+  beforeEach(() => mockWorkshops.mockResolvedValue([]))
+
+  it('a family with a confirmed seat later today is reminded, with the class’s own waiver link', async () => {
+    const l = line()
+    withLines([l])
+    const plan = await planWaiverReminders(NOW)
+    expect(plan.remind.map((f) => [f.email, f.classes])).toEqual([[l.customer!.email, [{ scheduleId: 'cls_pottery', name: 'Wheel Pottery', startAt: '2026-10-18T19:00:00.000Z', bookingId: l.bookingId }]]])
+    expect(waiverLink('https://example.com', plan.remind[0].classes[0])).toContain('/waiver?workshop=cls_pottery&booking=' + l.bookingId)
+  })
+
+  it('a signature through the booking’s own link counts (rsvps under the class id)', async () => {
+    const l = line()
+    withLines([l])
+    mockRsvps.mockImplementation(async (kind: string, id: string) => (kind === 'workshop' && id === 'cls_pottery' ? [{ waiverId: 'wvr_9', ref: { bookingId: l.bookingId } }] : []))
+    mockWaiver.mockResolvedValue(CURRENT)
+    const plan = await planWaiverReminders(NOW)
+    expect(plan.signed.map((f) => f.email)).toEqual([l.customer!.email])
+    expect(plan.remind).toEqual([])
+  })
+
+  it('only seats still held count: refunded with the seat freed, released and held are left out; refunded but kept counts', async () => {
+    const kept = line({ state: 'refunded', refunds: [{ at: '', cents: 100, reason: '', by: { id: 'k', name: 'K' }, freedSeat: false, squareRefundId: null }] })
+    const freed = line({ state: 'refunded', refunds: [{ at: '', cents: 3000, reason: '', by: { id: 'k', name: 'K' }, freedSeat: true, squareRefundId: null }] })
+    withLines([kept, freed, line({ state: 'released' }), line({ state: 'held' })])
+    const plan = await planWaiverReminders(NOW)
+    expect(plan.remind.map((f) => f.email)).toEqual([kept.customer!.email])
+  })
+
+  it('a counter sale with no name yet is skipped: no one to contact, nothing to check by hand', async () => {
+    withLines([line({ customer: null, source: 'pos' })])
+    const plan = await planWaiverReminders(NOW)
+    expect([plan.remind, plan.signed, plan.unsure]).toEqual([[], [], []])
+  })
+
+  it('a class that meets on two days gets its reminder on each day', async () => {
+    const l = line()
+    withLines([l])
+    const today = await runWaiverReminders(NOW, 'https://example.com')
+    expect(today.sent.map((x) => x.family.email)).toEqual([l.customer!.email])
+    const tomorrow = await runWaiverReminders(new Date('2026-10-19T14:00:00.000Z'), 'https://example.com')
+    expect(tomorrow.sent.map((x) => x.family.classes[0].startAt)).toEqual(['2026-10-19T19:00:00.000Z'])
+  })
+
+  it('a session that has already started today is left out; drafts and cancelled classes too', async () => {
+    withLines([line()])
+    expect((await planWaiverReminders(new Date('2026-10-18T19:30:00.000Z'))).remind).toEqual([])
+    withLines([line()], { ...POTTERY, status: 'draft' })
+    expect((await planWaiverReminders(NOW)).remind).toEqual([])
+    withLines([line()], { ...POTTERY, status: 'cancelled' })
+    expect((await planWaiverReminders(NOW)).remind).toEqual([])
+  })
+
+  it('one family in a Square class and one of ours today gets one reminder listing both', async () => {
+    const email = `both-${Date.now()}@example.com`
+    mockWorkshops.mockResolvedValue([PAILS])
+    mockSeats.mockResolvedValue([seat({ email })])
+    withLines([line({ email })])
+    const plan = await planWaiverReminders(NOW)
+    expect(plan.remind).toHaveLength(1)
+    expect(classList(plan.remind[0].classes)).toBe('Bedazzled Pumpkin Pails at 1 PM and Wheel Pottery at 2 PM')
+  })
+
+  it('our classes unreadable: Square’s classes still go, and the owners are told to check by hand', async () => {
+    own.fail = true
+    mockWorkshops.mockResolvedValue([PAILS])
+    mockSeats.mockResolvedValue([seat()])
+    const run = await runWaiverReminders(NOW, 'https://example.com')
+    expect(run.sent).toHaveLength(1)
+    expect(run.plan.notes?.[0]).toMatch(/couldn't be read/)
+    const summary = ownerSummary(run.plan, run.sent)!
+    expect(summary.text).toMatch(/Our own classes couldn't be read/)
+    expect(summary.subject).toMatch(/1 to check/)
   })
 })
