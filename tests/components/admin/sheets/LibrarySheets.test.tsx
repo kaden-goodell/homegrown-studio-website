@@ -147,3 +147,25 @@ describe('library, fix round 1', () => {
   })
 })
 
+describe('library, fix round 2', () => {
+  it('N4: a stale save whose reload fails keeps the typed form, shows the error with Try again, and Save comes back once the copy loads', async () => {
+    let gets = 0
+    const f = vi.fn(async (_url: string, init?: any) => {
+      if (init?.method === 'POST') return { ok: false, status: 409, json: async () => ({ error: 'Someone else changed this library class. Your edits are kept; check them and save again.', stale: true }) }
+      gets++
+      if (gets === 2) return { ok: false, status: 503, json: async () => ({ error: 'The library couldn’t be loaded.' }) }
+      return ok({ data: { library: [gets > 2 ? { ...pottery, versions: [...pottery.versions, { ...pottery.versions[1], version: 3 }] } : pottery], runs } })
+    })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<LibraryEditSheet id="lib_1" />)
+    fireEvent.change(await screen.findByLabelText('Description'), { target: { value: 'Mine.' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save to the library' }))
+    expect(await screen.findByText(/The library couldn’t be loaded\. Your typing is kept/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Description')).toHaveValue('Mine.')
+    expect(within(footer()).getByRole('button', { name: 'Save to the library' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(within(footer()).getByRole('button', { name: 'Save to the library' })).toBeEnabled())
+    expect(screen.getByLabelText('Description')).toHaveValue('Mine.')
+  })
+})
+

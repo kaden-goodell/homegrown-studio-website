@@ -143,13 +143,14 @@ export function LibraryItemSheet({ id }: { id: string }) {
 /** Edit a library class's details (with how long it usually runs and its usual seats). A save is a new version. */
 export function LibraryEditSheet({ id }: { id: string }) {
   const { item, error, retry, list } = useOne(id)
-  if (error) return <SheetFrame tall title="Edit details"><Failed message={error} onRetry={retry} /></SheetFrame>
+  // Once the form is up, a failed reload never takes it away (N4): the error shows above the typing, with Try again.
+  if (!list && error) return <SheetFrame tall title="Edit details"><Failed message={error} onRetry={retry} /></SheetFrame>
   if (!list) return <SheetFrame tall title="Edit details"><Skeleton rows={4} label="Loading the library" /></SheetFrame>
   if (!item) return <SheetFrame tall title="Edit details"><p className="adm-muted">That class isn’t in the library any more.</p></SheetFrame>
-  return <LibraryForm item={item} onStale={retry} />
+  return <LibraryForm item={item} onStale={retry} loadError={error} />
 }
 
-function LibraryForm({ item, onStale }: { item: LibraryClass; onStale: () => void }) {
+function LibraryForm({ item, onStale, loadError }: { item: LibraryClass; onStale: () => void; loadError: string }) {
   const { open, setDirty } = useSheet()
   const { bump } = useRefresh()
   const toast = useToast()
@@ -210,6 +211,7 @@ function LibraryForm({ item, onStale }: { item: LibraryClass; onStale: () => voi
       <div ref={body}>
         <p className="adm-note">This changes the library copy, for classes you schedule from now on.</p>
         {stale && <p className="adm-panel is-warn" role="alert">{stale}</p>}
+        {loadError && fetching && <Failed message={`${loadError} Your typing is kept; Save works again once the latest copy loads.`} onRetry={onStale} />}
         <PreviewButton f={f} sessions={[]} />
         <DetailsFields f={f} set={(fn) => setF((cur) => fn(cur))} errors={errors} sessions={[]} usual />
       </div>

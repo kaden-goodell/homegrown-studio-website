@@ -504,3 +504,28 @@ describe('fix round 1', () => {
   })
 })
 
+describe('class sheet, fix round 2', () => {
+  it('N5: a stale save caused only by the background library link goes again quietly, no prompt', async () => {
+    let n = 0
+    const f = server({ post: (b) => (b.action === 'update' && ++n === 1 ? refuse(409, { error: 'stale', stale: true }) : undefined) })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" tab="details" />)
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Pottery 2' } })
+    // Only the library link changed underneath.
+    f.state.the = { ...f.state.the, updatedAt: 'linked', libraryId: 'lib_9' }
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Saved.')).toBeInTheDocument()
+    expect(screen.queryByText(/Your edits are kept/)).toBeNull()
+    expect(posts(f, CLASSES).map((p: any) => p.body.expectedUpdatedAt)).toEqual(['2031-01-02T00:00:00.000Z', 'linked'])
+  })
+
+  it('QN3: when a refund doesn’t go through, the toast points to Try again right here', async () => {
+    vi.stubGlobal('fetch', server({ the: cls({ status: 'cancelled' }), bookings: [booking()], refund: () => refuse(502, { error: 'Square didn’t confirm.' }) }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Refund everyone…' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund 1 person' }))
+    expect(await screen.findByText('Refunded 0 of 1. Try the rest below.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Try the ones that didn’t go through' })).toBeInTheDocument()
+  })
+})
+

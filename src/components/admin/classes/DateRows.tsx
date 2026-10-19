@@ -39,6 +39,19 @@ export function weekLater(sessions: Session[]): DateRow[] {
   return rowsOf(sessions).map((r) => ({ ...r, key: key(), id: newId('ses'), day: addDays(r.day, 7) }))
 }
 
+/**
+ * Copied dates that would start before `from` move forward by whole weeks
+ * until the first is on or after it, keeping each weekday, time and the gaps
+ * between them (R37: Run it again never starts in the past).
+ */
+export function onOrAfter(rows: DateRow[], from: string, closed: (day: string) => boolean = () => false): DateRow[] {
+  if (!rows.length) return rows
+  let weeks = 0
+  // Also past a closed day (a holiday) for the first date.
+  while ((addDays(rows[0].day, weeks * 7) < from || closed(addDays(rows[0].day, weeks * 7))) && weeks < 520) weeks++
+  return weeks ? rows.map((r) => ({ ...r, day: addDays(r.day, weeks * 7) })) : rows
+}
+
 /** The next date after the last one: a week later, same times and seats. */
 function after(last: DateRow): DateRow {
   return { ...last, key: key(), id: newId('ses'), day: addDays(last.day, 7) }
@@ -93,7 +106,7 @@ export default function DateRows({ rows, onChange, error, disabled, booked }: {
       {rows.map((r, i) => (
         <fieldset key={r.key} className="adm-date" disabled={disabled}>
           <legend>{`Date ${i + 1}`}</legend>
-          {!!booked?.[r.id] && <p className="adm-small adm-warntext adm-datebooked">{`${booked[r.id]} booked on this date. Moving it asks first; it can’t be removed while people are booked.`}</p>}
+          {!!booked?.[r.id] && !disabled && <p className="adm-small adm-warntext adm-datebooked">{`${booked[r.id]} booked on this date. Moving it asks first; it can’t be removed while people are booked.`}</p>}
           <div className="adm-two">
             <label className="adm-fld"><span>Day</span><input type="date" value={r.day} onChange={(e) => set(i, { day: e.target.value })} /></label>
             <label className="adm-fld"><span>Seats</span><input inputMode="numeric" value={r.capacity} onChange={(e) => set(i, { capacity: e.target.value })} /></label>
@@ -102,9 +115,9 @@ export default function DateRows({ rows, onChange, error, disabled, booked }: {
             <label className="adm-fld"><span>Starts</span><input type="time" value={r.start} onChange={(e) => set(i, { start: e.target.value })} /></label>
             <label className="adm-fld"><span>Ends</span><input type="time" value={r.end} onChange={(e) => set(i, { end: e.target.value })} /></label>
           </div>
-          {rows.length > 1 && !disabled && (
-            <button type="button" className="adm-btn is-ghost is-sm" onClick={() => onChange(rows.filter((_, n) => n !== i))}>{`Remove date ${i + 1}`}</button>
-          )}
+          {rows.length > 1 && !disabled && (booked?.[r.id]
+            ? <p className="adm-small adm-muted">Has bookings</p>
+            : <button type="button" className="adm-btn is-ghost is-sm" onClick={() => onChange(rows.filter((_, n) => n !== i))}>{`Remove date ${i + 1}`}</button>)}
         </fieldset>
       ))}
       {error && <p role="alert" className="adm-error adm-fielderr">{error}</p>}

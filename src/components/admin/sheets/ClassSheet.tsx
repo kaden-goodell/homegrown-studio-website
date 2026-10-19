@@ -85,6 +85,8 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
   const [busy, setBusy] = useState('')
   const textPanel = useRef<HTMLDivElement>(null)
   const healed = useRef(false)
+  const mounted = useRef(true)
+  useEffect(() => () => { mounted.current = false }, [])
   useEffect(() => { if (texting) textPanel.current?.scrollIntoView?.({ block: 'nearest' }) }, [texting])
 
   const detailsDirty = !!f && !!base && JSON.stringify(f) !== JSON.stringify(base)
@@ -153,7 +155,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
   const built = f ? build(f) : null
   const differsFromLibrary = !!library && !!built?.ok && !sameDetails(built.content, library)
 
-  async function saveDetails(alsoLibrary: boolean) {
+  async function saveDetails(alsoLibrary: boolean, expected = cls.updatedAt, retried = false) {
     if (!f) return
     setStaleNote('')
     const b = build(f)
@@ -162,12 +164,16 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     setSaving(true)
     setBusy(alsoLibrary ? 'both' : 'only')
     const r = await api<{ class: ScheduledClass; libraryAdded?: boolean }>(CLASSES, {
-      action: 'update', id: cls.id, expectedUpdatedAt: cls.updatedAt, content: b.content, ...(alsoLibrary ? { alsoUpdateLibrary: true } : {}),
+      action: 'update', id: cls.id, expectedUpdatedAt: expected, content: b.content, ...(alsoLibrary ? { alsoUpdateLibrary: true } : {}),
     })
     setSaving(false)
     setBusy('')
     if (!r.ok || !r.data) {
-      if (r.status === 409 && r.extra.stale === true) return keepAfterStale()
+      if (r.status === 409 && r.extra.stale === true) {
+        const again = await keepAfterStale(retried)
+        if (again) return saveDetails(alsoLibrary, again, true)
+        return
+      }
       const k = fieldOf(r.extra.field, f)
       const e = { [k]: r.error ?? DIDNT_SAVE } as Errors
       setErrors(e)
@@ -182,15 +188,24 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     toast(r.warning ?? (r.data.libraryAdded ? 'Saved. It’s in your library now.' : alsoLibrary ? 'Saved. The library has it too.' : 'Saved.'))
   }
 
-  /** Someone else saved first: take their copy as the base, keep what was typed, say what they changed. */
-  async function keepAfterStale() {
+  /**
+   * Someone else saved first: take their copy as the base, keep what was
+   * typed, say what they changed. When nothing she can see changed (only the
+   * background library link, N5), returns the fresh updatedAt so the save goes
+   * again quietly (once).
+   */
+  async function keepAfterStale(retried = false): Promise<string | null> {
     const before = cls.content
+    const beforeCls = cls
     // What she hadn't touched follows the fresh copy, so it never shows as her unsaved change (Q3).
     const detailsUntouched = !detailsDirty
     const datesUntouched = sameRows(rows, baseRows) && status === cls.status
     const fresh = await load()
-    if (!fresh) return
+    if (!fresh) return null
     const theirs = contentChanges(before, fresh.cls.content, { usual: false })
+    const nothingSeen = !theirs.length && fresh.cls.status === beforeCls.status
+      && JSON.stringify(fresh.cls.sessions) === JSON.stringify(beforeCls.sessions)
+    if (nothingSeen && !retried) return fresh.cls.updatedAt
     const freshForm = toForm(fresh.cls.content)
     setBase(freshForm)
     if (detailsUntouched) setF(freshForm)
@@ -198,10 +213,11 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     setBaseRows(freshRows)
     if (datesUntouched) { setRows(freshRows); setStatus(fresh.cls.status) }
     setStaleNote(`${STALE_KEPT}${theirs.length ? ` They changed: ${theirs.join(', ')}.` : ''}`)
+    return null
   }
 
   // ── Dates ─────────────────────────────────────────────────────────────
-  async function saveDates(confirmMove = false) {
+  async function saveDates(confirmMove = false, expected = cls.updatedAt, retried = false) {
     setDatesError('')
     setStaleNote('')
     setMoved(null)
@@ -210,7 +226,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     setSaving(true)
     setBusy(confirmMove ? 'move' : 'dates')
     const r = await api<{ class: ScheduledClass; peopleToTell?: PersonToTell[]; libraryAdded?: boolean }>(CLASSES, {
-      action: 'update', id: cls.id, expectedUpdatedAt: cls.updatedAt, sessions: checked.sessions, status: status === 'cancelled' ? undefined : status,
+      action: 'update', id: cls.id, expectedUpdatedAt: expected, sessions: checked.sessions, status: status === 'cancelled' ? undefined : status,
       ...(confirmMove ? { confirmMove: true } : {}),
     })
     setSaving(false)
@@ -218,7 +234,11 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     if (!r.ok || !r.data) {
       if (r.status === 409 && Array.isArray(r.extra.peopleToTell)) { setToTell(r.extra.peopleToTell); return }
       setToTell(null)
-      if (r.status === 409 && r.extra.stale === true) return keepAfterStale()
+      if (r.status === 409 && r.extra.stale === true) {
+        const again = await keepAfterStale(retried)
+        if (again) return saveDates(confirmMove, again, true)
+        return
+      }
       setDatesError(r.error ?? DIDNT_SAVE)
       return
     }
@@ -272,7 +292,8 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     }
     setRefundAll('idle')
     // Said again as a toast, which stays on screen even if the sheet was closed while it ran (M8).
-    toast(done === list.length ? `Refunded ${done === 1 ? '1 person' : `all ${done}`}.` : `Refunded ${done} of ${list.length}. Open the class to try the rest.`)
+    toast(done === list.length ? `Refunded ${done === 1 ? '1 person' : `all ${done}`}.`
+      : `Refunded ${done} of ${list.length}. ${mounted.current ? 'Try the rest below.' : 'Open the class to try the rest.'}`)
     await load()
     bump()
   }

@@ -203,8 +203,18 @@ function StillInSquare({ onOpen }: { onOpen: (s: Sheet, data?: unknown) => void 
 function LibraryTiles({ onOpen }: { onOpen: (s: Sheet, data?: unknown) => void }) {
   const [archived, setArchived] = useState(false)
   const { list, runs, error, retry } = useLibraryList(archived)
-  // Most recently run (or coming up) first, then the latest edited: the ones she'd run again are on top.
-  const recent = (l: LibraryClass) => runs[l.id]?.lastIso ?? runs[l.id]?.nextIso ?? latestOf(l).at
+  // Ran most recently first; then ones only coming up (soonest first); "Not run yet" last, latest edited first (QN4).
+  const rank = (l: LibraryClass): [number, string] => {
+    const r = runs[l.id]
+    if (r?.lastIso) return [0, r.lastIso]
+    if (r?.nextIso) return [1, r.nextIso]
+    return [2, latestOf(l).at]
+  }
+  const order = (a: LibraryClass, b: LibraryClass) => {
+    const [ra, ka] = rank(a), [rb, kb] = rank(b)
+    if (ra !== rb) return ra - rb
+    return ra === 1 ? ka.localeCompare(kb) : kb.localeCompare(ka)
+  }
   return (
     <>
       <p className="adm-note">Every class you add lands here on its own. Tap one to run it again.</p>
@@ -218,7 +228,7 @@ function LibraryTiles({ onOpen }: { onOpen: (s: Sheet, data?: unknown) => void }
       )}
       {list && list.length > 0 && (
         <div className="adm-tiles">
-          {[...list].sort((a, b) => recent(b).localeCompare(recent(a))).map((l) => {
+          {[...list].sort(order).map((l) => {
             const c = latestOf(l).content
             return (
               <SafeRow key={l.id}>

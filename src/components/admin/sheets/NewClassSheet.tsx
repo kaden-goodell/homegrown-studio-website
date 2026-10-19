@@ -13,7 +13,7 @@ import type { ClassContent, LibraryClass, ScheduledClass } from '@lib/classes/ty
 import { api, BOOKINGS, CLASSES } from '../classes/api'
 import { blankContent, build, fieldOf, fixLine, toForm, type Errors, type Form } from '../classes/class-form'
 import { DetailsFields, focusFirstError, PreviewButton } from '../classes/ClassDetails'
-import DateRows, { checkRows, endAfter, lengthOf, newDateRow, weekLater, type DateRow } from '../classes/DateRows'
+import DateRows, { checkRows, endAfter, lengthOf, newDateRow, onOrAfter, weekLater, type DateRow } from '../classes/DateRows'
 import { addDays, dayLabel, partsOf, today, weekday } from '../classes/dates'
 import { closureOn, OPEN_WEEKDAYS } from '@config/closures'
 import { latestOf, priceOf, ranText } from '../classes/labels'
@@ -117,7 +117,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
       if (!r.ok || !r.data) { setLoadError(r.error ?? ''); return }
       const cls = r.data.class
       const lib = cls.libraryId ? list.find((l) => l.id === cls.libraryId) : undefined
-      begin(toForm(cls.content), weekLater(cls.sessions), { libraryId: lib?.id ?? null, content: lib ? latestOf(lib).content : null, name: cls.content.name, startedFrom: cls.content })
+      begin(toForm(cls.content), onOrAfter(weekLater(cls.sessions), defaultDay(), (d) => !!closureOn(d)), { libraryId: lib?.id ?? null, content: lib ? latestOf(lib).content : null, name: cls.content.name, startedFrom: cls.content })
     })
     return () => { live = false }
   }, [from?.kind, from?.id, list, ready])
@@ -175,7 +175,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
     // From scratch, the library's usual length and seats come from the first date.
     const content: ClassContent = picked?.libraryId ? b.content : { ...b.content, defaultMinutes: lengthOf(first.day, first.start, first.end) || b.content.defaultMinutes, defaultCapacity: checked.sessions[0].capacity }
     setBusy(status === 'draft' ? 'draft' : alsoLibrary ? 'both' : 'add')
-    const r = await api<{ class: ScheduledClass }>(CLASSES, {
+    const r = await api<{ class: ScheduledClass; replay?: boolean }>(CLASSES, {
       action: 'create', content, sessions: checked.sessions, status, createKey: createKey.current,
       ...(picked?.libraryId ? { libraryId: picked.libraryId } : {}),
       ...(alsoLibrary ? { alsoUpdateLibrary: true } : {}),
@@ -194,8 +194,12 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
     // Added: moving on to its sheet must not ask "Leave without saving?".
     setDirty(false)
     bump()
-    toast(r.warning ?? (status === 'draft' ? 'Saved as a draft. It’s in your library; it goes on the website when you open it.' : ADDED))
-    open({ kind: 'class', id: r.data.class.id })
+    const made = r.data.class
+    // N2: this Add was already made on an earlier try. If what came back isn't what was sent now, say so; never claim a draft that's open.
+    const sentDates = checked.sessions.map((x) => x.startIso).join()
+    const differs = !!r.data.replay && (made.status !== status || made.sessions.map((x) => x.startIso).join() !== sentDates || JSON.stringify(made.content.prices) !== JSON.stringify(content.prices) || made.content.name !== content.name)
+    toast(differs ? 'This class was already added. Here it is.' : r.warning ?? (made.status === 'draft' ? 'Saved as a draft. It’s in your library; it goes on the website when you open it.' : ADDED))
+    open({ kind: 'class', id: made.id })
   }
 
   const line = errors.form || fixLine(errors, 'above')

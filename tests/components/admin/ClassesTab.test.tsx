@@ -136,3 +136,18 @@ describe('Classes tab, fix round 1', () => {
   })
 })
 
+describe('Classes tab, fix round 2', () => {
+  it('QN4: the library goes by when each last ran, newest first; ones only coming up next; "Not run yet" last', async () => {
+    const mk = (id: string, name: string, at2: string) => ({ ...libList[0], id, versions: [{ ...libList[0].versions[0], at: at2, content: { ...libList[0].versions[0].content, name } }] })
+    const f = vi.fn(async (url: string) => (url.startsWith('/api/admin/classes/library.json')
+      ? ok({ data: { library: [mk('l_new', 'Never Run', '2026-10-19T10:00:00Z'), mk('l_old', 'Ran Long Ago', '2026-01-01T00:00:00Z'), mk('l_soon', 'Coming Up', '2026-10-18T00:00:00Z'), mk('l_recent', 'Ran Lately', '2026-02-01T00:00:00Z')],
+        runs: { l_old: { lastIso: at('2026-05-01', '18:00'), nextIso: null, startIso: '', endIso: '' }, l_recent: { lastIso: at('2026-10-10', '18:00'), nextIso: null, startIso: '', endIso: '' }, l_soon: { lastIso: null, nextIso: at('2026-11-05', '18:00'), startIso: '', endIso: '' } } } })
+      : server()(url)))
+    vi.stubGlobal('fetch', f)
+    render(<ClassesTab onOpen={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Library' }))
+    await screen.findByRole('button', { name: /Never Run/ })
+    expect([...document.querySelectorAll('.adm-tile b')].map((b) => b.textContent)).toEqual(['Ran Lately', 'Ran Long Ago', 'Coming Up', 'Never Run'])
+  })
+})
+

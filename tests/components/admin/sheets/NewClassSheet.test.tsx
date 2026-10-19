@@ -357,3 +357,36 @@ describe('New class, fix round 1', () => {
   })
 })
 
+describe('New class, fix round 2', () => {
+  it('N1 (R37): Run it again from a class three weeks gone starts on the next open day or later, same weekday; a past date the server refuses shows under the dates', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-19T15:00:00Z'))
+    try {
+      const theClass = cls({ libraryId: null, sessions: [{ id: 'ses_1', startIso: at('2026-09-26', '10:00'), endIso: at('2026-09-26', '12:00'), capacity: 6 }] })
+      const f = server({ theClass, create: () => refuse(400, { error: 'Pick a date from today on.', field: 'sessions' }) })
+      vi.stubGlobal('fetch', f)
+      renderSheet(<NewClassSheet from={{ kind: 'class', id: 'cls_1' }} />)
+      await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Pottery'))
+      // Sat Sep 26 moves on by whole weeks: Sat Oct 31 is the first on or after Thu Oct 29, but it's the Halloween closure, so Sat Nov 7.
+      expect(within(date1()).getByLabelText('Day')).toHaveValue('2026-11-07')
+      fireEvent.change(within(date1()).getByLabelText('Day'), { target: { value: '2026-10-01' } })
+      fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+      const dates = date1().parentElement as HTMLElement
+      expect(await within(dates).findByText('Pick a date from today on.')).toBeInTheDocument()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('N2: an Add that turns out to be a replay of an earlier one (different from what was sent) says so and opens it', async () => {
+    const f = server({ create: () => ok({ data: { class: cls({ id: 'cls_first', status: 'open' }), replay: true } }) })
+    vi.stubGlobal('fetch', f)
+    const { sheet } = renderSheet(<NewClassSheet />)
+    fillBasics('Pottery', '45')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save as draft' }))
+    expect(await screen.findByText('This class was already added. Here it is.')).toBeInTheDocument()
+    expect(screen.queryByText(/Saved as a draft/)).toBeNull()
+    expect(sheet.open).toHaveBeenCalledWith({ kind: 'class', id: 'cls_first' })
+  })
+})
+

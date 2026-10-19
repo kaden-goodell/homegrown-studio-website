@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { useState } from 'react'
 import { render, screen, fireEvent, within } from '@testing-library/react'
-import DateRows, { checkRows, newDateRow, rowsOf, weekLater, type DateRow } from '@components/admin/classes/DateRows'
+import DateRows, { checkRows, newDateRow, onOrAfter, rowsOf, weekLater, type DateRow } from '@components/admin/classes/DateRows'
 import { localToUtcISO } from '@lib/party-slots'
 
 const at = (d: string, t: string) => localToUtcISO(d, t)
@@ -64,4 +64,24 @@ describe('DateRows: the one way /admin picks dates', () => {
     render(<DateRows rows={[newDateRow({ day: '2031-03-12', start: '10:00', end: '11:00', capacity: 4 })]} onChange={() => {}} error="Clashes with Party for Sam, Wed Mar 12 10 AM." />)
     expect(screen.getByRole('alert')).toHaveTextContent('Clashes with Party for Sam')
   })
+
+  it('R37: copied dates in the past move on by whole weeks, keeping weekday, times and the gap between them', () => {
+    const rows = [newDateRow({ day: '2026-10-03', start: '10:00', end: '12:00', capacity: 6 }), newDateRow({ day: '2026-10-10', start: '10:00', end: '12:00', capacity: 6 })]
+    const moved = onOrAfter(rows, '2026-10-29')
+    expect(moved.map((r) => r.day)).toEqual(['2026-10-31', '2026-11-07'])
+    expect(onOrAfter(rows, '2026-10-01')).toBe(rows)
+    expect(onOrAfter(rows, '2026-10-29', (d) => d === '2026-10-31').map((r) => r.day)).toEqual(['2026-11-07', '2026-11-14'])
+  })
+
+  it('QN1, QN2: a booked date has no Remove (it says "Has bookings"); read-only dates show no booked hint', () => {
+    const rows = [newDateRow({ id: 'ses_a', day: '2031-03-12', start: '10:00', end: '11:00', capacity: 4 }), newDateRow({ id: 'ses_b', day: '2031-03-19', start: '10:00', end: '11:00', capacity: 4 })]
+    const { unmount } = render(<DateRows rows={rows} onChange={() => {}} booked={{ ses_a: 2 }} />)
+    expect(screen.queryByRole('button', { name: 'Remove date 1' })).toBeNull()
+    expect(within(date(1)).getByText('Has bookings')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove date 2' })).toBeInTheDocument()
+    unmount()
+    render(<DateRows rows={rows} onChange={() => {}} booked={{ ses_a: 2 }} disabled />)
+    expect(screen.queryByText(/booked on this date/)).toBeNull()
+  })
 })
+
