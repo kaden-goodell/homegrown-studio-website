@@ -280,7 +280,11 @@ async function partyItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
     const elsewhere = c.state === 'paid-elsewhere'
     // Sorted out since (a retry, Square's payment event or an owner recorded it paid): not waiting any more.
     if (!elsewhere) {
-      const rec = await getPartyRecord(c.partyId)
+      // A failed read shows the item (Confirm is safe on a recorded party) rather than hiding the rest.
+      const rec = await getPartyRecord(c.partyId).catch((e) => {
+        console.error(`[to-decide] party ${c.partyId}: ${e instanceof Error ? e.message : String(e)}`)
+        return null
+      })
       if (rec && (rec.charges?.length ?? 0) > 0) continue
     }
     const id = tokenOf(elsewhere ? `ppe-${safeKey(c.orderId ?? '')}` : `ppu-${c.partyId}`)

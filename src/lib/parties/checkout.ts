@@ -110,6 +110,26 @@ export const PRICE_MISMATCH_MESSAGE = 'Pricing mismatch — your card was not ch
 export const CRAFT_GONE_MESSAGE = 'That craft isn’t available any more. Nothing was charged. Pick another craft.'
 export const PARTY_CANCELLED_MESSAGE = 'That party was cancelled. Nothing was charged. Start a new booking, or text us.'
 
+// DRAFT copy (new, for Kaden): a retry whose choices changed since an earlier, unpaid try.
+export const CHOICES_CHANGED_MESSAGE = 'Something changed. Nothing was charged. Please try again.'
+
+/** The Square order lines for a quote (and themed table). */
+function orderLines(q: PartyQuote, theme: ResolvedTheme | undefined): LineItem[] {
+  return [
+    ...orderLineItems(q.items, q.pkg.name, q.pkg.id),
+    ...(theme ? [{ catalogObjectId: theme.variationId, name: `Themed Table — ${theme.displayName}`, quantity: 1, pricePerUnit: theme.priceCents }] : []),
+  ]
+}
+
+/** Is a retry asking for exactly what an earlier try's checkout holds? (The customer id may differ.) */
+function sameChoices(prior: PartyCheckout, now: { startMs: number; lines: LineItem[]; craftId: string; guests: number; themeId?: string }): boolean {
+  return Date.parse(prior.startIso) === now.startMs
+    && JSON.stringify(prior.order?.lineItems ?? null) === JSON.stringify(now.lines)
+    && prior.draft?.craftId === now.craftId
+    && prior.draft?.guestCount === now.guests
+    && (prior.draft?.theme?.themeId ?? undefined) === now.themeId
+}
+
 export function partyIdFor(key: string): string {
   return idFor('pty', key)
 }
@@ -470,9 +490,22 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     if (prior) {
       const recovered = await recoverPaid(partyId, input, now, prior)
       if (recovered && recovered !== 'unpaid') return recovered
-      // Square couldn't be asked, or the earlier try was for another time: wait for a person.
-      if (recovered !== 'unpaid' || !prior.order || !prior.draft || Date.parse(prior.startIso) !== startMs) return { kind: 'in_progress' }
-      // Unpaid in Square: carry on with that very order request (same key → the same order).
+      // Square couldn't be asked: never guess, wait (a person sees it in To decide).
+      if (recovered !== 'unpaid') return { kind: 'in_progress' }
+      if (!prior.order || !prior.draft || !sameChoices(prior, { startMs, lines: orderLines(q, theme), craftId: input.craftId, guests: input.guests, themeId: theme?.themeId })) {
+        // Unpaid in Square, and the customer changed their choices (time, package, extras,
+        // craft, guests, table): that order is never charged. Let it go; they start again.
+        logger.warn('Retried party checkout changed its choices — earlier unpaid try let go', { partyId })
+        try {
+          await releaseTime(partyId, prior.startIso)
+          await deleteCheckout(partyId)
+        } catch (err) {
+          logger.error('Earlier party try not let go — refusing', { partyId, error: String(err) })
+          return refuse(503, 'unavailable', partyMessages.unavailable)
+        }
+        return refuse(503, 'unavailable', CHOICES_CHANGED_MESSAGE)
+      }
+      // Unpaid in Square, same choices: carry on with that very order request (same key → the same order).
       reuse = prior
       endIso = prior.endIso
       quotedCents = prior.quotedCents
@@ -610,14 +643,11 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
       { orderId: `sim-${partyId}`, paymentId: `sim-${partyId}`, cents: quotedCents, receiptUrl: null, simulated: true },
       now,
     )
-    return finish({ partyId, input, draft, rec: paid.rec, charge: paid.charge, craft, theme, onFile: null, customerId: 'dev-customer', matchedBy, simulated: true, minGuests: q.pkg.minGuests })
+    return finish({ partyId, input, draft, rec: paid.rec, created: paid.created, charge: paid.charge, craft, theme, onFile: null, customerId: 'dev-customer', matchedBy, simulated: true, minGuests: q.pkg.minGuests })
   }
 
   // ── 5. One Square order ────────────────────────────────────────────────────
-  const lineItems: LineItem[] = [
-    ...orderLineItems(q.items, q.pkg.name, q.pkg.id),
-    ...(theme ? [{ catalogObjectId: theme.variationId, name: `Themed Table — ${theme.displayName}`, quantity: 1, pricePerUnit: theme.priceCents }] : []),
-  ]
+  const lineItems = orderLines(q, theme)
   const orderRequest = reuse?.order ?? {
     idempotencyKey: attemptKey(sqKey, 'order'),
     locationId: siteConfig.providers.booking.config.locationId,
@@ -693,7 +723,7 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     { orderId: order.id, paymentId: payment.id, cents: payment.amount || order.totalAmount, receiptUrl: payment.receiptUrl ?? null },
     now,
   )
-  return finish({ partyId, input, draft, rec: paid.rec, charge: paid.charge, craft, theme, onFile, customerId, matchedBy, simulated: false, minGuests: q.pkg.minGuests })
+  return finish({ partyId, input, draft, rec: paid.rec, created: paid.created, charge: paid.charge, craft, theme, onFile, customerId, matchedBy, simulated: false, minGuests: q.pkg.minGuests })
 
   // ── helpers (closures over this request) ───────────────────────────────────
 
@@ -789,10 +819,12 @@ export async function reportRecoveredBooking(c: Pick<PartyCheckout, 'partyId' | 
 
 /** Paid (or simulated): email, owners' text, analytics, the email-fix ticket. Never fails the booking. */
 async function finish(f: {
-  partyId: string; input: BookInput; draft: PartyRecord; rec: PartyRecord | null; charge: PartyCharge; craft: CatalogCraft
+  partyId: string; input: BookInput; draft: PartyRecord; rec: PartyRecord | null; created: boolean; charge: PartyCharge; craft: CatalogCraft
   theme?: ResolvedTheme; onFile: string | null; customerId: string | null; matchedBy: string; simulated: boolean; minGuests: number
 }): Promise<BookOutcome> {
   const { partyId, input, draft, charge, craft } = f
+  // Someone else (a concurrent retry, Square's payment event) recorded it first and told everyone: the stored answer.
+  if (f.rec && !f.created) return { kind: 'booked', rec: f.rec, charge: f.rec.charges?.[0] ?? charge, replay: true, emailSent: true, customerId: f.customerId }
   const emailSent = await sendPartyBookedEmail({
     partyId, rec: f.rec, draft, firstName: input.host.firstName, email: input.host.email, origin: input.origin,
     chargedCents: charge.cents, receiptUrl: charge.receiptUrl, craft, themeName: f.theme?.displayName, onFile: f.onFile, minGuests: f.minGuests,

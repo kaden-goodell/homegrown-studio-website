@@ -17,7 +17,7 @@ const m = vi.hoisted(() => ({
   email: vi.fn(),
   report: vi.fn(),
   paid: new Map<string, any>(),
-  fail: { confirm: false, record: 0 },
+  fail: { confirm: false, record: 0, readRecord: '' },
 }))
 
 vi.mock('@config/providers', () => ({
@@ -47,7 +47,7 @@ vi.mock('@lib/parties/party-book', async (orig) => {
 })
 vi.mock('@lib/party-store', async (orig) => {
   const real = await orig<typeof import('@lib/party-store')>()
-  return { ...real, createPartyRecord: async (r: any) => { if (m.fail.record > 0) { m.fail.record--; throw new Error('parties store down') } return real.createPartyRecord(r) } }
+  return { ...real, getPartyRecord: async (id: string) => { if (m.fail.readRecord && id === m.fail.readRecord) throw new Error('parties store down'); return real.getPartyRecord(id) }, createPartyRecord: async (r: any) => { if (m.fail.record > 0) { m.fail.record--; throw new Error('parties store down') } return real.createPartyRecord(r) } }
 })
 
 import { bookParty, partyIdFor, type BookInput } from '@lib/parties/checkout'
@@ -55,6 +55,8 @@ import { handlePartyOrder, confirmUnclearParty, notPaidUnclearParty } from '@lib
 import { holdsBetween } from '@lib/parties/party-book'
 import { getCheckout, listCheckouts, saveCheckout } from '@lib/parties/party-checkouts'
 import { ORDER_UNKNOWN_MESSAGE } from '@lib/parties/square-orders'
+import { CHOICES_CHANGED_MESSAGE } from '@lib/parties/checkout'
+import { holdTime } from '@lib/parties/party-book'
 import { partyTestSiteRefusal, NO_TEST_STORE } from '@lib/parties/test-site'
 import { localToUtcISO } from '@lib/parties/party-times'
 import { getPartyRecord } from '@lib/party-store'
@@ -85,6 +87,7 @@ beforeEach(() => {
   m.paid.clear()
   m.fail.confirm = false
   m.fail.record = 0
+  m.fail.readRecord = ''
   m.alert.mockReset().mockResolvedValue(undefined)
   m.email.mockReset().mockResolvedValue({ sent: true })
   m.report.mockReset().mockResolvedValue(undefined)
@@ -351,5 +354,72 @@ describe('fix round 1', () => {
     expect(outs.map((o) => o.kind).sort()).toEqual(['booked', 'in_progress'])
     expect(m.processPayment).toHaveBeenCalledTimes(1)
     expect((await heldBy(start, partyIdFor(inp.key)))?.state).toBe('booked')
+  })
+})
+
+describe('fix round 2', () => {
+  const priorFor = (inp: BookInput, startIso = inp.startIso) => ({
+    partyId: partyIdFor(inp.key), state: 'charging' as const, startIso, endIso: new Date(Date.parse(startIso) + 90 * 60_000).toISOString(),
+    draft: {
+      bookingId: partyIdFor(inp.key), hostToken: 'h', craftName: 'Tote Bags', startIso, durationMinutes: 90, hostName: 'A S', hostEmail: 'a@x.co',
+      guestCount: 10, title: null, dropOff: false, createdAt: NOW.toISOString(), source: 'ours' as const, status: 'booked' as const,
+      endIso: new Date(Date.parse(startIso) + 90 * 60_000).toISOString(), packageId: 'pkg_whole', craftId: 'craft-1', items: [], charges: [], refunds: [],
+    },
+    order: { idempotencyKey: `${inp.key}:order`, locationId: 'L', customerId: 'cust-old', lineItems: [{ name: 'Whole Studio Party — studio fee', quantity: 1, pricePerUnit: 30000, note: 'pkg_whole' }], referenceId: partyIdFor(inp.key) },
+    orderId: null, quotedCents: 30000, squareCents: null, host: inp.host, origin: 'http://localhost', via: 'online' as const,
+    at: NOW.toISOString(), updatedAt: NOW.toISOString(),
+  })
+
+  it('N1: the earlier unpaid try is let go when the retry changed its choices; the old order is never charged', async () => {
+    const start = at('2027-03-27', '13:30')
+    const inp = input(start, { guests: 12 })
+    await saveCheckout(priorFor(inp))
+    const out = await bookParty(inp, NOW)
+    expect(out).toMatchObject({ kind: 'refused', status: 503, code: 'unavailable', message: CHOICES_CHANGED_MESSAGE })
+    // Only the paid-check re-sent the earlier request; nothing was charged.
+    expect(m.createOrder).toHaveBeenCalledTimes(1)
+    expect(m.createOrder.mock.calls[0][0].customerId).toBe('cust-old')
+    expect(m.processPayment).not.toHaveBeenCalled()
+    expect(await getCheckout(partyIdFor(inp.key))).toBeNull()
+    expect((await isStartOpen(start, 90)).ok).toBe(true)
+  })
+
+  it('N2: an earlier unpaid try for another time is let go (its hold too), and the customer starts again', async () => {
+    const start = at('2027-04-01', '16:00')
+    const earlier = at('2027-04-02', '16:00')
+    const inp = input(start)
+    await saveCheckout(priorFor(inp, earlier))
+    expect((await holdTime({ partyId: partyIdFor(inp.key), startIso: earlier, endIso: at('2027-04-02', '17:30'), ttlMinutes: 10 }, [], new Date())).ok).toBe(true)
+    expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'refused', status: 503, message: CHOICES_CHANGED_MESSAGE })
+    expect(await heldBy(earlier, partyIdFor(inp.key))).toBeUndefined()
+    expect(await getCheckout(partyIdFor(inp.key))).toBeNull()
+    expect(m.processPayment).not.toHaveBeenCalled()
+  })
+
+  it('N3: when Square’s payment event records the party first, the request answers the stored party and sends nothing again', async () => {
+    const inp = input(at('2027-04-08', '16:00'))
+    const partyId = partyIdFor(inp.key)
+    m.processPayment.mockImplementationOnce(async (p: any) => {
+      const pay = { id: 'pay-race', orderId: p.orderId, amount: p.amount, status: 'completed', receiptUrl: null }
+      m.paid.set(p.orderId, pay)
+      vi.setSystemTime(new Date(NOW.getTime() + 6 * 60_000)) // slow enough that the event no longer waits
+      expect(await handlePartyOrder({ id: p.orderId, reference_id: partyId, state: 'COMPLETED', tenders: [] }, new Date())).toEqual({ action: 'recorded', partyId })
+      return pay
+    })
+    const out = await bookParty(inp, NOW)
+    expect(out).toMatchObject({ kind: 'booked', replay: true })
+    expect(m.email).toHaveBeenCalledTimes(1)
+    expect(m.report.mock.calls.filter(([b]) => b.bookingId === partyId)).toHaveLength(1)
+  })
+
+  it('N4: a party record that can’t be read shows its item instead of hiding the others', async () => {
+    m.processPayment.mockRejectedValueOnce(new Error('timeout'))
+    m.findOrderPayment.mockResolvedValueOnce(null)
+    const inp = input(at('2027-04-09', '16:00'))
+    expect(await bookParty(inp, NOW)).toMatchObject({ kind: 'unknown' })
+    m.fail.readRecord = partyIdFor(inp.key)
+    const { items, failed } = await listToDecide(NOW)
+    expect(failed).not.toContain('party payments')
+    expect(items.some((i) => i.kind === 'party-paid-unclear' && i.detail.partyId === partyIdFor(inp.key))).toBe(true)
   })
 })
