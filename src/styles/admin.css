@@ -574,6 +574,9 @@
 }
 
 /* ── Home ─────────────────────────────────────────────────────────────── */
+.adm-cols {
+  margin-top: 0.75rem;
+}
 .adm-need {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

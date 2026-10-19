@@ -1,5 +1,5 @@
 /** How each inbox item reads in a list row and at the top of its sheet. */
-import { STATUSES as APP_STATUSES, STATUS_LABEL as APP_LABEL, type ArtistApplication } from '@lib/artist-applications'
+import type { ApplicationStatus, ArtistApplication } from '@lib/artist-applications'
 import { STATUSES as MSG_STATUSES, STATUS_LABEL as MSG_LABEL, topicLabel, type ContactMessage } from '@lib/contact-options'
 import { STATUSES as REQ_STATUSES, STATUS_LABEL as REQ_LABEL, kindLabel, whenLabel, type EventRequest } from '@lib/event-request-options'
 import type { InboxKind } from '../shell/router'
@@ -19,6 +19,10 @@ export interface Described {
   phone: string
   email: string
 }
+
+// Kept here, not imported: @lib/artist-applications is server code (it stores photos), so only its types may reach the browser.
+const APP_STATUSES: ApplicationStatus[] = ['new', 'talking', 'booked', 'not-now']
+const APP_LABEL: Record<ApplicationStatus, string> = { new: 'New', talking: 'Talking', booked: 'Booked', 'not-now': 'Not now' }
 
 const sent = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' })
 const quote = (s: string, n = 60) => `“${s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s}”`

@@ -49,7 +49,7 @@ export function DaySheet({ day }: { day: string }) {
   const { items, error, retry } = useCalendar(day, addDays(day, 1))
   const list = items ?? []
   return (
-    <SheetFrame title={dayLabel(day)} subtitle={items ? (list.length === 1 ? '1 thing on' : `${list.length} things on`) : undefined}>
+    <SheetFrame title={dayLabel(day)} subtitle={items && list.length ? (list.length === 1 ? '1 thing on' : `${list.length} things on`) : undefined}>
       {error && <Failed message={error} onRetry={retry} />}
       {!error && !items && <Skeleton rows={2} label="Loading the day" />}
       {items && list.map((i) => <ItemRow key={itemKey(i)} item={i} onOpen={() => open(sheetOf(i, day), i)} />)}
