@@ -57,6 +57,10 @@ export interface ClassBookingPanelProps {
    * the last customer is remembered on the shared iPad.
    */
   door?: boolean
+  /** Door mode: the roster's day, picked to start with on a pick-your-days option. */
+  initialSessionId?: string
+  /** Door mode: Back on the first step returns to "How are they paying?". */
+  onExit?: () => void
 }
 
 type Step = 'details' | 'seats' | 'pay'
@@ -144,17 +148,22 @@ function Counter({ label, value, canLess, canMore, onLess, onMore, spoken }: {
  * shown is worked out here with the same `quote` the server uses; the server
  * prices it again from the class and charges its own total.
  */
-export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvailability, syncUrl = true, door = false }: ClassBookingPanelProps) {
+export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvailability, syncUrl = true, door = false, initialSessionId, onExit }: ClassBookingPanelProps) {
   const own = workshop.own!
   const cls = useMemo(() => asScheduledClass(own, workshop.name), [own, workshop.name])
   const shownPasses = own.passes.filter((p) => p.state !== 'closed')
-  const firstOpen = shownPasses.find((p) => p.state === 'open') ?? shownPasses[0] ?? own.passes[0]
+  // At the door a full option can still be picked: the crew decide to add over capacity.
+  const canBook = (p: PublicPass) => p.state === 'open' || (door && p.state === 'full')
+  const firstOpen = shownPasses.find((p) => p.state === 'open') ?? (door ? shownPasses.find(canBook) : undefined) ?? shownPasses[0] ?? own.passes[0]
 
   const [step, setStep] = useState<Step>('details')
   const [passId, setPassId] = useState<string>(firstOpen?.id ?? '')
   const pass = own.passes.find((p) => p.id === passId) as PublicPass
   const choose = pass?.covers.kind === 'choose' ? pass.covers.count : 0
-  const [picked, setPicked] = useState<string[]>([])
+  const [picked, setPicked] = useState<string[]>(() =>
+    door && initialSessionId && firstOpen?.covers.kind === 'choose' && own.sessions.some((s) => s.id === initialSessionId && !s.closed) ? [initialSessionId] : [])
+  /** Door mode: the crew chose to seat them on a full day. */
+  const [over, setOver] = useState(false)
   const soldTypes = (id: string) => own.ticketTypes.filter((t) => own.prices[id]?.[t.id] !== undefined)
   const [counts, setCounts] = useState<Record<string, number>>(() => {
     const first = soldTypes(firstOpen?.id ?? '')[0]
@@ -206,7 +215,9 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   const roomLeft = choose
     ? (pickedSessions.length ? Math.min(...pickedSessions.map((s) => s.left)) : pass.left)
     : pass?.left ?? 0
-  const maxSeats = Math.max(0, Math.min(own.rules.maxPerBooking, roomLeft))
+  const needsOver = door && roomLeft < Math.max(1, Object.values(counts).reduce((a, b) => a + (b || 0), 0))
+  // At the door the counters go up to a full booking; past the seats left needs "Add over capacity".
+  const maxSeats = door ? own.rules.maxPerBooking : Math.max(0, Math.min(own.rules.maxPerBooking, roomLeft))
 
   const request: BookingRequest = {
     passId,
@@ -257,7 +268,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   // bring the counts down to what is left.
   useEffect(() => {
     setPicked((p) => {
-      const still = p.filter((id) => own.sessions.some((s) => s.id === id && !s.closed && s.left > 0))
+      const still = p.filter((id) => own.sessions.some((s) => s.id === id && !s.closed && (door || s.left > 0)))
       return still.length === p.length ? p : still
     })
   }, [own])
@@ -336,8 +347,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
 
   /** The details step is in order: says what isn't. */
   function detailsReady(): boolean {
-    if (!pass || pass.state !== 'open') {
+    if (!pass || !canBook(pass)) {
       setProblem('Pick an option that still has seats.')
+      return false
+    }
+    if (needsOver && !over) {
+      setProblem('That day is full. Tick Add over capacity to seat them anyway.')
       return false
     }
     if (choose && picked.length !== choose) {
@@ -452,6 +467,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
             classId: own.classId,
             passId,
             sessionIds: choose ? picked : [],
+            ...(door && over ? { overCapacity: true } : {}),
             tickets: counts,
             seats,
             attemptId: attemptId.current,
@@ -623,12 +639,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
               {shownPasses.map((p) => {
                 const prices = soldTypes(p.id).map((t) => own.prices[p.id][t.id])
                 const from = Math.min(...prices)
-                const open = p.state === 'open'
+                const open = canBook(p)
                 return (
                   <button key={p.id} type="button" aria-pressed={p.id === passId} disabled={!open} onClick={() => choosePass(p.id)} style={choiceButton(p.id === passId, open)}>
                     <span style={{ fontWeight: 600 }}>{p.label}</span>
                     <span style={{ fontSize: '0.875rem', color: 'var(--color-text)' }}>
-                      {open ? `${new Set(prices).size > 1 ? 'From ' : ''}${formatMoney(from, workshop.currency)}` : 'Sold out'}
+                      {p.state === 'open' ? `${new Set(prices).size > 1 ? 'From ' : ''}${formatMoney(from, workshop.currency)}` : door && open ? 'Full' : 'Sold out'}
                     </span>
                   </button>
                 )
@@ -644,11 +660,11 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
               <div role="group" aria-label={choose === 1 ? 'Pick a day' : `Pick ${choose} days`} style={{ display: 'grid', gap: '0.5rem' }}>
                 {own.sessions.filter((s) => !s.closed).map((s) => {
                   const on = picked.includes(s.id)
-                  const enabled = s.left > 0
+                  const enabled = s.left > 0 || door
                   return (
                     <button key={s.id} type="button" aria-pressed={on} disabled={!enabled} onClick={() => toggleSession(s.id)} style={choiceButton(on, enabled)}>
                       <span>{formatDayAndSpan(s.startIso, s.endIso)}</span>
-                      <span style={{ fontSize: '0.8125rem', color: 'var(--color-text)' }}>{enabled ? seatsLeftLabel(s.left) : 'Sold out'}</span>
+                      <span style={{ fontSize: '0.8125rem', color: 'var(--color-text)' }}>{s.left > 0 ? seatsLeftLabel(s.left) : door ? 'Full' : 'Sold out'}</span>
                     </button>
                   )
                 })}
@@ -692,6 +708,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
               )
             })}
             {left && <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-text)' }}>{left}</p>}
+            {needsOver && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', minHeight: '2.75rem', cursor: 'pointer', fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
+                <input type="checkbox" checked={over} onChange={(e) => { setOver(e.target.checked); setProblem(null) }} style={{ width: '1.25rem', height: '1.25rem', accentColor: 'var(--color-primary)' }} />
+                Add over capacity
+              </label>
+            )}
             {total >= maxSeats && maxSeats > 0 && (
               <p role="status" style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-text)' }}>
                 {maxSeats >= own.rules.maxPerBooking && roomLeft > maxSeats
@@ -868,7 +890,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           </p>
         )
       }
-      onBack={!booked && !stuck && step !== 'details' && !processing ? back : undefined}
+      onBack={!booked && !stuck && !processing ? (step !== 'details' ? back : door && onExit ? onExit : undefined) : undefined}
       footer={footer}
       leavePrompt={
         askToLeave && !booked

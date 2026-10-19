@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react'
 import type { SeatOption } from '@lib/seat-options'
 import { btn, field } from '@components/staff/ui'
 import ClassBookingPanel from '@components/classes/ClassBookingPanel'
-import type { OwnClassData } from '@lib/classes/public-class'
+import { asScheduledClass, type OwnClassData } from '@lib/classes/public-class'
+import { quote } from '@lib/classes/pricing'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import { formatDayAndSpan, studioDate } from '@lib/studio-time'
 
@@ -59,7 +60,7 @@ export default function CompSeatSheet({
   const [selections, setSelections] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [done, setDone] = useState<null | { warning: string | null; byHand: boolean; dueCents: number | null; name: string; emailed: boolean }>(null)
+  const [done, setDone] = useState<null | { warning: string | null; byHand: boolean; dueCents: number | null; name: string; emailed: boolean; over: { sold: number; capacity: number } | null }>(null)
   const [notify, setNotify] = useState(false)
   const sell = mode === 'sell'
   const money = (c: number) => `$${(c / 100).toFixed(c % 100 === 0 ? 0 : 2)}`
@@ -73,7 +74,17 @@ export default function CompSeatSheet({
   const [passId, setPassId] = useState('')
   const [days, setDays] = useState<string[]>([])
   const [tickets, setTickets] = useState<Record<string, number>>({})
-  const [full, setFull] = useState(false)
+  /** the crew ticked "Add over capacity" for a full day */
+  const [overOk, setOverOk] = useState(false)
+  /** the server said full (someone else took the last seat): only Cancel or Add over capacity */
+  const [refused, setRefused] = useState(false)
+  /** one token per add from this sheet, so a retry after a lost reply never adds the seats twice */
+  const [attempt] = useState(() => {
+    const c = (globalThis as { crypto?: Crypto }).crypto
+    return c?.randomUUID ? c.randomUUID() : `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`
+  })
+  /** with a household picked: each person's ticket (Adult, Kid…) */
+  const [personType, setPersonType] = useState<Record<string, string>>({})
   async function loadClass() {
     setClsError(null)
     try {
@@ -86,7 +97,8 @@ export default function CompSeatSheet({
       const first = w.own.passes.find((p) => p.state === 'open')
       if (first) setPassId(first.id)
       if (first?.covers.kind === 'choose') {
-        const today = w.own.sessions.find((x) => !x.closed && formatDayKey(x.startIso) === event.day)
+        // Never a full day: that needs "Add over capacity" ticked on purpose.
+        const today = w.own.sessions.find((x) => !x.closed && x.left > 0 && formatDayKey(x.startIso) === event.day)
         if (today) setDays([today.id])
       }
       const firstType = w.own.ticketTypes.find((t) => first && w.own.prices[first.id]?.[t.id] !== undefined)
@@ -100,11 +112,10 @@ export default function CompSeatSheet({
   const pass = ownData?.passes.find((p) => p.id === passId) ?? null
   const chooseN = pass?.covers.kind === 'choose' ? pass.covers.count : 0
   const soldTypes = ownData && pass ? ownData.ticketTypes.filter((t) => ownData.prices[pass.id]?.[t.id] !== undefined) : []
-  const ticketTotal = Object.values(tickets).reduce((a, b) => a + (b || 0), 0)
   function choosePass(id: string) {
     setPassId(id)
     setDays([])
-    setFull(false)
+    setOverOk(false); setRefused(false)
     const sold = new Set(ownData?.ticketTypes.filter((t) => ownData.prices[id]?.[t.id] !== undefined).map((t) => t.id) ?? [])
     setTickets((cur) => {
       const kept = Object.fromEntries(Object.entries(cur).filter(([k]) => sold.has(k)))
@@ -114,7 +125,7 @@ export default function CompSeatSheet({
     })
   }
   function toggleDay(id: string) {
-    setFull(false)
+    setOverOk(false); setRefused(false)
     setDays((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : chooseN === 1 ? [id] : cur.length >= chooseN ? cur : [...cur, id]))
   }
 
@@ -171,10 +182,40 @@ export default function CompSeatSheet({
   const chosenInOrder = household ? household.people.filter((p) => chosen.includes(p.id)) : []
   const guestNames = guests.map((g) => g.trim())
   // One token per seat, so a pick stays with its person when others are ticked or unticked.
-  const seatTokens = household
+  const people = household
     ? [...chosenInOrder.map((p) => ({ token: p.id, name: p.name })), ...guestNames.map((g, i) => ({ token: `guest:${i}`, name: g || `Guest ${i + 1}` }))]
-    : Array.from({ length: own ? ticketTotal : seats }, (_, i) => ({ token: `seat:${i + 1}`, name: `Seat ${i + 1}` }))
+    : []
+  // Our classes: each person's ticket (Adult for the adult, Kid for a child, unless changed); seats run in ticket order, as priced.
+  const defaultType = (token: string) => {
+    const adult = soldTypes.find((t) => /adult/i.test(t.label)), kid = soldTypes.find((t) => /kid|child/i.test(t.label))
+    return (token === 'adult' ? adult : token.startsWith('child:') ? kid : undefined)?.id ?? soldTypes[0]?.id ?? ''
+  }
+  const typeOf = (token: string) => (soldTypes.some((t) => t.id === personType[token]) ? personType[token] : defaultType(token))
+  const typeLabel = (id: string) => soldTypes.find((t) => t.id === id)?.label ?? ''
+  const manyTypes = soldTypes.length > 1
+  const seatTokens = own
+    ? household
+      ? soldTypes.flatMap((t) => people.filter((p) => typeOf(p.token) === t.id).map((p) => ({ ...p, name: manyTypes ? `${p.name} (${t.label})` : p.name })))
+      : soldTypes.flatMap((t) => Array.from({ length: tickets[t.id] ?? 0 }, (_, k) => ({ token: `seat:${t.id}:${k + 1}`, name: manyTypes ? `${t.label} ${k + 1}` : `Seat ${k + 1}` })))
+    : household
+      ? people
+      : Array.from({ length: seats }, (_, i) => ({ token: `seat:${i + 1}`, name: `Seat ${i + 1}` }))
   const seatCount = seatTokens.length
+  const ownTickets: Record<string, number> = own && household
+    ? Object.fromEntries(soldTypes.map((t) => [t.id, people.filter((p) => typeOf(p.token) === t.id).length]))
+    : tickets
+  // A full day (or option) needs "Add over capacity" ticked on purpose.
+  const pickedDays = ownData?.sessions.filter((x) => days.includes(x.id)) ?? []
+  const roomLeft = chooseN ? (pickedDays.length ? Math.min(...pickedDays.map((x) => x.left)) : Infinity) : pass ? (pass.state === 'full' ? 0 : pass.left) : Infinity
+  const fullHere = own && seatCount > 0 && roomLeft < seatCount
+  // What the counter rings up, before adding (tax included).
+  const counterTotal = (() => {
+    if (!own || !sell || !cls?.own || !pass || seatCount < 1) return null
+    const asCls = asScheduledClass(cls.own, cls.name)
+    const bare = { ...asCls, content: { ...asCls.content, questions: [], addOns: [] } }
+    const q = quote(bare, { passId, tickets: ownTickets, ...(chooseN ? { sessionIds: days } : {}) }, new Date(), cls.own.taxPercent, { door: true })
+    return q.ok ? q.value.totalCents : null
+  })()
 
   const key = (token: string, optionId: string) => `${token}|${optionId}`
   const squareUrl = `https://app.squareup.com/dashboard/appointments/calendar/classes/${event.id}?date=${event.day}&view=week`
@@ -189,8 +230,8 @@ export default function CompSeatSheet({
     if (own) {
       if (!pass) { setError('Pick an option.'); setBusy(false); return }
       if (chooseN && days.length !== chooseN) { setError(chooseN === 1 ? 'Pick a day.' : `Pick ${chooseN} days.`); setBusy(false); return }
-      if (ticketTotal < 1) { setError('Add at least one seat.'); setBusy(false); return }
-      if (household && ticketTotal !== seatCount) { setError(`Pick a ticket for each of the ${seatCount} coming.`); setBusy(false); return }
+      if (seatCount < 1) { setError('Add at least one seat.'); setBusy(false); return }
+      if (fullHere && !overCapacity) { setError('That day is full. Tick Add over capacity to seat them anyway.'); setBusy(false); return }
     }
     const picks = seatTokens.flatMap((t, i) =>
       options.map((o) => ({ seat: i + 1, optionId: o.id, choice: selections[key(t.token, o.id)] ?? '' })),
@@ -208,7 +249,7 @@ export default function CompSeatSheet({
           ...(phone.trim() ? { phone: phone.trim() } : {}),
           seats: seatCount,
           picks,
-          ...(own ? { passId, tickets, ...(chooseN ? { sessionIds: days } : {}), ...(overCapacity ? { overCapacity: true } : {}) } : {}),
+          ...(own ? { passId, tickets: ownTickets, attempt, ...(chooseN ? { sessionIds: days } : {}), ...(overCapacity ? { overCapacity: true } : {}) } : {}),
           ...(picked ? { customerId: picked.customer.id } : {}),
           ...(household ? { waiverId: household.recordId, people: chosenInOrder.map((p) => p.id), guests: guestNames } : {}),
           ...(alreadyInSquare ? { alreadyInSquare: true } : {}),
@@ -224,10 +265,11 @@ export default function CompSeatSheet({
           dueCents: typeof body?.data?.dueCents === 'number' ? body.data.dueCents : null,
           name: `${givenName.trim()} ${familyName.trim()}`,
           emailed: body?.data?.emailSent === true,
+          over: body?.data?.over && typeof body.data.over.sold === 'number' ? body.data.over : null,
         })
         onRecorded()
       } else if (own && body?.code === 'sold_out') {
-        setFull(true)
+        setRefused(true)
         setError(typeof body?.error === 'string' ? body.error : 'That day is full.')
       } else if (body?.code === 'square_signed_out') {
         setSignedOut(true)
@@ -250,6 +292,8 @@ export default function CompSeatSheet({
         door
         syncUrl={false}
         onClose={onClose}
+        onExit={() => setPayWay(null)}
+        {...(ownData?.sessions.find((x) => !x.closed && formatDayKey(x.startIso) === event.day) ? { initialSessionId: ownData!.sessions.find((x) => !x.closed && formatDayKey(x.startIso) === event.day)!.id } : {})}
         onBooked={() => onRecorded()}
       />
     )
@@ -264,7 +308,7 @@ export default function CompSeatSheet({
           {ownData.passes.filter((p) => p.state !== 'closed').map((p) => (
             <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', fontSize: '0.95rem', color: 'var(--color-dark)', cursor: 'pointer', opacity: p.state === 'open' ? 1 : 0.6 }}>
               <input type="radio" name="comp-pass" checked={passId === p.id} onChange={() => choosePass(p.id)} />
-              {p.label}{p.state === 'full' ? ' (full)' : ''}
+              {p.label}{p.state === 'full' ? ' · Full' : ''}
             </label>
           ))}
         </fieldset>
@@ -275,23 +319,34 @@ export default function CompSeatSheet({
           {ownData.sessions.filter((x) => !x.closed).map((x) => (
             <label key={x.id} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.3rem 0', fontSize: '0.95rem', color: 'var(--color-dark)', cursor: 'pointer' }}>
               <input type="checkbox" checked={days.includes(x.id)} onChange={() => toggleDay(x.id)} />
-              {formatDayAndSpan(x.startIso, x.endIso)}{x.left <= 0 ? ' (full)' : ` (${x.left} left)`}
+              {formatDayAndSpan(x.startIso, x.endIso)}{x.left <= 0 ? ' · Full' : ` · ${x.left} left`}
             </label>
           ))}
         </fieldset>
       )}
-      {soldTypes.map((t) => (
+      {!household && soldTypes.map((t) => (
         <div key={t.id} style={{ marginBottom: '0.65rem' }}>
           <label htmlFor={`comp-tickets-${t.id}`} style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.2rem' }}>
             {soldTypes.length > 1 ? `${t.label} seats` : 'Seats'}{sell && pass ? ` (${money2(ownData.prices[pass.id][t.id])} each before tax)` : ''}
           </label>
           <input
             id={`comp-tickets-${t.id}`} type="number" min={0} max={10} value={tickets[t.id] ?? 0}
-            onChange={(e) => { setFull(false); setTickets((cur) => ({ ...cur, [t.id]: Math.max(0, Math.min(10, Math.floor(Number(e.target.value)) || 0)) })) }}
+            onChange={(e) => { setOverOk(false); setRefused(false); setTickets((cur) => ({ ...cur, [t.id]: Math.max(0, Math.min(10, Math.floor(Number(e.target.value)) || 0)) })) }}
             style={{ ...field, width: '6rem', boxSizing: 'border-box' }}
           />
         </div>
       ))}
+      {fullHere && (
+        <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0 0 0.65rem', fontSize: '0.95rem', fontWeight: 600, color: '#b45309', cursor: 'pointer' }}>
+          <input type="checkbox" checked={overOk} onChange={(e) => { setOverOk(e.target.checked); setError(null) }} />
+          Add over capacity
+        </label>
+      )}
+      {sell && payWay === 'counter' && counterTotal !== null && (
+        <p data-testid="counter-total" style={{ margin: '0 0 0.65rem', fontSize: '0.95rem', fontWeight: 700, color: 'var(--color-dark)' }}>
+          Ring up {money2(counterTotal)} at the counter, tax included.
+        </p>
+      )}
     </div>
   )
 
@@ -347,7 +402,7 @@ export default function CompSeatSheet({
         {done ? (
           <div style={{ textAlign: 'center', padding: '1rem 0' }}>
             <p role="status" style={{ margin: 0, fontWeight: 700, color: 'rgb(21,128,61)' }}>
-              {own ? (sell ? 'Added to the class.' : 'Added, no charge.') : done.byHand ? 'Recorded.' : sell ? 'Added in Square.' : 'Added in Square, no charge.'} {done.emailed ? 'They’ll get the usual confirmation email.' : 'No email sent.'}
+              {own && done.over ? `Added over capacity (${done.over.sold} of ${done.over.capacity}). ` : ''}{own ? (sell ? 'Added to the class.' : 'Added, no charge.') : done.byHand ? 'Recorded.' : sell ? 'Added in Square.' : 'Added in Square, no charge.'} {done.emailed ? 'They’ll get the usual confirmation email.' : 'No email sent.'}
             </p>
             {own && sell && (
               <div data-testid="take-payment" style={{ margin: '0.9rem 0 0', padding: '0.8rem', borderRadius: '0.6rem', background: 'rgba(245, 158, 11, 0.14)', textAlign: 'left' }}>
@@ -388,7 +443,7 @@ export default function CompSeatSheet({
             <p style={{ margin: '-0.3rem 0 0', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>Add the seat here, then ring it up on the register.</p>
           </div>
         ) : (
-          <form onSubmit={submit}>
+          <form onSubmit={(e) => submit(e, signedOut, own && overOk)}>
             {!picked && (
               <div style={row}>
                 <label htmlFor="comp-find" style={label}>Find a customer</label>
@@ -458,6 +513,14 @@ export default function CompSeatSheet({
                     />
                     {p.name}{p.adult ? ' (adult)' : ''}
                   </label>
+                ))}
+                {own && manyTypes && people.length > 0 && people.map((p) => (
+                  <div key={`type-${p.token}`} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', margin: '0.3rem 0 0' }}>
+                    <label htmlFor={`comp-type-${p.token}`} style={{ flex: 1, fontSize: '0.9rem', color: 'var(--color-dark)' }}>{p.name}</label>
+                    <select id={`comp-type-${p.token}`} value={typeOf(p.token)} onChange={(e) => { const v = e.target.value; setOverOk(false); setPersonType((cur) => ({ ...cur, [p.token]: v })) }} style={{ ...field }}>
+                      {soldTypes.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+                    </select>
+                  </div>
                 ))}
                 {guests.map((g, i) => (
                   <div key={i} style={{ display: 'flex', gap: '0.4rem', marginTop: '0.35rem' }}>
@@ -531,14 +594,27 @@ export default function CompSeatSheet({
             </label>
 
             {error && <p role="alert" style={{ margin: '0 0 0.6rem', color: '#b91c1c', fontSize: '0.875rem', fontWeight: 600 }}>{error}</p>}
-            {own && full && (
-              <button type="button" disabled={busy} onClick={(e) => submit(e as unknown as React.FormEvent, false, true)} style={{ ...btn(), padding: '0.7rem 1.4rem', minHeight: '2.75rem', marginBottom: '0.6rem', display: 'block' }}>
-                Add anyway, over capacity
-              </button>
+            {own && refused ? (
+              // Someone took the last seat meanwhile: only Cancel, or add over capacity on purpose.
+              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                <button type="button" onClick={onClose} style={{ ...btn(), padding: '0.7rem 1.4rem', minHeight: '2.75rem' }}>Cancel</button>
+                <button type="button" disabled={busy} onClick={(e) => { setOverOk(true); setRefused(false); void submit(e as unknown as React.FormEvent, false, true) }} style={{ ...btn(true), padding: '0.7rem 1.4rem', minHeight: '2.75rem', opacity: busy ? 0.6 : 1 }}>
+                  Add over capacity
+                </button>
+              </div>
+            ) : (
+              <>
+                <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                  {own && sell && (
+                    <button type="button" onClick={() => { setPayWay(null); setError(null) }} style={{ ...btn(), padding: '0.7rem 1.4rem', minHeight: '2.75rem' }}>Back</button>
+                  )}
+                  <button type="submit" disabled={busy || (fullHere && !overOk)} style={{ ...btn(true), padding: '0.7rem 1.4rem', minHeight: '2.75rem', opacity: busy || (fullHere && !overOk) ? 0.5 : 1, cursor: fullHere && !overOk ? 'not-allowed' : 'pointer' }}>
+                    {busy ? (signedOut ? 'Recording…' : 'Adding…') : signedOut ? 'I added them in Square' : sell ? (own ? 'Add seat, pay at the counter' : 'Add seat, pay at register') : 'Add comped seat'}
+                  </button>
+                </div>
+                {fullHere && !overOk && <p data-testid="comp-hint" style={{ margin: '0.4rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>That day is full. Tick Add over capacity to seat them anyway.</p>}
+              </>
             )}
-            <button type="submit" disabled={busy} style={{ ...btn(true), padding: '0.7rem 1.4rem', minHeight: '2.75rem', opacity: busy ? 0.6 : 1 }}>
-              {busy ? (signedOut ? 'Recording…' : 'Adding…') : signedOut ? 'I added them in Square' : sell ? (own ? 'Add seat, pay at the counter' : 'Add seat, pay at register') : 'Add comped seat'}
-            </button>
           </form>
         )}
       </div>
