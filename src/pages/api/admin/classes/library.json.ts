@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { adminAuthorized } from '@lib/admin-auth'
+import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { ActionError, json, libraryArchive, libraryList, libraryRestore, librarySave, reply } from '@lib/classes/admin-actions'
 
 export const prerender = false
@@ -17,11 +17,12 @@ export const GET: APIRoute = async ({ request, url }) => {
 export const POST: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => ({}))
+  const by = adminActor(request)
   return reply(async () => {
     switch (body?.action) {
-      case 'save': return { data: { library: await librarySave(body) } }
-      case 'restore': return { data: { library: await libraryRestore(body) } }
-      case 'archive': return { data: { library: await libraryArchive(body) } }
+      case 'save': return { data: { library: await librarySave(body, by) } }
+      case 'restore': return { data: { library: await libraryRestore(body, by) } }
+      case 'archive': return { data: { library: await libraryArchive(body, by) } }
       default: throw new ActionError(400, 'That is not something the library can do.')
     }
   })

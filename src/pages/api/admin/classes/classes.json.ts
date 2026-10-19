@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { adminAuthorized } from '@lib/admin-auth'
+import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { toIso } from '@lib/classes/validate'
 import {
   ActionError, cancelClass, classesBetween, duplicateClass, json, reply, scheduleClass, updateScheduledClass,
@@ -17,6 +17,7 @@ export const GET: APIRoute = async ({ request, url }) => {
 }
 
 /**
+ * Who made the change comes from the X-Admin-Who header (see adminActor).
  * POST { action: 'create', libraryId? | content, sessions, status }
  *      { action: 'duplicate', id, sessions, status? }
  *      { action: 'update', id, content?, sessions?, status?, alsoUpdateLibrary?, confirmMove? }
@@ -25,12 +26,13 @@ export const GET: APIRoute = async ({ request, url }) => {
 export const POST: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => ({}))
+  const by = adminActor(request)
   return reply(async () => {
     switch (body?.action) {
-      case 'create': return scheduleClass(body)
-      case 'duplicate': return duplicateClass(body)
-      case 'update': return updateScheduledClass(body)
-      case 'cancel': return cancelClass(body)
+      case 'create': return scheduleClass(body, by)
+      case 'duplicate': return duplicateClass(body, by)
+      case 'update': return updateScheduledClass(body, by)
+      case 'cancel': return cancelClass(body, by)
       default: throw new ActionError(400, 'That is not something a class can do.')
     }
   })

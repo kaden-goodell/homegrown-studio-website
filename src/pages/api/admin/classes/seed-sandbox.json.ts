@@ -27,6 +27,15 @@ async function listAll(types: string): Promise<any[]> {
 const sameName = (a: unknown, b: string) => typeof a === 'string' && a.trim().toLowerCase() === b.toLowerCase()
 
 /**
+ * GET (owners only): `{ data: { sandbox } }`, true only when this site talks
+ * to the Square sandbox. /admin shows "Set up sandbox" only then.
+ */
+export const GET: APIRoute = async ({ request }) => {
+  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  return json(200, { data: { sandbox: squareSettings().environment === 'sandbox' } })
+}
+
+/**
  * POST (owners only, sandbox only): make sure the sandbox has a "Classes"
  * category and a 9% "Sales tax", creating whichever is missing. Safe to run
  * again. Returns both ids and the commands that set them for the branch.

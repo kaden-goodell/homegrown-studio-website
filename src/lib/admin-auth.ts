@@ -6,6 +6,8 @@
  * passcode signs everyone out. No passcode set = nobody gets in.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
+import type { By } from '@lib/staff-auth'
+import { ADMIN_WHO_HEADER, ownerOf } from '@lib/admin-who'
 
 const COOKIE = 'hg_admin'
 const MAX_AGE = 30 * 24 * 60 * 60 // 30 days, in seconds
@@ -53,4 +55,13 @@ export function adminAuthorized(request: Request): boolean {
   } catch {
     return false
   }
+}
+
+/**
+ * Who made an admin change: the owner named in the X-Admin-Who header when it
+ * is on the fixed owner list, else the plain "Owner" (an old tab, or a script).
+ */
+export function adminActor(request: Request): By {
+  const owner = ownerOf(request.headers.get(ADMIN_WHO_HEADER))
+  return owner ? { id: `owner-${owner.toLowerCase()}`, name: owner } : { id: 'admin', name: 'Owner' }
 }

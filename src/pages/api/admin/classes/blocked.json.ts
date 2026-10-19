@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { adminAuthorized } from '@lib/admin-auth'
+import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { toIso } from '@lib/classes/validate'
 import { ActionError, blockTime, json, listBlocked, reply, unblockTime } from '@lib/classes/admin-actions'
 
@@ -20,10 +20,11 @@ export const GET: APIRoute = async ({ request, url }) => {
 export const POST: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => ({}))
+  const by = adminActor(request)
   return reply(async () => {
     switch (body?.action) {
-      case 'add': return { data: await blockTime(body) }
-      case 'remove': await unblockTime(body); return { data: { removed: body.id } }
+      case 'add': return { data: await blockTime(body, by) }
+      case 'remove': await unblockTime(body, by); return { data: { removed: body.id } }
       default: throw new ActionError(400, 'That is not something blocked time can do.')
     }
   })

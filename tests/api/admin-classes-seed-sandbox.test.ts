@@ -81,3 +81,15 @@ describe('POST /api/admin/classes/seed-sandbox.json', () => {
     expect(out.data.classesCategoryId).toBe('CATX')
   })
 })
+
+describe('GET /api/admin/classes/seed-sandbox.json', () => {
+  const get = (cookie?: string) => new Request('https://x.test/api/admin/classes/seed-sandbox.json', { headers: cookie ? { cookie } : {} })
+  it('says whether this site is on the Square sandbox, to owners only, without calling Square', async () => {
+    const { GET } = await import('@pages/api/admin/classes/seed-sandbox.json')
+    expect((await GET({ request: get() } as any)).status).toBe(401)
+    expect(await (await GET({ request: get(signedIn()) } as any)).json()).toEqual({ data: { sandbox: true } })
+    cfg.environment = 'production'
+    expect(await (await GET({ request: get(signedIn()) } as any)).json()).toEqual({ data: { sandbox: false } })
+    expect(calls).toHaveLength(0)
+  })
+})

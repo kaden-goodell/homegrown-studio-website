@@ -499,3 +499,38 @@ describe('blocked time over something booked', () => {
     expect(r.body.data.clashes).toEqual([])
   })
 })
+
+describe('who made the change (X-Admin-Who)', () => {
+  const callAs = async (route: any, url: string, body: unknown, who?: string) => {
+    const request = new Request(`https://x.test${url}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', cookie: cookie(), ...(who !== undefined ? { 'X-Admin-Who': who } : {}) },
+      body: JSON.stringify(body),
+    })
+    const res: Response = await route.POST({ request, url: new URL(request.url) } as any)
+    return { status: res.status, body: await res.json() }
+  }
+
+  it('a library version records the owner named in the header', async () => {
+    const saved = await callAs(library, '/api/admin/classes/library.json', { action: 'save', content: content('Who Candles'), note: '' }, 'Catherine')
+    expect(saved.status).toBe(200)
+    expect(saved.body.data.library.versions[0].by).toEqual({ id: 'owner-catherine', name: 'Catherine' })
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-library-save', by: { id: 'owner-catherine', name: 'Catherine', role: 'owner' } }))
+  })
+
+  it('blocked time and a new class record the owner; any case is fine', async () => {
+    const add = await callAs(blocked, '/api/admin/classes/blocked.json', { action: 'add', startIso: at('2031-08-01', '09:00'), endIso: at('2031-08-01', '10:00'), reason: 'Who' }, 'kaden')
+    expect(add.body.data.blocked.by).toEqual({ id: 'owner-kaden', name: 'Kaden' })
+    const made = await callAs(classes, '/api/admin/classes/classes.json', { action: 'create', content: content('Who Pottery'), sessions: [ses('2031-03-19', '10:00', '11:30')], status: 'draft' }, 'Kaden')
+    expect(made.status).toBe(200)
+    expect((await getClass(made.body.data.class.id))?.by).toEqual({ id: 'owner-kaden', name: 'Kaden' })
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-create', by: { id: 'owner-kaden', name: 'Kaden', role: 'owner' } }))
+  })
+
+  it('a name off the owner list, or none, is recorded as Owner', async () => {
+    const odd = await callAs(blocked, '/api/admin/classes/blocked.json', { action: 'add', startIso: at('2031-08-03', '09:00'), endIso: at('2031-08-03', '10:00'), reason: '' }, 'Mallory')
+    expect(odd.body.data.blocked.by).toEqual({ id: 'admin', name: 'Owner' })
+    const none = await callAs(blocked, '/api/admin/classes/blocked.json', { action: 'add', startIso: at('2031-08-04', '09:00'), endIso: at('2031-08-04', '10:00'), reason: '' })
+    expect(none.body.data.blocked.by).toEqual({ id: 'admin', name: 'Owner' })
+  })
+})

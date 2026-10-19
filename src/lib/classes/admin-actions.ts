@@ -24,7 +24,11 @@ import { busyBetween, clashes, clashMessage, type Busy } from './studio-schedule
 import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass, Session } from './types'
 import { newId, toIso, validateContent, validateSessions } from './validate'
 
-/** The admin cookie carries no name, so every owner action is by this. */
+/**
+ * The owner when the request doesn't say which one (see adminActor in
+ * @lib/admin-auth, which reads the X-Admin-Who header). Every action takes the
+ * actor as its last argument and falls back to this.
+ */
 export const ADMIN_BY: By = { id: 'admin', name: 'Owner' }
 
 export const SYNC_WARNING = "Saved. The POS item didn't update. Try Save again."
@@ -45,8 +49,8 @@ export interface Saved<T> { data: T; warning?: string }
 
 const STATUSES: ClassStatus[] = ['draft', 'open', 'closed']
 
-function audit(action: string, target: { kind: string; id: string; label?: string }, details?: Record<string, string | number | boolean | null>) {
-  return recordAudit({ by: { ...ADMIN_BY, role: 'owner' }, action, target, ...(details ? { details } : {}) })
+function audit(by: By, action: string, target: { kind: string; id: string; label?: string }, details?: Record<string, string | number | boolean | null>) {
+  return recordAudit({ by: { ...by, role: 'owner' }, action, target, ...(details ? { details } : {}) })
 }
 
 /** "Sun Oct 18 4 PM", studio time. */
@@ -130,14 +134,14 @@ async function checkClashes(sessions: Session[], canShareRoom: boolean, ignoreId
 }
 
 /** Put the class on the POS (open/closed) or keep a draft off it. A Square failure is a warning, never a lost save. */
-async function syncPos(cls: ScheduledClass): Promise<{ cls: ScheduledClass; warning?: string }> {
+async function syncPos(cls: ScheduledClass, by: By): Promise<{ cls: ScheduledClass; warning?: string }> {
   try {
     if (cls.status === 'draft') {
       if (cls.square.itemId) await archiveClassInSquare(cls)
       return { cls }
     }
     const square = await syncClassToSquare(cls)
-    return { cls: await updateClass(cls.id, { square }, ADMIN_BY, 'POS item updated') }
+    return { cls: await updateClass(cls.id, { square }, by, 'POS item updated') }
   } catch (e) {
     console.warn(`[classes] POS sync for ${cls.id} failed: ${e instanceof Error ? e.message : e}`)
     return { cls, warning: e instanceof Error && e.message === CLASS_TAX_NOT_SET ? TAX_WARNING : SYNC_WARNING }
@@ -150,28 +154,28 @@ export async function libraryList(includeArchived = false): Promise<LibraryClass
   return listLibrary({ includeArchived })
 }
 
-export async function librarySave(body: { id?: unknown; content?: unknown; note?: unknown }): Promise<LibraryClass> {
+export async function librarySave(body: { id?: unknown; content?: unknown; note?: unknown }, by: By = ADMIN_BY): Promise<LibraryClass> {
   const content = okContent(body.content)
   const id = typeof body.id === 'string' && body.id ? body.id : undefined
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 200) : ''
-  const lib = await saveLibraryVersion({ id, content, by: ADMIN_BY, note }).catch(libraryError)
-  await audit('class-library-save', { kind: 'class-library', id: lib.id, label: content.name }, { version: lib.versions.length })
+  const lib = await saveLibraryVersion({ id, content, by, note }).catch(libraryError)
+  await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: content.name }, { version: lib.versions.length })
   return lib
 }
 
-export async function libraryRestore(body: { id?: unknown; version?: unknown }): Promise<LibraryClass> {
+export async function libraryRestore(body: { id?: unknown; version?: unknown }, by: By = ADMIN_BY): Promise<LibraryClass> {
   const version = Number(body.version)
   if (typeof body.id !== 'string' || !Number.isInteger(version)) throw new ActionError(400, 'Pick a version to restore.')
-  const lib = await restoreLibraryVersion(body.id, version, ADMIN_BY).catch(libraryError)
-  await audit('class-library-restore', { kind: 'class-library', id: lib.id }, { version })
+  const lib = await restoreLibraryVersion(body.id, version, by).catch(libraryError)
+  await audit(by, 'class-library-restore', { kind: 'class-library', id: lib.id }, { version })
   return lib
 }
 
-export async function libraryArchive(body: { id?: unknown; archived?: unknown }): Promise<LibraryClass> {
+export async function libraryArchive(body: { id?: unknown; archived?: unknown }, by: By = ADMIN_BY): Promise<LibraryClass> {
   if (typeof body.id !== 'string') throw new ActionError(404, 'That class is not in the library.')
   const archived = body.archived !== false
-  const lib = await archiveLibrary(body.id, archived, ADMIN_BY).catch(libraryError)
-  await audit(archived ? 'class-library-archive' : 'class-library-unarchive', { kind: 'class-library', id: lib.id })
+  const lib = await archiveLibrary(body.id, archived, by).catch(libraryError)
+  await audit(by, archived ? 'class-library-archive' : 'class-library-unarchive', { kind: 'class-library', id: lib.id })
   return lib
 }
 
@@ -189,7 +193,7 @@ export async function classesBetween(fromIso?: string, toIso?: string): Promise<
 }
 
 /** Schedule a class from the library (its latest version, or an edited copy) or from content alone. */
-export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown }): Promise<Saved<{ class: ScheduledClass }>> {
+export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass }>> {
   let libraryId: string | undefined
   let libraryVersion: number | undefined
   let raw = body.content
@@ -205,14 +209,14 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
   const sessions = okSessions(body.sessions)
   const status = okStatus(body.status, 'draft')
   await checkClashes(sessions, content.rules.canShareRoom)
-  const created = await createClass({ content, sessions, libraryId, libraryVersion, status, by: ADMIN_BY })
-  const { cls, warning } = await syncPos(created)
-  await audit('class-create', { kind: 'class', id: cls.id, label: content.name }, { status, sessions: sessions.length, libraryId: libraryId ?? null })
+  const created = await createClass({ content, sessions, libraryId, libraryVersion, status, by })
+  const { cls, warning } = await syncPos(created, by)
+  await audit(by, 'class-create', { kind: 'class', id: cls.id, label: content.name }, { status, sessions: sessions.length, libraryId: libraryId ?? null })
   return { data: { class: cls }, ...(warning ? { warning } : {}) }
 }
 
 /** Same content on new sessions; no bookings come along. */
-export async function duplicateClass(body: { id?: unknown; sessions?: unknown; status?: unknown }): Promise<Saved<{ class: ScheduledClass }>> {
+export async function duplicateClass(body: { id?: unknown; sessions?: unknown; status?: unknown }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass }>> {
   const src = await mustGetClass(body.id)
   const sessions = okSessions(
     Array.isArray(body.sessions) ? body.sessions.map((s: any) => (s && typeof s === 'object' ? { ...s, id: newId('ses') } : s)) : body.sessions,
@@ -221,12 +225,12 @@ export async function duplicateClass(body: { id?: unknown; sessions?: unknown; s
   const content = structuredClone(src.content)
   await checkClashes(sessions, content.rules.canShareRoom)
   const created = await createClass({
-    content, sessions, status, by: ADMIN_BY,
+    content, sessions, status, by,
     ...(src.libraryId ? { libraryId: src.libraryId } : {}),
     ...(src.libraryVersion !== null ? { libraryVersion: src.libraryVersion } : {}),
   })
-  const { cls, warning } = await syncPos(created)
-  await audit('class-duplicate', { kind: 'class', id: cls.id, label: content.name }, { from: src.id, sessions: sessions.length })
+  const { cls, warning } = await syncPos(created, by)
+  await audit(by, 'class-duplicate', { kind: 'class', id: cls.id, label: content.name }, { from: src.id, sessions: sessions.length })
   return { data: { class: cls }, ...(warning ? { warning } : {}) }
 }
 
@@ -282,7 +286,7 @@ function checkAgainstBookings(cls: ScheduledClass, ledger: Ledger, content: Clas
 
 export async function updateScheduledClass(body: {
   id?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; confirmMove?: unknown; expectedUpdatedAt?: unknown
-}): Promise<Saved<{ class: ScheduledClass; peopleToTell?: PersonToTell[] }>> {
+}, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass; peopleToTell?: PersonToTell[] }>> {
   const cls = await mustGetClass(body.id)
   const expectedUpdatedAt = expectedOf(body, cls)
   if (cls.status === 'cancelled') throw new ActionError(409, 'This class is cancelled. Duplicate it to run it again.')
@@ -313,7 +317,7 @@ export async function updateScheduledClass(body: {
       ...(body.sessions !== undefined ? { sessions } : {}),
       status,
     },
-    ADMIN_BY,
+    by,
     changes.length ? `Changed ${changes.join(', ')}` : 'Saved',
     { expectedUpdatedAt },
   )
@@ -326,21 +330,21 @@ export async function updateScheduledClass(body: {
       const lib = await saveLibraryVersion({
         ...(saved.libraryId ? { id: saved.libraryId } : {}),
         content: saved.content,
-        by: ADMIN_BY,
+        by,
         note: `Updated while scheduling ${date}`,
       })
       const version = lib.versions[lib.versions.length - 1].version
-      saved = await updateClass(saved.id, { libraryId: lib.id, libraryVersion: version }, ADMIN_BY, `Library updated (version ${version})`)
-      await audit('class-library-save', { kind: 'class-library', id: lib.id, label: saved.content.name }, { version, fromClass: saved.id })
+      saved = await updateClass(saved.id, { libraryId: lib.id, libraryVersion: version }, by, `Library updated (version ${version})`)
+      await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: saved.content.name }, { version, fromClass: saved.id })
     } catch (e) {
       console.warn(`[classes] library update from ${saved.id} failed: ${e instanceof Error ? e.message : e}`)
       libraryWarning = LIBRARY_WARNING
     }
   }
 
-  const { cls: synced, warning: posWarning } = await syncPos(saved)
+  const { cls: synced, warning: posWarning } = await syncPos(saved, by)
   const warning = [libraryWarning, posWarning].filter(Boolean).join(' ') || undefined
-  await audit('class-update', { kind: 'class', id: cls.id, label: synced.content.name }, {
+  await audit(by, 'class-update', { kind: 'class', id: cls.id, label: synced.content.name }, {
     changes: changes.join(', ') || 'none', moved: moved.length, alsoUpdateLibrary: body.alsoUpdateLibrary === true,
   })
   return { data: { class: synced, ...(peopleToTell ? { peopleToTell } : {}) }, ...(warning ? { warning } : {}) }
@@ -363,10 +367,10 @@ export function bookedPeople(ledger: Ledger): BookedPerson[] {
 }
 
 /** Cancel: off the POS, everyone booked listed for the owner to contact. Never refunds, never frees a seat. */
-export async function cancelClass(body: { id?: unknown; expectedUpdatedAt?: unknown }): Promise<Saved<{ class: ScheduledClass; booked: BookedPerson[] }>> {
+export async function cancelClass(body: { id?: unknown; expectedUpdatedAt?: unknown }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass; booked: BookedPerson[] }>> {
   const cls = await mustGetClass(body.id)
   const expectedUpdatedAt = expectedOf(body, cls)
-  const saved = cls.status === 'cancelled' ? cls : await updateClass(cls.id, { status: 'cancelled' }, ADMIN_BY, 'Cancelled', { expectedUpdatedAt })
+  const saved = cls.status === 'cancelled' ? cls : await updateClass(cls.id, { status: 'cancelled' }, by, 'Cancelled', { expectedUpdatedAt })
   let warning: string | undefined
   try {
     await archiveClassInSquare(saved)
@@ -375,7 +379,7 @@ export async function cancelClass(body: { id?: unknown; expectedUpdatedAt?: unkn
     warning = CANCEL_WARNING
   }
   const booked = bookedPeople(await getLedger(cls.id))
-  await audit('class-cancel', { kind: 'class', id: cls.id, label: cls.content.name }, { booked: booked.length })
+  await audit(by, 'class-cancel', { kind: 'class', id: cls.id, label: cls.content.name }, { booked: booked.length })
   return { data: { class: saved, booked }, ...(warning ? { warning } : {}) }
 }
 
@@ -488,15 +492,15 @@ async function bookedUnder(startIso: string, endIso: string): Promise<Busy[]> {
  * message unless `confirm: true`; confirmed, it saves and the reply lists what
  * it sits on. Nothing booked is changed either way.
  */
-export async function blockTime(body: { startIso?: unknown; endIso?: unknown; reason?: unknown; confirm?: unknown }): Promise<{ blocked: BlockedTime; clashes: Busy[] }> {
+export async function blockTime(body: { startIso?: unknown; endIso?: unknown; reason?: unknown; confirm?: unknown }, by: By = ADMIN_BY): Promise<{ blocked: BlockedTime; clashes: Busy[] }> {
   const startIso = toIso(body.startIso), endIso = toIso(body.endIso)
   if (!startIso || !endIso) throw new ActionError(400, 'Blocked time needs a start and an end time.')
   if (Date.parse(endIso) <= Date.parse(startIso)) throw new ActionError(400, 'Blocked time has to end after it starts.')
   const found = await bookedUnder(startIso, endIso)
   if (found.length && body.confirm !== true) throw new ActionError(409, clashMessage(found), { clashes: found })
   try {
-    const b = await addBlocked({ startIso, endIso, reason: typeof body.reason === 'string' ? body.reason : '', by: ADMIN_BY })
-    await audit('blocked-time-add', { kind: 'blocked-time', id: b.id, label: b.reason }, { startIso: b.startIso, endIso: b.endIso, over: found.length })
+    const b = await addBlocked({ startIso, endIso, reason: typeof body.reason === 'string' ? body.reason : '', by })
+    await audit(by, 'blocked-time-add', { kind: 'blocked-time', id: b.id, label: b.reason }, { startIso: b.startIso, endIso: b.endIso, over: found.length })
     return { blocked: b, clashes: found }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
@@ -505,10 +509,10 @@ export async function blockTime(body: { startIso?: unknown; endIso?: unknown; re
   }
 }
 
-export async function unblockTime(body: { id?: unknown }): Promise<void> {
+export async function unblockTime(body: { id?: unknown }, by: By = ADMIN_BY): Promise<void> {
   if (typeof body.id !== 'string' || !body.id) throw new ActionError(400, 'Pick the blocked time to remove.')
-  await removeBlocked(body.id, ADMIN_BY)
-  await audit('blocked-time-remove', { kind: 'blocked-time', id: body.id })
+  await removeBlocked(body.id, by)
+  await audit(by, 'blocked-time-remove', { kind: 'blocked-time', id: body.id })
 }
 
 // ── Route replies ──────────────────────────────────────────────────────────

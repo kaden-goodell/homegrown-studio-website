@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   listBookings: vi.fn(),
   listAllWorkshops: vi.fn(),
   waivers: vi.fn(),
+  party: vi.fn(),
 }))
 vi.mock('@config/providers', () => ({
   providers: {
@@ -12,7 +13,7 @@ vi.mock('@config/providers', () => ({
     workshop: { listAllWorkshops: mocks.listAllWorkshops, listWorkshops: vi.fn(async () => []) },
   },
 }))
-vi.mock('@lib/party-store', () => ({ getPartyRecord: vi.fn(async () => null) }))
+vi.mock('@lib/party-store', () => ({ getPartyRecord: mocks.party }))
 vi.mock('@lib/audit', () => ({ recordAudit: vi.fn(async () => undefined) }))
 vi.mock('@lib/waiver-store', () => ({ listWaiversByEvent: mocks.waivers }))
 
@@ -45,6 +46,7 @@ beforeEach(() => {
   mocks.listBookings.mockReset().mockResolvedValue([])
   mocks.listAllWorkshops.mockReset().mockResolvedValue([])
   mocks.waivers.mockReset().mockResolvedValue([])
+  mocks.party.mockReset().mockResolvedValue(null)
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -60,6 +62,23 @@ describe('calendar.json', () => {
     expect(r.status).toBe(200)
     const mine = r.body.data.items.find((i: any) => i.id === draft.id)
     expect(mine).toMatchObject({ kind: 'class', status: 'draft', sessionId: 'ses_cal1', label: 'Cal Draft Candles' })
+  })
+
+  it('our class sessions carry seats taken and capacity; parties carry their guest count', async () => {
+    const cls = await createClass({ content: content('Cal Seats Looms'), sessions: [{ id: 'ses_cal2', startIso: at('16:00'), endIso: at('17:00'), capacity: 12 }], status: 'open', by: { id: 'a', name: 'A' } })
+    await makeKvStore('seat-ledger', 'seat-ledger').set(`ledger-${cls.id}`, JSON.stringify({
+      classId: cls.id,
+      lines: [1, 2, 3].map((seat) => ({
+        id: `led_cs${seat}`, bookingId: 'bkg_cs', sessionIds: ['ses_cal2'], ticketTypeId: 'person', passId: 'all', seat,
+        priceCents: 2500, taxCents: 0, addOns: {}, addOnCents: 0, addOnTaxCents: 0, answers: {}, source: 'online',
+        state: 'confirmed', holdExpiresAt: null, customer: null, square: { orderId: 'o', paymentId: 'p', lineUid: null }, by: null, refunds: [], at: new Date().toISOString(),
+      })),
+    }))
+    mocks.listBookings.mockResolvedValue([{ id: 'bk_guests', status: 'accepted', slot: { startAt: at('13:00'), duration: 90 } }])
+    mocks.party.mockImplementation(async (id: string) => (id === 'bk_guests' ? { bookingId: id, hostName: 'Sam Host', guestCount: 14 } : null))
+    const r = await call(calendar, `/x?from=${encodeURIComponent(at('00:00'))}&to=${encodeURIComponent(at('23:59'))}`)
+    expect(r.body.data.items.find((i: any) => i.id === cls.id)).toMatchObject({ booked: 3, capacity: 12 })
+    expect(r.body.data.items.find((i: any) => i.id === 'bk_guests')).toMatchObject({ kind: 'party', guests: 14 })
   })
 
   it('a source that cannot be read is a 503, never an empty calendar', async () => {

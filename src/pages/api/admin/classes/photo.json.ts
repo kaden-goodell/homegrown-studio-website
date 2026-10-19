@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { randomUUID } from 'node:crypto'
-import { adminAuthorized } from '@lib/admin-auth'
+import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { makeKvStore } from '@lib/blob-store'
 import { json } from '@lib/classes/admin-actions'
 import { recordAudit } from '@lib/audit'
@@ -41,7 +41,7 @@ export const POST: APIRoute = async ({ request, url }) => {
   } catch {
     return json(503, { error: "The photo couldn't be saved. Try again." })
   }
-  await recordAudit({ by: { id: 'admin', name: 'Owner', role: 'owner' }, action: 'class-photo-upload', target: { kind: 'class-photo', id }, details: { bytes: bytes.length, type } })
+  await recordAudit({ by: { ...adminActor(request), role: 'owner' }, action: 'class-photo-upload', target: { kind: 'class-photo', id }, details: { bytes: bytes.length, type } })
   return json(200, { data: { url: `${url.origin}/api/admin/classes/photo.json?id=${id}` } })
 }
 
