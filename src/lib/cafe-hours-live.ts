@@ -31,9 +31,15 @@ function hoursCell(top: string, bottom: string): HTMLElement {
 
 /** Puts the weekly hours (and, where the page has room for them, the coming special days) into the page. */
 export function applyCafeHours(doc: Document, data: CafeHoursPayload): void {
-  if (!Array.isArray(data?.weekly) || data.weekly.length === 0) return
+  if (!Array.isArray(data?.weekly)) return
+  const special = Array.isArray(data.special) ? data.special : []
   for (const box of doc.querySelectorAll<HTMLElement>('[data-cafe-hours]')) {
-    box.replaceChildren(...data.weekly.map((h) => hoursCell(h.days, h.time)))
+    // No weekly café: never leave the hours the page was built with.
+    box.replaceChildren(...(data.weekly.length
+      ? data.weekly.map((h) => hoursCell(h.days, h.time))
+      : [hoursCell('Craft Café is by special day only', special.length
+        ? special.map((d) => `${specialDayLabel(d.date)}, ${d.time}`).join(' · ')
+        : 'See the calendar for the next café day')]))
   }
   for (const box of doc.querySelectorAll<HTMLElement>('[data-cafe-special]')) {
     const list = Array.isArray(data.special) ? data.special : []

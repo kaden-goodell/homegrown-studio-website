@@ -9,6 +9,7 @@ import { siteConfig, type SquareConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
 import { createSquareClient } from '@providers/square/client'
 import { onSandbox } from '@lib/party-open-dates'
+import { deployContext } from '@lib/deploy-context'
 import { localToUtcISO } from '@lib/party-slots'
 import { busyBetween } from '@lib/classes/studio-schedule'
 import { addDays, type CafeCatalogClient } from '@lib/cafe-windows'
@@ -38,6 +39,18 @@ export async function settingsBooked(closures: StoredClosure[]): Promise<{ list:
     }
   }
   return { list, failed }
+}
+
+/**
+ * R39: Craft Café's windows are written to Square only from the live site
+ * (deploy context 'production'), or where CAFE_WINDOWS_WRITE=1 says so on
+ * purpose. Local dev (whose .env is the live Square account) and branch
+ * previews never write them.
+ */
+export function cafeWritesAllowed(request?: Request): boolean {
+  const flag = typeof process !== 'undefined' ? process.env.CAFE_WINDOWS_WRITE : undefined
+  if (flag === '1') return true
+  return deployContext(request) === 'production'
 }
 
 /** The live Square client and café item for rewriteCafeWindows. */

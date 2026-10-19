@@ -1,7 +1,7 @@
 /**
  * Writes the Craft Café (walk-in) windows onto the Square display item the
  * calendar reads (`partyConfig.square.openStudioItemId`): one window per
- * Saturday (CAFE_HOURS, or a CAFE_SPECIAL_DAYS entry for that date), from today (never before
+ * café day (the saved weekly hours, or a special day), from today (never before
  * OPEN_STUDIO_START_DATE) for `--months N` (default 4), skipping closed days. The
  * calls live in src/lib/cafe-windows.ts, shared with /admin's settings save. Also names the item "Craft Café" so the
  * dashboard matches the site.
@@ -10,13 +10,15 @@
  *   npx tsx scripts/set-cafe-windows.ts --write    # write it
  *   npx tsx scripts/set-cafe-windows.ts --write --months 6
  *
- * Replaces the whole list each run (the windows are a pure function of the
- * config), so re-run after changing hours, the start date, or closures.
+ * Reads the owners' saved settings from the production store (needs the
+ * authed netlify CLI). The site also rolls these forward every night
+ * (netlify/functions/cafe-windows.ts), so this is only for a by-hand check.
  */
 import 'dotenv/config'
 import { SquareClient, SquareEnvironment } from 'square'
 import { OPEN_STUDIO_START_DATE } from '../src/config/opening'
-import { CONFIG_STUDIO_DAYS } from '../src/config/studio-days'
+import { studioDaysFromJson } from '../src/lib/studio-settings'
+import { blobGet, requireNetlifyCli } from './lib/netlify-blobs'
 import { partyConfig } from '../src/config/party.config'
 import { addDays, cafeWindows, fitWindows, readCafeItem, SQUARE_WINDOW_LIMIT, writeCafeWindows } from '../src/lib/cafe-windows'
 
@@ -29,14 +31,18 @@ if (!Number.isInteger(months) || months < 1 || months > 12) {
   process.exit(1)
 }
 
-console.log('Note: this writes the CONFIG hours and closed days. Once an owner saves More › Hours & Craft Café or Closed days')
-console.log('on /admin, saving there rewrites these windows itself; running this would put the config back.\n')
+// R38: the owners' saved hours, special days and closed days from the PRODUCTION store (the same rule the
+// site uses: the config until an owner first saves), so running this never undoes a save on /admin.
+requireNetlifyCli()
+const saved = await blobGet('studio-settings', 'settings')
+const studioDays = studioDaysFromJson(saved)
+console.log(saved ? 'Using the hours and closed days saved on /admin.\n' : 'Nothing saved on /admin yet: using the config hours and closed days.\n')
 
 // Past days only use up Square's character limit: start today at the earliest.
 const todayYmd = new Date().toLocaleDateString('en-CA', { timeZone: partyConfig.timezone })
 const start = todayYmd > OPEN_STUDIO_START_DATE ? todayYmd : OPEN_STUDIO_START_DATE
 const end = addDays(start, Math.round(months * 30.4))
-const all = cafeWindows(CONFIG_STUDIO_DAYS, start, end)
+const all = cafeWindows(studioDays, start, end)
 
 // Square caps a string custom attribute at 255 characters — about eleven
 // windows. Keep as many as fit and say how far that reaches, so the owner

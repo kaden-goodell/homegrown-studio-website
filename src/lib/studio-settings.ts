@@ -212,6 +212,15 @@ function parse(json: string): StudioSettings {
   return { ...s, cafeWeekly: s.cafeWeekly ?? [], cafeSpecialDays: s.cafeSpecialDays ?? [], closures: s.closures ?? [], history: s.history ?? [] }
 }
 
+/**
+ * The closed days and café hours a stored settings document means: the
+ * document's, or the config when there is none. The one rule getStudioDays
+ * uses, shared with scripts that read the production store themselves.
+ */
+export function studioDaysFromJson(json: string | null): StudioDays {
+  return json ? toStudioDays(parse(json)) : CONFIG_STUDIO_DAYS
+}
+
 /** The stored settings, or null when an owner has never saved (the config is in use). Throws when the store can't be read. */
 export async function readStudioSettings(): Promise<StudioSettings | null> {
   const json = await kv.get(KEY)

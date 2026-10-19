@@ -56,6 +56,8 @@ const item = { id: 'CAFE_ITEM', version: 3, itemData: { name: 'Craft Café' }, c
 
 beforeEach(() => {
   vi.stubEnv('ADMIN_PASSCODE', 'owner-secret')
+  // These tests play the live site (R39); one below plays a preview.
+  vi.stubEnv('CAFE_WINDOWS_WRITE', '1')
   rmSync(`${process.env.BLOB_STORE_FS_DIR}/studio-settings`, { recursive: true, force: true })
   resetStudioDaysCache()
   mocks.listBookings.mockReset().mockResolvedValue([])
@@ -141,7 +143,7 @@ describe('POST: save', () => {
     mocks.upsert.mockRejectedValueOnce(new Error('Square is down'))
     const r = await save({ cafeWeekly: [{ weekday: 'Saturday', opens: '10:00', closes: '12:00' }] })
     expect(r.status).toBe(200)
-    expect(r.body.data.square).toEqual({ status: 'failed', message: 'Square didn’t take the new café hours.' })
+    expect(r.body.data.square).toEqual({ status: 'failed', message: 'Craft Café’s hours in Square didn’t update.' })
     expect((await loaded()).cafeWeekly).toEqual([{ weekday: 'Saturday', opens: '10:00', closes: '12:00' }])
 
     const retry = await call('POST', { action: 'square-retry' }, { who: 'Kaden' })
@@ -151,11 +153,29 @@ describe('POST: save', () => {
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'studio-settings-square', by: { id: 'owner-kaden', name: 'Kaden', role: 'owner' } }))
   })
 
-  it('the test site (no café item): skipped with a plain line', async () => {
+  it('the sandbox (no café item): skipped with a plain line', async () => {
     mocks.sandbox = true
     mocks.get.mockRejectedValue(Object.assign(new Error('NOT_FOUND'), { statusCode: 404 }))
     const r = await save({ closures: [] })
-    expect(r.body.data.square).toEqual({ status: 'skipped', message: 'Square café hours not updated on the test site.' })
+    expect(r.body.data.square).toEqual({ status: 'skipped', message: 'Square isn’t updated from the test site.' })
+    expect(mocks.upsert).not.toHaveBeenCalled()
+  })
+
+  it('R39: local dev and previews never write to Square, and say so', async () => {
+    vi.stubEnv('CAFE_WINDOWS_WRITE', '')
+    const r = await save({ cafeWeekly: [{ weekday: 'Saturday', opens: '10:00', closes: '12:00' }] })
+    expect(r.body.data.square).toEqual({ status: 'skipped', message: 'Square isn’t updated from the test site.' })
+    expect(mocks.get).not.toHaveBeenCalled()
+    const retry = await call('POST', { action: 'square-retry' })
+    expect(retry.body.data.square.status).toBe('skipped')
+    expect(mocks.get).not.toHaveBeenCalled()
+  })
+
+  it('a closed day with no café on it says nothing about Square', async () => {
+    const r = await save({ closures: [...configSettings().closures, { from: '2027-02-03', to: '2027-02-03', name: 'a Wednesday off' }] })
+    expect(r.body.data.changed).toEqual(['Closed Wed, Feb 3 (a Wednesday off)'])
+    expect(r.body.data.square).toBeNull()
+    expect(mocks.get).not.toHaveBeenCalled()
     expect(mocks.upsert).not.toHaveBeenCalled()
   })
 

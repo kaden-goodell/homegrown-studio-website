@@ -52,6 +52,11 @@ export function fitWindows(windows: string[]): string[] {
   return kept
 }
 
+/** The café windows two sets of studio days give over the next 90 days, as they'd be written. */
+export function windowsFor(days: StudioDays, today: string): string {
+  return fitWindows(cafeWindows(days, today, addDays(today, REWRITE_DAYS))).join(',')
+}
+
 /** The part of the Square SDK client these calls use. */
 export interface CafeCatalogClient {
   catalog: {
@@ -102,7 +107,10 @@ export async function writeCafeWindows(
   return { name: saved?.itemData?.name ?? '', count: after.split(',').filter(Boolean).length, version: saved?.version }
 }
 
-export type CafeSquareStatus = 'updated' | 'skipped' | 'failed'
+/** What the owners read when a save isn't sent to Square (local dev, a preview, the sandbox). */
+export const TEST_SITE_SKIP = 'Square isn’t updated from the test site.'
+
+export type CafeSquareStatus = 'updated' | 'unchanged' | 'skipped' | 'failed'
 export interface CafeSquareResult {
   status: CafeSquareStatus
   /** One line for the owner. */
@@ -126,10 +134,14 @@ export async function rewriteCafeWindows(
     const item = await readCafeItem(deps.client, deps.itemId)
     if (!item) {
       return deps.sandbox
-        ? { status: 'skipped', message: 'Square café hours not updated on the test site.' }
-        : { status: 'failed', message: 'Square has no Craft Café item to update.' }
+        ? { status: 'skipped', message: TEST_SITE_SKIP }
+        : { status: 'failed', message: 'Craft Café’s hours in Square didn’t update: Square has no Craft Café item.' }
     }
     const windows = fitWindows(cafeWindows(days, today, addDays(today, REWRITE_DAYS)))
+    // Square already has exactly these: write nothing (a nightly run, or a save that didn't touch a café day).
+    if ((item.customAttributeValues?.programDates?.stringValue ?? '') === windows.join(',')) {
+      return { status: 'unchanged', message: 'Square already has these café hours.' }
+    }
     const saved = await writeCafeWindows(deps.client, item, windows)
     deps.log?.('Café windows rewritten', { windows: saved.count, version: String(saved.version ?? '') })
     return {
@@ -139,6 +151,6 @@ export async function rewriteCafeWindows(
     }
   } catch (err) {
     deps.log?.('Café windows not rewritten', { error: err instanceof Error ? err.message : String(err) })
-    return { status: 'failed', message: 'Square didn’t take the new café hours.' }
+    return { status: 'failed', message: 'Craft Café’s hours in Square didn’t update.' }
   }
 }

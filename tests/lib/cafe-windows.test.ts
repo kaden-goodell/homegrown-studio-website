@@ -75,7 +75,7 @@ describe('writing to Square (the script’s calls, unchanged)', () => {
     const notFound = Object.assign(new Error('Not found'), { statusCode: 404 })
     const { c, upsert } = client({ get: async () => { throw notFound } })
     const r = await rewriteCafeWindows(CONFIG_STUDIO_DAYS, '2026-11-01', { client: c, itemId: 'ITEM', sandbox: true })
-    expect(r).toEqual({ status: 'skipped', message: 'Square café hours not updated on the test site.' })
+    expect(r).toEqual({ status: 'skipped', message: 'Square isn’t updated from the test site.' })
     expect(upsert).not.toHaveBeenCalled()
   })
 
@@ -92,7 +92,7 @@ describe('writing to Square (the script’s calls, unchanged)', () => {
     const refused = client({ upsert: async () => { throw new Error('VERSION_MISMATCH') } })
     const log = vi.fn()
     const r = await rewriteCafeWindows(CONFIG_STUDIO_DAYS, '2026-11-01', { client: refused.c, itemId: 'ITEM', sandbox: false, log })
-    expect(r).toEqual({ status: 'failed', message: 'Square didn’t take the new café hours.' })
+    expect(r).toEqual({ status: 'failed', message: 'Craft Café’s hours in Square didn’t update.' })
     expect(log).toHaveBeenCalledWith('Café windows not rewritten', { error: 'VERSION_MISMATCH' })
   })
 })

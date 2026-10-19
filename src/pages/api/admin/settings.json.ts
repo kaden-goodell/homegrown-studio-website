@@ -3,8 +3,8 @@ import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { json } from '@lib/classes/admin-actions'
 import { recordAudit } from '@lib/audit'
 import { createLogger } from '@lib/logger'
-import { cafeSquareDeps, settingsBooked } from '@lib/settings-effects'
-import { rewriteCafeWindows, type CafeSquareResult } from '@lib/cafe-windows'
+import { cafeSquareDeps, cafeWritesAllowed, settingsBooked } from '@lib/settings-effects'
+import { rewriteCafeWindows, TEST_SITE_SKIP, windowsFor, type CafeSquareResult } from '@lib/cafe-windows'
 import { forget } from '@lib/short-memory'
 import { studioDate } from '@lib/studio-time'
 import {
@@ -27,8 +27,9 @@ export const GET: APIRoute = async ({ request }) => {
   }
 }
 
-/** Writes the next 90 days of café windows to Square from what's saved now. Never throws. */
-async function squareFrom(days: Parameters<typeof rewriteCafeWindows>[0]): Promise<CafeSquareResult> {
+/** Writes the next 90 days of café windows to Square from what's saved now (live site only, R39). Never throws. */
+async function squareFrom(days: Parameters<typeof rewriteCafeWindows>[0], request: Request): Promise<CafeSquareResult> {
+  if (!cafeWritesAllowed(request)) return { status: 'skipped', message: TEST_SITE_SKIP }
   const result = await rewriteCafeWindows(days, studioDate(new Date().toISOString()), {
     ...cafeSquareDeps(),
     log: (msg, meta) => logger.info(msg, meta),
@@ -61,7 +62,7 @@ export const POST: APIRoute = async ({ request }) => {
     } catch {
       return json(503, { error: UNREADABLE })
     }
-    const square = await squareFrom(days)
+    const square = await squareFrom(days, request)
     await recordAudit({
       by: { ...by, role: 'owner' }, action: 'studio-settings-square', target: { kind: 'settings', id: 'studio', label: 'Craft Café hours in Square' },
       details: { square: square.status },
@@ -82,7 +83,10 @@ export const POST: APIRoute = async ({ request }) => {
     const added = addedClosures(before.closures, saved.closures)
     // Anything already on newly closed days stays as it is; the owners are told.
     const booked = await settingsBooked(added)
-    const square = changed.length ? await squareFrom(toStudioDays(saved)) : null
+    // Only when a café day actually changed (a closed day before the café starts, say, changes none).
+    const today = studioDate(new Date().toISOString())
+    const cafeChanged = windowsFor(toStudioDays(before), today) !== windowsFor(toStudioDays(saved), today)
+    const square = cafeChanged ? await squareFrom(toStudioDays(saved), request) : null
     return json(200, { data: { settings: saved, changed, booked: booked.list, ...(booked.failed ? { bookedUnknown: true } : {}), square } })
   } catch (e) {
     if (e instanceof StaleSettingsError) return json(409, { error: e.message, stale: true, current: e.current })
