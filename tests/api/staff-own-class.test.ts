@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 const mocks = vi.hoisted(() => ({
   staff: { id: 'sam', name: 'Sam', role: 'crew' } as null | { id: string; name: string; role: 'owner' | 'crew' },
   audit: vi.fn(async () => undefined),
-  email: vi.fn(async () => ({ sent: true })),
+  email: vi.fn(async (_x: any) => ({ sent: true })),
 }))
 vi.mock('@lib/staff-auth', async (orig) => ({ ...(await orig<typeof import('@lib/staff-auth')>()), staffAuthorized: () => mocks.staff }))
 vi.mock('@lib/audit', () => ({ recordAudit: mocks.audit }))
