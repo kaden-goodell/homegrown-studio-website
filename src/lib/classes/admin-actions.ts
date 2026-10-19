@@ -11,12 +11,15 @@
  *  - moving a booked session needs `confirmMove` and returns who to tell.
  * Cancelling never refunds and never frees a seat; owners do that by hand.
  */
+import { createHash } from 'node:crypto'
 import { recordAudit } from '@lib/audit'
+import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import { formatDay, formatTime } from '@lib/studio-time'
 import { addBlocked, listBlocked, removeBlocked, type BlockedTime } from './blocked-time'
 import { createClass, getClass, listClasses, StaleClassError, updateClass } from './class-store'
-import { archiveLibrary, getLibrary, listLibrary, restoreLibraryVersion, saveLibraryVersion } from './library-store'
+import { archiveLibrary, getLibrary, LibraryStaleError, listLibrary, restoreLibraryVersion, saveLibraryVersion } from './library-store'
+import { takenCents } from './booking-words'
 import { archiveClassInSquare, CLASS_TAX_NOT_SET, syncClassToSquare } from './square-catalog'
 import { contentChanges } from './content-diff'
 import { bookingCap, describeRequest, remainingOn, sessionShare } from './refunds'
@@ -36,7 +39,7 @@ export const ADMIN_BY: By = { id: 'admin', name: 'Owner' }
 export const SYNC_WARNING = "Saved. The POS item didn't update. Try Save again."
 export const TAX_WARNING = "Saved, but it isn't on the POS: Class tax isn't set up yet. It can't be sold until it is."
 export const LIBRARY_WARNING = "Saved. The library didn't update. Try again."
-export const NEW_LIBRARY_WARNING = "Added. It didn't go into the library this time, so it won't show there."
+export const NEW_LIBRARY_WARNING = "Added. It'll go into the library the next time you open or save it."
 export const CANCEL_WARNING = "Cancelled. The POS item didn't come off. Try Cancel again."
 
 /** A refusal the owner reads: an HTTP status, a plain sentence, and anything extra for the screen. */
@@ -157,11 +160,15 @@ export async function libraryList(includeArchived = false): Promise<LibraryClass
   return listLibrary({ includeArchived })
 }
 
-export async function librarySave(body: { id?: unknown; content?: unknown; note?: unknown }, by: By = ADMIN_BY): Promise<LibraryClass> {
+export async function librarySave(body: { id?: unknown; content?: unknown; note?: unknown; expectedVersion?: unknown }, by: By = ADMIN_BY): Promise<LibraryClass> {
   const content = okContent(body.content)
   const id = typeof body.id === 'string' && body.id ? body.id : undefined
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 200) : ''
-  const lib = await saveLibraryVersion({ id, content, by, note }).catch(libraryError)
+  const expectedVersion = body.expectedVersion === undefined ? undefined : Number(body.expectedVersion)
+  const lib = await saveLibraryVersion({ id, content, by, note, ...(Number.isInteger(expectedVersion) ? { expectedVersion } : {}) }).catch((e) => {
+    if (e instanceof LibraryStaleError) throw new ActionError(409, e.message, { stale: true })
+    return libraryError(e)
+  })
   await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: content.name }, { version: lib.versions.length })
   return lib
 }
@@ -199,7 +206,8 @@ export async function classesBetween(fromIso?: string, toIso?: string): Promise<
     totals[c.id] = {
       bookings: views.length,
       seats: ledger.lines.filter(isBooked).length,
-      cents: views.reduce((sum, b) => sum + b.paidCents - b.refundedCents, 0),
+      // Money in: comps and counter seats not rung up yet bring in nothing (I3).
+      cents: views.reduce((sum, b) => sum + takenCents(b), 0),
     }
   }))
   return { classes: list, seatsTaken: taken, totals }
@@ -213,14 +221,26 @@ export async function classesBetween(fromIso?: string, toIso?: string): Promise<
 export interface LibraryRun { lastIso: string | null; nextIso: string | null; startIso: string; endIso: string }
 export async function libraryRuns(now = new Date()): Promise<Record<string, LibraryRun>> {
   const out: Record<string, LibraryRun> = {}
+  const timeFrom = new Map<string, 'draft' | 'real'>()
   for (const c of await listClasses()) {
     if (!c.libraryId || c.status === 'cancelled' || !c.sessions.length) continue
     const first = c.sessions[0]
+    const draft = c.status === 'draft'
     const r = out[c.libraryId] ?? { lastIso: null, nextIso: null, startIso: first.startIso, endIso: first.endIso }
-    if (first.startIso > r.startIso) { r.startIso = first.startIso; r.endIso = first.endIso }
-    for (const s of c.sessions) {
-      if (Date.parse(s.startIso) <= now.getTime()) { if (!r.lastIso || s.startIso > r.lastIso) r.lastIso = s.startIso }
-      else if (c.status !== 'draft' && (!r.nextIso || s.startIso < r.nextIso)) r.nextIso = s.startIso
+    // The usual time: the latest class that ran or is on the website; a draft only when there's nothing else.
+    const seen = timeFrom.get(c.libraryId)
+    const kind = draft ? 'draft' : 'real'
+    if (!seen || (seen === 'draft' && kind === 'real') || (seen === kind && first.startIso > r.startIso)) {
+      r.startIso = first.startIso
+      r.endIso = first.endIso
+      timeFrom.set(c.libraryId, kind)
+    }
+    // A draft never ran and isn't coming up for anyone: it doesn't count for "Last ran" or "First runs".
+    if (!draft) {
+      for (const s of c.sessions) {
+        if (Date.parse(s.startIso) <= now.getTime()) { if (!r.lastIso || s.startIso > r.lastIso) r.lastIso = s.startIso }
+        else if (!r.nextIso || s.startIso < r.nextIso) r.nextIso = s.startIso
+      }
     }
     out[c.libraryId] = r
   }
@@ -239,6 +259,73 @@ function usualFrom(content: ClassContent, sessions: Session[]): ClassContent {
   }
 }
 
+// ── Create keys (R35) and linking to the library (R36) ──────────────────────
+
+const createKeys = makeKvStore('class-create-keys', 'class-create-keys')
+const CREATE_KEY_RE = /^[A-Za-z0-9_-]{8,80}$/
+const digest = (s: string) => createHash('sha256').update(s).digest('hex')
+interface Reserved { classId: string; libraryId: string }
+
+/**
+ * The ids one New class sheet's Add will use, stored (compare-and-set) before
+ * anything is written: a retry with the same key gets the same ids, so it
+ * finds the class (and library entry) the first try made instead of making
+ * a second one.
+ */
+async function reserveCreate(createKey: unknown): Promise<Reserved | null> {
+  if (createKey === undefined || createKey === null) return null
+  if (typeof createKey !== 'string' || !CREATE_KEY_RE.test(createKey)) throw new ActionError(400, 'Reload the page and try again.')
+  const k = `ck-${digest(createKey).slice(0, 40)}`
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { value, etag } = await createKeys.getWithMeta(k)
+    if (value) return JSON.parse(value) as Reserved
+    const fresh: Reserved = { classId: newId('cls'), libraryId: newId('lib') }
+    if (await createKeys.setIfMatch(k, JSON.stringify({ ...fresh, at: new Date().toISOString() }), etag, false)) return fresh
+  }
+  throw new Error('Concurrent update — please retry')
+}
+
+/**
+ * Put a class that isn't in the library there (R36): version 1 from its own
+ * details (usual length and seats from its first date), and link it. The
+ * library id comes from the class id, so two at once make one entry.
+ */
+async function linkToLibrary(cls: ScheduledClass, by: By): Promise<{ cls: ScheduledClass; added: boolean }> {
+  if (cls.libraryId) return { cls, added: false }
+  const content = usualFrom(cls.content, cls.sessions)
+  const date = cls.sessions[0] ? formatDay(cls.sessions[0].startIso).replace(',', '') : ''
+  const lib = await saveLibraryVersion({ createId: `lib_${digest(cls.id).slice(0, 12)}`, content, by, note: date ? `Added with the class on ${date}` : 'Added with the class' })
+  const version = lib.versions[lib.versions.length - 1].version
+  const linked = await updateClass(cls.id, { libraryId: lib.id, libraryVersion: version }, by, `Added to the library (version ${version})`)
+  await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: content.name }, { version, auto: true, fromClass: cls.id })
+  return { cls: linked, added: true }
+}
+
+/** A create that already happened (same create key): finish what it may not have (library link, POS item) and answer with it. */
+async function finishCreate(cls: ScheduledClass, by: By): Promise<Saved<{ class: ScheduledClass; replay: true }>> {
+  let cur = cls
+  let warning: string | undefined
+  try {
+    cur = (await linkToLibrary(cur, by)).cls
+  } catch (e) {
+    console.warn(`[classes] linking ${cls.id} to the library failed: ${e instanceof Error ? e.message : e}`)
+    warning = NEW_LIBRARY_WARNING
+  }
+  if (cur.status !== 'draft' && cur.status !== 'cancelled' && !cur.square.itemId) {
+    const synced = await syncPos(cur, by)
+    cur = synced.cls
+    warning = [warning, synced.warning].filter(Boolean).join(' ') || undefined
+  }
+  return { data: { class: cur, replay: true }, ...(warning ? { warning } : {}) }
+}
+
+/** Link an unlinked class to the library, quietly (the class sheet asks when it opens one, R36). */
+export async function linkClassToLibrary(body: { id?: unknown }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass; libraryAdded: boolean }>> {
+  const cls = await mustGetClass(body.id)
+  const { cls: linked, added } = await linkToLibrary(cls, by)
+  return { data: { class: linked, libraryAdded: added } }
+}
+
 /**
  * Schedule a class. Every class lands in the library (R21) in this same
  * request: from scratch (no `libraryId`) a new library entry is made at
@@ -248,7 +335,13 @@ function usualFrom(content: ClassContent, sessions: Session[]): ClassContent {
  * saved first. A library failure never loses the class: it is added and the
  * reply warns.
  */
-export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass }>> {
+export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; createKey?: unknown }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass; replay?: true }>> {
+  // R35: the same Add sent again (a lost reply, a retry) finds what the first one made.
+  const reserved = await reserveCreate(body.createKey)
+  if (reserved) {
+    const made = await getClass(reserved.classId)
+    if (made) return finishCreate(made, by)
+  }
   let libraryId: string | undefined
   let libraryVersion: number | undefined
   let latest: LibraryClass['versions'][number] | undefined
@@ -271,7 +364,7 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
   if (!libraryId) {
     content = usualFrom(content, sessions)
     try {
-      const lib = await saveLibraryVersion({ content, by, note: `Added with the class on ${date}` })
+      const lib = await saveLibraryVersion({ ...(reserved ? { createId: reserved.libraryId } : {}), content, by, note: `Added with the class on ${date}` })
       libraryId = lib.id
       libraryVersion = lib.versions[lib.versions.length - 1].version
       await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: content.name }, { version: libraryVersion, auto: true })
@@ -290,7 +383,7 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
     }
   }
 
-  const created = await createClass({ content, sessions, ...(libraryId ? { libraryId } : {}), ...(libraryVersion !== undefined ? { libraryVersion } : {}), status, by })
+  const created = await createClass({ ...(reserved ? { id: reserved.classId } : {}), content, sessions, ...(libraryId ? { libraryId } : {}), ...(libraryVersion !== undefined ? { libraryVersion } : {}), status, by })
   const { cls, warning: posWarning } = await syncPos(created, by)
   await audit(by, 'class-create', { kind: 'class', id: cls.id, label: content.name }, { status, sessions: sessions.length, libraryId: libraryId ?? null })
   const said = [warning, posWarning].filter(Boolean).join(' ') || undefined
@@ -298,7 +391,12 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
 }
 
 /** Same content on new sessions; no bookings come along. */
-export async function duplicateClass(body: { id?: unknown; sessions?: unknown; status?: unknown }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass }>> {
+export async function duplicateClass(body: { id?: unknown; sessions?: unknown; status?: unknown; createKey?: unknown }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass; replay?: true }>> {
+  const reserved = await reserveCreate(body.createKey)
+  if (reserved) {
+    const made = await getClass(reserved.classId)
+    if (made) return finishCreate(made, by)
+  }
   const src = await mustGetClass(body.id)
   const sessions = okSessions(
     Array.isArray(body.sessions) ? body.sessions.map((s: any) => (s && typeof s === 'object' ? { ...s, id: newId('ses') } : s)) : body.sessions,
@@ -307,6 +405,7 @@ export async function duplicateClass(body: { id?: unknown; sessions?: unknown; s
   const content = structuredClone(src.content)
   await checkClashes(sessions, content.rules.canShareRoom)
   const created = await createClass({
+    ...(reserved ? { id: reserved.classId } : {}),
     content, sessions, status, by,
     ...(src.libraryId ? { libraryId: src.libraryId } : {}),
     ...(src.libraryVersion !== null ? { libraryVersion: src.libraryVersion } : {}),
@@ -371,7 +470,7 @@ class SameAsLibrary extends Error {}
 
 export async function updateScheduledClass(body: {
   id?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; confirmMove?: unknown; expectedUpdatedAt?: unknown
-}, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass; peopleToTell?: PersonToTell[] }>> {
+}, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass; peopleToTell?: PersonToTell[]; libraryAdded?: boolean }>> {
   const cls = await mustGetClass(body.id)
   const expectedUpdatedAt = expectedOf(body, cls)
   if (cls.status === 'cancelled') throw new ActionError(409, 'This class is cancelled. Duplicate it to run it again.')
@@ -417,8 +516,11 @@ export async function updateScheduledClass(body: {
       const date = formatDay(saved.sessions[0].startIso).replace(',', '')
       const current = saved.libraryId ? await getLibrary(saved.libraryId) : null
       const latest = current?.versions[current.versions.length - 1]
-      // The library already has these details: nothing to add.
-      if (latest && !contentChanges(latest.content, saved.content, { usual: false }).length) throw new SameAsLibrary()
+      // The library already has these details: nothing to add; just point the class at its latest version.
+      if (latest && !contentChanges(latest.content, saved.content, { usual: false }).length) {
+        if (saved.libraryVersion !== latest.version) saved = await updateClass(saved.id, { libraryVersion: latest.version }, by, `Library version ${latest.version}`)
+        throw new SameAsLibrary()
+      }
       const lib = await saveLibraryVersion({
         ...(saved.libraryId ? { id: saved.libraryId } : {}),
         content: saved.content,
@@ -436,12 +538,24 @@ export async function updateScheduledClass(body: {
     }
   }
 
+  // R36: a class that isn't in the library (made before R21, or when the library couldn't be written) goes there now.
+  let libraryAdded = false
+  if (!saved.libraryId && !libraryWarning) {
+    try {
+      const linked = await linkToLibrary(saved, by)
+      saved = linked.cls
+      libraryAdded = linked.added
+    } catch (e) {
+      console.warn(`[classes] linking ${saved.id} to the library failed: ${e instanceof Error ? e.message : e}`)
+    }
+  }
+
   const { cls: synced, warning: posWarning } = await syncPos(saved, by)
   const warning = [libraryWarning, posWarning].filter(Boolean).join(' ') || undefined
   await audit(by, 'class-update', { kind: 'class', id: cls.id, label: synced.content.name }, {
     changes: changes.join(', ') || 'none', moved: moved.length, alsoUpdateLibrary: body.alsoUpdateLibrary === true,
   })
-  return { data: { class: synced, ...(peopleToTell ? { peopleToTell } : {}) }, ...(warning ? { warning } : {}) }
+  return { data: { class: synced, ...(peopleToTell ? { peopleToTell } : {}), ...(libraryAdded ? { libraryAdded } : {}) }, ...(warning ? { warning } : {}) }
 }
 
 /** Everyone holding a seat, one entry per booking. */

@@ -9,7 +9,17 @@ const mocks = vi.hoisted(() => ({
   squareFetch: vi.fn(),
   audit: vi.fn(),
   libraryDown: false,
+  classDown: 0,
 }))
+vi.mock('@lib/classes/class-store', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@lib/classes/class-store')>()
+  return {
+    ...real,
+    // classDown > 0: that many class writes fail (the blob store dropped), after anything written before them.
+    createClass: (...a: Parameters<typeof real.createClass>) =>
+      mocks.classDown > 0 ? (mocks.classDown--, Promise.reject(new Error('Blob store "classes" is unavailable'))) : real.createClass(...a),
+  }
+})
 vi.mock('@config/providers', () => ({
   providers: {
     booking: { listBookings: mocks.listBookings },
@@ -372,7 +382,7 @@ describe('every new class lands in the library (R21)', () => {
       .finally(() => { mocks.libraryDown = false })
     expect(r.status).toBe(200)
     expect(r.body.data.class.libraryId).toBeNull()
-    expect(r.body.warning).toBe("Added. It didn't go into the library this time, so it won't show there.")
+    expect(r.body.warning).toBe("Added. It'll go into the library the next time you open or save it.")
   })
 
   it('from the library with changed details: "This class and the library" saves a new version first; without it the library stays', async () => {
@@ -654,3 +664,132 @@ describe('who made the change (X-Admin-Who)', () => {
     expect(none.body.data.blocked.by).toEqual({ id: 'admin', name: 'Owner' })
   })
 })
+
+describe('fix round 1: a retried Add never makes a second class or library entry (R35)', () => {
+  const libCount = async () => (await call(library, 'GET', '/api/admin/classes/library.json?archived=1')).body.data.library.length
+  const create = (key: string, body: any = {}) => call(classes, 'POST', '/api/admin/classes/classes.json', {
+    action: 'create', content: content('Keyed Class'), sessions: [ses('2032-02-05', '17:00', '19:00')], status: 'open', createKey: key, ...body,
+  })
+
+  it('the same createKey twice (a lost reply): the second answers with the class the first made; one class, one library entry, one POS item', async () => {
+    const before = await libCount()
+    const one = await create('key-lost-reply-1')
+    expect(one.status).toBe(200)
+    const again = await create('key-lost-reply-1')
+    expect(again.status).toBe(200)
+    expect(again.body.data.class.id).toBe(one.body.data.class.id)
+    expect(again.body.data.replay).toBe(true)
+    expect(await libCount()).toBe(before + 1)
+    expect(mocks.sync).toHaveBeenCalledTimes(1)
+    const all = (await call(classes, 'GET', '/api/admin/classes/classes.json')).body.data.classes.filter((c: any) => c.content.name === 'Keyed Class')
+    expect(all).toHaveLength(1)
+  })
+
+  it('the class write failed after the library entry was made: the retry uses that same entry, never a second', async () => {
+    const before = await libCount()
+    mocks.classDown = 1
+    const first = await create('key-half-failure', { content: content('Half Failure'), sessions: [ses('2032-02-12', '17:00', '19:00')] })
+    expect(first.status).toBe(503)
+    expect(await libCount()).toBe(before + 1)
+    const retry = await create('key-half-failure', { content: content('Half Failure'), sessions: [ses('2032-02-12', '17:00', '19:00')] })
+    expect(retry.status).toBe(200)
+    expect(await libCount()).toBe(before + 1)
+    const lib = await getLibrary(retry.body.data.class.libraryId)
+    expect(lib!.versions).toHaveLength(1)
+  })
+
+  it('a replay finishes what the first try didn’t: the POS item when Square failed, the library link when the library was down', async () => {
+    mocks.sync.mockRejectedValueOnce(new Error('Square down'))
+    mocks.libraryDown = true
+    const first = await create('key-finish-up', { content: content('Finish Up'), sessions: [ses('2032-02-19', '17:00', '19:00')] }).finally(() => { mocks.libraryDown = false })
+    expect(first.body.data.class.libraryId).toBeNull()
+    expect(first.body.data.class.square.itemId).toBeNull()
+    const again = await create('key-finish-up', { content: content('Finish Up'), sessions: [ses('2032-02-19', '17:00', '19:00')] })
+    expect(again.body.data.class.id).toBe(first.body.data.class.id)
+    expect(again.body.data.class.libraryId).toMatch(/^lib_/)
+    expect(again.body.data.class.square.itemId).toBe(`item-${first.body.data.class.id}`)
+  })
+
+  it('duplicate takes a createKey the same way; a bad key is refused before anything is written', async () => {
+    const src = await create('key-dup-source', { content: content('Dup Source'), sessions: [ses('2032-03-04', '17:00', '19:00')] })
+    const dup = (key: string) => call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'duplicate', id: src.body.data.class.id, sessions: [ses('2032-03-11', '17:00', '19:00')], createKey: key })
+    const a = await dup('key-dup-copy')
+    const b = await dup('key-dup-copy')
+    expect(b.body.data.class.id).toBe(a.body.data.class.id)
+    expect((await dup('bad key!')).status).toBe(400)
+  })
+})
+
+describe('fix round 1: an unlinked class goes into the library (R36)', () => {
+  it('library down on create, then any save of the class links it at version 1 and says so', async () => {
+    mocks.libraryDown = true
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Heal On Save'), sessions: [ses('2032-04-01', '17:00', '19:00')], status: 'draft' })
+      .finally(() => { mocks.libraryDown = false })
+    expect(c.body.warning).toBe("Added. It'll go into the library the next time you open or save it.")
+    const r = await update({ id: c.body.data.class.id, status: 'draft' })
+    expect(r.status).toBe(200)
+    expect(r.body.data.libraryAdded).toBe(true)
+    expect(r.body.data.class.libraryVersion).toBe(1)
+    expect((await getLibrary(r.body.data.class.libraryId))!.versions[0].content.name).toBe('Heal On Save')
+  })
+
+  it('a class from before R21 is linked quietly when its sheet opens (link-library); twice at once makes one entry', async () => {
+    const kv = makeKvStore('classes', 'classes')
+    const old = { ...(await (async () => {
+      const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Pre R21'), sessions: [ses('2032-04-08', '17:00', '19:00')], status: 'draft' })
+      return c.body.data.class
+    })()), libraryId: null, libraryVersion: null }
+    await kv.set(`class-${old.id}`, JSON.stringify(old))
+    const [a, b] = await Promise.all([
+      call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'link-library', id: old.id }),
+      call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'link-library', id: old.id }),
+    ])
+    expect(a.status).toBe(200)
+    expect(b.status).toBe(200)
+    expect(a.body.data.class.libraryId).toBe(b.body.data.class.libraryId)
+    expect((await getLibrary(a.body.data.class.libraryId))!.versions).toHaveLength(1)
+    const again = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'link-library', id: old.id })
+    expect(again.body.data.libraryAdded).toBe(false)
+  })
+
+  it('"This class and the library" with details the library already has points the class at the latest version', async () => {
+    const lib = await saveLibraryVersion({ content: content('Bump Me'), by: { id: 'k', name: 'K' }, note: '' })
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', libraryId: lib.id, sessions: [ses('2032-04-15', '17:00', '19:00')], status: 'draft' })
+    await saveLibraryVersion({ id: lib.id, content: content('Bump Me', { description: 'Newer.' }), by: { id: 'k', name: 'K' }, note: '' })
+    const r = await update({ id: c.body.data.class.id, content: content('Bump Me', { description: 'Newer.' }), alsoUpdateLibrary: true })
+    expect(r.body.data.class.libraryVersion).toBe(2)
+    expect((await getLibrary(lib.id))!.versions).toHaveLength(2)
+  })
+})
+
+describe('fix round 1: money', () => {
+  it('Past totals leave out a counter seat nobody has rung up yet, and comps', async () => {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Money'), sessions: [ses('2032-05-06', '17:00', '19:00')], status: 'open' })
+    const sid = c.body.data.class.sessions[0].id
+    await seedLedger(c.body.data.class.id, [
+      line({ bookingId: 'bkg_m1', sessionIds: [sid] }),
+      line({ bookingId: 'bkg_m2', sessionIds: [sid], source: 'door-counter', square: { orderId: null, paymentId: null, lineUid: null } }),
+      line({ bookingId: 'bkg_m3', sessionIds: [sid], source: 'comp', priceCents: 0, taxCents: 0, square: { orderId: null, paymentId: null, lineUid: null } }),
+    ])
+    const r = await call(classes, 'GET', '/api/admin/classes/classes.json')
+    expect(r.body.data.totals[c.body.data.class.id]).toEqual({ bookings: 3, seats: 3, cents: 3270 })
+  })
+
+  it('the usual time comes from a class on the website, not a draft at an odd time; a draft never counts as "last ran"', async () => {
+    const lib = await saveLibraryVersion({ content: content('Usual Time'), by: { id: 'k', name: 'K' }, note: '' })
+    const real = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', libraryId: lib.id, sessions: [ses('2032-06-03', '18:00', '20:00')], status: 'open' })
+    await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', libraryId: lib.id, sessions: [ses('2032-06-24', '07:00', '08:00')], status: 'draft' })
+    const r = await call(library, 'GET', '/api/admin/classes/library.json')
+    expect(r.body.data.runs[lib.id].startIso).toBe(real.body.data.class.sessions[0].startIso)
+  })
+
+  it('a library save from a form opened on an older version is refused as stale, nothing written', async () => {
+    const lib = await saveLibraryVersion({ content: content('Two Owners'), by: { id: 'k', name: 'K' }, note: '' })
+    await saveLibraryVersion({ id: lib.id, content: content('Two Owners', { description: 'Kaden was here.' }), by: { id: 'k', name: 'K' }, note: '' })
+    const r = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', id: lib.id, expectedVersion: 1, content: content('Two Owners', { description: 'Catherine too.' }), note: '' })
+    expect(r.status).toBe(409)
+    expect(r.body).toMatchObject({ stale: true, error: 'Someone else changed this library class. Your edits are kept; check them and save again.' })
+    expect((await getLibrary(lib.id))!.versions).toHaveLength(2)
+  })
+})
+

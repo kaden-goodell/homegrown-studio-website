@@ -40,14 +40,15 @@ export async function listClasses(range?: { fromIso: string; toIso: string }): P
   return out.sort((a, b) => Date.parse(a.sessions[0]?.startIso ?? '') - Date.parse(b.sessions[0]?.startIso ?? ''))
 }
 
+/** `id`: the id a create key reserved (R35), so a retry finds the class instead of making a second one. */
 export async function createClass(input: {
-  content: ClassContent; sessions: Session[]; libraryId?: string; libraryVersion?: number; status: ClassStatus; by: By
+  content: ClassContent; sessions: Session[]; libraryId?: string; libraryVersion?: number; status: ClassStatus; by: By; id?: string
 }): Promise<ScheduledClass> {
   const content = okContent(input.content)
   const sessions = okSessions(input.sessions)
   const now = new Date().toISOString()
   const cls: ScheduledClass = {
-    id: newId('cls'),
+    id: input.id ?? newId('cls'),
     libraryId: input.libraryId ?? null,
     libraryVersion: input.libraryVersion ?? null,
     content,

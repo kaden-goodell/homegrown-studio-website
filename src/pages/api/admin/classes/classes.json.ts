@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { toIso } from '@lib/classes/validate'
 import {
-  ActionError, cancelClass, classesBetween, duplicateClass, json, reply, scheduleClass, updateScheduledClass,
+  ActionError, cancelClass, classesBetween, duplicateClass, json, linkClassToLibrary, reply, scheduleClass, updateScheduledClass,
 } from '@lib/classes/admin-actions'
 
 export const prerender = false
@@ -18,8 +18,10 @@ export const GET: APIRoute = async ({ request, url }) => {
 
 /**
  * Who made the change comes from the X-Admin-Who header (see adminActor).
- * POST { action: 'create', libraryId? | content, sessions, status, alsoUpdateLibrary? } (every new class lands in the library)
- *      { action: 'duplicate', id, sessions, status? }
+ * POST { action: 'create', libraryId? | content, sessions, status, alsoUpdateLibrary?, createKey? } (every new class lands in the library;
+ *        the same createKey again returns the class it made, R35)
+ *      { action: 'duplicate', id, sessions, status?, createKey? }
+ *      { action: 'link-library', id } (puts an unlinked class in the library, R36)
  *      { action: 'update', id, content?, sessions?, status?, alsoUpdateLibrary?, confirmMove? }
  *      { action: 'cancel', id }
  */
@@ -33,6 +35,7 @@ export const POST: APIRoute = async ({ request }) => {
       case 'duplicate': return duplicateClass(body, by)
       case 'update': return updateScheduledClass(body, by)
       case 'cancel': return cancelClass(body, by)
+      case 'link-library': return linkClassToLibrary(body, by)
       default: throw new ActionError(400, 'That is not something a class can do.')
     }
   })

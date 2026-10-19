@@ -26,6 +26,19 @@ export function paidWay(b: BookingWordsInput): string {
   }
 }
 
+/** A pay-at-the-counter seat nobody has rung up yet: no money has come in. */
+export const unpaidCounter = (b: Pick<BookingWordsInput, 'source' | 'paidHere'>) => b.source === 'door-counter' && !b.paidHere
+
+/**
+ * The money a booking has actually brought in, less refunds: 0 for a comp and
+ * for a counter seat not rung up yet (its price is only what it will cost).
+ * /admin's "taken so far" and Past totals add these up.
+ */
+export function takenCents(b: Pick<BookingWordsInput, 'source' | 'paidHere'> & { paidCents: number; refundedCents: number }): number {
+  if (b.source === 'comp' || unpaidCounter(b)) return 0
+  return Math.max(0, b.paidCents - b.refundedCents)
+}
+
 /** The over-capacity note: the crew's own choice reads as such; anything else is for an owner. */
 export function overCapacityNote(b: BookingWordsInput): string | null {
   if (!b.overCapacity) return null
