@@ -153,6 +153,19 @@ export function makeKvStore(
     }
   }
 
+  /** Create-only: false when the key already exists (someone else got there first). */
+  async function fsCreate(key: string, json: string): Promise<boolean> {
+    const { mkdir, writeFile } = await import('node:fs/promises')
+    await mkdir(await fsDir(), { recursive: true })
+    try {
+      await writeFile(await fsPath(key), json, { encoding: 'utf8', flag: 'wx' })
+      return true
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException)?.code === 'EEXIST') return false
+      throw e
+    }
+  }
+
   async function fsWrite(key: string, json: string): Promise<void> {
     const { mkdir, writeFile } = await import('node:fs/promises')
     await mkdir(await fsDir(), { recursive: true })
@@ -186,6 +199,9 @@ export function makeKvStore(
     async setIfMatch(key, json, etag, exists) {
       const store = await resolveBlobStore()
       if (!store) {
+        // Local files have no etags, but create-only can be honoured: an
+        // exclusive create loses when someone else wrote the key first.
+        if (!exists) return fsCreate(key, json)
         await fsWrite(key, json)
         return true
       }

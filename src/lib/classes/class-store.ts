@@ -60,8 +60,14 @@ export async function createClass(input: {
     by: input.by,
     history: [{ at: now, by: input.by, change: 'Created' }],
   }
-  await kv.set(key(cls.id), JSON.stringify(cls))
+  // Create-only: a second create with the same reserved id (R35) never overwrites the first.
+  if (!(await kv.setIfMatch(key(cls.id), JSON.stringify(cls), null, false))) throw new ClassExistsError(cls.id)
   return cls
+}
+
+/** The class this create was going to make already exists (a retry or a parallel send of the same Add). */
+export class ClassExistsError extends Error {
+  constructor(public id: string) { super('That class already exists.') }
 }
 
 /** A save made from an older copy of the class than the one stored. */

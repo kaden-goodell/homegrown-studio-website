@@ -17,7 +17,7 @@ import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import { formatDay, formatTime } from '@lib/studio-time'
 import { addBlocked, listBlocked, removeBlocked, type BlockedTime } from './blocked-time'
-import { createClass, getClass, listClasses, StaleClassError, updateClass } from './class-store'
+import { ClassExistsError, createClass, getClass, listClasses, StaleClassError, updateClass } from './class-store'
 import { archiveLibrary, getLibrary, LibraryStaleError, listLibrary, restoreLibraryVersion, saveLibraryVersion } from './library-store'
 import { takenCents } from './booking-words'
 import { archiveClassInSquare, CLASS_TAX_NOT_SET, syncClassToSquare } from './square-catalog'
@@ -80,6 +80,19 @@ function holdsSeat(l: LedgerLine, now: Date): boolean {
 
 const paidOn = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
 
+/**
+ * A counter (POS) sale can pay several bookings at once (one family's walk-in
+ * seats and another's pay-at-the-counter seats): every line carries the whole
+ * sale's chargedCents. So counter lines count their own price and tax, never
+ * the sale total, or one sale is counted once per booking (N6).
+ */
+const fromCounter = (l: LedgerLine) => l.source === 'pos' || l.source === 'door-counter'
+const chargedFor = (l: LedgerLine) => (fromCounter(l) ? undefined : l.square.chargedCents)
+function paidOf(lines: LedgerLine[]): number {
+  const charged = lines.map(chargedFor).find((c) => typeof c === 'number')
+  return charged ?? lines.reduce((s, l) => s + paidOn(l), 0)
+}
+
 function okContent(raw: unknown): ClassContent {
   const r = validateContent(raw)
   if (!r.ok) throw new ActionError(400, r.error, r.field ? { field: r.field } : {})
@@ -92,6 +105,16 @@ function okSessions(raw: unknown): Session[] {
   const r = validateSessions(list)
   if (!r.ok) throw new ActionError(400, r.error, r.field ? { field: r.field } : {})
   return r.value
+}
+
+export const PAST_DATE = 'Pick a date from today on.'
+/** A new or moved date that starts in the past is refused (R37): a class is never added or moved into the past. */
+function noPastStarts(sessions: Session[], old: Session[] = [], now = Date.now()): void {
+  for (const s of sessions) {
+    const was = old.find((o) => o.id === s.id)
+    if (was && was.startIso === s.startIso && was.endIso === s.endIso) continue
+    if (Date.parse(s.startIso) < now) throw new ActionError(400, PAST_DATE, { field: 'sessions' })
+  }
 }
 
 function okStatus(raw: unknown, fallback: ClassStatus): ClassStatus {
@@ -296,6 +319,9 @@ async function linkToLibrary(cls: ScheduledClass, by: By): Promise<{ cls: Schedu
   const date = cls.sessions[0] ? formatDay(cls.sessions[0].startIso).replace(',', '') : ''
   const lib = await saveLibraryVersion({ createId: `lib_${digest(cls.id).slice(0, 12)}`, content, by, note: date ? `Added with the class on ${date}` : 'Added with the class' })
   const version = lib.versions[lib.versions.length - 1].version
+  // Another sheet may have linked it a moment ago: then leave the class alone (no new updatedAt to trip a save, N5).
+  const now = await getClass(cls.id)
+  if (now?.libraryId) return { cls: now, added: false }
   const linked = await updateClass(cls.id, { libraryId: lib.id, libraryVersion: version }, by, `Added to the library (version ${version})`)
   await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: content.name }, { version, auto: true, fromClass: cls.id })
   return { cls: linked, added: true }
@@ -355,9 +381,17 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
     if (raw === undefined) raw = latest.content
   }
   const sessions = okSessions(body.sessions)
+  noPastStarts(sessions)
   let content = okContent(raw)
   const status = okStatus(body.status, 'draft')
-  await checkClashes(sessions, content.rules.canShareRoom)
+  try {
+    await checkClashes(sessions, content.rules.canShareRoom)
+  } catch (e) {
+    // The same Add sent twice at once: the other one made it first, so this "clash" is with itself.
+    const made = reserved ? await getClass(reserved.classId) : null
+    if (made) return finishCreate(made, by)
+    throw e
+  }
 
   let warning: string | undefined
   const date = formatDay(sessions[0].startIso).replace(',', '')
@@ -383,7 +417,13 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
     }
   }
 
-  const created = await createClass({ ...(reserved ? { id: reserved.classId } : {}), content, sessions, ...(libraryId ? { libraryId } : {}), ...(libraryVersion !== undefined ? { libraryVersion } : {}), status, by })
+  let created: ScheduledClass
+  try {
+    created = await createClass({ ...(reserved ? { id: reserved.classId } : {}), content, sessions, ...(libraryId ? { libraryId } : {}), ...(libraryVersion !== undefined ? { libraryVersion } : {}), status, by })
+  } catch (e) {
+    if (e instanceof ClassExistsError) return finishCreate((await getClass(e.id))!, by)
+    throw e
+  }
   const { cls, warning: posWarning } = await syncPos(created, by)
   await audit(by, 'class-create', { kind: 'class', id: cls.id, label: content.name }, { status, sessions: sessions.length, libraryId: libraryId ?? null })
   const said = [warning, posWarning].filter(Boolean).join(' ') || undefined
@@ -401,15 +441,22 @@ export async function duplicateClass(body: { id?: unknown; sessions?: unknown; s
   const sessions = okSessions(
     Array.isArray(body.sessions) ? body.sessions.map((s: any) => (s && typeof s === 'object' ? { ...s, id: newId('ses') } : s)) : body.sessions,
   )
+  noPastStarts(sessions)
   const status = okStatus(body.status, src.status === 'cancelled' ? 'draft' : src.status)
   const content = structuredClone(src.content)
   await checkClashes(sessions, content.rules.canShareRoom)
-  const created = await createClass({
-    ...(reserved ? { id: reserved.classId } : {}),
-    content, sessions, status, by,
-    ...(src.libraryId ? { libraryId: src.libraryId } : {}),
-    ...(src.libraryVersion !== null ? { libraryVersion: src.libraryVersion } : {}),
-  })
+  let created: ScheduledClass
+  try {
+    created = await createClass({
+      ...(reserved ? { id: reserved.classId } : {}),
+      content, sessions, status, by,
+      ...(src.libraryId ? { libraryId: src.libraryId } : {}),
+      ...(src.libraryVersion !== null ? { libraryVersion: src.libraryVersion } : {}),
+    })
+  } catch (e) {
+    if (e instanceof ClassExistsError) return finishCreate((await getClass(e.id))!, by)
+    throw e
+  }
   const { cls, warning } = await syncPos(created, by)
   await audit(by, 'class-duplicate', { kind: 'class', id: cls.id, label: content.name }, { from: src.id, sessions: sessions.length })
   return { data: { class: cls }, ...(warning ? { warning } : {}) }
@@ -476,6 +523,7 @@ export async function updateScheduledClass(body: {
   if (cls.status === 'cancelled') throw new ActionError(409, 'This class is cancelled. Duplicate it to run it again.')
   const content = body.content !== undefined ? okContent(body.content) : cls.content
   const sessions = body.sessions !== undefined ? okSessions(body.sessions) : cls.sessions
+  if (body.sessions !== undefined) noPastStarts(sessions, cls.sessions)
   const status = okStatus(body.status, cls.status)
 
   const now = new Date()
@@ -565,7 +613,7 @@ export function bookedPeople(ledger: Ledger): BookedPerson[] {
     if (!isBooked(l)) continue
     const p = out.get(l.bookingId) ?? {
       bookingId: l.bookingId, name: fullName(l), email: l.customer?.email ?? '', phone: l.customer?.phone ?? '',
-      seats: 0, paidCents: 0, sum: 0, charged: l.square.chargedCents,
+      seats: 0, paidCents: 0, sum: 0, charged: chargedFor(l),
     }
     p.seats += 1
     p.sum += paidOn(l)
@@ -651,7 +699,7 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
       sessionIds,
       picks: lines.map((l) => ({ seat: l.seat, ticketTypeId: l.ticketTypeId, answers: l.answers })),
       addOns,
-      paidCents: first.square.chargedCents ?? lines.reduce((s, l) => s + paidOn(l), 0),
+      paidCents: paidOf(lines),
       refundedCents: refunds.reduce((s, r) => s + r.cents, 0),
       refunds,
       state,

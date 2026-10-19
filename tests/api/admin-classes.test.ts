@@ -793,3 +793,58 @@ describe('fix round 1: money', () => {
   })
 })
 
+
+describe('fix round 2', () => {
+  it('N1 (R37): a new or moved date in the past is refused; an unchanged past date never is', async () => {
+    const past = { startIso: new Date(Date.now() - 2 * 86_400_000).toISOString(), endIso: new Date(Date.now() - 2 * 86_400_000 + 3_600_000).toISOString(), capacity: 8 }
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Back In Time'), sessions: [past], status: 'draft' })
+    expect(r.status).toBe(400)
+    expect(r.body).toMatchObject({ error: 'Pick a date from today on.', field: 'sessions' })
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Forward'), sessions: [ses('2032-07-01', '17:00', '18:00')], status: 'draft' })
+    const cls = c.body.data.class
+    const moved = await update({ id: cls.id, sessions: [{ ...cls.sessions[0], startIso: past.startIso, endIso: past.endIso }] })
+    expect(moved.status).toBe(400)
+    expect(moved.body.error).toBe('Pick a date from today on.')
+    const dup = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'duplicate', id: cls.id, sessions: [past] })
+    expect(dup.status).toBe(400)
+    // A class whose date has passed can still be saved (its old date is left as it was).
+    const kv = makeKvStore('classes', 'classes')
+    await kv.set(`class-${cls.id}`, JSON.stringify({ ...(await getClass(cls.id)), sessions: [{ ...cls.sessions[0], startIso: past.startIso, endIso: past.endIso }] }))
+    const ok = await update({ id: cls.id, sessions: [{ ...cls.sessions[0], startIso: past.startIso, endIso: past.endIso }], status: 'closed' })
+    expect(ok.status).toBe(200)
+  })
+
+  it('N3: three sends of the same Add at once make one class and one library entry (create-only writes)', async () => {
+    const before = (await call(library, 'GET', '/api/admin/classes/library.json?archived=1')).body.data.library.length
+    const send = () => call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('All At Once'), sessions: [ses('2032-07-08', '17:00', '19:00')], status: 'draft', createKey: 'key-parallel-three' })
+    const all = await Promise.all([send(), send(), send()])
+    expect(all.map((r) => r.status)).toEqual([200, 200, 200])
+    expect(new Set(all.map((r) => r.body.data.class.id)).size).toBe(1)
+    const named = (await call(classes, 'GET', '/api/admin/classes/classes.json')).body.data.classes.filter((c: any) => c.content.name === 'All At Once')
+    expect(named).toHaveLength(1)
+    expect((await call(library, 'GET', '/api/admin/classes/library.json?archived=1')).body.data.library.length).toBe(before + 1)
+  })
+
+  it('N5: linking a class that another sheet already linked leaves it alone (no new updatedAt)', async () => {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Linked Already'), sessions: [ses('2032-07-15', '17:00', '19:00')], status: 'draft' })
+    const before = await getClass(c.body.data.class.id)
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'link-library', id: before!.id })
+    expect(r.body.data.libraryAdded).toBe(false)
+    expect((await getClass(before!.id))!.updatedAt).toBe(before!.updatedAt)
+  })
+
+  it('N6: one counter sale paying two bookings counts each booking’s own seats, not the sale twice', async () => {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Shared Sale'), sessions: [ses('2032-07-22', '17:00', '19:00')], status: 'open' })
+    const cls = c.body.data.class
+    const sid = cls.sessions[0].id
+    const sale = { orderId: 'o-pos', paymentId: 'p-pos', lineUid: 'u1', chargedCents: 6540 }
+    await seedLedger(cls.id, [
+      line({ bookingId: 'bkg_door1', sessionIds: [sid], source: 'door-counter', square: sale }),
+      line({ bookingId: 'bkg_door2', sessionIds: [sid], source: 'door-counter', square: { ...sale, lineUid: 'u2' } }),
+    ])
+    const totals = (await call(classes, 'GET', '/api/admin/classes/classes.json')).body.data.totals[cls.id]
+    expect(totals.cents).toBe(6540)
+    const views = (await call(bookings, 'GET', `/api/admin/classes/bookings.json?id=${cls.id}`)).body.data.bookings
+    expect(views.map((b: any) => b.paidCents)).toEqual([3270, 3270])
+  })
+})
