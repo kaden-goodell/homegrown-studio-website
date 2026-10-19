@@ -182,9 +182,10 @@ A hidden $5 / $1 test class on prod, before any customer uses it:
 - Test texts go only to Kaden's number.
 - Prod pushes only on Kaden's go; dev previews share live stores, so staff/admin tests there write real records.
 
-## Open questions for Kaden and Catherine
+## Decisions (18 Oct)
 
-1. Waitlist hold time: 12 hours OK?
-2. Minimum-to-run: default off, or on with a number per class?
-3. Should crew see the /admin calendar (read-only), or only owners?
-4. Refunds from /admin: owners only, or also crew with a reason?
+- Waitlist: when a seat frees up, the next person on the list is added to the class (how they pay is still to settle).
+- Minimum to run: set per class.
+- Crew see the /admin calendar, read-only.
+- Refunds: owners, and crew with a reason (logged with their name).
+- Assigning staff is /admin only. Crew mark availability and ask to work things; they never assign. A future general manager gets /admin.
