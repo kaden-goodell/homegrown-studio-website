@@ -52,7 +52,12 @@ export interface Warning {
   detail: string
   /** What a person does about it: "Move one in Square." */
   action: string
+  /** Stable id of an undated item (a counter sale, a refund flag…), so the daily email can tell new from old. */
+  itemId?: string
 }
+
+/** Items that aren't tied to a day: they stay until an owner decides. */
+export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check'])
 
 /** Days ahead the panel and the daily email look. */
 export const WARNING_WINDOW_DAYS = 60
@@ -315,7 +320,7 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
   }
   for (const u of unmatched) {
     out.push({
-      code: 'pos-unmatched', eventKind: 'workshop', eventId: '', when: u.at, title: u.name,
+      code: 'pos-unmatched', eventKind: 'workshop', eventId: '', when: u.at, title: u.name, itemId: `unmatched-${u.orderId}-${u.lineUid}`,
       detail: `A counter sale of ${u.name}${u.qty > 1 ? ` ×${u.qty}` : ''} didn’t match a class.`, action: OWNERS_DECIDE,
     })
   }
@@ -323,25 +328,25 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
   for (const d of needsDays) {
     const name = await nameOf(d.classId)
     out.push({
-      code: 'pos-needs-days', eventKind: 'workshop', eventId: d.classId, when: d.at, title: name,
+      code: 'pos-needs-days', eventKind: 'workshop', eventId: d.classId, when: d.at, title: name, itemId: d.id,
       detail: `A counter sale of ${name} needs its day picked.`, action: OWNERS_DECIDE,
     })
   }
   for (const u of unpaid) {
     out.push({
-      code: 'door-unpaid', eventKind: 'workshop', eventId: u.classId, when: u.sessionStartIso, title: u.className,
+      code: 'door-unpaid', eventKind: 'workshop', eventId: u.classId, when: u.sessionStartIso, title: u.className, itemId: u.id,
       detail: `${u.name || 'A door seat'} · ${u.className} · ${formatCalendarDay(u.day)} · not paid at the counter yet`, action: OWNERS_DECIDE,
     })
   }
   for (const m of matches) {
     out.push({
-      code: 'counter-match-check', eventKind: 'workshop', eventId: m.classId, when: m.at, title: m.className,
+      code: 'counter-match-check', eventKind: 'workshop', eventId: m.classId, when: m.at, title: m.className, itemId: m.id,
       detail: `Counter sale of ${m.className} on ${formatCalendarDay(m.day)} was matched to ${m.name}. Check it was them.`, action: OWNERS_DECIDE,
     })
   }
   for (const f of flags) {
     const name = await nameOf(f.classId)
-    out.push({ code: 'refund-flag', eventKind: 'workshop', eventId: f.classId, when: f.at, title: name, detail: refundFlagDetail(f, name), action: OWNERS_DECIDE })
+    out.push({ code: 'refund-flag', eventKind: 'workshop', eventId: f.classId, when: f.at, title: name, itemId: f.id, detail: refundFlagDetail(f, name), action: OWNERS_DECIDE })
   }
   return out
 }

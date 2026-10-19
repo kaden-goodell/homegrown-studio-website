@@ -82,6 +82,8 @@ describe('warnings for our own classes', () => {
       ['refund-flag', 'cls_camp', 'Clay Camp: $10 was refunded in Square. Should a seat be freed?'],
       ['refund-flag', 'cls_camp', 'Clay Camp: a $25 refund is still waiting on Square.'],
     ])
+    // each carries a stable id, so the daily email can tell a new one from one already shown
+    expect(list.map((w) => w.itemId)).toEqual(['unmatched-O1-L1', 'days-1', 'f1', 'f2'])
   })
 
   it('a class store that can’t be read says so in one line (never an all clear), and the rest still shows', async () => {

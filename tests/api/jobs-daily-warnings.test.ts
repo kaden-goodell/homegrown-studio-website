@@ -5,7 +5,10 @@ vi.mock('@lib/warnings', () => ({
   listWarnings: (...a: any[]) => mockListWarnings(...a),
   warningLine: (w: any) => `Sun Oct 18 · ${w.detail} ${w.action}`,
   WARNING_WINDOW_DAYS: 60,
+  UNDATED_CODES: new Set(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check']),
 }))
+const mockMinimum = vi.fn()
+vi.mock('@lib/classes/minimum-to-run', () => ({ runMinimumToRunAlerts: (...a: any[]) => mockMinimum(...a) }))
 const mockSendEmail = vi.fn()
 vi.mock('@lib/email', () => ({ sendEmail: (...a: any[]) => mockSendEmail(...a) }))
 
@@ -33,6 +36,7 @@ beforeEach(() => {
   mockSendEmail.mockResolvedValue({ sent: true })
   mockLoadSession.mockResolvedValue({ cookie: 'x', savedAt: '2026-09-26T00:00:00.000Z' })
   mockCheckSession.mockResolvedValue({ state: 'connected' })
+  mockMinimum.mockResolvedValue({ alerted: [], failed: [], already: 0 })
 })
 afterEach(() => {
   delete process.env.LOOKUP_SIGNING_SECRET
@@ -89,6 +93,31 @@ describe('POST /api/jobs/daily-warnings.json', () => {
     expect(mail.subject).toMatch(/Square sign-in/)
     expect(mail.text).toMatch(/expired \(saved 2026-09-26, lasted about 10 days\)/)
     expect(mail.text).toMatch(/save-square-session/)
+  })
+})
+
+describe('undated items and the minimum to run', () => {
+  const U = (id: string) => ({ code: 'pos-unmatched', eventKind: 'workshop', eventId: '', when: '2026-10-01T15:00:00.000Z', title: id, detail: `Counter sale ${id}.`, action: 'An owner decides on /admin.', itemId: `${id}-${Math.random()}` })
+
+  it('an undated item shows in full the first day, then only as "N things still to decide on /admin"', async () => {
+    const u = U('u1')
+    mockListWarnings.mockResolvedValue([W, u])
+    await POST(ctx(dailyWarningsJobKey(SECRET)))
+    expect(mockSendEmail.mock.calls[0][0].text).toContain('Counter sale u1.')
+    vi.setSystemTime(new Date('2026-10-07T12:00:00.000Z'))
+    await POST(ctx(dailyWarningsJobKey(SECRET)))
+    const day2 = mockSendEmail.mock.calls[1][0]
+    expect(day2.text).not.toContain('Counter sale u1.')
+    expect(day2.text).toContain('1 thing still to decide on /admin')
+    expect(day2.text).toContain('Pumpkin Pails: 27 seats sold, 25 capacity.')
+  })
+
+  it('checks the minimum to run every morning, and a failure there never stops the email', async () => {
+    mockMinimum.mockRejectedValue(new Error('blobs down'))
+    mockListWarnings.mockResolvedValue([W])
+    const res = await POST(ctx(dailyWarningsJobKey(SECRET)))
+    expect(mockMinimum).toHaveBeenCalledTimes(1)
+    expect((await res.json()).data).toEqual({ count: 1, sent: true })
   })
 })
 

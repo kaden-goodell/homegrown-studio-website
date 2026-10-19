@@ -9,6 +9,8 @@ import { studioDate } from '@lib/studio-time'
 import { listWarnings, warningLine, WARNING_WINDOW_DAYS } from '@lib/warnings'
 import { providers } from '@config/providers'
 import { checkSession, loadSessionRecord } from '@lib/square-dashboard'
+import { digestWarnings, stillToDecideLine } from '@lib/warning-digest'
+import { runMinimumToRunAlerts } from '@lib/classes/minimum-to-run'
 
 /**
  * The saved Square sign-in (comps use it). Checking it daily also keeps it in
@@ -63,12 +65,18 @@ const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replac
  * Run each morning by netlify/functions/daily-warnings.ts: the same scan as
  * the staff panel, emailed to the owners only when something needs a person.
  * A scan that fails emails them too, so silence only ever means all clear.
- * Read-only; it changes nothing anywhere.
+ * It changes no booking: it only remembers which alerts and lines it sent.
  */
 export const POST: APIRoute = async ({ request }) => {
   if (!allowed(request)) return json({ error: 'Unauthorized' }, 401)
 
-  const from = studioDate(new Date().toISOString())
+  const now = new Date()
+  // Classes below their minimum, on the decide-by day and the day before: text and email the owners (never cancels).
+  await runMinimumToRunAlerts(now)
+    .then((r) => logger.info('Minimum-to-run alerts', { alerted: r.alerted.length, failed: r.failed.length, already: r.already }))
+    .catch((err) => logger.error('Minimum-to-run check failed', { error: err instanceof Error ? err.message : String(err) }))
+
+  const from = studioDate(now.toISOString())
   const to = addDays(from, WARNING_WINDOW_DAYS - 1)
   let warnings
   try {
@@ -87,10 +95,17 @@ export const POST: APIRoute = async ({ request }) => {
     return json({ error: 'Scan failed' }, 503)
   }
   const signIn = await squareSignInLine()
-  if (warnings.length === 0 && !signIn) return json({ data: { count: 0, sent: false } }, 200)
+  // Undated items (counter sales, refund flags…) in full the first day only; after that, one line.
+  const digest = await digestWarnings(warnings, from)
+  const lines = [
+    ...(signIn ? [signIn] : []),
+    ...digest.full.map(warningLine),
+    ...(digest.stillToDecide > 0 ? [stillToDecideLine(digest.stillToDecide)] : []),
+  ]
+  if (lines.length === 0) return json({ data: { count: 0, sent: false } }, 200)
 
-  const lines = [...(signIn ? [signIn] : []), ...warnings.map(warningLine)]
-  const subject = warnings.length === 0 ? '⚠ The site’s Square sign-in needs re-saving' : `⚠ Studio schedule needs attention (${lines.length})`
+  const onlySignIn = !!signIn && lines.length === 1
+  const subject = onlySignIn ? '⚠ The site’s Square sign-in needs re-saving' : `⚠ Studio schedule needs attention (${lines.length})`
   const footer = 'Nothing has been changed. Each line needs a person.'
   const text = [...lines, '', `Open the staff console: ${SITE_URL}/staff`, '', footer].join('\n')
   const html = `<div style="max-width:560px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
@@ -101,5 +116,6 @@ export const POST: APIRoute = async ({ request }) => {
 </div>`
 
   const { sent } = await sendEmail({ to: siteConfig.ownerEmails.join(', '), subject, html, text })
+  if (sent) await digest.commit()
   return json({ data: { count: lines.length, sent } }, 200)
 }
