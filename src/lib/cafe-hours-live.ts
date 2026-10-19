@@ -33,13 +33,15 @@ function hoursCell(top: string, bottom: string): HTMLElement {
 export function applyCafeHours(doc: Document, data: CafeHoursPayload): void {
   if (!Array.isArray(data?.weekly)) return
   const special = Array.isArray(data.special) ? data.special : []
+  // A page that lists the special days itself (/craft-cafe) points to them instead of repeating them.
+  const listsSpecial = !!doc.querySelector('[data-cafe-special]')
   for (const box of doc.querySelectorAll<HTMLElement>('[data-cafe-hours]')) {
     // No weekly café: never leave the hours the page was built with.
     box.replaceChildren(...(data.weekly.length
       ? data.weekly.map((h) => hoursCell(h.days, h.time))
-      : [hoursCell('Craft Café is by special day only', special.length
-        ? special.map((d) => `${specialDayLabel(d.date)}, ${d.time}`).join(' · ')
-        : 'See the calendar for the next café day')]))
+      : [hoursCell('Craft Café is by special day only', !special.length
+        ? 'See the calendar for the next café day'
+        : listsSpecial ? 'See the special days below' : special.map((d) => `${specialDayLabel(d.date)}, ${d.time}`).join(' · '))]))
   }
   for (const box of doc.querySelectorAll<HTMLElement>('[data-cafe-special]')) {
     const list = Array.isArray(data.special) ? data.special : []

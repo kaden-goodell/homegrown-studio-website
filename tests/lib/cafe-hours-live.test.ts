@@ -23,8 +23,14 @@ describe('/craft-cafe and the home page take the owners’ café hours', () => {
     applyCafeHours(doc, { weekly: [], special: [] })
     expect(doc.querySelector('[data-cafe-hours]')!.textContent).toBe('Craft Café is by special day onlySee the calendar for the next café day')
     doc = page()
-    applyCafeHours(doc, { weekly: [], special: [{ date: '2026-12-12', name: 'Holiday market', time: '10 AM – 4 PM' }] })
-    expect(doc.querySelector('[data-cafe-hours]')!.textContent).toBe('Craft Café is by special day onlySaturday, Dec 12, 10 AM – 4 PM')
+    const market = [{ date: '2026-12-12', name: 'Holiday market', time: '10 AM – 4 PM' }]
+    applyCafeHours(doc, { weekly: [], special: market })
+    // /craft-cafe lists the special days itself, so the hours box points to them
+    expect(doc.querySelector('[data-cafe-hours]')!.textContent).toBe('Craft Café is by special day onlySee the special days below')
+    // the home page has no special-day list: the days go in the hours box
+    document.body.innerHTML = '<div data-cafe-hours><div>Saturday</div></div>'
+    applyCafeHours(document, { weekly: [], special: market })
+    expect(document.querySelector('[data-cafe-hours]')!.textContent).toBe('Craft Café is by special day onlySaturday, Dec 12, 10 AM – 4 PM')
   })
   it('a failed request leaves the page as it was built', async () => {
     const doc = page()
