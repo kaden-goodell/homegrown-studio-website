@@ -22,6 +22,10 @@ describe('validateContent', () => {
       expect(r.value.defaultCapacity).toBeGreaterThanOrEqual(1)
     }
   })
+  it('M5: a rule switch is on only for a real yes; "false", 0 and "" are off', () => {
+    const r = bad((c) => { c.rules = { dropOff: 'false', linkOnly: 0, madeToOrder: '', canShareRoom: true, joinPartway: 'true', taxable: false } })
+    expect(r.ok && r.value.rules).toMatchObject({ dropOff: false, linkOnly: false, madeToOrder: false, canShareRoom: true, joinPartway: true, taxable: false })
+  })
   it('defaults the ticket type when none given', () => {
     const r = bad((c) => { delete c.ticketTypes })
     expect(r.ok && r.value.ticketTypes).toEqual([{ id: 'person', label: 'Person' }])

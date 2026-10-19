@@ -92,13 +92,13 @@ describe('Square webhook handler', () => {
   it('the owner note carries ids and the type only, never the event data (it can hold customer details)', async () => {
     mockNotificationSend.mockResolvedValue(undefined)
     const body = JSON.stringify({
-      type: 'payment.updated', event_id: 'EVT9', merchant_id: 'M1',
-      data: { type: 'payment', id: 'PAY9', object: { payment: { id: 'PAY9', buyer_email_address: 'jane@example.com', billing_address: { address_line_1: '1 Main St' } } } },
+      type: 'booking.updated', event_id: 'EVT9', merchant_id: 'M1',
+      data: { type: 'booking', id: 'BK9', object: { booking: { id: 'BK9', customer_note: 'jane@example.com', address: { address_line_1: '1 Main St' } } } },
     })
     apiContext.request = makeRequest(body, makeSignature(body))
     await POST(apiContext)
     const sent = mockNotificationSend.mock.calls[0][0]
-    expect(sent.details).toEqual({ eventType: 'payment.updated', eventId: 'EVT9', objectType: 'payment', objectId: 'PAY9' })
+    expect(sent.details).toEqual({ eventType: 'booking.updated', eventId: 'EVT9', objectType: 'booking', objectId: 'BK9' })
     expect(JSON.stringify(sent)).not.toContain('jane@example.com')
     expect(JSON.stringify(sent)).not.toContain('Main St')
   })
@@ -113,24 +113,24 @@ describe('Square webhook handler', () => {
     expect(mockNotificationSend).toHaveBeenCalled()
   })
 
-  it('handles payment.created events', async () => {
+  it('M4: payment.created reaches the class handler with no team note (every café sale makes several)', async () => {
     mockNotificationSend.mockResolvedValue(undefined)
     const body = JSON.stringify({ type: 'payment.created', data: { id: 'PAY1' } })
     apiContext.request = makeRequest(body, makeSignature(body))
 
     const response = await POST(apiContext)
     expect(response.status).toBe(200)
-    expect(mockNotificationSend).toHaveBeenCalled()
+    expect(mockNotificationSend).not.toHaveBeenCalled()
   })
 
-  it('handles payment.updated events', async () => {
+  it('M4: payment.updated reaches the class handler with no team note (every café sale makes several)', async () => {
     mockNotificationSend.mockResolvedValue(undefined)
     const body = JSON.stringify({ type: 'payment.updated', data: { id: 'PAY2' } })
     apiContext.request = makeRequest(body, makeSignature(body))
 
     const response = await POST(apiContext)
     expect(response.status).toBe(200)
-    expect(mockNotificationSend).toHaveBeenCalled()
+    expect(mockNotificationSend).not.toHaveBeenCalled()
   })
 
   it('does not send notification for unhandled event types', async () => {

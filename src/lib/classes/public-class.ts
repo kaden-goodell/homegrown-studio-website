@@ -28,6 +28,18 @@ export interface PublicPass extends Pass {
   left: number
 }
 
+/**
+ * The class rules the browser needs (M6): ages, drop-off, made to order, tax,
+ * most per booking, sign-up cutoff, link-only, join partway. The studio's own
+ * business (minimum to run and its decide-by, waitlist cutoff, sharing the
+ * room) never leaves the server.
+ */
+export type PublicRules = Omit<ClassRules, 'minimumToRun' | 'waitlistCutoffHours' | 'canShareRoom'>
+export function publicRules(r: ClassRules): PublicRules {
+  const { minimumToRun: _min, waitlistCutoffHours: _wait, canShareRoom: _share, ...rest } = r
+  return rest
+}
+
 /** Everything the booking panel needs for one of our classes. Only sellable passes are listed. */
 export interface OwnClassData {
   classId: string
@@ -37,7 +49,7 @@ export interface OwnClassData {
   prices: Record<string, Record<string, Cents>>
   questions: SeatQuestion[]
   addOns: AddOn[]
-  rules: ClassRules
+  rules: PublicRules
   instructor: string | null
   /** Tax added on top, in percent (0 when the class isn't taxed). */
   taxPercent: number
@@ -121,7 +133,9 @@ export function asScheduledClass(own: OwnClassData, name: string): ScheduledClas
     libraryId: null,
     libraryVersion: null,
     content: {
-      name, description: '', imageUrl: null, instructor: own.instructor, rules: own.rules,
+      name, description: '', imageUrl: null, instructor: own.instructor,
+      // What the browser isn't sent plays no part in pricing or the cutoff.
+      rules: { ...own.rules, minimumToRun: null, waitlistCutoffHours: 0, canShareRoom: false },
       ticketTypes: own.ticketTypes, passes: own.passes, prices: own.prices,
       questions: own.questions, addOns: own.addOns, defaultCapacity: 0, defaultMinutes: 0,
     },

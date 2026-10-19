@@ -9,7 +9,7 @@ import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import { studioDate } from '@components/workshops/workshop-view-model'
 import { CLASS_TAX_PERCENT, cutoffRefusal } from './checkout'
 import { sessionsForPass, type SaleOptions } from './pricing'
-import { classAvailability, lowestPrice, passState, type OwnClassData, type PublicPass, type PublicSession } from './public-class'
+import { classAvailability, lowestPrice, passState, publicRules, type OwnClassData, type PublicPass, type PublicSession } from './public-class'
 import { seatsTaken, type Ledger } from './seat-ledger'
 import type { ScheduledClass } from './types'
 import { sellableCells } from './validate'
@@ -63,7 +63,7 @@ export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, op
     prices,
     questions: c.questions,
     addOns: c.addOns,
-    rules: c.rules,
+    rules: publicRules(c.rules),
     instructor: c.instructor || null,
     taxPercent: c.rules.taxable ? CLASS_TAX_PERCENT : 0,
   }
