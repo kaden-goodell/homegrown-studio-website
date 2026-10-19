@@ -65,7 +65,10 @@ export async function createClass(input: {
 
 export async function updateClass(
   id: string,
-  patch: { content?: ClassContent; sessions?: Session[]; status?: ClassStatus; square?: ScheduledClass['square'] },
+  patch: {
+    content?: ClassContent; sessions?: Session[]; status?: ClassStatus; square?: ScheduledClass['square']
+    libraryId?: string | null; libraryVersion?: number | null
+  },
   by: By,
   change: string,
 ): Promise<ScheduledClass> {
@@ -83,6 +86,8 @@ export async function updateClass(
       sessions: sessions ?? cur.sessions,
       status: patch.status ?? cur.status,
       square: patch.square ?? cur.square,
+      libraryId: patch.libraryId !== undefined ? patch.libraryId : cur.libraryId,
+      libraryVersion: patch.libraryVersion !== undefined ? patch.libraryVersion : cur.libraryVersion,
       updatedAt: now,
       history: [...cur.history, { at: now, by, change }].slice(-HISTORY_CAP),
     }

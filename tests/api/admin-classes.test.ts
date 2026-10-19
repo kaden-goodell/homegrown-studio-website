@@ -1,0 +1,404 @@
+// @vitest-environment node
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
+const mocks = vi.hoisted(() => ({
+  listBookings: vi.fn(),
+  listAllWorkshops: vi.fn(),
+  sync: vi.fn(),
+  archive: vi.fn(),
+  squareFetch: vi.fn(),
+  audit: vi.fn(),
+}))
+vi.mock('@config/providers', () => ({
+  providers: {
+    booking: { listBookings: mocks.listBookings },
+    workshop: { listAllWorkshops: mocks.listAllWorkshops, listWorkshops: vi.fn(async () => []) },
+  },
+}))
+vi.mock('@lib/party-store', () => ({ getPartyRecord: vi.fn(async () => null) }))
+vi.mock('@lib/classes/square-catalog', () => ({ syncClassToSquare: mocks.sync, archiveClassInSquare: mocks.archive }))
+vi.mock('@lib/classes/square-api', () => ({ squareFetch: mocks.squareFetch, squareSettings: () => ({ environment: 'sandbox' }) }))
+vi.mock('@lib/audit', () => ({ recordAudit: mocks.audit }))
+
+import * as library from '@pages/api/admin/classes/library.json'
+import * as classes from '@pages/api/admin/classes/classes.json'
+import * as blocked from '@pages/api/admin/classes/blocked.json'
+import * as bookings from '@pages/api/admin/classes/bookings.json'
+import * as photo from '@pages/api/admin/classes/photo.json'
+import { adminCookie } from '@lib/admin-auth'
+import { getClass } from '@lib/classes/class-store'
+import { getLibrary, saveLibraryVersion } from '@lib/classes/library-store'
+import { getLedger, type LedgerLine } from '@lib/classes/seat-ledger'
+import { makeKvStore } from '@lib/blob-store'
+import { localToUtcISO } from '@lib/party-slots'
+import type { ClassContent } from '@lib/classes/types'
+
+const cookie = () => adminCookie().split(';')[0]
+const req = (url: string, init: { method?: string; body?: unknown; signedIn?: boolean } = {}) =>
+  new Request(`https://x.test${url}`, {
+    method: init.method ?? 'GET',
+    headers: { 'Content-Type': 'application/json', ...(init.signedIn === false ? {} : { cookie: cookie() }) },
+    ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+  })
+const call = async (route: any, method: 'GET' | 'POST', url: string, body?: unknown, signedIn = true) => {
+  const request = req(url, { method, body, signedIn })
+  const res: Response = await route[method]({ request, url: new URL(request.url) } as any)
+  return { status: res.status, body: await res.json() }
+}
+
+function content(name: string, over: Partial<ClassContent> = {}): ClassContent {
+  return {
+    name, description: 'Make a thing.', imageUrl: null, instructor: null,
+    rules: { ages: '', dropOff: false, madeToOrder: false, taxable: true, maxPerBooking: 10, signupCutoffHours: null, minimumToRun: null, linkOnly: false, joinPartway: true, waitlistCutoffHours: 2, canShareRoom: false },
+    ticketTypes: [{ id: 'person', label: 'Person' }, { id: 'kid', label: 'Kid' }],
+    passes: [{ id: 'all', label: 'Full', covers: { kind: 'all' } }],
+    prices: { all: { person: 3000, kid: 2000 } }, questions: [], addOns: [], defaultCapacity: 12, defaultMinutes: 90,
+    ...over,
+  }
+}
+const at = (ymd: string, hhmm: string) => localToUtcISO(ymd, hhmm)
+let n = 0
+const ses = (ymd: string, from: string, to: string, capacity = 12) => ({ id: `ses_a${++n}`, startIso: at(ymd, from), endIso: at(ymd, to), capacity })
+
+const ledgerKv = makeKvStore('seat-ledger', 'seat-ledger')
+function line(over: Partial<LedgerLine>): LedgerLine {
+  return {
+    id: `led_${++n}`, bookingId: 'bkg_1', sessionIds: [], ticketTypeId: 'person', passId: 'all', seat: 1,
+    priceCents: 3000, taxCents: 270, addOns: {}, addOnCents: 0, addOnTaxCents: 0, answers: {}, source: 'online',
+    state: 'confirmed', holdExpiresAt: null,
+    customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com', phone: '4029802907' },
+    square: { orderId: 'o1', paymentId: 'p1', lineUid: null }, by: null, refunds: [], at: new Date().toISOString(),
+    ...over,
+  }
+}
+async function seedLedger(classId: string, lines: LedgerLine[]) {
+  await ledgerKv.set(`ledger-${classId}`, JSON.stringify({ classId, lines }))
+}
+
+beforeEach(() => {
+  vi.stubEnv('ADMIN_PASSCODE', 'owner-secret')
+  mocks.listBookings.mockReset().mockResolvedValue([])
+  mocks.listAllWorkshops.mockReset().mockResolvedValue([])
+  mocks.sync.mockReset().mockImplementation(async (c: any) => ({ itemId: `item-${c.id}`, variations: { 'all:person': 'v1' }, imageUrl: null }))
+  mocks.archive.mockReset().mockResolvedValue(undefined)
+  mocks.squareFetch.mockReset().mockRejectedValue(new Error('no live Square in tests'))
+  mocks.audit.mockReset().mockResolvedValue(undefined)
+})
+afterEach(() => vi.unstubAllEnvs())
+
+describe('auth', () => {
+  it('every route refuses without the owner cookie', async () => {
+    for (const [route, methods] of [[library, ['GET', 'POST']], [classes, ['GET', 'POST']], [blocked, ['GET', 'POST']], [bookings, ['GET']], [photo, ['POST']]] as const) {
+      for (const m of methods) {
+        const r = await call(route, m as any, '/api/admin/classes/x?id=cls_x', m === 'POST' ? {} : undefined, false)
+        expect(r.status).toBe(401)
+        expect(r.body.error).toBe('Sign in first.')
+      }
+    }
+  })
+})
+
+describe('library', () => {
+  it('saves versions, lists, restores and archives', async () => {
+    const saved = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', content: content('Lib Candles'), note: 'First' })
+    expect(saved.status).toBe(200)
+    const id = saved.body.data.library.id
+    await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', id, content: content('Lib Candles 2'), note: 'Second' })
+    const restored = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'restore', id, version: 1 })
+    expect(restored.body.data.library.versions).toHaveLength(3)
+    expect(restored.body.data.library.versions[2].content.name).toBe('Lib Candles')
+    const list = await call(library, 'GET', '/api/admin/classes/library.json')
+    expect(list.body.data.library.some((l: any) => l.id === id)).toBe(true)
+    const arch = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'archive', id, archived: true })
+    expect(arch.body.data.library.archived).toBe(true)
+    const after = await call(library, 'GET', '/api/admin/classes/library.json')
+    expect(after.body.data.library.some((l: any) => l.id === id)).toBe(false)
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-library-save', by: expect.objectContaining({ id: 'admin', name: 'Owner', role: 'owner' }) }))
+  })
+  it('bad content is a 400 with a plain sentence; unknown id is 404', async () => {
+    const bad = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', content: { ...content(''), name: '' }, note: '' })
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toMatch(/\.$/)
+    const missing = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'restore', id: 'lib_nope', version: 1 })
+    expect(missing.status).toBe(404)
+  })
+})
+
+describe('scheduling', () => {
+  it('creates from the library, records the version and syncs the POS', async () => {
+    const lib = await saveLibraryVersion({ content: content('From Library'), by: { id: 'k', name: 'K' }, note: '' })
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', {
+      action: 'create', libraryId: lib.id, sessions: [{ startIso: at('2031-01-09', '17:00'), endIso: at('2031-01-09', '19:00'), capacity: 10 }], status: 'open',
+    })
+    expect(r.status).toBe(200)
+    const cls = r.body.data.class
+    expect(cls.id).toMatch(/^cls_/)
+    expect(cls.sessions[0].id).toMatch(/^ses_/)
+    expect(cls.libraryId).toBe(lib.id)
+    expect(cls.libraryVersion).toBe(1)
+    expect(cls.content.name).toBe('From Library')
+    expect(mocks.sync).toHaveBeenCalledTimes(1)
+    expect((await getClass(cls.id))!.square.itemId).toBe(`item-${cls.id}`)
+    expect(r.body.warning).toBeUndefined()
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-create', target: expect.objectContaining({ id: cls.id }) }))
+  })
+
+  it('a draft is not put on the POS', async () => {
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Drafty'), sessions: [ses('2031-01-16', '17:00', '18:00')], status: 'draft' })
+    expect(r.status).toBe(200)
+    expect(mocks.sync).not.toHaveBeenCalled()
+  })
+
+  it('a Square failure keeps our change and warns', async () => {
+    mocks.sync.mockRejectedValueOnce(new Error('Square down'))
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Square Down'), sessions: [ses('2031-01-23', '17:00', '18:00')], status: 'open' })
+    expect(r.status).toBe(200)
+    expect(r.body.warning).toBe("Saved. The POS item didn't update. Try Save again.")
+    expect(await getClass(r.body.data.class.id)).not.toBeNull()
+  })
+
+  it('refuses a clash with the clash message, allows rooms that can share', async () => {
+    const day = '2031-02-06'
+    const first = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Pottery'), sessions: [ses(day, '17:00', '19:00')], status: 'open' })
+    expect(first.status).toBe(200)
+    const clash = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Painting'), sessions: [ses(day, '18:00', '20:00')], status: 'open' })
+    expect(clash.status).toBe(409)
+    expect(clash.body.error).toMatch(/^Clashes with Pottery, /)
+
+    const shareRules = { ...content('x').rules, canShareRoom: true }
+    const a = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Share A', { rules: shareRules }), sessions: [ses('2031-02-13', '17:00', '19:00')], status: 'open' })
+    const b = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Share B', { rules: shareRules }), sessions: [ses('2031-02-13', '18:00', '20:00')], status: 'open' })
+    expect(a.status).toBe(200)
+    expect(b.status).toBe(200)
+  })
+
+  it('moving a class past itself is not a clash with itself', async () => {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Mover'), sessions: [ses('2031-02-20', '17:00', '19:00')], status: 'open' })
+    const s = c.body.data.class.sessions[0]
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', id: c.body.data.class.id, sessions: [{ ...s, startIso: at('2031-02-20', '18:00'), endIso: at('2031-02-20', '20:00') }] })
+    expect(r.status).toBe(200)
+  })
+
+  it('a 400 for bad sessions and 404 for an unknown class', async () => {
+    const bad = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Bad'), sessions: [], status: 'open' })
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toBe('Add at least one session.')
+    const missing = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', id: 'cls_nope', status: 'closed' })
+    expect(missing.status).toBe(404)
+  })
+
+  it('duplicate copies content onto new sessions with no bookings', async () => {
+    const src = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Original'), sessions: [ses('2031-03-06', '17:00', '19:00')], status: 'open' })
+    const srcId = src.body.data.class.id
+    await seedLedger(srcId, [line({ sessionIds: [src.body.data.class.sessions[0].id] })])
+    const dup = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'duplicate', id: srcId, sessions: [{ startIso: at('2031-03-13', '17:00'), endIso: at('2031-03-13', '19:00'), capacity: 8 }] })
+    expect(dup.status).toBe(200)
+    const copy = dup.body.data.class
+    expect(copy.id).not.toBe(srcId)
+    expect(copy.content).toEqual(src.body.data.class.content)
+    expect(copy.sessions[0].startIso).toBe(at('2031-03-13', '17:00'))
+    expect(copy.sessions[0].id).not.toBe(src.body.data.class.sessions[0].id)
+    expect((await getLedger(copy.id)).lines).toEqual([])
+    expect(copy.square.itemId).toBe(`item-${copy.id}`)
+  })
+
+  it('GET lists classes in a range with seats taken', async () => {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Listed'), sessions: [ses('2031-03-20', '17:00', '19:00')], status: 'open' })
+    const sid = c.body.data.class.sessions[0].id
+    await seedLedger(c.body.data.class.id, [line({ sessionIds: [sid] })])
+    const r = await call(classes, 'GET', `/api/admin/classes/classes.json?from=${encodeURIComponent(at('2031-03-20', '00:00'))}&to=${encodeURIComponent(at('2031-03-21', '00:00'))}`)
+    expect(r.status).toBe(200)
+    expect(r.body.data.classes.map((x: any) => x.id)).toEqual([c.body.data.class.id])
+    expect(r.body.data.seatsTaken[sid]).toBe(1)
+  })
+})
+
+describe('editing a class with bookings', () => {
+  async function booked(day: string, name: string) {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', {
+      action: 'create', content: content(name, { passes: [{ id: 'all', label: 'Full', covers: { kind: 'all' } }, { id: 'one', label: 'One day', covers: { kind: 'choose', count: 1 } }], prices: { all: { person: 3000, kid: 2000 }, one: { person: 1800 } } }),
+      sessions: [ses(day, '17:00', '19:00', 10), ses(day, '19:30', '20:30', 10)], status: 'open',
+    })
+    const cls = c.body.data.class
+    await seedLedger(cls.id, [
+      line({ bookingId: 'bkg_a', sessionIds: [cls.sessions[0].id, cls.sessions[1].id], seat: 1 }),
+      line({ bookingId: 'bkg_a', sessionIds: [cls.sessions[0].id, cls.sessions[1].id], seat: 2, ticketTypeId: 'kid' }),
+      line({ bookingId: 'bkg_a', sessionIds: [cls.sessions[0].id, cls.sessions[1].id], seat: 3 }),
+      line({ bookingId: 'bkg_b', sessionIds: [cls.sessions[0].id], seat: 1, passId: 'one', customer: { givenName: 'Bo', familyName: 'Diddley', email: 'bo@example.com', phone: '4029802907' } }),
+      line({ bookingId: 'bkg_c', sessionIds: [cls.sessions[1].id], passId: 'one', state: 'released' }),
+    ])
+    return cls
+  }
+  const update = (body: any) => call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', ...body })
+
+  it('refuses capacity below seats taken, naming the session', async () => {
+    const cls = await booked('2031-04-03', 'Cap Class')
+    const r = await update({ id: cls.id, sessions: [{ ...cls.sessions[0], capacity: 3 }, cls.sessions[1]] })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toMatch(/4 seats taken/)
+    expect(r.body.error).toMatch(/Apr 3/)
+    const ok = await update({ id: cls.id, sessions: [{ ...cls.sessions[0], capacity: 4 }, cls.sessions[1]] })
+    expect(ok.status).toBe(200)
+  })
+
+  it('refuses removing a booked session, pass or price cell', async () => {
+    const cls = await booked('2031-04-10', 'Remove Class')
+    expect((await update({ id: cls.id, sessions: [cls.sessions[1]] })).status).toBe(409)
+    const noPass = await update({ id: cls.id, content: { ...cls.content, passes: [cls.content.passes[0]], prices: { all: cls.content.prices.all } } })
+    expect(noPass.status).toBe(409)
+    expect(noPass.body.error).toMatch(/One day/)
+    const noKid = await update({ id: cls.id, content: { ...cls.content, prices: { ...cls.content.prices, all: { person: 3000 } } } })
+    expect(noKid.status).toBe(409)
+    expect(noKid.body.error).toMatch(/Kid/)
+  })
+
+  it('allows a session with only released seats to go, and price changes keep paid prices', async () => {
+    const cls = await booked('2031-04-17', 'Price Class')
+    const r = await update({ id: cls.id, content: { ...cls.content, prices: { ...cls.content.prices, all: { person: 4000, kid: 2500 } } } })
+    expect(r.status).toBe(200)
+    expect(r.body.data.class.content.prices.all.person).toBe(4000)
+    const ledger = await getLedger(cls.id)
+    expect(ledger.lines.find((l) => l.bookingId === 'bkg_a')!.priceCents).toBe(3000)
+  })
+
+  it('moving booked sessions needs confirmMove and lists the people to tell', async () => {
+    const cls = await booked('2031-04-24', 'Move Class')
+    const moved = [{ ...cls.sessions[0], startIso: at('2031-04-25', '17:00'), endIso: at('2031-04-25', '19:00') }, cls.sessions[1]]
+    const refused = await update({ id: cls.id, sessions: moved })
+    expect(refused.status).toBe(409)
+    expect(refused.body.peopleToTell).toHaveLength(2)
+    expect((await getClass(cls.id))!.sessions[0].startIso).toBe(cls.sessions[0].startIso)
+    const ok = await update({ id: cls.id, sessions: moved, confirmMove: true })
+    expect(ok.status).toBe(200)
+    expect(ok.body.data.class.sessions.some((s: any) => s.startIso === at('2031-04-25', '17:00'))).toBe(true)
+    const people = ok.body.data.peopleToTell
+    expect(people).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'Ada Lovelace', email: 'ada@example.com', phone: '4029802907', sessions: [expect.stringMatching(/Apr 24/)] }),
+      expect.objectContaining({ name: 'Bo Diddley' }),
+    ]))
+    expect(people).toHaveLength(2)
+  })
+
+  it('alsoUpdateLibrary appends a library version and points the class at it', async () => {
+    const lib = await saveLibraryVersion({ content: content('Lib Sync'), by: { id: 'k', name: 'K' }, note: '' })
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', libraryId: lib.id, sessions: [ses('2031-05-01', '17:00', '18:00')], status: 'open' })
+    const cls = c.body.data.class
+    const r = await update({ id: cls.id, content: { ...cls.content, description: 'New words.' }, alsoUpdateLibrary: true })
+    expect(r.status).toBe(200)
+    const after = await getLibrary(lib.id)
+    expect(after!.versions).toHaveLength(2)
+    expect(after!.versions[1].content.description).toBe('New words.')
+    expect(after!.versions[1].note).toMatch(/^Updated while scheduling /)
+    expect(r.body.data.class.libraryVersion).toBe(2)
+  })
+
+  it('alsoUpdateLibrary on a class with no library entry makes one', async () => {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('No Lib'), sessions: [ses('2031-05-08', '17:00', '18:00')], status: 'open' })
+    const r = await update({ id: c.body.data.class.id, content: c.body.data.class.content, alsoUpdateLibrary: true })
+    expect(r.body.data.class.libraryId).toMatch(/^lib_/)
+    expect(r.body.data.class.libraryVersion).toBe(1)
+  })
+})
+
+describe('cancel', () => {
+  it('cancels, takes the POS item off, lists everyone booked and never refunds', async () => {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Cancel Me'), sessions: [ses('2031-06-05', '17:00', '19:00')], status: 'open' })
+    const cls = c.body.data.class
+    const lines = [
+      line({ bookingId: 'bkg_x', sessionIds: [cls.sessions[0].id], seat: 1, square: { orderId: 'o', paymentId: 'p', lineUid: null, chargedCents: 6540 } }),
+      line({ bookingId: 'bkg_x', sessionIds: [cls.sessions[0].id], seat: 2, square: { orderId: 'o', paymentId: 'p', lineUid: null, chargedCents: 6540 } }),
+      line({ bookingId: 'bkg_y', sessionIds: [cls.sessions[0].id], customer: { givenName: 'Bo', familyName: 'D', email: 'bo@example.com', phone: '1' } }),
+      line({ bookingId: 'bkg_z', sessionIds: [cls.sessions[0].id], state: 'released' }),
+    ]
+    await seedLedger(cls.id, lines)
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'cancel', id: cls.id })
+    expect(r.status).toBe(200)
+    expect(r.body.data.class.status).toBe('cancelled')
+    expect(mocks.archive).toHaveBeenCalledTimes(1)
+    expect(r.body.data.booked).toEqual([
+      { bookingId: 'bkg_x', name: 'Ada Lovelace', email: 'ada@example.com', phone: '4029802907', seats: 2, paidCents: 6540 },
+      { bookingId: 'bkg_y', name: 'Bo D', email: 'bo@example.com', phone: '1', seats: 1, paidCents: 3270 },
+    ])
+    expect((await getLedger(cls.id)).lines).toEqual(lines)
+    expect(mocks.squareFetch).not.toHaveBeenCalled()
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-cancel' }))
+  })
+})
+
+describe('bookings', () => {
+  it('groups ledger lines by booking', async () => {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Grouped'), sessions: [ses('2031-06-12', '17:00', '19:00')], status: 'open' })
+    const cls = c.body.data.class
+    const sid = cls.sessions[0].id
+    await seedLedger(cls.id, [
+      line({ bookingId: 'bkg_g', sessionIds: [sid], seat: 1, answers: { q1: 'Blue' }, addOns: { add_1: 1 }, addOnCents: 500, addOnTaxCents: 45 }),
+      line({ bookingId: 'bkg_g', sessionIds: [sid], seat: 2, ticketTypeId: 'kid', priceCents: 2000, taxCents: 180, overCapacity: true,
+        state: 'refunded', refunds: [{ at: 'x', cents: 2180, reason: 'sick', by: { id: 'k', name: 'K' }, freedSeat: true, squareRefundId: 'r1' }] }),
+      line({ bookingId: 'bkg_r', sessionIds: [sid], state: 'released' }),
+    ])
+    const r = await call(bookings, 'GET', `/api/admin/classes/bookings.json?id=${cls.id}`)
+    expect(r.status).toBe(200)
+    expect(r.body.data.bookings).toHaveLength(1)
+    const b = r.body.data.bookings[0]
+    expect(b).toMatchObject({
+      bookingId: 'bkg_g', source: 'online', seats: { person: 1, kid: 1 }, sessionIds: [sid],
+      addOns: { add_1: 1 }, paidCents: 3270 + 545 + 2180, refundedCents: 2180, overCapacity: true,
+      customer: { givenName: 'Ada' },
+    })
+    expect(b.picks).toEqual([{ seat: 1, ticketTypeId: 'person', answers: { q1: 'Blue' } }, { seat: 2, ticketTypeId: 'kid', answers: {} }])
+    expect(b.state).toBe('part refunded')
+    expect((await call(bookings, 'GET', '/api/admin/classes/bookings.json?id=cls_nope')).status).toBe(404)
+  })
+})
+
+describe('blocked time', () => {
+  it('adds, lists and removes', async () => {
+    const add = await call(blocked, 'POST', '/api/admin/classes/blocked.json', { action: 'add', startIso: at('2031-07-01', '09:00'), endIso: at('2031-07-01', '12:00'), reason: 'Inventory' })
+    expect(add.status).toBe(200)
+    const id = add.body.data.blocked.id
+    const list = await call(blocked, 'GET', `/api/admin/classes/blocked.json?from=${encodeURIComponent(at('2031-07-01', '00:00'))}&to=${encodeURIComponent(at('2031-07-02', '00:00'))}`)
+    expect(list.body.data.blocked.map((b: any) => b.id)).toEqual([id])
+    const bad = await call(blocked, 'POST', '/api/admin/classes/blocked.json', { action: 'add', startIso: at('2031-07-01', '12:00'), endIso: at('2031-07-01', '09:00'), reason: '' })
+    expect(bad.status).toBe(400)
+    expect((await call(blocked, 'POST', '/api/admin/classes/blocked.json', { action: 'remove', id })).status).toBe(200)
+    const after = await call(blocked, 'GET', `/api/admin/classes/blocked.json?from=${encodeURIComponent(at('2031-07-01', '00:00'))}&to=${encodeURIComponent(at('2031-07-02', '00:00'))}`)
+    expect(after.body.data.blocked).toEqual([])
+  })
+})
+
+describe('photo', () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4])
+  const upload = (bytes: Buffer, type: string, signedIn = true) => {
+    const form = new FormData()
+    form.append('file', new Blob([new Uint8Array(bytes)], { type }), 'photo')
+    const request = new Request('https://x.test/api/admin/classes/photo.json', { method: 'POST', body: form, headers: signedIn ? { cookie: cookie() } : {} })
+    return photo.POST({ request, url: new URL(request.url) } as any)
+  }
+  it('stores an image and serves it back at a stable URL', async () => {
+    const res = await upload(PNG, 'image/png')
+    expect(res.status).toBe(200)
+    const { data } = await res.json()
+    expect(data.url).toMatch(/^https:\/\/x\.test\/api\/admin\/classes\/photo\.json\?id=/)
+    const u = new URL(data.url)
+    const got = await photo.GET({ request: new Request(data.url), url: u } as any)
+    expect(got.status).toBe(200)
+    expect(got.headers.get('content-type')).toBe('image/png')
+    expect(Buffer.from(await got.arrayBuffer())).toEqual(PNG)
+  })
+  it('refuses other types and anything over 8 MB', async () => {
+    expect((await upload(Buffer.from('GIF89a....'), 'image/gif')).status).toBe(400)
+    const big = Buffer.alloc(8 * 1024 * 1024 + 1); PNG.copy(big)
+    expect((await upload(big, 'image/png')).status).toBe(400)
+    expect((await upload(PNG, 'image/png', false)).status).toBe(401)
+  })
+})
+
+describe('a live hold protects what it is buying', () => {
+  it('a session with an unexpired hold cannot be removed', async () => {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Held Class'), sessions: [ses('2031-08-07', '17:00', '18:00'), ses('2031-08-07', '18:30', '19:30')], status: 'open' })
+    const cls = c.body.data.class
+    await seedLedger(cls.id, [line({ bookingId: 'bkg_h', sessionIds: [cls.sessions[0].id], state: 'held', holdExpiresAt: new Date(Date.now() + 600_000).toISOString() })])
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', id: cls.id, sessions: [cls.sessions[1]] })
+    expect(r.status).toBe(409)
+  })
+})
