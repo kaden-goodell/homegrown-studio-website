@@ -166,7 +166,7 @@ describe('RefundPanel', () => {
   })
 
   it('crew: a refund waiting on Square shows "I checked Square" with a reason, and posts the outcome', async () => {
-    const fetchMock = vi.fn(async () => ok({ data: { status: 'done', lines: [] } }))
+    const fetchMock = vi.fn(async (_url: string, _init?: any) => ok({ data: { status: 'done', lines: [] } }))
     vi.stubGlobal('fetch', fetchMock)
     const onDone = vi.fn()
     const waiting = { requestId: 'req_w', cents: 3270, at: '2026-10-18T15:00:00Z', by: { id: 'sam', name: 'Sam' }, people: [{ name: 'Ada Lovelace', cents: 3270 }], dates: [] }
