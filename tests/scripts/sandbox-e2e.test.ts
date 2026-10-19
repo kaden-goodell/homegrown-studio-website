@@ -1,11 +1,12 @@
 // tests/scripts/sandbox-e2e.test.ts — the sandbox E2E suite's helpers, with a mocked fetch (no network).
 import { describe, it, expect, vi, afterEach } from 'vitest'
+import { EventEmitter } from 'node:events'
 import {
   assertAllowed, AssertionFailed, check, checkEqual, checkStatus, chicagoToUtcIso, Cleanup, CookieJar, formatPlan, formatSummary,
-  lineTax, MissingSecretError, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, RefusedHostError, RUN_LINE,
+  lineTax, MissingSecretError, onStop, parseArgs, type Pending, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, RefusedHostError, RUN_LINE,
   runScenarios, SkipScenario, SlotAllocator, SquareError, SquareSandbox, SQUARE_SANDBOX_VERSION, totalWithTax, type Scenario,
 } from '../../scripts/lib/sandbox-e2e/core'
-import { blockedDay, bookingIdOf, firstDay, scenarios, testContent, type Ctx } from '../../scripts/lib/sandbox-e2e/scenarios'
+import { blockedDay, bookingIdOf, cleanUpLeftovers, CLEANUP_PLAN, firstDay, scenarios, testContent, type Ctx } from '../../scripts/lib/sandbox-e2e/scenarios'
 import { main } from '../../scripts/sandbox-e2e'
 import { bookingIdFor } from '@lib/classes/checkout'
 import { SQUARE_API_VERSION } from '@lib/classes/square-api'
@@ -243,8 +244,10 @@ describe('runner and summary', () => {
 
 describe('arguments', () => {
   it('--only, --dry-run, --help', () => {
-    expect(parseArgs([])).toEqual({ only: null, dryRun: false, help: false })
-    expect(parseArgs(['--only', '3'])).toEqual({ only: [3], dryRun: false, help: false })
+    expect(parseArgs([])).toEqual({ only: null, dryRun: false, help: false, cleanupOnly: false })
+    expect(parseArgs(['--only', '3'])).toEqual({ only: [3], dryRun: false, help: false, cleanupOnly: false })
+    expect(parseArgs(['--cleanup-only', '--dry-run'])).toMatchObject({ cleanupOnly: true, dryRun: true })
+    expect(() => parseArgs(['--cleanup-only', '--only', '3'])).toThrow(/takes no --only/)
     expect(parseArgs(['--only=3,5', '--dry-run']).only).toEqual([3, 5])
     expect(parseArgs(['--help']).help).toBe(true)
     expect(() => parseArgs(['--only'])).toThrow(/--only takes/)
@@ -456,7 +459,7 @@ describe('main', () => {
   })
 
   it('stops before booking when the preview is not on the sandbox, never printing a passcode', async () => {
-    const fetch = vi.fn(async (url: string) => {
+    const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
       const p = new URL(url).pathname
       if (p === '/api/admin/login.json') return res(200, { data: { ok: true } }, { 'Set-Cookie': 'hg_admin=a.b; Path=/' })
       if (p === '/api/staff/login.json') return res(200, { data: { staff: [{ id: 's1', name: 'Kaden', role: 'owner' }] } })
@@ -468,11 +471,119 @@ describe('main', () => {
     const out: string[] = []
     vi.spyOn(console, 'log').mockImplementation((...a) => { out.push(a.join(' ')) })
     vi.spyOn(console, 'error').mockImplementation((...a) => { out.push(a.join(' ')) })
-    expect(await main(['--only', '2'], { ADMIN_PASSCODE: ADMIN, STAFF_PASSCODE: STAFF })).toBe(1)
+    const proc = new EventEmitter()
+    expect(await main(['--only', '2'], { ADMIN_PASSCODE: ADMIN, STAFF_PASSCODE: STAFF }, { proc, exit: vi.fn() })).toBe(1)
     expect(out.join('\n')).toContain('not on the Square sandbox')
+    const deletes = fetch.mock.calls.filter(([, init]) => (init as any)?.method === 'DELETE').map(([u]) => new URL(u as string).pathname)
+    expect(deletes).toEqual(['/api/admin/login.json', '/api/staff/login.json'])
+    expect(proc.listenerCount('SIGINT')).toBe(0)
     expect(out.join('\n')).not.toContain(ADMIN)
     expect(out.join('\n')).not.toContain(STAFF)
     expect(fetch.mock.calls.some(([u]) => new URL(u as string).pathname === '/api/classes/book.json')).toBe(false)
     expect(fetch.mock.calls.every(([u]) => new URL(u as string).host === PREVIEW_HOST)).toBe(true)
+  })
+})
+
+describe('stopping part way', () => {
+  it('a signal runs the running scenario’s cleanups once, last in first out, signs out, then exits', async () => {
+    const proc = new EventEmitter()
+    const pending: Pending = { current: new Cleanup() }
+    const order: string[] = []
+    pending.current!.add('archive library', async () => { order.push('archive') })
+    pending.current!.add(`cancel cls_1 ${ADMIN}`, async () => { order.push('cancel') })
+    const signOut = vi.fn(async () => undefined)
+    const lines: string[] = []
+    let exited: number | null = null
+    const done = new Promise<void>((resolve) => {
+      onStop({ proc, pending, signOut, log: (l) => lines.push(l), secrets: [ADMIN], exit: (c) => { exited = c; resolve() } })
+    })
+    proc.emit('SIGINT')
+    proc.emit('SIGINT')
+    proc.emit('SIGTERM')
+    await done
+    expect(order).toEqual(['cancel', 'archive'])
+    expect(signOut).toHaveBeenCalledTimes(1)
+    expect(exited).toBe(130)
+    expect(lines.join('\n')).toContain('Stopping (SIGINT)')
+    expect(lines.join('\n')).not.toContain(ADMIN)
+  })
+
+  it('an uncaught error does the same and exits 1; a failed cleanup points at --cleanup-only', async () => {
+    const proc = new EventEmitter()
+    const pending: Pending = { current: new Cleanup() }
+    pending.current!.add('cancel cls_1', async () => { throw new Error('refused') })
+    const lines: string[] = []
+    const code = await new Promise<number>((resolve) => {
+      onStop({ proc, pending, signOut: async () => undefined, log: (l) => lines.push(l), secrets: [], exit: resolve })
+      proc.emit('uncaughtException', new Error('boom'))
+    })
+    expect(code).toBe(1)
+    expect(lines.join('\n')).toContain('NOT cleaned: cancel cls_1 (refused)')
+    expect(lines.join('\n')).toContain('--cleanup-only')
+  })
+
+  it('the handlers come off again', () => {
+    const proc = new EventEmitter()
+    const off = onStop({ proc, pending: { current: null }, signOut: async () => undefined, log: () => undefined, secrets: [], exit: () => undefined })
+    expect(proc.listenerCount('SIGINT')).toBe(1)
+    off()
+    for (const e of ['SIGINT', 'SIGTERM', 'uncaughtException', 'unhandledRejection']) expect(proc.listenerCount(e)).toBe(0)
+  })
+
+  it('the runner points the stop at the running scenario’s cleanup, and clears it after', async () => {
+    const pending: Pending = { current: null }
+    let seen: Cleanup | null = null
+    await runScenarios([{ id: 1, title: 't', plan: ['p'], run: async (_c, scope) => { seen = pending.current; expect(seen).toBe(scope.cleanup) } }], null, { secrets: [], pending })
+    expect(seen).not.toBeNull()
+    expect(pending.current).toBeNull()
+  })
+
+  it('--cleanup-only --dry-run prints what it would clear, with no network and no passcodes', async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    expect(await main(['--cleanup-only', '--dry-run'], {})).toBe(0)
+    expect(fetch).not.toHaveBeenCalled()
+    const out = log.mock.calls.flat().join('\n')
+    expect(out).toContain(PREVIEW_ORIGIN)
+    for (const step of CLEANUP_PLAN) expect(out).toContain(step)
+  })
+
+  it('--cleanup-only clears only "E2E" leftovers', async () => {
+    const calls: { path: string; body: any }[] = []
+    const fetch = vi.fn(async (url: string, init: any = {}) => {
+      const path = new URL(url).pathname
+      const body = init.body ? JSON.parse(init.body) : null
+      calls.push({ path, body })
+      if (init.method === 'GET' && path === '/api/admin/classes/classes.json') return res(200, { data: { classes: [
+        { id: 'cls_a', status: 'open', updatedAt: 'u1', content: { name: 'E2E 1019 Refund' } },
+        { id: 'cls_b', status: 'cancelled', updatedAt: 'u2', content: { name: 'E2E 1019 Cancel' } },
+        { id: 'cls_c', status: 'open', updatedAt: 'u3', content: { name: 'Pottery night' } },
+        { id: 'cls_d', status: 'open', updatedAt: 'u4', content: { name: 'E2Ething' } },
+      ] } })
+      if (init.method === 'GET' && path === '/api/admin/classes/library.json') return res(200, { data: { library: [
+        { id: 'lib_a', archived: false, versions: [{ content: { name: 'Old' } }, { content: { name: 'E2E 1019 Refund' } }] },
+        { id: 'lib_c', archived: false, versions: [{ content: { name: 'Pottery night' } }] },
+      ] } })
+      if (init.method === 'GET' && path === '/api/admin/classes/blocked.json') return res(200, { data: { blocked: [
+        { id: 'blk_a', reason: 'E2E block 1019' }, { id: 'blk_b', reason: 'Private event' },
+      ] } })
+      if (init.method === 'GET' && path === '/api/admin/settings.json') return res(200, { data: { settings: {
+        updatedAt: 's1', cafeWeekly: [], cafeSpecialDays: [],
+        closures: [{ id: 'c1', from: '2026-12-25', to: '2026-12-25', name: 'Christmas' }, { id: 'c2', from: '2027-03-01', to: '2027-03-01', name: 'E2E closure 1019' }],
+      } } })
+      return res(200, { data: {} })
+    })
+    const admin = new PreviewClient({ fetch })
+    const { done, failed } = await cleanUpLeftovers({ admin }, () => undefined)
+    expect(failed).toEqual([])
+    expect(done).toHaveLength(4)
+    const posts = calls.filter((c) => c.body)
+    expect(posts).toEqual([
+      { path: '/api/admin/classes/classes.json', body: { action: 'cancel', id: 'cls_a', expectedUpdatedAt: 'u1' } },
+      { path: '/api/admin/classes/library.json', body: { action: 'archive', id: 'lib_a' } },
+      { path: '/api/admin/classes/blocked.json', body: { action: 'remove', id: 'blk_a' } },
+      { path: '/api/admin/settings.json', body: { cafeWeekly: [], cafeSpecialDays: [], closures: [{ id: 'c1', from: '2026-12-25', to: '2026-12-25', name: 'Christmas' }], expectedUpdatedAt: 's1' } },
+    ])
   })
 })

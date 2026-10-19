@@ -15,7 +15,7 @@ there and tell me what you saw.
    ```
 
    It only talks to the branch preview and the Square sandbox. It refuses any
-   other site, ourhometownstudio.com included. It takes about 10 minutes,
+   other site, ourhometownstudio.com included. It takes about 20–25 minutes,
    mostly waiting: the booking page only allows a few tries a minute, and
    scenario 5 waits for a class to start.
 
@@ -37,41 +37,56 @@ there and tell me what you saw.
    at the end (with its library entry archived). In /admin you may see them
    under Cancelled.
 
+4. **If a run stops part way** (you press Ctrl-C, the laptop sleeps, the
+   wifi drops): Ctrl-C already clears up the scenario that was running
+   before it stops. If it couldn't, or the run just died, run the same line
+   as in step 1 with `--cleanup-only` added at the end. It runs no tests; it
+   cancels any "E2E …" class still open (never refunding anyone), archives
+   their library entries, and removes "E2E block" time and the
+   "E2E closure" day from the studio settings. Add `--dry-run` to see what
+   it would do first.
+
+   What to look at: it prints each thing it cleared and ends with "N done,
+   0 failed". /admin shows no open "E2E …" class and no "E2E closure" day.
+
 ## B. Setting up the live site (no money yet)
 
 Do these on production only after the branch has gone to production.
 
-4. **The four live settings** (Netlify, production context). Check each one:
-
-   - `SQUARE_CLASSES_CATEGORY_ID`: the "Classes" category in live Square.
-   - `SQUARE_CLASS_TAX_ID`: the live 9% sales tax.
-   - `SQUARE_WEBHOOK_SIGNATURE_KEY`: from step 5.
-   - `SQUARE_WEBHOOK_URL`: exactly `https://ourhometownstudio.com/api/webhooks/square.json`
-
-   `npx netlify env:get SQUARE_CLASSES_CATEGORY_ID --context production`
-   shows whether one is already set. If the category or tax id is missing,
-   ask me and I'll read them from live Square with the API.
-
-   What to look at: in /admin, open any class and press Save. No "isn't on
-   the POS" warning should appear. A redeploy is needed after changing
-   settings in Netlify.
-
 5. **The webhook** (Square Developer page, your app, Production, Webhooks).
-   Add a subscription (or edit the one already pointing at the URL above):
+   Add a subscription (or edit the one already pointing at this URL):
 
    - URL: `https://ourhometownstudio.com/api/webhooks/square.json`
    - API version: the latest (the site uses 2026-01-22)
    - Events: `order.created`, `order.updated`, `payment.created`,
      `payment.updated`, `refund.created`, `refund.updated`
 
-   Copy its Signature key into `SQUARE_WEBHOOK_SIGNATURE_KEY` (step 4) and
-   redeploy. If you edited an existing subscription, its key stays the same.
+   Copy its Signature key; it goes into `SQUARE_WEBHOOK_SIGNATURE_KEY` in
+   the next step. If you edited an existing subscription, its key stays the
+   same. (Square's "Send test event" is checked at the end of the next step,
+   once the key is set.)
 
-   What to look at: press "Send test event" in Square. The Netlify function
-   log for `/api/webhooks/square.json` should show "Webhook received", not
-   "Invalid signature".
+6. **The four live settings** (Netlify, production context). Check each one:
 
-6. **Bring in Square classes, as a dry run.** /admin, More, Bring in Square
+   - `SQUARE_CLASSES_CATEGORY_ID`: the "Classes" category in live Square.
+   - `SQUARE_CLASS_TAX_ID`: the live 9% sales tax.
+   - `SQUARE_WEBHOOK_SIGNATURE_KEY`: the Signature key from step 5.
+   - `SQUARE_WEBHOOK_URL`: exactly `https://ourhometownstudio.com/api/webhooks/square.json`
+
+   `npx netlify env:get SQUARE_CLASSES_CATEGORY_ID --context production`
+   shows whether one is already set. If the category or tax id is missing,
+   ask me and I'll read them from live Square with the API.
+
+   Redeploy after changing settings in Netlify.
+
+   What to look at:
+   - in /admin, open any class and press Save. No "isn't on the POS"
+     warning should appear;
+   - in Square, press "Send test event" on the webhook. The Netlify function
+     log for `/api/webhooks/square.json` should show "Webhook received", not
+     "Invalid signature".
+
+7. **Bring in Square classes, as a dry run.** /admin, More, Bring in Square
    classes. It shows what would go into the library and what it would leave
    out, with why. Nothing is added until you press Add.
 
@@ -81,7 +96,7 @@ Do these on production only after the branch has gone to production.
 
 ## C. Tests with real money (on the live site)
 
-7. **Make a hidden test class.** /admin, New class:
+8. **Make a hidden test class.** /admin, New class:
 
    - Name "Test class", link-only on, one date a few days out, 10 seats.
    - Ticket types Adult $5 and Kid $1.
@@ -93,7 +108,7 @@ Do these on production only after the branch has gone to production.
    What to look at: neither shows on the public classes page. Both show in
    Square on the POS under Classes.
 
-8. **Adult + 2 Kids, by card.** Open the first class's link on your phone.
+9. **Adult + 2 Kids, by card.** Open the first class's link on your phone.
    Book 1 Adult and 2 Kids with a real card.
 
    It should cost $7.63: $5 + $1 + $1, plus tax worked out per seat
@@ -104,42 +119,42 @@ Do these on production only after the branch has gone to production.
    - Square, Transactions: ONE payment of $7.63, with three lines, each taxed;
    - /admin, the class's Bookings: 3 seats, paid $7.63.
 
-9. **Apple Pay, one person.** Same class, 1 Adult, pay with Apple Pay.
+10. **Apple Pay, one person.** Same class, 1 Adult, pay with Apple Pay.
 
    What to look at: $5.45 charged, Square shows it was paid with Apple Pay,
    /admin shows 4 seats taken.
 
-10. **Full series and one day.** On "Test class two days": book "Both days"
+11. **Full series and one day.** On "Test class two days": book "Both days"
     for 1 person ($5.45), then "One day" on the second date for 1 person
     ($1.09).
 
     What to look at: /admin shows 1 seat on the first date and 2 on the
     second.
 
-11. **A sale at the counter.** On the POS, ring up 1 Adult of "Test class"
+12. **A sale at the counter.** On the POS, ring up 1 Adult of "Test class"
     (it's under Classes) and pay with a card.
 
     What to look at: within a minute, /admin shows a counter seat on the
     class ("Counter sale, no name yet"). Name it in Inbox, To decide. If it
-    isn't there after 5 minutes, the webhook isn't reaching the site (step
-    5); the 3 AM check would still pick it up, or ask me to run that check
+    isn't there after 5 minutes, the webhook isn't reaching the site (steps
+    5 and 6); the 3 AM check would still pick it up, or ask me to run that check
     now.
 
-12. **Refund in /admin.** Open the step 8 booking and refund one Kid.
+13. **Refund in /admin.** Open the step 9 booking and refund one Kid.
 
     What to look at:
     - the seat is released: seats left goes up by one;
-    - Square shows a $1.09 refund on the step 8 payment;
+    - Square shows a $1.09 refund on the step 9 payment;
     - the customer email gets one refund email (not two).
 
-13. **Gift card**, only if one is on hand. Book 1 Adult on "Test class",
+14. **Gift card**, only if one is on hand. Book 1 Adult on "Test class",
     paying with the gift card.
 
     What to look at: Square shows the payment came from the gift card, and
     its balance went down by $5.45.
 
-14. **Clearing up.** Real money moved, so you decide what to give back. To
+15. **Clearing up.** Real money moved, so you decide what to give back. To
     give it all back, refund each test booking from /admin first, then Cancel
     both classes (cancelling never refunds anyone and takes them off the
-    POS). The counter sale from step 11 is refunded in Square, like any POS
+    POS). The counter sale from step 12 is refunded in Square, like any POS
     sale.
