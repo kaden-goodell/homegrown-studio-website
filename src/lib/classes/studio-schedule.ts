@@ -8,25 +8,29 @@
  *                          any source can't be read it throws, never "free".
  *   clashes(candidate, busy)  pure. Which of those a candidate class or party
  *                          would clash with, by the existing room rules:
- *     - party next to anything class-or-party: `partyConfig.cleanupBufferMinutes`
+ *     - party next to anything class-or-party: PARTY_CLEANUP_MINUTES (60)
  *       either side (exactly that gap is fine), as `@lib/conflicts`.
  *     - class next to a class: plain overlap, unless both can share the room.
  *     - Craft Café: a class by plain overlap; a party keeps CAFE_PARTY_GAP_MINUTES
  *       either side, exactly as `partyStartsForDate` in `@lib/party-slots`.
- *     - blocked time and closed days: plain overlap, for anything.
+ *     - blocked time: a class by plain overlap; a party keeps
+ *       PARTY_CLEANUP_MINUTES either side (R11).
+ *     - closed days: plain overlap, for anything.
  *   clashMessage(list)     the plain sentence an owner reads.
  *
  * All times are real instants (UTC ISO); a Chicago clock change can't shift them.
  */
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
-import { partyConfig, CAFE_PARTY_GAP_MINUTES } from '@config/party.config'
+import { CAFE_PARTY_GAP_MINUTES } from '@config/party.config'
 import { closureOn } from '@config/closures'
 import type { StudioDays } from '@config/studio-days'
 import { cafeOn } from '@lib/cafe-days'
 import { getStudioDays } from '@lib/studio-settings'
 import { classSpanOf, intervalOf, overlaps, partyName, partySpanOf, type ClassSpan } from '@lib/conflicts'
 import { getPartyRecord } from '@lib/party-store'
+import { holdBusy, holdsBetween } from '@lib/parties/party-book'
+import { PARTY_CLEANUP_MINUTES } from '@lib/parties/party-times'
 import { localDate, localToUtcISO } from '@lib/party-slots'
 import { formatDay, formatTime } from '@lib/studio-time'
 import { listClasses } from './class-store'
@@ -43,6 +47,8 @@ export interface Busy {
   canShareRoom?: boolean
   /** Our classes only: the session (ses_…) this entry is. */
   sessionId?: string
+  /** Parties in the party book: held (being paid for, or a payment link out) or booked. */
+  party?: { state: 'held' | 'booked'; partyId: string }
 }
 
 export interface Candidate {
@@ -117,7 +123,19 @@ export async function legacyClassSpans(fromIso: string, toIso: string): Promise<
   return list.map(classSpanOf).filter((c) => inRange(c, from, to))
 }
 
-async function partyBusy(fromIso: string, toIso: string): Promise<Busy[]> {
+/**
+ * Parties holding the room: the party book's held and booked times, and the
+ * legacy Square bookings (Task 6 narrows that half to the party service).
+ * Deduped by id, the party book first. Throws when either can't be read.
+ */
+export async function partyBusy(fromIso: string, toIso: string, now: Date = new Date()): Promise<Busy[]> {
+  const [book, legacy] = await Promise.all([holdsBetween(fromIso, toIso, now), legacyPartyBusy(fromIso, toIso)])
+  const ours = book.map(holdBusy)
+  const seen = new Set(ours.map((b) => b.id))
+  return [...ours, ...legacy.filter((b) => !seen.has(b.id))]
+}
+
+async function legacyPartyBusy(fromIso: string, toIso: string): Promise<Busy[]> {
   if (!providers.booking.listBookings) throw new Error('This booking provider cannot list bookings.')
   const bookings = await providers.booking.listBookings({
     startDate: fromIso,
@@ -170,15 +188,16 @@ export async function busyBetween(fromIso: string, toIso: string, days?: StudioD
 function gapNeeded(c: Candidate, b: Busy): number | null {
   switch (b.kind) {
     case 'blocked':
+      return c.kind === 'party' ? PARTY_CLEANUP_MINUTES : 0 // R11
     case 'closed':
       return 0
     case 'cafe':
       return c.kind === 'party' ? CAFE_PARTY_GAP_MINUTES : 0
     case 'party':
-      return partyConfig.cleanupBufferMinutes
+      return PARTY_CLEANUP_MINUTES
     case 'class':
     case 'legacy-class':
-      if (c.kind === 'party') return partyConfig.cleanupBufferMinutes
+      if (c.kind === 'party') return PARTY_CLEANUP_MINUTES
       return c.canShareRoom && b.canShareRoom ? null : 0
   }
 }

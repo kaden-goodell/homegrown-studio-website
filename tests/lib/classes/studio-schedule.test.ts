@@ -15,7 +15,8 @@ vi.mock('@config/site.config', () => ({
 }))
 vi.mock('@lib/party-store', () => ({ getPartyRecord: vi.fn(async () => ({ hostName: 'Jamie Rivera' })) }))
 
-import { busyBetween, clashes, clashMessage, type Busy } from '@lib/classes/studio-schedule'
+import { busyBetween, clashes, clashMessage, partyBusy, type Busy } from '@lib/classes/studio-schedule'
+import { holdTime, confirmTime } from '@lib/parties/party-book'
 import { createClass, updateClass } from '@lib/classes/class-store'
 import { addBlocked } from '@lib/classes/blocked-time'
 import { localToUtcISO } from '@lib/party-slots'
@@ -89,6 +90,34 @@ describe('busyBetween', () => {
     expect(closed[0].label).toBe('Closed for Halloween weekend')
   })
 
+  it('party book holds and booked parties are busy, with their state', async () => {
+    const day = '2030-06-02' // Sunday
+    const NOW = new Date('2026-10-19T15:00:00Z')
+    expect((await holdTime({ partyId: 'pty_held', startIso: at(day, '13:00'), endIso: at(day, '14:30'), ttlMinutes: null }, [], NOW)).ok).toBe(true)
+    expect((await holdTime({ partyId: 'pty_booked', startIso: at(day, '15:30'), endIso: at(day, '17:00'), ttlMinutes: 10 }, [], new Date())).ok).toBe(true)
+    await confirmTime('pty_booked', at(day, '15:30'))
+    mocks.listBookings.mockResolvedValue([{ id: 'bk_9', status: 'accepted', slot: { startAt: at(day, '18:00'), duration: 120 } }])
+    const parties = await partyBusy(at(day, '00:00'), at(day, '23:59'))
+    expect(parties).toEqual([
+      expect.objectContaining({ kind: 'party', id: 'pty_held', startIso: at(day, '13:00'), endIso: at(day, '14:30'), party: { state: 'held', partyId: 'pty_held' } }),
+      expect.objectContaining({ kind: 'party', id: 'pty_booked', party: { state: 'booked', partyId: 'pty_booked' } }),
+      expect.objectContaining({ kind: 'party', id: 'bk_9', label: 'the Rivera party' }),
+    ])
+    const all = await busyBetween(at(day, '00:00'), at(day, '23:59'))
+    expect(all.filter((b) => b.kind === 'party').map((b) => b.id)).toEqual(['pty_held', 'pty_booked', 'bk_9'])
+  })
+
+  it('fails closed: a party book read error makes busyBetween throw', async () => {
+    vi.resetModules()
+    vi.doMock('@lib/parties/party-book', async (orig) => ({
+      ...(await orig<typeof import('@lib/parties/party-book')>()),
+      holdsBetween: async () => { throw new Error('blob store down') },
+    }))
+    const fresh = await import('@lib/classes/studio-schedule')
+    await expect(fresh.busyBetween(at('2030-04-01', '00:00'), at('2030-04-02', '00:00'))).rejects.toThrow('blob store down')
+    vi.doUnmock('@lib/parties/party-book')
+  })
+
   it('fails closed: a source that cannot be read throws rather than reporting the time free', async () => {
     mocks.listBookings.mockRejectedValue(new Error('Square down'))
     await expect(busyBetween(at('2030-04-01', '00:00'), at('2030-04-02', '00:00'))).rejects.toThrow()
@@ -138,11 +167,20 @@ describe('clashes', () => {
     expect(clashes({ ...cand, canShareRoom: true }, [legacy])).toEqual([legacy])
   })
 
-  it('blocked time stops a class and a party (plain overlap)', () => {
+  it('blocked time stops a class (plain overlap) and a party', () => {
     const blk = busy({ kind: 'blocked', label: 'Deep clean', startIso: at(day, '10:00'), endIso: at(day, '12:00') })
     expect(clashes({ kind: 'class', startIso: at(day, '11:00'), endIso: at(day, '13:00') }, [blk])).toEqual([blk])
     expect(clashes({ kind: 'party', startIso: at(day, '11:30'), endIso: at(day, '13:30') }, [blk])).toEqual([blk])
     expect(clashes({ kind: 'class', startIso: at(day, '12:00'), endIso: at(day, '13:00') }, [blk])).toEqual([])
+  })
+
+  it('a party keeps 60 minutes from blocked time either side (R11); a class only by overlap', () => {
+    const blk = busy({ kind: 'blocked', label: 'Deep clean', startIso: at(day, '16:00'), endIso: at(day, '17:00') })
+    expect(clashes({ kind: 'party', startIso: at(day, '13:00'), endIso: at(day, '15:00') }, [blk])).toEqual([])
+    expect(clashes({ kind: 'party', startIso: at(day, '13:01'), endIso: at(day, '15:01') }, [blk])).toEqual([blk])
+    expect(clashes({ kind: 'party', startIso: at(day, '18:00'), endIso: at(day, '20:00') }, [blk])).toEqual([])
+    expect(clashes({ kind: 'party', startIso: at(day, '17:59'), endIso: at(day, '19:59') }, [blk])).toEqual([blk])
+    expect(clashes({ kind: 'class', startIso: at(day, '17:00'), endIso: at(day, '18:00') }, [blk])).toEqual([])
   })
 
   it('a closed day stops anything on it', () => {
