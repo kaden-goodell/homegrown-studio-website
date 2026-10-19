@@ -772,7 +772,8 @@ export async function resolveRefundFlag(id: string, by: By, action: RefundFlagAc
  * (R27): its seats move to those sessions and it leaves the list. Refused when
  * the count doesn't match the pass or a day isn't part of the class.
  */
-export async function setPosDays(id: string, sessionIds: string[], by: By, now = new Date()): Promise<PosNeedsDays> {
+export async function setPosDays(id: string, sessionIds: string[], actor: { by: By; role: 'owner' | 'crew' }, now = new Date()): Promise<PosNeedsDays> {
+  const by = actor.by
   const raw = await needsDaysKv.get(id)
   if (!raw) throw new Error('That counter sale is no longer waiting for its days.')
   const entry = JSON.parse(raw) as PosNeedsDays
@@ -792,7 +793,7 @@ export async function setPosDays(id: string, sessionIds: string[], by: By, now =
     if (await needsDaysKv.setIfMatch(id, JSON.stringify(next), etag, true)) break
   }
   await recordAudit({
-    by, action: 'class-pos-days', target: { kind: 'class', id: cls.id, label: cls.content.name },
+    by: { ...by, role: actor.role }, action: 'class-pos-days', target: { kind: 'class', id: cls.id, label: cls.content.name },
     details: { orderId: entry.orderId, lines: entry.lineIds.join(','), sessions: ids.join(',') },
   }).catch(() => undefined)
   return next

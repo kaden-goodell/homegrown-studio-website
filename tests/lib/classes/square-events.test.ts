@@ -553,9 +553,9 @@ describe('Task 14: decisions on counter sales and Square refunds (R27)', () => {
     const o = order([lineItem(cls.square.variations['day:person'], 1, 1000)], { closed_at: '2026-10-22T21:00:00.000Z' })
     await handleOrder(o, new Date('2026-10-22T21:01:00Z'))
     const [entry] = (await listPosNeedsDays()).filter((p) => p.orderId === o.id)
-    await expect(setPosDays(entry.id, ['ses_a', 'ses_b'], by)).rejects.toThrow('Pick 1 day.')
-    await expect(setPosDays(entry.id, ['ses_zz'], by)).rejects.toThrow(/not part of this class/)
-    await setPosDays(entry.id, ['ses_a'], by)
+    await expect(setPosDays(entry.id, ['ses_a', 'ses_b'], { by, role: 'owner' })).rejects.toThrow('Pick 1 day.')
+    await expect(setPosDays(entry.id, ['ses_zz'], { by, role: 'owner' })).rejects.toThrow(/not part of this class/)
+    await setPosDays(entry.id, ['ses_a'], { by, role: 'owner' })
     const [line] = (await getLedger(cls.id)).lines
     expect(line.sessionIds).toEqual(['ses_a'])
     expect((await listPosNeedsDays()).some((p) => p.id === entry.id)).toBe(false)
