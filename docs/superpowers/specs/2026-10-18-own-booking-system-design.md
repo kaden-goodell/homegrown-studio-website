@@ -171,6 +171,7 @@ A hidden $5 / $1 test class on prod, before any customer uses it:
 - **Promo codes**: $ or % off, on chosen classes or everything, with an end date and a use limit.
 - **Early-bird pricing**: a lower price per cell until a date.
 - **Repeating dates**: schedule a class every week / every 2 weeks / custom, until a date.
+- **Charge on the reader** (door sales on /staff): opens the Square POS app with the amount and a note via Square's Point of Sale API, then returns to /staff with the payment id so the seat is marked paid and linked. Kaden registers the /staff callback URL in the Square app.
 - Later, room left for: memberships and punch cards.
 
 ## Rules carried over
