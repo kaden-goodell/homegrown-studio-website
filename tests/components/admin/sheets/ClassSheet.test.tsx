@@ -199,6 +199,15 @@ describe('class sheet › Details', () => {
     expect(await screen.findByText("Saved. The POS item didn't update. Try Save again.")).toBeInTheDocument()
   })
 
+  it('a cancelled class can’t be saved either way: its details are shown but locked, with how to run it again', async () => {
+    vi.stubGlobal('fetch', server({ the: cls({ status: 'cancelled', libraryId: 'lib_1', libraryVersion: 1 }), library: [lib('lib_1', content({ description: 'Other' }))] }))
+    renderSheet(<ClassSheet id="cls_1" tab="details" />)
+    expect(await screen.findByLabelText('Name')).toBeDisabled()
+    expect(screen.getByText(/This class is cancelled, so its details can’t change/)).toBeInTheDocument()
+    expect(document.querySelector('.adm-sheet-foot')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Cancel this class' })).toBeNull()
+  })
+
   it('More options opens on its own when the class has something in it', async () => {
     vi.stubGlobal('fetch', server({ the: cls({ content: content({ addOns: [{ id: 'add_1', label: 'Second mug', priceCents: 500, maxPerSeat: 2 }] }) }) }))
     renderSheet(<ClassSheet id="cls_1" tab="details" />)
@@ -272,6 +281,10 @@ describe('class sheet › Cancel', () => {
       expect.objectContaining({ classId: 'cls_1', bookingId: 'bkg_1', kind: 'booking', freeSeat: true }),
       expect.objectContaining({ classId: 'cls_1', bookingId: 'bkg_2', kind: 'booking', freeSeat: true }),
     ])
+    // Once it has run, the results and Try again replace Refund everyone.
+    expect(screen.queryByRole('button', { name: 'Refund everyone…' })).toBeNull()
+    expect(screen.getByRole('article', { name: 'Cy Comp' })).toHaveTextContent('2 seats · comp')
+    expect(screen.getByRole('article', { name: 'Cy Comp' })).not.toHaveTextContent('comp · comp')
     fireEvent.click(await screen.findByRole('button', { name: 'Try the ones that didn’t go through' }))
     await waitFor(() => expect(posts(f, REFUND)).toHaveLength(3))
     expect(posts(f, REFUND)[2].body).toMatchObject({ bookingId: 'bkg_2', attempt: sent[1].body.attempt })

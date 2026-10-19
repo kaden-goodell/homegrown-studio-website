@@ -52,6 +52,7 @@ describe('Classes tab', () => {
     expect(rows[0]).toHaveTextContent('Sign-ups closed')
     expect(screen.queryByText('Candles')).toBeNull()
     const folded = screen.getByText('Cancelled (1)').closest('details')!
+    expect(folded.querySelector('summary .adm-chevron')).not.toBeNull()
     expect(folded).not.toHaveAttribute('open')
     expect(within(folded).getByRole('button', { name: /Macramé/ })).toHaveTextContent('Cancelled')
     fireEvent.click(rows[1])

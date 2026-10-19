@@ -127,7 +127,7 @@ export default function ClassesTab({ onOpen }: { onOpen: (s: Sheet, data?: unkno
           <ByDay list={upcoming} sub={booked} onOpen={open} activeId={activeId} />
           {cancelledSoon.length > 0 && (
             <details className="adm-fold-group">
-              <summary>{`Cancelled (${cancelledSoon.length})`}</summary>
+              <summary><span>{`Cancelled (${cancelledSoon.length})`}</span><i className="adm-chevron" aria-hidden="true" /></summary>
               <ByDay list={cancelledSoon} sub={booked} onOpen={open} activeId={activeId} />
             </details>
           )}

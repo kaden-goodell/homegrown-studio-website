@@ -285,8 +285,12 @@ describe('New class › From a past class', () => {
     await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Candles'))
     expect(within(date1()).getByLabelText('Day')).toHaveValue('2031-03-19')
     expect(within(date1()).getByLabelText('Ends')).toHaveValue('12:00')
+    fireEvent.click(screen.getByRole('button', { name: '+ Add another date' }))
     fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
     await waitFor(() => expect(sheet.open).toHaveBeenCalled())
-    expect(posts(f, CLASSES)[0].body).toMatchObject({ libraryId: 'lib_c', sessions: [expect.objectContaining({ startIso: at('2031-03-19', '10:00'), capacity: 6 })] })
+    expect(posts(f, CLASSES)[0].body).toMatchObject({ libraryId: 'lib_c', sessions: [
+      expect.objectContaining({ startIso: at('2031-03-19', '10:00'), endIso: at('2031-03-19', '12:00'), capacity: 6 }),
+      expect.objectContaining({ startIso: at('2031-03-26', '10:00'), endIso: at('2031-03-26', '12:00'), capacity: 6 }),
+    ] })
   })
 })

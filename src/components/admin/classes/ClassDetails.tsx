@@ -262,7 +262,7 @@ function MoreOptions({ f, set, errors, sessions, setPrice }: {
         <Check label="Only people with the link can find it" checked={f.rules.linkOnly} onChange={(v) => setRules({ linkOnly: v })} />
         <Check label="People can join after it starts" checked={f.rules.joinPartway} onChange={(v) => setRules({ joinPartway: v })} />
         <Check label="Can share the room with another class" checked={f.rules.canShareRoom} onChange={(v) => setRules({ canShareRoom: v })} />
-        <div className="adm-two">
+        <div className="adm-two is-bottom">
           <label className="adm-fld"><span>Most people per booking</span><input inputMode="numeric" value={f.maxPerBooking} onChange={(e) => patch({ maxPerBooking: e.target.value })} /></label>
           <label className="adm-fld"><span>Sign-ups close (hours before)</span><input inputMode="numeric" value={f.cutoff} placeholder="Usual" onChange={(e) => patch({ cutoff: e.target.value })} /></label>
         </div>

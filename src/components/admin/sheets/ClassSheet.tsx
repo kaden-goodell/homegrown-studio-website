@@ -347,7 +347,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
                     <span className="adm-small">Nobody has been refunded. Refund each person on their row below, or everyone at once.</span>
                   </>
                 )}
-                {toRefund.length > 0 && refundAll === 'idle' && (
+                {toRefund.length > 0 && refundAll === 'idle' && !Object.keys(results).length && (
                   <button type="button" className="adm-btn is-ghost" onClick={() => setRefundAll('confirm')}>Refund everyone…</button>
                 )}
                 {refundAll === 'running' && <span role="status">Refunding…</span>}
@@ -466,7 +466,7 @@ function BookingRow({ b, cls, ticket, onChanged }: { b: ClassBooking; cls: Sched
       <div className="adm-bk">
         <div className="adm-rm">
           <b>{name}</b>
-          <small>{[seats, pass, paid, SOURCE[b.source] ?? b.source, b.refundedCents ? `refunded ${formatMoney(b.refundedCents)}` : ''].filter(Boolean).join(' · ')}</small>
+          <small>{[seats, pass, paid, b.source === 'comp' ? '' : SOURCE[b.source] ?? b.source, b.refundedCents ? `refunded ${formatMoney(b.refundedCents)}` : ''].filter(Boolean).join(' · ')}</small>
         </div>
         {tag && <span className={`adm-tag ${b.state === 'held' ? '' : 'is-grey'}`}>{tag}</span>}
       </div>

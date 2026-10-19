@@ -2141,3 +2141,17 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
   display: block;
   margin: 0 0 0.75rem;
 }
+/* Two boxes whose labels wrap differently still line up. */
+.adm-two.is-bottom {
+  align-items: end;
+}
+.adm-fold-group summary {
+  gap: 0.6rem;
+  list-style: none;
+}
+.adm-fold-group summary::-webkit-details-marker {
+  display: none;
+}
+.adm-fold-group[open] > summary > .adm-chevron {
+  transform: translateY(25%) rotate(225deg);
+}
