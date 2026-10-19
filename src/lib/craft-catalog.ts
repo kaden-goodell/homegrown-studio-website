@@ -28,6 +28,16 @@ export interface CatalogCraft {
   cafeOnly: boolean
 }
 
+/**
+ * The Square category holding party crafts. SQUARE_PARTY_CRAFT_CATEGORY_ID
+ * when set (the sandbox preview: its category comes from the admin seed
+ * route), otherwise the live category in party.config.
+ */
+export function partyCraftCategoryId(): string {
+  const fromEnv = (process.env.SQUARE_PARTY_CRAFT_CATEGORY_ID ?? '').trim()
+  return fromEnv || partyConfig.square.partyCraftCategoryId
+}
+
 /** Staff-only smoke-test items ("TEST — Dollar Craft") share the real category;
  *  they must never appear in customer-facing menus. */
 export function isTestCraft(name: string | undefined | null): boolean {
@@ -40,13 +50,14 @@ export async function fetchPartyCrafts(
   opts: { includeTest?: boolean } = {},
 ): Promise<CatalogCraft[]> {
   const client = createSquareClient(siteConfig.providers.catalog.config as SquareConfig)
+  const categoryId = partyCraftCategoryId()
 
   const craftItems: any[] = []
   const imageIds = new Set<string>()
   for await (const obj of await client.catalog.list({ types: 'ITEM' })) {
     const o = obj as any
     const inCat = (o.itemData?.categories ?? []).some(
-      (c: any) => c.id === partyConfig.square.partyCraftCategoryId
+      (c: any) => c.id === categoryId
     )
     if (!inCat) continue
     if (!opts.includeTest && isTestCraft(o.itemData?.name)) continue
@@ -97,4 +108,29 @@ export async function fetchPartyCrafts(
     })
     .filter((c) => !c.cafeOnly)
     .sort((a, b) => Number(!!b.popular) - Number(!!a.popular) || a.name.localeCompare(b.name))
+}
+
+// ---------------------------------------------------------------- one craft, on the server
+
+const CRAFT_CACHE_MS = 60_000
+let craftCache: { at: number; crafts: CatalogCraft[] } | null = null
+
+/**
+ * One party craft by its Square item id, as the catalog has it now (name,
+ * price, description, image), never as a browser sent it (S2-R20). Test
+ * crafts are found too (the staff smoke-test lane books them). Null when the
+ * id is not a party craft. Remembered 60 seconds per server; throws when the
+ * catalog can't be read.
+ */
+export async function findPartyCraft(id: string, now: number = Date.now()): Promise<CatalogCraft | null> {
+  if (!id) return null
+  if (!craftCache || now - craftCache.at >= CRAFT_CACHE_MS) {
+    craftCache = { at: now, crafts: await fetchPartyCrafts({ includeTest: true }) }
+  }
+  return craftCache.crafts.find((c) => c.id === id) ?? null
+}
+
+/** Forget the remembered crafts (tests). */
+export function resetPartyCraftCache(): void {
+  craftCache = null
 }

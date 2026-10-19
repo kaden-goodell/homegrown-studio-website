@@ -3,6 +3,8 @@ export interface LineItem {
   name: string
   quantity: number
   pricePerUnit: number         // cents
+  /** Shown on the order line (ad hoc lines: our package or extra id). */
+  note?: string
 }
 
 export interface Discount {
@@ -47,13 +49,16 @@ export interface PaymentClientConfig {
 export interface PaymentProvider {
   createOrder(params: {
     locationId: string
-    customerId: string
+    /** Omitted or null: an order with no customer (the customer lookup failed; not fatal). */
+    customerId?: string | null
     lineItems: LineItem[]
     discounts?: Discount[]
     /** Optional pickup fulfillment (kits are picked up in-studio, not shipped). */
     fulfillment?: { type: 'PICKUP'; pickupAt: string; recipientName: string }
     /** Makes the create safe to repeat (see BookingDetails.idempotencyKey). */
     idempotencyKey?: string
+    /** Our own id for the order (parties: the party id 'pty_…'), so Square's events can be traced back. */
+    referenceId?: string
   }): Promise<Order>
 
   processPayment(params: {

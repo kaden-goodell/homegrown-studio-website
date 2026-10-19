@@ -1,813 +1,404 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { partyConfig } from '@config/party.config'
+/**
+ * POST /api/party/book.json: our own party records, one Square order and one
+ * charge, and never a Square booking. The party book, party records, party
+ * settings, checkouts and payments index are the real stores (temp dir);
+ * Square, the craft catalog, emails and texts are fakes.
+ */
+import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest'
+import { randomUUID } from 'node:crypto'
 
-// --- Module mocks set up before any import ---
+// Pins the weekly rules (Sun 1:00 and 3:30, Sat 1:30, Thu/Fri 4:00); one-off days are tested elsewhere.
+vi.mock('@config/party.config', async (orig) => ({ ...(await orig<typeof import('@config/party.config')>()), partyDateOverrides: {} }))
 
-// Mock party-availability so we can control isStartOpen per test
-const mockBookingHeldBy = vi.fn()
-vi.mock('@lib/party-availability', () => ({
-  isStartOpen: vi.fn().mockResolvedValue({ ok: true }),
-  openPartyStarts: vi.fn().mockResolvedValue([]),
-  studioDateOf: vi.fn().mockReturnValue('2026-09-01'),
+const m = vi.hoisted(() => ({
+  createBooking: vi.fn(),
+  createOrder: vi.fn(),
+  processPayment: vi.fn(),
+  findOrderPayment: vi.fn(),
+  findOrCreate: vi.fn(),
+  fromNonce: vi.fn(),
+  alert: vi.fn(),
+  email: vi.fn(),
+  sendEmail: vi.fn(),
+  announce: vi.fn(),
+  findCraft: vi.fn(),
+  bypass: { on: false },
+  down: { settings: false },
+  paid: new Map<string, any>(),
 }))
-// The old route's retry lookup (a read of the customer's own Square booking).
-vi.mock('@lib/parties/legacy-square', () => ({
-  legacyBookingHeldBy: (...args: any[]) => mockBookingHeldBy(...args),
-}))
-
-// Which dates are on offer depends on today's date; the tests here are about
-// what happens once a date IS on offer, so that answer is set per test.
-const mockBookableOn = vi.fn()
-vi.mock('@lib/party-slots', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@lib/party-slots')>()),
-  bookableOn: (...args: any[]) => mockBookableOn(...args),
-}))
-
-// Owner alerts go out by text; never from a test.
-const mockAlertOwners = vi.fn()
-vi.mock('@lib/owner-alert', () => ({
-  alertOwners: (...args: any[]) => mockAlertOwners(...args),
-}))
-
-// Mock email so no real SMTP calls are made
-vi.mock('@lib/email', () => ({
-  sendPartyConfirmationEmail: vi.fn().mockResolvedValue({ sent: false }),
-}))
-
-// Mock party-store so we don't write to Netlify Blobs
-const mockGetPartyRecord = vi.fn()
-vi.mock('@lib/party-store', () => ({
-  savePartyRecord: vi.fn().mockResolvedValue(undefined),
-  newHostToken: vi.fn().mockReturnValue('mock-host-token'),
-  getPartyRecord: (...args: any[]) => mockGetPartyRecord(...args),
-}))
-
-// Mock dev-flags so payment bypass is always disabled in tests
-vi.mock('@lib/dev-flags', () => ({
-  paymentBypassEnabled: vi.fn().mockReturnValue(false),
-}))
-
-// Mock kit-store — the themed-table claims ledger. The party flow reserves a
-// theme-week before charging and confirms/releases around the outcome (LR-1).
-const mockClaimWeek = vi.fn()
-const mockConfirmWeekClaim = vi.fn()
-const mockReleaseWeekClaim = vi.fn()
-const mockListKitOrders = vi.fn()
-vi.mock('@lib/kit-store', () => ({
-  claimWeek: (...args: any[]) => mockClaimWeek(...args),
-  confirmWeekClaim: (...args: any[]) => mockConfirmWeekClaim(...args),
-  releaseWeekClaim: (...args: any[]) => mockReleaseWeekClaim(...args),
-  listKitOrders: (...args: any[]) => mockListKitOrders(...args),
-  kitOrderToLedgerRecord: () => null,
-}))
-
-// --- Mutable provider spies (shared across tests, reset in beforeEach) ---
-const mockCreateBooking = vi.fn()
-const mockCancelBooking = vi.fn()
-const mockFindOrCreate = vi.fn()
-const mockCreateOrder = vi.fn()
-const mockProcessPayment = vi.fn()
-const mockFindOrderPayment = vi.fn()
-const mockNotify = vi.fn()
-const mockFromNonce = vi.fn()
 
 vi.mock('@config/providers', () => ({
   providers: {
-    booking: {
-      createBooking: (...args: any[]) => mockCreateBooking(...args),
-      cancelBooking: (...args: any[]) => mockCancelBooking(...args),
-    },
+    booking: { createBooking: (...a: any[]) => m.createBooking(...a), listBookings: async () => [] },
+    workshop: { listAllWorkshops: async () => [], listWorkshops: async () => [] },
     payment: {
-      createOrder: (...args: any[]) => mockCreateOrder(...args),
-      processPayment: (...args: any[]) => mockProcessPayment(...args),
-      findOrderPayment: (...args: any[]) => mockFindOrderPayment(...args),
+      createOrder: (...a: any[]) => m.createOrder(...a),
+      processPayment: (...a: any[]) => m.processPayment(...a),
+      findOrderPayment: (...a: any[]) => m.findOrderPayment(...a),
     },
-    customer: {
-      findOrCreate: (...args: any[]) => mockFindOrCreate(...args),
-    },
-    notification: {
-      send: (...args: any[]) => mockNotify(...args),
-    },
-    giftcard: {
-      fromNonce: (...args: any[]) => mockFromNonce(...args),
-      mint: vi.fn(),
-      get: vi.fn(),
-      fromGan: vi.fn(),
-    },
+    customer: { findOrCreate: (...a: any[]) => m.findOrCreate(...a) },
+    giftcard: { fromNonce: (...a: any[]) => m.fromNonce(...a) },
   },
 }))
+vi.mock('@lib/owner-alert', () => ({ alertOwners: (...a: any[]) => m.alert(...a) }))
+vi.mock('@lib/email', () => ({
+  sendPartyConfirmationEmail: (...a: any[]) => m.email(...a),
+  sendEmail: (...a: any[]) => m.sendEmail(...a),
+}))
+vi.mock('@lib/booking-alert', () => ({ announceBooking: (...a: any[]) => m.announce(...a) }))
+vi.mock('@lib/posthog-server', () => ({ reportBooking: async () => undefined }))
+vi.mock('@lib/dev-flags', () => ({ paymentBypassEnabled: () => m.bypass.on }))
+vi.mock('@lib/craft-catalog', async (orig) => ({
+  ...(await orig<typeof import('@lib/craft-catalog')>()),
+  findPartyCraft: (...a: any[]) => m.findCraft(...a),
+}))
+vi.mock('@lib/parties/settings-store', async (orig) => {
+  const real = await orig<typeof import('@lib/parties/settings-store')>()
+  return { ...real, getPartySettings: async (o?: any) => { if (m.down.settings) throw new Error('party settings store down'); return real.getPartySettings(o) } }
+})
 
-// Package price for the serves-10 tier — matches kit.config's real tiers.
-const GILDED_10_PRICE_CENTS = 7500
+import { POST } from '@pages/api/party/book.json'
+import { partyIdFor } from '@lib/parties/checkout'
+import { holdsBetween, holdTime } from '@lib/parties/party-book'
+import { isStartOpen } from '@lib/parties/open-times'
+import { getPartySettings, savePartySettings, resetPartySettingsCache } from '@lib/parties/settings-store'
+import { localToUtcISO } from '@lib/parties/party-times'
+import { getPartyRecord } from '@lib/party-store'
+import { partyForPayment } from '@lib/parties/party-payments'
+import { getCheckout } from '@lib/parties/party-checkouts'
 
-/** Seed kit config so themed tables are enabled + "seeded" for the theme tests. */
-async function enableThemedTables() {
-  const { siteConfig } = await import('@config/site.config')
-  ;(siteConfig.features as any).kits = { enabled: true }
-  const { kitConfig } = await import('@config/kit.config')
-  Object.assign(kitConfig.square, {
-    assemblyItemId: 'assembly-item',
-    assemblyVariationId: 'assembly-var',
-    packageItemId: 'pkg-item',
-    depositItemId: 'dep-item',
-  })
-  ;(kitConfig.square.packageVariations as any).gilded = { 10: 'g10', 15: 'g15', 20: 'g20' }
-  ;(kitConfig.square.depositVariations as any)[10] = 'd10'
-  ;(kitConfig.square.depositVariations as any)[15] = 'd15'
-  ;(kitConfig.square.depositVariations as any)[20] = 'd20'
+const NOW = new Date('2027-02-01T15:00:00.000Z') // every date below is inside the 90-day window
+const at = (ymd: string, hhmm: string) => localToUtcISO(ymd, hhmm)
+const CRAFT = { id: 'craft-1', name: 'Tote Bags', perHeadCents: 2000, perHeadMaxCents: 2000, description: 'Paint a tote.', imageUrl: 'https://img/tote.png', personalized: false, popular: false, partyOnly: false, cafeOnly: false }
+
+let ip = 0
+const post = async (b: Record<string, unknown>) => {
+  const res = await POST({
+    request: new Request('http://localhost/api/party/book.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(b) }),
+    clientAddress: `10.0.0.${++ip}`,
+  } as any) as Response
+  return { status: res.status, json: await res.json() }
 }
 
-// --- Helpers ---
-
-function makeBody(overrides: Record<string, any> = {}) {
+function body(startTime: string, over: Record<string, unknown> = {}) {
   return {
-    startTime: '2026-09-01T16:00:00.000Z',
-    serviceVariationId: 'var-abc',
-    serviceVariationVersion: 1234567890,
-    durationMinutes: 150,
-    craft: { id: 'craft-1', name: 'Tote Bag', perHeadCents: 2000 },
-    people: partyConfig.minGuests,
-    customer: {
-      firstName: 'Alice',
-      lastName: 'Smith',
-      email: 'alice@example.com',
-      phone: '256-555-1234',
-    },
+    attemptId: randomUUID(),
+    startTime,
+    guests: 10,
+    craftId: 'craft-1',
+    customer: { firstName: 'Alice', lastName: 'Smith', email: 'alice@example.com', phone: '256-555-1234' },
     paymentToken: 'cnon:card-nonce-ok',
-    ...overrides,
+    ...over,
   }
 }
 
-function createMockContext(body: any, url = 'http://localhost/api/party/book.json') {
-  const request = new Request(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+const sumLines = (lines: any[]) => lines.reduce((t, l) => t + l.quantity * l.pricePerUnit, 0)
+let drift = 0
+
+beforeAll(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOW)
+  resetPartySettingsCache()
+  const cur = await getPartySettings({ fresh: true })
+  await savePartySettings({
+    times: cur.times,
+    packages: [...cur.packages, { id: 'pkg_test', name: 'Test party', priceCents: 100, minutes: 90, minGuests: 1, maxGuests: 30, defaultGuests: 1, quickPicks: [], who: 'link', archived: false }],
+    addOns: [{ id: 'add_time', label: 'Extra half hour', priceCents: 2500, per: 'party', extraMinutes: 30, maxQty: 1, online: true, archived: false }],
+    readSquareBookings: cur.readSquareBookings,
+  }, { expectedUpdatedAt: cur.updatedAt, by: { id: 'k', name: 'Kaden' } })
+})
+afterAll(() => { vi.useRealTimers() })
+
+beforeEach(() => {
+  vi.setSystemTime(NOW)
+  drift = 0
+  m.bypass.on = false
+  m.down.settings = false
+  m.paid.clear()
+  for (const f of [m.createBooking, m.alert, m.sendEmail, m.announce]) f.mockReset().mockResolvedValue(undefined)
+  m.email.mockReset().mockResolvedValue({ sent: true })
+  m.findCraft.mockReset().mockImplementation(async (id: string) => (id === CRAFT.id ? CRAFT : null))
+  m.findOrCreate.mockReset().mockResolvedValue({ id: 'cust-1', email: 'alice@example.com' })
+  m.fromNonce.mockReset()
+  m.createOrder.mockReset().mockImplementation(async (p: any) => ({ id: `ord-${p.idempotencyKey}`, version: 1, lineItems: p.lineItems, discounts: [], totalAmount: sumLines(p.lineItems) + drift, currency: 'USD', status: 'open' }))
+  m.processPayment.mockReset().mockImplementation(async (p: any) => {
+    const pay = { id: `pay-${p.orderId}`, orderId: p.orderId, amount: p.amount, status: 'completed', receiptUrl: 'https://r/1' }
+    m.paid.set(p.orderId, pay)
+    return pay
   })
-  return { request, url: new URL(url), params: {}, redirect: () => new Response(), locals: {} } as any
-}
+  m.findOrderPayment.mockReset().mockImplementation(async (orderId: string) => m.paid.get(orderId) ?? null)
+})
 
-const basePriceCents = partyConfig.basePriceCents
+const heldBy = async (startIso: string, partyId: string) =>
+  (await holdsBetween(startIso, new Date(Date.parse(startIso) + 60_000).toISOString(), new Date())).find((h) => h.partyId === partyId)
 
-function makeMockBooking(id = 'booking-xyz') {
-  return {
-    id,
-    status: 'confirmed',
-    slot: { id: 'slot-1', startAt: '2026-09-01T16:00:00.000Z', endAt: '2026-09-01T18:30:00.000Z', duration: 150, locationId: 'loc-1', available: false },
-    customerId: 'cust-1',
-    eventType: 'party',
-    createdAt: new Date().toISOString(),
-    version: 1,
-  }
-}
+describe('POST /api/party/book.json: one order, one charge, no Square booking', () => {
+  it('books into our records: a pty_ record, a booked hold, one order with reference_id, one payment of Square’s total, the payments index', async () => {
+    const start = at('2027-02-14', '13:00')
+    const b = body(start)
+    const { status, json } = await post(b)
+    expect(status).toBe(200)
+    const partyId = partyIdFor(b.attemptId)
+    expect(json.data.bookingId).toBe(partyId)
+    expect(partyId).toMatch(/^pty_[0-9a-f]{16}$/)
 
-function makeMockOrder(totalAmount: number = basePriceCents) {
-  return { id: 'order-1', lineItems: [], discounts: [], totalAmount, currency: 'USD', status: 'open' }
-}
+    expect(m.createBooking).not.toHaveBeenCalled()
+    expect(m.createOrder).toHaveBeenCalledTimes(1)
+    const order = m.createOrder.mock.calls[0][0]
+    expect(order.referenceId).toBe(partyId)
+    expect(order.idempotencyKey).toBe(`${b.attemptId}:order`)
+    expect(order.lineItems).toEqual([{ name: 'Whole Studio Party — studio fee', quantity: 1, pricePerUnit: 30000, note: 'pkg_whole' }])
+    expect(m.processPayment).toHaveBeenCalledTimes(1)
+    expect(m.processPayment.mock.calls[0][0]).toMatchObject({ amount: 30000, idempotencyKey: `${b.attemptId}:pay`, orderId: `ord-${b.attemptId}:order` })
 
-function makeMockPayment(status: 'completed' | 'failed' = 'completed') {
-  return { id: 'pay-1', orderId: 'order-1', amount: basePriceCents, status, receiptUrl: 'https://receipt.example.com/pay-1' }
-}
+    const rec = await getPartyRecord(partyId)
+    expect(rec).toMatchObject({ source: 'ours', status: 'booked', craftId: 'craft-1', craftName: 'Tote Bags', packageId: 'pkg_whole', guestCount: 10, endIso: at('2027-02-14', '14:30') })
+    expect(rec!.hostToken).toBe(json.data.hostToken)
+    expect(rec!.payToken).toBeTruthy()
+    expect(rec!.payToken).not.toBe(rec!.hostToken)
+    expect(rec!.charges).toHaveLength(1)
+    const charge = rec!.charges![0]
+    expect(charge).toMatchObject({ via: 'online', cents: 30000, quotedCents: 30000, paymentId: `pay-ord-${b.attemptId}:order` })
+    expect(rec!.items!.every((it) => it.chargeId === charge.id && /^itm_/.test(it.id))).toBe(true)
+    expect(await partyForPayment(charge.paymentId)).toEqual({ partyId, chargeId: charge.id })
+    expect((await heldBy(start, partyId))?.state).toBe('booked')
+    expect(await getCheckout(partyId)).toBeNull()
+    expect(json.data).toMatchObject({ totalCharged: 30000, emailSent: true, receiptUrl: 'https://r/1' })
 
-// --- Tests ---
-
-describe('POST /api/party/book.json', () => {
-  let POST: any
-  let isStartOpen: any
-  let sendPartyConfirmationEmail: any
-
-  beforeEach(async () => {
-    vi.clearAllMocks()
-
-    // Re-import the module after clearing mocks
-    vi.resetModules()
-
-    // Re-require mocks after resetModules
-    const avail = await import('@lib/party-availability')
-    isStartOpen = vi.mocked(avail.isStartOpen)
-    isStartOpen.mockResolvedValue({ ok: true })
-
-    const emailMod = await import('@lib/email')
-    sendPartyConfirmationEmail = vi.mocked(emailMod.sendPartyConfirmationEmail)
-    sendPartyConfirmationEmail.mockResolvedValue({ sent: false })
-
-    mockFindOrCreate.mockResolvedValue({ id: 'cust-1', email: 'alice@example.com', givenName: 'Alice', familyName: 'Smith' })
-    mockCreateBooking.mockResolvedValue(makeMockBooking())
-    mockCancelBooking.mockResolvedValue(undefined)
-    mockCreateOrder.mockResolvedValue(makeMockOrder())
-    mockProcessPayment.mockResolvedValue(makeMockPayment())
-    mockFindOrderPayment.mockResolvedValue(null)
-    mockBookableOn.mockReturnValue('ok')
-    mockNotify.mockResolvedValue(undefined)
-
-    mockClaimWeek.mockResolvedValue('ok')
-    mockConfirmWeekClaim.mockResolvedValue('ok')
-    mockReleaseWeekClaim.mockResolvedValue(undefined)
-    mockListKitOrders.mockResolvedValue([])
-    mockGetPartyRecord.mockResolvedValue(null)
-    mockBookingHeldBy.mockResolvedValue(null)
-    mockAlertOwners.mockResolvedValue({ attempted: 2, sent: 2 })
-
-    await enableThemedTables()
-
-    const mod = await import('@pages/api/party/book.json')
-    POST = mod.POST
+    // The email: craft from the catalog, the party id as the reference.
+    const mail = m.email.mock.calls[0][0]
+    expect(mail).toMatchObject({ craftName: 'Tote Bags', perHeadCents: 2000, craftImageUrl: 'https://img/tote.png', bookingRef: partyId, totalChargedCents: 30000 })
+    expect(mail.hostPageUrl).toContain(`/party/${partyId}?key=${rec!.hostToken}`)
+    expect(m.announce).toHaveBeenCalledTimes(1)
   })
 
-  // ── Dates that are not on offer (HOM-182, HOM-187) ────────────────────────
-  describe('a date that is not on offer', () => {
-    async function refused(reason: string) {
-      mockBookableOn.mockReturnValue(reason)
-      const res = await POST(createMockContext(makeBody()))
-      expect(res.status).toBe(409)
-      const json = await res.json()
-      expect(json.code).toBe('not_open')
-      expect(json.detail).toMatch(/nothing was charged/i)
-      // Refused before anything is looked up, held or charged.
-      expect(isStartOpen).not.toHaveBeenCalled()
-      expect(mockFindOrCreate).not.toHaveBeenCalled()
-      expect(mockCreateBooking).not.toHaveBeenCalled()
-      expect(mockProcessPayment).not.toHaveBeenCalled()
-      return json
+  it('prices from settings and the craft from the catalog: an old cached page’s body (variation id, people, craft price) books the default package', async () => {
+    const start = at('2027-02-14', '15:30')
+    const { status, json } = await post({
+      attemptId: randomUUID(), startTime: start, serviceVariationId: 'var-abc', serviceVariationVersion: 1, durationMinutes: 150,
+      craft: { id: 'craft-1', name: 'Hacked', perHeadCents: 1, imageUrl: 'https://evil/x.png' }, people: 12,
+      customer: { firstName: 'Bo', lastName: 'Lee', email: 'bo@example.com', phone: '2565551234' }, paymentToken: 'cnon:ok',
+      priceCents: 1, totalCents: 1,
+    })
+    expect(status).toBe(200)
+    expect(m.processPayment.mock.calls[0][0].amount).toBe(30000)
+    const rec = await getPartyRecord(json.data.bookingId)
+    expect(rec).toMatchObject({ packageId: 'pkg_whole', guestCount: 12, craftName: 'Tote Bags' })
+    expect(m.email.mock.calls[0][0]).toMatchObject({ craftName: 'Tote Bags', perHeadCents: 2000, craftImageUrl: 'https://img/tote.png' })
+  })
+
+  it('refuses a craft the catalog doesn’t have, holding nothing', async () => {
+    const start = at('2027-02-20', '13:30')
+    const { status, json } = await post(body(start, { craftId: 'nope' }))
+    expect(status).toBe(404)
+    expect(json.field).toBe('craftId')
+    expect(m.createOrder).not.toHaveBeenCalled()
+    expect((await isStartOpen(start, 90)).ok).toBe(true)
+  })
+
+  it('retry finds the payment: the same attempt after success gets the stored answer, one processPayment', async () => {
+    const b = body(at('2027-02-21', '13:00'))
+    const first = await post(b)
+    const again = await post({ ...b, paymentToken: 'cnon:retyped' })
+    expect(again.status).toBe(200)
+    expect(again.json.data.bookingId).toBe(first.json.data.bookingId)
+    expect(again.json.data.hostToken).toBe(first.json.data.hostToken)
+    expect(again.json.data.replayed).toBe(true)
+    expect(m.processPayment).toHaveBeenCalledTimes(1)
+    expect(m.createOrder).toHaveBeenCalledTimes(1)
+  })
+
+  it('a held, unexpired same attempt answers 409 in_progress and charges nothing', async () => {
+    const start = at('2027-02-21', '15:30')
+    const b = body(start)
+    expect((await holdTime({ partyId: partyIdFor(b.attemptId), startIso: start, endIso: at('2027-02-21', '17:00'), ttlMinutes: 10 }, [], new Date())).ok).toBe(true)
+    const { status, json } = await post(b)
+    expect(status).toBe(409)
+    expect(json.code).toBe('in_progress')
+    expect(m.createOrder).not.toHaveBeenCalled()
+    expect(m.processPayment).not.toHaveBeenCalled()
+  })
+
+  it('slot taken before any order: another attempt on a taken time gets 409 slot_taken and no order', async () => {
+    const start = at('2027-02-28', '13:00')
+    expect((await post(body(start))).status).toBe(200)
+    m.createOrder.mockClear()
+    const { status, json } = await post(body(start, { customer: { firstName: 'Cy', lastName: 'Two', email: 'cy@example.com', phone: '2565550000' } }))
+    expect(status).toBe(409)
+    expect(json.code).toBe('slot_taken')
+    expect(json.detail).toBe('That time was just booked by someone else. Nothing was charged. Pick another time.')
+    expect(m.createOrder).not.toHaveBeenCalled()
+  })
+
+  it('declined: the hold is released and the time is offered again', async () => {
+    const start = at('2027-02-28', '15:30')
+    m.processPayment.mockRejectedValue(Object.assign(new Error('declined'), { statusCode: 402, errors: [{ code: 'CARD_DECLINED' }] }))
+    const b = body(start)
+    const { status, json } = await post(b)
+    expect(status).toBe(402)
+    expect(json.code).toBe('card_declined')
+    expect(await heldBy(start, partyIdFor(b.attemptId))).toBeUndefined()
+    expect((await isStartOpen(start, 90)).ok).toBe(true)
+    expect(await getPartyRecord(partyIdFor(b.attemptId))).toBeNull()
+    expect(await getCheckout(partyIdFor(b.attemptId))).toBeNull()
+  })
+
+  it('unknown keeps the hold: no expiry, owners told the party id, 502 unknown_outcome; a retry recovers the paid order once', async () => {
+    const start = at('2027-03-07', '13:00')
+    m.processPayment.mockRejectedValue(new Error('socket hang up'))
+    const b = body(start)
+    const partyId = partyIdFor(b.attemptId)
+    const { status, json } = await post(b)
+    expect(status).toBe(502)
+    expect(json.code).toBe('unknown_outcome')
+    const hold = await heldBy(start, partyId)
+    expect(hold).toMatchObject({ state: 'held', holdExpiresAt: null })
+    expect(m.alert.mock.calls.some(([t]) => String(t).includes(partyId) && /unclear/i.test(String(t)))).toBe(true)
+    expect(await getCheckout(partyId)).toMatchObject({ state: 'unclear' })
+    expect(await getPartyRecord(partyId)).toBeNull()
+    // A day later the time is still held for them.
+    vi.setSystemTime(new Date(NOW.getTime() + 25 * 3_600_000))
+    expect((await isStartOpen(start, 90)).ok).toBe(false)
+
+    // Retry, still no payment in Square: still finishing, nothing charged.
+    m.processPayment.mockClear()
+    expect((await post({ ...b, paymentToken: 'cnon:retyped' })).json.code).toBe('in_progress')
+    expect(m.processPayment).not.toHaveBeenCalled()
+
+    // Square now shows the first try paid: recorded, never charged again.
+    m.paid.set(`ord-${b.attemptId}:order`, { id: 'pay-late', orderId: `ord-${b.attemptId}:order`, amount: 30000, status: 'completed', receiptUrl: null })
+    const ok = await post({ ...b, paymentToken: 'cnon:retyped' })
+    expect(ok.status).toBe(200)
+    expect(m.processPayment).not.toHaveBeenCalled()
+    expect((await getPartyRecord(partyId))!.charges![0].paymentId).toBe('pay-late')
+    expect((await heldBy(start, partyId))?.state).toBe('booked')
+    expect(await getCheckout(partyId)).toBeNull()
+  })
+
+  it('paid after the hold ran out (R6): recorded with overlap, owners told, still 200', async () => {
+    const start = at('2027-03-07', '15:30')
+    const b = body(start)
+    const partyId = partyIdFor(b.attemptId)
+    m.processPayment.mockImplementation(async (p: any) => {
+      // The charge takes so long the 10-minute hold runs out and another party takes the time.
+      vi.setSystemTime(new Date(NOW.getTime() + 11 * 60_000))
+      expect((await holdTime({ partyId: 'pty_rival00000000000', startIso: start, endIso: at('2027-03-07', '17:00'), ttlMinutes: 10 }, [], new Date())).ok).toBe(true)
+      return { id: 'pay-r6', orderId: p.orderId, amount: p.amount, status: 'completed', receiptUrl: null }
+    })
+    const { status } = await post(b)
+    expect(status).toBe(200)
+    const rec = await getPartyRecord(partyId)
+    expect(rec).toMatchObject({ status: 'booked', overlap: true })
+    expect(m.alert.mock.calls.some(([t]) => String(t).includes(partyId) && /taken by another party/.test(String(t)))).toBe(true)
+    expect((await heldBy(start, partyId))?.state).toBe('booked')
+  })
+
+  it.each([50, -50])('drift %i cents: Square’s total is charged and the owners are emailed', async (d) => {
+    drift = d
+    const start = at(d > 0 ? '2027-03-21' : '2027-03-28', '13:00')
+    const { status, json } = await post(body(start))
+    expect(status).toBe(200)
+    expect(m.processPayment.mock.calls[0][0].amount).toBe(30000 + d)
+    expect(json.data.totalCharged).toBe(30000 + d)
+    expect(m.sendEmail).toHaveBeenCalledTimes(1)
+    expect(m.sendEmail.mock.calls[0][0].subject).toBe('Party price differed')
+    expect((await getPartyRecord(json.data.bookingId))!.charges![0]).toMatchObject({ cents: 30000 + d, quotedCents: 30000 })
+  })
+
+  it('drift +150: refused, the time released, nothing charged', async () => {
+    drift = 150
+    const start = at('2027-03-21', '15:30')
+    const b = body(start)
+    const { status, json } = await post(b)
+    expect(status).toBe(503)
+    expect(json.detail).toMatch(/not charged/)
+    expect(m.processPayment).not.toHaveBeenCalled()
+    expect(await heldBy(start, partyIdFor(b.attemptId))).toBeUndefined()
+    expect(m.alert.mock.calls.some(([t]) => /price mismatch/.test(String(t)))).toBe(true)
+  })
+
+  it('store down refuses: 503 before any Square call', async () => {
+    m.down.settings = true
+    resetPartySettingsCache()
+    const { status, json } = await post(body(at('2027-04-04', '13:00'), { sourceKind: 'gift_card' }))
+    expect(status).toBe(503)
+    expect(json.code).toBe('unavailable')
+    for (const f of [m.createOrder, m.processPayment, m.findOrCreate, m.fromNonce, m.findOrderPayment]) expect(f).not.toHaveBeenCalled()
+    m.down.settings = false
+    resetPartySettingsCache()
+  })
+
+  it('a link-only package is refused without its id and booked with it', async () => {
+    const start = at('2027-04-04', '15:30')
+    const refused = await post(body(start, { packageId: 'pkg_test', guests: 2 }))
+    expect(refused.status).toBe(400)
+    expect(refused.json.field).toBe('packageId')
+    expect(m.createOrder).not.toHaveBeenCalled()
+    const ok = await post(body(start, { packageId: 'pkg_test', linkPackageId: 'pkg_test', guests: 2 }))
+    expect(ok.status).toBe(200)
+    expect(m.processPayment.mock.calls[0][0].amount).toBe(100)
+    expect(m.createOrder.mock.calls[0][0].lineItems).toEqual([{ name: 'Party — Test party', quantity: 1, pricePerUnit: 100, note: 'pkg_test' }])
+  })
+
+  it('an online extra half hour lengthens the record’s end and the hold, and is on the order', async () => {
+    const start = at('2027-04-11', '13:00')
+    const b = body(start, { addOns: { add_time: 1 } })
+    const { status, json } = await post(b)
+    expect(status).toBe(200)
+    const rec = await getPartyRecord(json.data.bookingId)
+    expect(rec!.endIso).toBe(at('2027-04-11', '15:00'))
+    expect((await heldBy(start, json.data.bookingId))?.endIso).toBe(at('2027-04-11', '15:00'))
+    expect(m.createOrder.mock.calls[0][0].lineItems[1]).toEqual({ name: 'Whole Studio Party — Extra half hour', quantity: 1, pricePerUnit: 2500, note: 'add_time' })
+    expect(json.data.totalCharged).toBe(32500)
+    // The calendar event in the email ends with the extra time.
+    expect(m.email.mock.calls[0][0].icsContent).toContain('20270411T200000Z')
+  })
+
+  it('a gift card short of the total is refused (402) before the hold', async () => {
+    const start = at('2027-04-25', '13:00')
+    m.fromNonce.mockResolvedValue({ state: 'ACTIVE', balanceCents: 1000 })
+    const { status, json } = await post(body(start, { sourceKind: 'gift_card', paymentToken: 'gftc:x' }))
+    expect(status).toBe(402)
+    expect(json.code).toBe('gift_card_short')
+    expect(json).toMatchObject({ balanceCents: 1000, totalCents: 30000 })
+    expect(m.createOrder).not.toHaveBeenCalled()
+    expect((await isStartOpen(start, 90)).ok).toBe(true)
+  })
+
+  it('bookings gate closed: refused as today (the gate’s own answer), nothing touched', async () => {
+    const before = process.env.BOOKINGS_OPEN
+    process.env.BOOKINGS_OPEN = ''
+    try {
+      const { status } = await post(body(at('2027-04-18', '13:00')))
+      const { bookingsClosedResponse } = await import('@lib/bookings-gate')
+      expect(status).toBe(bookingsClosedResponse().status)
+      expect(m.createOrder).not.toHaveBeenCalled()
+    } finally {
+      process.env.BOOKINGS_OPEN = before
     }
-
-    it('refuses a date past the booking window', async () => {
-      const json = await refused('too_far')
-      expect(json.detail).toMatch(/isn’t open for booking yet/)
-    })
-
-    it('refuses a date with too little notice, and says how much is needed', async () => {
-      const json = await refused('too_soon')
-      expect(json.detail).toContain(`${partyConfig.minLeadDays} days’ notice`)
-    })
-
-    it('refuses a date before opening day', async () => {
-      await refused('before_opening')
-    })
-
-    it('refuses a day the studio has closed, and says so', async () => {
-      const json = await refused('closed')
-      expect(json.detail).toMatch(/studio is closed on that date/)
-    })
-
-    it('asks about the owners’ saved closed days (read fresh), not just the config', async () => {
-      const settings = await import('@lib/studio-settings')
-      await settings.saveStudioSettings(
-        { ...settings.configSettings(), closures: [{ id: 'clo_snow', from: '2026-12-05', to: '2026-12-05', name: 'a snow day' }] },
-        { expectedUpdatedAt: (await settings.getSettingsView()).updatedAt, by: { id: 'owner-kaden', name: 'Kaden' } },
-      )
-      const json = await refused('closed')
-      expect(json.detail).toMatch(/studio is closed on that date/)
-      const days = mockBookableOn.mock.calls[0][2]
-      expect(days.closures.map((c: any) => c.name)).toEqual(['a snow day'])
-    })
-
-    it('refuses a start time that is not a date at all', async () => {
-      const res = await POST(createMockContext(makeBody({ startTime: 'next saturday' })))
-      expect(res.status).toBe(400)
-      expect(mockCreateBooking).not.toHaveBeenCalled()
-    })
   })
 
-  // ── Retries and honest outcomes (HOM-172) ─────────────────────────────────
-  describe('one attempt, however many times it is sent', () => {
-    const ATTEMPT = '3f2b8a0e-5c1d-4e7a-9b3c-0a1b2c3d4e5f'
-    const OTHER_ATTEMPT = '9c1d7e2a-0b3f-4a6c-8d5e-1f2a3b4c5d6e'
-
-    it('gives the booking, the order and the charge keys made from the attempt ID', async () => {
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-      expect(res.status).toBe(200)
-      expect(mockCreateBooking.mock.calls[0][0].idempotencyKey).toBe(`${ATTEMPT}:book`)
-      expect(mockCreateOrder.mock.calls[0][0].idempotencyKey).toBe(`${ATTEMPT}:order`)
-      expect(mockProcessPayment.mock.calls[0][0].idempotencyKey).toBe(`${ATTEMPT}:pay`)
-    })
-
-    it('sends the same keys when the same attempt is sent again', async () => {
-      await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-      await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-      expect(mockProcessPayment.mock.calls[0][0].idempotencyKey).toBe(mockProcessPayment.mock.calls[1][0].idempotencyKey)
-      expect(mockCreateOrder.mock.calls[0][0].idempotencyKey).toBe(mockCreateOrder.mock.calls[1][0].idempotencyKey)
-    })
-
-    it('records the attempt on the booking so a retry can recognise it', async () => {
-      await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-      expect(mockCreateBooking.mock.calls[0][0].specialRequests).toContain(ATTEMPT)
-    })
-
-    it('still works when the browser sends no attempt ID, with a key of its own', async () => {
-      const res = await POST(createMockContext(makeBody()))
-      expect(res.status).toBe(200)
-      expect(mockProcessPayment.mock.calls[0][0].idempotencyKey).toMatch(/^[0-9a-f-]{36}:pay$/)
-    })
-
-    it('ignores an attempt ID that is not one', async () => {
-      await POST(createMockContext(makeBody({ attemptId: '../../etc/passwd' })))
-      expect(mockProcessPayment.mock.calls[0][0].idempotencyKey).toMatch(/^[0-9a-f-]{36}:pay$/)
-    })
-
-    /** The time is taken, by this customer's own earlier try of the same checkout. */
-    function firstTryHoldsTheTime() {
-      isStartOpen.mockResolvedValue({ ok: false, message: 'taken' })
-      mockBookingHeldBy.mockResolvedValue({
-        ...makeMockBooking('booking-first-try'),
-        customerNote: JSON.stringify({ attempt: ATTEMPT, craft: { id: 'craft-1' } }),
-      })
-      mockGetPartyRecord.mockResolvedValue({ bookingId: 'booking-first-try', hostToken: 'token-from-first-try' })
-    }
-    /** What Square answers when a key comes back with a different request (a re-typed card). */
-    const keyReused = () =>
-      Object.assign(new Error('Status code: 400'), { statusCode: 400, errors: [{ code: 'IDEMPOTENCY_KEY_REUSED' }] })
-
-    it('confirms a retried checkout that was already paid, WITHOUT charging the re-typed card', async () => {
-      firstTryHoldsTheTime()
-      mockFindOrderPayment.mockResolvedValue({ ...makeMockPayment(), id: 'pay-first-try' })
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT, paymentToken: 'cnon:typed-again' })))
-
-      expect(res.status).toBe(200)
-      const { data } = await res.json()
-      expect(data.bookingId).toBe('booking-first-try')
-      // The link already in their confirmation email keeps working.
-      expect(data.hostToken).toBe('token-from-first-try')
-      expect(data.receiptUrl).toBe('https://receipt.example.com/pay-1')
-      expect(mockCreateBooking).not.toHaveBeenCalled()
-      // Same order key as the first try, so Square hands back the same order…
-      expect(mockCreateOrder.mock.calls[0][0].idempotencyKey).toBe(`${ATTEMPT}:order`)
-      expect(mockFindOrderPayment).toHaveBeenCalledWith('order-1')
-      // …which is already paid. No second charge.
-      expect(mockProcessPayment).not.toHaveBeenCalled()
-      expect(mockCancelBooking).not.toHaveBeenCalled()
-    })
-
-    it('charges a retried checkout whose first try never paid, on the booking it already made', async () => {
-      firstTryHoldsTheTime()
-      mockFindOrderPayment.mockResolvedValue(null)
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-
-      expect(res.status).toBe(200)
-      expect((await res.json()).data.bookingId).toBe('booking-first-try')
-      expect(mockCreateBooking).not.toHaveBeenCalled()
-      expect(mockProcessPayment).toHaveBeenCalledTimes(1)
-      expect(mockProcessPayment.mock.calls[0][0].idempotencyKey).toBe(`${ATTEMPT}:pay`)
-    })
-
-    it('does not charge a retried checkout when it cannot find out whether the first try paid', async () => {
-      firstTryHoldsTheTime()
-      mockFindOrderPayment.mockRejectedValue(new TypeError('fetch failed'))
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-
-      expect(res.status).toBe(502)
-      const json = await res.json()
-      expect(json.code).toBe('unknown_outcome')
-      expect(json.detail).not.toMatch(/not charged|nothing was charged/i)
-      expect(mockProcessPayment).not.toHaveBeenCalled()
-      expect(mockCancelBooking).not.toHaveBeenCalled()
-    })
-
-    it('never reads "key already used" as a declined card: it keeps the date and says it is not sure', async () => {
-      mockCreateBooking.mockResolvedValue(makeMockBooking('booking-key-reused'))
-      mockProcessPayment.mockRejectedValue(keyReused())
-      mockFindOrderPayment.mockResolvedValue(null)
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-
-      expect(res.status).toBe(502)
-      const json = await res.json()
-      expect(json.code).toBe('unknown_outcome')
-      expect(json.detail).not.toMatch(/declined|not charged|nothing was charged/i)
-      expect(mockCancelBooking).not.toHaveBeenCalled()
-      expect(mockAlertOwners).toHaveBeenCalledTimes(1)
-    })
-
-    it('confirms when the key was already used and the order turns out to be paid', async () => {
-      mockCreateBooking.mockResolvedValue(makeMockBooking('booking-paid-earlier'))
-      mockProcessPayment.mockRejectedValue(keyReused())
-      mockFindOrderPayment.mockResolvedValue(makeMockPayment())
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-
-      expect(res.status).toBe(200)
-      expect((await res.json()).data.bookingId).toBe('booking-paid-earlier')
-      expect(mockCancelBooking).not.toHaveBeenCalled()
-      expect(mockAlertOwners.mock.calls.filter(([m]: any[]) => !String(m).startsWith('New '))).toEqual([])
-    })
-
-    it('confirms when the charge got no answer but the order turns out to be paid', async () => {
-      mockProcessPayment.mockRejectedValue(new TypeError('fetch failed'))
-      mockFindOrderPayment.mockResolvedValue(makeMockPayment())
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-
-      expect(res.status).toBe(200)
-      expect(mockAlertOwners.mock.calls.filter(([m]: any[]) => !String(m).startsWith('New '))).toEqual([])
-    })
-
-    it('does not ask whether the order is paid after a plain decline', async () => {
-      mockProcessPayment.mockRejectedValue(
-        Object.assign(new Error('Status code: 400'), { statusCode: 400, errors: [{ code: 'CARD_DECLINED' }] }),
-      )
-      await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-      expect(mockFindOrderPayment).not.toHaveBeenCalled()
-    })
-
-    it('takes no money for a booking that comes back already cancelled', async () => {
-      mockCreateBooking.mockResolvedValue({ ...makeMockBooking('booking-released-earlier'), status: 'cancelled' })
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-
-      expect(res.status).toBe(502)
-      const json = await res.json()
-      expect(json.code).toBe('unavailable')
-      expect(mockCreateOrder).not.toHaveBeenCalled()
-      expect(mockProcessPayment).not.toHaveBeenCalled()
-    })
-
-    it('never charges again for a time the customer already holds from another checkout', async () => {
-      isStartOpen.mockResolvedValue({ ok: false, message: 'taken' })
-      mockBookingHeldBy.mockResolvedValue({
-        ...makeMockBooking('booking-earlier'),
-        customerNote: JSON.stringify({ attempt: OTHER_ATTEMPT }),
-      })
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-
-      expect(res.status).toBe(409)
-      const json = await res.json()
-      expect(json.code).toBe('already_booked')
-      expect(json.detail).toMatch(/already booked/i)
-      expect(json.detail).not.toMatch(/not charged|nothing was charged/i)
-      expect(mockCreateOrder).not.toHaveBeenCalled()
-      expect(mockProcessPayment).not.toHaveBeenCalled()
-    })
-
-    it('says the time was taken, and nothing charged, when someone else holds it', async () => {
-      isStartOpen.mockResolvedValue({ ok: false, message: 'taken' })
-      mockBookingHeldBy.mockResolvedValue(null)
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-
-      expect(res.status).toBe(409)
-      const json = await res.json()
-      expect(json.code).toBe('slot_taken')
-      expect(json.detail).toMatch(/nothing was charged/i)
-      expect(mockProcessPayment).not.toHaveBeenCalled()
-    })
-
-    it('releases the date and says so when Square refuses the card', async () => {
-      mockCreateBooking.mockResolvedValue(makeMockBooking('booking-declined'))
-      mockProcessPayment.mockRejectedValue(
-        Object.assign(new Error('Status code: 400'), { statusCode: 400, errors: [{ code: 'CARD_DECLINED' }] }),
-      )
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-
-      expect(res.status).toBe(402)
-      const json = await res.json()
-      expect(json.code).toBe('card_declined')
-      expect(json.detail).toMatch(/declined/i)
-      expect(json.detail).not.toMatch(/CARD_DECLINED|Status code/)
-      expect(mockCancelBooking).toHaveBeenCalledWith('booking-declined', expect.anything())
-      expect(mockAlertOwners.mock.calls.filter(([m]: any[]) => !String(m).startsWith('New '))).toEqual([])
-    })
-
-    describe('paying with a gift card', () => {
-      it('refuses a card that cannot cover the fee before anything is held: no booking, order or charge', async () => {
-        mockFromNonce.mockResolvedValue({ id: 'gc-1', gan: '7783', balanceCents: 2500, state: 'ACTIVE' })
-        const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
-        expect(res.status).toBe(402)
-        const json = await res.json()
-        expect(json).toMatchObject({ code: 'gift_card_short', balanceCents: 2500, totalCents: basePriceCents })
-        expect(json.detail).toBe(`That gift card has $25.00 on it — this booking is $${(basePriceCents / 100).toFixed(2)}. Nothing was charged. Use a card instead.`)
-        expect(mockCreateBooking).not.toHaveBeenCalled()
-        expect(mockCancelBooking).not.toHaveBeenCalled()
-        expect(mockCreateOrder).not.toHaveBeenCalled()
-        expect(mockProcessPayment).not.toHaveBeenCalled()
-      })
-
-      it('refuses a short card on a themed party without claiming the table', async () => {
-        mockFromNonce.mockResolvedValue({ id: 'gc-1', gan: '7783', balanceCents: basePriceCents, state: 'ACTIVE' })
-        const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift', theme: { themeId: 'gilded', serves: 10 } })))
-        expect(res.status).toBe(402)
-        expect((await res.json()).totalCents).toBe(basePriceCents + GILDED_10_PRICE_CENTS)
-        expect(mockClaimWeek).not.toHaveBeenCalled()
-        expect(mockReleaseWeekClaim).not.toHaveBeenCalled()
-        expect(mockCreateBooking).not.toHaveBeenCalled()
-      })
-
-      it('never re-checks a resumed checkout: a card the first try spent is not refused, and the booking is kept', async () => {
-        isStartOpen.mockResolvedValue({ ok: false, message: 'taken' })
-        mockBookingHeldBy.mockResolvedValue({
-          ...makeMockBooking('booking-first-try'),
-          customerNote: JSON.stringify({ attempt: ATTEMPT, craft: { id: 'craft-1' } }),
-        })
-        mockGetPartyRecord.mockResolvedValue({ bookingId: 'booking-first-try', hostToken: 'token-from-first-try' })
-        mockFindOrderPayment.mockResolvedValue({ ...makeMockPayment(), id: 'pay-first-try' })
-        // The first charge spent the card, so its balance is now short.
-        mockFromNonce.mockResolvedValue({ id: 'gc-1', gan: '7783', balanceCents: 0, state: 'ACTIVE' })
-
-        const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT, sourceKind: 'gift_card', paymentToken: 'cnon:gift-again' })))
-
-        expect(res.status).toBe(200)
-        expect(mockFromNonce).not.toHaveBeenCalled()
-        expect(mockFindOrderPayment).toHaveBeenCalled()
-        expect(mockCancelBooking).not.toHaveBeenCalled()
-        expect(mockProcessPayment).not.toHaveBeenCalled()
-      })
-
-      it('goes ahead when the balance covers the fee', async () => {
-        mockFromNonce.mockResolvedValue({ id: 'gc-1', gan: '7783', balanceCents: basePriceCents, state: 'ACTIVE' })
-        const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
-        expect(res.status).toBe(200)
-        expect(mockCreateOrder).toHaveBeenCalledTimes(1)
-        expect(mockProcessPayment).toHaveBeenCalledTimes(1)
-      })
-
-      it('refuses a card that is not active, even with a balance', async () => {
-        mockFromNonce.mockResolvedValue({ id: 'gc-1', gan: '7783', balanceCents: basePriceCents, state: 'DEACTIVATED' })
-        const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
-        expect(res.status).toBe(400)
-        expect((await res.json()).code).toBe('invalid')
-        expect(mockCreateBooking).not.toHaveBeenCalled()
-      })
-
-      it('refuses a token that is not a gift card, holding nothing', async () => {
-        mockFromNonce.mockResolvedValue(null)
-        const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:card' })))
-        expect(res.status).toBe(400)
-        expect((await res.json()).code).toBe('invalid')
-        expect(mockCreateOrder).not.toHaveBeenCalled()
-        expect(mockCreateBooking).not.toHaveBeenCalled()
-        expect(mockCancelBooking).not.toHaveBeenCalled()
-      })
-
-      it('answers unavailable, holding nothing, when the card lookup throws', async () => {
-        mockFromNonce.mockRejectedValue(new Error('Square 503'))
-        const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'cnon:gift' })))
-        expect(res.status).toBe(503)
-        expect((await res.json()).code).toBe('unavailable')
-        expect(mockCreateBooking).not.toHaveBeenCalled()
-        expect(mockCancelBooking).not.toHaveBeenCalled()
-        expect(mockCreateOrder).not.toHaveBeenCalled()
-        expect(mockAlertOwners.mock.calls.filter(([m]: any[]) => !String(m).startsWith('New '))).toEqual([])
-      })
-
-      it('under simulated payments, checks only a mock gift card token', async () => {
-        const flags = await import('@lib/dev-flags')
-        vi.mocked(flags.paymentBypassEnabled).mockReturnValue(true)
-        try {
-          mockFromNonce.mockResolvedValue({ id: 'gc-mock', gan: '1', balanceCents: 2500, state: 'ACTIVE' })
-          const res = await POST(createMockContext(makeBody({ sourceKind: 'gift_card', paymentToken: 'mock-gift-cents:2500' })))
-          expect(res.status).toBe(402)
-          expect(await res.json()).toMatchObject({ code: 'gift_card_short', balanceCents: 2500 })
-        } finally {
-          vi.mocked(flags.paymentBypassEnabled).mockReturnValue(false)
-        }
-      })
-
-      it('does not look at the balance for a plain card', async () => {
-        const res = await POST(createMockContext(makeBody()))
-        expect(res.status).toBe(200)
-        expect(mockFromNonce).not.toHaveBeenCalled()
-      })
-    })
-
-    it('keeps the date and does not claim "not charged" when the charge got no answer', async () => {
-      mockCreateBooking.mockResolvedValue(makeMockBooking('booking-unclear'))
-      mockProcessPayment.mockRejectedValue(new TypeError('fetch failed'))
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-
-      expect(res.status).toBe(502)
-      const json = await res.json()
-      expect(json.code).toBe('unknown_outcome')
-      expect(json.detail).toMatch(/not sure/i)
-      expect(json.detail).not.toMatch(/not charged|nothing was charged|fetch failed/i)
-      // The customer may have paid: the date stays theirs until a person checks.
-      expect(mockCancelBooking).not.toHaveBeenCalled()
-      expect(mockAlertOwners).toHaveBeenCalledTimes(1)
-      expect(mockAlertOwners.mock.calls[0][0]).toContain('alice@example.com')
-      expect(mockAlertOwners.mock.calls[0][0]).toContain('booking-unclear')
-    })
-
-    it('treats a Square outage during the charge as unknown, not as a decline', async () => {
-      mockProcessPayment.mockRejectedValue(Object.assign(new Error('Status code: 503'), { statusCode: 503 }))
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-
-      expect((await res.json()).code).toBe('unknown_outcome')
-      expect(mockCancelBooking).not.toHaveBeenCalled()
-    })
-
-    it('says "not charged" when it failed before any charge was attempted', async () => {
-      mockCreateOrder.mockRejectedValue(new Error('Square 500'))
-
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-
-      const json = await res.json()
-      expect(json.code).toBe('unavailable')
-      expect(json.detail).toMatch(/not charged/i)
-      expect(mockProcessPayment).not.toHaveBeenCalled()
-      expect(mockCancelBooking).toHaveBeenCalled()
-    })
-
-    it('labels a validation failure so the panel can tell it apart', async () => {
-      const res = await POST(createMockContext(makeBody({ customer: { firstName: 'A', lastName: '', email: 'a@b.co', phone: '2565551234' } })))
-      expect(res.status).toBe(400)
-      expect((await res.json()).code).toBe('invalid')
-    })
-
-    it('a booking that succeeds still succeeds if the owner alert or email fails', async () => {
-      sendPartyConfirmationEmail.mockResolvedValue({ sent: false })
-      const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
-      expect(res.status).toBe(200)
-      expect((await res.json()).data.emailSent).toBe(false)
-    })
+  it('refuses a date with too little notice, saying how much is needed (settings), before anything is held', async () => {
+    const { status, json } = await post(body(at('2027-02-04', '16:00')))
+    expect(status).toBe(409)
+    expect(json.code).toBe('not_open')
+    expect(json.detail).toBe('Parties need 7 days’ notice, so that date is too soon to book. Nothing was charged. Pick a later date.')
   })
 
-  // ── (1) slot not open → 409, processPayment never called ─────────────────
-  it('returns 409 when slot is already taken and never calls processPayment', async () => {
-    isStartOpen.mockResolvedValue({ ok: false, message: 'taken' })
-
-    const ctx = createMockContext(makeBody())
-    const res = await POST(ctx)
-
-    expect(res.status).toBe(409)
-    const json = await res.json()
-    expect(json.detail).toMatch(/just booked|not charged/i)
-    expect(mockProcessPayment).not.toHaveBeenCalled()
+  it('keeps today’s validation words', async () => {
+    expect((await post(body(at('2027-04-18', '13:00'), { guests: 3 }))).json.detail).toBe('Parties are for groups of 10 or more')
+    expect((await post(body(at('2027-04-18', '13:00'), { guests: 31 }))).json.detail).toBe('Bookings are limited to 30 guests')
+    expect((await post(body(at('2027-04-18', '13:00'), { customer: { firstName: 'A', lastName: '', email: 'a@b.co', phone: '2565551234' } }))).status).toBe(400)
+    expect((await post(body(at('2027-04-18', '13:00'), { customer: { firstName: 'A', lastName: 'B', email: 'a@b.co', phone: '123' } }))).status).toBe(400)
+    expect(m.createOrder).not.toHaveBeenCalled()
   })
 
-  // ── (2) createBooking throws → card not charged copy, processPayment never called
-  it('returns error saying card was not charged when createBooking throws', async () => {
-    mockCreateBooking.mockRejectedValue(new Error('Square 503'))
-
-    const ctx = createMockContext(makeBody())
-    const res = await POST(ctx)
-
-    expect(res.status).toBeGreaterThanOrEqual(400)
-    const json = await res.json()
-    expect(json.detail).toMatch(/not charged/i)
-    expect(mockProcessPayment).not.toHaveBeenCalled()
-  })
-
-  // ── (3) processPayment returns 'failed' → cancelBooking called, 402 with date released copy
-  it('cancels booking and returns 402 when processPayment fails', async () => {
-    const booking = makeMockBooking('booking-to-cancel')
-    mockCreateBooking.mockResolvedValue(booking)
-    mockProcessPayment.mockResolvedValue(makeMockPayment('failed'))
-
-    const ctx = createMockContext(makeBody())
-    const res = await POST(ctx)
-
-    expect(res.status).toBe(402)
-    const json = await res.json()
-    expect(json.detail).toMatch(/released|declined/i)
-    expect(mockCancelBooking).toHaveBeenCalledWith('booking-to-cancel', expect.anything())
-  })
-
-  // ── (4) happy path → returns bookingId, hostToken, emailSent, no orderIdRef in createBooking
-  it('happy path returns bookingId, hostToken, emailSent and never passes orderIdRef to createBooking', async () => {
-    const ctx = createMockContext(makeBody())
-    const res = await POST(ctx)
-
-    expect(res.status).toBe(200)
-    const json = await res.json()
-    expect(json.data).toBeDefined()
-    expect(typeof json.data.bookingId).toBe('string')
-    expect(typeof json.data.hostToken).toBe('string')
-    expect(typeof json.data.emailSent).toBe('boolean')
-
-    // createBooking must NOT have been called with orderIdRef
-    expect(mockCreateBooking).toHaveBeenCalledTimes(1)
-    const callArg = mockCreateBooking.mock.calls[0][0]
-    expect(callArg).not.toHaveProperty('orderIdRef')
-  })
-
-  // ── (5) serviceVariationVersion: 0 passes validation
-  it('accepts serviceVariationVersion of 0 (falsy but valid)', async () => {
-    const ctx = createMockContext(makeBody({ serviceVariationVersion: 0 }))
-    const res = await POST(ctx)
-
-    // Should NOT be a 400 validation error
-    expect(res.status).not.toBe(400)
-  })
-
-  // ── (5b) lastName is required — but the server must never fabricate one
-  // (the old client duplicated firstName into lastName, creating "Ari Ari"
-  // Square customers; requiring the field is the honest fix).
-  it('rejects an empty lastName with 400', async () => {
-    const body = makeBody({ customer: { firstName: 'Alice', lastName: '', email: 'alice@example.com', phone: '256-555-1234' } })
-    const ctx = createMockContext(body)
-    const res = await POST(ctx)
-
-    expect(res.status).toBe(400)
-    const json = await res.json()
-    expect(json.detail).toMatch(/full name/i)
-    expect(mockFindOrCreate).not.toHaveBeenCalled()
-  })
-
-  // ── (5c) phone is required — the studio's day-of contact channel
-  it('rejects a missing or short phone with 400', async () => {
-    const body = makeBody({ customer: { firstName: 'Alice', lastName: 'Smith', email: 'alice@example.com', phone: '555-1234' } })
-    const ctx = createMockContext(body)
-    const res = await POST(ctx)
-
-    expect(res.status).toBe(400)
-    const json = await res.json()
-    expect(json.detail).toMatch(/phone/i)
-    expect(mockFindOrCreate).not.toHaveBeenCalled()
-  })
-
-  // ── (6) order-total mismatch → cancelBooking called, 500, card not charged + date released
-  it('cancels booking and returns 500 on order total mismatch', async () => {
-    const booking = makeMockBooking('booking-mismatch')
-    mockCreateBooking.mockResolvedValue(booking)
-    // Return an order total that doesn't match the expected basePriceCents
-    mockCreateOrder.mockResolvedValue(makeMockOrder(basePriceCents + 1))
-
-    const ctx = createMockContext(makeBody())
-    const res = await POST(ctx)
-
-    expect(res.status).toBe(500)
-    const json = await res.json()
-    expect(json.detail).toMatch(/not charged|released/i)
-    expect(mockCancelBooking).toHaveBeenCalledWith('booking-mismatch', expect.anything())
-    expect(mockProcessPayment).not.toHaveBeenCalled()
-  })
-
-  // ── Themed-table add-on ───────────────────────────────────────────────────
-
-  // (T1) theme happy path → package line item, amount guard includes package,
-  // claim placed as kind:'party', claim confirmed after payment.
-  it('accepts a themed table: adds the package line item, guards the combined total, confirms the claim', async () => {
-    const total = basePriceCents + GILDED_10_PRICE_CENTS
-    mockCreateOrder.mockResolvedValue(makeMockOrder(total))
-
-    const ctx = createMockContext(makeBody({ theme: { themeId: 'gilded', serves: 10 } }))
-    const res = await POST(ctx)
-
-    expect(res.status).toBe(200)
-
-    // A package line item carrying the server-derived variation id was added.
-    const orderArg = mockCreateOrder.mock.calls[0][0]
-    const pkgLine = orderArg.lineItems.find((l: any) => l.catalogObjectId === 'g10')
-    expect(pkgLine).toBeDefined()
-    expect(pkgLine.pricePerUnit).toBe(GILDED_10_PRICE_CENTS)
-
-    // Claim reserved as a party, then confirmed after a successful charge.
-    expect(mockClaimWeek).toHaveBeenCalledTimes(1)
-    expect(mockClaimWeek.mock.calls[0][0]).toMatchObject({ ledgerThemeId: 'gilded', serves: 10, kind: 'party' })
-    expect(mockConfirmWeekClaim).toHaveBeenCalledTimes(1)
-    expect(mockReleaseWeekClaim).not.toHaveBeenCalled()
-  })
-
-  // (T2) theme serves must equal the guest tier (ceil-5). serves 15 with 10 guests → 400.
-  it('rejects a theme whose serves tier does not match the guest count', async () => {
-    const ctx = createMockContext(makeBody({ people: 10, theme: { themeId: 'gilded', serves: 15 } }))
-    const res = await POST(ctx)
-
-    expect(res.status).toBe(400)
-    expect(mockClaimWeek).not.toHaveBeenCalled()
-    expect(mockCreateBooking).not.toHaveBeenCalled()
-  })
-
-  // (T3) unstocked themes are never bookable.
-  it('rejects an unstocked theme', async () => {
-    const ctx = createMockContext(makeBody({ theme: { themeId: 'sterling', serves: 10 } }))
-    const res = await POST(ctx)
-
-    expect(res.status).toBe(400)
-    expect(mockClaimWeek).not.toHaveBeenCalled()
-    expect(mockCreateBooking).not.toHaveBeenCalled()
-  })
-
-  // (T4) claim comes back 'full' → 409, and nothing is booked or charged.
-  it('returns 409 when the theme week is fully claimed', async () => {
-    mockClaimWeek.mockResolvedValue('full')
-
-    const ctx = createMockContext(makeBody({ theme: { themeId: 'gilded', serves: 10 } }))
-    const res = await POST(ctx)
-
-    expect(res.status).toBe(409)
-    expect(mockCreateBooking).not.toHaveBeenCalled()
-    expect(mockProcessPayment).not.toHaveBeenCalled()
-    expect(mockConfirmWeekClaim).not.toHaveBeenCalled()
-  })
-
-  // (T5) failed charge with a theme releases BOTH the booking and the claim.
-  it('releases the claim and the booking when the charge fails', async () => {
-    const total = basePriceCents + GILDED_10_PRICE_CENTS
-    mockCreateOrder.mockResolvedValue(makeMockOrder(total))
-    mockProcessPayment.mockResolvedValue(makeMockPayment('failed'))
-
-    const ctx = createMockContext(makeBody({ theme: { themeId: 'gilded', serves: 10 } }))
-    const res = await POST(ctx)
-
-    expect(res.status).toBe(402)
-    expect(mockReleaseWeekClaim).toHaveBeenCalledTimes(1)
-    expect(mockCancelBooking).toHaveBeenCalledTimes(1)
-    expect(mockConfirmWeekClaim).not.toHaveBeenCalled()
+  it('simulated payments: recorded as simulated, no Square call', async () => {
+    m.bypass.on = true
+    const { status, json } = await post(body(at('2027-04-18', '15:30')))
+    expect(status).toBe(200)
+    expect(json.data.simulated).toBe(true)
+    for (const f of [m.createOrder, m.processPayment, m.findOrCreate, m.createBooking]) expect(f).not.toHaveBeenCalled()
+    expect(await getPartyRecord(json.data.bookingId)).toMatchObject({ simulated: true, status: 'booked' })
   })
 })

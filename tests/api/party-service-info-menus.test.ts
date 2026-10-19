@@ -17,7 +17,8 @@ const items = [
 ]
 const client = {
   catalog: {
-    object: { get: async () => ({ object: { itemData: { variations: [{ id: 'V', version: 1n, itemVariationData: { serviceDuration: 5400000n, priceMoney: { amount: 30000n }, teamMemberIds: ['T'] } }] } } }) },
+    // The live-only appointment item is never asked for (the sandbox has none).
+    object: { get: async () => { throw new Error('no appointment item lookup') } },
     list: async () => items,
     batchGet: async () => ({ objects: [] }),
   },
@@ -45,5 +46,39 @@ describe('craft menus: parties vs Craft Café', () => {
   })
   it('take-home kits (priced server-side) never include café-only crafts', async () => {
     expect((await fetchPartyCrafts()).map((c) => c.name)).toEqual(['Keychain Bar', 'Mixed Media Notebooks'])
+  })
+})
+
+describe('service-info without the Square appointment item', () => {
+  const info = async (qs = '') => {
+    const res = (await GET({ url: new URL('http://x/api/party/service-info.json' + qs) } as any)) as Response
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    return body.data ?? body
+  }
+
+  it('gives the party facts from settings (the config until saved) and the default package for cached pages', async () => {
+    const d = await info()
+    expect(d.facts.packages.map((p: any) => p.id)).toEqual(['pkg_whole'])
+    expect(d.facts.times.minLeadDays).toBe(partyConfig.minLeadDays)
+    expect(d.facts.days).toBeTruthy()
+    expect(typeof d.facts.first).toBe('string')
+    expect(d.durationMinutes).toBe(partyConfig.durationMinutes)
+    expect(d.basePriceCents).toBe(partyConfig.basePriceCents)
+    // Pages already open send this back on availability requests; it is ignored there.
+    expect(d.variationId).toBe('pkg_whole')
+    expect(d).not.toHaveProperty('teamMemberId')
+    expect(d.crafts.length).toBe(2)
+  })
+
+  it('takes the party craft category from SQUARE_PARTY_CRAFT_CATEGORY_ID when set (the sandbox)', async () => {
+    items.push({ ...item('S', 'Sandbox Craft'), itemData: { ...item('S', 'Sandbox Craft').itemData, categories: [{ id: 'SANDBOX_CAT' }] } } as any)
+    process.env.SQUARE_PARTY_CRAFT_CATEGORY_ID = 'SANDBOX_CAT'
+    try {
+      expect((await info()).crafts.map((c: any) => c.name)).toEqual(['Sandbox Craft'])
+    } finally {
+      delete process.env.SQUARE_PARTY_CRAFT_CATEGORY_ID
+      items.pop()
+    }
   })
 })

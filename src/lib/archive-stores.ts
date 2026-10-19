@@ -14,7 +14,7 @@
  * closed days) and the party settings (party times, packages, extras), each
  * with their change history, the party records (Square-booked and our own,
  * with what was bought, every payment and refund) and the index of which party
- * each Square payment is for, and the party book (which party holds which time). tests/lib/archive-stores.test.ts fails when a
+ * each Square payment is for, the party book (which party holds which time) and the party checkouts still in flight or unclear. tests/lib/archive-stores.test.ts fails when a
  * store under src/lib/classes or src/lib/parties is missing here.
  *
  * Deliberately left out: `otps` (one-time SMS codes, 10-minute life) and
@@ -43,6 +43,8 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'party-payments' },
   // The party book: which party holds or has booked which time (one document per month)
   { name: 'party-book' },
+  // Party charges in flight or unclear (what's needed to record a party Square says is paid)
+  { name: 'party-checkouts' },
   // our own classes
   { name: 'classes' },
   { name: 'class-library' },

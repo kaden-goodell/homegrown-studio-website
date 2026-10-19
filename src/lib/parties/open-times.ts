@@ -69,12 +69,13 @@ function clashesFor(startIso: string, minutes: number, busy: Busy[], ignoreParty
   )
 }
 
-async function scheduleAround(fromIso: string, toIso: string, days: StudioDays): Promise<Busy[]> {
+/** `labels`: name the parties in the way (owners only; public reads skip the record reads). */
+async function scheduleAround(fromIso: string, toIso: string, days: StudioDays, labels = false): Promise<Busy[]> {
   return busyBetween(
     new Date(Date.parse(fromIso) - PAD_MS).toISOString(),
     new Date(Date.parse(toIso) + PAD_MS).toISOString(),
     days,
-    { legacyClasses: 'ignore-failure' },
+    { legacyClasses: 'ignore-failure', partyLabels: labels },
   )
 }
 
@@ -163,6 +164,20 @@ export async function isStartOpen(
   opts: { admin?: boolean; ignorePartyId?: string } = {},
   now: Date = new Date(),
 ): Promise<{ ok: true } | { ok: false; message: string }> {
+  const r = await checkStart(startIso, minutes, opts, now)
+  return r.ok ? { ok: true } : r
+}
+
+/**
+ * isStartOpen, also giving the schedule it judged against when open, so a
+ * checkout can hold the time against the very same read.
+ */
+export async function checkStart(
+  startIso: string,
+  minutes: number,
+  opts: { admin?: boolean; ignorePartyId?: string } = {},
+  now: Date = new Date(),
+): Promise<{ ok: true; busy: Busy[] } | { ok: false; message: string }> {
   const start = Date.parse(startIso)
   if (!Number.isFinite(start) || !(minutes > 0)) return { ok: false, message: NOT_OFFERED }
   const iso = new Date(start).toISOString()
@@ -173,8 +188,8 @@ export async function isStartOpen(
     const offered = partyStartsForDate(settings, localDate(iso), now, days, { minutes })
     if (!offered.some((s) => Date.parse(s) === start)) return { ok: false, message: NOT_OFFERED }
   }
-  const busy = await scheduleAround(iso, endOf(iso, minutes), days)
+  const busy = await scheduleAround(iso, endOf(iso, minutes), days, !!opts.admin)
   const found = clashesFor(iso, minutes, busy, opts.ignorePartyId)
-  if (found.length === 0) return { ok: true }
+  if (found.length === 0) return { ok: true, busy }
   return { ok: false, message: opts.admin ? clashMessage(found) : NOT_OPEN }
 }

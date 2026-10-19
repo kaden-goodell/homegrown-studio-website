@@ -7,7 +7,7 @@
  */
 import { createHash } from 'node:crypto'
 
-export type IdPrefix = 'bkg' | 'pty' | 'chg'
+export type IdPrefix = 'bkg' | 'pty' | 'chg' | 'itm'
 
 /** `${prefix}_` + the first 16 hex characters of sha256(key). */
 export function idFor(prefix: IdPrefix, key: string): string {

@@ -27,10 +27,7 @@ import { createSquareClient } from '@providers/square/client'
 import { partyName, partySpanOf } from '@lib/conflicts'
 import { getPartyRecord } from '@lib/party-store'
 import type { Busy } from '@lib/classes/studio-schedule'
-import { studioDayUtcRange } from '@lib/studio-time'
-import type { BookingWithMetadata } from '@providers/interfaces/booking'
 import { getPartySettings } from './settings-store'
-import { localDate } from './party-times'
 
 /** A Square "no such object" answer (404 / NOT_FOUND). */
 export function isNotFound(err: unknown): boolean {
@@ -85,7 +82,7 @@ export function resetLegacySquareMemory(): void {
 // Square lists bookings by START; a party that began before `from` can still be running.
 const LOOK_BACK_MS = 12 * 60 * 60_000
 
-async function squareParties(fromIso: string, toIso: string): Promise<Busy[]> {
+async function squareParties(fromIso: string, toIso: string, labels = true): Promise<Busy[]> {
   if (!providers.booking.listBookings) throw new Error('This booking provider cannot list bookings.')
   const from = Date.parse(fromIso), to = Date.parse(toIso)
   const bookings = await providers.booking.listBookings({
@@ -99,7 +96,7 @@ async function squareParties(fromIso: string, toIso: string): Promise<Busy[]> {
   const parties = live.filter((b) => b.slot?.serviceVariationId === variationId)
   const spans = await Promise.all(
     // A missing record only costs the host's name on the label.
-    parties.map(async (b) => partySpanOf(b, (await getPartyRecord(b.id).catch(() => null))?.hostName)),
+    parties.map(async (b) => partySpanOf(b, labels ? (await getPartyRecord(b.id).catch(() => null))?.hostName : undefined)),
   )
   return spans
     .filter((p) => Date.parse(p.endIso) > from && Date.parse(p.startIso) < to)
@@ -114,10 +111,10 @@ async function squareParties(fromIso: string, toIso: string): Promise<Busy[]> {
 }
 
 /** Square-booked parties overlapping [fromIso, toIso). See the file header. */
-export async function legacyPartyBusy(fromIso: string, toIso: string): Promise<Busy[]> {
+export async function legacyPartyBusy(fromIso: string, toIso: string, opts: { labels?: boolean } = {}): Promise<Busy[]> {
   const settings = await getPartySettings({ strict: true })
   if (!settings.readSquareBookings || onSandbox() || onMockProviders()) return []
-  return squareParties(fromIso, toIso)
+  return squareParties(fromIso, toIso, opts.labels !== false)
 }
 
 /** Days ahead legacyRemaining looks: past any booking window Square ever took. */
@@ -128,33 +125,4 @@ export async function legacyRemaining(now: Date = new Date()): Promise<Busy[]> {
   if (onSandbox() || onMockProviders()) return []
   const to = new Date(now.getTime() + REMAINING_DAYS * 86_400_000)
   return squareParties(now.toISOString(), to.toISOString())
-}
-
-/**
- * The live Square booking this customer already holds at exactly this start,
- * if any. Read only; used only by the old Square-booking checkout route to
- * resume a retried checkout (it goes when that route does, Task 7).
- */
-export async function legacyBookingHeldBy(
-  startIso: string,
-  customerId: string,
-  serviceVariationId?: string,
-): Promise<BookingWithMetadata | null> {
-  if (!providers.booking.listBookings || !customerId) return null
-  const { startIso: from, endIso: to } = studioDayUtcRange(localDate(startIso))
-  const bookings = await providers.booking.listBookings({
-    startDate: from,
-    endDate: to,
-    locationId: siteConfig.providers.booking.config.locationId || '',
-  })
-  const t = new Date(startIso).getTime()
-  return (
-    bookings.find(
-      (b) =>
-        b.status !== 'cancelled' &&
-        b.customerId === customerId &&
-        new Date(b.slot.startAt).getTime() === t &&
-        (!serviceVariationId || b.slot?.serviceVariationId === serviceVariationId),
-    ) ?? null
-  )
 }

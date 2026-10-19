@@ -41,6 +41,9 @@ vi.mock('@lib/classes/class-store', () => ({
   listClasses: async () => classes.list,
   getClass: async (id: string) => classes.list.find((c) => c.id === id) ?? null,
 }))
+// Our party orders go to the party code; here only that they are handed over.
+const partyOrders = vi.hoisted(() => vi.fn(async () => ({ action: 'ignored', why: 'recorded' })))
+vi.mock('@lib/parties/square-orders', () => ({ handlePartyOrder: partyOrders }))
 const freed = vi.hoisted(() => vi.fn(async () => undefined))
 vi.mock('@lib/classes/refunds', async (orig) => ({ ...(await orig<typeof import('@lib/classes/refunds')>()), onSeatFreed: freed }))
 
@@ -174,6 +177,19 @@ describe('POS sales', () => {
     sq.orders.set(o.id, o)
     const out = await handleSquareEvent(orderUpdated(o), NOW)
     expect(out).toMatchObject({ skipped: 'not-ours' })
+    expect((await getLedger(cls.id)).lines).toHaveLength(0)
+  })
+
+  it('our own party order (reference pty_) is skipped before any catalog call and handed to the party code', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const o = order([{ uid: 'p1', name: 'Whole Studio Party — studio fee', quantity: '1', catalog_object_id: 'NOT_A_CLASS_ITEM', total_money: { amount: 30000 } }], { reference_id: 'pty_0123456789abcdef' })
+    sq.orders.set(o.id, o)
+    sq.calls.length = 0
+    partyOrders.mockClear()
+    expect(await handleOrder(o, NOW)).toMatchObject({ skipped: 'not-ours' })
+    expect(sq.calls.some((c) => c.path.startsWith('/catalog'))).toBe(false)
+    expect(partyOrders).toHaveBeenCalledTimes(1)
+    expect((partyOrders.mock.calls[0] as any[])[0].reference_id).toBe('pty_0123456789abcdef')
     expect((await getLedger(cls.id)).lines).toHaveLength(0)
   })
 

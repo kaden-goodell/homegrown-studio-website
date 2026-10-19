@@ -44,10 +44,12 @@ export class MockPaymentProvider implements PaymentProvider {
 
   async createOrder(params: {
     locationId: string
-    customerId: string
+    customerId?: string | null
     lineItems: LineItem[]
     discounts?: Discount[]
     fulfillment?: { type: 'PICKUP'; pickupAt: string; recipientName: string }
+    idempotencyKey?: string
+    referenceId?: string
   }): Promise<Order> {
     const discounts = params.discounts ?? []
 

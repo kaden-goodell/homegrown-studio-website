@@ -8,7 +8,9 @@
  * - A paid order (COMPLETED, or OPEN with a COMPLETED payment) at our location
  *   whose lines are our class seat variations → one confirmed 'pos' line per
  *   unit, no name yet, capacity ignored. Orders with reference_id 'bkg_…' are
- *   our own online/door bookings (already on the ledger) and are skipped.
+ *   our own online/door bookings (already on the ledger) and are skipped;
+ *   'pty_…' orders are our parties, handed to @lib/parties/square-orders
+ *   before any catalog lookup.
  *   Replays never add a seat twice (order id + line uid + unit).
  * - A 'choose' pass sold at the counter can't know its days: it is put on the
  *   next upcoming session(s) and listed in 'pos-needs-days' for staff.
@@ -36,6 +38,7 @@ import { getLedger, moveLines, paidBy, recordPos, recordRefund, type LedgerLine,
 import { bookingCap, claimSquareRefund, freeSeatOnly, onSeatFreed } from './refunds'
 import { allRefundRequests, listRefundRequests, UNCONFIRMED_AFTER_MS, type SavedRefundRequest } from './refund-requests'
 import { getClass } from './class-store'
+import { handlePartyOrder } from '@lib/parties/square-orders'
 import type { Cents, ScheduledClass, Session } from './types'
 
 const logger = createLogger('classes:square-events')
@@ -257,6 +260,11 @@ export async function handleOrder(
   const loc = squareSettings().locationId || ''
   if (loc && order?.location_id && order.location_id !== loc) return { ...out, skipped: 'other-location' }
   if (String(order?.reference_id ?? '').startsWith('bkg_')) return { ...out, skipped: 'not-ours' }
+  // Our own party orders: the party code records them (never the seat ledger), before any catalog lookup.
+  if (String(order?.reference_id ?? '').startsWith('pty_')) {
+    await handlePartyOrder(order, now, { paymentId: opts.paymentId })
+    return { ...out, skipped: 'not-ours' }
+  }
   if (order?.state !== 'COMPLETED' && order?.state !== 'OPEN') return { ...out, skipped: 'not-paid' }
 
   const lineItems: any[] = (order.line_items ?? []).filter((li: any) => li?.catalog_object_id && li?.uid)

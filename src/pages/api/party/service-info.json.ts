@@ -6,7 +6,10 @@ import { kitConfig } from '@config/kit.config'
 import { kitThemes } from '@config/kit-content'
 import { createLogger } from '@lib/logger'
 import type { SquareConfig } from '@config/site.config'
-import { isTestCraft } from '@lib/craft-catalog'
+import { isTestCraft, partyCraftCategoryId } from '@lib/craft-catalog'
+import { getPartySettings } from '@lib/parties/settings-store'
+import { publicPartyFacts } from '@lib/parties/party-times'
+import { getStudioDays } from '@lib/studio-settings'
 
 const logger = createLogger('api:party:service-info')
 
@@ -22,40 +25,15 @@ export const GET: APIRoute = async ({ url }) => {
       siteConfig.providers.catalog.config as SquareConfig
     )
 
-    const itemResponse = await client.catalog.object.get({
-      objectId: partyConfig.square.catalogItemId,
-    })
-
-    const item = ((itemResponse as any)?.object ?? itemResponse) as any
-
-    if (!item?.itemData) {
-      logger.error('Catalog item not found or missing itemData', {
-        objectId: partyConfig.square.catalogItemId,
-        responseShape: Object.keys((itemResponse as any) ?? {}),
-      })
-      return errorResponse('Service not found', 404)
-    }
-
-    // Whole-studio party uses a single service variation.
-    const variation = (item.itemData.variations ?? [])[0]
-    if (!variation) {
-      logger.error('Catalog item has no service variation', {
-        objectId: partyConfig.square.catalogItemId,
-      })
-      return errorResponse('Service variation not found', 404)
-    }
-
-    const variationId = variation.id as string
-    const variationVersion = Number(variation.version ?? 0)
-
     // Crafts are catalog ITEMS in the Crafts category. Each carries a
     // per-head price (its variation), a description, and an optional image.
     const craftItems: any[] = []
     const imageIds = new Set<string>()
+    const categoryId = partyCraftCategoryId()
     for await (const obj of await client.catalog.list({ types: 'ITEM' })) {
       const o = obj as any
       const inCat = (o.itemData?.categories ?? []).some(
-        (c: any) => c.id === partyConfig.square.partyCraftCategoryId
+        (c: any) => c.id === categoryId
       )
       if (!inCat) continue
       if (!includeTest && isTestCraft(o.itemData?.name)) continue
@@ -142,16 +120,24 @@ export const GET: APIRoute = async ({ url }) => {
           }))
       : undefined
 
+    // What /book may know of the owners' Parties setup (or the config until
+    // they save): packages everyone can book (+ the one ?package= names),
+    // online extras, the party times and closed days. Display only; /book
+    // re-prices and re-checks everything on the server.
+    const linkPackageId = url.searchParams.get('package') ?? undefined
+    const [settings, days] = await Promise.all([getPartySettings(), getStudioDays()])
+    const facts = publicPartyFacts(settings, days, new Date(), { packageId: linkPackageId })
+    const pkg = facts.packages.find((p) => p.id === linkPackageId) ?? facts.packages.find((p) => p.who === 'everyone')
     const data = {
-      service: {
-        id: item.id as string,
-        name: (item.itemData.name ?? '') as string,
-      },
-      variationId,
-      variationVersion,
-      durationMinutes: partyConfig.durationMinutes,
-      basePriceCents: partyConfig.basePriceCents,
-      teamMemberId: partyConfig.square.defaultTeamMemberId,
+      facts,
+      // Read by pages already open in a browser: the default package's length
+      // and price. `variationId` is no Square item any more: the package id,
+      // sent back on availability requests and ignored there.
+      service: { id: pkg?.id ?? '', name: pkg?.name ?? '' },
+      variationId: pkg?.id ?? '',
+      variationVersion: 0,
+      durationMinutes: pkg?.minutes ?? partyConfig.durationMinutes,
+      basePriceCents: pkg?.priceCents ?? partyConfig.basePriceCents,
       crafts,
       ...(themes ? { themes } : {}),
     }

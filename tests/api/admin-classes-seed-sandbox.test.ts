@@ -28,7 +28,9 @@ beforeEach(() => {
     if (String(url).includes('/catalog/list')) return json(200, { objects: catalog })
     if (String(url).endsWith('/catalog/batch-upsert')) {
       const id_mappings = body.batches[0].objects.map((o: any, i: number) => ({ client_object_id: o.id, object_id: `REAL${catalog.length + i}` }))
-      body.batches[0].objects.forEach((o: any, i: number) => catalog.push({ ...o, id: id_mappings[i].object_id }))
+      const real = new Map(id_mappings.map((m: any) => [m.client_object_id, m.object_id]))
+      // Square stores references to temporary ids as the real ones.
+      body.batches[0].objects.forEach((o: any, i: number) => catalog.push(JSON.parse(JSON.stringify({ ...o, id: id_mappings[i].object_id }), (_k, v) => (typeof v === 'string' && real.has(v) ? real.get(v) : v))))
       return json(200, { objects: [], id_mappings })
     }
     throw new Error(`unexpected ${url}`)
@@ -61,23 +63,43 @@ describe('POST /api/admin/classes/seed-sandbox.json', () => {
     const { classesCategoryId, classTaxId, commands } = first.data
     expect(classesCategoryId).toBeTruthy()
     expect(classTaxId).toBeTruthy()
+    const { partyCraftCategoryId } = first.data
+    expect(partyCraftCategoryId).toBeTruthy()
     expect(commands).toEqual([
       `npx netlify env:set SQUARE_CLASSES_CATEGORY_ID ${classesCategoryId} --context branch:kaden/own-booking-system`,
       `npx netlify env:set SQUARE_CLASS_TAX_ID ${classTaxId} --context branch:kaden/own-booking-system`,
+      `npx netlify env:set SQUARE_PARTY_CRAFT_CATEGORY_ID ${partyCraftCategoryId} --context branch:kaden/own-booking-system`,
     ])
+    // A "Party Crafts" category and two priced crafts in it, in the same batch (temporary ids).
+    expect(objs.find((o: any) => o.type === 'CATEGORY' && o.category_data.name === 'Party Crafts')).toBeTruthy()
+    const crafts = objs.filter((o: any) => o.type === 'ITEM')
+    expect(crafts).toHaveLength(2)
+    for (const c of crafts) {
+      expect(c.item_data.categories).toEqual([{ id: '#partycrafts' }])
+      expect(c.item_data.name).not.toMatch(/^test/i)
+      expect(c.item_data.variations[0].item_variation_data.price_money.amount).toBeGreaterThan(0)
+    }
 
     calls = []
     const second = await (await POST({ request: req(signedIn()) } as any)).json()
     expect(calls.some((c) => c.url.endsWith('/batch-upsert'))).toBe(false)
     expect(second.data.classesCategoryId).toBe(classesCategoryId)
     expect(second.data.classTaxId).toBe(classTaxId)
+    expect(second.data.partyCraftCategoryId).toBe(partyCraftCategoryId)
   })
 
   it('only adds what is missing', async () => {
-    catalog = [{ type: 'CATEGORY', id: 'CATX', category_data: { name: 'classes' } }]
+    catalog = [
+      { type: 'CATEGORY', id: 'CATX', category_data: { name: 'classes' } },
+      { type: 'CATEGORY', id: 'PCAT', category_data: { name: 'Party Crafts' } },
+      { type: 'ITEM', id: 'K1', item_data: { name: 'Sandbox Keychain Bar', categories: [{ id: 'PCAT' }] } },
+    ]
     const out = await (await POST({ request: req(signedIn()) } as any)).json()
     const objs = calls.find((c) => c.url.endsWith('/batch-upsert'))!.body.batches[0].objects
-    expect(objs.map((o: any) => o.type)).toEqual(['TAX'])
+    expect(objs.map((o: any) => o.type)).toEqual(['TAX', 'ITEM'])
+    expect(objs[1].item_data.name).toBe('Sandbox Tote Bags')
+    expect(objs[1].item_data.categories).toEqual([{ id: 'PCAT' }])
+    expect(out.data.partyCraftCategoryId).toBe('PCAT')
     expect(out.data.classesCategoryId).toBe('CATX')
   })
 })

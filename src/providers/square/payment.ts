@@ -87,11 +87,12 @@ export class SquarePaymentProvider implements PaymentProvider {
 
   async createOrder(params: {
     locationId: string
-    customerId: string
+    customerId?: string | null
     lineItems: LineItem[]
     discounts?: Discount[]
     fulfillment?: { type: 'PICKUP'; pickupAt: string; recipientName: string }
     idempotencyKey?: string
+    referenceId?: string
   }): Promise<Order> {
     logger.info('Creating order', {
       locationId: params.locationId,
@@ -112,6 +113,7 @@ export class SquarePaymentProvider implements PaymentProvider {
       } else {
         base.name = item.name
       }
+      if (item.note) base.note = item.note.slice(0, 500)
       return base
     })
 
@@ -149,7 +151,8 @@ export class SquarePaymentProvider implements PaymentProvider {
       ...(params.idempotencyKey ? { idempotencyKey: params.idempotencyKey } : {}),
       order: {
         locationId: params.locationId,
-        customerId: params.customerId,
+        ...(params.customerId ? { customerId: params.customerId } : {}),
+        ...(params.referenceId ? { referenceId: params.referenceId } : {}),
         lineItems: lineItems as any,
         discounts: discounts.length > 0 ? discounts as any : undefined,
         fulfillments: fulfillments as any,

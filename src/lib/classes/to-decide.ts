@@ -19,6 +19,11 @@
  *                        → Mark paid at the counter · Free the seat
  *   counter-match-check  a counter sale matched one of several unpaid door seats
  *                        → Yes, it was them · it was someone else (the payment moves)
+ *   party-paid-unclear   a party charge got no answer from Square (or was left
+ *                        mid-charge) and nobody retried it; its time is held
+ *                        → Confirm the party (once Square shows it paid) · It wasn't paid
+ *                        Or Square shows a party order paid with nothing here
+ *                        to record it from → Sorted it in Square
  *
  * The decisions reuse the setters the rest of the system uses: setPosDays,
  * decideRefundFlag, clearRefundRequest, freeSeatOnly, recordPos, setNames,
@@ -41,13 +46,15 @@ import {
   getLedger, markCounterMatchChecked, markDoorPaid, moveCounterPayment, recordPos, seatsTaken, setNames, unpaidDoorSeat, type LedgerLine,
 } from './seat-ledger'
 import { onStaffConsole } from './staff-view'
+import { deletePaidElsewhere, listCheckouts } from '@lib/parties/party-checkouts'
+import { confirmUnclearParty, notPaidUnclearParty, PartyUnclearError } from '@lib/parties/square-orders'
 import type { Cents, ScheduledClass } from './types'
 
 const decidedKv = makeKvStore('to-decide', 'to-decide')
 
 export type ToDecideKind =
   | 'pos-unmatched' | 'refund-plain' | 'refund-failed' | 'refund-unfinished' | 'refund-unconfirmed'
-  | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check'
+  | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check' | 'party-paid-unclear'
 
 /** One thing waiting for an owner (or decided lately). */
 export interface ToDecideItem {
@@ -261,6 +268,32 @@ async function matchItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
   return out
 }
 
+/** A party charge left mid-way this long is an owner's to sort out. */
+export const PARTY_CHARGING_STALE_MS = 15 * 60_000
+
+async function partyItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]> {
+  const out: ToDecideItem[] = []
+  for (const c of await listCheckouts()) {
+    const stale = c.state === 'charging' && now.getTime() - Date.parse(c.updatedAt) >= PARTY_CHARGING_STALE_MS
+    if (c.state !== 'unclear' && c.state !== 'paid-elsewhere' && !stale) continue
+    const elsewhere = c.state === 'paid-elsewhere'
+    const id = tokenOf(elsewhere ? `ppe-${safeKey(c.orderId ?? '')}` : `ppu-${c.partyId}`)
+    if (skip.has(id)) continue
+    const who = `${c.host.firstName} ${c.host.lastName}`.trim() || 'Someone'
+    const when = c.startIso ? whenText(c.startIso) : 'a party'
+    const cents = c.squareCents ?? c.quotedCents
+    out.push({
+      id, kind: 'party-paid-unclear', title: elsewhere ? 'Party payment to check' : 'Party payment unclear', at: c.updatedAt,
+      head: elsewhere
+        ? `Square shows ${money(cents)} paid for party ${c.partyId} (${who}, ${when}), but ${c.why === 'other-payment' ? 'that party is already paid by another order' : 'there is nothing here to book it from'}. Nothing was refunded.`
+        : `${who}’s ${money(cents)} party payment for ${when} got no answer from Square. The time is held, not confirmed.`,
+      hint: elsewhere ? 'Check it in Square' : 'Check Square, then confirm the party or say it wasn’t paid',
+      detail: { partyId: c.partyId, orderId: c.orderId, cents, elsewhere, why: c.why ?? null, startIso: c.startIso, email: c.host.email, phone: c.host.phone },
+    })
+  }
+  return out
+}
+
 /**
  * Everything waiting, newest first, then what was decided in the last two
  * weeks. Each source is read on its own: one that fails is named in
@@ -282,6 +315,7 @@ export async function listToDecide(now = new Date()): Promise<{ items: ToDecideI
     safe('minimums', () => minimumItems(skip, now)),
     safe('door seats', () => doorItems(skip, now)),
     safe('counter checks', () => matchItems(skip, now)),
+    safe('party payments', () => partyItems(skip, now)),
   ])
   const open = groups.flat().sort((a, b) => b.at.localeCompare(a.at))
   const done = decided
@@ -306,6 +340,7 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'below-minimum': ['keep-running', 'texted'],
   'door-unpaid': ['paid', 'free'],
   'counter-match-check': ['confirm', 'move'],
+  'party-paid-unclear': ['confirm', 'not-paid', 'sorted'],
 }
 
 async function record(item: ToDecideItem, what: string, by: By, action: string): Promise<Decided> {
@@ -313,7 +348,9 @@ async function record(item: ToDecideItem, what: string, by: By, action: string):
   await decidedKv.set(`done-${item.id}`, JSON.stringify(d))
   await recordAudit({
     by: { ...by, role: 'owner' }, action: `to-decide-${action}`,
-    target: { kind: item.classId ? 'class' : 'counter-sale', id: item.classId ?? String(item.detail.orderId ?? item.id), label: item.className ?? item.title },
+    target: item.kind === 'party-paid-unclear'
+      ? { kind: 'party', id: String(item.detail.partyId ?? item.id), label: item.title }
+      : { kind: item.classId ? 'class' : 'counter-sale', id: item.classId ?? String(item.detail.orderId ?? item.id), label: item.className ?? item.title },
     details: { item: item.id, kind: item.kind, what },
   })
   return d
@@ -481,6 +518,26 @@ export async function decide(id: string, action: string, body: any, by: By, now 
         throw new DecideError(409, e instanceof Error ? e.message : 'That didn’t work. Try again.')
       }
       return { decided: await record(item, `It was ${to.name}: the payment moved`, by, action) }
+    }
+    case 'party-paid-unclear': {
+      const partyId = str(d.partyId)
+      if (d.elsewhere === true) {
+        if (action !== 'sorted') throw new DecideError(400, 'That isn’t one of the choices for this.')
+        await deletePaidElsewhere(str(d.orderId))
+        return { decided: await record(item, 'Checked in Square', by, action) }
+      }
+      if (action === 'sorted') throw new DecideError(400, 'That isn’t one of the choices for this.')
+      try {
+        if (action === 'confirm') {
+          const done = await confirmUnclearParty(partyId, now)
+          return { decided: await record(item, done.overlap ? 'Confirmed the party (its time clashes with another party)' : 'Confirmed the party', by, action) }
+        }
+        await notPaidUnclearParty(partyId)
+        return { decided: await record(item, 'It wasn’t paid: the time was let go', by, action) }
+      } catch (e) {
+        if (e instanceof PartyUnclearError) throw new DecideError(e.status, e.message)
+        throw e
+      }
     }
   }
 }

@@ -78,6 +78,7 @@ export function ToDecideSheet({ id }: { id: string }) {
     case 'below-minimum': return <BelowMinimum item={t} />
     case 'door-unpaid': return <DoorUnpaid item={t} />
     case 'counter-match-check': return <CounterCheck item={t} />
+    case 'party-paid-unclear': return <PartyPaidUnclear item={t} />
   }
 }
 
@@ -119,6 +120,44 @@ function Unconfirmed({ item }: { item: ToDecideItem }) {
       <Head item={item} />
       {kv('Refund', formatMoney((item.detail as Detail).refundCents ?? 0))}
       <p className="adm-note" style={{ marginTop: '0.75rem' }}>We asked Square for this refund and never heard back. Look it up in Square, then say what you saw. Nothing is sent to Square from here.</p>
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+function PartyPaidUnclear({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail & { elsewhere?: boolean; cents?: number }
+  const { send, busy, error } = useDecide(item)
+  if (d.elsewhere) {
+    return (
+      <OneChoiceParty item={item} note="Square shows this party order paid, and there is nothing here to book it from. Look it up in Square and sort it out there. Nothing is sent to Square from here." send={send} busy={busy} error={error} />
+    )
+  }
+  return (
+    <SheetFrame
+      title={item.title}
+      subtitle="To decide"
+      footer={(
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => send({ action: 'not-paid' })}>{label(busy, 'not-paid', 'It wasn’t paid', 'Saving…')}</button>
+          <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'confirm' })}>{label(busy, 'confirm', 'Confirm the party', 'Confirming…')}</button>
+        </div>
+      )}
+    >
+      <Head item={item} />
+      {kv('Payment', formatMoney(d.cents ?? 0))}
+      <p className="adm-note" style={{ marginTop: '0.75rem' }}>Look for the payment in Square. Confirm the party once Square shows it paid: the time is booked and the host gets their confirmation. If it wasn’t paid, the held time is let go. Nothing is charged or refunded from here.</p>
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+function OneChoiceParty({ item, note, send, busy, error }: { item: ToDecideItem; note: string } & Pick<ReturnType<typeof useDecide>, 'send' | 'busy' | 'error'>) {
+  return (
+    <SheetFrame title={item.title} subtitle="To decide" footer={<button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'sorted' })}>{label(busy, 'sorted', 'Sorted it in Square', 'Saving…')}</button>}>
+      <Head item={item} />
+      {kv('Payment', formatMoney(((item.detail as { cents?: number }).cents) ?? 0))}
+      <p className="adm-note" style={{ marginTop: '0.75rem' }}>{note}</p>
       <ErrorLine text={error} />
     </SheetFrame>
   )
