@@ -150,7 +150,7 @@ export const GET: APIRoute = async ({ url, request }) => {
     partyBooked,
   )
   // Walk-in hours come from Square and don't know about closures: a closed day
-  // never shows Craft Café (e.g. Sat 28 Nov, Thanksgiving weekend).
+  // never shows Craft Café (e.g. Sat 26 Dec, the Christmas holidays).
   const events = built.filter((e) => e.date >= OPENING_DATE && inRange(e.date) && !(e.kind === 'open-studio' && closureOn(e.date)))
   if (months.includes(GRAND_OPENING_DATE.slice(0, 7))) {
     events.unshift({

@@ -14,7 +14,10 @@ describe('Craft Café special days', () => {
     expect(cafeRunsOn('2026-11-15')).toBe(false)
   })
   it('a closed day stays closed', () => {
-    expect(cafeRunsOn('2026-11-28')).toBe(false)
+    expect(cafeRunsOn('2026-12-26')).toBe(false) // Christmas holidays, a Saturday
+  })
+  it('the Saturday after Thanksgiving is open (closed Thursday and Friday only)', () => {
+    expect(cafeRunsOn('2026-11-28')).toBe(true)
   })
   it('an all-day café day has no party times', () => {
     for (const d of CAFE_SPECIAL_DAYS) expect(partyStartsForDate(d.date, new Date('2026-10-15T15:00:00Z'))).toEqual([])

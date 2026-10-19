@@ -213,11 +213,11 @@ describe('GET /api/calendar.json', () => {
 
   it('never shows Craft Café on a closed day, even when Square lists walk-in hours', async () => {
     mockGetEventTypes.mockResolvedValue([
-      { id: 'studio', flow: 'display', programDates: '2026-11-21T09:00-12:30,2026-11-28T09:00-12:30' },
+      { id: 'studio', flow: 'display', programDates: '2026-12-19T09:00-12:30,2026-12-26T09:00-12:30' },
     ])
-    const { body } = await getMonth('2026-11')
+    const { body } = await getMonth('2026-12')
     const cafe = body.events.filter((e: any) => e.kind === 'open-studio').map((e: any) => e.date)
-    expect(cafe).toEqual(['2026-11-21'])
+    expect(cafe).toEqual(['2026-12-19'])
   })
 
   it('says the studio is closed on every day of a closure, in the holiday\'s colours', async () => {
@@ -237,8 +237,8 @@ describe('GET /api/calendar.json', () => {
     })
     // The Sunday falls in November, and shows there.
     const november = await closedIn('2026-11')
-    expect(november.map((e: any) => e.date)).toEqual(['2026-11-01', '2026-11-26', '2026-11-27', '2026-11-28', '2026-11-29'])
-    expect(november[1]).toMatchObject({ title: 'Closed for Thanksgiving weekend', holiday: 'thanksgiving' })
+    expect(november.map((e: any) => e.date)).toEqual(['2026-11-01', '2026-11-26', '2026-11-27'])
+    expect(november[1]).toMatchObject({ title: 'Closed for Thanksgiving', detail: 'We reopen Saturday, November 28.', holiday: 'thanksgiving' })
   })
 
   it('closes every day from 21 December to New Year\'s Day, not one day of it', async () => {
