@@ -34,8 +34,12 @@ export interface LedgerLine {
   refunds: { at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null }[]
   at: string
   /** set by confirm when a paid seat landed on a session already full (the hold had run out and the seat was taken) */
-  overCapacity?: boolean  /** refunds Square turned down (FAILED/REJECTED) on this booking; makes the next try a new idempotency key */
-  refundFailures?: number
+  overCapacity?: boolean  /**
+   * Refunds Square turned down (FAILED/REJECTED), counted per request: the
+   * request's raw key (before hashing) → times refused. Only a retry of that
+   * same request gets a new idempotency key.
+   */
+  refundFailures?: Record<string, number>
 }
 export interface Ledger { classId: string; lines: LedgerLine[] }
 
@@ -292,11 +296,16 @@ export async function recordRefund(
   })
 }
 
-/** Counts a refund Square turned down, on every line of the booking, so the next try is a fresh request. */
-export async function noteRefundFailed(classId: string, bookingId: string): Promise<void> {
+/** Counts a refund request Square turned down, by its raw key, on every line of the booking, so a retry of that request is a fresh one. */
+export async function noteRefundFailed(classId: string, bookingId: string, rawKey: string): Promise<void> {
   await mutate(classId, (cur) => {
     if (!cur.lines.some((l) => l.bookingId === bookingId)) return { next: null, result: undefined }
-    const lines = cur.lines.map((l) => (l.bookingId === bookingId ? { ...l, refundFailures: (l.refundFailures ?? 0) + 1 } : l))
+    const lines = cur.lines.map((l) => {
+      if (l.bookingId !== bookingId) return l
+      const map = { ...(l.refundFailures ?? {}) }
+      map[rawKey] = (map[rawKey] ?? 0) + 1
+      return { ...l, refundFailures: map }
+    })
     return { next: { ...cur, lines }, result: undefined }
   })
 }

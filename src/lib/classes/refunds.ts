@@ -56,8 +56,10 @@ export interface RefundPlan {
   freeSeat: boolean
   /** refunds already made on this booking (its payment) */
   prior: number
-  /** refunds Square turned down on this booking */
+  /** times Square turned down this same request */
   failures: number
+  /** the request's key before hashing, without the failure count */
+  rawKey: string
 }
 
 const paidOn = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
@@ -74,8 +76,8 @@ export function priorRefunds(lines: LedgerLine[]): number {
   return seen.size
 }
 
-/** Refunds Square turned down on this booking. */
-const failuresOn = (lines: LedgerLine[]) => lines.reduce((m, l) => Math.max(m, l.refundFailures ?? 0), 0)
+/** Times Square turned down this exact request (by raw key) on this booking. */
+const failuresOn = (lines: LedgerLine[], raw: string) => lines.reduce((m, l) => Math.max(m, l.refundFailures?.[raw] ?? 0), 0)
 
 /**
  * What the booking as a whole can still give back: what Square charged
@@ -92,12 +94,16 @@ export function bookingCap(lines: LedgerLine[]): Cents | null {
  * `refund:${bookingId}:${sortedLineIds}:${totalCents}:${n}` (n = refunds already
  * made on the booking), so a retry is the same key and a deliberate second
  * identical refund is a new one. A refund Square turned down (FAILED or
- * REJECTED) bumps a failure count that is added on, so the next try is a new
- * request; no answer at all keeps the same key. Square caps keys at 45
+ * REJECTED) bumps a failure count kept for that exact request (its raw key),
+ * so only a retry of that request is new; no answer keeps the same key, and
+ * other requests on the booking are untouched. Square caps keys at 45
  * characters, so the string is hashed.
  */
+export function refundKeyRaw(bookingId: string, lineIds: string[], totalCents: Cents, n: number): string {
+  return `refund:${bookingId}:${[...lineIds].sort().join(',')}:${totalCents}:${n}`
+}
 export function refundKey(bookingId: string, lineIds: string[], totalCents: Cents, n: number, failures = 0): string {
-  const raw = `refund:${bookingId}:${[...lineIds].sort().join(',')}:${totalCents}:${n}${failures ? `:f${failures}` : ''}`
+  const raw = `${refundKeyRaw(bookingId, lineIds, totalCents, n)}${failures ? `:f${failures}` : ''}`
   return `refund:${createHash('sha256').update(raw).digest('hex').slice(0, 38)}`
 }
 
@@ -149,8 +155,10 @@ export function planRefund(ledger: Ledger, req: RefundRequest): RefundPlan {
     })
   }
   let lines: { id: string; cents: Cents }[]
+  const freedAlready = (id: string) => booking.find((l) => l.id === id)!.refunds.some((r) => r.freedSeat)
   if (req.kind === 'booking') {
-    lines = capped(chosen).filter((x) => x.cents > 0)
+    // Seats with nothing left to give back (or trimmed to 0 by the cap) are still freed when freeing.
+    lines = capped(chosen).filter((x) => x.cents > 0 || (freeSeat && !freedAlready(x.id)))
   } else if (req.kind === 'person') {
     lines = capped(chosen)
   } else if (req.kind === 'session') {
@@ -171,14 +179,15 @@ export function planRefund(ledger: Ledger, req: RefundRequest): RefundPlan {
       const cents = Math.min(rest, remainingOn(l))
       rest -= cents
       // A seat being freed is recorded even when none of the money lands on it.
-      if (cents > 0 || freeSeat) lines.push({ id: l.id, cents })
+      if (cents > 0 || (freeSeat && !freedAlready(l.id))) lines.push({ id: l.id, cents })
     }
   }
 
   const totalCents = lines.reduce((s, x) => s + x.cents, 0)
   if (totalCents <= 0) throw new RefundError(400, 'Nothing is left to refund on this booking.')
   if (cap !== null && totalCents > cap) throw new RefundError(400, 'That is more than is left to refund on this booking.')
-  return { lines, totalCents, paymentId, freeSeat, prior, failures: failuresOn(booking) }
+  const rawKey = refundKeyRaw(req.bookingId, lines.map((x) => x.id), totalCents, prior)
+  return { lines, totalCents, paymentId, freeSeat, prior, failures: failuresOn(booking, rawKey), rawKey }
 }
 
 /** Stage 4 (waitlist) hooks in here. Called after a refund frees seats. */
@@ -216,7 +225,7 @@ export async function refundClassBooking(req: RefundRequest, actor: { by: By; ro
   if (/^(FAILED|REJECTED)$/i.test(refund.status)) {
     // Square said no. Count it so the next try is a new request rather than a replay of this refusal.
     console.error(`[classes/refund] Square ${refund.status} the refund on ${req.bookingId}`)
-    await noteRefundFailed(cls.id, req.bookingId).catch(() => undefined)
+    await noteRefundFailed(cls.id, req.bookingId, plan.rawKey).catch(() => undefined)
     throw new RefundError(502, SQUARE_TURNED_DOWN)
   }
 

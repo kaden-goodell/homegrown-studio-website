@@ -60,6 +60,16 @@ describe('RefundPanel', () => {
     expect(screen.getByText('Refund $60 to their card.')).toBeInTheDocument()
   })
 
+  it('one person and one session previews respect the booking cap like the server', () => {
+    render(<RefundPanel classId="cls_1" booking={{ ...booking, refundableCents: 1000 }} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    fireEvent.click(screen.getByLabelText('One person'))
+    expect(screen.getByText('Refund $10 to their card.')).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('One session'))
+    expect(screen.getByText('That is more than is left to refund.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Confirm refund' })).toBeDisabled()
+  })
+
   it('Free their seat asks first in the page, then posts a free-seat with no money', async () => {
     const fetchMock = vi.fn(async () => ok({ data: { lines: [] } }))
     vi.stubGlobal('fetch', fetchMock)

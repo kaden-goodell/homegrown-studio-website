@@ -20,7 +20,7 @@ import * as staffRoute from '@pages/api/staff/class-refund.json'
 import { adminCookie } from '@lib/admin-auth'
 import { createClass } from '@lib/classes/class-store'
 import { getLedger, type LedgerLine } from '@lib/classes/seat-ledger'
-import { refundKey, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN } from '@lib/classes/refunds'
+import { refundKey, refundKeyRaw, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN } from '@lib/classes/refunds'
 import { makeKvStore } from '@lib/blob-store'
 import type { ClassContent } from '@lib/classes/types'
 
@@ -282,12 +282,40 @@ describe('fix round 1', () => {
     const failed = await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
     expect(failed.status).toBe(502)
     expect(failed.body.error).toBe(SQUARE_TURNED_DOWN)
-    expect((await byId(classId))[a.id]).toMatchObject({ refunds: [], refundFailures: 1, state: 'confirmed' })
+    expect((await byId(classId))[a.id]).toMatchObject({ refunds: [], refundFailures: { [refundKeyRaw('bkg_r1', [a.id], 3270, 0)]: 1 }, state: 'confirmed' })
     const ok = await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
     expect(ok.status).toBe(200)
     const last = mocks.refundPayment.mock.calls.at(-1)![0].idempotencyKey
     expect(last).not.toBe(t1)
     expect(last).toBe(refundKey('bkg_r1', [a.id], 3270, 0, 1))
+  })
+
+  it('a turned-down refund on one request leaves another request’s retry key alone', async () => {
+    const a = line({ seat: 1 }), b = line({ seat: 2 })
+    const classId = await setup([a, b])
+    // X: no answer (it went through at Square but we never heard), nothing recorded
+    mocks.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    expect((await admin({ classId, bookingId: 'bkg_r1', kind: 'person', lineIds: [a.id] })).status).toBe(502)
+    const x1 = mocks.refundPayment.mock.calls[0][0].idempotencyKey
+    // Y: a different request, Square says FAILED
+    mocks.refundPayment.mockResolvedValueOnce({ id: 'rf_y', paymentId: 'pay_1', amountCents: 500, status: 'FAILED' })
+    expect((await admin({ classId, bookingId: 'bkg_r1', kind: 'custom', cents: 500, lineIds: [b.id] })).status).toBe(502)
+    // retry X: must replay X's original key so Square can't refund it twice
+    expect((await admin({ classId, bookingId: 'bkg_r1', kind: 'person', lineIds: [a.id] })).status).toBe(200)
+    expect(mocks.refundPayment.mock.calls[2][0].idempotencyKey).toBe(x1)
+  })
+
+  it('a capped whole-booking refund still frees seats trimmed to nothing', async () => {
+    const charged = { orderId: 'o1', paymentId: 'pay_1', lineUid: null, chargedCents: 3270 }
+    const a = line({ seat: 1, square: charged }), b = line({ seat: 2, square: charged })
+    const classId = await setup([a, b])
+    const r = await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
+    expect(r.status).toBe(200)
+    expect(mocks.refundPayment.mock.calls[0][0].amountCents).toBe(3270)
+    const after = await byId(classId)
+    expect(after[a.id].refunds[0]).toMatchObject({ cents: 3270, freedSeat: true })
+    expect(after[b.id].refunds[0]).toMatchObject({ cents: 0, freedSeat: true, squareRefundId: expect.stringMatching(/^rf_/) })
+    expect(after[b.id].state).toBe('refunded')
   })
 
   it('caps a booking at what Square charged, less refunds', async () => {

@@ -49,7 +49,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
 
   const preview = useMemo(() => {
     if (kind === 'booking') return left
-    if (kind === 'person') return seats.find((s) => s.id === person)?.remainingCents ?? 0
+    if (kind === 'person') return Math.min(seats.find((s) => s.id === person)?.remainingCents ?? 0, left)
     if (kind === 'session') return multi.filter((s) => sessionSeats.includes(s.id)).reduce((a, s) => a + s.sessionCents, 0)
     return Number.isFinite(amountCents) && amountCents > 0 ? amountCents : 0
   }, [kind, person, sessionSeats, amountCents, left])
@@ -79,7 +79,8 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   }
 
   const reasonOk = !reasonRequired || reason.trim().length >= 3
-  const tooMuch = kind === 'custom' && preview > left
+  // Same as the server: custom and one session can't go past what the booking has left.
+  const tooMuch = (kind === 'custom' || kind === 'session') && preview > left
   const canGo = preview > 0 && !tooMuch && reasonOk && !busy
 
   async function go() {
