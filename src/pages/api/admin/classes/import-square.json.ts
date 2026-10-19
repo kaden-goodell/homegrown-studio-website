@@ -19,12 +19,13 @@ export const POST: APIRoute = async ({ request }) => {
   return reply(async () => {
     const result = await importSquareClasses({ dryRun, by })
     if (!dryRun) {
+      // The classes are added by now; a failed audit write must not report the run as failed.
       await recordAudit({
         by: { ...by, role: 'owner' },
         action: 'class-library-import-square',
         target: { kind: 'class-library', id: 'square-import' },
-        details: { added: result.create.length, skipped: result.skip.length },
-      })
+        details: { added: result.create.length, photos: result.addPhoto.length, skipped: result.skip.length },
+      }).catch((e) => console.error(`[admin/classes] import audit not written: ${e instanceof Error ? e.message : String(e)}`))
     }
     return { data: result }
   })

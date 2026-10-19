@@ -124,7 +124,7 @@ describe('POST /api/admin/classes/import-square.json', () => {
       defaultMinutes: 120,
       rules: { ages: 'Ages 8+', dropOff: true, madeToOrder: true, taxable: true, signupCutoffHours: 48 },
     })
-    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-library-import-square', details: { added: 1, skipped: 0 } }))
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-library-import-square', details: { added: 1, photos: 0, skipped: 0 } }))
   })
 
   it('several dates of one class make one library class carrying every schedule id', async () => {
@@ -146,8 +146,9 @@ describe('POST /api/admin/classes/import-square.json', () => {
     const res = await post({ dryRun: true })
     expect(res.status).toBe(200)
     expect(res.body.data).toEqual({
-      create: [{ name: a.name, priceCents: 3500, imageUrl: 'https://img.example/Candles.jpg', ages: 'Ages 8+' }],
+      create: [{ name: a.name, priceCents: 3500, imageUrl: 'https://img.example/Candles.jpg', ages: 'Ages 8+', issues: [] }],
       skip: [{ name: free.name, reason: 'It has no price in Square.' }],
+      addPhoto: [],
     })
     expect((await listLibrary({ includeArchived: true })).length).toBe(before)
     expect(mocks.audit).not.toHaveBeenCalled()
@@ -199,9 +200,114 @@ describe('POST /api/admin/classes/import-square.json', () => {
     expect(lib.importKey).toBe(`name:${a.name.toLowerCase()}`)
   })
 
+  it('keeps a drop-off rule from the description even when event settings exist without it', async () => {
+    const a = workshop('PNO')
+    mocks.listAllWorkshops.mockResolvedValue([a])
+    catalog([a])
+    mocks.getEventMeta.mockResolvedValue({ ...emptyEventMeta(), dropOff: false, capacity: 8 })
+    const res = await post({ dryRun: false })
+    const lib = (await getLibrary(res.body.data.create[0].id))!
+    expect(lib.versions[0].content.rules.dropOff).toBe(true)
+    expect(lib.versions[0].content.defaultCapacity).toBe(8)
+  })
+
+  it('event settings saying drop-off win over a description that does not', async () => {
+    const a = workshop('Camp', { description: 'Make stuff.' })
+    mocks.listAllWorkshops.mockResolvedValue([a])
+    catalog([a])
+    mocks.getEventMeta.mockResolvedValue({ ...emptyEventMeta(), dropOff: true })
+    const res = await post({ dryRun: false })
+    expect((await getLibrary(res.body.data.create[0].id))!.versions[0].content.rules.dropOff).toBe(true)
+  })
+
+  it('flags no photo, differing prices and tax-free in the dry run; a tax-free class imports untaxed', async () => {
+    const a1 = workshop('Glass', { imageUrl: undefined, taxPercent: 0, priceCents: 3500, startAt: '2026-12-01T22:00:00.000Z' })
+    const a2 = { ...workshop('Glass', { imageUrl: undefined, taxPercent: 0, priceCents: 4250, startAt: '2026-12-08T22:00:00.000Z' }), scheduleId: 'sched-Glass-2' }
+    const taxed = workshop('Taxed', { taxPercent: 9 })
+    mocks.listAllWorkshops.mockResolvedValue([a1, a2, taxed])
+    catalog([a1, taxed])
+    const dry = await post({ dryRun: true })
+    expect(dry.body.data.create).toHaveLength(2)
+    expect(dry.body.data.create).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: a1.name, priceCents: 3500, imageUrl: null, issues: ['No photo found', 'Prices differ across dates ($35–$42.50)', 'Tax-free in Square'] }),
+      expect.objectContaining({ name: taxed.name, issues: [] }),
+    ]))
+    const res = await post({ dryRun: false })
+    const idOf = (name: string) => res.body.data.create.find((c: any) => c.name === name).id
+    expect((await getLibrary(idOf(a1.name)))!.versions[0].content.rules.taxable).toBe(false)
+    expect((await getLibrary(idOf(taxed.name)))!.versions[0].content.rules.taxable).toBe(true)
+  })
+
+  it('a later run fills a photo missing at import, once, without adding a second class', async () => {
+    const a = workshop('Clay', { imageUrl: undefined })
+    mocks.listAllWorkshops.mockResolvedValue([a])
+    catalog([a])
+    const first = await post({ dryRun: false })
+    const id = first.body.data.create[0].id
+    const count = (await listLibrary({ includeArchived: true })).length
+
+    mocks.listAllWorkshops.mockResolvedValue([{ ...a, imageUrl: 'https://img.example/clay.jpg' }])
+    const dry = await post({ dryRun: true })
+    expect(dry.body.data).toEqual({ create: [], skip: [], addPhoto: [{ id, name: a.name, imageUrl: 'https://img.example/clay.jpg' }] })
+    expect((await getLibrary(id))!.versions).toHaveLength(1)
+
+    const run = await post({ dryRun: false })
+    expect(run.body.data.addPhoto).toEqual([{ id, name: a.name, imageUrl: 'https://img.example/clay.jpg' }])
+    const lib = (await getLibrary(id))!
+    expect(lib.versions).toHaveLength(2)
+    expect(lib.versions[1]).toMatchObject({ version: 2, note: 'Photo from Square', content: { imageUrl: 'https://img.example/clay.jpg', name: a.name } })
+    expect((await listLibrary({ includeArchived: true })).length).toBe(count)
+
+    const again = await post({ dryRun: false })
+    expect(again.body.data).toEqual({ create: [], skip: [{ name: a.name, reason: 'Already in the library.' }], addPhoto: [] })
+    expect((await getLibrary(id))!.versions).toHaveLength(2)
+  })
+
+  it('never fills a photo once the owner has edited the imported class', async () => {
+    const a = workshop('Edited', { imageUrl: undefined })
+    mocks.listAllWorkshops.mockResolvedValue([a])
+    catalog([a])
+    const id = (await post({ dryRun: false })).body.data.create[0].id
+    const lib = (await getLibrary(id))!
+    await saveLibraryVersion({ id, content: { ...lib.versions[0].content, description: 'Mine now.' }, by: { id: 'admin', name: 'Owner' }, note: 'edit' })
+    mocks.listAllWorkshops.mockResolvedValue([{ ...a, imageUrl: 'https://img.example/x.jpg' }])
+    const res = await post({ dryRun: false })
+    expect(res.body.data.addPhoto).toEqual([])
+    expect((await getLibrary(id))!.versions).toHaveLength(2)
+  })
+
+  it('compares names in full, not cut to 80 characters', async () => {
+    const long = 'A'.repeat(80)
+    const a = workshop(`${long}-and-more`)
+    mocks.listAllWorkshops.mockResolvedValue([a])
+    catalog([a])
+    // The library has a class whose name is the first 80 characters: a different class.
+    await saveLibraryVersion({ content: contentFromSquare({ ...a, name: long }, null), by: { id: 'admin', name: 'Owner' }, note: 'by hand' })
+    const dry = await post({ dryRun: true })
+    expect(dry.body.data.skip).toEqual([])
+    expect(dry.body.data.create[0].issues).toContain('Name shortened to 80 characters')
+
+    const same = workshop('Spaced   Name')
+    mocks.listAllWorkshops.mockResolvedValue([same])
+    catalog([same])
+    await saveLibraryVersion({ content: contentFromSquare({ ...same, name: `  spaced name ${tag.toLowerCase()} ` }, null), by: { id: 'admin', name: 'Owner' }, note: 'by hand' })
+    expect((await post({ dryRun: true })).body.data.skip).toEqual([{ name: same.name, reason: 'A class with this name is already in the library.' }])
+  })
+
+  it('a failed audit write still answers 200 with what was added', async () => {
+    const a = workshop('Audit')
+    mocks.listAllWorkshops.mockResolvedValue([a])
+    catalog([a])
+    mocks.audit.mockRejectedValue(new Error('audit store down'))
+    const res = await post({ dryRun: false })
+    expect(res.status).toBe(200)
+    expect(res.body.data.create).toHaveLength(1)
+    expect(await getLibrary(res.body.data.create[0].id)).not.toBeNull()
+  })
+
   it('with no Square classes it reads nothing else and adds nothing', async () => {
     const res = await post({ dryRun: false })
-    expect(res.body.data).toEqual({ create: [], skip: [] })
+    expect(res.body.data).toEqual({ create: [], skip: [], addPhoto: [] })
     expect(mocks.squareFetch).not.toHaveBeenCalled()
   })
 

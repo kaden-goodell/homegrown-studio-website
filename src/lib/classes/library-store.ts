@@ -105,3 +105,23 @@ export async function importLibraryClass(input: {
 export function importedLibraryId(importKey: string): string {
   return `lib_sq${createHash('sha256').update(importKey).digest('hex').slice(0, 12)}`
 }
+
+/**
+ * Gives an imported class the photo Square had missed, as a new version. Only
+ * while the newest version is still the untouched import with no photo, so an
+ * owner's own edit (even removing the photo) is never overridden. Returns
+ * false when there was nothing to fill.
+ */
+export async function fillImportedPhoto(input: { id: string; imageUrl: string; by: By; importNote: string; note: string }): Promise<boolean> {
+  let filled = false
+  await mutate(input.id, (cur) => {
+    filled = false
+    if (!cur) throw new Error('That class is not in the library.')
+    const latest = cur.versions[cur.versions.length - 1]
+    if (!cur.importKey || latest?.note !== input.importNote || latest.content.imageUrl) return cur
+    filled = true
+    const content = checked({ ...latest.content, imageUrl: input.imageUrl })
+    return { ...cur, versions: [...cur.versions, { version: latest.version + 1, at: new Date().toISOString(), by: input.by, content, note: input.note }] }
+  })
+  return filled
+}
