@@ -590,13 +590,30 @@ export type RefundOutcome =
 
 interface PaidLine { classId: string; line: LedgerLine }
 
-/** Every ledger line paid by this payment, class by class in `classIds` order. */
-async function linesForPayment(paymentId: string, classIds: string[]): Promise<PaidLine[]> {
-  const out: PaidLine[] = []
-  for (const id of classIds) {
-    const ledger = await getLedger(id)
-    for (const l of ledger.lines) if (paidBy(l, paymentId)) out.push({ classId: id, line: l })
+/** How many ledgers are read at once (M2): fast, without a burst on the store. */
+const LEDGER_READS_AT_ONCE = 8
+
+/** fn over every item, at most `limit` at a time; results in `items` order. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i])
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return out
+}
+
+/** Every ledger line paid by this payment, class by class in `classIds` order (ledgers read in parallel). */
+async function linesForPayment(paymentId: string, classIds: string[]): Promise<PaidLine[]> {
+  const ledgers = await mapLimit(classIds, LEDGER_READS_AT_ONCE, (id) => getLedger(id))
+  const out: PaidLine[] = []
+  ledgers.forEach((ledger, i) => {
+    for (const l of ledger.lines) if (paidBy(l, paymentId)) out.push({ classId: classIds[i], line: l })
+  })
   return out
 }
 
@@ -861,22 +878,30 @@ export async function reconcileClasses(now = new Date()): Promise<ReconcileResul
     }
   }
 
-  // 2. Refunds. Which classes each payment touched, read once (after the sales above landed).
-  const payments = new Map<string, Set<string>>()
-  for (const c of ctx.classes) {
-    for (const l of (await getLedger(c.id)).lines) {
-      for (const id of [l.square.paymentId, ...(l.square.paymentIds ?? [])]) {
-        if (!id) continue
-        payments.set(id, (payments.get(id) ?? new Set()).add(c.id))
-      }
-    }
-  }
-  const refundCtx: RunContext = { ...ctx, payments }
+  // 2. Refunds: every one Square lists for the window first, then (only if there are any) which
+  // classes each payment touched, from the ledgers read in parallel after the sales above landed (M2).
+  const refunds: any[] = []
   cursor = undefined
   for (let page = 0; page < MAX_PAGES; page++) {
     const q: URLSearchParams = new URLSearchParams({ begin_time: since, location_id: loc, ...(cursor ? { cursor } : {}) })
     const res: any = await squareFetch(`/refunds?${q.toString()}`, { method: 'GET' })
-    for (const refund of res?.refunds ?? []) {
+    refunds.push(...(res?.refunds ?? []))
+    cursor = res?.cursor
+    if (!cursor) break
+  }
+  if (refunds.length) {
+    const payments = new Map<string, Set<string>>()
+    const ledgers = await mapLimit(ctx.classes, LEDGER_READS_AT_ONCE, (c) => getLedger(c.id))
+    ledgers.forEach((ledger, i) => {
+      for (const l of ledger.lines) {
+        for (const id of [l.square.paymentId, ...(l.square.paymentIds ?? [])]) {
+          if (!id) continue
+          payments.set(id, (payments.get(id) ?? new Set()).add(ctx.classes[i].id))
+        }
+      }
+    })
+    const refundCtx: RunContext = { ...ctx, payments }
+    for (const refund of refunds) {
       result.refunds++
       try {
         const r = await handleRefund(refund, now, { ctx: refundCtx })
@@ -886,8 +911,6 @@ export async function reconcileClasses(now = new Date()): Promise<ReconcileResul
         logger.error('Reconcile could not handle a refund', { refundId: refund?.id, error: e instanceof Error ? e.message : String(e) })
       }
     }
-    cursor = res?.cursor
-    if (!cursor) break
   }
 
   // 3. Our own refunds saved and sent but never seen at Square: shown to the owners, never sent again.
