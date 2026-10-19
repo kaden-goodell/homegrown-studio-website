@@ -129,3 +129,56 @@ describe('sessionsForPass', () => {
     expect(f.ok && f.value).toEqual(['ses_c', 'ses_d'])
   })
 })
+
+describe('R28: no joining partway closes every pass at the first session', () => {
+  const later = new Date('2026-10-23T19:00:00Z') // a and b started, c and d not
+  const closed = make({
+    rules: { ...defaultRules(), joinPartway: false },
+    passes: [
+      { id: 'all', label: 'All', covers: { kind: 'all' } },
+      { id: 'day', label: 'One day', covers: { kind: 'choose', count: 1 } },
+      { id: 'fx', label: 'Weekend', covers: { kind: 'fixed', sessionIds: ['ses_c', 'ses_d'] } },
+    ],
+    prices: { all: { person: 1500 }, day: { person: 500 }, fx: { person: 800 } },
+  })
+  it('a single-day (choose) pass is refused once the class has started', () => {
+    const r = sessionsForPass(closed, 'day', ['ses_d'], later)
+    expect(!r.ok && r.error).toBe('Sign-ups for this have closed.')
+  })
+  it('a fixed pass on later days is refused once the class has started', () => {
+    const r = sessionsForPass(closed, 'fx', undefined, later)
+    expect(!r.ok && r.error).toBe('Sign-ups for this have closed.')
+  })
+  it('before the first session every pass still sells', () => {
+    expect(sessionsForPass(closed, 'day', ['ses_d'], NOW).ok).toBe(true)
+    expect(sessionsForPass(closed, 'fx', undefined, NOW).ok).toBe(true)
+  })
+  it('joining partway allowed: later single days still sell', () => {
+    const open = make({ ...closed.content, rules: { ...defaultRules(), joinPartway: true } })
+    expect(sessionsForPass(open, 'day', ['ses_d'], later).ok).toBe(true)
+  })
+  it('the sign-up cutoff counts from the class’s first session for every pass', async () => {
+    const { cutoffRefusal } = await import('@lib/classes/checkout')
+    const madeAhead = { ...closed, content: { ...closed.content, rules: { ...closed.content.rules, signupCutoffHours: 24 } } }
+    // 2026-10-21T19:00Z is under 24 h before ses_a (Oct 22 18:00Z), days before ses_d
+    const at = new Date('2026-10-21T19:00:00Z')
+    expect(cutoffRefusal(madeAhead, ['ses_d'], at)).not.toBeNull()
+    const partway = { ...madeAhead, content: { ...madeAhead.content, rules: { ...madeAhead.content.rules, joinPartway: true } } }
+    expect(cutoffRefusal(partway, ['ses_d'], at)).toBeNull()
+  })
+})
+
+describe('door sales (crew at the door)', () => {
+  const during = new Date('2026-10-22T18:30:00Z') // ses_a running
+  it('a session already running can still be sold at the door, not online', () => {
+    const c = make()
+    expect(sessionsForPass(c, 'day', ['ses_a'], during).ok).toBe(false)
+    expect(sessionsForPass(c, 'day', ['ses_a'], during, { door: true }).ok).toBe(true)
+    const q = quote(c, req({ passId: 'all' }), during, 9, { door: true })
+    expect(q.ok && q.value.sessionIds).toEqual(['ses_a', 'ses_b', 'ses_c', 'ses_d'])
+  })
+  it('a session that has ended can’t be sold at the door', () => {
+    const after = new Date('2026-10-22T20:30:00Z')
+    expect(sessionsForPass(make(), 'day', ['ses_a'], after, { door: true }).ok).toBe(false)
+  })
+})

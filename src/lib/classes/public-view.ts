@@ -8,7 +8,7 @@
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import { studioDate } from '@components/workshops/workshop-view-model'
 import { CLASS_TAX_PERCENT, cutoffRefusal } from './checkout'
-import { sessionsForPass } from './pricing'
+import { sessionsForPass, type SaleOptions } from './pricing'
 import { classAvailability, lowestPrice, passState, type OwnClassData, type PublicPass, type PublicSession } from './public-class'
 import { seatsTaken, type Ledger } from './seat-ledger'
 import type { ScheduledClass } from './types'
@@ -24,7 +24,8 @@ export function viewableByLink(cls: ScheduledClass): boolean {
   return (cls.status === 'open' || cls.status === 'closed') && cls.sessions.length > 0
 }
 
-export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date): WorkshopData {
+/** `door`: as the crew at the door see it: a session stays open until it ends, whatever the online cutoff. */
+export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, opts: SaleOptions = {}): WorkshopData {
   const c = cls.content
   const sessionsSorted = [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))
   const sessions: PublicSession[] = sessionsSorted.map((s) => ({
@@ -32,7 +33,7 @@ export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date): W
     startIso: s.startIso,
     endIso: s.endIso,
     left: Math.max(0, s.capacity - seatsTaken(ledger, s.id, now)),
-    closed: cutoffRefusal(cls, [s.id], now) !== null,
+    closed: opts.door ? Date.parse(s.endIso) <= now.getTime() : cutoffRefusal(cls, [s.id], now) !== null,
   }))
 
   const sellable = new Set(sellableCells(c).map((cell) => cell.passId))
@@ -40,11 +41,11 @@ export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date): W
     .filter((p) => sellable.has(p.id))
     .map((p) => {
       if (p.covers.kind === 'choose') return { ...p, sessionIds: null, ...passState({ covers: p.covers, sessionIds: null }, sessions) }
-      const covered = sessionsForPass(cls, p.id, undefined, now)
+      const covered = sessionsForPass(cls, p.id, undefined, now, opts)
       if (!covered.ok) return { ...p, sessionIds: [], state: 'closed' as const, left: 0 }
       const view = { ...p, sessionIds: covered.value }
       // A pass whose first session is past the cutoff can't be booked, whatever its later sessions say.
-      if (cutoffRefusal(cls, covered.value, now)) return { ...view, state: 'closed' as const, left: 0 }
+      if (!opts.door && cutoffRefusal(cls, covered.value, now)) return { ...view, state: 'closed' as const, left: 0 }
       return { ...view, ...passState(view, sessions.map((s) => (covered.value.includes(s.id) ? { ...s, closed: false } : s))) }
     })
 
