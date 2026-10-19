@@ -41,7 +41,7 @@ describe('quoteParty', () => {
     expect(q.totalCents).toBe(30000)
     expect(q.minutes).toBe(90)
     expect(q.pkg.id).toBe('pkg_whole')
-    expect(q.items).toEqual([{ kind: 'package', refId: 'pkg_whole', label: 'Whole studio', qty: 1, unitCents: 30000, cents: 30000, extraMinutes: 0 }])
+    expect(q.items).toEqual([{ kind: 'package', refId: 'pkg_whole', label: 'Whole studio', qty: 1, count: 1, unitCents: 30000, cents: 30000, extraMinutes: 0 }])
   })
 
   it('refuses 9 or 31 guests, and a fraction', () => {
@@ -76,7 +76,7 @@ describe('quoteParty', () => {
 
   it('a per-guest extra is priced × guests', () => {
     const q = ok(quoteParty(settings(), { guests: 14, addOns: { add_bags: 1 } }, 'public'))
-    expect(q.items[1]).toEqual({ kind: 'addon', refId: 'add_bags', label: 'Goodie bags', qty: 14, unitCents: 500, cents: 7000, extraMinutes: 0 })
+    expect(q.items[1]).toEqual({ kind: 'addon', refId: 'add_bags', label: 'Goodie bags', qty: 14, count: 1, forGuests: 14, unitCents: 500, cents: 7000, extraMinutes: 0 })
     expect(q.totalCents).toBe(30000 + 7000)
   })
 
@@ -120,22 +120,63 @@ describe('quoteAddOn (an extra added to a booked party)', () => {
   })
 
   it('prices per guest from the party’s guests and allows offline extras', () => {
-    expect(ok(quoteAddOn(settings(), rec(), 'add_bags', 1))).toEqual({ kind: 'addon', refId: 'add_bags', label: 'Goodie bags', qty: 12, unitCents: 500, cents: 6000, extraMinutes: 0 })
+    expect(ok(quoteAddOn(settings(), rec(), 'add_bags', 1))).toEqual({ kind: 'addon', refId: 'add_bags', label: 'Goodie bags', qty: 12, count: 1, forGuests: 12, unitCents: 500, cents: 6000, extraMinutes: 0 })
     expect(ok(quoteAddOn(settings(), rec(), 'add_balloons', 2)).cents).toBe(4000)
   })
 
   it('counts what the party already has toward maxQty', () => {
-    const have = { id: 'itm_1', kind: 'addon' as const, refId: 'add_balloons', label: 'Balloons', qty: 2, unitCents: 2000, cents: 4000, extraMinutes: 0, chargeId: null, addedAt: '', by: null }
+    const have = { id: 'itm_1', kind: 'addon' as const, refId: 'add_balloons', label: 'Balloons', qty: 2, count: 2, unitCents: 2000, cents: 4000, extraMinutes: 0, chargeId: null, addedAt: '', by: null }
     expect(quoteAddOn(settings(), rec({ items: [have] }), 'add_balloons', 2).ok).toBe(false)
     expect(ok(quoteAddOn(settings(), rec({ items: [have] }), 'add_balloons', 1)).cents).toBe(2000)
   })
 
-  it('refuses unknown, archived, a cancelled party and a Square-booked one', () => {
-    expect(quoteAddOn(settings(), rec(), 'add_nope', 1).ok).toBe(false)
-    expect(quoteAddOn(settings(), rec(), 'add_gone', 1).ok).toBe(false)
-    expect(quoteAddOn(settings(), rec(), 'add_half', 0).ok).toBe(false)
-    expect(quoteAddOn(settings(), rec({ status: 'cancelled' }), 'add_half', 1).ok).toBe(false)
-    expect(quoteAddOn(settings(), rec({ source: undefined }), 'add_half', 1)).toEqual({ ok: false, error: 'This party was booked in Square. Change it there.' })
+  it('refuses unknown, archived, a cancelled party and a Square-booked one, naming the field', () => {
+    expect(quoteAddOn(settings(), rec(), 'add_nope', 1)).toEqual({ ok: false, error: 'That extra isn’t available.', field: 'addOns.add_nope' })
+    expect(quoteAddOn(settings(), rec(), 'add_gone', 1)).toEqual({ ok: false, error: 'That extra isn’t available.', field: 'addOns.add_gone' })
+    expect(quoteAddOn(settings(), rec(), 'add_half', 0)).toEqual({ ok: false, error: 'You can add up to 1 Extra half hour.', field: 'addOns.add_half' })
+    expect(quoteAddOn(settings(), rec({ status: 'cancelled' }), 'add_half', 1)).toEqual({ ok: false, error: 'This party was cancelled.', field: 'status' })
+    expect(quoteAddOn(settings(), rec({ source: undefined }), 'add_half', 1)).toEqual({ ok: false, error: 'This party was booked in Square. Change it there.', field: 'source' })
+  })
+
+  const bagItem = (over: Partial<PartyItem>): PartyItem => ({
+    id: 'itm_b', kind: 'addon', refId: 'add_bags', label: 'Goodie bags', qty: 30, count: 1, forGuests: 30, unitCents: 500, cents: 15000, extraMinutes: 0, chargeId: 'chg_1', addedAt: '', by: null, ...over,
+  })
+  const threeBags = () => {
+    const s = settings()
+    s.addOns.find((a) => a.id === 'add_bags')!.maxQty = 3
+    return s
+  }
+
+  it('30 → 10 guests, then add: the quota counts what was chosen (1), not 30 ÷ 10', () => {
+    const r = rec({ guestCount: 10, items: [bagItem({})] })
+    expect(quoteAddOn(settings(), r, 'add_bags', 1)).toEqual({ ok: false, error: 'You can add up to 1 Goodie bags.', field: 'addOns.add_bags' })
+    const more = ok(quoteAddOn(threeBags(), r, 'add_bags', 2))
+    expect(more).toMatchObject({ count: 2, forGuests: 10, qty: 20, cents: 10000 })
+    expect(quoteAddOn(threeBags(), r, 'add_bags', 3).ok).toBe(false)
+  })
+
+  it('an old item with no count is derived once as before', () => {
+    const r = rec({ guestCount: 10, items: [bagItem({ count: undefined, forGuests: undefined })] })
+    expect(quoteAddOn(threeBags(), r, 'add_bags', 1).ok).toBe(false) // 30 ÷ 10 = 3 already
+  })
+
+  it('10 → 20 guests: a top-up charges the 10 new guests only, and never guests already covered', () => {
+    const r = rec({ guestCount: 20, items: [bagItem({ qty: 10, forGuests: 10, cents: 5000 })] })
+    const top = ok(quoteAddOn(settings(), r, 'add_bags', 1, 10))
+    expect(top).toEqual({ kind: 'addon', refId: 'add_bags', label: 'Goodie bags', qty: 10, count: 1, forGuests: 10, topUp: true, unitCents: 500, cents: 5000, extraMinutes: 0 })
+    expect(quoteAddOn(settings(), r, 'add_bags', 1, 11)).toEqual({ ok: false, error: 'Only 10 guests don’t have Goodie bags yet.', field: 'forGuests' })
+    const after = rec({ guestCount: 20, items: [bagItem({ qty: 10, forGuests: 10, cents: 5000 }), { ...bagItem({}), ...top, id: 'itm_t', chargeId: null }] })
+    expect(quoteAddOn(settings(), after, 'add_bags', 1, 1)).toEqual({ ok: false, error: 'Every guest already has Goodie bags.', field: 'forGuests' })
+    // and a top-up item doesn't use up the quota of a three-a-guest extra
+    expect(ok(quoteAddOn(threeBags(), after, 'add_bags', 2))).toMatchObject({ count: 2, forGuests: 20, qty: 40 })
+  })
+
+  it('a top-up needs the extra on the party already, a per-guest extra, and a whole number of guests', () => {
+    expect(quoteAddOn(settings(), rec(), 'add_bags', 1, 5)).toEqual({ ok: false, error: 'Add Goodie bags for every guest first.', field: 'forGuests' })
+    expect(quoteAddOn(settings(), rec(), 'add_balloons', 1, 5)).toEqual({ ok: false, error: 'Balloons is per party, not per guest.', field: 'forGuests' })
+    const r = rec({ guestCount: 20, items: [bagItem({ qty: 10, forGuests: 10 })] })
+    for (const g of [0, -1, 2.5]) expect(quoteAddOn(settings(), r, 'add_bags', 1, g).ok).toBe(false)
+    expect(quoteAddOn(settings(), r, 'add_bags', 2, 10)).toEqual({ ok: false, error: 'You can add up to 1 Goodie bags.', field: 'addOns.add_bags' })
   })
 })
 
@@ -157,7 +198,7 @@ describe('items keep their price', () => {
 describe('orderLineItems', () => {
   const pkgItem = (refId: string, label: string, cents: number) => ({ kind: 'package' as const, refId, label, qty: 1, unitCents: cents })
   it('the whole-studio package keeps today’s line name; its extras share the prefix', () => {
-    const lines = orderLineItems([pkgItem('pkg_whole', 'Whole studio', 30000), { kind: 'addon', refId: 'add_bags', label: 'Goodie bags', qty: 12, unitCents: 500 }], 'Whole studio')
+    const lines = orderLineItems([pkgItem('pkg_whole', 'Whole studio', 30000), { kind: 'addon', refId: 'add_bags', label: 'Goodie bags', qty: 12, unitCents: 500 }], 'Whole studio', 'pkg_whole')
     expect(lines).toEqual([
       { name: 'Whole Studio Party — studio fee', quantity: 1, pricePerUnit: 30000, note: 'pkg_whole' },
       { name: 'Whole Studio Party — Goodie bags', quantity: 12, pricePerUnit: 500, note: 'add_bags' },
@@ -165,12 +206,12 @@ describe('orderLineItems', () => {
   })
 
   it('other packages are "Party — <name>"', () => {
-    const lines = orderLineItems([pkgItem('pkg_test', 'Test party', 100), { kind: 'addon', refId: 'add_half', label: 'Extra half hour', qty: 1, unitCents: 5000 }], 'Test party')
+    const lines = orderLineItems([pkgItem('pkg_test', 'Test party', 100), { kind: 'addon', refId: 'add_half', label: 'Extra half hour', qty: 1, unitCents: 5000 }], 'Test party', 'pkg_test')
     expect(lines.map((l) => l.name)).toEqual(['Party — Test party', 'Party — Extra half hour'])
   })
 
   it('extras paid later on a whole-studio party keep the whole-studio prefix', () => {
-    const lines = orderLineItems([{ kind: 'addon', refId: 'add_half', label: 'Extra half hour', qty: 1, unitCents: 5000 }], 'Whole studio', { packageId: 'pkg_whole' })
+    const lines = orderLineItems([{ kind: 'addon', refId: 'add_half', label: 'Extra half hour', qty: 1, unitCents: 5000 }], 'Whole studio', 'pkg_whole')
     expect(lines[0].name).toBe('Whole Studio Party — Extra half hour')
   })
 })

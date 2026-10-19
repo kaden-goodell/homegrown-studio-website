@@ -96,7 +96,18 @@ export interface PartyItem {
   /** the package or extra id in Parties setup */
   refId: string
   label: string
+  /** units on the order line (for a per-guest extra: count × forGuests) */
   qty: number
+  /**
+   * What was chosen when it was priced: 1 for a package, how many for a
+   * per-party extra, how many per guest for a per-guest extra. Older items
+   * have none (derived from qty once, see quoteAddOn).
+   */
+  count?: number
+  /** per-guest extras: how many guests this item is for */
+  forGuests?: number
+  /** a per-guest extra added later for guests who joined after it was bought (not counted toward maxQty) */
+  topUp?: true
   unitCents: Cents
   cents: Cents
   extraMinutes: number
@@ -138,6 +149,10 @@ export interface PartyRefund {
 export const PARTY_HISTORY_CAP = 100
 const ATTEMPTS = 3
 
+function needId(id: string): void {
+  if (typeof id !== 'string' || id.trim() === '') throw new Error('A party needs an id.')
+}
+
 /** Ours (stage 2) rather than booked in Square. */
 export const isOurs = (r: PartyRecord): boolean => r.source === 'ours'
 
@@ -173,6 +188,7 @@ export async function getPartyRecord(bookingId: string): Promise<PartyRecord | n
  * the same booking sent twice) nothing is written and the stored one comes back.
  */
 export async function createPartyRecord(r: PartyRecord): Promise<{ kind: 'created' | 'exists'; rec: PartyRecord }> {
+  needId(r.bookingId)
   if (await kv.setIfMatch(r.bookingId, JSON.stringify(r, null, 2), null, false)) {
     logger.info('Party created', { bookingId: r.bookingId })
     return { kind: 'created', rec: r }
@@ -195,6 +211,7 @@ export async function updatePartyRecord(
   change: string,
   by: By | null,
 ): Promise<PartyRecord> {
+  needId(id)
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const { value, etag } = await kv.getWithMeta(id)
     if (!value) throw new PartyNotFoundError(id)

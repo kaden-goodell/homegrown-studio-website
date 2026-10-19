@@ -156,6 +156,12 @@ describe('party records v2', () => {
     expect(saved.history![99].change).toBe('newest')
   })
 
+  it('refuses an empty party id on create and update', async () => {
+    await expect(createPartyRecord(party(''))).rejects.toThrow('A party needs an id.')
+    await expect(updatePartyRecord('', (r) => r, 'x', null)).rejects.toThrow('A party needs an id.')
+    expect(fake.state.writes).toBe(0)
+  })
+
   it('keeps the bookingId even if a change tries to move it', async () => {
     await createPartyRecord(party('pty_g'))
     const saved = await updatePartyRecord('pty_g', (r) => ({ ...r, bookingId: 'pty_other' }), 'x', null)
