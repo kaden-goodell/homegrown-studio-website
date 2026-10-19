@@ -14,7 +14,8 @@ import { partyConfig } from '@config/party.config'
 import { partyStartsForDate, removeBooked } from '@lib/party-slots'
 import { studioDayUtcRange } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
-import { classSpanOf, removeClassBlocked, type ClassSpan } from '@lib/conflicts'
+import { removeClassBlocked, type ClassSpan } from '@lib/conflicts'
+import { blockedAndClosedBusy, legacyClassSpans, ourClassBusy } from '@lib/classes/studio-schedule'
 import type { BookingWithMetadata } from '@providers/interfaces/booking'
 
 const logger = createLogger('party-availability')
@@ -30,32 +31,42 @@ export function studioDateOf(iso: string): string {
 }
 
 /**
- * Classes on the calendar between two instants, in-progress and sold-out ones
- * included (`listAllWorkshops`). Never cached: the pre-charge re-check uses it
- * to decide a booking. Throws when classes can't be read.
+ * Everything a party must keep the cleanup hour from, between two instants:
+ * the legacy Square classes (`listAllWorkshops`, in-progress and sold-out
+ * ones included), our own class sessions (every status but cancelled), blocked
+ * time and whole closed days (`@lib/classes/studio-schedule`). Never cached:
+ * the pre-charge re-check uses it to decide a booking. Throws when any of
+ * them can't be read.
  */
 export async function classSpansBetween(fromIso: string, toIso: string): Promise<ClassSpan[]> {
-  const w = providers.workshop
-  const list = await (w.listAllWorkshops?.() ?? w.listWorkshops())
-  const from = Date.parse(fromIso)
-  const to = Date.parse(toIso)
-  return list.map(classSpanOf).filter((c) => Date.parse(c.endIso) > from && Date.parse(c.startIso) < to)
+  const [legacy, ours] = await Promise.all([legacyClassSpans(fromIso, toIso), ownSpansBetween(fromIso, toIso)])
+  return [...legacy, ...ours]
+}
+
+/** Our class sessions, blocked time and closed days, as spans parties yield to. Throws when they can't be read. */
+async function ownSpansBetween(fromIso: string, toIso: string): Promise<ClassSpan[]> {
+  const [classes, held] = await Promise.all([ourClassBusy(fromIso, toIso), blockedAndClosedBusy(fromIso, toIso)])
+  return [...classes, ...held].map((b) => ({ id: b.sessionId ?? b.id, name: b.label, startIso: b.startIso, endIso: b.endIso }))
 }
 
 /**
- * The same, but a failed lookup is logged and read as "no classes": party
- * availability is never blocked by it (spec E). The warnings panel catches
- * any overlap that slips through.
+ * The same, but a failed legacy Square class lookup is logged and read as
+ * "no legacy classes": party availability is never blocked by it (spec E).
+ * The warnings panel catches any overlap that slips through. Our own classes,
+ * blocked time and closed days live in our store: if those can't be read this
+ * throws, so a time is never offered over them unchecked.
  */
 export async function classSpansOrNone(fromIso: string, toIso: string): Promise<ClassSpan[]> {
-  try {
-    return await classSpansBetween(fromIso, toIso)
-  } catch (err) {
-    logger.error('Class lookup failed — party times not checked against classes', {
-      error: err instanceof Error ? err.message : String(err),
-    })
-    return []
-  }
+  const [legacy, ours] = await Promise.all([
+    legacyClassSpans(fromIso, toIso).catch((err) => {
+      logger.error('Class lookup failed — party times not checked against classes', {
+        error: err instanceof Error ? err.message : String(err),
+      })
+      return [] as ClassSpan[]
+    }),
+    ownSpansBetween(fromIso, toIso),
+  ])
+  return [...legacy, ...ours]
 }
 
 /**
@@ -63,7 +74,8 @@ export async function classSpansOrNone(fromIso: string, toIso: string): Promise<
  * minus starts a class rules out (parties yield to classes, `@lib/conflicts`),
  * minus starts already booked.
  *
- * A failed class lookup is logged and ignored (never blocks booking). A failed
+ * A failed legacy class lookup is logged and ignored (never blocks booking); a
+ * failed read of our own classes or blocked time throws. A failed
  * bookings lookup throws; callers decide (availability.json shows all
  * candidates; the book endpoint proceeds).
  */
