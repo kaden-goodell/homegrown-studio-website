@@ -31,12 +31,24 @@ export async function getClass(id: string): Promise<ScheduledClass | null> {
  * compare-and-swap. It heals itself: a missing or unreadable index is rebuilt
  * by one full scan; a class the index never heard of (an older server wrote
  * it) is added on the next read; an index write that keeps losing marks the
- * index stale so the next read rebuilds it. The answer is always the same as
- * reading every class: the index only narrows which ones are read.
+ * index stale so the next read rebuilds it; and an index built more than a
+ * day ago is rebuilt anyway, so a server that died between the class write
+ * and the index write leaves it wrong for a day at most.
+ *
+ * A save always writes its own entry, even with no usable index (it then
+ * starts a partial one, by compare-and-swap): a reader rebuilding from what
+ * it read before that save then loses its own compare-and-swap, so it can
+ * never put the class back where it was. Classes missing from a partial
+ * index are read as strays and added.
+ *
+ * The answer is always the same as reading every class: the index only
+ * narrows which ones are read.
  */
 export const CLASS_INDEX_KEY = 'index'
+/** Rebuild by a full scan once the index is older than this. */
+export const CLASS_INDEX_MAX_AGE_MS = 24 * 3_600_000
 interface IndexEntry { first: string | null; last: string | null; updatedAt: string }
-interface ClassIndex { v: 1; stale?: boolean; entries: Record<string, IndexEntry> }
+interface ClassIndex { v: 1; stale?: boolean; builtAt?: string; entries: Record<string, IndexEntry> }
 
 function entryOf(c: ScheduledClass): IndexEntry {
   const starts = c.sessions.map((s) => Date.parse(s.startIso)).filter(Number.isFinite)
@@ -63,9 +75,9 @@ async function indexClass(c: ScheduledClass): Promise<void> {
   try {
     for (let attempt = 0; attempt < 3; attempt++) {
       const { value, etag } = await kv.getWithMeta(CLASS_INDEX_KEY)
-      const idx = parseIndex(value)
-      // No usable index yet: the next read builds it from a full scan, this class included.
-      if (!idx) return
+      // No usable index (missing, unreadable or stale): start a partial one with this
+      // class, so a reader rebuilding from older reads loses its CAS.
+      const idx = parseIndex(value) ?? { v: 1, builtAt: new Date().toISOString(), entries: {} }
       const had = idx.entries[c.id]
       if (had && had.updatedAt > c.updatedAt) return
       idx.entries[c.id] = entryOf(c)
@@ -101,12 +113,14 @@ export async function listClasses(range?: { fromIso: string; toIso: string }): P
   if (!range) return (await readAll(keys)).sort(byFirstSession)
   const from = Date.parse(range.fromIso)
   const to = Date.parse(range.toIso)
-  const idx = parseIndex(meta!.value)
+  const parsed = parseIndex(meta!.value)
+  const fresh = parsed && parsed.builtAt && Date.now() - Date.parse(parsed.builtAt) < CLASS_INDEX_MAX_AGE_MS
+  const idx = fresh ? parsed : null
 
   if (!idx) {
-    // No usable index: one full scan, and build it from what was read.
+    // No usable index, or a day old: one full scan, and build it from what was read.
     const all = await readAll(keys)
-    const built: ClassIndex = { v: 1, entries: Object.fromEntries(all.map((c) => [c.id, entryOf(c)])) }
+    const built: ClassIndex = { v: 1, builtAt: new Date().toISOString(), entries: Object.fromEntries(all.map((c) => [c.id, entryOf(c)])) }
     await saveIndex(built, meta!.etag, meta!.value !== null)
     return all.filter((c) => overlaps(c, from, to)).sort(byFirstSession)
   }
