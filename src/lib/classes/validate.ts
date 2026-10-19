@@ -24,7 +24,7 @@ export function defaultRules(): ClassRules {
   }
 }
 
-export function newId(prefix: 'cls' | 'ses' | 'lib' | 'blk' | 'pas' | 'tkt' | 'q' | 'add'): string {
+export function newId(prefix: 'cls' | 'ses' | 'lib' | 'blk' | 'pas' | 'tkt' | 'q' | 'add' | 'led' | 'bkg'): string {
   let rand = ''
   while (rand.length < 4) rand += Math.random().toString(36).slice(2)
   return `${prefix}_${Date.now().toString(36)}${rand.slice(0, 4)}`
