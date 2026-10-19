@@ -2,7 +2,12 @@ import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import { newId, toIso } from './validate'
 
-export interface BlockedTime { id: string; startIso: string; endIso: string; reason: string; by: By; at: string }
+/**
+ * reason: why the room is held, as the calendar names it ("Closed", "Private
+ * event", "Setup"; older blocks may hold free text). note: the owners' own
+ * note, shown only on /admin.
+ */
+export interface BlockedTime { id: string; startIso: string; endIso: string; reason: string; note?: string; by: By; at: string }
 
 // The kv store has no delete, so a removed block stays as a tombstone that listings skip.
 interface Stored extends BlockedTime { removed?: { by: By; at: string } }
@@ -10,6 +15,7 @@ interface Stored extends BlockedTime { removed?: { by: By; at: string } }
 const kv = makeKvStore('blocked-time', 'blocked-time')
 const key = (id: string) => `blocked-${id}`
 const MAX_REASON = 120
+const MAX_NOTE = 200
 
 export async function listBlocked(range?: { fromIso: string; toIso: string }): Promise<BlockedTime[]> {
   const from = range ? Date.parse(range.fromIso) : 0
@@ -28,13 +34,15 @@ export async function listBlocked(range?: { fromIso: string; toIso: string }): P
   return out.sort((a, b) => Date.parse(a.startIso) - Date.parse(b.startIso))
 }
 
-export async function addBlocked(input: { startIso: string; endIso: string; reason: string; by: By }): Promise<BlockedTime> {
+export async function addBlocked(input: { startIso: string; endIso: string; reason: string; note?: string; by: By }): Promise<BlockedTime> {
   const startIso = toIso(input.startIso), endIso = toIso(input.endIso)
   if (!startIso || !endIso) throw new Error('Blocked time needs a start and an end time.')
   if (Date.parse(endIso) <= Date.parse(startIso)) throw new Error('Blocked time has to end after it starts.')
   const reason = (input.reason ?? '').trim()
   if (reason.length > MAX_REASON) throw new Error(`The reason can be up to ${MAX_REASON} characters.`)
-  const b: BlockedTime = { id: newId('blk'), startIso, endIso, reason, by: input.by, at: new Date().toISOString() }
+  const note = (input.note ?? '').trim()
+  if (note.length > MAX_NOTE) throw new Error(`The note can be up to ${MAX_NOTE} characters.`)
+  const b: BlockedTime = { id: newId('blk'), startIso, endIso, reason, ...(note ? { note } : {}), by: input.by, at: new Date().toISOString() }
   await kv.set(key(b.id), JSON.stringify(b))
   return b
 }

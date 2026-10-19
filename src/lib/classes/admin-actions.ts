@@ -761,19 +761,19 @@ async function bookedUnder(startIso: string, endIso: string): Promise<Busy[]> {
  * message unless `confirm: true`; confirmed, it saves and the reply lists what
  * it sits on. Nothing booked is changed either way.
  */
-export async function blockTime(body: { startIso?: unknown; endIso?: unknown; reason?: unknown; confirm?: unknown }, by: By = ADMIN_BY): Promise<{ blocked: BlockedTime; clashes: Busy[] }> {
+export async function blockTime(body: { startIso?: unknown; endIso?: unknown; reason?: unknown; note?: unknown; confirm?: unknown }, by: By = ADMIN_BY): Promise<{ blocked: BlockedTime; clashes: Busy[] }> {
   const startIso = toIso(body.startIso), endIso = toIso(body.endIso)
   if (!startIso || !endIso) throw new ActionError(400, 'Blocked time needs a start and an end time.')
   if (Date.parse(endIso) <= Date.parse(startIso)) throw new ActionError(400, 'Blocked time has to end after it starts.')
   const found = await bookedUnder(startIso, endIso)
   if (found.length && body.confirm !== true) throw new ActionError(409, clashMessage(found), { clashes: found })
   try {
-    const b = await addBlocked({ startIso, endIso, reason: typeof body.reason === 'string' ? body.reason : '', by })
+    const b = await addBlocked({ startIso, endIso, reason: typeof body.reason === 'string' ? body.reason : '', note: typeof body.note === 'string' ? body.note : '', by })
     await audit(by, 'blocked-time-add', { kind: 'blocked-time', id: b.id, label: b.reason }, { startIso: b.startIso, endIso: b.endIso, over: found.length })
     return { blocked: b, clashes: found }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    if (/^(Blocked time|The reason)/.test(msg)) throw new ActionError(400, msg)
+    if (/^(Blocked time|The reason|The note)/.test(msg)) throw new ActionError(400, msg)
     throw e
   }
 }

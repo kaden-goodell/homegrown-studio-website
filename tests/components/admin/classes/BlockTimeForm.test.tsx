@@ -23,7 +23,8 @@ const fill = () => {
   fireEvent.change(screen.getByLabelText('Day'), { target: { value: DAY } })
   fireEvent.change(screen.getByLabelText('From'), { target: { value: '09:00' } })
   fireEvent.change(screen.getByLabelText('To'), { target: { value: '12:00' } })
-  fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Deep clean' } })
+  fireEvent.click(screen.getByRole('button', { name: 'Setup' }))
+  fireEvent.change(screen.getByLabelText(/Note/), { target: { value: 'Deep clean' } })
 }
 afterEach(() => vi.unstubAllGlobals())
 
@@ -37,7 +38,7 @@ describe('BlockTimeForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Block this time' }))
     expect(await screen.findByText('Blocked.')).toBeInTheDocument()
     const post = fetchMock.mock.calls.find((c) => c[1]?.method === 'POST')!
-    expect(JSON.parse(post[1].body)).toEqual({ action: 'add', startIso: localToUtcISO(DAY, '09:00'), endIso: localToUtcISO(DAY, '12:00'), reason: 'Deep clean' })
+    expect(JSON.parse(post[1].body)).toEqual({ action: 'add', startIso: localToUtcISO(DAY, '09:00'), endIso: localToUtcISO(DAY, '12:00'), reason: 'Setup', note: 'Deep clean' })
   })
 
   it('all day blocks midnight to midnight', async () => {
@@ -65,7 +66,7 @@ describe('BlockTimeForm', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Block anyway' }))
     await screen.findByText(/Blocked\. It sits on Pottery/)
     const posts = fetchMock.mock.calls.filter((c) => c[1]?.method === 'POST').map((c) => JSON.parse(c[1].body))
-    expect(posts[1]).toMatchObject({ action: 'add', confirm: true, reason: 'Deep clean' })
+    expect(posts[1]).toMatchObject({ action: 'add', confirm: true, reason: 'Setup', note: 'Deep clean' })
   })
 
   it('needs an end after the start before it asks the server', async () => {
@@ -92,6 +93,35 @@ describe('BlockTimeForm', () => {
   })
 })
 
+describe('Block time: Why and Note (mock-up D)', () => {
+  it('Why is Closed · Private · Setup (Closed to start); the note is optional and says only you see it; old free-text reasons still list', async () => {
+    const fetchMock = server({ existing: [{ id: 'blk_1', startIso: localToUtcISO(DAY, '09:00'), endIso: localToUtcISO(DAY, '10:00'), reason: 'Private event', note: 'Smith baby shower' }] })
+    vi.stubGlobal('fetch', fetchMock)
+    render(<BlockTimeForm />)
+    const why = screen.getByRole('group', { name: 'Why' })
+    expect(within(why).getAllByRole('button').map((b) => b.textContent)).toEqual(['Closed', 'Private', 'Setup'])
+    expect(within(why).getByRole('button', { name: 'Closed' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByLabelText(/Note/)).toHaveAttribute('placeholder', 'Optional')
+    expect(screen.getByText('(only you see it)')).toBeInTheDocument()
+    const row = await screen.findByRole('listitem', { name: /Private event/ })
+    expect(within(row).getByText('Note: Smith baby shower')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Day'), { target: { value: DAY } })
+    fireEvent.click(within(why).getByRole('button', { name: 'Private' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Block this time' }))
+    await screen.findByText('Blocked.')
+    const body = JSON.parse(fetchMock.mock.calls.find((c) => c[1]?.method === 'POST')![1].body)
+    expect(body).toMatchObject({ reason: 'Private event' })
+    expect(body.note).toBeUndefined()
+  })
+
+  it('no inline styles left: the form and Print a day use admin.css', async () => {
+    const { readFileSync } = await import('node:fs')
+    for (const f of ['src/components/admin/classes/BlockTimeForm.tsx', 'src/components/admin/classes/PrintDay.tsx']) {
+      expect(readFileSync(f, 'utf8')).not.toMatch(/style=\{|<style>/)
+    }
+  })
+})
+
 describe('BlockTimeForm inside an /admin sheet', () => {
   it('starts on the day it was opened for, reports typing, and hands the block up instead of saying so itself', async () => {
     vi.stubGlobal('fetch', server())
@@ -100,7 +130,7 @@ describe('BlockTimeForm inside an /admin sheet', () => {
     await screen.findByText('No blocked time coming up.')
     expect(screen.getByLabelText('Day')).toHaveValue(DAY)
     expect(onDirty).toHaveBeenLastCalledWith(false)
-    fireEvent.change(screen.getByLabelText(/Reason/), { target: { value: 'Deep clean' } })
+    fireEvent.change(screen.getByLabelText(/Note/), { target: { value: 'Deep clean' } })
     expect(onDirty).toHaveBeenLastCalledWith(true)
     fireEvent.click(screen.getByRole('button', { name: 'Block this time' }))
     await waitFor(() => expect(onBlocked).toHaveBeenCalled())

@@ -2216,3 +2216,129 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
   height: 100%;
   background: var(--color-primary);
 }
+
+/* ---------------------------------------------------------------- 11b-C: Block time (no inline styles) */
+.adm-block {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.adm-blockform {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.adm-blockform .adm-check {
+  margin-bottom: 0.5rem;
+}
+.adm-fldlabel {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--color-dark);
+  margin: 0 0 0.3rem;
+}
+.adm-blocknote {
+  margin-top: 0.75rem;
+}
+.adm-done {
+  font-weight: 600;
+  color: var(--color-dark);
+}
+.adm-blocklist {
+  display: grid;
+  gap: 0.5rem;
+}
+.adm-blockrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+  padding: 0.75rem;
+  border: 1px solid var(--adm-line);
+  border-radius: 0.9rem;
+  background: var(--adm-surface);
+}
+.adm-blockrow small {
+  display: block;
+}
+.adm-blockrow > .adm-error {
+  grid-column: 1 / -1;
+}
+.adm-blockbtns {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.adm-blockbtns .adm-btn {
+  width: auto;
+}
+
+/* ---------------------------------------------------------------- 11b-C: Print a day (moved from PrintDay's inline styles) */
+.print-day {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+.print-day-bar {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.print-day-bar .adm-btn {
+  width: auto;
+}
+.print-day-bar .adm-fld {
+  margin: 0;
+}
+.print-day-box {
+  display: grid;
+  gap: 0.4rem;
+  padding: 1rem;
+  border-radius: 1rem;
+  border: 1px solid var(--adm-line);
+  background: var(--adm-surface);
+  min-width: 0;
+}
+.print-day-seats {
+  font-weight: 700;
+}
+.print-day-list {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+.print-day table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+.print-day th,
+.print-day td {
+  text-align: left;
+  padding: 0.3rem 0.4rem;
+  border-bottom: 1px solid var(--adm-line);
+  vertical-align: top;
+}
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .print-day,
+  .print-day * {
+    visibility: visible;
+  }
+  .print-day {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-day section {
+    break-inside: avoid;
+    border-color: #999 !important;
+  }
+}

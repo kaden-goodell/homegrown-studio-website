@@ -7,6 +7,7 @@ import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
 import { busyBetween, type Busy } from '@lib/classes/studio-schedule'
 import type { ClassStatus } from '@lib/classes/types'
 import { getPartyRecord } from '@lib/party-store'
+import { listBlocked } from '@lib/classes/blocked-time'
 
 export const prerender = false
 
@@ -17,6 +18,8 @@ export type CalendarItem = Busy & {
   capacity?: number
   /** Parties: the guest count the host booked for, when we have their record. */
   guests?: number
+  /** Blocked time: the owners' note (only on /admin). */
+  note?: string
 }
 
 /**
@@ -35,6 +38,10 @@ export const GET: APIRoute = async ({ request, url }) => {
   try {
     const [busy, classes] = await Promise.all([busyBetween(from, to), listClasses({ fromIso: from, toIso: to })])
     const byId = new Map(classes.map((c) => [c.id, c]))
+    // The owners' notes on blocked time (an extra: none when they can't be read).
+    const notes = busy.some((b) => b.kind === 'blocked')
+      ? listBlocked({ fromIso: from, toIso: to }).then((l) => Object.fromEntries(l.filter((x) => x.note).map((x) => [x.id, x.note!])), () => ({} as Record<string, string>))
+      : Promise.resolve({} as Record<string, string>)
     const now = new Date()
     const ledgers = new Map(await Promise.all(
       [...new Set(busy.filter((b) => b.kind === 'class').map((b) => b.id))].map(async (id) => [id, await getLedger(id).catch(() => null)] as const),
@@ -50,6 +57,10 @@ export const GET: APIRoute = async ({ request, url }) => {
           ...(session ? { capacity: session.capacity } : {}),
           ...(ledger && b.sessionId ? { booked: seatsTaken(ledger, b.sessionId, now) } : {}),
         }
+      }
+      if (b.kind === 'blocked') {
+        const note = (await notes)[b.id]
+        return note ? { ...b, note } : b
       }
       if (b.kind === 'party') {
         const record = await getPartyRecord(b.id).catch(() => null)

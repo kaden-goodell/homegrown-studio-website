@@ -4,7 +4,6 @@ import type { Busy } from '@lib/classes/studio-schedule'
 import { timeSpan as formatTimeSpan } from '../shell/time'
 import { api, DAY } from './api'
 import { dayLabel } from './dates'
-import { box, errorText, muted, row } from './ui'
 
 interface DayData { day: string; classes: DayClass[]; events: DayEvent[]; other: Busy[] }
 
@@ -34,42 +33,31 @@ export default function PrintDay({ day: initialDay, onBack, hideBack }: { day: s
   }, [day, reload])
 
   return (
-    <div className="print-day" style={{ display: 'grid', gap: '1rem' }}>
-      <style>{`
-        @media print {
-          body * { visibility: hidden; }
-          .print-day, .print-day * { visibility: visible; }
-          .print-day { position: absolute; left: 0; top: 0; width: 100%; }
-          .no-print { display: none !important; }
-          .print-day section { break-inside: avoid; border-color: #999 !important; }
-        }
-        .print-day table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
-        .print-day th, .print-day td { text-align: left; padding: 0.3rem 0.4rem; border-bottom: 1px solid var(--color-line); vertical-align: top; }
-      `}</style>
-      <div className="no-print" style={row}>
-        {!hideBack && <button type="button" className="btn btn-secondary" onClick={onBack}>Back</button>}
-        <label style={{ display: 'grid', gap: '0.2rem' }}>
-          <span className="field-label">Day</span>
-          <input className="field-input" type="date" value={day} onChange={(e) => e.target.value && setDay(e.target.value)} />
+    <div className="print-day">
+      <div className="no-print print-day-bar">
+        {!hideBack && <button type="button" className="adm-btn is-ghost" onClick={onBack}>Back</button>}
+        <label className="adm-fld">
+          <span>Day</span>
+          <input type="date" value={day} onChange={(e) => e.target.value && setDay(e.target.value)} />
         </label>
-        <button type="button" className="btn btn-primary" onClick={() => window.print()}>Print</button>
+        <button type="button" className="adm-btn is-pri" onClick={() => window.print()}>Print</button>
       </div>
-      <h1 className="font-heading" style={{ margin: 0, fontSize: '1.75rem', color: 'var(--color-dark)' }}>{dayLabel(day)}</h1>
-      {error && <p role="alert" style={errorText}>{error} <button type="button" className="btn btn-secondary no-print" onClick={() => setReload((n) => n + 1)}>Try again</button></p>}
-      {!error && !data && <p style={muted}>Loading…</p>}
-      {data && !data.classes.length && !data.events.length && !data.other.length && <p style={muted}>Nothing on this day.</p>}
+      <h1 className="adm-h1">{dayLabel(day)}</h1>
+      {error && <p role="alert" className="adm-error">{error} <button type="button" className="adm-btn is-ghost is-sm no-print" onClick={() => setReload((n) => n + 1)}>Try again</button></p>}
+      {!error && !data && <p className="adm-muted">Loading…</p>}
+      {data && !data.classes.length && !data.events.length && !data.other.length && <p className="adm-muted">Nothing on this day.</p>}
       {data?.classes.map((c) => <ClassSheet key={`${c.id}-${c.sessionId}`} c={c} />)}
       {data?.events.map((e) => (
-        <section key={`${e.id}-${e.startIso}`} role="region" aria-label={e.label} style={box}>
-          <h2 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--color-dark)' }}>{e.label}</h2>
-          <p style={muted}>{formatTimeSpan(e.startIso, e.endIso)} · {e.kind === 'party' ? 'Party' : 'Square class'}</p>
+        <section key={`${e.id}-${e.startIso}`} role="region" aria-label={e.label} className="print-day-box">
+          <h2 className="adm-h2">{e.label}</h2>
+          <p className="adm-muted">{formatTimeSpan(e.startIso, e.endIso)} · {e.kind === 'party' ? 'Party' : 'Square class'}</p>
           <Waivers list={e.waivers} />
         </section>
       ))}
       {!!data?.other.length && (
-        <section style={box}>
-          <h2 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--color-dark)' }}>Also today</h2>
-          <ul style={{ margin: 0, paddingLeft: '1.2rem' }}>
+        <section className="print-day-box">
+          <h2 className="adm-h2">Also today</h2>
+          <ul className="print-day-list">
             {data.other.map((o) => <li key={o.id}>{o.kind === 'closed' ? o.label : `${o.label} · ${formatTimeSpan(o.startIso, o.endIso)}`}</li>)}
           </ul>
         </section>
@@ -79,10 +67,10 @@ export default function PrintDay({ day: initialDay, onBack, hideBack }: { day: s
 }
 
 function Waivers({ list }: { list: SignedWaiver[] | null }) {
-  if (list === null) return <p style={muted}>Waivers couldn’t be read.</p>
-  if (!list.length) return <p style={muted}>No waivers signed yet.</p>
+  if (list === null) return <p className="adm-muted">Waivers couldn’t be read.</p>
+  if (!list.length) return <p className="adm-muted">No waivers signed yet.</p>
   return (
-    <p style={{ margin: 0 }}>
+    <p>
       Waivers signed {list.length} · {list.map((w) => (w.kids ? `${w.name} (+${w.kids} ${w.kids === 1 ? 'kid' : 'kids'})` : w.name)).join(', ')}
     </p>
   )
@@ -105,20 +93,20 @@ function ClassSheet({ c }: { c: DayClass }) {
   const signed = c.waivers ? new Set(c.waivers.map((w) => w.email.trim().toLowerCase())) : null
 
   return (
-    <section role="region" aria-label={c.name} style={box}>
-      <h2 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--color-dark)' }}>{c.name}</h2>
-      <p style={muted}>{formatTimeSpan(c.startIso, c.endIso)}</p>
-      <p style={{ margin: 0, fontWeight: 700 }}>{`${seats} of ${c.capacity} seats`}</p>
+    <section role="region" aria-label={c.name} className="print-day-box">
+      <h2 className="adm-h2">{c.name}</h2>
+      <p className="adm-muted">{formatTimeSpan(c.startIso, c.endIso)}</p>
+      <p className="print-day-seats">{`${seats} of ${c.capacity} seats`}</p>
       {c.content.ticketTypes.length > 1 && (
-        <p style={{ margin: 0 }}>{c.content.ticketTypes.map((t) => `${t.label} ${seatTotals[t.id] ?? 0}`).join(' · ')}</p>
+        <p>{c.content.ticketTypes.map((t) => `${t.label} ${seatTotals[t.id] ?? 0}`).join(' · ')}</p>
       )}
       {c.content.questions.map((q) => (
-        <p key={q.id} style={{ margin: 0 }}>{`${q.label}: ${q.choices.map((ch) => `${ch} ${pickTotals[q.id]?.[ch] ?? 0}`).join(' · ')}`}</p>
+        <p key={q.id}>{`${q.label}: ${q.choices.map((ch) => `${ch} ${pickTotals[q.id]?.[ch] ?? 0}`).join(' · ')}`}</p>
       ))}
       {counts(addOnTotals).map(([id, n]) => (
-        <p key={id} style={{ margin: 0 }}>{`${c.content.addOns.find((a) => a.id === id)?.label ?? id} ${n}`}</p>
+        <p key={id}>{`${c.content.addOns.find((a) => a.id === id)?.label ?? id} ${n}`}</p>
       ))}
-      {c.bookings.length === 0 ? <p style={muted}>No one booked yet.</p> : (
+      {c.bookings.length === 0 ? <p className="adm-muted">No one booked yet.</p> : (
         <table>
           <thead><tr><th>Name</th><th>Seats</th>{c.content.questions.length > 0 && <th>Picks</th>}<th>Phone</th><th>Waiver</th></tr></thead>
           <tbody>

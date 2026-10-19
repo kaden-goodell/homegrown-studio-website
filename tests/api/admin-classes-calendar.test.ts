@@ -64,6 +64,14 @@ describe('calendar.json', () => {
     expect(mine).toMatchObject({ kind: 'class', status: 'draft', sessionId: 'ses_cal1', label: 'Cal Draft Candles' })
   })
 
+  it('blocked time is named by its Why, and carries the owners’ note (admin only)', async () => {
+    const { addBlocked } = await import('@lib/classes/blocked-time')
+    const b = await addBlocked({ startIso: at('07:00'), endIso: at('08:00'), reason: 'Private event', note: 'Smith baby shower', by: { id: 'a', name: 'A' } })
+    const r = await call(calendar, `/x?from=${encodeURIComponent(at('00:00'))}&to=${encodeURIComponent(at('23:59'))}`)
+    expect(r.body.data.items.find((i: any) => i.id === b.id)).toMatchObject({ kind: 'blocked', label: 'Private event', note: 'Smith baby shower' })
+    await expect(addBlocked({ startIso: at('07:00'), endIso: at('08:00'), reason: 'Setup', note: 'x'.repeat(201), by: { id: 'a', name: 'A' } })).rejects.toThrow('The note can be up to 200 characters.')
+  })
+
   it('our class sessions carry seats taken and capacity; parties carry their guest count', async () => {
     const cls = await createClass({ content: content('Cal Seats Looms'), sessions: [{ id: 'ses_cal2', startIso: at('16:00'), endIso: at('17:00'), capacity: 12 }], status: 'open', by: { id: 'a', name: 'A' } })
     await makeKvStore('seat-ledger', 'seat-ledger').set(`ledger-${cls.id}`, JSON.stringify({

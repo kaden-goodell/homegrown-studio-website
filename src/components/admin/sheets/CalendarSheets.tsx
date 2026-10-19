@@ -105,6 +105,7 @@ export function BlockedSheet({ day, id }: { day: string; id: string }) {
   if (error) return <SheetFrame title="Blocked time"><Failed message={error} onRetry={retry} /></SheetFrame>
   if (!item) return <Gone title="Blocked time" />
   const reason = item.label === 'blocked time' ? '' : item.label
+  const note = item.note ?? ''
 
   async function remove() {
     if (!item) return
@@ -115,7 +116,7 @@ export function BlockedSheet({ day, id }: { day: string; id: string }) {
     if (!r.ok) return setFailed(r.status === 0 ? r.error ?? DIDNT_SAVE : DIDNT_SAVE)
     bump()
     close()
-    const again = { action: 'add', startIso: item.startIso, endIso: item.endIso, reason, confirm: true }
+    const again = { action: 'add', startIso: item.startIso, endIso: item.endIso, reason, ...(note ? { note } : {}), confirm: true }
     toast('Block removed.', {
       undo: () => api(BLOCKED, again).then((back) => { bump(); if (!back.ok) toast(DIDNT_SAVE) }),
     })
@@ -138,7 +139,8 @@ export function BlockedSheet({ day, id }: { day: string; id: string }) {
     <SheetFrame title={itemName(item)} subtitle={whenOf(item)} footer={footer}>
       <div className="adm-card">
         <p>Customers can’t book anything {formatTimeSpan(item.startIso, item.endIso)}.</p>
-        {reason && <p className="adm-muted">Note: {reason}</p>}
+        {reason && <p className="adm-muted">Why: {reason}</p>}
+        {note && <p className="adm-muted">Note: {note}</p>}
       </div>
     </SheetFrame>
   )
