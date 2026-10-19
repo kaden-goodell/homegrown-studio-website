@@ -457,6 +457,30 @@ describe('GET /api/calendar.json', () => {
       expect(november.map((e: any) => e.startTime)).toEqual(['15:30'])
     })
 
+    it('M1: a draft or link-only class keeps party times off its hours (as the party picker does) without showing on the calendar', async () => {
+      const at = { sessions: [{ id: 's', startIso: '2026-11-08T18:00:00.000Z', endIso: '2026-11-08T20:00:00.000Z', capacity: 8 }] }
+      for (const cls of [ourClass({ id: 'cls_draft', status: 'draft', ...at }), ourClass({ id: 'cls_link', ...at }, { linkOnly: true })]) {
+        forgetAll()
+        mockListClasses.mockResolvedValue([cls])
+        const { body } = await getMonth('2026-11')
+        expect(ids(body).filter((i: string) => i.startsWith('class-'))).toEqual([])
+        expect(body.events.filter((e: any) => e.kind === 'party-available' && e.date === '2026-11-08').map((e: any) => e.startTime)).toEqual(['15:30'])
+      }
+    })
+
+    it('M1: blocked time keeps party times off it too', async () => {
+      const { addBlocked } = await import('@lib/classes/blocked-time')
+      await addBlocked({ startIso: '2026-11-08T18:00:00.000Z', endIso: '2026-11-08T20:00:00.000Z', reason: 'Private event', by: { id: 'a', name: 'A' } })
+      const november = (await getMonth('2026-11')).body.events.filter((e: any) => e.kind === 'party-available' && e.date === '2026-11-08')
+      expect(november.map((e: any) => e.startTime)).toEqual(['15:30'])
+    })
+
+    it('M1: with the class store unreadable, no party time is offered at all (fails closed)', async () => {
+      mockListClasses.mockRejectedValue(new Error('kv down'))
+      const { body } = await getMonth('2026-11')
+      expect(body.events.filter((e: any) => e.kind === 'party-available')).toEqual([])
+    })
+
     it('marks the calendar incomplete when the class store fails', async () => {
       mockListClasses.mockRejectedValue(new Error('kv down'))
       const { body } = await getMonth('2026-10')

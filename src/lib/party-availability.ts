@@ -44,8 +44,8 @@ export async function classSpansBetween(fromIso: string, toIso: string): Promise
   return [...legacy, ...ours]
 }
 
-/** Our class sessions, blocked time and closed days, as spans parties yield to. Throws when they can't be read. */
-async function ownSpansBetween(fromIso: string, toIso: string): Promise<ClassSpan[]> {
+/** Our class sessions (any status but cancelled, link-only included), blocked time and closed days, as spans parties yield to. Throws when they can't be read. */
+export async function ownSpansBetween(fromIso: string, toIso: string): Promise<ClassSpan[]> {
   const [classes, held] = await Promise.all([ourClassBusy(fromIso, toIso), blockedAndClosedBusy(fromIso, toIso)])
   return [...classes, ...held].map((b) => ({ id: b.sessionId ?? b.id, name: b.label, startIso: b.startIso, endIso: b.endIso }))
 }

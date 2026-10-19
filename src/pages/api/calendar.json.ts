@@ -21,6 +21,7 @@ import { createLogger } from '@lib/logger'
 import { remember } from '@lib/short-memory'
 import { publicListHeaders } from '@lib/cache-headers'
 import { loadPartyVariationId, isNotFound, onSandbox } from '@lib/party-open-dates'
+import { ownSpansBetween } from '@lib/party-availability'
 
 export const prerender = false
 const logger = createLogger('api:calendar')
@@ -95,7 +96,7 @@ export const GET: APIRoute = async ({ url, request }) => {
     logger.error(`${what} failed`, { error: errorText(err) })
     return fallback
   }
-  const [allWorkshops, allOpenStudioWindows, partyVariationId, bookings, ourClasses, studio] = await Promise.all([
+  const [allWorkshops, allOpenStudioWindows, partyVariationId, bookings, ourClasses, studio, partyBlocks] = await Promise.all([
     remember('calendar:workshops', 30_000, () => providers.workshop.listWorkshops()).catch(
       orElse('workshops fetch', [] as any[]),
     ),
@@ -116,6 +117,9 @@ export const GET: APIRoute = async ({ url, request }) => {
     ),
     // The owners' closed days and café hours (config until they first save on /admin).
     getStudioDays(),
+    // What the party picker keeps parties off (M1): every class of ours but a cancelled one
+    // (drafts and link-only too), blocked time and closed days. Unreadable → no party times.
+    ownSpansBetween(rangeStart.toISOString(), rangeEnd.toISOString()).catch(orElse('class and blocked time', null as ClassSpan[] | null)),
   ])
   const closures = studio.closures
   // Only open/closed, not link-only, ones are public; the same ones block parties.
@@ -150,9 +154,10 @@ export const GET: APIRoute = async ({ url, request }) => {
     availStart.getTime() < rangeEnd.getTime()
       ? partyStartsInRange(availStart.toISOString(), rangeEnd.toISOString(), now, studio)
       : []
-  // Parties yield to classes (spec E), then booked parties come off.
-  const partyAvailable: PartyAvailabilitySlot[] = removeBooked(
-    removeClassBlocked(offeredStarts, [...allWorkshops.map(classSpanOf), ...ourSpans]),
+  // Parties yield to classes (spec E) and blocked time, the same way the party picker does, then
+  // booked parties come off. If our classes or blocked time can't be read, no party time is offered.
+  const partyAvailable: PartyAvailabilitySlot[] = partyBlocks === null ? [] : removeBooked(
+    removeClassBlocked(offeredStarts, [...allWorkshops.map(classSpanOf), ...ourSpans, ...partyBlocks]),
     partyBooked.map((b) => b.startAt)
   )
     .filter(inRangeIso)
