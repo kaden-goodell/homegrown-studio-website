@@ -432,7 +432,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
               when: formatSlotLabel(firstStart), paidCents: f.charged, email, phone,
               ...(pickLines.length ? { extra: pickLines.join('; ') } : {}),
             }),
-        reportBooking({
+        // A door sale on the studio iPad isn't a site conversion.
+        door ? Promise.resolve() : reportBooking({
           requestUrl: request.url,
           kind: 'workshop',
           bookingId,

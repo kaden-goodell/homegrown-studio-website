@@ -348,4 +348,30 @@ describe('Roster for one of our classes (Task 14)', () => {
     await waitFor(() => expect(posts).toHaveLength(1))
     expect(posts[0]).toEqual({ href: '/api/staff/class-names.json', body: { classId: 'cls_camp', bookingId: 'bkg_pos_O1', recordId: 'wvr_1' } })
   })
+
+  it('a counter sale of several seats says the name goes on all of them; families already on a booking aren’t offered', async () => {
+    const vi2 = vi
+    const posts: any[] = []
+    vi2.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init?: any) => {
+      const href = String(url)
+      if (href.includes('/api/staff/incidents.json')) return { ok: true, json: async () => ({ data: { incidents: [] } }) } as Response
+      if (init?.method === 'POST') { posts.push(href); return { ok: true, json: async () => ({ data: {} }) } as Response }
+      return {
+        ok: true,
+        json: async () => ({ data: {
+          event: OWN, day: '2026-10-20', summary: { households: 2, people: 4, childrenHereNow: 0 },
+          households: [household(), household({ recordId: 'wvr_2', signer: 'Gia Winner', email: 'gia@x.com' })], choices: null, ticketLabels: { adult: 'Adult' },
+          bookings: [
+            booking({}),
+            booking({ bookingId: 'bkg_pos_O2', source: 'pos', customer: null, name: 'Counter sale, no name yet', lineIds: ['l1', 'l2'], seatsToday: 2 }),
+          ],
+        } }),
+      } as Response
+    })
+    render(<Roster staff={staff} onBack={vi.fn()} kind="workshop" id="cls_camp" />)
+    const row = (await screen.findAllByTestId('own-booking'))[1]
+    expect(row).toHaveTextContent('Names all 2 seats on this sale.')
+    const options = within(within(row).getByLabelText('Who is Counter sale, no name yet')).getAllByRole('option').map((o) => o.textContent)
+    expect(options).toEqual(['Who is it?', 'Jamie Rivera']) // Gia is already on a booking
+  })
 })

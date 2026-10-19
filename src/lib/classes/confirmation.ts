@@ -80,7 +80,7 @@ export async function sendClassConfirmation(input: {
     policyUrl: `${origin}${POLICY_PATH}#${POLICY_ANCHORS.workshops}`,
     googleCalendarUrl: googleCalendarUrl(calendarEvent),
     // Every session goes in the calendar file; Google's link can only hold one, so it stays the first.
-    icsContent: buildIcs(sessions.map((s) => ({ ...calendarEvent, startIso: s.startIso, endIso: s.endIso }))),
+    icsContent: buildIcs(sessions.map((s) => ({ ...calendarEvent, startIso: s.startIso, endIso: s.endIso })), { uidPrefix: 'class' }),
     bookingRef: input.bookingId,
     ...(sessions.length > 1 ? { sessionLines: sessions.map((s) => formatDayAndSpan(s.startIso, s.endIso)) } : {}),
     ...(input.pickLines?.length ? { pickLines: input.pickLines } : {}),

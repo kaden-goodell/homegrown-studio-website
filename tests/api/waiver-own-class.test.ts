@@ -59,6 +59,13 @@ describe('a cls_ waiver link (B1)', () => {
     expect(flow.eventTitle).toMatch(/^Clay Camp/)
   })
 
+  it('a cancelled class says so: nothing to sign', async () => {
+    const gone = await createClass({ content: content(), sessions, status: 'cancelled', by })
+    const outcome = await waiverEventOutcome('workshop', gone.id)
+    expect(outcome).toEqual({ kind: 'past', notice: 'This class was cancelled. Nothing to sign.' })
+    expect(flowPropsFor('workshop', outcome)).toMatchObject({ workshopId: undefined, notice: 'This class was cancelled. Nothing to sign.' })
+  })
+
   it('a draft class or an unknown cls_ id is not recognized', async () => {
     const draft = await createClass({ content: content(), sessions, status: 'draft', by })
     expect((await waiverEventOutcome('workshop', draft.id)).kind).toBe('unknown')

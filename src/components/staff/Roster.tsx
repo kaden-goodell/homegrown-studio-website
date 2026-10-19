@@ -37,10 +37,12 @@ interface RosterData {
  * paid, and for a counter sale with no name yet, "Who is it?" from the
  * families who signed. Refund (crew, with a reason) underneath.
  */
-function OwnBooking({ b, classId, households, ticketLabels, onChanged }: {
+function OwnBooking({ b, classId, households, taken, ticketLabels, onChanged }: {
   b: NonNullable<RosterData['bookings']>[number]
   classId: string
   households: Household[]
+  /** emails already on a booking of this class */
+  taken: Set<string>
   ticketLabels: Record<string, string>
   onChanged: () => void
 }) {
@@ -48,6 +50,8 @@ function OwnBooking({ b, classId, households, ticketLabels, onChanged }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const unnamed = !b.customer
+  // A family already on another booking isn't offered again.
+  const offered = households.filter((h) => !taken.has(h.email.trim().toLowerCase()))
   async function saveName() {
     if (!who || busy) return
     setBusy(true)
@@ -81,13 +85,14 @@ function OwnBooking({ b, classId, households, ticketLabels, onChanged }: {
       )}
       {unnamed && (
         <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.4rem' }}>
-          {households.length ? (
+          {offered.length ? (
             <>
               <select aria-label={`Who is ${b.name}`} value={who} onChange={(e) => setWho(e.target.value)} style={{ ...field, flex: '1 1 12rem' }}>
                 <option value="">Who is it?</option>
-                {households.map((h) => <option key={h.recordId} value={h.recordId}>{h.signer}</option>)}
+                {offered.map((h) => <option key={h.recordId} value={h.recordId}>{h.signer}</option>)}
               </select>
-              <button type="button" onClick={saveName} disabled={!who || busy} style={{ ...btn(true), minHeight: '2.75rem' }}>{busy ? 'Saving…' : 'Save name'}</button>
+              <button type="button" onClick={saveName} disabled={!who || busy} style={{ ...btn(true), minHeight: '2.75rem', ...(!who || busy ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}>{busy ? 'Saving…' : 'Save name'}</button>
+              {b.lineIds.length > 1 && <span style={{ flexBasis: '100%', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{`Names all ${b.lineIds.length} seats on this sale.`}</span>}
             </>
           ) : (
             <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Their name comes from the waiver once they sign for this class.</span>
@@ -524,7 +529,7 @@ export default function Roster({
           {data.bookings.length === 0 && <p style={{ margin: '0.4rem 0 0', fontSize: '0.9rem', color: 'var(--color-muted)' }}>No one booked on this day yet.</p>}
           <ul style={{ margin: '0.3rem 0 0', padding: 0 }}>
             {data.bookings.map((b) => (
-              <OwnBooking key={b.bookingId} b={b} classId={id} households={data.households} ticketLabels={data.ticketLabels ?? {}} onChanged={refresh} />
+              <OwnBooking key={b.bookingId} b={b} classId={id} households={data.households} taken={new Set(data.bookings!.map((x) => x.customer?.email.trim().toLowerCase()).filter((e): e is string => !!e))} ticketLabels={data.ticketLabels ?? {}} onChanged={refresh} />
             ))}
           </ul>
         </section>

@@ -664,6 +664,8 @@ describe('Pay on the iPad (door mode, Task 14)', () => {
     const [line] = await linesOf(cls)
     expect(line).toMatchObject({ source: 'door-card', state: 'confirmed', sessionIds: ['ses_sat'], by: { id: 'sam', name: 'Sam' }, square: { orderId: 'ORDER2', paymentId: 'PAY2' } })
     expect(mockProcessPayment).toHaveBeenCalledTimes(1)
+    // a door sale on the studio iPad isn't a site conversion
+    expect(mockReport).not.toHaveBeenCalled()
   })
   it('online, the same running session is closed', async () => {
     vi.setSystemTime(DURING)

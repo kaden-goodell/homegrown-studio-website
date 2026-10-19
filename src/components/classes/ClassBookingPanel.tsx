@@ -148,7 +148,29 @@ function Counter({ label, value, canLess, canMore, onLess, onMore, spoken }: {
  * shown is worked out here with the same `quote` the server uses; the server
  * prices it again from the class and charges its own total.
  */
+
+const LOUD = {
+  trackWizardStarted,
+  trackWizardStepCompleted,
+  trackPaymentStarted,
+  trackPaymentCompleted,
+  trackPaymentFailed,
+  trackBookingCompleted,
+  trackWorkshopSeatBooked,
+  trackViewItem,
+  trackBeginCheckout,
+  trackAddPaymentInfo,
+  trackBookingAbandoned,
+  trackBookingProblem,
+  trackAddToCalendar,
+  trackWaiverLinkClick,
+  identifyBooker,
+}
+const SILENT: typeof LOUD = Object.fromEntries(Object.keys(LOUD).map((k) => [k, () => undefined])) as unknown as typeof LOUD
+
 export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvailability, syncUrl = true, door = false, initialSessionId, onExit }: ClassBookingPanelProps) {
+  // Door sales on the studio iPad are not site visitors: no analytics from door mode.
+  const tr = useMemo(() => (door ? SILENT : LOUD), [door])
   const own = workshop.own!
   const cls = useMemo(() => asScheduledClass(own, workshop.name), [own, workshop.name])
   const shownPasses = own.passes.filter((p) => p.state !== 'closed')
@@ -246,8 +268,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   })
 
   useEffect(() => {
-    trackWizardStarted('workshop')
-    trackViewItem(classItem(1))
+    tr.trackWizardStarted('workshop')
+    tr.trackViewItem(classItem(1))
   }, [])
 
   useEffect(() => {
@@ -377,16 +399,16 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   function next() {
     if (step === 'details') {
       if (!detailsReady()) return
-      trackWizardStepCompleted('details')
-      if (!needsSeats) trackBeginCheckout('workshop', (q?.totalCents ?? 0) / 100, [classItem()], { seats: total })
+      tr.trackWizardStepCompleted('details')
+      if (!needsSeats) tr.trackBeginCheckout('workshop', (q?.totalCents ?? 0) / 100, [classItem()], { seats: total })
       setStep(needsSeats ? 'seats' : 'pay')
     } else if (step === 'seats') {
       if (!full.ok) {
         setProblem(full.error)
         return
       }
-      trackWizardStepCompleted('seats')
-      trackBeginCheckout('workshop', full.value.totalCents / 100, [classItem()], { seats: total })
+      tr.trackWizardStepCompleted('seats')
+      tr.trackBeginCheckout('workshop', full.value.totalCents / 100, [classItem()], { seats: total })
       setStep('pay')
     }
     setProblem(null)
@@ -398,7 +420,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   }
 
   function closeAndRecord() {
-    if (!booked) trackBookingAbandoned('workshop', step, { class: workshop.name, seats: total, class_id: own.classId })
+    if (!booked) tr.trackBookingAbandoned('workshop', step, { class: workshop.name, seats: total, class_id: own.classId })
     onClose()
   }
   const started = step !== 'details' || picked.length > 0 || (contact !== initialContact && contactStarted(contact))
@@ -438,7 +460,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     if (!readyToPay() || !q) return
     setError(null)
     setProcessing(true)
-    trackPaymentStarted(q.totalCents / 100)
+    tr.trackPaymentStarted(q.totalCents / 100)
     try {
       // One order, one charge: one token pays for every seat.
       let token: string
@@ -452,11 +474,11 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           token = t.token
           sourceKind = t.kind
         } catch {
-          trackBookingProblem('workshop', 'card_unreadable')
+          tr.trackBookingProblem('workshop', 'card_unreadable')
           throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
         }
       }
-      trackAddPaymentInfo('workshop', q.totalCents / 100, sourceKind)
+      tr.trackAddPaymentInfo('workshop', q.totalCents / 100, sourceKind)
 
       let res: Response
       try {
@@ -496,7 +518,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         // retry can't charge twice. Anything definite: that attempt is over.
         const keep = outcomeUnknown(failure) || body?.code === 'in_progress'
         if (!keep) attemptId.current = newAttemptId()
-        if (body?.code) trackBookingProblem('workshop', String(body.code))
+        if (body?.code) tr.trackBookingProblem('workshop', String(body.code))
         const message = messageForFailure(failure, CLASS_MESSAGES)
         if (keep) {
           setStuck(message)
@@ -522,20 +544,20 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
       })
       setAskToLeave(false)
       if (!door) {
-        identifyBooker(contact.email, contact.firstName, contact.lastName)
+        tr.identifyBooker(contact.email, contact.firstName, contact.lastName)
         rememberContact(contact)
       }
       const paid = (charged ?? q.totalCents) / 100
-      trackPaymentCompleted(paid, {
+      tr.trackPaymentCompleted(paid, {
         kind: 'workshop',
         transactionId: data.bookingId ?? null,
         items: [classItem()],
         extra: { seats: total, class: workshop.name, class_id: own.classId },
       })
-      trackWorkshopSeatBooked(workshop.name, paid)
-      trackBookingCompleted('workshop')
+      tr.trackWorkshopSeatBooked(workshop.name, paid)
+      tr.trackBookingCompleted('workshop')
     } catch (err) {
-      trackPaymentFailed(err instanceof Error ? err.message : 'unknown')
+      tr.trackPaymentFailed(err instanceof Error ? err.message : 'unknown')
       setError(err instanceof Error ? err.message : workshopMessages.unavailable)
     } finally {
       setProcessing(false)
@@ -580,11 +602,11 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
             {calendarEvents.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 1rem', marginTop: '0.25rem' }}>
                 {calendarEvent && (
-                  <a href={googleCalendarUrl(calendarEvent)} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => trackAddToCalendar('confirmation', 'google', 'workshop')}>
+                  <a href={googleCalendarUrl(calendarEvent)} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => tr.trackAddToCalendar('confirmation', 'google', 'workshop')}>
                     Add to Google Calendar
                   </a>
                 )}
-                <a href={icsDataUrl(buildIcs(calendarEvents))} download="hometown-class.ics" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => trackAddToCalendar('confirmation', 'ics', 'workshop')}>
+                <a href={icsDataUrl(buildIcs(calendarEvents, { uidPrefix: 'class' }))} download="hometown-class.ics" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => tr.trackAddToCalendar('confirmation', 'ics', 'workshop')}>
                   {calendarEvent ? 'Apple or Outlook' : 'Add every date to your calendar'}
                 </a>
               </div>
@@ -600,7 +622,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           </ConfirmedBlock>
           <ConfirmedBlock label="Before you come">
             <p style={{ margin: '0 0 0.625rem' }}>Sign the participation agreement. It takes a minute, and saves doing it at the door.</p>
-            <a href={waiverUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary" onClick={() => trackWaiverLinkClick('workshop_confirmation')}>
+            <a href={waiverUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary" onClick={() => tr.trackWaiverLinkClick('workshop_confirmation')}>
               Sign the agreement
             </a>
           </ConfirmedBlock>

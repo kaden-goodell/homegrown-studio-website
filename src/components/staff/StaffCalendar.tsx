@@ -100,7 +100,7 @@ export default function StaffCalendar({
                       {it.status === 'cancelled' && <Badge tone="alert">Cancelled</Badge>}
                       {it.status === 'closed' && <Badge tone="muted">Sign-ups closed</Badge>}
                     </span>
-                    <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{formatTimeSpan(it.startIso, it.endIso)}</span>
+                    <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{it.kind === 'closed' ? 'All day' : formatTimeSpan(it.startIso, it.endIso)}</span>
                   </span>
                   <span style={{ display: 'block', marginTop: '0.2rem', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{k.word}</span>
                 </>

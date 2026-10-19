@@ -37,7 +37,8 @@ function icsEscape(text: string): string {
 }
 
 /** One calendar file; a list (a class that meets on several days) gets one VEVENT per entry. */
-export function buildIcs(input: CalendarEventInput | CalendarEventInput[]): string {
+export function buildIcs(input: CalendarEventInput | CalendarEventInput[], opts: { uidPrefix?: string } = {}): string {
+  const prefix = opts.uidPrefix ?? 'party'
   const events = Array.isArray(input) ? input : [input]
   return [
     'BEGIN:VCALENDAR',
@@ -46,7 +47,7 @@ export function buildIcs(input: CalendarEventInput | CalendarEventInput[]): stri
     ...events.flatMap((ev) => [
       'BEGIN:VEVENT',
       // Deterministic UID so the same booking never duplicates in a calendar.
-      `UID:party-${compactUtc(ev.startIso)}@ourhometownstudio.com`,
+      `UID:${prefix}-${compactUtc(ev.startIso)}@ourhometownstudio.com`,
       `DTSTAMP:${compactUtc(ev.startIso)}`,
       `DTSTART:${compactUtc(ev.startIso)}`,
       `DTEND:${compactUtc(ev.endIso)}`,

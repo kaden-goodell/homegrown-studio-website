@@ -33,5 +33,6 @@ describe('class confirmation email (M6)', () => {
     expect(ics).toContain('DTSTART:20261102T180000Z')
     expect(ics).toContain('DTSTART:20261104T180000Z')
     expect(ics).not.toContain('DTSTART:20261103T180000Z')
+    expect(ics).toContain('UID:class-20261102T180000Z@ourhometownstudio.com')
   })
 })

@@ -11,6 +11,8 @@
  */
 import { getEvent, isEventPast, type StudioEvent } from '@lib/events'
 import { formatWhen } from '@lib/studio-time'
+import { getClass } from '@lib/classes/class-store'
+import { isOwnClassId } from '@lib/classes/staff-view'
 import type { EventOutcome } from '@lib/waiver-page'
 
 export async function waiverEventOutcome(eventKind: 'party' | 'workshop' | null, rawId: string | undefined, now = new Date()): Promise<EventOutcome> {
@@ -18,6 +20,10 @@ export async function waiverEventOutcome(eventKind: 'party' | 'workshop' | null,
   try {
     const event: StudioEvent | null = await getEvent(eventKind, rawId)
     if (event === null) {
+      // One of our classes that was cancelled: say so, rather than "ask for a fresh link".
+      if (eventKind === 'workshop' && isOwnClassId(rawId) && (await getClass(rawId))?.status === 'cancelled') {
+        return { kind: 'past', notice: 'This class was cancelled. Nothing to sign.' }
+      }
       return {
         kind: 'unknown',
         notice: eventKind === 'party'

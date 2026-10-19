@@ -14,6 +14,7 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
 const items = [
   { kind: 'class', id: 'cls_camp', label: 'Clay Camp', startIso: '2026-10-17T15:00:00.000Z', endIso: '2026-10-17T17:00:00.000Z', sessionId: 'ses_1', status: 'open' },
   { kind: 'party', id: 'bk_1', label: 'Rivera party', startIso: '2026-10-17T19:00:00.000Z', endIso: '2026-10-17T20:30:00.000Z' },
+  { kind: 'closed', id: 'closed-2026-10-18', label: 'Closed', startIso: '2026-10-18T05:00:00.000Z', endIso: '2026-10-19T04:59:59.999Z' },
   { kind: 'cafe', id: 'cafe-2026-10-17', label: 'Craft Café', startIso: '2026-10-17T14:00:00.000Z', endIso: '2026-10-17T17:30:00.000Z' },
 ]
 
@@ -30,6 +31,9 @@ describe('StaffCalendar (crew, read-only)', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain('from=2026-10-12T05%3A00%3A00.000Z')
     // Craft Café is not a button: nothing to open, nothing to edit
     expect(within(sat).getAllByRole('button')).toHaveLength(2)
+    const sun = screen.getByRole('region', { name: 'Sun Oct 18' })
+    expect(within(sun).getByTestId('calendar-item')).toHaveTextContent('All day')
+    expect(within(sun).getByTestId('calendar-item').textContent).not.toMatch(/12/)
     fireEvent.click(within(sat).getByRole('button', { name: /Clay Camp/ }))
     expect(open).toHaveBeenCalledWith({ kind: 'workshop', id: 'cls_camp', title: 'Clay Camp', day: '2026-10-17' })
   })
