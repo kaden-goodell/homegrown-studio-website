@@ -25,8 +25,9 @@ export const closures: Closure[] = [
   // Kaden, 27 Sep 2026: closed Friday to Sunday of Halloween weekend, and from
   // 21 December to New Year's Day, opening again on Saturday 2 January.
   { from: '2026-10-30', to: '2026-11-01', name: 'Halloween weekend', holiday: 'halloween' },
-  // Kaden, 9 Oct 2026: closed Thanksgiving weekend, Thursday to Sunday.
-  { from: '2026-11-26', to: '2026-11-29', name: 'Thanksgiving weekend', holiday: 'thanksgiving' },
+  // Kaden, 19 Oct 2026: closed Thanksgiving Thursday and Friday only; open
+  // that Saturday and Sunday (was Thursday to Sunday, 9 Oct).
+  { from: '2026-11-26', to: '2026-11-27', name: 'Thanksgiving', holiday: 'thanksgiving' },
   { from: '2026-12-21', to: '2027-01-01', name: 'the Christmas holidays', holiday: 'christmas' },
 ]
 
