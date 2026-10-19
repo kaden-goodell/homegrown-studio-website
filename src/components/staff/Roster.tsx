@@ -575,7 +575,7 @@ export default function Roster({
             <p key={`${u.email}:${i}`} style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', color: 'var(--color-dark)' }}>
               {`${u.name} · ${u.seats} seat${u.seats === 1 ? '' : 's'}${u.picks.length ? ` · Picks: ${picksShort(u.picks)}` : ''}`}
               {u.comped && <>{' '}<Badge tone="muted">comped</Badge></>}
-              {u.atRegister && <>{' '}<Badge tone="muted">pay at register</Badge></>}
+              {u.atRegister && <>{' '}<Badge tone="warn">Not paid yet</Badge></>}
             </p>
           ))}
         </div>

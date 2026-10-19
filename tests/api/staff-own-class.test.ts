@@ -217,6 +217,17 @@ describe('Roster for our class', () => {
     expect((await post(namesRoute, { classId: cls.id, bookingId: counter.bookingId, recordId: 'wvr_nobody' })).status).toBe(409)
   })
 
+  it('Q-C: an unpaid door seat is "not paid yet" in the not-signed-in list too; once rung up it is not', async () => {
+    const cls = await createClass({ content: content({ questions: [] }), sessions: sessions(), status: 'open', by })
+    await post(compRoute, { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_tue'], tickets: { adult: 1 }, payAtRegister: true })
+    let r = await roster(cls.id, '2026-10-20')
+    expect(r.body.data.choices.unmatched).toEqual([expect.objectContaining({ name: 'Gia Winner', atRegister: true })])
+    await recordPos(cls, { bookingId: 'bkg_pos_QC', orderId: 'QC', paymentId: 'PQC', chargedCents: 3815, saleIso: NOW.toISOString(), lines: [{ lineUid: 'LQC', passId: 'day', ticketTypeId: 'adult', sessionIds: ['ses_tue'], units: [{ priceCents: 3500, taxCents: 315 }] }] }, NOW)
+    r = await roster(cls.id, '2026-10-20')
+    expect(r.body.data.choices.unmatched[0].atRegister).toBeUndefined()
+    expect(r.body.data.bookings[0]).toMatchObject({ source: 'door-counter', paidHere: true })
+  })
+
   it('staff only', async () => {
     mocks.staff = null
     expect((await roster('cls_whatever')).status).toBe(401)

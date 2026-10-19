@@ -271,7 +271,7 @@ export default function HouseholdCard({
             const parts = [
               ...(paid > 0 ? [{ n: paid, w: 'paid' }] : []),
               ...(seats.comped > 0 ? [{ n: seats.comped, w: 'comped' }] : []),
-              ...(atRegister > 0 ? [{ n: atRegister, w: 'pay at register' }] : []),
+              ...(atRegister > 0 ? [{ n: atRegister, w: 'not paid yet' }] : []),
             ]
             const kindLabel = parts.length === 1 ? parts[0].w : parts.map((p) => `${p.n} ${p.w}`).join(', ')
             const diff = crafting - seats.seats

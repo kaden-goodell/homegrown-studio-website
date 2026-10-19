@@ -235,4 +235,18 @@ describe('RefundPanel', () => {
     expect(screen.getByText('Refund this at the register, where it was rung up.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Refund' })).toBeNull()
   })
+
+  it('Q-B: a door seat paid at the counter: refund at the register, then free the seat here (no Square refund)', () => {
+    render(<RefundPanel classId="cls_1" booking={{ ...booking, source: 'door-counter', paidHere: true }} endpoint={STAFF_REFUND} reasonRequired counterSalesAtRegister />)
+    expect(screen.getByText('Paid at the counter. Refund it at the register, then free the seat here.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Refund' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Free their seat' })).toBeInTheDocument()
+  })
+
+  it('Q-G: a checkbox and its words stay on one line', () => {
+    render(<RefundPanel classId="cls_1" booking={booking} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    const label = screen.getByLabelText(/Free the seat/).closest('label') as HTMLLabelElement
+    expect(label.style.flexWrap).toBe('nowrap')
+  })
 })
