@@ -211,14 +211,34 @@ export async function confirm(
   /** requireLiveHold: only convert a hold still running; with none, write nothing and return [] (no rebuild past capacity) */
   opts: { requireLiveHold?: boolean } = {},
 ): Promise<LedgerLine[]> {
+  return (await confirmBooking(classId, bookingId, square, fallback, now, opts)).lines
+}
+
+/**
+ * confirm, saying whether THIS call turned the booking's seats from held (or
+ * rebuilt) into confirmed (`changed`), so only that call sends the
+ * confirmation. With no quote in `fallback` (Square's webhook: it knows the
+ * order, not what was asked), a booking with no held or paid seats is left
+ * alone: nothing is written and `lines` is empty.
+ */
+export async function confirmBooking(
+  classId: string,
+  bookingId: string,
+  square: { orderId: string | null; paymentId: string | null; chargedCents?: Cents },
+  fallback: { cls: ScheduledClass; quote?: Quote; input?: HoldInput },
+  now: Date,
+  opts: { requireLiveHold?: boolean } = {},
+): Promise<{ lines: LedgerLine[]; changed: boolean }> {
   return mutate(classId, (cur) => {
     const isPaid = (l: LedgerLine) => l.bookingId === bookingId && (l.state === 'confirmed' || l.state === 'refunded')
     const hasHeld = cur.lines.some((l) => l.bookingId === bookingId && l.state === 'held')
     const paid = cur.lines.filter(isPaid)
-    if (!hasHeld && paid.length) return { next: null, result: paid }
+    const none = { next: null, result: { lines: [] as LedgerLine[], changed: false } }
+    if (!hasHeld && paid.length) return { next: null, result: { lines: paid, changed: false } }
     if (opts.requireLiveHold && !cur.lines.some((l) => l.bookingId === bookingId && l.state === 'held' && !isExpiredHold(l, now))) {
-      return { next: null, result: [] }
+      return none
     }
+    if (!hasHeld && (!fallback.quote || !fallback.input)) return none
     const sq = (l: LedgerLine) => ({
       ...l.square, orderId: square.orderId, paymentId: square.paymentId,
       ...(square.chargedCents !== undefined ? { chargedCents: square.chargedCents } : {}),
@@ -232,7 +252,7 @@ export async function confirm(
           ? { ...l, state: 'confirmed' as const, holdExpiresAt: null, square: sq(l) }
           : l))
     } else {
-      const fresh = buildLines(fallback.quote, { ...fallback.input, bookingId }, now, null)
+      const fresh = buildLines(fallback.quote!, { ...fallback.input!, bookingId }, now, null)
         .map((l) => ({ ...l, state: 'confirmed' as const, square: sq(l) }))
       lines = [...cur.lines.filter((l) => !isExpiredHold(l, now)), ...fresh]
     }
@@ -245,7 +265,7 @@ export async function confirm(
         ? { ...l, overCapacity: true }
         : l,
     )
-    return { next: { ...cur, lines }, result: lines.filter(isPaid) }
+    return { next: { ...cur, lines }, result: { lines: lines.filter(isPaid), changed: true } }
   })
 }
 
@@ -455,7 +475,14 @@ export async function recordPos(
   cls: ScheduledClass,
   input: { bookingId: string; orderId: string; paymentId: string | null; paymentIds?: string[]; chargedCents: Cents; lines: PosLineInput[]; saleIso?: string },
   now: Date,
+  /**
+   * An online booking Square shows paid whose seats were lost (R42, To decide ›
+   * Paid, no seat): its seats are written as 'online' with the customer's
+   * name, and never take a door seat's place.
+   */
+  as: { source?: SeatSource; customer?: LedgerLine['customer']; matchDoor?: boolean } = {},
 ): Promise<LedgerLine[]> {
+  const matchDoor = as.matchDoor ?? true
   const saleDay = studioDate(input.saleIso ?? now.toISOString())
   const onSaleDay = new Set(cls.sessions.filter((s) => studioDate(s.startIso) === saleDay).map((s) => s.id))
   return mutate(cls.id, (cur) => {
@@ -473,7 +500,7 @@ export async function recordPos(
     for (const pl of input.lines) {
       let have = kept.filter((l) => l.square.orderId === input.orderId && l.square.lineUid === pl.lineUid).length
       // A seat the crew took at the door to be paid at the counter is this sale: it is paid now, never a second seat.
-      while (have < pl.units.length) {
+      while (matchDoor && have < pl.units.length) {
         // N1: the door seat was TAKEN on the sale's day, and covers a session that day.
         const candidates = kept.filter((l) => unpaidDoorSeat(l)
           && l.passId === pl.passId && l.ticketTypeId === pl.ticketTypeId && !claimed.has(l.id)
@@ -506,10 +533,10 @@ export async function recordPos(
           taxCents: pl.units[u].taxCents,
           addOns: {}, addOnCents: 0, addOnTaxCents: 0,
           answers: {},
-          source: 'pos',
+          source: as.source ?? 'pos',
           state: 'confirmed',
           holdExpiresAt: null,
-          customer: null,
+          customer: as.customer ?? null,
           square: {
             orderId: input.orderId, paymentId: input.paymentId, lineUid: pl.lineUid, chargedCents: input.chargedCents,
             ...(input.paymentIds && input.paymentIds.length > 1 ? { paymentIds: [...input.paymentIds] } : {}),

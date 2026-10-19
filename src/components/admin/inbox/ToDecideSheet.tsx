@@ -101,6 +101,7 @@ export function ToDecideSheet({ id }: { id: string }) {
     case 'below-minimum': return <BelowMinimum item={t} />
     case 'door-unpaid': return <DoorUnpaid item={t} />
     case 'counter-match-check': return <CounterCheck item={t} />
+    case 'paid-not-seated': return <PaidNoSeat item={t} />
   }
 }
 
@@ -531,3 +532,40 @@ function CounterCheck({ item }: { item: ToDecideItem }) {
   )
 }
 
+
+// ---------------------------------------------------------------- paid online, no seat (R42)
+
+function PaidNoSeat({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail
+  const { send, busy, error } = useDecide(item)
+  return (
+    <SheetFrame
+      title={item.title}
+      subtitle={item.className}
+      footer={(
+        <div className="adm-stack">
+          {d.canSeat && (
+            <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'seat' })}>
+              {label(busy, 'seat', d.seats === 1 ? 'Give them their seat' : 'Give them their seats', 'Adding…')}
+            </button>
+          )}
+          <button type="button" className={`adm-btn ${d.canSeat ? 'is-ghost' : 'is-pri'}`} disabled={!!busy} onClick={() => send({ action: 'sorted' })}>
+            {label(busy, 'sorted', 'I sorted it out in Square', 'Saving…')}
+          </button>
+        </div>
+      )}
+    >
+      <Head item={item} />
+      {kv('Paid', formatMoney(d.cents ?? 0))}
+      {kv('Seats', String(d.seats ?? 0))}
+      {kv('Square order', String(d.orderId ?? ''))}
+      <p className="adm-note adm-gap-top">
+        {d.canSeat
+          ? 'Giving them their seat puts them on the class, paid by this payment, even if the date is full. Or refund them in Square, then say you sorted it out. Nothing is refunded for you.'
+          : 'Look the payment up in Square and refund it there if it was a second charge. Then say you sorted it out. Nothing is refunded for you.'}
+      </p>
+      {item.classId && <OpenClass id={item.classId} />}
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}

@@ -19,6 +19,9 @@
  *                        → Mark paid at the counter · Free the seat
  *   counter-match-check  a counter sale matched one of several unpaid door seats
  *                        → Yes, it was them · it was someone else (the payment moves)
+ *   paid-not-seated      Square shows one of our online bookings paid, but its
+ *                        seats were let go before it could be confirmed (R42)
+ *                        → Give them their seat (over capacity if need be) · Sorted it in Square
  *
  * The decisions reuse the setters the rest of the system uses: setPosDays,
  * decideRefundFlag, clearRefundRequest, freeSeatOnly, recordPos, setNames,
@@ -33,7 +36,8 @@ import { listCounterMatchChecks, listDoorUnpaid } from './door-unpaid'
 import { clearRefundRequest, freeSeatOnly, RefundError } from './refunds'
 import { listRefundRequests } from './refund-requests'
 import {
-  decideRefundFlag, listPosNeedsDays, listRefundFlags, listUnmatchedPos, reopenRefundFlag, resolveUnmatchedPos, setPosDays, splitCents, type RefundFlag,
+  decideRefundFlag, listPaidNotSeated, listPosNeedsDays, listRefundFlags, listUnmatchedPos, reopenRefundFlag, resolvePaidNotSeated, resolveUnmatchedPos,
+  seatPaidOrder, setPosDays, splitCents, type RefundFlag,
 } from './square-events'
 import { squareFetch } from './square-api'
 import {
@@ -45,7 +49,7 @@ import type { Cents, ScheduledClass } from './types'
 
 export type ToDecideKind =
   | 'pos-unmatched' | 'refund-plain' | 'refund-failed' | 'refund-unfinished' | 'refund-unconfirmed'
-  | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check'
+  | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check' | 'paid-not-seated'
 
 /** One thing waiting for an owner (or decided lately). */
 export interface ToDecideItem {
@@ -290,6 +294,36 @@ async function matchItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
   return out
 }
 
+/** The money said plainly, for a paid booking with no seat. */
+const dollars = (c: Cents) => `$${(c / 100).toFixed(2)}`
+
+async function paidNotSeatedItems(cache: ClassCache, skip: Set<string>): Promise<ToDecideItem[]> {
+  const out: ToDecideItem[] = []
+  for (const p of await listPaidNotSeated()) {
+    const id = tokenOf(p.id)
+    if (skip.has(id)) continue
+    // Sorted out since (the customer's retry recorded the seats, or an owner gave them): nothing left to decide.
+    const ledger = await getLedger(p.classId)
+    if (ledger.lines.some((l) => l.bookingId === p.bookingId && l.square.orderId === p.orderId && (l.state === 'confirmed' || l.state === 'refunded'))) continue
+    const cls = await classOf(cache, p.classId)
+    const className = cls?.content.name ?? 'A class'
+    const seats = p.lines.reduce((n, l) => n + l.qty, 0)
+    const first = cls ? [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))[0] : undefined
+    out.push({
+      id, kind: 'paid-not-seated', title: 'Paid, no seat', at: p.at, classId: p.classId, className,
+      head: p.why === 'no-seats'
+        ? `Square shows ${dollars(p.chargedCents)} paid for ${seatsText(seats)} of ${className}, but the seats were let go before the booking finished. Nothing was refunded.`
+        : `Square shows a second payment of ${dollars(p.chargedCents)} for a ${className} booking that was already paid. Nothing was refunded.`,
+      hint: p.why === 'no-seats' ? 'Give them their seat, or sort it out in Square' : 'Check it in Square',
+      detail: {
+        paidId: p.id, orderId: p.orderId, bookingId: p.bookingId, why: p.why, cents: p.chargedCents, seats,
+        canSeat: p.why === 'no-seats' && !!cls && cls.status !== 'cancelled', firstStartIso: first?.startIso ?? null,
+      },
+    })
+  }
+  return out
+}
+
 /**
  * Everything waiting, newest first, then what was decided in the last two
  * weeks. Each source is read on its own: one that fails is named in
@@ -311,6 +345,7 @@ export async function listToDecide(now = new Date()): Promise<{ items: ToDecideI
     safe('minimums', () => minimumItems(skip, now)),
     safe('door seats', () => doorItems(skip, now)),
     safe('counter checks', () => matchItems(skip, now)),
+    safe('paid bookings', () => paidNotSeatedItems(cache, skip)),
   ])
   const open = groups.flat().sort((a, b) => b.at.localeCompare(a.at))
   // Notes on waiting items (R40: "Texted the people booked"), shown on the item.
@@ -345,6 +380,7 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'below-minimum': ['keep-running', 'texted'],
   'door-unpaid': ['paid', 'free'],
   'counter-match-check': ['confirm', 'move'],
+  'paid-not-seated': ['seat', 'sorted'],
 }
 
 async function record(item: ToDecideItem, what: string, by: By, action: string, undo?: Decided['undo']): Promise<Decided> {
@@ -387,6 +423,18 @@ async function readSale(orderId: string, lineUid: string): Promise<{ units: { pr
   return {
     units: prices.map((p, i) => ({ priceCents: p, taxCents: taxes[i] })), totalCents: total, paymentIds,
     saleIso: order.closed_at ?? order.updated_at ?? order.created_at ?? new Date().toISOString(),
+  }
+}
+
+/** The customer on a Square order, read only, for naming seats. Null when there's none or Square can't be read. */
+async function squareCustomer(customerId: string | null): Promise<LedgerLine['customer']> {
+  if (!customerId) return null
+  try {
+    const c = (await squareFetch(`/customers/${encodeURIComponent(customerId)}`, { method: 'GET' }))?.customer
+    if (!c) return null
+    return { givenName: String(c.given_name ?? ''), familyName: String(c.family_name ?? ''), email: String(c.email_address ?? ''), phone: String(c.phone_number ?? '') }
+  } catch {
+    return null
   }
 }
 
@@ -542,6 +590,27 @@ export async function decide(id: string, action: string, body: any, by: By, now 
       const entries = await newFreeEntries(item.classId!, lineIds, before)
       return { decided: await record(item, `Freed ${seatsText(lineIds.length)}`, by, action, entries.length ? { classId: item.classId!, entries } : undefined) }
     }
+    case 'paid-not-seated': {
+      const paidId = str(d.paidId)
+      if (action === 'sorted') {
+        await resolvePaidNotSeated(paidId, by, 'sorted')
+        return { decided: await record(item, 'Sorted out in Square', by, action) }
+      }
+      if (d.canSeat !== true) throw new DecideError(409, 'This one can’t be seated from here. Check it in Square.')
+      const entry = (await listPaidNotSeated()).find((p) => p.id === paidId)
+      if (!entry) throw new DecideError(404, 'This isn’t waiting any more.')
+      const customer = await squareCustomer(entry.customerId)
+      let lines: LedgerLine[]
+      try {
+        lines = await seatPaidOrder(entry, customer, now)
+      } catch (e) {
+        throw new DecideError(409, e instanceof Error ? e.message : 'That didn’t work. Try again.')
+      }
+      await resolvePaidNotSeated(paidId, by, 'seated')
+      const over = lines.some((l) => l.overCapacity)
+      const decided = await record(item, `Gave them ${seatsText(lines.length)}${over ? ' (over capacity)' : ''}`, by, action)
+      return { decided, classId: item.classId, seats: lines.map((l) => ({ lineId: l.id, seat: l.seat, named: !!l.customer })) }
+    }
     case 'counter-match-check': {
       if (action === 'confirm') {
         await markCounterMatchChecked(item.classId!, str(d.lineId), by, now)
@@ -572,7 +641,7 @@ export async function nameCounterSeats(classId: string, names: { lineId: string;
     const clean = name.trim().replace(/\s+/g, ' ').slice(0, 80)
     if (!clean) continue
     const line = ledger.lines.find((l) => l.id === lineId)
-    if (!line || line.source !== 'pos' || line.customer) throw new DecideError(400, 'One of those seats can’t be named here.')
+    if (!line || (line.source !== 'pos' && line.source !== 'online') || line.customer) throw new DecideError(400, 'One of those seats can’t be named here.')
     const [given, ...rest] = clean.split(' ')
     await setNames(cls.id, [lineId], { givenName: given, familyName: rest.join(' '), email: '', phone: '' })
     named++

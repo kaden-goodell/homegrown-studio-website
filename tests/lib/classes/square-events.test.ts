@@ -42,14 +42,20 @@ vi.mock('@lib/classes/class-store', () => ({
   getClass: async (id: string) => classes.list.find((c) => c.id === id) ?? null,
 }))
 const freed = vi.hoisted(() => vi.fn(async () => undefined))
+const texts = vi.hoisted(() => vi.fn(async (_: string) => ({ attempted: 1, sent: 1 })))
+vi.mock('@lib/owner-alert', () => ({ alertOwners: texts }))
+const confirmations = vi.hoisted(() => vi.fn(async (_: any) => ({ sent: true })))
+vi.mock('@lib/email', async (orig) => ({ ...(await orig<typeof import('@lib/email')>()), sendWorkshopConfirmationEmail: confirmations }))
 vi.mock('@lib/classes/refunds', async (orig) => ({ ...(await orig<typeof import('@lib/classes/refunds')>()), onSeatFreed: freed }))
 
 import {
   handleOrder, handleRefund, handleSquareEvent, reconcileClasses, splitCents,
   listUnmatchedPos, listPosNeedsDays, listRefundFlags, resolveRefundFlag, resetCatalogCache, SQUARE_BY,
-  setPosDays, decideRefundFlag, flagUnconfirmedRequests,
+  setPosDays, decideRefundFlag, flagUnconfirmedRequests, listPaidNotSeated,
 } from '@lib/classes/square-events'
 import { getLedger, seatsTaken, recordRefund } from '@lib/classes/seat-ledger'
+import { makeKvStore } from '@lib/blob-store'
+import { listToDecide, decide } from '@lib/classes/to-decide'
 import { createRefundRequest, markRequestDone, changeRefundRequest } from '@lib/classes/refund-requests'
 import { defaultRules } from '@lib/classes/validate'
 import type { ScheduledClass } from '@lib/classes/types'
@@ -125,11 +131,28 @@ function refund(paymentId: string, cents: number, over: Record<string, any> = {}
   }
 }
 
+/** Writes ledger lines straight to the store (a booking made by book.json). */
+async function putLines(classId: string, lines: any[]) {
+  await makeKvStore('seat-ledger', 'seat-ledger').set(`ledger-${classId}`, JSON.stringify({ classId, lines }))
+}
+/** One online seat of booking `bookingId`, held by default (placed 30 min ago, hold kept a day after an unclear answer). */
+function ownLine(bookingId: string, over: Record<string, any> = {}) {
+  return {
+    id: uid('led_').toLowerCase(), bookingId, sessionIds: ['ses_a', 'ses_b'], ticketTypeId: 'person', passId: 'all', seat: 1,
+    priceCents: 3000, taxCents: 270, addOns: {}, addOnCents: 0, addOnTaxCents: 0, answers: {}, source: 'online',
+    state: 'held', holdExpiresAt: '2026-10-21T14:30:00.000Z',
+    customer: { givenName: 'Lou', familyName: 'Lost', email: 'lou@example.com', phone: '(256) 555-0199' },
+    square: { orderId: null, paymentId: null, lineUid: null }, by: null, refunds: [], at: '2026-10-20T14:30:00.000Z', ...over,
+  }
+}
+
 beforeEach(() => {
   sq.orders.clear(); sq.payments.clear(); sq.catalog.clear(); sq.search = []; sq.calls = []; sq.fail = null
   sq.refundPages = []; sq.searchCursor = false
   resetCatalogCache()
   freed.mockClear()
+  texts.mockClear()
+  confirmations.mockClear()
 })
 
 describe('splitCents', () => {
@@ -168,13 +191,17 @@ describe('POS sales', () => {
     expect((await getLedger(cls.id)).lines).toHaveLength(2)
   })
 
-  it('our own online order echoed back (reference bkg_) is ignored', async () => {
+  it('our own online order echoed back (reference bkg_), already booked, is ignored', async () => {
     const cls = makeClass(); classes.list = [cls]
     const o = order([lineItem(cls.square.variations['all:person'], 1, 3000)], { reference_id: 'bkg_abc123', source: { name: 'Hometown Studio' } })
+    await putLines(cls.id, [ownLine('bkg_abc123', { state: 'confirmed', holdExpiresAt: null, square: { orderId: o.id, paymentId: o.tenders[0].payment_id, lineUid: null, chargedCents: 3270 } })])
     sq.orders.set(o.id, o)
+    const before = JSON.stringify((await getLedger(cls.id)).lines)
     const out = await handleSquareEvent(orderUpdated(o), NOW)
     expect(out).toMatchObject({ skipped: 'not-ours' })
-    expect((await getLedger(cls.id)).lines).toHaveLength(0)
+    expect(JSON.stringify((await getLedger(cls.id)).lines)).toBe(before)
+    expect((await listPaidNotSeated()).filter((p) => p.orderId === o.id)).toEqual([])
+    expect(texts).not.toHaveBeenCalled()
   })
 
   it('an order at another location, or not yet paid, is ignored', async () => {
@@ -415,6 +442,113 @@ describe('Square refunds', () => {
     await handleSquareEvent(refundEvent('refund.updated', { ...rf, status: 'FAILED' }), NOW)
     expect((await listRefundFlags()).filter((f) => f.squareRefundId === rf.id)).toEqual([expect.objectContaining({ kind: 'refund-failed', classId: cls.id })])
     expect(JSON.stringify((await getLedger(cls.id)).lines)).toBe(before)
+  })
+})
+
+describe('R42: our own online bookings Square shows paid', () => {
+  /** Square's order for one of our bookings: one Full series seat, $32.70, paid. */
+  const ownOrder = (cls: ScheduledClass, bookingId: string) =>
+    order([lineItem(cls.square.variations['all:person'], 1, 3000)], { reference_id: bookingId, source: { name: 'Hometown Studio' }, customer_id: 'CUST_LOU' })
+  const paymentDone = (o: any) => ({ type: 'payment.updated', data: { type: 'payment', id: o.tenders[0].id, object: { payment: { id: o.tenders[0].id, status: 'COMPLETED', order_id: o.id } } } })
+
+  it('lost answer: the webhook confirms the held seats with the payment, texts the owners and sends the confirmation once', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const bookingId = `bkg_${uid('lost').toLowerCase()}`
+    const o = ownOrder(cls, bookingId)
+    sq.orders.set(o.id, o)
+    await putLines(cls.id, [ownLine(bookingId)])
+    expect(await handleSquareEvent(paymentDone(o), NOW)).toMatchObject({ confirmed: 1 })
+    const [l] = (await getLedger(cls.id)).lines
+    expect(l).toMatchObject({ state: 'confirmed', holdExpiresAt: null, square: { orderId: o.id, paymentId: o.tenders[0].payment_id, chargedCents: 3270 } })
+    expect(texts).toHaveBeenCalledTimes(1)
+    expect(texts.mock.calls[0][0]).toMatch(/Lou Lost.*booked now/)
+    expect(confirmations).toHaveBeenCalledTimes(1)
+    expect(confirmations.mock.calls[0][0]).toMatchObject({ to: 'lou@example.com', bookingId, totalChargedCents: 3270 })
+    // Replays (the order event, the nightly reconcile) change nothing and send nothing more.
+    await handleSquareEvent(orderUpdated(o), NOW)
+    sq.search = [[o]]
+    await reconcileClasses(NOW)
+    expect((await getLedger(cls.id)).lines).toHaveLength(1)
+    expect(texts).toHaveBeenCalledTimes(1)
+    expect(confirmations).toHaveBeenCalledTimes(1)
+    expect((await listPaidNotSeated()).filter((p) => p.orderId === o.id)).toEqual([])
+  })
+
+  it('a hold still running (the customer’s own request is finishing): confirmed, but the request sends the email, not the webhook', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const bookingId = `bkg_${uid('live').toLowerCase()}`
+    const o = ownOrder(cls, bookingId)
+    sq.orders.set(o.id, o)
+    await putLines(cls.id, [ownLine(bookingId, { at: '2026-10-20T14:59:00.000Z', holdExpiresAt: '2026-10-20T15:09:00.000Z' })])
+    expect(await handleSquareEvent(paymentDone(o), NOW)).toMatchObject({ confirmed: 1 })
+    expect((await getLedger(cls.id)).lines[0].state).toBe('confirmed')
+    expect(texts).not.toHaveBeenCalled()
+    expect(confirmations).not.toHaveBeenCalled()
+  })
+
+  it('not paid yet: nothing changes', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const bookingId = `bkg_${uid('open').toLowerCase()}`
+    const o = { ...ownOrder(cls, bookingId), state: 'OPEN', tenders: [] }
+    sq.orders.set(o.id, o)
+    await putLines(cls.id, [ownLine(bookingId)])
+    await handleSquareEvent(orderUpdated(o), NOW)
+    expect((await getLedger(cls.id)).lines[0].state).toBe('held')
+    expect((await listPaidNotSeated()).filter((p) => p.orderId === o.id)).toEqual([])
+  })
+
+  it('hold expired and the seat resold: a “Paid, no seat” item for an owner, never a refund; “Give them their seat” seats them over capacity on that payment', async () => {
+    const cls = makeClass(1); classes.list = [cls]
+    const bookingId = `bkg_${uid('gone').toLowerCase()}`
+    const o = ownOrder(cls, bookingId)
+    sq.orders.set(o.id, o)
+    // The hold ran out and was swept; someone else bought the only seat.
+    await putLines(cls.id, [ownLine('bkg_someone_else', { state: 'confirmed', holdExpiresAt: null, customer: null, square: { orderId: 'ORD_OTHER', paymentId: 'PAY_OTHER', lineUid: null } })])
+    expect(await handleSquareEvent(paymentDone(o), NOW)).toMatchObject({ paidNotSeated: true })
+    expect(await handleSquareEvent(orderUpdated(o), NOW)).toMatchObject({ paidNotSeated: true }) // replay: still one item
+    const waiting = (await listPaidNotSeated()).filter((p) => p.orderId === o.id)
+    expect(waiting).toEqual([expect.objectContaining({ why: 'no-seats', orderId: o.id, bookingId, classId: cls.id, chargedCents: 3270 })])
+    expect(texts).toHaveBeenCalledTimes(1)
+    expect(texts.mock.calls[0][0]).toMatch(/Paid, no seat.*Nothing was refunded/)
+    expect(sq.calls.some((c) => /refund/i.test(c.path))).toBe(false)
+    expect((await getLedger(cls.id)).lines).toHaveLength(1)
+
+    const { items } = await listToDecide(NOW)
+    const item = items.find((i) => i.kind === 'paid-not-seated' && i.detail.orderId === o.id)!
+    expect(item).toMatchObject({ title: 'Paid, no seat', classId: cls.id, detail: { canSeat: true, seats: 1, orderId: o.id } })
+    const r = await decide(item.id, 'seat', {}, by, NOW)
+    expect(r.decided.what).toBe('Gave them 1 seat (over capacity)')
+    const seated = (await getLedger(cls.id)).lines.filter((l) => l.bookingId === bookingId)
+    expect(seated).toEqual([expect.objectContaining({
+      source: 'online', state: 'confirmed', overCapacity: true,
+      square: expect.objectContaining({ orderId: o.id, paymentId: o.tenders[0].payment_id, chargedCents: 3270 }),
+    })])
+    expect(seatsTaken(await getLedger(cls.id), 'ses_a', NOW)).toBe(2)
+    expect((await listPaidNotSeated()).filter((p) => p.orderId === o.id)).toEqual([])
+    // Seated once: the webhook again changes nothing.
+    await handleSquareEvent(paymentDone(o), NOW)
+    expect((await getLedger(cls.id)).lines.filter((l) => l.bookingId === bookingId)).toHaveLength(1)
+  })
+
+  it('“I sorted it out in Square” just closes the item', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const bookingId = `bkg_${uid('sort').toLowerCase()}`
+    const o = ownOrder(cls, bookingId)
+    sq.orders.set(o.id, o)
+    await handleSquareEvent(paymentDone(o), NOW)
+    const item = (await listToDecide(NOW)).items.find((i) => i.kind === 'paid-not-seated' && i.detail.orderId === o.id)!
+    expect((await decide(item.id, 'sorted', {}, by, NOW)).decided.what).toBe('Sorted out in Square')
+    expect((await listPaidNotSeated()).filter((p) => p.orderId === o.id)).toEqual([])
+    expect((await getLedger(cls.id)).lines).toHaveLength(0)
+  })
+
+  it('an order of ours that isn’t for one of our classes (a party, a kit) is left alone', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    sq.catalog.set('VAR_PARTY', { type: 'ITEM_VARIATION', id: 'VAR_PARTY', item_variation_data: { item_id: 'ITEM_PARTY', sku: '' } })
+    const o = order([lineItem('VAR_PARTY', 1, 30000)], { reference_id: 'bkg_party1' })
+    sq.orders.set(o.id, o)
+    expect(await handleSquareEvent(orderUpdated(o), NOW)).toMatchObject({ skipped: 'not-ours' })
+    expect((await listPaidNotSeated()).filter((p) => p.orderId === o.id)).toEqual([])
   })
 })
 

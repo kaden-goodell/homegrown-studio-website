@@ -449,7 +449,7 @@ describe('POST /api/classes/book.json', () => {
     const res = await POST(ctx(body(cls)))
     expect(res.status).toBe(200)
     expect((await res.json()).data).toMatchObject({ totalChargedCents: TOTAL, seatsBooked: 3, orderId: 'ORDER1' })
-    expect(mockAlertOwners.mock.calls.map((c) => c[0]).join('\n')).toMatch(/weren't recorded.*ORDER1/)
+    expect(mockAlertOwners.mock.calls.map((c) => c[0]).join('\n')).toMatch(/seats not recorded yet.*ORDER1/)
     const lines = await linesOf(cls)
     expect(lines.every((l) => l.state === 'held' && Date.parse(l.holdExpiresAt!) === NOW.getTime() + 24 * 3_600_000)).toBe(true)
   })
@@ -583,6 +583,23 @@ describe('POST /api/classes/book.json', () => {
     expect((await res.json()).data.emailSent).toBe(false)
   })
 
+  it('T8: a retry that finishes while the first try is still charging: one confirmation email, never two', async () => {
+    const cls = makeClass()
+    let second: Response | null = null
+    mockFindOrderPayment.mockResolvedValue({ id: 'PAY1', status: 'completed', amount: TOTAL, receiptUrl: null })
+    mockProcessPayment.mockImplementationOnce(async () => {
+      // The same attempt again (a double tap): it finds the order paid and books it first.
+      second = await POST(ctx(body(cls)))
+      return { id: 'PAY1', orderId: 'ORDER1', amount: TOTAL, status: 'completed', receiptUrl: null }
+    })
+    const first = await POST(ctx(body(cls)))
+    expect(first.status).toBe(200)
+    expect(second!.status).toBe(200)
+    expect(mockProcessPayment).toHaveBeenCalledTimes(1)
+    expect(mockSendEmail).toHaveBeenCalledTimes(1)
+    expect((await linesOf(cls)).every((l) => l.state === 'confirmed')).toBe(true)
+  })
+
   it('answers before the email, the owners’ text and analytics on Netlify', async () => {
     const cls = makeClass()
     let release!: () => void
@@ -593,6 +610,8 @@ describe('POST /api/classes/book.json', () => {
     const res = await POST(c)
     expect(res.status).toBe(200)
     expect(later).toHaveLength(1)
+    // The email goes once its one-per-booking claim is written (T8).
+    await vi.waitFor(() => expect(release).toBeTypeOf('function'))
     release()
     await Promise.all(later)
     expect(mockSendEmail).toHaveBeenCalledTimes(1)

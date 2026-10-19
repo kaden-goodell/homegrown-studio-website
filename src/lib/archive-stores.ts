@@ -45,6 +45,9 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'pos-needs-days' },
   { name: 'class-alerts' },
   { name: 'class-create-keys' },
+  // our online bookings Square showed paid with no seat left (R42), and which confirmations went out
+  { name: 'paid-not-seated' },
+  { name: 'class-confirmations' },
   // who decided what in /admin › To decide
   { name: 'to-decide' },
   // A small photo comes along; a large one is listed by key (the live store keeps it).

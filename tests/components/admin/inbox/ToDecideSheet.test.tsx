@@ -261,6 +261,24 @@ describe('To decide sheets', () => {
     await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'move', toLineId: 'led_d' }]))
   })
 
+  it('R42: paid online with no seat: Give them their seat, or say it was sorted out in Square', async () => {
+    const t = item({ kind: 'paid-not-seated', title: 'Paid, no seat', className: 'Looms', classId: 'cls_1', head: 'Square shows $32.70 paid for 1 seat of Looms, but the seats were let go before the booking finished. Nothing was refunded.', detail: { paidId: 'pns-O1', orderId: 'O1', why: 'no-seats', cents: 3270, seats: 1, canSeat: true } })
+    const { f } = show([t])
+    expect(await screen.findByText('$32.70')).toBeInTheDocument()
+    expect(within(footer()).getByRole('button', { name: 'I sorted it out in Square' })).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Give them their seat' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'seat' }]))
+  })
+
+  it('R42: a second payment can only be sorted out in Square', async () => {
+    const t = item({ kind: 'paid-not-seated', title: 'Paid, no seat', className: 'Looms', detail: { paidId: 'pns-O2', orderId: 'O2', why: 'other-order', cents: 3270, seats: 1, canSeat: false } })
+    const { f } = show([t])
+    const sorted = await screen.findByRole('button', { name: 'I sorted it out in Square' })
+    expect(within(footer()).queryByRole('button', { name: /Give them/ })).toBeNull()
+    fireEvent.click(sorted)
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'sorted' }]))
+  })
+
   it('a refusal shows in the sheet; a failed save says Didn’t save', async () => {
     const t = item({ kind: 'door-unpaid', title: 'Not paid at the counter', className: 'Looms', detail: { name: 'Dora Door', day: '2026-10-18', seats: 1 } })
     show([t], { decide: () => refuse(503, { error: 'Didn’t save. Try again.' }) })
