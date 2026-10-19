@@ -805,3 +805,12 @@ describe('WorkshopBookingModal — Adult and Kid tickets', () => {
     expect(JSON.parse(fetchSpy.mock.calls[0][1].body).tickets).toBeUndefined()
   })
 })
+
+describe('WorkshopBookingModal — tax to the cent', () => {
+  it('taxes each seat on its own, so the button matches the card (3 × $12.50 at 9% = $40.89)', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(booked()))
+    await goToPayment(makeWorkshop({ price: 1250, taxPercent: 9 }), 3)
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(await screen.findByRole('button', { name: 'Pay $40.89' })).toBeInTheDocument()
+  })
+})

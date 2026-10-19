@@ -6,7 +6,7 @@ import { newAttemptId } from '@lib/checkout-attempt'
 import { messageForFailure, outcomeUnknown, workshopMessages, UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
 import { contactStarted, EMPTY_CONTACT, type Contact } from '@lib/contact-rules'
 import { rememberContact, rememberedContact } from '@lib/remembered-contact'
-import { taxCents } from '@lib/tax'
+import { seatsTaxCents } from '@lib/tax'
 import { formatMoney } from '@lib/money'
 import { googleCalendarUrl, buildIcs, icsDataUrl } from '@lib/party-share'
 import { workshopRefundLine } from '@lib/refund-lines'
@@ -141,7 +141,11 @@ export default function WorkshopBookingModal({ workshop, onClose, onBooked }: Wo
   const cappedByBooking = (workshop.remainingSeats ?? Infinity) > MAX_SEATS_PER_BOOKING
   // Square adds its sales tax on top of the price; show it before they pay.
   const subtotal = tickets ? tickets.reduce((sum, t) => sum + t.priceCents * (ticketCounts[t.id] ?? 0), 0) : workshop.price * seats
-  const tax = taxCents(subtotal, workshop.taxPercent)
+  // Every seat is its own Square charge, taxed and rounded on its own.
+  const seatPrices = tickets
+    ? tickets.flatMap((t) => Array.from({ length: ticketCounts[t.id] ?? 0 }, () => t.priceCents))
+    : Array.from({ length: seats }, () => workshop.price)
+  const tax = seatsTaxCents(seatPrices, workshop.taxPercent)
   const total = subtotal + tax
   const taxKnown = typeof workshop.taxPercent === 'number'
   const totalLabel = tax > 0 ? `${formatMoney(total, workshop.currency)} incl. tax` : formatMoney(total, workshop.currency)

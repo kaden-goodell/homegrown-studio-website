@@ -13,7 +13,7 @@ import { formatSlotLabel } from '@lib/studio-time'
 import { sendWorkshopConfirmation } from '@lib/workshop-confirmation'
 import { issueEmailFixTicket, onFileToAskAbout, type EmailFixTicket } from '@lib/email-fix'
 import { guestSeatName } from '@lib/guest-seats'
-import { taxCents } from '@lib/tax'
+import { seatsTaxCents } from '@lib/tax'
 import { isPhone, CONTACT_MESSAGES } from '@lib/contact-rules'
 import { announceBooking } from '@lib/booking-alert'
 import { canBeBooked } from '@lib/workshop-rules'
@@ -409,7 +409,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const seatsLabel = paidPlan ? ticketSummary(paidPlan) : null
   const chargedCents = chargedSum !== null
     ? chargedSum
-    : paidSubtotal + taxCents(paidSubtotal, workshop.taxPercent)
+    : paidSubtotal + seatsTaxCents(paidSeatNumbers.map(seatPrice), workshop.taxPercent)
   // ── The email, the owners' text and analytics: all at once, and on Netlify
   // after the reply, so the customer sees "You're booked" as soon as the money
   // and the record are in. A confirmation that fails to send then texts the
