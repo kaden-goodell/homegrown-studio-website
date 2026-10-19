@@ -13,6 +13,7 @@ import { dayLabel } from '../classes/dates'
 import PrintDay from '../classes/PrintDay'
 import { useRefresh } from '../shell/data'
 import { SheetFrame, useSheet } from '../shell/Sheet'
+import type { Sheet } from '../shell/router'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
 
 /** A place in the sheet's pinned footer for an old screen's buttons (they portal into it). */
@@ -46,10 +47,15 @@ export function BlockSheet({ day }: { day?: string }) {
 }
 
 /** A day on paper: rosters, waivers and what to prepare. */
+/** A day on paper. Opened from a class (Print list), it has a way back to that class's sheet. */
 export function PrintSheet({ day }: { day: string }) {
-  const { close } = useSheet()
+  const { close, open, data } = useSheet()
+  const from = data && typeof data === 'object' && 'back' in (data as object) ? (data as { back: Sheet; label: string }) : null
   return (
     <SheetFrame tall title="Print a day" subtitle={dayLabel(day)}>
+      {from && (
+        <button type="button" className="adm-btn is-ghost is-sm adm-backto" onClick={() => open(from.back)}>{`‹ Back to ${from.label}`}</button>
+      )}
       <PrintDay day={day} hideBack onBack={close} />
     </SheetFrame>
   )

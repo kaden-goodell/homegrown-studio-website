@@ -57,6 +57,8 @@ describe('/admin address tokens', () => {
     expect(isFormSheet({ kind: 'class', id: 'cls_1' })).toBe(false)
     expect(isFormSheet({ kind: 'edit', id: 'cls_1' })).toBe(false)
     expect(homeTabOf({ kind: 'lib', id: 'lib_1' })).toBe('classes')
+    // A class opened from a bookmark or a refresh with no tab saved sits on Classes (M1).
+    expect(homeTabOf({ kind: 'class', id: 'cls_1' })).toBe('classes')
     expect(homeTabOf({ kind: 'again', id: 'cls_1' })).toBe('classes')
     // "Add a class to the library" is gone: every class gets there on its own.
     expect(parseHash('#libnew')).toEqual({})

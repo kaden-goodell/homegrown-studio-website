@@ -19,7 +19,8 @@ import { build, fieldOf, fixLine, toForm, type Errors, type Form } from '../clas
 import { DetailsFields, focusFirstError, PreviewButton } from '../classes/ClassDetails'
 import DateRows, { checkRows, rowsOf, sameRows, type DateRow } from '../classes/DateRows'
 import { dayLabel } from '../classes/dates'
-import { isPast, latestOf, nameOf, nextSession, priceOf, seatsHeld, SOURCE, STATUS_TAG } from '../classes/labels'
+import { isPast, latestOf, moneyWords, nameOf, nextSession, priceOf, seatsHeld, STATUS_TAG } from '../classes/labels'
+import { takenCents } from '@lib/classes/booking-words'
 import { useRefresh } from '../shell/data'
 import { Failed, Seg, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet, useSheetDirty } from '../shell/Sheet'
@@ -79,6 +80,12 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
   const [results, setResults] = useState<Record<string, { ok: boolean; text: string }>>({})
   const attempts = useRef<Record<string, string>>({})
   const [texting, setTexting] = useState(false)
+  const [printing, setPrinting] = useState(false)
+  /** Which footer button is working, so it can say "Saving…" (M5). */
+  const [busy, setBusy] = useState('')
+  const textPanel = useRef<HTMLDivElement>(null)
+  const healed = useRef(false)
+  useEffect(() => { if (texting) textPanel.current?.scrollIntoView?.({ block: 'nearest' }) }, [texting])
 
   const detailsDirty = !!f && !!base && JSON.stringify(f) !== JSON.stringify(base)
   const datesDirty = !!data && (!sameRows(rows, baseRows) || status !== data.cls.status)
@@ -99,6 +106,19 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     return next
   }
   useEffect(() => { load() }, [id])
+
+  // R36: a class that isn't in the library yet (made before every class went there) goes there now, quietly.
+  useEffect(() => {
+    if (!data || data.cls.libraryId || healed.current) return
+    healed.current = true
+    api<{ class: ScheduledClass; libraryAdded?: boolean }>(CLASSES, { action: 'link-library', id: data.cls.id }).then((r) => {
+      if (r.ok && r.data?.class) {
+        const linked = r.data.class
+        setData((d) => (d ? { ...d, cls: linked } : d))
+        if (r.data.libraryAdded) bump()
+      } else if (!r.ok && r.status !== 401) toast('This class isn’t in your library yet. It’ll go in when you save it.')
+    })
+  }, [data?.cls.id, data?.cls.libraryId])
 
   // The linked library version's details, to know whether "This class and the library" means anything.
   const libraryId = data?.cls.libraryId ?? null
@@ -140,10 +160,12 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     if (!b.ok) { setErrors(b.errors); requestAnimationFrame(() => focusFirstError(body.current, b.errors)); return }
     setErrors({})
     setSaving(true)
-    const r = await api<{ class: ScheduledClass }>(CLASSES, {
+    setBusy(alsoLibrary ? 'both' : 'only')
+    const r = await api<{ class: ScheduledClass; libraryAdded?: boolean }>(CLASSES, {
       action: 'update', id: cls.id, expectedUpdatedAt: cls.updatedAt, content: b.content, ...(alsoLibrary ? { alsoUpdateLibrary: true } : {}),
     })
     setSaving(false)
+    setBusy('')
     if (!r.ok || !r.data) {
       if (r.status === 409 && r.extra.stale === true) return keepAfterStale()
       const k = fieldOf(r.extra.field, f)
@@ -155,19 +177,26 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     const saved = r.data.class
     setData((d) => (d ? { ...d, cls: saved } : d))
     fill(saved, { details: true })
-    if (alsoLibrary) loadLibrary()
+    if (alsoLibrary || r.data.libraryAdded) loadLibrary()
     bump()
-    toast(r.warning ?? (alsoLibrary ? 'Saved. The library has it too.' : 'Saved.'))
+    toast(r.warning ?? (r.data.libraryAdded ? 'Saved. It’s in your library now.' : alsoLibrary ? 'Saved. The library has it too.' : 'Saved.'))
   }
 
   /** Someone else saved first: take their copy as the base, keep what was typed, say what they changed. */
   async function keepAfterStale() {
     const before = cls.content
+    // What she hadn't touched follows the fresh copy, so it never shows as her unsaved change (Q3).
+    const detailsUntouched = !detailsDirty
+    const datesUntouched = sameRows(rows, baseRows) && status === cls.status
     const fresh = await load()
     if (!fresh) return
     const theirs = contentChanges(before, fresh.cls.content, { usual: false })
-    setBase(toForm(fresh.cls.content))
-    setBaseRows(rowsOf(fresh.cls.sessions))
+    const freshForm = toForm(fresh.cls.content)
+    setBase(freshForm)
+    if (detailsUntouched) setF(freshForm)
+    const freshRows = rowsOf(fresh.cls.sessions)
+    setBaseRows(freshRows)
+    if (datesUntouched) { setRows(freshRows); setStatus(fresh.cls.status) }
     setStaleNote(`${STALE_KEPT}${theirs.length ? ` They changed: ${theirs.join(', ')}.` : ''}`)
   }
 
@@ -179,11 +208,13 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     const checked = checkRows(rows)
     if (!checked.ok) { setDatesError(checked.error); return }
     setSaving(true)
-    const r = await api<{ class: ScheduledClass; peopleToTell?: PersonToTell[] }>(CLASSES, {
+    setBusy(confirmMove ? 'move' : 'dates')
+    const r = await api<{ class: ScheduledClass; peopleToTell?: PersonToTell[]; libraryAdded?: boolean }>(CLASSES, {
       action: 'update', id: cls.id, expectedUpdatedAt: cls.updatedAt, sessions: checked.sessions, status: status === 'cancelled' ? undefined : status,
       ...(confirmMove ? { confirmMove: true } : {}),
     })
     setSaving(false)
+    setBusy('')
     if (!r.ok || !r.data) {
       if (r.status === 409 && Array.isArray(r.extra.peopleToTell)) { setToTell(r.extra.peopleToTell); return }
       setToTell(null)
@@ -199,7 +230,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     if (confirmMove && r.data.peopleToTell?.length) {
       setMoved(r.data.peopleToTell)
       toast('Moved. Let the people below know.')
-    } else toast(r.warning ?? 'Saved. The calendar is updated.')
+    } else toast(r.warning ?? (r.data.libraryAdded ? 'Saved. It’s in your library now.' : 'Saved. The calendar is updated.'))
   }
 
   // ── Cancel ────────────────────────────────────────────────────────────
@@ -224,9 +255,10 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
   // ── Refund everyone (after a cancel; never on its own) ────────────────
   const canRefund = (b: ClassBooking) => b.paidHere && b.refundableCents > 0 && !b.waiting && b.state !== 'held'
   const toRefund = bookings.filter(canRefund)
-  const notHere = live.filter((b) => !canRefund(b) && (b.paidCents - b.refundedCents) > 0)
+  const notHere = live.filter((b) => !canRefund(b) && takenCents(b) > 0)
   async function runRefunds(list: ClassBooking[]) {
     setRefundAll('running')
+    let done = 0
     for (const b of list) {
       attempts.current[b.bookingId] ??= newAttempt()
       const r = await api<{ cents: number; emailed: boolean; already?: { message: string } }>(ADMIN_REFUND, {
@@ -235,9 +267,12 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
       const text = !r.ok || !r.data
         ? `Didn’t go through. ${r.error ?? ''}`.trim()
         : r.data.already ? r.data.already.message : `Refunded ${formatMoney(r.data.cents)}.${r.data.emailed ? ' They’ve been emailed.' : ''}`
+      if (r.ok) done++
       setResults((cur) => ({ ...cur, [b.bookingId]: { ok: !!r.ok, text } }))
     }
     setRefundAll('idle')
+    // Said again as a toast, which stays on screen even if the sheet was closed while it ran (M8).
+    toast(done === list.length ? `Refunded ${done === 1 ? '1 person' : `all ${done}`}.` : `Refunded ${done} of ${list.length}. Open the class to try the rest.`)
     await load()
     bump()
   }
@@ -248,8 +283,8 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
   if (tab === 'bookings') {
     footer = refundAll === 'confirm'
       ? (
-        <div className="adm-panel is-warn" role="group" aria-label="Refund everyone?">
-          <b>Refund everyone?</b>
+        <div className="adm-panel is-warn" role="group" aria-label="Refund everyone">
+          <b>{`Refund ${toRefund.length === 1 ? '1 person' : `${toRefund.length} people`} · ${formatMoney(toRefund.reduce((a, b) => a + b.refundableCents, 0))}${toRefund.length > 1 ? ' in all' : ''}?`}</b>
           <ul className="adm-plain" aria-label="Refunds to make">
             {toRefund.map((b) => <li key={b.bookingId}>{`${nameOf(b)} · ${formatMoney(b.refundableCents)}`}</li>)}
           </ul>
@@ -262,10 +297,28 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
       )
       : (
         <div className="adm-two">
-          <button type="button" className="adm-btn is-ghost" onClick={() => next && open({ kind: 'print', day: localDate(next.startIso) })}>Print list</button>
+          <button
+            type="button"
+            className="adm-btn is-ghost"
+            aria-expanded={cls.sessions.length > 1 ? printing : undefined}
+            onClick={() => (cls.sessions.length > 1 ? setPrinting(!printing) : next && printDay(localDate(next.startIso)))}
+          >
+            Print list
+          </button>
           <button type="button" className="adm-btn is-ghost" aria-expanded={texting} onClick={() => setTexting(!texting)}>Text everyone</button>
         </div>
       )
+    if (printing && cls.sessions.length > 1 && refundAll !== 'confirm') {
+      footer = (
+        <div className="adm-panel" role="group" aria-label="Print which date?">
+          <b>Print which date?</b>
+          {cls.sessions.map((s) => (
+            <button key={s.id} type="button" className="adm-btn is-ghost" onClick={() => printDay(localDate(s.startIso))}>{dayAndSpan(s.startIso, s.endIso)}</button>
+          ))}
+          <button type="button" className="adm-quiet" onClick={() => setPrinting(false)}>Never mind</button>
+        </div>
+      )
+    }
   } else if (tab === 'details' && !cancelled) {
     const line = errors.form || fixLine(errors, 'under Details')
     footer = (
@@ -274,14 +327,14 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
         {detailsDirty && differsFromLibrary
           ? (
             <>
-              <button type="button" className="adm-btn is-pri" disabled={saving} onClick={() => saveDetails(false)}>Only this class</button>
-              <button type="button" className="adm-btn is-ghost" disabled={saving} onClick={() => saveDetails(true)}>This class and the library</button>
+              <button type="button" className="adm-btn is-pri" disabled={saving} onClick={() => saveDetails(false)}>{busy === 'only' ? 'Saving…' : 'Only this class'}</button>
+              <button type="button" className="adm-btn is-ghost" disabled={saving} onClick={() => saveDetails(true)}>{busy === 'both' ? 'Saving…' : 'This class and the library'}</button>
             </>
           )
           : <button type="button" className="adm-btn is-pri" disabled={!detailsDirty || saving} onClick={() => saveDetails(false)}>{saving ? 'Saving…' : 'Save'}</button>}
       </div>
     )
-  } else if (tab === 'dates' && !cancelled) {
+  } else if (tab === 'dates' && !cancelled && !past) {
     footer = toTell
       ? (
         <div className="adm-panel" role="group" aria-label="People are booked on the dates you moved">
@@ -289,7 +342,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
           <PeopleList people={toTell} label="People to tell" />
           <span className="adm-small">Nobody is told for you. Move it, then let them know.</span>
           <div className="adm-stack">
-            <button type="button" className="adm-btn is-pri" disabled={saving} onClick={() => saveDates(true)}>Move and I’ll tell them</button>
+            <button type="button" className="adm-btn is-pri" disabled={saving} onClick={() => saveDates(true)}>{busy === 'move' ? 'Moving…' : 'Move and I’ll tell them'}</button>
             <button type="button" className="adm-btn is-ghost" disabled={saving} onClick={() => { setToTell(null); setRows(baseRows) }}>Don’t move</button>
           </div>
         </div>
@@ -298,7 +351,18 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
   }
 
   const phones = [...new Set(live.map((b) => b.customer?.phone ?? '').filter(Boolean))]
-  const totalTaken = bookings.filter((b) => b.state !== 'held').reduce((s, b) => s + b.paidCents - b.refundedCents, 0)
+  // Money in: comps and counter seats nobody has rung up yet bring in nothing (I3).
+  const totalTaken = bookings.filter((b) => b.state !== 'held').reduce((s, b) => s + takenCents(b), 0)
+  const settled = bookings.filter((b) => b.state !== 'held')
+  const bookingCount = settled.filter((b) => b.state !== 'refunded').length
+  // After a cancel: how much has gone back so far (Q2).
+  const paidOnes = settled.filter((b) => takenCents(b) > 0 || b.refundedCents > 0)
+  const refundedOnes = paidOnes.filter((b) => b.refundedCents > 0)
+  const refundedCents = refundedOnes.reduce((a, b) => a + b.refundedCents, 0)
+  function printDay(day: string) {
+    setPrinting(false)
+    open({ kind: 'print', day }, { back: { kind: 'class', id: cls.id }, label: c.name })
+  }
 
   return (
     <SheetFrame tall title={c.name} subtitle={subtitle} footer={footer}>
@@ -308,7 +372,9 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
         {tab === 'bookings' && (
           <section aria-label="Bookings">
             <div className="adm-sum">
-              <div><b>{next ? `${seatsTaken[next.id] ?? 0} of ${next.capacity}` : '0'}</b><small>seats booked{cls.sessions.length > 1 && next ? `, ${dayLabel(localDate(next.startIso))}` : ''}</small></div>
+              {cls.sessions.length > 1
+                ? <div><b>{bookingCount}</b><small>{`${bookingCount === 1 ? 'booking' : 'bookings'} on ${cls.sessions.length} dates`}</small></div>
+                : <div><b>{next ? `${seatsTaken[next.id] ?? 0} of ${next.capacity}` : '0'}</b><small>seats booked</small></div>}
               <div><b>{formatMoney(totalTaken)}</b><small>taken so far</small></div>
             </div>
             {cls.sessions.length > 1 && (
@@ -317,7 +383,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
               </ul>
             )}
             {texting && (
-              <div className="adm-panel" role="group" aria-label="Text everyone">
+              <div ref={textPanel} className="adm-panel" role="group" aria-label="Text everyone">
                 {phones.length
                   ? (
                     <>
@@ -334,17 +400,27 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
             )}
             {cancelled && (
               <div className="adm-panel is-warn" role="group" aria-label="Who to contact">
-                <b>{live.length ? 'Cancelled. Let these people know.' : 'Cancelled. Nobody was booked.'}</b>
-                {live.length > 0 && (
+                <b>{settled.length ? 'Cancelled. Let these people know.' : 'Cancelled. Nobody was booked.'}</b>
+                {settled.length > 0 && (
                   <>
-                    <ul className="adm-plain" aria-label="People to contact">
-                      {live.map((b) => (
+                    <ul className="adm-plain adm-contacts" aria-label="People to contact">
+                      {settled.map((b) => (
                         <li key={b.bookingId}>
-                          {[nameOf(b), b.customer?.phone, b.customer?.email, `${seatsHeld(b)} ${seatsHeld(b) === 1 ? 'seat' : 'seats'}`, `paid ${formatMoney(b.paidCents)}`].filter(Boolean).join(' · ')}
+                          <span>{[nameOf(b), `${seatsHeld(b)} ${seatsHeld(b) === 1 ? 'seat' : 'seats'}`, moneyWords(b), b.refundedCents ? `refunded ${formatMoney(b.refundedCents)}` : ''].filter(Boolean).join(' · ')}</span>
+                          {(b.customer?.phone || b.customer?.email) && (
+                            <span className="adm-links">
+                              {b.customer?.phone && <a href={telHref(b.customer.phone)}>{b.customer.phone}</a>}
+                              {b.customer?.email && <a href={`mailto:${b.customer.email}`}>{b.customer.email}</a>}
+                            </span>
+                          )}
                         </li>
                       ))}
                     </ul>
-                    <span className="adm-small">Nobody has been refunded. Refund each person on their row below, or everyone at once.</span>
+                    <span className="adm-small" role="status">
+                      {!paidOnes.length ? 'Nobody paid online here, so there’s nothing to refund from this page.'
+                        : refundedOnes.length ? `Refunded ${refundedOnes.length} of ${paidOnes.length} · ${formatMoney(refundedCents)}.${toRefund.length ? ' Refund the rest on their rows below, or all at once.' : ''}`
+                          : 'Nobody has been refunded yet. Refund each person on their row below, or everyone at once.'}
+                    </span>
                   </>
                 )}
                 {toRefund.length > 0 && refundAll === 'idle' && !Object.keys(results).length && (
@@ -414,8 +490,9 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
         {tab === 'dates' && (
           <section aria-label="Dates">
             {staleNote && <p className="adm-panel is-warn" role="alert">{staleNote}</p>}
-            <DateRows rows={rows} onChange={setRows} error={datesError} disabled={cancelled} />
-            {!cancelled && (
+            {past && !cancelled && <p className="adm-note">Every date has ended, so the dates stay as they were. To run it again, use Run it again.</p>}
+            <DateRows rows={rows} onChange={(r) => { setRows(r); setToTell(null) }} error={datesError} disabled={cancelled || past} booked={seatsTaken} />
+            {!cancelled && !past && (
               <>
                 <p className="adm-lbl">Status</p>
                 <Seg label="Status" value={status === 'cancelled' ? 'open' : status} options={[['open', 'Open'], ['draft', 'Draft'], ['closed', 'Closed']]} onChange={(s) => setStatus(s as ClassStatus)} />
@@ -455,7 +532,6 @@ function BookingRow({ b, cls, ticket, onChanged }: { b: ClassBooking; cls: Sched
     ? Object.entries(b.seats).map(([t, n]) => `${n} ${ticket(t)}`).join(', ')
     : `${seatCount} ${seatCount === 1 ? 'seat' : 'seats'}`
   const pass = c.passes.length > 1 ? c.passes.find((p) => p.id === b.passId)?.label : ''
-  const paid = b.source === 'comp' ? 'comp' : b.paidHere || b.paidCents ? `paid ${formatMoney(b.paidCents)}` : 'not paid yet'
   const tag = b.state === 'refunded' ? 'Refunded' : b.state === 'part refunded' ? 'Part refunded' : b.state === 'held' ? 'Paying now' : ''
   const answers = c.questions.length > 0 && b.picks.some((p) => Object.keys(p.answers).length)
     ? b.picks.map((p) => `Seat ${p.seat} (${ticket(p.ticketTypeId)}) · ${c.questions.map((q) => (p.answers[q.id] ? `${q.label} ${p.answers[q.id]}` : '')).filter(Boolean).join(', ')}`)
@@ -466,7 +542,7 @@ function BookingRow({ b, cls, ticket, onChanged }: { b: ClassBooking; cls: Sched
       <div className="adm-bk">
         <div className="adm-rm">
           <b>{name}</b>
-          <small>{[seats, pass, paid, b.source === 'comp' ? '' : SOURCE[b.source] ?? b.source, b.refundedCents ? `refunded ${formatMoney(b.refundedCents)}` : ''].filter(Boolean).join(' · ')}</small>
+          <small>{[seats, pass, moneyWords(b), b.refundedCents ? `refunded ${formatMoney(b.refundedCents)}` : ''].filter(Boolean).join(' · ')}</small>
         </div>
         {tag && <span className={`adm-tag ${b.state === 'held' ? '' : 'is-grey'}`}>{tag}</span>}
       </div>
@@ -484,7 +560,7 @@ function BookingRow({ b, cls, ticket, onChanged }: { b: ClassBooking; cls: Sched
       )}
       {b.overCapacity && <p className="adm-small adm-warntext">This seat landed after the class was full. Check the room has space.</p>}
       <div data-refund-slot={b.bookingId}>
-        {b.state !== 'held' && <RefundPanel classId={cls.id} booking={b} ticketLabel={ticket} waiting={b.waiting} send={(url, body) => api(url, body)} onDone={onChanged} />}
+        {b.state !== 'held' && <RefundPanel classId={cls.id} booking={b} ticketLabel={ticket} waiting={b.waiting} counterSalesAtRegister send={(url, body) => api(url, body)} onDone={onChanged} />}
       </div>
     </article>
   )

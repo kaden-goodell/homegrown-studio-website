@@ -41,7 +41,7 @@ export const content = (over: Partial<ClassContent> = {}): ClassContent => ({
 })
 
 export const cls = (over: Partial<ScheduledClass> = {}): ScheduledClass => ({
-  id: 'cls_1', libraryId: null, libraryVersion: null, content: content(),
+  id: 'cls_1', libraryId: 'lib_1', libraryVersion: 1, content: content(),
   sessions: [{ id: 'ses_1', startIso: at('2031-03-12', '10:00'), endIso: at('2031-03-12', '11:30'), capacity: 12 }],
   status: 'open', square: { itemId: null, variations: {} }, createdAt: '2031-01-01T00:00:00.000Z', updatedAt: '2031-01-02T00:00:00.000Z',
   by: { id: 'admin', name: 'Owner' }, history: [], ...over,

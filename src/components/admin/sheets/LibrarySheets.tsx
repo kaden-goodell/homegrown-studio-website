@@ -4,7 +4,7 @@
  * with Undo, Earlier versions with Restore), and its Edit details form.
  * Library classes are only ever made by adding a class.
  */
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { LibraryClass } from '@lib/classes/types'
 import { api, LIBRARY } from '../classes/api'
 import { build, fieldOf, fixLine, toForm, type Errors, type Form } from '../classes/class-form'
@@ -18,6 +18,12 @@ import { Failed, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet, useSheetDirty } from '../shell/Sheet'
 import { timeSpan } from '../shell/time'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
+
+/** "$35 a seat", but "$20 adult · $15 kid" and "From $15" as they are. */
+export function seatPrice(label: string): string {
+  if (!label) return ''
+  return /·|^From /.test(label) ? label : `${label} a seat`
+}
 
 /** One library class, found in the list (archived ones too). */
 function useOne(id: string) {
@@ -103,14 +109,16 @@ export function LibraryItemSheet({ id }: { id: string }) {
     <SheetFrame title={c.name} subtitle={item.archived ? 'Archived' : 'In your library'} footer={footer}>
       <div className="adm-libphoto">{c.imageUrl ? <img src={c.imageUrl} alt={c.name} /> : <span className="adm-muted adm-small">No photo yet</span>}</div>
       <div className="adm-card">
-        <p>{[priceOf(c) ? `${priceOf(c)} a seat` : '', `${c.defaultCapacity} seats`].filter(Boolean).join(' · ')}</p>
+        <p>{[seatPrice(priceOf(c)), `${c.defaultCapacity} seats`].filter(Boolean).join(' · ')}</p>
         <p>{run ? `${timeSpan(run.startIso, run.endIso)} usually` : `${c.defaultMinutes} minutes usually`}</p>
         <p className="adm-muted adm-small">{ranText(run)}</p>
       </div>
       {failed && !asking && <p role="alert" className="adm-error">{failed}</p>}
-      <button type="button" className="adm-btn is-ghost adm-versionsbtn" aria-expanded={versions} onClick={() => setVersions(!versions)}>
-        {`Earlier versions (${item.versions.length})`}
-      </button>
+      {item.versions.length > 1 && (
+        <button type="button" className="adm-btn is-ghost adm-versionsbtn" aria-expanded={versions} onClick={() => setVersions(!versions)}>
+          {`Earlier versions (${item.versions.length - 1})`}
+        </button>
+      )}
       {versions && (
         <ul className="adm-mlist" aria-label="Versions">
           {[...item.versions].reverse().map((x) => (
@@ -138,10 +146,10 @@ export function LibraryEditSheet({ id }: { id: string }) {
   if (error) return <SheetFrame tall title="Edit details"><Failed message={error} onRetry={retry} /></SheetFrame>
   if (!list) return <SheetFrame tall title="Edit details"><Skeleton rows={4} label="Loading the library" /></SheetFrame>
   if (!item) return <SheetFrame tall title="Edit details"><p className="adm-muted">That class isn’t in the library any more.</p></SheetFrame>
-  return <LibraryForm item={item} />
+  return <LibraryForm item={item} onStale={retry} />
 }
 
-function LibraryForm({ item }: { item: LibraryClass }) {
+function LibraryForm({ item, onStale }: { item: LibraryClass; onStale: () => void }) {
   const { open, setDirty } = useSheet()
   const { bump } = useRefresh()
   const toast = useToast()
@@ -150,6 +158,17 @@ function LibraryForm({ item }: { item: LibraryClass }) {
   const [f, setF] = useState<Form>(base)
   const [errors, setErrors] = useState<Errors>({})
   const [busy, setBusy] = useState(false)
+  /** The version the form was opened on; a save over a newer one is refused, the typing kept (M7). */
+  const [expected, setExpected] = useState(latestOf(item).version)
+  const [stale, setStale] = useState('')
+  /** After a stale refusal, Save waits until the fresh copy is here, so it goes over that one. */
+  const [fetching, setFetching] = useState(false)
+  const latestVersion = latestOf(item).version
+  useEffect(() => {
+    if (!fetching) return
+    setExpected(latestVersion)
+    setFetching(false)
+  }, [item])
   const dirty = JSON.stringify(f) !== JSON.stringify(base)
   useSheetDirty(dirty)
 
@@ -158,11 +177,14 @@ function LibraryForm({ item }: { item: LibraryClass }) {
     if (!b.ok) { setErrors(b.errors); requestAnimationFrame(() => focusFirstError(body.current, b.errors)); return }
     setErrors({})
     setBusy(true)
-    const r = await api<{ library: LibraryClass }>(LIBRARY, { action: 'save', id: item.id, content: b.content, note: '' })
+    const r = await api<{ library: LibraryClass }>(LIBRARY, { action: 'save', id: item.id, content: b.content, note: '', expectedVersion: expected })
     setBusy(false)
     if (!r.ok || !r.data) {
+      if (r.status === 409 && r.extra.stale === true) { setStale(r.error ?? ''); setFetching(true); onStale(); return }
       const k = fieldOf(r.extra.field, f)
-      setErrors({ [k]: r.error ?? DIDNT_SAVE })
+      const e = { [k]: r.error ?? DIDNT_SAVE } as Errors
+      setErrors(e)
+      if (k !== 'form') requestAnimationFrame(() => focusFirstError(body.current, e))
       return
     }
     bump()
@@ -181,12 +203,13 @@ function LibraryForm({ item }: { item: LibraryClass }) {
       footer={(
         <div className="adm-stack">
           {line && <p className="adm-footline" role="alert">{line}</p>}
-          <button type="button" className="adm-btn is-pri" disabled={!dirty || busy} onClick={save}>{busy ? 'Saving…' : 'Save to the library'}</button>
+          <button type="button" className="adm-btn is-pri" disabled={!dirty || busy || fetching} onClick={save}>{busy ? 'Saving…' : 'Save to the library'}</button>
         </div>
       )}
     >
       <div ref={body}>
         <p className="adm-note">This changes the library copy, for classes you schedule from now on.</p>
+        {stale && <p className="adm-panel is-warn" role="alert">{stale}</p>}
         <PreviewButton f={f} sessions={[]} />
         <DetailsFields f={f} set={(fn) => setF((cur) => fn(cur))} errors={errors} sessions={[]} usual />
       </div>

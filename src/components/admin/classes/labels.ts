@@ -2,6 +2,8 @@
 import type { ClassBooking, LibraryRun } from '@lib/classes/admin-actions'
 import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass } from '@lib/classes/types'
 import { ownPriceLabel } from '@lib/classes/public-class'
+import { paidWay, takenCents } from '@lib/classes/booking-words'
+import { formatMoney } from '@lib/money'
 import { localDate } from '@lib/party-slots'
 import { dayLabel } from './dates'
 
@@ -32,7 +34,15 @@ export function nextSession(c: Pick<ScheduledClass, 'sessions'>, now = Date.now(
 
 export const nameOf = (b: Pick<ClassBooking, 'customer'>) => (b.customer ? `${b.customer.givenName} ${b.customer.familyName}`.trim() : '') || 'No name yet'
 
-export const SOURCE: Record<string, string> = { online: 'card', 'door-card': 'card at the door', 'door-counter': 'at the counter', comp: 'comp', pos: 'POS' }
+/**
+ * How a booking paid, in /staff's words (paidWay), with the money when some
+ * came in: "Paid online · $76.30", "Comped", "Not paid yet" (I3).
+ */
+export function moneyWords(b: Pick<ClassBooking, 'source' | 'paidHere' | 'paidCents' | 'refundedCents'>): string {
+  const way = paidWay({ source: b.source, paidHere: b.paidHere, overCapacity: false })
+  const money = takenCents(b) > 0 || b.refundedCents > 0 ? b.paidCents : 0
+  return money ? `${way} · ${formatMoney(money)}` : way
+}
 
 /** Seats a booking still holds (a freed seat no longer counts). */
 export const seatsHeld = (b: ClassBooking) => (b.state === 'held' ? b.lineIds.length : b.refundable.filter((s) => !s.freed).length)

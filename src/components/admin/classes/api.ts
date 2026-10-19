@@ -28,6 +28,10 @@ export function setAdminWho(name: string): void {
 export function onAdminSignedOut(fn: (() => void) | null): void {
   onSignedOut = fn
 }
+/** A request outside api() (the photo upload) came back 401: back to sign-in. */
+export function adminSignedOut(): void {
+  onSignedOut?.()
+}
 /** Headers every admin request carries. */
 export function adminHeaders(extra: Record<string, string> = {}): Record<string, string> {
   return { ...extra, ...(who ? { [ADMIN_WHO_HEADER]: who } : {}) }

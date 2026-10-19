@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { ClassTotals } from '@lib/classes/admin-actions'
-import type { ScheduledClass } from '@lib/classes/types'
+import type { LibraryClass, ScheduledClass } from '@lib/classes/types'
 import { formatMoney } from '@lib/money'
 import { localDate } from '@lib/party-slots'
 import { api, CLASSES } from './classes/api'
@@ -36,9 +36,9 @@ function useClasses() {
 }
 
 /** One class row: time · name · what to know, with the class colour bar and its status tag. */
-function ClassRow({ cls, sub, onOpen, active }: { cls: ScheduledClass; sub: string; onOpen: () => void; active: boolean }) {
+function ClassRow({ cls, sub, onOpen, active, noTag }: { cls: ScheduledClass; sub: string; onOpen: () => void; active: boolean; noTag?: boolean }) {
   const s = nextSession(cls)
-  const tag = STATUS_TAG[cls.status]
+  const tag = noTag ? null : STATUS_TAG[cls.status]
   return (
     <button
       type="button"
@@ -79,8 +79,24 @@ function ByDay({ list, sub, onOpen, activeId }: { list: ScheduledClass[]; sub: (
  * and the classes still run from Square under them (read only). Past shows
  * who came and the money. Library shows a photo tile per class.
  */
+const SEG_KEY = 'adm-classes-seg'
+const SEGMENTS: Segment[] = ['up', 'draft', 'past', 'lib']
+/** The segment last shown on this device (M1): a refresh or Back comes back to it. */
+function rememberedSeg(): Segment {
+  try {
+    const v = sessionStorage.getItem(SEG_KEY) as Segment | null
+    return v && SEGMENTS.includes(v) ? v : 'up'
+  } catch {
+    return 'up'
+  }
+}
+
 export default function ClassesTab({ onOpen }: { onOpen: (s: Sheet, data?: unknown) => void }) {
-  const [seg, setSeg] = useState<Segment>('up')
+  const [seg, setSegState] = useState<Segment>(rememberedSeg)
+  const setSeg = (v: Segment) => {
+    setSegState(v)
+    try { sessionStorage.setItem(SEG_KEY, v) } catch { /* private mode: it just won't be remembered */ }
+  }
   const { data, error, retry } = useClasses()
   const { activeToken } = useShell()
   const activeId = activeToken?.startsWith('class-') ? activeToken.slice(6) : activeToken?.startsWith('edit-') ? activeToken.slice(5) : null
@@ -141,16 +157,16 @@ export default function ClassesTab({ onOpen }: { onOpen: (s: Sheet, data?: unkno
           {drafts.length === 0 && <p className="adm-empty">No drafts.</p>}
           {drafts.map((c) => {
             const s = nextSession(c)!
-            return <SafeRow key={c.id}><ClassRow cls={c} active={activeId === c.id} sub={[dayLabel(localDate(s.startIso)), priceOf(c.content)].filter(Boolean).join(' · ')} onOpen={() => open(c)} /></SafeRow>
+            return <SafeRow key={c.id}><ClassRow noTag cls={c} active={activeId === c.id} sub={[dayLabel(localDate(s.startIso)), priceOf(c.content)].filter(Boolean).join(' · ')} onOpen={() => open(c)} /></SafeRow>
           })}
         </>
       )}
 
       {seg === 'past' && data && (
         <>
+          {past.length > 0 && <p className="adm-note">Tap a past class to see who came or refund someone.</p>}
           {past.length === 0 && <p className="adm-empty">No past classes yet.</p>}
           <ByDay list={past} sub={totals} onOpen={open} activeId={activeId} />
-          {past.length > 0 && <p className="adm-small adm-muted" style={{ marginTop: '0.5rem' }}>Tap a past class to see who came or refund someone.</p>}
         </>
       )}
 
@@ -187,6 +203,8 @@ function StillInSquare({ onOpen }: { onOpen: (s: Sheet, data?: unknown) => void 
 function LibraryTiles({ onOpen }: { onOpen: (s: Sheet, data?: unknown) => void }) {
   const [archived, setArchived] = useState(false)
   const { list, runs, error, retry } = useLibraryList(archived)
+  // Most recently run (or coming up) first, then the latest edited: the ones she'd run again are on top.
+  const recent = (l: LibraryClass) => runs[l.id]?.lastIso ?? runs[l.id]?.nextIso ?? latestOf(l).at
   return (
     <>
       <p className="adm-note">Every class you add lands here on its own. Tap one to run it again.</p>
@@ -200,12 +218,12 @@ function LibraryTiles({ onOpen }: { onOpen: (s: Sheet, data?: unknown) => void }
       )}
       {list && list.length > 0 && (
         <div className="adm-tiles">
-          {list.map((l) => {
+          {[...list].sort((a, b) => recent(b).localeCompare(recent(a))).map((l) => {
             const c = latestOf(l).content
             return (
               <SafeRow key={l.id}>
                 <button type="button" className={`adm-tile${l.archived ? ' is-gone' : ''}`} onClick={() => onOpen({ kind: 'lib', id: l.id }, l)}>
-                  <span className="adm-tile-img">{c.imageUrl ? <img src={c.imageUrl} alt="" loading="lazy" /> : null}</span>
+                  <span className="adm-tile-img">{c.imageUrl ? <img src={c.imageUrl} alt="" loading="lazy" /> : <NoPhoto />}</span>
                   <b>{c.name}</b>
                   <small>{l.archived ? 'Archived' : [ranText(runs[l.id]), priceOf(c)].filter(Boolean).join(' · ')}</small>
                 </button>
@@ -220,5 +238,14 @@ function LibraryTiles({ onOpen }: { onOpen: (s: Sheet, data?: unknown) => void }
         </button>
       )}
     </>
+  )
+}
+
+/** A tile with no photo yet: the camera glyph the photo picker uses. */
+export function NoPhoto() {
+  return (
+    <svg className="adm-nophoto" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+      <path d="M4 8h3l2-2h6l2 2h3v11H4z" /><circle cx="12" cy="13" r="3.5" />
+    </svg>
   )
 }

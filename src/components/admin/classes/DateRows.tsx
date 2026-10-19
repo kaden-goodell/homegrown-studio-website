@@ -70,12 +70,14 @@ export const sameRows = (a: DateRow[], b: DateRow[]) =>
  * follows the start, keeping the length; "+ Add another date" adds one a
  * week after the last.
  */
-export default function DateRows({ rows, onChange, error, disabled }: {
+export default function DateRows({ rows, onChange, error, disabled, booked }: {
   rows: DateRow[]
   onChange: (rows: DateRow[]) => void
   /** A refusal about the dates (a clash, a bad time), shown right under them. */
   error?: string
   disabled?: boolean
+  /** Seats taken on each saved date (by session id): shown on the date, so moving or removing it is never a surprise. */
+  booked?: Record<string, number>
 }) {
   function set(i: number, patch: Partial<DateRow>) {
     onChange(rows.map((r, n) => {
@@ -91,6 +93,7 @@ export default function DateRows({ rows, onChange, error, disabled }: {
       {rows.map((r, i) => (
         <fieldset key={r.key} className="adm-date" disabled={disabled}>
           <legend>{`Date ${i + 1}`}</legend>
+          {!!booked?.[r.id] && <p className="adm-small adm-warntext adm-datebooked">{`${booked[r.id]} booked on this date. Moving it asks first; it can’t be removed while people are booked.`}</p>}
           <div className="adm-two">
             <label className="adm-fld"><span>Day</span><input type="date" value={r.day} onChange={(e) => set(i, { day: e.target.value })} /></label>
             <label className="adm-fld"><span>Seats</span><input inputMode="numeric" value={r.capacity} onChange={(e) => set(i, { capacity: e.target.value })} /></label>
@@ -99,7 +102,7 @@ export default function DateRows({ rows, onChange, error, disabled }: {
             <label className="adm-fld"><span>Starts</span><input type="time" value={r.start} onChange={(e) => set(i, { start: e.target.value })} /></label>
             <label className="adm-fld"><span>Ends</span><input type="time" value={r.end} onChange={(e) => set(i, { end: e.target.value })} /></label>
           </div>
-          {rows.length > 1 && (
+          {rows.length > 1 && !disabled && (
             <button type="button" className="adm-btn is-ghost is-sm" onClick={() => onChange(rows.filter((_, n) => n !== i))}>{`Remove date ${i + 1}`}</button>
           )}
         </fieldset>

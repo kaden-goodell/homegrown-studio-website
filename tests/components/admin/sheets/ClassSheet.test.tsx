@@ -53,7 +53,7 @@ describe('class sheet › Bookings', () => {
     expect(screen.getByText('3 of 10')).toBeInTheDocument()
     expect(screen.getByText('$76.30')).toBeInTheDocument()
     const b = screen.getByRole('article', { name: 'Ada Lovelace' })
-    expect(within(b).getByText(/1 Adult, 2 Kid · paid \$76\.30 · card/)).toBeInTheDocument()
+    expect(within(b).getByText('1 Adult, 2 Kid · Paid online · $76.30')).toBeInTheDocument()
     expect(within(b).getByText(/ada@example.com/)).toBeInTheDocument()
     expect(within(b).getByText(/Glaze Red/)).toBeInTheDocument()
     expect(b.querySelector('[data-refund-slot="bkg_1"]')).not.toBeNull()
@@ -96,7 +96,8 @@ describe('class sheet › Bookings', () => {
     const { sheet } = renderSheet(<ClassSheet id="cls_1" />)
     await screen.findByRole('article', { name: 'Ada Lovelace' })
     fireEvent.click(within(footer()).getByRole('button', { name: 'Print list' }))
-    expect(sheet.open).toHaveBeenCalledWith({ kind: 'print', day: '2031-03-12' })
+    // The print sheet has a way back to this class (Q7).
+    expect(sheet.open).toHaveBeenCalledWith({ kind: 'print', day: '2031-03-12' }, { back: { kind: 'class', id: 'cls_1' }, label: 'Pottery' })
     fireEvent.click(within(footer()).getByRole('button', { name: 'Text everyone' }))
     const panel = screen.getByRole('group', { name: 'Text everyone' })
     expect(within(panel).getByText('(256) 555-0100, (256) 555-0111')).toBeInTheDocument()
@@ -234,7 +235,11 @@ describe('class sheet › Cancel', () => {
     fireEvent.click(within(screen.getByRole('group', { name: 'Cancel the class' })).getByRole('button', { name: 'Cancel class' }))
     const contact = await screen.findByRole('group', { name: 'Who to contact' })
     expect(within(contact).getByText('Cancelled. Let these people know.')).toBeInTheDocument()
-    expect(within(contact).getByText(/Ada Lovelace · \(256\) 555-0100 · ada@example.com · 2 seats · paid \$65\.40/)).toBeInTheDocument()
+    expect(within(contact).getByText('Ada Lovelace · 2 seats · Paid online · $65.40')).toBeInTheDocument()
+    // Their number and email are links to tap (Q4).
+    expect(within(contact).getByRole('link', { name: '(256) 555-0100' })).toHaveAttribute('href', 'tel:2565550100')
+    expect(within(contact).getByRole('link', { name: 'ada@example.com' })).toHaveAttribute('href', 'mailto:ada@example.com')
+    expect(within(contact).getByText(/Nobody has been refunded yet/)).toBeInTheDocument()
     expect(posts(f, CLASSES)[0].body).toEqual({ action: 'cancel', id: 'cls_1', expectedUpdatedAt: '2031-01-02T00:00:00.000Z' })
     expect(posts(f, REFUND)).toHaveLength(0)
     expect(screen.getByText('Cancelled. Here is who to contact.')).toBeInTheDocument()
@@ -264,7 +269,8 @@ describe('class sheet › Cancel', () => {
     vi.stubGlobal('fetch', f)
     renderSheet(<ClassSheet id="cls_1" />)
     fireEvent.click(await screen.findByRole('button', { name: 'Refund everyone…' }))
-    const ask = within(footer()).getByRole('group', { name: 'Refund everyone?' })
+    const ask = within(footer()).getByRole('group', { name: 'Refund everyone' })
+    expect(within(ask).getByText('Refund 2 people · $98.10 in all?')).toBeInTheDocument()
     expect(within(within(ask).getByRole('list', { name: 'Refunds to make' })).getAllByRole('listitem').map((li) => li.textContent)).toEqual(['Ada Lovelace · $65.40', 'Bo D · $32.70'])
     expect(within(ask).getByText(/Not included: Di Pos/)).toBeInTheDocument()
     fireEvent.click(within(ask).getByRole('button', { name: 'Never mind' }))
@@ -283,8 +289,8 @@ describe('class sheet › Cancel', () => {
     ])
     // Once it has run, the results and Try again replace Refund everyone.
     expect(screen.queryByRole('button', { name: 'Refund everyone…' })).toBeNull()
-    expect(screen.getByRole('article', { name: 'Cy Comp' })).toHaveTextContent('2 seats · comp')
-    expect(screen.getByRole('article', { name: 'Cy Comp' })).not.toHaveTextContent('comp · comp')
+    expect(screen.getByRole('article', { name: 'Cy Comp' })).toHaveTextContent('2 seats · Comped')
+    expect(screen.getByRole('article', { name: 'Cy Comp' })).not.toHaveTextContent('$0')
     fireEvent.click(await screen.findByRole('button', { name: 'Try the ones that didn’t go through' }))
     await waitFor(() => expect(posts(f, REFUND)).toHaveLength(3))
     expect(posts(f, REFUND)[2].body).toMatchObject({ bookingId: 'bkg_2', attempt: sent[1].body.attempt })
@@ -369,3 +375,132 @@ describe('class sheet › Dates', () => {
     await act(async () => {})
   })
 })
+
+describe('fix round 1', () => {
+  const counter = booking({ bookingId: 'bkg_door', customer: { givenName: 'Dora', familyName: 'Door', email: '', phone: '' }, source: 'door-counter', paidHere: false, seats: { person: 1 },
+    refundable: [{ id: 'led_9', seat: 1, ticketTypeId: 'person', sessions: 1, remainingCents: 3270, sessionCents: 0, freed: false }], paidCents: 3270, refundableCents: 3270 })
+
+  it('I3: an unpaid counter seat says "Not paid yet" (as /staff does) and adds nothing to "taken so far"', async () => {
+    vi.stubGlobal('fetch', server({ bookings: [booking(), counter], seatsTaken: { ses_1: 3 } }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    const row = await screen.findByRole('article', { name: 'Dora Door' })
+    expect(within(row).getByText('1 seat · Not paid yet')).toBeInTheDocument()
+    expect(within(row).queryByText(/\$32\.70/)).toBeNull()
+    expect(screen.getByText('$65.40')).toBeInTheDocument()
+  })
+
+  it('I2 (R36): opening a class that isn’t in the library links it quietly, once; a failure says so', async () => {
+    const f = server({ the: cls({ libraryId: null, libraryVersion: null }), post: (b) => (b.action === 'link-library' ? ok({ data: { class: cls({ libraryId: 'lib_new', libraryVersion: 1 }), libraryAdded: true } }) : undefined) })
+    vi.stubGlobal('fetch', f)
+    const { bump } = renderSheet(<ClassSheet id="cls_1" />)
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
+    expect(posts(f, CLASSES)[0].body).toEqual({ action: 'link-library', id: 'cls_1' })
+    await waitFor(() => expect(bump).toHaveBeenCalled())
+    expect(screen.queryByRole('status', { name: '' })?.textContent ?? '').not.toMatch(/library/)
+    await tabTo('Dates')
+    expect(posts(f, CLASSES)).toHaveLength(1)
+
+    vi.stubGlobal('fetch', server({ the: cls({ libraryId: null }), post: () => refuse(503, { error: 'down' }) }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    expect(await screen.findByText('This class isn’t in your library yet. It’ll go in when you save it.')).toBeInTheDocument()
+  })
+
+  it('I2: a save that put the class in the library says so', async () => {
+    vi.stubGlobal('fetch', server({ post: (b) => (b.action === 'update' ? ok({ data: { class: cls({ content: b.content }), libraryAdded: true } }) : undefined) }))
+    renderSheet(<ClassSheet id="cls_1" tab="details" />)
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Pottery 2' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save' }))
+    expect(await screen.findByText('Saved. It’s in your library now.')).toBeInTheDocument()
+  })
+
+  it('Q2: after refunds, the cancelled panel says how many and how much went back', async () => {
+    const refunded = booking({ bookingId: 'bkg_r', customer: { givenName: 'Rae', familyName: 'Back', email: '', phone: '' }, state: 'refunded', refundedCents: 6540, refundableCents: 0,
+      refundable: [{ id: 'led_r', seat: 1, ticketTypeId: 'person', sessions: 1, remainingCents: 0, sessionCents: 0, freed: true }] })
+    vi.stubGlobal('fetch', server({ the: cls({ status: 'cancelled' }), bookings: [booking(), refunded] }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    const panel = await screen.findByRole('group', { name: 'Who to contact' })
+    expect(within(panel).getByText(/Refunded 1 of 2 · \$65\.40\./)).toBeInTheDocument()
+    expect(within(panel).getByText(/Rae Back · 0 seats · Paid online · \$65\.40 · refunded \$65\.40/)).toBeInTheDocument()
+  })
+
+  it('Q3: a stale save on Details leaves Dates clean, showing the other owner’s dates', async () => {
+    let n = 0
+    const f = server({ post: () => (++n === 1 ? refuse(409, { error: 'stale', stale: true }) : undefined) })
+    vi.stubGlobal('fetch', f)
+    const { dirty } = renderSheet(<ClassSheet id="cls_1" tab="details" />)
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Mine' } })
+    f.state.the = { ...f.state.the, updatedAt: 'theirs', sessions: [{ id: 'ses_1', startIso: at('2031-03-12', '14:00'), endIso: at('2031-03-12', '15:30'), capacity: 12 }] }
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save' }))
+    await screen.findByText(/Your edits are kept/)
+    await tabTo('Dates')
+    expect(within(screen.getByRole('group', { name: 'Date 1' })).getByLabelText('Starts')).toHaveValue('14:00')
+    expect(within(footer()).getByRole('button', { name: 'Save dates' })).toBeDisabled()
+    await tabTo('Details')
+    expect(screen.getByLabelText('Name')).toHaveValue('Mine')
+    expect(dirty()).toBe(true)
+  })
+
+  it('Q6, Q7, Q13: more than one date: a booking count, Print asks which date, Text everyone scrolls into view', async () => {
+    const scroll = vi.fn()
+    Element.prototype.scrollIntoView = scroll
+    const multi = cls({ sessions: [
+      { id: 'ses_1', startIso: at('2031-03-12', '10:00'), endIso: at('2031-03-12', '11:30'), capacity: 10 },
+      { id: 'ses_2', startIso: at('2031-03-19', '10:00'), endIso: at('2031-03-19', '11:30'), capacity: 10 },
+    ] })
+    vi.stubGlobal('fetch', server({ the: multi, bookings: [booking()], seatsTaken: { ses_1: 2, ses_2: 2 } }))
+    const { sheet } = renderSheet(<ClassSheet id="cls_1" />)
+    expect(await screen.findByText('booking on 2 dates')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Print list' }))
+    const which = within(footer()).getByRole('group', { name: 'Print which date?' })
+    fireEvent.click(within(which).getByRole('button', { name: /Wed Mar 19/ }))
+    expect(sheet.open).toHaveBeenCalledWith({ kind: 'print', day: '2031-03-19' }, { back: { kind: 'class', id: 'cls_1' }, label: 'Pottery' })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Text everyone' }))
+    await waitFor(() => expect(scroll).toHaveBeenCalled())
+  })
+
+  it('Q11, Q12: a booked date says so; editing a date while the move prompt shows takes the prompt away', async () => {
+    vi.stubGlobal('fetch', server({ seatsTaken: { ses_1: 2 }, post: () => refuse(409, { error: 'People are booked.', peopleToTell: [{ name: 'Ada Lovelace', email: '', phone: '', sessions: [] }] }) }))
+    renderSheet(<ClassSheet id="cls_1" tab="dates" />)
+    const d1 = await screen.findByRole('group', { name: 'Date 1' })
+    expect(within(d1).getByText(/2 booked on this date/)).toBeInTheDocument()
+    fireEvent.change(within(d1).getByLabelText('Starts'), { target: { value: '11:00' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save dates' }))
+    await within(footer()).findByRole('group', { name: 'People are booked on the dates you moved' })
+    fireEvent.change(within(d1).getByLabelText('Starts'), { target: { value: '12:00' } })
+    expect(within(footer()).queryByRole('group', { name: 'People are booked on the dates you moved' })).toBeNull()
+    expect(within(footer()).getByRole('button', { name: 'Save dates' })).toBeEnabled()
+  })
+
+  it('M8: Refund everyone ends with a toast that says how it went, even if the sheet was closed', async () => {
+    vi.stubGlobal('fetch', server({ the: cls({ status: 'cancelled' }), bookings: [booking()] }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Refund everyone…' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund 1 person' }))
+    expect(await screen.findByText('Refunded 1 person.')).toBeInTheDocument()
+  })
+
+  it('M9: a past class’s dates are read only; Run it again is how to go again', async () => {
+    vi.stubGlobal('fetch', server({ the: cls({ sessions: [{ id: 'ses_1', startIso: at('2020-03-12', '10:00'), endIso: at('2020-03-12', '11:30'), capacity: 12 }] }) }))
+    renderSheet(<ClassSheet id="cls_1" tab="dates" />)
+    const d1 = await screen.findByRole('group', { name: 'Date 1' })
+    expect(within(d1).getByLabelText('Starts')).toBeDisabled()
+    expect(screen.getByText(/Every date has ended/)).toBeInTheDocument()
+    expect(document.querySelector('.adm-sheet-foot')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Run it again on new dates' })).toBeInTheDocument()
+  })
+
+  it('M5: a two-button save says which is working', async () => {
+    let finish: (v: any) => void = () => {}
+    const f = server({ the: cls({ libraryId: 'lib_1' }), library: [lib('lib_1', content())], post: () => new Promise((r) => { finish = r }) as any })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" tab="details" />)
+    await screen.findByLabelText('Name')
+    await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).startsWith('/api/admin/classes/library.json'))).toBe(true))
+    fireEvent.change(screen.getByLabelText('Price per seat ($)'), { target: { value: '35' } })
+    fireEvent.click(await within(footer()).findByRole('button', { name: 'This class and the library' }))
+    expect(await within(footer()).findByRole('button', { name: 'Saving…' })).toBeDisabled()
+    finish(ok({ data: { class: cls({ libraryId: 'lib_1' }) } }))
+    await screen.findByText(/Saved/)
+  })
+})
+

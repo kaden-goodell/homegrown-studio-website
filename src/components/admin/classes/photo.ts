@@ -2,7 +2,7 @@
  * Class photos are cropped to 4:3 in the browser (the card's shape), scaled so
  * the longest side is at most 1600px, and sent as a JPEG under 4 MB.
  */
-import { adminHeaders, PHOTO } from './api'
+import { adminHeaders, adminSignedOut, PHOTO } from './api'
 
 export const MAX_SIDE = 1600
 export const MAX_BYTES = 4 * 1024 * 1024
@@ -49,12 +49,18 @@ export async function uploadPhoto(file: File): Promise<{ url: string } | { error
   } catch (e) {
     return { error: e instanceof Error ? e.message : 'That photo didn’t work. Try another.' }
   }
+  return sendPhoto(blob)
+}
+
+/** Upload a prepared JPEG. A 401 sends the whole page back to sign-in, like every other admin request. */
+export async function sendPhoto(blob: Blob): Promise<{ url: string } | { error: string }> {
   const form = new FormData()
   form.append('file', new File([blob], 'class.jpg', { type: 'image/jpeg' }))
   try {
     const res = await fetch(PHOTO, { method: 'POST', headers: adminHeaders(), body: form })
     const json = await res.json().catch(() => ({}))
     if (res.ok && json?.data?.url) return { url: json.data.url }
+    if (res.status === 401) adminSignedOut()
     return { error: json?.error || 'The photo didn’t upload. Try again.' }
   } catch {
     return { error: 'The photo didn’t upload. Check the connection and try again.' }

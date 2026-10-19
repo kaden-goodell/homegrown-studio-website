@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { screen, fireEvent, within, waitFor } from '@testing-library/react'
-import { LibraryEditSheet, LibraryItemSheet } from '@components/admin/sheets/LibrarySheets'
+import { LibraryEditSheet, LibraryItemSheet, seatPrice } from '@components/admin/sheets/LibrarySheets'
 import { at, content, lib, ok, posts, renderSheet } from './harness'
 
 const LIBRARY = '/api/admin/classes/library.json'
@@ -62,7 +62,7 @@ describe('a library class’s sheet', () => {
     const f = server()
     vi.stubGlobal('fetch', f)
     renderSheet(<LibraryItemSheet id="lib_1" />)
-    fireEvent.click(await screen.findByRole('button', { name: 'Earlier versions (2)' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Earlier versions (1)' }))
     const list = screen.getByRole('list', { name: 'Versions' })
     const [v2, v1] = within(list).getAllByRole('listitem')
     expect(v2).toHaveTextContent('Version 2 · now')
@@ -112,3 +112,38 @@ describe('Edit details (library)', () => {
     expect(posts(f)).toHaveLength(0)
   })
 })
+
+describe('library, fix round 1', () => {
+  it('Q16: price labels read right; Earlier versions counts only the earlier ones (and hides when there are none)', async () => {
+    expect(seatPrice('$35')).toBe('$35 a seat')
+    expect(seatPrice('$20 adult · $15 kid')).toBe('$20 adult · $15 kid')
+    expect(seatPrice('From $15')).toBe('From $15')
+    vi.stubGlobal('fetch', server([lib('lib_1', content())]))
+    renderSheet(<LibraryItemSheet id="lib_1" />)
+    await screen.findByRole('heading', { name: 'Pottery' })
+    expect(screen.queryByRole('button', { name: /Earlier versions/ })).toBeNull()
+  })
+
+  it('M7: Edit details over a newer version is refused as stale; the typing stays and the next save goes over the fresh version', async () => {
+    let n = 0
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (init?.method !== 'POST') return ok({ data: { library: [n ? { ...pottery, versions: [...pottery.versions, { ...pottery.versions[1], version: 3 }] } : pottery], runs } })
+      n++
+      return n === 1
+        ? { ok: false, status: 409, json: async () => ({ error: 'Someone else changed this library class. Your edits are kept; check them and save again.', stale: true }) }
+        : ok({ data: { library: pottery } })
+    })
+    vi.stubGlobal('fetch', f)
+    const { sheet } = renderSheet(<LibraryEditSheet id="lib_1" />)
+    fireEvent.change(await screen.findByLabelText('Description'), { target: { value: 'Mine.' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save to the library' }))
+    expect(await screen.findByText('Someone else changed this library class. Your edits are kept; check them and save again.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Description')).toHaveValue('Mine.')
+    // Save waits for the fresh copy, then goes over it.
+    await waitFor(() => expect(within(footer()).getByRole('button', { name: 'Save to the library' })).toBeEnabled())
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save to the library' }))
+    await waitFor(() => expect(sheet.open).toHaveBeenCalled())
+    expect(posts(f, LIBRARY).map((p: any) => p.body.expectedVersion)).toEqual([2, 3])
+  })
+})
+

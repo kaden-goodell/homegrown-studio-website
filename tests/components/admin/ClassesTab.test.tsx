@@ -65,7 +65,8 @@ describe('Classes tab', () => {
     await screen.findByRole('region', { name: 'Thu Oct 22' })
     fireEvent.click(screen.getByRole('button', { name: 'Drafts' }))
     expect(screen.getByText('Drafts are saved but not on the website yet.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Candles/ })).toHaveTextContent('Fri Oct 30 · $30Draft')
+    // The segment already says Draft: no tag on each row (Q14).
+    expect(screen.getByRole('button', { name: /Candles/ }).querySelector('small')!.textContent).toBe('Fri Oct 30 · $30')
   })
 
   it('Past: newest first, "N bookings · N seats · $X", and what tapping one is for', async () => {
@@ -105,3 +106,33 @@ describe('Classes tab', () => {
     await screen.findByRole('region', { name: 'Thu Oct 22' })
   })
 })
+
+describe('Classes tab, fix round 1', () => {
+  it('Q14: Past says what tapping is for above the list; M1: the segment is remembered for a refresh', async () => {
+    vi.stubGlobal('fetch', server())
+    const { unmount } = render(<ClassesTab onOpen={() => {}} />)
+    await screen.findByRole('region', { name: 'Thu Oct 22' })
+    fireEvent.click(screen.getByRole('button', { name: 'Past' }))
+    const note = screen.getByText('Tap a past class to see who came or refund someone.')
+    expect(note.compareDocumentPosition(screen.getAllByRole('region')[0]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    unmount()
+    render(<ClassesTab onOpen={() => {}} />)
+    expect(screen.getByRole('button', { name: 'Past' })).toHaveAttribute('aria-pressed', 'true')
+    await screen.findByRole('region', { name: 'Sat Oct 10' })
+  })
+
+  it('Q15: a library class with no photo shows the camera glyph; the most recently run come first', async () => {
+    const noPhoto = { ...libList[0], id: 'lib_9', versions: [{ ...libList[0].versions[0], content: { ...libList[0].versions[0].content, name: 'Zebra', imageUrl: null } }] }
+    const f = vi.fn(async (url: string) => (url.startsWith('/api/admin/classes/library.json')
+      ? ok({ data: { library: [...libList, noPhoto], runs: { lib_1: { lastIso: at('2026-09-01', '18:00'), nextIso: null, startIso: '', endIso: '' }, lib_9: { lastIso: at('2026-10-10', '18:00'), nextIso: null, startIso: '', endIso: '' } } } })
+      : server()(url)))
+    vi.stubGlobal('fetch', f)
+    render(<ClassesTab onOpen={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Library' }))
+    await screen.findByRole('button', { name: /Zebra/ })
+    const tiles = [...document.querySelectorAll('.adm-tile')]
+    expect(tiles.map((t) => t.querySelector('b')!.textContent)).toEqual(['Zebra', 'Pottery'])
+    expect(tiles[0].querySelector('.adm-nophoto')).not.toBeNull()
+  })
+})
+

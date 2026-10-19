@@ -110,7 +110,7 @@ export function homeTabOf(s: Sheet): Tab {
   switch (s.kind) {
     case 'request': case 'message': case 'teacher': case 'todo': return 'inbox'
     case 'more': return 'more'
-    case 'lib': case 'libedit': case 'libsched': case 'again': return 'classes'
+    case 'class': case 'edit': case 'lib': case 'libedit': case 'libsched': case 'again': return 'classes'
     case 'day': case 'legacy': case 'blocked': case 'party': case 'cafe': case 'closed': return 'calendar'
     default: return 'home'
   }

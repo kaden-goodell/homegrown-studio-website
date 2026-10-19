@@ -12,3 +12,9 @@ process.env.BLOB_STORE_FS_DIR = mkdtempSync(join(tmpdir(), 'hg-test-blobs-'))
 // (see src/lib/bookings-gate.ts). Tests exercise the real booking behavior,
 // so open the gate here; the gate's own logic is covered in bookings-gate.test.ts.
 process.env.BOOKINGS_OPEN = 'true'
+
+// /admin remembers a few per-device choices (the Classes segment) in sessionStorage: each test starts clean.
+import { afterEach as clearAfterEach } from 'vitest'
+clearAfterEach(() => {
+  try { globalThis.sessionStorage?.clear() } catch { /* node environment: none */ }
+})

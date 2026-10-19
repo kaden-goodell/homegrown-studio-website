@@ -5,7 +5,7 @@ vi.mock('@components/admin/classes/photo', () => ({
   uploadPhoto: vi.fn(async () => ({ url: 'https://x.test/api/admin/classes/photo.json?id=abc' })),
 }))
 
-import { NewClassSheet, ADDED } from '@components/admin/sheets/NewClassSheet'
+import { NewClassSheet, ADDED, defaultDay } from '@components/admin/sheets/NewClassSheet'
 import { at, cls, content, lib, ok, posts, refuse, renderSheet } from './harness'
 
 const CLASSES = '/api/admin/classes/classes.json'
@@ -294,3 +294,66 @@ describe('New class › From a past class', () => {
     ] })
   })
 })
+
+describe('New class, fix round 1', () => {
+  it('I1 (R35): one create key for this Add, the same on every retry, a new one after it worked', async () => {
+    let n = 0
+    const f = server({ create: (b) => (++n === 1 ? refuse(503, { error: "The class records couldn't be reached. Try again." }) : ok({ data: { class: cls({ id: 'cls_new', content: b.content }) } })) })
+    vi.stubGlobal('fetch', f)
+    const { sheet } = renderSheet(<NewClassSheet />)
+    fillBasics()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    expect(await within(footer()).findByText("The class records couldn't be reached. Try again.")).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    await waitFor(() => expect(sheet.open).toHaveBeenCalled())
+    const [a, b] = posts(f, CLASSES)
+    expect(a.body.createKey).toMatch(/^[A-Za-z0-9_-]{8,80}$/)
+    expect(b.body.createKey).toBe(a.body.createKey)
+  })
+
+  it('Q10: with no day tapped, it starts a week out on the next day the studio opens', () => {
+    // Monday 19 Oct 2026: a week out is Monday 26 Oct (usually closed), so Thursday 29 Oct.
+    expect(defaultDay('2026-10-19')).toBe('2026-10-29')
+    // Halloween weekend is closed: a week from Thu 22 Oct lands on Thu 29 Oct; a week from Fri 23 Oct skips to Thu Nov 5.
+    expect(defaultDay('2026-10-23')).toBe('2026-11-05')
+  })
+
+  it('Q8: picking a past class after typing asks "Replace what you typed?"; Keep mine keeps it', async () => {
+    const candles = lib('lib_c', content({ name: 'Candles' }))
+    vi.stubGlobal('fetch', server({ library: [candles] }))
+    renderSheet(<NewClassSheet />)
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'My own idea' } })
+    fireEvent.click(screen.getByRole('button', { name: 'From a past class' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Candles/ }))
+    const ask = screen.getByRole('group', { name: 'Replace what you typed?' })
+    fireEvent.click(within(ask).getByRole('button', { name: 'Keep mine' }))
+    expect(screen.getByLabelText('Name')).toHaveValue('My own idea')
+    fireEvent.click(screen.getByRole('button', { name: /Candles/ }))
+    fireEvent.click(within(screen.getByRole('group', { name: 'Replace what you typed?' })).getByRole('button', { name: 'Replace' }))
+    expect(screen.getByLabelText('Name')).toHaveValue('Candles')
+  })
+
+  it('Q9: Run it again on a class whose details differ from the library: a plain Add until she changes something here', async () => {
+    const libC = lib('lib_c', content({ name: 'Candles' }))
+    const theClass = cls({ libraryId: 'lib_c', content: content({ name: 'Candles', description: 'Only on that date.' }) })
+    vi.stubGlobal('fetch', server({ library: [libC], theClass }))
+    renderSheet(<NewClassSheet from={{ kind: 'class', id: 'cls_1' }} />)
+    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Candles'))
+    expect(within(footer()).getByRole('button', { name: 'Add class' })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Price per seat ($)'), { target: { value: '45' } })
+    expect(within(footer()).getByRole('button', { name: 'This class and the library' })).toBeInTheDocument()
+  })
+
+  it('M3: Run it again finds its library class even when that one is archived (no second entry)', async () => {
+    const archived = lib('lib_c', content({ name: 'Candles' }), { archived: true })
+    const f = server({ library: [archived], theClass: cls({ libraryId: 'lib_c', content: content({ name: 'Candles' }) }) })
+    vi.stubGlobal('fetch', f)
+    const { sheet } = renderSheet(<NewClassSheet from={{ kind: 'class', id: 'cls_1' }} />)
+    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Candles'))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    await waitFor(() => expect(sheet.open).toHaveBeenCalled())
+    expect(posts(f, CLASSES)[0].body.libraryId).toBe('lib_c')
+    expect(f.mock.calls.some((c) => String(c[0]).includes('archived=1'))).toBe(true)
+  })
+})
+
