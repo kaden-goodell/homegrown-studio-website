@@ -14,6 +14,9 @@ vi.mock('@components/workshops/WorkshopTile', () => ({
 vi.mock('@components/workshops/WorkshopBookingModal', () => ({
   default: ({ workshop }: { workshop: { name: string } }) => <div data-testid="booking-modal">Modal for {workshop.name}</div>,
 }))
+vi.mock('@components/classes/ClassBookingPanel', () => ({
+  default: ({ workshop }: { workshop: { name: string } }) => <div data-testid="class-panel">Class panel for {workshop.name}</div>,
+}))
 
 const mockWorkshops = [
   {
@@ -357,5 +360,15 @@ describe('WorkshopExplorer — phone rows vs wide-screen cards', () => {
     render(<WorkshopExplorer workshops={mockWorkshops} />)
     expect(screen.getAllByTestId(/^tile-/)).toHaveLength(2)
     expect(screen.queryAllByTestId(/^workshop-/)).toHaveLength(0)
+  })
+})
+
+describe('WorkshopExplorer — our own classes', () => {
+  it('opens our class in its own booking panel, not the Square one', () => {
+    window.history.replaceState({}, '', '/workshops?w=cls_1')
+    const ours = { ...mockWorkshops[1], id: 'cls_1', name: 'Clay Camp', own: { classId: 'cls_1', sessions: [], passes: [], ticketTypes: [], prices: {}, questions: [], addOns: [], rules: {} as any, instructor: null, taxPercent: 9 } }
+    render(<WorkshopExplorer workshops={[...mockWorkshops, ours]} />)
+    expect(screen.getByTestId('class-panel')).toHaveTextContent('Clay Camp')
+    expect(screen.queryByTestId('booking-modal')).toBeNull()
   })
 })

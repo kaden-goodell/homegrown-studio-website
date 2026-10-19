@@ -1,0 +1,79 @@
+---
+export const prerender = false
+
+import Layout from '@layouts/Layout.astro'
+import ClassPage from '@components/classes/ClassPage'
+import { getClass } from '@lib/classes/class-store'
+import { getLedger } from '@lib/classes/seat-ledger'
+import { toPublicClass, viewableByLink } from '@lib/classes/public-view'
+import { ownPriceLabel, sessionsLine } from '@lib/classes/public-class'
+import { summarize } from '@lib/seo'
+import { formatDay } from '@lib/studio-time'
+import { envBookingsOpen, hasValidPreviewCookie, previewQueryMatches, previewCookieName, previewToken } from '@lib/bookings-gate'
+import { createLogger } from '@lib/logger'
+import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
+
+const logger = createLogger('page:classes')
+
+// One of our own classes by its link. Works for link-only classes; a draft,
+// cancelled or unknown class is not found.
+const id = Astro.params.id ?? ''
+let workshop: WorkshopData | null = null
+let failed = false
+if (/^cls_[a-z0-9]{4,40}$/.test(id)) {
+  try {
+    const cls = await getClass(id)
+    if (cls && viewableByLink(cls)) workshop = toPublicClass(cls, await getLedger(cls.id), new Date())
+  } catch (err) {
+    failed = true
+    logger.error('Class page could not be read', { id, error: err instanceof Error ? err.message : String(err) })
+  }
+}
+if (!workshop) Astro.response.status = failed ? 503 : 404
+
+const _previewMatch = previewQueryMatches(Astro.url)
+if (_previewMatch) {
+  Astro.cookies.set(previewCookieName, previewToken(), { path: '/', httpOnly: true, sameSite: 'lax', maxAge: 60 * 60 * 24 * 30 })
+}
+const bookingsOpen = envBookingsOpen('workshops') || _previewMatch || hasValidPreviewCookie(Astro.request)
+Astro.response.headers.set('Cache-Control', 'private, no-store')
+
+const when = workshop?.own ? sessionsLine(workshop.own) || formatDay(workshop.startTime) : ''
+const price = workshop?.own ? ownPriceLabel(workshop.own, workshop.currency) : ''
+const description = workshop
+  ? [[when, price].filter(Boolean).join(' · '), summarize(workshop.description)].filter(Boolean).join('. ')
+  : 'That class isn’t here. See the workshops coming up at Hometown Studio.'
+---
+
+<Layout
+  title={workshop ? workshop.name : 'Class not found'}
+  description={description}
+  ogImage={workshop?.imageUrl}
+  shareUrl={workshop ? `/classes/${workshop.id}` : undefined}
+  noindex={!workshop || workshop.own?.rules.linkOnly === true}
+>
+  <section class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 pb-20" style="padding-top: 5.5rem;">
+    {workshop ? (
+      <Fragment>
+        <p class="eyebrow tone-workshop mb-4 text-center">Class</p>
+        {bookingsOpen ? null : (
+          <p class="text-center mb-6" style="color: var(--color-text);">Booking opens soon. Check back, or see what’s on the calendar.</p>
+        )}
+        <ClassPage client:load workshop={workshop} bookingsOpen={bookingsOpen} />
+        <p class="mt-8 text-center text-sm">
+          <a href="/workshops" class="underline" style="color: var(--color-primary);">See all workshops</a>
+        </p>
+      </Fragment>
+    ) : (
+      <div class="max-w-xl mx-auto text-center">
+        <h1 class="text-3xl sm:text-4xl font-heading font-bold" style="color: var(--color-dark);">
+          {failed ? 'We couldn’t load this class just now' : 'That class isn’t here'}
+        </h1>
+        <p class="mt-4" style="color: var(--color-text);">
+          {failed ? 'Please refresh in a minute.' : 'It may have finished, or the link may be old.'}
+        </p>
+        <p class="mt-6"><a href="/workshops" class="btn btn-primary">See workshops</a></p>
+      </div>
+    )}
+  </section>
+</Layout>

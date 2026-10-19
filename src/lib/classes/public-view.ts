@@ -1,0 +1,88 @@
+/**
+ * One of our own classes as the public list and the booking panel see it:
+ * a WorkshopData row with `own` filled in. Seats left come from the seat
+ * ledger here on the server, never from the browser.
+ *
+ * Server only (reads checkout.ts, which uses node:crypto).
+ */
+import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
+import { studioDate } from '@components/workshops/workshop-view-model'
+import { CLASS_TAX_PERCENT, cutoffRefusal } from './checkout'
+import { sessionsForPass } from './pricing'
+import { classAvailability, lowestPrice, passState, type OwnClassData, type PublicPass, type PublicSession } from './public-class'
+import { seatsTaken, type Ledger } from './seat-ledger'
+import type { ScheduledClass } from './types'
+import { sellableCells } from './validate'
+
+/** Shown on the public list: open or closed, and not link-only. */
+export function listedPublicly(cls: ScheduledClass): boolean {
+  return (cls.status === 'open' || cls.status === 'closed') && !cls.content.rules.linkOnly && cls.sessions.length > 0
+}
+
+/** Reachable by its own link (/classes/<id>): open or closed, link-only or not. */
+export function viewableByLink(cls: ScheduledClass): boolean {
+  return (cls.status === 'open' || cls.status === 'closed') && cls.sessions.length > 0
+}
+
+export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date): WorkshopData {
+  const c = cls.content
+  const sessionsSorted = [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))
+  const sessions: PublicSession[] = sessionsSorted.map((s) => ({
+    id: s.id,
+    startIso: s.startIso,
+    endIso: s.endIso,
+    left: Math.max(0, s.capacity - seatsTaken(ledger, s.id, now)),
+    closed: cutoffRefusal(cls, [s.id], now) !== null,
+  }))
+
+  const sellable = new Set(sellableCells(c).map((cell) => cell.passId))
+  const passes: PublicPass[] = c.passes
+    .filter((p) => sellable.has(p.id))
+    .map((p) => {
+      if (p.covers.kind === 'choose') return { ...p, sessionIds: null, ...passState({ covers: p.covers, sessionIds: null }, sessions) }
+      const covered = sessionsForPass(cls, p.id, undefined, now)
+      if (!covered.ok) return { ...p, sessionIds: [], state: 'closed' as const, left: 0 }
+      const view = { ...p, sessionIds: covered.value }
+      // A pass whose first session is past the cutoff can't be booked, whatever its later sessions say.
+      if (cutoffRefusal(cls, covered.value, now)) return { ...view, state: 'closed' as const, left: 0 }
+      return { ...view, ...passState(view, sessions.map((s) => (covered.value.includes(s.id) ? { ...s, closed: false } : s))) }
+    })
+
+  const prices: OwnClassData['prices'] = {}
+  for (const p of passes) prices[p.id] = { ...(c.prices[p.id] ?? {}) }
+
+  const own: OwnClassData = {
+    classId: cls.id,
+    sessions,
+    passes,
+    ticketTypes: c.ticketTypes,
+    prices,
+    questions: c.questions,
+    addOns: c.addOns,
+    rules: c.rules,
+    instructor: c.instructor || null,
+    taxPercent: c.rules.taxable ? CLASS_TAX_PERCENT : 0,
+  }
+
+  const first = sessionsSorted[0]
+  const { remainingSeats, signupClosed } = cls.status === 'closed'
+    ? { remainingSeats: null, signupClosed: true }
+    : classAvailability(own)
+  return {
+    id: cls.id,
+    name: c.name,
+    description: c.description,
+    category: 'workshop',
+    ...(c.imageUrl ? { imageUrl: c.imageUrl } : {}),
+    date: studioDate(new Date(first.startIso)),
+    startTime: first.startIso,
+    endTime: first.endIso,
+    duration: Math.round((Date.parse(first.endIso) - Date.parse(first.startIso)) / 60_000),
+    price: lowestPrice(own),
+    currency: 'USD',
+    taxPercent: own.taxPercent,
+    remainingSeats,
+    signupClosed,
+    own,
+  }
+}

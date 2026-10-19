@@ -10,6 +10,8 @@ import { canBeBooked, isSoldOut } from '@lib/workshop-rules'
 import { byStart } from './workshop-view-model'
 import { trackViewItemList, trackSelectItem, type AnalyticsItem } from '@lib/analytics'
 import type { SeatOption } from '@lib/seat-options'
+import { withSeatsSold, classAvailability, type OwnClassData } from '@lib/classes/public-class'
+import ClassBookingPanel from '@components/classes/ClassBookingPanel'
 
 export interface WorkshopData {
   id: string
@@ -40,6 +42,8 @@ export interface WorkshopData {
   signupClosed?: boolean
   /** Ticket types with their prices (Adult $20, Kid $15); absent = one price per seat. */
   tickets?: { id: string; label: string; priceCents: number; min: number }[]
+  /** One of our own classes (not a Square class): booked through ClassBookingPanel. */
+  own?: OwnClassData
 }
 
 const STUDIO_TZ = 'America/Chicago'
@@ -213,7 +217,7 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
 
   // The class list as a list: which classes people see, then which they open.
   const classItem = (w: WorkshopData, i: number): AnalyticsItem => ({
-    item_id: w.classScheduleId ?? w.id, item_name: w.name, item_category: 'workshop', price: w.price / 100, index: i,
+    item_id: w.own ? w.own.classId : (w.classScheduleId ?? w.id), item_name: w.name, item_category: w.own ? 'class' : 'workshop', price: w.price / 100, index: i,
   })
   const listSent = useRef(false)
   useEffect(() => {
@@ -358,7 +362,24 @@ export default function WorkshopExplorer({ workshops: initialWorkshops = [] }: W
         />
       )}
 
-      {bookingWorkshop && (
+      {bookingWorkshop?.own && (
+        <ClassBookingPanel
+          workshop={bookingWorkshop}
+          onClose={() => setBookingWorkshop(null)}
+          // The list is cached for a minute: take the seats off here rather than ask again.
+          onBooked={(sessionIds, seats) =>
+            setWorkshops((list) =>
+              list.map((w) => {
+                if (w.id !== bookingWorkshop.id || !w.own) return w
+                const own = withSeatsSold(w.own, sessionIds, seats)
+                return { ...w, own, ...classAvailability(own) }
+              }),
+            )
+          }
+        />
+      )}
+
+      {bookingWorkshop && !bookingWorkshop.own && (
         <WorkshopBookingModal
           workshop={bookingWorkshop}
           onClose={() => setBookingWorkshop(null)}

@@ -1,14 +1,17 @@
 import type { WorkshopData } from './WorkshopExplorer'
 import { studioClock } from './workshop-view-model'
 import { workshopStatus, WorkshopWaitlist } from './workshop-status'
+import { sessionsLine } from '@lib/classes/public-class'
 
 export interface WorkshopRowProps {
   workshop: WorkshopData
   onBook?: (workshop: WorkshopData) => void
 }
 
-/** "Sat, Oct 17 · 4 PM" / "7:30 PM": the studio day and start time. */
-export function rowWhen(w: Pick<WorkshopData, 'date' | 'startTime'>): string {
+/** "Sat, Oct 17 · 4 PM" / "7:30 PM": the studio day and start time. A class that meets more than once: "4 sessions · starts Sat Oct 24". */
+export function rowWhen(w: Pick<WorkshopData, 'date' | 'startTime' | 'own'>): string {
+  const series = w.own ? sessionsLine(w.own) : ''
+  if (series) return series
   const day = new Date(`${w.date}T12:00:00Z`)
   const dayLabel = Number.isNaN(day.getTime())
     ? ''

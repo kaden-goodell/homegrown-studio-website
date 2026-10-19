@@ -7,6 +7,9 @@ vi.mock('@lib/event-meta', () => ({ getEventMeta: (...a: any[]) => mockGetEventM
 
 import { GET } from '@pages/api/workshops.json'
 import { forgetAll } from '@lib/short-memory'
+import * as classStore from '@lib/classes/class-store'
+import { createClass } from '@lib/classes/class-store'
+import { defaultRules } from '@lib/classes/validate'
 
 const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Light Pink', 'Light Blue', 'Black', 'Lavender'] }
 const workshop = (scheduleId: string, startAt: string) => ({
@@ -82,5 +85,41 @@ describe('GET /api/workshops.json — ticket types', () => {
       { id: 'adult', label: 'Adult', priceCents: 2500, min: 1 },
       { id: 'kid', label: 'Kid', priceCents: 1500, min: 1 },
     ])
+  })
+})
+
+describe('GET /api/workshops.json — our own classes', () => {
+  const by = { id: 'k', name: 'Kaden' }
+  const content = (name: string, rules: Partial<import('@lib/classes/types').ClassRules> = {}) => ({
+    name, description: 'Paint.', imageUrl: null, instructor: null,
+    rules: { ...defaultRules(), ...rules },
+    ticketTypes: [{ id: 'person', label: 'Person' }],
+    passes: [{ id: 'all', label: 'Full', covers: { kind: 'all' as const } }],
+    prices: { all: { person: 3000 } }, questions: [], addOns: [], defaultCapacity: 12, defaultMinutes: 90,
+  })
+  const at = (start: string) => [{ id: `ses_${start.slice(8, 10)}${start.slice(11, 13)}`, startIso: start, endIso: new Date(Date.parse(start) + 90 * 60_000).toISOString(), capacity: 12 }]
+
+  it('lists open and closed classes with the Square ones, by first session; never drafts, cancelled or link-only', async () => {
+    const open = await createClass({ content: content('Ours open'), sessions: at('2026-10-20T18:00:00.000Z'), status: 'open', by })
+    const closed = await createClass({ content: content('Ours closed'), sessions: at('2026-10-19T18:00:00.000Z'), status: 'closed', by })
+    await createClass({ content: content('Draft'), sessions: at('2026-10-21T18:00:00.000Z'), status: 'draft', by })
+    await createClass({ content: content('Cancelled'), sessions: at('2026-10-22T18:00:00.000Z'), status: 'cancelled', by })
+    await createClass({ content: content('Link only', { linkOnly: true }), sessions: at('2026-10-23T18:00:00.000Z'), status: 'open', by })
+    const all = await list()
+    expect(all.map((w: any) => w.name)).toEqual(['clssch_pails', 'Ours closed', 'Ours open', 'clssch_kinu'])
+    const ours = all.find((w: any) => w.id === open.id)
+    expect(ours).toMatchObject({ price: 3000, remainingSeats: 12, signupClosed: false, own: { classId: open.id } })
+    expect(ours.own.sessions[0]).toMatchObject({ left: 12, closed: false })
+    expect(all.find((w: any) => w.id === closed.id)).toMatchObject({ signupClosed: true, remainingSeats: null })
+  })
+
+  it('still lists Square classes when ours can’t be read, and never caches that list', async () => {
+    const spy = vi.spyOn(classStore, 'listClasses').mockRejectedValueOnce(new Error('blobs down'))
+    const res = await GET({ request: new Request('http://localhost/api/workshops.json') } as any)
+    const json = await res.json()
+    expect(json.workshops.map((w: any) => w.name)).toEqual(['clssch_pails', 'clssch_kinu'])
+    expect(json.incomplete).toBe(true)
+    expect(res.headers.get('Cache-Control')).toBe('private, no-store')
+    spy.mockRestore()
   })
 })

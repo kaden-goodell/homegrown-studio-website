@@ -6,9 +6,14 @@ import { formatMoney } from '@lib/money'
 import { canBeBooked, isSoldOut, seatsLeftLabel } from '@lib/workshop-rules'
 import { ageLabel, isDropOff, notifyInterest } from '@lib/workshop-copy'
 import { trackWaitlistOpened } from '@lib/analytics'
+import { ownPriceLabel } from '@lib/classes/public-class'
 
-/** "$25", or "$20 adult · $15 kid" on a class with ticket types. */
-export function priceLabel(w: Pick<WorkshopData, 'price' | 'currency' | 'tickets'>): string {
+/**
+ * "$25", or "$20 adult · $15 kid" on a class with ticket types. One of our own
+ * classes reads its price cells: "From $15" when there are several prices.
+ */
+export function priceLabel(w: Pick<WorkshopData, 'price' | 'currency' | 'tickets' | 'own'>): string {
+  if (w.own) return ownPriceLabel(w.own, w.currency)
   return w.tickets?.length
     ? w.tickets.map((t) => `${formatMoney(t.priceCents, w.currency)} ${t.label.toLowerCase()}`).join(' · ')
     : formatMoney(w.price, w.currency)
@@ -26,7 +31,9 @@ export function workshopStatus(w: WorkshopData) {
   const bookable = !comingSoon && !soldOut && !closed
   const seats = bookable ? seatsLeftLabel(w.remainingSeats) : ''
   /** "$25 · Ages 8+ · Drop-off" */
-  const meta = [comingSoon ? '' : priceLabel(w), ageLabel(w.description), isDropOff(w.description) ? 'Drop-off' : '']
+  const ages = w.own ? w.own.rules.ages : ageLabel(w.description)
+  const dropOff = w.own ? w.own.rules.dropOff : isDropOff(w.description)
+  const meta = [comingSoon ? '' : priceLabel(w), ages, dropOff ? 'Drop-off' : '']
     .filter(Boolean)
     .join(' · ')
   const status = comingSoon ? 'Coming soon' : soldOut ? 'Sold out' : closed ? 'Sign-ups closed' : seats
