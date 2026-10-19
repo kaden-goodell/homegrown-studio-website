@@ -10,6 +10,8 @@ const mocks = vi.hoisted(() => ({
   audit: vi.fn(),
   libraryDown: false,
   classDown: 0,
+  /** RM3: runs once just before the next class update (another sheet saving in between). */
+  beforeUpdate: null as null | (() => Promise<void>),
 }))
 vi.mock('@lib/classes/class-store', async (importOriginal) => {
   const real = await importOriginal<typeof import('@lib/classes/class-store')>()
@@ -18,6 +20,12 @@ vi.mock('@lib/classes/class-store', async (importOriginal) => {
     // classDown > 0: that many class writes fail (the blob store dropped), after anything written before them.
     createClass: (...a: Parameters<typeof real.createClass>) =>
       mocks.classDown > 0 ? (mocks.classDown--, Promise.reject(new Error('Blob store "classes" is unavailable'))) : real.createClass(...a),
+    updateClass: async (...a: Parameters<typeof real.updateClass>) => {
+      const f = mocks.beforeUpdate
+      mocks.beforeUpdate = null
+      if (f) await f()
+      return real.updateClass(...a)
+    },
   }
 })
 vi.mock('@config/providers', () => ({
@@ -831,6 +839,35 @@ describe('fix round 2', () => {
     const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'link-library', id: before!.id })
     expect(r.body.data.libraryAdded).toBe(false)
     expect((await getClass(before!.id))!.updatedAt).toBe(before!.updatedAt)
+  })
+
+  it('RM2: three sends of the same duplicate at once make one class (a clash with its own reserved class is a replay)', async () => {
+    const src = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Dup Source'), sessions: [ses('2032-08-05', '17:00', '19:00')], status: 'draft' })
+    const send = () => call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'duplicate', id: src.body.data.class.id, sessions: [ses('2032-08-12', '17:00', '19:00')], createKey: 'key-dup-parallel' })
+    const all = await Promise.all([send(), send(), send()])
+    expect(all.map((r) => r.status)).toEqual([200, 200, 200])
+    expect(new Set(all.map((r) => r.body.data.class.id)).size).toBe(1)
+  })
+
+  it('RM3: linking writes only over the class as it was read; a save in between wins and the link waits for next time', async () => {
+    mocks.libraryDown = true
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Racing Link'), sessions: [ses('2032-08-19', '17:00', '19:00')], status: 'draft' })
+    mocks.libraryDown = false
+    const id = c.body.data.class.id
+    expect((await getClass(id))!.libraryId).toBeNull()
+    const classKv = makeKvStore('classes', 'classes')
+    mocks.beforeUpdate = async () => {
+      const cur = await getClass(id)
+      await classKv.set(`class-${id}`, JSON.stringify({ ...cur, content: { ...cur!.content, name: 'Renamed Meanwhile' }, updatedAt: new Date(Date.now() + 5000).toISOString() }))
+    }
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'link-library', id })
+    expect(r.status).toBe(200)
+    expect(r.body.data.libraryAdded).toBe(false)
+    const after = await getClass(id)
+    expect(after!.content.name).toBe('Renamed Meanwhile')
+    expect(after!.libraryId).toBeNull()
+    const next = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'link-library', id })
+    expect(next.body.data.libraryAdded).toBe(true)
   })
 
   it('N6: one counter sale paying two bookings counts each booking’s own seats, not the sale twice', async () => {

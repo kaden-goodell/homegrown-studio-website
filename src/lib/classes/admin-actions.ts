@@ -308,6 +308,16 @@ async function reserveCreate(createKey: unknown): Promise<Reserved | null> {
   throw new Error('Concurrent update — please retry')
 }
 
+/** The class as stored now; a read that finds nothing mid-write (local files) is tried again a moment later. */
+async function readAgain(id: string): Promise<ScheduledClass | null> {
+  let cls = await getClass(id)
+  for (let i = 0; !cls && i < 3; i++) {
+    await new Promise((r) => setTimeout(r, 20))
+    cls = await getClass(id)
+  }
+  return cls
+}
+
 /**
  * Put a class that isn't in the library there (R36): version 1 from its own
  * details (usual length and seats from its first date), and link it. The
@@ -320,9 +330,17 @@ async function linkToLibrary(cls: ScheduledClass, by: By): Promise<{ cls: Schedu
   const lib = await saveLibraryVersion({ createId: `lib_${digest(cls.id).slice(0, 12)}`, content, by, note: date ? `Added with the class on ${date}` : 'Added with the class' })
   const version = lib.versions[lib.versions.length - 1].version
   // Another sheet may have linked it a moment ago: then leave the class alone (no new updatedAt to trip a save, N5).
-  const now = await getClass(cls.id)
-  if (now?.libraryId) return { cls: now, added: false }
-  const linked = await updateClass(cls.id, { libraryId: lib.id, libraryVersion: version }, by, `Added to the library (version ${version})`)
+  const now = await readAgain(cls.id)
+  if (!now || now.libraryId) return { cls: now ?? cls, added: false }
+  // RM3: only over the class as just read; if it changed in between, re-read: linked by someone else is fine, anything else links next time.
+  let linked: ScheduledClass
+  try {
+    linked = await updateClass(cls.id, { libraryId: lib.id, libraryVersion: version }, by, `Added to the library (version ${version})`, { expectedUpdatedAt: now.updatedAt })
+  } catch (e) {
+    if (!(e instanceof StaleClassError)) throw e
+    // Linked by the other one, or changed by a save: then it links next time.
+    return { cls: (await readAgain(cls.id)) ?? now, added: false }
+  }
   await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: content.name }, { version, auto: true, fromClass: cls.id })
   return { cls: linked, added: true }
 }
@@ -444,7 +462,14 @@ export async function duplicateClass(body: { id?: unknown; sessions?: unknown; s
   noPastStarts(sessions)
   const status = okStatus(body.status, src.status === 'cancelled' ? 'draft' : src.status)
   const content = structuredClone(src.content)
-  await checkClashes(sessions, content.rules.canShareRoom)
+  try {
+    await checkClashes(sessions, content.rules.canShareRoom)
+  } catch (e) {
+    // RM2: the same duplicate sent twice at once: the other one made it first, so this "clash" is with itself (as create).
+    const made = reserved ? await getClass(reserved.classId) : null
+    if (made) return finishCreate(made, by)
+    throw e
+  }
   let created: ScheduledClass
   try {
     created = await createClass({
