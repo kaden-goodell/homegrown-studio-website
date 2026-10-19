@@ -96,7 +96,7 @@ function OwnBooking({ b, classId, households, ticketLabels, onChanged }: {
       )}
       {error && <p role="alert" style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{error}</p>}
       <div style={{ marginTop: '0.4rem' }}>
-        <RefundPanel classId={classId} booking={b} endpoint={STAFF_REFUND} reasonRequired waiting={b.waiting} ticketLabel={(t) => ticketLabels[t] ?? t} onDone={onChanged} />
+        <RefundPanel classId={classId} booking={b} endpoint={STAFF_REFUND} reasonRequired counterSalesAtRegister waiting={b.waiting} ticketLabel={(t) => ticketLabels[t] ?? t} onDone={onChanged} />
       </div>
     </li>
   )

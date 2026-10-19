@@ -192,4 +192,47 @@ describe('RefundPanel', () => {
     expect(await screen.findByRole('group', { name: 'Check a refund in Square' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'It didn’t go through' })).toBeInTheDocument()
   })
+
+  it('I2: fields have a visible border and 16px text; a disabled Confirm looks disabled and says what is missing', () => {
+    render(<RefundPanel classId="cls_1" booking={booking} endpoint={STAFF_REFUND} reasonRequired />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    const reasonInput = screen.getByLabelText('Reason') as HTMLInputElement
+    expect(reasonInput.style.border).toContain('solid')
+    expect(reasonInput.style.fontSize).toBe('1rem')
+    const confirm = screen.getByRole('button', { name: 'Confirm refund' })
+    expect(confirm).toBeDisabled()
+    expect(confirm.style.opacity).toBe('0.5')
+    expect(screen.getByTestId('refund-hint')).toHaveTextContent('Add a reason to refund.')
+    fireEvent.change(reasonInput, { target: { value: 'Sick kid' } })
+    expect(confirm).not.toBeDisabled()
+    expect(screen.queryByTestId('refund-hint')).toBeNull()
+    // another amount with nothing typed
+    fireEvent.click(screen.getByLabelText('Another amount'))
+    expect(screen.getByTestId('refund-hint')).toHaveTextContent('Add an amount to refund.')
+  })
+
+  it('free their seat and the Square check say what is missing too', () => {
+    const waiting = { requestId: 'req_w', cents: 100, at: '2026-10-18T15:00:00Z', by: { id: 'sam', name: 'Sam' }, people: [], dates: [] }
+    const { unmount } = render(<RefundPanel classId="cls_1" booking={booking} endpoint={STAFF_REFUND} reasonRequired waiting={waiting} />)
+    expect(screen.getByTestId('refund-hint')).toHaveTextContent('Add what you saw in Square.')
+    expect(screen.getByRole('button', { name: 'It went through' }).style.opacity).toBe('0.5')
+    unmount()
+    render(<RefundPanel classId="cls_1" booking={booking} endpoint={STAFF_REFUND} reasonRequired />)
+    fireEvent.click(screen.getByRole('button', { name: 'Free their seat' }))
+    expect(screen.getByTestId('refund-hint')).toHaveTextContent('Add a reason to free the seat.')
+  })
+
+  it('an unpaid "pay at the counter" seat: nothing to refund, free the seat instead', () => {
+    const unpaid = { ...booking, source: 'door-counter', paidHere: false, refundableCents: 0, refundable: booking.refundable.map((r: any) => ({ ...r, remainingCents: 4000 })) }
+    render(<RefundPanel classId="cls_1" booking={unpaid} endpoint={STAFF_REFUND} reasonRequired />)
+    expect(screen.getByText('Nothing was paid for this seat. Free the seat instead.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Refund' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Free their seat' })).toBeInTheDocument()
+  })
+
+  it('/staff: a counter sale is refunded at the register', () => {
+    render(<RefundPanel classId="cls_1" booking={{ ...booking, source: 'pos' }} endpoint={STAFF_REFUND} reasonRequired counterSalesAtRegister />)
+    expect(screen.getByText('Refund this at the register, where it was rung up.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Refund' })).toBeNull()
+  })
 })

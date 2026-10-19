@@ -14,8 +14,15 @@ const row: CSSProperties = { display: 'flex', gap: '0.5rem', flexWrap: 'wrap', a
 const box: CSSProperties = { display: 'grid', gap: '0.6rem', padding: '1rem', borderRadius: '1rem', border: '1px solid var(--color-line)', background: 'var(--color-surface)', minWidth: 0 }
 const muted: CSSProperties = { color: 'var(--color-muted)', margin: 0 }
 const errorText: CSSProperties = { color: '#b91c1c', margin: 0, fontWeight: 600 }
-/** 16px so iPad Safari doesn't zoom on focus. */
-const input: CSSProperties = { fontSize: '1rem', minHeight: '2.75rem', width: '100%', boxSizing: 'border-box' }
+/** The site's field: a visible border, 16px text (iPad Safari doesn't zoom), 44px tall. */
+const input: CSSProperties = {
+  fontSize: '1rem', minHeight: '2.75rem', width: '100%', boxSizing: 'border-box', padding: '0.5rem 0.75rem',
+  borderRadius: '0.75rem', border: '1.5px solid var(--color-field-border)', background: 'var(--color-surface)', color: 'var(--color-dark)',
+}
+const fieldLabel: CSSProperties = { fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }
+/** A button that can't be used yet looks it (the site's .btn doesn't dim on /staff). */
+const dim = (disabled: boolean): CSSProperties => (disabled ? { opacity: 0.5, cursor: 'not-allowed' } : {})
+const hintText: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--color-muted)' }
 
 const OFFLINE = "Couldn't reach the studio. Check the connection and try again."
 interface Reply<T> { ok: boolean; status: number; data?: T; error?: string; extra: Record<string, any> }
@@ -59,7 +66,7 @@ type Kind = 'booking' | 'person' | 'session' | 'custom'
  * one token per "Already refunded" answer, reused across retries (R31); when
  * a retry finds its own repeat already finished, it shows as refunded.
  */
-export default function RefundPanel({ classId, booking, ticketLabel, endpoint = ADMIN_REFUND, reasonRequired = false, last4, waiting: waitingProp = null, onDone }: {
+export default function RefundPanel({ classId, booking, ticketLabel, endpoint = ADMIN_REFUND, reasonRequired = false, last4, waiting: waitingProp = null, counterSalesAtRegister = false, onDone }: {
   classId: string
   booking: BookingView
   ticketLabel?: (ticketTypeId: string) => string
@@ -69,6 +76,8 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   last4?: string
   /** a refund on this booking still waiting for someone to check Square */
   waiting?: WaitingRefund | null
+  /** /staff: a counter (POS) sale is refunded at the register where it was rung up, not from here */
+  counterSalesAtRegister?: boolean
   onDone?: () => void
 }) {
   const all = booking.refundable ?? []
@@ -115,7 +124,8 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
     return Number.isFinite(amountCents) && amountCents > 0 ? amountCents : 0
   }, [kind, person, sessionSeats, amountCents, left])
 
-  const canRefund = booking.paidHere && left > 0
+  const atRegister = counterSalesAtRegister && booking.source === 'pos'
+  const canRefund = booking.paidHere && left > 0 && !atRegister
   if (!canRefund && !holding.length && !waiting) return done ? <p role="status" style={{ margin: 0, fontWeight: 600 }}>{done}</p> : null
 
   function choose(k: Kind) {
@@ -143,6 +153,12 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   // Same as the server: custom and one session can't go past what the booking has left.
   const tooMuch = (kind === 'custom' || kind === 'session') && preview > left
   const canGo = preview > 0 && !tooMuch && reasonOk && !busy
+  // What is still missing before Confirm refund works, said under the button.
+  const missing = !reasonOk ? 'Add a reason to refund.'
+    : preview > 0 || tooMuch ? null
+      : kind === 'custom' ? 'Add an amount to refund.'
+        : kind === 'session' ? 'Pick a seat to refund.'
+          : null
 
   async function go(again = false) {
     setBusy(true)
@@ -204,7 +220,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
 
   const reasonBox = (
     <label style={{ display: 'grid', gap: '0.3rem' }}>
-      <span>{reasonRequired ? 'Reason' : 'Reason (optional)'}</span>
+      <span style={fieldLabel}>{reasonRequired ? 'Reason' : 'Reason (optional)'}</span>
       <input type="text" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} style={input} />
     </label>
   )
@@ -217,14 +233,15 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
         <p style={{ margin: 0, fontWeight: 700 }}>A refund is waiting on Square</p>
         <p style={{ margin: 0 }}>{`${formatMoney(waiting.cents)} for ${waiting.people.map((p) => p.name).join(', ') || 'this booking'}, asked by ${waiting.by.name} on ${when}. Square never said whether it went through. Look for it in Square, then say what you saw.`}</p>
         <label style={{ display: 'grid', gap: '0.3rem' }}>
-          <span>{reasonRequired ? 'What you saw in Square' : 'What you saw in Square (optional)'}</span>
+          <span style={fieldLabel}>{reasonRequired ? 'What you saw in Square' : 'What you saw in Square (optional)'}</span>
           <input type="text" value={seen} maxLength={500} onChange={(e) => setSeen(e.target.value)} style={input} />
         </label>
         {error && <p role="alert" style={errorText}>{error}</p>}
         <div style={row}>
-          <button type="button" className="btn btn-primary" disabled={busy || !seenOk} onClick={() => check('went-through')}>It went through</button>
-          <button type="button" className="btn btn-secondary" disabled={busy || !seenOk} onClick={() => check('did-not-go-through')}>It didn’t go through</button>
+          <button type="button" className="btn btn-primary" disabled={busy || !seenOk} style={dim(busy || !seenOk)} onClick={() => check('went-through')}>It went through</button>
+          <button type="button" className="btn btn-secondary" disabled={busy || !seenOk} style={dim(busy || !seenOk)} onClick={() => check('did-not-go-through')}>It didn’t go through</button>
         </div>
+        {!seenOk && <p data-testid="refund-hint" style={hintText}>Add what you saw in Square.</p>}
       </div>
     )
   }
@@ -243,9 +260,10 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
         {reasonBox}
         {error && <p role="alert" style={errorText}>{error}</p>}
         <div style={row}>
-          <button type="button" className="btn btn-primary" disabled={!reasonOk || busy} onClick={free}>{busy ? 'Freeing…' : 'Yes, free the seat'}</button>
+          <button type="button" className="btn btn-primary" disabled={!reasonOk || busy} style={dim(!reasonOk || busy)} onClick={free}>{busy ? 'Freeing…' : 'Yes, free the seat'}</button>
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setFreeing(false); setError('') }}>Back</button>
         </div>
+        {!reasonOk && <p data-testid="refund-hint" style={hintText}>Add a reason to free the seat.</p>}
       </div>
     )
   }
@@ -255,7 +273,11 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
       <div style={row}>
         {canRefund && <button type="button" className="btn btn-secondary" onClick={() => { setOpen(true); setDone('') }}>Refund</button>}
         {holding.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setFreeing(true); setDone('') }}>Free their seat</button>}
-        {!booking.paidHere && booking.source !== 'comp' && <span style={{ ...muted, fontSize: '0.9rem' }}>Refund this one in Square, where it was paid.</span>}
+        {booking.source === 'door-counter' && !booking.paidHere
+          ? <span style={{ ...muted, fontSize: '0.9rem' }}>Nothing was paid for this seat. Free the seat instead.</span>
+          : atRegister
+            ? <span style={{ ...muted, fontSize: '0.9rem' }}>Refund this at the register, where it was rung up.</span>
+            : !booking.paidHere && booking.source !== 'comp' && <span style={{ ...muted, fontSize: '0.9rem' }}>Refund this one in Square, where it was paid.</span>}
         {done && <span role="status" style={{ fontWeight: 600 }}>{done}</span>}
       </div>
     )
@@ -299,7 +321,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
       )}
       {kind === 'custom' && (
         <label style={{ display: 'grid', gap: '0.3rem' }}>
-          <span>{`Amount (up to ${formatMoney(left)})`}</span>
+          <span style={fieldLabel}>{`Amount (up to ${formatMoney(left)})`}</span>
           <input type="number" inputMode="decimal" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} style={input} />
         </label>
       )}
@@ -317,16 +339,17 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
         <>
           <p role="status" style={{ margin: 0, fontWeight: 600 }}>{already}</p>
           <div style={row}>
-            <button type="button" className="btn btn-primary" disabled={busy || !againOf} onClick={() => go(true)}>{busy ? 'Refunding…' : 'Refund again'}</button>
+            <button type="button" className="btn btn-primary" disabled={busy || !againOf} style={dim(busy || !againOf)} onClick={() => go(true)}>{busy ? 'Refunding…' : 'Refund again'}</button>
             <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setOpen(false); setAlready(''); setAgainOf(null); setError('') }}>Back</button>
           </div>
         </>
       ) : (
         <div style={row}>
-          <button type="button" className="btn btn-primary" disabled={!canGo} onClick={() => go()}>{busy ? 'Refunding…' : 'Confirm refund'}</button>
+          <button type="button" className="btn btn-primary" disabled={!canGo} style={dim(!canGo)} onClick={() => go()}>{busy ? 'Refunding…' : 'Confirm refund'}</button>
           <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setOpen(false); setError('') }}>Back</button>
         </div>
       )}
+      {!already && missing && <p data-testid="refund-hint" style={hintText}>{missing}</p>}
     </div>
   )
 }
