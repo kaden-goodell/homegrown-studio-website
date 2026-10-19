@@ -4,6 +4,7 @@ import type { ScheduledClass } from '@lib/classes/types'
 import { formatMoney } from '@lib/money'
 import { formatDayAndSpan } from '@lib/studio-time'
 import { api, BOOKINGS, CLASSES } from './api'
+import RefundPanel from './RefundPanel'
 import ScheduleDialog from './ScheduleDialog'
 import { box, errorText, muted, row, warnText } from './ui'
 
@@ -14,8 +15,8 @@ const SOURCE: Record<string, string> = { online: 'Online', 'door-card': 'At the 
 const nameOf = (b: BookingView) => (b.customer ? `${b.customer.givenName} ${b.customer.familyName}`.trim() || 'No name yet' : 'No name yet')
 
 /**
- * One scheduled class and everyone booked on it, read only. Each booking keeps
- * an empty spot where refunds will go. From here the class can be edited,
+ * One scheduled class and everyone booked on it. Each paid booking has a
+ * Refund button (RefundPanel). From here the class can be edited,
  * run again on new dates, or cancelled (which never refunds anyone).
  */
 export default function ClassBookings({ id, onEdit, onBack, onDuplicated }: {
@@ -161,8 +162,9 @@ export default function ClassBookings({ id, onEdit, onBack, onDuplicated }: {
               {[`Paid ${formatMoney(b.paidCents)}`, b.refundedCents ? `refunded ${formatMoney(b.refundedCents)}` : '', SOURCE[b.source] ?? b.source].filter(Boolean).join(' · ')}
             </p>
             {b.overCapacity && <p style={warnText}>This seat landed after the class was full. Check the room has space.</p>}
-            {/* Refunds (Task 12) go here. */}
-            <div data-refund-slot={b.bookingId} />
+            <div data-refund-slot={b.bookingId}>
+              {b.state !== 'held' && <RefundPanel classId={cls.id} booking={b} ticketLabel={ticket} onDone={load} />}
+            </div>
           </article>
         )
       })}

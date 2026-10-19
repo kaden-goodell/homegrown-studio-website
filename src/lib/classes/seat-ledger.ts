@@ -255,16 +255,22 @@ const refundedOn = (l: LedgerLine) => l.refunds.reduce((s, r) => s + r.cents, 0)
 
 /**
  * Records a refund of `cents` on EACH listed line (the money goes back
- * elsewhere; this only records it). Refuses more than a line has left to give back.
+ * elsewhere; this only records it). `cents` may instead map line id → cents,
+ * so one Square refund spread unevenly over seats is written in one go.
+ * Refuses more than a line has left to give back.
  * A line that already carries a refund with the same non-null squareRefundId is
  * skipped, so a retried refund is recorded once.
  */
 export async function recordRefund(
   classId: string,
   lineIds: string[],
-  input: { cents: Cents; reason: string; by: By; freeSeat: boolean; squareRefundId: string | null },
+  input: { cents: Cents | Record<string, Cents>; reason: string; by: By; freeSeat: boolean; squareRefundId: string | null },
 ): Promise<LedgerLine[]> {
-  if (!Number.isInteger(input.cents) || input.cents < 0) throw new Error('A refund has to be whole cents of zero or more.')
+  const centsOf = (id: string): Cents => (typeof input.cents === 'number' ? input.cents : input.cents[id])
+  for (const id of lineIds) {
+    const c = centsOf(id)
+    if (!Number.isInteger(c) || c < 0) throw new Error('A refund has to be whole cents of zero or more.')
+  }
   return mutate(classId, (cur) => {
     const seen = (l: LedgerLine) => input.squareRefundId !== null && l.refunds.some((r) => r.squareRefundId === input.squareRefundId)
     const todo = new Set<string>()
@@ -274,13 +280,13 @@ export async function recordRefund(
       if (seen(l)) continue
       todo.add(id)
       if (l.state !== 'confirmed' && l.state !== 'refunded') throw new Error('Only paid seats can be refunded.')
-      if (refundedOn(l) + input.cents > paidOn(l)) throw new Error('That is more than was paid for this seat.')
+      if (refundedOn(l) + centsOf(id) > paidOn(l)) throw new Error('That is more than was paid for this seat.')
     }
     const result = () => cur.lines.filter((l) => lineIds.includes(l.id))
     if (!todo.size) return { next: null, result: result() }
     const at = new Date().toISOString()
-    const entry = { at, cents: input.cents, reason: input.reason, by: input.by, freedSeat: input.freeSeat, squareRefundId: input.squareRefundId }
-    const lines = cur.lines.map((l) => (todo.has(l.id) ? { ...l, state: 'refunded' as const, refunds: [...l.refunds, entry] } : l))
+    const entry = (id: string) => ({ at, cents: centsOf(id), reason: input.reason, by: input.by, freedSeat: input.freeSeat, squareRefundId: input.squareRefundId })
+    const lines = cur.lines.map((l) => (todo.has(l.id) ? { ...l, state: 'refunded' as const, refunds: [...l.refunds, entry(l.id)] } : l))
     return { next: { ...cur, lines }, result: lines.filter((l) => lineIds.includes(l.id)) }
   })
 }

@@ -21,12 +21,13 @@ const booking = {
   source: 'online', passId: 'all', seats: { adult: 1, kid: 2 }, sessionIds: ['ses_1'],
   picks: [{ seat: 1, ticketTypeId: 'adult', answers: { q1: 'Red' } }], addOns: {}, paidCents: 7630, refundedCents: 0, refunds: [],
   state: 'confirmed', overCapacity: false, lineIds: ['led_1'], at: '2031-03-01T00:00:00Z',
+  refundable: [{ id: 'led_1', seat: 1, ticketTypeId: 'adult', sessions: 1, remainingCents: 7630, sessionCents: 0 }], paidHere: true,
 }
 const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => body })
 afterEach(() => vi.unstubAllGlobals())
 
 describe('ClassBookings', () => {
-  it('shows each booking read-only with a place for refunds, and the seats taken', async () => {
+  it('shows each booking with a Refund button, and the seats taken', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ok({ data: { class: cls(), bookings: [booking] } })))
     render(<ClassBookings id="cls_1" onEdit={() => {}} onBack={() => {}} />)
     const b = await screen.findByRole('article', { name: 'Ada Lovelace' })
@@ -35,7 +36,7 @@ describe('ClassBookings', () => {
     expect(within(b).getByText(/ada@example.com/)).toBeInTheDocument()
     expect(within(b).getByText(/Glaze Red/)).toBeInTheDocument()
     expect(b.querySelector('[data-refund-slot="bkg_1"]')).not.toBeNull()
-    expect(within(b).queryByRole('button', { name: /Refund/ })).toBeNull()
+    expect(within(b).getByRole('button', { name: 'Refund' })).toBeInTheDocument()
     expect(screen.getByText('3 of 10 seats taken')).toBeInTheDocument()
   })
 

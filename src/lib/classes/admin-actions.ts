@@ -18,6 +18,7 @@ import { addBlocked, listBlocked, removeBlocked, type BlockedTime } from './bloc
 import { createClass, getClass, listClasses, StaleClassError, updateClass } from './class-store'
 import { archiveLibrary, getLibrary, listLibrary, restoreLibraryVersion, saveLibraryVersion } from './library-store'
 import { archiveClassInSquare, syncClassToSquare } from './square-catalog'
+import { remainingOn, sessionShare } from './refunds'
 import { getLedger, seatsTaken, type Ledger, type LedgerLine } from './seat-ledger'
 import { busyBetween, clashes, clashMessage, type Busy } from './studio-schedule'
 import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass, Session } from './types'
@@ -394,8 +395,13 @@ export interface BookingView {
   state: 'held' | 'confirmed' | 'refunded' | 'part refunded'
   overCapacity: boolean
   lineIds: string[]
+  /** What each paid seat can still give back, for the refund panel (the server works it out again). */
+  refundable: RefundableSeat[]
+  /** false = comp, POS or counter: refunds happen in Square */
+  paidHere: boolean
   at: string
 }
+export interface RefundableSeat { id: string; seat: number; ticketTypeId: string; sessions: number; remainingCents: number; sessionCents: number }
 
 /** A class's ledger lines grouped by booking. Released seats and lapsed holds are left out. */
 export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
@@ -436,6 +442,11 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
       state,
       overCapacity: lines.some((l) => l.overCapacity === true),
       lineIds: lines.map((l) => l.id),
+      refundable: lines.filter((l) => l.state === 'confirmed' || l.state === 'refunded').map((l) => ({
+        id: l.id, seat: l.seat, ticketTypeId: l.ticketTypeId, sessions: l.sessionIds.length,
+        remainingCents: remainingOn(l), sessionCents: l.sessionIds.length > 1 && sessionShare(l) <= remainingOn(l) ? sessionShare(l) : 0,
+      })),
+      paidHere: !!first.square.paymentId,
       at: first.at,
     }
   }).sort((a, b) => a.at.localeCompare(b.at))

@@ -294,6 +294,17 @@ describe('seat ledger', () => {
     expect((await getLedger(cls.id)).lines).toHaveLength(2)
   })
 
+  it('per-line cents: one refund written unevenly over seats in one go, still refusing more than paid', async () => {
+    const cls = make(2)
+    const f = fb(cls, { tickets: { person: 2 } }, { bookingId: 'bkg_pl' })
+    await hold(cls, f.quote, f.input, NOW)
+    const [l1, l2] = await confirm(cls.id, 'bkg_pl', { orderId: 'o', paymentId: 'p' }, f, NOW)
+    await expect(recordRefund(cls.id, [l1.id, l2.id], { cents: { [l1.id]: 100, [l2.id]: 99999 }, reason: 'x', by, freeSeat: false, squareRefundId: 'rf_pl0' }))
+      .rejects.toThrow(/more than was paid/)
+    const out = await recordRefund(cls.id, [l1.id, l2.id], { cents: { [l1.id]: 1000, [l2.id]: 250 }, reason: 'x', by, freeSeat: false, squareRefundId: 'rf_pl' })
+    expect(out.map((l) => l.refunds.map((r) => r.cents))).toEqual([[1000], [250]])
+  })
+
   it('a retried refund with the same Square refund id is recorded once', async () => {
     const cls = make(2)
     const f = fb(cls, {}, { bookingId: 'bkg_rr' })

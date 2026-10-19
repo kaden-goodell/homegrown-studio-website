@@ -11,6 +11,7 @@ import { partyInviteMailto, partyInviteIcsUrl } from '@lib/party-share'
 import { buildAgreementCopy, buildDropOffDetails, type BuildAgreementCopyInput, type BuildDropOffDetailsInput } from '@lib/agreement-email'
 import { withUtm } from '@lib/utm'
 import { formatWhen } from '@lib/studio-time'
+import { formatMoney } from '@lib/money'
 import { keepConfirmationCopy, type BookingKind, type ConfirmationMessage } from '@lib/confirmation-copies'
 
 const logger = createLogger('email')
@@ -653,4 +654,42 @@ export async function sendIncidentEmail(input: {
     html,
     text,
   })
+}
+
+/**
+ * Tells a customer we refunded (all or part of) a class booking. Plain and
+ * friendly, no colons, no promises about when the bank shows it.
+ */
+export async function sendRefundEmail(input: {
+  to: string
+  givenName: string
+  className: string
+  cents: number
+  /** the card's last four digits when we know them */
+  last4?: string
+  /** true when the refund left them booked */
+  keptSeat: boolean
+}): Promise<{ sent: boolean }> {
+  const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
+  const phone = siteConfig.contactPhone
+  const amount = formatMoney(input.cents)
+  const card = input.last4 ? `the card ending in ${input.last4}` : 'your card'
+  const hi = input.givenName ? `Hi ${input.givenName},` : 'Hi,'
+  const lines = [
+    `We refunded ${amount} to ${card} for ${input.className}.`,
+    input.keptSeat ? 'You are still booked, so we will see you there.' : 'We hope to see you at another class soon.',
+    ...(phone ? [`Questions? Text us at ${phone}.`] : []),
+  ]
+  const text = [hi, ``, ...lines.flatMap((l) => [l, ``]), `Hometown Studio · ${address}`].join('\n')
+  const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+  const P = 'margin:0 0 10px;font-size:15px;color:#3d3630;line-height:1.55'
+  const html = `
+<div style="max-width:560px;margin:0 auto;padding:8px 4px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <p style="margin:0 0 12px;font-size:11px;letter-spacing:2px;text-transform:uppercase;color:#7a4a2e;font-weight:700;">Hometown Studio</p>
+  <p style="${P}">${esc(hi)}</p>
+  ${lines.map((l) => `<p style="${P}">${esc(l)}</p>`).join('\n  ')}
+  <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />
+  <p style="margin:0;font-size:12px;color:#6f635b;">Hometown Studio &middot; ${esc(address)}</p>
+</div>`
+  return sendEmail({ to: input.to, subject: `Your refund from Hometown Studio`, html, text })
 }
