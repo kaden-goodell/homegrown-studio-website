@@ -504,9 +504,12 @@ describe('bookings', () => {
       line({ bookingId: 'bkg_t1', sessionIds: [sid], seat: 2 }),
       line({ bookingId: 'bkg_t2', sessionIds: [sid], state: 'refunded', refunds: [{ at: 'x', cents: 3270, reason: '', by: { id: 'k', name: 'K' }, freedSeat: true, squareRefundId: 'r1' }] }),
       line({ bookingId: 'bkg_t3', sessionIds: [sid], state: 'held', holdExpiresAt: new Date(Date.now() + 600_000).toISOString() }),
+      // Refunded in full but the seat kept: still coming (R43).
+      line({ bookingId: 'bkg_t4', sessionIds: [sid], state: 'refunded', refunds: [{ at: 'x', cents: 3270, reason: '', by: { id: 'k', name: 'K' }, freedSeat: false, squareRefundId: 'r2' }] }),
     ])
     const r = await call(classes, 'GET', '/api/admin/classes/classes.json')
-    expect(r.body.data.totals[cls.id]).toEqual({ bookings: 2, seats: 2, cents: 6540 })
+    // N5: the fully freed booking (bkg_t2) isn't counted; the kept-seat one is.
+    expect(r.body.data.totals[cls.id]).toEqual({ bookings: 2, seats: 3, cents: 6540 })
   })
 })
 

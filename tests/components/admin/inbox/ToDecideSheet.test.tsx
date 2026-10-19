@@ -210,6 +210,25 @@ describe('To decide sheets', () => {
     expect(sheet.open).toHaveBeenCalledWith({ kind: 'class', id: 'cls_1' })
   })
 
+  it('N1 (R43): Text the people booked includes a refund that kept the seat, not a booking whose seats were all freed', async () => {
+    const t = item({ kind: 'below-minimum', title: 'Short of its minimum', classId: 'cls_1', className: 'Needlepoint 101', detail: { booked: 1, count: 6, decideByIso: at('2026-10-22', '17:00') } })
+    const kept = booking({
+      bookingId: 'bkg_kept', customer: { givenName: 'Kay', familyName: 'Kept', email: 'k@x.test', phone: '(256) 555-0122' },
+      seats: { person: 1 }, state: 'refunded', refundedCents: 3270, lineIds: ['led_k'],
+      refundable: [{ id: 'led_k', seat: 1, ticketTypeId: 'person', sessions: 1, remainingCents: 0, sessionCents: 0, freed: false }],
+    })
+    const gone = booking({
+      bookingId: 'bkg_gone', customer: { givenName: 'Gus', familyName: 'Gone', email: 'g@x.test', phone: '(256) 555-0133' },
+      seats: { person: 1 }, state: 'refunded', refundedCents: 3270, lineIds: ['led_g'],
+      refundable: [{ id: 'led_g', seat: 1, ticketTypeId: 'person', sessions: 1, remainingCents: 0, sessionCents: 0, freed: true }],
+    })
+    show([t], { bookings: [kept, gone] })
+    expect(await screen.findByText('Kay Kept')).toBeInTheDocument()
+    expect(screen.queryByText('Gus Gone')).toBeNull()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Text the 1 person booked' }))
+    expect(within(screen.getByRole('group', { name: 'Text the people booked' })).getByLabelText('Phone numbers')).toHaveTextContent('(256) 555-0122')
+  })
+
   it('keep a short class running', async () => {
     const t = item({ kind: 'below-minimum', title: 'Short of its minimum', classId: 'cls_1', className: 'Needlepoint 101', detail: { booked: 4, count: 6, decideByIso: at('2026-10-22', '17:00') } })
     const { f } = show([t])

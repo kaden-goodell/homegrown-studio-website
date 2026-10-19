@@ -10,6 +10,7 @@ import type { ClassBooking } from '@lib/classes/admin-actions'
 import type { ScheduledClass } from '@lib/classes/types'
 import { formatMoney } from '@lib/money'
 import { api, BOOKINGS, CLASSES, TO_DECIDE } from '../classes/api'
+import { isComingBooking } from '../classes/labels'
 import { localDate } from '@lib/party-slots'
 import { dayLabel } from '../classes/dates'
 import { useRefresh } from '../shell/data'
@@ -411,7 +412,7 @@ function BelowMinimum({ item }: { item: ToDecideItem }) {
     setLoadError('')
     api<{ bookings: ClassBooking[] }>(`${BOOKINGS}?id=${encodeURIComponent(item.classId ?? '')}`).then((r) => {
       if (!live) return
-      if (r.ok && r.data) setBookings(r.data.bookings.filter((b) => b.state !== 'held' && b.state !== 'refunded'))
+      if (r.ok && r.data) setBookings(r.data.bookings.filter(isComingBooking)) // R43: a refund that kept the seat is still coming
       else setLoadError(r.error ?? '')
     })
     return () => { live = false }

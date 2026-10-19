@@ -475,6 +475,48 @@ describe('R42: our own online bookings Square shows paid', () => {
     expect((await listPaidNotSeated()).filter((p) => p.orderId === o.id)).toEqual([])
   })
 
+  it('N2: email first, then the owners’ text; a failed email is said in the text and tried once more by tonight’s catch-up', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const bookingId = `bkg_${uid('mail').toLowerCase()}`
+    const o = ownOrder(cls, bookingId)
+    sq.orders.set(o.id, o)
+    await putLines(cls.id, [ownLine(bookingId)])
+    const order: string[] = []
+    confirmations.mockImplementationOnce(async () => { order.push('email'); return { sent: false } })
+    texts.mockImplementation(async () => { order.push('text'); return { attempted: 1, sent: 1 } })
+    await handleSquareEvent(paymentDone(o), NOW)
+    expect(order).toEqual(['email', 'text'])
+    expect(texts.mock.calls[0][0]).toMatch(/booked from Square's payment.*lou@example\.com didn't send; it's tried again tonight/)
+    // A replay of the notice doesn't retry; only the nightly catch-up does, once.
+    await handleSquareEvent(paymentDone(o), NOW)
+    expect(confirmations).toHaveBeenCalledTimes(1)
+    sq.search = [[o]]
+    await reconcileClasses(NOW)
+    expect(confirmations).toHaveBeenCalledTimes(2)
+    expect(texts.mock.calls.at(-1)![0]).toMatch(/went out on the retry/)
+    sq.search = [[o]]
+    await reconcileClasses(NOW)
+    expect(confirmations).toHaveBeenCalledTimes(2)
+    expect(texts).toHaveBeenCalledTimes(2)
+    texts.mockReset(); texts.mockImplementation(async () => ({ attempted: 1, sent: 1 }))
+  })
+
+  it('N2: failed again on the retry: the owners are told to send it by hand, and it isn’t tried a third time', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const bookingId = `bkg_${uid('mail2').toLowerCase()}`
+    const o = ownOrder(cls, bookingId)
+    sq.orders.set(o.id, o)
+    await putLines(cls.id, [ownLine(bookingId)])
+    confirmations.mockResolvedValueOnce({ sent: false }).mockResolvedValueOnce({ sent: false })
+    await handleSquareEvent(paymentDone(o), NOW)
+    sq.search = [[o]]
+    await reconcileClasses(NOW)
+    expect(texts.mock.calls.at(-1)![0]).toMatch(/still didn't send on the retry\. Please send them the details/)
+    sq.search = [[o]]
+    await reconcileClasses(NOW)
+    expect(confirmations).toHaveBeenCalledTimes(2)
+  })
+
   it('the customer’s own request already sent the confirmation: the webhook confirms the seats and sends nothing more', async () => {
     const cls = makeClass(); classes.list = [cls]
     const bookingId = `bkg_${uid('live').toLowerCase()}`

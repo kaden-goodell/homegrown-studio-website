@@ -29,7 +29,7 @@ import { isComing, isLiveHold, isPaidLine, paidOn, seatFreed, takesSeat } from '
 import { busyBetween, clashes, clashMessage, type Busy } from './studio-schedule'
 import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass, Session } from './types'
 import { newId, toIso, validateContent, validateSessions } from './validate'
-import { TestSiteStoreError } from './test-site-guard'
+import { LiveSquareFromTestSiteError, TestSiteStoreError } from './test-site-guard'
 
 /**
  * The owner when the request doesn't say which one (see adminActor in
@@ -162,6 +162,7 @@ async function syncPos(cls: ScheduledClass, by: By): Promise<{ cls: ScheduledCla
     return { cls: await updateClass(cls.id, { square }, by, 'POS item updated') }
   } catch (e) {
     console.warn(`[classes] POS sync for ${cls.id} failed: ${e instanceof Error ? e.message : e}`)
+    if (e instanceof LiveSquareFromTestSiteError) return { cls, warning: `Saved, but not on the POS. ${e.message}` }
     return { cls, warning: e instanceof Error && e.message === CLASS_TAX_NOT_SET ? TAX_WARNING : SYNC_WARNING }
   }
 }
@@ -216,7 +217,8 @@ export async function classesBetween(fromIso?: string, toIso?: string): Promise<
     for (const s of c.sessions) taken[s.id] = seatsTaken(ledger, s.id, now)
     const views = groupBookings(ledger, now).filter((b) => b.state !== 'held')
     totals[c.id] = {
-      bookings: views.length,
+      // N5 (R43): bookings whose people are coming; one whose seats were all freed isn't counted.
+      bookings: views.filter((b) => b.seatsComing > 0).length,
       seats: ledger.lines.filter(isComing).length,
       // Money in: comps and counter seats not rung up yet bring in nothing (I3).
       cents: views.reduce((sum, b) => sum + takenCents(b), 0),

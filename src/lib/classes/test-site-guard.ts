@@ -39,6 +39,31 @@ export function classWritesRefusal(request?: Request): string | null {
   })
 }
 
+/**
+ * N3: the POS is changed only by the live site, or by any site on Square's
+ * sandbox. A test site (or local dev) pointed at the live Square never writes
+ * the live catalog, whatever its STORE_NAMESPACE.
+ */
+export const LIVE_SQUARE_FROM_TEST_SITE = 'This test site uses the live Square. Switch it to the sandbox before changing the POS.'
+
+export class LiveSquareFromTestSiteError extends Error {
+  constructor() {
+    super(LIVE_SQUARE_FROM_TEST_SITE)
+    this.name = 'LiveSquareFromTestSiteError'
+  }
+}
+
+/** The rule, with its inputs passed in: the refusal, or null when a catalog write may go ahead. */
+export function squareCatalogRefusal(input: { context: DeployContext; squareEnvironment?: string | null }): string | null {
+  if (input.context === 'production') return null
+  return input.squareEnvironment === 'sandbox' ? null : LIVE_SQUARE_FROM_TEST_SITE
+}
+
+/** Throws LiveSquareFromTestSiteError when this site may not write the Square catalog it points at. */
+export function assertSquareCatalogWriteAllowed(squareEnvironment: string | undefined, request?: Request): void {
+  if (squareCatalogRefusal({ context: deployContext(request), squareEnvironment })) throw new LiveSquareFromTestSiteError()
+}
+
 /** Throws TestSiteStoreError on a test site with no store of its own. */
 export function assertClassWritesAllowed(request?: Request): void {
   if (classWritesRefusal(request)) throw new TestSiteStoreError()

@@ -44,7 +44,7 @@ import { alertOwners } from '@lib/owner-alert'
 import { siteConfig } from '@config/site.config'
 import { formatSlotLabel } from '@lib/studio-time'
 import { seatsLabelFor } from './checkout'
-import { claimConfirmation, releaseConfirmation, sendClassConfirmation } from './confirmation'
+import { claimConfirmation, markConfirmationRetry, releaseConfirmation, sendClassConfirmation, takeConfirmationRetry } from './confirmation'
 import { bookingCap, claimSquareRefund, freeSeatOnly, onSeatFreed } from './refunds'
 import { allRefundRequests, listRefundRequests, UNCONFIRMED_AFTER_MS, type SavedRefundRequest } from './refund-requests'
 import { getClass } from './class-store'
@@ -277,6 +277,8 @@ export interface RunContext {
   catalog: CatalogCache
   /** reconcile only: payment id → the classes holding seats paid by it */
   payments?: Map<string, Set<string>>
+  /** reconcile only: send a confirmation that failed from Square's notice once more (N2) */
+  retryConfirmations?: boolean
 }
 function contextFor(classes: ScheduledClass[], catalog: CatalogCache = sharedCache()): RunContext {
   return { classes, index: indexVariations(classes), catalog }
@@ -407,24 +409,46 @@ function pickLinesOf(cls: ScheduledClass, lines: LedgerLine[]): string[] {
  * caller that wins the one-email-per-booking marker (claimConfirmation) sends
  * them, whether that is this webhook or the customer's own request. Never throws.
  */
-async function confirmByEmail(cls: ScheduledClass, lines: LedgerLine[], chargedCents: Cents, ownerText: string): Promise<void> {
+async function confirmByEmail(cls: ScheduledClass, lines: LedgerLine[], chargedCents: Cents, ownerText: string, opts: { retry?: boolean } = {}): Promise<void> {
   const who = lines.find((l) => l.customer?.email)?.customer
   const bookingId = lines[0].bookingId
+  let claimed = false
   try {
     if (!(await claimConfirmation(bookingId))) return
-    await alertOwners(ownerText).catch(() => undefined)
-    if (!who) return
-    const picks = pickLinesOf(cls, lines)
-    const sent = await sendClassConfirmation({
-      origin: siteConfig.url.replace(/\/$/, ''), bookingId, cls, sessionIds: lines[0].sessionIds, seats: lines.length,
-      seatsLabel: seatsLabelFor(cls, lines), email: who.email, givenName: who.givenName, receiptUrl: null, totalChargedCents: chargedCents,
-      ...(picks.length ? { pickLines: picks } : {}),
-    })
-    if (!sent) await releaseConfirmation(bookingId)
-  } catch (e) {
-    await releaseConfirmation(bookingId)
-    logger.error('Confirmation after Square confirmed a booking failed', { bookingId, error: e instanceof Error ? e.message : String(e) })
+    claimed = true
+  } catch {
+    return
   }
+  // N2: the email first, then the owners' text, which says when the email didn't go out.
+  let sent = false
+  if (who) {
+    try {
+      const picks = pickLinesOf(cls, lines)
+      sent = await sendClassConfirmation({
+        origin: siteConfig.url.replace(/\/$/, ''), bookingId, cls, sessionIds: lines[0].sessionIds, seats: lines.length,
+        seatsLabel: seatsLabelFor(cls, lines), email: who.email, givenName: who.givenName, receiptUrl: null, totalChargedCents: chargedCents,
+        ...(picks.length ? { pickLines: picks } : {}),
+      })
+    } catch (e) {
+      logger.error('Confirmation after Square confirmed a booking failed', { bookingId, error: e instanceof Error ? e.message : String(e) })
+    }
+  }
+  let text = ownerText
+  if (!who) {
+    text = `${ownerText} No email on file, so no confirmation went out.`
+  } else if (!sent && claimed) {
+    // Let it be tried again: once, by tonight's catch-up (never by a replay).
+    await releaseConfirmation(bookingId)
+    if (opts.retry) {
+      text = `The confirmation email to ${who.email} still didn't send on the retry. Please send them the details. Booking ${bookingId}.`
+    } else {
+      await markConfirmationRetry(bookingId)
+      text = `${ownerText} The confirmation email to ${who.email} didn't send; it's tried again tonight.`
+    }
+  } else if (opts.retry) {
+    text = `The confirmation email to ${who.email} went out on the retry. Booking ${bookingId}.`
+  }
+  await alertOwners(text).catch(() => undefined)
 }
 
 /**
@@ -451,7 +475,14 @@ async function handleOwnOrder(
   const held = mine.filter((l) => l.state === 'held')
   const paidLines = mine.filter((l) => l.state === 'confirmed' || l.state === 'refunded')
   // Already booked by this order: the usual echo of a booking that went through.
-  if (!held.length && paidLines.some((l) => l.square.orderId === orderId)) return { ...out, skipped: 'not-ours' }
+  if (!held.length && paidLines.some((l) => l.square.orderId === orderId)) {
+    // N2: a confirmation that failed from Square's notice is tried once more by the nightly catch-up.
+    if (ctx.retryConfirmations && (await takeConfirmationRetry(bookingId))) {
+      const mine = paidLines.filter((l) => l.square.orderId === orderId)
+      await confirmByEmail(cls, mine, mine[0].square.chargedCents ?? money(order.total_money), '', { retry: true })
+    }
+    return { ...out, skipped: 'not-ours' }
+  }
 
   const paid = order.state === 'COMPLETED' || opts.paymentCompleted || (await anyTenderCompleted(order))
   if (!paid) return { ...out, skipped: 'not-ours' }
@@ -840,7 +871,7 @@ const MAX_PAGES = 50
 export async function reconcileClasses(now = new Date()): Promise<ReconcileResult> {
   const loc = squareSettings().locationId || ''
   if (!loc) throw new Error('The Square location is not set up.')
-  const ctx = contextFor(await listClasses(), new CatalogCache({ rememberFailures: true }))
+  const ctx: RunContext = { ...contextFor(await listClasses(), new CatalogCache({ rememberFailures: true })), retryConfirmations: true }
   const result: ReconcileResult = { orders: 0, recorded: 0, unmatched: 0, refunds: 0, refundsHandled: 0, staleRequests: 0, errors: 0 }
   const since = new Date(now.getTime() - 48 * 3_600_000).toISOString()
 
