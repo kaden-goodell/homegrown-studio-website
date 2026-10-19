@@ -32,6 +32,13 @@ export function newId(prefix: 'cls' | 'ses' | 'lib' | 'pas' | 'tkt' | 'q' | 'add
 
 const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'object' && !Array.isArray(v)
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/
+/** Full ISO datetime with Z or an offset, as a canonical Z string; null if not. */
+function toIso(v: unknown): string | null {
+  if (typeof v !== 'string' || !ISO_RE.test(v)) return null
+  const ms = Date.parse(v)
+  return Number.isNaN(ms) ? null : new Date(ms).toISOString()
+}
 const isCents = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v) && v >= 0
 const inRange = (v: unknown, lo: number, hi: number): v is number => typeof v === 'number' && Number.isInteger(v) && v >= lo && v <= hi
 
@@ -58,10 +65,11 @@ function validateRules(raw: unknown): Result<ClassRules> {
   }
   if (raw.minimumToRun !== undefined && raw.minimumToRun !== null) {
     const m = raw.minimumToRun
-    if (!isObj(m) || !inRange(m.count, 1, 999) || Number.isNaN(Date.parse(String(m.decideByIso)))) {
+    const decideBy = isObj(m) ? toIso(m.decideByIso) : null
+    if (!isObj(m) || !inRange(m.count, 1, 999) || !decideBy) {
       return fail('The minimum to run needs a head count and a decide-by date.', 'rules.minimumToRun')
     }
-    r.minimumToRun = { count: m.count, decideByIso: String(m.decideByIso) }
+    r.minimumToRun = { count: m.count, decideByIso: decideBy }
   }
   return { ok: true, value: r }
 }
@@ -184,11 +192,11 @@ export function validateSessions(raw: unknown): Result<Session[]> {
     const id = str(s?.id)
     if (!id) return fail('Each session needs an id.', 'sessions')
     if (out.some((o) => o.id === id)) return fail('Each session needs its own id.', 'sessions')
-    const start = Date.parse(String(s?.startIso)), end = Date.parse(String(s?.endIso))
-    if (Number.isNaN(start) || Number.isNaN(end)) return fail('Each session needs a start and an end time.', 'sessions')
-    if (end <= start) return fail('A session has to end after it starts.', 'sessions')
+    const startIso = toIso(s?.startIso), endIso = toIso(s?.endIso)
+    if (!startIso || !endIso) return fail('Each session needs a start and an end time.', 'sessions')
+    if (Date.parse(endIso) <= Date.parse(startIso)) return fail('A session has to end after it starts.', 'sessions')
     if (!inRange(s?.capacity, 1, 999)) return fail('Session capacity is 1 to 999.', 'sessions')
-    out.push({ id, startIso: String(s.startIso), endIso: String(s.endIso), capacity: s.capacity })
+    out.push({ id, startIso, endIso, capacity: s.capacity })
   }
   out.sort((a, b) => Date.parse(a.startIso) - Date.parse(b.startIso))
   for (let i = 1; i < out.length; i++) {

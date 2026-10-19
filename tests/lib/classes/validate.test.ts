@@ -105,6 +105,24 @@ describe('validateSessions', () => {
   })
 })
 
+describe('session and decide-by times', () => {
+  it('stores an offset input as the equivalent Z string', () => {
+    const r = validateSessions([s('2026-11-01T18:00:00-05:00', '2026-11-01T20:00:00-05:00')])
+    expect(r.ok && r.value[0].startIso).toBe('2026-11-01T23:00:00.000Z')
+    expect(r.ok && r.value[0].endIso).toBe('2026-11-02T01:00:00.000Z')
+  })
+  it('refuses zone-less and lenient strings', () => {
+    expect(validateSessions([s('2026-11-01T18:00:00', '2026-11-01T20:00:00Z')]).ok).toBe(false)
+    expect(validateSessions([s('1', '2026-11-01T20:00:00Z')]).ok).toBe(false)
+  })
+  it('normalises and checks decideByIso', () => {
+    const ok = bad((c) => { c.rules = { minimumToRun: { count: 4, decideByIso: '2026-10-30T12:00:00-05:00' } } })
+    expect(ok.ok && ok.value.rules.minimumToRun?.decideByIso).toBe('2026-10-30T17:00:00.000Z')
+    expect(bad((c) => { c.rules = { minimumToRun: { count: 4, decideByIso: '2026-10-30T12:00:00' } } }).ok).toBe(false)
+    expect(bad((c) => { c.rules = { minimumToRun: { count: 4, decideByIso: '1' } } }).ok).toBe(false)
+  })
+})
+
 describe('sellableCells', () => {
   it('lists filled cells in pass then ticket order', () => {
     const r = validateContent({
