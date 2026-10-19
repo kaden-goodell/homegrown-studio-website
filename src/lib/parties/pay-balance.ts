@@ -60,6 +60,7 @@ export const LINK_BUSY_MESSAGE = 'A payment for this party is already going thro
 export const LINK_CANCELLED_MESSAGE = 'This party was cancelled. Nothing was charged.'
 export const LINK_PRICE_MISMATCH_MESSAGE = `Something’s off with the price, so nothing was charged. Please ${TEXT_US}.`
 export const LINK_ORDER_FAILED_MESSAGE = 'We couldn’t start the payment. Nothing was charged. Please try again.'
+export const LINK_AMOUNT_CHANGED_MESSAGE = 'The amount changed. Refresh to see what’s due. Nothing was charged.'
 
 export type LinkPay =
   | { kind: 'card'; paymentToken: string; sourceKind?: 'card' | 'gift_card' }
@@ -70,13 +71,15 @@ export interface PayInput {
   partyId: string
   key: string
   attemptId: string
+  /** The amount the page showed (and the wallet sheet approved). Anything else is refused before any order. */
+  expectedCents: number
   pay: LinkPay
   requestUrl: string
 }
 
 export type PayOutcome =
   | { kind: 'paid'; rec: PartyRecord; charge: PartyCharge | null; already: boolean; replay: boolean }
-  | { kind: 'refused'; status: 400 | 402 | 404 | 409 | 410 | 503; code: CheckoutErrorCode | 'in_progress' | 'not_found' | 'cancelled'; message: string; extra?: Record<string, unknown> }
+  | { kind: 'refused'; status: 400 | 402 | 404 | 409 | 410 | 503; code: CheckoutErrorCode | 'in_progress' | 'not_found' | 'cancelled' | 'amount_changed'; message: string; extra?: Record<string, unknown> }
   | { kind: 'unknown'; partyId: string }
 
 const refuse = (
@@ -108,7 +111,7 @@ const lastCharge = (r: PartyRecord): PartyCharge | null => (r.charges?.length ? 
 
 /** Thrown inside the claim update to stop it with an answer. */
 class Stop extends Error {
-  constructor(public why: 'busy' | 'cancelled' | 'paid') { super(why) }
+  constructor(public why: 'busy' | 'cancelled' | 'paid' | 'changed') { super(why) }
 }
 
 export async function payBalance(input: PayInput, now: Date = new Date()): Promise<PayOutcome> {
@@ -145,6 +148,9 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
     }
   }
 
+  // The page showed another amount (an extra added or paid since it loaded): nothing starts.
+  if (dueCents(rec) !== input.expectedCents) return refuse(409, 'amount_changed', LINK_AMOUNT_CHANGED_MESSAGE)
+
   const card = input.pay.kind === 'card' ? input.pay : null
   if (card?.sourceKind === 'gift_card') {
     const refusal = await giftCardRefusal(card.paymentToken, dueCents(rec))
@@ -167,10 +173,15 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
       if (!c.ok) throw new Stop('busy')
       const p = c.rec.paying!
       // A retry of this attempt keeps its order request and items (same key → the same Square order).
-      if (p.itemIds) return { ...c.rec, paying: { ...p, state: 'charging', at } }
+      if (p.itemIds) {
+        if ((p.quotedCents ?? -1) !== input.expectedCents) throw new Stop('changed')
+        return { ...c.rec, paying: { ...p, state: 'charging', at } }
+      }
       const due = (r.items ?? []).filter((it) => it.chargeId === null)
       if (due.length === 0) throw new Stop('paid')
       const quotedCents = due.reduce((t, it) => t + it.cents, 0)
+      // Checked here too, on the record as written: what is charged is exactly what the page showed.
+      if (quotedCents !== input.expectedCents) throw new Stop('changed')
       return {
         ...c.rec,
         paying: {
@@ -194,6 +205,7 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
     if (err instanceof Stop) {
       if (err.why === 'busy') return refuse(409, 'in_progress', LINK_BUSY_MESSAGE)
       if (err.why === 'cancelled') return refuse(410, 'cancelled', LINK_CANCELLED_MESSAGE)
+      if (err.why === 'changed') return refuse(409, 'amount_changed', LINK_AMOUNT_CHANGED_MESSAGE)
       return { kind: 'paid', rec, charge: lastCharge(rec), already: true, replay: false }
     }
     logger.error('Link payment could not start — refusing before any order', { partyId, error: String(err) })
@@ -212,7 +224,7 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
   if (input.pay.kind === 'simulated') {
     logger.warn('Payment bypassed (simulated link payment)', { partyId })
     const out = await recordLinkCharge(partyId, paying, { orderId: `sim-${attemptId}`, paymentId: `sim-${attemptId}`, cents: quotedCents, receiptUrl: null, simulated: true }, now)
-    if (out.created && out.rec) await tellLinkPaid(out.rec, out.charge)
+    if (out.rec) await tellLinkPaid(out.rec, out.charge)
     return paidAnswer(out, rec)
   }
 
@@ -267,7 +279,7 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
     const out = await recordLinkCharge(partyId, paying, {
       orderId: order.id, paymentId: payment.id, cents: payment.amount || order.totalAmount, receiptUrl: payment.receiptUrl ?? null,
     }, now)
-    if (out.created && out.rec) await tellLinkPaid(out.rec, out.charge)
+    if (out.rec) await tellLinkPaid(out.rec, out.charge)
     return paidAnswer(out, rec!)
   }
 
@@ -340,8 +352,7 @@ export async function recordLinkCharge(
       logger.error(i === 0 ? 'Link payment record failed — retrying once' : 'Link payment record failed after retry (money taken)', { partyId, error: String(err) })
     }
   }
-  // A write that threw may still have landed: if the retry then found it, this call made it.
-  if (rec && threw && !created && charge.attemptId === paying.attemptId && charge.paymentId === pay.paymentId) created = true
+  if (threw && rec) logger.warn('Link payment record landed on the retry', { partyId })
   if (!rec) {
     await alertOwners(
       `Party balance paid by link (${dollars(pay.cents)}, payment ${pay.paymentId}, order ${pay.orderId}), but it couldn't be written on party ${partyId}. Nothing was refunded. Check the party on /admin.`,
@@ -364,9 +375,34 @@ export async function recordLinkCharge(
   return { rec, charge, created }
 }
 
-/** The host's "your party is paid" email and the owners' "Balance paid" text. Never throws. */
+/**
+ * The host's email and the owners' "Balance paid" text, once per charge:
+ * whoever marks the charge told (`toldAt`, compare-and-set) sends them, so a
+ * request and Square's payment event landing together never both send. If
+ * that mark can't be written, they are sent anyway (a rare second message
+ * beats none). A party cancelled before the money landed: the owners are
+ * asked to check it and the host isn't told it is paid. Never throws.
+ */
 export async function tellLinkPaid(rec: PartyRecord, charge: PartyCharge): Promise<void> {
+  let mine = true
+  try {
+    let claimed = false
+    rec = await updatePartyRecord(rec.bookingId, (r) => {
+      const c = r.charges?.find((x) => x.id === charge.id)
+      claimed = !!c && !c.toldAt
+      if (!claimed) return null
+      return { ...r, charges: r.charges!.map((x) => (x.id === charge.id ? { ...x, toldAt: new Date().toISOString() } : x)) }
+    }, 'Payment receipt sent', null)
+    mine = claimed
+  } catch (err) {
+    logger.error('Could not mark a link payment told — telling anyway', { partyId: rec.bookingId, error: String(err) })
+  }
+  if (!mine) return
   const whenLabel = partyWhenLabel(rec.startIso)
+  if (rec.status === 'cancelled') {
+    await alertOwners(`Paid after it was cancelled. Check it. ${rec.hostName} paid ${dollars(charge.cents)} by payment link for the cancelled party on ${whenLabel}. Party ${rec.bookingId}. Nothing was refunded.`).catch(() => undefined)
+    return
+  }
   try {
     await sendPartyPaidEmail({
       to: rec.hostEmail, givenName: rec.hostName.split(' ')[0] ?? '', whenLabel, paidCents: charge.cents, receiptUrl: charge.receiptUrl, stillDueCents: dueCents(rec),
@@ -396,7 +432,7 @@ async function settleEarlier(rec: PartyRecord, p: PartyPaying, now: Date): Promi
   const out = await recordLinkCharge(rec.bookingId, p, {
     orderId: earlier.order.orderId, paymentId: earlier.payment.id, cents: earlier.payment.amount || earlier.order.totalCents, receiptUrl: earlier.payment.receiptUrl ?? null,
   }, now)
-  if (out.created && out.rec) await tellLinkPaid(out.rec, out.charge)
+  if (out.rec) await tellLinkPaid(out.rec, out.charge)
   return 'paid'
 }
 
@@ -423,6 +459,6 @@ export async function linkOrderPaid(rec: PartyRecord, orderId: string, payment: 
   if (p.state !== 'unclear' && now.getTime() - Date.parse(p.at ?? p.until) < LINK_IN_FLIGHT_MS) return 'in-flight'
   const out = await recordLinkCharge(rec.bookingId, p, { orderId, paymentId: payment.id, cents: payment.amount || p.quotedCents || 0, receiptUrl: payment.receiptUrl ?? null }, now)
   logger.warn('Square shows a link payment paid — recorded from Square', { partyId: rec.bookingId, orderId })
-  if (out.created && out.rec) await tellLinkPaid(out.rec, out.charge)
+  if (out.rec) await tellLinkPaid(out.rec, out.charge)
   return 'recorded'
 }

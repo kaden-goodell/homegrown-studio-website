@@ -38,7 +38,7 @@ export function paymentState(r: PartyRecord): 'paid' | 'waiting' | 'partly' | 'l
 /**
  * One payment at a time (a link payment and an owner's card, or two browsers
  * on the link). Another attempt still inside its time → busy; the same attempt
- * (a retry) goes through and its time starts again. Returns a new record.
+ * (a retry) goes through and its time starts again (never shorter). Returns a new record.
  */
 export function claimPaying(
   r: PartyRecord, attemptId: string, now: Date, ttlMinutes: number,
@@ -46,6 +46,9 @@ export function claimPaying(
   const p = r.paying
   if (p && p.attemptId !== attemptId && Date.parse(p.until) > now.getTime()) return { ok: false, reason: 'busy' }
   // The same attempt keeps what it already wrote (its order request and items); a new one starts clean.
-  const kept = p && p.attemptId === attemptId ? p : {}
-  return { ok: true, rec: { ...r, paying: { ...kept, attemptId, until: new Date(now.getTime() + ttlMinutes * 60_000).toISOString() } } }
+  // Its time never gets shorter (an unclear charge keeps its 24 hours through a retry).
+  const same = p && p.attemptId === attemptId ? p : null
+  const next = now.getTime() + ttlMinutes * 60_000
+  const until = new Date(same ? Math.max(next, Date.parse(same.until) || 0) : next).toISOString()
+  return { ok: true, rec: { ...r, paying: { ...(same ?? {}), attemptId, until } } }
 }

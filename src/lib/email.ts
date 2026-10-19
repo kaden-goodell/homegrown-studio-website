@@ -733,17 +733,25 @@ function partyMoneyEmail(input: {
  */
 export async function sendPartyPaymentLinkEmail(input: {
   to: string; givenName: string; whenLabel: string; dueCents: number; payUrl: string
+  /** the party is already paid for and only extras added since are due */
+  extrasOnly?: boolean
 }): Promise<{ sent: boolean }> {
   const amount = formatMoney(input.dueCents)
   return partyMoneyEmail({
     to: input.to,
-    subject: 'Pay for your party at Hometown Studio',
+    subject: input.extrasOnly ? 'Pay for the extras on your party' : 'Pay for your party at Hometown Studio',
     givenName: input.givenName,
-    lines: [
-      `Your party on ${input.whenLabel} is held for you.`,
-      `Pay ${amount} here to finish booking.`,
-      'Crafts are paid at the studio for whoever comes.',
-    ],
+    lines: input.extrasOnly
+      ? [
+          `We added extras to your party on ${input.whenLabel}.`,
+          `Pay ${amount} here for them.`,
+          'Crafts are paid at the studio for whoever comes.',
+        ]
+      : [
+          `Your party on ${input.whenLabel} is held for you.`,
+          `Pay ${amount} here to finish booking.`,
+          'Crafts are paid at the studio for whoever comes.',
+        ],
     button: { label: `Pay ${amount}`, url: input.payUrl },
   })
 }
@@ -761,7 +769,7 @@ export async function sendPartyPaidEmail(input: {
   ]
   return partyMoneyEmail({
     to: input.to,
-    subject: 'Your party is paid',
+    subject: input.stillDueCents && input.stillDueCents > 0 ? 'We got your payment' : 'Your party is paid',
     givenName: input.givenName,
     lines,
     ...(input.receiptUrl ? { link: { label: 'See your receipt', url: input.receiptUrl } } : {}),

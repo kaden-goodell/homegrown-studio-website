@@ -13,6 +13,7 @@ vi.mock('nodemailer', () => ({ default: { createTransport: () => ({ sendMail: (.
 import { payLinkUrl, sendPaymentLink, paymentLinkText, PaymentLinkError } from '@lib/parties/payment-link'
 import { createPartyRecord, getPartyRecord, type PartyRecord } from '@lib/party-store'
 import { PREVIEW_EMAIL_TO, PREVIEW_SMS_TO } from '@lib/preview-outbound'
+import { sendPartyPaidEmail } from '@lib/email'
 
 const KADEN = { id: 'k', name: 'Kaden' }
 let n = 0
@@ -104,8 +105,24 @@ describe('sendPaymentLink', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('the text says the amount still due', () => {
-    const rec = party({ items: [...party().items!, { ...party().items![0], id: 'itm_2', kind: 'addon', cents: 2500, unitCents: 2500, chargeId: 'chg_x' }] })
-    expect(paymentLinkText(rec, 'U')).toContain('Pay $300 here')
+  it('only extras due (the party is paid): the second wording, by text and email', async () => {
+    const base = party()
+    const rec = party({ items: [{ ...base.items![0], chargeId: 'chg_x' }, { ...base.items![0], id: 'itm_2', kind: 'addon', label: 'Balloons', cents: 2500, unitCents: 2500, chargeId: null }] })
+    expect(paymentLinkText(rec, 'U')).toBe('Hometown Studio here. Pay $25 here for the extras added to your party on Sun, Nov 8 at 1:30 PM U')
+    await createPartyRecord(rec)
+    await sendPaymentLink(rec, 'https://x.example', KADEN)
+    const mail = m.sendMail.mock.calls[0][0]
+    expect(mail.subject).toBe('Pay for the extras on your party')
+    expect(mail.text).toContain('Pay $25 here for them.')
+    expect(mail.text).not.toContain('to finish booking')
+  })
+})
+
+describe('sendPartyPaidEmail', () => {
+  it('says the party is paid only when nothing is still due', async () => {
+    await sendPartyPaidEmail({ to: 'a@example.com', givenName: 'Alice', whenLabel: 'Sun, Nov 8 at 1:30 PM', paidCents: 30000, receiptUrl: null })
+    await sendPartyPaidEmail({ to: 'a@example.com', givenName: 'Alice', whenLabel: 'Sun, Nov 8 at 1:30 PM', paidCents: 30000, receiptUrl: null, stillDueCents: 2500 })
+    expect(m.sendMail.mock.calls.map(([x]) => x.subject)).toEqual(['Your party is paid', 'We got your payment'])
+    expect(m.sendMail.mock.calls[1][0].text).toContain('There is still $25 to pay for extras added since.')
   })
 })

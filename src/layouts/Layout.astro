@@ -8,6 +8,7 @@ import PostHog from '@components/posthog.astro'
 import SeoHead from '@components/shared/SeoHead.astro'
 import Shimmer from '@components/shared/Shimmer'
 import RenameNotice from '@components/shared/RenameNotice'
+import { isPrivatePartyPage, PAGE_KEY_SCRIPT } from '@lib/page-key'
 import '@styles/global.css'
 import '@styles/textures.css'
 import '@styles/animations.css'
@@ -37,6 +38,8 @@ interface Props {
 }
 
 const { bare } = Astro.props
+// Host page and payment link (S2-R9a): no GA4, no Meta Pixel, no session recording; the key leaves the address bar first.
+const privateParty = isPrivatePartyPage(Astro.url.pathname)
 const { colors, fonts, textures } = siteConfig.theme
 const textureClass = `texture-${textures.background}`
 
@@ -48,8 +51,11 @@ const bodyFont = fonts.body.replace(/ /g, '+')
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    {/* First, before any analytics: moves a private page's key out of the address bar (src/lib/page-key.ts). */}
+    <script is:inline set:html={PAGE_KEY_SCRIPT} />
+    {privateParty && <meta name="referrer" content="same-origin" />}
     <SeoHead {...Astro.props} />
-    <PostHog noRecording={!!bare || Astro.url.pathname.startsWith('/waiver')} />
+    <PostHog noRecording={!!bare || Astro.url.pathname.startsWith('/waiver') || privateParty} />
     <ViewTransitions />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -104,6 +110,6 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     {!bare && <RenameNotice client:idle transition:persist />}
     <script>import '@lib/fade-in'; import '@lib/nav-progress'</script>
     {/* Staff tools (the console, the counter-iPad agreement) aren't visitors. */}
-    {!bare && <Analytics />}
+    {!bare && !privateParty && <Analytics />}
   </body>
 </html>

@@ -14,6 +14,9 @@ describe('meta pixel', () => {
     expect(metaPixelAllowed('ourhometownstudio.com', '/waiver/abc')).toBe(false)
     expect(metaPixelAllowed('ourhometownstudio.com', '/staff')).toBe(false)
     expect(metaPixelAllowed('ourhometownstudio.com', '/staffing-news')).toBe(true)
+    expect(metaPixelAllowed('ourhometownstudio.com', '/party/pty_1')).toBe(false)
+    expect(metaPixelAllowed('ourhometownstudio.com', '/party/pay/pty_1')).toBe(false)
+    expect(metaPixelAllowed('ourhometownstudio.com', '/parties')).toBe(true)
   })
 
   it('stays off with no pixel id', async () => {

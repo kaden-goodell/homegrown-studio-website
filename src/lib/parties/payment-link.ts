@@ -32,8 +32,14 @@ export function partyWhenLabel(startIso: string): string {
   return `${formatDay(startIso)} at ${formatTime(startIso)}`
 }
 
-/** DRAFT copy for Kaden: the text with the link. */
+/** Only extras added since are due (something on the party is already paid). */
+export function extrasOnly(rec: PartyRecord): boolean {
+  return (rec.items ?? []).some((it) => it.chargeId !== null)
+}
+
+/** DRAFT copy for Kaden: the text with the link (a second wording when only extras are due). */
 export function paymentLinkText(rec: PartyRecord, url: string): string {
+  if (extrasOnly(rec)) return `Hometown Studio here. Pay ${formatMoney(dueCents(rec))} here for the extras added to your party on ${partyWhenLabel(rec.startIso)} ${url}`
   return `Hometown Studio here. Your party on ${partyWhenLabel(rec.startIso)} is held for you. Pay ${formatMoney(dueCents(rec))} here to finish booking ${url}`
 }
 
@@ -58,7 +64,7 @@ export async function sendPaymentLink(
   let email = false
   if (rec.hostEmail) {
     try {
-      email = (await sendPartyPaymentLinkEmail({ to: rec.hostEmail, givenName, whenLabel: partyWhenLabel(rec.startIso), dueCents: due, payUrl: url })).sent
+      email = (await sendPartyPaymentLinkEmail({ to: rec.hostEmail, givenName, whenLabel: partyWhenLabel(rec.startIso), dueCents: due, payUrl: url, extrasOnly: extrasOnly(rec) })).sent
     } catch (err) {
       logger.error('Payment link email failed', { partyId: rec.bookingId, error: String(err) })
     }

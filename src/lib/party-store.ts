@@ -156,6 +156,8 @@ export interface PartyCharge {
   simulated?: true
   /** the payment page's attempt id (link payments): a retry of it finds this charge */
   attemptId?: string
+  /** when the host and owners were told about it (claimed once, so told once) */
+  toldAt?: string
 }
 
 export interface PartyRefund {

@@ -83,7 +83,7 @@ import { dueCents } from '@lib/parties/money'
 import { partyForPayment } from '@lib/parties/party-payments'
 import { handlePartyOrder } from '@lib/parties/square-orders'
 import { listCheckouts } from '@lib/parties/party-checkouts'
-import { LINK_BUSY_MESSAGE, LINK_CANCELLED_MESSAGE } from '@lib/parties/pay-balance'
+import { LINK_AMOUNT_CHANGED_MESSAGE, LINK_BUSY_MESSAGE, LINK_CANCELLED_MESSAGE, tellLinkPaid } from '@lib/parties/pay-balance'
 
 const NOW = new Date('2027-02-01T15:00:00.000Z')
 const owner = { id: 'k', name: 'Kaden' }
@@ -126,7 +126,7 @@ const balance = async (id: string, k: string) => {
   const res = await GET({ request: new Request(`http://localhost/api/party/balance.json?id=${encodeURIComponent(id)}&k=${encodeURIComponent(k)}`), clientAddress: `10.2.0.${++ip}` } as any) as Response
   return { status: res.status, json: await res.json() }
 }
-const payBody = (p: { id: string; k: string }, over: Record<string, unknown> = {}) => ({ id: p.id, k: p.k, attemptId: randomUUID(), paymentToken: 'cnon:ok', sourceKind: 'card', ...over })
+const payBody = (p: { id: string; k: string }, over: Record<string, unknown> = {}) => ({ id: p.id, k: p.k, attemptId: randomUUID(), expectedCents: 30000, paymentToken: 'cnon:ok', sourceKind: 'card', ...over })
 
 beforeAll(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW) })
 afterAll(() => { vi.useRealTimers() })
@@ -285,8 +285,73 @@ describe('POST /api/party/pay.json', () => {
     expect(rec.charges![0].itemIds).toEqual([p.rec.items![0].id])
     expect(dueCents(rec)).toBe(2500)
     // The next payment pays just the extra.
-    expect((await pay(payBody(p))).json.data).toMatchObject({ paidCents: 2500, stillDueCents: 0 })
+    expect((await pay(payBody(p, { expectedCents: 2500 }))).json.data).toMatchObject({ paidCents: 2500, stillDueCents: 0 })
     expect(m.createOrder.mock.calls[1][0].lineItems).toEqual([{ name: 'Whole Studio Party — Balloons', quantity: 1, pricePerUnit: 2500, note: 'add_x' }])
+  })
+
+  it('the amount changed since the page loaded → 409 before any order, nothing charged', async () => {
+    const p = await linkParty()
+    await updatePartyRecord(p.id, (r) => ({
+      ...r,
+      items: [...r.items!, { id: 'itm_new', kind: 'addon', refId: 'add_x', label: 'Balloons', qty: 1, unitCents: 2500, cents: 2500, extraMinutes: 0, chargeId: null, addedAt: NOW.toISOString(), by: owner }],
+    }), 'Extra added', owner)
+    const { status, json } = await pay(payBody(p)) // the page still shows $300
+    expect(status).toBe(409)
+    expect(json).toMatchObject({ code: 'amount_changed', detail: LINK_AMOUNT_CHANGED_MESSAGE })
+    expect(m.createOrder).not.toHaveBeenCalled()
+    expect((await getPartyRecord(p.id))!.paying ?? null).toBeNull()
+    expect((await pay(payBody(p, { expectedCents: 32500 }))).json.data).toMatchObject({ paidCents: 32500 })
+  })
+
+  it('the amount changing between the first look and the claim is refused too', async () => {
+    const p = await linkParty()
+    // An owner adds an extra while the gift card is being checked (after the first look, before the claim).
+    m.fromNonce.mockImplementation(async () => {
+      await updatePartyRecord(p.id, (r) => ({
+        ...r,
+        items: [...r.items!, { id: 'itm_mid', kind: 'addon', refId: 'add_x', label: 'Balloons', qty: 1, unitCents: 2500, cents: 2500, extraMinutes: 0, chargeId: null, addedAt: NOW.toISOString(), by: owner }],
+      }), 'Extra added', owner)
+      return { state: 'ACTIVE', balanceCents: 100000 }
+    })
+    const { status, json } = await pay(payBody(p, { sourceKind: 'gift_card', paymentToken: 'gftc:x' }))
+    expect(status).toBe(409)
+    expect(json.code).toBe('amount_changed')
+    expect(m.createOrder).not.toHaveBeenCalled()
+  })
+
+  it('a missing amount is refused', async () => {
+    const p = await linkParty()
+    expect((await pay(payBody(p, { expectedCents: undefined }))).status).toBe(400)
+  })
+
+  it('the balance says when a payment is going through', async () => {
+    const p = await linkParty()
+    let seen: any = null
+    m.beforePay = async () => { seen = (await balance(p.id, p.k)).json.data }
+    await pay(payBody(p))
+    expect(seen).toMatchObject({ paying: true })
+    expect((await balance(p.id, p.k)).json.data).toMatchObject({ paying: false })
+  })
+
+  it('a party cancelled while its payment went through: recorded, owners asked to check it, host not told it is paid', async () => {
+    const p = await linkParty()
+    m.beforePay = async () => {
+      await updatePartyRecord(p.id, (r) => ({ ...r, status: 'cancelled', cancelled: { at: NOW.toISOString(), by: owner, note: '' } }), 'Cancelled', owner)
+    }
+    expect((await pay(payBody(p))).status).toBe(200)
+    expect((await getPartyRecord(p.id))!.charges).toHaveLength(1)
+    expect(m.alert.mock.calls.some(([t]) => /^Paid after it was cancelled\. Check it\./.test(String(t)) && String(t).includes(p.id))).toBe(true)
+    expect(m.paidEmail).not.toHaveBeenCalled()
+  })
+
+  it('the host and owners are told once per charge, whoever records it', async () => {
+    const p = await linkParty()
+    await pay(payBody(p))
+    const rec = (await getPartyRecord(p.id))!
+    expect(rec.charges![0].toldAt).toBeTruthy()
+    await tellLinkPaid(rec, rec.charges![0])
+    expect(m.paidEmail).toHaveBeenCalledTimes(1)
+    expect(m.alert.mock.calls.filter(([t]) => /^Balance paid/.test(String(t)))).toHaveLength(1)
   })
 
   it('gate closed still lets a link payment through (S2-R16)', async () => {
@@ -404,6 +469,19 @@ describe('no answer from Square', () => {
     expect((await getPartyRecord(p.id))!.charges).toHaveLength(1)
   })
 
+  it('a retry of the same attempt during the 24 hours keeps the 24 hours', async () => {
+    const p = await linkParty()
+    m.processPayment.mockRejectedValueOnce(new Error('socket hang up'))
+    m.findOrderPayment.mockResolvedValueOnce(null)
+    const b = payBody(p)
+    expect((await pay(b)).status).toBe(502)
+    const until = (await getPartyRecord(p.id))!.paying!.until
+    let during: string | null = null
+    m.beforePay = async () => { during = (await getPartyRecord(p.id))!.paying!.until }
+    expect((await pay(b)).status).toBe(200)
+    expect(during).toBe(until)
+  })
+
   it('after 24 hours a new attempt asks Square about the old order first; unpaid → it pays', async () => {
     const p = await linkParty()
     m.processPayment.mockRejectedValueOnce(new Error('socket hang up'))
@@ -455,7 +533,7 @@ describe('simulated payments (local dev, previews)', () => {
   it('records a simulated charge with no Square call', async () => {
     m.bypass.on = true
     const p = await linkParty()
-    const { status, json } = await pay({ id: p.id, k: p.k, attemptId: randomUUID() })
+    const { status, json } = await pay({ id: p.id, k: p.k, attemptId: randomUUID(), expectedCents: 30000 })
     expect(status).toBe(200)
     expect(json.data).toMatchObject({ simulated: true, paidCents: 30000 })
     expect(m.createOrder).not.toHaveBeenCalled()

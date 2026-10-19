@@ -39,6 +39,10 @@ export const GET: APIRoute = async ({ request, clientAddress }) => {
       dueCents: dueCents(rec),
       state: paymentState(rec),
       receiptUrl: last?.receiptUrl ?? null,
+      // A payment is going through right now (another tab, an unclear charge): the page says so instead of offering a second one.
+      paying: !!rec.paying && Date.parse(rec.paying.until) > Date.now(),
+      // Only extras added since are due (the party itself is paid).
+      extrasOnly: rec.status !== 'cancelled' && (rec.items ?? []).some((it) => it.chargeId !== null),
     },
   }, 200)
 }

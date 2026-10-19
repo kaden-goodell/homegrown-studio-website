@@ -7,7 +7,7 @@ import { payBalance, type PayOutcome } from '@lib/parties/pay-balance'
 import { dueCents } from '@lib/parties/money'
 
 /**
- * POST /api/party/pay.json { id, k, attemptId, paymentToken, sourceKind }:
+ * POST /api/party/pay.json { id, k, attemptId, expectedCents, paymentToken, sourceKind }:
  * pay what a party still owes from its payment link. The work is in
  * src/lib/parties/pay-balance.ts. Prices come only from the party record;
  * the bookings gate does not apply (S2-R16).
@@ -22,6 +22,9 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
   if (!body || typeof body !== 'object') return errorResponse('Invalid request body', 400, 'invalid')
   if (!isAttemptId(body.attemptId)) return errorResponse('Missing payment information', 400, 'invalid')
+  // The amount the page showed: anything else is refused before any order (never a surprise charge).
+  const expectedCents = Number(body.expectedCents)
+  if (!Number.isInteger(expectedCents) || expectedCents < 0) return errorResponse('Missing payment information', 400, 'invalid')
   const simulated = paymentBypassEnabled(request)
   if (!simulated && (typeof body.paymentToken !== 'string' || !body.paymentToken || body.paymentToken.length > 4000)) {
     return errorResponse('Missing payment information', 400, 'invalid')
@@ -33,6 +36,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       partyId: String(body.id ?? ''),
       key: typeof body.k === 'string' ? body.k : '',
       attemptId: body.attemptId,
+      expectedCents,
       pay: simulated
         ? { kind: 'simulated' }
         : { kind: 'card', paymentToken: body.paymentToken, sourceKind: body.sourceKind === 'gift_card' ? 'gift_card' : 'card' },

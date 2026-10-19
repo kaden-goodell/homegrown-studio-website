@@ -15,6 +15,7 @@ import {
 import { inviteContent } from '@config/invite-content'
 import { waiverContent } from '@config/waiver-content'
 import { formatWhen } from '@lib/studio-time'
+import { rememberedPageKey } from '@lib/page-key'
 import { trackAddToCalendar, trackShare, trackWaiverLinkClick } from '@lib/analytics'
 
 interface Props {
@@ -80,7 +81,8 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
   async function load(isRefresh = false) {
     try {
       const res = await fetch(
-        `/api/party/roster.json?party=${encodeURIComponent(bookingId)}&key=${encodeURIComponent(hostKey)}`,
+        // The key left the address bar on load (src/lib/page-key.ts); a refresh finds it in this tab.
+        `/api/party/roster.json?party=${encodeURIComponent(bookingId)}&key=${encodeURIComponent(hostKey || rememberedPageKey())}`,
         { cache: 'no-store' },
       )
       if (res.status === 404) {

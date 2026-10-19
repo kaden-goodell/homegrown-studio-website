@@ -90,6 +90,14 @@ describe('claimPaying', () => {
     expect(again.ok).toBe(true)
   })
 
+  it('the same attempt never shortens its time (an unclear charge keeps its 24 hours)', () => {
+    const held = rec({ paying: { attemptId: 'att_a', until: '2026-10-20T15:00:00.000Z', state: 'unclear', orderId: 'o1' } })
+    const again = claimPaying(held, 'att_a', new Date('2026-10-19T16:00:00.000Z'), 10)
+    expect(again.ok && again.rec.paying).toEqual({ attemptId: 'att_a', until: '2026-10-20T15:00:00.000Z', state: 'unclear', orderId: 'o1' })
+    const fresh = claimPaying(held, 'att_b', new Date('2026-10-20T15:00:00.000Z'), 10)
+    expect(fresh.ok && fresh.rec.paying).toEqual({ attemptId: 'att_b', until: '2026-10-20T15:10:00.000Z' })
+  })
+
   it('frees after it runs out', () => {
     const held = rec({ paying: { attemptId: 'att_a', until: '2026-10-19T15:10:00.000Z' } })
     const res = claimPaying(held, 'att_b', new Date('2026-10-19T15:10:00.000Z'), 10)

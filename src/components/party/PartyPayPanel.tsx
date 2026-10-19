@@ -15,6 +15,7 @@ import type { PaymentFormRef } from '@components/checkout/PaymentForm'
 import { newAttemptId } from '@lib/checkout-attempt'
 import { messageForFailure, outcomeUnknown, partyMessages, UNKNOWN_OUTCOME_MESSAGE, TEXT_US } from '@lib/checkout-messages'
 import { formatMoney } from '@lib/money'
+import { rememberedPageKey } from '@lib/page-key'
 
 interface Props {
   partyId: string
@@ -29,6 +30,10 @@ interface Balance {
   dueCents: number
   state: 'paid' | 'waiting' | 'partly' | 'legacy' | 'cancelled'
   receiptUrl: string | null
+  /** a payment is going through right now */
+  paying?: boolean
+  /** the party is paid for; only extras added since are due */
+  extrasOnly?: boolean
 }
 
 export const PAY_HEADING = 'Pay for your party'
@@ -36,6 +41,8 @@ export const CRAFTS_LINE = 'Crafts are paid at the studio for whoever comes.'
 export const LINK_BROKEN = `This payment link doesn’t work. Please ${TEXT_US} and we’ll send a new one.`
 export const LOAD_FAILED = 'We couldn’t load this payment. Please try again.'
 export const CANCELLED_LINE = 'This party was cancelled. Nothing is due.'
+export const BUSY_LINE = 'A payment for this party is already going through. Check back in a few minutes.'
+export const AMOUNT_CHANGED = 'The amount changed. Refresh to see what’s due. Nothing was charged.'
 
 const card: React.CSSProperties = {
   background: 'rgba(255,255,255,0.72)',
@@ -55,11 +62,13 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
   const [paid, setPaid] = useState<{ cents: number; receiptUrl: string | null; stillDueCents: number } | null>(null)
   const paymentFormRef = useRef<PaymentFormRef>(null)
   const attemptId = useRef(newAttemptId())
+  // The key left the address bar on load (src/lib/page-key.ts); after a refresh it is found in this tab.
+  const linkKey = () => payKey || rememberedPageKey()
 
   const load = useCallback(async () => {
     setLoadError(null)
     try {
-      const res = await fetch(`/api/party/balance.json?id=${encodeURIComponent(partyId)}&k=${encodeURIComponent(payKey)}`)
+      const res = await fetch(`/api/party/balance.json?id=${encodeURIComponent(partyId)}&k=${encodeURIComponent(linkKey())}`)
       if (res.status === 404) return setLoadError(LINK_BROKEN)
       if (!res.ok) return setLoadError(LOAD_FAILED)
       const json = await res.json()
@@ -94,7 +103,8 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
         res = await fetch('/api/party/pay.json', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: partyId, k: payKey, attemptId: attemptId.current, paymentToken: token, sourceKind }),
+          // The amount shown: the server refuses anything else before any order.
+          body: JSON.stringify({ id: partyId, k: linkKey(), attemptId: attemptId.current, expectedCents: balance.dueCents, paymentToken: token, sourceKind }),
         })
       } catch {
         throw new Error(UNKNOWN_OUTCOME_MESSAGE)
@@ -105,6 +115,10 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
         // A plain answer ends this attempt; "not sure" and "another payment is going through" keep it.
         if (!(outcomeUnknown(failure) || body?.code === 'in_progress')) attemptId.current = newAttemptId()
         if (res.status === 404) throw new Error(LINK_BROKEN)
+        if (body?.code === 'amount_changed') {
+          await load()
+          throw new Error(AMOUNT_CHANGED)
+        }
         if (res.status === 410) {
           setBalance({ ...balance, state: 'cancelled', items: [], dueCents: 0 })
           return
@@ -170,6 +184,16 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
     if (balance.state === 'cancelled' || balance.state === 'legacy') {
       return <p role="status" style={helpText}>{CANCELLED_LINE}</p>
     }
+    if (balance.paying) {
+      return (
+        <div role="status">
+          <p style={{ ...helpText, marginBottom: '1rem' }}>{BUSY_LINE}</p>
+          <button type="button" className="btn btn-secondary" style={{ minHeight: 44 }} onClick={() => void load()}>
+            Check again
+          </button>
+        </div>
+      )
+    }
     const amount = formatMoney(balance.dueCents)
     return (
       <form
@@ -179,7 +203,8 @@ export default function PartyPayPanel({ partyId, payKey }: Props) {
         }}
       >
         <p style={{ ...helpText, marginBottom: '1rem' }}>
-          {balance.hostFirstName ? `Hi ${balance.hostFirstName}! ` : ''}Your party on {balance.when} is held for you.
+          {balance.hostFirstName ? `Hi ${balance.hostFirstName}! ` : ''}
+          {balance.extrasOnly ? `Your party on ${balance.when} is paid. These extras were added since.` : `Your party on ${balance.when} is held for you.`}
         </p>
         <ul aria-label="To pay" style={{ listStyle: 'none', padding: 0, margin: '0 0 0.75rem' }}>
           {balance.items.map((it) => (
