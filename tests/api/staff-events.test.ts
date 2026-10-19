@@ -5,7 +5,7 @@ let authed: { id: string; name: string; role: 'owner' | 'crew' } | null = { id: 
 vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed }))
 
 const mockListEvents = vi.fn()
-vi.mock('@lib/events', () => ({ listEvents: (...a: any[]) => mockListEvents(...a), eventKey: (kind: string, id: string) => (kind === 'party' ? id : `${kind}:${id}`) }))
+vi.mock('@lib/events', async (orig) => ({ ...(await orig<typeof import('@lib/events')>()), listEvents: (...a: any[]) => mockListEvents(...a) }))
 
 /** `listEvents` now reports per-source health alongside the rows (F2). */
 const listing = (events: any[], sources: any = { parties: 'ok', workshops: 'ok' }) => ({ events, sources })
@@ -146,10 +146,23 @@ describe('GET /api/staff/events.json', () => {
     expect(json.data.sources).toEqual({ parties: 'ok', workshops: 'error' })
   })
 
-  it('F2: both sources down is a real outage — 503', async () => {
-    mockListEvents.mockResolvedValue(listing([], { parties: 'error', workshops: 'error' }))
+  it('F2: every source down is a real outage — 503', async () => {
+    mockListEvents.mockResolvedValue(listing([], { parties: 'error', workshops: 'error', classes: 'error' }))
     const res = await GET(ctx('?date=2026-10-20'))
     expect(res.status).toBe(503)
+  })
+
+  it('a multi-day class of ours shows that day’s time and seats', async () => {
+    const sessions = [
+      { id: 'ses_1', day: '2026-10-19', startIso: '2026-10-19T15:00:00.000Z', endIso: '2026-10-19T17:00:00.000Z', capacity: 8, sold: 2 },
+      { id: 'ses_2', day: '2026-10-20', startIso: '2026-10-20T14:00:00.000Z', endIso: '2026-10-20T16:00:00.000Z', capacity: 8, sold: 9 },
+    ]
+    mockListEvents.mockResolvedValue(listing([
+      { kind: 'workshop', id: 'cls_camp', title: 'Camp', startIso: sessions[0].startIso, days: ['2026-10-19', '2026-10-20'], dropOff: false, capacity: 8, seats: 6, options: [], own: true, sessions },
+    ], { parties: 'ok', workshops: 'ok', classes: 'ok' }))
+    mockListRsvpsByEvent.mockResolvedValue([])
+    const json = await (await GET(ctx('?date=2026-10-20'))).json()
+    expect(json.data.events[0]).toMatchObject({ id: 'cls_camp', startIso: sessions[1].startIso, capacity: 8, seats: -1 })
   })
 
   describe('prep list on classes with seat questions', () => {

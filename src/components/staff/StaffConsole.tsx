@@ -275,7 +275,7 @@ export default function StaffConsole() {
   const [pickAuthFailed, setPickAuthFailed] = useState(false)
   /** Which event's roster to show — any kind `getEvent`/`roster.json`
    *  resolves (party, workshop). `Roster` owns its own fetch/poll/state. */
-  const [rosterTarget, setRosterTarget] = useState<{ kind: EventKind; id: string; addFamily?: { household?: HouseholdMatch } } | null>(null)
+  const [rosterTarget, setRosterTarget] = useState<{ kind: EventKind; id: string; day?: string; addFamily?: { household?: HouseholdMatch } } | null>(null)
   const [netError, setNetError] = useState<string | null>(null)
   // The passcode lives only in memory for the length of this browser session —
   // "Switch" reuses it to re-pick an identity without asking again. A page
@@ -419,9 +419,9 @@ export default function StaffConsole() {
   /** Today/EventList's row tap — opens that event's roster. Any kind
    *  `getEvent`/`roster.json` resolves (party, workshop) — HOM-213 replaced
    *  the party-only screen with a generalized one. */
-  function openRoster(e: { kind: EventKind; id: string; title: string; addFamily?: { household?: HouseholdMatch } }) {
+  function openRoster(e: { kind: EventKind; id: string; title: string; day?: string; addFamily?: { household?: HouseholdMatch } }) {
     if (phase === 'week' || phase === 'today' || phase === 'upcoming') setLastList(phase)
-    setRosterTarget({ kind: e.kind, id: e.id, ...(e.addFamily ? { addFamily: e.addFamily } : {}) })
+    setRosterTarget({ kind: e.kind, id: e.id, ...(e.day ? { day: e.day } : {}), ...(e.addFamily ? { addFamily: e.addFamily } : {}) })
     setPhase('roster')
   }
 
@@ -515,6 +515,7 @@ export default function StaffConsole() {
         backLabel={lastList === 'upcoming' ? 'Upcoming' : lastList === 'week' ? 'This week' : 'Today'}
         kind={rosterTarget.kind}
         id={rosterTarget.id}
+        initialDay={rosterTarget.day}
         addFamily={rosterTarget.addFamily}
       />,
     )

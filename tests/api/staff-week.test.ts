@@ -3,7 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 let authed: any = { id: 't', name: 'Test', role: 'crew' }
 vi.mock('@lib/staff-auth', () => ({ staffAuthorized: () => authed }))
 const mockListEvents = vi.fn()
-vi.mock('@lib/events', () => ({ listEvents: (...a: any[]) => mockListEvents(...a) }))
+vi.mock('@lib/events', async (orig) => ({ ...(await orig<typeof import('@lib/events')>()), listEvents: (...a: any[]) => mockListEvents(...a) }))
 const mockPrep = vi.fn()
 vi.mock('@lib/event-prep', () => ({ prepForEvent: (...a: any[]) => mockPrep(...a) }))
 
@@ -42,9 +42,25 @@ describe('GET /api/staff/week.json', () => {
     expect(data.events[1]).toMatchObject({ sold: 4, dropOff: true, prep: [{ counts: [{ choice: 'Black', n: 4 }] }] })
   })
   it('both sources down is a 503; one down still answers', async () => {
-    mockListEvents.mockResolvedValue({ events: [], sources: { parties: 'error', workshops: 'error' } })
+    mockListEvents.mockResolvedValue({ events: [], sources: { parties: 'error', workshops: 'error', classes: 'error' } })
     expect((await GET(req())).status).toBe(503)
+    mockListEvents.mockResolvedValue({ events: [], sources: { parties: 'error', workshops: 'error', classes: 'ok' } })
+    expect((await GET(req())).status).toBe(200)
     mockListEvents.mockResolvedValue({ events: [], sources: { parties: 'error', workshops: 'ok' } })
     expect((await GET(req())).status).toBe(200)
+  })
+  it('a multi-day class of ours: each of its days in the week with that day’s time, seats and prep', async () => {
+    const sessions = [
+      { id: 'ses_1', day: '2026-10-16', startIso: '2026-10-16T15:00:00.000Z', endIso: '2026-10-16T17:00:00.000Z', capacity: 8, sold: 3 },
+      { id: 'ses_2', day: '2026-10-17', startIso: '2026-10-17T14:00:00.000Z', endIso: '2026-10-17T16:00:00.000Z', capacity: 8, sold: 9 },
+    ]
+    mockListEvents.mockResolvedValue({ events: [
+      { kind: 'workshop', id: 'cls_camp', title: 'Camp', startIso: sessions[0].startIso, days: ['2026-10-16', '2026-10-17'], dropOff: true, capacity: 8, seats: 5, options: [{ id: 'g', label: 'Glaze', choices: ['Blue'] }], own: true, sessions },
+    ], sources: { parties: 'ok', workshops: 'ok', classes: 'ok' } })
+    mockPrep.mockImplementation(async (_e: any, day: string) => ({ prep: [{ id: 'g', label: 'Glaze', counts: [{ choice: 'Blue', n: day === '2026-10-17' ? 9 : 3 }], unpicked: 0 }] }))
+    const { data } = await (await GET(req())).json()
+    const row = data.events[0]
+    expect(row.byDay['2026-10-16']).toMatchObject({ startIso: sessions[0].startIso, sold: 3, capacity: 8, prep: [{ counts: [{ n: 3 }] }] })
+    expect(row.byDay['2026-10-17']).toMatchObject({ startIso: sessions[1].startIso, sold: 9, capacity: 8, prep: [{ counts: [{ n: 9 }] }] })
   })
 })

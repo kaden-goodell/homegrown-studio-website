@@ -44,6 +44,7 @@ export default function Roster({
   backLabel = 'Today',
   kind,
   id,
+  initialDay,
   addFamily,
 }: {
   staff: StaffMember
@@ -52,6 +53,8 @@ export default function Roster({
   backLabel?: string
   kind: EventKind
   id: string
+  /** Open on this day of a multi-day event (This week's row for that day). */
+  initialDay?: string
   /** Open "+ Add family" on arrival — with this household already found when
    *  Today's "Here for an event?" chip sent us here. */
   addFamily?: { household?: HouseholdMatch } | null
@@ -105,7 +108,7 @@ export default function Roster({
   // Fresh load on mount (or if the target event changes under us).
   useEffect(() => {
     dayRef.current = null
-    load()
+    load(initialDay ?? null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, id])
 

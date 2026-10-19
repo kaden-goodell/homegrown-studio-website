@@ -58,4 +58,27 @@ describe('This week (staff landing tab)', () => {
     render(<ThisWeek staff={STAFF} onOpenRoster={() => {}} />)
     expect(await screen.findByRole('button', { name: 'Retry' })).toBeInTheDocument()
   })
+
+  it('a multi-day class of ours shows on each of its days with that day’s time, seats and prep, and opens that day', async () => {
+    const camp = {
+      kind: 'workshop', id: 'cls_camp', title: 'Clay Camp', startIso: '2026-10-16T15:00:00Z', days: ['2026-10-16', '2026-10-17'], dropOff: false,
+      byDay: {
+        '2026-10-16': { startIso: '2026-10-16T15:00:00Z', sold: 3, capacity: 8, prep: [{ id: 'g', label: 'Glaze', counts: [{ choice: 'Blue', n: 3 }], unpicked: 0 }] },
+        '2026-10-17': { startIso: '2026-10-17T14:00:00Z', sold: 9, capacity: 8 },
+      },
+    }
+    serve([camp])
+    const open = vi.fn()
+    render(<ThisWeek staff={STAFF} onOpenRoster={open} />)
+    const fri = await screen.findByRole('region', { name: 'Fri Oct 16' })
+    expect(within(fri).getByText('3 of 8 booked')).toBeInTheDocument()
+    expect(within(fri).getByText('10:00 AM')).toBeInTheDocument()
+    expect(within(fri).getByTestId('week-prep')).toHaveTextContent('Blue 3')
+    const sat = screen.getByRole('region', { name: 'Sat Oct 17' })
+    expect(within(sat).getByText('9 of 8 booked')).toBeInTheDocument()
+    expect(within(sat).getByText('9:00 AM')).toBeInTheDocument()
+    expect(within(sat).queryByTestId('week-prep')).toBeNull()
+    fireEvent.click(within(sat).getByRole('button', { name: /Clay Camp/ }))
+    expect(open).toHaveBeenCalledWith({ kind: 'workshop', id: 'cls_camp', title: 'Clay Camp', day: '2026-10-17' })
+  })
 })
