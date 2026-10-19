@@ -24,7 +24,7 @@ export function defaultRules(): ClassRules {
   }
 }
 
-export function newId(prefix: 'cls' | 'ses' | 'lib' | 'pas' | 'tkt' | 'q' | 'add'): string {
+export function newId(prefix: 'cls' | 'ses' | 'lib' | 'blk' | 'pas' | 'tkt' | 'q' | 'add'): string {
   let rand = ''
   while (rand.length < 4) rand += Math.random().toString(36).slice(2)
   return `${prefix}_${Date.now().toString(36)}${rand.slice(0, 4)}`
@@ -34,7 +34,7 @@ const isObj = (v: unknown): v is Record<string, any> => !!v && typeof v === 'obj
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:\d{2})$/
 /** Full ISO datetime with Z or an offset, as a canonical Z string; null if not. */
-function toIso(v: unknown): string | null {
+export function toIso(v: unknown): string | null {
   if (typeof v !== 'string' || !ISO_RE.test(v)) return null
   const ms = Date.parse(v)
   return Number.isNaN(ms) ? null : new Date(ms).toISOString()
