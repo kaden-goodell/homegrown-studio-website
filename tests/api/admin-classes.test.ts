@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   archive: vi.fn(),
   squareFetch: vi.fn(),
   audit: vi.fn(),
+  libraryDown: false,
 }))
 vi.mock('@config/providers', () => ({
   providers: {
@@ -19,6 +20,14 @@ vi.mock('@lib/party-store', () => ({ getPartyRecord: vi.fn(async () => null) }))
 vi.mock('@lib/classes/square-catalog', () => ({ syncClassToSquare: mocks.sync, archiveClassInSquare: mocks.archive }))
 vi.mock('@lib/classes/square-api', () => ({ squareFetch: mocks.squareFetch, squareSettings: () => ({ environment: 'sandbox' }) }))
 vi.mock('@lib/audit', () => ({ recordAudit: mocks.audit }))
+vi.mock('@lib/classes/library-store', async (importOriginal) => {
+  const real = await importOriginal<typeof import('@lib/classes/library-store')>()
+  return {
+    ...real,
+    saveLibraryVersion: (...a: Parameters<typeof real.saveLibraryVersion>) =>
+      mocks.libraryDown ? Promise.reject(new Error('Blob store "class-library" is unavailable')) : real.saveLibraryVersion(...a),
+  }
+})
 
 import * as library from '@pages/api/admin/classes/library.json'
 import * as classes from '@pages/api/admin/classes/classes.json'
@@ -61,6 +70,11 @@ let n = 0
 const ses = (ymd: string, from: string, to: string, capacity = 12) => ({ id: `ses_a${++n}`, startIso: at(ymd, from), endIso: at(ymd, to), capacity })
 
 const ledgerKv = makeKvStore('seat-ledger', 'seat-ledger')
+/** An update from a form showing the class as it is now. */
+const update = async (body: any) =>
+  call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', expectedUpdatedAt: (await getClass(body.id))?.updatedAt, ...body })
+const cancel = async (id: string) =>
+  call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'cancel', id, expectedUpdatedAt: (await getClass(id))?.updatedAt })
 function line(over: Partial<LedgerLine>): LedgerLine {
   return {
     id: `led_${++n}`, bookingId: 'bkg_1', sessionIds: [], ticketTypeId: 'person', passId: 'all', seat: 1,
@@ -175,7 +189,7 @@ describe('scheduling', () => {
   it('moving a class past itself is not a clash with itself', async () => {
     const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Mover'), sessions: [ses('2031-02-20', '17:00', '19:00')], status: 'open' })
     const s = c.body.data.class.sessions[0]
-    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', id: c.body.data.class.id, sessions: [{ ...s, startIso: at('2031-02-20', '18:00'), endIso: at('2031-02-20', '20:00') }] })
+    const r = await update({ id: c.body.data.class.id, sessions: [{ ...s, startIso: at('2031-02-20', '18:00'), endIso: at('2031-02-20', '20:00') }] })
     expect(r.status).toBe(200)
   })
 
@@ -183,7 +197,7 @@ describe('scheduling', () => {
     const bad = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Bad'), sessions: [], status: 'open' })
     expect(bad.status).toBe(400)
     expect(bad.body.error).toBe('Add at least one session.')
-    const missing = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', id: 'cls_nope', status: 'closed' })
+    const missing = await update({ id: 'cls_nope', status: 'closed', expectedUpdatedAt: 'x' })
     expect(missing.status).toBe(404)
   })
 
@@ -229,7 +243,6 @@ describe('editing a class with bookings', () => {
     ])
     return cls
   }
-  const update = (body: any) => call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', ...body })
 
   it('refuses capacity below seats taken, naming the session', async () => {
     const cls = await booked('2031-04-03', 'Cap Class')
@@ -311,7 +324,7 @@ describe('cancel', () => {
       line({ bookingId: 'bkg_z', sessionIds: [cls.sessions[0].id], state: 'released' }),
     ]
     await seedLedger(cls.id, lines)
-    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'cancel', id: cls.id })
+    const r = await cancel(cls.id)
     expect(r.status).toBe(200)
     expect(r.body.data.class.status).toBe('cancelled')
     expect(mocks.archive).toHaveBeenCalledTimes(1)
@@ -383,12 +396,15 @@ describe('photo', () => {
     const got = await photo.GET({ request: new Request(data.url), url: u } as any)
     expect(got.status).toBe(200)
     expect(got.headers.get('content-type')).toBe('image/png')
+    expect(got.headers.get('x-content-type-options')).toBe('nosniff')
     expect(Buffer.from(await got.arrayBuffer())).toEqual(PNG)
   })
-  it('refuses other types and anything over 8 MB', async () => {
+  it('refuses other types and anything over 4 MB', async () => {
     expect((await upload(Buffer.from('GIF89a....'), 'image/gif')).status).toBe(400)
-    const big = Buffer.alloc(8 * 1024 * 1024 + 1); PNG.copy(big)
-    expect((await upload(big, 'image/png')).status).toBe(400)
+    const big = Buffer.alloc(4 * 1024 * 1024 + 1); PNG.copy(big)
+    const tooBig = await upload(big, 'image/png')
+    expect(tooBig.status).toBe(400)
+    expect((await tooBig.json()).error).toBe('The photo is too large. It can be up to 4 MB.')
     expect((await upload(PNG, 'image/png', false)).status).toBe(401)
   })
 })
@@ -398,7 +414,78 @@ describe('a live hold protects what it is buying', () => {
     const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Held Class'), sessions: [ses('2031-08-07', '17:00', '18:00'), ses('2031-08-07', '18:30', '19:30')], status: 'open' })
     const cls = c.body.data.class
     await seedLedger(cls.id, [line({ bookingId: 'bkg_h', sessionIds: [cls.sessions[0].id], state: 'held', holdExpiresAt: new Date(Date.now() + 600_000).toISOString() })])
-    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', id: cls.id, sessions: [cls.sessions[1]] })
+    const r = await update({ id: cls.id, sessions: [cls.sessions[1]] })
     expect(r.status).toBe(409)
+  })
+})
+
+describe('fix round 1', () => {
+  it('update and cancel need the copy the form loaded; an older copy is refused', async () => {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Two Owners'), sessions: [ses('2031-09-04', '17:00', '18:00')], status: 'open' })
+    const loaded = c.body.data.class
+    const missing = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', id: loaded.id, status: 'closed' })
+    expect(missing.status).toBe(400)
+    const first = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', id: loaded.id, expectedUpdatedAt: loaded.updatedAt, content: { ...loaded.content, description: 'Kaden wrote this.' } })
+    expect(first.status).toBe(200)
+    const stale = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', id: loaded.id, expectedUpdatedAt: loaded.updatedAt, content: { ...loaded.content, description: 'Catherine wrote this.' } })
+    expect(stale.status).toBe(409)
+    expect(stale.body.error).toBe('Someone else changed this class. Reload to see their changes.')
+    expect((await getClass(loaded.id))!.content.description).toBe('Kaden wrote this.')
+    const staleCancel = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'cancel', id: loaded.id, expectedUpdatedAt: loaded.updatedAt })
+    expect(staleCancel.status).toBe(409)
+    expect((await getClass(loaded.id))!.status).toBe('open')
+  })
+
+  it('moving a session someone is paying for right now needs confirmMove and names them', async () => {
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Held Move'), sessions: [ses('2031-09-11', '17:00', '18:00')], status: 'open' })
+    const cls = c.body.data.class
+    await seedLedger(cls.id, [line({ bookingId: 'bkg_hm', sessionIds: [cls.sessions[0].id], state: 'held', holdExpiresAt: new Date(Date.now() + 600_000).toISOString(),
+      customer: { givenName: 'Hal', familyName: 'Held', email: 'hal@example.com', phone: '4029802907' } })])
+    const moved = [{ ...cls.sessions[0], startIso: at('2031-09-11', '19:00'), endIso: at('2031-09-11', '20:00') }]
+    const r = await update({ id: cls.id, sessions: moved })
+    expect(r.status).toBe(409)
+    expect(r.body.peopleToTell).toEqual([expect.objectContaining({ name: 'Hal Held', email: 'hal@example.com' })])
+  })
+
+  it('a library failure after the class saved keeps the class and warns', async () => {
+    const lib = await saveLibraryVersion({ content: content('Lib Gone'), by: { id: 'k', name: 'K' }, note: '' })
+    const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', libraryId: lib.id, sessions: [ses('2031-09-18', '17:00', '18:00')], status: 'open' })
+    const cls = c.body.data.class
+    mocks.libraryDown = true
+    const r = await update({ id: cls.id, content: { ...cls.content, description: 'Changed.' }, alsoUpdateLibrary: true }).finally(() => { mocks.libraryDown = false })
+    expect(r.status).toBe(200)
+    expect(r.body.warning).toBe("Saved. The library didn't update. Try again.")
+    expect(r.body.data.class.content.description).toBe('Changed.')
+    expect((await getClass(cls.id))!.content.description).toBe('Changed.')
+  })
+})
+
+describe('blocked time over something booked', () => {
+  const range = (d: string) => `?from=${encodeURIComponent(at(d, '00:00'))}&to=${encodeURIComponent(at(d, '23:59'))}`
+  it('refuses a block over a class session unless confirmed, then saves and lists the clashes', async () => {
+    const day = '2031-10-02'
+    await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Under The Block'), sessions: [ses(day, '17:00', '19:00')], status: 'open' })
+    const body = { action: 'add', startIso: at(day, '18:00'), endIso: at(day, '20:00'), reason: 'Plumber' }
+    const refused = await call(blocked, 'POST', '/api/admin/classes/blocked.json', body)
+    expect(refused.status).toBe(409)
+    expect(refused.body.error).toMatch(/^Clashes with Under The Block, /)
+    expect((await call(blocked, 'GET', `/api/admin/classes/blocked.json${range(day)}`)).body.data.blocked).toEqual([])
+    const ok = await call(blocked, 'POST', '/api/admin/classes/blocked.json', { ...body, confirm: true })
+    expect(ok.status).toBe(200)
+    expect(ok.body.data.blocked.reason).toBe('Plumber')
+    expect(ok.body.data.clashes).toEqual([expect.objectContaining({ kind: 'class', label: 'Under The Block' })])
+  })
+  it('refuses a block over a party', async () => {
+    const day = '2031-10-04'
+    mocks.listBookings.mockResolvedValue([{ id: 'bk_p', status: 'accepted', slot: { startAt: at(day, '13:00'), duration: 120 } }])
+    const r = await call(blocked, 'POST', '/api/admin/classes/blocked.json', { action: 'add', startIso: at(day, '14:00'), endIso: at(day, '16:00'), reason: '' })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toMatch(/^Clashes with /)
+  })
+  it('a block over nothing saves with no clashes', async () => {
+    const day = '2031-10-09'
+    const r = await call(blocked, 'POST', '/api/admin/classes/blocked.json', { action: 'add', startIso: at(day, '06:00'), endIso: at(day, '07:00'), reason: 'Early' })
+    expect(r.status).toBe(200)
+    expect(r.body.data.clashes).toEqual([])
   })
 })

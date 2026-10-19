@@ -14,13 +14,15 @@ export const GET: APIRoute = async ({ request, url }) => {
   return reply(async () => ({ data: { blocked: await listBlocked(from && to ? { fromIso: from, toIso: to } : undefined) } }))
 }
 
-/** POST { action: 'add', startIso, endIso, reason } or { action: 'remove', id }. */
+/**
+ * POST { action: 'add', startIso, endIso, reason, confirm? } → { blocked, clashes };
+ * over a class or party it is a 409 with the clashes unless confirm is true. Or { action: 'remove', id }. */
 export const POST: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => ({}))
   return reply(async () => {
     switch (body?.action) {
-      case 'add': return { data: { blocked: await blockTime(body) } }
+      case 'add': return { data: await blockTime(body) }
       case 'remove': await unblockTime(body); return { data: { removed: body.id } }
       default: throw new ActionError(400, 'That is not something blocked time can do.')
     }

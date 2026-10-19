@@ -9,7 +9,7 @@ export const prerender = false
 
 /**
  * Class photos. POST (owners only): multipart `file`, a JPEG, PNG or WebP up
- * to 8 MB; returns `{ data: { url } }`, a stable URL to use as the class's
+ * to 4 MB; returns `{ data: { url } }`, a stable URL to use as the class's
  * imageUrl. GET ?id= serves it, to anyone: it's the picture on a public card
  * and Square reads it from here when the class goes on the POS.
  *
@@ -17,7 +17,8 @@ export const prerender = false
  * .data/ in dev), with the type beside it.
  */
 const kv = makeKvStore('class-photos', 'class-photos')
-const MAX_BYTES = 8 * 1024 * 1024
+// Netlify functions take about 6 MB of request body; leave room for the form.
+const MAX_BYTES = 4 * 1024 * 1024
 const ID_RE = /^[a-f0-9]{24}$/
 const TYPES: Record<string, (b: Buffer) => boolean> = {
   'image/jpeg': (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
@@ -33,7 +34,7 @@ export const POST: APIRoute = async ({ request, url }) => {
   const type = file.type
   const bytes = Buffer.from(await file.arrayBuffer())
   if (!TYPES[type] || !TYPES[type](bytes)) return json(400, { error: 'The photo has to be a JPEG, PNG or WebP.' })
-  if (bytes.length > MAX_BYTES) return json(400, { error: 'The photo is too large. It can be up to 8 MB.' })
+  if (bytes.length > MAX_BYTES) return json(400, { error: 'The photo is too large. It can be up to 4 MB.' })
   const id = randomUUID().replace(/-/g, '').slice(0, 24)
   try {
     await kv.set(`photo-${id}`, JSON.stringify({ type, data: bytes.toString('base64') }))
@@ -52,6 +53,6 @@ export const GET: APIRoute = async ({ url }) => {
   const { type, data } = JSON.parse(raw) as { type: string; data: string }
   return new Response(new Uint8Array(Buffer.from(data, 'base64')), {
     status: 200,
-    headers: { 'Content-Type': type, 'Cache-Control': 'public, max-age=31536000, immutable' },
+    headers: { 'Content-Type': type, 'Cache-Control': 'public, max-age=31536000, immutable', 'X-Content-Type-Options': 'nosniff' },
   })
 }

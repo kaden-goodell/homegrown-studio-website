@@ -63,6 +63,11 @@ export async function createClass(input: {
   return cls
 }
 
+/** A save made from an older copy of the class than the one stored. */
+export class StaleClassError extends Error {
+  constructor() { super('Someone else changed this class. Reload to see their changes.') }
+}
+
 export async function updateClass(
   id: string,
   patch: {
@@ -71,6 +76,7 @@ export async function updateClass(
   },
   by: By,
   change: string,
+  opts: { expectedUpdatedAt?: string } = {},
 ): Promise<ScheduledClass> {
   const content = patch.content !== undefined ? okContent(patch.content) : undefined
   const sessions = patch.sessions !== undefined ? okSessions(patch.sessions) : undefined
@@ -79,7 +85,11 @@ export async function updateClass(
     const { value, etag } = await kv.getWithMeta(k)
     if (!value) throw new Error('That class does not exist.')
     const cur = JSON.parse(value) as ScheduledClass
-    const now = new Date().toISOString()
+    // Checked on every attempt, against what was just read: a save from a form
+    // loaded before someone else's save never overwrites theirs.
+    if (opts.expectedUpdatedAt !== undefined && cur.updatedAt !== opts.expectedUpdatedAt) throw new StaleClassError()
+    // Always later than the last save, even within the same millisecond, so updatedAt names one version.
+    const now = new Date(Math.max(Date.now(), Date.parse(cur.updatedAt) + 1)).toISOString()
     const next: ScheduledClass = {
       ...cur,
       content: content ?? cur.content,

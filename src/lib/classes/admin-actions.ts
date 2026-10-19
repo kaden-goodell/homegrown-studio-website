@@ -14,19 +14,20 @@
 import { recordAudit } from '@lib/audit'
 import type { By } from '@lib/staff-auth'
 import { formatDay, formatTime } from '@lib/studio-time'
-import { addBlocked, listBlocked, removeBlocked } from './blocked-time'
-import { createClass, getClass, listClasses, updateClass } from './class-store'
+import { addBlocked, listBlocked, removeBlocked, type BlockedTime } from './blocked-time'
+import { createClass, getClass, listClasses, StaleClassError, updateClass } from './class-store'
 import { archiveLibrary, getLibrary, listLibrary, restoreLibraryVersion, saveLibraryVersion } from './library-store'
 import { archiveClassInSquare, syncClassToSquare } from './square-catalog'
 import { getLedger, seatsTaken, type Ledger, type LedgerLine } from './seat-ledger'
-import { busyBetween, clashes, clashMessage } from './studio-schedule'
+import { busyBetween, clashes, clashMessage, type Busy } from './studio-schedule'
 import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass, Session } from './types'
-import { newId, validateContent, validateSessions } from './validate'
+import { newId, toIso, validateContent, validateSessions } from './validate'
 
 /** The admin cookie carries no name, so every owner action is by this. */
 export const ADMIN_BY: By = { id: 'admin', name: 'Owner' }
 
 export const SYNC_WARNING = "Saved. The POS item didn't update. Try Save again."
+export const LIBRARY_WARNING = "Saved. The library didn't update. Try again."
 export const CANCEL_WARNING = "Cancelled. The POS item didn't come off. Try Cancel again."
 
 /** A refusal the owner reads: an HTTP status, a plain sentence, and anything extra for the screen. */
@@ -99,6 +100,14 @@ async function mustGetClass(id: unknown): Promise<ScheduledClass> {
   const cls = typeof id === 'string' && id ? await getClass(id) : null
   if (!cls) throw new ActionError(404, 'That class does not exist.')
   return cls
+}
+
+/** The `updatedAt` of the copy the form loaded; a save from an older copy is refused. */
+function expectedOf(body: { expectedUpdatedAt?: unknown }, cls: ScheduledClass): string {
+  const v = body.expectedUpdatedAt
+  if (typeof v !== 'string' || !v) throw new ActionError(400, 'Reload the class and try again.')
+  if (v !== cls.updatedAt) throw new StaleClassError()
+  return v
 }
 
 /** Refuses with the clash message when any session would clash with what holds the room. */
@@ -220,10 +229,10 @@ export async function duplicateClass(body: { id?: unknown; sessions?: unknown; s
 }
 
 /** People booked on any of `sessionIds`, one entry per booking, with the old times of their moved sessions. */
-function peopleOn(ledger: Ledger, sessions: Session[]): PersonToTell[] {
+function peopleOn(ledger: Ledger, sessions: Session[], now: Date): PersonToTell[] {
   const out = new Map<string, PersonToTell>()
   for (const l of ledger.lines) {
-    if (!isBooked(l)) continue
+    if (!holdsSeat(l, now)) continue
     const mine = sessions.filter((s) => l.sessionIds.includes(s.id))
     if (!mine.length) continue
     const p = out.get(l.bookingId) ?? {
@@ -242,7 +251,6 @@ function checkAgainstBookings(cls: ScheduledClass, ledger: Ledger, content: Clas
   for (const old of cls.sessions) {
     const next = sessions.find((s) => s.id === old.id)
     const has = booked.some((l) => l.sessionIds.includes(old.id))
-    const hasPeople = ledger.lines.some((l) => isBooked(l) && l.sessionIds.includes(old.id))
     if (!next) {
       if (has) throw new ActionError(409, `People are booked on ${when(old.startIso)}, so it can't be removed.`)
       continue
@@ -251,7 +259,7 @@ function checkAgainstBookings(cls: ScheduledClass, ledger: Ledger, content: Clas
     if (next.capacity < taken) {
       throw new ActionError(409, `${when(old.startIso)} has ${taken} seats taken. Capacity can't go below ${taken}.`)
     }
-    if (hasPeople && (next.startIso !== old.startIso || next.endIso !== old.endIso)) movedWithBookings.push(old)
+    if (has && (next.startIso !== old.startIso || next.endIso !== old.endIso)) movedWithBookings.push(old)
   }
   for (const pass of cls.content.passes) {
     if (content.passes.some((p) => p.id === pass.id)) continue
@@ -271,9 +279,10 @@ function checkAgainstBookings(cls: ScheduledClass, ledger: Ledger, content: Clas
 }
 
 export async function updateScheduledClass(body: {
-  id?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; confirmMove?: unknown
+  id?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; confirmMove?: unknown; expectedUpdatedAt?: unknown
 }): Promise<Saved<{ class: ScheduledClass; peopleToTell?: PersonToTell[] }>> {
   const cls = await mustGetClass(body.id)
+  const expectedUpdatedAt = expectedOf(body, cls)
   if (cls.status === 'cancelled') throw new ActionError(409, 'This class is cancelled. Duplicate it to run it again.')
   const content = body.content !== undefined ? okContent(body.content) : cls.content
   const sessions = body.sessions !== undefined ? okSessions(body.sessions) : cls.sessions
@@ -282,7 +291,7 @@ export async function updateScheduledClass(body: {
   const now = new Date()
   const ledger = await getLedger(cls.id)
   const moved = checkAgainstBookings(cls, ledger, content, sessions, now)
-  const peopleToTell = moved.length ? peopleOn(ledger, moved) : undefined
+  const peopleToTell = moved.length ? peopleOn(ledger, moved, now) : undefined
   if (moved.length && body.confirmMove !== true) {
     throw new ActionError(409, 'People are booked on the sessions you moved. Confirm the move, then let them know.', { peopleToTell })
   }
@@ -304,22 +313,31 @@ export async function updateScheduledClass(body: {
     },
     ADMIN_BY,
     changes.length ? `Changed ${changes.join(', ')}` : 'Saved',
+    { expectedUpdatedAt },
   )
 
+  // The class is saved; from here on a failure is a warning, never a lost save.
+  let libraryWarning: string | undefined
   if (body.alsoUpdateLibrary === true) {
-    const date = formatDay(saved.sessions[0].startIso).replace(',', '')
-    const lib = await saveLibraryVersion({
-      ...(saved.libraryId ? { id: saved.libraryId } : {}),
-      content: saved.content,
-      by: ADMIN_BY,
-      note: `Updated while scheduling ${date}`,
-    }).catch(libraryError)
-    const version = lib.versions[lib.versions.length - 1].version
-    saved = await updateClass(saved.id, { libraryId: lib.id, libraryVersion: version }, ADMIN_BY, `Library updated (version ${version})`)
-    await audit('class-library-save', { kind: 'class-library', id: lib.id, label: saved.content.name }, { version, fromClass: saved.id })
+    try {
+      const date = formatDay(saved.sessions[0].startIso).replace(',', '')
+      const lib = await saveLibraryVersion({
+        ...(saved.libraryId ? { id: saved.libraryId } : {}),
+        content: saved.content,
+        by: ADMIN_BY,
+        note: `Updated while scheduling ${date}`,
+      })
+      const version = lib.versions[lib.versions.length - 1].version
+      saved = await updateClass(saved.id, { libraryId: lib.id, libraryVersion: version }, ADMIN_BY, `Library updated (version ${version})`)
+      await audit('class-library-save', { kind: 'class-library', id: lib.id, label: saved.content.name }, { version, fromClass: saved.id })
+    } catch (e) {
+      console.warn(`[classes] library update from ${saved.id} failed: ${e instanceof Error ? e.message : e}`)
+      libraryWarning = LIBRARY_WARNING
+    }
   }
 
-  const { cls: synced, warning } = await syncPos(saved)
+  const { cls: synced, warning: posWarning } = await syncPos(saved)
+  const warning = [libraryWarning, posWarning].filter(Boolean).join(' ') || undefined
   await audit('class-update', { kind: 'class', id: cls.id, label: synced.content.name }, {
     changes: changes.join(', ') || 'none', moved: moved.length, alsoUpdateLibrary: body.alsoUpdateLibrary === true,
   })
@@ -343,9 +361,10 @@ export function bookedPeople(ledger: Ledger): BookedPerson[] {
 }
 
 /** Cancel: off the POS, everyone booked listed for the owner to contact. Never refunds, never frees a seat. */
-export async function cancelClass(body: { id?: unknown }): Promise<Saved<{ class: ScheduledClass; booked: BookedPerson[] }>> {
+export async function cancelClass(body: { id?: unknown; expectedUpdatedAt?: unknown }): Promise<Saved<{ class: ScheduledClass; booked: BookedPerson[] }>> {
   const cls = await mustGetClass(body.id)
-  const saved = cls.status === 'cancelled' ? cls : await updateClass(cls.id, { status: 'cancelled' }, ADMIN_BY, 'Cancelled')
+  const expectedUpdatedAt = expectedOf(body, cls)
+  const saved = cls.status === 'cancelled' ? cls : await updateClass(cls.id, { status: 'cancelled' }, ADMIN_BY, 'Cancelled', { expectedUpdatedAt })
   let warning: string | undefined
   try {
     await archiveClassInSquare(saved)
@@ -431,11 +450,35 @@ export async function classBookings(id: unknown): Promise<{ class: ScheduledClas
 
 export { listBlocked }
 
-export async function blockTime(body: { startIso?: unknown; endIso?: unknown; reason?: unknown }) {
+/** Class sessions (ours and legacy) and parties a block would sit on: plain overlap. */
+async function bookedUnder(startIso: string, endIso: string): Promise<Busy[]> {
+  let busy: Busy[]
   try {
-    const b = await addBlocked({ startIso: String(body.startIso ?? ''), endIso: String(body.endIso ?? ''), reason: typeof body.reason === 'string' ? body.reason : '', by: ADMIN_BY })
-    await audit('blocked-time-add', { kind: 'blocked-time', id: b.id, label: b.reason }, { startIso: b.startIso, endIso: b.endIso })
-    return b
+    busy = await busyBetween(startIso, endIso)
+  } catch {
+    throw new ActionError(503, "The schedule couldn't be checked. Try again.")
+  }
+  const from = Date.parse(startIso), to = Date.parse(endIso)
+  return busy.filter((b) =>
+    (b.kind === 'class' || b.kind === 'legacy-class' || b.kind === 'party') &&
+    Date.parse(b.startIso) < to && Date.parse(b.endIso) > from)
+}
+
+/**
+ * Block time. Over a class session or a party it is refused with the clash
+ * message unless `confirm: true`; confirmed, it saves and the reply lists what
+ * it sits on. Nothing booked is changed either way.
+ */
+export async function blockTime(body: { startIso?: unknown; endIso?: unknown; reason?: unknown; confirm?: unknown }): Promise<{ blocked: BlockedTime; clashes: Busy[] }> {
+  const startIso = toIso(body.startIso), endIso = toIso(body.endIso)
+  if (!startIso || !endIso) throw new ActionError(400, 'Blocked time needs a start and an end time.')
+  if (Date.parse(endIso) <= Date.parse(startIso)) throw new ActionError(400, 'Blocked time has to end after it starts.')
+  const found = await bookedUnder(startIso, endIso)
+  if (found.length && body.confirm !== true) throw new ActionError(409, clashMessage(found), { clashes: found })
+  try {
+    const b = await addBlocked({ startIso, endIso, reason: typeof body.reason === 'string' ? body.reason : '', by: ADMIN_BY })
+    await audit('blocked-time-add', { kind: 'blocked-time', id: b.id, label: b.reason }, { startIso: b.startIso, endIso: b.endIso, over: found.length })
+    return { blocked: b, clashes: found }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     if (/^(Blocked time|The reason)/.test(msg)) throw new ActionError(400, msg)
@@ -461,6 +504,7 @@ export async function reply(fn: () => Promise<Saved<unknown>>): Promise<Response
     return json(200, { data, ...(warning ? { warning } : {}) })
   } catch (e) {
     if (e instanceof ActionError) return json(e.status, { error: e.message, ...e.extra })
+    if (e instanceof StaleClassError) return json(409, { error: e.message })
     const msg = e instanceof Error ? e.message : String(e)
     if (/^Concurrent update/.test(msg)) return json(409, { error: 'Someone else saved at the same moment. Try again.' })
     console.error(`[admin/classes] ${msg}`)

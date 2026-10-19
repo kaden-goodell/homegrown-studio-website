@@ -18,7 +18,7 @@ vi.mock('@lib/blob-store', async (orig) => {
   }
 })
 import { listLibrary, getLibrary, saveLibraryVersion, restoreLibraryVersion, archiveLibrary } from '@lib/classes/library-store'
-import { createClass, getClass, listClasses, updateClass } from '@lib/classes/class-store'
+import { createClass, getClass, listClasses, StaleClassError, updateClass } from '@lib/classes/class-store'
 import { addBlocked, listBlocked, removeBlocked } from '@lib/classes/blocked-time'
 import type { ClassContent, Session } from '@lib/classes/types'
 
@@ -68,6 +68,13 @@ describe('class store', () => {
     await expect(createClass({ content: content(), sessions: [], status: 'draft', by })).rejects.toThrow('Add at least one session.')
     const c = await createClass({ content: content(), sessions: [ses('s', '2031-01-05T18:00:00Z', '2031-01-05T19:00:00Z')], status: 'draft', by })
     await expect(updateClass(c.id, { sessions: [] }, by, 'x')).rejects.toThrow('Add at least one session.')
+  })
+  it('refuses a save made from an older copy (expectedUpdatedAt)', async () => {
+    const c = await createClass({ content: content(), sessions: [ses('s', '2031-01-05T18:00:00Z', '2031-01-05T19:00:00Z')], status: 'draft', by })
+    const a = await updateClass(c.id, { status: 'open' }, by, 'first', { expectedUpdatedAt: c.updatedAt })
+    await expect(updateClass(c.id, { status: 'closed' }, by2, 'stale', { expectedUpdatedAt: c.updatedAt })).rejects.toThrow(StaleClassError)
+    expect((await getClass(c.id))!.status).toBe('open')
+    expect((await updateClass(c.id, { status: 'closed' }, by2, 'fresh', { expectedUpdatedAt: a.updatedAt })).status).toBe('closed')
   })
   it('retries a lost CAS and gives up after three', async () => {
     const c = await createClass({ content: content(), sessions: [ses('s', '2031-01-05T18:00:00Z', '2031-01-05T19:00:00Z')], status: 'draft', by })
