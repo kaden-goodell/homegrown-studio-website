@@ -9,9 +9,9 @@
  * workshop slot clear). See `partyDays` in party.config.ts.
  */
 import { partyConfig, partyDays, partyDateOverrides, CAFE_PARTY_GAP_MINUTES } from '../config/party.config'
-import { cafeHoursOn } from '../config/hours'
-import { cafeRunsOn } from './cafe-days'
+import { cafeOn } from './cafe-days'
 import { closureOn } from '../config/closures'
+import { CONFIG_STUDIO_DAYS, type StudioDays } from '../config/studio-days'
 
 const DAY_MS = 86_400_000
 
@@ -96,13 +96,18 @@ export function bookableDates(now: Date = new Date()): { first: string; last: st
   }
 }
 
-/** Why a date is or isn't on offer. The server uses this to explain a refusal. */
+/**
+ * Why a date is or isn't on offer. The server uses this to explain a refusal.
+ * `days`: the closed days and café hours in use (getStudioDays() on the
+ * server); the default is the config.
+ */
 export function bookableOn(
   ymd: string,
   now: Date = new Date(),
+  days: StudioDays = CONFIG_STUDIO_DAYS,
 ): 'ok' | 'before_opening' | 'closed' | 'too_soon' | 'too_far' {
   if (ymd < partyConfig.bookingOpensDate && !partyDateOverrides[ymd]) return 'before_opening'
-  if (closureOn(ymd)) return 'closed'
+  if (closureOn(ymd, days.closures)) return 'closed'
   const { first, last } = bookableDates(now)
   if (ymd < first) return 'too_soon'
   if (ymd > last) return 'too_far'
@@ -114,8 +119,8 @@ export function bookableOn(
  * Empty for any date outside bookableDates(): this is the one choke point
  * behind availability, the dates list, the calendar and the server's re-check.
  */
-export function partyStartsForDate(ymd: string, now: Date = new Date()): string[] {
-  if (bookableOn(ymd, now) !== 'ok') return []
+export function partyStartsForDate(ymd: string, now: Date = new Date(), days: StudioDays = CONFIG_STUDIO_DAYS): string[] {
+  if (bookableOn(ymd, now, days) !== 'ok') return []
   const [y, m, d] = ymd.split('-').map(Number)
   const weekday = new Date(Date.UTC(y, m - 1, d, 12)).getUTCDay()
   const cfg = partyDateOverrides[ymd] ?? partyDays[weekday]
@@ -132,7 +137,7 @@ export function partyStartsForDate(ymd: string, now: Date = new Date()): string[
     out.push(localToUtcISO(ymd, `${hh}:${mm}`))
   }
   // Parties step aside for Craft Café, with a gap before and after.
-  const cafe = cafeRunsOn(ymd) ? cafeHoursOn(ymd) : null
+  const cafe = cafeOn(ymd, days)
   if (cafe) {
     const gap = CAFE_PARTY_GAP_MINUTES * 60_000
     const opens = Date.parse(localToUtcISO(ymd, cafe.opens)) - gap
@@ -147,7 +152,7 @@ export function partyStartsForDate(ymd: string, now: Date = new Date()): string[
 }
 
 /** All offered party starts whose start falls within [startIso, endIso], sorted. */
-export function partyStartsInRange(startIso: string, endIso: string, now: Date = new Date()): string[] {
+export function partyStartsInRange(startIso: string, endIso: string, now: Date = new Date(), days: StudioDays = CONFIG_STUDIO_DAYS): string[] {
   const startMs = new Date(startIso).getTime()
   const endMs = new Date(endIso).getTime()
   const seen = new Set<string>()
@@ -156,7 +161,7 @@ export function partyStartsInRange(startIso: string, endIso: string, now: Date =
     const ymd = localDate(new Date(Math.min(t, endMs)).toISOString())
     if (seen.has(ymd)) continue
     seen.add(ymd)
-    for (const iso of partyStartsForDate(ymd, now)) {
+    for (const iso of partyStartsForDate(ymd, now, days)) {
       const ms = new Date(iso).getTime()
       if (ms >= startMs && ms <= endMs) out.push(iso)
     }

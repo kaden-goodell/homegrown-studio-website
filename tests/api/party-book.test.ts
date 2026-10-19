@@ -247,6 +247,18 @@ describe('POST /api/party/book.json', () => {
       expect(json.detail).toMatch(/studio is closed on that date/)
     })
 
+    it('asks about the owners’ saved closed days (read fresh), not just the config', async () => {
+      const settings = await import('@lib/studio-settings')
+      await settings.saveStudioSettings(
+        { ...settings.configSettings(), closures: [{ id: 'clo_snow', from: '2026-12-05', to: '2026-12-05', name: 'a snow day' }] },
+        { expectedUpdatedAt: (await settings.getSettingsView()).updatedAt, by: { id: 'owner-kaden', name: 'Kaden' } },
+      )
+      const json = await refused('closed')
+      expect(json.detail).toMatch(/studio is closed on that date/)
+      const days = mockBookableOn.mock.calls[0][2]
+      expect(days.closures.map((c: any) => c.name)).toEqual(['a snow day'])
+    })
+
     it('refuses a start time that is not a date at all', async () => {
       const res = await POST(createMockContext(makeBody({ startTime: 'next saturday' })))
       expect(res.status).toBe(400)

@@ -1,4 +1,6 @@
 import type { APIRoute } from 'astro'
+import { cafeOn } from '@lib/cafe-days'
+import { getStudioDays } from '@lib/studio-settings'
 import { staffAuthorized, byOf } from '@lib/staff-auth'
 import { checkInOpenStudio, hereNowCount } from '@lib/open-studio-store'
 import { studioDate } from '@lib/studio-time'
@@ -49,8 +51,9 @@ export const GET: APIRoute = async ({ request, url }) => {
   if (!staffAuthorized(request)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   const date = url.searchParams.get('date') || today()
   try {
-    const count = await hereNowCount(date)
-    return new Response(JSON.stringify({ data: { count } }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    const [count, days] = await Promise.all([hereNowCount(date), getStudioDays()])
+    // Whether Craft Café runs that day (the owners' hours and closed days), so the header shows only then.
+    return new Response(JSON.stringify({ data: { count, cafe: cafeOn(date, days) } }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   } catch (err) {
     logger.error('Open Studio count failed', { date, error: err instanceof Error ? err.message : String(err) })
     return new Response(JSON.stringify({ error: 'Couldn’t reach storage — check wifi and try again.' }), { status: 503 })

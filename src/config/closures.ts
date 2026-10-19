@@ -3,11 +3,15 @@
  *
  * A closed day has no party times: the booking panel does not offer it, the
  * server refuses it, the calendar marks it, and nobody who asked to be told
- * about a date is emailed about it. To close more days, add a line here.
+ * about a date is emailed about it. Owners add and remove closed days on
+ * /admin (More › Closed days); this list is what the site uses until they
+ * first save there (see src/lib/studio-settings.ts).
  *
  * Client-safe: no imports, no env.
  */
 export interface Closure {
+  /** Set on closed days saved on /admin (More › Closed days); the config list has none. */
+  id?: string
   /** First closed day, studio-local YYYY-MM-DD. */
   from: string
   /** Last closed day, studio-local YYYY-MM-DD (included). */

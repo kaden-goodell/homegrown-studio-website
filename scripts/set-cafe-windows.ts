@@ -1,8 +1,9 @@
 /**
  * Writes the Craft Café (walk-in) windows onto the Square display item the
  * calendar reads (`partyConfig.square.openStudioItemId`): one window per
- * Saturday (CAFE_HOURS, or a CAFE_SPECIAL_DAYS entry for that date), from OPEN_STUDIO_START_DATE for `--months N` (default
- * 4), skipping closed days. Also names the item "Craft Café" so the
+ * Saturday (CAFE_HOURS, or a CAFE_SPECIAL_DAYS entry for that date), from today (never before
+ * OPEN_STUDIO_START_DATE) for `--months N` (default 4), skipping closed days. The
+ * calls live in src/lib/cafe-windows.ts, shared with /admin's settings save. Also names the item "Craft Café" so the
  * dashboard matches the site.
  *
  *   npx tsx scripts/set-cafe-windows.ts            # show what would be written
@@ -14,10 +15,10 @@
  */
 import 'dotenv/config'
 import { SquareClient, SquareEnvironment } from 'square'
-import { cafeHoursOn } from '../src/config/hours'
 import { OPEN_STUDIO_START_DATE } from '../src/config/opening'
-import { studioOpenOn } from '../src/config/closures'
+import { CONFIG_STUDIO_DAYS } from '../src/config/studio-days'
 import { partyConfig } from '../src/config/party.config'
+import { addDays, cafeWindows, fitWindows, readCafeItem, SQUARE_WINDOW_LIMIT, writeCafeWindows } from '../src/lib/cafe-windows'
 
 const args = process.argv.slice(2)
 const write = args.includes('--write')
@@ -28,39 +29,24 @@ if (!Number.isInteger(months) || months < 1 || months > 12) {
   process.exit(1)
 }
 
-/** YYYY-MM-DD arithmetic on calendar days, no timezones involved. */
-function addDays(ymd: string, n: number): string {
-  const [y, m, d] = ymd.split('-').map(Number)
-  const t = new Date(Date.UTC(y, m - 1, d + n))
-  return t.toISOString().slice(0, 10)
-}
+console.log('Note: this writes the CONFIG hours and closed days. Once an owner saves More › Hours & Craft Café or Closed days')
+console.log('on /admin, saving there rewrites these windows itself; running this would put the config back.\n')
 
-const start = OPEN_STUDIO_START_DATE
+// Past days only use up Square's character limit: start today at the earliest.
+const todayYmd = new Date().toLocaleDateString('en-CA', { timeZone: partyConfig.timezone })
+const start = todayYmd > OPEN_STUDIO_START_DATE ? todayYmd : OPEN_STUDIO_START_DATE
 const end = addDays(start, Math.round(months * 30.4))
-const windows: string[] = []
-for (let day = start; day <= end; day = addDays(day, 1)) {
-  if (!studioOpenOn(day)) continue
-  // A special day (the Nov 7 grand opening) wins over the weekly hours.
-  const h = cafeHoursOn(day)
-  if (h) windows.push(`${day}T${h.opens}-${h.closes}`)
-}
+const all = cafeWindows(CONFIG_STUDIO_DAYS, start, end)
 
 // Square caps a string custom attribute at 255 characters — about eleven
 // windows. Keep as many as fit and say how far that reaches, so the owner
 // knows when to re-run this (monthly is plenty).
-const LIMIT = 255
-const kept: string[] = []
-for (const w of windows) {
-  if ([...kept, w].join(',').length > LIMIT) break
-  kept.push(w)
+const windows = fitWindows(all)
+console.log(`Craft Café windows from ${start} (${windows.length} of ${all.length} fit Square's ${SQUARE_WINDOW_LIMIT}-character limit):`)
+for (const w of windows) console.log('  ' + w)
+if (windows.length < all.length) {
+  console.log(`  … covered through ${windows[windows.length - 1].slice(0, 10)}; re-run this script before then to roll forward.`)
 }
-console.log(`Craft Café windows from ${start} (${kept.length} of ${windows.length} fit Square's ${LIMIT}-character limit):`)
-for (const w of kept) console.log('  ' + w)
-if (kept.length < windows.length) {
-  console.log(`  … covered through ${kept[kept.length - 1].slice(0, 10)}; re-run this script before then to roll forward.`)
-}
-windows.length = 0
-windows.push(...kept)
 
 if (!write) {
   console.log('\nDry run. Add --write to store these on the Square item.')
@@ -71,28 +57,13 @@ const client = new SquareClient({ token: process.env.SQUARE_ACCESS_TOKEN!, envir
 const itemId = partyConfig.square.openStudioItemId
 
 async function main() {
-  const res: any = await client.catalog.object.get({ objectId: itemId, includeRelatedObjects: false })
-  const item = res.object ?? res.result?.object
+  const item = await readCafeItem(client, itemId)
   if (!item) throw new Error(`Square item ${itemId} not found`)
   const before = item.customAttributeValues?.programDates?.stringValue ?? ''
   console.log(`\nItem: "${item.itemData?.name}" (version ${item.version})`)
   console.log(`Current windows: ${before ? before.split(',').length : 0}`)
-
-  const upsert: any = await client.catalog.object.upsert({
-    idempotencyKey: `cafe-windows-${Date.now()}`,
-    object: {
-      ...item,
-      itemData: { ...item.itemData, name: 'Craft Café' },
-      customAttributeValues: {
-        ...(item.customAttributeValues ?? {}),
-        flow: { ...(item.customAttributeValues?.flow ?? {}), stringValue: 'display' },
-        programDates: { ...(item.customAttributeValues?.programDates ?? {}), stringValue: windows.join(',') },
-      },
-    },
-  })
-  const saved = upsert.catalogObject ?? upsert.result?.catalogObject
-  const after = saved?.customAttributeValues?.programDates?.stringValue ?? ''
-  console.log(`Saved: "${saved?.itemData?.name}" — ${after.split(',').filter(Boolean).length} windows (version ${saved?.version})`)
+  const saved = await writeCafeWindows(client, item, windows)
+  console.log(`Saved: "${saved.name}" — ${saved.count} windows (version ${saved.version})`)
 }
 
 main().catch((err) => {

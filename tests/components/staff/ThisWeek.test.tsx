@@ -41,6 +41,16 @@ describe('This week (staff landing tab)', () => {
     expect(within(sat).getByText('☕ Craft Café 9 AM – 9 PM')).toBeInTheDocument()
   })
 
+  it('uses the café hours the server sends (the owners’ hours and closed days), not the config', async () => {
+    vi.setSystemTime(new Date('2026-11-05T15:00:00Z'))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ data: { events: [], cafe: { '2026-11-08': { opens: '13:00', closes: '15:00' } } } }) }))
+    render(<ThisWeek staff={STAFF} onOpenRoster={() => {}} />)
+    const sun = await screen.findByRole('region', { name: 'Sun Nov 8' })
+    expect(within(sun).getByText('☕ Craft Café 1 – 3 PM')).toBeInTheDocument()
+    // Sat 7 isn't in the server's list (closed on /admin, say): no café row, no region.
+    expect(screen.queryByRole('region', { name: 'Sat Nov 7' })).toBeNull()
+  })
+
   it('tapping a class opens its roster', async () => {
     serve([pails])
     const open = vi.fn()

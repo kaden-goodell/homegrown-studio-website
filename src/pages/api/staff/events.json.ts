@@ -1,4 +1,6 @@
 import type { APIRoute } from 'astro'
+import { cafeRunsOn } from '@lib/cafe-days'
+import { getStudioDays } from '@lib/studio-settings'
 import { staffAuthorized } from '@lib/staff-auth'
 import { listEvents, eventKey, eventOnDay } from '@lib/events'
 import { listRsvpsByEvent } from '@lib/rsvp-store'
@@ -40,7 +42,9 @@ export const GET: APIRoute = async ({ request, url }) => {
         return { ...e, rsvpCount: rsvps.length, hereNow, rsvpWaiverIds: rsvps.map((r) => r.waiverId), ...(await prepForEvent(e, date)) }
       }),
     )
-    return new Response(JSON.stringify({ data: { events: withCounts, sources } }), {
+    // Whether Craft Café runs that day, from the owners' hours and closed days.
+    const cafeOpen = cafeRunsOn(date, await getStudioDays())
+    return new Response(JSON.stringify({ data: { events: withCounts, sources, cafeOpen } }), {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })

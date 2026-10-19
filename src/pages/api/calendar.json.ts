@@ -1,7 +1,8 @@
 import type { APIRoute } from 'astro'
 import { bookingsOpen } from '@lib/bookings-gate'
 import { OPENING_DATE, GRAND_OPENING_DATE } from '@config/opening'
-import { closures, closureOn, daysOf, reopensOn } from '@config/closures'
+import { closureOn, daysOf, reopensOn } from '@config/closures'
+import { getStudioDays } from '@lib/studio-settings'
 import { longDate } from '@lib/notify-context'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
@@ -94,7 +95,7 @@ export const GET: APIRoute = async ({ url, request }) => {
     logger.error(`${what} failed`, { error: errorText(err) })
     return fallback
   }
-  const [allWorkshops, allOpenStudioWindows, partyVariationId, bookings, ourClasses] = await Promise.all([
+  const [allWorkshops, allOpenStudioWindows, partyVariationId, bookings, ourClasses, studio] = await Promise.all([
     remember('calendar:workshops', 30_000, () => providers.workshop.listWorkshops()).catch(
       orElse('workshops fetch', [] as any[]),
     ),
@@ -113,7 +114,10 @@ export const GET: APIRoute = async ({ url, request }) => {
     listClasses({ fromIso: rangeStart.toISOString(), toIso: rangeEnd.toISOString() }).catch(
       orElse('our classes', [] as ScheduledClass[]),
     ),
+    // The owners' closed days and café hours (config until they first save on /admin).
+    getStudioDays(),
   ])
+  const closures = studio.closures
   // Only open/closed, not link-only, ones are public; the same ones block parties.
   const publicClasses = ourClasses.filter(
     (c) => (c.status === 'open' || c.status === 'closed') && !c.content.rules.linkOnly,
@@ -144,7 +148,7 @@ export const GET: APIRoute = async ({ url, request }) => {
   const availStart = new Date(Math.max(rangeStart.getTime(), now.getTime() + 60_000))
   const offeredStarts =
     availStart.getTime() < rangeEnd.getTime()
-      ? partyStartsInRange(availStart.toISOString(), rangeEnd.toISOString())
+      ? partyStartsInRange(availStart.toISOString(), rangeEnd.toISOString(), now, studio)
       : []
   // Parties yield to classes (spec E), then booked parties come off.
   const partyAvailable: PartyAvailabilitySlot[] = removeBooked(
@@ -171,7 +175,7 @@ export const GET: APIRoute = async ({ url, request }) => {
   )
   // Walk-in hours come from Square and don't know about closures: a closed day
   // never shows Craft Café (e.g. Sat 26 Dec, the Christmas holidays).
-  const events = built.filter((e) => e.date >= OPENING_DATE && inRange(e.date) && !(e.kind === 'open-studio' && closureOn(e.date)))
+  const events = built.filter((e) => e.date >= OPENING_DATE && inRange(e.date) && !(e.kind === 'open-studio' && closureOn(e.date, closures)))
   if (months.includes(GRAND_OPENING_DATE.slice(0, 7))) {
     events.unshift({
       id: 'grand-opening',
@@ -187,7 +191,7 @@ export const GET: APIRoute = async ({ url, request }) => {
   // Days the studio has closed: a row on every one of them, so a whole
   // closed week reads as a whole closed week.
   for (const closure of closures) {
-    const reopens = `We reopen ${longDate(reopensOn(closure))}.`
+    const reopens = `We reopen ${longDate(reopensOn(closure, closures))}.`
     for (const day of daysOf(closure)) {
       if (day < OPENING_DATE || !inRange(day)) continue
       events.push({
@@ -201,7 +205,11 @@ export const GET: APIRoute = async ({ url, request }) => {
       })
     }
   }
-  return new Response(JSON.stringify({ events, ...(failed ? { incomplete: true } : {}) }), {
+  // The closed days themselves ride along: the calendar shades and dresses them (WhatsOnCalendar).
+  const shut = closures
+    .filter((c) => c.to >= `${month}-01` && c.from < `${afterLast}-01`)
+    .map((c) => ({ from: c.from, to: c.to, name: c.name, ...(c.holiday ? { holiday: c.holiday } : {}) }))
+  return new Response(JSON.stringify({ events, closures: shut, ...(failed ? { incomplete: true } : {}) }), {
     status: 200,
     headers: publicListHeaders(request, { failed }),
   })

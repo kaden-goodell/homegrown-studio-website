@@ -20,11 +20,14 @@ export default function CheckInSheet({
 }) {
   const today = studioDate(new Date().toISOString())
   const [todayEvents, setTodayEvents] = useState<TodayEvent[] | null>(null)
+  /** Craft Café runs today: the server's answer (the owners' hours and closed days). */
+  const [cafeOpen, setCafeOpen] = useState<boolean | null>(null)
   useEffect(() => {
     fetch(`/api/staff/events.json?date=${today}`, { cache: 'no-store' })
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
         const events = json?.data?.events
+        if (typeof json?.data?.cafeOpen === 'boolean') setCafeOpen(json.data.cafeOpen)
         setTodayEvents(Array.isArray(events) ? events.map((e: any) => ({ kind: e.kind, id: e.id, title: e.title, startIso: e.startIso, rsvpWaiverIds: e.rsvpWaiverIds })) : [])
       })
       .catch(() => setTodayEvents([]))
@@ -51,7 +54,7 @@ export default function CheckInSheet({
           <h3 style={{ margin: 0, fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)' }}>Check in</h3>
           <button type="button" onClick={onClose} aria-label="Close" style={{ ...btn(), padding: '0.35rem 0.6rem' }}>✕</button>
         </div>
-        <CheckInFlow todayEvents={todayEvents} cafeOpen={cafeRunsOn(today)} onOpenRoster={openRoster} />
+        <CheckInFlow todayEvents={todayEvents} cafeOpen={cafeOpen ?? cafeRunsOn(today)} onOpenRoster={openRoster} />
       </div>
     </div>
   )

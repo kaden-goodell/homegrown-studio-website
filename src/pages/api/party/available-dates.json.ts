@@ -7,6 +7,7 @@ import { partyStartsInRange, removeBooked, localDate } from '@lib/party-slots'
 import { classSpansOrNone } from '@lib/party-availability'
 import { removeClassBlocked } from '@lib/conflicts'
 import { createLogger } from '@lib/logger'
+import { getStudioDays } from '@lib/studio-settings'
 
 const logger = createLogger('api:party:available-dates')
 
@@ -25,8 +26,12 @@ export const POST: APIRoute = async ({ request }) => {
     const now = new Date()
     const windowEnd = new Date(now.getTime() + windowDays * DAY_MS)
 
-    // Offered starts across the window come from config (per-weekday schedule).
-    const starts = partyStartsInRange(now.toISOString(), windowEnd.toISOString())
+    // Offered starts across the window come from config (per-weekday schedule),
+    // less the owners' closed days and café hours.
+    const starts = partyStartsInRange(now.toISOString(), windowEnd.toISOString(), now, await getStudioDays())
+    // How many times each date offers at all, so the panel can say when some are taken.
+    const offered: Record<string, number> = {}
+    for (const s of starts) { const d = localDate(s); offered[d] = (offered[d] ?? 0) + 1 }
 
     // Parties yield to classes (spec E). The panel takes its times from here,
     // so the rule must hold here as well as in availability.json. A failed
@@ -87,7 +92,7 @@ export const POST: APIRoute = async ({ request }) => {
     })
 
     return new Response(
-      JSON.stringify({ data: { dates, times, bookedDates, windowDays } }),
+      JSON.stringify({ data: { dates, times, bookedDates, windowDays, offered } }),
       { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
     )
   } catch (error) {

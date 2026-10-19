@@ -21,7 +21,7 @@ import {
   trackCalendarEventClick,
   trackCalendarLoadFailed,
 } from '@lib/analytics'
-import { OPEN_WEEKDAYS, closureOn, studioOpenOn, type Holiday } from '@config/closures'
+import { OPEN_WEEKDAYS, closureOn, closures as configClosures, studioOpenOn, type Closure, type Holiday } from '@config/closures'
 
 /** Months the flat list view loads at once; "Show more" adds one at a time. */
 const LIST_MONTHS_INITIAL = 3
@@ -41,6 +41,13 @@ function monthKey(y: number, m: number) {
  */
 const FRESH_MS = 60_000
 const fetched = new Map<string, { at: number; events: CalendarEvent[]; incomplete: boolean }>()
+/** The studio's closed days the server sent with each month (owners edit them on /admin). */
+const shutByMonth = new Map<string, Closure[]>()
+
+/** The closed days that apply to a date: what the server said for its month, or the config before it has answered. */
+export function closuresFor(dateStr: string): Closure[] {
+  return shutByMonth.get(dateStr.slice(0, 7)) ?? configClosures
+}
 
 function held(key: string): CalendarEvent[] | null {
   const hit = fetched.get(key)
@@ -69,12 +76,13 @@ function keysFrom(first: string, count: number): string[] {
 async function fetchMonths(first: string, count: number): Promise<void> {
   const res = await fetch(`/api/calendar.json?month=${first}${count > 1 ? `&months=${count}` : ''}`)
   if (!res.ok) throw new Error(`calendar fetch failed: ${res.status}`)
-  const data: { events?: CalendarEvent[]; incomplete?: boolean } = await res.json()
+  const data: { events?: CalendarEvent[]; incomplete?: boolean; closures?: Closure[] } = await res.json()
   const events = Array.isArray(data?.events) ? data.events : []
   const incomplete = data?.incomplete === true
   const at = Date.now()
   for (const key of keysFrom(first, count)) {
     fetched.set(key, { at, incomplete, events: events.filter((e) => e.date.startsWith(key)) })
+    if (Array.isArray(data?.closures)) shutByMonth.set(key, data.closures)
   }
 }
 
@@ -88,6 +96,7 @@ async function fetchMonth(key: string): Promise<CalendarEvent[]> {
 /** Forget what was fetched. For tests. */
 export function forgetFetchedMonths(): void {
   fetched.clear()
+  shutByMonth.clear()
 }
 
 interface WhatsOnCalendarProps {
@@ -756,8 +765,9 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
           }
           const dateStr = `${monthStr}-${String(day).padStart(2, '0')}`
           // Closed: the usual Mon–Wed, and any day the studio has closed (see closures.ts).
-          const isOpenDay = studioOpenOn(dateStr)
-          const holiday = closureOn(dateStr)?.holiday
+          const shut = closuresFor(dateStr)
+          const isOpenDay = studioOpenOn(dateStr, shut)
+          const holiday = closureOn(dateStr, shut)?.holiday
           const isPast = dateStr < todayStr
           const isToday = dateStr === todayStr
           const dayEvents = eventsByDay.get(day) ?? []

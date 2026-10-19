@@ -228,6 +228,16 @@ describe('PartyModal — dates and times', () => {
     expect(screen.getByText('1 of 2 times still open')).toBeInTheDocument()
   })
 
+  it('counts what the server says the day offers (it knows the owners’ café hours and closed days)', async () => {
+    // A special café day on /admin took the 1:00 away: the server says Sunday offers one time, and it is open.
+    answers['available-dates'] = { body: { data: { dates: [SUN], bookedDates: [], times: { [SUN]: [SUN_3] }, offered: { [SUN]: 1 } } } }
+    open()
+    await pickCraft()
+    next()
+    fireEvent.click(await screen.findByRole('button', { name: 'Sun, Nov 8' }))
+    expect(screen.queryByText(/times still open/)).toBeNull()
+  })
+
   it('says nothing about scarcity when every time is open', async () => {
     // Sunday offers 1:00 and 3:30, and both are open.
     answers['available-dates'] = { body: { data: { dates: [SUN], bookedDates: [], times: { [SUN]: [SUN_1, SUN_3] } } } }

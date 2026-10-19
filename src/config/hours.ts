@@ -54,14 +54,56 @@ export const CAFE_SPECIAL_DAYS: CafeSpecialDay[] = [
   { date: '2026-11-07', opens: '09:00', closes: '21:00', name: 'Craft Café grand opening' },
 ]
 
-/** Café hours on a date: a special day wins over the weekly hours. Null when there's no café that day. */
-export function cafeHoursOn(ymd: string): { opens: string; closes: string } | null {
-  const special = CAFE_SPECIAL_DAYS.find((d) => d.date === ymd)
+/** One weekday's Craft Café hours (the owner's "Saturday 9 AM – 12 PM" row). */
+export interface CafeWeekly {
+  weekday: Weekday
+  /** HH:MM, 24-hour */
+  opens: string
+  /** HH:MM, 24-hour */
+  closes: string
+}
+
+/**
+ * Everything that says when Craft Café runs: the weekly rows and the special
+ * days. Owners edit it on /admin (More › Hours & Craft Café); until they save,
+ * it is exactly the config above (CONFIG_CAFE_HOURS).
+ */
+export interface CafeHours {
+  weekly: CafeWeekly[]
+  special: CafeSpecialDay[]
+}
+
+export const CONFIG_CAFE_HOURS: CafeHours = {
+  weekly: CAFE_HOURS.flatMap((h) => h.days.map((weekday) => ({ weekday, opens: h.opens, closes: h.closes }))),
+  special: CAFE_SPECIAL_DAYS,
+}
+
+export const WEEKDAYS: readonly Weekday[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+
+/**
+ * Café hours on a date: a special day wins over the weekly hours. Null when
+ * there's no café that day. Pass the loaded hours (`getCafeHours()` on the
+ * server, the API payload in the browser); the default is the config.
+ */
+export function cafeHoursOn(ymd: string, cafe: CafeHours = CONFIG_CAFE_HOURS): { opens: string; closes: string } | null {
+  const special = cafe.special.find((d) => d.date === ymd)
   if (special) return { opens: special.opens, closes: special.closes }
   const [y, m, d] = ymd.split('-').map(Number)
-  const weekday = (['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'] as const)[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
-  const weekly = CAFE_HOURS.find((h) => h.days.includes(weekday))
+  const weekday = WEEKDAYS[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]
+  const weekly = cafe.weekly.find((h) => h.weekday === weekday)
   return weekly ? { opens: weekly.opens, closes: weekly.closes } : null
+}
+
+/** The weekly rows as the site's hours list: days with the same hours share a row, in week order (Monday first). */
+export function cafeHoursEntries(cafe: CafeHours = CONFIG_CAFE_HOURS): HoursEntry[] {
+  const order = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+  const out: HoursEntry[] = []
+  for (const w of [...cafe.weekly].sort((a, b) => order.indexOf(a.weekday) - order.indexOf(b.weekday))) {
+    const same = out.find((e) => e.opens === w.opens && e.closes === w.closes)
+    if (same) same.days.push(w.weekday)
+    else out.push({ days: [w.weekday], opens: w.opens, closes: w.closes })
+  }
+  return out
 }
 
 function parts(hhmm: string): { hour: number; minute: string; period: 'AM' | 'PM' } {

@@ -184,6 +184,8 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null)
   const [availableDates, setAvailableDates] = useState<string[]>([])
   const [bookedDates, setBookedDates] = useState<string[]>([])
+  /** How many times each date offers at all (the server's answer: it knows the owners' closed days and café hours). */
+  const [offeredByDate, setOfferedByDate] = useState<Record<string, number>>({})
   const [timesByDate, setTimesByDate] = useState<Record<string, Slot[]>>({})
   const [loadingDates, setLoadingDates] = useState(false)
   const [datesError, setDatesError] = useState(false)
@@ -322,6 +324,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
       setAvailableDates(data.dates ?? [])
       setBookedDates(data.bookedDates ?? [])
       setTimesByDate(data.times ?? {})
+      setOfferedByDate(data.offered ?? {})
     } catch {
       if (!isCancelled()) { setDatesError(true); trackBookingProblem('party', 'dates_unavailable') }
     } finally {
@@ -347,7 +350,9 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     })
     if (!res.ok) throw new Error()
     const json = await res.json()
-    return (json.data ?? json).slots ?? []
+    const data = json.data ?? json
+    if (typeof data.offered === 'number') setOfferedByDate((m) => ({ ...m, [date]: data.offered }))
+    return data.slots ?? []
   }
 
   // Link prefill: ?start=<ISO> preselects that date and time and removes the
@@ -1044,7 +1049,7 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
     if (whenMode === 'later') return renderLaterView()
 
     // How many times this day offers, against how many are still open.
-    const offered = selectedDate ? partyStartsForDate(selectedDate).length : 0
+    const offered = selectedDate ? offeredByDate[selectedDate] ?? partyStartsForDate(selectedDate).length : 0
     const someBooked = !loadingSlots && !slotsError && availableSlots.length > 0 && offered > availableSlots.length
     const onOffer = bookableDates()
     const allDates = [...availableDates, ...bookedDates.filter((d) => d >= onOffer.first && d <= onOffer.last)].sort()

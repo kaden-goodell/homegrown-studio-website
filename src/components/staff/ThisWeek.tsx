@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import StaffHeader from '@components/staff/StaffHeader'
 import { type HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, Badge } from '@components/staff/ui'
-import { cafeRunsOn } from '@lib/cafe-days'
-import { cafeHoursOn, formatRange } from '@config/hours'
+import { cafeOn } from '@lib/cafe-days'
+import { formatRange } from '@config/hours'
 import { addDays } from '@lib/kit-dates'
 import { formatTime, formatCalendarDay, studioDate } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
@@ -46,6 +46,8 @@ export default function ThisWeek({
 }) {
   const today = studioDate(new Date().toISOString())
   const [rows, setRows] = useState<WeekRow[] | null>(null)
+  /** Craft Café hours by day, from the server (it knows the owners' hours and closed days). */
+  const [cafeDays, setCafeDays] = useState<Record<string, { opens: string; closes: string }> | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   async function load() {
@@ -55,6 +57,7 @@ export default function ThisWeek({
       const json = await res.json().catch(() => null)
       if (!res.ok) { setError(json?.error ?? 'Couldn’t load this week.'); return }
       setRows(json.data.events as WeekRow[])
+      setCafeDays(json.data.cafe && typeof json.data.cafe === 'object' ? json.data.cafe : null)
     } catch {
       setError('Couldn’t reach the studio server — check wifi and tap Retry.')
     }
@@ -91,7 +94,7 @@ export default function ThisWeek({
           </p>
           {days.map((d) => {
             const list = onDay(d)
-            const cafe = cafeRunsOn(d) ? cafeHoursOn(d) : null
+            const cafe = cafeDays ? cafeDays[d] ?? null : cafeOn(d)
             if (list.length === 0 && !cafe && d !== today) return null
             return (
               <section key={d} aria-label={d === today ? 'Today' : formatCalendarDay(d)} style={{ marginBottom: '1.25rem' }}>

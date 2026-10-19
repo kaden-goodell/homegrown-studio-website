@@ -201,7 +201,7 @@ const testimonials = siteConfig.testimonials?.items ?? []
         <span data-walkin="before" hidden={walkInOpen}>Craft Café walk-in hours from {OPEN_STUDIO_START_LABEL}</span>
         <span data-walkin="after" hidden={!walkInOpen}>Craft Café walk-in hours</span>
       </p>
-      <div class="mt-3 flex flex-wrap justify-center gap-x-10 gap-y-3">
+      <div class="mt-3 flex flex-wrap justify-center gap-x-10 gap-y-3" data-cafe-hours>
         {siteConfig.cafeHours.map((h) => (
           <div>
             <span class="block text-sm font-semibold" style="color: var(--color-dark);">{h.days}</span>
@@ -264,4 +264,9 @@ const testimonials = siteConfig.testimonials?.items ?? []
       </div>
     </section>
   )}
+  <script>
+    // Walk-in hours as the owners set them on /admin (this page is built ahead of time).
+    import { loadCafeHours } from '@lib/cafe-hours-live'
+    loadCafeHours()
+  </script>
 </Layout>

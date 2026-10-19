@@ -15,6 +15,7 @@ import { createSquareClient } from '@providers/square/client'
 import { removeClassBlocked } from '@lib/conflicts'
 import { classSpansOrNone } from '@lib/party-availability'
 import { bookableDates, localToUtcISO, partyStartsInRange, removeBooked } from '@lib/party-slots'
+import { getStudioDays } from '@lib/studio-settings'
 
 /** A Square "no such object" answer (404 / NOT_FOUND). */
 export function isNotFound(err: unknown): boolean {
@@ -48,7 +49,7 @@ export async function openPartyStartsInWindow(now: Date = new Date()): Promise<s
   if (first > last) return []
   const from = new Date(Math.max(new Date(localToUtcISO(first, '00:00')).getTime(), now.getTime()))
   const to = new Date(localToUtcISO(last, '23:59'))
-  const allOffered = partyStartsInRange(from.toISOString(), to.toISOString(), now)
+  const allOffered = partyStartsInRange(from.toISOString(), to.toISOString(), now, await getStudioDays())
   // Parties yield to classes (spec E). A failed class lookup never blocks.
   const offered =
     allOffered.length === 0

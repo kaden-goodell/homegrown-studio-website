@@ -6,6 +6,7 @@ import { openPartyStarts, classSpansOrNone } from '@lib/party-availability'
 import { removeClassBlocked } from '@lib/conflicts'
 import { studioDayUtcRange } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
+import { getStudioDays } from '@lib/studio-settings'
 import { rateLimited } from '@lib/rate-limit'
 
 const logger = createLogger('api:party:availability')
@@ -39,6 +40,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
     // Use the shared helper which queries with studio-local UTC bounds (UTC-window bug fix).
     // If the lookup fails, fall back to showing all future candidates so booking is never blocked.
+    // The owners' closed days and café hours (config until they save on /admin).
+    const days = await getStudioDays()
+    // How many times the day offers at all, so the panel can say when some are taken.
+    const offered = partyStartsForDate(date, new Date(), days).length
     let openStarts: string[]
     try {
       openStarts = await openPartyStarts(date, serviceVariationId)
@@ -47,7 +52,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
         error: err instanceof Error ? err.message : String(err),
       })
       const now = Date.now()
-      const candidates = partyStartsForDate(date).filter((iso) => new Date(iso).getTime() > now)
+      const candidates = partyStartsForDate(date, new Date(now), days).filter((iso) => new Date(iso).getTime() > now)
       // Parties still yield to classes here. A failed legacy Square class lookup
       // never blocks; our own class store failing fails closed.
       const { startIso, endIso } = studioDayUtcRange(date)
@@ -68,7 +73,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     })
 
     return new Response(
-      JSON.stringify({ data: { slots } }),
+      JSON.stringify({ data: { slots, offered } }),
       { status: 200, headers: { 'Content-Type': 'application/json' } }
     )
   } catch (error) {

@@ -21,9 +21,10 @@
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { partyConfig, CAFE_PARTY_GAP_MINUTES } from '@config/party.config'
-import { cafeHoursOn } from '@config/hours'
 import { closureOn } from '@config/closures'
-import { cafeRunsOn } from '@lib/cafe-days'
+import type { StudioDays } from '@config/studio-days'
+import { cafeOn } from '@lib/cafe-days'
+import { getStudioDays } from '@lib/studio-settings'
 import { classSpanOf, intervalOf, overlaps, partyName, partySpanOf, type ClassSpan } from '@lib/conflicts'
 import { getPartyRecord } from '@lib/party-store'
 import { localDate, localToUtcISO } from '@lib/party-slots'
@@ -87,15 +88,20 @@ export async function ourClassBusy(fromIso: string, toIso: string): Promise<Busy
   return out
 }
 
-/** Blocked time and whole closed days (studio midnight to midnight). Throws when blocked time can't be read. */
-export async function blockedAndClosedBusy(fromIso: string, toIso: string): Promise<Busy[]> {
+/**
+ * Blocked time and whole closed days (studio midnight to midnight). Throws
+ * when blocked time, or the owners' closed days, can't be read. `days`: the
+ * closed days in use, when the caller already loaded them.
+ */
+export async function blockedAndClosedBusy(fromIso: string, toIso: string, days?: StudioDays): Promise<Busy[]> {
   const from = Date.parse(fromIso), to = Date.parse(toIso)
-  const blocked: Busy[] = (await listBlocked({ fromIso, toIso })).map((b) => ({
+  const [list, studio] = await Promise.all([listBlocked({ fromIso, toIso }), days ?? getStudioDays({ strict: true })])
+  const blocked: Busy[] = list.map((b) => ({
     kind: 'blocked', id: b.id, label: b.reason || 'blocked time', startIso: b.startIso, endIso: b.endIso,
   }))
   const closed: Busy[] = []
   for (const day of daysBetween(fromIso, toIso)) {
-    const closure = closureOn(day)
+    const closure = closureOn(day, studio.closures)
     if (!closure) continue
     const span = { startIso: localToUtcISO(day, '00:00'), endIso: localToUtcISO(dayAfter(day), '00:00') }
     if (inRange(span, from, to)) closed.push({ kind: 'closed', id: `closed-${day}`, label: `Closed for ${closure.name}`, ...span })
@@ -129,11 +135,11 @@ async function partyBusy(fromIso: string, toIso: string): Promise<Busy[]> {
     .map((p) => ({ kind: 'party' as const, id: p.id, label: partyName(p), startIso: p.startIso, endIso: p.endIso }))
 }
 
-function cafeBusy(fromIso: string, toIso: string): Busy[] {
+function cafeBusy(fromIso: string, toIso: string, studio: StudioDays): Busy[] {
   const from = Date.parse(fromIso), to = Date.parse(toIso)
   const out: Busy[] = []
   for (const day of daysBetween(fromIso, toIso)) {
-    const hours = cafeRunsOn(day) ? cafeHoursOn(day) : null
+    const hours = cafeOn(day, studio)
     if (!hours) continue
     const span = { startIso: localToUtcISO(day, hours.opens), endIso: localToUtcISO(day, hours.closes) }
     if (inRange(span, from, to)) out.push({ kind: 'cafe', id: `cafe-${day}`, label: 'Craft Café', ...span })
@@ -145,15 +151,17 @@ function cafeBusy(fromIso: string, toIso: string): Busy[] {
  * Everything holding the room in [fromIso, toIso), sorted by start. Throws if
  * any source can't be read: a time is never reported free unchecked.
  */
-export async function busyBetween(fromIso: string, toIso: string): Promise<Busy[]> {
+export async function busyBetween(fromIso: string, toIso: string, days?: StudioDays): Promise<Busy[]> {
+  // The owners' closed days and café hours: read once, never guessed (throws when unreadable).
+  const studio = days ?? (await getStudioDays({ strict: true }))
   const [ours, legacy, parties, held] = await Promise.all([
     ourClassBusy(fromIso, toIso),
     legacyClassSpans(fromIso, toIso),
     partyBusy(fromIso, toIso),
-    blockedAndClosedBusy(fromIso, toIso),
+    blockedAndClosedBusy(fromIso, toIso, studio),
   ])
   const legacyBusy: Busy[] = legacy.map((c) => ({ kind: 'legacy-class', id: c.id, label: c.name, startIso: c.startIso, endIso: c.endIso }))
-  return [...ours, ...legacyBusy, ...parties, ...cafeBusy(fromIso, toIso), ...held].sort(
+  return [...ours, ...legacyBusy, ...parties, ...cafeBusy(fromIso, toIso, studio), ...held].sort(
     (a, b) => Date.parse(a.startIso) - Date.parse(b.startIso),
   )
 }

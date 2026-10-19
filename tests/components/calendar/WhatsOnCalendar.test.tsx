@@ -347,6 +347,19 @@ describe('WhatsOnCalendar month view', () => {
       expect(striped.map((d) => d.textContent?.trim().slice(0, 2))).toEqual(['21', '22', '23', '24', '25', '26', '27', '28', '29', '30', '31'])
     })
 
+    it('takes the closed days the server sends (saved on /admin), not only the config', async () => {
+      vi.setSystemTime(new Date('2026-12-01T17:00:00.000Z'))
+      // The owners removed Christmas and closed one Saturday for a holiday sale set-up instead.
+      stubCalendarApi([], { closures: [{ from: '2026-12-12', to: '2026-12-12', name: 'a set-up day', holiday: 'christmas' }] })
+      render(<WhatsOnCalendar initialView="list" />)
+      fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+      expect(await screen.findByText('December 2026')).toBeInTheDocument()
+      const striped = Array.from(document.querySelectorAll<HTMLElement>('div')).filter((d) =>
+        d.style.backgroundImage.includes('--holiday-christmas'),
+      )
+      expect(striped.map((d) => d.textContent?.trim().slice(0, 2))).toEqual(['12'])
+    })
+
     it('shows in the list in the holiday\'s colours, with the day it reopens', async () => {
       stubCalendarApi([HALLOWEEN])
       render(<WhatsOnCalendar initialView="list" />)

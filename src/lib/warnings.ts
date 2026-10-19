@@ -17,7 +17,8 @@
  */
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
-import { studioOpenOn } from '@config/closures'
+import { studioOpenOn, type Closure } from '@config/closures'
+import { getClosures } from '@lib/studio-settings'
 import { getEventMeta, type EventMeta } from '@lib/event-meta'
 import { listSeatChoicesByEvent } from '@lib/seat-choices'
 import { getPartyRecord } from '@lib/party-store'
@@ -186,9 +187,9 @@ function oversold(s: Scan): Warning[] {
   })
 }
 
-function partyOnClosedDay(s: Scan): Warning[] {
+function partyOnClosedDay(s: Scan, closed: Closure[]): Warning[] {
   return s.parties
-    .filter((p) => !studioOpenOn(studioDate(p.startIso)))
+    .filter((p) => !studioOpenOn(studioDate(p.startIso), closed))
     .map((p): Warning => ({
       code: 'party-on-closed-day',
       eventKind: 'party',
@@ -372,8 +373,9 @@ export async function listWarnings({ from, to }: { from: string; to: string }, o
       detail: 'Our classes couldn’t be checked for problems.', action: 'Refresh to try again.',
     }]
   })
-  const [s, own] = await Promise.all([scan(from, to), ownOrError])
-  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s), ...(await seatCounts(s)), ...own].sort((a, b) =>
+  // The owners' closed days (config until they first save on /admin).
+  const [s, own, closed] = await Promise.all([scan(from, to), ownOrError, getClosures()])
+  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s, closed), ...(await seatCounts(s)), ...own].sort((a, b) =>
     a.when.localeCompare(b.when),
   )
 }

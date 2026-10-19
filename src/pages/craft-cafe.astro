@@ -47,7 +47,7 @@ const steps = [
     <!-- Hours -->
     <div class="glass-strong rounded-2xl px-8 py-10 sm:px-12 text-center mb-16 fade-in">
       <h2 class="text-2xl sm:text-3xl font-heading font-bold mb-6" style="color: var(--color-dark);"><span data-walkin="before" hidden={walkInOpen}>Walk-in hours (from {OPEN_STUDIO_START_LABEL})</span><span data-walkin="after" hidden={!walkInOpen}>Walk-in hours</span></h2>
-      <div class="flex flex-wrap justify-center gap-x-10 gap-y-3">
+      <div class="flex flex-wrap justify-center gap-x-10 gap-y-3" data-cafe-hours>
         {siteConfig.cafeHours.map((h) => (
           <div>
             <span class="block text-sm font-semibold" style="color: var(--color-dark);">{h.days}</span>
@@ -55,6 +55,7 @@ const steps = [
           </div>
         ))}
       </div>
+      <div class="mt-4 flex flex-wrap justify-center gap-x-10 gap-y-3" data-cafe-special hidden></div>
       <p class="mt-6 text-sm" style="color: var(--color-muted);">
         {siteConfig.address.street}, {siteConfig.address.city}, {siteConfig.address.state} —
         <a href="/calendar" class="underline" style="color: var(--color-primary);" data-track-cta="cafe_calendar">see the calendar</a>
@@ -80,4 +81,9 @@ const steps = [
       </p>
     </div>
   </section>
+  <script>
+    // Walk-in hours as the owners set them on /admin (this page is built ahead of time).
+    import { loadCafeHours } from '@lib/cafe-hours-live'
+    loadCafeHours()
+  </script>
 </Layout>

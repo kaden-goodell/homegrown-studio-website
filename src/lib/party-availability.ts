@@ -12,6 +12,7 @@ import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
 import { partyStartsForDate, removeBooked } from '@lib/party-slots'
+import { getStudioDays } from '@lib/studio-settings'
 import { studioDayUtcRange } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
 import { removeClassBlocked, type ClassSpan } from '@lib/conflicts'
@@ -81,7 +82,8 @@ export async function classSpansOrNone(fromIso: string, toIso: string): Promise<
  */
 export async function openPartyStarts(date: string, serviceVariationId?: string): Promise<string[]> {
   const now = Date.now()
-  const candidates = partyStartsForDate(date).filter((iso) => new Date(iso).getTime() > now)
+  const days = await getStudioDays()
+  const candidates = partyStartsForDate(date, new Date(now), days).filter((iso) => new Date(iso).getTime() > now)
   if (candidates.length === 0) return candidates
 
   const { startIso, endIso } = studioDayUtcRange(date)

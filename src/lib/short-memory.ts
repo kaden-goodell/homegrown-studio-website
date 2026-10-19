@@ -25,6 +25,11 @@ export function remember<T>(key: string, forMs: number, load: () => Promise<T>):
   return value
 }
 
+/** Forget one answer, so the next request asks again (after the thing it remembers changed). */
+export function forget(key: string): void {
+  held.delete(key)
+}
+
 /** Forget everything. For tests. */
 export function forgetAll(): void {
   held.clear()

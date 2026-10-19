@@ -15,6 +15,7 @@ import { cleanAttribution } from '@lib/attribution'
 import { reportBooking } from '@lib/posthog-server'
 import { isStartOpen, studioDateOf, bookingHeldBy } from '@lib/party-availability'
 import { bookableOn } from '@lib/party-slots'
+import { getStudioDays } from '@lib/studio-settings'
 import { partyRefundLine } from '@lib/refund-lines'
 import { STUDIO_DIRECTIONS_URL } from '@config/studio-address'
 import { attemptKey, chargeOutcomeOf, isAttemptId, squareErrorCodes, type CheckoutErrorCode } from '@lib/checkout-attempt'
@@ -205,7 +206,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   // little notice, not past the booking window. Said plainly, before anything
   // is looked up or held.
   if (Number.isNaN(Date.parse(String(body.startTime)))) return errorResponse('Missing party time information', 400)
-  const offered = bookableOn(studioDateOf(body.startTime))
+  // The owners' closed days, read fresh: a day closed a moment ago is never sold.
+  const offered = bookableOn(studioDateOf(body.startTime), new Date(), await getStudioDays({ fresh: true }))
   if (offered !== 'ok') {
     const detail =
       offered === 'too_soon'

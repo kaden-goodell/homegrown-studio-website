@@ -5,6 +5,8 @@ import { prepForEvent } from '@lib/event-prep'
 import { studioDate } from '@lib/studio-time'
 import { addDays } from '@lib/kit-dates'
 import { createLogger } from '@lib/logger'
+import { cafeOn } from '@lib/cafe-days'
+import { getStudioDays } from '@lib/studio-settings'
 
 export const prerender = false
 const logger = createLogger('api:staff:week')
@@ -56,7 +58,15 @@ export const GET: APIRoute = async ({ request }) => {
       }
     }))
     rows.sort((a, b) => a.startIso.localeCompare(b.startIso))
-    return new Response(JSON.stringify({ data: { from, to, events: rows, sources } }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
+    // Craft Café hours on each day it runs (the owners' hours and closed days).
+    const days = await getStudioDays()
+    const cafe: Record<string, { opens: string; closes: string }> = {}
+    for (let i = 0; i < WEEK_DAYS; i++) {
+      const d = addDays(from, i)
+      const h = cafeOn(d, days)
+      if (h) cafe[d] = h
+    }
+    return new Response(JSON.stringify({ data: { from, to, events: rows, sources, cafe } }), { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
   } catch (err) {
     logger.error('Week load failed', { error: err instanceof Error ? err.message : String(err) })
     return new Response(JSON.stringify({ error: 'Couldn’t reach storage — check wifi and try again.' }), { status: 503 })
