@@ -191,3 +191,34 @@ A hidden $5 / $1 test class on prod, before any customer uses it:
 - Assigning staff is /admin only. Crew mark availability and ask to work things; they never assign. A future general manager gets /admin.
 - Scheduling edits the details right there. Saving offers "Just this date" or "Also update the library". Every library save is a version (who, when, what changed); an old version can be restored. A scheduled class records the version it came from, so a library change never alters a booked class.
 - Multi-day classes choose per class: sign-ups close before the first session, or people can join partway. Joining partway is its own pass (the remaining sessions, its own price); a class may offer either, both, or neither.
+
+## Refunds, seats and the waitlist
+
+- Refunds run from /admin (owners) or /staff (crew, with a reason). Pick whole booking, one person, one day, or a custom amount; choose "Refund and free the seat" or "Refund, keep their seat".
+- RefundPayment for exactly the line price + its tax against the booking's single payment; then update the ledger, run the waitlist if a seat was freed, send our refund email, log who/why.
+- Waitlist: next person's saved card is charged, they're added and texted; a decline moves on and alerts owners. Per-class waitlist cutoff (e.g. 2 h before start); after it a freed seat stays open. Goodwill refunds never touch the waitlist.
+- Refunds made in Square arrive by webhook: POS returns of class items with restock free those seats; plain money refunds are flagged on /admin and /staff ("Free a seat?") and never guessed.
+- Cancel a class lists everyone; "Refund everyone" is a separate confirm. Cancelling never refunds.
+- Square limits: 20 refunds per payment, 1 year.
+
+## Square API review
+
+All calls are public and documented; the undocumented class/dashboard calls are retired.
+
+| Action | Call | Live for us | Risk | Proof |
+|---|---|---|---|---|
+| Charge (card, Apple Pay, Google Pay) | CreatePayment + order | yes (parties) | Low | proven |
+| Order with catalog lines | CreateOrder | ad hoc yes, catalog no | Low | $5/$1 test |
+| 9% tax | pricing_options.auto_apply_taxes (never also order.taxes) | no | Medium | test charge |
+| Promo discounts | order discounts | no | Low | test charge |
+| Gift card payment | gift card token as source | no | Medium | real gift card test |
+| POS catalog (items, prices, photos, category) | UpsertCatalogObject, CreateCatalogImage | yes | Low | proven |
+| Customers | SearchCustomers, UpdateCustomer | yes | Low | proven |
+| Refund | RefundPayment (amount) | no (kits code, never run) | Medium | test refund |
+| Save card (waitlist) | CreateCard + consent + STORE verification | no | Medium | test card |
+| Charge saved card | CreatePayment with card id (seller-initiated) | no | Medium-high (some banks decline) | live test; decline → next person |
+| POS sales/refunds | webhooks order.updated, payment.updated, refund.created/updated | not set up (no SQUARE_WEBHOOK_SIGNATURE_KEY) | Medium | Kaden subscribes; POS test sale |
+| Missed-webhook catch-up | SearchOrders nightly | yes | Low | proven |
+| Parties off Bookings API (stage 2) | stop calling | — | Low | then cancel Appointments Plus |
+
+Prerequisite (Kaden): webhook subscription in Square's developer dashboard + set SQUARE_WEBHOOK_SIGNATURE_KEY on Netlify.
