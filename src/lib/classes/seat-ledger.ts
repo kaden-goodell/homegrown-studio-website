@@ -29,7 +29,11 @@ export interface LedgerLine {
   holdExpiresAt: string | null
   customer: { givenName: string; familyName: string; email: string; phone: string } | null // null = POS sale with no name yet
   /** chargedCents: the whole booking's Square total, the same on each of its lines (set at confirm). */
-  square: { orderId: string | null; paymentId: string | null; lineUid: string | null; chargedCents?: Cents }
+  /**
+   * paymentIds: every payment on the order when it was paid with several
+   * tenders (POS split tender); paymentId is the first. A refund on any of them is this seat's.
+   */
+  square: { orderId: string | null; paymentId: string | null; lineUid: string | null; chargedCents?: Cents; paymentIds?: string[] }
   by: By | null
   refunds: { at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null }[]
   at: string
@@ -258,13 +262,25 @@ export async function release(classId: string, bookingId: string): Promise<void>
 const paidOn = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
 const refundedOn = (l: LedgerLine) => l.refunds.reduce((s, r) => s + r.cents, 0)
 
+/** Who a ledger change made from a refund done in Square itself is recorded as (see square-events SQUARE_BY). */
+const SQUARE_ACTOR_ID = 'square'
+
+/** True when this line was paid by `paymentId` (any tender of a split-tender sale). */
+export function paidBy(l: LedgerLine, paymentId: string): boolean {
+  return l.square.paymentId === paymentId || (l.square.paymentIds ?? []).includes(paymentId)
+}
+
 /**
  * Records a refund of `cents` on EACH listed line (the money goes back
  * elsewhere; this only records it). `cents` may instead map line id → cents,
  * so one Square refund spread unevenly over seats is written in one go.
  * Refuses more than a line has left to give back.
  * A line that already carries a refund with the same non-null squareRefundId is
- * skipped, so a retried refund is recorded once.
+ * skipped, so a retried refund is recorded once. Except: when a person's
+ * refund (our own flow) finds that refund already recorded from Square's
+ * webhook (by 'square', the webhook beat the save), the Square-side entries
+ * for it on this class are replaced by the person's, so their seat choice,
+ * reason and name stand.
  */
 export async function recordRefund(
   classId: string,
@@ -276,8 +292,19 @@ export async function recordRefund(
     const c = centsOf(id)
     if (!Number.isInteger(c) || c < 0) throw new Error('A refund has to be whole cents of zero or more.')
   }
-  return mutate(classId, (cur) => {
-    const seen = (l: LedgerLine) => input.squareRefundId !== null && l.refunds.some((r) => r.squareRefundId === input.squareRefundId)
+  return mutate(classId, (raw) => {
+    const rid = input.squareRefundId
+    const fromSquare = (r: LedgerLine['refunds'][number]) => rid !== null && r.squareRefundId === rid && r.by?.id === SQUARE_ACTOR_ID
+    const replacing = rid !== null && input.by.id !== SQUARE_ACTOR_ID && raw.lines.some((l) => l.refunds.some(fromSquare))
+    const cur: Ledger = !replacing ? raw : {
+      ...raw,
+      lines: raw.lines.map((l) => {
+        if (!l.refunds.some(fromSquare)) return l
+        const refunds = l.refunds.filter((r) => !fromSquare(r))
+        return { ...l, refunds, state: refunds.length || l.state !== 'refunded' ? l.state : 'confirmed' as const }
+      }),
+    }
+    const seen = (l: LedgerLine) => rid !== null && l.refunds.some((r) => r.squareRefundId === rid)
     const todo = new Set<string>()
     for (const id of lineIds) {
       const l = cur.lines.find((x) => x.id === id)
@@ -288,7 +315,7 @@ export async function recordRefund(
       if (refundedOn(l) + centsOf(id) > paidOn(l)) throw new Error('That is more than was paid for this seat.')
     }
     const result = () => cur.lines.filter((l) => lineIds.includes(l.id))
-    if (!todo.size) return { next: null, result: result() }
+    if (!todo.size) return { next: replacing ? cur : null, result: result() }
     const at = new Date().toISOString()
     const entry = (id: string) => ({ at, cents: centsOf(id), reason: input.reason, by: input.by, freedSeat: input.freeSeat, squareRefundId: input.squareRefundId })
     const lines = cur.lines.map((l) => (todo.has(l.id) ? { ...l, state: 'refunded' as const, refunds: [...l.refunds, entry(l.id)] } : l))
@@ -330,7 +357,7 @@ export interface PosLineInput {
  */
 export async function recordPos(
   cls: ScheduledClass,
-  input: { bookingId: string; orderId: string; paymentId: string | null; chargedCents: Cents; lines: PosLineInput[] },
+  input: { bookingId: string; orderId: string; paymentId: string | null; paymentIds?: string[]; chargedCents: Cents; lines: PosLineInput[] },
   now: Date,
 ): Promise<LedgerLine[]> {
   return mutate(cls.id, (cur) => {
@@ -355,7 +382,10 @@ export async function recordPos(
           state: 'confirmed',
           holdExpiresAt: null,
           customer: null,
-          square: { orderId: input.orderId, paymentId: input.paymentId, lineUid: pl.lineUid, chargedCents: input.chargedCents },
+          square: {
+            orderId: input.orderId, paymentId: input.paymentId, lineUid: pl.lineUid, chargedCents: input.chargedCents,
+            ...(input.paymentIds && input.paymentIds.length > 1 ? { paymentIds: [...input.paymentIds] } : {}),
+          },
           by: null,
           refunds: [],
           at: now.toISOString(),

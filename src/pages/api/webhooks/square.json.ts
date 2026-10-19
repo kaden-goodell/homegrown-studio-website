@@ -51,7 +51,7 @@ export const POST: APIRoute = async ({ request, locals }) => {
   }
 
   // Parse event
-  let event: { type?: string; data?: Record<string, unknown> }
+  let event: { type?: string; event_id?: string; data?: { type?: unknown; id?: unknown; [k: string]: unknown } }
   try {
     event = JSON.parse(body)
   } catch {
@@ -79,7 +79,13 @@ export const POST: APIRoute = async ({ request, locals }) => {
       await providers.notification.send({
         type: 'webhook',
         title: `Square webhook: ${eventType}`,
-        details: { eventType, data: event.data },
+        // Ids and the type only: the event's data can hold customer details.
+        details: Object.fromEntries(Object.entries({
+          eventType,
+          eventId: event.event_id,
+          objectType: event.data?.type,
+          objectId: event.data?.id,
+        }).filter(([, v]) => typeof v === 'string' && v)),
         severity: 'info',
         timestamp: new Date().toISOString(),
       })

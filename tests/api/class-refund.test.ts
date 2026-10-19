@@ -305,6 +305,21 @@ describe('fix round 1', () => {
     expect(mocks.refundPayment.mock.calls[2][0].idempotencyKey).toBe(x1)
   })
 
+  it('our refund that Square took but did not save here, then recorded from Square\'s webhook: doing it again reuses the key and our record replaces Square\'s', async () => {
+    // Square's webhook spread the 32.70 over seat 1 (seat order), as for any plain refund made in Square.
+    const fromSquare = { at: new Date().toISOString(), cents: 3270, reason: 'Refunded in Square (amount only)', by: { id: 'square', name: 'Square' }, freedSeat: false, squareRefundId: 'rf_took' }
+    const a = line({ seat: 1, state: 'refunded', refunds: [fromSquare] }), b = line({ seat: 2 })
+    const classId = await setup([a, b])
+    mocks.refundPayment.mockImplementationOnce(async (i: any) => ({ id: 'rf_took', paymentId: i.paymentId, amountCents: i.amountCents, status: 'COMPLETED' }))
+    const r = await admin({ classId, bookingId: 'bkg_r1', kind: 'person', lineIds: [b.id], reason: 'Sick' })
+    expect(r.status).toBe(200)
+    // the same key as the first try (Square's own record of it doesn't count as an earlier refund), so Square can't refund twice
+    expect(mocks.refundPayment.mock.calls[0][0].idempotencyKey).toBe(refundKey('bkg_r1', [b.id], 3270, 0))
+    const after = await byId(classId)
+    expect(after[a.id]).toMatchObject({ state: 'confirmed', refunds: [] })
+    expect(after[b.id].refunds).toEqual([expect.objectContaining({ cents: 3270, freedSeat: true, squareRefundId: 'rf_took', by: { id: 'admin', name: 'Owner' } })])
+  })
+
   it('a capped whole-booking refund still frees seats trimmed to nothing', async () => {
     const charged = { orderId: 'o1', paymentId: 'pay_1', lineUid: null, chargedCents: 3270 }
     const a = line({ seat: 1, square: charged }), b = line({ seat: 2, square: charged })

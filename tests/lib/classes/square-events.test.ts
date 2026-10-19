@@ -8,6 +8,8 @@ const sq = vi.hoisted(() => ({
   search: [] as any[][],
   calls: [] as { path: string; body: any }[],
   fail: null as null | RegExp,
+  refundPages: [] as any[][],
+  searchCursor: false,
 }))
 vi.mock('@lib/classes/square-api', () => ({
   SQUARE_API_VERSION: '2026-01-22',
@@ -28,7 +30,8 @@ vi.mock('@lib/classes/square-api', () => ({
       const related = objects.map((o: any) => sq.catalog.get(o.item_variation_data?.item_id)).filter(Boolean)
       return { objects, related_objects: related }
     }
-    if (path === '/orders/search') return { orders: sq.search.shift() ?? [] }
+    if (path === '/orders/search') { const page = sq.search.shift() ?? []; return { orders: page, ...(sq.search.length && sq.searchCursor ? { cursor: 'NEXT' } : {}) } }
+    if (path.startsWith('/refunds?')) { const page = sq.refundPages.shift() ?? []; return { refunds: page, ...(sq.refundPages.length ? { cursor: `RC${sq.refundPages.length}` } : {}) } }
     throw new Error(`unexpected Square call ${path}`)
   },
 }))
@@ -39,11 +42,11 @@ vi.mock('@lib/classes/class-store', () => ({
   getClass: async (id: string) => classes.list.find((c) => c.id === id) ?? null,
 }))
 const freed = vi.hoisted(() => vi.fn(async () => undefined))
-vi.mock('@lib/classes/refunds', () => ({ onSeatFreed: freed }))
+vi.mock('@lib/classes/refunds', async (orig) => ({ ...(await orig<typeof import('@lib/classes/refunds')>()), onSeatFreed: freed }))
 
 import {
   handleOrder, handleRefund, handleSquareEvent, reconcileClasses, splitCents,
-  listUnmatchedPos, listPosNeedsDays, listRefundFlags, resolveRefundFlag,
+  listUnmatchedPos, listPosNeedsDays, listRefundFlags, resolveRefundFlag, resetCatalogCache, SQUARE_BY,
 } from '@lib/classes/square-events'
 import { getLedger, seatsTaken, recordRefund } from '@lib/classes/seat-ledger'
 import { defaultRules } from '@lib/classes/validate'
@@ -122,6 +125,8 @@ function refund(paymentId: string, cents: number, over: Record<string, any> = {}
 
 beforeEach(() => {
   sq.orders.clear(); sq.payments.clear(); sq.catalog.clear(); sq.search = []; sq.calls = []; sq.fail = null
+  sq.refundPages = []; sq.searchCursor = false
+  resetCatalogCache()
   freed.mockClear()
 })
 
@@ -230,7 +235,7 @@ describe('POS sales', () => {
     expect(mine).toContainEqual(expect.objectContaining({ lineUid: gone.uid, qty: 2, name: expect.stringContaining('Old camp') }))
 
     sq.fail = /batch-retrieve/
-    const o2 = order([lineItem('VAR_GONE', 1, 2500)])
+    const o2 = order([lineItem('VAR_NOT_LOOKED_UP', 1, 2500)])
     await expect(handleOrder(o2, NOW)).resolves.toMatchObject({ unmatched: 0 })
   })
 
@@ -291,12 +296,15 @@ describe('Square refunds', () => {
     expect(seatsTaken(await getLedger(cls.id), 'ses_a', NOW)).toBe(0)
   })
 
-  it('a plain amount refund is flagged for a person and changes no seats', async () => {
+  it('a plain amount refund is recorded as money at once, keeps every seat, and asks a person about the seat', async () => {
     const { cls, o, paymentId } = await posSale(2)
     const rf = refund(paymentId, 1000, { order_id: o.id })
-    expect(await handleSquareEvent(refundEvent('refund.created', rf), NOW)).toMatchObject({ action: 'flagged', kind: 'plain-refund' })
+    expect(await handleSquareEvent(refundEvent('refund.created', rf), NOW)).toMatchObject({ action: 'flagged', kind: 'plain-refund', recordedCents: 1000 })
     await handleSquareEvent(refundEvent('refund.updated', rf), NOW) // replay
-    expect(seatsTaken(await getLedger(cls.id), 'ses_a', NOW)).toBe(2)
+    const ledger = await getLedger(cls.id)
+    expect(seatsTaken(ledger, 'ses_a', NOW)).toBe(2)
+    const entries = ledger.lines.flatMap((l) => l.refunds.map((r) => ({ seat: l.seat, ...r })))
+    expect(entries).toEqual([expect.objectContaining({ seat: 1, cents: 1000, freedSeat: false, squareRefundId: rf.id, by: SQUARE_BY })])
     const flags = (await listRefundFlags()).filter((f) => f.squareRefundId === rf.id)
     expect(flags).toEqual([expect.objectContaining({
       kind: 'plain-refund', classId: cls.id, bookingId: `bkg_pos_${o.id}`, paymentId, cents: 1000, resolved: null,
@@ -331,7 +339,7 @@ describe('Square refunds', () => {
     expect((await getLedger(cls.id)).lines[0].state).toBe('refunded') // never undone automatically
   })
 
-  it('a plain refund flag disappears once our own flow records that refund (webhook beat the save)', async () => {
+  it('our own refund whose webhook beat the save: our record replaces Square\'s, and the flag is hidden', async () => {
     const { cls, paymentId } = await posSale(1)
     const rf = refund(paymentId, 3270)
     await handleRefund(rf, NOW)
@@ -339,6 +347,70 @@ describe('Square refunds', () => {
     const [line] = (await getLedger(cls.id)).lines
     await recordRefund(cls.id, [line.id], { cents: 3270, reason: 'Sick', by, freeSeat: true, squareRefundId: rf.id })
     expect((await listRefundFlags()).some((f) => f.squareRefundId === rf.id)).toBe(false)
+    const [after] = (await getLedger(cls.id)).lines
+    expect(after.refunds).toEqual([expect.objectContaining({ cents: 3270, freedSeat: true, by, reason: 'Sick', squareRefundId: rf.id })])
+    expect(seatsTaken(await getLedger(cls.id), 'ses_a', NOW)).toBe(0)
+    // and a late replay of the webhook changes nothing
+    expect(await handleRefund(rf, NOW)).toMatchObject({ action: 'ignored', why: 'already-recorded' })
+    expect((await getLedger(cls.id)).lines[0].refunds).toHaveLength(1)
+  })
+
+  it('a plain refund spreads in seat order, capped at what each seat has left, and is never recorded twice', async () => {
+    const { cls, o, paymentId } = await posSale(3) // 3 × $32.70
+    const rf = refund(paymentId, 5000, { order_id: o.id })
+    await handleRefund(rf, NOW)
+    await handleRefund(rf, NOW)
+    const lines = (await getLedger(cls.id)).lines.sort((a, b) => a.seat - b.seat)
+    expect(lines.map((l) => l.refunds.reduce((s, r) => s + r.cents, 0))).toEqual([3270, 1730, 0])
+    expect(lines[2].refunds).toEqual([])
+    expect(lines.every((l) => !l.refunds.some((r) => r.freedSeat))).toBe(true)
+    const [f] = (await listRefundFlags()).filter((x) => x.squareRefundId === rf.id)
+    expect(f).toMatchObject({ kind: 'plain-refund', cents: 5000, refundCents: 5000 })
+  })
+
+  it('a plain refund on a payment that covers two classes spreads class by class and asks about each class', async () => {
+    const a = makeClass(); const b = makeClass(); classes.list = [a, b]
+    const o = order([lineItem(a.square.variations['all:person'], 1, 3000), lineItem(b.square.variations['day:person'], 1, 1000)])
+    await handleOrder(o, NOW)
+    const paymentId = o.tenders[0].payment_id
+    const rf = refund(paymentId, 4000)
+    expect(await handleRefund(rf, NOW)).toMatchObject({ action: 'flagged', kind: 'plain-refund', recordedCents: 4000 })
+    const onA = (await getLedger(a.id)).lines[0].refunds
+    const onB = (await getLedger(b.id)).lines[0].refunds
+    expect(onA).toEqual([expect.objectContaining({ cents: 3270, squareRefundId: rf.id, freedSeat: false })])
+    expect(onB).toEqual([expect.objectContaining({ cents: 730, squareRefundId: rf.id, freedSeat: false })])
+    const flags = (await listRefundFlags()).filter((x) => x.squareRefundId === rf.id)
+    expect(flags.map((f) => [f.classId, f.cents]).sort()).toEqual([[a.id, 3270], [b.id, 730]].sort())
+    await handleRefund(rf, NOW) // replay
+    expect((await getLedger(b.id)).lines[0].refunds).toHaveLength(1)
+    expect((await listRefundFlags()).filter((x) => x.squareRefundId === rf.id)).toHaveLength(2)
+  })
+
+  it('a split-tender sale: a refund on the second card is ours', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const li = lineItem(cls.square.variations['all:person'], 1, 3000)
+    const o = order([li], {
+      tenders: [
+        { id: 'TND_A', type: 'CARD', amount_money: usd(2000), payment_id: 'PAY_A' },
+        { id: 'TND_B', type: 'CARD', amount_money: usd(1270), payment_id: 'PAY_B' },
+      ],
+    })
+    await handleOrder(o, NOW)
+    const rf = refund('PAY_B', 1270)
+    expect(await handleRefund(rf, NOW)).toMatchObject({ action: 'flagged', kind: 'plain-refund', recordedCents: 1270 })
+    expect((await getLedger(cls.id)).lines[0].refunds[0]).toMatchObject({ cents: 1270, squareRefundId: rf.id })
+  })
+
+  it('refund.updated FAILED on one of our refunds: shown to the owners, the ledger is left alone', async () => {
+    const { cls, paymentId } = await posSale(1)
+    const [line] = (await getLedger(cls.id)).lines
+    const rf = refund(paymentId, 3270)
+    await recordRefund(cls.id, [line.id], { cents: 3270, reason: 'Sick', by, freeSeat: true, squareRefundId: rf.id })
+    const before = JSON.stringify((await getLedger(cls.id)).lines)
+    expect(await handleSquareEvent(refundEvent('refund.updated', { ...rf, status: 'FAILED' }), NOW)).toMatchObject({ action: 'flagged', kind: 'refund-failed' })
+    await handleSquareEvent(refundEvent('refund.updated', { ...rf, status: 'FAILED' }), NOW)
+    expect((await listRefundFlags()).filter((f) => f.squareRefundId === rf.id)).toEqual([expect.objectContaining({ kind: 'refund-failed', classId: cls.id })])
+    expect(JSON.stringify((await getLedger(cls.id)).lines)).toBe(before)
   })
 })
 
@@ -354,8 +426,88 @@ describe('nightly reconcile', () => {
 
     const search = sq.calls.find((c) => c.path === '/orders/search')!.body
     expect(search.location_ids).toEqual(['LOC1'])
-    expect(search.query.filter.state_filter.states).toEqual(['COMPLETED'])
+    expect(search.query.filter.state_filter.states).toEqual(['COMPLETED', 'OPEN'])
     expect(search.query.filter.date_time_filter.updated_at).toEqual({ start_at: '2026-10-18T15:00:00.000Z', end_at: NOW.toISOString() })
     expect(search.query.sort.sort_field).toBe('UPDATED_AT')
+  })
+
+  it('looks up unknown items in the catalog once per run, however many orders', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    sq.catalog.set('VAR_LATTE', { type: 'ITEM_VARIATION', id: 'VAR_LATTE', item_variation_data: { item_id: 'ITEM_LATTE', sku: '' } })
+    sq.catalog.set('ITEM_LATTE', { type: 'ITEM', id: 'ITEM_LATTE', item_data: { name: 'Latte', categories: [{ id: 'CAT_CAFE' }] } })
+    sq.catalog.set('VAR_OLD', { type: 'ITEM_VARIATION', id: 'VAR_OLD', item_variation_data: { item_id: 'ITEM_OLD', sku: 'cls_old' } })
+    const orders = Array.from({ length: 30 }, (_, i) => order([
+      lineItem('VAR_LATTE', 1, 450), lineItem(`VAR_MUFFIN_${i % 5}`, 1, 300), lineItem(cls.square.variations['all:person'], 1, 3000),
+      ...(i === 7 ? [lineItem('VAR_OLD', 1, 2500)] : []),
+    ]))
+    sq.search = [orders.slice(0, 15), orders.slice(15)]; sq.searchCursor = true
+    expect(await reconcileClasses(NOW)).toMatchObject({ orders: 30, recorded: 30, unmatched: 1, errors: 0 })
+    const lookups = sq.calls.filter((c) => c.path === '/catalog/batch-retrieve')
+    expect(lookups).toHaveLength(1)
+    expect([...lookups[0].body.object_ids].sort()).toEqual(['VAR_LATTE', 'VAR_MUFFIN_0', 'VAR_MUFFIN_1', 'VAR_MUFFIN_2', 'VAR_MUFFIN_3', 'VAR_MUFFIN_4', 'VAR_OLD'])
+  })
+
+  it('asks the catalog for at most 1000 ids per call', async () => {
+    classes.list = [makeClass()]
+    const lines = Array.from({ length: 1001 }, (_, i) => lineItem(`VAR_X${i}`, 1, 100))
+    sq.search = [[order(lines)]]
+    await reconcileClasses(NOW)
+    const lookups = sq.calls.filter((c) => c.path === '/catalog/batch-retrieve')
+    expect(lookups.map((c) => c.body.object_ids.length)).toEqual([1000, 1])
+  })
+
+  it('the webhook remembers catalog answers between events', async () => {
+    classes.list = [makeClass()]
+    sq.catalog.set('VAR_LATTE', { type: 'ITEM_VARIATION', id: 'VAR_LATTE', item_variation_data: { item_id: 'ITEM_LATTE', sku: '' } })
+    for (let i = 0; i < 3; i++) {
+      const o = order([lineItem('VAR_LATTE', 1, 450)])
+      sq.orders.set(o.id, o)
+      await handleSquareEvent(orderUpdated(o), NOW)
+    }
+    expect(sq.calls.filter((c) => c.path === '/catalog/batch-retrieve')).toHaveLength(1)
+  })
+
+  it('catches an OPEN counter order whose payment went through; an unpaid OPEN order counts nothing', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    sq.catalog.set('VAR_OLD', { type: 'ITEM_VARIATION', id: 'VAR_OLD', item_variation_data: { item_id: 'ITEM_OLD', sku: 'cls_old' } })
+    const paid = order([lineItem(cls.square.variations['all:person'], 1, 3000)], { state: 'OPEN' })
+    sq.payments.set(paid.tenders[0].payment_id, { id: paid.tenders[0].payment_id, status: 'COMPLETED' })
+    const unpaid = order([lineItem(cls.square.variations['all:person'], 2, 3000), lineItem('VAR_OLD', 1, 2500)], { state: 'OPEN' })
+    sq.payments.set(unpaid.tenders[0].payment_id, { id: unpaid.tenders[0].payment_id, status: 'APPROVED' })
+    sq.search = [[paid, unpaid]]
+    expect(await reconcileClasses(NOW)).toMatchObject({ orders: 2, recorded: 1, unmatched: 0 })
+    expect((await getLedger(cls.id)).lines.map((l) => l.square.orderId)).toEqual([paid.id])
+    expect((await listUnmatchedPos()).some((u) => u.orderId === unpaid.id)).toBe(false)
+  })
+
+  it('catches refunds the webhook missed (ListPaymentRefunds, last 48 hours, every page), once', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const li = lineItem(cls.square.variations['all:person'], 2, 3000)
+    const sale = order([li])
+    await handleOrder(sale, NOW)
+    const paymentId = sale.tenders[0].payment_id
+    const each = li.total_money.amount / 2
+    const ret = {
+      id: uid('RET'), location_id: 'LOC1', state: 'COMPLETED',
+      returns: [{ uid: uid('R'), source_order_id: sale.id, return_line_items: [{ uid: uid('RLI'), source_line_item_uid: li.uid, catalog_object_id: li.catalog_object_id, quantity: '1', total_money: usd(each) }] }],
+    }
+    sq.orders.set(ret.id, ret)
+    const itemized = refund(paymentId, each, { order_id: ret.id })
+    const plain = refund(paymentId, 500)
+    const cafe = refund('PAY_CAFE', 450)
+    const run = () => { sq.refundPages = [[itemized, cafe], [plain]]; return reconcileClasses(NOW) }
+    expect(await run()).toMatchObject({ refunds: 3, errors: 0 })
+    let ledger = await getLedger(cls.id)
+    expect(seatsTaken(ledger, 'ses_a', NOW)).toBe(1)
+    expect(ledger.lines.flatMap((l) => l.refunds).map((r) => r.squareRefundId).sort()).toEqual([itemized.id, plain.id].sort())
+    await run()
+    ledger = await getLedger(cls.id)
+    expect(ledger.lines.flatMap((l) => l.refunds)).toHaveLength(2)
+
+    const lists = sq.calls.filter((c) => c.path.startsWith('/refunds?')).slice(0, 2).map((c) => new URL(`https://x${c.path}`).searchParams)
+    expect(lists[0].get('begin_time')).toBe('2026-10-18T15:00:00.000Z')
+    expect(lists[0].get('location_id')).toBe('LOC1')
+    expect(lists[0].get('cursor')).toBeNull()
+    expect(lists[1].get('cursor')).toBe('RC1')
   })
 })

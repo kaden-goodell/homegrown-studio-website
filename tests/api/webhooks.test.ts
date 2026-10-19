@@ -89,6 +89,20 @@ describe('Square webhook handler', () => {
     )
   })
 
+  it('the owner note carries ids and the type only, never the event data (it can hold customer details)', async () => {
+    mockNotificationSend.mockResolvedValue(undefined)
+    const body = JSON.stringify({
+      type: 'payment.updated', event_id: 'EVT9', merchant_id: 'M1',
+      data: { type: 'payment', id: 'PAY9', object: { payment: { id: 'PAY9', buyer_email_address: 'jane@example.com', billing_address: { address_line_1: '1 Main St' } } } },
+    })
+    apiContext.request = makeRequest(body, makeSignature(body))
+    await POST(apiContext)
+    const sent = mockNotificationSend.mock.calls[0][0]
+    expect(sent.details).toEqual({ eventType: 'payment.updated', eventId: 'EVT9', objectType: 'payment', objectId: 'PAY9' })
+    expect(JSON.stringify(sent)).not.toContain('jane@example.com')
+    expect(JSON.stringify(sent)).not.toContain('Main St')
+  })
+
   it('handles booking.updated events', async () => {
     mockNotificationSend.mockResolvedValue(undefined)
     const body = JSON.stringify({ type: 'booking.updated', data: { id: 'BK2' } })

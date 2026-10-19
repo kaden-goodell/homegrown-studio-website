@@ -54,7 +54,7 @@ export interface RefundPlan {
   totalCents: Cents
   paymentId: string
   freeSeat: boolean
-  /** refunds already made on this booking (its payment) */
+  /** refunds already made on this booking (its payment), as counted for the idempotency key */
   prior: number
   /** times Square turned down this same request */
   failures: number
@@ -69,10 +69,26 @@ export const remainingOn = (l: LedgerLine): Cents => paidOn(l) - l.refunds.reduc
 /** A "free their seat" entry: no money, nothing sent to Square. */
 const isSeatOnly = (r: LedgerLine['refunds'][number]) => r.cents === 0 && r.squareRefundId === null
 
-/** Distinct refunds already made on a booking (one Square refund can sit on several lines). Seat-only frees don't count. */
-export function priorRefunds(lines: LedgerLine[]): number {
+/**
+ * A plain amount refund recorded from Square's webhook (square-events). It may
+ * be one of OUR refunds whose save here failed after Square took it.
+ */
+const isSquarePlain = (r: LedgerLine['refunds'][number]) => r.by?.id === 'square' && !r.freedSeat && r.squareRefundId !== null
+
+/**
+ * Distinct refunds already made on a booking (one Square refund can sit on several lines). Seat-only frees don't count.
+ * `forKey`: also leaves out plain refunds recorded from Square, so "do the same refund again" after a save that
+ * failed keeps its idempotency key even when Square's webhook recorded that refund in between (Square then
+ * hands back the same refund instead of making a second one).
+ */
+export function priorRefunds(lines: LedgerLine[], opts: { forKey?: boolean } = {}): number {
   const seen = new Set<string>()
-  for (const l of lines) for (const r of l.refunds) if (!isSeatOnly(r)) seen.add(r.squareRefundId ?? `${l.id}:${r.at}`)
+  for (const l of lines) {
+    for (const r of l.refunds) {
+      if (isSeatOnly(r) || (opts.forKey && isSquarePlain(r))) continue
+      seen.add(r.squareRefundId ?? `${l.id}:${r.at}`)
+    }
+  }
   return seen.size
 }
 
@@ -137,8 +153,8 @@ export function planRefund(ledger: Ledger, req: RefundRequest): RefundPlan {
   const paymentId = chosen[0].square.paymentId
   if (!paymentId || chosen.some((l) => l.square.paymentId !== paymentId)) throw new RefundError(400, NOT_PAID_HERE)
 
-  const prior = priorRefunds(booking)
-  if (prior >= SQUARE_REFUND_CAP) {
+  const prior = priorRefunds(booking, { forKey: true })
+  if (priorRefunds(booking) >= SQUARE_REFUND_CAP) {
     throw new RefundError(409, `This payment has had ${SQUARE_REFUND_CAP} refunds, the most Square allows on one payment.`)
   }
 
