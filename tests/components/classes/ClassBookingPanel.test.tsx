@@ -459,4 +459,14 @@ describe('ClassBookingPanel — door mode on a full day', () => {
     fireEvent.click(screen.getByRole('button', { name: /Sun, Oct 25/ }))
     expect((screen.getByLabelText('Add over capacity') as HTMLInputElement).checked).toBe(false)
   })
+
+  it('m6: "That day is full." only once a day is picked', () => {
+    vi.setSystemTime(new Date('2026-10-24T18:30:00Z'))
+    const cls = make({ passes: [{ id: 'day', label: 'One day', covers: { kind: 'choose', count: 1 } }], prices: { day: { person: 1500 } } }, [sess('ses_a', 24, 1), sess('ses_b', 25, 1)])
+    const workshop = toPublicClass(cls, { classId: cls.id, lines: [...taken(1, ['ses_a']), ...taken(1, ['ses_b'])] }, new Date(), { door: true })
+    render(<ClassBookingPanel workshop={workshop} onClose={vi.fn()} door syncUrl={false} />)
+    expect(screen.queryByTestId('door-full')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /Sun, Oct 25/ }))
+    expect(screen.getByTestId('door-full')).toBeInTheDocument()
+  })
 })

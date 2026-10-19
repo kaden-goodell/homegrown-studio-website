@@ -218,8 +218,9 @@ export default function CompSeatSheet({
     return q.ok ? q.value.totalCents : null
   })()
 
-  // N3: a different ask (person, option, days, seats, picks) is a new add, never a replay of the last one.
-  const askShape = JSON.stringify([givenName.trim(), familyName.trim(), email.trim(), phone.trim(), passId, days, ownTickets, selections, chosen, guests, personType])
+  // N3/m2: a different ask (option, days, seats, tickets, picks, who from the waiver) is a new add, never a replay
+  // of the last one; fixing a typo in the name, email or phone keeps the same attempt (so it can't add a second seat).
+  const askShape = JSON.stringify([passId, days, ownTickets, selections, chosen, guests, personType, picked?.customer.id ?? null])
   useEffect(() => { attemptRef.current = newAttempt() }, [askShape])
 
   const key = (token: string, optionId: string) => `${token}|${optionId}`

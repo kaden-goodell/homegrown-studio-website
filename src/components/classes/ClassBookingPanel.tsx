@@ -237,7 +237,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   const roomLeft = choose
     ? (pickedSessions.length ? Math.min(...pickedSessions.map((s) => s.left)) : pass.left)
     : pass?.left ?? 0
-  const needsOver = door && roomLeft < Math.max(1, Object.values(counts).reduce((a, b) => a + (b || 0), 0))
+  // m6: on a pick-a-day option, only once a day is picked.
+  const needsOver = door && (!choose || picked.length > 0) && roomLeft < Math.max(1, Object.values(counts).reduce((a, b) => a + (b || 0), 0))
   // At the door the counters go up to a full booking; past the seats left needs "Add over capacity".
   const maxSeats = door ? own.rules.maxPerBooking : Math.max(0, Math.min(own.rules.maxPerBooking, roomLeft))
 
