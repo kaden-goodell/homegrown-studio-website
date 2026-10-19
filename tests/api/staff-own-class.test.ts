@@ -17,8 +17,10 @@ vi.mock('@config/providers', () => ({
   providers: {
     workshop: { getWorkshop: vi.fn(async () => { throw new Error('Square must not be asked about our classes') }), listAllWorkshops: vi.fn(async () => []), listWorkshops: vi.fn(async () => []) },
     customer: { findOrCreate: vi.fn(async () => { throw new Error('no Square customers for our classes') }) },
+    booking: { listBookings: vi.fn(async () => []) },
   },
 }))
+vi.mock('@lib/party-store', async (orig) => ({ ...(await orig<typeof import('@lib/party-store')>()), getPartyRecord: vi.fn(async () => null) }))
 
 import * as compRoute from '@pages/api/staff/comp-seat.json'
 import * as rosterRoute from '@pages/api/staff/roster.json'
@@ -187,5 +189,20 @@ describe('the class as the door sees it', () => {
     expect(workshop.own.passes.find((p: any) => p.id === 'day').state).toBe('open')
     mocks.staff = null
     expect((await classRoute.GET({ request, url: new URL(request.url) } as any)).status).toBe(401)
+  })
+})
+
+describe('the crew calendar (read-only)', () => {
+  it('staff only; our classes with their status, drafts left out', async () => {
+    const calRoute = await import('@pages/api/staff/calendar.json')
+    const open = await createClass({ content: content({ name: 'Open Camp' }), sessions: [{ id: 'ses_c1', startIso: '2031-05-06T15:00:00.000Z', endIso: '2031-05-06T17:00:00.000Z', capacity: 4 }], status: 'open', by })
+    await createClass({ content: content({ name: 'Draft Camp' }), sessions: [{ id: 'ses_c2', startIso: '2031-05-07T15:00:00.000Z', endIso: '2031-05-07T17:00:00.000Z', capacity: 4 }], status: 'draft', by })
+    const request = new Request('https://x.test/api/staff/calendar.json?from=2031-05-05T05:00:00.000Z&to=2031-05-12T04:59:59.999Z')
+    const res: Response = await calRoute.GET({ request, url: new URL(request.url) } as any)
+    expect(res.status).toBe(200)
+    const items = (await res.json()).data.items.filter((i: any) => i.kind === 'class')
+    expect(items).toEqual([expect.objectContaining({ id: open.id, label: 'Open Camp', status: 'open', sessionId: 'ses_c1' })])
+    mocks.staff = null
+    expect((await calRoute.GET({ request, url: new URL(request.url) } as any)).status).toBe(401)
   })
 })
