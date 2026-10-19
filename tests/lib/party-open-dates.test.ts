@@ -14,7 +14,15 @@ vi.mock('@providers/square/client', () => ({
   createSquareClient: () => ({ catalog: { object: { get: (...a: any[]) => mockCatalogGet(...a) } } }),
 }))
 
+// Live Square, so Square-booked parties are read (the party service only).
+vi.mock('@config/site.config', async (orig) => {
+  const real = (await orig<typeof import('@config/site.config')>()).siteConfig
+  return { siteConfig: { ...real, providers: { ...real.providers, catalog: { type: 'square', config: { environment: 'production' } } } } }
+})
+
 import { openPartyStartsInWindow } from '@lib/party-open-dates'
+import { resetLegacySquareMemory } from '@lib/parties/legacy-square'
+import { holdTime, releaseTime } from '@lib/parties/party-book'
 
 // These tests pin the normal weekly rules; one-off party days
 // (partyDateOverrides) are covered in party-date-overrides.test.ts.
@@ -37,6 +45,7 @@ const booked = (startAt: string, over: Record<string, unknown> = {}) => ({
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetLegacySquareMemory()
   mockCatalogGet.mockResolvedValue({ object: { itemData: { variations: [{ id: VARIATION }] } } })
   mockListBookings.mockResolvedValue([])
   mockListAllWorkshops.mockResolvedValue([])
@@ -68,6 +77,22 @@ describe('openPartyStartsInWindow', () => {
     const starts = await openPartyStartsInWindow(NOW)
     expect(starts).not.toContain('2026-11-08T19:00:00.000Z')
     expect(starts).toContain('2026-11-08T21:30:00.000Z')
+  })
+
+  it('leaves out a time held in our party book', async () => {
+    expect((await holdTime({ partyId: 'pty_od00000000000001', startIso: '2026-11-08T19:00:00.000Z', endIso: '2026-11-08T20:30:00.000Z', ttlMinutes: null }, [], new Date())).ok).toBe(true)
+    try {
+      const starts = await openPartyStartsInWindow(NOW)
+      expect(starts).not.toContain('2026-11-08T19:00:00.000Z')
+      expect(starts).toContain('2026-11-08T21:30:00.000Z')
+    } finally {
+      await releaseTime('pty_od00000000000001', '2026-11-08T19:00:00.000Z')
+    }
+  })
+
+  it('only the party service counts: another service’s booking leaves the time open', async () => {
+    mockListBookings.mockResolvedValue([booked('2026-11-08T19:00:00.000Z', { slot: { startAt: '2026-11-08T19:00:00.000Z', serviceVariationId: 'OTHER' } })])
+    expect(await openPartyStartsInWindow(NOW)).toContain('2026-11-08T19:00:00.000Z')
   })
 
   it('counts a cancelled booking as free', async () => {

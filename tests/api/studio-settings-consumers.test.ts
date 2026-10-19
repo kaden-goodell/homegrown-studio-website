@@ -22,7 +22,6 @@ vi.mock('@config/providers', () => ({
 vi.mock('@lib/party-store', () => ({ getPartyRecord: vi.fn(async () => null) }))
 vi.mock('@lib/audit', () => ({ recordAudit: vi.fn(async () => undefined) }))
 vi.mock('@lib/bookings-gate', () => ({ previewCookieName: 'hg_preview', bookingsOpen: () => true, bookingsClosedResponse: () => new Response('closed', { status: 403 }) }))
-vi.mock('@lib/party-open-dates', async (orig) => ({ ...(await orig<typeof import('@lib/party-open-dates')>()), loadPartyVariationId: async () => 'var-party' }))
 vi.mock('@lib/classes/square-catalog', () => ({ syncClassToSquare: vi.fn(async () => ({ itemId: 'i', variations: {}, imageUrl: null })), archiveClassInSquare: vi.fn(), CLASS_TAX_NOT_SET: 'x' }))
 vi.mock('@lib/classes/square-api', () => ({ squareFetch: vi.fn(async () => { throw new Error('no Square in tests') }), squareSettings: () => ({ environment: 'sandbox' }) }))
 vi.mock('@lib/staff-auth', async (orig) => ({ ...(await orig<typeof import('@lib/staff-auth')>()), staffAuthorized: () => ({ id: 't', name: 'Test', role: 'crew' }) }))
@@ -47,6 +46,7 @@ import * as events from '@pages/api/staff/events.json'
 import * as openStudio from '@pages/api/staff/open-studio.json'
 import { listWarnings } from '@lib/warnings'
 import { rmSync } from 'node:fs'
+import { holdTime } from '@lib/parties/party-book'
 
 const KADEN = { id: 'owner-kaden', name: 'Kaden' }
 async function saveSettings(change: (s: SettingsInput) => SettingsInput) {
@@ -119,7 +119,7 @@ describe('a closed day saved on /admin', () => {
   })
 
   it('shows on the public calendar, the admin calendar and as a party-on-closed-day warning', async () => {
-    mocks.listBookings.mockResolvedValue([{ id: 'bk_1', status: 'accepted', slot: { startAt: localToUtcISO(SNOW, '13:00'), durationMinutes: 150, serviceVariationId: 'var-party' } }])
+    expect((await holdTime({ partyId: 'pty_snowday000000001', startIso: localToUtcISO(SNOW, '13:00'), endIso: localToUtcISO(SNOW, '14:30'), ttlMinutes: null }, [], new Date())).ok).toBe(true)
     await saveSettings(closeSnowDay)
     const pub = await get(calendar, '/api/calendar.json?month=2026-11')
     expect(pub.body.closures).toEqual(expect.arrayContaining([{ from: SNOW, to: SNOW, name: 'a snow day' }]))

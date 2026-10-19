@@ -27,6 +27,7 @@ import { bookingCap, describeRequest, remainingOn, sessionShare } from './refund
 import { isWaiting, listRefundRequests } from './refund-requests'
 import { getLedger, seatsTaken, type Ledger, type LedgerLine } from './seat-ledger'
 import { busyBetween, clashes, clashMessage, type Busy } from './studio-schedule'
+import { PARTY_CLEANUP_MINUTES } from '@lib/parties/party-times'
 import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass, Session } from './types'
 import { newId, toIso, validateContent, validateSessions } from './validate'
 
@@ -152,7 +153,9 @@ async function checkClashes(sessions: Session[], canShareRoom: boolean, ignoreId
   const to = sessions.reduce((m, s) => (s.endIso > m ? s.endIso : m), sessions[0].endIso)
   let busy
   try {
-    busy = await busyBetween(from, to)
+    // Widened by a party's hour of cleanup: a party that ends 30 minutes before still clashes.
+    const pad = PARTY_CLEANUP_MINUTES * 60_000
+    busy = await busyBetween(new Date(Date.parse(from) - pad).toISOString(), new Date(Date.parse(to) + pad).toISOString())
   } catch {
     throw new ActionError(503, "The schedule couldn't be checked. Try again.")
   }

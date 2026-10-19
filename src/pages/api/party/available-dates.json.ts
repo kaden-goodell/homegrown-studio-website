@@ -1,77 +1,48 @@
 import type { APIRoute } from 'astro'
 import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
-import { providers } from '@config/providers'
-import { siteConfig } from '@config/site.config'
-import { partyConfig } from '@config/party.config'
-import { partyStartsInRange, removeBooked, localDate } from '@lib/party-slots'
-import { classSpansOrNone } from '@lib/party-availability'
-import { removeClassBlocked } from '@lib/conflicts'
+import { localDate } from '@lib/party-slots'
+import { partyStartsInWindow, PARTY_TIMES_UNREADABLE } from '@lib/parties/open-times'
 import { createLogger } from '@lib/logger'
-import { getStudioDays } from '@lib/studio-settings'
 
 const logger = createLogger('api:party:available-dates')
 
-const DAY_MS = 86_400_000
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
 
+/**
+ * Every open party time across the booking window, grouped by date, with the
+ * times riding along so picking a date shows them at once. `{ packageId?,
+ * days? }` (an old page's `serviceVariationId` is accepted and ignored).
+ * From our party settings and `@lib/parties/open-times`; when anything can't
+ * be read the answer is 503 and no date is shown (never "every date").
+ */
 export const POST: APIRoute = async ({ request }) => {
   if (!bookingsOpen(request, 'parties')) return bookingsClosedResponse()
   const startTime = Date.now()
+  let body: any = {}
   try {
-    const body = await request.json()
-    const { serviceVariationId } = body
+    body = (await request.json()) ?? {}
+  } catch {
+    body = {}
+  }
+  const packageId = typeof body.packageId === 'string' && body.packageId.length <= 100 ? body.packageId : undefined
+  const asked = Number(body.days)
+  const days = Number.isFinite(asked) && asked > 0 ? Math.min(Math.max(Math.floor(asked), 1), 366) : undefined
 
-    const windowDays = Math.min(Math.max(Number(body.days) || partyConfig.bookingWindowDays, 1), 120)
-    const locationId = siteConfig.providers.booking.config.locationId || ''
-
+  try {
     const now = new Date()
-    const windowEnd = new Date(now.getTime() + windowDays * DAY_MS)
+    const view = await partyStartsInWindow(now, { packageId, days })
 
-    // Offered starts across the window come from config (per-weekday schedule),
-    // less the owners' closed days and café hours.
-    const starts = partyStartsInRange(now.toISOString(), windowEnd.toISOString(), now, await getStudioDays())
     // How many times each date offers at all, so the panel can say when some are taken.
     const offered: Record<string, number> = {}
-    for (const s of starts) { const d = localDate(s); offered[d] = (offered[d] ?? 0) + 1 }
+    for (const s of view.offered) { const d = localDate(s); offered[d] = (offered[d] ?? 0) + 1 }
 
-    // Parties yield to classes (spec E). The panel takes its times from here,
-    // so the rule must hold here as well as in availability.json. A failed
-    // legacy Square class lookup never blocks (logged inside classSpansOrNone);
-    // our own class store failing fails closed.
-    const classes = starts.length > 0 ? await classSpansOrNone(now.toISOString(), windowEnd.toISOString()) : []
-    const unblocked = removeClassBlocked(starts, classes)
-
-    // Remove starts already booked (one bookings lookup for the whole window).
-    let bookedStarts: string[] = []
-    if (starts.length > 0 && providers.booking.listBookings) {
-      try {
-        const bookings = await providers.booking.listBookings({
-          startDate: now.toISOString(),
-          endDate: windowEnd.toISOString(),
-          locationId,
-        })
-        bookedStarts = bookings
-          .filter(
-            (b) =>
-              b.status !== 'cancelled' &&
-              (!serviceVariationId || b.slot?.serviceVariationId === serviceVariationId)
-          )
-          .map((b) => b.slot.startAt)
-      } catch (err) {
-        logger.error('Party booking lookup failed (showing all dates)', {
-          error: err instanceof Error ? err.message : String(err),
-        })
-      }
-    }
-
-    // The open times ride along with each date, so picking a date in the
-    // panel shows its times at once instead of waiting on a second request.
-    const durationMinutes = partyConfig.durationMinutes
+    const durationMinutes = view.minutes
     const times: Record<string, { startAt: string; endAt: string; durationMinutes: number }[]> = {}
-    for (const startAt of removeBooked(unblocked, bookedStarts)) {
-      const date = localDate(startAt)
-      ;(times[date] ??= []).push({
+    for (const startAt of view.open) {
+      ;(times[localDate(startAt)] ??= []).push({
         startAt,
-        endAt: new Date(new Date(startAt).getTime() + durationMinutes * 60_000).toISOString(),
+        endAt: new Date(Date.parse(startAt) + durationMinutes * 60_000).toISOString(),
         durationMinutes,
       })
     }
@@ -79,30 +50,18 @@ export const POST: APIRoute = async ({ request }) => {
 
     // Dates whose party times were all taken by other parties: shown as
     // "Booked", so a customer can tell "taken" from "not offered". A day a
-    // class has taken (e.g. a 6:00 class over the 4:00 weeknight party) is
-    // simply not offered — it was never booked.
-    const bookedDates = Array.from(new Set(unblocked.map((s) => localDate(s))))
+    // class or blocked time has taken is simply not offered — it was never booked.
+    const bookedDates = Array.from(new Set(view.unblocked.map((s) => localDate(s))))
       .filter((d) => !times[d])
       .sort()
 
-    logger.info('Party available-dates complete', {
-      duration_ms: Date.now() - startTime,
-      windowDays,
-      dateCount: dates.length,
-    })
-
-    return new Response(
-      JSON.stringify({ data: { dates, times, bookedDates, windowDays, offered } }),
-      { status: 200, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } }
-    )
+    logger.info('Party available-dates complete', { duration_ms: Date.now() - startTime, dateCount: dates.length })
+    return json({ data: { dates, times, bookedDates, windowDays: view.windowDays, offered } })
   } catch (error) {
-    logger.error('Party available-dates failed', {
+    logger.error('Party times could not be read', {
       error: error instanceof Error ? error.message : String(error),
       duration_ms: Date.now() - startTime,
     })
-    return new Response(
-      JSON.stringify({ error: 'Failed to load available dates' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    )
+    return json({ error: PARTY_TIMES_UNREADABLE }, 503)
   }
 }

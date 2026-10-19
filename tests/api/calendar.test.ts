@@ -36,8 +36,16 @@ vi.mock('@config/opening', async (importOriginal) => ({
   OPENING_DATE: '2026-10-16',
 }))
 
+// Live Square (production) by default, so Square-booked parties are read; tests switch to the sandbox.
+vi.mock('@config/site.config', async (orig) => {
+  const real = (await orig<typeof import('@config/site.config')>()).siteConfig
+  return { siteConfig: { ...real, providers: { ...real.providers, catalog: { type: 'square', config: { environment: 'production' } } } } }
+})
+
 import { GET } from '@pages/api/calendar.json'
 import { forgetAll } from '@lib/short-memory'
+import { resetLegacySquareMemory } from '@lib/parties/legacy-square'
+import { holdTime, releaseTime } from '@lib/parties/party-book'
 import { siteConfig } from '@config/site.config'
 
 // Pins the normal weekly rules; one-off party days are in party-date-overrides.test.ts.
@@ -82,6 +90,7 @@ describe('GET /api/calendar.json', () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-09-27T17:00:00.000Z'))
     forgetAll()
+    resetLegacySquareMemory()
     mockListWorkshops.mockReset().mockResolvedValue([])
     mockGetEventTypes.mockReset().mockResolvedValue([])
     mockListBookings.mockReset().mockResolvedValue([])
@@ -169,18 +178,18 @@ describe('GET /api/calendar.json', () => {
       }
     })
 
-    it('asks for bookings across the whole studio-local month', async () => {
+    it('asks for bookings across the whole studio-local month (and the 12 hours before, for a party still running)', async () => {
       await getMonth('2026-10')
       const october = mockListBookings.mock.calls[0][0]
-      // Midnight CDT on 1 Oct → the last instant before midnight CDT on 1 Nov.
-      expect(october.startDate).toBe('2026-10-01T05:00:00.000Z')
+      // Midnight CDT on 1 Oct (less 12 hours) → the last instant before midnight CDT on 1 Nov.
+      expect(october.startDate).toBe('2026-09-30T17:00:00.000Z')
       expect(october.endDate).toBe('2026-11-01T04:59:59.999Z')
 
       mockListBookings.mockClear()
       await getMonth('2026-11')
       const november = mockListBookings.mock.calls[0][0]
       // November starts in CDT (UTC-5) and ends in CST (UTC-6).
-      expect(november.startDate).toBe('2026-11-01T05:00:00.000Z')
+      expect(november.startDate).toBe('2026-10-31T17:00:00.000Z')
       expect(november.endDate).toBe('2026-12-01T05:59:59.999Z')
     })
 
@@ -209,6 +218,33 @@ describe('GET /api/calendar.json', () => {
     expect(parties.filter((p: any) => p.date === '2026-11-07')).toHaveLength(0)
     expect(parties[0]).toMatchObject({ date: '2026-11-08', startTime: '13:00' })
     expect(parties.filter((p: any) => p.date === '2026-11-14')).toEqual([expect.objectContaining({ startTime: '13:30' })])
+  })
+
+  it('shows a party in our own party book (pty_, held or booked) as booked, and does not offer its time', async () => {
+    const SUN_1PM = '2026-11-08T19:00:00.000Z'
+    expect((await holdTime({ partyId: 'pty_cal0000000000001', startIso: SUN_1PM, endIso: '2026-11-08T20:30:00.000Z', ttlMinutes: null }, [], new Date())).ok).toBe(true)
+    try {
+      const { body } = await getMonth('2026-11')
+      expect(ids(body)).toContain(`party-booked-${SUN_1PM}`)
+      const sunday = body.events.filter((e: any) => e.kind === 'party-available' && e.date === '2026-11-08')
+      // 1:00 is held; 3:30 keeps its full hour of cleanup after the 2:30 end.
+      expect(sunday.map((e: any) => e.startTime)).toEqual(['15:30'])
+    } finally {
+      await releaseTime('pty_cal0000000000001', SUN_1PM)
+    }
+  })
+
+  it('only the party service counts: a Square booking of another service is not shown as a party', async () => {
+    mockListBookings.mockResolvedValue([booking('2026-11-08T19:00:00.000Z', { id: 'bk_other', slot: { startAt: '2026-11-08T19:00:00.000Z', serviceVariationId: 'something-else' } })])
+    const { body } = await getMonth('2026-11')
+    expect(ids(body)).not.toContain('party-booked-2026-11-08T19:00:00.000Z')
+  })
+
+  it('offers no party time at all when the parties cannot be read (never "every time")', async () => {
+    mockListBookings.mockRejectedValue(new Error('Square 500'))
+    const { body } = await getMonth('2026-11')
+    expect(body.incomplete).toBe(true)
+    expect(body.events.filter((e: any) => e.kind === 'party-available')).toEqual([])
   })
 
   it('offers no party time on a day the studio has closed', async () => {
@@ -322,7 +358,7 @@ describe('GET /api/calendar.json', () => {
       expect(mockListBookings).toHaveBeenCalledTimes(1)
       // One bookings question covering all three studio-local months.
       expect(mockListBookings.mock.calls[0][0]).toMatchObject({
-        startDate: '2026-10-01T05:00:00.000Z',
+        startDate: '2026-09-30T17:00:00.000Z',
         endDate: '2027-01-01T05:59:59.999Z',
       })
       expect(ids(body)).toContain('grand-opening')
@@ -486,11 +522,14 @@ describe('GET /api/calendar.json', () => {
       expect((await getMonth('2026-10')).body.incomplete).toBeUndefined()
     })
 
-    it('on production, a missing party item marks it incomplete', async () => {
+    it('on production, a missing party item marks it incomplete (when there are bookings to sort) and offers no party time', async () => {
       cfg.environment = 'production'
       mockGetEventTypes.mockResolvedValue([])
       mockCatalogGet.mockRejectedValue(notFound)
-      expect((await getMonth('2026-10')).body.incomplete).toBe(true)
+      mockListBookings.mockResolvedValue([booking('2026-11-08T19:00:00.000Z', { id: 'bk_x' })])
+      const { body } = await getMonth('2026-11')
+      expect(body.incomplete).toBe(true)
+      expect(body.events.filter((e: any) => e.kind === 'party-available')).toEqual([])
     })
 
     it('on production, the same error still marks it incomplete', async () => {

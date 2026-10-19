@@ -13,7 +13,8 @@ import { paymentBypassEnabled } from '@lib/dev-flags'
 import { savePartyRecord, getPartyRecord, newHostToken, type PartyRecord } from '@lib/party-store'
 import { cleanAttribution } from '@lib/attribution'
 import { reportBooking } from '@lib/posthog-server'
-import { isStartOpen, studioDateOf, bookingHeldBy } from '@lib/party-availability'
+import { isStartOpen, studioDateOf } from '@lib/party-availability'
+import { legacyBookingHeldBy } from '@lib/parties/legacy-square'
 import { bookableOn } from '@lib/party-slots'
 import { getStudioDays } from '@lib/studio-settings'
 import { partyRefundLine } from '@lib/refund-lines'
@@ -357,7 +358,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     // A race between two browsers choosing the same slot must be caught here.
     let slotOpen = true
     try {
-      slotOpen = await isStartOpen(body.startTime, body.serviceVariationId)
+      slotOpen = (await isStartOpen(body.startTime, partyConfig.durationMinutes)).ok
     } catch (err) {
       logger.error('Availability re-check failed — proceeding', { error: String(err) })
       // availability lookup failure must not block booking
@@ -375,7 +376,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
           familyName: body.customer.lastName,
           phone: body.customer.phone,
         })
-        const own = await bookingHeldBy(body.startTime, resumedCustomer.id, body.serviceVariationId)
+        const own = await legacyBookingHeldBy(body.startTime, resumedCustomer.id, body.serviceVariationId)
         if (own) {
           if ((own.customerNote ?? '').includes(attemptId)) {
             // Same checkout, retried: carry on with the booking it already made.

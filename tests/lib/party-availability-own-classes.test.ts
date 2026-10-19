@@ -26,7 +26,8 @@ vi.mock('@lib/classes/class-store', async (orig) => {
 
 import { createClass } from '@lib/classes/class-store'
 import { addBlocked } from '@lib/classes/blocked-time'
-import { classSpansBetween, classSpansOrNone, openPartyStarts, isStartOpen } from '@lib/party-availability'
+import { openPartyStarts, isStartOpen } from '@lib/party-availability'
+import { busyBetween } from '@lib/classes/studio-schedule'
 import { localToUtcISO } from '@lib/party-slots'
 import type { ClassContent } from '@lib/classes/types'
 
@@ -58,8 +59,8 @@ describe('party times respect our own classes and blocked time', () => {
     const day = '2027-07-11'
     await createClass({ content: content('Pottery'), sessions: [session(at(day, '12:00'), at(day, '12:30'))], status: 'open', by })
     expect(await openPartyStarts(day)).toEqual([at(day, '15:30')])
-    expect(await isStartOpen(at(day, '13:00'))).toBe(false)
-    expect(await isStartOpen(at(day, '15:30'))).toBe(true)
+    expect((await isStartOpen(at(day, '13:00'), 90)).ok).toBe(false)
+    expect((await isStartOpen(at(day, '15:30'), 90)).ok).toBe(true)
   })
 
   it('a draft class holds the room too; a cancelled one does not', async () => {
@@ -73,18 +74,14 @@ describe('party times respect our own classes and blocked time', () => {
     const day = '2027-07-25'
     await addBlocked({ startIso: at(day, '16:00'), endIso: at(day, '16:30'), reason: 'Plumber', by })
     expect(await openPartyStarts(day)).toEqual([at(day, '13:00')])
-    expect(await isStartOpen(at(day, '15:30'))).toBe(false)
+    expect((await isStartOpen(at(day, '15:30'), 90)).ok).toBe(false)
   })
 
-  it('classSpansBetween lists legacy classes, our sessions, blocked time and closed days', async () => {
+  it('a Square class drops the party times it rules out; a closed day offers none', async () => {
     const day = '2027-08-01'
-    mocks.listAllWorkshops.mockResolvedValue([{ scheduleId: 'clssch_x', name: 'Square Class', startAt: at(day, '10:00'), durationMinutes: 60 }])
-    const c = await createClass({ content: content('Ours'), sessions: [session(at(day, '18:00'), at(day, '19:00'))], status: 'closed', by })
-    const blk = await addBlocked({ startIso: at(day, '08:00'), endIso: at(day, '09:00'), reason: '', by })
-    const spans = await classSpansBetween(at(day, '00:00'), at('2027-08-02', '00:00'))
-    expect(spans.map((x) => x.id).sort()).toEqual(['clssch_x', c.sessions[0].id, blk.id].sort())
-    const christmas = await classSpansBetween(at('2026-12-25', '10:00'), at('2026-12-25', '11:00'))
-    expect(christmas).toEqual([expect.objectContaining({ name: 'Closed for the Christmas holidays', startIso: at('2026-12-25', '00:00'), endIso: at('2026-12-26', '00:00') })])
+    mocks.listAllWorkshops.mockResolvedValue([{ scheduleId: 'clssch_x', name: 'Square Class', startAt: at(day, '16:00'), durationMinutes: 60 }])
+    expect(await openPartyStarts(day)).toEqual([at(day, '13:00')])
+    expect(await openPartyStarts('2026-12-27', { admin: true }, new Date('2026-12-01T12:00:00Z'))).toEqual([])
   })
 
   it('a failed legacy lookup still never blocks parties, but our classes still count', async () => {
@@ -96,7 +93,8 @@ describe('party times respect our own classes and blocked time', () => {
 
   it('if our classes cannot be read, party times are not offered as free (fails closed)', async () => {
     mocks.storeDown = true
-    await expect(classSpansOrNone(at('2027-08-15', '00:00'), at('2027-08-16', '00:00'))).rejects.toThrow()
+    await expect(busyBetween(at('2027-08-15', '00:00'), at('2027-08-16', '00:00'), undefined, { legacyClasses: 'ignore-failure' })).rejects.toThrow()
     await expect(openPartyStarts('2027-08-15')).rejects.toThrow()
+    await expect(isStartOpen(at('2027-08-15', '13:00'), 90)).rejects.toThrow()
   })
 })

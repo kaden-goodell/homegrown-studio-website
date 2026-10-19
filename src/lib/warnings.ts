@@ -16,15 +16,14 @@
  * no capacity anywhere gets a capacity-unknown line rather than silence.
  */
 import { providers } from '@config/providers'
-import { siteConfig } from '@config/site.config'
 import { studioOpenOn, type Closure } from '@config/closures'
 import { getClosures } from '@lib/studio-settings'
 import { getEventMeta, type EventMeta } from '@lib/event-meta'
 import { listSeatChoicesByEvent } from '@lib/seat-choices'
-import { getPartyRecord } from '@lib/party-store'
+import { partyBusy } from '@lib/classes/studio-schedule'
 import { createLogger } from '@lib/logger'
 import { formatCalendarDay, formatTime, formatTimeSpan, studioDate, studioDayUtcRange } from '@lib/studio-time'
-import { classSpanOf, classesOverlap, partyBlocksClass, partyName, partySpanOf, type ClassSpan, type PartySpan } from '@lib/conflicts'
+import { classSpanOf, classesOverlap, partyBlocksClass, partyName, type ClassSpan, type PartySpan } from '@lib/conflicts'
 import type { Workshop } from '@providers/interfaces/workshop'
 import { getClass, listClasses } from '@lib/classes/class-store'
 import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
@@ -92,17 +91,9 @@ async function scan(from: string, to: string): Promise<Scan> {
   const lo = Date.parse(startIso)
   const hi = Date.parse(endIso)
   const w = providers.workshop
-  const b = providers.booking
   if (typeof w.listAllWorkshops !== 'function') throw new Error('Classes cannot be read — warnings scan refused')
-  if (typeof b.listBookings !== 'function') throw new Error('Bookings cannot be read — warnings scan refused')
-  const [workshops, bookings] = await Promise.all([
-    w.listAllWorkshops(),
-    b.listBookings({
-      startDate: startIso,
-      endDate: endIso,
-      locationId: siteConfig.providers.booking.config.locationId || '',
-    }),
-  ])
+  // Parties: our party book's held and booked ones and Square-booked ones (party service only); throws when unreadable.
+  const [workshops, partyList] = await Promise.all([w.listAllWorkshops(), partyBusy(startIso, endIso)])
   const inWindow = workshops.filter((x) => {
     const t = Date.parse(x.startAt)
     return t >= lo && t <= hi
@@ -116,17 +107,9 @@ async function scan(from: string, to: string): Promise<Scan> {
       }),
     )
   ).sort((a, b) => a.span.startIso.localeCompare(b.span.startIso))
-  const parties = await Promise.all(
-    bookings
-      .filter((b) => b.status !== 'cancelled')
-      .map(async (b) => {
-        const record = await getPartyRecord(b.id).catch((error) => {
-          logger.warn('Party record unavailable for warning text', { id: b.id, error })
-          return null
-        })
-        return partySpanOf(b, record?.hostName)
-      }),
-  )
+  const parties: PartySpan[] = partyList.map((p) => ({
+    id: p.id, startIso: p.startIso, endIso: p.endIso, ...(p.hostName ? { hostName: p.hostName } : {}),
+  }))
   return { classes, parties }
 }
 

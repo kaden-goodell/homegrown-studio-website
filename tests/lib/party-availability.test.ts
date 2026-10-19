@@ -33,6 +33,11 @@ vi.mock('@config/site.config', () => ({
   },
 }))
 
+// The party service's variation: only Square bookings of it are parties.
+vi.mock('@providers/square/client', () => ({
+  createSquareClient: () => ({ catalog: { object: { get: async () => ({ object: { itemData: { variations: [{ id: 'var-1' }] } } }) } } }),
+}))
+
 // ── Deterministic clock ───────────────────────────────────────────────────────
 // Use a far-future Saturday so openPartyStarts won't filter any starts as past.
 // 2027-08-07 is a Saturday; the one Saturday party slot is 1:30 PM CT
@@ -60,7 +65,7 @@ async function getOpen() {
 
 async function checkIsOpen(startIso: string) {
   const { isStartOpen } = await import('@lib/party-availability')
-  return isStartOpen(startIso)
+  return (await isStartOpen(startIso, 90)).ok
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -99,13 +104,14 @@ describe('openPartyStarts', () => {
     expect(starts).not.toContain(bookedStart)
   })
 
-  it('(d) passes studioDayUtcRange bounds to listBookings (UTC-boundary fix)', async () => {
+  it('(d) asks for bookings across the whole studio day, in studio time (UTC-boundary fix)', async () => {
     await getOpen()
     expect(mockListBookings).toHaveBeenCalledTimes(1)
     const callArgs = mockListBookings.mock.calls[0][0]
     const { startIso, endIso } = studioDayUtcRange(TEST_DATE)
-    expect(callArgs.startDate).toBe(startIso)
-    expect(callArgs.endDate).toBe(endIso)
+    // Widened for the cleanup and café gaps, and back 12 hours for a party still running.
+    expect(Date.parse(callArgs.startDate)).toBeLessThanOrEqual(Date.parse(startIso))
+    expect(Date.parse(callArgs.endDate)).toBeGreaterThanOrEqual(Date.parse(endIso))
   })
 
   it('(e) cancelled bookings do NOT block a slot', async () => {
@@ -274,7 +280,7 @@ describe('bookingOpensDate clamp', () => {
 })
 
 // ── bookingHeldBy: whose booking is sitting on this time? ─────────────────────
-describe('bookingHeldBy', () => {
+describe('legacyBookingHeldBy (the old Square route’s retry lookup)', () => {
   // 2:00 PM Central on Sat 7 Aug 2027 (daylight time)
   const START = '2027-08-07T19:00:00.000Z'
 
@@ -289,8 +295,8 @@ describe('bookingHeldBy', () => {
   }
 
   async function heldBy(customerId: string, serviceVariationId?: string) {
-    const { bookingHeldBy } = await import('@lib/party-availability')
-    return bookingHeldBy(START, customerId, serviceVariationId)
+    const { legacyBookingHeldBy } = await import('@lib/parties/legacy-square')
+    return legacyBookingHeldBy(START, customerId, serviceVariationId)
   }
 
   it('finds the customer’s own live booking at that exact time', async () => {
@@ -362,8 +368,8 @@ describe('openPartyStarts — parties yield to classes', () => {
     vi.setSystemTime(OCT_8)
     mockListAllWorkshops.mockResolvedValue([classAt(SUN_NOON)])
     const { isStartOpen } = await import('@lib/party-availability')
-    expect(await isStartOpen(SUN_1PM)).toBe(false)
-    expect(await isStartOpen(SUN_330PM)).toBe(true)
+    expect((await isStartOpen(SUN_1PM, 90)).ok).toBe(false)
+    expect(await isStartOpen(SUN_330PM, 90)).toEqual({ ok: true })
   })
 
   it('drops BOTH Sunday parties when Pumpkin Pails runs 1–3 PM (3:30 is only 30 minutes after it)', async () => {
@@ -387,9 +393,8 @@ describe('openPartyStarts — parties yield to classes', () => {
     expect(await getOpen()).toEqual(partyStartsForDate(TEST_DATE))
   })
 
-  it('availability.json: when the bookings lookup throws, the class rule still applies', async () => {
+  it('availability.json: the class rule applies', async () => {
     vi.setSystemTime(OCT_8)
-    mockListBookings.mockRejectedValue(new Error('Square 503'))
     mockListAllWorkshops.mockResolvedValue([classAt(SUN_NOON)])
     const { POST } = await import('@pages/api/party/availability.json')
     const url = new URL('http://localhost/api/party/availability.json')
@@ -401,5 +406,17 @@ describe('openPartyStarts — parties yield to classes', () => {
     const response = await POST({ request, url, params: {}, redirect: () => new Response(), locals: {} } as any)
     const json = await response.json()
     expect(json.data.slots.map((s: any) => s.startAt)).toEqual([SUN_330PM])
+  })
+
+  it('availability.json: legacy read fails closed — a Square bookings failure is a 503 with the sentence, never every time', async () => {
+    vi.setSystemTime(OCT_8)
+    mockListBookings.mockRejectedValue(new Error('Square 503'))
+    const { POST } = await import('@pages/api/party/availability.json')
+    const { PARTY_TIMES_UNREADABLE } = await import('@lib/parties/open-times')
+    const url = new URL('http://localhost/api/party/availability.json')
+    const request = new Request(url, { method: 'POST', body: JSON.stringify({ date: '2026-11-08', serviceVariationId: 'var-1' }) })
+    const response = await POST({ request, url, params: {}, redirect: () => new Response(), locals: {} } as any)
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: PARTY_TIMES_UNREADABLE })
   })
 })

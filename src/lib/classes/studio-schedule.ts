@@ -21,20 +21,23 @@
  * All times are real instants (UTC ISO); a Chicago clock change can't shift them.
  */
 import { providers } from '@config/providers'
-import { siteConfig } from '@config/site.config'
 import { CAFE_PARTY_GAP_MINUTES } from '@config/party.config'
 import { closureOn } from '@config/closures'
 import type { StudioDays } from '@config/studio-days'
 import { cafeOn } from '@lib/cafe-days'
 import { getStudioDays } from '@lib/studio-settings'
-import { classSpanOf, intervalOf, overlaps, partyName, partySpanOf, type ClassSpan } from '@lib/conflicts'
+import { classSpanOf, intervalOf, overlaps, partyName, type ClassSpan } from '@lib/conflicts'
 import { getPartyRecord } from '@lib/party-store'
 import { holdBusy, holdsBetween } from '@lib/parties/party-book'
+import { legacyPartyBusy } from '@lib/parties/legacy-square'
+import { createLogger } from '@lib/logger'
 import { PARTY_CLEANUP_MINUTES } from '@lib/parties/party-times'
 import { localDate, localToUtcISO } from '@lib/party-slots'
 import { formatDay, formatTime } from '@lib/studio-time'
 import { listClasses } from './class-store'
 import { listBlocked } from './blocked-time'
+
+const logger = createLogger('studio-schedule')
 
 export type BusyKind = 'class' | 'legacy-class' | 'party' | 'cafe' | 'blocked' | 'closed'
 export interface Busy {
@@ -49,6 +52,8 @@ export interface Busy {
   sessionId?: string
   /** Parties in the party book: held (being paid for, or a payment link out) or booked. */
   party?: { state: 'held' | 'booked'; partyId: string }
+  /** Parties only: the host's name, when the party's record has it. */
+  hostName?: string
 }
 
 export interface Candidate {
@@ -124,33 +129,22 @@ export async function legacyClassSpans(fromIso: string, toIso: string): Promise<
 }
 
 /**
- * Parties holding the room: the party book's held and booked times, and the
- * legacy Square bookings (Task 6 narrows that half to the party service).
+ * Parties holding the room: the party book's held and booked times (labelled
+ * with the host's name from the party record when it can be read), and the
+ * parties booked in Square before it (`@lib/parties/legacy-square`: the party
+ * service only, read only, [] when the owners' Square read switch is off).
  * Deduped by id, the party book first. Throws when either can't be read.
  */
 export async function partyBusy(fromIso: string, toIso: string, now: Date = new Date()): Promise<Busy[]> {
   const [book, legacy] = await Promise.all([holdsBetween(fromIso, toIso, now), legacyPartyBusy(fromIso, toIso)])
-  const ours = book.map(holdBusy)
+  const ours = await Promise.all(book.map(async (h) => {
+    const b = holdBusy(h)
+    // A missing record only costs the label its name.
+    const hostName = (await getPartyRecord(h.partyId).catch(() => null))?.hostName
+    return hostName ? { ...b, hostName, label: partyName({ id: b.id, startIso: b.startIso, endIso: b.endIso, hostName }) } : b
+  }))
   const seen = new Set(ours.map((b) => b.id))
   return [...ours, ...legacy.filter((b) => !seen.has(b.id))]
-}
-
-async function legacyPartyBusy(fromIso: string, toIso: string): Promise<Busy[]> {
-  if (!providers.booking.listBookings) throw new Error('This booking provider cannot list bookings.')
-  const bookings = await providers.booking.listBookings({
-    startDate: fromIso,
-    endDate: toIso,
-    locationId: siteConfig.providers.booking.config.locationId || '',
-  })
-  const from = Date.parse(fromIso), to = Date.parse(toIso)
-  const spans = await Promise.all(
-    bookings
-      .filter((b) => b.status !== 'cancelled')
-      .map(async (b) => partySpanOf(b, (await getPartyRecord(b.id).catch(() => null))?.hostName)),
-  )
-  return spans
-    .filter((p) => inRange(p, from, to))
-    .map((p) => ({ kind: 'party' as const, id: p.id, label: partyName(p), startIso: p.startIso, endIso: p.endIso }))
 }
 
 function cafeBusy(fromIso: string, toIso: string, studio: StudioDays): Busy[] {
@@ -167,14 +161,31 @@ function cafeBusy(fromIso: string, toIso: string, studio: StudioDays): Busy[] {
 
 /**
  * Everything holding the room in [fromIso, toIso), sorted by start. Throws if
- * any source can't be read: a time is never reported free unchecked.
+ * any source can't be read: a time is never reported free unchecked. The one
+ * exception, `legacyClasses: 'ignore-failure'`, is for offering party times
+ * only (spec E): a failed Square class lookup is logged and read as none.
  */
-export async function busyBetween(fromIso: string, toIso: string, days?: StudioDays): Promise<Busy[]> {
+export async function busyBetween(
+  fromIso: string,
+  toIso: string,
+  days?: StudioDays,
+  opts: { legacyClasses?: 'strict' | 'ignore-failure' } = {},
+): Promise<Busy[]> {
   // The owners' closed days and café hours: read once, never guessed (throws when unreadable).
   const studio = days ?? (await getStudioDays({ strict: true }))
+  const legacyClasses = legacyClassSpans(fromIso, toIso)
   const [ours, legacy, parties, held] = await Promise.all([
     ourClassBusy(fromIso, toIso),
-    legacyClassSpans(fromIso, toIso),
+    opts.legacyClasses === 'ignore-failure'
+      ? legacyClasses.catch((err) => {
+          // Offering party times only (spec E): a failed Square class lookup never
+          // blocks them; the daily "class over party" warning catches a slip.
+          logger.error('Square class lookup failed — party times not checked against Square classes', {
+            error: err instanceof Error ? err.message : String(err),
+          })
+          return [] as ClassSpan[]
+        })
+      : legacyClasses,
     partyBusy(fromIso, toIso),
     blockedAndClosedBusy(fromIso, toIso, studio),
   ])

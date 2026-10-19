@@ -14,6 +14,10 @@ vi.mock('@config/site.config', () => ({
   siteConfig: { providers: { booking: { config: { locationId: 'test-location' } } } },
 }))
 vi.mock('@lib/party-store', () => ({ getPartyRecord: vi.fn(async () => ({ hostName: 'Jamie Rivera' })) }))
+// The party service's variation: only Square bookings of it are parties.
+vi.mock('@providers/square/client', () => ({
+  createSquareClient: () => ({ catalog: { object: { get: async () => ({ object: { itemData: { variations: [{ id: 'var-party' }] } } }) } } }),
+}))
 
 import { busyBetween, clashes, clashMessage, partyBusy, type Busy } from '@lib/classes/studio-schedule'
 import { holdTime, confirmTime } from '@lib/parties/party-book'
@@ -66,8 +70,8 @@ describe('busyBetween', () => {
       { scheduleId: 'clssch_1', name: 'Square Candle Class', startAt: at('2030-03-16', '14:00'), durationMinutes: 120 },
     ])
     mocks.listBookings.mockResolvedValue([
-      { id: 'bk_1', status: 'accepted', slot: { startAt: at('2030-03-17', '13:00'), duration: 120 } },
-      { id: 'bk_2', status: 'cancelled', slot: { startAt: at('2030-03-17', '16:00'), duration: 120 } },
+      { id: 'bk_1', status: 'accepted', slot: { startAt: at('2030-03-17', '13:00'), duration: 120, serviceVariationId: 'var-party' } },
+      { id: 'bk_2', status: 'cancelled', slot: { startAt: at('2030-03-17', '16:00'), duration: 120, serviceVariationId: 'var-party' } },
     ])
     const blk = await addBlocked({ startIso: at('2030-03-15', '16:00'), endIso: at('2030-03-15', '18:00'), reason: 'Deep clean', by })
     const list = await busyBetween(at('2030-03-14', '00:00'), at('2030-03-18', '00:00'))
@@ -96,7 +100,7 @@ describe('busyBetween', () => {
     expect((await holdTime({ partyId: 'pty_held', startIso: at(day, '13:00'), endIso: at(day, '14:30'), ttlMinutes: null }, [], NOW)).ok).toBe(true)
     expect((await holdTime({ partyId: 'pty_booked', startIso: at(day, '15:30'), endIso: at(day, '17:00'), ttlMinutes: 10 }, [], new Date())).ok).toBe(true)
     await confirmTime('pty_booked', at(day, '15:30'), at(day, '17:00'))
-    mocks.listBookings.mockResolvedValue([{ id: 'bk_9', status: 'accepted', slot: { startAt: at(day, '18:00'), duration: 120 } }])
+    mocks.listBookings.mockResolvedValue([{ id: 'bk_9', status: 'accepted', slot: { startAt: at(day, '18:00'), duration: 120, serviceVariationId: 'var-party' } }])
     const parties = await partyBusy(at(day, '00:00'), at(day, '23:59'))
     expect(parties).toEqual([
       expect.objectContaining({ kind: 'party', id: 'pty_held', startIso: at(day, '13:00'), endIso: at(day, '14:30'), party: { state: 'held', partyId: 'pty_held' } }),

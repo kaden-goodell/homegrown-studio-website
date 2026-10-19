@@ -117,6 +117,11 @@ export function partyClashMessage(clashes: PartySpan[]): string {
   return [
     `This class would be within an hour of ${clashes.length === 1 ? 'a booked party' : `${clashes.length} booked parties`} (the room needs ${partyConfig.cleanupBufferMinutes} minutes between a party and a class):`,
     ...lines,
-    'Move the party in Square first (your call), then re-run.',
+    // Parties in our own party book (pty_) move on /admin; Square-booked ones in Square.
+    clashes.every((p) => p.id.startsWith('pty_'))
+      ? 'Move the party on /admin first (your call), then re-run.'
+      : clashes.some((p) => p.id.startsWith('pty_'))
+        ? 'Move the parties first (your call: ours on /admin, Square-booked ones in Square), then re-run.'
+        : 'Move the party in Square first (your call), then re-run.',
   ].join('\n')
 }

@@ -29,6 +29,7 @@ import { createClass } from '@lib/classes/class-store'
 import { localToUtcISO } from '@lib/party-slots'
 import { rmSync } from 'node:fs'
 import type { ClassContent } from '@lib/classes/types'
+import { holdTime } from '@lib/parties/party-book'
 
 const cookie = () => adminCookie().split(';')[0]
 async function call(method: 'GET' | 'POST', body?: unknown, opts: { signedIn?: boolean; who?: string } = {}) {
@@ -121,7 +122,7 @@ describe('POST: save', () => {
 
   it('a closure over a booked party and one of our classes saves, keeps both, and lists them', async () => {
     const day = '2027-02-06'
-    mocks.listBookings.mockResolvedValue([{ id: 'bk_1', status: 'accepted', slot: { startAt: localToUtcISO(day, '13:30'), durationMinutes: 150 } }])
+    expect((await holdTime({ partyId: 'pty_snow000000000001', startIso: localToUtcISO(day, '13:30'), endIso: localToUtcISO(day, '15:00'), ttlMinutes: null }, [], new Date())).ok).toBe(true)
     await createClass({
       content: content('Needlepoint 101'),
       sessions: [{ id: 'ses_np', startIso: localToUtcISO(day, '18:00'), endIso: localToUtcISO(day, '20:00'), capacity: 8 }],

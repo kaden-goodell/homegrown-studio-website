@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   listBookings: vi.fn(),
+  party: vi.fn(async (_id: string): Promise<any> => null),
   listAllWorkshops: vi.fn(),
   sync: vi.fn(),
   archive: vi.fn(),
@@ -34,7 +35,7 @@ vi.mock('@config/providers', () => ({
     workshop: { listAllWorkshops: mocks.listAllWorkshops, listWorkshops: vi.fn(async () => []) },
   },
 }))
-vi.mock('@lib/party-store', () => ({ getPartyRecord: vi.fn(async () => null) }))
+vi.mock('@lib/party-store', () => ({ getPartyRecord: (id: string) => mocks.party(id) }))
 vi.mock('@lib/classes/square-catalog', () => ({ syncClassToSquare: mocks.sync, archiveClassInSquare: mocks.archive, CLASS_TAX_NOT_SET: "Class tax isn't set up yet." }))
 vi.mock('@lib/classes/square-api', () => ({ squareFetch: mocks.squareFetch, squareSettings: () => ({ environment: 'sandbox' }) }))
 vi.mock('@lib/audit', () => ({ recordAudit: mocks.audit }))
@@ -59,6 +60,7 @@ import { getLedger, type LedgerLine } from '@lib/classes/seat-ledger'
 import { makeKvStore } from '@lib/blob-store'
 import { localToUtcISO } from '@lib/party-slots'
 import type { ClassContent } from '@lib/classes/types'
+import { holdTime } from '@lib/parties/party-book'
 
 const cookie = () => adminCookie().split(';')[0]
 const req = (url: string, init: { method?: string; body?: unknown; signedIn?: boolean } = {}) =>
@@ -110,6 +112,7 @@ async function seedLedger(classId: string, lines: LedgerLine[]) {
 beforeEach(() => {
   vi.stubEnv('ADMIN_PASSCODE', 'owner-secret')
   mocks.listBookings.mockReset().mockResolvedValue([])
+  mocks.party.mockReset().mockResolvedValue(null)
   mocks.listAllWorkshops.mockReset().mockResolvedValue([])
   mocks.sync.mockReset().mockImplementation(async (c: any) => ({ itemId: `item-${c.id}`, variations: { 'all:person': 'v1' }, imageUrl: null }))
   mocks.archive.mockReset().mockResolvedValue(undefined)
@@ -195,6 +198,19 @@ describe('scheduling', () => {
     expect(r.status).toBe(200)
     expect(r.body.warning).toBe("Saved, but it isn't on the POS: Class tax isn't set up yet. It can't be sold until it is.")
     expect((await getClass(r.body.data.class.id))!.square.itemId).toBeNull()
+  })
+
+  it('refuses a class over a party in our party book, naming it (cleanup hour included)', async () => {
+    const day = '2031-02-09' // a Sunday
+    mocks.party.mockImplementation(async (id: string) => (id === 'pty_classover0000001' ? { bookingId: id, hostName: 'Jamie Rivera' } : null))
+    expect((await holdTime({ partyId: 'pty_classover0000001', startIso: at(day, '13:00'), endIso: at(day, '14:30'), ttlMinutes: null }, [], new Date())).ok).toBe(true)
+    // 3:00 PM is inside the party's hour of cleanup.
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Over The Party'), sessions: [ses(day, '15:00', '16:00')], status: 'open' })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toBe('Clashes with the Rivera party, Sun Feb 9 1 PM.')
+    // 3:30 PM keeps the full hour: fine.
+    const ok = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('After The Party'), sessions: [ses(day, '15:30', '16:30')], status: 'open' })
+    expect(ok.status).toBe(200)
   })
 
   it('refuses a clash with the clash message, allows rooms that can share', async () => {
@@ -623,12 +639,13 @@ describe('blocked time over something booked', () => {
     expect(ok.body.data.blocked.reason).toBe('Plumber')
     expect(ok.body.data.clashes).toEqual([expect.objectContaining({ kind: 'class', label: 'Under The Block' })])
   })
-  it('refuses a block over a party', async () => {
+  it('refuses a block over a party in our party book (R18), naming it', async () => {
     const day = '2031-10-04'
-    mocks.listBookings.mockResolvedValue([{ id: 'bk_p', status: 'accepted', slot: { startAt: at(day, '13:00'), duration: 120 } }])
+    expect((await holdTime({ partyId: 'pty_r18block00000001', startIso: at(day, '13:00'), endIso: at(day, '14:30'), ttlMinutes: null }, [], new Date())).ok).toBe(true)
     const r = await call(blocked, 'POST', '/api/admin/classes/blocked.json', { action: 'add', startIso: at(day, '14:00'), endIso: at(day, '16:00'), reason: '' })
     expect(r.status).toBe(409)
-    expect(r.body.error).toMatch(/^Clashes with /)
+    expect(r.body.error).toBe('Clashes with a party, Sat Oct 4 1 PM.')
+    expect(r.body.clashes).toEqual([expect.objectContaining({ kind: 'party', id: 'pty_r18block00000001' })])
   })
   it('a block over nothing saves with no clashes', async () => {
     const day = '2031-10-09'

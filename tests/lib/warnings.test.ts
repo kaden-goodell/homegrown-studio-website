@@ -15,6 +15,11 @@ vi.mock('@config/site.config', () => ({ siteConfig: { providers: { booking: { co
 const HOSTS: Record<string, string> = { bk_rivera: 'Jamie Rivera', bk_lopez: 'Ana Lopez' }
 vi.mock('@lib/party-store', () => ({ getPartyRecord: async (id: string) => (HOSTS[id] ? { hostName: HOSTS[id] } : null) }))
 
+// The party service's variation: only Square bookings of it are parties.
+vi.mock('@providers/square/client', () => ({
+  createSquareClient: () => ({ catalog: { object: { get: async () => ({ object: { itemData: { variations: [{ id: 'var-party' }] } } }) } } }),
+}))
+
 const mockGetEventMeta = vi.fn()
 vi.mock('@lib/event-meta', () => ({ getEventMeta: (...a: any[]) => mockGetEventMeta(...a) }))
 const mockListSeatChoices = vi.fn()
@@ -22,6 +27,7 @@ vi.mock('@lib/seat-choices', () => ({ listSeatChoicesByEvent: (...a: any[]) => m
 
 import { partyConfig } from '@config/party.config'
 import { listWarnings, warningLine } from '@lib/warnings'
+import { holdTime, releaseTime } from '@lib/parties/party-book'
 
 function cls(scheduleId: string, name: string, startAt: string, over: Record<string, unknown> = {}) {
   return {
@@ -29,7 +35,7 @@ function cls(scheduleId: string, name: string, startAt: string, over: Record<str
     priceCents: 2500, priceCurrency: 'USD', availableCapacity: 5, staffName: '', teamMemberId: '', ...over,
   }
 }
-const party = (id: string, startAt: string, status = 'confirmed') => ({ id, status, slot: { startAt, duration: 90 } })
+const party = (id: string, startAt: string, status = 'confirmed', serviceVariationId = 'var-party') => ({ id, status, slot: { startAt, duration: 90, serviceVariationId } })
 
 const WINDOW = { from: '2026-10-15', to: '2026-10-25' }
 const PAILS = cls('clssch_pails', 'Pumpkin Pails', '2026-10-18T18:00:00.000Z', { totalCapacity: 25, availableCapacity: 10 })
@@ -51,9 +57,28 @@ describe('listWarnings', () => {
     expect(await listWarnings(WINDOW)).toEqual([])
   })
 
-  it('asks for bookings across the whole studio-local window', async () => {
+  it('asks for bookings across the whole studio-local window (and the 12 hours before, for a party still running)', async () => {
     await listWarnings(WINDOW)
-    expect(mockListBookings).toHaveBeenCalledWith({ startDate: '2026-10-15T05:00:00.000Z', endDate: '2026-10-26T04:59:59.999Z', locationId: 'LOC' })
+    expect(mockListBookings).toHaveBeenCalledWith({ startDate: '2026-10-14T17:00:00.000Z', endDate: '2026-10-26T04:59:59.999Z', locationId: 'LOC' })
+  })
+
+  it('class-over-party sees a party in our party book (pty_), named from its record', async () => {
+    mockListAllWorkshops.mockResolvedValue([PAILS])
+    HOSTS.pty_warn0000000000001 = 'Sam Patel'
+    const held = await holdTime({ partyId: 'pty_warn0000000000001', startIso: '2026-10-18T18:00:00.000Z', endIso: '2026-10-18T19:30:00.000Z', ttlMinutes: null }, [], new Date('2026-10-10T12:00:00Z'))
+    expect(held.ok).toBe(true)
+    try {
+      const [w] = await listWarnings(WINDOW)
+      expect(w).toMatchObject({ code: 'class-over-party', eventId: 'clssch_pails', detail: 'Pumpkin Pails 1–3 PM is within an hour of the Patel party 1:00 PM.' })
+    } finally {
+      await releaseTime('pty_warn0000000000001', '2026-10-18T18:00:00.000Z')
+    }
+  })
+
+  it('only the party service counts: a Square booking of another service is not a party', async () => {
+    mockListAllWorkshops.mockResolvedValue([PAILS])
+    mockListBookings.mockResolvedValue([party('bk_rivera', '2026-10-18T18:00:00.000Z', 'confirmed', 'var-something-else')])
+    expect(await listWarnings(WINDOW)).toEqual([])
   })
 
   it('class-over-party: a class in the room with a booked party, or in its cleanup hour', async () => {
@@ -134,7 +159,7 @@ describe('listWarnings', () => {
 
   it('throws when the booking provider cannot list bookings', async () => {
     delete mockProviders.booking.listBookings
-    await expect(listWarnings(WINDOW)).rejects.toThrow('Bookings cannot be read')
+    await expect(listWarnings(WINDOW)).rejects.toThrow('cannot list bookings')
   })
 
   it('throws when the workshop provider cannot list all classes', async () => {

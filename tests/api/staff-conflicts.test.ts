@@ -10,10 +10,16 @@ vi.mock('@config/site.config', () => ({ siteConfig: { providers: { booking: { co
 const mockGetPartyRecord = vi.fn()
 vi.mock('@lib/party-store', () => ({ getPartyRecord: (...a: any[]) => mockGetPartyRecord(...a) }))
 
+// The party service's variation: only Square bookings of it are parties.
+vi.mock('@providers/square/client', () => ({
+  createSquareClient: () => ({ catalog: { object: { get: async () => ({ object: { itemData: { variations: [{ id: 'var-party' }] } } }) } } }),
+}))
+
 import { GET } from '@pages/api/staff/conflicts.json'
+import { holdTime, releaseTime } from '@lib/parties/party-book'
 
 const SUN_1PM = '2026-10-18T18:00:00.000Z'
-const party = (id: string, startAt: string, status = 'confirmed') => ({ id, status, slot: { startAt, duration: 90 } })
+const party = (id: string, startAt: string, status = 'confirmed', serviceVariationId = 'var-party') => ({ id, status, slot: { startAt, duration: 90, serviceVariationId } })
 
 function ctx(qs: string) {
   const url = new URL(`http://localhost/api/staff/conflicts.json?${qs}`)
@@ -43,9 +49,28 @@ describe('GET /api/staff/conflicts.json', () => {
     expect((await GET(ctx(qs))).status).toBe(400)
   })
 
-  it('reads that studio day’s bookings', async () => {
+  it('reads that studio day’s bookings (and the 12 hours before, for a party still running)', async () => {
     await GET(ctx(`kind=workshop&start=${SUN_1PM}&minutes=120`))
-    expect(mockListBookings).toHaveBeenCalledWith({ startDate: '2026-10-18T05:00:00.000Z', endDate: '2026-10-19T04:59:59.999Z', locationId: 'LOC' })
+    expect(mockListBookings).toHaveBeenCalledWith({ startDate: '2026-10-17T17:00:00.000Z', endDate: '2026-10-19T04:59:59.999Z', locationId: 'LOC' })
+  })
+
+  it('sees a party in our own party book (pty_), held or booked, and says to move it on /admin', async () => {
+    const id = 'pty_conf000000000001'
+    mockGetPartyRecord.mockImplementation(async (x: string) => (x === id ? { hostName: 'Sam Patel' } : null))
+    expect((await holdTime({ partyId: id, startIso: SUN_1PM, endIso: '2026-10-18T19:30:00.000Z', ttlMinutes: null }, [], new Date('2026-10-10T12:00:00Z'))).ok).toBe(true)
+    try {
+      const { data } = await (await GET(ctx(`kind=workshop&start=${SUN_1PM}&minutes=120`))).json()
+      expect(data.ok).toBe(false)
+      expect(data.clashes).toEqual([{ id, startIso: SUN_1PM, endIso: '2026-10-18T19:30:00.000Z', hostName: 'Sam Patel' }])
+      expect(data.message).toContain('Move the party on /admin first')
+    } finally {
+      await releaseTime(id, SUN_1PM)
+    }
+  })
+
+  it('only the party service counts: a Square booking of another service is no clash', async () => {
+    mockListBookings.mockResolvedValue([party('bk_1', SUN_1PM, 'confirmed', 'var-other')])
+    expect((await (await GET(ctx(`kind=workshop&start=${SUN_1PM}&minutes=120`))).json()).data.ok).toBe(true)
   })
 
   it('reports a clash with time, host and booking id, and what to do', async () => {

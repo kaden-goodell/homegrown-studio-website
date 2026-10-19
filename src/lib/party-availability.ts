@@ -1,25 +1,11 @@
 /**
- * Shared party availability logic — used by both the availability API endpoint
- * and the booking endpoint (pre-charge guard).
- *
- * The key fix over the previous inline implementation: booking lookups now use
- * `studioDayUtcRange(date)` rather than `${date}T00:00:00Z`/`T23:59:59Z`.
- * The UTC-midnight bounds miss evening slots in winter (CST = UTC-6): a 6 PM CT
- * slot starts at midnight UTC and falls outside the old window. The studio-local
- * range is always correct regardless of DST.
+ * Party availability, kept as a doorway for older imports. The rules live in
+ * `@lib/parties/open-times` (our party book, the shared studio schedule, and
+ * Square-booked parties read only); every function there fails closed.
  */
-import { providers } from '@config/providers'
-import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
-import { partyStartsForDate, removeBooked } from '@lib/party-slots'
-import { getStudioDays } from '@lib/studio-settings'
-import { studioDayUtcRange } from '@lib/studio-time'
-import { createLogger } from '@lib/logger'
-import { removeClassBlocked, type ClassSpan } from '@lib/conflicts'
-import { blockedAndClosedBusy, legacyClassSpans, ourClassBusy } from '@lib/classes/studio-schedule'
-import type { BookingWithMetadata } from '@providers/interfaces/booking'
 
-const logger = createLogger('party-availability')
+export { openPartyStarts, isStartOpen, PARTY_TIMES_UNREADABLE } from '@lib/parties/open-times'
 
 /** Studio-local YYYY-MM-DD for any ISO instant. */
 export function studioDateOf(iso: string): string {
@@ -29,120 +15,4 @@ export function studioDateOf(iso: string): string {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date(iso)) // en-CA → YYYY-MM-DD
-}
-
-/**
- * Everything a party must keep the cleanup hour from, between two instants:
- * the legacy Square classes (`listAllWorkshops`, in-progress and sold-out
- * ones included), our own class sessions (every status but cancelled), blocked
- * time and whole closed days (`@lib/classes/studio-schedule`). Never cached:
- * the pre-charge re-check uses it to decide a booking. Throws when any of
- * them can't be read.
- */
-export async function classSpansBetween(fromIso: string, toIso: string): Promise<ClassSpan[]> {
-  const [legacy, ours] = await Promise.all([legacyClassSpans(fromIso, toIso), ownSpansBetween(fromIso, toIso)])
-  return [...legacy, ...ours]
-}
-
-/** Our class sessions, blocked time and closed days, as spans parties yield to. Throws when they can't be read. */
-async function ownSpansBetween(fromIso: string, toIso: string): Promise<ClassSpan[]> {
-  const [classes, held] = await Promise.all([ourClassBusy(fromIso, toIso), blockedAndClosedBusy(fromIso, toIso)])
-  return [...classes, ...held].map((b) => ({ id: b.sessionId ?? b.id, name: b.label, startIso: b.startIso, endIso: b.endIso }))
-}
-
-/**
- * The same, but a failed legacy Square class lookup is logged and read as
- * "no legacy classes": party availability is never blocked by it (spec E).
- * The warnings panel catches any overlap that slips through. Our own classes,
- * blocked time and closed days live in our store: if those can't be read this
- * throws, so a time is never offered over them unchecked.
- */
-export async function classSpansOrNone(fromIso: string, toIso: string): Promise<ClassSpan[]> {
-  const [legacy, ours] = await Promise.all([
-    legacyClassSpans(fromIso, toIso).catch((err) => {
-      logger.error('Class lookup failed — party times not checked against classes', {
-        error: err instanceof Error ? err.message : String(err),
-      })
-      return [] as ClassSpan[]
-    }),
-    ownSpansBetween(fromIso, toIso),
-  ])
-  return [...legacy, ...ours]
-}
-
-/**
- * Open start ISOs for a studio-local date: the schedule, minus past starts,
- * minus starts a class rules out (parties yield to classes, `@lib/conflicts`),
- * minus starts already booked.
- *
- * A failed legacy class lookup is logged and ignored (never blocks booking); a
- * failed read of our own classes or blocked time throws. A failed
- * bookings lookup throws; callers decide (availability.json shows all
- * candidates; the book endpoint proceeds).
- */
-export async function openPartyStarts(date: string, serviceVariationId?: string): Promise<string[]> {
-  const now = Date.now()
-  const days = await getStudioDays()
-  const candidates = partyStartsForDate(date, new Date(now), days).filter((iso) => new Date(iso).getTime() > now)
-  if (candidates.length === 0) return candidates
-
-  const { startIso, endIso } = studioDayUtcRange(date)
-  const clear = removeClassBlocked(candidates, await classSpansOrNone(startIso, endIso))
-  if (clear.length === 0 || !providers.booking.listBookings) return clear
-
-  const bookings = await providers.booking.listBookings({
-    startDate: startIso,
-    endDate: endIso,
-    locationId: siteConfig.providers.booking.config.locationId || '',
-  })
-  const bookedStarts = bookings
-    .filter(
-      (b) =>
-        b.status !== 'cancelled' &&
-        (!serviceVariationId || b.slot?.serviceVariationId === serviceVariationId)
-    )
-    .map((b) => b.slot.startAt)
-
-  return removeBooked(clear, bookedStarts)
-}
-
-/**
- * The live booking this customer already holds at exactly this start, if any.
- *
- * Used when a checkout is retried: the time looks taken, and the question is
- * whether it was taken by this very customer's earlier attempt. Looked up in
- * the booking system itself; nothing is remembered on our side.
- */
-export async function bookingHeldBy(
-  startIso: string,
-  customerId: string,
-  serviceVariationId?: string,
-): Promise<BookingWithMetadata | null> {
-  if (!providers.booking.listBookings || !customerId) return null
-  const { startIso: from, endIso: to } = studioDayUtcRange(studioDateOf(startIso))
-  const bookings = await providers.booking.listBookings({
-    startDate: from,
-    endDate: to,
-    locationId: siteConfig.providers.booking.config.locationId || '',
-  })
-  const t = new Date(startIso).getTime()
-  return (
-    bookings.find(
-      (b) =>
-        b.status !== 'cancelled' &&
-        b.customerId === customerId &&
-        new Date(b.slot.startAt).getTime() === t &&
-        (!serviceVariationId || b.slot?.serviceVariationId === serviceVariationId),
-    ) ?? null
-  )
-}
-
-/**
- * Is this exact start still open?
- * Used by the book endpoint to guard against double-booking before charging.
- */
-export async function isStartOpen(startIso: string, serviceVariationId?: string): Promise<boolean> {
-  const open = await openPartyStarts(studioDateOf(startIso), serviceVariationId)
-  const t = new Date(startIso).getTime()
-  return open.some((s) => new Date(s).getTime() === t)
 }

@@ -8,7 +8,7 @@
 import { siteConfig, type SquareConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
 import { createSquareClient } from '@providers/square/client'
-import { onSandbox } from '@lib/party-open-dates'
+import { onSandbox } from '@lib/parties/legacy-square'
 import { localToUtcISO } from '@lib/party-slots'
 import { busyBetween } from '@lib/classes/studio-schedule'
 import { addDays, type CafeCatalogClient } from '@lib/cafe-windows'

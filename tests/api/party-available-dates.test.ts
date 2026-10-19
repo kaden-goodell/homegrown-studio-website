@@ -13,7 +13,28 @@ vi.mock('@lib/bookings-gate', () => ({
   bookingsClosedResponse: () => new Response('closed', { status: 403 }),
 }))
 
+// Live Square, so Square-booked parties are read (the party service only).
+vi.mock('@config/site.config', async (orig) => {
+  const real = (await orig<typeof import('@config/site.config')>()).siteConfig
+  return { siteConfig: { ...real, providers: { ...real.providers, catalog: { type: 'square', config: { environment: 'production' } } } } }
+})
+vi.mock('@providers/square/client', () => ({
+  createSquareClient: () => ({ catalog: { object: { get: async () => ({ object: { itemData: { variations: [{ id: 'var-party' }] } } }) } } }),
+}))
+// Store outages, switched on per test.
+const down = vi.hoisted(() => ({ settings: false, book: false }))
+vi.mock('@lib/parties/settings-store', async (orig) => {
+  const real = await orig<typeof import('@lib/parties/settings-store')>()
+  return { ...real, getPartySettings: async (o?: any) => { if (down.settings) throw new Error('party settings store down'); return real.getPartySettings(o) } }
+})
+vi.mock('@lib/parties/party-book', async (orig) => {
+  const real = await orig<typeof import('@lib/parties/party-book')>()
+  return { ...real, holdsBetween: async (...a: Parameters<typeof real.holdsBetween>) => { if (down.book) throw new Error('party book store down'); return real.holdsBetween(...a) } }
+})
+
 import { POST } from '@pages/api/party/available-dates.json'
+import { holdTime, releaseTime } from '@lib/parties/party-book'
+import { PARTY_TIMES_UNREADABLE } from '@lib/parties/open-times'
 
 // These tests pin the normal weekly rules; one-off party days
 // (partyDateOverrides) are covered in party-date-overrides.test.ts.
@@ -24,7 +45,7 @@ vi.mock('../config/party.config', async (orig) => ({ ...(await orig<typeof impor
 // Noon Central on Sunday 27 Sep 2026. Parties start Sat 7 Nov, so dates run 7 Nov to 11 Nov.
 const NOW = new Date('2026-09-27T17:00:00.000Z')
 const VARIATION = 'var-party'
-const booked = (startAt: string) => ({ status: 'confirmed', slot: { startAt, serviceVariationId: VARIATION } })
+const booked = (startAt: string) => ({ id: `bk_${startAt}`, status: 'confirmed', slot: { startAt, serviceVariationId: VARIATION } })
 
 async function ask(body: Record<string, unknown> = { serviceVariationId: VARIATION }) {
   const request = new Request('http://localhost/api/party/available-dates.json', {
@@ -41,6 +62,8 @@ beforeEach(() => {
   vi.setSystemTime(NOW)
   mockListBookings.mockReset().mockResolvedValue([])
   mockListAllWorkshops.mockReset().mockResolvedValue([])
+  down.settings = false
+  down.book = false
 })
 afterEach(() => vi.useRealTimers())
 
@@ -116,18 +139,41 @@ describe('POST /api/party/available-dates.json', () => {
 
   it('ignores cancelled bookings and bookings for other services', async () => {
     mockListBookings.mockResolvedValue([
-      { status: 'cancelled', slot: { startAt: '2026-11-08T21:30:00.000Z', serviceVariationId: VARIATION } },
-      { status: 'confirmed', slot: { startAt: '2026-11-08T19:00:00.000Z', serviceVariationId: 'something-else' } },
+      { id: 'bk_c', status: 'cancelled', slot: { startAt: '2026-11-08T21:30:00.000Z', serviceVariationId: VARIATION } },
+      { id: 'bk_o', status: 'confirmed', slot: { startAt: '2026-11-08T19:00:00.000Z', serviceVariationId: 'something-else' } },
     ])
     const { data } = await ask()
     expect(data.times['2026-11-08']).toHaveLength(2)
   })
 
-  it('still offers dates when the bookings lookup fails', async () => {
+  it('legacy read fails closed: a Square bookings failure answers 503, never "every date"', async () => {
     mockListBookings.mockRejectedValue(new Error('Square 503'))
     const { response, data } = await ask()
-    expect(response.status).toBe(200)
-    expect(data.dates.length).toBeGreaterThan(0)
+    expect(response.status).toBe(503)
+    expect(data).toBeUndefined()
+  })
+
+  it.each([['settings'], ['book']] as const)('store down refuses: a party %s read error answers 503 with the sentence', async (which) => {
+    down[which] = true
+    const request = new Request('http://localhost/api/party/available-dates.json', { method: 'POST', body: JSON.stringify({}) })
+    const response = await POST({ request } as any)
+    expect(response.status).toBe(503)
+    expect(await response.json()).toEqual({ error: PARTY_TIMES_UNREADABLE })
+  })
+
+  it('a party in our party book takes its time; a held time disappears for everyone else', async () => {
+    expect((await holdTime({ partyId: 'pty_ad00000000000001', startIso: '2026-11-08T19:00:00.000Z', endIso: '2026-11-08T20:30:00.000Z', ttlMinutes: 10 }, [], new Date())).ok).toBe(true)
+    try {
+      const { data } = await ask({})
+      expect(data.times['2026-11-08'].map((t: any) => t.startAt)).toEqual(['2026-11-08T21:30:00.000Z'])
+    } finally {
+      await releaseTime('pty_ad00000000000001', '2026-11-08T19:00:00.000Z')
+    }
+  })
+
+  it('accepts a package id and answers with that package’s length', async () => {
+    const { data } = await ask({ packageId: 'pkg_whole' })
+    expect(data.times['2026-11-14'][0].durationMinutes).toBe(90)
   })
 
   it('is never cached: open times change with every booking', async () => {

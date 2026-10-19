@@ -21,6 +21,7 @@ import * as calendar from '@pages/api/admin/classes/calendar.json'
 import * as dayRoute from '@pages/api/admin/classes/day.json'
 import { adminCookie } from '@lib/admin-auth'
 import { createClass } from '@lib/classes/class-store'
+import { holdTime } from '@lib/parties/party-book'
 import { makeKvStore } from '@lib/blob-store'
 import { localToUtcISO } from '@lib/party-slots'
 import { defaultRules } from '@lib/classes/validate'
@@ -82,11 +83,12 @@ describe('calendar.json', () => {
         state: 'confirmed', holdExpiresAt: null, customer: null, square: { orderId: 'o', paymentId: 'p', lineUid: null }, by: null, refunds: [], at: new Date().toISOString(),
       })),
     }))
-    mocks.listBookings.mockResolvedValue([{ id: 'bk_guests', status: 'accepted', slot: { startAt: at('13:00'), duration: 90 } }])
-    mocks.party.mockImplementation(async (id: string) => (id === 'bk_guests' ? { bookingId: id, hostName: 'Sam Host', guestCount: 14 } : null))
+    // A party in our own party book (Square-booked ones are read only on live, none with the mock providers).
+    expect((await holdTime({ partyId: 'pty_guests00000000001', startIso: at('13:00'), endIso: at('14:30'), ttlMinutes: null }, [], new Date())).ok).toBe(true)
+    mocks.party.mockImplementation(async (id: string) => (id === 'pty_guests00000000001' ? { bookingId: id, hostName: 'Sam Host', guestCount: 14 } : null))
     const r = await call(calendar, `/x?from=${encodeURIComponent(at('00:00'))}&to=${encodeURIComponent(at('23:59'))}`)
     expect(r.body.data.items.find((i: any) => i.id === cls.id)).toMatchObject({ booked: 3, capacity: 12 })
-    expect(r.body.data.items.find((i: any) => i.id === 'bk_guests')).toMatchObject({ kind: 'party', guests: 14 })
+    expect(r.body.data.items.find((i: any) => i.id === 'pty_guests00000000001')).toMatchObject({ kind: 'party', guests: 14 })
   })
 
   it('a source that cannot be read is a 503, never an empty calendar', async () => {

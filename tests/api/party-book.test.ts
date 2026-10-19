@@ -6,10 +6,13 @@ import { partyConfig } from '@config/party.config'
 // Mock party-availability so we can control isStartOpen per test
 const mockBookingHeldBy = vi.fn()
 vi.mock('@lib/party-availability', () => ({
-  isStartOpen: vi.fn().mockResolvedValue(true),
+  isStartOpen: vi.fn().mockResolvedValue({ ok: true }),
   openPartyStarts: vi.fn().mockResolvedValue([]),
   studioDateOf: vi.fn().mockReturnValue('2026-09-01'),
-  bookingHeldBy: (...args: any[]) => mockBookingHeldBy(...args),
+}))
+// The old route's retry lookup (a read of the customer's own Square booking).
+vi.mock('@lib/parties/legacy-square', () => ({
+  legacyBookingHeldBy: (...args: any[]) => mockBookingHeldBy(...args),
 }))
 
 // Which dates are on offer depends on today's date; the tests here are about
@@ -182,7 +185,7 @@ describe('POST /api/party/book.json', () => {
     // Re-require mocks after resetModules
     const avail = await import('@lib/party-availability')
     isStartOpen = vi.mocked(avail.isStartOpen)
-    isStartOpen.mockResolvedValue(true)
+    isStartOpen.mockResolvedValue({ ok: true })
 
     const emailMod = await import('@lib/email')
     sendPartyConfirmationEmail = vi.mocked(emailMod.sendPartyConfirmationEmail)
@@ -304,7 +307,7 @@ describe('POST /api/party/book.json', () => {
 
     /** The time is taken, by this customer's own earlier try of the same checkout. */
     function firstTryHoldsTheTime() {
-      isStartOpen.mockResolvedValue(false)
+      isStartOpen.mockResolvedValue({ ok: false, message: 'taken' })
       mockBookingHeldBy.mockResolvedValue({
         ...makeMockBooking('booking-first-try'),
         customerNote: JSON.stringify({ attempt: ATTEMPT, craft: { id: 'craft-1' } }),
@@ -422,7 +425,7 @@ describe('POST /api/party/book.json', () => {
     })
 
     it('never charges again for a time the customer already holds from another checkout', async () => {
-      isStartOpen.mockResolvedValue(false)
+      isStartOpen.mockResolvedValue({ ok: false, message: 'taken' })
       mockBookingHeldBy.mockResolvedValue({
         ...makeMockBooking('booking-earlier'),
         customerNote: JSON.stringify({ attempt: OTHER_ATTEMPT }),
@@ -440,7 +443,7 @@ describe('POST /api/party/book.json', () => {
     })
 
     it('says the time was taken, and nothing charged, when someone else holds it', async () => {
-      isStartOpen.mockResolvedValue(false)
+      isStartOpen.mockResolvedValue({ ok: false, message: 'taken' })
       mockBookingHeldBy.mockResolvedValue(null)
 
       const res = await POST(createMockContext(makeBody({ attemptId: ATTEMPT })))
@@ -494,7 +497,7 @@ describe('POST /api/party/book.json', () => {
       })
 
       it('never re-checks a resumed checkout: a card the first try spent is not refused, and the booking is kept', async () => {
-        isStartOpen.mockResolvedValue(false)
+        isStartOpen.mockResolvedValue({ ok: false, message: 'taken' })
         mockBookingHeldBy.mockResolvedValue({
           ...makeMockBooking('booking-first-try'),
           customerNote: JSON.stringify({ attempt: ATTEMPT, craft: { id: 'craft-1' } }),
@@ -625,7 +628,7 @@ describe('POST /api/party/book.json', () => {
 
   // ── (1) slot not open → 409, processPayment never called ─────────────────
   it('returns 409 when slot is already taken and never calls processPayment', async () => {
-    isStartOpen.mockResolvedValue(false)
+    isStartOpen.mockResolvedValue({ ok: false, message: 'taken' })
 
     const ctx = createMockContext(makeBody())
     const res = await POST(ctx)

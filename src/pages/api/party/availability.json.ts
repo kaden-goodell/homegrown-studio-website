@@ -1,89 +1,63 @@
 import type { APIRoute } from 'astro'
 import { bookingsOpen, bookingsClosedResponse } from '@lib/bookings-gate'
-import { partyConfig } from '@config/party.config'
-import { partyStartsForDate } from '@lib/party-slots'
-import { openPartyStarts, classSpansOrNone } from '@lib/party-availability'
-import { removeClassBlocked } from '@lib/conflicts'
-import { studioDayUtcRange } from '@lib/studio-time'
+import { partyStartsOnDate, PARTY_TIMES_UNREADABLE } from '@lib/parties/open-times'
 import { createLogger } from '@lib/logger'
-import { getStudioDays } from '@lib/studio-settings'
 import { rateLimited } from '@lib/rate-limit'
 
 const logger = createLogger('api:party:availability')
 
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
+
+/** `{ id: count }` with plausible ids and whole counts only; anything else is dropped. */
+function addOnsOf(raw: unknown): Record<string, number> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const out: Record<string, number> = {}
+  for (const [id, n] of Object.entries(raw as Record<string, unknown>).slice(0, 40)) {
+    if (id.length <= 100 && typeof n === 'number' && Number.isInteger(n) && n > 0 && n <= 1000) out[id] = n
+  }
+  return out
+}
+
+/**
+ * The open party times on one studio-local date: `{ date, packageId?, addOns? }`
+ * (an old page's `serviceVariationId` is accepted and ignored). From our party
+ * settings and `@lib/parties/open-times`; when anything can't be read the
+ * answer is 503 and no time is shown (never "every time").
+ */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!bookingsOpen(request, 'parties')) return bookingsClosedResponse()
   if (rateLimited(`party-avail:${clientAddress}`, 30, 60_000)) {
-    return new Response(
-      JSON.stringify({ error: 'Too many requests — give it a minute.' }),
-      { status: 429, headers: { 'Content-Type': 'application/json' } },
-    )
+    return json({ error: 'Too many requests — give it a minute.' }, 429)
   }
   const startTime = Date.now()
+  let body: any
   try {
-    const body = await request.json()
-    const { date } = body
+    body = await request.json()
+  } catch {
+    return json({ error: 'Invalid date' }, 400)
+  }
+  const date = body?.date
+  // Public endpoint — validate inputs. Date must be a YYYY-MM-DD string.
+  if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: 'Invalid date' }, 400)
+  const packageId = typeof body.packageId === 'string' && body.packageId.length <= 100 ? body.packageId : undefined
 
-    // Public endpoint — validate inputs. Date must be a YYYY-MM-DD string.
-    if (typeof date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-      return new Response(
-        JSON.stringify({ error: 'Invalid date' }),
-        { status: 400, headers: { 'Content-Type': 'application/json' } }
-      )
-    }
-
-    // Only pass serviceVariationId through when it's a plausible ID string.
-    const serviceVariationId =
-      typeof body.serviceVariationId === 'string' && body.serviceVariationId.length <= 100
-        ? body.serviceVariationId
-        : undefined
-
-    // Use the shared helper which queries with studio-local UTC bounds (UTC-window bug fix).
-    // If the lookup fails, fall back to showing all future candidates so booking is never blocked.
-    // The owners' closed days and café hours (config until they save on /admin).
-    const days = await getStudioDays()
-    // How many times the day offers at all, so the panel can say when some are taken.
-    const offered = partyStartsForDate(date, new Date(), days).length
-    let openStarts: string[]
-    try {
-      openStarts = await openPartyStarts(date, serviceVariationId)
-    } catch (err) {
-      logger.error('Party booking lookup failed (showing all candidates)', {
-        error: err instanceof Error ? err.message : String(err),
-      })
-      const now = Date.now()
-      const candidates = partyStartsForDate(date, new Date(now), days).filter((iso) => new Date(iso).getTime() > now)
-      // Parties still yield to classes here. A failed legacy Square class lookup
-      // never blocks; our own class store failing fails closed.
-      const { startIso, endIso } = studioDayUtcRange(date)
-      openStarts = removeClassBlocked(candidates, await classSpansOrNone(startIso, endIso))
-    }
-
-    const durationMinutes = partyConfig.durationMinutes
-    const slots = openStarts.map((startAt) => ({
+  try {
+    const view = await partyStartsOnDate(date, { packageId, addOns: addOnsOf(body.addOns) })
+    const durationMinutes = view.minutes
+    const slots = view.open.map((startAt) => ({
       startAt,
-      endAt: new Date(new Date(startAt).getTime() + durationMinutes * 60_000).toISOString(),
+      endAt: new Date(Date.parse(startAt) + durationMinutes * 60_000).toISOString(),
       durationMinutes,
     }))
-
-    logger.info('Party availability complete', {
-      duration_ms: Date.now() - startTime,
-      date,
-      slotCount: slots.length,
-    })
-
-    return new Response(
-      JSON.stringify({ data: { slots, offered } }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    )
+    logger.info('Party availability complete', { duration_ms: Date.now() - startTime, date, slotCount: slots.length })
+    // offered: how many times the day offers at all, so the panel can say when some are taken.
+    return json({ data: { slots, offered: view.offered.length } })
   } catch (error) {
-    logger.error('Party availability search failed', {
+    logger.error('Party times could not be read', {
       error: error instanceof Error ? error.message : String(error),
       duration_ms: Date.now() - startTime,
     })
-    return new Response(
-      JSON.stringify({ error: 'Failed to search availability' }),
-      { status: 500, headers: { 'Content-Type': 'application/json' } }
-    )
+    return json({ error: PARTY_TIMES_UNREADABLE }, 503)
   }
 }

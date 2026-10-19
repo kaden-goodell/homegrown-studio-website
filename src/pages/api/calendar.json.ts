@@ -5,10 +5,13 @@ import { closureOn, daysOf, reopensOn } from '@config/closures'
 import { getStudioDays } from '@lib/studio-settings'
 import { longDate } from '@lib/notify-context'
 import { providers } from '@config/providers'
-import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
 import { parseOpenStudioWindows } from '@lib/open-studio'
-import { localDate, localToUtcISO, partyStartsInRange, removeBooked } from '@lib/party-slots'
+import { localDate, localToUtcISO } from '@lib/party-slots'
+import { partyStartsInRange } from '@lib/parties/party-times'
+import { getPartySettings } from '@lib/parties/settings-store'
+import { partyMinutes } from '@lib/parties/open-times'
+import { clashes, partyBusy, type Busy } from '@lib/classes/studio-schedule'
 import {
   buildCalendarEvents,
   type PartyAvailabilitySlot,
@@ -20,7 +23,7 @@ import type { ScheduledClass } from '@lib/classes/types'
 import { createLogger } from '@lib/logger'
 import { remember } from '@lib/short-memory'
 import { publicListHeaders } from '@lib/cache-headers'
-import { loadPartyVariationId, isNotFound, onSandbox } from '@lib/party-open-dates'
+import { isNotFound, onSandbox } from '@lib/parties/legacy-square'
 
 export const prerender = false
 const logger = createLogger('api:calendar')
@@ -85,7 +88,6 @@ export const GET: APIRoute = async ({ url, request }) => {
   const inRange = (date: string) => months.includes(date.slice(0, 7))
   const inRangeIso = (iso: string) => inRange(localDate(iso))
   const now = new Date()
-  const locationId = siteConfig.providers.booking.config.locationId || ''
 
   // Everything Square is asked, asked at once. Each lookup fails on its own:
   // the rest of the calendar still shows.
@@ -95,27 +97,23 @@ export const GET: APIRoute = async ({ url, request }) => {
     logger.error(`${what} failed`, { error: errorText(err) })
     return fallback
   }
-  const [allWorkshops, allOpenStudioWindows, partyVariationId, bookings, ourClasses, studio] = await Promise.all([
+  const [allWorkshops, allOpenStudioWindows, parties, ourClasses, studio, partySettings] = await Promise.all([
     remember('calendar:workshops', 30_000, () => providers.workshop.listWorkshops()).catch(
       orElse('workshops fetch', [] as any[]),
     ),
     remember('calendar:open-studio', 60_000, loadOpenStudioWindows).catch(
       orElse('open studio fetch', [] as OpenStudioWindow[]),
     ),
-    // The party service's variation id changes only when the item is rebuilt.
-    remember('calendar:party-variation', 10 * 60_000, loadPartyVariationId).catch(
-      orElse('party variation resolve', ''),
-    ),
-    providers.booking.listBookings
-      ? providers.booking
-          .listBookings({ startDate: rangeStart.toISOString(), endDate: rangeEnd.toISOString(), locationId })
-          .catch(orElse('party bookings', [] as any[]))
-      : Promise.resolve([] as any[]),
+    // Parties holding the room: our party book (held and booked) and Square-booked
+    // ones (party service only). null = couldn't be read: no party time is offered.
+    partyBusy(rangeStart.toISOString(), rangeEnd.toISOString(), now).catch(orElse('parties', null as Busy[] | null)),
     listClasses({ fromIso: rangeStart.toISOString(), toIso: rangeEnd.toISOString() }).catch(
       orElse('our classes', [] as ScheduledClass[]),
     ),
     // The owners' closed days and café hours (config until they first save on /admin).
     getStudioDays(),
+    // The owners' party times (config until they first save Parties setup).
+    getPartySettings(),
   ])
   const closures = studio.closures
   // Only open/closed, not link-only, ones are public; the same ones block parties.
@@ -129,32 +127,25 @@ export const GET: APIRoute = async ({ url, request }) => {
   const workshops = allWorkshops.filter((w: any) => inRangeIso(w.startAt))
   const openStudioWindows = allOpenStudioWindows.filter((w) => inRange(w.date))
 
-  // Booked (reserved) parties — identified by the party service variation id.
-  const partyBooked: PartyBookedSlot[] = []
-  if (partyVariationId) {
-    for (const b of bookings) {
-      if (
-        b.status !== 'cancelled' &&
-        b.slot?.serviceVariationId === partyVariationId &&
-        inRangeIso(b.slot.startAt)
-      ) {
-        partyBooked.push({ startAt: b.slot.startAt })
-      }
-    }
-  }
+  // Booked (reserved) parties: held or booked in our party book, or booked in Square.
+  const partyBooked: PartyBookedSlot[] = (parties ?? [])
+    .filter((p) => inRangeIso(p.startIso))
+    .map((p) => ({ startAt: p.startIso }))
 
-  // Available party slots — generated from the per-weekday schedule (config),
-  // minus any already booked. Only future, in-range starts.
+  // Available party slots: the owners' party times (closed days and café gap
+  // out), less any a class or a party is in the way of. Only future, in-range
+  // starts; none at all when the parties couldn't be read.
   const availStart = new Date(Math.max(rangeStart.getTime(), now.getTime() + 60_000))
+  const minutes = partyMinutes(partySettings)
   const offeredStarts =
-    availStart.getTime() < rangeEnd.getTime()
-      ? partyStartsInRange(availStart.toISOString(), rangeEnd.toISOString(), now, studio)
+    parties && availStart.getTime() < rangeEnd.getTime()
+      ? partyStartsInRange(partySettings, availStart.toISOString(), rangeEnd.toISOString(), now, studio, { minutes })
       : []
+  const partyFree = (startAt: string) =>
+    clashes({ kind: 'party', startIso: startAt, endIso: new Date(Date.parse(startAt) + minutes * 60_000).toISOString() }, parties ?? []).length === 0
   // Parties yield to classes (spec E), then booked parties come off.
-  const partyAvailable: PartyAvailabilitySlot[] = removeBooked(
-    removeClassBlocked(offeredStarts, [...allWorkshops.map(classSpanOf), ...ourSpans]),
-    partyBooked.map((b) => b.startAt)
-  )
+  const partyAvailable: PartyAvailabilitySlot[] = removeClassBlocked(offeredStarts, [...allWorkshops.map(classSpanOf), ...ourSpans])
+    .filter(partyFree)
     .filter(inRangeIso)
     .map((startAt) => ({ startAt }))
 
