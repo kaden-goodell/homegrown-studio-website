@@ -124,11 +124,13 @@ export function quote(cls: ScheduledClass, req: BookingRequest, now: Date, taxPe
       if (!Number.isInteger(qty) || qty < 0 || qty > add.maxPerSeat) {
         return fail(`Seat ${i + 1} can have up to ${add.maxPerSeat} of ${add.label}.`, 'seats')
       }
-      const c = add.priceCents * qty
-      lines.push({
-        kind: 'addon', seat: i, ticketTypeId: t.id, label: qty > 1 ? `${add.label} × ${qty}` : add.label,
-        cents: c, taxCents: taxOn(c, pct), variationKey: `addon:${addId}`,
-      })
+      // One line per unit: Square is sent each as quantity 1 and taxes per line.
+      for (let u = 0; u < qty; u++) {
+        lines.push({
+          kind: 'addon', seat: i, ticketTypeId: t.id, label: add.label,
+          cents: add.priceCents, taxCents: taxOn(add.priceCents, pct), variationKey: `addon:${addId}`,
+        })
+      }
     }
   }
   const subtotalCents = lines.reduce((s, l) => s + l.cents, 0)

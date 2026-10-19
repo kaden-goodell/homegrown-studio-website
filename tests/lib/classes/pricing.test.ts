@@ -65,8 +65,11 @@ describe('quote', () => {
   it('add-ons are their own taxed lines and respect maxPerSeat', () => {
     const c = make({ addOns: [{ id: 'add1', label: 'Extra glaze', priceCents: 250, maxPerSeat: 2 }] })
     const ok = quote(c, req({ seats: [{ addOns: { add1: 2 } }] }), NOW, 9)
-    expect(ok.ok && ok.value.lines[1]).toMatchObject({ kind: 'addon', cents: 500, taxCents: 45, variationKey: 'addon:add1' })
-    expect(ok.ok && ok.value.totalCents).toBe(1500 + 135 + 500 + 45)
+    expect(ok.ok && ok.value.lines.slice(1)).toHaveLength(2)
+    for (const i of [1, 2]) expect(ok.ok && ok.value.lines[i]).toMatchObject({ kind: 'addon', label: 'Extra glaze', cents: 250, taxCents: 23, variationKey: 'addon:add1' })
+    expect(ok.ok && ok.value.totalCents).toBe(1500 + 135 + 2 * (250 + 23))
+    const three = quote(make({ addOns: [{ id: 'add1', label: 'Extra glaze', priceCents: 250, maxPerSeat: 3 }] }), req({ seats: [{ addOns: { add1: 3 } }] }), NOW, 9)
+    expect(three.ok && three.value.lines.slice(1).reduce((n, l) => n + l.taxCents, 0)).toBe(69) // not 68
     expect(quote(c, req({ seats: [{ addOns: { add1: 3 } }] }), NOW, 9).ok).toBe(false)
     expect(quote(c, req(), NOW, 9).ok).toBe(false) // seats array required when add-ons exist
   })
