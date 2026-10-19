@@ -13,6 +13,7 @@ import { formatDay } from '@lib/studio-time'
 import { ticketSummary } from '@lib/ticket-types'
 import type { Quote } from './pricing'
 import type { LedgerLine } from './seat-ledger'
+import { paidOn } from './seat-status'
 import type { ScheduledClass } from './types'
 
 /**
@@ -106,7 +107,7 @@ export function seatsLabelFor(cls: ScheduledClass, seats: { ticketTypeId: string
 }
 
 /** What a paid line came to, seat and its extras, tax included. */
-export const paidCentsOf = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
+export const paidCentsOf = (l: LedgerLine) => paidOn(l)
 
 /** "Only 1 seat is left on Sat, Oct 17." — said before anything is held or charged. */
 export function soldOutMessage(cls: ScheduledClass, sessionId: string, left: number): string {

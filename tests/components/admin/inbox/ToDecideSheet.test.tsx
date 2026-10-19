@@ -46,7 +46,8 @@ function server(items: any[], o: { decide?: (b: any) => any; amount?: number | n
           const what = answer ? (answer.ok ? (answer as any).what ?? `did ${post.action}` : '') : `did ${post.action}`
           if (!answer || answer.ok) list = list.map((i) => (i.id === post.id ? { ...i, done: what, doneBy: 'Catherine', doneAt: '2026-10-19T15:00:00.000Z' } : i))
           if (answer) return answer
-          return ok({ data: { decided: { what } } })
+          // A seat freed by this decision can be taken back (the server sends what to undo).
+          return ok({ data: { decided: { what, ...(post.action === 'free' ? { undo: { classId: 'cls_1', entries: [{ lineId: 'led_b', entryId: 'rfe_1' }] } } : {}) } } })
         }
     }
     throw new Error(`unexpected ${url}`)
@@ -277,6 +278,15 @@ describe('To decide sheets', () => {
     expect(within(footer()).queryByRole('button', { name: /Give them/ })).toBeNull()
     fireEvent.click(sorted)
     await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'sorted' }]))
+  })
+
+  it('T15: no Undo when the decision wrote nothing to take back (the seat was already free)', async () => {
+    const t = item({ kind: 'door-unpaid', title: 'Not paid at the counter', className: 'Looms', detail: { name: 'Dora Door', day: '2026-10-18', seats: 1 } })
+    show([t], { decide: (b) => (b.action === 'free' ? { ...ok({ data: { decided: { what: 'Freed 1 seat' } } }), what: 'Freed 1 seat' } : null) })
+    fireEvent.click(await screen.findByRole('button', { name: 'Free the seat' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Free it' }))
+    expect(await screen.findByText('Freed Dora Door’s seat.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull()
   })
 
   it('a refusal shows in the sheet; a failed save says Didn’t save', async () => {

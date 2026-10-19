@@ -94,7 +94,8 @@ export async function addDoorSeats(input: {
     const done = mine.filter((l) => l.state === 'confirmed' || l.state === 'refunded')
     if (done.length) return answer(done, q)
     if (!mine.some((l) => l.state === 'held')) return null
-    const confirmed = await confirm(cls.id, bookingId, square, { cls, quote: q, input: holdInput }, new Date(), { requireLiveHold: true })
+    // n1: the same clock as the hold, so a hold judged live there is live here (never a 500 on a millisecond race).
+    const confirmed = await confirm(cls.id, bookingId, square, { cls, quote: q, input: holdInput }, now, { requireLiveHold: true })
     return confirmed.length ? answer(confirmed, q) : null
   }
   if (input.attempt) {

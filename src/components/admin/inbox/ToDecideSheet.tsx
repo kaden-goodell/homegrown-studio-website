@@ -42,7 +42,8 @@ function useDecide(item: ToDecideItem) {
     const r = await api<any>(TO_DECIDE, { id: item.id, action: c.action, ...(c.body ?? {}) })
     setBusy(null)
     if (r.ok && r.data) {
-      const undo = c.undo
+      // Undo only when the server says this decision wrote something to take back (a seat already free has none).
+      const undo = c.undo && r.data.decided?.undo
         ? () => { api(TO_DECIDE, { id: item.id, action: 'undo' }).then((u) => { if (u.ok) { toast('Undone. The seat is theirs again.'); finish() } else toast(u.error ?? DIDNT_SAVE) }) }
         : undefined
       toast(c.toast ?? `Done. ${r.data.decided.what}.`, undo ? { undo } : undefined)
