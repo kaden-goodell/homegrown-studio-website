@@ -397,9 +397,10 @@ export async function refundClassBooking(req: RefundRequest, actor: { by: By; ro
   const now = new Date()
   const again = req.again ?? null
   const inputHash = inputHashOf(cls.id, req)
-  // One identity per ask across its retries: a "Refund again" by (booking, what it repeats, its token); else the screen's token.
+  // One identity per ask across its retries: a "Refund again" by (booking, what it repeats, its token, what is asked),
+  // so a reused token with another amount or other seats is a different request (refused as stale below); else the screen's token.
   const tokenId = again
-    ? hashOf('refund-again', cls.id, req.bookingId, again.of, again.token)
+    ? hashOf('refund-again', cls.id, req.bookingId, again.of, again.token, inputHash)
     : req.attempt ? hashOf('refund-attempt', inputHash, req.attempt) : null
   const saved = await listRefundRequests(cls.id, req.bookingId)
   let rec: SavedRefundRequest | null = null

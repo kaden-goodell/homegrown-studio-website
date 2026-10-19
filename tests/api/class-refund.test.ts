@@ -998,6 +998,23 @@ describe('fix round 5: "Refund again" keeps one identity across retries (R31)', 
     expect((await byId(classId))[a.id].refunds.map((x) => x.cents)).toEqual([500, 500])
   })
 
+  it('a Refund again token is bound to what it repeats: the same {of, token} with a different amount is refused before Square', async () => {
+    const { a, classId, ask, of } = await madeOnce('pay_n6')
+    const again = { of, token: 'again-tok-n6' }
+    mocks.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    expect((await admin({ ...ask, again })).status).toBe(502)
+    // the screen changed the amount but kept the repeat's token: never continues the $5 one as $7, never a new refund
+    const changed = await admin({ ...ask, cents: 700, again })
+    expect(changed.status).toBe(409)
+    expect(changed.body.error).toBe(AGAIN_IS_STALE)
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(2)
+    // and after the $5 repeat finishes, the reused token with another amount is still refused
+    expect((await admin({ ...ask, again })).status).toBe(200)
+    expect((await admin({ ...ask, cents: 300, again })).status).toBe(409)
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(3)
+    expect((await byId(classId))[a.id].refunds.map((x) => x.cents)).toEqual([500, 500])
+  })
+
   it('the old again: true shape is refused; a finished request with no finish time shows no date', async () => {
     const { classId, ask } = await madeOnce('pay_n5')
     expect((await admin({ ...ask, again: true })).status).toBe(400)

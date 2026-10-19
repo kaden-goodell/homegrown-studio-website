@@ -494,3 +494,23 @@ export async function setNames(classId: string, lineIds: string[], customer: Non
     return { next: { ...cur, lines }, result: undefined }
   })
 }
+
+/**
+ * Puts seats on other sessions of the same class (a counter sale of a
+ * pick-your-days pass, once a person says which days). Capacity is not
+ * checked: the seat is already sold. A seat landing on a full session is
+ * marked overCapacity for staff, as with any paid seat.
+ */
+export async function moveLines(cls: ScheduledClass, lineIds: string[], sessionIds: string[], now: Date): Promise<LedgerLine[]> {
+  const known = new Set(cls.sessions.map((s) => s.id))
+  if (!sessionIds.length || sessionIds.some((id) => !known.has(id))) throw new Error('One of those days is not part of this class.')
+  const order = cls.sessions.filter((s) => sessionIds.includes(s.id)).sort((a, b) => a.startIso.localeCompare(b.startIso)).map((s) => s.id)
+  return mutate(cls.id, (cur) => {
+    for (const id of lineIds) if (!cur.lines.some((l) => l.id === id)) throw new Error('One of those seats is not on this class.')
+    const moved = cur.lines.map((l) => (lineIds.includes(l.id) ? { ...l, sessionIds: [...order] } : l))
+    const after: Ledger = { ...cur, lines: moved }
+    const over = new Set(cls.sessions.filter((s) => seatsTaken(after, s.id, now) > s.capacity).map((s) => s.id))
+    const lines = moved.map((l) => (lineIds.includes(l.id) && l.sessionIds.some((id) => over.has(id)) ? { ...l, overCapacity: true } : l))
+    return { next: { ...cur, lines }, result: lines.filter((l) => lineIds.includes(l.id)) }
+  })
+}
