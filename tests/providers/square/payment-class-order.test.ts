@@ -17,8 +17,8 @@ const squareOrder = {
     id: 'ord-1',
     total_money: { amount: 2180, currency: 'USD' },
     line_items: [
-      { uid: 'u1', total_money: { amount: 1090 }, total_tax_money: { amount: 90 } },
-      { uid: 'u2', total_money: { amount: 1090 }, total_tax_money: { amount: 90 } },
+      { uid: 'l0', total_money: { amount: 1090 }, total_tax_money: { amount: 90 } },
+      { uid: 'l1', total_money: { amount: 1090 }, total_tax_money: { amount: 90 } },
     ],
   },
 }
@@ -49,7 +49,7 @@ describe('SquarePaymentProvider.createClassOrder', () => {
     expect(body.order.location_id).toBe('L')
     expect(body.order.customer_id).toBe('C1')
     expect(body.order.reference_id).toBe('bk-1')
-    expect(body.order.line_items[0]).toEqual({ catalog_object_id: 'V1', quantity: '1', note: 'Ann' })
+    expect(body.order.line_items[0]).toEqual({ uid: 'l0', catalog_object_id: 'V1', quantity: '1', note: 'Ann' })
     expect(body.order.line_items[1].note).toHaveLength(500)
     expect(body.order).not.toHaveProperty('discounts')
   })
@@ -65,8 +65,26 @@ describe('SquarePaymentProvider.createClassOrder', () => {
     const r = await p.createClassOrder(base)
     expect(r.orderId).toBe('ord-1')
     expect(r.totalCents).toBe(2180)
-    expect(r.lineUids).toEqual(['u1', 'u2'])
-    expect(r.lineTotals).toEqual([{ uid: 'u1', totalCents: 1090, taxCents: 90 }, { uid: 'u2', totalCents: 1090, taxCents: 90 }])
+    expect(r.lineUids).toEqual(['l0', 'l1'])
+    expect(r.lineTotals).toEqual([{ uid: 'l0', totalCents: 1090, taxCents: 90 }, { uid: 'l1', totalCents: 1090, taxCents: 90 }])
+  })
+
+  it('maps a reordered response back by uid', async () => {
+    squareFetch.mockResolvedValue({ order: { ...squareOrder.order, line_items: [
+      { uid: 'l1', total_money: { amount: 200 }, total_tax_money: { amount: 20 } },
+      { uid: 'l0', total_money: { amount: 100 }, total_tax_money: { amount: 10 } },
+    ] } })
+    const r = await p.createClassOrder(base)
+    expect(r.lineTotals).toEqual([{ uid: 'l0', totalCents: 100, taxCents: 10 }, { uid: 'l1', totalCents: 200, taxCents: 20 }])
+  })
+
+  it('throws on short, unknown-uid or missing-id responses', async () => {
+    squareFetch.mockResolvedValue({ order: { ...squareOrder.order, line_items: [] } })
+    await expect(p.createClassOrder(base)).rejects.toThrow()
+    squareFetch.mockResolvedValue({ order: { ...squareOrder.order, line_items: [{ uid: 'l0' }, { uid: 'zz' }] } })
+    await expect(p.createClassOrder(base)).rejects.toThrow('missing line')
+    squareFetch.mockResolvedValue({ order: { ...squareOrder.order, id: undefined } })
+    await expect(p.createClassOrder(base)).rejects.toThrow('without an id')
   })
 
   it('lets Square errors through', async () => {

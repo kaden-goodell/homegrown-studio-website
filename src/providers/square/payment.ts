@@ -39,7 +39,8 @@ export class SquarePaymentProvider implements PaymentProvider {
     const order: Record<string, any> = {
       location_id: params.locationId,
       reference_id: params.referenceId,
-      line_items: params.lines.map((l) => ({
+      line_items: params.lines.map((l, i) => ({
+        uid: `l${i}`,
         catalog_object_id: l.catalogObjectId,
         quantity: '1',
         note: l.note.slice(0, 500),
@@ -61,16 +62,26 @@ export class SquarePaymentProvider implements PaymentProvider {
       body: JSON.stringify({ idempotency_key: params.idempotencyKey, order }),
     })
     const o = res?.order ?? {}
+    if (!o.id) throw new Error('Square returned an order without an id.')
     const items: any[] = o.line_items ?? []
+    if (items.length !== params.lines.length) {
+      throw new Error(`Square returned ${items.length} order lines for ${params.lines.length} requested.`)
+    }
+    const byUid = new Map<string, any>(items.map((i) => [String(i.uid), i]))
+    const lineTotals = params.lines.map((_, i) => {
+      const it = byUid.get(`l${i}`)
+      if (!it) throw new Error(`Square's order is missing line l${i}.`)
+      return {
+        uid: `l${i}`,
+        totalCents: Number(it.total_money?.amount ?? 0),
+        taxCents: Number(it.total_tax_money?.amount ?? 0),
+      }
+    })
     return {
       orderId: String(o.id),
       totalCents: Number(o.total_money?.amount ?? 0),
-      lineUids: items.map((i) => String(i.uid)),
-      lineTotals: items.map((i) => ({
-        uid: String(i.uid),
-        totalCents: Number(i.total_money?.amount ?? 0),
-        taxCents: Number(i.total_tax_money?.amount ?? 0),
-      })),
+      lineUids: lineTotals.map((l) => l.uid),
+      lineTotals,
     }
   }
 
