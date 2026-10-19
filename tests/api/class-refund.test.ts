@@ -269,6 +269,23 @@ describe('owner refunds', () => {
   })
 })
 
+describe('Task 14 m7: money taken at the register goes back at the register', () => {
+  it('a counter sale or a door seat paid at the counter: refused before Square, owners and crew', async () => {
+    const pos = line({ source: 'pos', customer: null, square: { orderId: 'oP', paymentId: 'pay_pos', lineUid: 'L1' } })
+    const classId = await setup([pos])
+    for (const r of [await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' }), await staff({ classId, bookingId: 'bkg_r1', kind: 'booking', reason: 'Wrong class' })]) {
+      expect(r.status).toBe(409)
+      expect(r.body.error).toBe('Refund this at the register, then free the seat.')
+    }
+    const door = line({ bookingId: 'bkg_door', source: 'door-counter', square: { orderId: 'oD', paymentId: 'pay_door', lineUid: 'L2' } })
+    const classId2 = await setup([door])
+    expect((await admin({ classId: classId2, bookingId: 'bkg_door', kind: 'booking' })).status).toBe(409)
+    expect(mocks.refundPayment).not.toHaveBeenCalled()
+    // freeing the seat (no money) still works
+    expect((await staff({ action: 'free-seat', classId: classId2, bookingId: 'bkg_door', reason: 'Refunded at the register' })).status).toBe(200)
+  })
+})
+
 describe('fix round 1', () => {
   it('free-seat defaults: whole booking and one person free it; one session and custom keep it', async () => {
     const a = line({ seat: 1, sessionIds: ['ses_r1', 'ses_r2'] }), b = line({ seat: 2, sessionIds: ['ses_r1', 'ses_r2'] })
