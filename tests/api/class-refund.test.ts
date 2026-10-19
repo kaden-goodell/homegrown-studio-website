@@ -55,7 +55,7 @@ import * as staffRoute from '@pages/api/staff/class-refund.json'
 import { adminCookie } from '@lib/admin-auth'
 import { createClass } from '@lib/classes/class-store'
 import { getLedger, type LedgerLine } from '@lib/classes/seat-ledger'
-import { refundKey, refundKeyRaw, SAVED_SPLIT_NO_LONGER_FITS, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN, STILL_WAITING_ON_SQUARE } from '@lib/classes/refunds'
+import { AGAIN_IS_STALE, refundKey, refundKeyRaw, SAVED_SPLIT_NO_LONGER_FITS, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN, STILL_WAITING_ON_SQUARE } from '@lib/classes/refunds'
 import { listRefundRequests } from '@lib/classes/refund-requests'
 import { makeKvStore } from '@lib/blob-store'
 import { handleRefund } from '@lib/classes/square-events'
@@ -255,7 +255,7 @@ describe('owner refunds', () => {
     const same = await admin({ classId, bookingId: 'bkg_r1', kind: 'custom', cents: 1000 })
     expect(same.body.data.already).toMatchObject({ by: { id: 'admin', name: 'Owner' } })
     expect(mocks.refundPayment).toHaveBeenCalledTimes(1)
-    await admin({ classId, bookingId: 'bkg_r1', kind: 'custom', cents: 1000, again: true })
+    await admin({ classId, bookingId: 'bkg_r1', kind: 'custom', cents: 1000, again: { of: same.body.data.already.latest.requestId, token: 'again-tok-1' } })
     const [k1, k2] = mocks.refundPayment.mock.calls.map((c) => c[0].idempotencyKey)
     expect(k1).not.toBe(k2)
     expect(k2).toBe(refundKey('bkg_r1', [a.id], 1000, 1))
@@ -265,7 +265,7 @@ describe('owner refunds', () => {
     expect(done.status).toBe(200)
     expect(done.body.data.already).toBeTruthy()
     expect(mocks.refundPayment).toHaveBeenCalledTimes(3)
-    expect((await admin({ classId, bookingId: 'bkg_r1', kind: 'booking', again: true })).status).toBe(400)
+    expect((await admin({ classId, bookingId: 'bkg_r1', kind: 'booking', again: { of: done.body.data.already.latest.requestId, token: 'again-tok-2' } })).status).toBe(400)
   })
 })
 
@@ -547,7 +547,9 @@ describe('fix round 2: one saved request per refund, so a retry never refunds tw
     const replay = await admin(ask)
     expect(replay.status).toBe(200)
     expect(mocks.refundPayment).toHaveBeenCalledTimes(1)
-    expect((await admin({ ...ask, attempt: 'att-replay-2', again: true })).status).toBe(200)
+    const seen = await admin({ ...ask, attempt: 'att-replay-2' })
+    expect(seen.body.data.already).toBeTruthy()
+    expect((await admin({ ...ask, attempt: 'att-replay-2', again: { of: seen.body.data.already.latest.requestId, token: 'again-tok-rp' } })).status).toBe(200)
     expect(mocks.refundPayment).toHaveBeenCalledTimes(2)
     expect((await byId(classId))[a.id].refunds.map((r) => r.cents)).toEqual([1000, 1000])
   })
@@ -712,13 +714,14 @@ describe('fix round 4: identical refunds match forever, atomic refund state, Squ
       expect((await byId(classId))[b.id].refunds).toHaveLength(1)
     })
 
-    it('"Refund again" (again: true) makes a genuinely new refund with a new key', async () => {
+    it('"Refund again" (naming the refund it repeats) makes a genuinely new refund with a new key', async () => {
       const a = seat(1, 'pay_ag')
       const classId = await setup([a])
       const ask = { classId, bookingId: 'bkg_r1', kind: 'custom', cents: 500 }
       expect((await admin({ ...ask, attempt: 'att-ag-1' })).status).toBe(200)
-      expect((await admin({ ...ask, attempt: 'att-ag-2' })).body.data.already).toBeTruthy()
-      const r = await admin({ ...ask, attempt: 'att-ag-3', again: true })
+      const seen = await admin({ ...ask, attempt: 'att-ag-2' })
+      expect(seen.body.data.already).toMatchObject({ count: 1, latest: { requestId: expect.any(String), cents: 500, by: { id: 'admin', name: 'Owner' } } })
+      const r = await admin({ ...ask, attempt: 'att-ag-3', again: { of: seen.body.data.already.latest.requestId, token: 'again-tok-ag' } })
       expect(r.status).toBe(200)
       expect(r.body.data.already).toBeUndefined()
       const [k1, k2] = mocks.refundPayment.mock.calls.map((c) => c[0].idempotencyKey)
@@ -917,5 +920,92 @@ describe('fix round 4: identical refunds match forever, atomic refund state, Squ
       mocks.staff = null
       expect((await get(staffRoute, false)).status).toBe(401)
     })
+  })
+})
+
+describe('fix round 5: "Refund again" keeps one identity across retries (R31)', () => {
+  const seat = (n: number, paymentId: string) => line({ seat: n, priceCents: 2500, taxCents: 0, square: { orderId: 'o1', paymentId, lineUid: null, chargedCents: 5000 } })
+  const fromSquare = (id: string, paymentId: string, cents: number) => ({ id, status: 'COMPLETED', payment_id: paymentId, amount_money: { amount: cents, currency: 'USD' }, location_id: 'LOC1' })
+  const squareByKey = () => mocks.refundPayment.mockImplementation(async (i: any) => ({ id: `rf_${i.idempotencyKey.slice(-8)}`, paymentId: i.paymentId, amountCents: i.amountCents, status: 'COMPLETED' }))
+  /** one $5 refund made, then the same ask answered "Already refunded" */
+  async function madeOnce(paymentId: string) {
+    const a = seat(1, paymentId)
+    const classId = await setup([a])
+    squareByKey()
+    const ask = { classId, bookingId: 'bkg_r1', kind: 'custom', cents: 500 }
+    expect((await admin({ ...ask, attempt: 'att-1' })).status).toBe(200)
+    const seen = await admin({ ...ask, attempt: 'att-2' })
+    expect(seen.body.data.already.message).toMatch(/^Already refunded on .+ by Owner\.$/)
+    return { a, classId, ask, of: seen.body.data.already.latest.requestId as string }
+  }
+
+  it('the reviewer\'s case: Refund again, Square times out, the webhook finishes it, the retry sends nothing — 2 Square refunds in all', async () => {
+    const { a, classId, ask, of } = await madeOnce('pay_n1')
+    const again = { of, token: 'again-tok-n1' }
+    mocks.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    expect((await admin({ ...ask, attempt: 'att-2', again })).status).toBe(502)
+    await handleRefund(fromSquare('rf_n1b', 'pay_n1', 500), new Date())
+    const retry = await admin({ ...ask, attempt: 'att-2', again })
+    expect(retry.status).toBe(200)
+    expect(retry.body.data.already).toMatchObject({ count: 2 })
+    expect(retry.body.data.already.message).toMatch(/^Refunded twice already, last on .+ by Owner\.$/)
+    // two Square calls made: the first refund and the repeat (whose retry sent nothing)
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(2)
+    expect((await byId(classId))[a.id].refunds.map((r) => r.cents)).toEqual([500, 500])
+  })
+
+  it('a retry of Refund again while it is still waiting on Square re-sends its saved split and key', async () => {
+    const { a, classId, ask, of } = await madeOnce('pay_n2')
+    const again = { of, token: 'again-tok-n2' }
+    mocks.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    expect((await admin({ ...ask, again })).status).toBe(502)
+    const r = await admin({ ...ask, again })
+    expect(r.status).toBe(200)
+    expect(r.body.data.already).toBeUndefined()
+    const keys = mocks.refundPayment.mock.calls.map((c) => c[0].idempotencyKey)
+    expect(keys).toHaveLength(3)
+    expect(keys[2]).toBe(keys[1])
+    expect((await byId(classId))[a.id].refunds.map((x) => x.cents)).toEqual([500, 500])
+  })
+
+  it('a stale screen: Refund again naming a refund that is no longer the latest is refused before Square', async () => {
+    const { ask, of } = await madeOnce('pay_n3')
+    expect((await admin({ ...ask, again: { of, token: 'again-tok-n3a' } })).status).toBe(200)
+    const stale = await admin({ ...ask, again: { of, token: 'again-tok-n3b' } })
+    expect(stale.status).toBe(409)
+    expect(stale.body.error).toBe(AGAIN_IS_STALE)
+    expect(AGAIN_IS_STALE).toBe('Someone already refunded this again. Check the list.')
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(2)
+    // and the plain ask now names the latest of two
+    const seen = await admin(ask)
+    expect(seen.body.data.already.count).toBe(2)
+    expect(seen.body.data.already.latest.requestId).not.toBe(of)
+  })
+
+  it('a double tap of Refund again (same token) makes one refund, one audit, one email', async () => {
+    const { a, classId, ask, of } = await madeOnce('pay_n4')
+    const again = { of, token: 'again-tok-n4' }
+    mocks.audit.mockClear(); mocks.email.mockClear()
+    // the second tap lands while the first is between planning and saving
+    let second: Awaited<ReturnType<typeof admin>> | null = null
+    ledgerFail.onRead = async () => { second = await admin({ ...ask, again }) }
+    const first = await admin({ ...ask, again })
+    expect(first.status).toBe(200)
+    expect(second!.status).toBe(200)
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(2)
+    expect(mocks.audit.mock.calls.filter((c) => c[0].action === 'class-refund')).toHaveLength(1)
+    expect(mocks.email).toHaveBeenCalledTimes(1)
+    expect((await byId(classId))[a.id].refunds.map((x) => x.cents)).toEqual([500, 500])
+  })
+
+  it('the old again: true shape is refused; a finished request with no finish time shows no date', async () => {
+    const { classId, ask } = await madeOnce('pay_n5')
+    expect((await admin({ ...ask, again: true })).status).toBe(400)
+    const key = (await requestsKv.list()).find((k) => k.includes(classId))!
+    const list = JSON.parse((await requestsKv.get(key))!)
+    await requestsKv.set(key, JSON.stringify(list.map((r: any) => ({ ...r, doneAt: undefined }))))
+    const seen = await admin(ask)
+    expect(seen.body.data.already.message).toBe('Already refunded by Owner.')
+    expect(seen.body.data.already.at).toBeNull()
   })
 })

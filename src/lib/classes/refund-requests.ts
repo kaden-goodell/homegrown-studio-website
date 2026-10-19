@@ -81,10 +81,15 @@ async function update<T>(classId: string, bookingId: string, fn: (list: SavedRef
   throw new Error('Concurrent update — please retry')
 }
 
-/** True for a request a new ask with the same inputs continues (or answers as already done, unless asked again on purpose). */
-export function sameAsk(r: SavedRefundRequest, inputHash: string, again: boolean): boolean {
-  if (r.inputHash !== inputHash || r.retired) return false
-  return r.status !== 'done' || !again
+/** True for a request with these same inputs that a new ask continues (unfinished) or is answered by (done). Retired ones never. */
+export function sameAsk(r: SavedRefundRequest, inputHash: string): boolean {
+  return r.inputHash === inputHash && !r.retired
+}
+
+/** The finished requests with these inputs, latest first (by when they finished; requests from before doneAt by when made). */
+export function doneAsks(list: SavedRefundRequest[], inputHash: string): SavedRefundRequest[] {
+  const when = (r: SavedRefundRequest) => r.doneAt ?? r.createdAt
+  return list.filter((r) => sameAsk(r, inputHash) && r.status === 'done').sort((a, b) => when(b).localeCompare(when(a)))
 }
 
 /** Still waiting on Square with no answer: blocks every different refund on the booking until a person checks (R29). */
@@ -99,6 +104,8 @@ export type SaveOutcome =
   | { kind: 'waiting'; rec: SavedRefundRequest }
   /** a different refund was saved after this one was planned: its plan may be out of date */
   | { kind: 'changed'; rec: SavedRefundRequest }
+  /** a "Refund again" whose `of` is no longer the latest finished refund with these inputs (someone repeated it already) */
+  | { kind: 'stale'; rec: SavedRefundRequest | null }
 
 /**
  * Saves a new request, deciding in the same compare-and-swap (no snapshot
@@ -107,13 +114,19 @@ export type SaveOutcome =
  * requests); a different refund waiting on Square → refused; a different
  * refund saved since `seen` was read (the plan may be stale) → refused.
  */
-export async function saveRefundRequest(rec: SavedRefundRequest, opts: { seen: string[]; again: boolean }): Promise<SaveOutcome> {
+export async function saveRefundRequest(rec: SavedRefundRequest, opts: { seen: string[]; againOf: string | null }): Promise<SaveOutcome> {
   return update<SaveOutcome>(rec.classId, rec.bookingId, (list) => {
     const have = list.find((r) => r.id === rec.id)
     if (have) return { next: null, result: { kind: 'mine', rec: have } }
-    const same = list.filter((r) => sameAsk(r, rec.inputHash, opts.again))
-    const continued = same.find((r) => r.status !== 'done') ?? same[0]
-    if (continued) return { next: null, result: { kind: 'same', rec: continued } }
+    const unfinished = list.find((r) => sameAsk(r, rec.inputHash) && r.status !== 'done')
+    if (unfinished) return { next: null, result: { kind: 'same', rec: unfinished } }
+    const latest = doneAsks(list, rec.inputHash)[0] ?? null
+    if (opts.againOf !== null) {
+      // "Refund again" repeats exactly the refund the screen showed, and only while it is still the latest.
+      if (!latest || latest.id !== opts.againOf) return { next: null, result: { kind: 'stale', rec: latest } }
+    } else if (latest) {
+      return { next: null, result: { kind: 'same', rec: latest } }
+    }
     const waiting = list.find(isWaiting)
     if (waiting) return { next: null, result: { kind: 'waiting', rec: waiting } }
     const since = list.find((r) => !opts.seen.includes(r.id) && r.status !== 'turned-down')

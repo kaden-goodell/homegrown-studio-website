@@ -18,7 +18,7 @@ import { getLedger, noteRefundFailed, recordRefund, recordRequestRefund, type Le
 import type { Cents, ScheduledClass } from './types'
 import {
   changeRefundRequest, claimRequestEmail, hashOf, isWaiting, listRefundRequests, markRequestDone, markRequestSent,
-  releaseRequestEmail, resendRefundRequest, sameAsk, saveRefundRequest, type SavedRefundRequest,
+  doneAsks, releaseRequestEmail, resendRefundRequest, sameAsk, saveRefundRequest, type SavedRefundRequest,
 } from './refund-requests'
 
 export type RefundKind = 'booking' | 'person' | 'session' | 'custom'
@@ -36,6 +36,8 @@ export const ALREADY_FREE = 'That seat is already free.'
 
 export const NOT_WAITING = "That refund isn't waiting on Square any more."
 export const STILL_WAITING_ON_SQUARE = 'A refund on this booking is still waiting on Square. Check it in Square first.'
+export const AGAIN_IS_STALE = 'Someone already refunded this again. Check the list.'
+export const AGAIN_NEEDS_THE_SCREEN = 'To repeat a refund, use "Refund again" on the refund screen.'
 export const REFUND_JUST_MADE = 'Another refund was just made on this booking. Look at the booking again before refunding more.'
 export const SAVED_SPLIT_NO_LONGER_FITS =
   "That refund no longer fits what's left on this booking, so nothing was sent to Square. Look at what's left and refund again."
@@ -61,11 +63,15 @@ export interface RefundRequest {
   /** the screen's token for this ask, the same on every retry of it (a new one for a new refund) */
   attempt?: string
   /**
-   * The owner saw that the same refund was already made and wants a second one
-   * on purpose ("Refund again"). Without it, a request with the same inputs as
-   * an earlier finished one is answered "Already refunded", however long ago.
+   * "Refund again" (R31): the owner saw that the same refund was already made
+   * and wants another on purpose. `of` = the latest finished request with
+   * these inputs, as the "Already refunded" reply named it (refused when it is
+   * no longer the latest: a stale screen); `token` = made once when that reply
+   * arrived and kept across every retry, so the repeat has one identity (its
+   * request id comes from booking + of + token). Without it, a request with
+   * the same inputs as an earlier finished one is answered "Already refunded".
    */
-  again?: boolean
+  again?: { of: string; token: string }
 }
 
 export interface RefundPlan {
@@ -234,30 +240,22 @@ export interface RefundResult {
   freeSeat: boolean
   lines: LedgerLine[]
   emailed: boolean
-  /** set when this ask matched a refund already made (nothing was sent): the screen shows it and offers "Refund again" */
-  already?: { at: string; by: By; checkedBy?: By; message: string }
+  /**
+   * Set when this ask matched a refund already made (nothing was sent): the
+   * screen shows `message` and offers "Refund again" of `latest`. `at` is null
+   * for a request saved before finish times were kept. `count` = refunds made
+   * with these same inputs.
+   */
+  already?: {
+    at: string | null; by: By; checkedBy?: By; message: string; count: number
+    latest: { requestId: string; at: string | null; by: By; cents: Cents }
+  }
 }
 
 /** The request's inputs, without the attempt token: the same ask twice hashes the same. */
 function inputHashOf(classId: string, req: RefundRequest): string {
   const lineIds = [...new Set(req.lineIds ?? [])].sort()
   return hashOf('refund-request', classId, req.bookingId, req.kind, lineIds, req.cents ?? null, req.freeSeat ?? null)
-}
-
-/**
- * The saved request this ask continues, if any. In order: the same attempt
- * token's request; else an unfinished request with the same inputs (a retry
- * after a reload); else a finished request with the same inputs, with no time
- * limit (answered "Already refunded"), unless the owner asked `again`. A
- * request retired because it no longer fits is never continued.
- */
-function continuing(saved: SavedRefundRequest[], id: string | null, inputHash: string, again: boolean): SavedRefundRequest | null {
-  if (id) {
-    const exact = saved.find((r) => r.id === id)
-    if (exact && !exact.retired && !(again && exact.status === 'done')) return exact
-  }
-  const same = saved.filter((r) => sameAsk(r, inputHash, again))
-  return same.find((r) => r.status !== 'done') ?? same[0] ?? null
 }
 
 /** True when the saved split still fits what each of its seats (and the booking) has left. */
@@ -349,22 +347,31 @@ async function emailOnce(rec: SavedRefundRequest, lines: LedgerLine[], className
 }
 
 /**
- * A request already on the ledger, asked for again: nothing is sent. Through
- * the same attempt token it is a replay of that ask; otherwise (`already`) it
- * is the same refund re-entered, and the reply names when and by whom it was
- * made. Only the person who asked is marked as told.
+ * A request already on the ledger, asked for again: nothing is sent. A replay
+ * of the same attempt token is answered as that refund (`already` false).
+ * Otherwise (`already`) it is the same refund re-entered, or a "Refund again"
+ * retried after Square finished it: the reply names the LATEST refund with
+ * these inputs and how many there have been. Only the asker is marked as told.
  */
 async function doneReply(cls: ScheduledClass, rec: SavedRefundRequest, actor: { by: By }, already: boolean): Promise<RefundResult> {
   if (actor.by.id === rec.by.id) await markRequestDone(cls.id, rec.bookingId, rec.id, rec.squareRefundId, { answered: true }).catch(() => false)
-  const lines = (await getLedger(cls.id)).lines.filter((l) => rec.lines.some((x) => x.id === l.id))
-  const out: RefundResult = { refundId: rec.squareRefundId ?? '', cents: rec.totalCents, freeSeat: rec.freeSeat, lines, emailed: !!rec.emailedAt }
+  const done = already ? doneAsks(await listRefundRequests(cls.id, rec.bookingId), rec.inputHash) : []
+  const latest = done[0] ?? rec
+  const lines = (await getLedger(cls.id)).lines.filter((l) => latest.lines.some((x) => x.id === l.id))
+  const out: RefundResult = { refundId: latest.squareRefundId ?? '', cents: latest.totalCents, freeSeat: latest.freeSeat, lines, emailed: !!latest.emailedAt }
   if (!already) return out
-  const at = rec.doneAt ?? rec.cleared?.at ?? rec.updatedAt
+  // Only a real finish time; never one that moves with later writes (an email claim, say).
+  const at = latest.doneAt ?? latest.cleared?.at ?? null
+  const count = Math.max(1, done.length)
+  const when = at ? `on ${shortDate(at)} ` : ''
+  const message = count === 1
+    ? `Already refunded ${when}by ${latest.by.name}.`
+    : `Refunded ${count === 2 ? 'twice' : `${count} times`} already, last ${when}by ${latest.by.name}.`
   return {
     ...out,
     already: {
-      at, by: rec.by, ...(rec.cleared ? { checkedBy: rec.cleared.by } : {}),
-      message: `Already refunded on ${shortDate(at)} by ${rec.by.name}.`,
+      at, by: latest.by, ...(latest.cleared ? { checkedBy: latest.cleared.by } : {}), message, count,
+      latest: { requestId: latest.id, at, by: latest.by, cents: latest.totalCents },
     },
   }
 }
@@ -388,12 +395,33 @@ export async function refundClassBooking(req: RefundRequest, actor: { by: By; ro
   const cls = req.classId ? await getClass(req.classId) : null
   if (!cls) throw new RefundError(404, 'That class does not exist.')
   const now = new Date()
-  const again = req.again === true
+  const again = req.again ?? null
   const inputHash = inputHashOf(cls.id, req)
-  const tokenId = req.attempt ? hashOf('refund-attempt', inputHash, req.attempt) : null
+  // One identity per ask across its retries: a "Refund again" by (booking, what it repeats, its token); else the screen's token.
+  const tokenId = again
+    ? hashOf('refund-again', cls.id, req.bookingId, again.of, again.token)
+    : req.attempt ? hashOf('refund-attempt', inputHash, req.attempt) : null
   const saved = await listRefundRequests(cls.id, req.bookingId)
-  let rec = continuing(saved, tokenId, inputHash, again)
-  let viaToken = !!rec && rec.id === tokenId
+  let rec: SavedRefundRequest | null = null
+
+  // 1. This very ask (same token), whatever else is asked: continue it, or say it's done.
+  const exact = tokenId ? saved.find((r) => r.id === tokenId) : undefined
+  if (exact && exact.retired && again) throw new RefundError(409, SAVED_SPLIT_NO_LONGER_FITS)
+  if (exact && !exact.retired) {
+    if (exact.status === 'done') return doneReply(cls, exact, actor, !!again)
+    rec = exact
+  }
+  // 2. The same inputs, unfinished: continue it (a retry from a reloaded screen).
+  rec ??= saved.find((r) => sameAsk(r, inputHash) && r.status !== 'done') ?? null
+  if (!rec) {
+    // 3. The same inputs, finished: "Already refunded", unless this is a "Refund again" of exactly the latest one.
+    const latest = doneAsks(saved, inputHash)[0]
+    if (again) {
+      if (!latest || latest.id !== again.of) throw new RefundError(409, AGAIN_IS_STALE)
+    } else if (latest) {
+      return doneReply(cls, latest, actor, true)
+    }
+  }
 
   if (!rec) {
     // A different refund while one has no answer from Square: refused until a person checks Square (R29).
@@ -401,7 +429,8 @@ export async function refundClassBooking(req: RefundRequest, actor: { by: By; ro
     if (waiting) throw await blockedBy(cls, waiting, STILL_WAITING_ON_SQUARE)
     const plan = planRefund(await getLedger(cls.id), req)
     const at = now.toISOString()
-    const id = tokenId && !saved.some((r) => r.id === tokenId) ? tokenId : hashOf('refund-attempt', inputHash, randomUUID())
+    // A "Refund again" always uses its own id (a retired one was refused above); a plain ask whose token was retired gets a new one.
+    const id = tokenId && (again || !saved.some((r) => r.id === tokenId)) ? tokenId : hashOf('refund-attempt', inputHash, randomUUID())
     // Checked again and saved in one step: two refunds at once can't both go to Square.
     const out = await saveRefundRequest({
       id, inputHash, classId: cls.id, bookingId: req.bookingId, paymentId: plan.paymentId, kind: req.kind, freeSeat: plan.freeSeat,
@@ -409,14 +438,14 @@ export async function refundClassBooking(req: RefundRequest, actor: { by: By; ro
       rawKey: plan.rawKey, failures: plan.failures,
       idempotencyKey: refundKey(req.bookingId, plan.lines.map((x) => x.id), plan.totalCents, plan.prior, plan.failures),
       status: 'pending', squareRefundId: null, answered: false, createdAt: at, updatedAt: at,
-    }, { seen: saved.map((r) => r.id), again })
+    }, { seen: saved.map((r) => r.id), againOf: again?.of ?? null })
     if (out.kind === 'waiting') throw await blockedBy(cls, out.rec, STILL_WAITING_ON_SQUARE)
     if (out.kind === 'changed') throw await blockedBy(cls, out.rec, REFUND_JUST_MADE)
+    if (out.kind === 'stale') throw new RefundError(409, AGAIN_IS_STALE)
+    // Our own id finished meanwhile (a double tap): a replay, or for "Refund again" the "Already refunded" answer.
+    if (out.rec.status === 'done') return doneReply(cls, out.rec, actor, out.kind === 'same' || !!again)
     rec = out.rec
-    viaToken = out.kind === 'mine'
   }
-
-  if (rec.status === 'done') return doneReply(cls, rec, actor, !viaToken)
 
   const checked = checkedButUnfinished(rec)
   let refundId: string | null = rec.status === 'sent' ? rec.squareRefundId : null
@@ -648,6 +677,12 @@ export function readRefundBody(body: any, opts: { reasonRequired: boolean }): Re
   if (opts.reasonRequired && reason.length < 3) throw new RefundError(400, 'Add a reason for the refund.')
   const bookingId = typeof body.bookingId === 'string' ? body.bookingId : ''
   if (!bookingId) throw new RefundError(404, 'That booking is not on this class.')
+  const okId = (v: unknown): v is string => typeof v === 'string' && /^[A-Za-z0-9_-]{6,80}$/.test(v)
+  let again: RefundRequest['again'] | undefined
+  if (body.again !== undefined && body.again !== null && body.again !== false) {
+    if (typeof body.again !== 'object' || !okId(body.again.of) || !okId(body.again.token)) throw new RefundError(400, AGAIN_NEEDS_THE_SCREEN)
+    again = { of: body.again.of, token: body.again.token }
+  }
   return {
     classId: typeof body.classId === 'string' ? body.classId : '',
     bookingId,
@@ -656,7 +691,7 @@ export function readRefundBody(body: any, opts: { reasonRequired: boolean }): Re
     ...(body.cents !== undefined ? { cents: Number(body.cents) } : {}),
     ...(typeof body.freeSeat === 'boolean' ? { freeSeat: body.freeSeat } : {}),
     ...(typeof body.attempt === 'string' && /^[A-Za-z0-9_-]{6,80}$/.test(body.attempt) ? { attempt: body.attempt } : {}),
-    ...(body.again === true ? { again: true } : {}),
+    ...(again ? { again } : {}),
     reason,
   }
 }

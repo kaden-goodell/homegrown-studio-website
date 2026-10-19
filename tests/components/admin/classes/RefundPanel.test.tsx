@@ -49,9 +49,10 @@ describe('RefundPanel', () => {
     expect(tokens[2]).not.toBe(tokens[0])
   })
 
-  it('the same refund already made: says so, sends nothing more, and "Refund again" sends again: true with a new token', async () => {
+  it('the same refund already made: says so; "Refund again" names it and keeps ONE token across retries', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(ok({ data: { cents: 6540, emailed: true, already: { at: '2026-10-18T15:00:00Z', by: { id: 'admin', name: 'Owner' }, message: 'Already refunded on Oct 18, 2026 by Owner.' } } }))
+      .mockResolvedValueOnce(ok({ data: { cents: 6540, emailed: true, already: { at: '2026-10-18T15:00:00Z', by: { id: 'admin', name: 'Owner' }, message: 'Already refunded on Oct 18, 2026 by Owner.', count: 1, latest: { requestId: 'req_latest', at: '2026-10-18T15:00:00Z', by: { id: 'admin', name: 'Owner' }, cents: 6540 } } } }))
+      .mockResolvedValueOnce({ ok: false, status: 502, json: async () => ({ error: "Square didn't confirm the refund. Try again. It won't refund twice." }) })
       .mockResolvedValue(ok({ data: { cents: 6540, emailed: true } }))
     vi.stubGlobal('fetch', fetchMock)
     const onDone = vi.fn()
@@ -62,11 +63,13 @@ describe('RefundPanel', () => {
     expect(screen.queryByText(/Refunded \$65\.40/)).not.toBeInTheDocument()
     expect(onDone).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: 'Refund again' }))
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
-    const [b1, b2] = fetchMock.mock.calls.map((c: any) => JSON.parse(c[1].body))
+    expect(await screen.findByText(/It won't refund twice/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Refund again' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    const [b1, b2, b3] = fetchMock.mock.calls.map((c: any) => JSON.parse(c[1].body))
     expect(b1.again).toBeUndefined()
-    expect(b2.again).toBe(true)
-    expect(b2.attempt).not.toBe(b1.attempt)
+    expect(b2.again).toEqual({ of: 'req_latest', token: expect.stringMatching(/^[A-Za-z0-9_-]{6,80}$/) })
+    expect(b3.again).toEqual(b2.again)
     await waitFor(() => expect(onDone).toHaveBeenCalled())
   })
 
