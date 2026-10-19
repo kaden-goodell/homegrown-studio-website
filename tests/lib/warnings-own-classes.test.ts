@@ -84,8 +84,23 @@ describe('warnings for our own classes', () => {
     ])
   })
 
-  it('a class store that can’t be read fails the scan (never an all clear)', async () => {
+  it('a class store that can’t be read says so in one line (never an all clear), and the rest still shows', async () => {
     own.fail = true
-    await expect(listWarnings(WINDOW, { now: NOW })).rejects.toThrow()
+    const list = await listWarnings(WINDOW, { now: NOW })
+    expect(list).toEqual([expect.objectContaining({ code: 'classes-unreadable', eventId: '', detail: 'Our classes couldn’t be checked for problems.' })])
+  })
+
+  it('R32: a "pay at the counter" seat never rung up is flagged once its session has ended', async () => {
+    const past = { ...camp(), sessions: [{ id: 'ses_0', startIso: '2026-10-13T18:00:00.000Z', endIso: '2026-10-13T20:00:00.000Z', capacity: 40 }, ...camp().sessions] }
+    own.classes = [past]
+    const door = (sessionIds: string[], over: Record<string, any> = {}) => ({ ...seat(sessionIds), source: 'door-counter', bookingId: `bkg_${sessionIds[0]}`, customer: { givenName: 'Dora', familyName: 'Door', email: 'd@x.co', phone: '' }, ...over })
+    own.ledgers.set('cls_camp', { classId: 'cls_camp', lines: [
+      door(['ses_0']),
+      door(['ses_1']), // not over yet: no warning
+      door(['ses_0'], { bookingId: 'bkg_paid', square: { orderId: 'O1', paymentId: 'P1', lineUid: 'L1' } }), // paid at the counter
+    ] })
+    const list = (await listWarnings(WINDOW, { now: NOW })).filter((w) => w.code === 'door-unpaid')
+    expect(list.map((w) => w.detail)).toEqual(['Dora Door · Clay Camp · Tue Oct 13: not paid at the counter yet.'])
+    expect(list[0]).toMatchObject({ eventId: 'cls_camp', action: OWNERS_DECIDE })
   })
 })

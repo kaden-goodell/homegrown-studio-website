@@ -29,6 +29,7 @@ import { getClass, listClasses } from '@lib/classes/class-store'
 import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
 import { listPosNeedsDays, listRefundFlags, listUnmatchedPos, type RefundFlag } from '@lib/classes/square-events'
 import { onStaffConsole } from '@lib/classes/staff-view'
+import { listDoorUnpaid } from '@lib/classes/door-unpaid'
 import type { ScheduledClass } from '@lib/classes/types'
 import { formatMoney } from '@lib/money'
 
@@ -37,7 +38,7 @@ const logger = createLogger('warnings')
 export type WarningCode =
   | 'class-over-party' | 'class-over-class' | 'oversold' | 'party-on-closed-day' | 'picks-missing' | 'capacity-unknown' | 'recorded-over-sold'
   // our own classes (Task 14): read-only for the crew; owners decide on /admin
-  | 'below-minimum' | 'pos-unmatched' | 'pos-needs-days' | 'refund-flag'
+  | 'below-minimum' | 'pos-unmatched' | 'pos-needs-days' | 'refund-flag' | 'door-unpaid' | 'classes-unreadable'
 
 export interface Warning {
   code: WarningCode
@@ -265,17 +266,19 @@ export const OWNERS_DECIDE = 'An owner decides on /admin.'
  * - below-minimum: fewer booked than the class needs to run, before its decide-by
  * - pos-unmatched / pos-needs-days: counter sales nobody has sorted out yet
  * - refund-flag: refunds made in Square, or ours still waiting on Square
- * The last three aren't tied to the window: they stay until someone decides.
+ * - door-unpaid: a "pay at the counter" seat never rung up once its session ended (R32)
+ * The last four aren't tied to the window: they stay until someone decides.
  * Read-only: nothing here frees, moves or refunds anything.
  */
 async function ownClassWarnings(from: string, to: string, now: Date): Promise<Warning[]> {
   const startIso = studioDayUtcRange(from).startIso
   const endIso = studioDayUtcRange(to).endIso
-  const [classes, unmatched, needsDays, flags] = await Promise.all([
+  const [classes, unmatched, needsDays, flags, unpaid] = await Promise.all([
     listClasses({ fromIso: startIso, toIso: endIso }),
     listUnmatchedPos(),
     listPosNeedsDays(),
     listRefundFlags(),
+    listDoorUnpaid(now),
   ])
   const shown = classes.filter(onStaffConsole)
   const byId = new Map<string, ScheduledClass>(shown.map((c) => [c.id, c]))
@@ -321,6 +324,12 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
       detail: `A counter sale of ${name} needs its day picked.`, action: OWNERS_DECIDE,
     })
   }
+  for (const u of unpaid) {
+    out.push({
+      code: 'door-unpaid', eventKind: 'workshop', eventId: u.classId, when: u.sessionStartIso, title: u.className,
+      detail: `${u.name || 'A door seat'} · ${u.className} · ${formatCalendarDay(u.day)}: not paid at the counter yet.`, action: OWNERS_DECIDE,
+    })
+  }
   for (const f of flags) {
     const name = await nameOf(f.classId)
     out.push({ code: 'refund-flag', eventKind: 'workshop', eventId: f.classId, when: f.at, title: name, detail: refundFlagDetail(f, name), action: OWNERS_DECIDE })
@@ -340,7 +349,16 @@ function refundFlagDetail(f: RefundFlag, name: string): string {
 }
 
 export async function listWarnings({ from, to }: { from: string; to: string }, opts: { now?: Date } = {}): Promise<Warning[]> {
-  const [s, own] = await Promise.all([scan(from, to), ownClassWarnings(from, to, opts.now ?? new Date())])
+  const now = opts.now ?? new Date()
+  // Our classes can't be read: say so in one line rather than hiding the Square and party warnings (never an all clear).
+  const ownOrError = ownClassWarnings(from, to, now).catch((e): Warning[] => {
+    logger.error('Class warnings scan failed', { error: e instanceof Error ? e.message : String(e) })
+    return [{
+      code: 'classes-unreadable', eventKind: 'workshop', eventId: '', when: now.toISOString(), title: 'Classes',
+      detail: 'Our classes couldn’t be checked for problems.', action: 'Refresh to try again.',
+    }]
+  })
+  const [s, own] = await Promise.all([scan(from, to), ownOrError])
   return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s), ...(await seatCounts(s)), ...own].sort((a, b) =>
     a.when.localeCompare(b.when),
   )

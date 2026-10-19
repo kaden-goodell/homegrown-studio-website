@@ -10,6 +10,7 @@ import type { By } from '@lib/staff-auth'
 import type { Quote } from './pricing'
 import type { Cents, ScheduledClass } from './types'
 import { newId } from './validate'
+import { studioDate } from '@lib/studio-time'
 
 export type SeatSource = 'online' | 'door-card' | 'door-counter' | 'comp' | 'pos'
 export interface LedgerLine {
@@ -429,9 +430,11 @@ export interface PosLineInput {
 /**
  * Records a counter (POS) sale: one confirmed 'pos' line per unit, no name
  * yet, capacity ignored (the seat is already sold). A door seat the crew
- * took "to pay at the counter" (source 'door-counter', not yet paid, same
- * pass and ticket) is this sale: it takes the payment instead of a new seat
- * being added, and keeps its name and days. Idempotent by order id +
+ * took "to pay at the counter" is this sale (R32) only when it is not yet
+ * paid, on the same class, pass and ticket, AND on a session on the sale's
+ * own studio day (`saleIso`, Chicago date): it takes the payment instead of a
+ * new seat, and keeps its name and days. Anything else is its own counter
+ * line, so a walk-in is never booked against someone else's unpaid seat. Idempotent by order id +
  * line uid + unit: units already on the ledger for that line are skipped, so a
  * replayed webhook or the nightly reconcile never adds a seat twice. Seats
  * landing on a full session are marked overCapacity for staff. Returns the
@@ -439,9 +442,11 @@ export interface PosLineInput {
  */
 export async function recordPos(
   cls: ScheduledClass,
-  input: { bookingId: string; orderId: string; paymentId: string | null; paymentIds?: string[]; chargedCents: Cents; lines: PosLineInput[] },
+  input: { bookingId: string; orderId: string; paymentId: string | null; paymentIds?: string[]; chargedCents: Cents; lines: PosLineInput[]; saleIso?: string },
   now: Date,
 ): Promise<LedgerLine[]> {
+  const saleDay = studioDate(input.saleIso ?? now.toISOString())
+  const onSaleDay = new Set(cls.sessions.filter((s) => studioDate(s.startIso) === saleDay).map((s) => s.id))
   return mutate(cls.id, (cur) => {
     let kept = cur.lines.filter((l) => !isExpiredHold(l, now))
     const added: LedgerLine[] = []
@@ -456,7 +461,8 @@ export async function recordPos(
       // A seat the crew took at the door to be paid at the counter is this sale: it is paid now, never a second seat.
       while (have < pl.units.length) {
         const door = kept.find((l) => l.source === 'door-counter' && l.state === 'confirmed' && !l.square.orderId
-          && l.passId === pl.passId && l.ticketTypeId === pl.ticketTypeId && !claimed.has(l.id))
+          && l.passId === pl.passId && l.ticketTypeId === pl.ticketTypeId && !claimed.has(l.id)
+          && l.sessionIds.some((id) => onSaleDay.has(id)))
         if (!door) break
         const unit = pl.units[have]
         claimed.add(door.id)

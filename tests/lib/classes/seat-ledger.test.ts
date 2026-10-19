@@ -477,16 +477,19 @@ describe('door seats paid at the counter (Task 14)', () => {
     const held = await hold(cls, q.value, { bookingId: 'bkg_door1', passId: 'day', source: 'door-counter', customer: cust, ttlMinutes: 10, by }, NOW)
     expect(held.ok).toBe(true)
     await confirm(cls.id, 'bkg_door1', { orderId: null, paymentId: null }, { cls, quote: q.value, input: { bookingId: 'bkg_door1', passId: 'day', source: 'door-counter', customer: cust, ttlMinutes: 10 } }, NOW)
-    const sale = { bookingId: 'bkg_pos_O1', orderId: 'O1', paymentId: 'PAY1', chargedCents: 1090, lines: [{ lineUid: 'L1', passId: 'day', ticketTypeId: 'person', sessionIds: ['ses_a'], units: [{ priceCents: 1000, taxCents: 90 }] }] }
+    const sale = { bookingId: 'bkg_pos_O1', orderId: 'O1', paymentId: 'PAY1', chargedCents: 1090, saleIso: '2026-10-23T19:00:00.000Z', lines: [{ lineUid: 'L1', passId: 'day', ticketTypeId: 'person', sessionIds: ['ses_a'], units: [{ priceCents: 1000, taxCents: 90 }] }] }
+    // R32: a sale on another day never pays it; it is its own counter seat
+    const other = await recordPos(cls, { ...sale, bookingId: 'bkg_pos_O0', orderId: 'O0', saleIso: '2026-10-22T19:00:00.000Z' }, NOW)
+    expect(other.map((l) => l.source)).toEqual(['pos'])
     const got = await recordPos(cls, sale, NOW)
     expect(got).toHaveLength(1)
-    let lines = (await getLedger(cls.id)).lines
+    let lines = (await getLedger(cls.id)).lines.filter((l) => l.bookingId !== 'bkg_pos_O0')
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ bookingId: 'bkg_door1', source: 'door-counter', sessionIds: ['ses_b'], customer: cust, square: { orderId: 'O1', paymentId: 'PAY1', lineUid: 'L1' } })
     expect(await recordPos(cls, sale, NOW)).toEqual([])
     // a second counter sale with no door seat waiting is a new counter seat
     await recordPos(cls, { ...sale, bookingId: 'bkg_pos_O2', orderId: 'O2' }, NOW)
-    lines = (await getLedger(cls.id)).lines
+    lines = (await getLedger(cls.id)).lines.filter((l) => l.bookingId !== 'bkg_pos_O0')
     expect(lines.map((l) => l.source)).toEqual(['door-counter', 'pos'])
   })
 })

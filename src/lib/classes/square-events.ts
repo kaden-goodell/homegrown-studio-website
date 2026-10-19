@@ -316,7 +316,7 @@ export async function handleOrder(
       continue
     }
     const bookingId = `bkg_pos_${safeKey(orderId)}`
-    const added = await recordPos(cls, { bookingId, orderId, paymentId, paymentIds, chargedCents: charged, lines }, now)
+    const added = await recordPos(cls, { bookingId, orderId, paymentId, paymentIds, chargedCents: charged, lines, saleIso }, now)
     out.recorded += added.length
     for (const pl of lines.filter((x) => x.needsDays)) {
       // A door seat paid at the counter already has its days.

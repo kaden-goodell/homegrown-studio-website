@@ -114,7 +114,7 @@ describe('Sell a seat, pay at the counter', () => {
     expect(r.status).toBe(200)
     expect(r.body.data).toMatchObject({ dueCents: 3815, seats: 1, emailSent: true })
     expect(mocks.email.mock.calls[0][0]).toMatchObject({ dueAtStudioCents: 3815, to: 'gia@example.com' })
-    await recordPos(cls, { bookingId: 'bkg_pos_O9', orderId: 'O9', paymentId: 'P9', chargedCents: 3815, lines: [{ lineUid: 'L9', passId: 'day', ticketTypeId: 'adult', sessionIds: ['ses_tue'], units: [{ priceCents: 3500, taxCents: 315 }] }] }, NOW)
+    await recordPos(cls, { bookingId: 'bkg_pos_O9', orderId: 'O9', paymentId: 'P9', chargedCents: 3815, saleIso: '2026-10-21T16:00:00.000Z', lines: [{ lineUid: 'L9', passId: 'day', ticketTypeId: 'adult', sessionIds: ['ses_tue'], units: [{ priceCents: 3500, taxCents: 315 }] }] }, NOW)
     const lines = (await getLedger(cls.id)).lines
     expect(lines).toHaveLength(1)
     expect(lines[0]).toMatchObject({ source: 'door-counter', sessionIds: ['ses_wed'], square: { orderId: 'O9', paymentId: 'P9' } })
