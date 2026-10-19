@@ -1318,11 +1318,12 @@ export default function PartyModal({ onClose, initialStart, initialCraftId, init
         {/* Party charges go through the standard Payments API, so the SDK runs
             under OUR application (from client-config). That is what Apple Pay
             needs: its domain registration belongs to our app. The
-            CLASS_BOOKING_APP_ID override is only for workshops. */}
+            CLASS_BOOKING_APP_ID override is only for workshops. The SDK's
+            environment comes from client-config too, so a sandbox preview
+            uses Square's sandbox (18 Oct 2026). */}
         <PaymentForm
           bookingKind="party"
           ref={paymentFormRef}
-          environmentOverride="production"
           wallet={{ amount: (deposit / 100).toFixed(2), label: 'Hometown Studio party, studio fee', bnpl: true }}
           onWalletToken={(token) => handlePay(token)}
           // Runs before the wallet sheet opens, so nobody approves in their
