@@ -31,7 +31,7 @@ const FIXTURE_RESPONSE = {
   },
 }
 
-const config = { locationId: 'LOC123', accessToken: 'x', environment: 'sandbox', applicationId: 'app' } as any
+const config = { locationId: 'LOC123', accessToken: 'x', environment: 'production', applicationId: 'app' } as any
 
 describe('SquareWorkshopProvider', () => {
   beforeEach(() => {
@@ -42,6 +42,21 @@ describe('SquareWorkshopProvider', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     vi.useRealTimers()
+  })
+
+  it('in the sandbox there are no legacy classes: Square is never called', async () => {
+    const provider = new SquareWorkshopProvider({ ...config, environment: 'sandbox' })
+    expect(await provider.listWorkshops()).toEqual([])
+    expect(await provider.listAllWorkshops()).toEqual([])
+    expect(await provider.getWorkshop('inst-1')).toBeNull()
+    expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('in production a Square error still fails closed', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ errors: [{ detail: 'No matching location found' }] }), { status: 422 })))
+    const provider = new SquareWorkshopProvider(config)
+    await expect(provider.listAllWorkshops()).rejects.toThrow()
+    expect(fetch).toHaveBeenCalled()
   })
 
   it('listWorkshops returns Workshop[] sorted by startAt ascending', async () => {

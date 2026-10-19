@@ -126,6 +126,87 @@ describe('ClassEditor, a new class', () => {
   })
 })
 
+describe('ClassEditor, fix round 1', () => {
+  const okCreate = () => vi.fn(async (_u: string, init: any) => {
+    const b = JSON.parse(init.body)
+    if (b.action === 'create') return ok({ data: { class: cls({ id: 'cls_new', updatedAt: 'u-created', content: b.content }) } })
+    return ok({ data: { class: cls({ id: 'cls_new', updatedAt: 'u-linked', libraryId: 'lib_new', libraryVersion: 1 }) } })
+  })
+
+  it('number boxes can be cleared and retyped, and are checked on save', async () => {
+    const fetchMock = okCreate()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<ClassEditor mode={{ kind: 'new' }} onSaved={() => {}} onCancel={() => {}} />)
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Pottery' } })
+    fireEvent.change(screen.getByLabelText('Price per person ($)'), { target: { value: '30' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Rules' }))
+    const most = screen.getByLabelText('Most people per booking')
+    fireEvent.change(most, { target: { value: '' } })
+    expect(most).toHaveValue('')
+    fireEvent.click(screen.getByRole('button', { name: 'Add class' }))
+    expect(within(screen.getByRole('region', { name: 'Rules' })).getByText('The most people per booking is 1 to 40.')).toBeInTheDocument()
+    fireEvent.change(most, { target: { value: '5' } })
+    expect(most).toHaveValue('5')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Passes & prices' }))
+    fireEvent.change(screen.getByLabelText('Full class covers'), { target: { value: 'choose' } })
+    const pick = screen.getByLabelText('Full class how many they pick')
+    fireEvent.change(pick, { target: { value: '' } })
+    expect(pick).toHaveValue('')
+    fireEvent.change(pick, { target: { value: '3' } })
+    expect(pick).toHaveValue('3')
+    fireEvent.click(screen.getByRole('button', { name: 'Add class' }))
+    await waitFor(() => expect(posts(fetchMock)).toHaveLength(1))
+    const sent = posts(fetchMock)[0].body.content
+    expect(sent.rules.maxPerBooking).toBe(5)
+    expect(sent.passes[0].covers).toEqual({ kind: 'choose', count: 3 })
+  })
+
+  it('in the one-price layout a price error sits on the price box, next to a name error', () => {
+    vi.stubGlobal('fetch', vi.fn())
+    render(<ClassEditor mode={{ kind: 'new' }} onSaved={() => {}} onCancel={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Add class' }))
+    const basics = screen.getByRole('region', { name: 'Basics' })
+    expect(within(basics).getByText('Give the class a name.')).toBeInTheDocument()
+    const priceBox = screen.getByLabelText('Price per person ($)').closest('[data-field]') as HTMLElement
+    expect(within(priceBox).getByText('Add at least one price.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Passes & prices' })).toHaveAttribute('aria-expanded', 'false')
+  })
+
+  it('a cancelled library class cannot be saved either way', () => {
+    render(<ClassEditor mode={{ kind: 'edit', cls: cls({ status: 'cancelled', libraryId: 'lib_1', libraryVersion: 1 }) }} onSaved={() => {}} onCancel={() => {}} />)
+    expect(screen.getByRole('button', { name: 'Just this date' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Also update the library' })).toBeDisabled()
+  })
+
+  it('Add and keep in the library links the new class to its library entry', async () => {
+    const fetchMock = okCreate()
+    const onSaved = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<ClassEditor mode={{ kind: 'new' }} onSaved={onSaved} onCancel={() => {}} />)
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Pottery' } })
+    fireEvent.change(screen.getByLabelText('Price per person ($)'), { target: { value: '30' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add and keep in the library' }))
+    await waitFor(() => expect(onSaved).toHaveBeenCalled())
+    const [create, link] = posts(fetchMock)
+    expect(create.body.action).toBe('create')
+    expect(link).toMatchObject({ url: '/api/admin/classes/classes.json', body: { action: 'update', id: 'cls_new', expectedUpdatedAt: 'u-created', alsoUpdateLibrary: true } })
+    expect(link.body.content).toBeUndefined()
+    expect(onSaved.mock.calls[0][0].cls.libraryId).toBe('lib_new')
+  })
+
+  it('from the library, Also update the library points the class at the new version', async () => {
+    const fetchMock = okCreate()
+    vi.stubGlobal('fetch', fetchMock)
+    const lib = { id: 'lib_1', archived: false, versions: [{ version: 1, at: '', by: { id: 'admin', name: 'Owner' }, content: content(), note: '' }] }
+    render(<ClassEditor mode={{ kind: 'from-library', lib }} onSaved={() => {}} onCancel={() => {}} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Also update the library' }))
+    await waitFor(() => expect(posts(fetchMock)).toHaveLength(2))
+    expect(posts(fetchMock)[0].body).toMatchObject({ action: 'create', libraryId: 'lib_1' })
+    expect(posts(fetchMock)[1].body).toMatchObject({ action: 'update', alsoUpdateLibrary: true, expectedUpdatedAt: 'u-created' })
+  })
+})
+
 describe('ClassEditor, editing a scheduled class', () => {
   it('sends the copy it loaded, and takes the new updatedAt from the reply', async () => {
     const saved = cls({ updatedAt: '2031-01-03T00:00:00.000Z' })
@@ -146,7 +227,7 @@ describe('ClassEditor, editing a scheduled class', () => {
     const fresh = cls({ updatedAt: '2031-01-09T00:00:00.000Z', content: content({ name: 'Pottery (new name)' }) })
     const fetchMock = vi.fn(async (url: string) => (url.startsWith('/api/admin/classes/bookings.json')
       ? ok({ data: { class: fresh, bookings: [] } })
-      : refuse(409, { error: 'Someone else changed this class. Reload to see their changes.' })))
+      : refuse(409, { error: 'Someone else changed this class. Reload to see their changes.', stale: true })))
     vi.stubGlobal('fetch', fetchMock)
     render(<ClassEditor mode={{ kind: 'edit', cls: cls() }} onSaved={() => {}} onCancel={() => {}} />)
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))

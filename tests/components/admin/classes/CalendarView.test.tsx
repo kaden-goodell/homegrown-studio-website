@@ -12,6 +12,7 @@ const items = [
   { kind: 'party', id: 'bk_1', label: 'Party for Sam', startIso: at('15:00'), endIso: at('17:00') },
   { kind: 'cafe', id: 'cafe-x', label: 'Craft Café', startIso: at('09:00'), endIso: at('12:30') },
   { kind: 'blocked', id: 'blk_1', label: 'Deep clean', startIso: at('18:00'), endIso: at('19:00') },
+  { kind: 'blocked', id: 'blk_2', label: 'Painting', startIso: at('09:00', '2031-03-13'), endIso: at('10:00', '2031-03-13') },
   { kind: 'closed', id: 'closed-x', label: 'Closed for Thanksgiving', startIso: at('00:00'), endIso: at('00:00', '2031-03-13') },
 ]
 const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => body })
@@ -62,6 +63,30 @@ describe('CalendarView', () => {
     await waitFor(() => expect(fetchMock.mock.calls.some((c) => c[1]?.method === 'POST')).toBe(true))
     const post = fetchMock.mock.calls.find((c) => c[1]?.method === 'POST')!
     expect(JSON.parse(post[1].body)).toEqual({ action: 'remove', id: 'blk_1' })
+  })
+
+  it('a half-confirmed remove does not carry over to the next block tapped', async () => {
+    const fetchMock = server()
+    vi.stubGlobal('fetch', fetchMock)
+    render(<CalendarView initialDay={DAY} onOpenClass={() => {}} onPrintDay={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: /Deep clean/ }))
+    fireEvent.click(within(screen.getByRole('region', { name: 'Deep clean' })).getByRole('button', { name: 'Remove this blocked time' }))
+    fireEvent.click(screen.getByRole('button', { name: /Painting/ }))
+    const next = screen.getByRole('region', { name: 'Painting' })
+    expect(within(next).queryByRole('button', { name: 'Yes, remove it' })).toBeNull()
+    expect(within(next).getByRole('button', { name: 'Remove this blocked time' })).toBeInTheDocument()
+    expect(screen.queryByRole('region', { name: 'Deep clean' })).toBeNull()
+  })
+
+  it('the detail opens right under the tapped item, inside its day', async () => {
+    vi.stubGlobal('fetch', server())
+    render(<CalendarView initialDay={DAY} onOpenClass={() => {}} onPrintDay={() => {}} />)
+    const item = await screen.findByRole('button', { name: /Party for Sam/ })
+    fireEvent.click(item)
+    const detail = screen.getByRole('region', { name: 'Party for Sam' })
+    expect(screen.getByRole('region', { name: 'Wed Mar 12' })).toContainElement(detail)
+    expect(item.nextElementSibling).toBe(detail)
+    expect(screen.getByRole('region', { name: 'Thu Mar 13' })).not.toContainElement(detail)
   })
 
   it('month view lists the month and a day opens its items', async () => {

@@ -238,8 +238,18 @@ export class SquareWorkshopProvider implements WorkshopProvider {
    * stays in the list (pages show it as "Sold out") until its start time
    * passes; then it goes, like any other.
    */
+  /**
+   * The buyer classes API only answers for production locations (the sandbox
+   * gets 422 "No matching location found"), and the sandbox has no legacy
+   * Square classes, so there it is never called. Production still fails
+   * closed on errors.
+   */
+  private noLegacyClasses(): boolean {
+    return this.config.environment === 'sandbox'
+  }
+
   async listWorkshops(): Promise<Workshop[]> {
-    if (!this.config.locationId) {
+    if (!this.config.locationId || this.noLegacyClasses()) {
       return []
     }
     const all = await this.listAllWorkshops()
@@ -261,7 +271,7 @@ export class SquareWorkshopProvider implements WorkshopProvider {
    * occurrence `listWorkshops` would surface.
    */
   async getWorkshop(id: string): Promise<Workshop | null> {
-    if (!this.config.locationId) return null
+    if (!this.config.locationId || this.noLegacyClasses()) return null
     const all = await this.listAllWorkshops()
     const instance = all.find((w) => w.id === id)
     if (instance) return instance
@@ -277,7 +287,7 @@ export class SquareWorkshopProvider implements WorkshopProvider {
    *  surfaces (`@lib/events`) that need to list, not just resolve, an
    *  in-progress or multi-day class. */
   async listAllWorkshops(): Promise<Workshop[]> {
-    if (!this.config.locationId) return []
+    if (!this.config.locationId || this.noLegacyClasses()) return []
     return this.fetchAll()
   }
 

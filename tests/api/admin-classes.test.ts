@@ -430,9 +430,11 @@ describe('fix round 1', () => {
     const stale = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'update', id: loaded.id, expectedUpdatedAt: loaded.updatedAt, content: { ...loaded.content, description: 'Catherine wrote this.' } })
     expect(stale.status).toBe(409)
     expect(stale.body.error).toBe('Someone else changed this class. Reload to see their changes.')
+    expect(stale.body.stale).toBe(true)
     expect((await getClass(loaded.id))!.content.description).toBe('Kaden wrote this.')
     const staleCancel = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'cancel', id: loaded.id, expectedUpdatedAt: loaded.updatedAt })
     expect(staleCancel.status).toBe(409)
+    expect(staleCancel.body.stale).toBe(true)
     expect((await getClass(loaded.id))!.status).toBe('open')
   })
 

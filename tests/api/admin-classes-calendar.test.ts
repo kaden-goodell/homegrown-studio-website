@@ -92,6 +92,12 @@ describe('day.json', () => {
     expect(c.bookings[0].picks[0].answers).toEqual({ q1: 'Red' })
   })
 
+  it('refuses without the owner cookie', async () => {
+    const r = await call(dayRoute, `/x?day=${DAY}`, false)
+    expect(r.status).toBe(401)
+    expect(r.body.error).toBe('Sign in first.')
+  })
+
   it('needs a day', async () => {
     expect((await call(dayRoute, '/x?day=soon')).status).toBe(400)
   })

@@ -57,7 +57,7 @@ describe('ClassBookings', () => {
   it('a stale cancel shows the sentence and Reload', async () => {
     let gets = 0
     const fetchMock = vi.fn(async (_url: string, init?: any) => (init?.method === 'POST'
-      ? { ok: false, status: 409, json: async () => ({ error: 'Someone else changed this class. Reload to see their changes.' }) }
+      ? { ok: false, status: 409, json: async () => ({ error: 'Someone else changed this class. Reload to see their changes.', stale: true }) }
       : (gets++, ok({ data: { class: cls(), bookings: [] } }))))
     vi.stubGlobal('fetch', fetchMock)
     render(<ClassBookings id="cls_1" onEdit={() => {}} onBack={() => {}} />)

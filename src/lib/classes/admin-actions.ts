@@ -504,7 +504,7 @@ export async function reply(fn: () => Promise<Saved<unknown>>): Promise<Response
     return json(200, { data, ...(warning ? { warning } : {}) })
   } catch (e) {
     if (e instanceof ActionError) return json(e.status, { error: e.message, ...e.extra })
-    if (e instanceof StaleClassError) return json(409, { error: e.message })
+    if (e instanceof StaleClassError) return json(409, { error: e.message, stale: true })
     const msg = e instanceof Error ? e.message : String(e)
     if (/^Concurrent update/.test(msg)) return json(409, { error: 'Someone else saved at the same moment. Try again.' })
     console.error(`[admin/classes] ${msg}`)

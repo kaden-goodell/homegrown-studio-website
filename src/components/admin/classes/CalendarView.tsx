@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 import { formatTimeSpan } from '@lib/studio-time'
 import { localDate } from '@lib/party-slots'
@@ -57,7 +57,8 @@ export default function CalendarView({ initialDay, onOpenClass, onPrintDay }: {
   const [day, setDay] = useState(initialDay ?? today())
   const [items, setItems] = useState<CalendarItem[] | null>(null)
   const [error, setError] = useState('')
-  const [picked, setPicked] = useState<CalendarItem | null>(null)
+  /** The item tapped and the day list it was tapped in; its detail opens right under it. */
+  const [picked, setPicked] = useState<{ item: CalendarItem; day: string } | null>(null)
   const [reload, setReload] = useState(0)
   const { days } = rangeOf(view, day)
 
@@ -77,10 +78,21 @@ export default function CalendarView({ initialDay, onOpenClass, onPrintDay }: {
   const byDay = new Map<string, CalendarItem[]>()
   for (const i of items ?? []) for (const d of daysOf(i)) byDay.set(d, [...(byDay.get(d) ?? []), i])
 
-  function tap(i: CalendarItem) {
+  function tap(i: CalendarItem, d: string) {
     if (i.kind === 'class') return onOpenClass(i.id)
-    setPicked(i)
+    setPicked({ item: i, day: d })
   }
+  const detail = picked && (
+    <Detail
+      key={`${picked.item.id}-${picked.item.startIso}`}
+      item={picked.item}
+      onClose={() => setPicked(null)}
+      onRemoved={() => { setPicked(null); setReload((n) => n + 1) }}
+    />
+  )
+  const dayList = (d: string, key?: string) => (
+    <DayList key={key} day={d} items={byDay.get(d) ?? []} onTap={tap} onPrint={onPrintDay} picked={picked?.day === d ? picked.item : null} detail={detail} />
+  )
 
   const step = (n: number) => { setPicked(null); setDay(view === 'week' ? addDays(day, 7 * n) : addMonths(monthStart(day), n)) }
 
@@ -113,10 +125,9 @@ export default function CalendarView({ initialDay, onOpenClass, onPrintDay }: {
         <p role="alert" style={errorText}>{error} <button type="button" className="btn btn-secondary" onClick={() => setReload((n) => n + 1)}>Try again</button></p>
       )}
       {!error && !items && <p style={muted}>Loading…</p>}
-      {picked && <Detail item={picked} onClose={() => setPicked(null)} onRemoved={() => { setPicked(null); setReload((n) => n + 1) }} />}
       {items && view === 'week' && (
         <div className="cal-week">
-          {days.map((d) => <DayList key={d} day={d} items={byDay.get(d) ?? []} onTap={tap} onPrint={onPrintDay} />)}
+          {days.map((d) => dayList(d, d))}
         </div>
       )}
       {items && view === 'month' && (
@@ -148,7 +159,7 @@ export default function CalendarView({ initialDay, onOpenClass, onPrintDay }: {
               )
             })}
           </div>
-          <DayList day={day} items={byDay.get(day) ?? []} onTap={tap} onPrint={onPrintDay} />
+          {dayList(day)}
         </>
       )}
     </div>
@@ -167,7 +178,17 @@ function Legend() {
   )
 }
 
-function DayList({ day, items, onTap, onPrint }: { day: string; items: CalendarItem[]; onTap: (i: CalendarItem) => void; onPrint: (day: string) => void }) {
+const sameItem = (a: CalendarItem, b: CalendarItem | null) => !!b && a.id === b.id && a.startIso === b.startIso
+
+/** One day's items; the tapped item's detail sits right under it, so on a phone it opens where the finger is. */
+function DayList({ day, items, onTap, onPrint, picked, detail }: {
+  day: string
+  items: CalendarItem[]
+  onTap: (i: CalendarItem, day: string) => void
+  onPrint: (day: string) => void
+  picked: CalendarItem | null
+  detail: ReactNode
+}) {
   return (
     <section aria-label={dayLabel(day)} style={{ display: 'grid', gap: '0.4rem', alignContent: 'start', minWidth: 0 }}>
       <div style={{ ...row, justifyContent: 'space-between' }}>
@@ -179,11 +200,12 @@ function DayList({ day, items, onTap, onPrint }: { day: string; items: CalendarI
         const s = KIND_STYLE[i.kind]
         const word = i.kind === 'class' ? STATUS_WORD[i.status ?? 'open'] : ''
         return (
+          <Fragment key={`${i.id}-${i.sessionId ?? i.startIso}`}>
           <button
-            key={`${i.id}-${i.sessionId ?? i.startIso}`}
             type="button"
             data-kind={i.kind}
-            onClick={() => onTap(i)}
+            aria-expanded={i.kind === 'class' ? undefined : sameItem(i, picked)}
+            onClick={() => onTap(i, day)}
             style={{
               display: 'grid', gap: '0.1rem', textAlign: 'left', minHeight: '2.75rem', padding: '0.45rem 0.6rem', cursor: 'pointer',
               borderRadius: '0.5rem', border: '1px solid var(--color-line)', borderLeft: `5px solid ${s.colour}`,
@@ -195,6 +217,8 @@ function DayList({ day, items, onTap, onPrint }: { day: string; items: CalendarI
             <span style={{ fontWeight: 600 }}>{i.label}</span>
             <span style={{ fontSize: '0.75rem', color: s.colour, fontWeight: 700 }}>{s.label}{word ? ` · ${word}` : ''}</span>
           </button>
+          {sameItem(i, picked) && detail}
+          </Fragment>
         )
       })}
     </section>
@@ -206,6 +230,8 @@ function Detail({ item, onClose, onRemoved }: { item: CalendarItem; onClose: () 
   const [asking, setAsking] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const ref = useRef<HTMLElement>(null)
+  useEffect(() => { ref.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' }) }, [])
   async function remove() {
     setBusy(true)
     setError('')
@@ -215,7 +241,7 @@ function Detail({ item, onClose, onRemoved }: { item: CalendarItem; onClose: () 
     else setError(r.error ?? '')
   }
   return (
-    <section role="region" aria-label={item.label} style={box}>
+    <section ref={ref} role="region" aria-label={item.label} style={box}>
       <p style={{ margin: 0, fontSize: '0.8rem', fontWeight: 700, color: KIND_STYLE[item.kind].colour }}>{KIND_STYLE[item.kind].label}</p>
       <h2 style={{ margin: 0, fontSize: '1.15rem', color: 'var(--color-dark)' }}>{item.label}</h2>
       <p style={{ margin: 0 }}>{item.kind === 'closed' ? dayLabel(localDate(item.startIso)) : `${dayLabel(localDate(item.startIso))} · ${formatTimeSpan(item.startIso, item.endIso)}`}</p>

@@ -31,6 +31,17 @@ describe('ScheduleDialog', () => {
     expect(screen.getByRole('button', { name: 'Add to the calendar' })).toBeInTheDocument()
   })
 
+  it('a copied session keeps its own length when its day or start moves', () => {
+    const copyOf = [{ id: 'ses_1', startIso: localToUtcISO('2031-03-12', '10:00'), endIso: localToUtcISO('2031-03-12', '12:00'), capacity: 6 }]
+    render(<ScheduleDialog name="Pottery" duplicateId="cls_1" copyOf={copyOf} defaultMinutes={60} defaultCapacity={10} onDone={() => {}} onCancel={() => {}} />)
+    expect(screen.getByLabelText('Date 1 day')).toHaveValue('2031-03-19')
+    expect(screen.getByLabelText('Date 1 seats')).toHaveValue('6')
+    fireEvent.change(screen.getByLabelText('Date 1 start'), { target: { value: '13:00' } })
+    expect(screen.getByLabelText('Date 1 end')).toHaveValue('15:00')
+    fireEvent.change(screen.getByLabelText('Date 1 day'), { target: { value: '2031-03-26' } })
+    expect(screen.getByLabelText('Date 1 end')).toHaveValue('15:00')
+  })
+
   it('duplicates a class onto new dates, more than one at once', async () => {
     const fetchMock = vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ data: { class: { id: 'cls_new' } } }) }))
     vi.stubGlobal('fetch', fetchMock)

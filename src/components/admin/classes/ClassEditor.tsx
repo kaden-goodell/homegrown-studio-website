@@ -43,6 +43,10 @@ interface Form {
   cutoff: string
   minCount: string
   minDecideBy: string
+  /** Typed as text so a box can be cleared and retyped; checked in build(). */
+  maxPerBooking: string
+  /** "How many they pick" per 'choose' pass, as typed. */
+  chooseCounts: Record<string, string>
   sessions: SessionRow[]
 }
 
@@ -87,6 +91,8 @@ function toForm(content: ClassContent, sessions: SessionRow[], status: ClassStat
     addOns: content.addOns.map((a) => ({ id: a.id, label: a.label, price: dollars(a.priceCents), maxPerSeat: String(a.maxPerSeat) })),
     rules: { ...r },
     cutoff: r.signupCutoffHours === null ? '' : String(r.signupCutoffHours),
+    maxPerBooking: String(r.maxPerBooking),
+    chooseCounts: Object.fromEntries(content.passes.flatMap((p) => (p.covers.kind === 'choose' ? [[p.id, String(p.covers.count)]] : []))),
     minCount: r.minimumToRun ? String(r.minimumToRun.count) : '',
     minDecideBy: r.minimumToRun ? partsOf(r.minimumToRun.decideByIso).day : '',
     sessions,
@@ -111,17 +117,18 @@ function initialForm(mode: EditorMode): Form {
   }
 }
 
-type Errors = Partial<Record<SectionKey | 'form', string>>
+/** Errors by section, plus 'price' for the single price box in Basics and 'form' for the save bar. */
+type Errors = Partial<Record<SectionKey | 'form' | 'price', string>>
 type Built = { ok: true; content: ClassContent; sessions: Session[] } | { ok: false; errors: Errors }
 
 const isSimple = (f: Pick<Form, 'passes' | 'ticketTypes'>) => f.passes.length === 1 && f.ticketTypes.length === 1
 
 /** Which section a server `field` belongs to. */
-function sectionOf(field: string | undefined, f: Form): SectionKey | 'form' {
+function sectionOf(field: string | undefined, f: Form): SectionKey | 'form' | 'price' {
   if (!field) return 'form'
   const head = field.split('.')[0]
   if (head === 'sessions') return 'sessions'
-  if (head === 'passes' || head === 'prices') return isSimple(f) && head === 'prices' ? 'basics' : 'prices'
+  if (head === 'passes' || head === 'prices') return isSimple(f) && head === 'prices' ? 'price' : 'prices'
   if (head === 'ticketTypes') return 'tickets'
   if (head === 'questions') return 'questions'
   if (head === 'addOns') return 'addons'
@@ -146,8 +153,16 @@ function build(f: Form, withSessions: boolean): Built {
   }
   if (!priceError && !Object.keys(prices).length) priceError = 'Add at least one price.'
   if (f.passes.some((p) => !p.label.trim())) priceError ||= 'Each pass needs a name.'
-  if (priceError) errors[isSimple(f) ? (errors.basics ? 'prices' : 'basics') : 'prices'] = priceError
+  if (priceError) errors[isSimple(f) ? 'price' : 'prices'] = priceError
   if (f.ticketTypes.some((t) => !t.label.trim())) errors.tickets = 'Each ticket type needs a name.'
+  const passes: Pass[] = []
+  for (const p of f.passes) {
+    const label = p.label.trim()
+    if (p.covers.kind !== 'choose') { passes.push({ ...p, label }); continue }
+    const count = intOf(f.chooseCounts[p.id] ?? String(p.covers.count))
+    if (!(count >= 1 && count <= 60)) { errors.prices ||= `${label || 'A pass'} needs to let people pick 1 to 60 sessions.`; continue }
+    passes.push({ ...p, label, covers: { kind: 'choose', count } })
+  }
 
   const defaultCapacity = intOf(f.defaultCapacity), defaultMinutes = intOf(f.defaultMinutes)
   if (!errors.basics && !(defaultCapacity >= 1 && defaultCapacity <= 999)) errors.basics = 'The usual seats is 1 to 999.'
@@ -183,8 +198,9 @@ function build(f: Form, withSessions: boolean): Built {
     if (!(n >= 1) || !f.minDecideBy) errors.rules = 'The minimum to run needs a head count and a decide-by date.'
     else rules.minimumToRun = { count: n, decideByIso: toIsoAt(f.minDecideBy, '12:00') }
   } else rules.minimumToRun = null
-  const maxPer = rules.maxPerBooking
-  if (!(Number.isInteger(maxPer) && maxPer >= 1 && maxPer <= 40)) errors.rules = 'The most people per booking is 1 to 40.'
+  const maxPer = intOf(f.maxPerBooking)
+  if (!(maxPer >= 1 && maxPer <= 40)) errors.rules = 'The most people per booking is 1 to 40.'
+  else rules.maxPerBooking = maxPer
 
   const sessions: Session[] = []
   if (withSessions) {
@@ -206,7 +222,7 @@ function build(f: Form, withSessions: boolean): Built {
     content: {
       name, description: f.description.trim(), imageUrl: f.imageUrl, instructor: f.instructor.trim() || null, rules,
       ticketTypes: f.ticketTypes.map((t) => ({ id: t.id, label: t.label.trim() })),
-      passes: f.passes.map((p) => ({ ...p, label: p.label.trim() })),
+      passes,
       prices, questions, addOns, defaultCapacity, defaultMinutes,
     },
   }
@@ -224,7 +240,8 @@ function previewOf(f: Form) {
     .map((s) => ({ id: s.id, startIso: toIsoAt(s.day, s.start), endIso: toIsoAt(s.day, s.end), capacity: intOf(s.capacity) || 0 }))
   const content: ClassContent = {
     ...blankContent(), name: f.name, description: f.description, imageUrl: f.imageUrl, instructor: f.instructor || null,
-    rules: f.rules, ticketTypes: f.ticketTypes.map((t, i) => ({ ...t, label: t.label || `Ticket ${i + 1}` })), passes: f.passes, prices,
+    rules: f.rules, ticketTypes: f.ticketTypes.map((t, i) => ({ ...t, label: t.label || `Ticket ${i + 1}` })), prices,
+    passes: f.passes.map((p) => (p.covers.kind === 'choose' ? { ...p, covers: { kind: 'choose' as const, count: intOf(f.chooseCounts[p.id] ?? '') || 1 } } : p)),
     defaultMinutes: intOf(f.defaultMinutes) || 90, defaultCapacity: intOf(f.defaultCapacity) || 12,
   }
   return previewData(content, sessions)
@@ -271,7 +288,10 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
     setErrors(e)
     setOpen((o) => {
       const next = { ...o }
-      for (const k of Object.keys(e)) if (k !== 'form') next[k as SectionKey] = true
+      for (const k of Object.keys(e)) {
+        if (k === 'price') next.basics = true
+        else if (k !== 'form') next[k as SectionKey] = true
+      }
       return next
     })
   }
@@ -302,7 +322,7 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
             setToTell({ people: r.extra.peopleToTell, also: alsoLibrary })
             return showErrors({ form: r.error })
           }
-          if (r.status === 409 && /^Someone else changed this class/.test(r.error ?? '')) setStale(true)
+          if (r.status === 409 && r.extra.stale === true) setStale(true)
           return showErrors({ [sectionOf(r.extra.field, f)]: r.error })
         }
         setCls(r.data.class)
@@ -317,17 +337,22 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
         content: b.content, sessions: b.sessions, status: f.status,
       })
       if (!r.ok || !r.data) return showErrors({ [sectionOf(r.extra.field, f)]: r.error })
+      let created = r.data.class
       let warn = r.warning
       if (alsoLibrary) {
-        const l = await api<{ library: LibraryClass }>(LIBRARY, {
-          action: 'save', ...(mode.kind === 'from-library' ? { id: mode.lib.id } : {}), content: b.content, note: 'Updated while scheduling',
-        })
-        if (!l.ok) warn = [warn, "The class is added. The library didn't update. Try again from the library."].filter(Boolean).join(' ')
+        // The server saves the library version and points the class at it (a new class gets a new library entry).
+        const u = await api<{ class: ScheduledClass }>(CLASSES, { action: 'update', id: created.id, expectedUpdatedAt: created.updatedAt, alsoUpdateLibrary: true })
+        if (u.ok && u.data) {
+          created = u.data.class
+          warn = u.warning ?? warn
+        } else {
+          warn = [warn, "The class is added. The library didn't update. Open the class and save it with Also update the library."].filter(Boolean).join(' ')
+        }
       }
-      setCls(r.data.class)
+      setCls(created)
       setNotice('Added.')
       if (warn) setWarning(warn)
-      return onSaved({ cls: r.data.class, warning: warn })
+      return onSaved({ cls: created, warning: warn })
     } finally {
       setSaving(false)
     }
@@ -389,7 +414,7 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
             </div>
             <Field label="Teacher" hint="Leave blank to show no name."><input className="field-input" style={input} value={f.instructor} onChange={(e) => set({ instructor: e.target.value })} /></Field>
             {isSimple(f) && singlePass && singleTicket && (
-              <Field label={`Price per ${(singleTicket.label || 'person').toLowerCase()} ($)`}>
+              <Field label={`Price per ${(singleTicket.label || 'person').toLowerCase()} ($)`} error={errors.price}>
                 <input className="field-input" style={input} inputMode="decimal" value={f.prices[singlePass.id]?.[singleTicket.id] ?? ''} onChange={(e) => setPrice(singlePass.id, singleTicket.id, e.target.value)} />
               </Field>
             )}
@@ -440,7 +465,14 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
                         <td style={{ minWidth: '11rem' }}>
                           <div style={{ display: 'grid', gap: '0.3rem' }}>
                             <input aria-label={`Pass ${i + 1} name`} className="field-input" style={input} value={p.label} onChange={(e) => setPass(i, { label: e.target.value })} />
-                            <CoversPicker pass={p} sessions={f.sessions} withSessions={withSessions} onChange={(covers) => setPass(i, { covers })} />
+                            <CoversPicker
+                              pass={p}
+                              sessions={f.sessions}
+                              withSessions={withSessions}
+                              countText={f.chooseCounts[p.id] ?? (p.covers.kind === 'choose' ? String(p.covers.count) : '1')}
+                              onCountText={(v) => setF((cur) => ({ ...cur, chooseCounts: { ...cur.chooseCounts, [p.id]: v } }))}
+                              onChange={(covers) => setPass(i, { covers })}
+                            />
                             {f.passes.length > 1 && <button type="button" className="btn btn-secondary" onClick={() => removePass(i)}>Remove {passName}</button>}
                           </div>
                         </td>
@@ -504,7 +536,7 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
             <Check label="Only people with the link can find it" checked={f.rules.linkOnly} onChange={(v) => setRules({ linkOnly: v })} />
             <Check label="People can join after it starts" checked={f.rules.joinPartway} onChange={(v) => setRules({ joinPartway: v })} />
             <Check label="Can share the room with another class" checked={f.rules.canShareRoom} onChange={(v) => setRules({ canShareRoom: v })} />
-            <Field label="Most people per booking"><input className="field-input" style={input} inputMode="numeric" value={String(f.rules.maxPerBooking)} onChange={(e) => setRules({ maxPerBooking: intOf(e.target.value) })} /></Field>
+            <Field label="Most people per booking"><input className="field-input" style={input} inputMode="numeric" value={f.maxPerBooking} onChange={(e) => set({ maxPerBooking: e.target.value })} /></Field>
             <Field label="Sign-ups close this many hours before" hint="Leave blank for the usual (at the start, or 24 hours when made to order or there are questions)."><input className="field-input" style={input} inputMode="numeric" value={f.cutoff} onChange={(e) => set({ cutoff: e.target.value })} /></Field>
             <div style={{ display: 'grid', gap: '0.4rem', gridTemplateColumns: 'repeat(auto-fit, minmax(9rem, 1fr))' }}>
               <Field label="Minimum to run (people)"><input className="field-input" style={input} inputMode="numeric" value={f.minCount} onChange={(e) => set({ minCount: e.target.value })} /></Field>
@@ -532,8 +564,8 @@ export default function ClassEditor({ mode, onSaved, onCancel }: { mode: EditorM
                 {mode.kind === 'library' && <button type="submit" className="btn btn-primary" disabled={saving}>Save to library</button>}
                 {mode.kind !== 'library' && fromLibrary && (
                   <>
-                    <button type="button" className="btn btn-primary" disabled={saving} onClick={() => save(false)}>Just this date</button>
-                    <button type="button" className="btn btn-secondary" disabled={saving} onClick={() => save(true)}>Also update the library</button>
+                    <button type="button" className="btn btn-primary" disabled={saving || cls?.status === 'cancelled'} onClick={() => save(false)}>Just this date</button>
+                    <button type="button" className="btn btn-secondary" disabled={saving || cls?.status === 'cancelled'} onClick={() => save(true)}>Also update the library</button>
                   </>
                 )}
                 {mode.kind === 'new' && (
@@ -611,14 +643,17 @@ function Section({ title, open, onToggle, error, children }: { title: string; op
   )
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
+function Field({ label, hint, error, children }: { label: string; hint?: string; error?: string; children: ReactNode }) {
+  const field = (
     <label className="field" style={{ display: 'grid', gap: '0.25rem', minWidth: 0 }}>
       <span className="field-label">{label}</span>
       {children}
       {hint && <span style={{ ...muted, fontSize: '0.8rem' }}>{hint}</span>}
     </label>
   )
+  if (!error) return field
+  // The error sits under the box, outside the label so it isn't read as part of the box's name.
+  return <div data-field={label} style={{ display: 'grid', gap: '0.25rem', minWidth: 0 }}>{field}<p role="alert" style={errorText}>{error}</p></div>
 }
 
 function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
@@ -630,7 +665,9 @@ function Check({ label, checked, onChange }: { label: string; checked: boolean; 
   )
 }
 
-function CoversPicker({ pass, sessions, withSessions, onChange }: { pass: Pass; sessions: SessionRow[]; withSessions: boolean; onChange: (c: Pass['covers']) => void }) {
+function CoversPicker({ pass, sessions, withSessions, countText, onCountText, onChange }: {
+  pass: Pass; sessions: SessionRow[]; withSessions: boolean; countText: string; onCountText: (v: string) => void; onChange: (c: Pass['covers']) => void
+}) {
   const c = pass.covers
   return (
     <div style={{ display: 'grid', gap: '0.3rem' }}>
@@ -652,7 +689,7 @@ function CoversPicker({ pass, sessions, withSessions, onChange }: { pass: Pass; 
       {c.kind === 'choose' && (
         <label style={{ display: 'grid', gap: '0.2rem' }}>
           <span className="field-label">How many they pick</span>
-          <input className="field-input" style={input} inputMode="numeric" value={String(c.count)} onChange={(e) => onChange({ kind: 'choose', count: intOf(e.target.value) || 1 })} />
+          <input className="field-input" style={input} inputMode="numeric" aria-label={`${pass.label || 'Pass'} how many they pick`} value={countText} onChange={(e) => onCountText(e.target.value)} />
         </label>
       )}
       {c.kind === 'fixed' && sessions.map((s, i) => (

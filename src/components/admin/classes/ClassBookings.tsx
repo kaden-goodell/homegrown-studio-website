@@ -56,7 +56,7 @@ export default function ClassBookings({ id, onEdit, onBack, onDuplicated }: {
       return
     }
     setError(r.error ?? '')
-    setStale(r.status === 409 && /^Someone else changed this class/.test(r.error ?? ''))
+    setStale(r.status === 409 && r.extra.stale === true)
   }
 
   if (!cls) {
