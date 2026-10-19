@@ -4,6 +4,7 @@
  * unset, sends are skipped and callers get { sent: false } — the UI must not
  * promise an email it can't verify was attempted.
  */
+import { previewEmail } from '@lib/preview-outbound'
 import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
 import { partyInviteMailto, partyInviteIcsUrl } from '@lib/party-share'
@@ -38,6 +39,8 @@ export async function sendEmail(input: {
    *  .ics attachments below. Omitted (utf8) by every other caller. */
   attachments?: { filename: string; content: string; contentType: string; encoding?: string }[]
 }): Promise<{ sent: boolean }> {
+  // A preview branch on Square's sandbox emails Kaden only (preview-outbound.ts).
+  input = previewEmail(input, typeof process !== 'undefined' ? process.env : {})
   const c = creds()
   if (!c) {
     logger.warn('Email not configured — skipping send', { subject: input.subject })

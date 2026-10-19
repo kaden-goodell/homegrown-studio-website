@@ -9,6 +9,7 @@
  * Messages bill ~$0.01/segment from Quo prepaid credits.
  */
 import { createLogger } from '@lib/logger'
+import { previewText } from '@lib/preview-outbound'
 
 const logger = createLogger('quo')
 
@@ -45,6 +46,8 @@ export const pickedUpText = (kids: string[], by: string, when: string): string =
 
 /** Send one SMS. Throws on transport/API failure; callers decide severity. */
 export async function sendQuoText(input: { to: string; content: string }): Promise<void> {
+  // A preview branch on Square's sandbox texts Kaden only (preview-outbound.ts).
+  input = previewText(input, typeof process !== 'undefined' ? process.env : {})
   const to = toE164(input.to)
   if (!to) throw new Error(`Unparseable phone number: ${input.to}`)
 
