@@ -12,6 +12,12 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('@lib/staff-auth', async (orig) => ({ ...(await orig<typeof import('@lib/staff-auth')>()), staffAuthorized: () => mocks.staff }))
 vi.mock('@lib/audit', () => ({ recordAudit: mocks.audit }))
+// Lets a test make the seat write fail once after the hold went in (a blob error or a timeout).
+const confirmFail = vi.hoisted(() => ({ n: 0 }))
+vi.mock('@lib/classes/seat-ledger', async (orig) => {
+  const real = await orig<typeof import('@lib/classes/seat-ledger')>()
+  return { ...real, confirm: (...a: Parameters<typeof real.confirm>) => (confirmFail.n-- > 0 ? Promise.reject(new Error('blob down')) : real.confirm(...a)) }
+})
 vi.mock('@lib/email', () => ({ sendWorkshopConfirmationEmail: mocks.email }))
 vi.mock('@config/providers', () => ({
   providers: {
@@ -69,6 +75,7 @@ beforeEach(() => {
   vi.setSystemTime(NOW)
   mocks.staff = { id: 'sam', name: 'Sam', role: 'crew' }
   mocks.audit.mockClear(); mocks.email.mockClear()
+  confirmFail.n = 0
 })
 afterEach(() => vi.useRealTimers())
 
@@ -109,6 +116,32 @@ describe('Comp a seat on our class', () => {
     expect(again.body.data).toMatchObject({ bookingId: first.body.data.bookingId, replayed: true, seats: 1 })
     expect((await getLedger(cls.id)).lines).toHaveLength(1)
     expect(mocks.email).toHaveBeenCalledTimes(1)
+  })
+
+  it('N2: the seat write failed after the hold: the retry confirms that hold, never "Added" without a seat', async () => {
+    const cls = await createClass({ content: content({ questions: [] }), sessions: sessions(), status: 'open', by })
+    const ask = { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 1 }, attempt: 'sheet-attempt-n2a' }
+    confirmFail.n = 1
+    expect((await post(compRoute, ask)).status).toBe(503)
+    expect((await getLedger(cls.id)).lines.map((l) => l.state)).toEqual(['held'])
+    const again = await post(compRoute, ask)
+    expect(again.status).toBe(200)
+    expect(again.body.data.replayed).toBe(true)
+    expect((await getLedger(cls.id)).lines.map((l) => l.state)).toEqual(['confirmed'])
+  })
+
+  it('N2: the hold ran out before the retry: it is held again from scratch and confirmed, same booking', async () => {
+    const cls = await createClass({ content: content({ questions: [] }), sessions: sessions(), status: 'open', by })
+    const ask = { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 1 }, attempt: 'sheet-attempt-n2b' }
+    confirmFail.n = 1
+    expect((await post(compRoute, ask)).status).toBe(503)
+    vi.setSystemTime(new Date(NOW.getTime() + 11 * 60_000)) // the 10-minute hold has run out
+    const again = await post(compRoute, ask)
+    expect(again.status).toBe(200)
+    expect(again.body.data.replayed).toBeUndefined()
+    const live = (await getLedger(cls.id)).lines.filter((l) => l.state === 'confirmed')
+    expect(live).toHaveLength(1)
+    expect(live[0].bookingId).toBe(again.body.data.bookingId)
   })
 
   it('a seat with no pick is refused with what is missing', async () => {

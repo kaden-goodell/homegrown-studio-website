@@ -63,20 +63,32 @@ export async function addDoorSeats(input: {
     }
     return worst
   }
-  const replay = async (): Promise<DoorSeatResult | null> => {
-    const mine = (await getLedger(cls.id)).lines.filter((l) => l.bookingId === bookingId && l.state !== 'released')
-    if (!mine.length) return null
-    const due = mode === 'comp' ? 0 : mine.reduce((a, l) => a + l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents, 0)
-    return { ok: true, bookingId, lines: mine, quote: q, dueCents: due, over: await overOf(mine[0].sessionIds), replayed: true }
-  }
-  if (input.attempt) {
-    const again = await replay()
-    if (again) return again
-  }
   const holdInput: HoldInput = {
     bookingId, passId: input.request.passId, source: mode, customer: input.customer, ttlMinutes: 10, by: input.by,
     ...(input.request.seats ? { seats: input.request.seats } : {}),
     ...(input.overCapacity ? { allowOverCapacity: true } : {}),
+  }
+  const square = { orderId: null, paymentId: null, ...(mode === 'comp' ? { chargedCents: 0 } : {}) }
+  /**
+   * A retry of the same attempt (N2). Only CONFIRMED seats count as added. A
+   * hold still running from a try that failed before confirming is confirmed
+   * now; a hold that ran out is no seat at all (null: hold afresh).
+   */
+  const replay = async (): Promise<DoorSeatResult | null> => {
+    const mine = (await getLedger(cls.id)).lines.filter((l) => l.bookingId === bookingId)
+    let done = mine.filter((l) => l.state === 'confirmed' || l.state === 'refunded')
+    if (!done.length) {
+      const live = mine.some((l) => l.state === 'held' && !!l.holdExpiresAt && Date.parse(l.holdExpiresAt) > now.getTime())
+      if (!live) return null
+      done = await confirm(cls.id, bookingId, square, { cls, quote: q, input: holdInput }, now)
+      if (!done.length) return null
+    }
+    const due = mode === 'comp' ? 0 : done.reduce((a, l) => a + l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents, 0)
+    return { ok: true, bookingId, lines: done, quote: q, dueCents: due, over: await overOf(done[0].sessionIds), replayed: true }
+  }
+  if (input.attempt) {
+    const again = await replay()
+    if (again) return again
   }
   let held
   try {
@@ -90,6 +102,6 @@ export async function addDoorSeats(input: {
     throw e
   }
   if (!held.ok) return { ok: false, status: 409, code: 'sold_out', error: soldOutMessage(cls, held.sessionId, held.left).replace(' Nothing was charged.', '') }
-  const lines = await confirm(cls.id, bookingId, { orderId: null, paymentId: null, ...(mode === 'comp' ? { chargedCents: 0 } : {}) }, { cls, quote: q, input: holdInput }, now)
+  const lines = await confirm(cls.id, bookingId, square, { cls, quote: q, input: holdInput }, now)
   return { ok: true, bookingId, lines, quote: q, dueCents: mode === 'comp' ? 0 : q.totalCents, over: await overOf(q.sessionIds) }
 }
