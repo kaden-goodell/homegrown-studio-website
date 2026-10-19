@@ -39,7 +39,15 @@ export interface ClassContent {
   defaultMinutes: number
 }
 export interface LibraryVersion { version: number; at: string; by: { id: string; name: string }; content: ClassContent; note: string }
-export interface LibraryClass { id: string; archived: boolean; versions: LibraryVersion[] } // versions newest last
+export interface LibraryClass {
+  id: string
+  archived: boolean
+  versions: LibraryVersion[] // newest last
+  /** Set on classes brought in from Square: the Square catalog item id (or 'name:<lowercased name>' when Square had no item), so a re-run never adds it twice. */
+  importKey?: string
+  /** The legacy Square class schedule ids seen at import, for reference only. Nothing is re-keyed to them. */
+  legacyScheduleIds?: string[]
+}
 export type ClassStatus = 'draft' | 'open' | 'closed' | 'cancelled'
 export interface ScheduledClass {
   id: string                 // 'cls_' + 10 base36

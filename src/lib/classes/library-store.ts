@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import type { ClassContent, LibraryClass } from './types'
@@ -71,4 +72,36 @@ export async function archiveLibrary(id: string, archived: boolean, _by: By): Pr
     if (!cur) throw new Error('That class is not in the library.')
     return { ...cur, archived }
   })
+}
+
+/**
+ * A class brought in from Square, as version 1. The library id comes from the
+ * import key, so two runs (even at the same moment) can't both add it: the
+ * write is create-only. Returns null when it is already there.
+ */
+export async function importLibraryClass(input: {
+  importKey: string
+  legacyScheduleIds: string[]
+  content: ClassContent
+  by: By
+  note: string
+}): Promise<LibraryClass | null> {
+  const content = checked(input.content)
+  const id = importedLibraryId(input.importKey)
+  const k = key(id)
+  const { value, etag } = await kv.getWithMeta(k)
+  if (value !== null) return null
+  const lib: LibraryClass = {
+    id,
+    archived: false,
+    versions: [{ version: 1, at: new Date().toISOString(), by: input.by, content, note: input.note }],
+    importKey: input.importKey,
+    legacyScheduleIds: [...input.legacyScheduleIds],
+  }
+  return (await kv.setIfMatch(k, JSON.stringify(lib), etag, false)) ? lib : null
+}
+
+/** 'lib_sq' + 12 hex of the import key's hash: stable, and safe in a key. */
+export function importedLibraryId(importKey: string): string {
+  return `lib_sq${createHash('sha256').update(importKey).digest('hex').slice(0, 12)}`
 }
