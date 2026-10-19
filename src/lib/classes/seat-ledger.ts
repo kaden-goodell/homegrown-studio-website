@@ -35,7 +35,8 @@ export interface LedgerLine {
    */
   square: { orderId: string | null; paymentId: string | null; lineUid: string | null; chargedCents?: Cents; paymentIds?: string[] }
   by: By | null
-  refunds: { at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null }[]
+  /** requestId: the saved refund request this entry was written for (our own refunds), so it is never written twice */
+  refunds: { at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null; requestId?: string }[]
   at: string
   /** set by confirm when a paid seat landed on a session already full (the hold had run out and the seat was taken) */
   overCapacity?: boolean  /**
@@ -261,6 +262,7 @@ export async function release(classId: string, bookingId: string): Promise<void>
 
 const paidOn = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
 const refundedOn = (l: LedgerLine) => l.refunds.reduce((s, r) => s + r.cents, 0)
+const isPaidLine = (l: LedgerLine) => l.state === 'confirmed' || l.state === 'refunded'
 
 /** Who a ledger change made from a refund done in Square itself is recorded as (see square-events SQUARE_BY). */
 const SQUARE_ACTOR_ID = 'square'
@@ -320,6 +322,83 @@ export async function recordRefund(
     const entry = (id: string) => ({ at, cents: centsOf(id), reason: input.reason, by: input.by, freedSeat: input.freeSeat, squareRefundId: input.squareRefundId })
     const lines = cur.lines.map((l) => (todo.has(l.id) ? { ...l, state: 'refunded' as const, refunds: [...l.refunds, entry(l.id)] } : l))
     return { next: { ...cur, lines }, result: lines.filter((l) => lineIds.includes(l.id)) }
+  })
+}
+
+/**
+ * Writes one of our saved refund requests (refund-requests) on the ledger, in
+ * ONE change: the seats asked about, as asked, plus any spill-over. The split
+ * is fitted to the ledger inside the same change: Square already refunded the
+ * total, so all of it is saved; a seat with less left than its share keeps
+ * what fits and the rest goes on the booking's other paid seats in seat order
+ * (spill-over keeps the seat). Keyed twice, so it is never written twice:
+ * nothing is written when any line already carries this request id or this
+ * Square refund id. A plain refund recorded from Square's webhook for the same
+ * Square refund (the webhook beat our save) is replaced by this request.
+ * Returns the asked seats as they are now.
+ */
+export async function recordRequestRefund(
+  classId: string,
+  input: { requestId: string; bookingId: string; lines: { id: string; cents: Cents }[]; freeSeat: boolean; reason: string; by: By; squareRefundId: string | null },
+): Promise<LedgerLine[]> {
+  for (const x of input.lines) if (!Number.isInteger(x.cents) || x.cents < 0) throw new Error('A refund has to be whole cents of zero or more.')
+  return mutate(classId, (raw) => {
+    const rid = input.squareRefundId
+    const fromSquare = (r: LedgerLine['refunds'][number]) => rid !== null && r.squareRefundId === rid && r.by?.id === SQUARE_ACTOR_ID
+    const replacing = rid !== null && input.by.id !== SQUARE_ACTOR_ID && raw.lines.some((l) => l.refunds.some(fromSquare))
+    const cur: Ledger = !replacing ? raw : {
+      ...raw,
+      lines: raw.lines.map((l) => {
+        if (!l.refunds.some(fromSquare)) return l
+        const refunds = l.refunds.filter((r) => !fromSquare(r))
+        return { ...l, refunds, state: refunds.length || l.state !== 'refunded' ? l.state : 'confirmed' as const }
+      }),
+    }
+    const askedIds = input.lines.map((x) => x.id)
+    const result = (ls: LedgerLine[]) => ls.filter((l) => askedIds.includes(l.id))
+    for (const id of askedIds) if (!cur.lines.some((l) => l.id === id)) throw new Error('One of those seats is not on this class.')
+    const carries = (r: LedgerLine['refunds'][number]) => r.requestId === input.requestId || (rid !== null && r.squareRefundId === rid)
+    if (cur.lines.some((l) => l.refunds.some(carries))) return { next: replacing ? cur : null, result: result(cur.lines) }
+
+    const booking = cur.lines.filter((l) => l.bookingId === input.bookingId && isPaidLine(l)).sort((a, b) => a.seat - b.seat)
+    const left = new Map(booking.map((l) => [l.id, paidOn(l) - refundedOn(l)]))
+    const cents: Record<string, Cents> = {}
+    let spill = 0
+    for (const x of input.lines) {
+      const c = Math.max(0, Math.min(x.cents, left.get(x.id) ?? 0))
+      cents[x.id] = c
+      left.set(x.id, (left.get(x.id) ?? 0) - c)
+      spill += x.cents - c
+    }
+    const spilled: Record<string, Cents> = {}
+    for (const l of booking) {
+      if (spill <= 0) break
+      const c = Math.min(spill, left.get(l.id) ?? 0)
+      if (c <= 0) continue
+      spilled[l.id] = c
+      left.set(l.id, (left.get(l.id) ?? 0) - c)
+      spill -= c
+    }
+    if (spill > 0) console.error(`[classes/refund] ${rid ?? input.requestId} is ${spill} cents more than ${input.bookingId} has left; saved what fits`)
+
+    const at = new Date().toISOString()
+    const entry = (c: Cents, freedSeat: boolean) => ({
+      at, cents: c, reason: input.reason, by: input.by, freedSeat, squareRefundId: rid, requestId: input.requestId,
+    })
+    const lines = cur.lines.map((l) => {
+      const add: LedgerLine['refunds'] = []
+      // Seats asked about: as asked (a seat with nothing landing on it is still written when freeing).
+      if (askedIds.includes(l.id) && ((cents[l.id] ?? 0) > 0 || input.freeSeat)) {
+        if (!isPaidLine(l)) throw new Error('Only paid seats can be refunded.')
+        add.push(entry(cents[l.id] ?? 0, input.freeSeat))
+      }
+      // Seats that only took the spill-over keep their seat.
+      if ((spilled[l.id] ?? 0) > 0) add.push(entry(spilled[l.id], false))
+      return add.length ? { ...l, state: 'refunded' as const, refunds: [...l.refunds, ...add] } : l
+    })
+    const changed = lines.some((l, i) => l !== cur.lines[i])
+    if (!changed) return { next: replacing ? cur : null, result: result(cur.lines) }
+    return { next: { ...cur, lines }, result: result(lines) }
   })
 }
 

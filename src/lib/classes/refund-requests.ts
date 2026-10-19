@@ -43,8 +43,12 @@ export interface SavedRefundRequest {
   idempotencyKey: string
   status: RefundRequestStatus
   squareRefundId: string | null
-  /** true once our own reply told the person it worked (a webhook-finished request is not answered yet) */
+  /** true once the person who asked was told it worked (finished by Square's webhook or by someone else's check: not yet) */
   answered: boolean
+  /** when it was put on the ledger */
+  doneAt?: string | null
+  /** turned down and no longer fits what's left on the booking: never sent again; the same ask is planned afresh */
+  retired?: boolean
   /** set once the customer's refund email is claimed: one email per request, whoever finishes it */
   emailedAt?: string | null
   /** a person checked Square for a request that had no answer */
@@ -77,7 +81,68 @@ async function update<T>(classId: string, bookingId: string, fn: (list: SavedRef
   throw new Error('Concurrent update — please retry')
 }
 
-/** Saves a new request; if one with that id already exists (a race), returns that one instead. */
+/** True for a request a new ask with the same inputs continues (or answers as already done, unless asked again on purpose). */
+export function sameAsk(r: SavedRefundRequest, inputHash: string, again: boolean): boolean {
+  if (r.inputHash !== inputHash || r.retired) return false
+  return r.status !== 'done' || !again
+}
+
+/** Still waiting on Square with no answer: blocks every different refund on the booking until a person checks (R29). */
+export const isWaiting = (r: SavedRefundRequest) => r.status === 'pending' && !r.squareRefundId
+
+export type SaveOutcome =
+  /** saved now, or this very request (same id) was already saved */
+  | { kind: 'mine'; rec: SavedRefundRequest }
+  /** an earlier request with the same inputs: continue it (or answer it as done) */
+  | { kind: 'same'; rec: SavedRefundRequest }
+  /** a different refund is waiting on Square */
+  | { kind: 'waiting'; rec: SavedRefundRequest }
+  /** a different refund was saved after this one was planned: its plan may be out of date */
+  | { kind: 'changed'; rec: SavedRefundRequest }
+
+/**
+ * Saves a new request, deciding in the same compare-and-swap (no snapshot
+ * race) whether it may be saved at all: the same id → that one; an earlier
+ * request with the same inputs → that one (two clicks never make two
+ * requests); a different refund waiting on Square → refused; a different
+ * refund saved since `seen` was read (the plan may be stale) → refused.
+ */
+export async function saveRefundRequest(rec: SavedRefundRequest, opts: { seen: string[]; again: boolean }): Promise<SaveOutcome> {
+  return update<SaveOutcome>(rec.classId, rec.bookingId, (list) => {
+    const have = list.find((r) => r.id === rec.id)
+    if (have) return { next: null, result: { kind: 'mine', rec: have } }
+    const same = list.filter((r) => sameAsk(r, rec.inputHash, opts.again))
+    const continued = same.find((r) => r.status !== 'done') ?? same[0]
+    if (continued) return { next: null, result: { kind: 'same', rec: continued } }
+    const waiting = list.find(isWaiting)
+    if (waiting) return { next: null, result: { kind: 'waiting', rec: waiting } }
+    const since = list.find((r) => !opts.seen.includes(r.id) && r.status !== 'turned-down')
+    if (since) return { next: null, result: { kind: 'changed', rec: since } }
+    return { next: [...list, rec], result: { kind: 'mine', rec } }
+  })
+}
+
+/**
+ * A request Square turned down (or a person said didn't go through), sent
+ * again: back to pending in one step, refused while a different refund is
+ * waiting on Square.
+ */
+export async function resendRefundRequest(
+  classId: string, bookingId: string, id: string,
+): Promise<{ kind: 'resent' | 'waiting'; rec: SavedRefundRequest }> {
+  return update<{ kind: 'resent' | 'waiting'; rec: SavedRefundRequest }>(classId, bookingId, (list) => {
+    const i = list.findIndex((r) => r.id === id)
+    if (i < 0) throw new Error('That refund is not on this booking.')
+    const waiting = list.find((r) => r.id !== id && isWaiting(r))
+    if (waiting) return { next: null, result: { kind: 'waiting' as const, rec: waiting } }
+    if (list[i].status !== 'turned-down') return { next: null, result: { kind: 'resent' as const, rec: list[i] } }
+    const next = [...list]
+    next[i] = { ...list[i], status: 'pending', updatedAt: new Date().toISOString() }
+    return { next, result: { kind: 'resent' as const, rec: next[i] } }
+  })
+}
+
+/** Saves a new request with no checks; if one with that id already exists (a race), returns that one instead. */
 export async function createRefundRequest(rec: SavedRefundRequest): Promise<SavedRefundRequest> {
   return update(rec.classId, rec.bookingId, (list) => {
     const have = list.find((r) => r.id === rec.id)
@@ -112,7 +177,7 @@ export async function markRequestDone(classId: string, bookingId: string, id: st
   await changeRefundRequest(classId, bookingId, id, (r) => {
     if (r.status === 'done') return opts.answered && !r.answered ? { ...r, answered: true } : null
     flipped = true
-    return { ...r, status: 'done', squareRefundId: r.squareRefundId || squareRefundId || null, answered: !!opts.answered }
+    return { ...r, status: 'done', squareRefundId: r.squareRefundId || squareRefundId || null, answered: !!opts.answered, doneAt: new Date().toISOString() }
   })
   return flipped
 }

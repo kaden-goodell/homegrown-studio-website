@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 /** A fresh token for one refund ask (kept across its retries). */
 function newAttempt(): string {
@@ -49,10 +49,14 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
+  /** the same refund was already made: what the server said; nothing was sent */
+  const [already, setAlready] = useState('')
   // The same token on every retry of this refund, so the server continues it instead of making a second one.
   const [attempt, setAttempt] = useState(newAttempt)
 
   const label = (t: string) => ticketLabel?.(t) ?? t
+  // A different ask is not the one already made: back to "Confirm refund".
+  useEffect(() => setAlready(''), [kind, person, sessionSeats, amount, freeSeat])
   const left = Math.min(seats.reduce((s, x) => s + x.remainingCents, 0), booking.refundableCents ?? Infinity)
   const amountCents = Math.round(Number(amount) * 100)
 
@@ -92,16 +96,22 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   const tooMuch = (kind === 'custom' || kind === 'session') && preview > left
   const canGo = preview > 0 && !tooMuch && reasonOk && !busy
 
-  async function go() {
+  async function go(again = false) {
     setBusy(true)
     setError('')
-    const body: Record<string, unknown> = { classId, bookingId: booking.bookingId, kind, freeSeat, reason: reason.trim(), attempt }
+    // "Refund again" is a new refund on purpose: a new token, and the server is told it's deliberate.
+    const token = again ? newAttempt() : attempt
+    if (again) setAttempt(token)
+    const body: Record<string, unknown> = { classId, bookingId: booking.bookingId, kind, freeSeat, reason: reason.trim(), attempt: token }
     if (kind === 'person') body.lineIds = [person]
     if (kind === 'session') body.lineIds = sessionSeats
     if (kind === 'custom') body.cents = amountCents
-    const r = await api<{ cents: number; emailed: boolean }>(endpoint, body)
+    if (again) body.again = true
+    const r = await api<{ cents: number; emailed: boolean; already?: { message: string } }>(endpoint, body)
     setBusy(false)
     if (!r.ok || !r.data) { setError(r.error ?? ''); return }
+    if (r.data.already) { setAlready(r.data.already.message); return }
+    setAlready('')
     setDone(`Refunded ${formatMoney(r.data.cents)}.${r.data.emailed ? ' They’ve been emailed.' : ''}`)
     setAttempt(newAttempt())
     setOpen(false)
@@ -201,10 +211,20 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
         <p style={{ margin: 0, fontWeight: 600 }}>{`Refund ${formatMoney(preview)} ${last4 ? `to the card ending in ${last4}` : 'to their card'}.`}</p>
       )}
       {error && <p role="alert" style={errorText}>{error}</p>}
-      <div style={row}>
-        <button type="button" className="btn btn-primary" disabled={!canGo} onClick={go}>{busy ? 'Refunding…' : 'Confirm refund'}</button>
-        <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setOpen(false); setError('') }}>Back</button>
-      </div>
+      {already ? (
+        <>
+          <p role="status" style={{ margin: 0, fontWeight: 600 }}>{already}</p>
+          <div style={row}>
+            <button type="button" className="btn btn-primary" disabled={busy} onClick={() => go(true)}>{busy ? 'Refunding…' : 'Refund again'}</button>
+            <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setOpen(false); setAlready(''); setError('') }}>Back</button>
+          </div>
+        </>
+      ) : (
+        <div style={row}>
+          <button type="button" className="btn btn-primary" disabled={!canGo} onClick={() => go()}>{busy ? 'Refunding…' : 'Confirm refund'}</button>
+          <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setOpen(false); setError('') }}>Back</button>
+        </div>
+      )}
     </div>
   )
 }

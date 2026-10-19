@@ -30,7 +30,7 @@ vi.mock('@lib/blob-store', async (orig) => {
   }
 })
 
-import { hold, confirm, release, recordRefund, setNames, getLedger, seatsTaken, extendHold } from '@lib/classes/seat-ledger'
+import { hold, confirm, release, recordRefund, recordRequestRefund, setNames, getLedger, seatsTaken, extendHold } from '@lib/classes/seat-ledger'
 import { quote, type BookingRequest } from '@lib/classes/pricing'
 import { defaultRules } from '@lib/classes/validate'
 import type { ScheduledClass, ClassContent } from '@lib/classes/types'
@@ -322,6 +322,38 @@ describe('seat ledger', () => {
     const fifth = await recordRefund(cls.id, [l.id], { ...r, cents: 100, squareRefundId: null })
     expect(fourth[0].refunds).toHaveLength(3)
     expect(fifth[0].refunds).toHaveLength(4)
+  })
+
+  it('a saved refund request is written in ONE change (asked seats + spill-over) and never twice for the same request', async () => {
+    const cls = make(2)
+    const f = fb(cls, { tickets: { person: 2 } }, { bookingId: 'bkg_rq' })
+    await hold(cls, f.quote, f.input, NOW)
+    const [l1, l2] = await confirm(cls.id, 'bkg_rq', { orderId: 'o', paymentId: 'p' }, f, NOW)
+    // seat 2 has only 1000 left, so 500 of its 1500 share spills onto seat 1
+    await recordRefund(cls.id, [l2.id], { cents: 2270, reason: 'earlier', by, freeSeat: false, squareRefundId: 'rf_e' })
+    const input = { requestId: 'req_1', bookingId: 'bkg_rq', lines: [{ id: l2.id, cents: 1500 }], freeSeat: true, reason: 'Sick', by, squareRefundId: null }
+    const out = await recordRequestRefund(cls.id, input)
+    expect(out.map((l) => l.id)).toEqual([l2.id])
+    let after = Object.fromEntries((await getLedger(cls.id)).lines.map((l) => [l.id, l]))
+    expect(after[l2.id].refunds.at(-1)).toMatchObject({ cents: 1000, freedSeat: true, requestId: 'req_1', squareRefundId: null })
+    expect(after[l1.id].refunds).toEqual([expect.objectContaining({ cents: 500, freedSeat: false, requestId: 'req_1' })])
+    // the same request again (by request id, and again with Square's id now known) writes nothing
+    await recordRequestRefund(cls.id, input)
+    await recordRequestRefund(cls.id, { ...input, squareRefundId: 'rf_q' })
+    after = Object.fromEntries((await getLedger(cls.id)).lines.map((l) => [l.id, l]))
+    expect(after[l1.id].refunds).toHaveLength(1)
+    expect(after[l2.id].refunds).toHaveLength(2)
+  })
+
+  it('a saved refund request whose Square refund id is already on the ledger is not written again', async () => {
+    const cls = make(2)
+    const f = fb(cls, {}, { bookingId: 'bkg_rq2' })
+    await hold(cls, f.quote, f.input, NOW)
+    const [l] = await confirm(cls.id, 'bkg_rq2', { orderId: 'o', paymentId: 'p' }, f, NOW)
+    const input = { requestId: 'req_2', bookingId: 'bkg_rq2', lines: [{ id: l.id, cents: 1000 }], freeSeat: false, reason: 'x', by, squareRefundId: 'rf_2' }
+    await recordRequestRefund(cls.id, input)
+    await recordRequestRefund(cls.id, { ...input, requestId: 'req_other' })
+    expect((await getLedger(cls.id)).lines[0].refunds).toHaveLength(1)
   })
 
   it('release frees held seats but never confirmed ones', async () => {

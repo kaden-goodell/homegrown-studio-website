@@ -49,6 +49,27 @@ describe('RefundPanel', () => {
     expect(tokens[2]).not.toBe(tokens[0])
   })
 
+  it('the same refund already made: says so, sends nothing more, and "Refund again" sends again: true with a new token', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(ok({ data: { cents: 6540, emailed: true, already: { at: '2026-10-18T15:00:00Z', by: { id: 'admin', name: 'Owner' }, message: 'Already refunded on Oct 18, 2026 by Owner.' } } }))
+      .mockResolvedValue(ok({ data: { cents: 6540, emailed: true } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const onDone = vi.fn()
+    render(<RefundPanel classId="cls_1" booking={booking} onDone={onDone} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm refund' }))
+    expect(await screen.findByText('Already refunded on Oct 18, 2026 by Owner.')).toBeInTheDocument()
+    expect(screen.queryByText(/Refunded \$65\.40/)).not.toBeInTheDocument()
+    expect(onDone).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Refund again' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    const [b1, b2] = fetchMock.mock.calls.map((c: any) => JSON.parse(c[1].body))
+    expect(b1.again).toBeUndefined()
+    expect(b2.again).toBe(true)
+    expect(b2.attempt).not.toBe(b1.attempt)
+    await waitFor(() => expect(onDone).toHaveBeenCalled())
+  })
+
   it('custom amount keeps the seat by default and shows the card ending', async () => {
     const fetchMock = vi.fn(async () => ok({ data: { cents: 1000, emailed: false } }))
     vi.stubGlobal('fetch', fetchMock)

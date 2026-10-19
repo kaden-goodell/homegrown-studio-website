@@ -448,17 +448,25 @@ export async function handleRefund(refund: any, now: Date, opts: { order?: any; 
     return { action: 'flagged', kind: 'refund-failed' }
   }
   if (status !== 'COMPLETED') return { action: 'ignored', why: 'pending' }
+  const bookings = [...new Map(hits.map((h) => [`${h.classId}|${h.line.bookingId}`, {
+    classId: h.classId, bookingId: h.line.bookingId, label: ctx.classes.find((c) => c.id === h.classId)?.content.name,
+  }])).values()]
+  const asClaimed = { id: String(refund.id), paymentId, cents: money(refund.amount_money) }
   if (entries.length) {
     // A plain refund recorded from Square: finish any class a crash left out (no-op otherwise).
-    if (entries.every((r) => bySquare(r) && !r.freedSeat)) await recordPlainRefund(refund, hits, now)
+    if (entries.every((r) => bySquare(r) && !r.freedSeat)) {
+      await recordPlainRefund(refund, hits, now)
+      return { action: 'ignored', why: 'already-recorded' }
+    }
+    // One of ours whose money is written but whose request may not be marked done (a failure in between):
+    // finish it. Matched only by this refund's id or the request id on the ledger, never by amount.
+    const requestIds = [...new Set(entries.map((r) => r.requestId).filter((x): x is string => !!x))]
+    if (await claimSquareRefund(asClaimed, bookings, { requestIds, exactOnly: true })) return { action: 'ignored', why: 'ours' }
     return { action: 'ignored', why: 'already-recorded' }
   }
 
   // One of our own saved refund requests (its save here hasn't happened yet): saved as that request, nothing of Square's.
-  const bookings = [...new Map(hits.map((h) => [`${h.classId}|${h.line.bookingId}`, {
-    classId: h.classId, bookingId: h.line.bookingId, label: ctx.classes.find((c) => c.id === h.classId)?.content.name,
-  }])).values()]
-  if (await claimSquareRefund({ id: String(refund.id), paymentId, cents: money(refund.amount_money) }, bookings)) {
+  if (await claimSquareRefund(asClaimed, bookings)) {
     logger.info('Square refund is one of ours, saved as asked', { refundId: refund.id })
     return { action: 'ignored', why: 'ours' }
   }
