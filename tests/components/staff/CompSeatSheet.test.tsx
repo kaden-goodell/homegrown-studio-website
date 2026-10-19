@@ -224,3 +224,95 @@ describe('CompSeatSheet — the confirmation email', () => {
     await waitFor(() => expect(JSON.parse(fetchMock.mock.calls[0][1].body).sendEmail).toBe(true))
   })
 })
+
+describe('CompSeatSheet on our own classes (Task 14)', () => {
+  const fetchMock = vi.fn()
+  afterEach(() => vi.unstubAllGlobals())
+  const own = {
+    classId: 'cls_camp', taxPercent: 9, instructor: null, questions: [{ id: 'glaze', label: 'Glaze', choices: ['Blue', 'Green'] }], addOns: [],
+    rules: { ages: '', dropOff: false, madeToOrder: false, taxable: true, maxPerBooking: 10, signupCutoffHours: null, minimumToRun: null, linkOnly: false, joinPartway: true, waitlistCutoffHours: 2, canShareRoom: false },
+    ticketTypes: [{ id: 'adult', label: 'Adult' }, { id: 'kid', label: 'Kid' }],
+    prices: { all: { adult: 9000, kid: 6000 }, day: { adult: 3500, kid: 2500 } },
+    sessions: [
+      { id: 'ses_tue', startIso: '2026-10-20T15:00:00.000Z', endIso: '2026-10-20T17:00:00.000Z', left: 0, closed: false },
+      { id: 'ses_wed', startIso: '2026-10-21T15:00:00.000Z', endIso: '2026-10-21T17:00:00.000Z', left: 2, closed: false },
+    ],
+    passes: [
+      { id: 'all', label: 'All days', covers: { kind: 'all' }, sessionIds: [], state: 'closed', left: 0 },
+      { id: 'day', label: 'One day', covers: { kind: 'choose', count: 1 }, sessionIds: null, state: 'open', left: 2 },
+    ],
+  }
+  const workshop = { id: 'cls_camp', name: 'Clay Camp', description: '', category: 'workshop', date: '2026-10-20', startTime: '', endTime: '', duration: 120, price: 2500, currency: 'USD', taxPercent: 9, remainingSeats: 2, signupClosed: false, own }
+  const ownEvent = { id: 'cls_camp', title: 'Clay Camp', day: '2026-10-20', own: true as const }
+  beforeEach(() => {
+    fetchMock.mockReset()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  function serveClass(...replies: any[]) {
+    fetchMock.mockImplementation(async (url: string, init?: any) => {
+      if (String(url).startsWith('/api/staff/class.json')) return { ok: true, status: 200, json: async () => ({ workshop }) }
+      const r = replies.shift()
+      return r ?? { ok: true, status: 200, json: async () => ({ data: { bookingId: 'bkg_1', emailSent: false, seats: 1 } }) }
+    })
+  }
+
+  it('comp: picks the option, the day and the tickets, then writes to the class (no Square)', async () => {
+    serveClass()
+    const onRecorded = vi.fn()
+    render(<CompSeatSheet event={ownEvent} options={own.questions as any} onRecorded={onRecorded} onClose={() => {}} />)
+    await screen.findByTestId('own-pickers')
+    expect(screen.queryByRole('radio', { name: /All days/ })).toBeNull() // closed options aren't offered
+    // the roster's day is picked to start with
+    expect((screen.getByRole('checkbox', { name: /Tue, Oct 20/ }) as HTMLInputElement).checked).toBe(true)
+    fill()
+    fireEvent.change(screen.getByLabelText('Adult seats'), { target: { value: '0' } })
+    fireEvent.change(screen.getByLabelText('Kid seats'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText(/Seat 1 · Glaze/), { target: { value: 'Green' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    const [url, init] = fetchMock.mock.calls.find((c) => c[0] === '/api/staff/comp-seat.json')!
+    expect(url).toBe('/api/staff/comp-seat.json')
+    expect(JSON.parse(init.body)).toMatchObject({
+      scheduleId: 'cls_camp', passId: 'day', sessionIds: ['ses_tue'], tickets: { adult: 0, kid: 1 },
+      picks: [{ seat: 1, optionId: 'glaze', choice: 'Green' }], givenName: 'Ada',
+    })
+    expect(screen.getByText(/^Added, no charge\./)).toBeTruthy()
+  })
+
+  it('a full day: says so, and "Add anyway, over capacity" sends it again on purpose', async () => {
+    serveClass({ ok: false, status: 409, json: async () => ({ code: 'sold_out', error: 'That class is full on Tue, Oct 20.' }) })
+    render(<CompSeatSheet event={ownEvent} options={own.questions as any} onRecorded={() => {}} onClose={() => {}} />)
+    await screen.findByTestId('own-pickers')
+    fill()
+    fireEvent.change(screen.getByLabelText(/Seat 1 · Glaze/), { target: { value: 'Blue' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    expect(await screen.findByText('That class is full on Tue, Oct 20.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add anyway, over capacity' }))
+    await waitFor(() => expect(fetchMock.mock.calls.filter((c) => c[0] === '/api/staff/comp-seat.json')).toHaveLength(2))
+    const second = JSON.parse(fetchMock.mock.calls.filter((c) => c[0] === '/api/staff/comp-seat.json')[1][1].body)
+    expect(second.overCapacity).toBe(true)
+  })
+
+  it('sell: asks how they pay; at the counter records the seat and says what to ring up', async () => {
+    serveClass({ ok: true, status: 200, json: async () => ({ data: { bookingId: 'bkg_2', emailSent: false, seats: 1, dueCents: 3815 } }) })
+    render(<CompSeatSheet mode="sell" event={ownEvent} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Pay at the counter' }))
+    fill()
+    fireEvent.click(screen.getByRole('button', { name: 'Add seat, pay at the counter' }))
+    const box = await screen.findByTestId('take-payment')
+    expect(box.textContent).toMatch(/Now take \$38\.15 at the counter/)
+    expect(box.textContent).toMatch(/ring up Clay Camp, One day/)
+    const body = JSON.parse(fetchMock.mock.calls.find((c) => c[0] === '/api/staff/comp-seat.json')![1].body)
+    expect(body.payAtRegister).toBe(true)
+  })
+
+  it('sell: Pay on the iPad opens the class checkout in door mode', async () => {
+    serveClass()
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    render(<CompSeatSheet mode="sell" event={ownEvent} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Pay on the iPad' }))
+    expect(await screen.findByRole('group', { name: 'Pick a day' })).toBeTruthy()
+    expect(screen.queryByRole('dialog', { name: 'Sell a seat' })).toBeNull()
+  })
+})

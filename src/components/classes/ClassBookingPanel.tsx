@@ -50,6 +50,13 @@ export interface ClassBookingPanelProps {
   onAvailability?: (own: OwnClassData) => void
   /** Keep ?w=<id> in the address while open (the /workshops list). Off on /classes/<id>. */
   syncUrl?: boolean
+  /**
+   * "Pay on the iPad" at the door (/staff Sell a seat): the same checkout,
+   * run on the studio iPad. A session stays open until it ends, seats are
+   * recorded as door seats by the signed-in crew member, and nothing about
+   * the last customer is remembered on the shared iPad.
+   */
+  door?: boolean
 }
 
 type Step = 'details' | 'seats' | 'pay'
@@ -137,7 +144,7 @@ function Counter({ label, value, canLess, canMore, onLess, onMore, spoken }: {
  * shown is worked out here with the same `quote` the server uses; the server
  * prices it again from the class and charges its own total.
  */
-export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvailability, syncUrl = true }: ClassBookingPanelProps) {
+export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvailability, syncUrl = true, door = false }: ClassBookingPanelProps) {
   const own = workshop.own!
   const cls = useMemo(() => asScheduledClass(own, workshop.name), [own, workshop.name])
   const shownPasses = own.passes.filter((p) => p.state !== 'closed')
@@ -160,7 +167,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   // The server couldn't say how the last try ended (or it is still running): no editing and paying again here.
   const [stuck, setStuck] = useState<string | null>(null)
 
-  const [initialContact] = useState<Contact>(() => rememberedContact() ?? EMPTY_CONTACT)
+  const [initialContact] = useState<Contact>(() => (door ? EMPTY_CONTACT : rememberedContact() ?? EMPTY_CONTACT))
   const [contact, setContact] = useState<Contact>(initialContact)
   const [agreedToPolicy, setAgreedToPolicy] = useState(false)
   const [policyProblem, setPolicyProblem] = useState(false)
@@ -208,9 +215,10 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     ...(needsSeats ? { seats } : {}),
   }
   const now = new Date()
-  const full = quote(cls, request, now, own.taxPercent)
+  const sale = door ? { door: true } : {}
+  const full = quote(cls, request, now, own.taxPercent, sale)
   // Before each person's picks are in: the seats alone.
-  const seatsOnly = quote({ ...cls, content: { ...cls.content, questions: [], addOns: [] } }, { ...request, seats: undefined }, now, own.taxPercent)
+  const seatsOnly = quote({ ...cls, content: { ...cls.content, questions: [], addOns: [] } }, { ...request, seats: undefined }, now, own.taxPercent, sale)
   const q: Quote | null = full.ok ? full.value : null
 
   // One attempt id per checkout. While we don't know how a try ended, a retry
@@ -269,7 +277,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
 
   async function refreshAvailability() {
     try {
-      const res = await fetch(`/api/classes/${encodeURIComponent(own.classId)}.json`, { cache: 'no-store' })
+      const res = await fetch(door ? `/api/staff/class.json?id=${encodeURIComponent(own.classId)}` : `/api/classes/${encodeURIComponent(own.classId)}.json`, { cache: 'no-store' })
       if (!res.ok) return
       const fresh = (await res.json().catch(() => null))?.workshop?.own as OwnClassData | undefined
       if (fresh) onAvailability?.(fresh)
@@ -437,7 +445,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
 
       let res: Response
       try {
-        res = await fetch('/api/classes/book.json', {
+        res = await fetch(door ? '/api/classes/book.json?door=1' : '/api/classes/book.json', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -497,8 +505,10 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         sessionIds: Array.isArray(data.sessionIds) ? data.sessionIds : q.sessionIds,
       })
       setAskToLeave(false)
-      identifyBooker(contact.email, contact.firstName, contact.lastName)
-      rememberContact(contact)
+      if (!door) {
+        identifyBooker(contact.email, contact.firstName, contact.lastName)
+        rememberContact(contact)
+      }
       const paid = (charged ?? q.totalCents) / 100
       trackPaymentCompleted(paid, {
         kind: 'workshop',
@@ -544,7 +554,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         }
         email={contact.email.trim()}
         emailSent={b.emailSent}
-        onEmailChanged={(nextEmail) => rememberContact({ ...contact, email: nextEmail })}
+        onEmailChanged={(nextEmail) => { if (!door) rememberContact({ ...contact, email: nextEmail }) }}
       >
         <div style={{ marginTop: '1.25rem' }}>
           <ConfirmedBlock label="When">
