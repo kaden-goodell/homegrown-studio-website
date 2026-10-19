@@ -34,7 +34,8 @@ export interface LedgerLine {
   refunds: { at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null }[]
   at: string
   /** set by confirm when a paid seat landed on a session already full (the hold had run out and the seat was taken) */
-  overCapacity?: boolean
+  overCapacity?: boolean  /** refunds Square turned down (FAILED/REJECTED) on this booking; makes the next try a new idempotency key */
+  refundFailures?: number
 }
 export interface Ledger { classId: string; lines: LedgerLine[] }
 
@@ -288,6 +289,15 @@ export async function recordRefund(
     const entry = (id: string) => ({ at, cents: centsOf(id), reason: input.reason, by: input.by, freedSeat: input.freeSeat, squareRefundId: input.squareRefundId })
     const lines = cur.lines.map((l) => (todo.has(l.id) ? { ...l, state: 'refunded' as const, refunds: [...l.refunds, entry(l.id)] } : l))
     return { next: { ...cur, lines }, result: lines.filter((l) => lineIds.includes(l.id)) }
+  })
+}
+
+/** Counts a refund Square turned down, on every line of the booking, so the next try is a fresh request. */
+export async function noteRefundFailed(classId: string, bookingId: string): Promise<void> {
+  await mutate(classId, (cur) => {
+    if (!cur.lines.some((l) => l.bookingId === bookingId)) return { next: null, result: undefined }
+    const lines = cur.lines.map((l) => (l.bookingId === bookingId ? { ...l, refundFailures: (l.refundFailures ?? 0) + 1 } : l))
+    return { next: { ...cur, lines }, result: undefined }
   })
 }
 

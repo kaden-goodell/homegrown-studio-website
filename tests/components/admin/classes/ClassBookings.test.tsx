@@ -21,7 +21,7 @@ const booking = {
   source: 'online', passId: 'all', seats: { adult: 1, kid: 2 }, sessionIds: ['ses_1'],
   picks: [{ seat: 1, ticketTypeId: 'adult', answers: { q1: 'Red' } }], addOns: {}, paidCents: 7630, refundedCents: 0, refunds: [],
   state: 'confirmed', overCapacity: false, lineIds: ['led_1'], at: '2031-03-01T00:00:00Z',
-  refundable: [{ id: 'led_1', seat: 1, ticketTypeId: 'adult', sessions: 1, remainingCents: 7630, sessionCents: 0 }], paidHere: true,
+  refundable: [{ id: 'led_1', seat: 1, ticketTypeId: 'adult', sessions: 1, remainingCents: 7630, sessionCents: 0, freed: false }], paidHere: true, refundableCents: 7630,
 }
 const ok = (body: unknown) => ({ ok: true, status: 200, json: async () => body })
 afterEach(() => vi.unstubAllGlobals())

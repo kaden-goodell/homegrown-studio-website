@@ -20,7 +20,7 @@ import * as staffRoute from '@pages/api/staff/class-refund.json'
 import { adminCookie } from '@lib/admin-auth'
 import { createClass } from '@lib/classes/class-store'
 import { getLedger, type LedgerLine } from '@lib/classes/seat-ledger'
-import { refundKey } from '@lib/classes/refunds'
+import { refundKey, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN } from '@lib/classes/refunds'
 import { makeKvStore } from '@lib/blob-store'
 import type { ClassContent } from '@lib/classes/types'
 
@@ -127,7 +127,7 @@ describe('owner refunds', () => {
     expect(r.status).toBe(200)
     // floor(10000 / 3) = 3333; tax on 3333 at 900/10000 = 299.97 → 300
     expect(mocks.refundPayment.mock.calls[0][0].amountCents).toBe(3633)
-    expect((await byId(classId))[a.id].refunds[0].cents).toBe(3633)
+    expect((await byId(classId))[a.id].refunds[0]).toMatchObject({ cents: 3633, freedSeat: false })
   })
 
   it('one session refuses a seat that is for one session only', async () => {
@@ -191,7 +191,8 @@ describe('owner refunds', () => {
     mocks.refundPayment.mockRejectedValueOnce(new Error('CARD_DECLINED'))
     const r = await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
     expect(r.status).toBe(502)
-    expect(r.body.error).toMatch(/\.$/)
+    expect(r.body.error).toBe(SQUARE_NO_ANSWER)
+    expect(r.body.error).not.toMatch(/in Square/)
     expect(await getLedger(classId)).toEqual(before)
     expect(mocks.audit).not.toHaveBeenCalled()
     expect(mocks.email).not.toHaveBeenCalled()
@@ -217,6 +218,100 @@ describe('owner refunds', () => {
     expect(mocks.refundPayment.mock.calls[2][0].amountCents).toBe(1270)
     const done = await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
     expect(done.status).toBe(400)
+  })
+})
+
+describe('fix round 1', () => {
+  it('free-seat defaults: whole booking and one person free it; one session and custom keep it', async () => {
+    const a = line({ seat: 1, sessionIds: ['ses_r1', 'ses_r2'] }), b = line({ seat: 2, sessionIds: ['ses_r1', 'ses_r2'] })
+    const classId = await setup([a, b])
+    await admin({ classId, bookingId: 'bkg_r1', kind: 'session', lineIds: [a.id] })
+    await admin({ classId, bookingId: 'bkg_r1', kind: 'custom', cents: 100, lineIds: [b.id] })
+    let after = await byId(classId)
+    expect(after[a.id].refunds.at(-1)!.freedSeat).toBe(false)
+    expect(after[b.id].refunds.at(-1)!.freedSeat).toBe(false)
+    await admin({ classId, bookingId: 'bkg_r1', kind: 'person', lineIds: [a.id] })
+    after = await byId(classId)
+    expect(after[a.id].refunds.at(-1)!.freedSeat).toBe(true)
+    await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
+    after = await byId(classId)
+    expect(after[b.id].refunds.at(-1)!.freedSeat).toBe(true)
+  })
+
+  it('free their seat: no money, no Square, audited, and it does not count toward the 20 or the key', async () => {
+    const a = line({ seat: 1 }), b = line({ seat: 2 })
+    const classId = await setup([a, b])
+    const r = await admin({ action: 'free-seat', classId, bookingId: 'bkg_r1', lineIds: [a.id] })
+    expect(r.status).toBe(200)
+    expect(mocks.refundPayment).not.toHaveBeenCalled()
+    const after = await byId(classId)
+    expect(after[a.id].refunds).toEqual([expect.objectContaining({ cents: 0, freedSeat: true, squareRefundId: null })])
+    expect(after[b.id].refunds).toEqual([])
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-free-seat', by: { id: 'admin', name: 'Owner', role: 'owner' } }))
+    expect((await admin({ action: 'free-seat', classId, bookingId: 'bkg_r1', lineIds: [a.id] })).status).toBe(409)
+    await admin({ classId, bookingId: 'bkg_r1', kind: 'person', lineIds: [a.id] })
+    expect(mocks.refundPayment.mock.calls[0][0].idempotencyKey).toBe(refundKey('bkg_r1', [a.id], 3270, 0))
+  })
+
+  it('seat-only frees do not use up the 20-refund cap', async () => {
+    const refunds = Array.from({ length: 20 }, () => ({ at: 'x', cents: 0, reason: '', by: { id: 'admin', name: 'Owner' }, freedSeat: true, squareRefundId: null }))
+    const classId = await setup([line({ state: 'refunded', refunds })])
+    const r = await admin({ classId, bookingId: 'bkg_r1', kind: 'custom', cents: 100 })
+    expect(r.status).toBe(200)
+  })
+
+  it('crew freeing a seat needs a reason and is audited as them', async () => {
+    const a = line({})
+    const classId = await setup([a])
+    expect((await staff({ action: 'free-seat', classId, bookingId: 'bkg_r1', reason: '' })).status).toBe(400)
+    const r = await staff({ action: 'free-seat', classId, bookingId: 'bkg_r1', reason: 'Called to cancel' })
+    expect(r.status).toBe(200)
+    expect((await byId(classId))[a.id].refunds[0]).toMatchObject({ cents: 0, freedSeat: true, by: { id: 'sam', name: 'Sam' } })
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-free-seat', by: { id: 'sam', name: 'Sam', role: 'crew' } }))
+  })
+
+  it('a refund Square turns down makes the next try a new key; no answer keeps the same key', async () => {
+    const a = line({})
+    const classId = await setup([a])
+    mocks.refundPayment.mockRejectedValueOnce(new Error('timeout')).mockRejectedValueOnce(new Error('timeout'))
+    await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
+    await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
+    const [t1, t2] = mocks.refundPayment.mock.calls.map((c) => c[0].idempotencyKey)
+    expect(t1).toBe(t2)
+    mocks.refundPayment.mockResolvedValueOnce({ id: 'rf_x', paymentId: 'pay_1', amountCents: 3270, status: 'FAILED' })
+    const failed = await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
+    expect(failed.status).toBe(502)
+    expect(failed.body.error).toBe(SQUARE_TURNED_DOWN)
+    expect((await byId(classId))[a.id]).toMatchObject({ refunds: [], refundFailures: 1, state: 'confirmed' })
+    const ok = await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
+    expect(ok.status).toBe(200)
+    const last = mocks.refundPayment.mock.calls.at(-1)![0].idempotencyKey
+    expect(last).not.toBe(t1)
+    expect(last).toBe(refundKey('bkg_r1', [a.id], 3270, 0, 1))
+  })
+
+  it('caps a booking at what Square charged, less refunds', async () => {
+    const charged = { orderId: 'o1', paymentId: 'pay_1', lineUid: null, chargedCents: 6000 }
+    const a = line({ seat: 1, square: charged }), b = line({ seat: 2, square: charged })
+    const classId = await setup([a, b])
+    expect((await admin({ classId, bookingId: 'bkg_r1', kind: 'custom', cents: 6001 })).status).toBe(400)
+    const r = await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
+    expect(r.status).toBe(200)
+    expect(mocks.refundPayment.mock.calls[0][0].amountCents).toBe(6000)
+    const after = await byId(classId)
+    expect(after[a.id].refunds[0].cents).toBe(3270)
+    expect(after[b.id].refunds[0].cents).toBe(2730)
+  })
+
+  it('an email failure logs no address', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const classId = await setup([line({})])
+    mocks.email.mockRejectedValueOnce(Object.assign(new Error('Invalid recipient ada@example.com'), { code: 'EENVELOPE' }))
+    await admin({ classId, bookingId: 'bkg_r1', kind: 'booking' })
+    const logged = warn.mock.calls.map((c) => c.join(' ')).join('\n')
+    expect(logged).toContain('EENVELOPE')
+    expect(logged).not.toContain('ada@example.com')
+    warn.mockRestore()
   })
 })
 

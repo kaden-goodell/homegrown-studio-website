@@ -26,9 +26,13 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   last4?: string
   onDone?: () => void
 }) {
-  const seats = booking.refundable.filter((s) => s.remainingCents > 0)
+  const all = booking.refundable ?? []
+  const seats = all.filter((s) => s.remainingCents > 0)
   const multi = seats.filter((s) => s.sessionCents > 0)
+  const holding = all.filter((s) => !s.freed)
   const [open, setOpen] = useState(false)
+  const [freeing, setFreeing] = useState(false)
+  const [freeWho, setFreeWho] = useState('all')
   const [kind, setKind] = useState<Kind>('booking')
   const [person, setPerson] = useState(seats[0]?.id ?? '')
   const [sessionSeats, setSessionSeats] = useState<string[]>(multi.map((s) => s.id))
@@ -40,7 +44,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   const [done, setDone] = useState('')
 
   const label = (t: string) => ticketLabel?.(t) ?? t
-  const left = seats.reduce((s, x) => s + x.remainingCents, 0)
+  const left = Math.min(seats.reduce((s, x) => s + x.remainingCents, 0), booking.refundableCents ?? Infinity)
   const amountCents = Math.round(Number(amount) * 100)
 
   const preview = useMemo(() => {
@@ -50,13 +54,28 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
     return Number.isFinite(amountCents) && amountCents > 0 ? amountCents : 0
   }, [kind, person, sessionSeats, amountCents, left])
 
-  if (!booking.paidHere) return booking.source === 'comp' ? null : <p style={{ ...muted, fontSize: '0.9rem' }}>Refund this one in Square, where it was paid.</p>
-  if (!seats.length) return null
+  const canRefund = booking.paidHere && left > 0
+  if (!canRefund && !holding.length) return done ? <p role="status" style={{ margin: 0, fontWeight: 600 }}>{done}</p> : null
 
   function choose(k: Kind) {
     setKind(k)
-    setFreeSeat(k !== 'custom')
+    // One session keeps the seat by default: the seat covers every session of the pass.
+    setFreeSeat(k === 'booking' || k === 'person')
     setError('')
+  }
+
+  async function free() {
+    setBusy(true)
+    setError('')
+    const body: Record<string, unknown> = { action: 'free-seat', classId, bookingId: booking.bookingId, reason: reason.trim() }
+    if (freeWho !== 'all') body.lineIds = [freeWho]
+    const r = await api<{ lines: unknown[] }>(endpoint, body)
+    setBusy(false)
+    if (!r.ok) { setError(r.error ?? ''); return }
+    setDone(freeWho === 'all' && holding.length > 1 ? 'Seats freed.' : 'Seat freed.')
+    setFreeing(false)
+    setReason('')
+    onDone?.()
   }
 
   const reasonOk = !reasonRequired || reason.trim().length >= 3
@@ -80,10 +99,40 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
     onDone?.()
   }
 
+  const reasonBox = (
+    <label style={{ display: 'grid', gap: '0.3rem' }}>
+      <span>{reasonRequired ? 'Reason' : 'Reason (optional)'}</span>
+      <input type="text" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} style={input} />
+    </label>
+  )
+
+  if (freeing) {
+    return (
+      <div role="group" aria-label="Free their seat" style={{ ...box, borderColor: 'var(--color-primary)' }}>
+        <p style={{ margin: 0, fontWeight: 700 }}>Free their seat</p>
+        <p style={{ margin: 0 }}>No money goes back. The seat opens up for someone else to book.</p>
+        {holding.length > 1 && (
+          <select aria-label="Which seat" value={freeWho} onChange={(e) => setFreeWho(e.target.value)} style={input}>
+            <option value="all">{`Every seat on this booking (${holding.length})`}</option>
+            {holding.map((s) => <option key={s.id} value={s.id}>{`Seat ${s.seat} (${label(s.ticketTypeId)})`}</option>)}
+          </select>
+        )}
+        {reasonBox}
+        {error && <p role="alert" style={errorText}>{error}</p>}
+        <div style={row}>
+          <button type="button" className="btn btn-primary" disabled={!reasonOk || busy} onClick={free}>{busy ? 'Freeing…' : 'Yes, free the seat'}</button>
+          <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setFreeing(false); setError('') }}>Back</button>
+        </div>
+      </div>
+    )
+  }
+
   if (!open) {
     return (
       <div style={row}>
-        <button type="button" className="btn btn-secondary" onClick={() => { setOpen(true); setDone('') }}>Refund</button>
+        {canRefund && <button type="button" className="btn btn-secondary" onClick={() => { setOpen(true); setDone('') }}>Refund</button>}
+        {holding.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setFreeing(true); setDone('') }}>Free their seat</button>}
+        {!booking.paidHere && booking.source !== 'comp' && <span style={{ ...muted, fontSize: '0.9rem' }}>Refund this one in Square, where it was paid.</span>}
         {done && <span role="status" style={{ fontWeight: 600 }}>{done}</span>}
       </div>
     )
@@ -135,10 +184,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
         <input type="checkbox" checked={freeSeat} onChange={(e) => setFreeSeat(e.target.checked)} />
         Free the seat so someone else can book it
       </label>
-      <label style={{ display: 'grid', gap: '0.3rem' }}>
-        <span>{reasonRequired ? 'Reason' : 'Reason (optional)'}</span>
-        <input type="text" value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} style={input} />
-      </label>
+      {reasonBox}
       {tooMuch && <p role="alert" style={errorText}>That is more than is left to refund.</p>}
       {preview > 0 && !tooMuch && (
         <p style={{ margin: 0, fontWeight: 600 }}>{`Refund ${formatMoney(preview)} ${last4 ? `to the card ending in ${last4}` : 'to their card'}.`}</p>

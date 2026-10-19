@@ -18,7 +18,7 @@ import { addBlocked, listBlocked, removeBlocked, type BlockedTime } from './bloc
 import { createClass, getClass, listClasses, StaleClassError, updateClass } from './class-store'
 import { archiveLibrary, getLibrary, listLibrary, restoreLibraryVersion, saveLibraryVersion } from './library-store'
 import { archiveClassInSquare, syncClassToSquare } from './square-catalog'
-import { remainingOn, sessionShare } from './refunds'
+import { bookingCap, remainingOn, sessionShare } from './refunds'
 import { getLedger, seatsTaken, type Ledger, type LedgerLine } from './seat-ledger'
 import { busyBetween, clashes, clashMessage, type Busy } from './studio-schedule'
 import type { ClassContent, ClassStatus, LibraryClass, ScheduledClass, Session } from './types'
@@ -399,9 +399,11 @@ export interface BookingView {
   refundable: RefundableSeat[]
   /** false = comp, POS or counter: refunds happen in Square */
   paidHere: boolean
+  /** most the booking can still give back: remaining on its seats, capped at what Square charged less refunds */
+  refundableCents: number
   at: string
 }
-export interface RefundableSeat { id: string; seat: number; ticketTypeId: string; sessions: number; remainingCents: number; sessionCents: number }
+export interface RefundableSeat { id: string; seat: number; ticketTypeId: string; sessions: number; remainingCents: number; sessionCents: number; freed: boolean }
 
 /** A class's ledger lines grouped by booking. Released seats and lapsed holds are left out. */
 export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
@@ -445,8 +447,13 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
       refundable: lines.filter((l) => l.state === 'confirmed' || l.state === 'refunded').map((l) => ({
         id: l.id, seat: l.seat, ticketTypeId: l.ticketTypeId, sessions: l.sessionIds.length,
         remainingCents: remainingOn(l), sessionCents: l.sessionIds.length > 1 && sessionShare(l) <= remainingOn(l) ? sessionShare(l) : 0,
+        freed: l.refunds.some((r) => r.freedSeat),
       })),
       paidHere: !!first.square.paymentId,
+      refundableCents: Math.min(
+        lines.filter((l) => l.state === 'confirmed' || l.state === 'refunded').reduce((s, l) => s + remainingOn(l), 0),
+        bookingCap(lines) ?? Infinity,
+      ),
       at: first.at,
     }
   }).sort((a, b) => a.at.localeCompare(b.at))
