@@ -467,3 +467,26 @@ describe('extendHold and the charged amount', () => {
     expect(lines.map((l) => l.square.chargedCents)).toEqual([6541, 6541])
   })
 })
+
+describe('door seats paid at the counter (Task 14)', () => {
+  it('a POS sale of the same pass pays the door-counter seat instead of adding a second one; a replay adds nothing', async () => {
+    const { recordPos } = await import('@lib/classes/seat-ledger')
+    const cls = make(4)
+    const q = quote(cls, { passId: 'day', sessionIds: ['ses_b'], tickets: { person: 1 } }, NOW, 9)
+    if (!q.ok) throw new Error(q.error)
+    const held = await hold(cls, q.value, { bookingId: 'bkg_door1', passId: 'day', source: 'door-counter', customer: cust, ttlMinutes: 10, by }, NOW)
+    expect(held.ok).toBe(true)
+    await confirm(cls.id, 'bkg_door1', { orderId: null, paymentId: null }, { cls, quote: q.value, input: { bookingId: 'bkg_door1', passId: 'day', source: 'door-counter', customer: cust, ttlMinutes: 10 } }, NOW)
+    const sale = { bookingId: 'bkg_pos_O1', orderId: 'O1', paymentId: 'PAY1', chargedCents: 1090, lines: [{ lineUid: 'L1', passId: 'day', ticketTypeId: 'person', sessionIds: ['ses_a'], units: [{ priceCents: 1000, taxCents: 90 }] }] }
+    const got = await recordPos(cls, sale, NOW)
+    expect(got).toHaveLength(1)
+    let lines = (await getLedger(cls.id)).lines
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ bookingId: 'bkg_door1', source: 'door-counter', sessionIds: ['ses_b'], customer: cust, square: { orderId: 'O1', paymentId: 'PAY1', lineUid: 'L1' } })
+    expect(await recordPos(cls, sale, NOW)).toEqual([])
+    // a second counter sale with no door seat waiting is a new counter seat
+    await recordPos(cls, { ...sale, bookingId: 'bkg_pos_O2', orderId: 'O2' }, NOW)
+    lines = (await getLedger(cls.id)).lines
+    expect(lines.map((l) => l.source)).toEqual(['door-counter', 'pos'])
+  })
+})

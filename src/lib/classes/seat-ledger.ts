@@ -195,7 +195,7 @@ export async function hold(cls: ScheduledClass, q: Quote, input: HoldInput, now:
 export async function confirm(
   classId: string,
   bookingId: string,
-  square: { orderId: string; paymentId: string | null; chargedCents?: Cents },
+  square: { orderId: string | null; paymentId: string | null; chargedCents?: Cents },
   fallback: { cls: ScheduledClass; quote: Quote; input: HoldInput },
   now: Date,
 ): Promise<LedgerLine[]> {
@@ -428,11 +428,14 @@ export interface PosLineInput {
 
 /**
  * Records a counter (POS) sale: one confirmed 'pos' line per unit, no name
- * yet, capacity ignored (the seat is already sold). Idempotent by order id +
+ * yet, capacity ignored (the seat is already sold). A door seat the crew
+ * took "to pay at the counter" (source 'door-counter', not yet paid, same
+ * pass and ticket) is this sale: it takes the payment instead of a new seat
+ * being added, and keeps its name and days. Idempotent by order id +
  * line uid + unit: units already on the ledger for that line are skipped, so a
  * replayed webhook or the nightly reconcile never adds a seat twice. Seats
- * landing on a full session are marked overCapacity for staff. Returns only
- * the lines added this time.
+ * landing on a full session are marked overCapacity for staff. Returns the
+ * lines added or paid this time.
  */
 export async function recordPos(
   cls: ScheduledClass,
@@ -440,11 +443,26 @@ export async function recordPos(
   now: Date,
 ): Promise<LedgerLine[]> {
   return mutate(cls.id, (cur) => {
-    const kept = cur.lines.filter((l) => !isExpiredHold(l, now))
+    let kept = cur.lines.filter((l) => !isExpiredHold(l, now))
     const added: LedgerLine[] = []
+    const claimed = new Set<string>()
+    const sq = (pl: PosLineInput) => ({
+      orderId: input.orderId, paymentId: input.paymentId, lineUid: pl.lineUid, chargedCents: input.chargedCents,
+      ...(input.paymentIds && input.paymentIds.length > 1 ? { paymentIds: [...input.paymentIds] } : {}),
+    })
     let seat = kept.filter((l) => l.bookingId === input.bookingId).reduce((m, l) => Math.max(m, l.seat), 0)
     for (const pl of input.lines) {
-      const have = kept.filter((l) => l.square.orderId === input.orderId && l.square.lineUid === pl.lineUid).length
+      let have = kept.filter((l) => l.square.orderId === input.orderId && l.square.lineUid === pl.lineUid).length
+      // A seat the crew took at the door to be paid at the counter is this sale: it is paid now, never a second seat.
+      while (have < pl.units.length) {
+        const door = kept.find((l) => l.source === 'door-counter' && l.state === 'confirmed' && !l.square.orderId
+          && l.passId === pl.passId && l.ticketTypeId === pl.ticketTypeId && !claimed.has(l.id))
+        if (!door) break
+        const unit = pl.units[have]
+        claimed.add(door.id)
+        kept = kept.map((l) => (l.id === door.id ? { ...l, priceCents: unit.priceCents, taxCents: unit.taxCents, square: sq(pl) } : l))
+        have++
+      }
       for (let u = have; u < pl.units.length; u++) {
         added.push({
           id: newId('led'),
@@ -471,7 +489,7 @@ export async function recordPos(
         })
       }
     }
-    if (!added.length) return { next: null, result: [] }
+    if (!added.length && !claimed.size) return { next: null, result: [] }
     const after: Ledger = { classId: cls.id, lines: [...kept, ...added] }
     const over = new Set(cls.sessions.filter((s) => seatsTaken(after, s.id, now) > s.capacity).map((s) => s.id))
     const newIds = new Set(added.map((l) => l.id))
@@ -482,7 +500,7 @@ export async function recordPos(
       }
       return l
     })
-    return { next: { ...cur, lines }, result: lines.filter((l) => newIds.has(l.id)) }
+    return { next: { ...cur, lines }, result: lines.filter((l) => newIds.has(l.id) || claimed.has(l.id)) }
   })
 }
 

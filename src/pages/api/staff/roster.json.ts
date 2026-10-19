@@ -7,6 +7,7 @@ import { effectivePickup } from '@lib/pickup'
 import { getCheckin, toPublicCheckin, presenceOn } from '@lib/checkin-store'
 import { listSeatChoicesByEvent, summarizeChoices, type RosterChoices } from '@lib/seat-choices'
 import { createLogger } from '@lib/logger'
+import { ownRoster, type OwnRoster } from '@lib/classes/staff-roster'
 
 export const prerender = false
 
@@ -132,7 +133,17 @@ export const GET: APIRoute = async ({ request, url }) => {
     // failed read leaves `choices` out rather than blanking the roster.
     const options = kind === 'workshop' ? (event.options ?? []) : []
     let choices: RosterChoices | null | undefined = null
-    if (kind === 'workshop') {
+    // Our own classes: seats, picks and bookings come from the seat ledger, for this day's session.
+    let own: OwnRoster | null = null
+    if (event.own) {
+      try {
+        own = await ownRoster(event, day, waivers.map((w) => w.adult.email))
+        choices = own?.choices ?? undefined
+      } catch (err) {
+        logger.error('Class seats read failed', { kind, id, error: err instanceof Error ? err.message : String(err) })
+        choices = undefined
+      }
+    } else if (kind === 'workshop') {
       try {
         choices = summarizeChoices(
           options,
@@ -149,11 +160,12 @@ export const GET: APIRoute = async ({ request, url }) => {
     return new Response(
       JSON.stringify({
         data: {
-          event,
+          event: own?.event ?? event,
           day,
           summary: { households: households.length, people, childrenHereNow },
           households: responseHouseholds,
           choices,
+          ...(own ? { bookings: own.bookings, ticketLabels: own.ticketLabels } : {}),
         },
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },

@@ -14,6 +14,13 @@ import { addGuestSeats } from '@lib/guest-seats'
 import { getWaiverRecord } from '@lib/waiver-store'
 import { addAttending, personIdsOf } from '@lib/attending'
 import { substantiveSince, compareVersions } from '@config/waiver-content'
+import { getClass } from '@lib/classes/class-store'
+import { isOwnClassId } from '@lib/classes/staff-view'
+import { addDoorSeats } from '@lib/classes/staff-seats'
+import { cleanSeats, seatsLabelFor } from '@lib/classes/checkout'
+import { sendClassConfirmation } from '@lib/classes/confirmation'
+import type { BookingRequest } from '@lib/classes/pricing'
+import type { StaffMember } from '@lib/staff-auth'
 
 export const prerender = false
 
@@ -62,6 +69,9 @@ export const POST: APIRoute = async ({ request }) => {
   if (givenName.length < 1 || givenName.length > 60) return bad('Add a first name (60 characters or fewer).')
   if (familyName.length < 1 || familyName.length > 60) return bad('Add a last name (60 characters or fewer).')
   if (!EMAIL_RE.test(email)) return bad('That email doesn’t look right.')
+  // Our own classes: straight to the seat ledger (no Square dashboard).
+  if (isOwnClassId(scheduleId)) return ownClassSeat(request, member, body, { givenName, familyName, email, phone })
+
   const customerId = typeof body.customerId === 'string' && body.customerId.trim() ? body.customerId.trim() : null
   const waiverId = typeof body.waiverId === 'string' && body.waiverId.trim() ? body.waiverId.trim() : null
   const people: string[] = Array.isArray(body.people) ? [...new Set<string>(body.people.map((p: unknown) => String(p).trim()).filter(Boolean))] : []
@@ -219,6 +229,117 @@ export const POST: APIRoute = async ({ request }) => {
     return reply(200, { data: { bookingId, emailSent, seats: seatsAdded, ...(payAtRegister ? { dueCents } : {}), ...(squareNote || rosterNote ? { warning: [squareNote, rosterNote].filter(Boolean).join(' ') } : {}) } })
   } catch (err) {
     logger.error('Comp seat failed', { scheduleId, error: err instanceof Error ? err.message : String(err) })
+    return bad('Couldn’t record that seat — please try again.', 503)
+  }
+}
+
+/**
+ * Comp a seat / Sell a seat (pay at the counter) on one of our own classes.
+ * Body: scheduleId (the cls_ id), passId, sessionIds (a pick-your-days pass),
+ * tickets { ticketTypeId: count }, picks [{ seat, optionId, choice }],
+ * payAtRegister, overCapacity (squeeze one more onto a full day), and the
+ * usual person, waiverId/people/guests and sendEmail. Never charges, never
+ * touches Square: the counter takes the money, and its sale pays this seat.
+ */
+async function ownClassSeat(
+  request: Request,
+  member: StaffMember,
+  body: any,
+  person: { givenName: string; familyName: string; email: string; phone: string },
+): Promise<Response> {
+  const classId = String(body.scheduleId).trim()
+  const payAtRegister = body.payAtRegister === true
+  try {
+    const cls = await getClass(classId)
+    if (!cls) return bad('Class not found', 404)
+    const passId = typeof body.passId === 'string' ? body.passId : ''
+    const tickets: Record<string, number> = {}
+    if (body.tickets && typeof body.tickets === 'object') {
+      for (const [k, v] of Object.entries(body.tickets as Record<string, unknown>)) tickets[k] = Number(v)
+    }
+    const count = Object.values(tickets).reduce((a, b) => a + (Number.isFinite(b) ? b : 0), 0)
+    if (count < 1 || count > 10) return bad('Seats must be a whole number from 1 to 10.')
+
+    // The household picked from the waiver: in date, on the current agreement, real people.
+    const waiverId = typeof body.waiverId === 'string' && body.waiverId.trim() ? body.waiverId.trim() : null
+    const people: string[] = Array.isArray(body.people) ? [...new Set<string>(body.people.map((p: unknown) => String(p).trim()).filter(Boolean))] : []
+    const guests: string[] = Array.isArray(body.guests) ? body.guests.map((g: unknown) => String(g).trim()).filter(Boolean) : []
+    const waiver = waiverId ? await getWaiverRecord(waiverId) : null
+    if (waiverId) {
+      if (!waiver) return bad('That waiver isn’t on file.', 404)
+      if (new Date(waiver.validUntil).getTime() <= Date.now() || compareVersions(waiver.agreementVersion, substantiveSince) < 0) {
+        return bad('That waiver is out of date, so they’ll need to sign again. Use Seats instead.', 409)
+      }
+      const valid = new Set(personIdsOf(waiver))
+      if (people.some((p) => !valid.has(p))) return bad('Someone picked isn’t on that waiver.')
+      if (people.length + guests.length !== count) return bad('Pick a seat for everyone coming.')
+    }
+
+    // Each seat's answers, from the sheet's picks (seat numbers start at 1).
+    const picks: { seat: number; optionId: string; choice: string }[] = Array.isArray(body.picks) ? body.picks : []
+    const needsSeats = cls.content.questions.length > 0 || cls.content.addOns.length > 0
+    const seats = needsSeats
+      ? cleanSeats(cls, Array.from({ length: count }, (_, i) => ({
+          answers: Object.fromEntries(picks.filter((p) => Number(p.seat) === i + 1 && p.choice).map((p) => [String(p.optionId), String(p.choice)])),
+        })))
+      : undefined
+    const req: BookingRequest = {
+      passId, tickets,
+      ...(Array.isArray(body.sessionIds) ? { sessionIds: body.sessionIds.map(String) } : {}),
+      ...(seats ? { seats } : {}),
+    }
+    const by = byOf(member)
+    const added = await addDoorSeats({
+      cls, mode: payAtRegister ? 'door-counter' : 'comp', request: req, customer: person, by, overCapacity: body.overCapacity === true,
+    })
+    if (!added.ok) return reply(added.status, { error: added.error, ...(added.code ? { code: added.code } : {}) })
+
+    let rosterNote: string | null = null
+    if (waiver && people.length) {
+      try {
+        await addAttending({ kind: 'workshop', id: cls.id, waiver, people, by })
+      } catch (err) {
+        logger.error('Seat added, but not marked attending', { classId, waiverId, error: err instanceof Error ? err.message : String(err) })
+        rosterNote = 'The seat is in, but they didn’t make it onto the roster. Add them with + Add family at the door.'
+      }
+    }
+
+    const seatsLabel = seatsLabelFor(cls, added.lines)
+    let emailSent = false
+    if (body.sendEmail === true) {
+      const pickLines = added.lines.flatMap((l) => cls.content.questions.filter((q) => l.answers[q.id]).map((q) => `Seat ${l.seat} · ${q.label} ${l.answers[q.id]}`))
+      emailSent = await sendClassConfirmation({
+        origin: new URL(request.url).origin, bookingId: added.bookingId, cls, sessionIds: added.quote.sessionIds, seats: added.lines.length,
+        seatsLabel, email: person.email, givenName: person.givenName, receiptUrl: null, totalChargedCents: 0,
+        ...(pickLines.length ? { pickLines } : {}),
+        ...(payAtRegister ? { dueAtStudioCents: added.dueCents } : { comped: true }),
+      }).catch((err) => {
+        logger.error('Door seat confirmation email failed', { bookingId: added.bookingId, error: err instanceof Error ? err.message : String(err) })
+        return false
+      })
+    }
+
+    const over = added.lines.some((l) => l.overCapacity)
+    await recordAudit({
+      by: member,
+      action: payAtRegister ? 'seat.sold-at-door' : 'seat.comped',
+      target: { kind: 'workshop', id: cls.id, label: cls.content.name },
+      details: {
+        bookingId: added.bookingId, seats: added.lines.length, ...(payAtRegister ? { dueCents: added.dueCents } : {}),
+        email: person.email, name: `${person.givenName} ${person.familyName}`, emailSent, sessions: added.quote.sessionIds.join(','),
+        ...(over ? { overCapacity: true } : {}), ...(waiverId ? { waiverId, attending: people.join(',') } : {}),
+      },
+    })
+    return reply(200, {
+      data: {
+        bookingId: added.bookingId, emailSent, seats: added.lines.length, seatsLabel, own: true,
+        ...(payAtRegister ? { dueCents: added.dueCents } : {}),
+        ...(rosterNote ? { warning: rosterNote } : {}),
+        ...(over ? { overCapacity: true } : {}),
+      },
+    })
+  } catch (err) {
+    logger.error('Door seat failed', { classId, error: err instanceof Error ? err.message : String(err) })
     return bad('Couldn’t record that seat — please try again.', 503)
   }
 }

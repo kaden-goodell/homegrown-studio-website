@@ -319,7 +319,8 @@ export async function handleOrder(
     const added = await recordPos(cls, { bookingId, orderId, paymentId, paymentIds, chargedCents: charged, lines }, now)
     out.recorded += added.length
     for (const pl of lines.filter((x) => x.needsDays)) {
-      const mine = added.filter((l) => l.square.lineUid === pl.lineUid)
+      // A door seat paid at the counter already has its days.
+      const mine = added.filter((l) => l.square.lineUid === pl.lineUid && l.source === 'pos')
       if (!mine.length) continue
       const id = `days-${safeKey(orderId)}-${safeKey(pl.lineUid)}-${mine[0].seat}`
       await putOnce(needsDaysKv, id, {
