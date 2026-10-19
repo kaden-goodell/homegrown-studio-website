@@ -155,6 +155,10 @@ export interface SquareConfig {
   environment: 'sandbox' | 'production'
   locationId: string
   applicationId: string
+  /** Square category our own classes' POS items go in ('' until set up). */
+  classesCategoryId?: string
+  /** The 9% catalog tax put on taxable classes ('' until set up). */
+  classTaxId?: string
 }
 
 export interface SquareInternalConfig {
@@ -204,6 +208,8 @@ const squareConfig: SquareConfig | Record<string, never> = isSquare
       environment: (env.SQUARE_ENVIRONMENT as 'sandbox' | 'production') || 'sandbox',
       locationId: env.SQUARE_LOCATION_ID || '',
       applicationId: env.SQUARE_APPLICATION_ID || '',
+      classesCategoryId: env.SQUARE_CLASSES_CATEGORY_ID || '',
+      classTaxId: env.SQUARE_CLASS_TAX_ID || '',
     }
   : {}
 

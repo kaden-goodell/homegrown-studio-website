@@ -48,7 +48,9 @@ export interface ScheduledClass {
   content: ClassContent      // the editable copy
   sessions: Session[]        // sorted by startIso
   status: ClassStatus
-  square: { itemId: string | null; variations: Record<string, string> } // key `${passId}:${ticketTypeId}` → variation id
+  /** POS item. variations key `${passId}:${ticketTypeId}` (seats) or `addon:${addOnId}` → variation id.
+   *  imageUrl = the class image last uploaded to Square (re-uploaded only when it changes). */
+  square: { itemId: string | null; variations: Record<string, string>; imageUrl?: string | null }
   createdAt: string
   updatedAt: string
   by: { id: string; name: string }
