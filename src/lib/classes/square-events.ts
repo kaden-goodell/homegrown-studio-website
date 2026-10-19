@@ -32,7 +32,8 @@ import type { By } from '@lib/staff-auth'
 import { listClasses } from './class-store'
 import { squareFetch, squareSettings } from './square-api'
 import { getLedger, paidBy, recordPos, recordRefund, type LedgerLine, type PosLineInput } from './seat-ledger'
-import { bookingCap, onSeatFreed } from './refunds'
+import { bookingCap, claimSquareRefund, onSeatFreed } from './refunds'
+import { allRefundRequests, listRefundRequests, UNCONFIRMED_AFTER_MS } from './refund-requests'
 import type { Cents, ScheduledClass, Session } from './types'
 
 const logger = createLogger('classes:square-events')
@@ -50,7 +51,8 @@ export interface PosNeedsDays {
   id: string; classId: string; bookingId: string; lineIds: string[]; orderId: string; lineUid: string
   passId: string; sessionIds: string[]; at: string
 }
-export type RefundFlagKind = 'plain-refund' | 'refund-failed'
+/** refund-unconfirmed: one of our refunds was saved and sent, but Square never showed it within 24 h */
+export type RefundFlagKind = 'plain-refund' | 'refund-failed' | 'refund-unconfirmed'
 export type RefundFlagAction = 'freed-seat' | 'kept-seat' | 'dismissed'
 export interface RefundFlag {
   id: string
@@ -67,6 +69,8 @@ export interface RefundFlag {
   status: string
   at: string
   resolved: { at: string; by: By; action: RefundFlagAction } | null
+  /** refund-unconfirmed: our saved request */
+  requestId?: string
 }
 
 const money = (m: any): Cents => (Number.isFinite(Number(m?.amount)) ? Number(m.amount) : 0)
@@ -151,12 +155,14 @@ const CACHE_MS = 60 * 60_000
  */
 export class CatalogCache {
   private known = new Map<string, boolean>()
-  constructor(private readonly bornAt = Date.now()) {}
+  private failed = new Set<string>()
+  /** rememberFailures: a lookup that failed is not tried again by this cache (one reconcile run) */
+  constructor(private readonly opts: { rememberFailures?: boolean } = {}, private readonly bornAt = Date.now()) {}
   get age(): number { return Date.now() - this.bornAt }
 
   /** Looks up every id not yet known. Never throws. */
   async prefetch(variationIds: Iterable<string>): Promise<void> {
-    const todo = [...new Set(variationIds)].filter((id) => id && !this.known.has(id))
+    const todo = [...new Set(variationIds)].filter((id) => id && !this.known.has(id) && !this.failed.has(id))
     if (!todo.length) return
     const categoryId = squareSettings().classesCategoryId || ''
     for (let i = 0; i < todo.length; i += CATALOG_BATCH) {
@@ -181,6 +187,7 @@ export class CatalogCache {
           this.known.set(v.id, sku.startsWith('cls_') || (!!categoryId && cats.includes(categoryId)))
         }
       } catch (e) {
+        if (this.opts.rememberFailures) for (const id of ids) this.failed.add(id) // next run asks again
         logger.warn('Catalog lookup for unmatched lines failed', { error: e instanceof Error ? e.message : String(e) })
       }
     }
@@ -336,7 +343,7 @@ export async function handleOrderById(orderId: string, now: Date, opts: { paymen
 // ---------------------------------------------------------------- refunds
 
 export type RefundOutcome =
-  | { action: 'ignored'; why: 'not-ours' | 'already-recorded' | 'pending' | 'not-class-items' }
+  | { action: 'ignored'; why: 'not-ours' | 'already-recorded' | 'pending' | 'not-class-items' | 'ours' }
   | { action: 'freed'; lineIds: string[] }
   | { action: 'flagged'; kind: RefundFlagKind; recordedCents?: Cents }
 
@@ -447,6 +454,15 @@ export async function handleRefund(refund: any, now: Date, opts: { order?: any; 
     return { action: 'ignored', why: 'already-recorded' }
   }
 
+  // One of our own saved refund requests (its save here hasn't happened yet): saved as that request, nothing of Square's.
+  const bookings = [...new Map(hits.map((h) => [`${h.classId}|${h.line.bookingId}`, {
+    classId: h.classId, bookingId: h.line.bookingId, label: ctx.classes.find((c) => c.id === h.classId)?.content.name,
+  }])).values()]
+  if (await claimSquareRefund({ id: String(refund.id), paymentId, cents: money(refund.amount_money) }, bookings)) {
+    logger.info('Square refund is one of ours, saved as asked', { refundId: refund.id })
+    return { action: 'ignored', why: 'ours' }
+  }
+
   let order = opts.order
   if (!order && refund.order_id) {
     try {
@@ -538,6 +554,8 @@ export interface ReconcileResult {
   orders: number; recorded: number; unmatched: number
   /** refunds listed by Square for the window, and how many changed or flagged something here */
   refunds: number; refundsHandled: number
+  /** our saved refunds Square never showed within 24 h, flagged for the owners (never retried) */
+  staleRequests: number
   errors: number
 }
 
@@ -554,8 +572,8 @@ const MAX_PAGES = 50
 export async function reconcileClasses(now = new Date()): Promise<ReconcileResult> {
   const loc = squareSettings().locationId || ''
   if (!loc) throw new Error('The Square location is not set up.')
-  const ctx = contextFor(await listClasses(), new CatalogCache())
-  const result: ReconcileResult = { orders: 0, recorded: 0, unmatched: 0, refunds: 0, refundsHandled: 0, errors: 0 }
+  const ctx = contextFor(await listClasses(), new CatalogCache({ rememberFailures: true }))
+  const result: ReconcileResult = { orders: 0, recorded: 0, unmatched: 0, refunds: 0, refundsHandled: 0, staleRequests: 0, errors: 0 }
   const since = new Date(now.getTime() - 48 * 3_600_000).toISOString()
 
   // 1. Every order first, so the catalog is asked once about every item that isn't ours.
@@ -624,7 +642,31 @@ export async function reconcileClasses(now = new Date()): Promise<ReconcileResul
     cursor = res?.cursor
     if (!cursor) break
   }
+
+  // 3. Our own refunds saved and sent but never seen at Square: shown to the owners, never sent again.
+  try {
+    result.staleRequests = await flagUnconfirmedRequests(now)
+  } catch (e) {
+    result.errors++
+    logger.error('Reconcile could not check saved refunds', { error: e instanceof Error ? e.message : String(e) })
+  }
   return result
+}
+
+/** Flags every saved refund still pending (no Square refund id) after 24 hours. Returns how many are open. */
+export async function flagUnconfirmedRequests(now: Date): Promise<number> {
+  let open = 0
+  for (const r of await allRefundRequests()) {
+    if (r.status !== 'pending' || r.squareRefundId || now.getTime() - Date.parse(r.createdAt) < UNCONFIRMED_AFTER_MS) continue
+    open++
+    const id = `flag-refund-unconfirmed-${safeKey(r.id)}`
+    const entry: RefundFlag = {
+      id, kind: 'refund-unconfirmed', classId: r.classId, bookingId: r.bookingId, paymentId: r.paymentId, squareRefundId: '',
+      cents: r.totalCents, refundCents: r.totalCents, status: 'pending', at: now.toISOString(), resolved: null, requestId: r.id,
+    }
+    if (await putOnce(flagsKv, id, entry)) logger.warn('A refund we sent was never confirmed by Square', { classId: r.classId, bookingId: r.bookingId })
+  }
+  return open
 }
 
 // ---------------------------------------------------------------- readers (Task 14 shows these)
@@ -657,6 +699,11 @@ export async function listRefundFlags(opts: { includeResolved?: boolean } = {}):
   const out: RefundFlag[] = []
   for (const f of all) {
     if (f.resolved && !opts.includeResolved) continue
+    if (f.kind === 'refund-unconfirmed') {
+      // Gone once that request is settled (a retry went through, or Square turned it down).
+      const req = (await listRefundRequests(f.classId, f.bookingId)).find((r) => r.id === f.requestId)
+      if (!req || req.status !== 'pending' || req.squareRefundId) continue
+    }
     if (f.kind === 'plain-refund') {
       if (!ledgers.has(f.classId)) ledgers.set(f.classId, (await getLedger(f.classId)).lines)
       if (ledgers.get(f.classId)!.some((l) => l.refunds.some((r) => r.squareRefundId === f.squareRefundId && !bySquare(r)))) continue

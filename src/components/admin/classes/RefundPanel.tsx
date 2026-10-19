@@ -1,4 +1,11 @@
 import { useMemo, useState } from 'react'
+
+/** A fresh token for one refund ask (kept across its retries). */
+function newAttempt(): string {
+  const c = (globalThis as { crypto?: Crypto }).crypto
+  if (c?.randomUUID) return c.randomUUID()
+  return `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`
+}
 import type { BookingView } from '@lib/classes/admin-actions'
 import { formatMoney } from '@lib/money'
 import { api } from './api'
@@ -42,6 +49,8 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
+  // The same token on every retry of this refund, so the server continues it instead of making a second one.
+  const [attempt, setAttempt] = useState(newAttempt)
 
   const label = (t: string) => ticketLabel?.(t) ?? t
   const left = Math.min(seats.reduce((s, x) => s + x.remainingCents, 0), booking.refundableCents ?? Infinity)
@@ -86,7 +95,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   async function go() {
     setBusy(true)
     setError('')
-    const body: Record<string, unknown> = { classId, bookingId: booking.bookingId, kind, freeSeat, reason: reason.trim() }
+    const body: Record<string, unknown> = { classId, bookingId: booking.bookingId, kind, freeSeat, reason: reason.trim(), attempt }
     if (kind === 'person') body.lineIds = [person]
     if (kind === 'session') body.lineIds = sessionSeats
     if (kind === 'custom') body.cents = amountCents
@@ -94,6 +103,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
     setBusy(false)
     if (!r.ok || !r.data) { setError(r.error ?? ''); return }
     setDone(`Refunded ${formatMoney(r.data.cents)}.${r.data.emailed ? ' They’ve been emailed.' : ''}`)
+    setAttempt(newAttempt())
     setOpen(false)
     setReason('')
     setAmount('')

@@ -49,6 +49,7 @@ import {
   listUnmatchedPos, listPosNeedsDays, listRefundFlags, resolveRefundFlag, resetCatalogCache, SQUARE_BY,
 } from '@lib/classes/square-events'
 import { getLedger, seatsTaken, recordRefund } from '@lib/classes/seat-ledger'
+import { createRefundRequest, markRequestDone } from '@lib/classes/refund-requests'
 import { defaultRules } from '@lib/classes/validate'
 import type { ScheduledClass } from '@lib/classes/types'
 
@@ -478,6 +479,31 @@ describe('nightly reconcile', () => {
     expect(await reconcileClasses(NOW)).toMatchObject({ orders: 2, recorded: 1, unmatched: 0 })
     expect((await getLedger(cls.id)).lines.map((l) => l.square.orderId)).toEqual([paid.id])
     expect((await listUnmatchedPos()).some((u) => u.orderId === unpaid.id)).toBe(false)
+  })
+
+  it('a failed catalog lookup is remembered for the rest of the run (no call per order)', async () => {
+    classes.list = [makeClass()]
+    sq.fail = /batch-retrieve/
+    sq.search = [Array.from({ length: 12 }, (_, i) => order([lineItem(`VAR_CAFE_${i}`, 1, 450)]))]
+    expect(await reconcileClasses(NOW)).toMatchObject({ orders: 12, errors: 0 })
+    expect(sq.calls.filter((c) => c.path === '/catalog/batch-retrieve')).toHaveLength(1)
+  })
+
+  it('an owner refund Square never confirmed is flagged after 24 hours, never retried; the flag goes once it is done', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const req = await createRefundRequest({
+      id: uid('req').toLowerCase(), inputHash: 'h', classId: cls.id, bookingId: 'bkg_x', paymentId: 'PAY_X', kind: 'custom', freeSeat: false,
+      reason: 'Sick', by, role: 'owner', lines: [{ id: 'led_x', cents: 500 }], totalCents: 500, prior: 0, rawKey: 'raw', failures: 0,
+      idempotencyKey: 'refund:abc', status: 'pending', squareRefundId: null, answered: false,
+      createdAt: '2026-10-19T10:00:00.000Z', updatedAt: '2026-10-19T10:00:00.000Z',
+    })
+    expect(await reconcileClasses(new Date('2026-10-19T20:00:00Z'))).toMatchObject({ staleRequests: 0 })
+    expect(await reconcileClasses(NOW)).toMatchObject({ staleRequests: 1 })
+    const flags = (await listRefundFlags()).filter((f) => f.kind === 'refund-unconfirmed' && f.bookingId === 'bkg_x')
+    expect(flags).toEqual([expect.objectContaining({ classId: cls.id, paymentId: 'PAY_X', cents: 500, status: 'pending' })])
+    expect(sq.calls.some((c) => c.path.startsWith('/refunds') && c.body)).toBe(false) // nothing sent to Square
+    await markRequestDone(cls.id, 'bkg_x', req.id, 'RF_LATE')
+    expect((await listRefundFlags()).some((f) => f.kind === 'refund-unconfirmed' && f.bookingId === 'bkg_x')).toBe(false)
   })
 
   it('catches refunds the webhook missed (ListPaymentRefunds, last 48 hours, every page), once', async () => {

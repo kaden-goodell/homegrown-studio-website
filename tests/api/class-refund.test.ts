@@ -9,6 +9,18 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('@config/providers', () => ({ providers: { payment: { refundPayment: mocks.refundPayment } } }))
 vi.mock('@lib/audit', () => ({ recordAudit: mocks.audit }))
+// Lets a test make the ledger save fail after Square took the refund.
+const ledgerFail = vi.hoisted(() => ({ n: 0 }))
+vi.mock('@lib/classes/seat-ledger', async (orig) => {
+  const real = await orig<typeof import('@lib/classes/seat-ledger')>()
+  return {
+    ...real,
+    recordRefund: async (...a: Parameters<typeof real.recordRefund>) => {
+      if (ledgerFail.n > 0) { ledgerFail.n--; throw new Error('blob down') }
+      return real.recordRefund(...a)
+    },
+  }
+})
 vi.mock('@lib/email', () => ({ sendRefundEmail: mocks.email }))
 vi.mock('@lib/staff-auth', () => ({
   staffAuthorized: () => mocks.staff,
@@ -22,6 +34,7 @@ import { createClass } from '@lib/classes/class-store'
 import { getLedger, type LedgerLine } from '@lib/classes/seat-ledger'
 import { refundKey, refundKeyRaw, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN } from '@lib/classes/refunds'
 import { makeKvStore } from '@lib/blob-store'
+import { handleRefund } from '@lib/classes/square-events'
 import type { ClassContent } from '@lib/classes/types'
 
 const ledgerKv = makeKvStore('seat-ledger', 'seat-ledger')
@@ -75,6 +88,7 @@ beforeEach(() => {
   mocks.audit.mockReset().mockResolvedValue(undefined)
   mocks.email.mockReset().mockResolvedValue({ sent: true })
   mocks.staff = { id: 'sam', name: 'Sam', role: 'crew' }
+  ledgerFail.n = 0
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -383,5 +397,120 @@ describe('crew refunds', () => {
       by: { id: 'sam', name: 'Sam', role: 'crew' },
       details: expect.objectContaining({ reason: 'Kid was sick', cents: 3270 }),
     }))
+  })
+})
+
+describe('fix round 2: one saved request per refund, so a retry never refunds twice', () => {
+  const paidWith = (paymentId: string, chargedCents?: number) => ({ orderId: 'o1', paymentId, lineUid: null, ...(chargedCents ? { chargedCents } : {}) })
+  /** a $25 seat, no tax */
+  const seat = (n: number, paymentId: string, charged?: number) => line({ seat: n, priceCents: 2500, taxCents: 0, square: paidWith(paymentId, charged) })
+  /** a refund as Square's webhook (or ListPaymentRefunds) shows it */
+  const fromSquare = (id: string, paymentId: string, cents: number) => ({ id, status: 'COMPLETED', payment_id: paymentId, amount_money: { amount: cents, currency: 'USD' }, location_id: 'LOC1' })
+  const took = (id: string) => async (i: any) => ({ id, paymentId: i.paymentId, amountCents: i.amountCents, status: 'COMPLETED' })
+
+  it('the reviewer\'s case: custom $20 on 2 × $25; Square took it, we never heard, the webhook landed; the retry refunds nothing more', async () => {
+    const a = seat(1, 'pay_rv', 5000), b = seat(2, 'pay_rv', 5000)
+    const classId = await setup([a, b])
+    const ask = { classId, bookingId: 'bkg_r1', kind: 'custom', cents: 2000, attempt: 'att-reviewer-1' }
+    mocks.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    const first = await admin(ask)
+    expect(first.status).toBe(502)
+    expect(first.body.error).toBe(SQUARE_NO_ANSWER)
+    expect(await handleRefund(fromSquare('rf_rv', 'pay_rv', 2000), new Date())).toMatchObject({ action: 'ignored', why: 'ours' })
+    let after = await byId(classId)
+    expect(after[a.id].refunds).toEqual([expect.objectContaining({ cents: 2000, squareRefundId: 'rf_rv', by: { id: 'admin', name: 'Owner' }, freedSeat: false })])
+    expect(after[b.id].refunds).toEqual([])
+    const again = await admin(ask)
+    expect(again.status).toBe(200)
+    expect(again.body.data).toMatchObject({ refundId: 'rf_rv', cents: 2000 })
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(1)
+    after = await byId(classId)
+    expect(after[a.id].refunds).toHaveLength(1)
+    expect(after[b.id].refunds).toEqual([])
+  })
+
+  it('no answer and no webhook: the retry re-sends the saved split and key exactly, even after the ledger changed', async () => {
+    const a = seat(1, 'pay_ns', 5000), b = seat(2, 'pay_ns', 5000)
+    const classId = await setup([a, b])
+    const ask = { classId, bookingId: 'bkg_r1', kind: 'custom', cents: 2000, attempt: 'att-nosplit-1' }
+    mocks.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    expect((await admin(ask)).status).toBe(502)
+    // meanwhile a different $6 refund is made at the register and recorded from Square on seat 1 (re-planning would now split 19 + 1)
+    expect(await handleRefund(fromSquare('rf_pos6', 'pay_ns', 600), new Date())).toMatchObject({ action: 'flagged' })
+    mocks.refundPayment.mockImplementationOnce(took('rf_ns'))
+    expect((await admin(ask)).status).toBe(200)
+    const [c1, c2] = mocks.refundPayment.mock.calls.map((c) => c[0])
+    expect(c2.idempotencyKey).toBe(c1.idempotencyKey)
+    expect(c2.amountCents).toBe(2000)
+    // the $20 Square refunded is still saved in full: seat 1 takes what it has left, the rest goes on seat 2
+    const after = await byId(classId)
+    expect(after[a.id].refunds.find((r) => r.squareRefundId === 'rf_ns')).toMatchObject({ cents: 1900 })
+    expect(after[b.id].refunds.find((r) => r.squareRefundId === 'rf_ns')).toMatchObject({ cents: 100 })
+  })
+
+  it('the save failed after Square took it: the retry saves it without asking Square again (with or without an attempt token)', async () => {
+    const a = seat(1, 'pay_fs', 5000), b = seat(2, 'pay_fs', 5000)
+    const classId = await setup([a, b])
+    const ask = { classId, bookingId: 'bkg_r1', kind: 'custom', cents: 2000 }
+    ledgerFail.n = 1
+    mocks.refundPayment.mockImplementationOnce(took('rf_fs'))
+    const first = await admin(ask)
+    expect(first.status).toBe(500)
+    const again = await admin(ask)
+    expect(again.status).toBe(200)
+    expect(again.body.data).toMatchObject({ refundId: 'rf_fs', cents: 2000 })
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(1)
+    const after = await byId(classId)
+    expect(after[a.id].refunds).toEqual([expect.objectContaining({ cents: 2000, squareRefundId: 'rf_fs', by: { id: 'admin', name: 'Owner' } })])
+    // and a late webhook for it changes nothing
+    expect(await handleRefund(fromSquare('rf_fs', 'pay_fs', 2000), new Date())).toMatchObject({ action: 'ignored' })
+    expect((await byId(classId))[a.id].refunds).toHaveLength(1)
+  })
+
+  it('the webhook lands before our save: one record, as the owner, one audit, one Square refund', async () => {
+    const a = seat(1, 'pay_rc', 5000), b = seat(2, 'pay_rc', 5000)
+    const classId = await setup([a, b])
+    mocks.refundPayment.mockImplementationOnce(async (i: any) => {
+      await handleRefund(fromSquare('rf_race', 'pay_rc', i.amountCents), new Date())
+      return { id: 'rf_race', paymentId: i.paymentId, amountCents: i.amountCents, status: 'COMPLETED' }
+    })
+    const r = await admin({ classId, bookingId: 'bkg_r1', kind: 'person', lineIds: [b.id], reason: 'Sick', attempt: 'att-race-1' })
+    expect(r.status).toBe(200)
+    const after = await byId(classId)
+    expect(after[a.id].refunds).toEqual([])
+    expect(after[b.id].refunds).toEqual([expect.objectContaining({ cents: 2500, freedSeat: true, reason: 'Sick', squareRefundId: 'rf_race', by: { id: 'admin', name: 'Owner' } })])
+    expect(mocks.audit.mock.calls.filter((c) => c[0].action === 'class-refund')).toHaveLength(1)
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(1)
+  })
+
+  it('charged less than the seat prices: a person refund retried after the webhook is not made again, and the cap still holds', async () => {
+    const a = seat(1, 'pay_lo', 4000), b = seat(2, 'pay_lo', 4000)
+    const classId = await setup([a, b])
+    const ask = { classId, bookingId: 'bkg_r1', kind: 'person', lineIds: [b.id], attempt: 'att-low-1' }
+    mocks.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    expect((await admin(ask)).status).toBe(502)
+    expect(mocks.refundPayment.mock.calls[0][0].amountCents).toBe(2500)
+    await handleRefund(fromSquare('rf_lo', 'pay_lo', 2500), new Date())
+    const again = await admin(ask)
+    expect(again.status).toBe(200)
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(1)
+    expect((await byId(classId))[b.id].refunds).toEqual([expect.objectContaining({ cents: 2500, freedSeat: true, squareRefundId: 'rf_lo' })])
+    // what's left on the booking is what was charged less that refund
+    mocks.refundPayment.mockImplementationOnce(took('rf_lo2'))
+    expect((await admin({ classId, bookingId: 'bkg_r1', kind: 'booking', attempt: 'att-low-2' })).status).toBe(200)
+    expect(mocks.refundPayment.mock.calls[1][0].amountCents).toBe(1500)
+  })
+
+  it('the same attempt after a success is a replay; a new attempt is a new refund', async () => {
+    const a = seat(1, 'pay_rp', 5000)
+    const classId = await setup([a])
+    const ask = { classId, bookingId: 'bkg_r1', kind: 'custom', cents: 1000, attempt: 'att-replay-1' }
+    expect((await admin(ask)).status).toBe(200)
+    const replay = await admin(ask)
+    expect(replay.status).toBe(200)
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(1)
+    expect((await admin({ ...ask, attempt: 'att-replay-2' })).status).toBe(200)
+    expect(mocks.refundPayment).toHaveBeenCalledTimes(2)
+    expect((await byId(classId))[a.id].refunds.map((r) => r.cents)).toEqual([1000, 1000])
   })
 })

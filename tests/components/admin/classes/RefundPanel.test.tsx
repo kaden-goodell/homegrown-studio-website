@@ -26,8 +26,27 @@ describe('RefundPanel', () => {
     expect((screen.getByLabelText(/Free the seat/) as HTMLInputElement).checked).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'Confirm refund' }))
     await waitFor(() => expect(onDone).toHaveBeenCalled())
-    expect(JSON.parse((fetchMock.mock.calls[0] as any)[1].body)).toEqual({ classId: 'cls_1', bookingId: 'bkg_1', kind: 'booking', freeSeat: true, reason: '' })
+    expect(JSON.parse((fetchMock.mock.calls[0] as any)[1].body)).toEqual({ classId: 'cls_1', bookingId: 'bkg_1', kind: 'booking', freeSeat: true, reason: '', attempt: expect.stringMatching(/^[A-Za-z0-9_-]{6,80}$/) })
     expect(await screen.findByText(/Refunded \$65\.40/)).toBeInTheDocument()
+  })
+
+  it('a retry after an error sends the same attempt token; the next refund after a success gets a new one', async () => {
+    const fail = { ok: false, status: 502, json: async () => ({ error: "Square didn't confirm the refund. Try again. It won't refund twice." }) }
+    const fetchMock = vi.fn().mockResolvedValueOnce(fail).mockResolvedValue(ok({ data: { cents: 6540, emailed: false } }))
+    vi.stubGlobal('fetch', fetchMock)
+    render(<RefundPanel classId="cls_1" booking={booking} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm refund' }))
+    expect(await screen.findByText(/It won't refund twice/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm refund' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2))
+    await screen.findByText(/Refunded/)
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm refund' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(3))
+    const tokens = fetchMock.mock.calls.map((c: any) => JSON.parse(c[1].body).attempt)
+    expect(tokens[1]).toBe(tokens[0])
+    expect(tokens[2]).not.toBe(tokens[0])
   })
 
   it('custom amount keeps the seat by default and shows the card ending', async () => {
