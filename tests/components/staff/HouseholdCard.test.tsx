@@ -205,7 +205,7 @@ describe('seats vs crafting', () => {
 
   it('labels seats to be paid at the register', () => {
     card(withExpected(['adult', 'child:0']), { seats: 2, comped: 0, atRegister: 2 })
-    expect(screen.getByTestId('seats-line').textContent).toBe('2 seats (pay at register) · 2 crafting')
+    expect(screen.getByTestId('seats-line').textContent).toBe('2 seats (not paid yet) · 2 crafting')
   })
 
   it('warns when a family on a class has no seat on record', () => {

@@ -6,6 +6,8 @@
 export type EventOutcome =
   | { kind: 'ok'; id: string; label: string; dropOff: boolean }
   | { kind: 'past'; notice: string }
+  /** a class that was cancelled: the notice only, no form (nothing to sign) */
+  | { kind: 'cancelled'; notice: string }
   | { kind: 'unknown'; notice: string }
   | { kind: 'error'; id: string }
   | { kind: 'none' }
@@ -20,6 +22,8 @@ export function flowPropsFor(eventKind: 'party' | 'workshop' | null, outcome: Ev
     // On a lookup ERROR we keep the id (sign.json re-validates) but don't know
     // whether the event is drop-off — show nothing drop-off-specific.
     dropOff: outcome.kind === 'ok' ? outcome.dropOff : outcome.kind === 'error' ? false : undefined,
-    notice: outcome.kind === 'unknown' || outcome.kind === 'past' ? outcome.notice : null,
+    notice: outcome.kind === 'unknown' || outcome.kind === 'past' || outcome.kind === 'cancelled' ? outcome.notice : null,
+    /** false: show the notice alone (a cancelled class) */
+    showForm: outcome.kind !== 'cancelled',
   }
 }

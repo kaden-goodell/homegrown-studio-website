@@ -1,24 +1,42 @@
 import { describe, it, expect, vi } from 'vitest'
 
-const hook = vi.hoisted(() => ({ failNextCas: 0 }))
+const hook = vi.hoisted(() => ({
+  failNextCas: 0, failIndexCas: 0, gets: [] as string[],
+  /** runs once, just before the next CAS write of the class index */
+  beforeIndexCas: null as null | (() => Promise<void>),
+  mem: new Map<string, Map<string, { value: string; etag: string }>>(),
+  n: 0,
+}))
+// An in-memory store with real etags, so compare-and-swap races behave as on Netlify Blobs.
 vi.mock('@lib/blob-store', async (orig) => {
   const real = await orig<typeof import('@lib/blob-store')>()
   return {
     ...real,
-    makeKvStore: (...a: Parameters<typeof real.makeKvStore>) => {
-      const kv = real.makeKvStore(...a)
+    makeKvStore: (name: string) => {
+      if (!hook.mem.has(name)) hook.mem.set(name, new Map())
+      const m = hook.mem.get(name)!
+      const put = (k: string, value: string) => m.set(k, { value, etag: `e${++hook.n}` })
       return {
-        ...kv,
-        setIfMatch: async (...b: Parameters<typeof kv.setIfMatch>) => {
+        get: async (k: string) => { hook.gets.push(k); return m.get(k)?.value ?? null },
+        set: async (k: string, v: string) => { put(k, v) },
+        getWithMeta: async (k: string) => ({ value: m.get(k)?.value ?? null, etag: m.get(k)?.etag ?? null }),
+        setIfMatch: async (k: string, v: string, etag: string | null, _exists: boolean) => {
+          if (k === 'index' && hook.beforeIndexCas) { const f = hook.beforeIndexCas; hook.beforeIndexCas = null; await f() }
+          if (hook.failIndexCas > 0 && k === 'index') { hook.failIndexCas--; return false }
           if (hook.failNextCas > 0) { hook.failNextCas--; return false }
-          return kv.setIfMatch(...b)
+          const cur = m.get(k)
+          if (etag ? cur?.etag !== etag : cur !== undefined) return false
+          put(k, v)
+          return true
         },
+        list: async () => [...m.keys()],
       }
     },
   }
 })
 import { listLibrary, getLibrary, saveLibraryVersion, restoreLibraryVersion, archiveLibrary } from '@lib/classes/library-store'
-import { createClass, getClass, listClasses, StaleClassError, updateClass } from '@lib/classes/class-store'
+import { createClass, getClass, listClasses, StaleClassError, updateClass, CLASS_INDEX_KEY } from '@lib/classes/class-store'
+import { makeKvStore } from '@lib/blob-store'
 import { addBlocked, listBlocked, removeBlocked } from '@lib/classes/blocked-time'
 import type { ClassContent, Session } from '@lib/classes/types'
 
@@ -104,6 +122,99 @@ describe('class store', () => {
     const got = await listClasses({ fromIso: '2041-06-01T00:00:00Z', toIso: '2041-06-10T00:00:00Z' })
     expect(got.map((c) => c.id)).toEqual([x.id, y.id, z.id])
     expect(got.map((c) => c.content.name)).toEqual(['X', 'Y', 'Z'])
+  })
+})
+
+describe('class index (range reads only the classes that can match)', () => {
+  const raw = makeKvStore('classes', 'classes')
+  const readIndex = async () => JSON.parse((await raw.get(CLASS_INDEX_KEY)) ?? 'null')
+  const range = { fromIso: '2042-02-01T00:00:00Z', toIso: '2042-02-10T00:00:00Z' }
+
+  it('a range query reads only the classes whose sessions fall near it', async () => {
+    const inside = await createClass({ content: content('In'), sessions: [ses('a', '2042-02-03T10:00:00Z', '2042-02-03T11:00:00Z')], status: 'open', by })
+    const outside = await createClass({ content: content('Out'), sessions: [ses('a', '2042-05-03T10:00:00Z', '2042-05-03T11:00:00Z')], status: 'open', by })
+    hook.gets = []
+    const got = await listClasses(range)
+    expect(got.map((c) => c.id)).toEqual([inside.id])
+    expect(hook.gets).toContain(`class-${inside.id}`)
+    expect(hook.gets).not.toContain(`class-${outside.id}`)
+  })
+
+  it('stays right across create, moving sessions, and cancelling', async () => {
+    const c = await createClass({ content: content('Mover'), sessions: [ses('a', '2042-03-03T10:00:00Z', '2042-03-03T11:00:00Z')], status: 'open', by })
+    const march = { fromIso: '2042-03-01T00:00:00Z', toIso: '2042-03-10T00:00:00Z' }
+    const april = { fromIso: '2042-04-01T00:00:00Z', toIso: '2042-04-10T00:00:00Z' }
+    expect((await listClasses(march)).map((x) => x.id)).toContain(c.id)
+    await updateClass(c.id, { sessions: [ses('a', '2042-04-03T10:00:00Z', '2042-04-03T11:00:00Z'), ses('b', '2042-04-08T10:00:00Z', '2042-04-08T11:00:00Z')] }, by, 'moved')
+    expect((await listClasses(march)).map((x) => x.id)).not.toContain(c.id)
+    expect((await listClasses(april)).map((x) => x.id)).toContain(c.id)
+    expect((await readIndex()).entries[c.id]).toMatchObject({ first: '2042-04-03T10:00:00.000Z', last: '2042-04-08T11:00:00.000Z' })
+    await updateClass(c.id, { status: 'cancelled' }, by, 'cancelled')
+    // Cancelled classes are still listed (callers filter by status), just as before.
+    const after = await listClasses(april)
+    expect(after.find((x) => x.id === c.id)?.status).toBe('cancelled')
+  })
+
+  it('rebuilds itself by one full scan when the index is missing or unreadable', async () => {
+    const c = await createClass({ content: content('Heal'), sessions: [ses('a', '2042-06-03T10:00:00Z', '2042-06-03T11:00:00Z')], status: 'open', by })
+    await raw.set(CLASS_INDEX_KEY, 'not json')
+    const june = { fromIso: '2042-06-01T00:00:00Z', toIso: '2042-06-10T00:00:00Z' }
+    expect((await listClasses(june)).map((x) => x.id)).toEqual([c.id])
+    const idx = await readIndex()
+    expect(idx.entries[c.id]).toMatchObject({ first: '2042-06-03T10:00:00.000Z' })
+    // rebuilt: the next query reads only matching classes again
+    hook.gets = []
+    await listClasses(june)
+    expect(hook.gets.filter((k) => k.startsWith('class-'))).toEqual([`class-${c.id}`])
+  })
+
+  it('picks up a class the index never heard of (written by an older server)', async () => {
+    const c = await createClass({ content: content('Stray'), sessions: [ses('a', '2042-07-03T10:00:00Z', '2042-07-03T11:00:00Z')], status: 'open', by })
+    const idx = await readIndex()
+    delete idx.entries[c.id]
+    await raw.set(CLASS_INDEX_KEY, JSON.stringify(idx))
+    expect((await listClasses({ fromIso: '2042-07-01T00:00:00Z', toIso: '2042-07-10T00:00:00Z' })).map((x) => x.id)).toEqual([c.id])
+    expect((await readIndex()).entries[c.id]).toBeTruthy()
+  })
+
+  it('a rebuild racing a class update never puts the class back in its old range', async () => {
+    const c = await createClass({ content: content('Race'), sessions: [ses('a', '2043-10-03T10:00:00Z', '2043-10-03T11:00:00Z')], status: 'open', by })
+    await raw.set(CLASS_INDEX_KEY, 'not json') // no usable index: the next range read rebuilds
+    // the reader has read every class (Race still in October) and is about to save its rebuild…
+    hook.beforeIndexCas = async () => {
+      await updateClass(c.id, { sessions: [ses('a', '2043-12-03T10:00:00Z', '2043-12-03T11:00:00Z')] }, by, 'moved to December')
+    }
+    const oct = { fromIso: '2043-10-01T00:00:00Z', toIso: '2043-10-10T00:00:00Z' }
+    await listClasses(oct) // what it returns is the read from before the move; fine
+    expect(hook.beforeIndexCas).toBeNull()
+    const dec = { fromIso: '2043-12-01T00:00:00Z', toIso: '2043-12-10T00:00:00Z' }
+    expect((await listClasses(dec)).map((x) => x.id)).toEqual([c.id])
+    expect((await listClasses(oct)).map((x) => x.id)).not.toContain(c.id)
+  })
+
+  it('a save that died between the class write and the index write is healed within a day', async () => {
+    const c = await createClass({ content: content('Died'), sessions: [ses('a', '2043-11-03T10:00:00Z', '2043-11-03T11:00:00Z')], status: 'open', by })
+    const nov = { fromIso: '2043-11-01T00:00:00Z', toIso: '2043-11-10T00:00:00Z' }
+    await listClasses(nov) // index built
+    // the class moves to 2044 but the index write never happens
+    const moved = { ...(await getClass(c.id))!, sessions: [ses('a', '2044-01-03T10:00:00Z', '2044-01-03T11:00:00Z')] }
+    await raw.set(`class-${c.id}`, JSON.stringify(moved))
+    const jan = { fromIso: '2044-01-01T00:00:00Z', toIso: '2044-01-10T00:00:00Z' }
+    expect((await listClasses(jan)).map((x) => x.id)).not.toContain(c.id) // still wrong today
+    const idx = await readIndex()
+    await raw.set(CLASS_INDEX_KEY, JSON.stringify({ ...idx, builtAt: new Date(Date.now() - 25 * 3_600_000).toISOString() }))
+    expect((await listClasses(jan)).map((x) => x.id)).toEqual([c.id])
+    expect(Date.now() - Date.parse((await readIndex()).builtAt)).toBeLessThan(60_000)
+  })
+
+  it('an index write that keeps losing marks the index stale, so the next read rebuilds it', async () => {
+    const c = await createClass({ content: content('Lost'), sessions: [ses('a', '2042-08-03T10:00:00Z', '2042-08-03T11:00:00Z')], status: 'open', by })
+    hook.failIndexCas = 3
+    await updateClass(c.id, { sessions: [ses('a', '2042-09-03T10:00:00Z', '2042-09-03T11:00:00Z')] }, by, 'moved')
+    hook.failIndexCas = 0
+    expect((await readIndex()).stale).toBe(true)
+    expect((await listClasses({ fromIso: '2042-09-01T00:00:00Z', toIso: '2042-09-10T00:00:00Z' })).map((x) => x.id)).toEqual([c.id])
+    expect((await readIndex()).stale).toBeFalsy()
   })
 })
 

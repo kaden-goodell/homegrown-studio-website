@@ -82,6 +82,8 @@ describe('warnings for our own classes', () => {
       ['refund-flag', 'cls_camp', 'Clay Camp: $10 was refunded in Square. Should a seat be freed?'],
       ['refund-flag', 'cls_camp', 'Clay Camp: a $25 refund is still waiting on Square.'],
     ])
+    // each carries a stable id, so the daily email can tell a new one from one already shown
+    expect(list.map((w) => w.itemId)).toEqual(['unmatched-O1-L1', 'days-1', 'f1', 'f2'])
   })
 
   it('a class store that can’t be read says so in one line (never an all clear), and the rest still shows', async () => {
@@ -100,7 +102,21 @@ describe('warnings for our own classes', () => {
       door(['ses_0'], { bookingId: 'bkg_paid', square: { orderId: 'O1', paymentId: 'P1', lineUid: 'L1' } }), // paid at the counter
     ] })
     const list = (await listWarnings(WINDOW, { now: NOW })).filter((w) => w.code === 'door-unpaid')
-    expect(list.map((w) => w.detail)).toEqual(['Dora Door · Clay Camp · Tue Oct 13: not paid at the counter yet.'])
+    expect(list.map((w) => w.detail)).toEqual(['Dora Door · Clay Camp · Tue Oct 13 · not paid at the counter yet'])
     expect(list[0]).toMatchObject({ eventId: 'cls_camp', action: OWNERS_DECIDE })
+    // the line doesn't repeat the day
+    expect(warningLine(list[0])).toBe('Dora Door · Clay Camp · Tue Oct 13 · not paid at the counter yet. An owner decides on /admin.')
+  })
+
+  it('R34: a counter sale matched to one of several door seats asks a person to check', async () => {
+    own.classes = [camp()]
+    own.ledgers.set('cls_camp', { classId: 'cls_camp', lines: [
+      { ...seat(['ses_1']), source: 'door-counter', customer: { givenName: 'Dora', familyName: 'Door', email: '', phone: '' }, square: { orderId: 'O1', paymentId: 'P1', lineUid: 'L1' }, counterMatch: { orderId: 'O1', candidates: 2, at: '2026-10-14T20:00:00.000Z', checked: null } },
+      { ...seat(['ses_1']), source: 'door-counter', counterMatch: { orderId: 'O2', candidates: 2, at: '2026-10-14T20:00:00.000Z', checked: { at: '', by: { id: 'k', name: 'K' } } } },
+      // m8: refunded with the seat freed since: no check needed
+      { ...seat(['ses_1']), source: 'door-counter', state: 'refunded', refunds: [{ at: '', cents: 0, reason: 'x', by: { id: 'k', name: 'K' }, freedSeat: true, squareRefundId: null }], counterMatch: { orderId: 'O3', candidates: 2, at: '2026-10-14T20:00:00.000Z', checked: null } },
+    ] })
+    const list = (await listWarnings(WINDOW, { now: NOW })).filter((w) => w.code === 'counter-match-check')
+    expect(list.map((w) => warningLine(w))).toEqual(['Counter sale of Clay Camp on Wed Oct 14 was matched to Dora Door. Check it was them. An owner decides on /admin.'])
   })
 })

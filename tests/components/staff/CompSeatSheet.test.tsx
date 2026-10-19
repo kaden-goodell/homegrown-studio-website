@@ -357,7 +357,7 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add seat, pay at the counter' }))
     const box = await screen.findByTestId('take-payment')
     expect(box.textContent).toMatch(/Now take \$38\.15 at the counter/)
-    expect(box.textContent).toMatch(/ring up Clay Camp, One day/)
+    expect(box.textContent).toMatch(/Ring up 1 × Adult at the register today to pay for this seat\./)
     expect(JSON.parse(compCalls()[0][1].body).payAtRegister).toBe(true)
   })
 
@@ -372,5 +372,38 @@ describe('CompSeatSheet on our own classes (Task 14)', () => {
     expect(screen.getByRole('button', { name: /Tue, Oct 20/ }).getAttribute('aria-pressed')).toBe('true')
     fireEvent.click(screen.getByRole('button', { name: /Back/ }))
     expect(await screen.findByRole('button', { name: 'Pay at the counter' })).toBeTruthy()
+  })
+
+  it('R33: no joining partway and the class has started: says so, offers nothing the server would refuse', async () => {
+    const closed = { ...workshop, own: { ...own, rules: { ...own.rules, joinPartway: false }, passes: own.passes.map((p) => ({ ...p, state: 'closed' })), sessions: own.sessions.map((x) => ({ ...x, closed: true })) } }
+    fetchMock.mockImplementation(async () => ({ ok: true, status: 200, json: async () => ({ workshop: closed }) }))
+    render(<CompSeatSheet mode="sell" event={ownEvent} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    expect(await screen.findByTestId('signups-closed')).toHaveTextContent('Sign-ups for this class closed when it started. Turn on joining partway in /admin to add people now.')
+    expect(screen.queryByRole('button', { name: 'Pay on the iPad' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Pay at the counter' })).toBeNull()
+  })
+
+  it('N3/m2: after a failed try, fixing a typo keeps the attempt; changing the day makes a new one', async () => {
+    serveClass({ ok: false, status: 503, json: async () => ({ error: 'Couldn’t record that seat — please try again.' }) }, { ok: false, status: 503, json: async () => ({ error: 'again' }) }, { ok: false, status: 503, json: async () => ({ error: 'again' }) })
+    render(<CompSeatSheet event={ownEvent} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    await screen.findByTestId('own-pickers')
+    fireEvent.click(screen.getByRole('checkbox', { name: /Wed, Oct 21/ }))
+    fill()
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    await screen.findByText(/please try again/)
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    await waitFor(() => expect(compCalls()).toHaveLength(2))
+    fireEvent.change(screen.getByLabelText('First name'), { target: { value: 'Grace' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    await waitFor(() => expect(compCalls()).toHaveLength(3))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Wed, Oct 21/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Tue, Oct 20/ }))
+    fireEvent.click(screen.getByLabelText('Add over capacity'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    await waitFor(() => expect(compCalls()).toHaveLength(4))
+    const tokens = compCalls().map((c) => JSON.parse(c[1].body).attempt)
+    expect(tokens[1]).toBe(tokens[0])
+    expect(tokens[2]).toBe(tokens[0]) // a name typo fixed: same add
+    expect(tokens[3]).not.toBe(tokens[0]) // another day: a new add
   })
 })

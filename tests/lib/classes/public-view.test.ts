@@ -163,4 +163,12 @@ describe('public view — R28 and door sales', () => {
     expect(door.sessions[0].closed).toBe(false)
     expect(door.passes.find((p) => p.id === 'all')!.state).toBe('open')
   })
+  it('R33: door view of a class with no joining partway, after its first day: every pass closed', () => {
+    const c = make({ rules: { ...defaultRules(), joinPartway: false } })
+    const after = new Date('2026-10-24T21:00:00Z') // ses_a over, ses_b tomorrow
+    const door = toPublicClass(c, ledger(), after, { door: true }).own!
+    expect(door.passes.map((p) => p.state)).toEqual(['closed', 'closed'])
+    // while day 1 is still running, the door can still sell
+    expect(toPublicClass(c, ledger(), during, { door: true }).own!.passes.find((p) => p.id === 'all')!.state).toBe('open')
+  })
 })

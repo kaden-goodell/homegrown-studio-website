@@ -25,6 +25,8 @@ export interface ArchiveKvStore {
 export interface ArchiveStoreSpec {
   name: string
   store: ArchiveKvStore
+  /** A value larger than this is listed by key and size instead of copied. */
+  maxValueBytes?: number
 }
 
 /** One append-only custody-log entry — the fields `custodyCsv` reads. Kept
@@ -66,12 +68,16 @@ export async function exportAll(stores: ArchiveStoreSpec[]): Promise<ExportResul
   const counts: Record<string, number> = {}
   const files: Record<string, Record<string, unknown>> = {}
 
-  for (const { name, store } of stores) {
+  for (const { name, store, maxValueBytes } of stores) {
     const keys = (await store.list()).filter((k) => k !== PROBE_KEY)
     const values: Record<string, unknown> = {}
     for (const key of keys) {
       const json = await store.get(key)
       if (json === null) continue // vanished between list() and get() — skip, don't fabricate
+      if (maxValueBytes !== undefined && json.length > maxValueBytes) {
+        values[key] = { notIncluded: 'too large for the archive email', bytes: json.length }
+        continue
+      }
       try {
         values[key] = JSON.parse(json)
       } catch {

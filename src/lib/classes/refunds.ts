@@ -30,6 +30,7 @@ export const SQUARE_REFUND_CAP = 20
 const SQUARE_REASON_MAX = 192
 
 export const NOT_PAID_HERE = 'Refund this one in Square, where it was paid.'
+export const AT_THE_REGISTER = 'Refund this at the register, then free the seat.'
 export const SQUARE_NO_ANSWER = "Square didn't confirm the refund. Try again. It won't refund twice."
 export const SQUARE_TURNED_DOWN = "Square turned the refund down, so nothing was refunded. Try again."
 export const ALREADY_FREE = 'That seat is already free.'
@@ -160,6 +161,8 @@ export function planRefund(ledger: Ledger, req: RefundRequest): RefundPlan {
   const booking = ledger.lines.filter((l) => l.bookingId === req.bookingId).sort((a, b) => a.seat - b.seat)
   const paid = booking.filter((l) => l.state === 'confirmed' || l.state === 'refunded')
   if (!paid.length) throw new RefundError(404, 'That booking is not on this class.')
+  // m7: money taken at the register goes back at the register (it may have been cash).
+  if (paid.some((l) => l.source === 'pos' || l.source === 'door-counter')) throw new RefundError(409, AT_THE_REGISTER)
 
   let chosen: LedgerLine[]
   if (req.kind === 'booking' || (req.kind === 'custom' && !req.lineIds?.length)) {

@@ -70,6 +70,6 @@ const noticeText = flow.notice
       </div>
     )}
 
-    <WaiverFlow client:load partyId={flow.partyId} partyLabel={flow.partyLabel} workshopId={flow.workshopId} eventTitle={flow.eventTitle} dropOff={flow.dropOff} booking={rawBooking} kiosk={kiosk} returnTo={returnTo} />
+    {flow.showForm && <WaiverFlow client:load partyId={flow.partyId} partyLabel={flow.partyLabel} workshopId={flow.workshopId} eventTitle={flow.eventTitle} dropOff={flow.dropOff} booking={rawBooking} kiosk={kiosk} returnTo={returnTo} />}
   </section>
 </Layout>

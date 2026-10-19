@@ -29,7 +29,7 @@ import { getClass, listClasses } from '@lib/classes/class-store'
 import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
 import { listPosNeedsDays, listRefundFlags, listUnmatchedPos, type RefundFlag } from '@lib/classes/square-events'
 import { onStaffConsole } from '@lib/classes/staff-view'
-import { listDoorUnpaid } from '@lib/classes/door-unpaid'
+import { listCounterMatchChecks, listDoorUnpaid } from '@lib/classes/door-unpaid'
 import type { ScheduledClass } from '@lib/classes/types'
 import { formatMoney } from '@lib/money'
 
@@ -38,7 +38,7 @@ const logger = createLogger('warnings')
 export type WarningCode =
   | 'class-over-party' | 'class-over-class' | 'oversold' | 'party-on-closed-day' | 'picks-missing' | 'capacity-unknown' | 'recorded-over-sold'
   // our own classes (Task 14): read-only for the crew; owners decide on /admin
-  | 'below-minimum' | 'pos-unmatched' | 'pos-needs-days' | 'refund-flag' | 'door-unpaid' | 'classes-unreadable'
+  | 'below-minimum' | 'pos-unmatched' | 'pos-needs-days' | 'refund-flag' | 'door-unpaid' | 'counter-match-check' | 'classes-unreadable'
 
 export interface Warning {
   code: WarningCode
@@ -52,13 +52,20 @@ export interface Warning {
   detail: string
   /** What a person does about it: "Move one in Square." */
   action: string
+  /** Stable id of an undated item (a counter sale, a refund flag…), so the daily email can tell new from old. */
+  itemId?: string
 }
+
+/** Items that aren't tied to a day: they stay until an owner decides. */
+export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check'])
 
 /** Days ahead the panel and the daily email look. */
 export const WARNING_WINDOW_DAYS = 60
 
 /** "Sun Oct 18 · <detail> <action>" — the one line format, on the panel and in the email. */
 export function warningLine(w: Warning): string {
+  // These already name their day (and the class), so the line doesn't repeat it.
+  if (w.code === 'door-unpaid' || w.code === 'counter-match-check') return `${w.detail.replace(/\.$/, '')}. ${w.action}`
   return `${formatCalendarDay(studioDate(w.when))} · ${w.detail} ${w.action}`
 }
 
@@ -273,12 +280,13 @@ export const OWNERS_DECIDE = 'An owner decides on /admin.'
 async function ownClassWarnings(from: string, to: string, now: Date): Promise<Warning[]> {
   const startIso = studioDayUtcRange(from).startIso
   const endIso = studioDayUtcRange(to).endIso
-  const [classes, unmatched, needsDays, flags, unpaid] = await Promise.all([
+  const [classes, unmatched, needsDays, flags, unpaid, matches] = await Promise.all([
     listClasses({ fromIso: startIso, toIso: endIso }),
     listUnmatchedPos(),
     listPosNeedsDays(),
     listRefundFlags(),
     listDoorUnpaid(now),
+    listCounterMatchChecks(now),
   ])
   const shown = classes.filter(onStaffConsole)
   const byId = new Map<string, ScheduledClass>(shown.map((c) => [c.id, c]))
@@ -312,7 +320,7 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
   }
   for (const u of unmatched) {
     out.push({
-      code: 'pos-unmatched', eventKind: 'workshop', eventId: '', when: u.at, title: u.name,
+      code: 'pos-unmatched', eventKind: 'workshop', eventId: '', when: u.at, title: u.name, itemId: `unmatched-${u.orderId}-${u.lineUid}`,
       detail: `A counter sale of ${u.name}${u.qty > 1 ? ` ×${u.qty}` : ''} didn’t match a class.`, action: OWNERS_DECIDE,
     })
   }
@@ -320,19 +328,25 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
   for (const d of needsDays) {
     const name = await nameOf(d.classId)
     out.push({
-      code: 'pos-needs-days', eventKind: 'workshop', eventId: d.classId, when: d.at, title: name,
+      code: 'pos-needs-days', eventKind: 'workshop', eventId: d.classId, when: d.at, title: name, itemId: d.id,
       detail: `A counter sale of ${name} needs its day picked.`, action: OWNERS_DECIDE,
     })
   }
   for (const u of unpaid) {
     out.push({
-      code: 'door-unpaid', eventKind: 'workshop', eventId: u.classId, when: u.sessionStartIso, title: u.className,
-      detail: `${u.name || 'A door seat'} · ${u.className} · ${formatCalendarDay(u.day)}: not paid at the counter yet.`, action: OWNERS_DECIDE,
+      code: 'door-unpaid', eventKind: 'workshop', eventId: u.classId, when: u.sessionStartIso, title: u.className, itemId: u.id,
+      detail: `${u.name || 'A door seat'} · ${u.className} · ${formatCalendarDay(u.day)} · not paid at the counter yet`, action: OWNERS_DECIDE,
+    })
+  }
+  for (const m of matches) {
+    out.push({
+      code: 'counter-match-check', eventKind: 'workshop', eventId: m.classId, when: m.at, title: m.className, itemId: m.id,
+      detail: `Counter sale of ${m.className} on ${formatCalendarDay(m.day)} was matched to ${m.name}. Check it was them.`, action: OWNERS_DECIDE,
     })
   }
   for (const f of flags) {
     const name = await nameOf(f.classId)
-    out.push({ code: 'refund-flag', eventKind: 'workshop', eventId: f.classId, when: f.at, title: name, detail: refundFlagDetail(f, name), action: OWNERS_DECIDE })
+    out.push({ code: 'refund-flag', eventKind: 'workshop', eventId: f.classId, when: f.at, title: name, itemId: f.id, detail: refundFlagDetail(f, name), action: OWNERS_DECIDE })
   }
   return out
 }

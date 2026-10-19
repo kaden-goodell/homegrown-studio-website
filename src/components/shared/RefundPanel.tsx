@@ -22,6 +22,8 @@ const input: CSSProperties = {
 const fieldLabel: CSSProperties = { fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }
 /** A button that can't be used yet looks it (the site's .btn doesn't dim on /staff). */
 const dim = (disabled: boolean): CSSProperties => (disabled ? { opacity: 0.5, cursor: 'not-allowed' } : {})
+/** A checkbox or radio with its words: always on one line, the box at the top-left of the text (no wrapping apart on a phone). */
+const checkRow: CSSProperties = { display: 'flex', flexWrap: 'nowrap', alignItems: 'flex-start', gap: '0.5rem', cursor: 'pointer', minHeight: '2.75rem' }
 const hintText: CSSProperties = { margin: 0, fontSize: '0.875rem', color: 'var(--color-muted)' }
 
 const OFFLINE = "Couldn't reach the studio. Check the connection and try again."
@@ -127,7 +129,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
     return Number.isFinite(amountCents) && amountCents > 0 ? amountCents : 0
   }, [kind, person, sessionSeats, amountCents, left])
 
-  const atRegister = counterSalesAtRegister && booking.source === 'pos'
+  const atRegister = counterSalesAtRegister && (booking.source === 'pos' || (booking.source === 'door-counter' && booking.paidHere))
   const canRefund = booking.paidHere && left > 0 && !atRegister
   if (!canRefund && !holding.length && !waiting) return done ? <p role="status" style={{ margin: 0, fontWeight: 600 }}>{done}</p> : null
 
@@ -278,6 +280,8 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
         {holding.length > 0 && <button type="button" className="btn btn-secondary" onClick={() => { setFreeing(true); setDone('') }}>Free their seat</button>}
         {booking.source === 'door-counter' && !booking.paidHere
           ? <span style={{ ...muted, fontSize: '0.9rem' }}>Nothing was paid for this seat. Free the seat instead.</span>
+          : atRegister && booking.source === 'door-counter'
+            ? <span style={{ ...muted, fontSize: '0.9rem' }}>Paid at the counter. Refund it at the register, then free the seat here.</span>
           : atRegister
             ? <span style={{ ...muted, fontSize: '0.9rem' }}>Refund this at the register, where it was rung up.</span>
             : !booking.paidHere && booking.source !== 'comp' && <span style={{ ...muted, fontSize: '0.9rem' }}>Refund this one in Square, where it was paid.</span>}
@@ -287,7 +291,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   }
 
   const radio = (k: Kind, text: string) => (
-    <label style={{ ...row, cursor: 'pointer' }}>
+    <label style={{ ...checkRow }}>
       <input type="radio" name={`refund-kind-${booking.bookingId}`} checked={kind === k} onChange={() => choose(k)} />
       {text}
     </label>
@@ -311,7 +315,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
         <div style={{ display: 'grid', gap: '0.3rem' }}>
           <p style={{ ...muted, fontSize: '0.9rem' }}>One session’s share of the seat, with its tax. Add-ons aren’t included.</p>
           {multi.map((s) => (
-            <label key={s.id} style={{ ...row, cursor: 'pointer' }}>
+            <label key={s.id} style={{ ...checkRow }}>
               <input
                 type="checkbox"
                 checked={sessionSeats.includes(s.id)}
@@ -328,7 +332,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
           <input type="number" inputMode="decimal" min="0.01" step="0.01" value={amount} onChange={(e) => setAmount(e.target.value)} style={input} />
         </label>
       )}
-      <label style={{ ...row, cursor: 'pointer' }}>
+      <label style={{ ...checkRow }}>
         <input type="checkbox" checked={freeSeat} onChange={(e) => setFreeSeat(e.target.checked)} />
         Free the seat so someone else can book it
       </label>

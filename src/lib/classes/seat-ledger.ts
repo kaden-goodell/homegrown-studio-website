@@ -40,7 +40,13 @@ export interface LedgerLine {
   refunds: { at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null; requestId?: string }[]
   at: string
   /** set by confirm when a paid seat landed on a session already full (the hold had run out and the seat was taken) */
-  overCapacity?: boolean  /**
+  overCapacity?: boolean
+  /**
+   * R34: a counter sale paid this door seat while other unpaid door seats on
+   * the same day could have been it; a person checks it was them.
+   */
+  counterMatch?: { orderId: string; candidates: number; at: string; checked: { at: string; by: By } | null }
+  /**
    * Refunds Square turned down (FAILED/REJECTED), counted per request: the
    * request's raw key (before hashing) → times refused. Only a retry of that
    * same request gets a new idempotency key.
@@ -199,12 +205,17 @@ export async function confirm(
   square: { orderId: string | null; paymentId: string | null; chargedCents?: Cents },
   fallback: { cls: ScheduledClass; quote: Quote; input: HoldInput },
   now: Date,
+  /** requireLiveHold: only convert a hold still running; with none, write nothing and return [] (no rebuild past capacity) */
+  opts: { requireLiveHold?: boolean } = {},
 ): Promise<LedgerLine[]> {
   return mutate(classId, (cur) => {
     const isPaid = (l: LedgerLine) => l.bookingId === bookingId && (l.state === 'confirmed' || l.state === 'refunded')
     const hasHeld = cur.lines.some((l) => l.bookingId === bookingId && l.state === 'held')
     const paid = cur.lines.filter(isPaid)
     if (!hasHeld && paid.length) return { next: null, result: paid }
+    if (opts.requireLiveHold && !cur.lines.some((l) => l.bookingId === bookingId && l.state === 'held' && !isExpiredHold(l, now))) {
+      return { next: null, result: [] }
+    }
     const sq = (l: LedgerLine) => ({
       ...l.square, orderId: square.orderId, paymentId: square.paymentId,
       ...(square.chargedCents !== undefined ? { chargedCents: square.chargedCents } : {}),
@@ -456,17 +467,31 @@ export async function recordPos(
       ...(input.paymentIds && input.paymentIds.length > 1 ? { paymentIds: [...input.paymentIds] } : {}),
     })
     let seat = kept.filter((l) => l.bookingId === input.bookingId).reduce((m, l) => Math.max(m, l.seat), 0)
+    // I1: a multi-unit sale fills one booking's seats before another's; a booking is flagged once per sale.
+    let filling: string | null = null
+    const flagged = new Set<string>()
     for (const pl of input.lines) {
       let have = kept.filter((l) => l.square.orderId === input.orderId && l.square.lineUid === pl.lineUid).length
       // A seat the crew took at the door to be paid at the counter is this sale: it is paid now, never a second seat.
       while (have < pl.units.length) {
-        const door = kept.find((l) => l.source === 'door-counter' && l.state === 'confirmed' && !l.square.orderId
+        // N1: the door seat was TAKEN on the sale's day, and covers a session that day.
+        const candidates = kept.filter((l) => l.source === 'door-counter' && l.state === 'confirmed' && !l.square.orderId
           && l.passId === pl.passId && l.ticketTypeId === pl.ticketTypeId && !claimed.has(l.id)
-          && l.sessionIds.some((id) => onSaleDay.has(id)))
+          && studioDate(l.at) === saleDay && l.sessionIds.some((id) => onSaleDay.has(id)))
+        // oldest booking first, then its seats in order; keep filling the booking already started
+        const pool: LedgerLine[] = (filling ? candidates.filter((l) => l.bookingId === filling) : []).concat(candidates.filter((l) => l.bookingId !== filling))
+        const door: LedgerLine | undefined = pool.sort((a, b) => (a.bookingId === b.bookingId ? a.seat - b.seat : 0))[0]
         if (!door) break
+        filling = door.bookingId
         const unit = pl.units[have]
         claimed.add(door.id)
-        kept = kept.map((l) => (l.id === door.id ? { ...l, priceCents: unit.priceCents, taxCents: unit.taxCents, square: sq(pl) } : l))
+        // R34: unpaid door seats from MORE THAN ONE booking could have been this sale: a person checks it was them.
+        const bookings = new Set(candidates.map((l) => l.bookingId)).size
+        const check = bookings > 1 && !flagged.has(door.bookingId)
+          ? { counterMatch: { orderId: input.orderId, candidates: bookings, at: input.saleIso ?? now.toISOString(), checked: null } }
+          : {}
+        if (bookings > 1) flagged.add(door.bookingId)
+        kept = kept.map((l) => (l.id === door.id ? { ...l, priceCents: unit.priceCents, taxCents: unit.taxCents, square: sq(pl), ...check } : l))
         have++
       }
       for (let u = have; u < pl.units.length; u++) {
@@ -536,5 +561,15 @@ export async function moveLines(cls: ScheduledClass, lineIds: string[], sessionI
     const over = new Set(cls.sessions.filter((s) => seatsTaken(after, s.id, now) > s.capacity).map((s) => s.id))
     const lines = moved.map((l) => (lineIds.includes(l.id) && l.sessionIds.some((id) => over.has(id)) ? { ...l, overCapacity: true } : l))
     return { next: { ...cur, lines }, result: lines.filter((l) => lineIds.includes(l.id)) }
+  })
+}
+
+/** R34: a person checked that a counter sale matched to this door seat was really them. */
+export async function markCounterMatchChecked(classId: string, lineId: string, by: By, now = new Date()): Promise<void> {
+  await mutate(classId, (cur) => {
+    const l = cur.lines.find((x) => x.id === lineId)
+    if (!l?.counterMatch || l.counterMatch.checked) return { next: null, result: undefined }
+    const lines = cur.lines.map((x) => (x.id === lineId ? { ...x, counterMatch: { ...x.counterMatch!, checked: { at: now.toISOString(), by } } } : x))
+    return { next: { ...cur, lines }, result: undefined }
   })
 }

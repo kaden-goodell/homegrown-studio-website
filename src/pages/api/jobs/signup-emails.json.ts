@@ -13,6 +13,9 @@ import { emailedLine, failedLine, openSignups } from '@lib/signup-ledger'
 import { judge, type DueItem, type StudioFacts, type WorkshopFact } from '@lib/signup-due'
 import { getEventMeta } from '@lib/event-meta'
 import type { CutoffSettings } from '@lib/seat-options'
+import { listClasses } from '@lib/classes/class-store'
+import { getLedger } from '@lib/classes/seat-ledger'
+import { listedPublicly, toPublicClass } from '@lib/classes/public-view'
 
 export const prerender = false
 const logger = createLogger('api:jobs:signup-emails')
@@ -61,10 +64,53 @@ async function cutoffFor(scheduleId: string): Promise<CutoffSettings | null> {
   }
 }
 
+/** How far ahead our own classes are looked at (as the public list). */
+const OWN_AHEAD_MS = 400 * 86_400_000
+
+/**
+ * Our own classes as the public list shows them, seats left from the seat
+ * ledger. A class closed for sign-ups (its cutoff passed, or set closed)
+ * counts as no seats, so nothing is announced that can't then be booked.
+ * Unreadable: nothing is said about our classes this time.
+ */
+async function ownClassFacts(now: Date): Promise<WorkshopFact[]> {
+  try {
+    const classes = (await listClasses({ fromIso: now.toISOString(), toIso: new Date(now.getTime() + OWN_AHEAD_MS).toISOString() })).filter(listedPublicly)
+    return await Promise.all(
+      classes.map(async (cls): Promise<WorkshopFact> => {
+        const w = toPublicClass(cls, await getLedger(cls.id), now)
+        return {
+          id: w.id,
+          name: w.name,
+          startAt: w.startTime,
+          durationMinutes: w.duration,
+          priceCents: w.price,
+          seatsLeft: w.signupClosed ? 0 : (w.remainingSeats ?? 0),
+        }
+      }),
+    )
+  } catch (err) {
+    logger.error('Our classes unreadable: no email about them this time', { error: err instanceof Error ? err.message : String(err) })
+    return []
+  }
+}
+
+async function squareFact(w: Awaited<ReturnType<typeof providers.workshop.listWorkshops>>[number]): Promise<WorkshopFact> {
+  return {
+    id: w.id,
+    name: w.name,
+    startAt: w.startAt,
+    durationMinutes: w.durationMinutes,
+    priceCents: w.priceCents,
+    seatsLeft: w.availableCapacity,
+    cutoff: await cutoffFor(w.scheduleId),
+  }
+}
+
 async function gatherFacts(now: Date): Promise<StudioFacts> {
   const bookingOpen = envBookingsOpen()
   const partiesOpen = envBookingsOpen('parties')
-  const [workshops, openPartyStarts] = await Promise.all([
+  const [workshops, openPartyStarts, ours] = await Promise.all([
     providers.workshop.listWorkshops().catch((err) => {
       logger.error('Workshop list failed: no workshop email this time', { error: String(err) })
       return []
@@ -74,25 +120,14 @@ async function gatherFacts(now: Date): Promise<StudioFacts> {
       logger.error('Party dates lookup failed: no party email this time', { error: String(err) })
       return [] as string[]
     }),
+    ownClassFacts(now),
   ])
   return {
     now,
     bookingOpen,
     workshopsOpen: envBookingsOpen('workshops'),
     openPartyStarts,
-    workshops: await Promise.all(
-      workshops.map(
-        async (w): Promise<WorkshopFact> => ({
-          id: w.id,
-          name: w.name,
-          startAt: w.startAt,
-          durationMinutes: w.durationMinutes,
-          priceCents: w.priceCents,
-          seatsLeft: w.availableCapacity,
-          cutoff: await cutoffFor(w.scheduleId),
-        }),
-      ),
-    ),
+    workshops: [...(await Promise.all(workshops.map(squareFact))), ...ours].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)),
     kitsOpen: envBookingsOpen('kits') && siteConfig.features.kits.enabled,
     bookingWindowDays: partyConfig.bookingWindowDays,
     timeZone: partyConfig.timezone,

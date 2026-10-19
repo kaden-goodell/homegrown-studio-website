@@ -12,6 +12,12 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('@lib/staff-auth', async (orig) => ({ ...(await orig<typeof import('@lib/staff-auth')>()), staffAuthorized: () => mocks.staff }))
 vi.mock('@lib/audit', () => ({ recordAudit: mocks.audit }))
+// Lets a test make the seat write fail once after the hold went in (a blob error or a timeout).
+const confirmFail = vi.hoisted(() => ({ n: 0 }))
+vi.mock('@lib/classes/seat-ledger', async (orig) => {
+  const real = await orig<typeof import('@lib/classes/seat-ledger')>()
+  return { ...real, confirm: (...a: Parameters<typeof real.confirm>) => (confirmFail.n-- > 0 ? Promise.reject(new Error('blob down')) : real.confirm(...a)) }
+})
 vi.mock('@lib/email', () => ({ sendWorkshopConfirmationEmail: mocks.email }))
 vi.mock('@config/providers', () => ({
   providers: {
@@ -69,6 +75,7 @@ beforeEach(() => {
   vi.setSystemTime(NOW)
   mocks.staff = { id: 'sam', name: 'Sam', role: 'crew' }
   mocks.audit.mockClear(); mocks.email.mockClear()
+  confirmFail.n = 0
 })
 afterEach(() => vi.useRealTimers())
 
@@ -111,6 +118,59 @@ describe('Comp a seat on our class', () => {
     expect(mocks.email).toHaveBeenCalledTimes(1)
   })
 
+  it('N2: the seat write failed after the hold: the retry confirms that hold, never "Added" without a seat', async () => {
+    const cls = await createClass({ content: content({ questions: [] }), sessions: sessions(), status: 'open', by })
+    const ask = { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 1 }, attempt: 'sheet-attempt-n2a' }
+    confirmFail.n = 1
+    expect((await post(compRoute, ask)).status).toBe(503)
+    expect((await getLedger(cls.id)).lines.map((l) => l.state)).toEqual(['held'])
+    const again = await post(compRoute, ask)
+    expect(again.status).toBe(200)
+    expect(again.body.data.replayed).toBe(true)
+    expect((await getLedger(cls.id)).lines.map((l) => l.state)).toEqual(['confirmed'])
+  })
+
+  it('N2: the hold ran out before the retry: it is held again from scratch and confirmed, same booking', async () => {
+    const cls = await createClass({ content: content({ questions: [] }), sessions: sessions(), status: 'open', by })
+    const ask = { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 1 }, attempt: 'sheet-attempt-n2b' }
+    confirmFail.n = 1
+    expect((await post(compRoute, ask)).status).toBe(503)
+    vi.setSystemTime(new Date(NOW.getTime() + 11 * 60_000)) // the 10-minute hold has run out
+    const again = await post(compRoute, ask)
+    expect(again.status).toBe(200)
+    expect(again.body.data.replayed).toBeUndefined()
+    const live = (await getLedger(cls.id)).lines.filter((l) => l.state === 'confirmed')
+    expect(live).toHaveLength(1)
+    expect(live[0].bookingId).toBe(again.body.data.bookingId)
+  })
+
+  it('m3: a hold that ran out is never rebuilt past capacity on a retry: full is refused, unless Add over capacity was ticked', async () => {
+    const cls = await createClass({ content: content({ questions: [] }), sessions: sessions(), status: 'open', by })
+    const ask = { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 1 }, attempt: 'sheet-attempt-m3' }
+    confirmFail.n = 1
+    expect((await post(compRoute, ask)).status).toBe(503)
+    vi.setSystemTime(new Date(NOW.getTime() + 11 * 60_000)) // the hold ran out
+    // meanwhile someone filled Wednesday
+    expect((await post(compRoute, { ...ask, attempt: 'other-sheet', givenName: 'Ben', tickets: { adult: 2 } })).status).toBe(200)
+    const full = await post(compRoute, ask)
+    expect(full.status).toBe(409)
+    expect(full.body).toMatchObject({ code: 'sold_out', error: expect.stringMatching(/^That class is full on /) })
+    const squeezed = await post(compRoute, { ...ask, overCapacity: true })
+    expect(squeezed.status).toBe(200)
+    expect(squeezed.body.data.over).toEqual({ sold: 3, capacity: 2 })
+  })
+
+  it('m4: a retry of an add that went in answers Added even after the session has ended', async () => {
+    const cls = await createClass({ content: content({ questions: [] }), sessions: sessions(), status: 'open', by })
+    const ask = { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_tue'], tickets: { adult: 1 }, attempt: 'sheet-attempt-m4' }
+    const first = await post(compRoute, ask)
+    expect(first.status).toBe(200)
+    vi.setSystemTime(new Date('2026-10-20T18:00:00.000Z')) // Tuesday's session is over
+    const again = await post(compRoute, ask)
+    expect(again.status).toBe(200)
+    expect(again.body.data).toMatchObject({ replayed: true, bookingId: first.body.data.bookingId, seats: 1 })
+  })
+
   it('a seat with no pick is refused with what is missing', async () => {
     const cls = await createClass({ content: content(), sessions: sessions(), status: 'open', by })
     const r = await post(compRoute, { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 1 } })
@@ -122,14 +182,14 @@ describe('Comp a seat on our class', () => {
 describe('Sell a seat, pay at the counter', () => {
   it('records a door-counter seat owed at the class price; the counter sale pays it instead of adding a seat', async () => {
     const cls = await createClass({ content: content({ questions: [] }), sessions: sessions(), status: 'open', by })
-    const r = await post(compRoute, { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 1 }, payAtRegister: true, sendEmail: true })
+    const r = await post(compRoute, { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_tue'], tickets: { adult: 1 }, payAtRegister: true, sendEmail: true })
     expect(r.status).toBe(200)
     expect(r.body.data).toMatchObject({ dueCents: 3815, seats: 1, emailSent: true })
     expect(mocks.email.mock.calls[0][0]).toMatchObject({ dueAtStudioCents: 3815, to: 'gia@example.com' })
-    await recordPos(cls, { bookingId: 'bkg_pos_O9', orderId: 'O9', paymentId: 'P9', chargedCents: 3815, saleIso: '2026-10-21T16:00:00.000Z', lines: [{ lineUid: 'L9', passId: 'day', ticketTypeId: 'adult', sessionIds: ['ses_tue'], units: [{ priceCents: 3500, taxCents: 315 }] }] }, NOW)
+    await recordPos(cls, { bookingId: 'bkg_pos_O9', orderId: 'O9', paymentId: 'P9', chargedCents: 3815, saleIso: '2026-10-20T16:00:00.000Z', lines: [{ lineUid: 'L9', passId: 'day', ticketTypeId: 'adult', sessionIds: ['ses_tue'], units: [{ priceCents: 3500, taxCents: 315 }] }] }, NOW)
     const lines = (await getLedger(cls.id)).lines
     expect(lines).toHaveLength(1)
-    expect(lines[0]).toMatchObject({ source: 'door-counter', sessionIds: ['ses_wed'], square: { orderId: 'O9', paymentId: 'P9' } })
+    expect(lines[0]).toMatchObject({ source: 'door-counter', sessionIds: ['ses_tue'], square: { orderId: 'O9', paymentId: 'P9' } })
   })
 })
 
@@ -182,6 +242,17 @@ describe('Roster for our class', () => {
     // already named: refused, and a family that didn't sign for this class can't be used
     expect((await post(namesRoute, { classId: cls.id, bookingId: counter.bookingId, recordId: fam.id })).status).toBe(409)
     expect((await post(namesRoute, { classId: cls.id, bookingId: counter.bookingId, recordId: 'wvr_nobody' })).status).toBe(409)
+  })
+
+  it('Q-C: an unpaid door seat is "not paid yet" in the not-signed-in list too; once rung up it is not', async () => {
+    const cls = await createClass({ content: content({ questions: [] }), sessions: sessions(), status: 'open', by })
+    await post(compRoute, { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_tue'], tickets: { adult: 1 }, payAtRegister: true })
+    let r = await roster(cls.id, '2026-10-20')
+    expect(r.body.data.choices.unmatched).toEqual([expect.objectContaining({ name: 'Gia Winner', atRegister: true })])
+    await recordPos(cls, { bookingId: 'bkg_pos_QC', orderId: 'QC', paymentId: 'PQC', chargedCents: 3815, saleIso: NOW.toISOString(), lines: [{ lineUid: 'LQC', passId: 'day', ticketTypeId: 'adult', sessionIds: ['ses_tue'], units: [{ priceCents: 3500, taxCents: 315 }] }] }, NOW)
+    r = await roster(cls.id, '2026-10-20')
+    expect(r.body.data.choices.unmatched[0].atRegister).toBeUndefined()
+    expect(r.body.data.bookings[0]).toMatchObject({ source: 'door-counter', paidHere: true })
   })
 
   it('staff only', async () => {

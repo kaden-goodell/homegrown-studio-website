@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import { contentChanges } from './content-diff'
@@ -92,4 +93,56 @@ export async function archiveLibrary(id: string, archived: boolean, _by: By): Pr
     if (!cur) throw new Error('That class is not in the library.')
     return { ...cur, archived }
   })
+}
+
+/**
+ * A class brought in from Square, as version 1. The library id comes from the
+ * import key, so two runs (even at the same moment) can't both add it: the
+ * write is create-only. Returns null when it is already there.
+ */
+export async function importLibraryClass(input: {
+  importKey: string
+  legacyScheduleIds: string[]
+  content: ClassContent
+  by: By
+  note: string
+}): Promise<LibraryClass | null> {
+  const content = checked(input.content)
+  const id = importedLibraryId(input.importKey)
+  const k = key(id)
+  const { value, etag } = await kv.getWithMeta(k)
+  if (value !== null) return null
+  const lib: LibraryClass = {
+    id,
+    archived: false,
+    versions: [{ version: 1, at: new Date().toISOString(), by: input.by, content, note: input.note }],
+    importKey: input.importKey,
+    legacyScheduleIds: [...input.legacyScheduleIds],
+  }
+  return (await kv.setIfMatch(k, JSON.stringify(lib), etag, false)) ? lib : null
+}
+
+/** 'lib_sq' + 12 hex of the import key's hash: stable, and safe in a key. */
+export function importedLibraryId(importKey: string): string {
+  return `lib_sq${createHash('sha256').update(importKey).digest('hex').slice(0, 12)}`
+}
+
+/**
+ * Gives an imported class the photo Square had missed, as a new version. Only
+ * while the newest version is still the untouched import with no photo, so an
+ * owner's own edit (even removing the photo) is never overridden. Returns
+ * false when there was nothing to fill.
+ */
+export async function fillImportedPhoto(input: { id: string; imageUrl: string; by: By; importNote: string; note: string }): Promise<boolean> {
+  let filled = false
+  await mutate(input.id, (cur) => {
+    filled = false
+    if (!cur) throw new Error('That class is not in the library.')
+    const latest = cur.versions[cur.versions.length - 1]
+    if (!cur.importKey || latest?.note !== input.importNote || latest.content.imageUrl) return cur
+    filled = true
+    const content = checked({ ...latest.content, imageUrl: input.imageUrl })
+    return { ...cur, versions: [...cur.versions, { version: latest.version + 1, at: new Date().toISOString(), by: input.by, content, note: input.note }] }
+  })
+  return filled
 }
