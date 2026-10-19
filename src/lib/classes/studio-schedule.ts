@@ -91,7 +91,7 @@ export async function ourClassBusy(fromIso: string, toIso: string): Promise<Busy
 export async function blockedAndClosedBusy(fromIso: string, toIso: string): Promise<Busy[]> {
   const from = Date.parse(fromIso), to = Date.parse(toIso)
   const blocked: Busy[] = (await listBlocked({ fromIso, toIso })).map((b) => ({
-    kind: 'blocked', id: b.id, label: b.reason || 'Blocked time', startIso: b.startIso, endIso: b.endIso,
+    kind: 'blocked', id: b.id, label: b.reason || 'blocked time', startIso: b.startIso, endIso: b.endIso,
   }))
   const closed: Busy[] = []
   for (const day of daysBetween(fromIso, toIso)) {
@@ -191,10 +191,16 @@ function when(startIso: string): string {
   return `${formatDay(startIso).replace(',', '')} ${formatTime(startIso).replace(':00 ', ' ')}`
 }
 
+/** How one clash reads: "Pottery, Sun Oct 18 4 PM"; a closed day has no time. */
+function clashPhrase(b: Busy): string {
+  if (b.kind === 'closed') return `a day the studio is closed, ${formatDay(b.startIso).replace(',', '')}`
+  return `${b.label}, ${when(b.startIso)}`
+}
+
 /** "Clashes with Kids Halloween Cookie Decorating, Sun Oct 18 4 PM." Up to three, then "and N more". */
 export function clashMessage(list: Busy[]): string {
   if (list.length === 0) return ''
-  const named = list.slice(0, 3).map((b) => `${b.label}, ${when(b.startIso)}`)
+  const named = list.slice(0, 3).map(clashPhrase)
   const more = list.length - named.length
   if (more > 0) return `Clashes with ${named.join(', ')} and ${more} more.`
   if (named.length === 1) return `Clashes with ${named[0]}.`

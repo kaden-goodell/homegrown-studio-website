@@ -30,7 +30,8 @@ export const POST: APIRoute = async ({ request }) => {
 
     // Parties yield to classes (spec E). The panel takes its times from here,
     // so the rule must hold here as well as in availability.json. A failed
-    // class lookup offers every time (logged inside classSpansOrNone).
+    // legacy Square class lookup never blocks (logged inside classSpansOrNone);
+    // our own class store failing fails closed.
     const classes = starts.length > 0 ? await classSpansOrNone(now.toISOString(), windowEnd.toISOString()) : []
     const unblocked = removeClassBlocked(starts, classes)
 

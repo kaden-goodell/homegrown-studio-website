@@ -12,14 +12,17 @@ const key = (id: string) => `blocked-${id}`
 const MAX_REASON = 120
 
 export async function listBlocked(range?: { fromIso: string; toIso: string }): Promise<BlockedTime[]> {
+  const from = range ? Date.parse(range.fromIso) : 0
+  const to = range ? Date.parse(range.toIso) : 0
+  const keys = (await kv.list()).filter((k) => k.startsWith('blocked-'))
+  // Read in parallel: this sits on the public party picker path.
+  const jsons = await Promise.all(keys.map((k) => kv.get(k)))
   const out: BlockedTime[] = []
-  for (const k of await kv.list()) {
-    if (!k.startsWith('blocked-')) continue
-    const json = await kv.get(k)
+  for (const json of jsons) {
     if (!json) continue
     const b = JSON.parse(json) as Stored
     if (b.removed) continue
-    if (range && !(Date.parse(b.startIso) < Date.parse(range.toIso) && Date.parse(b.endIso) > Date.parse(range.fromIso))) continue
+    if (range && !(Date.parse(b.startIso) < to && Date.parse(b.endIso) > from)) continue
     out.push(b)
   }
   return out.sort((a, b) => Date.parse(a.startIso) - Date.parse(b.startIso))

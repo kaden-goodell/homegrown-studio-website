@@ -196,6 +196,14 @@ describe('clashMessage', () => {
     expect(clashMessage([a, b, c])).toBe('Clashes with A, Sun Oct 18 4 PM, B, Sun Oct 18 4 PM and C, Sun Oct 18 4 PM.')
     expect(clashMessage([a, b, c, kid, kid])).toBe('Clashes with A, Sun Oct 18 4 PM, B, Sun Oct 18 4 PM, C, Sun Oct 18 4 PM and 2 more.')
   })
+  it('blocked time with no reason, and a closed day (no time)', async () => {
+    const blk = await addBlocked({ startIso: at('2026-10-22', '18:00'), endIso: at('2026-10-22', '19:00'), reason: '', by })
+    const list = await busyBetween(at('2026-10-22', '17:00'), at('2026-10-22', '20:00'))
+    const b = list.find((x) => x.id === blk.id)!
+    expect(clashMessage([b])).toBe('Clashes with blocked time, Thu Oct 22 6 PM.')
+    const closed = (await busyBetween(at('2026-10-31', '10:00'), at('2026-10-31', '11:00'))).filter((x) => x.kind === 'closed')
+    expect(clashMessage(closed)).toBe('Clashes with a day the studio is closed, Sat Oct 31.')
+  })
   it('empty is empty', () => {
     expect(clashMessage([])).toBe('')
   })

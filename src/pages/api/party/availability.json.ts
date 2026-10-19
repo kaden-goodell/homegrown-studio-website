@@ -48,7 +48,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       })
       const now = Date.now()
       const candidates = partyStartsForDate(date).filter((iso) => new Date(iso).getTime() > now)
-      // Parties still yield to classes here; a failed class lookup never blocks.
+      // Parties still yield to classes here. A failed legacy Square class lookup
+      // never blocks; our own class store failing fails closed.
       const { startIso, endIso } = studioDayUtcRange(date)
       openStarts = removeClassBlocked(candidates, await classSpansOrNone(startIso, endIso))
     }

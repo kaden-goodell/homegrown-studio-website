@@ -25,16 +25,16 @@ export async function getClass(id: string): Promise<ScheduledClass | null> {
 
 /** Classes with any session overlapping [fromIso, toIso); all when no range. Sorted by first session. */
 export async function listClasses(range?: { fromIso: string; toIso: string }): Promise<ScheduledClass[]> {
+  const from = range ? Date.parse(range.fromIso) : 0
+  const to = range ? Date.parse(range.toIso) : 0
+  const keys = (await kv.list()).filter((k) => k.startsWith('class-'))
+  // Read in parallel: this sits on the public party picker path.
+  const jsons = await Promise.all(keys.map((k) => kv.get(k)))
   const out: ScheduledClass[] = []
-  for (const k of await kv.list()) {
-    if (!k.startsWith('class-')) continue
-    const json = await kv.get(k)
+  for (const json of jsons) {
     if (!json) continue
     const c = JSON.parse(json) as ScheduledClass
-    if (range) {
-      const from = Date.parse(range.fromIso), to = Date.parse(range.toIso)
-      if (!c.sessions.some((s) => Date.parse(s.startIso) < to && Date.parse(s.endIso) > from)) continue
-    }
+    if (range && !c.sessions.some((s) => Date.parse(s.startIso) < to && Date.parse(s.endIso) > from)) continue
     out.push(c)
   }
   return out.sort((a, b) => Date.parse(a.sessions[0]?.startIso ?? '') - Date.parse(b.sessions[0]?.startIso ?? ''))

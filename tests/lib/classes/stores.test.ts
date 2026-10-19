@@ -89,6 +89,15 @@ describe('class store', () => {
     expect((await listClasses({ fromIso: '2040-03-19T00:00:00Z', toIso: '2040-03-21T00:00:00Z' })).map((x) => x.id)).toEqual([early.id])
     expect((await listClasses()).length).toBeGreaterThanOrEqual(2)
   })
+  it('lists in first-session order whatever order classes were created, and skips classes outside the range', async () => {
+    const z = await createClass({ content: content('Z'), sessions: [ses('a', '2041-06-09T10:00:00Z', '2041-06-09T11:00:00Z')], status: 'open', by })
+    const x = await createClass({ content: content('X'), sessions: [ses('a', '2041-06-01T10:00:00Z', '2041-06-01T11:00:00Z')], status: 'draft', by })
+    const y = await createClass({ content: content('Y'), sessions: [ses('a', '2041-06-05T10:00:00Z', '2041-06-05T11:00:00Z')], status: 'cancelled', by })
+    await createClass({ content: content('Out'), sessions: [ses('a', '2041-07-05T10:00:00Z', '2041-07-05T11:00:00Z')], status: 'open', by })
+    const got = await listClasses({ fromIso: '2041-06-01T00:00:00Z', toIso: '2041-06-10T00:00:00Z' })
+    expect(got.map((c) => c.id)).toEqual([x.id, y.id, z.id])
+    expect(got.map((c) => c.content.name)).toEqual(['X', 'Y', 'Z'])
+  })
 })
 
 describe('blocked time', () => {
@@ -99,6 +108,16 @@ describe('blocked time', () => {
     expect(await listBlocked({ fromIso: '2045-06-01T00:00:00Z', toIso: '2045-06-02T00:00:00Z' })).toEqual([])
     await removeBlocked(b.id, by)
     expect(await listBlocked({ fromIso: '2045-05-01T00:00:00Z', toIso: '2045-05-02T00:00:00Z' })).toEqual([])
+  })
+  it('lists only live blocks in range, sorted by start, whatever order they were added', async () => {
+    const c = await addBlocked({ startIso: '2046-02-03T10:00:00Z', endIso: '2046-02-03T11:00:00Z', reason: 'C', by })
+    const a = await addBlocked({ startIso: '2046-02-01T10:00:00Z', endIso: '2046-02-01T11:00:00Z', reason: 'A', by })
+    const gone = await addBlocked({ startIso: '2046-02-02T10:00:00Z', endIso: '2046-02-02T11:00:00Z', reason: 'X', by })
+    const b = await addBlocked({ startIso: '2046-02-02T12:00:00Z', endIso: '2046-02-02T13:00:00Z', reason: 'B', by })
+    await addBlocked({ startIso: '2046-03-01T10:00:00Z', endIso: '2046-03-01T11:00:00Z', reason: 'out of range', by })
+    await removeBlocked(gone.id, by)
+    const got = await listBlocked({ fromIso: '2046-02-01T00:00:00Z', toIso: '2046-02-04T00:00:00Z' })
+    expect(got.map((x) => x.id)).toEqual([a.id, b.id, c.id])
   })
   it('refuses end before start and long reasons', async () => {
     await expect(addBlocked({ startIso: '2045-05-01T12:00:00Z', endIso: '2045-05-01T12:00:00Z', reason: '', by })).rejects.toThrow('end after it starts')
