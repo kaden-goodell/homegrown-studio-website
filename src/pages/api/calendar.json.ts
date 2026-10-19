@@ -13,11 +13,13 @@ import {
   type PartyAvailabilitySlot,
   type PartyBookedSlot,
 } from '@components/calendar/calendar-view-model'
-import { classSpanOf, removeClassBlocked } from '@lib/conflicts'
+import { classSpanOf, removeClassBlocked, type ClassSpan } from '@lib/conflicts'
+import { listClasses } from '@lib/classes/class-store'
+import type { ScheduledClass } from '@lib/classes/types'
 import { createLogger } from '@lib/logger'
 import { remember } from '@lib/short-memory'
 import { publicListHeaders } from '@lib/cache-headers'
-import { loadPartyVariationId } from '@lib/party-open-dates'
+import { loadPartyVariationId, isNotFound, onSandbox } from '@lib/party-open-dates'
 
 export const prerender = false
 const logger = createLogger('api:calendar')
@@ -39,7 +41,14 @@ function monthsFrom(first: string, count: number): string[] {
 }
 
 async function loadOpenStudioWindows(): Promise<OpenStudioWindow[]> {
-  const eventTypes = await providers.catalog.getEventTypes()
+  let eventTypes: any[]
+  try {
+    eventTypes = await providers.catalog.getEventTypes()
+  } catch (err) {
+    // The sandbox has no live Craft Café item: no windows, not a failure.
+    if (onSandbox() && isNotFound(err)) return []
+    throw err
+  }
   const openStudio =
     eventTypes.find((et: any) => et.id === partyConfig.square.openStudioItemId) ??
     eventTypes.find((et: any) => (et.flow as string) === 'display')
@@ -85,7 +94,7 @@ export const GET: APIRoute = async ({ url, request }) => {
     logger.error(`${what} failed`, { error: errorText(err) })
     return fallback
   }
-  const [allWorkshops, allOpenStudioWindows, partyVariationId, bookings] = await Promise.all([
+  const [allWorkshops, allOpenStudioWindows, partyVariationId, bookings, ourClasses] = await Promise.all([
     remember('calendar:workshops', 30_000, () => providers.workshop.listWorkshops()).catch(
       orElse('workshops fetch', [] as any[]),
     ),
@@ -101,7 +110,17 @@ export const GET: APIRoute = async ({ url, request }) => {
           .listBookings({ startDate: rangeStart.toISOString(), endDate: rangeEnd.toISOString(), locationId })
           .catch(orElse('party bookings', [] as any[]))
       : Promise.resolve([] as any[]),
+    listClasses({ fromIso: rangeStart.toISOString(), toIso: rangeEnd.toISOString() }).catch(
+      orElse('our classes', [] as ScheduledClass[]),
+    ),
   ])
+  // Only open/closed, not link-only, ones are public; the same ones block parties.
+  const publicClasses = ourClasses.filter(
+    (c) => (c.status === 'open' || c.status === 'closed') && !c.content.rules.linkOnly,
+  )
+  const ourSpans: ClassSpan[] = publicClasses.flatMap((c) =>
+    c.sessions.map((s) => ({ id: s.id, name: c.content.name, startIso: s.startIso, endIso: s.endIso })),
+  )
 
   const workshops = allWorkshops.filter((w: any) => inRangeIso(w.startAt))
   const openStudioWindows = allOpenStudioWindows.filter((w) => inRange(w.date))
@@ -129,7 +148,7 @@ export const GET: APIRoute = async ({ url, request }) => {
       : []
   // Parties yield to classes (spec E), then booked parties come off.
   const partyAvailable: PartyAvailabilitySlot[] = removeBooked(
-    removeClassBlocked(offeredStarts, allWorkshops.map(classSpanOf)),
+    removeClassBlocked(offeredStarts, [...allWorkshops.map(classSpanOf), ...ourSpans]),
     partyBooked.map((b) => b.startAt)
   )
     .filter(inRangeIso)
@@ -148,6 +167,7 @@ export const GET: APIRoute = async ({ url, request }) => {
     openStudioWindows,
     includePartySlots ? partyAvailable : [],
     partyBooked,
+    publicClasses,
   )
   // Walk-in hours come from Square and don't know about closures: a closed day
   // never shows Craft Café (e.g. Sat 28 Nov, Thanksgiving weekend).

@@ -16,10 +16,29 @@ import { removeClassBlocked } from '@lib/conflicts'
 import { classSpansOrNone } from '@lib/party-availability'
 import { bookableDates, localToUtcISO, partyStartsInRange, removeBooked } from '@lib/party-slots'
 
+/** A Square "no such object" answer (404 / NOT_FOUND). */
+export function isNotFound(err: unknown): boolean {
+  const e = err as any
+  if (e?.statusCode === 404 || e?.status === 404) return true
+  return /not[ _]?found|404/i.test(err instanceof Error ? err.message : String(err))
+}
+
+/** True on the sandbox, which has none of the live-only catalog items. */
+export function onSandbox(): boolean {
+  return (siteConfig.providers.catalog.config as SquareConfig).environment === 'sandbox'
+}
+
 /** The party service's variation id: what marks a booking as a party. */
 export async function loadPartyVariationId(): Promise<string> {
   const client = createSquareClient(siteConfig.providers.catalog.config as SquareConfig)
-  const resp = await client.catalog.object.get({ objectId: partyConfig.square.catalogItemId })
+  let resp: unknown
+  try {
+    resp = await client.catalog.object.get({ objectId: partyConfig.square.catalogItemId })
+  } catch (err) {
+    // The sandbox has no live party item: that is "no party variation", not a failure.
+    if (onSandbox() && isNotFound(err)) return ''
+    throw err
+  }
   const item = ((resp as any)?.object ?? resp) as any
   return item?.itemData?.variations?.[0]?.id ?? ''
 }

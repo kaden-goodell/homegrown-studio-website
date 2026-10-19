@@ -3,6 +3,7 @@ import type { OpenStudioWindow } from '@lib/open-studio'
 import { localDate, localHour } from '@lib/party-slots'
 import { canBeBooked, isSoldOut, seatsLeftLabel } from '@lib/workshop-rules'
 import { formatMoney } from '@lib/money'
+import type { ScheduledClass } from '@lib/classes/types'
 
 /**
  * A normalized event rendered on the read-only "What's On" calendar.
@@ -99,9 +100,28 @@ export function buildCalendarEvents(
   workshops: Workshop[],
   openStudioWindows: OpenStudioWindow[],
   partyAvailable: PartyAvailabilitySlot[] = [],
-  partyBooked: PartyBookedSlot[] = []
+  partyBooked: PartyBookedSlot[] = [],
+  ourClasses: ScheduledClass[] = []
 ): CalendarEvent[] {
   const events: CalendarEvent[] = []
+
+  // Our own classes: one row per session, on that session's day. Drafts,
+  // cancelled and link-only classes are never listed publicly.
+  for (const c of ourClasses) {
+    if ((c.status !== 'open' && c.status !== 'closed') || c.content.rules.linkOnly) continue
+    for (const s of c.sessions) {
+      events.push({
+        id: `class-${c.id}-${s.id}`,
+        kind: 'workshop',
+        title: c.content.name,
+        date: isoToLocalDate(s.startIso),
+        startTime: isoToLocalHHMM(s.startIso),
+        endTime: isoToLocalHHMM(s.endIso),
+        bookable: c.status === 'open',
+        href: `/classes/${encodeURIComponent(c.id)}`,
+      })
+    }
+  }
 
   for (const w of workshops) {
     const start = new Date(w.startAt)

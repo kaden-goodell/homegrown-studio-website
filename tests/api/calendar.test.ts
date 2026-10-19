@@ -4,6 +4,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 const mockListWorkshops = vi.fn()
 const mockGetEventTypes = vi.fn()
 const mockListBookings = vi.fn()
+const mockListClasses = vi.fn()
+const mockCatalogGet = vi.fn()
 
 const PARTY_VARIATION_ID = 'party-variation-1'
 
@@ -15,11 +17,13 @@ vi.mock('@config/providers', () => ({
   },
 }))
 
+vi.mock('@lib/classes/class-store', () => ({ listClasses: (...a: any[]) => mockListClasses(...a) }))
+
 vi.mock('@providers/square/client', () => ({
   createSquareClient: () => ({
     catalog: {
       object: {
-        get: async () => ({ object: { itemData: { variations: [{ id: PARTY_VARIATION_ID }] } } }),
+        get: (...a: any[]) => mockCatalogGet(...a),
       },
     },
   }),
@@ -34,6 +38,7 @@ vi.mock('@config/opening', async (importOriginal) => ({
 
 import { GET } from '@pages/api/calendar.json'
 import { forgetAll } from '@lib/short-memory'
+import { siteConfig } from '@config/site.config'
 
 // Pins the normal weekly rules; one-off party days are in party-date-overrides.test.ts.
 vi.mock('@config/party.config', async (orig) => ({ ...(await orig<typeof import('@config/party.config')>()), partyDateOverrides: {} }))
@@ -80,6 +85,8 @@ describe('GET /api/calendar.json', () => {
     mockListWorkshops.mockReset().mockResolvedValue([])
     mockGetEventTypes.mockReset().mockResolvedValue([])
     mockListBookings.mockReset().mockResolvedValue([])
+    mockListClasses.mockReset().mockResolvedValue([])
+    mockCatalogGet.mockReset().mockResolvedValue({ object: { itemData: { variations: [{ id: PARTY_VARIATION_ID }] } } })
   })
 
   afterEach(() => {
@@ -397,5 +404,98 @@ describe('GET /api/calendar.json', () => {
     mockListWorkshops.mockResolvedValue([workshop({ startAt: '2026-11-08T18:00:00.000Z', durationMinutes: 120, name: 'Bedazzled Pumpkin Pails' })]) // noon–2 PM CST
     const november = (await getMonth('2026-11')).body.events.filter((e: any) => e.kind === 'party-available' && e.date === '2026-11-08')
     expect(november.map((e: any) => e.startTime)).toEqual(['15:30'])
+  })
+
+  describe('our own classes', () => {
+    const ourClass = (over: Record<string, unknown> = {}, rules: Record<string, unknown> = {}) => ({
+      id: 'cls_abc',
+      status: 'open',
+      content: { name: 'Pottery Night', rules: { linkOnly: false, ...rules } },
+      sessions: [{ id: 'ses1', startIso: '2026-10-24T00:00:00.000Z', endIso: '2026-10-24T02:00:00.000Z', capacity: 8 }],
+      ...over,
+    })
+
+    it('shows a class on its session day with its time and link', async () => {
+      mockListClasses.mockResolvedValue([ourClass()])
+      const { body } = await getMonth('2026-10')
+      const e = body.events.find((x: any) => x.id === 'class-cls_abc-ses1')
+      expect(e).toMatchObject({ kind: 'workshop', title: 'Pottery Night', date: '2026-10-23', startTime: '19:00', endTime: '21:00', href: '/classes/cls_abc', bookable: true })
+      expect(body.incomplete).toBeUndefined()
+    })
+
+    it('shows every session of a multi-session class and closed classes as not bookable', async () => {
+      mockListClasses.mockResolvedValue([
+        ourClass({
+          status: 'closed',
+          sessions: [
+            { id: 'a', startIso: '2026-10-24T00:00:00.000Z', endIso: '2026-10-24T02:00:00.000Z', capacity: 8 },
+            { id: 'b', startIso: '2026-10-31T00:00:00.000Z', endIso: '2026-10-31T02:00:00.000Z', capacity: 8 },
+          ],
+        }),
+      ])
+      const { body } = await getMonth('2026-10')
+      const mine = body.events.filter((x: any) => x.id.startsWith('class-cls_abc'))
+      expect(mine.map((x: any) => x.date)).toEqual(['2026-10-23', '2026-10-30'])
+      expect(mine.every((x: any) => x.bookable === false)).toBe(true)
+    })
+
+    it('leaves out drafts, cancelled and link-only classes', async () => {
+      mockListClasses.mockResolvedValue([
+        ourClass({ id: 'cls_d', status: 'draft' }),
+        ourClass({ id: 'cls_c', status: 'cancelled' }),
+        ourClass({ id: 'cls_l' }, { linkOnly: true }),
+      ])
+      const { body } = await getMonth('2026-10')
+      expect(ids(body).filter((i: string) => i.startsWith('class-'))).toEqual([])
+    })
+
+    it('takes party slots off the times our class uses', async () => {
+      mockListClasses.mockResolvedValue([
+        ourClass({ sessions: [{ id: 's', startIso: '2026-11-08T18:00:00.000Z', endIso: '2026-11-08T20:00:00.000Z', capacity: 8 }] }),
+      ])
+      const november = (await getMonth('2026-11')).body.events.filter((e: any) => e.kind === 'party-available' && e.date === '2026-11-08')
+      expect(november.map((e: any) => e.startTime)).toEqual(['15:30'])
+    })
+
+    it('marks the calendar incomplete when the class store fails', async () => {
+      mockListClasses.mockRejectedValue(new Error('kv down'))
+      const { body } = await getMonth('2026-10')
+      expect(body.incomplete).toBe(true)
+    })
+  })
+
+  describe('live-only catalog items', () => {
+    const notFound = Object.assign(new Error('NOT_FOUND: object not found'), { statusCode: 404 })
+    const cfg = siteConfig.providers.catalog.config as any
+    const original = cfg.environment
+    afterEach(() => { cfg.environment = original })
+
+    beforeEach(() => {
+      mockGetEventTypes.mockRejectedValue(notFound)
+    })
+
+    it('on the sandbox, a missing item is "none", not a failure', async () => {
+      cfg.environment = 'sandbox'
+      expect((await getMonth('2026-10')).body.incomplete).toBeUndefined()
+    })
+
+    it('on the sandbox, a missing party item is "no party variation", not a failure', async () => {
+      cfg.environment = 'sandbox'
+      mockGetEventTypes.mockResolvedValue([])
+      mockCatalogGet.mockRejectedValue(notFound)
+      expect((await getMonth('2026-10')).body.incomplete).toBeUndefined()
+    })
+
+    it('on production, a missing party item marks it incomplete', async () => {
+      cfg.environment = 'production'
+      mockGetEventTypes.mockResolvedValue([])
+      mockCatalogGet.mockRejectedValue(notFound)
+      expect((await getMonth('2026-10')).body.incomplete).toBe(true)
+    })
+
+    it('on production, the same error still marks it incomplete', async () => {
+      cfg.environment = 'production'
+      expect((await getMonth('2026-10')).body.incomplete).toBe(true)
+    })
   })
 })
