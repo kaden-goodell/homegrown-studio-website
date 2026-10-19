@@ -184,8 +184,9 @@ A hidden $5 / $1 test class on prod, before any customer uses it:
 
 ## Decisions (18 Oct)
 
-- Waitlist: when a seat frees up, the next person on the list is added to the class (how they pay is still to settle).
+- Waitlist: when a seat frees up, the next person on the list is added and charged automatically to the card they saved when joining (Square Cards API stores it; we never do), then texted "You're in". Real-money test before launch.
 - Minimum to run: set per class.
 - Crew see the /admin calendar, read-only.
 - Refunds: owners, and crew with a reason (logged with their name).
 - Assigning staff is /admin only. Crew mark availability and ask to work things; they never assign. A future general manager gets /admin.
+- Scheduling edits the details right there. Saving offers "Just this date" or "Also update the library". Every library save is a version (who, when, what changed); an old version can be restored. A scheduled class records the version it came from, so a library change never alters a booked class.
