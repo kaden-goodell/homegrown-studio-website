@@ -19,6 +19,7 @@ import { closureOn, OPEN_WEEKDAYS } from '@config/closures'
 import { latestOf, priceOf, ranText } from '../classes/labels'
 import { useLibraryList } from '../classes/library-data'
 import { useRefresh } from '../shell/data'
+import { NoPhoto } from '../ClassesTab'
 import { Failed, Seg, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet, useSheetDirty } from '../shell/Sheet'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
@@ -246,7 +247,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
                   const c = latestOf(l).content
                   return (
                     <button key={l.id} type="button" className="adm-libc" aria-pressed={picked?.libraryId === l.id} onClick={() => ask(l)}>
-                      <span className="adm-thumb">{c.imageUrl ? <img src={c.imageUrl} alt="" /> : null}</span>
+                      <span className="adm-thumb">{c.imageUrl ? <img src={c.imageUrl} alt="" /> : <NoPhoto />}</span>
                       <span className="adm-rm"><b>{c.name}</b><small>{[ranText(runs[l.id]), priceOf(c), `${c.defaultCapacity} seats`].filter(Boolean).join(' · ')}</small></span>
                     </button>
                   )

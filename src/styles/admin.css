@@ -2176,3 +2176,12 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
   height: 2rem;
   opacity: 0.6;
 }
+.adm-thumb {
+  display: grid;
+  place-items: center;
+  color: var(--color-muted);
+}
+.adm-thumb .adm-nophoto {
+  width: 1.4rem;
+  height: 1.4rem;
+}
