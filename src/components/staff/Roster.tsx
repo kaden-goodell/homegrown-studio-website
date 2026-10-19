@@ -13,6 +13,9 @@ import type { EventKind, StudioEvent } from '@lib/events'
 import type { IncidentRecord } from '@lib/incident-store'
 import { picksShort, prepOptions } from '@lib/seat-options'
 import type { RosterChoices } from '@lib/seat-choices'
+import RefundPanel, { STAFF_REFUND, type WaitingRefund } from '@components/shared/RefundPanel'
+import type { BookingView } from '@lib/classes/admin-actions'
+import { overCapacityNote, paidWay } from '@lib/classes/booking-words'
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
 
@@ -23,6 +26,85 @@ interface RosterData {
   households: Household[]
   /** Seat picks (classes with questions only); null = no questions, undefined = the read failed. */
   choices?: RosterChoices | null
+  /** Our own classes: the day's bookings from the seat ledger. */
+  bookings?: (BookingView & { name: string; seatsToday: number; waiting: WaitingRefund | null })[]
+  /** Our own classes: ticket type id → label. */
+  ticketLabels?: Record<string, string>
+}
+
+/**
+ * A booking on one of our classes: who, how many seats today, how it was
+ * paid, and for a counter sale with no name yet, "Who is it?" from the
+ * families who signed. Refund (crew, with a reason) underneath.
+ */
+function OwnBooking({ b, classId, households, taken, ticketLabels, onChanged }: {
+  b: NonNullable<RosterData['bookings']>[number]
+  classId: string
+  households: Household[]
+  /** emails already on a booking of this class */
+  taken: Set<string>
+  ticketLabels: Record<string, string>
+  onChanged: () => void
+}) {
+  const [who, setWho] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const unnamed = !b.customer
+  // A family already on another booking isn't offered again.
+  const offered = households.filter((h) => !taken.has(h.email.trim().toLowerCase()))
+  async function saveName() {
+    if (!who || busy) return
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/staff/class-names.json', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ classId, bookingId: b.bookingId, recordId: who }),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) { setError(json?.error ?? 'Couldn’t save that.'); return }
+      onChanged()
+    } catch {
+      setError('Couldn’t save — check wifi and try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  const refunded = b.refundedCents > 0
+  return (
+    <li data-testid="own-booking" style={{ padding: '0.6rem 0', borderTop: '1px solid rgba(var(--color-primary-rgb),0.12)', listStyle: 'none' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
+        <strong style={{ color: unnamed ? 'var(--color-muted)' : 'var(--color-dark)' }}>{b.name}</strong>
+        <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>
+          {`${b.seatsToday} seat${b.seatsToday === 1 ? '' : 's'} · ${paidWay(b)}`}
+          {refunded && ' · part refunded'}
+        </span>
+      </div>
+      {overCapacityNote(b) && (
+        <p style={{ margin: '0.2rem 0 0', fontSize: '0.875rem', ...(overCapacityNote(b) === 'Added over capacity on purpose.' ? { color: 'var(--color-muted)' } : { fontWeight: 700, color: 'var(--color-error)' }) }}>{overCapacityNote(b)}</p>
+      )}
+      {unnamed && (
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginTop: '0.4rem' }}>
+          {offered.length ? (
+            <>
+              <select aria-label={`Who is ${b.name}`} value={who} onChange={(e) => setWho(e.target.value)} style={{ ...field, flex: '1 1 12rem' }}>
+                <option value="">Who is it?</option>
+                {offered.map((h) => <option key={h.recordId} value={h.recordId}>{h.signer}</option>)}
+              </select>
+              <button type="button" onClick={saveName} disabled={!who || busy} style={{ ...btn(true), minHeight: '2.75rem', ...(!who || busy ? { opacity: 0.5, cursor: 'not-allowed' } : {}) }}>{busy ? 'Saving…' : 'Save name'}</button>
+              {b.lineIds.length > 1 && <span style={{ flexBasis: '100%', fontSize: '0.8125rem', color: 'var(--color-muted)' }}>{`Names all ${b.lineIds.length} seats on this sale.`}</span>}
+            </>
+          ) : (
+            <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>Their name comes from the waiver once they sign for this class.</span>
+          )}
+        </div>
+      )}
+      {error && <p role="alert" style={{ margin: '0.3rem 0 0', fontSize: '0.875rem', color: '#b91c1c', fontWeight: 600 }}>{error}</p>}
+      <div style={{ marginTop: '0.4rem' }}>
+        <RefundPanel classId={classId} booking={b} endpoint={STAFF_REFUND} reasonRequired counterSalesAtRegister waiting={b.waiting} ticketLabel={(t) => ticketLabels[t] ?? t} onDone={onChanged} />
+      </div>
+    </li>
+  )
 }
 
 /** "Mon 19" — short weekday + day number, studio-local calendar math (no tz shift). */
@@ -44,6 +126,7 @@ export default function Roster({
   backLabel = 'Today',
   kind,
   id,
+  initialDay,
   addFamily,
 }: {
   staff: StaffMember
@@ -52,6 +135,8 @@ export default function Roster({
   backLabel?: string
   kind: EventKind
   id: string
+  /** Open on this day of a multi-day event (This week's row for that day). */
+  initialDay?: string
   /** Open "+ Add family" on arrival — with this household already found when
    *  Today's "Here for an event?" chip sent us here. */
   addFamily?: { household?: HouseholdMatch } | null
@@ -105,7 +190,7 @@ export default function Roster({
   // Fresh load on mount (or if the target event changes under us).
   useEffect(() => {
     dayRef.current = null
-    load()
+    load(initialDay ?? null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kind, id])
 
@@ -240,7 +325,7 @@ export default function Roster({
               <div onClick={() => setMoreOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 110 }} />
               <div role="menu" style={{ position: 'absolute', right: 0, top: 'calc(100% + 0.35rem)', zIndex: 111, minWidth: '12rem', padding: '0.35rem', borderRadius: '0.75rem', background: '#fff', boxShadow: '0 10px 30px rgba(0,0,0,0.18)', display: 'grid', gap: '0.25rem' }}>
                 <a role="menuitem" href={`/staff/print?kind=${kind}&id=${encodeURIComponent(id)}&day=${data.day}`} target="_blank" rel="noopener noreferrer" onClick={() => setMoreOpen(false)} style={{ ...btn(), border: 'none', textDecoration: 'none', display: 'flex', alignItems: 'center', minHeight: '2.75rem', fontSize: '0.95rem' }}>🖨 Print</a>
-                <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); setEventSettingsOpen(true) }} style={{ ...btn(), border: 'none', textAlign: 'left', minHeight: '2.75rem', fontSize: '0.95rem' }}>⚙️ Event settings</button>
+                {!event.own && <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); setEventSettingsOpen(true) }} style={{ ...btn(), border: 'none', textAlign: 'left', minHeight: '2.75rem', fontSize: '0.95rem' }}>⚙️ Event settings</button>}
                 <button type="button" role="menuitem" onClick={() => { setMoreOpen(false); refresh() }} style={{ ...btn(), border: 'none', textAlign: 'left', minHeight: '2.75rem', fontSize: '0.95rem' }}>↻ Refresh</button>
               </div>
             </>
@@ -281,14 +366,14 @@ export default function Roster({
 
         <div data-testid="roster-stats" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: '0.5rem', marginTop: '0.9rem' }}>
           {(kind === 'workshop' && typeof event.capacity === 'number' && typeof event.seats === 'number'
-            ? [{ n: `${event.capacity - event.seats}`, sub: `of ${event.capacity} sold` }]
-            : [{ n: `${data.summary.households}`, sub: data.summary.households === 1 ? 'family RSVP’d' : 'families RSVP’d' }]
+            ? [{ n: `${event.capacity - event.seats}`, sub: `of ${event.capacity} sold`, over: event.seats < 0 }]
+            : [{ n: `${data.summary.households}`, sub: data.summary.households === 1 ? 'family RSVP’d' : 'families RSVP’d', over: false }]
           ).concat([
-            { n: `${coming}`, sub: 'crafting' },
-            { n: `${here}`, sub: 'here now' },
+            { n: `${coming}`, sub: 'crafting', over: false },
+            { n: `${here}`, sub: 'here now', over: false },
           ]).map((st) => (
-            <div key={st.sub} style={{ padding: '0.55rem 0.3rem', borderRadius: '0.7rem', background: 'rgba(var(--color-primary-rgb),0.07)' }}>
-              <div style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--color-dark)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{st.n}</div>
+            <div key={st.sub} data-over={st.over ? 'true' : undefined} style={{ padding: '0.55rem 0.3rem', borderRadius: '0.7rem', background: st.over ? 'rgba(185,28,28,0.1)' : 'rgba(var(--color-primary-rgb),0.07)' }}>
+              <div style={{ fontSize: '1.6rem', fontWeight: 800, color: st.over ? 'var(--color-error)' : 'var(--color-dark)', lineHeight: 1.1, fontVariantNumeric: 'tabular-nums' }}>{st.n}</div>
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-muted)' }}>{st.sub}</div>
             </div>
           ))}
@@ -380,7 +465,7 @@ export default function Roster({
         <CompSeatSheet
           mode="sell"
           priceCents={event.priceCents}
-          event={{ id, title: event.title, day: data.day }}
+          event={{ id, title: event.title, day: data.day, ...(event.own ? { own: true as const } : {}) }}
           options={options}
           onRecorded={refresh}
           onClose={() => setSellSeatOpen(false)}
@@ -389,7 +474,7 @@ export default function Roster({
 
       {compSeatOpen && kind === 'workshop' && (
         <CompSeatSheet
-          event={{ id, title: event.title, day: data.day }}
+          event={{ id, title: event.title, day: data.day, ...(event.own ? { own: true as const } : {}) }}
           options={options}
           onRecorded={refresh}
           onClose={() => setCompSeatOpen(false)}
@@ -434,6 +519,20 @@ export default function Roster({
             ))}
           </div>
         </div>
+      )}
+
+      {data.bookings && (
+        <section aria-label="Bookings" style={{ ...card, background: 'rgba(255,255,255,0.9)' }}>
+          <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--color-primary)' }}>
+            BOOKINGS · {data.bookings.reduce((n, b) => n + b.seatsToday, 0)} SEAT{data.bookings.reduce((n, b) => n + b.seatsToday, 0) === 1 ? '' : 'S'}
+          </p>
+          {data.bookings.length === 0 && <p style={{ margin: '0.4rem 0 0', fontSize: '0.9rem', color: 'var(--color-muted)' }}>No one booked on this day yet.</p>}
+          <ul style={{ margin: '0.3rem 0 0', padding: 0 }}>
+            {data.bookings.map((b) => (
+              <OwnBooking key={b.bookingId} b={b} classId={id} households={data.households} taken={new Set(data.bookings!.map((x) => x.customer?.email.trim().toLowerCase()).filter((e): e is string => !!e))} ticketLabels={data.ticketLabels ?? {}} onChanged={refresh} />
+            ))}
+          </ul>
+        </section>
       )}
 
       {/* Search */}

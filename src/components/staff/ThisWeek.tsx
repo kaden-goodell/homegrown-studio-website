@@ -19,9 +19,13 @@ export interface WeekRow {
   dropOff: boolean
   /** Seats sold (classes). */
   sold?: number
+  /** Seats the class holds (when known). */
+  capacity?: number
   /** Guests booked (parties). */
   guests?: number
   prep?: PrepOption[]
+  /** Our own classes: each day of theirs this week, with that day's start, seats and prep. */
+  byDay?: Record<string, { startIso: string; sold: number; capacity: number; prep?: PrepOption[] }>
 }
 
 const WEEK_DAYS = 7
@@ -38,7 +42,7 @@ export default function ThisWeek({
   onOpenRoster,
 }: {
   staff: StaffMember
-  onOpenRoster: (e: { kind: EventKind; id: string; title: string; addFamily?: { household?: HouseholdMatch } }) => void
+  onOpenRoster: (e: { kind: EventKind; id: string; title: string; day?: string; addFamily?: { household?: HouseholdMatch } }) => void
 }) {
   const today = studioDate(new Date().toISOString())
   const [rows, setRows] = useState<WeekRow[] | null>(null)
@@ -58,8 +62,13 @@ export default function ThisWeek({
   useEffect(() => { load() }, [])
 
   const days = Array.from({ length: WEEK_DAYS }, (_, i) => addDays(today, i))
-  const onDay = (d: string) => (rows ?? []).filter((r) => r.days.includes(d)).sort((a, b) => a.startIso.localeCompare(b.startIso))
-  const prepCount = (rows ?? []).filter((r) => r.prep?.some((o) => o.counts.length > 0)).length
+  // A class of ours shows each day as that day is: its own start, seats and prep.
+  const asOn = (r: WeekRow, d: string): WeekRow => {
+    const day = r.byDay?.[d]
+    return day ? { ...r, startIso: day.startIso, sold: day.sold, capacity: day.capacity, prep: day.prep } : r
+  }
+  const onDay = (d: string) => (rows ?? []).filter((r) => r.days.includes(d)).map((r) => asOn(r, d)).sort((a, b) => a.startIso.localeCompare(b.startIso))
+  const prepCount = (rows ?? []).filter((r) => (r.byDay ? Object.values(r.byDay).some((x) => x.prep?.some((o) => o.counts.length > 0)) : r.prep?.some((o) => o.counts.length > 0))).length
 
   return (
     <div>
@@ -97,7 +106,7 @@ export default function ThisWeek({
                   <button
                     key={`${e.kind}:${e.id}`}
                     type="button"
-                    onClick={() => onOpenRoster({ kind: e.kind, id: e.id, title: e.title })}
+                    onClick={() => onOpenRoster({ kind: e.kind, id: e.id, title: e.title, ...(e.byDay ? { day: d } : {}) })}
                     style={{ ...card, background: 'rgba(255,255,255,0.85)', width: '100%', textAlign: 'left', cursor: 'pointer', display: 'block', marginBottom: '0.5rem' }}
                   >
                     <span style={{ display: 'flex', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'baseline' }}>
@@ -111,7 +120,9 @@ export default function ThisWeek({
                     <span style={{ display: 'block', margin: '0.25rem 0 0', fontSize: '0.875rem', color: 'var(--color-muted)' }}>
                       {e.kind === 'party'
                         ? typeof e.guests === 'number' ? `${e.guests} guest${e.guests === 1 ? '' : 's'}` : 'Party'
-                        : typeof e.sold === 'number' ? `${e.sold} seat${e.sold === 1 ? '' : 's'} booked` : 'Class'}
+                        : e.byDay && typeof e.sold === 'number' && typeof e.capacity === 'number'
+                          ? <span style={e.sold > e.capacity ? { color: 'var(--color-error)', fontWeight: 700 } : undefined}>{`${e.sold} of ${e.capacity} booked`}</span>
+                          : typeof e.sold === 'number' ? `${e.sold} seat${e.sold === 1 ? '' : 's'} booked` : 'Class'}
                     </span>
                     {e.prep?.map((o) => (
                       <span key={o.id} data-testid="week-prep" style={{ display: 'block', margin: '0.35rem 0 0', fontSize: '0.95rem', color: 'var(--color-dark)', lineHeight: 1.45 }}>

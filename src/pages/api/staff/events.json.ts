@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { staffAuthorized } from '@lib/staff-auth'
-import { listEvents, eventKey } from '@lib/events'
+import { listEvents, eventKey, eventOnDay } from '@lib/events'
 import { listRsvpsByEvent } from '@lib/rsvp-store'
 import { getCheckin, presenceOn } from '@lib/checkin-store'
 import { prepForEvent } from '@lib/event-prep'
@@ -25,19 +25,19 @@ export const GET: APIRoute = async ({ request, url }) => {
     // returns the other's events, with `sources` telling the console which
     // half of the list it's missing (F2): a Square hiccup must not blank
     // today's parties off the door screen.
-    if (sources.parties === 'error' && sources.workshops === 'error') {
+    if (sources.parties === 'error' && sources.workshops === 'error' && sources.classes === 'error') {
       logger.error('Events load failed — both sources unavailable', { date })
       return new Response(JSON.stringify({ error: 'Couldn’t reach storage — check wifi and try again.' }), { status: 503 })
     }
     const withCounts = await Promise.all(
-      events.map(async (e) => {
+      events.map((e) => eventOnDay(e, date)).map(async (e) => {
         const rsvps = await listRsvpsByEvent(e.kind, e.id)
         const checkins = await Promise.all(rsvps.map((r) => getCheckin(eventKey(e.kind, e.id), r.waiverId)))
         // "Here now" is counted on THIS day — hereNow for a multi-day camp
         // shouldn't include attendance from a different day (HOM-213).
         const hereNow = checkins.reduce((n, c) => n + Object.values(presenceOn(c, date)).filter((p) => !p.outAt).length, 0)
         // `rsvpWaiverIds` lets the door screen highlight the event a household already RSVP'd to.
-        return { ...e, rsvpCount: rsvps.length, hereNow, rsvpWaiverIds: rsvps.map((r) => r.waiverId), ...(await prepForEvent(e)) }
+        return { ...e, rsvpCount: rsvps.length, hereNow, rsvpWaiverIds: rsvps.map((r) => r.waiverId), ...(await prepForEvent(e, date)) }
       }),
     )
     return new Response(JSON.stringify({ data: { events: withCounts, sources } }), {

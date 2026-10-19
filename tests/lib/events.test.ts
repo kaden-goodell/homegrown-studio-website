@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const partyFixture = { bookingId: 'p1', title: 'Rivera Party', craftName: 'Slime', startIso: '2026-10-20T15:00:00.000Z', dropOff: true }
 
@@ -8,17 +8,31 @@ vi.mock('@lib/party-store', () => ({
   listParties: (...a: any[]) => (mockListParties as any)(...a),
 }))
 
-// Computed relative to "now" (not hardcoded) so these never rot into the
-// future/past as real time marches on.
-const { TODAY, STARTED_2H_AGO_ISO, CAMP_STARTED_3D_AGO_ISO } = vi.hoisted(() => {
-  const now = new Date()
-  const pad = (n: number) => String(n).padStart(2, '0')
+// A fixed clock (Thu Oct 15 2026, noon in the studio): nothing here depends on
+// the real date. The lists below are built from it, and each test pins Date to it.
+const { NOW, TODAY, STARTED_2H_AGO_ISO, CAMP_STARTED_3D_AGO_ISO } = vi.hoisted(() => {
+  const NOW = new Date('2026-10-15T17:00:00.000Z')
   return {
-    TODAY: `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`,
-    STARTED_2H_AGO_ISO: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
-    CAMP_STARTED_3D_AGO_ISO: new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+    NOW,
+    TODAY: '2026-10-15',
+    STARTED_2H_AGO_ISO: new Date(NOW.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+    CAMP_STARTED_3D_AGO_ISO: new Date(NOW.getTime() - 3 * 24 * 60 * 60 * 1000).toISOString(),
   }
 })
+
+// Our own classes: the class store and seat ledger answer from fixtures.
+const own = vi.hoisted(() => ({ classes: [] as any[], ledgers: new Map<string, any>(), fail: false }))
+vi.mock('@lib/classes/class-store', () => ({
+  getClass: async (id: string) => own.classes.find((c) => c.id === id) ?? null,
+  listClasses: async (range?: { fromIso: string; toIso: string }) => {
+    if (own.fail) throw new Error('blobs down')
+    return own.classes.filter((c) => !range || c.sessions.some((s: any) => s.startIso < range.toIso && s.endIso > range.fromIso))
+  },
+}))
+vi.mock('@lib/classes/seat-ledger', async (orig) => ({
+  ...(await orig<typeof import('@lib/classes/seat-ledger')>()),
+  getLedger: async (classId: string) => own.ledgers.get(classId) ?? { classId, lines: [] },
+}))
 
 // Two workshops: one bookable, one SOLD OUT. `listWorkshops` filters the full
 // one out (that's Square's own behavior) — only `getWorkshop` can see it, so
@@ -59,9 +73,13 @@ const WORKSHOPS = [
 let getEvent: typeof import('@lib/events').getEvent
 let listEvents: typeof import('@lib/events').listEvents
 let eventKey: typeof import('@lib/events').eventKey
+let eventOnDay: typeof import('@lib/events').eventOnDay
 
 beforeEach(async () => {
   vi.clearAllMocks()
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(NOW)
+  own.classes = []; own.ledgers.clear(); own.fail = false
   // The module caches the workshop list for a minute — reset it between tests
   // so one test's list doesn't leak into the next.
   vi.resetModules()
@@ -69,8 +87,10 @@ beforeEach(async () => {
   mockListWorkshops.mockImplementation(async () => WORKSHOPS.filter((w) => w.availableCapacity > 0))
   mockListAllWorkshops.mockImplementation(async () => WORKSHOPS)
   mockGetWorkshop.mockImplementation(async (id: string) => WORKSHOPS.find((w) => w.id === id || w.scheduleId === id) ?? null)
-  ;({ getEvent, listEvents, eventKey } = await import('@lib/events'))
+  ;({ getEvent, listEvents, eventKey, eventOnDay } = await import('@lib/events'))
 })
+
+afterEach(() => vi.useRealTimers())
 
 describe('events', () => {
   it('party falls back to the record dropOff and derives days in studio TZ', async () => {
@@ -136,21 +156,21 @@ describe('listEvents source isolation (F2)', () => {
   it('reports both sources ok on the happy path', async () => {
     const { events, sources } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
     expect(events.map((e) => e.id).sort()).toEqual(['cs1', 'p1'])
-    expect(sources).toEqual({ parties: 'ok', workshops: 'ok' })
+    expect(sources).toEqual({ parties: 'ok', workshops: 'ok', classes: 'ok' })
   })
 
   it('a Square outage still returns the parties, flagged workshops: error', async () => {
     mockListAllWorkshops.mockRejectedValue(new Error('fetch failed'))
     const { events, sources } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
     expect(events.map((e) => e.id)).toEqual(['p1'])
-    expect(sources).toEqual({ parties: 'ok', workshops: 'error' })
+    expect(sources).toEqual({ parties: 'ok', workshops: 'error', classes: 'ok' })
   })
 
   it('a Blobs outage still returns the workshops, flagged parties: error', async () => {
     mockListParties.mockRejectedValue(new Error('blobs down'))
     const { events, sources } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
     expect(events.map((e) => e.id)).toEqual(['cs1'])
-    expect(sources).toEqual({ parties: 'error', workshops: 'ok' })
+    expect(sources).toEqual({ parties: 'error', workshops: 'ok', classes: 'ok' })
   })
 
   it('both sources down returns nothing and flags both', async () => {
@@ -158,7 +178,7 @@ describe('listEvents source isolation (F2)', () => {
     mockListAllWorkshops.mockRejectedValue(new Error('fetch failed'))
     const { events, sources } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
     expect(events).toEqual([])
-    expect(sources).toEqual({ parties: 'error', workshops: 'error' })
+    expect(sources).toEqual({ parties: 'error', workshops: 'error', classes: 'ok' })
   })
   it('carries a class’s seat questions, cutoff and capacity', async () => {
     const PAILS = { id: 'pumpkin-color', label: 'Pumpkin color', choices: ['Black', 'Lavender'] }
@@ -186,5 +206,78 @@ describe('listEvents source isolation (F2)', () => {
 
   it('a party never asks seat questions', async () => {
     expect(await getEvent('party', 'p1')).toMatchObject({ options: [], signupCutoffHours: null })
+  })
+})
+
+describe('our own classes (Task 14)', () => {
+  const rules = { ages: '', dropOff: true, madeToOrder: false, taxable: true, maxPerBooking: 10, signupCutoffHours: null, minimumToRun: null, linkOnly: false, joinPartway: true, waitlistCutoffHours: 2, canShareRoom: false }
+  // A three-day camp, 10 AM–noon studio time on Mon 19, Tue 20, Wed 21 October.
+  const camp = {
+    id: 'cls_camp1', libraryId: null, libraryVersion: null, status: 'open',
+    content: {
+      name: 'Clay Camp', description: '', imageUrl: null, instructor: null, rules,
+      ticketTypes: [{ id: 'person', label: 'Person' }],
+      passes: [{ id: 'all', label: 'All', covers: { kind: 'all' } }, { id: 'day', label: 'One day', covers: { kind: 'choose', count: 1 } }],
+      prices: { all: { person: 9000 }, day: { person: 3500 } },
+      questions: [{ id: 'glaze', label: 'Glaze', choices: ['Blue', 'Green'] }], addOns: [], defaultCapacity: 2, defaultMinutes: 120,
+    },
+    sessions: [
+      { id: 'ses_m', startIso: '2026-10-19T15:00:00.000Z', endIso: '2026-10-19T17:00:00.000Z', capacity: 2 },
+      { id: 'ses_t', startIso: '2026-10-20T15:00:00.000Z', endIso: '2026-10-20T17:00:00.000Z', capacity: 2 },
+      { id: 'ses_w', startIso: '2026-10-21T15:00:00.000Z', endIso: '2026-10-21T17:00:00.000Z', capacity: 2 },
+    ],
+    square: { itemId: null, variations: {} }, createdAt: '', updatedAt: '', by: { id: 'k', name: 'K' }, history: [],
+  }
+  const seat = (id: string, sessionIds: string[], over: Record<string, any> = {}) => ({
+    id, bookingId: `bkg_${id}`, sessionIds, ticketTypeId: 'person', passId: 'all', seat: 1, priceCents: 0, taxCents: 0,
+    addOns: {}, addOnCents: 0, addOnTaxCents: 0, answers: {}, source: 'online', state: 'confirmed', holdExpiresAt: null,
+    customer: null, square: { orderId: null, paymentId: null, lineUid: null }, by: null, refunds: [], at: '', ...over,
+  })
+  beforeEach(() => {
+    own.classes = [camp]
+    own.ledgers.set('cls_camp1', { classId: 'cls_camp1', lines: [
+      seat('led_1', ['ses_m', 'ses_t', 'ses_w']),
+      seat('led_2', ['ses_t']),
+      seat('led_3', ['ses_t']), // Tuesday is oversold: 3 of 2
+    ] })
+  })
+
+  it('getEvent resolves a cls_ id from our class store, never Square', async () => {
+    const e = await getEvent('workshop', 'cls_camp1')
+    expect(e).toMatchObject({ kind: 'workshop', id: 'cls_camp1', title: 'Clay Camp', dropOff: true, own: true, days: ['2026-10-19', '2026-10-20', '2026-10-21'] })
+    expect(e!.options).toEqual([{ id: 'glaze', label: 'Glaze', choices: ['Blue', 'Green'] }])
+    expect(mockGetWorkshop).not.toHaveBeenCalled()
+    expect(await getEvent('workshop', 'cls_nope')).toBeNull()
+  })
+
+  it('a draft or cancelled class is not on the console', async () => {
+    own.classes = [{ ...camp, status: 'draft' }]
+    expect(await getEvent('workshop', 'cls_camp1')).toBeNull()
+    own.classes = [{ ...camp, status: 'cancelled' }]
+    expect((await listEvents({ from: '2026-10-19', to: '2026-10-21' })).events.some((e) => e.id === 'cls_camp1')).toBe(false)
+  })
+
+  it('a multi-day class is listed on each of its days, each day with its own seats', async () => {
+    for (const [day, sold] of [['2026-10-19', 1], ['2026-10-20', 3], ['2026-10-21', 1]] as const) {
+      const { events } = await listEvents({ from: day, to: day })
+      const e = events.find((x) => x.id === 'cls_camp1')!
+      expect(e).toBeTruthy()
+      const onDay = eventOnDay(e, day)
+      expect(onDay.capacity! - onDay.seats!).toBe(sold)
+      expect(onDay.capacity).toBe(2)
+    }
+    expect((await listEvents({ from: '2026-10-22', to: '2026-10-22' })).events.some((e) => e.id === 'cls_camp1')).toBe(false)
+  })
+
+  it('every session carries its day and seats', async () => {
+    const e = await getEvent('workshop', 'cls_camp1')
+    expect(e!.sessions!.map((s) => [s.day, s.sold, s.capacity])).toEqual([['2026-10-19', 1, 2], ['2026-10-20', 3, 2], ['2026-10-21', 1, 2]])
+  })
+
+  it('a class store outage still lists the rest, flagged classes: error', async () => {
+    own.fail = true
+    const { events, sources } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
+    expect(events.map((e) => e.id).sort()).toEqual(['cs1', 'p1'])
+    expect(sources).toEqual({ parties: 'ok', workshops: 'ok', classes: 'error' })
   })
 })

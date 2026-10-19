@@ -8,6 +8,7 @@ import StaffHeader from '@components/staff/StaffHeader'
 import Today from '@components/staff/Today'
 import Upcoming from '@components/staff/Upcoming'
 import ThisWeek from '@components/staff/ThisWeek'
+import StaffCalendar from '@components/staff/StaffCalendar'
 import SwitchPersonSheet from '@components/staff/SwitchPersonSheet'
 import { readDayParam, writeDayParam } from '@components/staff/EventList'
 import { StaffNavContext, type StaffNav, type StaffTab } from '@components/staff/nav'
@@ -259,9 +260,9 @@ function identifyStaff(staff: StaffMember): void {
 }
 
 export default function StaffConsole() {
-  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'week' | 'today' | 'upcoming' | 'roster' | 'kits' | 'giftcards'>('checking')
+  const [phase, setPhase] = useState<'checking' | 'login' | 'pick' | 'week' | 'today' | 'upcoming' | 'calendar' | 'roster' | 'kits' | 'giftcards'>('checking')
   // Which list a roster was opened from, so its Back and the active tab match.
-  const [lastList, setLastList] = useState<'week' | 'today' | 'upcoming'>('week')
+  const [lastList, setLastList] = useState<'week' | 'today' | 'upcoming' | 'calendar'>('week')
   const [kitBuckets, setKitBuckets] = useState<KitBuckets | null>(null)
   const [radar, setRadar] = useState<RadarRow[]>([])
   const [assembly, setAssembly] = useState<KitAssembly | null>(null)
@@ -275,7 +276,7 @@ export default function StaffConsole() {
   const [pickAuthFailed, setPickAuthFailed] = useState(false)
   /** Which event's roster to show — any kind `getEvent`/`roster.json`
    *  resolves (party, workshop). `Roster` owns its own fetch/poll/state. */
-  const [rosterTarget, setRosterTarget] = useState<{ kind: EventKind; id: string; addFamily?: { household?: HouseholdMatch } } | null>(null)
+  const [rosterTarget, setRosterTarget] = useState<{ kind: EventKind; id: string; day?: string; addFamily?: { household?: HouseholdMatch } } | null>(null)
   const [netError, setNetError] = useState<string | null>(null)
   // The passcode lives only in memory for the length of this browser session —
   // "Switch" reuses it to re-pick an identity without asking again. A page
@@ -419,9 +420,9 @@ export default function StaffConsole() {
   /** Today/EventList's row tap — opens that event's roster. Any kind
    *  `getEvent`/`roster.json` resolves (party, workshop) — HOM-213 replaced
    *  the party-only screen with a generalized one. */
-  function openRoster(e: { kind: EventKind; id: string; title: string; addFamily?: { household?: HouseholdMatch } }) {
-    if (phase === 'week' || phase === 'today' || phase === 'upcoming') setLastList(phase)
-    setRosterTarget({ kind: e.kind, id: e.id, ...(e.addFamily ? { addFamily: e.addFamily } : {}) })
+  function openRoster(e: { kind: EventKind; id: string; title: string; day?: string; addFamily?: { household?: HouseholdMatch } }) {
+    if (phase === 'week' || phase === 'today' || phase === 'upcoming' || phase === 'calendar') setLastList(phase)
+    setRosterTarget({ kind: e.kind, id: e.id, ...(e.day ? { day: e.day } : {}), ...(e.addFamily ? { addFamily: e.addFamily } : {}) })
     setPhase('roster')
   }
 
@@ -464,7 +465,7 @@ export default function StaffConsole() {
     </div>
   )
 
-  const activeTab: StaffTab = phase === 'roster' ? lastList : phase === 'week' || phase === 'upcoming' || phase === 'kits' || phase === 'giftcards' ? phase : 'today'
+  const activeTab: StaffTab = phase === 'roster' ? lastList : phase === 'week' || phase === 'upcoming' || phase === 'calendar' || phase === 'kits' || phase === 'giftcards' ? phase : 'today'
   const nav: StaffNav = {
     active: activeTab,
     go: (tab) => {
@@ -502,6 +503,10 @@ export default function StaffConsole() {
     return withNav(<Upcoming staff={me} onOpenRoster={openRoster} />)
   }
 
+  if (phase === 'calendar') {
+    return withNav(<StaffCalendar staff={me} onOpenRoster={openRoster} />)
+  }
+
   if (phase === 'giftcards') {
     return withNav(<GiftCards staff={me} />)
   }
@@ -512,9 +517,10 @@ export default function StaffConsole() {
         key={`${rosterTarget.kind}:${rosterTarget.id}`}
         staff={me}
         onBack={() => { setRosterTarget(null); setPhase(lastList) }}
-        backLabel={lastList === 'upcoming' ? 'Upcoming' : lastList === 'week' ? 'This week' : 'Today'}
+        backLabel={lastList === 'upcoming' ? 'Upcoming' : lastList === 'week' ? 'This week' : lastList === 'calendar' ? 'Calendar' : 'Today'}
         kind={rosterTarget.kind}
         id={rosterTarget.id}
+        initialDay={rosterTarget.day}
         addFamily={rosterTarget.addFamily}
       />,
     )

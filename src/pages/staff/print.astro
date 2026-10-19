@@ -2,13 +2,15 @@
 export const prerender = false
 
 import { staffAuthorized } from '@lib/staff-auth'
-import { getEvent, resolveEventDay, EVENT_KIND_RE } from '@lib/events'
+import { getEvent, eventOnDay, resolveEventDay, EVENT_KIND_RE } from '@lib/events'
 import { listWaiversByEvent } from '@lib/waiver-store'
 import { effectivePickup } from '@lib/pickup'
 import { formatWhen, formatCalendarDay } from '@lib/studio-time'
 import { listSeatChoicesByEvent, summarizeChoices } from '@lib/seat-choices'
 import { picksShort, totalsLine } from '@lib/seat-options'
 import { siteConfig } from '@config/site.config'
+import { ownRoster, type RosterBooking } from '@lib/classes/staff-roster'
+import { printLine } from '@lib/classes/booking-words'
 
 // Staff-authed server-side (HOM-213) — a printable paper fallback for the
 // door when wifi drops, so it must never be reachable without the same
@@ -27,8 +29,10 @@ const rawId = Astro.url.searchParams.get('id') ?? ''
 const kind = KIND_RE.test(rawKind) ? (rawKind as RosterKind) : null
 const id = rawId.trim()
 
-const event = kind && id ? await getEvent(kind, id) : null
-const day = event ? resolveEventDay(event, Astro.url.searchParams.get('day')) : null
+const found = kind && id ? await getEvent(kind, id) : null
+const day = found ? resolveEventDay(found, Astro.url.searchParams.get('day')) : null
+// The printed day's own session: its time and seats, not the class's next session.
+const event = found && day ? eventOnDay(found, day) : found
 
 const waivers = event && kind ? await listWaiversByEvent(kind, id) : []
 waivers.sort((a, b) => `${a.adult.firstName} ${a.adult.lastName}`.localeCompare(`${b.adult.firstName} ${b.adult.lastName}`))
@@ -38,7 +42,18 @@ waivers.sort((a, b) => `${a.adult.firstName} ${a.adult.lastName}`.localeCompare(
 const options = kind === 'workshop' && event ? (event.options ?? []) : []
 let choices: ReturnType<typeof summarizeChoices> | null = null
 let picksUnavailable = false
-if (event && options.length > 0) {
+let ownBookings: RosterBooking[] = []
+if (event?.own && day) {
+  // Our own classes: the day's seats, picks and bookings come from the seat ledger.
+  try {
+    const own = await ownRoster(event, day, waivers.map((w) => w.adult.email))
+    choices = own?.choices ?? null
+    ownBookings = own?.bookings ?? []
+  } catch (err) {
+    console.error('[staff/print] class seats read failed', err)
+    picksUnavailable = true
+  }
+} else if (event && options.length > 0) {
   try {
     choices = summarizeChoices(
       options,
@@ -171,6 +186,11 @@ const title = event ? `${event.title} — Roster` : 'Roster not found'
             {event.dropOff && <> · DROP-OFF EVENT</>}
           </p>
         )}
+        {event?.own && typeof event.capacity === 'number' && typeof event.seats === 'number' && (
+          <p class={`meta${event.capacity - event.seats > event.capacity ? ' not-authorized' : ''}`}>
+            {event.capacity - event.seats} of {event.capacity} seats booked{event.capacity - event.seats > event.capacity && ' · OVER CAPACITY'}
+          </p>
+        )}
         {choices && options.map((o) => (
           <p class="meta">
             <strong>{totalsLine(o, choices.totals[o.id] ?? {})}</strong>
@@ -232,6 +252,17 @@ const title = event ? `${event.title} — Roster` : 'Roster not found'
         <ul style="margin: 0; padding-left: 1.1rem; font-size: 0.8125rem;">
           {choices.unmatched.map((u) => (
             <li>{u.name} · {u.seats} seat{u.seats === 1 ? '' : 's'}{u.picks.length > 0 && <> · Picks: {picksShort(u.picks)}</>}{u.comped && ' · comped'}</li>
+          ))}
+        </ul>
+      </>
+    )}
+
+    {ownBookings.length > 0 && (
+      <>
+        <h2 style="font-size: 1rem; margin: 1rem 0 0.4rem;">Bookings</h2>
+        <ul style="margin: 0; padding-left: 1.1rem; font-size: 0.8125rem;">
+          {ownBookings.map((b) => (
+            <li class={b.overCapacity || (b.source === 'door-counter' && !b.paidHere) ? 'not-authorized' : ''}>{printLine(b)}</li>
           ))}
         </ul>
       </>

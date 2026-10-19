@@ -30,7 +30,7 @@ vi.mock('@lib/blob-store', async (orig) => {
   }
 })
 
-import { hold, confirm, release, recordRefund, setNames, getLedger, seatsTaken, extendHold } from '@lib/classes/seat-ledger'
+import { hold, confirm, release, recordRefund, recordRequestRefund, setNames, getLedger, seatsTaken, extendHold } from '@lib/classes/seat-ledger'
 import { quote, type BookingRequest } from '@lib/classes/pricing'
 import { defaultRules } from '@lib/classes/validate'
 import type { ScheduledClass, ClassContent } from '@lib/classes/types'
@@ -324,6 +324,38 @@ describe('seat ledger', () => {
     expect(fifth[0].refunds).toHaveLength(4)
   })
 
+  it('a saved refund request is written in ONE change (asked seats + spill-over) and never twice for the same request', async () => {
+    const cls = make(2)
+    const f = fb(cls, { tickets: { person: 2 } }, { bookingId: 'bkg_rq' })
+    await hold(cls, f.quote, f.input, NOW)
+    const [l1, l2] = await confirm(cls.id, 'bkg_rq', { orderId: 'o', paymentId: 'p' }, f, NOW)
+    // seat 2 has only 1000 left, so 500 of its 1500 share spills onto seat 1
+    await recordRefund(cls.id, [l2.id], { cents: 2270, reason: 'earlier', by, freeSeat: false, squareRefundId: 'rf_e' })
+    const input = { requestId: 'req_1', bookingId: 'bkg_rq', lines: [{ id: l2.id, cents: 1500 }], freeSeat: true, reason: 'Sick', by, squareRefundId: null }
+    const out = await recordRequestRefund(cls.id, input)
+    expect(out.map((l) => l.id)).toEqual([l2.id])
+    let after = Object.fromEntries((await getLedger(cls.id)).lines.map((l) => [l.id, l]))
+    expect(after[l2.id].refunds.at(-1)).toMatchObject({ cents: 1000, freedSeat: true, requestId: 'req_1', squareRefundId: null })
+    expect(after[l1.id].refunds).toEqual([expect.objectContaining({ cents: 500, freedSeat: false, requestId: 'req_1' })])
+    // the same request again (by request id, and again with Square's id now known) writes nothing
+    await recordRequestRefund(cls.id, input)
+    await recordRequestRefund(cls.id, { ...input, squareRefundId: 'rf_q' })
+    after = Object.fromEntries((await getLedger(cls.id)).lines.map((l) => [l.id, l]))
+    expect(after[l1.id].refunds).toHaveLength(1)
+    expect(after[l2.id].refunds).toHaveLength(2)
+  })
+
+  it('a saved refund request whose Square refund id is already on the ledger is not written again', async () => {
+    const cls = make(2)
+    const f = fb(cls, {}, { bookingId: 'bkg_rq2' })
+    await hold(cls, f.quote, f.input, NOW)
+    const [l] = await confirm(cls.id, 'bkg_rq2', { orderId: 'o', paymentId: 'p' }, f, NOW)
+    const input = { requestId: 'req_2', bookingId: 'bkg_rq2', lines: [{ id: l.id, cents: 1000 }], freeSeat: false, reason: 'x', by, squareRefundId: 'rf_2' }
+    await recordRequestRefund(cls.id, input)
+    await recordRequestRefund(cls.id, { ...input, requestId: 'req_other' })
+    expect((await getLedger(cls.id)).lines[0].refunds).toHaveLength(1)
+  })
+
   it('release frees held seats but never confirmed ones', async () => {
     const cls = make(2)
     await hold(cls, q(cls), input({ bookingId: 'bkg_h' }), NOW)
@@ -433,5 +465,31 @@ describe('extendHold and the charged amount', () => {
     await hold(cls, q(cls, { tickets: { person: 2 } }), a, NOW)
     const lines = await confirm(cls.id, a.bookingId, { orderId: 'o', paymentId: 'p', chargedCents: 6541 }, fb(cls, { tickets: { person: 2 } }), NOW)
     expect(lines.map((l) => l.square.chargedCents)).toEqual([6541, 6541])
+  })
+})
+
+describe('door seats paid at the counter (Task 14)', () => {
+  it('a POS sale of the same pass pays the door-counter seat instead of adding a second one; a replay adds nothing', async () => {
+    const { recordPos } = await import('@lib/classes/seat-ledger')
+    const cls = make(4)
+    const q = quote(cls, { passId: 'day', sessionIds: ['ses_b'], tickets: { person: 1 } }, NOW, 9)
+    if (!q.ok) throw new Error(q.error)
+    const held = await hold(cls, q.value, { bookingId: 'bkg_door1', passId: 'day', source: 'door-counter', customer: cust, ttlMinutes: 10, by }, NOW)
+    expect(held.ok).toBe(true)
+    await confirm(cls.id, 'bkg_door1', { orderId: null, paymentId: null }, { cls, quote: q.value, input: { bookingId: 'bkg_door1', passId: 'day', source: 'door-counter', customer: cust, ttlMinutes: 10 } }, NOW)
+    const sale = { bookingId: 'bkg_pos_O1', orderId: 'O1', paymentId: 'PAY1', chargedCents: 1090, saleIso: '2026-10-23T19:00:00.000Z', lines: [{ lineUid: 'L1', passId: 'day', ticketTypeId: 'person', sessionIds: ['ses_a'], units: [{ priceCents: 1000, taxCents: 90 }] }] }
+    // R32: a sale on another day never pays it; it is its own counter seat
+    const other = await recordPos(cls, { ...sale, bookingId: 'bkg_pos_O0', orderId: 'O0', saleIso: '2026-10-22T19:00:00.000Z' }, NOW)
+    expect(other.map((l) => l.source)).toEqual(['pos'])
+    const got = await recordPos(cls, sale, NOW)
+    expect(got).toHaveLength(1)
+    let lines = (await getLedger(cls.id)).lines.filter((l) => l.bookingId !== 'bkg_pos_O0')
+    expect(lines).toHaveLength(1)
+    expect(lines[0]).toMatchObject({ bookingId: 'bkg_door1', source: 'door-counter', sessionIds: ['ses_b'], customer: cust, square: { orderId: 'O1', paymentId: 'PAY1', lineUid: 'L1' } })
+    expect(await recordPos(cls, sale, NOW)).toEqual([])
+    // a second counter sale with no door seat waiting is a new counter seat
+    await recordPos(cls, { ...sale, bookingId: 'bkg_pos_O2', orderId: 'O2' }, NOW)
+    lines = (await getLedger(cls.id)).lines.filter((l) => l.bookingId !== 'bkg_pos_O0')
+    expect(lines.map((l) => l.source)).toEqual(['door-counter', 'pos'])
   })
 })

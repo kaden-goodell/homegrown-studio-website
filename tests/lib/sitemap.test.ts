@@ -45,3 +45,18 @@ describe('robots.txt', () => {
     expect(robots).not.toMatch(/Disallow: \/invite/)
   })
 })
+
+describe('sitemap: our classes (M7)', () => {
+  const base = { libraryId: null, libraryVersion: null, square: { itemId: null, variations: {} }, createdAt: '', updatedAt: '', by: { id: 'u', name: 'u' }, history: [] }
+  const rules = (linkOnly: boolean) => ({ ages: '', dropOff: false, madeToOrder: false, taxable: true, maxPerBooking: 10, signupCutoffHours: null, minimumToRun: null, linkOnly, joinPartway: true, waitlistCutoffHours: 2, canShareRoom: false })
+  const mk = (id: string, status: string, linkOnly = false) => ({
+    ...base, id, status,
+    content: { name: id, description: '', imageUrl: null, instructor: null, rules: rules(linkOnly), ticketTypes: [], passes: [], prices: {}, questions: [], addOns: [], defaultCapacity: 8, defaultMinutes: 60 },
+    sessions: [{ id: 'ses_1', startIso: '2099-01-01T18:00:00Z', endIso: '2099-01-01T20:00:00Z', capacity: 8 }],
+  }) as any
+  it('lists /classes/<id> for open classes that are not link-only', async () => {
+    const { classPages } = await import('@pages/sitemap.xml')
+    expect(classPages([mk('cls_open1', 'open'), mk('cls_link1', 'open', true), mk('cls_draft1', 'draft'), mk('cls_gone1', 'cancelled')]))
+      .toEqual(['/classes/cls_open1'])
+  })
+})

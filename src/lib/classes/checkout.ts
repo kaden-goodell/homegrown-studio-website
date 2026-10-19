@@ -61,9 +61,15 @@ export function classCutoffHours(cls: ScheduledClass): number {
   return r.signupCutoffHours ?? (r.madeToOrder || cls.content.questions.length > 0 ? 24 : 0)
 }
 
-/** The refusal when sign-ups for the first of these sessions have closed, else null. */
+/**
+ * The refusal when sign-ups for the first of these sessions have closed, else
+ * null. A class that doesn't take people partway (R28) closes as a whole: the
+ * cutoff counts from its first session, whichever days are asked for.
+ */
 export function cutoffRefusal(cls: ScheduledClass, sessionIds: string[], now: Date): string | null {
-  const starts = cls.sessions.filter((s) => sessionIds.includes(s.id)).map((s) => Date.parse(s.startIso))
+  const asked = cls.sessions.filter((s) => sessionIds.includes(s.id))
+  const counted = asked.length && !cls.content.rules.joinPartway ? cls.sessions : asked
+  const starts = counted.map((s) => Date.parse(s.startIso))
   if (!starts.length) return null
   const hours = classCutoffHours(cls)
   return now.getTime() >= Math.min(...starts) - hours * 3_600_000 ? cutoffClosedMessage(hours) : null

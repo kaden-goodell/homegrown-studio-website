@@ -36,6 +36,8 @@ import {
 } from '@lib/classes/checkout'
 import { sendClassConfirmation } from '@lib/classes/confirmation'
 import type { ScheduledClass } from '@lib/classes/types'
+import { byOf, staffAuthorized } from '@lib/staff-auth'
+import type { SaleOptions } from '@lib/classes/pricing'
 
 const logger = createLogger('api:classes:book')
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -56,8 +58,15 @@ const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`
  * charged, or unknown. A refused card lets the seats go; no answer keeps them.
  */
 export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
-  if (!bookingsOpen(request, 'workshops')) return bookingsClosedResponse()
-  if (rateLimited(`class-book:${clientAddress}`, 5, 60_000)) {
+  // "Pay on the iPad" (/staff Sell a seat, ?door=1): the same checkout, run by the crew at the door.
+  // Only signed-in staff; the seats are 'door-card', a running session can still be sold, and the
+  // online sign-up cutoff doesn't apply.
+  const door = new URL(request.url).searchParams.get('door') === '1'
+  const member = door ? staffAuthorized(request) : null
+  if (door && !member) return fail(401, 'invalid', 'Sign in to /staff to sell a seat at the door. Nothing was charged.')
+  const sale: SaleOptions = door ? { door: true } : {}
+  if (!door && !bookingsOpen(request, 'workshops')) return bookingsClosedResponse()
+  if (!door && rateLimited(`class-book:${clientAddress}`, 5, 60_000)) {
     return fail(429, 'unavailable', 'That’s a lot of attempts in a row. Give it a minute, then try again.')
   }
 
@@ -145,7 +154,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     // The first try is still running, or ended with no answer. If Square shows
     // it paid, answer booked; otherwise ask them to wait. Never a second charge.
     if (simulated) return fail(409, 'in_progress')
-    const priced = quoteFor(cls, req, now, CLASS_TAX_PERCENT)
+    const priced = quoteFor(cls, req, now, CLASS_TAX_PERCENT, sale)
     const lines = priced.ok ? orderLinesFor(cls, priced.value, req.seats) : null
     if (!priced.ok || !lines?.ok) return fail(409, 'in_progress')
     setQuote(cls, priced.value)
@@ -156,14 +165,15 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   }
 
   // ── 1. The class, the quote, the cutoff ─────────────────────────────────────
-  if (cls.status !== 'open') return fail(409, 'not_open')
-  const priced = quoteFor(cls, req, now, CLASS_TAX_PERCENT)
+  // At the door a class whose sign-ups were stopped can still take someone standing there.
+  if (cls.status !== 'open' && !(door && cls.status === 'closed')) return fail(409, 'not_open')
+  const priced = quoteFor(cls, req, now, CLASS_TAX_PERCENT, sale)
   if (!priced.ok) {
     // A field problem is the page's to fix; anything else is the class having moved on.
     return priced.field ? fail(400, 'invalid', priced.error) : fail(409, 'not_open', `${priced.error} Nothing was charged.`)
   }
   setQuote(cls, priced.value)
-  const cutoff = cutoffRefusal(cls, q!.sessionIds, now)
+  const cutoff = door ? null : cutoffRefusal(cls, q!.sessionIds, now)
   if (cutoff) return fail(409, 'not_open', cutoff)
 
   // Simulated payments (local dev and previews): hold and confirm, no Square.
@@ -297,7 +307,10 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   function setQuote(c: ScheduledClass, value: Quote) {
     q = value
     holdInput = {
-      bookingId, passId, source: 'online', customer: person, ttlMinutes: HOLD_MINUTES,
+      bookingId, passId, source: door ? 'door-card' : 'online', customer: person, ttlMinutes: HOLD_MINUTES,
+      ...(member ? { by: byOf(member) } : {}),
+      // At the door the crew may seat someone on a full day on purpose (the same rule as a comp).
+      ...(door && body.overCapacity === true ? { allowOverCapacity: true } : {}),
       ...(req.seats ? { seats: req.seats } : {}),
     }
     seatsLabel = seatsLabelFor(c, value.lines.filter((l) => l.kind === 'seat'))
@@ -419,7 +432,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
               when: formatSlotLabel(firstStart), paidCents: f.charged, email, phone,
               ...(pickLines.length ? { extra: pickLines.join('; ') } : {}),
             }),
-        reportBooking({
+        // A door sale on the studio iPad isn't a site conversion.
+        door ? Promise.resolve() : reportBooking({
           requestUrl: request.url,
           kind: 'workshop',
           bookingId,

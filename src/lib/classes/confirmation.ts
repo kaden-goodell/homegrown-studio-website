@@ -28,6 +28,10 @@ export async function sendClassConfirmation(input: {
   /** "Seat 1 · Pumpkin color Lavender", one per answer */
   pickLines?: string[]
   alsoTo?: string
+  /** a free seat from /staff: says "comped", not an amount paid */
+  comped?: boolean
+  /** a door seat paid at the counter: what is still to pay there */
+  dueAtStudioCents?: number
 }): Promise<boolean> {
   const { cls, origin } = input
   const sessions = cls.sessions
@@ -63,14 +67,20 @@ export async function sendClassConfirmation(input: {
     seats: input.seats,
     seatsLabel: input.seatsLabel,
     totalChargedCents: input.totalChargedCents,
+    ...(input.comped ? { comped: true } : {}),
+    ...(input.dueAtStudioCents !== undefined ? { dueAtStudioCents: input.dueAtStudioCents } : {}),
     receiptUrl: input.receiptUrl,
     waiverUrl,
     workshopUrl: classUrl,
     directionsUrl: `https://maps.google.com/?q=${encodeURIComponent('Hometown Studio, 525 Hughes Rd, Suite F, Madison, AL 35758')}`,
-    policyLine: checkoutPolicySummary.workshop,
+    // A free or not-yet-paid seat has nothing to refund; ask them to free it up instead.
+    policyLine: input.comped || input.dueAtStudioCents !== undefined
+      ? 'Can’t make it? Text or email us so we can pass your seat to someone else'
+      : checkoutPolicySummary.workshop,
     policyUrl: `${origin}${POLICY_PATH}#${POLICY_ANCHORS.workshops}`,
     googleCalendarUrl: googleCalendarUrl(calendarEvent),
-    icsContent: buildIcs(calendarEvent),
+    // Every session goes in the calendar file; Google's link can only hold one, so it stays the first.
+    icsContent: buildIcs(sessions.map((s) => ({ ...calendarEvent, startIso: s.startIso, endIso: s.endIso })), { uidPrefix: 'class' }),
     bookingRef: input.bookingId,
     ...(sessions.length > 1 ? { sessionLines: sessions.map((s) => formatDayAndSpan(s.startIso, s.endIso)) } : {}),
     ...(input.pickLines?.length ? { pickLines: input.pickLines } : {}),

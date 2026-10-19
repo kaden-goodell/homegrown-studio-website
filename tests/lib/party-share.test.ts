@@ -91,3 +91,18 @@ describe('partyInviteMailto', () => {
     expect(params.get('subject')).toBe('You’re invited to a craft party!')
   })
 })
+
+describe('buildIcs with several sessions (M6)', () => {
+  it('one VEVENT per session, each with its own UID, in one calendar', () => {
+    const second = { ...EVENT, startIso: '2026-07-12T16:30:00.000Z', endIso: '2026-07-12T18:00:00.000Z' }
+    const ics = buildIcs([EVENT, second])
+    expect(ics.match(/BEGIN:VEVENT/g)).toHaveLength(2)
+    expect(ics.match(/BEGIN:VCALENDAR/g)).toHaveLength(1)
+    expect(ics).toContain('DTSTART:20260712T163000Z')
+    const uids = ics.match(/UID:.+/g)!
+    expect(new Set(uids).size).toBe(2)
+  })
+  it('a single event in a list is the same as on its own', () => {
+    expect(buildIcs([EVENT])).toBe(buildIcs(EVENT))
+  })
+})

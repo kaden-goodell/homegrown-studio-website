@@ -13,7 +13,7 @@ export interface EventRow extends StudioEvent {
   rsvpWaiverIds?: string[]
 }
 
-const SOURCE_LABEL: Record<keyof EventSources, string> = { parties: 'Parties', workshops: 'Workshops' }
+const SOURCE_LABEL: Record<keyof EventSources, string> = { parties: 'Parties', workshops: 'Square classes', classes: 'Classes' }
 
 const ICON: Record<EventKind, string> = { party: '🎉', workshop: '🧵', program: '🌙' }
 

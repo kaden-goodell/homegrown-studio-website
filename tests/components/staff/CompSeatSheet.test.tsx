@@ -224,3 +224,153 @@ describe('CompSeatSheet — the confirmation email', () => {
     await waitFor(() => expect(JSON.parse(fetchMock.mock.calls[0][1].body).sendEmail).toBe(true))
   })
 })
+
+describe('CompSeatSheet on our own classes (Task 14)', () => {
+  const fetchMock = vi.fn()
+  afterEach(() => vi.unstubAllGlobals())
+  const own = {
+    classId: 'cls_camp', taxPercent: 9, instructor: null, questions: [{ id: 'glaze', label: 'Glaze', choices: ['Blue', 'Green'] }], addOns: [],
+    rules: { ages: '', dropOff: false, madeToOrder: false, taxable: true, maxPerBooking: 10, signupCutoffHours: null, minimumToRun: null, linkOnly: false, joinPartway: true, waitlistCutoffHours: 2, canShareRoom: false },
+    ticketTypes: [{ id: 'adult', label: 'Adult' }, { id: 'kid', label: 'Kid' }],
+    prices: { all: { adult: 9000, kid: 6000 }, day: { adult: 3500, kid: 2500 } },
+    sessions: [
+      { id: 'ses_tue', startIso: '2026-10-20T15:00:00.000Z', endIso: '2026-10-20T17:00:00.000Z', left: 0, closed: false },
+      { id: 'ses_wed', startIso: '2026-10-21T15:00:00.000Z', endIso: '2026-10-21T17:00:00.000Z', left: 2, closed: false },
+    ],
+    passes: [
+      { id: 'all', label: 'All days', covers: { kind: 'all' }, sessionIds: [], state: 'closed', left: 0 },
+      { id: 'day', label: 'One day', covers: { kind: 'choose', count: 1 }, sessionIds: null, state: 'open', left: 2 },
+    ],
+  }
+  const workshop = { id: 'cls_camp', name: 'Clay Camp', description: '', category: 'workshop', date: '2026-10-20', startTime: '', endTime: '', duration: 120, price: 2500, currency: 'USD', taxPercent: 9, remainingSeats: 2, signupClosed: false, own }
+  const ownEvent = { id: 'cls_camp', title: 'Clay Camp', day: '2026-10-20', own: true as const }
+  beforeEach(() => {
+    fetchMock.mockReset()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+
+  function serveClass(...replies: any[]) {
+    fetchMock.mockImplementation(async (url: string, init?: any) => {
+      if (String(url).startsWith('/api/staff/class.json')) return { ok: true, status: 200, json: async () => ({ workshop }) }
+      const r = replies.shift()
+      return r ?? { ok: true, status: 200, json: async () => ({ data: { bookingId: 'bkg_1', emailSent: false, seats: 1 } }) }
+    })
+  }
+
+  const compCalls = () => fetchMock.mock.calls.filter((c) => c[0] === '/api/staff/comp-seat.json')
+
+  it('comp: never pre-ticks a full day; picks option, day and typed seats, then writes to the class (no Square)', async () => {
+    serveClass()
+    const onRecorded = vi.fn()
+    render(<CompSeatSheet event={ownEvent} options={own.questions as any} onRecorded={onRecorded} onClose={() => {}} />)
+    await screen.findByTestId('own-pickers')
+    expect(screen.queryByRole('radio', { name: /All days/ })).toBeNull() // closed options aren't offered
+    const tue = screen.getByRole('checkbox', { name: /Tue, Oct 20/ }) as HTMLInputElement
+    expect(tue.checked).toBe(false) // the roster's day is full: never pre-ticked
+    expect(tue.parentElement).toHaveTextContent('Full')
+    fireEvent.click(screen.getByRole('checkbox', { name: /Wed, Oct 21/ }))
+    fill()
+    fireEvent.change(screen.getByLabelText('Adult seats'), { target: { value: '0' } })
+    fireEvent.change(screen.getByLabelText('Kid seats'), { target: { value: '1' } })
+    fireEvent.change(screen.getByLabelText(/Kid 1 · Glaze/), { target: { value: 'Green' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    await waitFor(() => expect(onRecorded).toHaveBeenCalled())
+    expect(JSON.parse(compCalls()[0][1].body)).toMatchObject({
+      scheduleId: 'cls_camp', passId: 'day', sessionIds: ['ses_wed'], tickets: { adult: 0, kid: 1 },
+      picks: [{ seat: 1, optionId: 'glaze', choice: 'Green' }], givenName: 'Ada', attempt: expect.any(String),
+    })
+    expect(screen.getByText(/^Added, no charge\./)).toBeTruthy()
+  })
+
+  it('a full day needs Add over capacity ticked; the success screen says how far over', async () => {
+    serveClass({ ok: true, status: 200, json: async () => ({ data: { bookingId: 'bkg_1', emailSent: false, seats: 1, overCapacity: true, over: { sold: 3, capacity: 2 } } }) })
+    render(<CompSeatSheet event={ownEvent} options={own.questions as any} onRecorded={() => {}} onClose={() => {}} />)
+    await screen.findByTestId('own-pickers')
+    fireEvent.click(screen.getByRole('checkbox', { name: /Tue, Oct 20/ }))
+    fill()
+    fireEvent.change(screen.getByLabelText(/Adult 1 · Glaze/), { target: { value: 'Blue' } })
+    const add = screen.getByRole('button', { name: 'Add comped seat' })
+    expect(add).toBeDisabled()
+    expect(screen.getByTestId('comp-hint')).toHaveTextContent('That day is full. Tick Add over capacity to seat them anyway.')
+    fireEvent.click(screen.getByLabelText('Add over capacity'))
+    expect(add).not.toBeDisabled()
+    fireEvent.click(add)
+    expect(await screen.findByText(/^Added over capacity \(3 of 2\)\. Added, no charge\./)).toBeTruthy()
+    expect(JSON.parse(compCalls()[0][1].body).overCapacity).toBe(true)
+  })
+
+  it('refused as full meanwhile: only Cancel or Add over capacity, no repeat button', async () => {
+    serveClass({ ok: false, status: 409, json: async () => ({ code: 'sold_out', error: 'That class is full on Wed, Oct 21.' }) })
+    const onClose = vi.fn()
+    render(<CompSeatSheet event={ownEvent} options={own.questions as any} onRecorded={() => {}} onClose={onClose} />)
+    await screen.findByTestId('own-pickers')
+    fireEvent.click(screen.getByRole('checkbox', { name: /Wed, Oct 21/ }))
+    fill()
+    fireEvent.change(screen.getByLabelText(/Adult 1 · Glaze/), { target: { value: 'Blue' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    expect(await screen.findByText('That class is full on Wed, Oct 21.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Add comped seat' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Add over capacity' }))
+    await waitFor(() => expect(compCalls()).toHaveLength(2))
+    expect(JSON.parse(compCalls()[1][1].body).overCapacity).toBe(true)
+  })
+
+  it('with a waiver household, each person gets a ticket (adult, kid) and the seats follow them', async () => {
+    serveClass()
+    fetchMock.mockImplementation(async (url: string) => {
+      const u = String(url)
+      if (u.startsWith('/api/staff/class.json')) return { ok: true, status: 200, json: async () => ({ workshop }) }
+      if (u.startsWith('/api/staff/customers.json?q=')) return { ok: true, status: 200, json: async () => ({ data: [{ id: 'C1', givenName: 'Ada', familyName: 'Lovelace', email: 'ada@x.com', phone: '' }] }) }
+      if (u.startsWith('/api/staff/customers.json?id=')) return { ok: true, status: 200, json: async () => ({ data: { customer: { id: 'C1', givenName: 'Ada', familyName: 'Lovelace', email: 'ada@x.com', phone: '' }, household: { recordId: 'wvr_1', status: 'ok', people: [{ id: 'adult', name: 'Ada Lovelace', adult: true }, { id: 'child:0', name: 'Byron', adult: false }] } } }) }
+      return { ok: true, status: 200, json: async () => ({ data: { bookingId: 'b', emailSent: false, seats: 2 } }) }
+    })
+    render(<CompSeatSheet event={ownEvent} options={own.questions as any} onRecorded={() => {}} onClose={() => {}} />)
+    await screen.findByTestId('own-pickers')
+    fireEvent.change(screen.getByLabelText('Find a customer'), { target: { value: 'Ada' } })
+    fireEvent.click(await screen.findByRole('button', { name: /Ada Lovelace/ }))
+    await screen.findByText('Who’s coming')
+    fireEvent.click(screen.getByRole('checkbox', { name: /Byron/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Ada Lovelace/ }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Wed, Oct 21/ }))
+    expect((screen.getByLabelText('Byron', { selector: 'select' }) as HTMLSelectElement).value).toBe('kid')
+    // seats in ticket order: the adult first, then the kid
+    fireEvent.change(screen.getByLabelText(/Ada Lovelace \(Adult\) · Glaze/), { target: { value: 'Blue' } })
+    fireEvent.change(screen.getByLabelText(/Byron \(Kid\) · Glaze/), { target: { value: 'Green' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add comped seat' }))
+    await waitFor(() => expect(compCalls()).toHaveLength(1))
+    expect(JSON.parse(compCalls()[0][1].body)).toMatchObject({
+      tickets: { adult: 1, kid: 1 }, people: ['adult', 'child:0'],
+      picks: [{ seat: 1, optionId: 'glaze', choice: 'Blue' }, { seat: 2, optionId: 'glaze', choice: 'Green' }],
+    })
+  })
+
+  it('sell: asks how they pay; at the counter shows the total first, has Back, then says what to ring up', async () => {
+    serveClass({ ok: true, status: 200, json: async () => ({ data: { bookingId: 'bkg_2', emailSent: false, seats: 1, dueCents: 3815 } }) })
+    render(<CompSeatSheet mode="sell" event={ownEvent} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Pay at the counter' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Pay at the counter' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Wed, Oct 21/ }))
+    expect(screen.getByTestId('counter-total')).toHaveTextContent('Ring up $38.15 at the counter, tax included.')
+    fill()
+    fireEvent.click(screen.getByRole('button', { name: 'Add seat, pay at the counter' }))
+    const box = await screen.findByTestId('take-payment')
+    expect(box.textContent).toMatch(/Now take \$38\.15 at the counter/)
+    expect(box.textContent).toMatch(/ring up Clay Camp, One day/)
+    expect(JSON.parse(compCalls()[0][1].body).payAtRegister).toBe(true)
+  })
+
+  it('sell: Pay on the iPad opens the class checkout in door mode', async () => {
+    serveClass()
+    vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({ matches: false, media: query, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+    render(<CompSeatSheet mode="sell" event={ownEvent} options={[]} onRecorded={() => {}} onClose={() => {}} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Pay on the iPad' }))
+    expect(await screen.findByRole('group', { name: 'Pick a day' })).toBeTruthy()
+    expect(screen.queryByRole('dialog', { name: 'Sell a seat' })).toBeNull()
+    // the roster's day starts picked (full: card needs Add over capacity), and Back returns to the pay choice
+    expect(screen.getByRole('button', { name: /Tue, Oct 20/ }).getAttribute('aria-pressed')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: /Back/ }))
+    expect(await screen.findByRole('button', { name: 'Pay at the counter' })).toBeTruthy()
+  })
+})

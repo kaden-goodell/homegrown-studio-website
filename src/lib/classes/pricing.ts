@@ -33,26 +33,38 @@ export interface Quote {
 
 const fail = <T>(error: string, field?: string): Result<T> => (field ? { ok: false, error, field } : { ok: false, error })
 
-export function sessionsForPass(cls: ScheduledClass, passId: string, picked: string[] | undefined, now: Date): Result<string[]> {
+/**
+ * `door`: a sale by the crew at the door (/staff). A session still counts as
+ * open until it has ended, so someone arriving a few minutes late can be sold
+ * a seat; online, a session closes when it starts.
+ */
+export interface SaleOptions { door?: boolean }
+
+export function sessionsForPass(cls: ScheduledClass, passId: string, picked: string[] | undefined, now: Date, opts: SaleOptions = {}): Result<string[]> {
   const pass = cls.content.passes.find((p) => p.id === passId)
   if (!pass) return fail('That option is not available for this class.', 'passId')
   const sessions = [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))
   const nowMs = now.getTime()
-  const started = (iso: string) => new Date(iso).getTime() <= nowMs
+  const closesAt = (s: { startIso: string; endIso: string }) => (opts.door ? s.endIso : s.startIso)
+  const started = (s: { startIso: string; endIso: string }) => new Date(closesAt(s)).getTime() <= nowMs
   const c = pass.covers
+  // R28: a class that doesn't take people partway closes every pass once its first session starts.
+  if (c.kind !== 'remaining' && !cls.content.rules.joinPartway && sessions.length && started(sessions[0])) {
+    return fail('Sign-ups for this have closed.')
+  }
 
   if (c.kind === 'remaining') {
-    if (sessions.length && started(sessions[0].startIso) && !cls.content.rules.joinPartway) {
+    if (sessions.length && started(sessions[0]) && !cls.content.rules.joinPartway) {
       return fail('This class has already started.')
     }
-    const left = sessions.filter((s) => !started(s.startIso))
+    const left = sessions.filter((s) => !started(s))
     if (!left.length) return fail('There are no sessions left to join.')
     return { ok: true, value: left.map((s) => s.id) }
   }
   if (c.kind === 'all' || c.kind === 'fixed') {
     const covered = c.kind === 'all' ? sessions : sessions.filter((s) => c.sessionIds.includes(s.id))
     if (!covered.length) return fail('This option has no sessions.')
-    if (started(covered[0].startIso)) return fail('Sign-ups for this have closed.')
+    if (started(covered[0])) return fail('Sign-ups for this have closed.')
     return { ok: true, value: covered.map((s) => s.id) }
   }
   // choose
@@ -64,14 +76,14 @@ export function sessionsForPass(cls: ScheduledClass, passId: string, picked: str
   for (const id of ids) {
     const s = sessions.find((x) => x.id === id)
     if (!s) return fail('One of the days you picked is not part of this class.', 'sessionIds')
-    if (started(s.startIso)) return fail('One of the days you picked has already started.', 'sessionIds')
+    if (started(s)) return fail('One of the days you picked has already started.', 'sessionIds')
     chosen.push(s)
   }
   chosen.sort((a, b) => a.startIso.localeCompare(b.startIso))
   return { ok: true, value: chosen.map((s) => s.id) }
 }
 
-export function quote(cls: ScheduledClass, req: BookingRequest, now: Date, taxPercent: number): Result<Quote> {
+export function quote(cls: ScheduledClass, req: BookingRequest, now: Date, taxPercent: number, opts: SaleOptions = {}): Result<Quote> {
   const content = cls.content
   const pass = content.passes.find((p) => p.id === req.passId)
   if (!pass) return fail('That option is not available for this class.', 'passId')
@@ -91,7 +103,7 @@ export function quote(cls: ScheduledClass, req: BookingRequest, now: Date, taxPe
     return fail(`You can book up to ${content.rules.maxPerBooking} at a time.`, 'tickets')
   }
 
-  const sess = sessionsForPass(cls, req.passId, req.sessionIds, now)
+  const sess = sessionsForPass(cls, req.passId, req.sessionIds, now, opts)
   if (!sess.ok) return sess
 
   for (const t of content.ticketTypes) {

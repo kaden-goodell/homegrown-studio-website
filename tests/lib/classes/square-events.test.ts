@@ -47,8 +47,10 @@ vi.mock('@lib/classes/refunds', async (orig) => ({ ...(await orig<typeof import(
 import {
   handleOrder, handleRefund, handleSquareEvent, reconcileClasses, splitCents,
   listUnmatchedPos, listPosNeedsDays, listRefundFlags, resolveRefundFlag, resetCatalogCache, SQUARE_BY,
+  setPosDays, decideRefundFlag, flagUnconfirmedRequests,
 } from '@lib/classes/square-events'
 import { getLedger, seatsTaken, recordRefund } from '@lib/classes/seat-ledger'
+import { createRefundRequest, markRequestDone, changeRefundRequest } from '@lib/classes/refund-requests'
 import { defaultRules } from '@lib/classes/validate'
 import type { ScheduledClass } from '@lib/classes/types'
 
@@ -480,6 +482,31 @@ describe('nightly reconcile', () => {
     expect((await listUnmatchedPos()).some((u) => u.orderId === unpaid.id)).toBe(false)
   })
 
+  it('a failed catalog lookup is remembered for the rest of the run (no call per order)', async () => {
+    classes.list = [makeClass()]
+    sq.fail = /batch-retrieve/
+    sq.search = [Array.from({ length: 12 }, (_, i) => order([lineItem(`VAR_CAFE_${i}`, 1, 450)]))]
+    expect(await reconcileClasses(NOW)).toMatchObject({ orders: 12, errors: 0 })
+    expect(sq.calls.filter((c) => c.path === '/catalog/batch-retrieve')).toHaveLength(1)
+  })
+
+  it('an owner refund Square never confirmed is flagged after 24 hours, never retried; the flag goes once it is done', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const req = await createRefundRequest({
+      id: uid('req').toLowerCase(), inputHash: 'h', classId: cls.id, bookingId: 'bkg_x', paymentId: 'PAY_X', kind: 'custom', freeSeat: false,
+      reason: 'Sick', by, role: 'owner', lines: [{ id: 'led_x', cents: 500 }], totalCents: 500, prior: 0, rawKey: 'raw', failures: 0,
+      idempotencyKey: 'refund:abc', status: 'pending', squareRefundId: null, answered: false,
+      createdAt: '2026-10-19T10:00:00.000Z', updatedAt: '2026-10-19T10:00:00.000Z',
+    })
+    expect(await reconcileClasses(new Date('2026-10-19T20:00:00Z'))).toMatchObject({ staleRequests: 0 })
+    expect(await reconcileClasses(NOW)).toMatchObject({ staleRequests: 1 })
+    const flags = (await listRefundFlags()).filter((f) => f.kind === 'refund-unconfirmed' && f.bookingId === 'bkg_x')
+    expect(flags).toEqual([expect.objectContaining({ classId: cls.id, paymentId: 'PAY_X', cents: 500, status: 'pending' })])
+    expect(sq.calls.some((c) => c.path.startsWith('/refunds') && c.body)).toBe(false) // nothing sent to Square
+    await markRequestDone(cls.id, 'bkg_x', req.id, 'RF_LATE')
+    expect((await listRefundFlags()).some((f) => f.kind === 'refund-unconfirmed' && f.bookingId === 'bkg_x')).toBe(false)
+  })
+
   it('catches refunds the webhook missed (ListPaymentRefunds, last 48 hours, every page), once', async () => {
     const cls = makeClass(); classes.list = [cls]
     const li = lineItem(cls.square.variations['all:person'], 2, 3000)
@@ -509,5 +536,62 @@ describe('nightly reconcile', () => {
     expect(lists[0].get('location_id')).toBe('LOC1')
     expect(lists[0].get('cursor')).toBeNull()
     expect(lists[1].get('cursor')).toBe('RC1')
+  })
+})
+
+describe('Task 14: decisions on counter sales and Square refunds (R27)', () => {
+  async function posSale(qty = 2) {
+    const cls = makeClass(); classes.list = [cls]
+    const li = lineItem(cls.square.variations['all:person'], qty, 3000)
+    const o = order([li])
+    sq.orders.set(o.id, o)
+    await handleOrder(o, NOW)
+    return { cls, o, li, paymentId: o.tenders[0].payment_id as string }
+  }
+  it('setPosDays moves a counter seat of a pick-your-days pass to the chosen day and takes it off the list', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const o = order([lineItem(cls.square.variations['day:person'], 1, 1000)], { closed_at: '2026-10-22T21:00:00.000Z' })
+    await handleOrder(o, new Date('2026-10-22T21:01:00Z'))
+    const [entry] = (await listPosNeedsDays()).filter((p) => p.orderId === o.id)
+    await expect(setPosDays(entry.id, ['ses_a', 'ses_b'], { by, role: 'owner' })).rejects.toThrow('Pick 1 day.')
+    await expect(setPosDays(entry.id, ['ses_zz'], { by, role: 'owner' })).rejects.toThrow(/not part of this class/)
+    await setPosDays(entry.id, ['ses_a'], { by, role: 'owner' })
+    const [line] = (await getLedger(cls.id)).lines
+    expect(line.sessionIds).toEqual(['ses_a'])
+    expect((await listPosNeedsDays()).some((p) => p.id === entry.id)).toBe(false)
+  })
+
+  it('decideRefundFlag: "free a seat" frees it with no money and marks the flag decided; "keep" only marks it', async () => {
+    const { cls, o, paymentId } = await posSale(2)
+    const rf = refund(paymentId, 1000, { order_id: o.id })
+    await handleSquareEvent(refundEvent('refund.created', rf), NOW)
+    const [flag] = (await listRefundFlags()).filter((f) => f.squareRefundId === rf.id)
+    await expect(decideRefundFlag(flag.id, 'freed-seat', { by, role: 'owner' })).rejects.toThrow('Pick which seat to free.')
+    const [first] = (await getLedger(cls.id)).lines
+    const done = await decideRefundFlag(flag.id, 'freed-seat', { by, role: 'owner' }, [first.id])
+    expect(done.resolved).toMatchObject({ by, action: 'freed-seat' })
+    expect(seatsTaken(await getLedger(cls.id), 'ses_a', NOW)).toBe(1)
+    // decided once: a second tap changes nothing
+    await decideRefundFlag(flag.id, 'freed-seat', { by, role: 'owner' }, [first.id])
+    expect(seatsTaken(await getLedger(cls.id), 'ses_a', NOW)).toBe(1)
+  })
+
+  it('a half-finished "It went through" (money saved, request not marked done) is flagged for a person; the flag goes once it is done', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const req = await createRefundRequest({
+      id: uid('req').toLowerCase(), inputHash: 'h2', classId: cls.id, bookingId: 'bkg_hf', paymentId: 'PAY_HF', kind: 'custom', freeSeat: false,
+      reason: 'Sick', by, role: 'owner', lines: [{ id: 'led_hf', cents: 500 }], totalCents: 500, prior: 0, rawKey: 'raw', failures: 0,
+      idempotencyKey: 'refund:hf', status: 'pending', squareRefundId: null, answered: false,
+      createdAt: '2026-10-20T14:00:00.000Z', updatedAt: '2026-10-20T14:00:00.000Z',
+    })
+    await changeRefundRequest(cls.id, 'bkg_hf', req.id, (r) => ({ ...r, status: 'sent', cleared: { at: '2026-10-20T14:05:00.000Z', by, role: 'owner', outcome: 'went-through', reason: 'Saw it in Square' } }))
+    // a check still in progress a minute ago isn't flagged yet
+    await flagUnconfirmedRequests(new Date('2026-10-20T14:06:00Z'))
+    expect((await listRefundFlags()).some((f) => f.bookingId === 'bkg_hf')).toBe(false)
+    await flagUnconfirmedRequests(NOW)
+    const flags = (await listRefundFlags()).filter((f) => f.bookingId === 'bkg_hf')
+    expect(flags).toEqual([expect.objectContaining({ kind: 'refund-unfinished', classId: cls.id, cents: 500, requestId: req.id })])
+    await markRequestDone(cls.id, 'bkg_hf', req.id, null)
+    expect((await listRefundFlags()).some((f) => f.bookingId === 'bkg_hf')).toBe(false)
   })
 })

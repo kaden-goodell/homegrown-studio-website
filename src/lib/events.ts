@@ -14,6 +14,12 @@ import { studioDate } from '@lib/studio-time'
 import type { By } from '@lib/staff-auth'
 import { createLogger } from '@lib/logger'
 import type { SeatOption } from '@lib/seat-options'
+import { getClass, listClasses } from '@lib/classes/class-store'
+import { getLedger } from '@lib/classes/seat-ledger'
+import { studioDayUtcRange } from '@lib/studio-time'
+import type { ScheduledClass } from '@lib/classes/types'
+import type { Ledger } from '@lib/classes/seat-ledger'
+import { isOwnClassId, lowestSeatCents, onStaffConsole, questionsAsOptions, sessionViews, type OwnSessionView } from '@lib/classes/staff-view'
 
 const logger = createLogger('events')
 
@@ -45,6 +51,10 @@ export interface StudioEvent {
   /** Present only when an event-meta override exists for this event. */
   updatedAt?: string
   by?: By
+  /** One of our own classes (cls_ id): its settings live on /admin, not in event-meta. */
+  own?: true
+  /** Our own classes: every session with its own seats (a multi-day class shows each day's). */
+  sessions?: OwnSessionView[]
 }
 
 // Square's Classes API is slow — cache the active list for a minute so
@@ -123,7 +133,51 @@ function workshopEvent(id: string, w: Workshop, meta: EventMeta | null): StudioE
   }
 }
 
-export async function getEvent(kind: EventKind, id: string): Promise<StudioEvent | null> {
+/**
+ * One of our own classes as a StudioEvent: days from its sessions; seats and
+ * capacity are the session on `day` when given, else the next session that
+ * hasn't ended (or the last one). `seats` may go below zero when oversold, so
+ * capacity − seats still reads "41 of 40".
+ */
+export function ownClassEvent(cls: ScheduledClass, ledger: Ledger, now: Date, day?: string): StudioEvent {
+  const sessions = sessionViews(cls, ledger, now)
+  const onDay = day ? sessions.filter((s) => s.day === day) : []
+  const current = onDay[0] ?? sessions.find((s) => Date.parse(s.endIso) > now.getTime()) ?? sessions[sessions.length - 1]
+  const price = lowestSeatCents(cls)
+  return {
+    kind: 'workshop',
+    id: cls.id,
+    title: cls.content.name,
+    startIso: current?.startIso ?? sessions[0]?.startIso ?? '',
+    days: [...new Set(sessions.map((s) => s.day))],
+    dropOff: cls.content.rules.dropOff,
+    ...(current ? { capacity: current.capacity, seats: current.capacity - Math.max(...(onDay.length ? onDay : [current]).map((s) => s.sold)) } : {}),
+    ...(price !== undefined ? { priceCents: price } : {}),
+    options: questionsAsOptions(cls),
+    signupCutoffHours: cls.content.rules.signupCutoffHours,
+    madeToOrder: cls.content.rules.madeToOrder,
+    own: true,
+    sessions,
+  }
+}
+
+/** The event as it stands on one of its days: our classes take that day's session for the time and seats. */
+export function eventOnDay(event: StudioEvent, day: string): StudioEvent {
+  const onDay = event.sessions?.filter((s) => s.day === day) ?? []
+  if (!onDay.length) return event
+  const sold = Math.max(...onDay.map((s) => s.sold))
+  return { ...event, startIso: onDay[0].startIso, capacity: onDay[0].capacity, seats: onDay[0].capacity - sold }
+}
+
+async function getOwnEvent(id: string, now: Date): Promise<StudioEvent | null> {
+  const cls = await getClass(id)
+  if (!cls || !onStaffConsole(cls) || !cls.sessions.length) return null
+  return ownClassEvent(cls, await getLedger(cls.id), now)
+}
+
+export async function getEvent(kind: EventKind, id: string, opts: { now?: Date } = {}): Promise<StudioEvent | null> {
+  // Our own classes (cls_ ids) never reach Square; legacy Square ids never start with cls_.
+  if (kind === 'workshop' && isOwnClassId(id)) return getOwnEvent(id, opts.now ?? new Date())
   if (kind === 'party') {
     const p = await getPartyRecord(id)
     if (!p) return null
@@ -142,6 +196,8 @@ export async function getEvent(kind: EventKind, id: string): Promise<StudioEvent
 export interface EventSources {
   parties: 'ok' | 'error'
   workshops: 'ok' | 'error'
+  /** our own classes (the class store and seat ledger) */
+  classes: 'ok' | 'error'
 }
 
 export interface EventListing {
@@ -159,8 +215,9 @@ export interface EventListing {
  * `sources.workshops === 'error'` so the caller can say so in one line rather
  * than blanking the whole list.
  */
-export async function listEvents({ from, to }: { from: string; to: string }): Promise<EventListing> {
-  const [partiesResult, workshopsResult] = await Promise.allSettled([listParties(), cachedWorkshopList()])
+export async function listEvents({ from, to }: { from: string; to: string }, opts: { now?: Date } = {}): Promise<EventListing> {
+  const now = opts.now ?? new Date()
+  const [partiesResult, workshopsResult, classesResult] = await Promise.allSettled([listParties(), cachedWorkshopList(), ownClassEvents(from, to, now)])
 
   if (partiesResult.status === 'rejected') {
     logger.error('Party source unavailable', { error: String(partiesResult.reason) })
@@ -168,9 +225,13 @@ export async function listEvents({ from, to }: { from: string; to: string }): Pr
   if (workshopsResult.status === 'rejected') {
     logger.error('Workshop source unavailable', { error: String(workshopsResult.reason) })
   }
+  if (classesResult.status === 'rejected') {
+    logger.error('Class store unavailable', { error: String(classesResult.reason) })
+  }
 
   const parties = partiesResult.status === 'fulfilled' ? partiesResult.value : []
   const workshops = workshopsResult.status === 'fulfilled' ? workshopsResult.value : []
+  const own = classesResult.status === 'fulfilled' ? classesResult.value : []
 
   const events = await Promise.all([
     ...parties.map(async (p) => partyEvent(p.bookingId, p, await getEventMeta('party', p.bookingId))),
@@ -178,14 +239,21 @@ export async function listEvents({ from, to }: { from: string; to: string }): Pr
   ])
 
   return {
-    events: events
+    events: [...events, ...own]
       .filter((e) => e.days.some((d) => d >= from && d <= to))
       .sort((a, b) => a.startIso.localeCompare(b.startIso)),
     sources: {
       parties: partiesResult.status === 'fulfilled' ? 'ok' : 'error',
       workshops: workshopsResult.status === 'fulfilled' ? 'ok' : 'error',
+      classes: classesResult.status === 'fulfilled' ? 'ok' : 'error',
     },
   }
+}
+
+/** Our own classes with a session in the window (studio-local days), each with its ledger's seats. */
+async function ownClassEvents(from: string, to: string, now: Date): Promise<StudioEvent[]> {
+  const classes = (await listClasses({ fromIso: studioDayUtcRange(from).startIso, toIso: studioDayUtcRange(to).endIso })).filter(onStaffConsole)
+  return Promise.all(classes.map(async (cls) => ownClassEvent(cls, await getLedger(cls.id), now)))
 }
 
 /** Storage key for an event: parties stay bare (legacy checkin/waiver-index

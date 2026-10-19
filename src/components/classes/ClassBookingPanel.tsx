@@ -50,6 +50,17 @@ export interface ClassBookingPanelProps {
   onAvailability?: (own: OwnClassData) => void
   /** Keep ?w=<id> in the address while open (the /workshops list). Off on /classes/<id>. */
   syncUrl?: boolean
+  /**
+   * "Pay on the iPad" at the door (/staff Sell a seat): the same checkout,
+   * run on the studio iPad. A session stays open until it ends, seats are
+   * recorded as door seats by the signed-in crew member, and nothing about
+   * the last customer is remembered on the shared iPad.
+   */
+  door?: boolean
+  /** Door mode: the roster's day, picked to start with on a pick-your-days option. */
+  initialSessionId?: string
+  /** Door mode: Back on the first step returns to "How are they paying?". */
+  onExit?: () => void
 }
 
 type Step = 'details' | 'seats' | 'pay'
@@ -137,17 +148,44 @@ function Counter({ label, value, canLess, canMore, onLess, onMore, spoken }: {
  * shown is worked out here with the same `quote` the server uses; the server
  * prices it again from the class and charges its own total.
  */
-export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvailability, syncUrl = true }: ClassBookingPanelProps) {
+
+const LOUD = {
+  trackWizardStarted,
+  trackWizardStepCompleted,
+  trackPaymentStarted,
+  trackPaymentCompleted,
+  trackPaymentFailed,
+  trackBookingCompleted,
+  trackWorkshopSeatBooked,
+  trackViewItem,
+  trackBeginCheckout,
+  trackAddPaymentInfo,
+  trackBookingAbandoned,
+  trackBookingProblem,
+  trackAddToCalendar,
+  trackWaiverLinkClick,
+  identifyBooker,
+}
+const SILENT: typeof LOUD = Object.fromEntries(Object.keys(LOUD).map((k) => [k, () => undefined])) as unknown as typeof LOUD
+
+export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvailability, syncUrl = true, door = false, initialSessionId, onExit }: ClassBookingPanelProps) {
+  // Door sales on the studio iPad are not site visitors: no analytics from door mode.
+  const tr = useMemo(() => (door ? SILENT : LOUD), [door])
   const own = workshop.own!
   const cls = useMemo(() => asScheduledClass(own, workshop.name), [own, workshop.name])
   const shownPasses = own.passes.filter((p) => p.state !== 'closed')
-  const firstOpen = shownPasses.find((p) => p.state === 'open') ?? shownPasses[0] ?? own.passes[0]
+  // At the door a full option can still be picked: the crew decide to add over capacity.
+  const canBook = (p: PublicPass) => p.state === 'open' || (door && p.state === 'full')
+  const firstOpen = shownPasses.find((p) => p.state === 'open') ?? (door ? shownPasses.find(canBook) : undefined) ?? shownPasses[0] ?? own.passes[0]
 
   const [step, setStep] = useState<Step>('details')
   const [passId, setPassId] = useState<string>(firstOpen?.id ?? '')
   const pass = own.passes.find((p) => p.id === passId) as PublicPass
   const choose = pass?.covers.kind === 'choose' ? pass.covers.count : 0
-  const [picked, setPicked] = useState<string[]>([])
+  const [picked, setPicked] = useState<string[]>(() =>
+    door && initialSessionId && firstOpen?.covers.kind === 'choose' && own.sessions.some((s) => s.id === initialSessionId && !s.closed) ? [initialSessionId] : [])
+  /** Door mode: the crew chose to seat them on a full day. */
+  const [over, setOver] = useState(false)
   const soldTypes = (id: string) => own.ticketTypes.filter((t) => own.prices[id]?.[t.id] !== undefined)
   const [counts, setCounts] = useState<Record<string, number>>(() => {
     const first = soldTypes(firstOpen?.id ?? '')[0]
@@ -160,7 +198,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   // The server couldn't say how the last try ended (or it is still running): no editing and paying again here.
   const [stuck, setStuck] = useState<string | null>(null)
 
-  const [initialContact] = useState<Contact>(() => rememberedContact() ?? EMPTY_CONTACT)
+  const [initialContact] = useState<Contact>(() => (door ? EMPTY_CONTACT : rememberedContact() ?? EMPTY_CONTACT))
   const [contact, setContact] = useState<Contact>(initialContact)
   const [agreedToPolicy, setAgreedToPolicy] = useState(false)
   const [policyProblem, setPolicyProblem] = useState(false)
@@ -199,7 +237,9 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   const roomLeft = choose
     ? (pickedSessions.length ? Math.min(...pickedSessions.map((s) => s.left)) : pass.left)
     : pass?.left ?? 0
-  const maxSeats = Math.max(0, Math.min(own.rules.maxPerBooking, roomLeft))
+  const needsOver = door && roomLeft < Math.max(1, Object.values(counts).reduce((a, b) => a + (b || 0), 0))
+  // At the door the counters go up to a full booking; past the seats left needs "Add over capacity".
+  const maxSeats = door ? own.rules.maxPerBooking : Math.max(0, Math.min(own.rules.maxPerBooking, roomLeft))
 
   const request: BookingRequest = {
     passId,
@@ -208,9 +248,10 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     ...(needsSeats ? { seats } : {}),
   }
   const now = new Date()
-  const full = quote(cls, request, now, own.taxPercent)
+  const sale = door ? { door: true } : {}
+  const full = quote(cls, request, now, own.taxPercent, sale)
   // Before each person's picks are in: the seats alone.
-  const seatsOnly = quote({ ...cls, content: { ...cls.content, questions: [], addOns: [] } }, { ...request, seats: undefined }, now, own.taxPercent)
+  const seatsOnly = quote({ ...cls, content: { ...cls.content, questions: [], addOns: [] } }, { ...request, seats: undefined }, now, own.taxPercent, sale)
   const q: Quote | null = full.ok ? full.value : null
 
   // One attempt id per checkout. While we don't know how a try ended, a retry
@@ -227,8 +268,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   })
 
   useEffect(() => {
-    trackWizardStarted('workshop')
-    trackViewItem(classItem(1))
+    tr.trackWizardStarted('workshop')
+    tr.trackViewItem(classItem(1))
   }, [])
 
   useEffect(() => {
@@ -249,7 +290,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   // bring the counts down to what is left.
   useEffect(() => {
     setPicked((p) => {
-      const still = p.filter((id) => own.sessions.some((s) => s.id === id && !s.closed && s.left > 0))
+      const still = p.filter((id) => own.sessions.some((s) => s.id === id && !s.closed && (door || s.left > 0)))
       return still.length === p.length ? p : still
     })
   }, [own])
@@ -269,7 +310,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
 
   async function refreshAvailability() {
     try {
-      const res = await fetch(`/api/classes/${encodeURIComponent(own.classId)}.json`, { cache: 'no-store' })
+      const res = await fetch(door ? `/api/staff/class.json?id=${encodeURIComponent(own.classId)}` : `/api/classes/${encodeURIComponent(own.classId)}.json`, { cache: 'no-store' })
       if (!res.ok) return
       const fresh = (await res.json().catch(() => null))?.workshop?.own as OwnClassData | undefined
       if (fresh) onAvailability?.(fresh)
@@ -328,8 +369,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
 
   /** The details step is in order: says what isn't. */
   function detailsReady(): boolean {
-    if (!pass || pass.state !== 'open') {
+    if (!pass || !canBook(pass)) {
       setProblem('Pick an option that still has seats.')
+      return false
+    }
+    if (needsOver && !over) {
+      setProblem('That day is full. Tick Add over capacity to seat them anyway.')
       return false
     }
     if (choose && picked.length !== choose) {
@@ -354,16 +399,16 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   function next() {
     if (step === 'details') {
       if (!detailsReady()) return
-      trackWizardStepCompleted('details')
-      if (!needsSeats) trackBeginCheckout('workshop', (q?.totalCents ?? 0) / 100, [classItem()], { seats: total })
+      tr.trackWizardStepCompleted('details')
+      if (!needsSeats) tr.trackBeginCheckout('workshop', (q?.totalCents ?? 0) / 100, [classItem()], { seats: total })
       setStep(needsSeats ? 'seats' : 'pay')
     } else if (step === 'seats') {
       if (!full.ok) {
         setProblem(full.error)
         return
       }
-      trackWizardStepCompleted('seats')
-      trackBeginCheckout('workshop', full.value.totalCents / 100, [classItem()], { seats: total })
+      tr.trackWizardStepCompleted('seats')
+      tr.trackBeginCheckout('workshop', full.value.totalCents / 100, [classItem()], { seats: total })
       setStep('pay')
     }
     setProblem(null)
@@ -375,7 +420,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   }
 
   function closeAndRecord() {
-    if (!booked) trackBookingAbandoned('workshop', step, { class: workshop.name, seats: total, class_id: own.classId })
+    if (!booked) tr.trackBookingAbandoned('workshop', step, { class: workshop.name, seats: total, class_id: own.classId })
     onClose()
   }
   const started = step !== 'details' || picked.length > 0 || (contact !== initialContact && contactStarted(contact))
@@ -415,7 +460,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     if (!readyToPay() || !q) return
     setError(null)
     setProcessing(true)
-    trackPaymentStarted(q.totalCents / 100)
+    tr.trackPaymentStarted(q.totalCents / 100)
     try {
       // One order, one charge: one token pays for every seat.
       let token: string
@@ -429,21 +474,22 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           token = t.token
           sourceKind = t.kind
         } catch {
-          trackBookingProblem('workshop', 'card_unreadable')
+          tr.trackBookingProblem('workshop', 'card_unreadable')
           throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
         }
       }
-      trackAddPaymentInfo('workshop', q.totalCents / 100, sourceKind)
+      tr.trackAddPaymentInfo('workshop', q.totalCents / 100, sourceKind)
 
       let res: Response
       try {
-        res = await fetch('/api/classes/book.json', {
+        res = await fetch(door ? '/api/classes/book.json?door=1' : '/api/classes/book.json', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             classId: own.classId,
             passId,
             sessionIds: choose ? picked : [],
+            ...(door && over ? { overCapacity: true } : {}),
             tickets: counts,
             seats,
             attemptId: attemptId.current,
@@ -472,7 +518,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         // retry can't charge twice. Anything definite: that attempt is over.
         const keep = outcomeUnknown(failure) || body?.code === 'in_progress'
         if (!keep) attemptId.current = newAttemptId()
-        if (body?.code) trackBookingProblem('workshop', String(body.code))
+        if (body?.code) tr.trackBookingProblem('workshop', String(body.code))
         const message = messageForFailure(failure, CLASS_MESSAGES)
         if (keep) {
           setStuck(message)
@@ -497,19 +543,21 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         sessionIds: Array.isArray(data.sessionIds) ? data.sessionIds : q.sessionIds,
       })
       setAskToLeave(false)
-      identifyBooker(contact.email, contact.firstName, contact.lastName)
-      rememberContact(contact)
+      if (!door) {
+        tr.identifyBooker(contact.email, contact.firstName, contact.lastName)
+        rememberContact(contact)
+      }
       const paid = (charged ?? q.totalCents) / 100
-      trackPaymentCompleted(paid, {
+      tr.trackPaymentCompleted(paid, {
         kind: 'workshop',
         transactionId: data.bookingId ?? null,
         items: [classItem()],
         extra: { seats: total, class: workshop.name, class_id: own.classId },
       })
-      trackWorkshopSeatBooked(workshop.name, paid)
-      trackBookingCompleted('workshop')
+      tr.trackWorkshopSeatBooked(workshop.name, paid)
+      tr.trackBookingCompleted('workshop')
     } catch (err) {
-      trackPaymentFailed(err instanceof Error ? err.message : 'unknown')
+      tr.trackPaymentFailed(err instanceof Error ? err.message : 'unknown')
       setError(err instanceof Error ? err.message : workshopMessages.unavailable)
     } finally {
       setProcessing(false)
@@ -524,14 +572,15 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
       ? `${origin}/waiver?workshop=${encodeURIComponent(own.classId)}&booking=${encodeURIComponent(b.bookingId)}`
       : `${origin}/waiver`
     const sessions = own.sessions.filter((s) => b.sessionIds.includes(s.id))
-    const one = sessions.length === 1 ? sessions[0] : null
-    const calendarEvent = one && {
+    // Every date goes in the calendar file; Google's link holds one, so it shows only for a single date.
+    const calendarEvents = sessions.map((s) => ({
       title: `${workshop.name} at ${STUDIO_ADDRESS.name}`,
-      startIso: one.startIso,
-      endIso: one.endIso,
+      startIso: s.startIso,
+      endIso: s.endIso,
       details: `Your class at ${STUDIO_ADDRESS.name}.\n\nSign the participation agreement before you come. ${waiverUrl}`,
       location: `${STUDIO_ADDRESS.name}, ${STUDIO_ADDRESS_LINE}`,
-    }
+    }))
+    const calendarEvent = calendarEvents.length === 1 ? calendarEvents[0] : null
     const paid = b.chargedCents ?? q?.totalCents ?? 0
     return (
       <BookingConfirmed
@@ -543,20 +592,22 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         }
         email={contact.email.trim()}
         emailSent={b.emailSent}
-        onEmailChanged={(nextEmail) => rememberContact({ ...contact, email: nextEmail })}
+        onEmailChanged={(nextEmail) => { if (!door) rememberContact({ ...contact, email: nextEmail }) }}
       >
         <div style={{ marginTop: '1.25rem' }}>
           <ConfirmedBlock label="When">
             {sessions.map((s) => (
               <div key={s.id}><strong>{formatDayAndSpan(s.startIso, s.endIso)}</strong></div>
             ))}
-            {calendarEvent && (
+            {calendarEvents.length > 0 && (
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.25rem 1rem', marginTop: '0.25rem' }}>
-                <a href={googleCalendarUrl(calendarEvent)} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => trackAddToCalendar('confirmation', 'google', 'workshop')}>
-                  Add to Google Calendar
-                </a>
-                <a href={icsDataUrl(buildIcs(calendarEvent))} download="hometown-class.ics" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => trackAddToCalendar('confirmation', 'ics', 'workshop')}>
-                  Apple or Outlook
+                {calendarEvent && (
+                  <a href={googleCalendarUrl(calendarEvent)} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => tr.trackAddToCalendar('confirmation', 'google', 'workshop')}>
+                    Add to Google Calendar
+                  </a>
+                )}
+                <a href={icsDataUrl(buildIcs(calendarEvents, { uidPrefix: 'class' }))} download="hometown-class.ics" className="btn btn-quiet" style={{ width: 'auto' }} onClick={() => tr.trackAddToCalendar('confirmation', 'ics', 'workshop')}>
+                  {calendarEvent ? 'Apple or Outlook' : 'Add every date to your calendar'}
                 </a>
               </div>
             )}
@@ -571,7 +622,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           </ConfirmedBlock>
           <ConfirmedBlock label="Before you come">
             <p style={{ margin: '0 0 0.625rem' }}>Sign the participation agreement. It takes a minute, and saves doing it at the door.</p>
-            <a href={waiverUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary" onClick={() => trackWaiverLinkClick('workshop_confirmation')}>
+            <a href={waiverUrl} target="_blank" rel="noopener noreferrer" className="btn btn-primary" onClick={() => tr.trackWaiverLinkClick('workshop_confirmation')}>
               Sign the agreement
             </a>
           </ConfirmedBlock>
@@ -610,12 +661,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
               {shownPasses.map((p) => {
                 const prices = soldTypes(p.id).map((t) => own.prices[p.id][t.id])
                 const from = Math.min(...prices)
-                const open = p.state === 'open'
+                const open = canBook(p)
                 return (
                   <button key={p.id} type="button" aria-pressed={p.id === passId} disabled={!open} onClick={() => choosePass(p.id)} style={choiceButton(p.id === passId, open)}>
                     <span style={{ fontWeight: 600 }}>{p.label}</span>
                     <span style={{ fontSize: '0.875rem', color: 'var(--color-text)' }}>
-                      {open ? `${new Set(prices).size > 1 ? 'From ' : ''}${formatMoney(from, workshop.currency)}` : 'Sold out'}
+                      {p.state === 'open' ? `${new Set(prices).size > 1 ? 'From ' : ''}${formatMoney(from, workshop.currency)}` : door && open ? 'Full' : 'Sold out'}
                     </span>
                   </button>
                 )
@@ -631,11 +682,11 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
               <div role="group" aria-label={choose === 1 ? 'Pick a day' : `Pick ${choose} days`} style={{ display: 'grid', gap: '0.5rem' }}>
                 {own.sessions.filter((s) => !s.closed).map((s) => {
                   const on = picked.includes(s.id)
-                  const enabled = s.left > 0
+                  const enabled = s.left > 0 || door
                   return (
                     <button key={s.id} type="button" aria-pressed={on} disabled={!enabled} onClick={() => toggleSession(s.id)} style={choiceButton(on, enabled)}>
                       <span>{formatDayAndSpan(s.startIso, s.endIso)}</span>
-                      <span style={{ fontSize: '0.8125rem', color: 'var(--color-text)' }}>{enabled ? seatsLeftLabel(s.left) : 'Sold out'}</span>
+                      <span style={{ fontSize: '0.8125rem', color: 'var(--color-text)' }}>{s.left > 0 ? seatsLeftLabel(s.left) : door ? 'Full' : 'Sold out'}</span>
                     </button>
                   )
                 })}
@@ -679,6 +730,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
               )
             })}
             {left && <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-text)' }}>{left}</p>}
+            {needsOver && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: '0.625rem', minHeight: '2.75rem', cursor: 'pointer', fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
+                <input type="checkbox" checked={over} onChange={(e) => { setOver(e.target.checked); setProblem(null) }} style={{ width: '1.25rem', height: '1.25rem', accentColor: 'var(--color-primary)' }} />
+                Add over capacity
+              </label>
+            )}
             {total >= maxSeats && maxSeats > 0 && (
               <p role="status" style={{ margin: 0, fontSize: '0.875rem', color: 'var(--color-text)' }}>
                 {maxSeats >= own.rules.maxPerBooking && roomLeft > maxSeats
@@ -855,7 +912,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           </p>
         )
       }
-      onBack={!booked && !stuck && step !== 'details' && !processing ? back : undefined}
+      onBack={!booked && !stuck && !processing ? (step !== 'details' ? back : door && onExit ? onExit : undefined) : undefined}
       footer={footer}
       leavePrompt={
         askToLeave && !booked

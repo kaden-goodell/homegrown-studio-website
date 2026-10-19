@@ -36,22 +36,26 @@ function icsEscape(text: string): string {
     .replace(/\r?\n/g, '\\n')
 }
 
-export function buildIcs(ev: CalendarEventInput): string {
-  // Deterministic UID so the same booking never duplicates in a calendar.
-  const uid = `party-${compactUtc(ev.startIso)}@ourhometownstudio.com`
+/** One calendar file; a list (a class that meets on several days) gets one VEVENT per entry. */
+export function buildIcs(input: CalendarEventInput | CalendarEventInput[], opts: { uidPrefix?: string } = {}): string {
+  const prefix = opts.uidPrefix ?? 'party'
+  const events = Array.isArray(input) ? input : [input]
   return [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//Hometown Studio//Party Booking//EN',
-    'BEGIN:VEVENT',
-    `UID:${uid}`,
-    `DTSTAMP:${compactUtc(ev.startIso)}`,
-    `DTSTART:${compactUtc(ev.startIso)}`,
-    `DTEND:${compactUtc(ev.endIso)}`,
-    `SUMMARY:${icsEscape(ev.title)}`,
-    `DESCRIPTION:${icsEscape(ev.details)}`,
-    `LOCATION:${icsEscape(ev.location)}`,
-    'END:VEVENT',
+    ...events.flatMap((ev) => [
+      'BEGIN:VEVENT',
+      // Deterministic UID so the same booking never duplicates in a calendar.
+      `UID:${prefix}-${compactUtc(ev.startIso)}@ourhometownstudio.com`,
+      `DTSTAMP:${compactUtc(ev.startIso)}`,
+      `DTSTART:${compactUtc(ev.startIso)}`,
+      `DTEND:${compactUtc(ev.endIso)}`,
+      `SUMMARY:${icsEscape(ev.title)}`,
+      `DESCRIPTION:${icsEscape(ev.details)}`,
+      `LOCATION:${icsEscape(ev.location)}`,
+      'END:VEVENT',
+    ]),
     'END:VCALENDAR',
   ].join('\r\n')
 }

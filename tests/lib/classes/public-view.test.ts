@@ -144,3 +144,23 @@ describe('who a class is for, from its ages line', () => {
     expect(audienceOfAges('')).toBeNull()
   })
 })
+
+describe('public view — R28 and door sales', () => {
+  const during = new Date('2026-10-24T19:00:00Z') // ses_a running, ses_b tomorrow
+  it('no joining partway: the one-day pass closes with the class once it starts', () => {
+    const c = make({ rules: { ...defaultRules(), joinPartway: false } })
+    const own = toPublicClass(c, ledger(), during).own!
+    expect(own.passes.find((p) => p.id === 'day')!.state).toBe('closed')
+  })
+  it('joining partway: tomorrow’s single day still sells', () => {
+    const own = toPublicClass(make(), ledger(), during).own!
+    expect(own.passes.find((p) => p.id === 'day')!.state).toBe('open')
+  })
+  it('door: a running session is still open; online it is closed', () => {
+    const c = make()
+    expect(toPublicClass(c, ledger(), during).own!.sessions[0].closed).toBe(true)
+    const door = toPublicClass(c, ledger(), during, { door: true }).own!
+    expect(door.sessions[0].closed).toBe(false)
+    expect(door.passes.find((p) => p.id === 'all')!.state).toBe('open')
+  })
+})

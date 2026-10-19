@@ -1,4 +1,11 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+
+/** A fresh token for one refund ask (kept across its retries). */
+function newAttempt(): string {
+  const c = (globalThis as { crypto?: Crypto }).crypto
+  if (c?.randomUUID) return c.randomUUID()
+  return `a${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`
+}
 import type { BookingView } from '@lib/classes/admin-actions'
 import { formatMoney } from '@lib/money'
 import { api } from './api'
@@ -42,8 +49,20 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [done, setDone] = useState('')
+  /** the same refund was already made: what the server said; nothing was sent */
+  const [already, setAlready] = useState('')
+  /**
+   * "Refund again" (R31): which refund it repeats and ONE token made when the
+   * "Already refunded" reply arrived, reused on every retry until it succeeds
+   * or the refund is closed or changed, so a retry can never make a third.
+   */
+  const [againOf, setAgainOf] = useState<{ of: string; token: string } | null>(null)
+  // The same token on every retry of this refund, so the server continues it instead of making a second one.
+  const [attempt, setAttempt] = useState(newAttempt)
 
   const label = (t: string) => ticketLabel?.(t) ?? t
+  // A different ask is not the one already made: back to "Confirm refund".
+  useEffect(() => { setAlready(''); setAgainOf(null) }, [kind, person, sessionSeats, amount, freeSeat])
   const left = Math.min(seats.reduce((s, x) => s + x.remainingCents, 0), booking.refundableCents ?? Infinity)
   const amountCents = Math.round(Number(amount) * 100)
 
@@ -83,17 +102,28 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   const tooMuch = (kind === 'custom' || kind === 'session') && preview > left
   const canGo = preview > 0 && !tooMuch && reasonOk && !busy
 
-  async function go() {
+  async function go(again = false) {
     setBusy(true)
     setError('')
-    const body: Record<string, unknown> = { classId, bookingId: booking.bookingId, kind, freeSeat, reason: reason.trim() }
+    const body: Record<string, unknown> = { classId, bookingId: booking.bookingId, kind, freeSeat, reason: reason.trim(), attempt }
     if (kind === 'person') body.lineIds = [person]
     if (kind === 'session') body.lineIds = sessionSeats
     if (kind === 'custom') body.cents = amountCents
-    const r = await api<{ cents: number; emailed: boolean }>(endpoint, body)
+    // "Refund again" names the refund it repeats and keeps its one token across retries.
+    if (again && againOf) body.again = againOf
+    const r = await api<{ cents: number; emailed: boolean; already?: { message: string; latest: { requestId: string } } }>(endpoint, body)
     setBusy(false)
     if (!r.ok || !r.data) { setError(r.error ?? ''); return }
+    if (r.data.already) {
+      setAlready(r.data.already.message)
+      // A new "Already refunded" answer: a new repeat of the latest refund, with its own token.
+      setAgainOf({ of: r.data.already.latest.requestId, token: newAttempt() })
+      return
+    }
+    setAlready('')
+    setAgainOf(null)
     setDone(`Refunded ${formatMoney(r.data.cents)}.${r.data.emailed ? ' They’ve been emailed.' : ''}`)
+    setAttempt(newAttempt())
     setOpen(false)
     setReason('')
     setAmount('')
@@ -191,10 +221,20 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
         <p style={{ margin: 0, fontWeight: 600 }}>{`Refund ${formatMoney(preview)} ${last4 ? `to the card ending in ${last4}` : 'to their card'}.`}</p>
       )}
       {error && <p role="alert" style={errorText}>{error}</p>}
-      <div style={row}>
-        <button type="button" className="btn btn-primary" disabled={!canGo} onClick={go}>{busy ? 'Refunding…' : 'Confirm refund'}</button>
-        <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setOpen(false); setError('') }}>Back</button>
-      </div>
+      {already ? (
+        <>
+          <p role="status" style={{ margin: 0, fontWeight: 600 }}>{already}</p>
+          <div style={row}>
+            <button type="button" className="btn btn-primary" disabled={busy || !againOf} onClick={() => go(true)}>{busy ? 'Refunding…' : 'Refund again'}</button>
+            <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setOpen(false); setAlready(''); setAgainOf(null); setError('') }}>Back</button>
+          </div>
+        </>
+      ) : (
+        <div style={row}>
+          <button type="button" className="btn btn-primary" disabled={!canGo} onClick={() => go()}>{busy ? 'Refunding…' : 'Confirm refund'}</button>
+          <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => { setOpen(false); setError('') }}>Back</button>
+        </div>
+      )}
     </div>
   )
 }

@@ -10,6 +10,7 @@ import type { By } from '@lib/staff-auth'
 import type { Quote } from './pricing'
 import type { Cents, ScheduledClass } from './types'
 import { newId } from './validate'
+import { studioDate } from '@lib/studio-time'
 
 export type SeatSource = 'online' | 'door-card' | 'door-counter' | 'comp' | 'pos'
 export interface LedgerLine {
@@ -35,7 +36,8 @@ export interface LedgerLine {
    */
   square: { orderId: string | null; paymentId: string | null; lineUid: string | null; chargedCents?: Cents; paymentIds?: string[] }
   by: By | null
-  refunds: { at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null }[]
+  /** requestId: the saved refund request this entry was written for (our own refunds), so it is never written twice */
+  refunds: { at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null; requestId?: string }[]
   at: string
   /** set by confirm when a paid seat landed on a session already full (the hold had run out and the seat was taken) */
   overCapacity?: boolean  /**
@@ -194,7 +196,7 @@ export async function hold(cls: ScheduledClass, q: Quote, input: HoldInput, now:
 export async function confirm(
   classId: string,
   bookingId: string,
-  square: { orderId: string; paymentId: string | null; chargedCents?: Cents },
+  square: { orderId: string | null; paymentId: string | null; chargedCents?: Cents },
   fallback: { cls: ScheduledClass; quote: Quote; input: HoldInput },
   now: Date,
 ): Promise<LedgerLine[]> {
@@ -261,6 +263,7 @@ export async function release(classId: string, bookingId: string): Promise<void>
 
 const paidOn = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
 const refundedOn = (l: LedgerLine) => l.refunds.reduce((s, r) => s + r.cents, 0)
+const isPaidLine = (l: LedgerLine) => l.state === 'confirmed' || l.state === 'refunded'
 
 /** Who a ledger change made from a refund done in Square itself is recorded as (see square-events SQUARE_BY). */
 const SQUARE_ACTOR_ID = 'square'
@@ -323,6 +326,83 @@ export async function recordRefund(
   })
 }
 
+/**
+ * Writes one of our saved refund requests (refund-requests) on the ledger, in
+ * ONE change: the seats asked about, as asked, plus any spill-over. The split
+ * is fitted to the ledger inside the same change: Square already refunded the
+ * total, so all of it is saved; a seat with less left than its share keeps
+ * what fits and the rest goes on the booking's other paid seats in seat order
+ * (spill-over keeps the seat). Keyed twice, so it is never written twice:
+ * nothing is written when any line already carries this request id or this
+ * Square refund id. A plain refund recorded from Square's webhook for the same
+ * Square refund (the webhook beat our save) is replaced by this request.
+ * Returns the asked seats as they are now.
+ */
+export async function recordRequestRefund(
+  classId: string,
+  input: { requestId: string; bookingId: string; lines: { id: string; cents: Cents }[]; freeSeat: boolean; reason: string; by: By; squareRefundId: string | null },
+): Promise<LedgerLine[]> {
+  for (const x of input.lines) if (!Number.isInteger(x.cents) || x.cents < 0) throw new Error('A refund has to be whole cents of zero or more.')
+  return mutate(classId, (raw) => {
+    const rid = input.squareRefundId
+    const fromSquare = (r: LedgerLine['refunds'][number]) => rid !== null && r.squareRefundId === rid && r.by?.id === SQUARE_ACTOR_ID
+    const replacing = rid !== null && input.by.id !== SQUARE_ACTOR_ID && raw.lines.some((l) => l.refunds.some(fromSquare))
+    const cur: Ledger = !replacing ? raw : {
+      ...raw,
+      lines: raw.lines.map((l) => {
+        if (!l.refunds.some(fromSquare)) return l
+        const refunds = l.refunds.filter((r) => !fromSquare(r))
+        return { ...l, refunds, state: refunds.length || l.state !== 'refunded' ? l.state : 'confirmed' as const }
+      }),
+    }
+    const askedIds = input.lines.map((x) => x.id)
+    const result = (ls: LedgerLine[]) => ls.filter((l) => askedIds.includes(l.id))
+    for (const id of askedIds) if (!cur.lines.some((l) => l.id === id)) throw new Error('One of those seats is not on this class.')
+    const carries = (r: LedgerLine['refunds'][number]) => r.requestId === input.requestId || (rid !== null && r.squareRefundId === rid)
+    if (cur.lines.some((l) => l.refunds.some(carries))) return { next: replacing ? cur : null, result: result(cur.lines) }
+
+    const booking = cur.lines.filter((l) => l.bookingId === input.bookingId && isPaidLine(l)).sort((a, b) => a.seat - b.seat)
+    const left = new Map(booking.map((l) => [l.id, paidOn(l) - refundedOn(l)]))
+    const cents: Record<string, Cents> = {}
+    let spill = 0
+    for (const x of input.lines) {
+      const c = Math.max(0, Math.min(x.cents, left.get(x.id) ?? 0))
+      cents[x.id] = c
+      left.set(x.id, (left.get(x.id) ?? 0) - c)
+      spill += x.cents - c
+    }
+    const spilled: Record<string, Cents> = {}
+    for (const l of booking) {
+      if (spill <= 0) break
+      const c = Math.min(spill, left.get(l.id) ?? 0)
+      if (c <= 0) continue
+      spilled[l.id] = c
+      left.set(l.id, (left.get(l.id) ?? 0) - c)
+      spill -= c
+    }
+    if (spill > 0) console.error(`[classes/refund] ${rid ?? input.requestId} is ${spill} cents more than ${input.bookingId} has left; saved what fits`)
+
+    const at = new Date().toISOString()
+    const entry = (c: Cents, freedSeat: boolean) => ({
+      at, cents: c, reason: input.reason, by: input.by, freedSeat, squareRefundId: rid, requestId: input.requestId,
+    })
+    const lines = cur.lines.map((l) => {
+      const add: LedgerLine['refunds'] = []
+      // Seats asked about: as asked (a seat with nothing landing on it is still written when freeing).
+      if (askedIds.includes(l.id) && ((cents[l.id] ?? 0) > 0 || input.freeSeat)) {
+        if (!isPaidLine(l)) throw new Error('Only paid seats can be refunded.')
+        add.push(entry(cents[l.id] ?? 0, input.freeSeat))
+      }
+      // Seats that only took the spill-over keep their seat.
+      if ((spilled[l.id] ?? 0) > 0) add.push(entry(spilled[l.id], false))
+      return add.length ? { ...l, state: 'refunded' as const, refunds: [...l.refunds, ...add] } : l
+    })
+    const changed = lines.some((l, i) => l !== cur.lines[i])
+    if (!changed) return { next: replacing ? cur : null, result: result(cur.lines) }
+    return { next: { ...cur, lines }, result: result(lines) }
+  })
+}
+
 /** Counts a refund request Square turned down, by its raw key, on every line of the booking, so a retry of that request is a fresh one. */
 export async function noteRefundFailed(classId: string, bookingId: string, rawKey: string): Promise<void> {
   await mutate(classId, (cur) => {
@@ -349,23 +429,46 @@ export interface PosLineInput {
 
 /**
  * Records a counter (POS) sale: one confirmed 'pos' line per unit, no name
- * yet, capacity ignored (the seat is already sold). Idempotent by order id +
+ * yet, capacity ignored (the seat is already sold). A door seat the crew
+ * took "to pay at the counter" is this sale (R32) only when it is not yet
+ * paid, on the same class, pass and ticket, AND on a session on the sale's
+ * own studio day (`saleIso`, Chicago date): it takes the payment instead of a
+ * new seat, and keeps its name and days. Anything else is its own counter
+ * line, so a walk-in is never booked against someone else's unpaid seat. Idempotent by order id +
  * line uid + unit: units already on the ledger for that line are skipped, so a
  * replayed webhook or the nightly reconcile never adds a seat twice. Seats
- * landing on a full session are marked overCapacity for staff. Returns only
- * the lines added this time.
+ * landing on a full session are marked overCapacity for staff. Returns the
+ * lines added or paid this time.
  */
 export async function recordPos(
   cls: ScheduledClass,
-  input: { bookingId: string; orderId: string; paymentId: string | null; paymentIds?: string[]; chargedCents: Cents; lines: PosLineInput[] },
+  input: { bookingId: string; orderId: string; paymentId: string | null; paymentIds?: string[]; chargedCents: Cents; lines: PosLineInput[]; saleIso?: string },
   now: Date,
 ): Promise<LedgerLine[]> {
+  const saleDay = studioDate(input.saleIso ?? now.toISOString())
+  const onSaleDay = new Set(cls.sessions.filter((s) => studioDate(s.startIso) === saleDay).map((s) => s.id))
   return mutate(cls.id, (cur) => {
-    const kept = cur.lines.filter((l) => !isExpiredHold(l, now))
+    let kept = cur.lines.filter((l) => !isExpiredHold(l, now))
     const added: LedgerLine[] = []
+    const claimed = new Set<string>()
+    const sq = (pl: PosLineInput) => ({
+      orderId: input.orderId, paymentId: input.paymentId, lineUid: pl.lineUid, chargedCents: input.chargedCents,
+      ...(input.paymentIds && input.paymentIds.length > 1 ? { paymentIds: [...input.paymentIds] } : {}),
+    })
     let seat = kept.filter((l) => l.bookingId === input.bookingId).reduce((m, l) => Math.max(m, l.seat), 0)
     for (const pl of input.lines) {
-      const have = kept.filter((l) => l.square.orderId === input.orderId && l.square.lineUid === pl.lineUid).length
+      let have = kept.filter((l) => l.square.orderId === input.orderId && l.square.lineUid === pl.lineUid).length
+      // A seat the crew took at the door to be paid at the counter is this sale: it is paid now, never a second seat.
+      while (have < pl.units.length) {
+        const door = kept.find((l) => l.source === 'door-counter' && l.state === 'confirmed' && !l.square.orderId
+          && l.passId === pl.passId && l.ticketTypeId === pl.ticketTypeId && !claimed.has(l.id)
+          && l.sessionIds.some((id) => onSaleDay.has(id)))
+        if (!door) break
+        const unit = pl.units[have]
+        claimed.add(door.id)
+        kept = kept.map((l) => (l.id === door.id ? { ...l, priceCents: unit.priceCents, taxCents: unit.taxCents, square: sq(pl) } : l))
+        have++
+      }
       for (let u = have; u < pl.units.length; u++) {
         added.push({
           id: newId('led'),
@@ -392,7 +495,7 @@ export async function recordPos(
         })
       }
     }
-    if (!added.length) return { next: null, result: [] }
+    if (!added.length && !claimed.size) return { next: null, result: [] }
     const after: Ledger = { classId: cls.id, lines: [...kept, ...added] }
     const over = new Set(cls.sessions.filter((s) => seatsTaken(after, s.id, now) > s.capacity).map((s) => s.id))
     const newIds = new Set(added.map((l) => l.id))
@@ -403,7 +506,7 @@ export async function recordPos(
       }
       return l
     })
-    return { next: { ...cur, lines }, result: lines.filter((l) => newIds.has(l.id)) }
+    return { next: { ...cur, lines }, result: lines.filter((l) => newIds.has(l.id) || claimed.has(l.id)) }
   })
 }
 
@@ -413,5 +516,25 @@ export async function setNames(classId: string, lineIds: string[], customer: Non
     for (const id of lineIds) if (!cur.lines.some((l) => l.id === id)) throw new Error('One of those seats is not on this class.')
     const lines = cur.lines.map((l) => (lineIds.includes(l.id) ? { ...l, customer: { ...customer } } : l))
     return { next: { ...cur, lines }, result: undefined }
+  })
+}
+
+/**
+ * Puts seats on other sessions of the same class (a counter sale of a
+ * pick-your-days pass, once a person says which days). Capacity is not
+ * checked: the seat is already sold. A seat landing on a full session is
+ * marked overCapacity for staff, as with any paid seat.
+ */
+export async function moveLines(cls: ScheduledClass, lineIds: string[], sessionIds: string[], now: Date): Promise<LedgerLine[]> {
+  const known = new Set(cls.sessions.map((s) => s.id))
+  if (!sessionIds.length || sessionIds.some((id) => !known.has(id))) throw new Error('One of those days is not part of this class.')
+  const order = cls.sessions.filter((s) => sessionIds.includes(s.id)).sort((a, b) => a.startIso.localeCompare(b.startIso)).map((s) => s.id)
+  return mutate(cls.id, (cur) => {
+    for (const id of lineIds) if (!cur.lines.some((l) => l.id === id)) throw new Error('One of those seats is not on this class.')
+    const moved = cur.lines.map((l) => (lineIds.includes(l.id) ? { ...l, sessionIds: [...order] } : l))
+    const after: Ledger = { ...cur, lines: moved }
+    const over = new Set(cls.sessions.filter((s) => seatsTaken(after, s.id, now) > s.capacity).map((s) => s.id))
+    const lines = moved.map((l) => (lineIds.includes(l.id) && l.sessionIds.some((id) => over.has(id)) ? { ...l, overCapacity: true } : l))
+    return { next: { ...cur, lines }, result: lines.filter((l) => lineIds.includes(l.id)) }
   })
 }

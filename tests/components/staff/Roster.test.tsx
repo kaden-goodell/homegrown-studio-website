@@ -293,3 +293,85 @@ describe('Roster — seat picks (spec D)', () => {
     expect(screen.queryByText(/^Picks:/)).toBeNull()
   })
 })
+
+describe('Roster for one of our classes (Task 14)', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+  const OWN = { kind: 'workshop', id: 'cls_camp', title: 'Clay Camp', startIso: '2026-10-20T15:00:00.000Z', days: ['2026-10-20'], dropOff: false, own: true, capacity: 2, seats: -1, options: [] }
+  const booking = (over: Record<string, any>) => ({
+    bookingId: 'bkg_a', customer: { givenName: 'Gia', familyName: 'Winner', email: 'gia@x.com', phone: '' }, source: 'online', passId: 'day',
+    seats: { adult: 1 }, sessionIds: ['ses_tue'], picks: [], addOns: {}, paidCents: 3815, refundedCents: 0, refunds: [], state: 'confirmed',
+    overCapacity: false, lineIds: ['led_a'], refundable: [{ id: 'led_a', seat: 1, ticketTypeId: 'adult', sessions: 1, remainingCents: 3815, sessionCents: 0, freed: false }],
+    paidHere: true, refundableCents: 3815, at: '', name: 'Gia Winner', seatsToday: 1, waiting: null, ...over,
+  })
+  function serve(bookings: any[], posts: any[] = []) {
+    return vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init?: any) => {
+      const href = String(url)
+      if (href.includes('/api/staff/incidents.json')) return { ok: true, json: async () => ({ data: { incidents: [] } }) } as Response
+      if (init?.method === 'POST') { posts.push({ href, body: JSON.parse(init.body) }); return { ok: true, json: async () => ({ data: { named: 1 } }) } as Response }
+      return {
+        ok: true,
+        json: async () => ({ data: { event: OWN, day: '2026-10-20', summary: { households: 1, people: 2, childrenHereNow: 0 }, households: [household()], choices: null, bookings, ticketLabels: { adult: 'Adult' } } }),
+      } as Response
+    })
+  }
+
+  it('lists the day’s bookings, how each was paid, over capacity, and offers a crew refund', async () => {
+    serve([
+      booking({}),
+      booking({ bookingId: 'bkg_c', source: 'comp', name: 'Ben Lo', paidHere: false, refundableCents: 0, overCapacity: true, refundable: [{ id: 'led_c', seat: 1, ticketTypeId: 'adult', sessions: 1, remainingCents: 0, sessionCents: 0, freed: false }] }),
+    ])
+    render(<Roster staff={staff} onBack={vi.fn()} kind="workshop" id="cls_camp" />)
+    const section = await screen.findByRole('region', { name: 'Bookings' })
+    const rows = within(section).getAllByTestId('own-booking')
+    expect(rows[0]).toHaveTextContent('Gia Winner')
+    expect(rows[0]).toHaveTextContent('1 seat · Paid online')
+    expect(rows[1]).toHaveTextContent('Comped')
+    expect(rows[1]).toHaveTextContent('Added over capacity on purpose.')
+    expect(within(rows[0]).getByRole('button', { name: 'Refund' })).toBeInTheDocument()
+    expect(screen.getByText('3')).toBeInTheDocument() // "3 of 2 sold"
+    expect(screen.getByText('of 2 sold')).toBeInTheDocument()
+    expect(screen.getByText('of 2 sold').parentElement).toHaveAttribute('data-over', 'true')
+    // no Event settings for our classes: they are changed on /admin
+    fireEvent.click(screen.getByRole('button', { name: 'More' }))
+    expect(screen.queryByRole('menuitem', { name: /Event settings/ })).toBeNull()
+  })
+
+  it('a counter sale with no name yet is named from a family who signed', async () => {
+    const posts: any[] = []
+    serve([booking({ bookingId: 'bkg_pos_O1', source: 'pos', customer: null, name: 'Counter sale, no name yet', paidHere: true })], posts)
+    render(<Roster staff={staff} onBack={vi.fn()} kind="workshop" id="cls_camp" />)
+    const row = (await screen.findAllByTestId('own-booking'))[0]
+    expect(row).toHaveTextContent('Counter sale, no name yet')
+    expect(row).toHaveTextContent('Counter sale')
+    fireEvent.change(within(row).getByLabelText('Who is Counter sale, no name yet'), { target: { value: 'wvr_1' } })
+    fireEvent.click(within(row).getByRole('button', { name: 'Save name' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toEqual({ href: '/api/staff/class-names.json', body: { classId: 'cls_camp', bookingId: 'bkg_pos_O1', recordId: 'wvr_1' } })
+  })
+
+  it('a counter sale of several seats says the name goes on all of them; families already on a booking aren’t offered', async () => {
+    const vi2 = vi
+    const posts: any[] = []
+    vi2.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init?: any) => {
+      const href = String(url)
+      if (href.includes('/api/staff/incidents.json')) return { ok: true, json: async () => ({ data: { incidents: [] } }) } as Response
+      if (init?.method === 'POST') { posts.push(href); return { ok: true, json: async () => ({ data: {} }) } as Response }
+      return {
+        ok: true,
+        json: async () => ({ data: {
+          event: OWN, day: '2026-10-20', summary: { households: 2, people: 4, childrenHereNow: 0 },
+          households: [household(), household({ recordId: 'wvr_2', signer: 'Gia Winner', email: 'gia@x.com' })], choices: null, ticketLabels: { adult: 'Adult' },
+          bookings: [
+            booking({}),
+            booking({ bookingId: 'bkg_pos_O2', source: 'pos', customer: null, name: 'Counter sale, no name yet', lineIds: ['l1', 'l2'], seatsToday: 2 }),
+          ],
+        } }),
+      } as Response
+    })
+    render(<Roster staff={staff} onBack={vi.fn()} kind="workshop" id="cls_camp" />)
+    const row = (await screen.findAllByTestId('own-booking'))[1]
+    expect(row).toHaveTextContent('Names all 2 seats on this sale.')
+    const options = within(within(row).getByLabelText('Who is Counter sale, no name yet')).getAllByRole('option').map((o) => o.textContent)
+    expect(options).toEqual(['Who is it?', 'Jamie Rivera']) // Gia is already on a booking
+  })
+})
