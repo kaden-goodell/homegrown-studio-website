@@ -2,6 +2,7 @@ import type { APIRoute } from 'astro'
 import { createLogger } from '@lib/logger'
 import { verifySquareSignature } from '@lib/webhook-verify'
 import { providers } from '@config/providers'
+import { CLASS_EVENTS, handleSquareEvent } from '@lib/classes/square-events'
 
 const logger = createLogger('api:webhooks:square')
 
@@ -18,9 +19,11 @@ const HANDLED_EVENTS = new Set([
   'payment.updated',
   'order.created',
   'order.updated',
+  'refund.created',
+  'refund.updated',
 ])
 
-export const POST: APIRoute = async ({ request }) => {
+export const POST: APIRoute = async ({ request, locals }) => {
   const startTime = Date.now()
   const body = await request.text()
 
@@ -85,6 +88,18 @@ export const POST: APIRoute = async ({ request }) => {
         error: notifyError instanceof Error ? notifyError.message : String(notifyError),
       })
     }
+  }
+
+  // Our own classes: POS sales and Square refunds reach the seat ledger. The
+  // work runs after the 200 when Netlify gives us waitUntil; a failure is
+  // logged, never a non-2xx (Square would retry the event).
+  if (CLASS_EVENTS.has(eventType)) {
+    const work = Promise.resolve().then(() => handleSquareEvent(event)).catch((err) => {
+      logger.error('Class webhook processing failed', { eventType, error: err instanceof Error ? err.message : String(err) })
+    })
+    const netlify = (locals as { netlify?: { context?: { waitUntil?: (p: Promise<unknown>) => void } } } | undefined)?.netlify?.context
+    if (typeof netlify?.waitUntil === 'function') netlify.waitUntil(work)
+    else await work // local dev and tests: finish before replying
   }
 
   return new Response(JSON.stringify({ received: true }), {

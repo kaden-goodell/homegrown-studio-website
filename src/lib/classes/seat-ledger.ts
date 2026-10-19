@@ -310,6 +310,73 @@ export async function noteRefundFailed(classId: string, bookingId: string, rawKe
   })
 }
 
+export interface PosLineInput {
+  /** Square's order line uid */
+  lineUid: string
+  passId: string
+  ticketTypeId: string
+  sessionIds: string[]
+  /** one entry per unit sold: what that unit cost before and its tax (from Square's line totals) */
+  units: { priceCents: Cents; taxCents: Cents }[]
+}
+
+/**
+ * Records a counter (POS) sale: one confirmed 'pos' line per unit, no name
+ * yet, capacity ignored (the seat is already sold). Idempotent by order id +
+ * line uid + unit: units already on the ledger for that line are skipped, so a
+ * replayed webhook or the nightly reconcile never adds a seat twice. Seats
+ * landing on a full session are marked overCapacity for staff. Returns only
+ * the lines added this time.
+ */
+export async function recordPos(
+  cls: ScheduledClass,
+  input: { bookingId: string; orderId: string; paymentId: string | null; chargedCents: Cents; lines: PosLineInput[] },
+  now: Date,
+): Promise<LedgerLine[]> {
+  return mutate(cls.id, (cur) => {
+    const kept = cur.lines.filter((l) => !isExpiredHold(l, now))
+    const added: LedgerLine[] = []
+    let seat = kept.filter((l) => l.bookingId === input.bookingId).reduce((m, l) => Math.max(m, l.seat), 0)
+    for (const pl of input.lines) {
+      const have = kept.filter((l) => l.square.orderId === input.orderId && l.square.lineUid === pl.lineUid).length
+      for (let u = have; u < pl.units.length; u++) {
+        added.push({
+          id: newId('led'),
+          bookingId: input.bookingId,
+          sessionIds: [...pl.sessionIds],
+          ticketTypeId: pl.ticketTypeId,
+          passId: pl.passId,
+          seat: ++seat,
+          priceCents: pl.units[u].priceCents,
+          taxCents: pl.units[u].taxCents,
+          addOns: {}, addOnCents: 0, addOnTaxCents: 0,
+          answers: {},
+          source: 'pos',
+          state: 'confirmed',
+          holdExpiresAt: null,
+          customer: null,
+          square: { orderId: input.orderId, paymentId: input.paymentId, lineUid: pl.lineUid, chargedCents: input.chargedCents },
+          by: null,
+          refunds: [],
+          at: now.toISOString(),
+        })
+      }
+    }
+    if (!added.length) return { next: null, result: [] }
+    const after: Ledger = { classId: cls.id, lines: [...kept, ...added] }
+    const over = new Set(cls.sessions.filter((s) => seatsTaken(after, s.id, now) > s.capacity).map((s) => s.id))
+    const newIds = new Set(added.map((l) => l.id))
+    const lines = after.lines.map((l) => {
+      if (l.bookingId === input.bookingId && l.square.orderId === input.orderId) {
+        const marked = newIds.has(l.id) && l.sessionIds.some((id) => over.has(id)) ? { overCapacity: true } : {}
+        return { ...l, ...marked, square: { ...l.square, chargedCents: input.chargedCents } }
+      }
+      return l
+    })
+    return { next: { ...cur, lines }, result: lines.filter((l) => newIds.has(l.id)) }
+  })
+}
+
 /** Puts a name on seats (e.g. a POS sale named afterwards). */
 export async function setNames(classId: string, lineIds: string[], customer: NonNullable<LedgerLine['customer']>): Promise<void> {
   await mutate(classId, (cur) => {

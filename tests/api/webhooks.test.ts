@@ -9,6 +9,12 @@ vi.mock('@config/providers', () => ({
   },
 }))
 
+const mockHandleEvent = vi.fn()
+vi.mock('@lib/classes/square-events', () => ({
+  CLASS_EVENTS: new Set(['order.created', 'order.updated', 'payment.created', 'payment.updated', 'refund.created', 'refund.updated']),
+  handleSquareEvent: (...a: any[]) => mockHandleEvent(...a),
+}))
+
 // Must set env before importing the route
 const TEST_SIGNATURE_KEY = 'test-webhook-signature-key'
 const TEST_WEBHOOK_URL = 'https://example.com/api/webhooks/square.json'
@@ -140,6 +146,55 @@ describe('Square webhook handler', () => {
 
     const response = await POST(apiContext)
     expect(response.status).toBe(200)
+  })
+})
+
+describe('Square webhook → our classes', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockNotificationSend.mockResolvedValue(undefined)
+  })
+
+  it('hands order, payment and refund events to the class handler', async () => {
+    mockHandleEvent.mockResolvedValue(null)
+    for (const type of ['order.updated', 'payment.updated', 'refund.created', 'refund.updated']) {
+      const body = JSON.stringify({ type, data: { id: 'X1', object: {} } })
+      const res = await POST({ request: makeRequest(body, makeSignature(body)), locals: {} } as any)
+      expect(res.status).toBe(200)
+    }
+    expect(mockHandleEvent).toHaveBeenCalledTimes(4)
+    expect(mockHandleEvent.mock.calls[2][0]).toMatchObject({ type: 'refund.created' })
+  })
+
+  it('a bad signature reaches nothing', async () => {
+    const body = JSON.stringify({ type: 'order.updated', data: { id: 'X1' } })
+    const res = await POST({ request: makeRequest(body, 'bad'), locals: {} } as any)
+    expect(res.status).toBe(403)
+    expect(mockHandleEvent).not.toHaveBeenCalled()
+  })
+
+  it('a failure in processing still answers 200 (Square would retry anything else)', async () => {
+    mockHandleEvent.mockRejectedValue(new Error('boom'))
+    const body = JSON.stringify({ type: 'refund.updated', data: { id: 'X1' } })
+    const res = await POST({ request: makeRequest(body, makeSignature(body)), locals: {} } as any)
+    expect(res.status).toBe(200)
+  })
+
+  it('on Netlify the work runs after the reply, via waitUntil', async () => {
+    let finish!: () => void
+    mockHandleEvent.mockReturnValue(new Promise<void>((r) => { finish = r }))
+    const waitUntil = vi.fn()
+    const body = JSON.stringify({ type: 'order.updated', data: { id: 'X1' } })
+    const res = await POST({ request: makeRequest(body, makeSignature(body)), locals: { netlify: { context: { waitUntil } } } } as any)
+    expect(res.status).toBe(200)
+    expect(waitUntil).toHaveBeenCalledWith(expect.any(Promise))
+    finish()
+  })
+
+  it('other events are not handed over', async () => {
+    const body = JSON.stringify({ type: 'booking.created', data: { id: 'BK1' } })
+    await POST({ request: makeRequest(body, makeSignature(body)), locals: {} } as any)
+    expect(mockHandleEvent).not.toHaveBeenCalled()
   })
 })
 
