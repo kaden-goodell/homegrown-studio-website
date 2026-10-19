@@ -22,7 +22,7 @@ export async function waiverEventOutcome(eventKind: 'party' | 'workshop' | null,
     if (event === null) {
       // One of our classes that was cancelled: say so, rather than "ask for a fresh link".
       if (eventKind === 'workshop' && isOwnClassId(rawId) && (await getClass(rawId))?.status === 'cancelled') {
-        return { kind: 'past', notice: 'This class was cancelled. Nothing to sign.' }
+        return { kind: 'cancelled', notice: 'This class was cancelled. Nothing to sign.' }
       }
       return {
         kind: 'unknown',
