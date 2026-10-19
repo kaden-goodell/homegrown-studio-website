@@ -42,7 +42,9 @@ let replies: ((c: Call) => Response | undefined)[] = []
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
 
 beforeEach(() => {
-  calls = []; replies = []
+  calls = []
+  // By default the catalog holds nothing marked with our class ids.
+  replies = [(c) => (c.url.endsWith('/catalog/search') ? json(200, { objects: [] }) : undefined)]
   cfg.classesCategoryId = 'CAT1'; cfg.classTaxId = 'TAX1'; cfg.environment = 'sandbox'
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body
@@ -53,6 +55,7 @@ beforeEach(() => {
   }))
 })
 afterEach(() => vi.unstubAllGlobals())
+const ups = () => calls.filter((c) => c.url.endsWith('/catalog/batch-upsert'))
 
 /** Reply to batch-upsert by mapping every #temp id to a real id. */
 function upsertEcho(prefix = 'R') {
@@ -72,7 +75,7 @@ describe('square-api', () => {
   it('picks the host by environment and throws a plain error with Square\'s detail', async () => {
     expect(squareBaseUrl('production')).toBe('https://connect.squareup.com/v2')
     expect(squareBaseUrl('sandbox')).toBe('https://connect.squareupsandbox.com/v2')
-    replies.push(() => json(400, { errors: [{ code: 'BAD', detail: 'Price is too low.' }] }))
+    replies = [() => json(400, { errors: [{ code: 'BAD', detail: 'Price is too low.' }] })]
     const err = await squareFetch('/catalog/list').catch((e) => e)
     expect(err).toBeInstanceOf(Error)
     expect(err.message).toBe('Square said: Price is too low.')
@@ -81,7 +84,7 @@ describe('square-api', () => {
     expect(calls[0].headers.Authorization).toBe('Bearer tok')
   })
   it('falls back to the status when Square sends no detail', async () => {
-    replies.push(() => new Response('oops', { status: 502 }))
+    replies = [() => new Response('oops', { status: 502 })]
     await expect(squareFetch('/x')).rejects.toThrow('Square answered with an error (502).')
   })
 })
@@ -108,8 +111,8 @@ describe('syncClassToSquare', () => {
   it('creates a REGULAR item in the Classes category with the tax and every variation', async () => {
     replies.push(upsertEcho())
     const sq = await syncClassToSquare(cls())
-    expect(calls).toHaveLength(1)
-    const call = calls[0]
+    expect(calls.map((c) => c.url.replace(/^.*\/v2/, ''))).toEqual(['/catalog/search', '/catalog/batch-upsert'])
+    const call = ups()[0]
     expect(call.url).toBe('https://connect.squareupsandbox.com/v2/catalog/batch-upsert')
     expect(call.method).toBe('POST')
     expect(call.headers['Square-Version']).toBe(SQUARE_API_VERSION)
@@ -146,10 +149,10 @@ describe('syncClassToSquare', () => {
     replies.push(upsertEcho())
     const c = cls(); c.content.rules.taxable = false
     await syncClassToSquare(c)
-    expect(calls[0].body.batches[0].objects[0].item_data).not.toHaveProperty('tax_ids')
+    expect(ups()[0].body.batches[0].objects[0].item_data).not.toHaveProperty('tax_ids')
     cfg.classTaxId = ''
     await syncClassToSquare(cls())
-    expect(calls[1].body.batches[0].objects[0].item_data).not.toHaveProperty('tax_ids')
+    expect(ups()[1].body.batches[0].objects[0].item_data).not.toHaveProperty('tax_ids')
   })
 
   it('refuses when the Classes category is not set up', async () => {
@@ -177,7 +180,7 @@ describe('syncClassToSquare', () => {
     delete c.content.prices.all.kid // kid seat no longer sold
     c.content.prices.wk.kid = 1500 // new cell
     const sq = await syncClassToSquare(c)
-    const item = calls[1].body.batches[0].objects[0]
+    const item = ups()[0].body.batches[0].objects[0]
     expect(item.id).toBe('ITEM1')
     expect(item.version).toBe(7)
     expect(item.item_data.image_ids).toEqual(['IMG1'])
@@ -192,17 +195,17 @@ describe('syncClassToSquare', () => {
   })
 
   it('makes a fresh item when the old one is gone from Square', async () => {
-    replies.push((c) => (c.method === 'GET' ? json(404, { errors: [{ code: 'NOT_FOUND', detail: 'Object not found.' }] }) : undefined))
+    replies.push((c) => (c.method === 'GET' && c.url.includes('/catalog/object/') ? json(404, { errors: [{ code: 'NOT_FOUND', detail: 'Object not found.' }] }) : undefined))
     replies.push(upsertEcho())
     const sq = await syncClassToSquare(cls({ square: { itemId: 'GONE', variations: { 'all:adult': 'OLD' } } }))
-    const item = calls[1].body.batches[0].objects[0]
+    const item = ups()[0].body.batches[0].objects[0]
     expect(item.id).toMatch(/^#/)
     expect(item.item_data.variations.every((v: any) => v.id.startsWith('#'))).toBe(true)
     expect(sq.itemId).toMatch(/^R/)
   })
 
   it('a Square error becomes a plain error', async () => {
-    replies.push(() => json(400, { errors: [{ code: 'INVALID_VALUE', detail: 'Invalid category.' }] }))
+    replies.push((c) => (c.url.endsWith('/batch-upsert') ? json(400, { errors: [{ code: 'INVALID_VALUE', detail: 'Invalid category.' }] }) : undefined))
     await expect(syncClassToSquare(cls())).rejects.toThrow('Square said: Invalid category.')
   })
 
@@ -241,6 +244,65 @@ describe('syncClassToSquare', () => {
   })
 })
 
+describe('syncClassToSquare — no second item, cancelled, description, empty plan', () => {
+  it('a create uses a deterministic idempotency key and marks every variation with the class id', async () => {
+    replies.push(upsertEcho())
+    await syncClassToSquare(cls())
+    await syncClassToSquare(cls())
+    const [a, b] = ups()
+    expect(a.body.idempotency_key).toMatch(/^cls-create:cls_abc:[0-9a-f]{32}$/)
+    expect(a.body.idempotency_key.length).toBeLessThanOrEqual(128)
+    expect(b.body.idempotency_key).toBe(a.body.idempotency_key)
+    for (const v of a.body.batches[0].objects[0].item_data.variations) expect(v.item_variation_data.sku).toBe('cls_abc')
+    const changed = cls(); changed.content.prices.all.adult = 6500
+    await syncClassToSquare(changed)
+    expect(ups()[2].body.idempotency_key).not.toBe(a.body.idempotency_key)
+  })
+
+  it('searches by the class id marker and adopts an item made earlier instead of creating', async () => {
+    const found = {
+      type: 'ITEM', id: 'ITEMX', version: 4,
+      item_data: { variations: [
+        { type: 'ITEM_VARIATION', id: 'VX1', version: 1, item_variation_data: { item_id: 'ITEMX', name: 'Full series · Adult', sku: 'cls_abc' } },
+        { type: 'ITEM_VARIATION', id: 'VX2', version: 1, item_variation_data: { item_id: 'ITEMX', name: 'Extra glaze (add-on)', sku: 'cls_abc' } },
+      ] },
+    }
+    replies.unshift((c) => (c.url.endsWith('/catalog/search') ? json(200, { objects: found.item_data.variations }) : undefined))
+    replies.push((c) => (c.method === 'GET' && c.url.includes('/catalog/object/ITEMX') ? json(200, { object: found }) : undefined))
+    replies.push(upsertEcho())
+    const sq = await syncClassToSquare(cls())
+    const search = calls.find((c) => c.url.endsWith('/catalog/search'))!
+    expect(search.body).toMatchObject({ object_types: ['ITEM_VARIATION'], query: { exact_query: { attribute_name: 'sku', attribute_value: 'cls_abc' } } })
+    const item = ups()[0].body.batches[0].objects[0]
+    expect(item).toMatchObject({ id: 'ITEMX', version: 4 })
+    expect(sq.itemId).toBe('ITEMX')
+    expect(sq.variations['all:adult']).toBe('VX1')
+    expect(sq.variations['addon:glaze']).toBe('VX2')
+    expect(sq.variations['all:kid']).toMatch(/^R/)
+  })
+
+  it('a cancelled class is synced off the POS', async () => {
+    replies.push(upsertEcho())
+    await syncClassToSquare(cls({ status: 'cancelled' }))
+    const item = ups()[0].body.batches[0].objects[0]
+    expect(item).toMatchObject({ present_at_all_locations: false, present_at_location_ids: [] })
+    for (const v of item.item_data.variations) expect(v).toMatchObject({ present_at_all_locations: false, present_at_location_ids: [] })
+  })
+
+  it('sends an empty description so Square clears it', async () => {
+    replies.push(upsertEcho())
+    const c = cls(); c.content.description = ''
+    await syncClassToSquare(c)
+    expect(ups()[0].body.batches[0].objects[0].item_data.description).toBe('')
+  })
+
+  it('refuses a class with nothing to sell before calling Square', async () => {
+    const c = cls(); c.content.prices = {}; c.content.addOns = []
+    await expect(syncClassToSquare(c)).rejects.toThrow('Add a price before putting this class on the POS.')
+    expect(calls).toHaveLength(0)
+  })
+})
+
 describe('archiveClassInSquare', () => {
   it('hides the item and its variations from every location, never deletes', async () => {
     const existing = {
@@ -251,7 +313,7 @@ describe('archiveClassInSquare', () => {
     replies.push(upsertEcho())
     await archiveClassInSquare(cls({ square: { itemId: 'ITEM1', variations: { 'all:adult': 'V1' } } }))
     expect(calls.some((c) => c.method === 'DELETE' || c.url.includes('delete'))).toBe(false)
-    const item = calls[1].body.batches[0].objects[0]
+    const item = ups()[0].body.batches[0].objects[0]
     expect(item).toMatchObject({ id: 'ITEM1', version: 9, present_at_all_locations: false, present_at_location_ids: [] })
     expect(item.item_data.name).toBe('Pottery · Sat Oct 17')
     expect(item.item_data.variations[0]).toMatchObject({ id: 'V1', version: 2, present_at_all_locations: false, present_at_location_ids: [] })

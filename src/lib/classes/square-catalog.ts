@@ -7,7 +7,7 @@
  *
  * Server only. Raw REST via squareFetch (one shared API version).
  */
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { siteConfig } from '@config/site.config'
 import { formatDay } from '@lib/studio-time'
 import { squareFetch, squareSettings } from './square-api'
@@ -52,11 +52,27 @@ async function fetchItem(itemId: string): Promise<any | null> {
   }
 }
 
-async function upsert(object: any): Promise<any> {
+async function upsert(object: any, idempotencyKey: string = randomUUID()): Promise<any> {
   return squareFetch('/catalog/batch-upsert', {
     method: 'POST',
-    body: JSON.stringify({ idempotency_key: randomUUID(), batches: [{ objects: [object] }] }),
+    body: JSON.stringify({ idempotency_key: idempotencyKey, batches: [{ objects: [object] }] }),
   })
+}
+
+/**
+ * A POS item already made for this class but whose ids we never saved (a
+ * lost response, or a failed save). Every variation carries sku = class id.
+ */
+async function findItemBySku(classId: string): Promise<any | null> {
+  const res = await squareFetch('/catalog/search', {
+    method: 'POST',
+    body: JSON.stringify({
+      object_types: ['ITEM_VARIATION'],
+      query: { exact_query: { attribute_name: 'sku', attribute_value: classId } },
+    }),
+  })
+  const itemId = (res?.objects ?? []).map((o: any) => o?.item_variation_data?.item_id).find(Boolean)
+  return itemId ? fetchItem(itemId) : null
 }
 
 /** Upload the class image and make it the item's primary image. */
@@ -89,17 +105,30 @@ export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledC
   const categoryId = cfg.classesCategoryId || ''
   if (!categoryId) throw new Error("Classes category isn't set up yet.")
   const taxId = cfg.classTaxId || ''
+  const plan = variationPlan(cls)
+  if (!plan.length) throw new Error('Add a price before putting this class on the POS.')
 
-  const current = cls.square.itemId ? await fetchItem(cls.square.itemId) : null
+  let current = cls.square.itemId ? await fetchItem(cls.square.itemId) : null
+  let known: Record<string, string> = cls.square.variations
+  if (!current) {
+    current = await findItemBySku(cls.id)
+    if (current) {
+      // Adopt it: match its variations to our keys by name.
+      const byName = new Map<string, string>((current.item_data?.variations ?? []).map((v: any) => [v.item_variation_data?.name, v.id]))
+      known = Object.fromEntries(plan.flatMap((p) => (byName.has(p.name) ? [[p.key, byName.get(p.name)!]] : [])))
+    }
+  }
   const currentVars = new Map<string, any>(
     (current?.item_data?.variations ?? []).map((v: any) => [v.id as string, v]),
   )
   const itemRef: string = current ? current.id : '#item'
+  // A cancelled class never comes back onto the POS.
+  const onPos = cls.status !== 'cancelled'
+  const presence = onPos ? { present_at_all_locations: true } : { present_at_all_locations: false, present_at_location_ids: [] }
 
-  const plan = variationPlan(cls)
   const tempIdToKey = new Map<string, string>()
   const variations = plan.map((p, i) => {
-    const knownId = cls.square.variations[p.key]
+    const knownId = known[p.key]
     const existing = current && knownId ? currentVars.get(knownId) : undefined
     const id = existing ? existing.id : `#v${i}`
     if (!existing) tempIdToKey.set(id, p.key)
@@ -107,10 +136,11 @@ export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledC
       type: 'ITEM_VARIATION',
       id,
       ...(existing?.version !== undefined ? { version: existing.version } : {}),
-      present_at_all_locations: true,
+      ...presence,
       item_variation_data: {
         item_id: itemRef,
         name: p.name,
+        sku: cls.id,
         ordinal: i,
         pricing_type: 'FIXED_PRICING',
         price_money: { amount: p.cents, currency: 'USD' },
@@ -120,7 +150,7 @@ export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledC
 
   const itemData: Record<string, unknown> = {
     name: itemName(cls),
-    description: cls.content.description || undefined,
+    description: cls.content.description || '',
     product_type: 'REGULAR',
     categories: [{ id: categoryId }],
     reporting_category: { id: categoryId },
@@ -128,13 +158,16 @@ export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledC
     ...(current?.item_data?.image_ids?.length ? { image_ids: current.item_data.image_ids } : {}),
     variations,
   }
-  const res = await upsert({
+  const object = {
     type: 'ITEM',
     id: itemRef,
     ...(current?.version !== undefined ? { version: current.version } : {}),
-    present_at_all_locations: true,
+    ...presence,
     item_data: itemData,
-  })
+  }
+  // Creating: a deterministic key, so a retry of the same create can't make a second item.
+  const key = current ? undefined : `cls-create:${cls.id}:${createHash('sha256').update(JSON.stringify(object)).digest('hex').slice(0, 32)}`
+  const res = await upsert(object, key)
 
   const realId = new Map<string, string>((res?.id_mappings ?? []).map((m: any) => [m.client_object_id, m.object_id]))
   const itemId = current ? current.id : realId.get('#item') ?? res?.objects?.find((o: any) => o.type === 'ITEM')?.id
