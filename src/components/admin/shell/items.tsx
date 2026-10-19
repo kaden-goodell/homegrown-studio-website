@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 import { timeSpan } from './time'
 import { localDate } from '@lib/party-slots'
@@ -136,8 +136,14 @@ export function Seg<T extends string>({ value, options, onChange, label, tight, 
   /** is-view (Week | Month), is-wrap (four options, two rows on a phone). */
   className?: string
 }) {
+  // A row that scrolls sideways keeps the picked option in view (Inbox › To decide on a phone).
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!className?.includes('is-scroll')) return
+    box.current?.querySelector<HTMLElement>('[aria-pressed="true"]')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: 'instant' as ScrollBehavior })
+  }, [value, className])
   return (
-    <div className={`adm-seg${tight ? ' is-tight' : ''}${className ? ` ${className}` : ''}`} role="group" aria-label={label}>
+    <div ref={box} className={`adm-seg${tight ? ' is-tight' : ''}${className ? ` ${className}` : ''}`} role="group" aria-label={label}>
       {options.map(([v, l]) => (
         <button key={v} type="button" aria-pressed={value === v} onClick={() => onChange(v)}>{l}</button>
       ))}

@@ -7,7 +7,7 @@ import { closedComing } from './sheets/SettingsSheets'
 
 const ROWS: [MorePage, string, string][] = [
   ['parties', 'Parties setup', 'Party times, the $300 package, guests, crafts'],
-  ['hours', 'Hours & Craft Café', 'Saturday hours and special days'],
+  ['hours', 'Hours & Craft Café', 'Café hours and special days'],
   ['closed', 'Closed days', ''],
   ['staff', 'Staff', 'Coming in stage 3'],
   ['promos', 'Promotions', 'Coming in stage 4'],
