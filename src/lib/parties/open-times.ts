@@ -147,6 +147,25 @@ export async function openPartyStartsInWindow(now: Date = new Date(), want: { pa
   return (await partyStartsInWindow(now, want)).open
 }
 
+/**
+ * Owners (/admin): the party times on studio-local days `fromYmd`..`toYmd`
+ * (both included) and which of them are free for a party of `minutes`.
+ * Notice and window ignored; closed days, days before the first party day
+ * and anything already started left out (R37). `ignorePartyId`: a party
+ * moving past its own time. Throws when anything can't be read.
+ */
+export async function adminPartyStarts(
+  fromYmd: string, toYmd: string, want: { minutes: number; ignorePartyId?: string }, now: Date = new Date(),
+): Promise<{ offered: string[]; open: string[] }> {
+  const { settings, days } = await load()
+  const fromIso = studioDayUtcRange(fromYmd).startIso
+  const toIso = studioDayUtcRange(toYmd).endIso
+  const offered = partyStartsInRange(settings, fromIso, toIso, now, days, { minutes: want.minutes, admin: true })
+  if (offered.length === 0) return { offered, open: [] }
+  const view = judge(offered, want.minutes, await scheduleAround(fromIso, toIso, days, true), want.ignorePartyId)
+  return { offered, open: view.open }
+}
+
 const NOT_OFFERED = 'That party time isn’t offered. Please pick another time.'
 const NOT_OPEN = 'That party time was just taken. Please pick another time.'
 const PAST = 'That time has already passed. Pick a later time.'

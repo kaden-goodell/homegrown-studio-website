@@ -103,6 +103,8 @@ export interface PartyPaying {
   attemptId: string
   until: string
   via?: 'link' | 'admin-card'
+  /** admin-card: the owner taking the card (goes on the charge) */
+  by?: By | null
   /** charging: the charge is being sent; unclear: sent, no answer (kept 24 h) */
   state?: 'charging' | 'unclear'
   order?: { idempotencyKey: string; locationId: string; customerId: string | null; lineItems: import('@providers/interfaces/payment').LineItem[]; referenceId: string }

@@ -5,24 +5,20 @@ import { getPartyRecord } from '@lib/party-store'
 import { listRsvpsByEvent } from '@lib/rsvp-store'
 import { listWaiversByEvent } from '@lib/waiver-store'
 import { agreementState, type AgreementState } from '@lib/waiver-coverage'
+import { adminPartyView, partyRefundRequests, type AdminPartyView } from '@lib/parties/admin-actions'
 
 export const prerender = false
 
 const ID_RE = /^[A-Za-z0-9_.-]{1,80}$/
 
-export interface AdminParty {
-  bookingId: string
-  hostName: string
-  hostEmail: string
-  hostPhone: string
-  guestCount: number
-  craftName: string
-  title: string | null
-  startIso: string
-  durationMinutes: number | null
-  themeName: string | null
-  createdAt: string
-}
+/**
+ * The party as the sheet shows it: the stage-1 fields (bookingId, host,
+ * guests, craft, title, startIso, durationMinutes, themeName, createdAt)
+ * and, from stage 2, status, legacy (booked in Square: read only), endIso,
+ * items, charges, refunds, dueCents, paymentState, linkSent, overlap and the
+ * saved refund requests (null when they couldn't be read).
+ */
+export type AdminParty = AdminPartyView & { refundRequests: Awaited<ReturnType<typeof partyRefundRequests>> }
 /** One household that said yes, from its signed agreement and its RSVP. */
 export interface AdminPartyGuest {
   name: string
@@ -34,7 +30,8 @@ export interface AdminPartyGuest {
 }
 
 /**
- * GET ?id=<party booking id>: one party for the /admin Party sheet, read only.
+ * GET ?id=<party booking id>: one party for the /admin Party sheet, read only
+ * (changes go through /api/admin/parties/actions.json).
  * `party` is null when the booking has no record on this site (booked in
  * Square by hand). `guests` is null when the agreements couldn't be read, so
  * the sheet can say so instead of showing nobody. Owners only.
@@ -51,19 +48,7 @@ export const GET: APIRoute = async ({ request, url }) => {
     return json(503, { error: "The party couldn't be loaded. Try again." })
   }
   const party: AdminParty | null = record
-    ? {
-        bookingId: record.bookingId,
-        hostName: record.hostName,
-        hostEmail: record.hostEmail,
-        hostPhone: record.hostPhone ?? '',
-        guestCount: record.guestCount,
-        craftName: record.craftName,
-        title: record.title,
-        startIso: record.startIso,
-        durationMinutes: record.durationMinutes,
-        themeName: record.theme?.displayName ?? null,
-        createdAt: record.createdAt,
-      }
+    ? { ...adminPartyView(record), refundRequests: await partyRefundRequests(record.bookingId) }
     : null
   let guests: AdminPartyGuest[] | null = null
   try {

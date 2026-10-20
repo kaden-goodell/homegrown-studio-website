@@ -1,0 +1,947 @@
+<title>Admin Directions</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap');
+:root{
+  --bg:#faf8f5;--surface:#ffffff;--sand:#f3ede6;--text:#4a403a;--muted:#6f635b;--dark:#3d3229;
+  --primary:#7a4a2e;--primary-hover:#643b23;--on-primary:#ffffff;--line:rgba(122,74,46,.16);--line-strong:rgba(122,74,46,.3);
+  --field-border:#9a8a7d;--error:#b42318;--error-soft:rgba(180,35,24,.08);
+  --bezel:#2b241f;--scrim:rgba(40,28,20,.42);--shadow:0 8px 24px rgba(122,74,46,.10);
+  --t-class:#3e5c8a;--t-class-soft:#e6ecf5;--t-class-ink:#2e4770;
+  --t-cafe:#5e8c6a;--t-cafe-soft:#e6f0e8;--t-cafe-ink:#35603f;
+  --t-party:#e8638c;--t-party-soft:#fce8ee;--t-party-ink:#9b2c55;
+  --t-block:#8a7d72;--t-block-soft:#efeae4;--t-block-ink:#4a403a;
+  --t-warn:#e3a72f;--t-warn-soft:#fbf0d6;--t-warn-ink:#7a5200;
+  --sw0:#e8638c;--sw1:#3e5c8a;--sw2:#5e8c6a;--sw3:#e3a72f;--sw4:#2f9c9a;
+  --font-h:'Playfair Display',Georgia,serif;--font-b:'Inter',system-ui,-apple-system,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1b1613;--surface:#251f1a;--sand:#2f2721;--text:#e6dcd1;--muted:#b3a597;--dark:#f7efe6;
+  --primary:#d9a07a;--primary-hover:#e6b38f;--on-primary:#1b1613;--line:rgba(217,160,122,.18);--line-strong:rgba(217,160,122,.34);
+  --field-border:#7d6e62;--error:#f08a7e;--error-soft:rgba(240,138,126,.1);
+  --bezel:#0b0908;--scrim:rgba(0,0,0,.55);--shadow:0 8px 24px rgba(0,0,0,.35);
+  --t-class:#7f9fd0;--t-class-soft:rgba(127,159,208,.16);--t-class-ink:#b9cdef;
+  --t-cafe:#8dbb98;--t-cafe-soft:rgba(141,187,152,.15);--t-cafe-ink:#bfe0c7;
+  --t-party:#f08aab;--t-party-soft:rgba(240,138,171,.15);--t-party-ink:#f6bccf;
+  --t-block:#a39689;--t-block-soft:rgba(163,150,137,.15);--t-block-ink:#ded3c8;
+  --t-warn:#f0c062;--t-warn-soft:rgba(240,192,98,.14);--t-warn-ink:#f5d999;
+  color-scheme:dark;
+}}
+:root[data-theme="dark"]{
+  --bg:#1b1613;--surface:#251f1a;--sand:#2f2721;--text:#e6dcd1;--muted:#b3a597;--dark:#f7efe6;
+  --primary:#d9a07a;--primary-hover:#e6b38f;--on-primary:#1b1613;--line:rgba(217,160,122,.18);--line-strong:rgba(217,160,122,.34);
+  --field-border:#7d6e62;--error:#f08a7e;--error-soft:rgba(240,138,126,.1);
+  --bezel:#0b0908;--scrim:rgba(0,0,0,.55);--shadow:0 8px 24px rgba(0,0,0,.35);
+  --t-class:#7f9fd0;--t-class-soft:rgba(127,159,208,.16);--t-class-ink:#b9cdef;
+  --t-cafe:#8dbb98;--t-cafe-soft:rgba(141,187,152,.15);--t-cafe-ink:#bfe0c7;
+  --t-party:#f08aab;--t-party-soft:rgba(240,138,171,.15);--t-party-ink:#f6bccf;
+  --t-block:#a39689;--t-block-soft:rgba(163,150,137,.15);--t-block-ink:#ded3c8;
+  --t-warn:#f0c062;--t-warn-soft:rgba(240,192,98,.14);--t-warn-ink:#f5d999;
+  color-scheme:dark;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:var(--font-b);line-height:1.5;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+button{cursor:pointer;background:none;border:0}
+:focus-visible{outline:2px solid var(--primary);outline-offset:2px}
+.page{max-width:1080px;margin:0 auto;padding:20px 16px 48px}
+.intro{font-size:1.0625rem;color:var(--dark);margin-bottom:14px;max-width:46rem}
+.intro b{font-family:var(--font-h);font-size:1.35rem;display:block;margin-bottom:4px}
+.switch{display:flex;gap:4px;padding:4px;background:var(--sand);border-radius:14px;max-width:420px;margin-bottom:22px}
+.switch button{flex:1;min-height:48px;border-radius:10px;font-weight:600;color:var(--muted);font-size:.95rem}
+.switch button[aria-pressed="true"]{background:var(--surface);color:var(--primary);box-shadow:var(--shadow)}
+.dir{display:none;gap:28px;align-items:flex-start}
+.dir.on{display:flex}
+.notes{flex:1;min-width:0;max-width:30rem}
+.notes h2{font-family:var(--font-h);color:var(--dark);font-size:1.5rem;line-height:1.2;margin-bottom:6px}
+.notes .pick{display:inline-block;background:var(--t-warn-soft);color:var(--t-warn-ink);font-weight:700;font-size:.85rem;padding:3px 10px;border-radius:999px;margin-bottom:10px}
+.notes p{margin-bottom:12px}
+.notes ul{list-style:none;display:grid;gap:8px}
+.notes li{padding:10px 12px;border-radius:12px;background:var(--surface);border:1px solid var(--line)}
+.notes li::before{font-weight:700;margin-right:6px}
+.notes li.pro::before{content:"+";color:var(--t-cafe)}
+.notes li.con::before{content:"\2212";color:var(--error)}
+.notes .try{font-size:.9rem;color:var(--muted);margin-top:14px}
+@media (max-width:860px){.dir.on{flex-direction:column;align-items:stretch}.notes{max-width:none}}
+
+/* phone */
+.phone{position:relative;width:390px;max-width:100%;height:780px;flex:none;margin:0 auto;border:10px solid var(--bezel);border-radius:46px;background:var(--bg);overflow:hidden;box-shadow:0 24px 60px rgba(40,28,20,.25)}
+@media (max-width:480px){.phone{width:100%;height:740px;border-width:6px;border-radius:30px}}
+.scr{position:absolute;inset:0;overflow-y:auto;overflow-x:hidden;padding:0 16px 40px;-webkit-overflow-scrolling:touch}
+.sbar{display:flex;justify-content:space-between;font-size:.75rem;font-weight:600;color:var(--dark);padding:10px 8px 6px}
+.layer{position:absolute;inset:0;pointer-events:none;z-index:5}
+.sw{position:absolute;inset:0;pointer-events:auto}
+.scrim{position:absolute;inset:0;width:100%;background:var(--scrim);opacity:0;transition:opacity .25s}
+.sw.in .scrim{opacity:1}
+.sheet{position:absolute;left:0;right:0;bottom:0;max-height:86%;display:flex;flex-direction:column;background:var(--surface);border-radius:22px 22px 0 0;box-shadow:0 -10px 30px rgba(0,0,0,.18);transform:translateY(102%);transition:transform .28s cubic-bezier(.2,.8,.2,1)}
+.sheet.full{height:93%;max-height:93%}
+.sw.in .sheet{transform:none}
+.sw.side .sheet{top:0;left:auto;width:92%;height:100%;max-height:100%;border-radius:22px 0 0 22px;transform:translateX(102%)}
+.sw.side.in .sheet{transform:none}
+.sh-head{display:flex;align-items:flex-start;gap:8px;padding:8px 12px 8px 18px;border-bottom:1px solid var(--line)}
+.sheet:not(.sidey) .sh-head::before{content:"";position:absolute;top:6px;left:50%;width:38px;height:4px;margin-left:-19px;border-radius:4px;background:var(--line-strong)}
+.sh-head .tt{flex:1;min-width:0;padding-top:12px}
+.sh-head h3{font-family:var(--font-h);color:var(--dark);font-size:1.2rem;line-height:1.25}
+.sh-head small{display:block;color:var(--muted);font-size:.85rem}
+.x{width:44px;height:44px;flex:none;border-radius:50%;font-size:1.5rem;line-height:1;color:var(--muted);margin-top:4px}
+.x:hover{background:var(--sand)}
+.sh-body{flex:1;overflow-y:auto;padding:14px 18px 18px}
+.sh-foot{padding:12px 18px 18px;border-top:1px solid var(--line);display:grid;gap:8px;background:var(--surface)}
+.toast{position:absolute;left:16px;right:16px;bottom:22px;z-index:9;display:flex;align-items:center;gap:10px;background:var(--dark);color:var(--bg);padding:10px 10px 10px 14px;border-radius:14px;font-size:.9rem;font-weight:500;opacity:0;transform:translateY(12px);transition:.25s;pointer-events:none}
+.toast.on{opacity:1;transform:none;pointer-events:auto}
+.toast span{flex:1}
+.toast button{min-height:40px;padding:0 12px;border-radius:10px;font-weight:700;color:var(--bg);text-decoration:underline}
+@media (prefers-reduced-motion:reduce){.sheet,.scrim,.toast{transition:none}}
+
+/* bits */
+.brand{font-size:.75rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:600}
+h1.hi{font-family:var(--font-h);color:var(--dark);font-size:1.5rem;line-height:1.2;margin-top:2px}
+.lbl{font-size:.75rem;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;margin:18px 0 8px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px;box-shadow:var(--shadow)}
+.muted{color:var(--muted)}
+.small{font-size:.85rem}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:48px;padding:10px 16px;border-radius:12px;font-weight:600;font-size:.95rem;border:1px solid transparent;width:100%;text-align:center}
+.btn.pri{background:var(--primary);color:var(--on-primary)}
+.btn.pri:hover{background:var(--primary-hover)}
+.btn.pri[disabled]{opacity:.45;cursor:default}
+.btn.ghost{border-color:var(--line-strong);color:var(--dark);background:var(--surface)}
+.btn.danger{border-color:var(--error);color:var(--error);background:transparent}
+.btn.sm{min-height:44px;width:auto;padding:8px 14px;font-size:.9rem}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.three{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.row{display:flex;align-items:center;gap:10px;width:100%;min-height:56px;text-align:left;padding:8px 10px 8px 12px;border-radius:12px;background:var(--k-soft,var(--sand));border-left:4px solid var(--k,var(--line-strong));margin-bottom:6px}
+.row .rt{font-size:.8rem;font-weight:600;color:var(--k-ink,var(--muted));width:62px;flex:none;line-height:1.25}
+.row .rm{flex:1;min-width:0}
+.row b{display:block;color:var(--dark);font-weight:600;font-size:.93rem;line-height:1.3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.row small{display:block;color:var(--muted);font-size:.8rem}
+.chev{color:var(--muted);font-size:1.2rem}
+.k-class{--k:var(--t-class);--k-soft:var(--t-class-soft);--k-ink:var(--t-class-ink)}
+.k-cafe{--k:var(--t-cafe);--k-soft:var(--t-cafe-soft);--k-ink:var(--t-cafe-ink)}
+.k-party{--k:var(--t-party);--k-soft:var(--t-party-soft);--k-ink:var(--t-party-ink)}
+.k-block{--k:var(--t-block);--k-soft:var(--t-block-soft);--k-ink:var(--t-block-ink)}
+.tag{display:inline-block;font-size:.7rem;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--t-warn-soft);color:var(--t-warn-ink);vertical-align:2px;margin-left:4px}
+.tag.red{background:var(--error-soft);color:var(--error)}
+.tag.grey{background:var(--sand);color:var(--muted)}
+.dayh{display:flex;align-items:center;justify-content:space-between;margin:14px 0 6px}
+.dayh h4{font-size:.95rem;color:var(--dark);font-weight:700}
+.dayh h4.today{color:var(--primary)}
+.plus{width:44px;height:44px;border-radius:12px;border:1px dashed var(--line-strong);color:var(--primary);font-size:1.4rem;line-height:1}
+.empty{display:flex;align-items:center;width:100%;min-height:48px;padding:8px 12px;border-radius:12px;border:1px dashed var(--line-strong);color:var(--muted);font-size:.88rem;text-align:left}
+.empty em{margin-left:auto;font-style:normal;color:var(--primary);font-weight:600}
+.seg{display:flex;gap:3px;padding:3px;background:var(--sand);border-radius:12px;margin-bottom:12px}
+.seg button{flex:1;min-height:44px;border-radius:9px;font-weight:600;font-size:.88rem;color:var(--muted);white-space:nowrap;padding:0 6px}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--primary);box-shadow:0 2px 6px rgba(0,0,0,.08)}
+.fld{display:grid;gap:5px;margin-bottom:12px;min-width:0}
+.fld>span{font-size:.88rem;font-weight:600;color:var(--dark)}
+.fld input,.fld select,.fld textarea{width:100%;min-height:46px;padding:10px 12px;border-radius:12px;border:1.5px solid var(--field-border);background:var(--surface);font-size:1rem;min-width:0}
+.fld textarea{min-height:84px;resize:vertical}
+.fld input[aria-invalid="true"]{border-color:var(--error)}
+.err{color:var(--error);font-size:.85rem}
+fieldset{border:1px solid var(--line);border-radius:14px;padding:10px 12px 0;margin-bottom:10px}
+legend{font-weight:700;font-size:.85rem;color:var(--dark);padding:0 6px}
+.photo{display:flex;align-items:center;gap:12px;width:100%;min-height:76px;padding:8px;border-radius:14px;border:1.5px dashed var(--field-border);text-align:left;margin-bottom:12px;color:var(--muted)}
+.photo.has{border-style:solid;border-color:var(--line)}
+.sw-img{width:60px;height:60px;border-radius:12px;flex:none;display:grid;place-items:center;background:var(--sand)}
+.sw-img svg{width:30px;height:30px;opacity:.9}
+.photo .sw-img{background:var(--sand)}
+.tone0{background:linear-gradient(135deg,var(--sw0),color-mix(in srgb,var(--sw0) 55%,#fff))}
+.tone1{background:linear-gradient(135deg,var(--sw1),color-mix(in srgb,var(--sw1) 55%,#fff))}
+.tone2{background:linear-gradient(135deg,var(--sw2),color-mix(in srgb,var(--sw2) 55%,#fff))}
+.tone3{background:linear-gradient(135deg,var(--sw3),color-mix(in srgb,var(--sw3) 55%,#fff))}
+.tone4{background:linear-gradient(135deg,var(--sw4),color-mix(in srgb,var(--sw4) 55%,#fff))}
+.libc{display:flex;align-items:center;gap:12px;width:100%;padding:10px;border-radius:14px;border:1px solid var(--line);background:var(--surface);margin-bottom:8px;text-align:left}
+.libc.sel{border:2px solid var(--primary);background:var(--sand)}
+.libc .rm{flex:1;min-width:0}
+.libc b{display:block;color:var(--dark);font-size:.93rem;line-height:1.3}
+.libc small{color:var(--muted);font-size:.8rem}
+.bk{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.bk .rm{flex:1;min-width:0}
+.bk b{display:block;color:var(--dark);font-size:.95rem}
+.bk small{color:var(--muted);font-size:.82rem}
+.bk.gone b{text-decoration:line-through;color:var(--muted)}
+.panel{background:var(--sand);border-radius:14px;padding:12px;display:grid;gap:8px}
+.panel b{color:var(--dark)}
+.panel.warn{background:var(--error-soft)}
+.sum{display:flex;gap:8px;margin-bottom:6px}
+.sum div{flex:1;background:var(--sand);border-radius:12px;padding:8px 10px}
+.sum b{display:block;font-size:1.15rem;color:var(--dark)}
+.sum small{color:var(--muted);font-size:.78rem}
+.bar{height:6px;border-radius:6px;background:var(--line);overflow:hidden;margin-top:6px}
+.bar i{display:block;height:100%;background:var(--t-class)}
+.need{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.need button{min-height:68px;border-radius:14px;background:var(--surface);border:1px solid var(--line);text-align:left;padding:8px 10px;box-shadow:var(--shadow)}
+.need b{display:block;font-size:1.3rem;color:var(--primary);line-height:1.1}
+.need small{font-size:.8rem;color:var(--muted)}
+.links{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.topb{display:flex;align-items:center;gap:8px;padding:2px 0 8px}
+.topb .grow{flex:1;min-width:0}
+.dot{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border-radius:999px;background:var(--t-party);color:#fff;font-size:.72rem;font-weight:700}
+.wknav{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.wknav .grow{flex:1;text-align:center;font-weight:700;color:var(--dark)}
+.arrow{width:44px;height:44px;border-radius:12px;border:1px solid var(--line-strong);font-size:1.2rem;color:var(--dark)}
+.mgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:3px}
+.mgrid .wd{font-size:.7rem;text-align:center;color:var(--muted);font-weight:600;padding:2px 0}
+.mgrid button{min-height:52px;border-radius:8px;background:var(--surface);border:1px solid var(--line);font-size:.8rem;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding-top:4px;color:var(--dark)}
+.mgrid button.out{opacity:.4}
+.mgrid button.tdy{border:2px solid var(--primary)}
+.mgrid .n{font-size:.68rem;font-weight:700;color:var(--t-class-ink);background:var(--t-class-soft);border-radius:6px;padding:0 5px;margin-top:3px}
+.ctabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin:0 -16px 12px;padding:0 10px;position:sticky;top:0;background:var(--bg);z-index:2}
+.ctabs button{flex:1;min-height:48px;font-weight:600;font-size:.86rem;color:var(--muted);border-bottom:3px solid transparent}
+.ctabs button[aria-current="true"]{color:var(--primary);border-color:var(--primary)}
+.tiles{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile{display:block;text-align:left;width:100%;border:1px solid var(--line);border-radius:16px;padding:10px;background:var(--surface);box-shadow:var(--shadow)}
+.tile .sw-img{width:100%;height:70px;margin-bottom:8px}
+.tile b{display:block;font-size:.88rem;color:var(--dark);line-height:1.3}
+.tile small{display:block;color:var(--muted);font-size:.78rem}
+.dtile{border:1px solid var(--line);border-radius:16px;padding:10px 12px;background:var(--surface);box-shadow:var(--shadow);margin-bottom:10px}
+.dtile .dayh{margin:0 0 8px}
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:8px;font-size:.78rem;font-weight:700;border:1px solid}
+.badge.new{background:rgba(217,119,6,.14);color:var(--t-warn-ink);border-color:rgba(217,119,6,.45)}
+.badge.done{background:var(--sand);color:var(--muted);border-color:var(--line)}
+.ibx{display:block;width:100%;text-align:left;border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:8px;background:var(--surface)}
+.ibx .tp{display:flex;align-items:center;gap:8px}
+.ibx b{flex:1;color:var(--dark);font-size:.95rem}
+.ibx small{display:block;color:var(--muted);font-size:.82rem}
+.ibx .nx{display:block;color:var(--primary);font-size:.8rem;font-weight:600;margin-top:2px}
+dl.ans{display:grid;gap:8px;margin:12px 0}
+dl.ans dt{font-size:.75rem;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:700}
+dl.ans dd{color:var(--dark)}
+.more{display:flex;justify-content:space-between;align-items:center;width:100%;min-height:48px;padding:0 4px;border-top:1px solid var(--line);border-bottom:1px solid var(--line);font-weight:600;color:var(--dark);margin:6px 0 12px}
+.morelist div{display:flex;justify-content:space-between;padding:10px 4px;border-bottom:1px solid var(--line);font-size:.9rem}
+.note{font-size:.84rem;color:var(--muted);background:var(--sand);border-radius:12px;padding:8px 10px;margin-bottom:12px}
+
+/* D · recommended */
+.switch{max-width:560px}
+.switch button{line-height:1.2;padding:4px 6px}
+.tabbar{position:absolute;left:0;right:0;bottom:0;z-index:4;display:grid;grid-template-columns:repeat(5,1fr);gap:2px;background:var(--surface);border-top:1px solid var(--line);padding:4px 6px 12px}
+.tabbar button{position:relative;min-height:54px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-size:.72rem;font-weight:600;color:var(--muted);border-radius:12px}
+.tabbar button[aria-current="page"]{color:var(--primary);background:var(--sand)}
+.tabbar svg{width:22px;height:22px;flex:none}
+.tabbar .dot{position:absolute;top:3px;left:50%;margin-left:4px}
+.tbrand{display:none}
+.phone[data-d="D"] .scr{padding-bottom:100px}
+.phone[data-d="D"] .toast{bottom:86px}
+.need.four{grid-template-columns:repeat(4,1fr)}
+.need.four button{padding:8px}
+.need.four small{display:block;font-size:.74rem;line-height:1.2}
+.seg.tight button{font-size:.78rem;padding:0 3px}
+.mlist{background:var(--surface);border:1px solid var(--line);border-radius:16px;overflow:hidden;box-shadow:var(--shadow)}
+.mrow{display:flex;align-items:center;gap:12px;width:100%;min-height:60px;text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+.mlist .mrow:last-child{border-bottom:0}
+.mrow .rm{flex:1;min-width:0}
+.mrow b{display:block;color:var(--dark);font-size:.95rem}
+.mrow small{display:block;color:var(--muted);font-size:.82rem}
+.kv{display:flex;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line);font-size:.92rem}
+.kv>span:first-child{color:var(--dark)}
+.kv>span:last-child{color:var(--muted);text-align:right}
+.kv.tot>span{font-weight:700;color:var(--dark)}
+.grid-av{display:grid;grid-template-columns:84px repeat(4,1fr);gap:4px;font-size:.8rem;text-align:center;margin-bottom:12px}
+.grid-av span{padding:6px 2px;border-radius:8px;background:var(--sand);color:var(--muted)}
+.grid-av .h{background:none;font-weight:700}
+.grid-av .y{background:var(--t-cafe-soft);color:var(--t-cafe-ink);font-weight:700}
+.grid-av .nm{background:none;text-align:left;font-weight:600;color:var(--dark)}
+.preview{opacity:.7;pointer-events:none}
+.devcol{flex:none;width:390px;max-width:100%;min-width:0}
+.devsw{display:flex;gap:4px;padding:3px;background:var(--sand);border-radius:12px;width:max-content;margin:0 auto 12px}
+.devsw button{min-height:44px;padding:0 18px;border-radius:9px;font-weight:600;color:var(--muted)}
+.devsw button[aria-pressed="true"]{background:var(--surface);color:var(--primary);box-shadow:0 2px 6px rgba(0,0,0,.08)}
+.fitwrap{position:relative;width:100%}
+#dir-D.ipadmode{flex-direction:column;align-items:stretch}
+#dir-D.ipadmode .devcol{width:100%}
+#dir-D.ipadmode .notes{max-width:none}
+#dir-D.ipadmode .fitwrap{overflow:hidden}
+@media (max-width:860px){.devcol{margin:0 auto}}
+
+/* iPad */
+.phone.ipad{position:absolute;left:0;top:0;width:1024px;max-width:none;height:720px;border-width:12px;border-radius:30px;margin:0;transform-origin:top left}
+.ipad .tabbar{top:0;right:auto;bottom:0;width:200px;grid-template-columns:1fr;grid-auto-rows:min-content;align-content:start;gap:4px;padding:18px 10px 10px;border-top:0;border-right:1px solid var(--line)}
+.ipad .tbrand{display:block;font-family:var(--font-h);font-size:1.15rem;color:var(--dark);padding:6px 12px 14px;line-height:1.2}
+.ipad .tabbar button{flex-direction:row;justify-content:flex-start;gap:12px;padding:0 12px;font-size:.95rem;min-height:48px}
+.ipad .tabbar .dot{position:static;margin-left:auto}
+.phone.ipad[data-d="D"] .scr{left:200px;padding:0 24px 40px;transition:right .28s cubic-bezier(.2,.8,.2,1)}
+.phone.ipad.paneled .scr{right:40%}
+.phone.ipad[data-d="D"] .toast{left:216px;right:auto;width:420px;bottom:22px}
+.ipad .sw.pan{left:auto;width:40%}
+.ipad .sw.pan .scrim{display:none}
+.ipad .sw.pan .sheet,.ipad .sw.pan .sheet.full{top:0;height:100%;max-height:100%;border-radius:0;border-left:1px solid var(--line);box-shadow:-8px 0 24px rgba(0,0,0,.10);transform:translateX(102%)}
+.ipad .sw.pan.in .sheet{transform:none}
+.ipad .sw.modal .sheet,.ipad .sw.modal .sheet.full{left:50%;top:50%;right:auto;bottom:auto;width:640px;height:auto;max-height:88%;border-radius:22px;transform:translate(-50%,-46%);opacity:0;transition:transform .25s,opacity .2s}
+.ipad .sw.modal.in .sheet{transform:translate(-50%,-50%);opacity:1}
+.ipad .sw.modal .sh-body{min-height:0}
+.ipad .sheet.formy .sh-body{display:grid;grid-template-columns:1fr 1fr;column-gap:14px;align-content:start}
+.ipad .sheet.formy .sh-body>*{grid-column:1/-1}
+.ipad .sheet.formy .sh-body>.fld{grid-column:auto}
+.cols{display:grid;grid-template-columns:1.25fr 1fr;gap:28px;align-items:start}
+.paneled .cols{grid-template-columns:1fr;gap:0}
+.wgrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px;padding-bottom:6px}
+.paneled .wgrid{grid-template-columns:repeat(7,124px);overflow-x:auto}
+.wcol{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:6px;min-height:420px;display:flex;flex-direction:column;gap:5px}
+.wcol.tdy{border:2px solid var(--primary)}
+.wh{display:flex;align-items:center;justify-content:space-between;gap:2px;font-size:.8rem;font-weight:700;color:var(--dark);line-height:1.2}
+.wh .plus{width:44px;height:44px;flex:none}
+.blk{display:block;width:100%;text-align:left;min-height:44px;padding:6px 7px;border-radius:8px;background:var(--k-soft,var(--sand));border-left:3px solid var(--k,var(--line-strong));font-size:.76rem;line-height:1.25}
+.blk small{display:block;color:var(--k-ink,var(--muted));font-weight:600}
+.blk b{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;color:var(--dark);font-weight:600}
+.ipad .mgrid button{min-height:86px;align-items:stretch;padding:4px;gap:2px;font-size:.85rem}
+.mi{display:block;font-size:.66rem;line-height:1.2;text-align:left;padding:1px 4px;border-radius:4px;background:var(--k-soft);color:var(--k-ink);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+@media (prefers-reduced-motion:reduce){.phone.ipad .scr,.ipad .sw.modal .sheet{transition:none}}
+</style>
+
+<div class="page">
+  <p class="intro"><b>Admin: four directions</b>Four ways the admin could work. D combines the best of A, B and C. Tap through, then tell Claude which.</p>
+  <div class="switch" role="group" aria-label="Pick a direction">
+    <button data-dir="D" aria-pressed="false">D · Recommended</button>
+    <button data-dir="A" aria-pressed="false">A · One home</button>
+    <button data-dir="B" aria-pressed="false">B · Calendar</button>
+    <button data-dir="C" aria-pressed="false">C · Like /staff</button>
+  </div>
+
+  <section class="dir" id="dir-D">
+    <div class="devcol">
+      <div class="devsw" role="group" aria-label="Device"><button data-dev="phone" aria-pressed="true">iPhone</button><button data-dev="ipad" aria-pressed="false">iPad</button></div>
+      <div class="fitwrap"><div class="phone" data-d="D"><div class="scr"></div><nav class="tabbar" aria-label="Admin sections"></nav><div class="layer"></div><div class="toast" role="status"></div></div></div>
+    </div>
+    <div class="notes">
+      <h2>D. Home, with a tab bar</h2>
+      <span class="pick">Recommended</span>
+      <p>A's home screen for the daily check, inside a bar of five tabs: Home · Calendar · Classes · Inbox · More. Only one sheet at a time: tapping inside a sheet swaps it for the next one. On the iPad the tabs become a sidebar and things open in a panel beside the page.</p>
+      <ul>
+        <li class="pro">Why D: A's home for the daily check, B's calendar for planning ahead, C's tabs to keep everything organized.</li>
+        <li class="pro">Nothing is more than one tap from the bottom bar.</li>
+        <li class="pro">Never more than one sheet deep, so she can't get lost three layers in.</li>
+        <li class="pro">Every future stage has a home: parties, café hours and closed days now; staff and promotions already have a spot under More.</li>
+        <li class="pro">"To decide" catches what happened in Square without her: counter sales, refunds and classes short of their minimum.</li>
+        <li class="con">Five tabs to learn instead of one screen.</li>
+      </ul>
+      <p class="try">Try: + Book a party · Calendar, then + on a day · Classes, Past, Kinusaiga, Refund · Inbox, To decide · More, Hours &amp; Craft Café · switch to iPad.</p>
+    </div>
+  </section>
+
+  <section class="dir" id="dir-A">
+    <div class="phone" data-d="A"><div class="scr"></div><div class="layer"></div><div class="toast" role="status"></div></div>
+    <div class="notes">
+      <h2>A. One home screen</h2>
+      <p>Open the admin and the week is already there, with big buttons for the jobs she does most. Everything else opens as a sheet over Home.</p>
+      <ul>
+        <li class="pro">Answers "what's on this week?" without a single tap.</li>
+        <li class="pro">One big <b>+ New class</b> button, with Block time and Print right beside it.</li>
+        <li class="pro">"Needs you" shows waiting requests, messages and teachers at a glance.</li>
+        <li class="con">The calendar, library and full list are one step deeper, as sheets over Home.</li>
+        <li class="con">Sheets can stack (Home, then Library, then a class), so on a phone she can end up three layers in.</li>
+      </ul>
+      <p class="try">Try: + New class, then "From a past class" · tap Potholder Looms, then Refund · Requests 2.</p>
+    </div>
+  </section>
+
+  <section class="dir" id="dir-B">
+    <div class="phone" data-d="B"><div class="scr"></div><div class="layer"></div><div class="toast" role="status"></div></div>
+    <div class="notes">
+      <h2>B. Calendar first</h2>
+      <span class="pick">Reviewer's pick</span>
+      <p>The admin opens on the week. Tap a day's + to add a class or block time on that day, and tap anything on the calendar to open it. Inbox slides in from the side.</p>
+      <ul>
+        <li class="pro">Tap a day and add a class: the date is already filled in.</li>
+        <li class="pro">One rule everywhere: tap anything and it opens. Classes, parties, Café and blocked time all work the same way.</li>
+        <li class="pro">She sees parties and Craft Café next to her classes while she plans, so clashes are obvious.</li>
+        <li class="con">A full week is a long scroll on a phone.</li>
+        <li class="con">Requests hide behind the Inbox badge, so she has to notice the dot.</li>
+      </ul>
+      <p class="try">Try: the + on Thu Oct 22, then "New class on this day" · Month · Inbox.</p>
+    </div>
+  </section>
+
+  <section class="dir" id="dir-C">
+    <div class="phone" data-d="C"><div class="scr"></div><div class="layer"></div><div class="toast" role="status"></div></div>
+    <div class="notes">
+      <h2>C. Like /staff</h2>
+      <p>The same tabs-and-tiles look as the crew's door console: This week · Classes · Library · Inbox. Sheets slide in from the right, like the staff sheets on the iPad.</p>
+      <ul>
+        <li class="pro">Looks and works like /staff, which she already uses at the door.</li>
+        <li class="pro">Clear tabs, with the library as photo tiles.</li>
+        <li class="pro">The least new design to build.</li>
+        <li class="con">The tiles are made for checking people in, not for planning ahead.</li>
+        <li class="con">Four tabs to hop between instead of one place to start, and the month view still needs its own design.</li>
+      </ul>
+      <p class="try">Try: Classes, then + New class · Library, then a tile · Inbox.</p>
+    </div>
+  </section>
+</div>
+
+<script>
+(function(){
+var DN=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'],MN=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+var TODAY='2026-10-19';
+function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
+function pd(s){var a=s.split('-').map(Number);return new Date(a[0],a[1]-1,a[2])}
+function ds(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0')}
+function addD(s,n){var d=pd(s);d.setDate(d.getDate()+n);return ds(d)}
+function fd(s){var d=pd(s);return DN[d.getDay()]+' '+MN[d.getMonth()]+' '+d.getDate()}
+function ft(t){var a=t.split(':').map(Number),h=a[0],ap=h>=12?'PM':'AM';h=h%12||12;return h+(a[1]?':'+String(a[1]).padStart(2,'0'):'')+' '+ap}
+function rng(s,e){var a=ft(s),b=ft(e);return a.slice(-2)===b.slice(-2)?a.slice(0,-3)+'–'+b:a+'–'+b}
+function money(n){return '$'+(Math.round(n*100)/100).toString()}
+var YARN='<svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="1.6" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M5 9c4 1 9 5 11 10M8 5c3 3 6 9 6 14M19 9c-4 0-9 3-12 9"/></svg>';
+var CAM='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="3" y="7" width="18" height="13" rx="2"/><circle cx="12" cy="13.5" r="3.5"/><path d="M8 7l1.5-3h5L16 7"/></svg>';
+function sw(t){return '<span class="sw-img tone'+t+'">'+YARN+'</span>'}
+
+var S={
+ n:10,
+ classes:[
+  {id:'c1',name:'Hand-in-Hand Potholder Looms',price:15,ages:'All ages (8+ on their own)',tone:0,status:'Open',desc:'Weave a potholder side by side on a classic loop loom.',dates:[{d:'2026-10-23',s:'18:00',e:'20:00',seats:40}],
+   book:[{n:'Amanda K.',q:2},{n:'Tori B.',q:4},{n:'Megan L.',q:1},{n:'Jess P.',q:2},{n:'Holly R.',q:3}]},
+  {id:'c2',name:'Rondelle Beaded Necklace',price:35,ages:'Adults 18+',tone:1,status:'Open',desc:'String a layered rondelle necklace you will actually wear.',dates:[{d:'2026-10-25',s:'14:00',e:'16:00',seats:10}],
+   book:[{n:'Kara M.',q:2},{n:'Leah D.',q:1},{n:'Rachel T.',q:3}]},
+  {id:'c3',name:'Needlepoint 101',price:40,ages:'Adults 18+',tone:2,status:'Open',desc:'Learn the basic stitches and start a small canvas to finish at home.',dates:[{d:'2026-10-25',s:'18:00',e:'20:00',seats:8}],
+   book:[{n:'Beth W.',q:2},{n:'Nora F.',q:2}]},
+  {id:'c4',name:'Punch Needle Coasters',price:30,ages:'Adults 18+',tone:3,status:'Draft',desc:'Punch a set of four cozy coasters in your own colors.',dates:[{d:'2026-11-12',s:'18:00',e:'20:00',seats:12}],book:[]},
+  {id:'c5',name:'Kinusaiga',past:true,price:38,ages:'Adults 18+',tone:4,status:'Open',desc:'Tuck silk scraps into a carved panel to make a framed picture.',dates:[{d:'2026-10-17',s:'15:00',e:'17:00',seats:10}],
+   book:[{n:'Erin S.',q:2},{n:'Paige M.',q:1},{n:'Callie W.',q:2}]}
+ ],
+ other:[
+  {id:'o1',kind:'cafe',name:'Craft Café',d:'2026-10-24',s:'09:00',e:'12:00',lines:['Walk-in. No booking needed.','Pay per craft at the counter.']},
+  {id:'o2',kind:'party',name:'Party · Stefanie J.',d:'2026-11-08',s:'13:00',e:'15:30',lines:['Stefanie J. · 14 guests','Whole room, $300 + crafts · paid','Craft: Rondelle Beaded Necklace'],
+   host:'Stefanie J.',phone:'(256) 555-0142',email:'stefanie@example.com',guests:14,craft:'Rondelle Beaded Necklace',cp:18,pay:'paid',paidOn:'Oct 2',
+   guestList:[['Ava J.',1],['Mia R.',1],['Lily K.',0],['Harper S.',1],['Emma T.',0]]}
+ ],
+ blocks:[],
+ lib:[
+  {id:'l1',name:'Hand-in-Hand Potholder Looms',price:15,s:'18:00',e:'20:00',seats:40,tone:0,last:'Oct 23'},
+  {id:'l2',name:'Rondelle Beaded Necklace',price:35,s:'14:00',e:'16:00',seats:10,tone:1,last:'Oct 25'},
+  {id:'l3',name:'Needlepoint 101',price:40,s:'18:00',e:'20:00',seats:8,tone:2,last:'Oct 25'},
+  {id:'l4',name:'Punch Needle Coasters',price:30,s:'18:00',e:'20:00',seats:12,tone:3,last:'Oct 4'},
+  {id:'l5',name:'Watercolor Pumpkins',price:25,s:'14:00',e:'15:30',seats:16,tone:4,last:'Oct 11'}
+ ],
+ party:{price:300,min:10,max:30,hours:2.5},
+ partyRules:[{id:'p1',dow:6,label:'Saturdays',times:['13:30']},{id:'p2',dow:0,label:'Sundays',times:['13:00','15:30']}],
+ partyCrafts:[{n:'Rondelle Beaded Necklace',p:18},{n:'Hand-in-Hand Potholder Looms',p:12},{n:'Watercolor Pumpkins',p:14}],
+ addons:[['Extra half hour','$75'],['Table set up for cake','$25'],['Goodie bags','$6 a guest']],
+ cafe:{s:'09:00',e:'12:00'},
+ special:[{d:'2026-11-07',s:'09:00',e:'21:00',why:'Grand opening'}],
+ closed:[{id:'x1',from:'2026-10-30',to:'2026-11-01',why:'Halloween weekend'},{id:'x2',from:'2026-11-26',to:'2026-11-27',why:'Thanksgiving'},{id:'x3',from:'2026-12-21',to:'2027-01-01',why:'Christmas'}],
+ todo:[
+  {id:'d1',kind:'pos',title:'Counter sale to match',head:'2 × Potholder Looms rung up at the counter, no names yet',hint:'Add names'},
+  {id:'d2',kind:'refund',title:'Refund done in Square',head:'$16.35 refunded in Square on Tori B.\'s booking. Free a seat?',hint:'Free a seat or keep it'},
+  {id:'d3',kind:'min',title:'Short of its minimum',head:'Needlepoint 101 has 4 of 6 by Thu 5 PM',hint:'Text the 4 booked or keep it running'}
+ ],
+ inbox:[
+  {id:'r1',kind:'req',name:'Jenna R.',head:'Bridal shower · Sat Nov 14 · 18 guests',status:'New',next:'Reply with dates and a quote',ans:[['Occasion','Bridal shower'],['Date','Sat Nov 14, afternoon'],['Guests','About 18 adults'],['Budget','$500–$1,000'],['Notes','Would love the beaded necklaces. Can we bring a cake?']]},
+  {id:'r2',kind:'req',name:'Courtney H. (Madison Elementary PTA)',head:'Teacher night · Thu Nov 5 · 25 guests',status:'New',next:'Call to talk dates',ans:[['Occasion','Teacher appreciation night'],['Date','Thu Nov 5, 6 PM'],['Guests','25 teachers'],['Budget','Not sure yet'],['Notes','PTA pays by check. Need an invoice.']]},
+  {id:'m1',kind:'msg',name:'Laura P.',head:'"Do you sell gift cards for Christmas?"',status:'New',next:'Reply by email',ans:[['Message','Hi! Do you sell gift cards? I want to give my sister a class for Christmas.'],['Sent','Sun Oct 18, 8:14 PM']]},
+  {id:'t1',kind:'teach',name:'Dana W.',head:'Teacher · Macramé plant hangers · weekends',status:'New',next:'Look at her photos, then reply',ans:[['Craft','Macramé plant hangers and wall hangings'],['When','Weekends, some Friday nights'],['Taught before','Library workshops, 3 years'],['Photos','4 attached']]}
+ ]
+};
+function cls(id){return S.classes.filter(function(c){return c.id===id})[0]}
+function lib(id){return S.lib.filter(function(c){return c.id===id})[0]}
+function msg(id){return S.inbox.filter(function(c){return c.id===id})[0]}
+function oth(id){return S.other.concat(S.blocks).filter(function(c){return c.id===id})[0]}
+function booked(c){return c.book.reduce(function(a,b){return a+(b.ref?0:b.q)},0)}
+function taken(c){return c.book.reduce(function(a,b){return a+b.q*c.price-(b.ref||0)},0)}
+function newCount(){return S.inbox.filter(function(m){return m.status==='New'}).length}
+function kindCount(k){return S.inbox.filter(function(m){return m.kind===k&&m.status==='New'}).length}
+function todo(id){return S.todo.filter(function(t){return t.id===id})[0]}
+function todoCount(){return S.todo.filter(function(t){return !t.done}).length}
+function closedOn(d){return S.closed.filter(function(x){return d>=x.from&&d<=x.to})[0]}
+function cafeOn(d){if(closedOn(d))return null;var sp=S.special.filter(function(x){return x.d===d})[0];if(sp)return sp;return pd(d).getDay()===6?{s:S.cafe.s,e:S.cafe.e}:null}
+function partySub(o){return o.guests+' guests · '+(o.pay==='link'?'payment link sent':'paid')}
+function partyEnd(t){var a=t.split(':').map(Number),m=a[0]*60+a[1]+S.party.hours*60;return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0')}
+function partyTaken(d,t,ex){return S.other.some(function(o){return o.kind==='party'&&!o.cancelled&&o!==ex&&o.d===d&&o.s===t})}
+function partySlots(ex){var r=[],d=TODAY;for(var i=0;i<56;i++){d=addD(d,1);if(closedOn(d))continue;var w=pd(d).getDay();S.partyRules.forEach(function(ru){if(ru.dow===w)ru.times.forEach(function(t){if(!partyTaken(d,t,ex))r.push(d+'|'+t)})})}return r}
+function slotLabel(v){var a=v.split('|');return fd(a[0])+' · '+ft(a[1])}
+function rulesText(){return S.partyRules.map(function(r){return r.label+' '+r.times.map(ft).join(' and ')}).join(', ')}
+function rangeLabel(x){return x.from===x.to?fd(x.from):fd(x.from)+' – '+fd(x.to)}
+function shortName(n){var p=n.trim().split(/\s+/);return p.length>1?p[0]+' '+p[p.length-1][0]+'.':p[0]}
+function itemsD(d){
+ var cl=closedOn(d);if(cl)return [{kind:'block',act:'closedday',id:cl.id,name:'Closed for '+cl.why,when:'All day',sub:'Nothing can be booked',s:'00:00'}];
+ var r=itemsOn(d).filter(function(it){return it.kind!=='cafe'});
+ r.forEach(function(it){if(it.kind==='party')it.act='party'});
+ var c=cafeOn(d);if(c)r.push({kind:'cafe',act:'cafe',id:d,name:'Craft Café'+(c.why?' · '+c.why:''),s:c.s,e:c.e,sub:'Walk-in · pay per craft'});
+ return r.sort(function(a,b){return a.s<b.s?-1:1});
+}
+
+function itemsOn(d){
+ var r=[];
+ S.classes.forEach(function(c){c.dates.forEach(function(x){if(x.d===d)r.push({kind:'class',id:c.id,name:c.name,s:x.s,e:x.e,sub:booked(c)+' of '+x.seats+' booked',st:c.status})})});
+ S.other.forEach(function(o){if(o.d===d)r.push({kind:o.kind,id:o.id,name:o.name,s:o.s,e:o.e,sub:o.kind==='cafe'?'Walk-in · pay per craft':partySub(o),st:o.cancelled?'Cancelled':''})});
+ S.blocks.forEach(function(b){if(b.d===d)r.push({kind:'block',id:b.id,name:'Blocked · '+b.why,s:b.s,e:b.e,sub:'Nothing can be booked'})});
+ return r.sort(function(a,b){return a.s<b.s?-1:1});
+}
+function rowH(it){
+ var tag=it.st==='Draft'?'<span class="tag">Draft</span>':it.st==='Cancelled'?'<span class="tag red">Cancelled</span>':'';
+ return '<button class="row k-'+it.kind+'" data-a="'+(it.act||(it.kind==='class'?'class':'item'))+'" data-v="'+it.id+'"><span class="rt">'+(it.when?esc(it.when):rng(it.s,it.e).replace('–','–<br>'))+'</span><span class="rm"><b>'+esc(it.name)+'</b><small>'+esc(it.sub)+tag+'</small></span><span class="chev">›</span></button>';
+}
+function weekStart(off){return addD(TODAY,off*7)}
+function weekList(off,plusBtns,fn){
+ var h='',w=weekStart(off);fn=fn||itemsOn;
+ for(var i=0;i<7;i++){var d=addD(w,i),its=fn(d);
+  h+='<div class="dayh"><h4 class="'+(d===TODAY?'today':'')+'">'+fd(d)+(d===TODAY?' · Today':'')+'</h4>'+(plusBtns?'<button class="plus" data-a="day" data-v="'+d+'" aria-label="Add on '+fd(d)+'">+</button>':'')+'</div>';
+  h+=its.length?its.map(rowH).join(''):'<button class="empty" data-a="day" data-v="'+d+'">Nothing on this day<em>+ Add</em></button>';
+ }
+ return h;
+}
+function wkNav(off){var w=weekStart(off);return '<div class="wknav"><button class="arrow" data-a="wk" data-v="-1" aria-label="Last week">‹</button><span class="grow">Week of '+MN[pd(w).getMonth()]+' '+pd(w).getDate()+'</span><button class="arrow" data-a="wk" data-v="1" aria-label="Next week">›</button>'+(off?'<button class="btn ghost sm" data-a="wk" data-v="0">Today</button>':'')+'</div>'}
+function monthGrid(off,fn,rich){fn=fn||itemsOn;
+ var ref=pd(weekStart(off)),y=ref.getFullYear(),m=ref.getMonth(),first=new Date(y,m,1),start=new Date(first);start.setDate(1-((first.getDay()+6)%7));
+ var h='<div class="dayh"><h4>'+['January','February','March','April','May','June','July','August','September','October','November','December'][m]+' '+y+'</h4></div><div class="mgrid">';
+ ['M','T','W','T','F','S','S'].forEach(function(x){h+='<span class="wd">'+x+'</span>'});
+ for(var i=0;i<42;i++){var dt=new Date(start);dt.setDate(start.getDate()+i);var d=ds(dt),mi=fn(d),n=mi.length;
+  h+='<button data-a="day" data-v="'+d+'" class="'+(dt.getMonth()!==m?'out ':'')+(d===TODAY?'tdy':'')+'" aria-label="'+fd(d)+', '+n+' things on">'+dt.getDate()+(n?(rich?mi.slice(0,3).map(function(it){return '<span class="mi k-'+it.kind+'">'+esc(it.name)+'</span>'}).join(''):'<span class="n">'+n+'</span>'):'')+'</button>';}
+ return h+'</div><p class="small muted" style="margin-top:8px">Tap a day to see it or add to it.</p>';
+}
+var SB='<div class="sbar"><span>9:41</span><span>●●● ▮</span></div>';
+
+/* ---------- screens ---------- */
+var P={A:{stack:[]},B:{stack:[],off:0,view:'week'},C:{stack:[],tab:'week',off:0},D:{stack:[],tab:'home',off:0,view:'week',cseg:'up',iseg:'req',dev:'phone'}};
+function screenA(){
+ var h=SB+'<p class="brand">Hometown Studio · Admin</p><h1 class="hi">Good morning, Catherine</h1><p class="muted small">Monday, October 19</p>';
+ var ti=itemsOn(TODAY);
+ h+='<p class="lbl">Today</p>'+(ti.length?ti.map(rowH).join(''):'<div class="empty">Nothing on today. The studio is closed Mondays.</div>');
+ h+='<p class="lbl">This week</p>';
+ for(var i=1;i<7;i++){var d=addD(TODAY,i),its=itemsOn(d);if(!its.length)continue;h+='<p class="small" style="font-weight:700;color:var(--dark);margin:8px 0 4px">'+fd(d)+'</p>'+its.map(rowH).join('')}
+ h+='<div style="display:grid;gap:8px;margin-top:16px"><button class="btn pri" data-a="new">+ New class</button><div class="two"><button class="btn ghost" data-a="block">Block time</button><button class="btn ghost" data-a="day" data-v="'+TODAY+'">Print today</button></div></div>';
+ h+='<p class="lbl">Needs you</p><div class="need"><button data-a="inbox" data-v="req"><b>'+kindCount('req')+'</b><small>Requests</small></button><button data-a="inbox" data-v="msg"><b>'+kindCount('msg')+'</b><small>Messages</small></button><button data-a="inbox" data-v="teach"><b>'+kindCount('teach')+'</b><small>Teachers</small></button></div>';
+ h+='<p class="lbl">More</p><div class="links"><button class="btn ghost sm" style="width:100%" data-a="upcoming">All upcoming</button><button class="btn ghost sm" style="width:100%" data-a="lib">Library</button><button class="btn ghost sm" style="width:100%" data-a="cal">Calendar</button></div>';
+ return h;
+}
+function screenB(){
+ var p=P.B,n=newCount();
+ var h=SB+'<div class="topb"><div class="grow"><p class="brand">Hometown Studio</p><h1 class="hi" style="font-size:1.3rem">Calendar</h1></div><button class="btn ghost sm" data-a="lib">Library</button><button class="btn ghost sm" data-a="inbox" data-v="req">Inbox '+(n?'<span class="dot">'+n+'</span>':'')+'</button></div>';
+ h+='<div class="seg"><button data-a="view" data-v="week" aria-pressed="'+(p.view==='week')+'">Week</button><button data-a="view" data-v="month" aria-pressed="'+(p.view==='month')+'">Month</button></div>';
+ h+=wkNav(p.off);
+ h+=p.view==='week'?weekList(p.off,true):monthGrid(p.off);
+ return h;
+}
+function screenC(){
+ var p=P.C,n=newCount(),t=p.tab;
+ var h=SB+'<div class="topb"><div class="grow"><p class="brand">Hometown Studio</p><h1 class="hi" style="font-size:1.3rem">Admin</h1></div><button class="btn ghost sm" data-a="block">Block time</button></div>';
+ h+='<nav class="ctabs">'+[['week','This week'],['classes','Classes'],['library','Library'],['inbox','Inbox'+(n?' '+n:'')]].map(function(x){return '<button data-a="ctab" data-v="'+x[0]+'" aria-current="'+(t===x[0])+'">'+x[1]+'</button>'}).join('')+'</nav>';
+ if(t==='week'){
+  h+=wkNav(p.off);var w=weekStart(p.off);
+  for(var i=0;i<7;i++){var d=addD(w,i),its=itemsOn(d);
+   h+='<div class="dtile"><div class="dayh"><h4 class="'+(d===TODAY?'today':'')+'">'+fd(d)+'</h4>'+(its.length?'<button class="btn ghost sm" data-a="day" data-v="'+d+'">Print</button>':'')+'</div>'+(its.length?its.map(rowH).join(''):'<p class="small muted">Nothing on.</p>')+'</div>';}
+ } else if(t==='classes'){
+  var cu=S.classes.filter(function(c){return !c.past});
+  h+='<div class="topb"><p class="grow muted small">'+cu.length+' coming up</p><button class="btn pri sm" data-a="new">+ New class</button></div><div class="tiles">';
+  cu.forEach(function(c){var x=c.dates[0],b=booked(c);h+='<button class="tile" data-a="class" data-v="'+c.id+'">'+sw(c.tone)+'<b>'+esc(c.name)+'</b><small>'+fd(x.d)+' · '+ft(x.s)+'</small><small>'+b+' of '+x.seats+' booked'+(c.status!=='Open'?' · '+c.status:'')+'</small><span class="bar"><i style="width:'+Math.round(b/x.seats*100)+'%"></i></span></button>'});
+  h+='</div>';
+ } else if(t==='library'){
+  h+='<p class="note">Every class you add lands here on its own. Tap one to run it again.</p><div class="tiles">';
+  S.lib.forEach(function(l){h+='<button class="tile" data-a="libitem" data-v="'+l.id+'">'+sw(l.tone)+'<b>'+esc(l.name)+'</b><small>Last ran '+l.last+' · '+money(l.price)+'</small></button>'});
+  h+='</div>';
+ } else {
+  h+=S.inbox.map(ibxCard).join('');
+ }
+ return h;
+}
+var ICO={
+ home:'<path d="M3 11l9-7 9 7"/><path d="M5 10v10h14V10"/>',
+ cal:'<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
+ classes:'<circle cx="12" cy="12" r="8"/><path d="M5 9c4 1 9 5 11 10M8 5c3 3 6 9 6 14"/>',
+ inbox:'<path d="M3 13l3-8h12l3 8v6H3z"/><path d="M3 13h5l1 3h6l1-3h5"/>',
+ more:'<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>'};
+var TABS=[['home','Home'],['cal','Calendar'],['classes','Classes'],['inbox','Inbox'],['more','More']];
+function ipad(){return P.D.dev==='ipad'}
+function tabbarD(){var n=newCount()+todoCount();return '<p class="tbrand">Hometown Studio</p>'+TABS.map(function(t){return '<button data-a="dtab" data-v="'+t[0]+'" aria-current="'+(P.D.tab===t[0]?'page':'false')+'"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">'+ICO[t[0]]+'</svg><span>'+t[1]+'</span>'+(t[0]==='inbox'&&n?'<span class="dot" aria-label="'+n+' waiting">'+n+'</span>':'')+'</button>'}).join('')}
+function tseg(act,cur,opts){return seg(act,cur,opts).replace('class="seg"','class="seg tight"')}
+function headD(title,right){return SB+'<div class="topb"><div class="grow"><p class="brand">Hometown Studio</p><h1 class="hi" style="font-size:1.3rem">'+title+'</h1></div>'+(right||'')+'</div>'}
+function homeD(){
+ var top=SB+'<p class="brand">Hometown Studio · Admin</p><h1 class="hi">Good morning, Catherine</h1><p class="muted small">Monday, October 19</p>';
+ var ti=itemsD(TODAY),l='',r='';
+ l+='<p class="lbl">Today</p>'+(ti.length?ti.map(rowH).join(''):'<div class="empty">Nothing on today. The studio is closed Mondays.</div>');
+ l+='<p class="lbl">This week</p>';
+ for(var i=1;i<7;i++){var d=addD(TODAY,i),its=itemsD(d);if(!its.length)continue;l+='<p class="small" style="font-weight:700;color:var(--dark);margin:8px 0 4px">'+fd(d)+'</p>'+its.map(rowH).join('')}
+ var btns='<div style="display:grid;gap:8px;margin-top:16px"><button class="btn pri" data-a="new">+ New class</button><div class="two"><button class="btn ghost" data-a="partynew">+ Book a party</button><button class="btn ghost" data-a="block">Block time</button></div><button class="btn ghost sm" style="justify-self:start" data-a="toast" data-v="Opens today, ready to print.">Print today</button></div>';
+ var need='<p class="lbl">Needs you</p><div class="need four"><button data-a="inbox" data-v="req"><b>'+kindCount('req')+'</b><small>Requests</small></button><button data-a="inbox" data-v="msg"><b>'+kindCount('msg')+'</b><small>Messages</small></button><button data-a="inbox" data-v="teach"><b>'+kindCount('teach')+'</b><small>Teachers</small></button><button data-a="inbox" data-v="todo"><b>'+todoCount()+'</b><small>To decide</small></button></div>';
+ if(ipad())return top+'<div class="cols"><div>'+l+'</div><div>'+need+btns+'</div></div>';
+ return top+l+btns+need;
+}
+function weekGrid(off){
+ var w=weekStart(off),h='<div class="wgrid">';
+ for(var i=0;i<7;i++){var d=addD(w,i),its=itemsD(d),x=pd(d);
+  h+='<div class="wcol'+(d===TODAY?' tdy':'')+'"><div class="wh"><span>'+DN[x.getDay()]+'<br>'+MN[x.getMonth()]+' '+x.getDate()+'</span><button class="plus" data-a="day" data-v="'+d+'" aria-label="Add on '+fd(d)+'">+</button></div>';
+  h+=its.map(function(it){return '<button class="blk k-'+it.kind+'" data-a="'+(it.act||(it.kind==='class'?'class':'item'))+'" data-v="'+it.id+'"><small>'+(it.when?esc(it.when):rng(it.s,it.e))+'</small><b>'+esc(it.name)+'</b>'+(it.st?'<span class="tag'+(it.st==='Cancelled'?' red':'')+'">'+it.st+'</span>':'')+'</button>'}).join('');
+  h+='</div>';}
+ return h+'</div>';
+}
+function calD(){var p=P.D;return headD('Calendar')+seg('view',p.view,[['week','Week'],['month','Month']])+wkNav(p.off)+(p.view==='week'?(ipad()?weekGrid(p.off):weekList(p.off,true,itemsD)):monthGrid(p.off,itemsD,ipad()))}
+function classRow(c,sub){var x=c.dates[0];return rowH({kind:'class',id:c.id,name:c.name,s:x.s,e:x.e,sub:sub,st:c.status})}
+function classesD(){
+ var p=P.D,sg=p.cseg,h=headD('Classes','<button class="btn pri sm" data-a="new">+ New class</button>');
+ h+=tseg('cseg',sg,[['up','Upcoming'],['draft','Drafts'],['past','Past'],['lib','Library']]);
+ var byD=function(a,b){return a.dates[0].d<b.dates[0].d?-1:1},last='';
+ if(sg==='up'){S.classes.filter(function(c){return !c.past&&c.status!=='Draft'}).sort(byD).forEach(function(c){var x=c.dates[0];if(x.d!==last){h+='<p class="small" style="font-weight:700;color:var(--dark);margin:10px 0 4px">'+fd(x.d)+'</p>';last=x.d}h+=classRow(c,booked(c)+' of '+x.seats+' booked')})}
+ else if(sg==='draft'){h+='<p class="note">Drafts are saved but not on the website yet.</p>';var dr=S.classes.filter(function(c){return c.status==='Draft'});h+=dr.length?dr.map(function(c){return classRow(c,fd(c.dates[0].d)+' · '+money(c.price))}).join(''):'<div class="empty">No drafts.</div>'}
+ else if(sg==='past'){S.classes.filter(function(c){return c.past}).sort(byD).reverse().forEach(function(c){h+='<p class="small" style="font-weight:700;color:var(--dark);margin:10px 0 4px">'+fd(c.dates[0].d)+'</p>'+classRow(c,c.book.length+' bookings · '+booked(c)+' seats · '+money(taken(c)))});h+='<p class="small muted" style="margin-top:8px">Tap a past class to see who came or refund someone.</p>'}
+ else{h+='<p class="note">Every class you add lands here on its own. Tap one to run it again.</p><div class="tiles">';S.lib.forEach(function(l){h+='<button class="tile" data-a="libitem" data-v="'+l.id+'">'+sw(l.tone)+'<b>'+esc(l.name)+'</b><small>Last ran '+l.last+' · '+money(l.price)+'</small></button>'});h+='</div>'}
+ return h;
+}
+function todoCard(t){return '<button class="ibx" data-a="todo" data-v="'+t.id+'"><span class="tp"><b>'+esc(t.title)+'</b><span class="badge '+(t.done?'done':'new')+'">'+(t.done?'Done':'To decide')+'</span></span><small>'+esc(t.head)+'</small><span class="nx">'+(t.done?esc(t.done):'Next: '+esc(t.hint))+'</span></button>'}
+function inboxD(){
+ var sg=P.D.iseg,h=headD('Inbox','<span class="small muted">'+(newCount()+todoCount())+' waiting</span>');
+ h+=tseg('diseg',sg,[['req','Requests '+kindCount('req')],['msg','Messages '+kindCount('msg')],['teach','Teachers '+kindCount('teach')],['todo','To decide '+todoCount()]]);
+ if(sg==='todo'){h+='<p class="note">Things that happened in Square without you. Nothing changes until you pick.</p>';var o=S.todo.filter(function(t){return !t.done}).concat(S.todo.filter(function(t){return t.done}));h+=o.map(todoCard).join('')}
+ else{var l=S.inbox.filter(function(m){return m.kind===sg});h+=l.length?l.map(ibxCard).join(''):'<div class="empty">Nothing here.</div>'}
+ return h;
+}
+var MORE=[['parties','Parties setup','Party times, $300 package, guests, add-ons'],['hours','Hours & Craft Café','Saturday hours and special days'],['closed','Closed days',''],['staff','Staff','Coming in stage 3'],['promos','Promotions','Coming in stage 4'],['reports','Reports','Sales, seats sold, refunds']];
+function moreD(){
+ var h=headD('More')+'<div class="mlist">';
+ MORE.forEach(function(m){var sub=m[0]==='closed'?S.closed.length+' coming up':m[2],soon=/^Coming/.test(sub);h+='<button class="mrow" data-a="mpage" data-v="'+m[0]+'"><span class="rm"><b>'+esc(m[1])+'</b><small>'+(soon?'<span class="tag" style="margin:0">'+sub+'</span>':esc(sub))+'</small></span><span class="chev">›</span></button>'});
+ return h+'</div>';
+}
+function screenD(){var t=P.D.tab;return t==='cal'?calD():t==='classes'?classesD():t==='inbox'?inboxD():t==='more'?moreD():homeD()}
+function syncPanel(){var t=top('D');P.D.el.classList.toggle('paneled',ipad()&&!!t&&t.el.classList.contains('pan'))}
+function goTab(t){while(P.D.stack.length)close('D',true);P.D.tab=t;render('D');P.D.el.querySelector('.scr').scrollTop=0}
+function fitD(){
+ var el=P.D.el,w=el.parentNode;
+ if(!ipad()){el.style.transform='';el.style.left='';w.style.height='';return}
+ var cw=w.clientWidth;if(!cw)return;var k=Math.min(1,cw/1024);
+ el.style.transform='scale('+k+')';el.style.left=Math.max(0,(cw-1024*k)/2)+'px';w.style.height=Math.ceil(720*k)+'px';
+}
+function setDev(v){
+ while(P.D.stack.length)close('D',true);
+ P.D.dev=v;P.D.el.classList.toggle('ipad',v==='ipad');document.getElementById('dir-D').classList.toggle('ipadmode',v==='ipad');
+ [].forEach.call(document.querySelectorAll('.devsw button'),function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-dev')===v))});
+ render('D');syncPanel();fitD();try{localStorage.setItem('admin-dev',v)}catch(e){}
+}
+function ibxCard(m){var lab={req:'Private event',msg:'Message',teach:'Teacher'}[m.kind];return '<button class="ibx" data-a="msg" data-v="'+m.id+'"><span class="tp"><b>'+esc(m.name)+'</b><span class="badge '+(m.status==='New'?'new':'done')+'">'+m.status+'</span></span><small>'+lab+' · '+esc(m.head)+'</small>'+(m.status==='New'?'<span class="nx">Next: '+esc(m.next)+'</span>':'')+'</button>'}
+function render(d){var ph=P[d],scr=ph.el.querySelector('.scr'),top=scr.scrollTop;scr.innerHTML=(d==='D'?screenD:d==='A'?screenA:d==='B'?screenB:screenC)();scr.scrollTop=top;if(d==='D')ph.el.querySelector('.tabbar').innerHTML=tabbarD()}
+function renderAll(){['D','A','B','C'].forEach(render)}
+
+/* ---------- sheets ---------- */
+function isSide(d,t){return (d==='B'&&(t==='inbox'||t==='msg'))||(d==='C'&&(t==='msg'||t==='class'||t==='libitem'))}
+var FULL={class:1,new:1,inbox:1,lib:1,cal:1,upcoming:1,msg:1,libitem:1,partynew:1,party:1,parties:1,hours:1,closed:1};
+var FORMS={new:1,block:1,partynew:1,parties:1,hours:1,closed:1};
+function top(d){var s=P[d].stack;return s[s.length-1]}
+function open(d,type,arg,o){
+ var st={type:type,arg:arg,tab:'bookings',f:{},d:d};for(var k in (o||{}))st[k]=o[k];
+ var rep=false,op=document.activeElement;
+ if(d==='D'&&P.D.stack.length){var old=P.D.stack.pop();op=old.opener;old.el.remove();rep=true}
+ var pad=d==='D'&&ipad(),mode=pad?(FORMS[type]?' modal':' pan'):'';
+ var w=document.createElement('div');w.className='sw'+(isSide(d,type)?' side':'')+mode;
+ w.innerHTML='<button class="scrim" data-a="close" aria-label="Close" tabindex="-1"></button><div class="sheet'+(FULL[type]?' full':'')+(isSide(d,type)||pad?' sidey':'')+(pad&&FORMS[type]?' formy':'')+'" role="dialog" aria-modal="'+(pad&&!FORMS[type]?'false':'true')+'"></div>';
+ if(rep&&!(pad&&FORMS[type]))w.classList.add('in');
+ st.el=w;st.opener=op;P[d].stack.push(st);P[d].el.querySelector('.layer').appendChild(w);
+ if(type==='party')st.tab='details';
+ if(type==='partynew'){st.f={slot:'',guests:'10',craft:'0',name:'',phone:'',email:''};st.pay='link'}
+ if(type==='hours')st.f={sd:'2026-12-12',ss:'09:00',se:'17:00',sn:''};
+ if(type==='closed')st.f={cf:'',ct:'',cn:''};
+ if(type==='new'){st.src=o&&o.lib?'past':'fresh';st.f={name:'',d:arg||'2026-10-30',s:'18:00',e:'20:00',price:'',seats:'12'};if(o&&o.lib)pickLib(st,o.lib)}
+ if(type==='block'){st.f={d:arg||'2026-10-31',s:'09:00',e:'21:00',note:''};st.why='Closed'}
+ if(type==='inbox')st.seg=arg||'req';
+ fill(st);if(d==='D')syncPanel();requestAnimationFrame(function(){requestAnimationFrame(function(){w.classList.add('in');var x=w.querySelector('.x');if(x)x.focus({preventScroll:true})})});
+}
+function grab(st){var sh=st.el.querySelector('.sheet');[].forEach.call(sh.querySelectorAll('[data-f]'),function(i){st.f[i.getAttribute('data-f')]=i.value})}
+function refresh(st){grab(st);fill(st)}
+function fill(st){
+ var r=BUILD[st.type](st),sh=st.el.querySelector('.sheet'),b=sh.querySelector('.sh-body'),y=b?b.scrollTop:0;
+ sh.setAttribute('aria-label',r.t);
+ sh.innerHTML='<div class="sh-head"><div class="tt"><h3>'+esc(r.t)+'</h3>'+(r.s?'<small>'+r.s+'</small>':'')+'</div><button class="x" data-a="close" aria-label="Close">×</button></div><div class="sh-body">'+r.b+'</div>'+(r.f?'<div class="sh-foot">'+r.f+'</div>':'');
+ sh.querySelector('.sh-body').scrollTop=y;
+}
+function close(d,force){
+ var st=top(d);if(!st)return;
+ if(st.dirty&&!force){grab(st);st.leave=true;fill(st);return}
+ P[d].stack.pop();st.el.classList.remove('in');setTimeout(function(){st.el.remove()},300);
+ if(d==='D')syncPanel();render(d);var t=top(d);if(t)refresh(t);
+ if(st.opener&&st.opener.isConnected)try{st.opener.focus({preventScroll:true})}catch(e){}
+}
+function seg(act,cur,opts){return '<div class="seg" role="group">'+opts.map(function(o){return '<button data-a="'+act+'" data-v="'+o[0]+'" aria-pressed="'+(cur===o[0])+'">'+o[1]+'</button>'}).join('')+'</div>'}
+function fld(lab,key,val,type,extra){return '<label class="fld"><span>'+lab+'</span><input data-f="'+key+'" type="'+(type||'text')+'" value="'+esc(val)+'" '+(extra||'')+'></label>'}
+function leaveFoot(){return '<div class="panel"><b>Leave without saving?</b><div class="two"><button class="btn ghost" data-a="keep">Keep editing</button><button class="btn danger" data-a="leave">Leave</button></div></div>'}
+function pickLib(st,id){var l=lib(id);st.lib=id;st.f.name=l.name;st.f.price=String(l.price);st.f.s=l.s;st.f.e=l.e;st.f.seats=String(l.seats);st.photo=true;st.tone=l.tone;st.dirty=true}
+
+var BUILD={
+ class:function(st){
+  var c=cls(st.arg),x=c.dates[0],b='',f='';
+  var sub=fd(x.d)+' · '+rng(x.s,x.e)+' · '+money(c.price)+(c.status!=='Open'?' <span class="tag '+(c.status==='Cancelled'?'red':'')+'">'+c.status+'</span>':'')+(c.past?' <span class="tag grey">Past</span>':'');
+  b+=seg('tab',st.tab,[['bookings','Bookings'],['details','Details'],['dates','Dates']]);
+  if(st.tab==='bookings'){
+   b+='<div class="sum"><div><b>'+booked(c)+' of '+x.seats+'</b><small>seats booked</small></div><div><b>'+money(taken(c))+'</b><small>taken so far</small></div></div>';
+   if(!c.book.length)b+='<div class="empty" style="margin-top:10px">No bookings yet. It\'s live on the What\'s On page.</div>';
+   c.book.forEach(function(k,i){b+='<div class="bk'+(k.ref?' gone':'')+'"><div class="rm"><b>'+esc(k.n)+'</b><small>'+k.q+' seat'+(k.q>1?'s':'')+' · '+money(k.q*c.price)+' · card'+(k.ref?' · refunded '+money(k.ref):'')+'</small></div>'+(k.ref?'<span class="tag grey">Refunded</span>':'<button class="btn ghost sm" data-a="refund" data-v="'+i+'">Refund</button>')+'</div>'});
+   if(st.refund!=null){var k=c.book[st.refund],amt=k.q*c.price;
+    f='<div class="panel"><b>Refund '+esc(k.n)+'?</b><span class="small">They paid '+money(amt)+' for '+k.q+' seat'+(k.q>1?'s':'')+'. Their seats go back on sale.</span><label class="fld" style="margin:0"><span>Amount</span><input data-f="amt" inputmode="decimal" value="'+amt+'"></label><div class="two"><button class="btn ghost" data-a="norefund">Never mind</button><button class="btn pri" data-a="dorefund">Refund</button></div></div>';
+   } else f='<div class="two"><button class="btn ghost" data-a="toast" data-v="Opens the sign-in sheet, ready to print.">Print list</button><button class="btn ghost" data-a="toast" data-v="Opens a text to everyone booked.">Text everyone</button></div>';
+  } else if(st.tab==='details'){
+   b+='<button class="photo has" data-a="toast" data-v="Opens your photos to pick a new one.">'+sw(c.tone)+'<span><b style="color:var(--dark)">Class photo</b><br><span class="small">Tap to change</span></span></button>';
+   b+=fld('Name','name',c.name,'text','data-save');
+   b+='<div class="two">'+fld('Price per seat','price',c.price,'number','data-save inputmode="decimal"')+'<label class="fld"><span>Ages</span><select data-f="ages" data-save><option>'+esc(c.ages)+'</option><option>Adults 18+</option><option>Kids 8+, drop-off</option></select></label></div>';
+   b+='<label class="fld"><span>Description</span><textarea data-f="desc" data-save>'+esc(c.desc)+'</textarea></label>';
+   b+='<button class="more" data-a="more" aria-expanded="'+!!st.more+'">More options <span>'+(st.more?'−':'+')+'</span></button>';
+   if(st.more)b+='<div class="morelist" style="margin-bottom:12px"><div><span>Seat prices (like Adult and Kid)</span><span class="muted">Off</span></div><div><span>Extras</span><span class="muted">None</span></div><div><span>Questions</span><span class="muted">None</span></div><div><span>Ages and booking rules</span><span class="muted">Default</span></div></div>';
+   if(st.cancel){b+='<div class="panel warn"><b>Cancel '+esc(c.name)+'?</b><span class="small">'+booked(c)+' people are booked. Next you\'ll see who to contact.</span><div class="two"><button class="btn ghost" data-a="nocancel">Keep it</button><button class="btn danger" data-a="docancel">Cancel class</button></div></div>'}
+   else if(c.status!=='Cancelled')b+='<button class="btn danger" data-a="cancel" style="margin-top:6px">Cancel this class</button>';
+   f='<button class="btn pri" data-a="save" disabled>Save</button>';
+  } else {
+   c.dates.forEach(function(x,i){b+='<fieldset><legend>Date '+(i+1)+'</legend>'+fld('Day','d'+i,x.d,'date')+'<div class="two">'+fld('Starts','s'+i,x.s,'time','data-start="'+i+'"')+fld('Ends','e'+i,x.e,'time')+'</div><div class="two">'+fld('Seats','q'+i,x.seats,'number')+'<label class="fld"><span>Status</span><select><option>'+esc(c.status)+'</option><option>Draft</option></select></label></div></fieldset>'});
+   b+='<button class="btn ghost" data-a="adddate">+ Add another date</button>';
+   f='<button class="btn pri" data-a="savedates">Save dates</button>';
+  }
+  return {t:c.name,s:sub,b:b,f:f};
+ },
+ new:function(st){
+  var b=seg('src',st.src,[['fresh','Start fresh'],['past','From a past class']]),f=st.f;
+  if(st.src==='past'){b+='<p class="small muted" style="margin-bottom:8px">Pick one. Its name, price, time and seats fill in below.</p>';S.lib.forEach(function(l){b+='<button class="libc'+(st.lib===l.id?' sel':'')+'" data-a="pick" data-v="'+l.id+'">'+sw(l.tone)+'<span class="rm"><b>'+esc(l.name)+'</b><small>Last ran '+l.last+' · '+money(l.price)+' · '+l.seats+' seats</small></span></button>'});b+='<p class="lbl">Details</p>'}
+  b+='<button class="photo'+(st.photo?' has':'')+'" data-a="photo">'+(st.photo?sw(st.tone==null?3:st.tone):'<span class="sw-img">'+CAM+'</span>')+'<span><b style="color:var(--dark)">'+(st.photo?'Photo added':'Add a photo')+'</b><br><span class="small">'+(st.photo?'Tap to change':'From your camera roll')+'</span></span></button>';
+  b+=fld('Name','name',f.name,'text','placeholder="Like: Punch Needle Coasters"'+(st.err?' aria-invalid="true"':''));
+  if(st.err)b+='<p class="err" style="margin:-6px 0 10px">Give the class a name.</p>';
+  b+=fld('Day','d',f.d,'date')+'<div class="two">'+fld('Starts','s',f.s,'time','data-start="n"')+fld('Ends','e',f.e,'time')+'</div><div class="two">'+fld('Price per seat','price',f.price,'number','inputmode="decimal" placeholder="$"')+fld('Seats','seats',f.seats,'number')+'</div>';
+  b+='<p class="note">It goes into your library on its own, so you can run it again later.</p>';
+  return {t:'New class',s:st.arg?'On '+fd(st.arg):'',b:b,f:st.leave?leaveFoot():'<button class="btn pri" data-a="addclass">Add class</button>'};
+ },
+ block:function(st){
+  var f=st.f,b=fld('Day','d',f.d,'date')+'<div class="two">'+fld('From','s',f.s,'time')+fld('To','e',f.e,'time')+'</div><p class="fld"><span style="font-size:.88rem;font-weight:600;color:var(--dark)">Why</span></p>'+seg('why',st.why,[['Closed','Closed'],['Private event','Private'],['Setup','Setup']])+fld('Note (only you see it)','note',f.note,'text','placeholder="Optional"')+'<p class="note">Customers can\'t book anything in this window.</p>';
+  return {t:'Block time',s:st.arg?fd(st.arg):'',b:b,f:st.leave?leaveFoot():'<button class="btn pri" data-a="doblock">Block this time</button>'};
+ },
+ day:function(st){
+  var D=st.d==='D',its=(D?itemsD:itemsOn)(st.arg),b=its.length?its.map(rowH).join(''):'<div class="empty">Nothing on this day yet.</div>';
+  b+='<div style="display:grid;gap:8px;margin-top:12px"><button class="btn pri" data-a="new" data-v="'+st.arg+'">+ New class on this day</button>'+(D?'<button class="btn ghost" data-a="partynew" data-v="'+st.arg+'">Book a party on this day</button>':'')+'<button class="btn ghost" data-a="block" data-v="'+st.arg+'">Block time on this day</button>'+(its.length||D?'<button class="btn ghost" data-a="toast" data-v="Opens '+fd(st.arg)+' ready to print.">Print this day</button>':'')+'</div>';
+  return {t:fd(st.arg),s:its.length+' thing'+(its.length===1?'':'s')+' on',b:b};
+ },
+ item:function(st){
+  var o=oth(st.arg),b='',f='';
+  if(!o)return {t:'Removed',b:'<p class="muted">This was removed.</p>'};
+  var lines=o.lines||['Customers can\'t book anything '+rng(o.s,o.e)+'.',o.note?'Note: '+o.note:''];
+  b='<div class="card">'+lines.filter(Boolean).map(function(l){return '<p>'+esc(l)+'</p>'}).join('')+'</div>';
+  if(o.kind==='party')f='<div class="two"><button class="btn ghost" data-a="toast" data-v="Calls Stefanie.">Call</button><button class="btn ghost" data-a="toast" data-v="Opens a text to Stefanie.">Text</button></div>';
+  else if(o.kind==='cafe')b+='<p class="note" style="margin-top:12px">Craft Café hours come from Square.</p>';
+  else f='<button class="btn danger" data-a="unblock" data-v="'+o.id+'">Remove this block</button>';
+  return {t:o.kind==='block'?'Blocked · '+o.why:o.name,s:fd(o.d)+' · '+rng(o.s,o.e),b:b,f:f};
+ },
+ inbox:function(st){
+  var b=seg('iseg',st.seg,[['req','Requests '+kindCount('req')],['msg','Messages '+kindCount('msg')],['teach','Teachers '+kindCount('teach')]]);
+  var list=S.inbox.filter(function(m){return m.kind===st.seg});
+  b+=list.length?list.map(ibxCard).join(''):'<div class="empty">Nothing here.</div>';
+  return {t:'Inbox',s:newCount()+' waiting on you',b:b};
+ },
+ msg:function(st){
+  var m=msg(st.arg),lab={req:'Private event request',msg:'Message',teach:'Teacher application'}[m.kind];
+  var b=(m.status==='New'?'<p class="note"><b style="color:var(--dark)">Next:</b> '+esc(m.next)+'</p>':'')+'<dl class="ans">'+m.ans.map(function(a){return '<dt>'+esc(a[0])+'</dt><dd>'+esc(a[1])+'</dd>'}).join('')+'</dl><p class="lbl">Status</p>'+seg('status',m.status,[['New','New'],['Replied','Replied'],['Done','Done']]);
+  return {t:m.name,s:lab,b:b,f:'<div class="two"><button class="btn ghost" data-a="toast" data-v="Calls '+esc(m.name.split(' ')[0])+'.">Call</button><button class="btn pri" data-a="toast" data-v="Opens an email to '+esc(m.name.split(' ')[0])+'.">Email</button></div>'};
+ },
+ lib:function(st){
+  var b='<p class="note">Every class you add lands here on its own. Schedule one to run it again.</p>';
+  S.lib.forEach(function(l){b+='<div class="libc">'+sw(l.tone)+'<span class="rm"><b>'+esc(l.name)+'</b><small>Last ran '+l.last+' · '+money(l.price)+'</small></span><button class="btn pri sm" data-a="new" data-lib="'+l.id+'">Schedule</button></div>'});
+  return {t:'Library',s:S.lib.length+' classes',b:b};
+ },
+ libitem:function(st){
+  var l=lib(st.arg);
+  var b='<div class="sw-img tone'+l.tone+'" style="width:100%;height:150px;border-radius:16px;margin-bottom:12px">'+YARN+'</div><div class="card"><p>'+money(l.price)+' a seat · '+l.seats+' seats</p><p>'+rng(l.s,l.e)+' usually</p><p class="muted small">Last ran '+l.last+'</p></div>';
+  return {t:l.name,s:'In your library',b:b,f:'<button class="btn pri" data-a="new" data-lib="'+l.id+'">Schedule it</button><div class="two"><button class="btn ghost" data-a="toast" data-v="Opens the details to edit.">Edit details</button><button class="btn ghost" data-a="archive" data-v="'+l.id+'">Archive</button></div>'};
+ },
+ cal:function(st){var off=st.off||0;return {t:'Calendar',b:wkNav(off)+weekList(off,true)}},
+ partynew:function(st){
+  var f=st.f,all=partySlots(),sl=st.arg?all.filter(function(v){return v.split('|')[0]===st.arg}):all,b='';
+  if(st.arg&&!sl.length){b+='<p class="note">No party times on '+fd(st.arg)+'. Parties run '+rulesText()+'. Pick a time below.</p>';sl=all}
+  if(sl.indexOf(f.slot)<0)f.slot=sl[0]||'';
+  var cr=S.partyCrafts[Number(f.craft)||0],g=parseInt(f.guests,10)||0,tot=S.party.price+g*cr.p;
+  b+='<label class="fld"><span>Day and time</span><select data-f="slot">'+sl.map(function(v){return '<option value="'+v+'"'+(v===f.slot?' selected':'')+'>'+slotLabel(v)+'</option>'}).join('')+'</select></label>';
+  b+='<label class="fld"><span>Craft</span><select data-f="craft">'+S.partyCrafts.map(function(c,i){return '<option value="'+i+'"'+(String(i)===String(f.craft)?' selected':'')+'>'+esc(c.n)+' · '+money(c.p)+' a guest</option>'}).join('')+'</select></label>';
+  b+='<p class="small muted" style="margin:-6px 0 12px">Only your party times show here.</p>';
+  b+=fld('Guests ('+S.party.min+'–'+S.party.max+')','guests',f.guests,'number','inputmode="numeric"'+(st.gerr?' aria-invalid="true"':''));
+  if(st.gerr)b+='<p class="err" style="margin:-6px 0 10px">Between '+S.party.min+' and '+S.party.max+' guests.</p>';
+  b+='<p class="lbl">Host</p>'+fld('Name','name',f.name,'text','autocomplete="off"'+(st.nerr?' aria-invalid="true"':''));
+  if(st.nerr)b+='<p class="err" style="margin:-6px 0 10px">Add the host\'s name.</p>';
+  b+=fld('Phone','phone',f.phone,'tel')+fld('Email','email',f.email,'email');
+  b+='<div class="panel" style="margin-bottom:12px"><div class="kv" style="padding:4px 0"><span>Whole studio</span><span>'+money(S.party.price)+'</span></div><div class="kv" style="padding:4px 0"><span>'+g+' × '+esc(cr.n)+'</span><span>'+money(g*cr.p)+'</span></div><div class="kv tot" style="padding:4px 0;border:0"><span>Total</span><span>'+money(tot)+'</span></div></div>';
+  b+='<p class="lbl">Payment</p>'+seg('pay',st.pay,[['link','Send payment link'],['card','Take card now']]);
+  b+=st.pay==='card'?fld('Card number','card',f.card||'','text','inputmode="numeric" placeholder="1234 1234 1234 1234"'):'<p class="note">We text and email the host a link to pay '+money(tot)+'. The party shows as waiting until they pay.</p>';
+  return {t:'Book a party',s:st.arg?'On '+fd(st.arg):'Whole studio · '+money(S.party.price)+' + crafts',b:b,f:st.leave?leaveFoot():'<button class="btn pri" data-a="bookparty">'+(st.pay==='card'?'Charge '+money(tot)+' and book':'Book and send link')+'</button>'};
+ },
+ party:function(st){
+  var o=oth(st.arg);if(!o)return {t:'Removed',b:'<p class="muted">This was removed.</p>'};
+  var tot=S.party.price+o.guests*o.cp,b=seg('tab',st.tab,[['details','Details'],['guests','Guests'],['pay','Payments']]),f='';
+  if(o.cancelled)b+='<div class="panel warn" style="margin-bottom:10px"><b>Cancelled</b><span class="small">Nothing was refunded. Refund in Square if they should get money back.</span></div>';
+  if(st.tab==='details')b+=[['When',fd(o.d)+' · '+rng(o.s,o.e)],['Host',o.host],['Phone',o.phone||'—'],['Email',o.email||'—'],['Guests',o.guests],['Craft',o.craft]].map(function(r){return '<div class="kv"><span>'+r[0]+'</span><span>'+esc(r[1])+'</span></div>'}).join('');
+  else if(st.tab==='guests'){var gl=o.guestList||[];b+='<p class="small muted" style="margin-bottom:4px">'+gl.length+' of '+o.guests+' have said yes</p>';b+=gl.length?gl.map(function(x){return '<div class="bk"><div class="rm"><b>'+esc(x[0])+'</b></div><span class="tag'+(x[1]?' grey':'')+'">'+(x[1]?'Waiver signed':'No waiver yet')+'</span></div>'}).join(''):'<div class="empty" style="margin-top:6px">No one has said yes yet.</div>';b+='<button class="btn ghost" style="margin-top:12px" data-a="toast" data-v="Copied the invite link for '+esc(o.host)+'.">Copy invite link</button>'}
+  else{b+='<div class="kv"><span>Whole studio</span><span>'+money(S.party.price)+'</span></div><div class="kv"><span>'+o.guests+' × '+esc(o.craft)+'</span><span>'+money(o.guests*o.cp)+'</span></div><div class="kv tot"><span>Total</span><span>'+money(tot)+'</span></div>';
+   b+=o.pay==='link'?'<div class="panel" style="margin-top:12px"><b>Waiting on payment</b><span class="small">Payment link sent to '+esc(o.host)+'.</span><button class="btn ghost" data-a="toast" data-v="Sent the payment link again.">Send it again</button></div>':'<div class="panel" style="margin-top:12px"><b>Paid '+money(tot)+'</b><span class="small">Card · '+(o.paidOn||'today')+'</span></div>'}
+  if(st.move){var ms=partySlots(o);f='<div class="panel"><b>Move to</b><label class="fld" style="margin:0"><span class="sr">New day and time</span><select data-f="mv">'+ms.map(function(v){return '<option value="'+v+'">'+slotLabel(v)+'</option>'}).join('')+'</select></label><div class="two"><button class="btn ghost" data-a="nomove">Never mind</button><button class="btn pri" data-a="domove">Move party</button></div></div>'}
+  else if(st.cancel)f='<div class="panel warn"><b>Cancel '+esc(o.host)+'\'s party?</b><span class="small">The time opens up on the calendar. This does not refund anything: if they should get money back, refund it in Square.</span><div class="two"><button class="btn ghost" data-a="nocancel">Keep it</button><button class="btn danger" data-a="dopcancel">Cancel party</button></div></div>';
+  else if(!o.cancelled)f='<div class="two"><button class="btn ghost" data-a="pmove">Move</button><button class="btn danger" data-a="cancel">Cancel</button></div>';
+  return {t:o.name,s:fd(o.d)+' · '+rng(o.s,o.e)+' · '+money(tot),b:b,f:f};
+ },
+ cafe:function(st){
+  var c=cafeOn(st.arg)||{s:S.cafe.s,e:S.cafe.e};
+  return {t:'Craft Café'+(c.why?' · '+c.why:''),s:fd(st.arg)+' · '+rng(c.s,c.e),b:'<div class="card"><p>Walk-in. No booking needed.</p><p>Pay per craft at the counter.</p></div><p class="note" style="margin-top:12px">'+(c.why?'A special day: these hours replace the usual Saturday hours.':'Every Saturday, '+rng(S.cafe.s,S.cafe.e)+'.')+'</p>',f:'<button class="btn ghost" data-a="mpage" data-v="hours">Change café hours</button>'};
+ },
+ closedday:function(st){
+  var x=S.closed.filter(function(c){return c.id===st.arg})[0];
+  return {t:'Closed for '+x.why,s:rangeLabel(x),b:'<div class="card"><p>Nothing can be booked on these days: no classes, parties or Craft Café.</p></div>',f:'<button class="btn ghost" data-a="mpage" data-v="closed">Edit closed days</button>'};
+ },
+ todo:function(st){
+  var t=todo(st.arg),b='<div class="card" style="margin-bottom:12px"><p><b style="color:var(--dark)">'+esc(t.head)+'</b></p></div>',f='',c1=cls('c1'),c3=cls('c3');
+  if(t.kind==='pos'){b+='<div class="kv"><span>Rung up</span><span>Sun Oct 18, 11:42 AM · $32.70</span></div><div class="kv"><span>Class</span><span>Potholder Looms · '+fd(c1.dates[0].d)+'</span></div><p class="lbl">Who are the seats for?</p>'+fld('Seat 1','n1',st.f.n1||'','text','placeholder="Name"')+fld('Seat 2','n2',st.f.n2||'','text','placeholder="Name"');
+   f='<button class="btn pri" data-a="addnames">Add names</button><button class="btn ghost" data-a="decide" data-v="Left as a counter sale">Not for a class</button>'}
+  else if(t.kind==='refund'){b+='<div class="kv"><span>Booking</span><span>Tori B. · 4 seats · Potholder Looms</span></div><div class="kv"><span>Refunded in Square</span><span>$16.35 (1 seat + tax)</span></div><p class="note" style="margin-top:12px">Freeing a seat puts it back on sale. It moves no money: the refund already happened in Square.</p>';
+   f='<div class="two"><button class="btn ghost" data-a="decide" data-v="Kept all 4 seats">Keep their seat</button><button class="btn pri" data-a="freeseat">Free a seat</button></div>'}
+  else{var b3=booked(c3);b+='<div class="sum"><div><b>'+b3+' of 6</b><small>needed to run</small></div><div><b>Thu 5 PM</b><small>decide by</small></div></div><div class="bar" style="margin-bottom:12px"><i style="width:'+Math.round(b3/6*100)+'%"></i></div>'+c3.book.map(function(k){return '<div class="kv"><span>'+esc(k.n)+'</span><span>'+k.q+' seats</span></div>'}).join('')+'<p class="note" style="margin-top:12px">Nothing cancels on its own. If you do cancel, do it from the class.</p>';
+   f='<div class="two"><button class="btn ghost" data-a="decide" data-v="Keeping it running">Keep it running</button><button class="btn pri" data-a="textmin">Text the 4 booked</button></div>'}
+  if(t.done)f='<div class="panel"><b>Done</b><span class="small">'+esc(t.done)+'</span></div>';
+  return {t:t.title,s:'To decide',b:b,f:f};
+ },
+ parties:function(st){
+  var b='<p class="lbl" style="margin-top:0">Party days and times</p>'+S.partyRules.map(function(r){return '<div class="kv"><span>'+r.label+'</span><span>'+r.times.map(ft).join(', ')+'</span></div>'}).join('')+'<button class="btn ghost" style="margin:10px 0 4px" data-a="toast" data-v="Adds another day and start time.">+ Add a party time</button>';
+  b+='<p class="lbl">Whole-studio package</p>'+fld('Price','pprice',S.party.price,'number','inputmode="decimal" data-save')+fld('Hours','phours',S.party.hours,'number','step="0.5" data-save')+fld('Fewest guests','pmin',S.party.min,'number','data-save')+fld('Most guests','pmax',S.party.max,'number','data-save')+'<p class="note">Crafts are charged per guest on top of the package.</p>';
+  b+='<p class="lbl">Party crafts</p>'+S.partyCrafts.map(function(c){return '<div class="kv"><span>'+esc(c.n)+'</span><span>'+money(c.p)+' a guest</span></div>'}).join('');
+  b+='<p class="lbl">Add-ons</p>'+S.addons.map(function(a){return '<div class="kv"><span>'+esc(a[0])+'</span><span>'+esc(a[1])+'</span></div>'}).join('')+'<button class="btn ghost" style="margin-top:10px" data-a="toast" data-v="Adds an add-on with a name and price.">+ Add an add-on</button>';
+  return {t:'Parties setup',s:'Whole studio · '+money(S.party.price)+' · '+S.party.min+'–'+S.party.max+' guests',b:b,f:'<button class="btn pri" data-a="saveparty" disabled>Save</button>'};
+ },
+ hours:function(st){
+  var f=st.f,b='<p class="lbl" style="margin-top:0">Craft Café · every Saturday</p>'+fld('Opens','cs',S.cafe.s,'time','data-save')+fld('Closes','ce',S.cafe.e,'time','data-save')+'<button class="btn pri" data-a="savehours" disabled>Save Saturday hours</button>';
+  b+='<p class="lbl">Special days</p>'+S.special.map(function(x){return '<div class="kv"><span>'+fd(x.d)+' · '+esc(x.why)+'</span><span>'+rng(x.s,x.e)+'</span></div>'}).join('');
+  if(st.adding)b+='<fieldset style="margin-top:12px"><legend>New special day</legend>'+fld('Day','sd',f.sd,'date')+fld('What is it?','sn',f.sn,'text','placeholder="Like: Holiday market"')+'<div class="two">'+fld('Opens','ss',f.ss,'time')+fld('Closes','se',f.se,'time')+'</div><div class="two" style="margin-bottom:12px"><button class="btn ghost" data-a="nospecial">Never mind</button><button class="btn pri" data-a="dospecial">Add day</button></div></fieldset>';
+  else b+='<button class="btn ghost" style="margin-top:10px" data-a="addspecial">+ Add a special day</button>';
+  b+='<p class="note" style="margin-top:12px">A special day replaces the Saturday hours for that day. Closed days beat both.</p>';
+  return {t:'Hours & Craft Café',s:'Saturdays '+rng(S.cafe.s,S.cafe.e),b:b};
+ },
+ closed:function(st){
+  var f=st.f,b=S.closed.map(function(x){return '<div class="kv"><span>'+esc(x.why)+'</span><span>'+rangeLabel(x)+'</span></div>'}).join('');
+  b+='<p class="lbl">Add closed days</p>'+fld('From','cf',f.cf,'date',st.cerr?'aria-invalid="true"':'')+fld('To (leave blank for one day)','ct',f.ct,'date')+fld('Why','cn',f.cn,'text','placeholder="Like: Spring break"');
+  if(st.cerr)b+='<p class="err" style="margin:-6px 0 10px">Pick the first closed day.</p>';
+  b+='<p class="note">Nothing can be booked on closed days. Anything already booked stays booked, and we\'ll tell you about it.</p>';
+  return {t:'Closed days',s:S.closed.length+' coming up',b:b,f:'<button class="btn pri" data-a="doclosed">Add closed days</button>'};
+ },
+ staff:function(){
+  var rows=[['Catherine',[1,1,1,1]],['Kaden',[0,1,1,1]],['Jessica',[1,0,1,0]]];
+  var b='<p class="note">A preview. Nothing here works yet.</p><div class="preview"><p class="lbl" style="margin-top:0">Who can work</p><div class="grid-av"><span class="h"></span><span class="h">Thu</span><span class="h">Fri</span><span class="h">Sat</span><span class="h">Sun</span>'+rows.map(function(r){return '<span class="nm">'+r[0]+'</span>'+r[1].map(function(y){return '<span class="'+(y?'y':'')+'">'+(y?'Yes':'—')+'</span>'}).join('')}).join('')+'</div>';
+  b+='<p class="lbl">Assign on a class</p><div class="kv"><span>Needlepoint 101 · Sun Oct 25</span><span>Catherine</span></div><div class="kv"><span>Potholder Looms · Fri Oct 23</span><span>Kaden, Jessica</span></div></div>';
+  return {t:'Staff',s:'<span class="tag" style="margin:0">Coming in stage 3</span>',b:b};
+ },
+ promos:function(){
+  var codes=[['GRANDOPENING','$5 off a class','0 used'],['FALLFRIENDS','10% off','4 used'],['TEACHERS','15% off classes','2 used']];
+  return {t:'Promotions',s:'<span class="tag" style="margin:0">Coming in stage 4</span>',b:'<p class="note">A preview. Nothing here works yet.</p><div class="preview">'+codes.map(function(c){return '<div class="kv"><span><b style="color:var(--dark)">'+c[0]+'</b><br><span class="small muted">'+c[1]+'</span></span><span>'+c[2]+'</span></div>'}).join('')+'<button class="btn ghost" style="margin-top:12px" disabled>+ New code</button></div>'};
+ },
+ reports:function(){
+  return {t:'Reports',s:'October so far',b:'<div class="sum"><div><b>$3,412</b><small>sales this month</small></div><div><b>74</b><small>seats sold</small></div><div><b>$16.35</b><small>refunds (1)</small></div></div><p class="lbl">Where it came from</p><div class="kv"><span>Classes</span><span>$1,968</span></div><div class="kv"><span>Parties</span><span>$852</span></div><div class="kv"><span>Craft Café</span><span>$592</span></div><p class="note" style="margin-top:12px">Sample numbers. The real ones come from Square.</p>'};
+ },
+ upcoming:function(st){
+  var b='',d=TODAY;
+  for(var i=0;i<42;i++){var its=itemsOn(d);if(its.length)b+='<p class="small" style="font-weight:700;color:var(--dark);margin:10px 0 4px">'+fd(d)+'</p>'+its.map(rowH).join('');d=addD(d,1)}
+  return {t:'All upcoming',s:'Next 6 weeks',b:b,f:'<button class="btn pri" data-a="new">+ New class</button>'};
+ }
+};
+
+/* ---------- toast ---------- */
+function toast(d,txt,undo){
+ var t=P[d].el.querySelector('.toast');clearTimeout(t._t);
+ t.innerHTML='<span>'+esc(txt)+'</span>'+(undo?'<button data-a="undo">Undo</button>':'');t._undo=undo;t.classList.add('on');
+ t._t=setTimeout(function(){t.classList.remove('on')},4000);
+}
+
+/* ---------- actions ---------- */
+var ACT={
+ close:function(d){close(d)},
+ keep:function(d,v,st){st.leave=false;refresh(st)},
+ leave:function(d){close(d,true)},
+ new:function(d,v,st,el){open(d,'new',v||null,el.getAttribute('data-lib')?{lib:el.getAttribute('data-lib')}:null)},
+ block:function(d,v){open(d,'block',v||null)},
+ class:function(d,v){open(d,'class',v)},
+ item:function(d,v){open(d,'item',v)},
+ day:function(d,v){open(d,'day',v)},
+ inbox:function(d,v){if(d==='D'){P.D.iseg=v||'req';goTab('inbox');return}if(d==='C'){P.C.tab='inbox';render('C');return}open(d,'inbox',v)},
+ msg:function(d,v){open(d,'msg',v)},
+ lib:function(d){if(d==='D'){P.D.cseg='lib';goTab('classes');return}open(d,'lib')},
+ libitem:function(d,v){open(d,'libitem',v)},
+ cal:function(d){if(d==='D'){goTab('cal');return}open(d,'cal')},
+ upcoming:function(d){if(d==='D'){P.D.cseg='up';goTab('classes');return}open(d,'upcoming')},
+ ctab:function(d,v){P.C.tab=v;render('C');P.C.el.querySelector('.scr').scrollTop=0},
+ view:function(d,v){P[d].view=v;render(d)},
+ wk:function(d,v,st){var n=Number(v);if(st&&st.type==='cal'){st.off=n===0?0:(st.off||0)+n;refresh(st);return}var p=P[d];p.off=n===0?0:p.off+n;render(d)},
+ tab:function(d,v,st){st.tab=v;st.refund=null;st.cancel=false;st.move=false;refresh(st)},
+ refund:function(d,v,st){st.refund=Number(v);refresh(st)},
+ norefund:function(d,v,st){st.refund=null;refresh(st)},
+ dorefund:function(d,v,st){grab(st);var c=cls(st.arg),k=c.book[st.refund],a=parseFloat(st.f.amt)||k.q*c.price;k.ref=a;st.refund=null;fill(st);render(d);toast(d,'Refunded '+money(a)+' to '+k.n+'\'s card.')},
+ save:function(d,v,st){grab(st);var c=cls(st.arg);c.name=st.f.name||c.name;c.price=Number(st.f.price)||c.price;c.desc=st.f.desc;fill(st);render(d);toast(d,'Saved.')},
+ savedates:function(d,v,st){grab(st);var c=cls(st.arg);c.dates.forEach(function(x,i){x.d=st.f['d'+i]||x.d;x.s=st.f['s'+i]||x.s;x.e=st.f['e'+i]||x.e;x.seats=Number(st.f['q'+i])||x.seats});fill(st);render(d);toast(d,'Saved. The calendar is updated.')},
+ adddate:function(d,v,st){grab(st);var c=cls(st.arg),l=c.dates[c.dates.length-1];c.dates.push({d:addD(l.d,7),s:l.s,e:l.e,seats:l.seats});fill(st);render(d)},
+ more:function(d,v,st){st.more=!st.more;refresh(st)},
+ cancel:function(d,v,st){st.cancel=true;refresh(st)},
+ nocancel:function(d,v,st){st.cancel=false;refresh(st)},
+ docancel:function(d,v,st){var c=cls(st.arg);c.status='Cancelled';st.cancel=false;st.tab='bookings';fill(st);render(d);toast(d,'Cancelled. Here is who to contact.')},
+ src:function(d,v,st){st.src=v;refresh(st)},
+ pick:function(d,v,st){grab(st);pickLib(st,v);fill(st)},
+ photo:function(d,v,st){grab(st);st.photo=!st.photo;st.dirty=true;fill(st)},
+ addclass:function(d,v,st){
+  grab(st);var f=st.f;if(!f.name.trim()){st.err=true;fill(st);var i=st.el.querySelector('[data-f=name]');i.focus();return}
+  var tone=st.tone==null?S.n%5:st.tone,id='c'+(++S.n);
+  S.classes.push({id:id,name:f.name.trim(),price:Number(f.price)||0,ages:'Adults 18+',tone:tone,status:'Open',desc:'',dates:[{d:f.d,s:f.s,e:f.e,seats:Number(f.seats)||12}],book:[]});
+  var shortD=MN[pd(f.d).getMonth()]+' '+pd(f.d).getDate();
+  if(st.lib)lib(st.lib).last=shortD;else S.lib.unshift({id:'l'+S.n,name:f.name.trim(),price:Number(f.price)||0,s:f.s,e:f.e,seats:Number(f.seats)||12,tone:tone,last:shortD});
+  while(P[d].stack.length)close(d,true);
+  renderAll();open(d,'class',id);toast(d,'Added. It\'s on the calendar and in your library.');
+ },
+ why:function(d,v,st){st.why=v;st.dirty=true;refresh(st)},
+ doblock:function(d,v,st){grab(st);var f=st.f,b={id:'b'+(++S.n),kind:'block',why:st.why,d:f.d,s:f.s,e:f.e,note:f.note};S.blocks.push(b);close(d,true);renderAll();toast(d,'Blocked '+fd(b.d)+', '+rng(b.s,b.e)+'.',function(){S.blocks=S.blocks.filter(function(x){return x!==b});renderAll()})},
+ unblock:function(d,v){var b=oth(v);S.blocks=S.blocks.filter(function(x){return x!==b});close(d,true);renderAll();toast(d,'Block removed.',function(){S.blocks.push(b);renderAll()})},
+ iseg:function(d,v,st){st.seg=v;refresh(st)},
+ status:function(d,v,st){var m=msg(st.arg),was=m.status;if(was===v)return;m.status=v;refresh(st);render(d);toast(d,'Marked '+v+'.',function(){m.status=was;var t=top(d);if(t)refresh(t);render(d)})},
+ archive:function(d,v){var i=S.lib.indexOf(lib(v)),l=S.lib[i];S.lib.splice(i,1);close(d,true);render(d);toast(d,'Archived '+l.name+'.',function(){S.lib.splice(i,0,l);renderAll()})},
+ toast:function(d,v){toast(d,v)},
+ dtab:function(d,v){goTab(v)},
+ cseg:function(d,v){P.D.cseg=v;render('D')},
+ diseg:function(d,v){P.D.iseg=v;render('D')},
+ mpage:function(d,v){open(d,v)},
+ partynew:function(d,v){open(d,'partynew',v||null)},
+ party:function(d,v){open(d,'party',v)},
+ cafe:function(d,v){open(d,'cafe',v)},
+ closedday:function(d,v){open(d,'closedday',v)},
+ todo:function(d,v){open(d,'todo',v)},
+ pay:function(d,v,st){grab(st);st.pay=v;fill(st)},
+ bookparty:function(d,v,st){
+  grab(st);var f=st.f,g=parseInt(f.guests,10);st.gerr=!(g>=S.party.min&&g<=S.party.max);st.nerr=!f.name.trim();
+  if(st.gerr||st.nerr||!f.slot){fill(st);var bad=st.el.querySelector('[aria-invalid=true]');if(bad)bad.focus();return}
+  var a=f.slot.split('|'),cr=S.partyCrafts[Number(f.craft)||0],nm=shortName(f.name),paid=st.pay==='card';
+  var o={id:'o'+(++S.n),kind:'party',name:'Party · '+nm,host:f.name.trim(),phone:f.phone,email:f.email,d:a[0],s:a[1],e:partyEnd(a[1]),guests:g,craft:cr.n,cp:cr.p,pay:paid?'card':'link',guestList:[],lines:[nm+' · '+g+' guests','Whole room, '+money(S.party.price)+' + crafts · '+(paid?'paid':'payment link sent'),'Craft: '+cr.n]};
+  S.other.push(o);st.dirty=false;renderAll();open(d,'party',o.id);
+  toast(d,paid?'Booked and paid. It\'s on the calendar.':'Booked. Payment link sent to '+nm+'.');
+ },
+ pmove:function(d,v,st){st.move=true;st.cancel=false;refresh(st)},
+ nomove:function(d,v,st){st.move=false;refresh(st)},
+ domove:function(d,v,st){grab(st);if(!st.f.mv)return;var o=oth(st.arg),a=st.f.mv.split('|');o.d=a[0];o.s=a[1];o.e=partyEnd(a[1]);st.move=false;fill(st);renderAll();toast(d,'Moved to '+slotLabel(st.f.mv)+'. Let '+o.host+' know.')},
+ dopcancel:function(d,v,st){var o=oth(st.arg);o.cancelled=true;o.lines=o.lines.concat(['Cancelled · nothing refunded']);st.cancel=false;fill(st);renderAll();toast(d,'Party cancelled. Nothing was refunded.')},
+ decide:function(d,v,st){var t=todo(st.arg);t.done=v;close(d,true);renderAll();toast(d,v+'.')},
+ addnames:function(d,v,st){grab(st);var c=cls('c1'),t=todo(st.arg);c.book.push({n:st.f.n1.trim()||'Counter guest',q:1},{n:st.f.n2.trim()||'Counter guest',q:1});t.done='Added 2 seats to Potholder Looms';close(d,true);renderAll();toast(d,'Added 2 seats to Potholder Looms.')},
+ freeseat:function(d,v,st){var k=cls('c1').book.filter(function(b){return b.n==='Tori B.'})[0],t=todo(st.arg);if(k&&k.q>1)k.q--;t.done='Freed 1 seat. Tori B. now has 3';close(d,true);renderAll();toast(d,'Freed 1 seat. It\'s back on sale.')},
+ textmin:function(d,v,st){var t=todo(st.arg);t.done='Texted the 4 booked';close(d,true);renderAll();toast(d,'Opens a text to Beth W. and Nora F.')},
+ saveparty:function(d,v,st){grab(st);var f=st.f;S.party.price=Number(f.pprice)||S.party.price;S.party.hours=Number(f.phours)||S.party.hours;S.party.min=Number(f.pmin)||S.party.min;S.party.max=Number(f.pmax)||S.party.max;fill(st);renderAll();toast(d,'Saved. New bookings use these.')},
+ savehours:function(d,v,st){grab(st);S.cafe.s=st.f.cs||S.cafe.s;S.cafe.e=st.f.ce||S.cafe.e;fill(st);renderAll();toast(d,'Saturday hours saved.')},
+ addspecial:function(d,v,st){grab(st);st.adding=true;fill(st);var i=st.el.querySelector('[data-f=sd]');if(i)i.focus()},
+ nospecial:function(d,v,st){grab(st);st.adding=false;fill(st)},
+ dospecial:function(d,v,st){grab(st);var f=st.f;if(!f.sd)return;S.special.push({d:f.sd,s:f.ss||'09:00',e:f.se||'17:00',why:f.sn.trim()||'Special hours'});S.special.sort(function(a,b){return a.d<b.d?-1:1});st.adding=false;fill(st);renderAll();toast(d,'Added '+fd(f.sd)+'. It\'s on the calendar.')},
+ doclosed:function(d,v,st){
+  grab(st);var f=st.f;st.cerr=!f.cf;if(st.cerr){fill(st);return}
+  var a=f.cf,b=f.ct||f.cf;if(b<a){var t=a;a=b;b=t}
+  var hit=0;for(var x=a;x<=b;x=addD(x,1))hit+=itemsOn(x).filter(function(it){return it.kind==='class'||it.kind==='party'}).length;
+  var c={id:'x'+(++S.n),from:a,to:b,why:f.cn.trim()||'Closed'};S.closed.push(c);S.closed.sort(function(p,q){return p.from<q.from?-1:1});
+  st.f={cf:'',ct:'',cn:''};fill(st);renderAll();toast(d,'Closed '+rangeLabel(c)+'.'+(hit?' Heads up: '+hit+' booking'+(hit>1?'s are':' is')+' on those days. Nothing was cancelled.':''));
+ },
+ undo:function(d,v,st,el){var t=P[d].el.querySelector('.toast');if(t._undo){t._undo();t._undo=null}t.classList.remove('on')}
+};
+
+['A','B','C','D'].forEach(function(d){P[d].el=document.querySelector('.phone[data-d="'+d+'"]')});
+document.addEventListener('click',function(e){
+ var el=e.target.closest('[data-a]');if(!el)return;var ph=el.closest('.phone');if(!ph)return;
+ var d=ph.getAttribute('data-d'),a=el.getAttribute('data-a');if(!ACT[a]||el.disabled)return;
+ ACT[a](d,el.getAttribute('data-v'),top(d),el);
+});
+document.addEventListener('input',function(e){
+ var ph=e.target.closest('.phone');if(!ph)return;var st=top(ph.getAttribute('data-d'));if(!st)return;
+ if(st.type==='new'||st.type==='block'||st.type==='partynew'){st.dirty=true;if(st.err&&e.target.getAttribute('data-f')==='name'){st.err=false;e.target.removeAttribute('aria-invalid');var er=st.el.querySelector('.err');if(er)er.remove()}}
+ if(e.target.hasAttribute('data-save')){var s=st.el.querySelector('[data-a=save],[data-a=saveparty],[data-a=savehours]');if(s)s.disabled=false}
+});
+document.addEventListener('change',function(e){
+ var ph=e.target.closest('.phone');if(ph){var pst=top(ph.getAttribute('data-d'));if(pst&&pst.type==='partynew'&&/^(slot|guests|craft)$/.test(e.target.getAttribute('data-f')||'')){refresh(pst);return}}
+ var i=e.target.getAttribute('data-start');if(i==null||!e.target.value)return;
+ var k=i==='n'?'e':'e'+i,end=e.target.closest('.sheet').querySelector('[data-f="'+k+'"]');if(!end)return;
+ var p=e.target.value.split(':').map(Number);end.value=String(Math.min(p[0]+2,23)).padStart(2,'0')+':'+String(p[1]).padStart(2,'0');
+});
+document.addEventListener('keydown',function(e){if(e.key!=='Escape')return;var d=cur;if(top(d))close(d)});
+
+var cur='D';try{var s=localStorage.getItem('admin-dir');if(s==='A'||s==='B'||s==='C'||s==='D')cur=s}catch(e){}
+function pickDir(d){cur=d;[].forEach.call(document.querySelectorAll('.switch button'),function(b){b.setAttribute('aria-pressed',String(b.getAttribute('data-dir')===d))});['D','A','B','C'].forEach(function(x){document.getElementById('dir-'+x).classList.toggle('on',x===d)});try{localStorage.setItem('admin-dir',d)}catch(e){}if(d==='D')fitD()}
+[].forEach.call(document.querySelectorAll('.devsw button'),function(b){b.addEventListener('click',function(){setDev(b.getAttribute('data-dev'))})});
+window.addEventListener('resize',fitD);
+[].forEach.call(document.querySelectorAll('.switch button'),function(b){b.addEventListener('click',function(){pickDir(b.getAttribute('data-dir'))})});
+renderAll();pickDir(cur);try{if(localStorage.getItem('admin-dev')==='ipad')setDev('ipad')}catch(e){}
+})();
+</script>

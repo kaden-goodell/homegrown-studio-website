@@ -20,6 +20,12 @@
  * about this order) settles it. Money taken is always recorded; nothing here
  * refunds. The bookings gate does not apply (S2-R16).
  *
+ * An owner taking a card in /admin (`owner` set) goes through exactly this
+ * path, without the link's key: the same one-payment-at-a-time claim, so a
+ * host paying by link and an owner charging a card can never both charge.
+ * Those charges are `admin-card`, carry the owner, and only the host's
+ * receipt goes out (the owner is the one who took it).
+ *
  * Server only.
  */
 import { timingSafeEqual } from 'node:crypto'
@@ -33,6 +39,7 @@ import { idFor } from '@lib/booking-core/ids'
 import { alertOwners } from '@lib/owner-alert'
 import { sendPartyPaidEmail } from '@lib/email'
 import type { Payment } from '@providers/interfaces/payment'
+import type { By } from '@lib/staff-auth'
 import {
   getPartyRecord, isOurs, updatePartyRecord,
   type PartyCharge, type PartyPaying, type PartyRecord,
@@ -75,6 +82,8 @@ export interface PayInput {
   expectedCents: number
   pay: LinkPay
   requestUrl: string
+  /** An owner taking a card in /admin: no key needed; the charge is theirs (`admin-card`). */
+  owner?: By
 }
 
 export type PayOutcome =
@@ -116,9 +125,18 @@ class Stop extends Error {
 
 export async function payBalance(input: PayInput, now: Date = new Date()): Promise<PayOutcome> {
   const { partyId, attemptId } = input
+  const owner = input.owner ?? null
+  const how = owner ? 'card in /admin' : 'link'
+  // An owner needs no key: any booked party of ours.
+  const find = async (): Promise<PartyRecord | null> => {
+    if (!owner) return partyForLink(partyId, input.key)
+    if (typeof partyId !== 'string' || !partyId.startsWith('pty_')) return null
+    const r = await getPartyRecord(partyId)
+    return r && isOurs(r) ? r : null
+  }
   let rec: PartyRecord | null
   try {
-    rec = await partyForLink(partyId, input.key)
+    rec = await find()
   } catch (err) {
     logger.error('Party unreadable for a link payment — refusing', { partyId, error: String(err) })
     return refuse(503, 'unavailable', workshopMessages.unavailable)
@@ -142,7 +160,7 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
     if (settled === 'unknown') return refuse(409, 'in_progress', LINK_BUSY_MESSAGE)
     if (settled === 'paid') {
       try {
-        rec = (await partyForLink(partyId, input.key)) ?? rec
+        rec = (await find()) ?? rec
       } catch { /* the stale copy only decides "already paid" */ }
       if (dueCents(rec) === 0) return { kind: 'paid', rec, charge: lastCharge(rec), already: true, replay: false }
     }
@@ -187,7 +205,7 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
       return {
         ...c.rec,
         paying: {
-          ...p, via: 'link', state: 'charging', at, itemIds: due.map((it) => it.id), quotedCents, orderId: null,
+          ...p, via: owner ? 'admin-card' : 'link', ...(owner ? { by: owner } : {}), state: 'charging', at, itemIds: due.map((it) => it.id), quotedCents, orderId: null,
           ...(input.pay.kind === 'card'
             ? {
                 order: {
@@ -201,7 +219,7 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
             : {}),
         },
       }
-    }, 'Payment started (link)', null)
+    }, `Payment started (${how})`, owner)
     paying = claimed.paying!
   } catch (err) {
     if (err instanceof Stop) {
@@ -218,7 +236,7 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
 
   /** Nothing was charged: the party's payment slot is free again. */
   const letGo = async (why: string) => {
-    await updatePartyRecord(partyId, (r) => (r.paying?.attemptId === attemptId ? { ...r, paying: null } : null), `Payment not taken (link): ${why}`, null)
+    await updatePartyRecord(partyId, (r) => (r.paying?.attemptId === attemptId ? { ...r, paying: null } : null), `Payment not taken (${how}): ${why}`, owner)
       .catch((err) => logger.error('Link payment slot not cleared (it runs out by itself)', { partyId, why, error: String(err) }))
   }
 
@@ -242,7 +260,7 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
     return refuse(503, 'unavailable', LINK_ORDER_FAILED_MESSAGE)
   }
   paying = { ...paying, orderId: order.id }
-  await updatePartyRecord(partyId, (r) => (r.paying?.attemptId === attemptId ? { ...r, paying: { ...r.paying, orderId: order.id } } : null), 'Payment order made (link)', null)
+  await updatePartyRecord(partyId, (r) => (r.paying?.attemptId === attemptId ? { ...r, paying: { ...r.paying, orderId: order.id } } : null), `Payment order made (${how})`, owner)
     .catch((err) => logger.error('Link payment order id not saved', { partyId, error: String(err) }))
 
   // A retry of this attempt: did the first try already pay?
@@ -294,10 +312,10 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
     await updatePartyRecord(
       partyId,
       (r) => (r.paying?.attemptId === attemptId ? { ...r, paying: { ...r.paying, state: 'unclear', until, ...(o ? { orderId: o.id } : {}) } } : null),
-      'Payment unclear (link)', null,
+      `Payment unclear (${how})`, owner,
     ).catch((e) => logger.error('Unclear link payment not noted', { partyId, error: String(e) }))
     await alertOwners(
-      `Party payment link unclear: ${rec!.hostName}, party on ${partyWhenLabel(rec!.startIso)}. Check Square for a${o ? ` ${dollars(o.totalAmount)}` : ''} payment${o ? ` on order ${o.id}` : ''}. Party ${partyId}. No other payment can start on it for 24 hours.`,
+      `Party payment ${owner ? `by card in /admin (${owner.name})` : 'link'} unclear: ${rec!.hostName}, party on ${partyWhenLabel(rec!.startIso)}. Check Square for a${o ? ` ${dollars(o.totalAmount)}` : ''} payment${o ? ` on order ${o.id}` : ''}. Party ${partyId}. No other payment can start on it for 24 hours.`,
     ).catch(() => undefined)
     return { kind: 'unknown', partyId }
   }
@@ -323,8 +341,8 @@ export async function recordLinkCharge(
 ): Promise<{ rec: PartyRecord | null; charge: PartyCharge; created: boolean }> {
   const chargeId = idFor('chg', pay.paymentId)
   let charge: PartyCharge = {
-    id: chargeId, via: 'link', orderId: pay.orderId, paymentId: pay.paymentId, cents: pay.cents, quotedCents: paying.quotedCents ?? pay.cents,
-    itemIds: paying.itemIds ?? [], receiptUrl: pay.receiptUrl, at: now.toISOString(), by: null, attemptId: paying.attemptId,
+    id: chargeId, via: paying.via ?? 'link', orderId: pay.orderId, paymentId: pay.paymentId, cents: pay.cents, quotedCents: paying.quotedCents ?? pay.cents,
+    itemIds: paying.itemIds ?? [], receiptUrl: pay.receiptUrl, at: now.toISOString(), by: paying.by ?? null, attemptId: paying.attemptId,
     ...(pay.simulated ? { simulated: true as const } : {}),
   }
   let rec: PartyRecord | null = null
@@ -348,7 +366,7 @@ export async function recordLinkCharge(
           charges: [...(r.charges ?? []), charge],
           paying: freePaying,
         }
-      }, `Paid ${dollars(pay.cents)} by payment link`, null)
+      }, `Paid ${dollars(pay.cents)} ${paying.via === 'admin-card' ? 'by card in /admin' : 'by payment link'}`, paying.by ?? null)
     } catch (err) {
       threw = true
       logger.error(i === 0 ? 'Link payment record failed — retrying once' : 'Link payment record failed after retry (money taken)', { partyId, error: String(err) })
@@ -412,6 +430,8 @@ export async function tellLinkPaid(rec: PartyRecord, charge: PartyCharge): Promi
   } catch (err) {
     logger.error('Link payment email failed (payment recorded)', { partyId: rec.bookingId, error: String(err) })
   }
+  // An owner took this card themselves: they already know.
+  if (charge.via === 'admin-card') return
   await alertOwners(`Balance paid: ${rec.hostName} paid ${dollars(charge.cents)} for the party on ${whenLabel}. Party ${rec.bookingId}.`).catch(() => undefined)
 }
 

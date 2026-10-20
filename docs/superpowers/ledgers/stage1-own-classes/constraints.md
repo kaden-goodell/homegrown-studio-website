@@ -1,0 +1,11 @@
+Global constraints (from the plan, verbatim where it matters):
+- Branch kaden/own-booking-system only; never push main/dev.
+- Prices always computed on the server from the class record, never trusted from the browser.
+- Customer copy: no colons, no timelines, "parties" never "birthday", "Craft Café" never "Open Studio".
+- Money in integer cents. Times stored as UTC ISO; displayed in America/Chicago via src/lib/studio-time.ts.
+- Tax per seat line, rounded per line; Square applies the catalog 9% tax via pricing_options.auto_apply_taxes:true and the order must NOT also carry order.taxes.
+- All new stores go through makeKvStore(name, dir); multi-writer records use getWithMeta + setIfMatch CAS with 3 attempts.
+- Our classes use ids prefixed cls_, sessions ses_ (never collide with clssch_).
+- Never cancel or refund a booking automatically.
+- One shared Square API version constant for new raw REST calls.
+- Error messages are plain sentences an owner/customer reads.
