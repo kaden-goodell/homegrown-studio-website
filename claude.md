@@ -1,6 +1,8 @@
 This project uses **Jig** for development workflow management.
 See `jig.config.md` for pipeline configuration.
 
+**Read `docs/handbook/README.md` first.** It has the setup, branch state, how to add workshops, and the house rules (no prod push without Kaden, never cancel bookings, copy rules). Topic notes live in `docs/handbook/notes/` — read the matching one before touching that area.
+
 # Claude Code Session Notes
 
 ## Git Configuration
