@@ -1,0 +1,54 @@
+# Notes index
+
+One topic per file. Dates are when the note was written; check the code before trusting a detail.
+
+- [feedback_admin-actions-are-kadens.md](feedback_admin-actions-are-kadens.md) — Don't change live/production data on Kaden's behalf when an admin UI exists for it — point him to the button; he rejected a direct DB UPDATE to approve a church
+- [feedback_audience-framing.md](feedback_audience-framing.md) — Homegrown's craft experiences are for EVERYONE (all ages 8+, any occasion) — never frame them as kids' birthday parties in names or copy
+- [feedback_batch-prod-deploys.md](feedback_batch-prod-deploys.md) — Batch prod deploys to save Netlify credits — hold small changes on dev and ship them together
+- [feedback_check-memory-before-research.md](feedback_check-memory-before-research.md) — Before researching Square (or any) API capabilities, read the existing memory notes and answer from them; don't redo research Kaden already paid for
+- [feedback_craft-copy-voice.md](feedback_craft-copy-voice.md) — Approved voice/length/structure for craft descriptions AND the approved AI craft-image prompt style (2026-09-20) — full rules live in the repo skill .claude/skills/craft-copy/SKILL.md
+- [feedback_explain-like-no-context.md](feedback_explain-like-no-context.md) — When reporting review findings/deviations to Kaden, explain each one as if he has zero context — what it is, why it matters, in plain words — short but never jargon or spec-internal references
+- [feedback_never-cancel-bookings.md](feedback_never-cancel-bookings.md) — HARD RULE — never cancel, release, refund, or delete a customer's party or workshop booking on my own; that is 100% Kaden's manual step, no exceptions
+- [feedback_no-guessing-square-writes.md](feedback_no-guessing-square-writes.md) — Never try guessed/undocumented write endpoints against live Square (dashboard or API); prove the route first
+- [feedback_no-prod-push-without-go.md](feedback_no-prod-push-without-go.md) — Never push to main/production unless Kaden explicitly says so in that moment; push to dev only
+- [feedback_reground-after-compaction.md](feedback_reground-after-compaction.md) — After a context compaction, re-read the real state before changing anything, and ask Kaden questions instead of assuming
+- [feedback_show-copy-before-editing.md](feedback_show-copy-before-editing.md) — For site copy rewrites (About page etc.), show the FULL proposed text and wait for approval before editing files
+- [feedback_show-options-for-design.md](feedback_show-options-for-design.md) — When Kaden rejects a visual design, offer two or three sketched directions to pick from instead of guessing again
+- [feedback_square_via_api.md](feedback_square_via_api.md) — Kaden wants ALL Square work done via API, never asks him to use Square admin manually
+- [feedback_test-sms-to-kaden-only.md](feedback_test-sms-to-kaden-only.md) — Never send test texts to made-up/555 numbers — every test SMS goes to Kaden's own phone (402) 980-2907; test emails to a kaden+tag@ourhometownstudio.com address
+- [feedback_workshops-stay-closed.md](feedback_workshops-stay-closed.md) — Workshop booking stays OFF on the live site until Kaden explicitly says to open it — never suggest bundling the switch
+- [glass-tint-options.md](glass-tint-options.md) — Glass Tint Options (Homepage Cards)
+- [modal-flow-decisions.md](modal-flow-decisions.md) — Modal Flow UX Decisions (March 2, 2026)
+- [offering-model-jun2026.md](offering-model-jun2026.md) — The studio's offering model as of June 2026 — Open Studio (walk-in), Party (whole-room rental), Workshops (per-seat); per-table reservation system was REMOVED
+- [party-conversion-redesign.md](party-conversion-redesign.md) — Jul 9 2026 party booking conversion redesign — 3-step dynamic modal, wallet payments, content gating pattern via party-content.ts + NEEDS-FROM-KADEN.md
+- [party-data-rebuild.md](party-data-rebuild.md) — Real party data (2026-07-08): crafts are now catalog ITEMS not modifiers; Whole Studio Party service + Party Crafts category; TEST data + all junk deleted; open studio item needs rebuild
+- [phase8-review-fixes.md](phase8-review-fixes.md) — Phase 8 Square Providers — Critical Review & Fixes
+- [post-audit-fixes-jul2026.md](post-audit-fixes-jul2026.md) — Jul 10 2026 post-audit fix batch — corrected business facts ($300 fee, parties never drop-off, agreement v2) and the branch that landed them
+- [project_admin_site.md](project_admin_site.md) — Kaden wants an admin.homegrowncraftstudio.com management site for workshops (and likely other content)
+- [project_class-audiences.md](project_class-audiences.md) — Which workshops are kids' drop-off (8+) vs adult (18+) — Kaden's rule 10/11/2026
+- [project_comp-seat-made-to-order-oct2026.md](project_comp-seat-made-to-order-oct2026.md) — Oct 18 2026 prod push 9be8950 — made-to-order class flag, Request a spot, comp seat customer search + waiver people, email opt-in, fill-missing customer fields
+- [project_email-typo-fix-oct2026.md](project_email-typo-fix-oct2026.md) — Mistyped-email protection on bookings (classes + parties) — rules for what may change a Square profile; dev da673a7, prod pending
+- [project_giveaways-oct2026.md](project_giveaways-oct2026.md) — Oct 8–9 2026 — giveaways built on dev: Square gift cards (mint from /staff + CLI, redeem online for parties/kits), 'Comp a seat' via Square's own Add-attendee screen + a record here, staff audit log (backend only, no gates), coupon system deleted; key Square facts (gift cards refused for class seats; no CORS to app.squareup.com)
+- [project_homegrown-launch-date.md](project_homegrown-launch-date.md) — Homegrown Studio brick-and-mortar creative studio — grand opening pushed to FRIDAY OCTOBER 16, 2026 (from Sept 1, on 2026-09-02); pre-launch, prod bookings gated closed.
+- [project_leave-square-classes.md](project_leave-square-classes.md) — Kaden wants to move classes off Square's Classes API (18 Oct 2026) after per-seat pricing failed; likely path = party-style checkout
+- [project_private-events-contact-oct2026.md](project_private-events-contact-oct2026.md) — /private-events request form, /contact form, grouped top menu, /admin tabs — built 10/17, on PROD since 463b83f (10/17)
+- [project_rebrand-home-town-studio.md](project_rebrand-home-town-studio.md) — REBRAND (Sep 26 2026) — cease-and-desist forces Homegrown Studio → Hometown Studio (ONE word); site-wide swap done 9/26; domain LIVE ourhometownstudio.com 9/27; ALL DIGITAL DONE incl. prod deploy 9/27; only sign/socials/GBP pending
+- [project_seat-options-oct2026.md](project_seat-options-oct2026.md) — Oct 6 2026 — IN PROGRESS build on branch kaden/seat-options: per-seat options (pumpkin colour), sign-up cutoffs, parties yield to classes, no-class-over-party guard, staff warning panel + daily email; spec committed; plan being written; October class roster facts
+- [project_site-speed-oct2026.md](project_site-speed-oct2026.md) — Why pages were slow (Netlify cold starts) and the 3 fixes shipped to prod 10/11 (d825af8)
+- [project_take-home-kits.md](project_take-home-kits.md) — Take-Home Party Kits — premium rental model, pricing rules, PRD location, what's net-new in Square integration
+- [project_teach-and-admin-oct2026.md](project_teach-and-admin-oct2026.md) — /teach artist application page + owner-only /admin (ADMIN_PASSCODE), built 15 Oct 2026; Kaden's rules for it
+- [project_ux-review-sep2026.md](project_ux-review-sep2026.md) — UX review of Parties/Workshops/Calendar (2026-09-27) — Kaden's decisions, the three-deploy plan, Linear tickets HOM-170…205, closed days, automated sign-up emails, and the keep-it-in-Square rule
+- [project_waiver-custody-audit-sep2026.md](project_waiver-custody-audit-sep2026.md) — Sep 27 2026 full audit of waiver signing + child check-in/pickup — ranked findings (C1–C6 pre-opening), Kaden's framing constraints, and the published report link
+- [project_waiver-custody-rail-shipped.md](project_waiver-custody-rail-shipped.md) — Sep 28–29 2026 — waiver & custody rail BUILT and then SIMPLIFIED (waiver v3 w/ §4b drop-off terms, addendum + OTP REMOVED, attendance-only non-drop-off events, door Add family); dev@4faefa5 preview verified; prod push to main left for Kaden; architecture + pickup rules
+- [project_waiver-lighter-form-oct2026.md](project_waiver-lighter-form-oct2026.md) — Oct 7 2026 — agreement RESET to v1 (no capacity clause) + waiver sign-up form lightened on Kaden's call: adult DOB replaced by an 'I'm 19 or older' tick (ageConfirmed), emergency contact = name+phone, optional except drop-off, photo consent defaults to yes & never blocks; legal text untouched; opinion on the legal text's length recorded
+- [project_waiver-reminders-oct2026.md](project_waiver-reminders-oct2026.md) — Class-day 9 AM waiver reminder (email+text) shipped 15 Oct 2026; how it decides; first live run Fri 16 Oct
+- [reference_google-analytics.md](reference_google-analytics.md) — Hometown Studio's Google Analytics (GA4) — account, property, measurement ID, which Google login, how it's wired
+- [reference_meta-pixel.md](reference_meta-pixel.md) — Meta Pixel id 28614761948146095 — wired via PUBLIC_META_PIXEL_ID (Netlify, all contexts) in src/lib/meta-pixel.ts
+- [reference_posthog.md](reference_posthog.md) — PostHog project for Hometown Studio — US cloud project 656173, env names, what is tracked, privacy rules (no recording on staff/waiver)
+- [site-reorg-redesign-jul2026.md](site-reorg-redesign-jul2026.md) — Approved site reorg + homepage redesign plan (Jul 11 2026) — IA decisions, what got killed, plan doc location
+- [square-admin-api-capabilities.md](square-admin-api-capabilities.md) — What can vs cannot be created/managed via Square's API for this account — classes are UI-only, catalog/bookings are API-managed, custom-attr cap is maxed
+- [square-class-bookings.md](square-class-bookings.md) — Square Class Bookings — Hard-Won Knowledge
+- [square-class-schedule-create.md](square-class-schedule-create.md) — The undocumented buyer/dashboard endpoint that CREATES an Appointments class schedule (the dated instance the website reads) — closes the gap that Classes were 'UI-only'
+- [square-sdk-v44-shapes.md](square-sdk-v44-shapes.md) — Square Node SDK v44 catalog API response shapes — the project uses unwrapping wrong in places, and there's a latent bug in catalog.ts that hasn't bitten yet
+- [test-campaign-aug2026.md](test-campaign-aug2026.md) — HOM-163 'beyond rock solid' test campaign — 5 launch blockers found+fixed (Aug 2–6, 2026); what's verified, what remains; Linear connector lost Homegrown workspace after 8/6 /login
+- [visual-overhaul-progress.md](visual-overhaul-progress.md) — Visual Overhaul Progress — 2026-03-02
