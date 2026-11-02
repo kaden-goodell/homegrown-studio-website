@@ -20,7 +20,7 @@ const tile: CSSProperties = {
 }
 
 /** "Who's on the iPad?" — the second step of staff login, picking an identity
- *  from the Square team roster so every custody action can be stamped with a
+ *  from the studio's own staff list (/admin › More › Staff) so every custody action can be stamped with a
  *  real name. The passcode was already verified by `login.json`; picking a
  *  name re-sends it (kept in a ref by the caller) to `pick.json`, which sets
  *  the signed identity cookie. */

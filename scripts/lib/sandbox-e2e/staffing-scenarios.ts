@@ -40,7 +40,7 @@ export interface StaffingCtx extends Ctx {
 
 const OWNER_HEADERS = { 'X-Admin-Who': 'Kaden' }
 export const E2E_CREW_NAME = 'E2E'
-export const NO_CREW = 'E2E Crew is not on the sandbox team yet. In /admin tap "Set up sandbox" (or POST /api/admin/classes/seed-sandbox.json), wait ten minutes for the team list to refresh, then run this again.'
+export const NO_CREW = 'E2E Crew is not on the preview’s staff list yet. In /admin tap "Set up sandbox" (or POST /api/admin/classes/seed-sandbox.json), then run this again.'
 
 const nameOf = (ctx: Ctx, what: string) => `E2E ${ctx.runTag} Staffing ${what}`.slice(0, 80)
 

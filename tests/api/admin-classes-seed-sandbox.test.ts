@@ -9,6 +9,17 @@ vi.mock('@config/site.config', async (orig) => {
 const site = vi.hoisted(() => ({ context: 'dev' as string }))
 vi.mock('@lib/deploy-context', () => ({ deployContext: () => site.context }))
 
+const crewList = vi.hoisted(() => ({ added: null as null | string, calls: [] as unknown[][] }))
+// D5: the crew member goes on our own staff list, never the Square team.
+vi.mock('@lib/staff-directory', () => ({
+  ensureCrewPerson: async (...args: unknown[]) => {
+    crewList.calls.push(args)
+    if (crewList.added) return { id: crewList.added, created: false }
+    crewList.added = 'stf_e2e'
+    return { id: 'stf_e2e', created: true }
+  },
+}))
+
 import { POST } from '@pages/api/admin/classes/seed-sandbox.json'
 import { NO_TEST_STORE } from '@lib/classes/test-site-guard'
 import { adminCookie } from '@lib/admin-auth'
@@ -26,6 +37,7 @@ beforeEach(() => {
   cfg.environment = 'sandbox'
   site.context = 'dev'
   catalog = []; calls = []
+  crewList.added = null; crewList.calls = []
   team = [{ id: 'TM_OWNER', given_name: 'Kaden', family_name: 'Goodell', status: 'ACTIVE', is_owner: true }]
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const body = init.body ? JSON.parse(String(init.body)) : undefined
@@ -118,28 +130,15 @@ describe('POST /api/admin/classes/seed-sandbox.json', () => {
 })
 
 describe('the sandbox crew member for the staffing scenarios (stage 3)', () => {
-  it('makes one active "E2E Crew" with a name only (no wage, no booking profile), then reuses it', async () => {
+  it('puts "E2E Crew" on our own staff list (D5) once, then reuses it, with no Square team call at all', async () => {
     const first = await (await POST({ request: req(signedIn()) } as any)).json()
-    const creates = calls.filter((c) => c.url.endsWith('/team-members') && c.method === 'POST')
-    expect(creates).toHaveLength(1)
-    expect(Object.keys(creates[0].body).sort()).toEqual(['idempotency_key', 'team_member'])
-    expect(creates[0].body.team_member).toEqual({ given_name: 'E2E', family_name: 'Crew' })
-    expect(first.data.crewMember).toEqual({ id: 'TM_NEW1', name: 'E2E Crew', created: true })
-    // nothing about bookings, wages or the access token in what goes out or comes back
-    expect(JSON.stringify(calls.map((c) => c.body))).not.toMatch(/booking|wage|pay_rate|is_bookable/i)
+    expect(crewList.calls[0].slice(0, 2)).toEqual(['E2E', 'Crew'])
+    expect(first.data.crewMember).toEqual({ id: 'stf_e2e', name: 'E2E Crew', created: true })
+    expect(calls.some((c) => c.url.includes('/team-members'))).toBe(false)
     expect(JSON.stringify(first)).not.toContain('tok')
-
-    calls = []
     const again = await (await POST({ request: req(signedIn()) } as any)).json()
-    expect(calls.some((c) => c.url.endsWith('/team-members') && c.method === 'POST')).toBe(false)
-    expect(again.data.crewMember).toEqual({ id: 'TM_NEW1', name: 'E2E Crew', created: false })
-  })
-
-  it('an inactive E2E Crew does not count: a fresh active one is made', async () => {
-    team.push({ id: 'TM_OLD', given_name: 'E2E', family_name: 'Crew', status: 'INACTIVE' })
-    const out = await (await POST({ request: req(signedIn()) } as any)).json()
-    expect(out.data.crewMember.created).toBe(true)
-    expect(out.data.crewMember.id).not.toBe('TM_OLD')
+    expect(again.data.crewMember).toEqual({ id: 'stf_e2e', name: 'E2E Crew', created: false })
+    expect(calls.some((c) => c.url.includes('/team-members'))).toBe(false)
   })
 
   it('R41: refused on a test site with no store of its own, before any Square call', async () => {

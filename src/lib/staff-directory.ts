@@ -1,75 +1,121 @@
 /**
- * The staff roster shown on the "Who's on the iPad?" picker — sourced from
- * Square's Team Members so staff don't have to be added twice. Falls back to
- * the two owners if Square is unreachable or the team list comes back empty,
- * so a Square outage never locks staff out of the console.
+ * The studio's own staff list (D5, Kaden 2 Nov: "We're NOT using Square
+ * payroll so you can just do it locally"). Owners manage it in /admin › More
+ * › Staff › People: Add someone, Edit, No longer working here (kept for the
+ * record, never deleted), Working here again.
  *
- * Stage 3 (staffing) adds, server only:
- * - teamWithContacts(): the active team with email and phone, for telling a
- *   person they're on a shift. Contact details never leave the server in a
- *   crew response, and listStaff() never carries them.
- * - a last-known copy of the team (kv `staff-team`, key `team`), written when
- *   Square answers with a different list, so names and calendar-link checks
- *   survive a Square outage.
- * - isActiveStaffId(): the fallback ids 'kaden'/'catherine' are never a real
- *   person, so nothing is ever stored under them (a Square blip would
- *   otherwise split one person's data in two).
+ * One record in kv `staff-people` (key `people`), changed with
+ * compare-and-set. The first time the list is needed and doesn't exist yet,
+ * the current ACTIVE Square team is brought in once, with the SAME ids, so
+ * staffing, waiver, audit and sign-in records made under Square team ids stay
+ * linked. That is the only Square read this file ever makes; once the list
+ * exists, Square Team is never read for staff again. The import is
+ * create-only (two servers racing both end up with the one saved list) and
+ * never runs on a test site that shares the live stores (R41): there the
+ * Square team is shown read-only and nothing is saved.
+ *
+ * - listStaff(): `{id, name, role}` of everyone working here, for the
+ *   "Who's on the iPad?" picker. Never contact details. If the list can't be
+ *   read at all (store down, first import failed) it answers with the two
+ *   owners under the fallback ids 'kaden'/'catherine', so nobody is locked out
+ *   of the console; nothing is ever stored under those ids.
+ * - teamWithContacts(): server only, with email and phone, for telling a
+ *   person they're on a shift.
+ * - isActiveStaffId() / staffIdStatus(): someone who no longer works here is
+ *   not active: their calendar link answers 404, their /staff writes are
+ *   refused, and they leave every picker.
  * - staffIdForOwner(): /admin knows owners by name ('Catherine' | 'Kaden');
- *   this maps that name to the owner's team member id by given name.
+ *   this maps that name to the owner's id by given name.
  *
- * Read only towards Square (Team API search; no booking profiles, ever).
+ * Server only. Contact details never leave the server except to owners
+ * (/api/admin/*).
  */
+import { randomBytes } from 'node:crypto'
 import { createLogger } from '@lib/logger'
 import { createSquareClient } from '@providers/square/client'
 import { siteConfig } from '@config/site.config'
 import type { SquareConfig } from '@config/site.config'
-import type { StaffMember } from '@lib/staff-auth'
-import type { Owner } from '@lib/admin-who'
+import type { By, StaffMember } from '@lib/staff-auth'
+import { OWNERS, type Owner } from '@lib/admin-who'
 import { makeKvStore } from '@lib/blob-store'
-import { classWritesRefusal } from '@lib/classes/test-site-guard'
+import { classWritesRefusal, TestSiteStoreError } from '@lib/classes/test-site-guard'
+import { isEmail, isPhone } from '@lib/contact-rules'
+import { toE164 } from '@lib/quo'
+import { StaffingError } from '@lib/staffing/errors'
 
 const logger = createLogger('staff-directory')
-const CACHE_TTL_MS = 10 * 60 * 1000
 
 const FALLBACK: StaffMember[] = [
   { id: 'kaden', name: 'Kaden', role: 'owner' },
   { id: 'catherine', name: 'Catherine', role: 'owner' },
 ]
 
-/** The ids listStaff() answers with when Square can't be read. Never a real person: nothing is keyed by them. */
+/** The ids listStaff() answers with when the list can't be read. Never a real person: nothing is keyed by them. */
 export const FALLBACK_IDS: ReadonlySet<string> = new Set(FALLBACK.map((m) => m.id))
 
 /** A team member with their contact details. Server only. */
 export interface StaffPerson extends StaffMember {
-  /** Square's given name, for matching an /admin owner name (the display `name` may carry a family initial). */
+  /** For matching an /admin owner name (the display `name` may carry a family initial). */
   givenName: string
+  familyName: string
   email: string | null
   phone: string | null
   active: boolean
 }
 
-const teamKv = makeKvStore('staff-team', 'staff-team')
-const TEAM_KEY = 'team'
-
-let cache: { at: number; people: StaffPerson[] } | null = null
-/** When Square last failed: for a minute after, go straight to the saved team instead of waiting on Square again. */
-let failedAt: number | null = null
-const FAILURE_TTL_MS = 60 * 1000
-
-/** @internal test-only: clear the cached roster (and a remembered Square failure). */
-export function _resetStaffCache(): void {
-  cache = null
-  failedAt = null
+/** One person on our list, as saved. */
+export interface StaffRecord {
+  id: string
+  givenName: string
+  familyName: string
+  role: 'owner' | 'crew'
+  email: string | null
+  phone: string | null
+  active: boolean
+  /** When they stopped working here (null while they work here). */
+  leftAt: string | null
+  /** 'square' = brought in from the Square team (same id); 'added' = added in /admin. */
+  from: 'square' | 'added'
+  createdAt: string
+  updatedAt: string
+  /** newest first, capped at PERSON_HISTORY_CAP */
+  history: { at: string; by: By; change: string }[]
 }
 
-/** Read the team from Square again on the next look (after the sandbox seed adds someone). This server only. */
+export interface StaffDoc {
+  v: 1
+  /** 'square' = first brought in from the Square team; 'fresh' = started without it. */
+  startedFrom: 'square' | 'fresh'
+  startedAt: string
+  updatedAt: string
+  people: StaffRecord[]
+}
+
+export const PERSON_HISTORY_CAP = 30
+const MAX_NAME = 40
+const MAX_EMAIL = 120
+
+const kv = makeKvStore('staff-people', 'staff-people')
+const KEY = 'people'
+
+/** A few seconds' memory, so one request reading the list several times reads it once. Cleared by every write here. */
+const CACHE_MS = 5_000
+let cache: { at: number; doc: StaffDoc; saved: boolean } | null = null
+
+/** @internal test-only: forget the cached list. */
+export function _resetStaffCache(): void {
+  cache = null
+}
+
+/** Read the list again on the next look. This server only. */
 export function forgetTeamCache(): void {
   cache = null
 }
 
-/** @internal test-only: forget the saved last-known team. */
-export async function _resetLastKnownForTests(): Promise<void> {
-  await teamKv.set(TEAM_KEY, 'null')
+/** @internal test-only: delete the saved list (so the next read imports again). */
+export async function _resetStaffListForTests(): Promise<void> {
+  cache = null
+  await kv.set(KEY, 'null')
 }
 
 const text = (v: unknown): string | null => {
@@ -77,133 +123,150 @@ const text = (v: unknown): string | null => {
   return s ? s : null
 }
 
-/** Active Square team members with contact details, cached 10 minutes. Throws when Square fails or lists nobody. */
-async function squareTeam(): Promise<StaffPerson[]> {
-  const now = Date.now()
-  if (cache && now - cache.at < CACHE_TTL_MS) return cache.people
-  if (failedAt !== null && now - failedAt < FAILURE_TTL_MS) throw new Error('Square team lookup failed a moment ago')
-
-  let active: any[]
-  try {
-    const client = createSquareClient(siteConfig.providers.catalog.config as SquareConfig)
-    const res: any = await client.teamMembers.search({ query: { filter: { status: 'ACTIVE' } } })
-    active = ((res.teamMembers ?? []) as any[]).filter((m) => m.status === 'ACTIVE')
-    if (active.length === 0) throw new Error('Square returned no active team members')
-  } catch (err) {
-    failedAt = now
-    throw err
+export class StaffListUnavailable extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'StaffListUnavailable'
   }
-  failedAt = null
+}
 
-  // Two staff sharing a given name ("Sam", "Sam") get a family initial
-  // appended so the picker grid never shows two identical buttons.
-  const givenCounts = new Map<string, number>()
-  for (const m of active) givenCounts.set(m.givenName, (givenCounts.get(m.givenName) ?? 0) + 1)
+/** What an owner sees when the list couldn't be started from the Square team. */
+export const IMPORT_FAILED = 'We couldn’t set up the staff list yet. Try again in a minute.'
 
-  const people: StaffPerson[] = active.map((m) => {
-    const shared = (givenCounts.get(m.givenName) ?? 0) > 1
-    const initial = String(m.familyName ?? '').trim().charAt(0)
+async function readSaved(): Promise<{ doc: StaffDoc | null; etag: string | null; exists: boolean }> {
+  const { value, etag } = await kv.getWithMeta(KEY)
+  if (!value) return { doc: null, etag, exists: false }
+  const doc = JSON.parse(value) as StaffDoc | null
+  // A record reset to `null` exists in the store but holds no list.
+  if (!doc || !Array.isArray(doc.people)) return { doc: null, etag, exists: true }
+  return { doc, etag, exists: true }
+}
+
+/** The active Square team, once, for the first import. Throws when Square fails or lists nobody. */
+async function squareTeamForImport(): Promise<StaffRecord[]> {
+  const client = createSquareClient(siteConfig.providers.catalog.config as SquareConfig)
+  const res: any = await client.teamMembers.search({ query: { filter: { status: 'ACTIVE' } } })
+  const active = ((res.teamMembers ?? []) as any[]).filter((m) => m.status === 'ACTIVE' && typeof m.id === 'string' && m.id)
+  if (active.length === 0) throw new Error('Square returned no active team members')
+  const now = new Date().toISOString()
+  const by: By = { id: 'system', name: 'Set up' }
+  return active.map((m) => ({
+    id: m.id,
+    givenName: String(m.givenName ?? '').trim() || 'Someone',
+    familyName: String(m.familyName ?? '').trim(),
+    role: m.isOwner ? 'owner' : 'crew',
+    email: text(m.emailAddress),
+    phone: text(m.phoneNumber),
+    active: true,
+    leftAt: null,
+    from: 'square',
+    createdAt: now,
+    updatedAt: now,
+    history: [{ at: now, by, change: 'Brought in from the Square team' }],
+  }))
+}
+
+/**
+ * The saved list; on first use, imports the Square team once and saves it
+ * (create-only, so a race keeps one list). On a test site sharing the live
+ * stores the imported team is returned unsaved (`saved: false`).
+ * Throws StaffListUnavailable when there's no list and the import failed.
+ */
+async function loadDoc(): Promise<{ doc: StaffDoc; saved: boolean }> {
+  if (cache && Date.now() - cache.at < CACHE_MS) return { doc: cache.doc, saved: cache.saved }
+  const first = await readSaved()
+  if (first.doc) {
+    cache = { at: Date.now(), doc: first.doc, saved: true }
+    return { doc: first.doc, saved: true }
+  }
+  let people: StaffRecord[]
+  try {
+    people = await squareTeamForImport()
+  } catch (err) {
+    logger.error('Could not bring in the Square team for the first staff list', { error: err instanceof Error ? err.message : String(err) })
+    throw new StaffListUnavailable(IMPORT_FAILED)
+  }
+  const now = new Date().toISOString()
+  const doc: StaffDoc = { v: 1, startedFrom: 'square', startedAt: now, updatedAt: now, people }
+  if (classWritesRefusal()) {
+    // R41: never write the live list from a test site; show what Square has, read only.
+    cache = { at: Date.now(), doc, saved: false }
+    return { doc, saved: false }
+  }
+  if (await kv.setIfMatch(KEY, JSON.stringify(doc), first.etag, first.exists)) {
+    logger.info('Staff list started from the Square team', { people: people.length })
+    cache = { at: Date.now(), doc, saved: true }
+    return { doc, saved: true }
+  }
+  // Another server saved the list first: use theirs.
+  const again = await readSaved()
+  if (!again.doc) throw new StaffListUnavailable(IMPORT_FAILED)
+  cache = { at: Date.now(), doc: again.doc, saved: true }
+  return { doc: again.doc, saved: true }
+}
+
+/** Display names: the given name, plus a family initial when two people working here share it. */
+function withNames(records: StaffRecord[]): StaffPerson[] {
+  const counts = new Map<string, number>()
+  for (const r of records) if (r.active) counts.set(r.givenName.toLowerCase(), (counts.get(r.givenName.toLowerCase()) ?? 0) + 1)
+  return records.map((r) => {
+    const shared = r.active && (counts.get(r.givenName.toLowerCase()) ?? 0) > 1
+    const initial = r.familyName.trim().charAt(0)
     return {
-      id: m.id,
-      name: shared && initial ? `${m.givenName} ${initial}.` : m.givenName,
-      givenName: String(m.givenName ?? ''),
-      role: m.isOwner ? 'owner' : 'crew',
-      email: text(m.emailAddress),
-      phone: text(m.phoneNumber),
-      active: true,
+      id: r.id,
+      name: shared && initial ? `${r.givenName} ${initial}.` : r.givenName,
+      givenName: r.givenName,
+      familyName: r.familyName,
+      role: r.role,
+      email: r.email,
+      phone: r.phone,
+      active: r.active,
     }
   })
-
-  cache = { at: now, people }
-  // Once per 10 minutes at most (the cache above); never throws.
-  await rememberTeam(people)
-  return people
-}
-
-/** The saved last-known team, or null. Throws only when the store itself fails. */
-async function lastKnown(): Promise<StaffPerson[] | null> {
-  const json = await teamKv.get(TEAM_KEY)
-  if (!json) return null
-  const saved = JSON.parse(json) as { at: string; people: StaffPerson[] } | null
-  return saved && Array.isArray(saved.people) && saved.people.length > 0 ? saved.people : null
-}
-
-const sameTeam = (a: StaffPerson[], b: StaffPerson[]): boolean => {
-  const norm = (l: StaffPerson[]) => JSON.stringify([...l].sort((x, y) => x.id.localeCompare(y.id)))
-  return norm(a) === norm(b)
 }
 
 /**
- * Saves the team as the last-known copy when it differs from what's saved.
- * Never on a test site that shares the live stores (R41: a sandbox team must
- * not replace the live one). Compare-and-set; a lost race means someone else
- * just saved a fresh copy, which is fine. Failures are logged, never thrown.
+ * Server only. Everyone working here, with contact details. Throws when the
+ * list can't be read (callers show an error, never an empty team).
+ * `source` is kept for callers: always 'local' now.
  */
-async function rememberTeam(people: StaffPerson[]): Promise<void> {
-  if (classWritesRefusal()) return
-  try {
-    for (let attempt = 0; attempt < 3; attempt++) {
-      const { value, etag } = await teamKv.getWithMeta(TEAM_KEY)
-      const saved = value ? (JSON.parse(value) as { people?: StaffPerson[] } | null) : null
-      if (saved?.people && sameTeam(saved.people, people)) return
-      const json = JSON.stringify({ at: new Date().toISOString(), people })
-      if (await teamKv.setIfMatch(TEAM_KEY, json, etag, value !== null)) return
-    }
-  } catch (err) {
-    logger.warn('Could not save the last-known team', { error: err instanceof Error ? err.message : String(err) })
+export async function teamWithContacts(): Promise<{ people: StaffPerson[]; source: 'local' }> {
+  const { doc } = await loadDoc()
+  return { people: withNames(doc.people).filter((p) => p.active), source: 'local' }
+}
+
+/** Owners only (/admin › People): everyone, those who left too, with their records. */
+export async function staffListForOwners(): Promise<{ people: (StaffPerson & { leftAt: string | null; from: StaffRecord['from']; updatedAt: string })[]; saved: boolean; startedFrom: StaffDoc['startedFrom'] }> {
+  const { doc, saved } = await loadDoc()
+  const named = withNames(doc.people)
+  return {
+    people: named.map((p, i) => ({ ...p, leftAt: doc.people[i].leftAt, from: doc.people[i].from, updatedAt: doc.people[i].updatedAt })),
+    saved,
+    startedFrom: doc.startedFrom,
   }
 }
 
-/**
- * Server only. The active team with contact details. `source: 'square'` when
- * Square answered; 'last-known' when Square failed and a saved copy exists;
- * throws when neither (callers show an error, never an empty team).
- */
-export async function teamWithContacts(): Promise<{ people: StaffPerson[]; source: 'square' | 'last-known' }> {
-  try {
-    return { people: await squareTeam(), source: 'square' }
-  } catch (err) {
-    const saved = await lastKnown()
-    if (saved) {
-      logger.warn('Square team lookup failed — using the last-known team', {
-        error: err instanceof Error ? err.message : String(err),
-      })
-      return { people: saved, source: 'last-known' }
-    }
-    throw new Error("Couldn't read the team list from Square, and there's no saved copy.")
-  }
-}
-
-/** Active Square team members as `{id, name, role}`, cached 10 minutes. */
+/** Everyone working here as `{id, name, role}`, for the picker. Never throws: the owners under the fallback ids when unreadable. */
 export async function listStaff(): Promise<StaffMember[]> {
   try {
-    return (await squareTeam()).map((p) => ({ id: p.id, name: p.name, role: p.role }))
+    const { people } = await teamWithContacts()
+    if (people.length === 0) return FALLBACK
+    return people.map((p) => ({ id: p.id, name: p.name, role: p.role }))
   } catch (err) {
-    logger.warn('Square team lookup failed — using fallback staff roster', {
-      error: err instanceof Error ? err.message : String(err),
-    })
+    logger.warn('Staff list unreadable — using the fallback owner roster', { error: err instanceof Error ? err.message : String(err) })
     return FALLBACK
   }
 }
 
-/**
- * True only for an id on the current (or last-known) ACTIVE team. The
- * fallback ids are never real; a team that can't be read at all answers false.
- */
+/** True only for someone working here now. The fallback ids are never real; an unreadable list answers false. */
 export async function isActiveStaffId(id: string): Promise<boolean> {
-  if (typeof id !== 'string' || !id || FALLBACK_IDS.has(id)) return false
-  try {
-    const { people } = await teamWithContacts()
-    return people.some((p) => p.id === id && p.active)
-  } catch {
-    return false
-  }
+  return (await staffIdStatus(id)) === 'yes'
 }
 
 /**
- * Like isActiveStaffId, but tells "not on the team" ('no') apart from "the
- * team can't be read at all" ('unknown': Square down and no saved copy), so a
- * calendar link can answer "try again soon" instead of looking dead.
+ * Like isActiveStaffId, but tells "not working here" ('no') apart from "the
+ * list can't be read at all" ('unknown'), so a calendar link can answer
+ * "try again soon" instead of looking dead.
  */
 export async function staffIdStatus(id: string): Promise<'yes' | 'no' | 'unknown'> {
   if (typeof id !== 'string' || !id || FALLBACK_IDS.has(id)) return 'no'
@@ -215,7 +278,7 @@ export async function staffIdStatus(id: string): Promise<'yes' | 'no' | 'unknown
   }
 }
 
-/** The team member an /admin owner name is, by given name among owners; null when not found, ambiguous, or the team can't be read. */
+/** The person an /admin owner name is, by given name among owners working here; null when not found, ambiguous, or unreadable. */
 export async function staffIdForOwner(owner: Owner): Promise<string | null> {
   let people: StaffPerson[]
   try {
@@ -226,4 +289,177 @@ export async function staffIdForOwner(owner: Owner): Promise<string | null> {
   const want = owner.trim().toLowerCase()
   const hits = people.filter((p) => p.role === 'owner' && p.active && p.givenName.trim().toLowerCase() === want)
   return hits.length === 1 ? hits[0].id : null
+}
+
+// ---------------------------------------------------------------- changes (owners only, /admin)
+
+export interface PersonInput { givenName: string; familyName: string; role: 'owner' | 'crew'; phone: string; email: string }
+
+export const STAFF_MESSAGES = {
+  givenName: 'Add their first name.',
+  nameLong: `Keep names to ${MAX_NAME} letters or fewer.`,
+  role: 'Pick Owner or Crew.',
+  phone: 'Check the phone number: 10 digits, like 256-555-0123.',
+  email: 'That email doesn’t look right. Check for typos.',
+  same: 'Someone with that name already works here. Add a last name to tell them apart.',
+  lastOwner: 'Keep at least one owner working here.',
+  notFound: 'We couldn’t find that person. Refresh and try again.',
+  stale: 'Someone else just changed this person. Here’s the latest.',
+  busy: 'Someone else is saving at the same moment. Try again.',
+  already: 'There’s already a staff list, so it can’t be started fresh.',
+} as const
+
+export class StaffInputError extends StaffingError {
+  constructor(message: string, public field: string | null = null) {
+    super(400, message)
+    this.name = 'StaffInputError'
+  }
+}
+
+/** Checks and tidies what an owner typed. Throws StaffInputError with the first problem. */
+export function cleanPerson(raw: unknown): PersonInput {
+  const o = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
+  const s = (v: unknown) => (typeof v === 'string' ? v.trim().replace(/\s+/g, ' ') : '')
+  const givenName = s(o.givenName), familyName = s(o.familyName), phone = s(o.phone), email = s(o.email)
+  if (!givenName) throw new StaffInputError(STAFF_MESSAGES.givenName, 'givenName')
+  if (givenName.length > MAX_NAME) throw new StaffInputError(STAFF_MESSAGES.nameLong, 'givenName')
+  if (familyName.length > MAX_NAME) throw new StaffInputError(STAFF_MESSAGES.nameLong, 'familyName')
+  if (o.role !== 'owner' && o.role !== 'crew') throw new StaffInputError(STAFF_MESSAGES.role, 'role')
+  if (phone && (!isPhone(phone) || !toE164(phone))) throw new StaffInputError(STAFF_MESSAGES.phone, 'phone')
+  if (email && (!isEmail(email) || email.length > MAX_EMAIL)) throw new StaffInputError(STAFF_MESSAGES.email, 'email')
+  return { givenName, familyName, role: o.role, phone: phone ? toE164(phone)! : '', email: email.toLowerCase() }
+}
+
+const fullName = (r: { givenName: string; familyName: string }) => `${r.givenName} ${r.familyName}`.trim().toLowerCase()
+const pushHistory = (r: StaffRecord, at: string, by: By, change: string): StaffRecord =>
+  ({ ...r, updatedAt: at, history: [{ at, by, change }, ...r.history].slice(0, PERSON_HISTORY_CAP) })
+
+function newId(people: StaffRecord[]): string {
+  for (;;) {
+    const id = `stf_${randomBytes(9).toString('base64url')}`
+    if (!people.some((p) => p.id === id) && !FALLBACK_IDS.has(id)) return id
+  }
+}
+
+/** Compare-and-set on the list, 3 tries. `fn` returns the new list (or throws a refusal). */
+async function change<T>(fn: (doc: StaffDoc, now: string) => { doc: StaffDoc; result: T; unchanged?: boolean }): Promise<T> {
+  if (classWritesRefusal()) throw new TestSiteStoreError()
+  // Make sure the list exists (the first import) before changing it.
+  await loadDoc()
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const { doc, etag, exists } = await readSaved()
+    if (!doc) throw new StaffListUnavailable(IMPORT_FAILED)
+    const now = new Date().toISOString()
+    const next = fn(doc, now)
+    if (next.unchanged) return next.result
+    const saved: StaffDoc = { ...next.doc, updatedAt: now }
+    if (await kv.setIfMatch(KEY, JSON.stringify(saved), etag, exists)) {
+      cache = { at: Date.now(), doc: saved, saved: true }
+      return next.result
+    }
+  }
+  throw new StaffingError(409, STAFF_MESSAGES.busy)
+}
+
+const activeOwners = (people: StaffRecord[]) => people.filter((p) => p.active && p.role === 'owner')
+
+/** Add someone. Their id is new (`stf_…`). */
+export async function addPerson(raw: unknown, by: By): Promise<StaffRecord> {
+  const input = cleanPerson(raw)
+  return change((doc, now) => {
+    if (doc.people.some((p) => p.active && fullName(p) === fullName(input))) throw new StaffInputError(STAFF_MESSAGES.same, 'familyName')
+    const rec: StaffRecord = {
+      id: newId(doc.people), givenName: input.givenName, familyName: input.familyName, role: input.role,
+      email: input.email || null, phone: input.phone || null, active: true, leftAt: null, from: 'added',
+      createdAt: now, updatedAt: now, history: [{ at: now, by, change: `${by.name} added them` }],
+    }
+    return { doc: { ...doc, people: [...doc.people, rec] }, result: rec }
+  })
+}
+
+/** Change someone's name, role, phone or email. `expectedUpdatedAt` = what the screen showed; a later change → 409 with the latest. */
+export async function editPerson(id: string, raw: unknown, by: By, expectedUpdatedAt?: string | null): Promise<StaffRecord> {
+  const input = cleanPerson(raw)
+  return change((doc, now) => {
+    const at = doc.people.findIndex((p) => p.id === id)
+    if (at < 0) throw new StaffingError(404, STAFF_MESSAGES.notFound)
+    const was = doc.people[at]
+    if (typeof expectedUpdatedAt === 'string' && expectedUpdatedAt !== was.updatedAt) throw new StaleStaffError(was)
+    if (doc.people.some((p) => p.id !== id && p.active && fullName(p) === fullName(input))) throw new StaffInputError(STAFF_MESSAGES.same, 'familyName')
+    if (was.active && was.role === 'owner' && input.role !== 'owner' && activeOwners(doc.people).length <= 1) throw new StaffInputError(STAFF_MESSAGES.lastOwner, 'role')
+    const what = [
+      fullName(was) !== fullName(input) ? 'name' : null,
+      was.role !== input.role ? (input.role === 'owner' ? 'made an owner' : 'made crew') : null,
+      (was.phone ?? '') !== input.phone ? 'phone' : null,
+      (was.email ?? '') !== input.email ? 'email' : null,
+    ].filter(Boolean)
+    if (what.length === 0) return { doc, result: was, unchanged: true }
+    const next = pushHistory({ ...was, givenName: input.givenName, familyName: input.familyName, role: input.role, phone: input.phone || null, email: input.email || null }, now, by, `${by.name} changed ${what.join(', ')}`)
+    const people = doc.people.slice()
+    people[at] = next
+    return { doc: { ...doc, people }, result: next }
+  })
+}
+
+/** "No longer working here" (active false) or "Working here again" (active true). Records stay; nothing is deleted. */
+export async function setWorking(id: string, active: boolean, by: By): Promise<{ person: StaffRecord; changed: boolean }> {
+  return change<{ person: StaffRecord; changed: boolean }>((doc, now) => {
+    const at = doc.people.findIndex((p) => p.id === id)
+    if (at < 0) throw new StaffingError(404, STAFF_MESSAGES.notFound)
+    const was = doc.people[at]
+    if (was.active === active) return { doc, result: { person: was, changed: false }, unchanged: true }
+    if (active && doc.people.some((p) => p.id !== id && p.active && fullName(p) === fullName(was))) throw new StaffInputError(STAFF_MESSAGES.same, null)
+    if (!active && was.role === 'owner' && activeOwners(doc.people).length <= 1) throw new StaffInputError(STAFF_MESSAGES.lastOwner, null)
+    const next = pushHistory({ ...was, active, leftAt: active ? null : now }, now, by, active ? `${by.name} marked them as working here again` : `${by.name} marked them as no longer working here`)
+    const people = doc.people.slice()
+    people[at] = next
+    return { doc: { ...doc, people }, result: { person: next, changed: true } }
+  })
+}
+
+/**
+ * Only when there is no list and the Square team can't be brought in: start
+ * the list with the two owners (new ids). Refused when a list exists.
+ */
+export async function startFresh(by: By): Promise<StaffDoc> {
+  if (classWritesRefusal()) throw new TestSiteStoreError()
+  const first = await readSaved()
+  if (first.doc) throw new StaffingError(409, STAFF_MESSAGES.already)
+  const now = new Date().toISOString()
+  const people: StaffRecord[] = []
+  for (const owner of OWNERS) {
+    people.push({
+      id: newId(people), givenName: owner, familyName: '', role: 'owner', email: null, phone: null, active: true, leftAt: null,
+      from: 'added', createdAt: now, updatedAt: now, history: [{ at: now, by, change: `${by.name} started the list` }],
+    })
+  }
+  const doc: StaffDoc = { v: 1, startedFrom: 'fresh', startedAt: now, updatedAt: now, people }
+  if (!(await kv.setIfMatch(KEY, JSON.stringify(doc), first.etag, first.exists))) throw new StaffingError(409, STAFF_MESSAGES.already)
+  cache = { at: Date.now(), doc, saved: true }
+  return doc
+}
+
+/** Someone else changed the person first: 409 with what's saved now. */
+export class StaleStaffError extends StaffingError {
+  constructor(public current: StaffRecord) {
+    super(409, STAFF_MESSAGES.stale)
+    this.name = 'StaleStaffError'
+  }
+}
+
+/**
+ * Sandbox seed (stage 3 E2E): makes sure someone named `givenName familyName`
+ * works here as crew; adds them once. Returns their id and whether they were added.
+ */
+export async function ensureCrewPerson(givenName: string, familyName: string, by: By): Promise<{ id: string; created: boolean }> {
+  const { people } = await staffListForOwners()
+  const want = `${givenName} ${familyName}`.trim().toLowerCase()
+  const there = people.find((p) => `${p.givenName} ${p.familyName}`.trim().toLowerCase() === want)
+  if (there?.active) return { id: there.id, created: false }
+  if (there) {
+    await setWorking(there.id, true, by)
+    return { id: there.id, created: false }
+  }
+  const rec = await addPerson({ givenName, familyName, role: 'crew', phone: '', email: '' }, by)
+  return { id: rec.id, created: true }
 }

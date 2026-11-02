@@ -1,6 +1,6 @@
 /**
- * Who may have staffing data stored under them: a well-formed Square team
- * member id that is not one of listStaff()'s fallback ids ('kaden',
+ * Who may have staffing data stored under them: a well-formed staff list id
+ * (`stf_…`, or a Square team member id brought in with the list) that is not one of listStaff()'s fallback ids ('kaden',
  * 'catherine'). A Square blip must never split one person's data in two.
  * Client-safe.
  */

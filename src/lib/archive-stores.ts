@@ -71,9 +71,11 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'to-decide' },
   // A small photo comes along; a large one is listed by key (the live store keeps it).
   { name: 'class-photos', maxValueBytes: 300 * 1024 },
-  // staffing: who can work when, who is on what (and the party index), the last-known team
+  // staffing: who can work when, who is on what (and the party index), our own staff list (D5),
+  // and the old last-known copy of the Square team (no longer written; kept while it exists)
   { name: 'staff-availability' },
   { name: 'staffing' },
+  { name: 'staff-people' },
   { name: 'staff-team' },
 ]
 

@@ -9,7 +9,8 @@
  * Times are read from the shared schedule every time, so a moved class or
  * party takes its staff with it.
  *
- * People are Square team member ids (never the fallback ids 'kaden' /
+ * People are ids on our own staff list (D5; people brought in from Square
+ * keep their Square team member id), never the fallback ids 'kaden' /
  * 'catherine'); `name` is kept as last seen so owner screens can show it.
  */
 import type { By } from '@lib/staff-auth'
