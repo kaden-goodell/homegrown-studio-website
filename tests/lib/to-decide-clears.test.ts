@@ -7,6 +7,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const m = vi.hoisted(() => ({ classes: [] as any[], email: vi.fn(), alert: vi.fn() }))
+// Staffing lines have their own tests (tests/lib/staffing/warnings.test.ts).
+vi.mock('@lib/staffing/warnings', () => ({ staffingWarnings: async () => [] }))
 vi.mock('@config/providers', () => ({
   providers: { workshop: { listAllWorkshops: async () => [], listWorkshops: async () => [] }, booking: { listBookings: async () => [] } },
 }))

@@ -17,9 +17,17 @@
  * each Square payment is for, the party book (which party holds which time) and the party checkouts still in flight or unclear. tests/lib/archive-stores.test.ts fails when a
  * store under src/lib/classes or src/lib/parties is missing here.
  *
- * Deliberately left out: `otps` (one-time SMS codes, 10-minute life) and
+ * Staffing (stage 3): when each person said they can and can't work, who
+ * is on each class and party (with who asked, the history, and the party
+ * index kept in the same store), and the last-known team list.
+ *
+ * Deliberately left out: `otps` (one-time SMS codes, 10-minute life),
  * `warnings-seen` (which daily-email lines were already shown), throwaway
- * data with no record value.
+ * data with no record value, `calendar-feeds` (scrambled calendar-link
+ * keys only; a lost one is replaced with "Make a new link"), and
+ * `staff-access` (the staff passcode's salted hash; an owner sets a new one
+ * in /admin). `staff-people` keeps its `import-failures` counter next to the
+ * list; it is harmless in an export.
  */
 export interface ArchiveStoreEntry {
   name: string
@@ -68,6 +76,12 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'to-decide' },
   // A small photo comes along; a large one is listed by key (the live store keeps it).
   { name: 'class-photos', maxValueBytes: 300 * 1024 },
+  // staffing: who can work when, who is on what (and the party index), our own staff list (D5),
+  // and the old last-known copy of the Square team (no longer written; kept while it exists)
+  { name: 'staff-availability' },
+  { name: 'staffing' },
+  { name: 'staff-people' },
+  { name: 'staff-team' },
 ]
 
 export const ARCHIVE_STORE_NAMES: string[] = ARCHIVE_STORES.map((s) => s.name)

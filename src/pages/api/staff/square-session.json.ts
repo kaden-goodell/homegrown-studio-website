@@ -13,7 +13,7 @@ const json = (body: unknown, status = 200) =>
  * Never returns the session itself.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!staffAuthorized(request)) return json({ error: 'Unauthorized' }, 401)
+  if (!(await staffAuthorized(request))) return json({ error: 'Unauthorized' }, 401)
   const scheduleId = url.searchParams.get('scheduleId') ?? ''
   if (!/^clssch_[a-z0-9]+$/i.test(scheduleId)) return json({ error: 'scheduleId (clssch_…) is required' }, 400)
   return json({ data: await checkSession(scheduleId) })

@@ -421,3 +421,40 @@ describe('browser-safe', () => {
     }
   })
 })
+
+describe('localToUtcISO on clock-change days (Chicago)', () => {
+  it('the clocks go back (Sun Nov 1 2026): every hour lands on the right instant', () => {
+    expect(localToUtcISO('2026-11-01', '00:00')).toBe('2026-11-01T05:00:00.000Z') // CDT
+    expect(localToUtcISO('2026-11-01', '01:30')).toBe('2026-11-01T06:30:00.000Z') // happens twice: the first one
+    expect(localToUtcISO('2026-11-01', '02:00')).toBe('2026-11-01T08:00:00.000Z') // CST from here
+    expect(localToUtcISO('2026-11-01', '03:00')).toBe('2026-11-01T09:00:00.000Z')
+    expect(localToUtcISO('2026-11-01', '06:00')).toBe('2026-11-01T12:00:00.000Z')
+    expect(localToUtcISO('2026-11-01', '06:59')).toBe('2026-11-01T12:59:00.000Z')
+    expect(localToUtcISO('2026-11-01', '07:00')).toBe('2026-11-01T13:00:00.000Z')
+    expect(localToUtcISO('2026-11-01', '17:00')).toBe('2026-11-01T23:00:00.000Z')
+    expect(localToUtcISO('2026-11-01', '23:59')).toBe('2026-11-02T05:59:00.000Z')
+  })
+
+  it('the clocks go forward (Sun Mar 14 2027): every hour lands on the right instant', () => {
+    expect(localToUtcISO('2027-03-14', '00:00')).toBe('2027-03-14T06:00:00.000Z') // CST
+    expect(localToUtcISO('2027-03-14', '01:59')).toBe('2027-03-14T07:59:00.000Z')
+    expect(localToUtcISO('2027-03-14', '02:30')).toBe('2027-03-14T08:30:00.000Z') // never happens: moves on to 3:30 CDT
+    expect(localToUtcISO('2027-03-14', '03:00')).toBe('2027-03-14T08:00:00.000Z') // CDT from here
+    expect(localToUtcISO('2027-03-14', '06:00')).toBe('2027-03-14T11:00:00.000Z')
+    expect(localToUtcISO('2027-03-14', '07:00')).toBe('2027-03-14T12:00:00.000Z')
+    expect(localToUtcISO('2027-03-14', '09:00')).toBe('2027-03-14T14:00:00.000Z')
+  })
+
+  it('every quarter hour on both days reads back as the time asked for (except the skipped hour)', () => {
+    for (const day of ['2026-11-01', '2027-03-14', '2026-03-08', '2026-07-04']) {
+      for (let t = 0; t < 24 * 60; t += 15) {
+        const hhmm = `${String(Math.floor(t / 60)).padStart(2, '0')}:${String(t % 60).padStart(2, '0')}`
+        if (day.endsWith('03-14') || day.endsWith('03-08')) { if (hhmm >= '02:00' && hhmm < '03:00') continue }
+        const iso = localToUtcISO(day, hhmm)
+        const back = new Intl.DateTimeFormat('en-GB', { timeZone: 'America/Chicago', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(iso))
+        expect(`${day} ${back}`).toBe(`${day} ${hhmm}`)
+        expect(localDate(iso)).toBe(day)
+      }
+    }
+  })
+})

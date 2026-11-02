@@ -19,7 +19,7 @@ function today(): string {
 /** POST { recordId, personIds[] } → log a walk-in household as here today.
  *  Idempotent — re-checking the same household just updates `at`. */
 export const POST: APIRoute = async ({ request }) => {
-  const staff = staffAuthorized(request)
+  const staff = await staffAuthorized(request)
   if (!staff) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
 
   const body = await request.json().catch(() => null)
@@ -48,7 +48,7 @@ export const POST: APIRoute = async ({ request }) => {
 
 /** GET ?date=YYYY-MM-DD → { count } — the Today header's "n here now (open studio)". */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!staffAuthorized(request)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
+  if (!(await staffAuthorized(request))) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   const date = url.searchParams.get('date') || today()
   try {
     const [count, days] = await Promise.all([hereNowCount(date), getStudioDays()])

@@ -563,3 +563,45 @@ describe('class sheet, fix round 2', () => {
   })
 })
 
+
+describe('class sheet › Staff (stage 3)', () => {
+  const twoDays = cls({
+    sessions: [
+      { id: 'ses_1', startIso: at('2031-03-12', '10:00'), endIso: at('2031-03-12', '11:30'), capacity: 12 },
+      { id: 'ses_2', startIso: at('2031-03-13', '10:00'), endIso: at('2031-03-13', '11:30'), capacity: 12 },
+    ],
+  })
+  const staffRow = (key: string, startIso: string) => ({
+    event: { key, kind: 'class', title: 'Pottery', startIso, endIso: startIso, status: 'on', openHref: '#class-cls_1', roster: {}, detail: {} },
+    entry: null, state: 'none', needed: 1, leftTeam: [],
+    people: [{ staffId: 'TM2', name: 'Jessica', verdict: 'can', asked: false, assigned: false, askNote: '', markNote: '', hours: '' }],
+  })
+
+  it('a staffing line opens the class on Staff, on its day, with Every day for the other days', async () => {
+    const base = server({ the: twoDays })
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (url.startsWith('/api/admin/staffing.json?')) {
+        const key = new URL(`https://x.test${url}`).searchParams.get('key')!
+        return ok({ data: { row: staffRow(key, key === 'ses:ses_2' ? at('2031-03-13', '10:00') : at('2031-03-12', '10:00')), contacts: {} } })
+      }
+      return base(url, init)
+    })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" />, { data: { staffKey: 'ses:ses_2' } })
+    await loaded()
+    expect(screen.getByRole('button', { name: 'Staff' })).toHaveAttribute('aria-pressed', 'true')
+    expect(within(screen.getByRole('group', { name: 'Which day' })).getByRole('button', { name: 'Thu Mar 13' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByRole('button', { name: 'Every day' })).toBeInTheDocument()
+    expect(f.mock.calls.some((c: any) => String(c[0]).includes('key=ses%3Ases_2'))).toBe(true)
+    fireEvent.click(within(screen.getByRole('group', { name: 'Which day' })).getByRole('button', { name: 'Wed Mar 12' }))
+    await waitFor(() => expect(f.mock.calls.some((c: any) => String(c[0]).includes('key=ses%3Ases_1'))).toBe(true))
+  })
+
+  it('a draft says nobody can go on it yet', async () => {
+    vi.stubGlobal('fetch', server({ the: { ...twoDays, status: 'draft' } }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    fireEvent.click(screen.getByRole('button', { name: 'Staff' }))
+    expect(screen.getByText('It’s a draft, so nobody can go on it yet. Open it on Dates first.')).toBeInTheDocument()
+  })
+})

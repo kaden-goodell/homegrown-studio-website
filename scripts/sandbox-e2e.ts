@@ -36,6 +36,10 @@
  * preview; the run's cleanup (after the last scenario, or on Ctrl-C) takes them
  * out again. Every party's host is "E2E <run> …"; each scenario cancels its
  * parties (never refunding); refunds only in 35, 36, 37 and 40 (sandbox money).
+ * Scenarios 41–48 are staffing (stage 3, scripts/lib/sandbox-e2e/staffing-scenarios.ts):
+ * they sign a third client in to /staff as "E2E Crew", the person "Set up sandbox"
+ * puts on the preview's own staff list (skipped with how to fix it when it isn't
+ * there yet), and never message anyone (tell off on every assign).
  *
  * Every class it makes is named "E2E <run> …", link-only (scenario 1 makes
  * one public for a moment to check the list), and cancelled at the end with
@@ -53,10 +57,16 @@ import {
 } from './lib/sandbox-e2e/core'
 import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, scenarios } from './lib/sandbox-e2e/scenarios'
 import { cleanUpPartyLeftovers, PARTY_CLEANUP_PLAN, partyScenarios, type PartyCtx } from './lib/sandbox-e2e/party-scenarios'
+import { staffingScenarios, type StaffingCtx } from './lib/sandbox-e2e/staffing-scenarios'
 import { Cleanup, type CleanupResult, type Scenario } from './lib/sandbox-e2e/core'
 
-/** Every scenario, in id order: our classes (1–23), then parties (24–40). */
-export const ALL_SCENARIOS: Scenario<PartyCtx>[] = [...(scenarios as Scenario<PartyCtx>[]), ...partyScenarios]
+/** The run's context: the party bits (run-level cleanup) and the crew bits (a third /staff client). */
+export type RunCtx = PartyCtx & StaffingCtx
+
+/** Every scenario, in id order: our classes (1–23), then parties (24–40), then staffing (41–48). */
+export const ALL_SCENARIOS: Scenario<RunCtx>[] = [
+  ...(scenarios as Scenario<RunCtx>[]), ...(partyScenarios as Scenario<RunCtx>[]), ...(staffingScenarios as Scenario<RunCtx>[]),
+]
 
 /** Runs the run-level undo steps (Parties setup put back) once, saying what happened. */
 export async function finishRun(runCleanup: Cleanup, log: (line: string) => void): Promise<CleanupResult[]> {
@@ -71,7 +81,7 @@ export async function finishRun(runCleanup: Cleanup, log: (line: string) => void
 /** Test bookings text the owners; this is Kaden's number (test texts only ever go to him). */
 const TEST_PHONE = '(402) 980-2907'
 
-async function signIn(secrets: Secrets, ctx: Pick<PartyCtx, 'admin' | 'staff'>): Promise<void> {
+async function signIn(secrets: Secrets, ctx: Pick<RunCtx, 'admin' | 'staff'>): Promise<void> {
   const a = await ctx.admin.post('/api/admin/login.json', { passcode: secrets.adminPasscode })
   checkStatus(a, 200, 'Sign in to /admin')
   check(ctx.admin.jar.has('hg_admin'), 'Signed in to /admin but no cookie came back')
@@ -130,10 +140,12 @@ export async function main(argv: string[], env: Record<string, string | undefine
   const gate = new RateGate(4, 60_000)
   // Ctrl-C halts the running scenario (its next call throws) before anything is cleaned up.
   const halt = new Halt()
-  const ctx: PartyCtx = {
+  const ctx: RunCtx = {
     pub: new PreviewClient({ gate, halt }),
     admin: new PreviewClient({ halt }),
     staff: new PreviewClient({ halt }),
+    crew: new PreviewClient({ halt }),
+    staffPasscode: secrets.staffPasscode,
     gate,
     square: secrets.sandboxToken ? new SquareSandbox(secrets.sandboxToken, (u, i) => fetch(u, i), halt) : null,
     slots: new SlotAllocator('2000-01-01'),
@@ -147,6 +159,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
   const signOut = async () => {
     await ctx.admin.request('DELETE', '/api/admin/login.json').catch(() => undefined)
     await ctx.staff.request('DELETE', '/api/staff/login.json').catch(() => undefined)
+    if (ctx.crew.jar.has('hg_staff')) await ctx.crew.request('DELETE', '/api/staff/login.json').catch(() => undefined)
   }
   // Ctrl-C, a kill or an error nothing caught: halt the running scenario, run its cleanups, put Parties setup back, sign out, exit.
   const pending: Pending = { current: null, halt }

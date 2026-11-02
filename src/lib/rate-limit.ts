@@ -14,6 +14,11 @@ export function rateLimited(key: string, max: number, windowMs: number, now = Da
   return false
 }
 
+/** True when `key` already has `max` hits in the window. Looks only: counts nothing. */
+export function rateLimitFull(key: string, max: number, windowMs: number, now = Date.now()): boolean {
+  return (hits.get(key) ?? []).filter((t) => now - t < windowMs).length >= max
+}
+
 /**
  * Targeted eviction: drop keys whose newest hit has aged out of the window
  * (they'd be treated as empty anyway). Only if that isn't enough do we fall

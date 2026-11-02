@@ -29,7 +29,7 @@ const json = (body: unknown, status = 200) =>
  * No adult naming, no extra fields — the signature is the check.
  */
 export const POST: APIRoute = async ({ request }) => {
-  const staff = staffAuthorized(request)
+  const staff = await staffAuthorized(request)
   if (!staff) return json({ error: 'Unauthorized' }, 401)
   const by = byOf(staff)
 

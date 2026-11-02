@@ -17,7 +17,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 /** Staff-only: events for one studio-local day, with RSVP + here-now counts
  *  (HOM-208 §6). Wraps `listEvents` — one day's `from`/`to`. */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!staffAuthorized(request)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
+  if (!(await staffAuthorized(request))) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   const date = url.searchParams.get('date') ?? ''
   if (!DATE_RE.test(date)) return new Response(JSON.stringify({ error: 'Missing/invalid date' }), { status: 400 })
 

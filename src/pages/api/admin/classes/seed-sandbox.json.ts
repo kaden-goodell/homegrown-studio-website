@@ -1,7 +1,9 @@
 import type { APIRoute } from 'astro'
 import { randomUUID } from 'node:crypto'
-import { adminAuthorized } from '@lib/admin-auth'
+import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { squareFetch, squareSettings } from '@lib/classes/square-api'
+import { classWritesRefusal } from '@lib/classes/test-site-guard'
+import { ensureCrewPerson } from '@lib/staff-directory'
 
 export const prerender = false
 const json = (status: number, body: unknown) =>
@@ -32,6 +34,9 @@ async function listAll(types: string): Promise<any[]> {
 
 const sameName = (a: unknown, b: string) => typeof a === 'string' && a.trim().toLowerCase() === b.toLowerCase()
 
+/** The sandbox crew member the staffing end-to-end scenarios sign in as (stage 3). */
+export const E2E_CREW = { givenName: 'E2E', familyName: 'Crew' } as const
+
 /**
  * GET (owners only): `{ data: { sandbox } }`, true only when this site talks
  * to the Square sandbox. /admin shows "Set up sandbox" only then.
@@ -44,14 +49,18 @@ export const GET: APIRoute = async ({ request }) => {
 /**
  * POST (owners only, sandbox only): make sure the sandbox has a "Classes"
  * category, a 9% "Sales tax", a "Party Crafts" category and two party crafts
- * in it (R12), creating whichever is missing. Safe to run again. Returns the
- * ids and the commands that set them for the branch.
+ * in it (R12), and "E2E Crew" on our own staff list for the staffing
+ * end-to-end scenarios (stage 3), creating whichever is missing. Safe to run
+ * again. Returns the ids and the commands that set them for the branch.
+ * Also refused on a test site with no store of its own (R41).
  */
 export const POST: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
   if (squareSettings().environment !== 'sandbox') {
     return json(409, { error: 'This only runs against the Square sandbox.' })
   }
+  const r41 = classWritesRefusal(request)
+  if (r41) return json(409, { error: r41 })
   try {
     const existing = await listAll('CATEGORY,TAX,ITEM')
     let classesCategoryId: string | undefined = existing.find((o) => o.type === 'CATEGORY' && sameName(o.category_data?.name, CATEGORY_NAME))?.id
@@ -101,11 +110,14 @@ export const POST: APIRoute = async ({ request }) => {
       partyCraftCategoryId ??= ids.get('#partycrafts')
     }
     if (!classesCategoryId || !classTaxId || !partyCraftCategoryId) return json(502, { error: "Square didn't return the new category or tax." })
+    // On our own staff list (D5), never the Square team: a name and nothing else.
+    const crew = await ensureCrewPerson(E2E_CREW.givenName, E2E_CREW.familyName, adminActor(request))
     return json(200, {
       data: {
         classesCategoryId,
         classTaxId,
         partyCraftCategoryId,
+        crewMember: { id: crew.id, name: `${E2E_CREW.givenName} ${E2E_CREW.familyName}`, created: crew.created },
         commands: [
           `npx netlify env:set SQUARE_CLASSES_CATEGORY_ID ${classesCategoryId} --context branch:${BRANCH}`,
           `npx netlify env:set SQUARE_CLASS_TAX_ID ${classTaxId} --context branch:${BRANCH}`,

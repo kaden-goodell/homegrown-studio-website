@@ -15,7 +15,7 @@ const json = (body: unknown, status = 200) =>
  * here so the owners (or a future page) can check who did what.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!staffAuthorized(request)) return json({ error: 'Unauthorized' }, 401)
+  if (!(await staffAuthorized(request))) return json({ error: 'Unauthorized' }, 401)
   const limitRaw = Number(url.searchParams.get('limit'))
   const limit = Number.isInteger(limitRaw) && limitRaw > 0 ? Math.min(limitRaw, 1000) : 200
   const byId = url.searchParams.get('by') || undefined

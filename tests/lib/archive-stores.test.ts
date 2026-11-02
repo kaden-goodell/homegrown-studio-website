@@ -32,6 +32,19 @@ describe('archive store list', () => {
     for (const name of found) expect(ARCHIVE_STORE_NAMES, `store "${name}" is missing from the archive`).toContain(name)
   })
 
+  it('covers every staffing store except the calendar-link keys, and the last-known team (stage 3)', () => {
+    const dir = join(root, 'src/lib/staffing')
+    const files = (readdirSync(dir, { recursive: true }) as string[]).filter((f) => f.endsWith('.ts'))
+    for (const f of files) expect(readFileSync(join(dir, f), 'utf8'), f).not.toMatch(/makeKvStore\(\s*[^'"`\s)]/)
+    const found = files.flatMap((f) => storeNamesIn(join(dir, f)))
+    expect(found.sort()).toEqual(['calendar-feeds', 'staff-availability', 'staffing'])
+    for (const name of found.filter((n) => n !== 'calendar-feeds')) expect(ARCHIVE_STORE_NAMES, `store "${name}" is missing from the archive`).toContain(name)
+    // hashes only, and "Make a new link" replaces a lost one: not kept
+    expect(ARCHIVE_STORE_NAMES).not.toContain('calendar-feeds')
+    for (const name of storeNamesIn(join(root, 'src/lib/staff-directory.ts'))) expect(ARCHIVE_STORE_NAMES).toContain(name)
+    expect(ARCHIVE_STORE_NAMES).toContain('staff-team')
+  })
+
   it('covers the party records and every new parties store (party-locks, party-checkouts too)', () => {
     for (const name of storeNamesIn(join(root, 'src/lib/party-store.ts'))) expect(ARCHIVE_STORE_NAMES).toContain(name)
     for (const name of ['parties', 'party-settings', 'party-payments', 'party-book', 'party-locks', 'party-checkouts']) expect(ARCHIVE_STORE_NAMES).toContain(name)

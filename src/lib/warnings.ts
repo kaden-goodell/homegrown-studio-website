@@ -36,6 +36,7 @@ import { formatMoney } from '@lib/money'
 import { getPartyRecord } from '@lib/party-store'
 import { partyLabel } from '@lib/parties/refunds'
 import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
+import { staffingWarnings } from '@lib/staffing/warnings'
 import { partyWarnings } from '@lib/parties/warnings'
 
 const logger = createLogger('warnings')
@@ -47,6 +48,8 @@ export const WARNING_CODES = [
   'below-minimum', 'pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'classes-unreadable',
   // R42: Square shows one of our online bookings paid, but its seats were let go
   'paid-not-seated',
+  // stage 3 staffing (owners only): nobody (or too few) on, someone on who can't, someone on a cancelled one
+  'unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable',
   // our own parties (stage 2 Task 13, ./parties/warnings.ts)
   'party-waiting-payment', 'party-hold-no-party', 'party-no-hold', 'two-parties', 'party-paid-after-cancel', 'parties-unreadable',
 ] as const
@@ -66,10 +69,15 @@ export interface Warning {
   action: string
   /** Stable id of an undated item (a counter sale, a refund flag…), so the daily email can tell new from old. */
   itemId?: string
+  /** Staffing lines (owners only): the class session or party, the /admin address that opens it, and who the line is about. */
+  staff?: { key: string; openHref: string | null; people: { staffId: string; name: string }[] }
 }
 
 /** Items that aren't tied to a day: they stay until an owner decides. */
-export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated', 'party-paid-after-cancel'])
+export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated', 'party-paid-after-cancel', 'assigned-cancelled'])
+
+/** Lines for the owners only (the daily email): never on the /staff panel, which the crew read. */
+export const OWNER_ONLY_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable'])
 
 /** Days ahead the panel and the daily email look. */
 export const WARNING_WINDOW_DAYS = 60
@@ -78,6 +86,8 @@ export const WARNING_WINDOW_DAYS = 60
 export function warningLine(w: Warning): string {
   // These already name their day (and the class), so the line doesn't repeat it.
   if (w.code === 'door-unpaid' || w.code === 'counter-match-check') return `${w.detail.replace(/\.$/, '')}. ${w.action}`
+  // A staffing line whose event was never seen has no date: say it without one, never today's.
+  if (!w.when) return `${w.detail} ${w.action}`
   return `${formatCalendarDay(studioDate(w.when))} · ${w.detail} ${w.action}`
 }
 
@@ -384,7 +394,12 @@ function refundFlagDetail(f: RefundFlag, name: string): string {
   }
 }
 
-export async function listWarnings({ from, to }: { from: string; to: string }, opts: { now?: Date } = {}): Promise<Warning[]> {
+/**
+ * `staffing: false` skips the staffing scan altogether (the /staff panel: the
+ * crew never see those lines, and the scan reads every staffing record).
+ * Only the owners' daily email includes it.
+ */
+export async function listWarnings({ from, to }: { from: string; to: string }, opts: { now?: Date; staffing?: boolean } = {}): Promise<Warning[]> {
   const now = opts.now ?? new Date()
   // Our classes can't be read: say so in one line rather than hiding the Square and party warnings (never an all clear).
   const ownOrError = ownClassWarnings(from, to, now).catch((e): Warning[] => {
@@ -410,15 +425,17 @@ export async function listWarnings({ from, to }: { from: string; to: string }, o
     logger.error('Square scan for warnings failed', { error: e instanceof Error ? e.message : String(e) })
     return null
   })
-  // The owners' closed days (config until they first save on /admin).
-  const [s, own, parties, closed] = await Promise.all([scanOrNull, ownOrError, partiesOrError, getClosures()])
+  // The owners' closed days (config until they first save on /admin). Staffing
+  // lines never fail the scan: a staffing read that fails is one line of its own.
+  const staffingOrNone = opts.staffing === false ? Promise.resolve([] as Warning[]) : staffingWarnings(from, to, now)
+  const [s, own, parties, closed, staffing] = await Promise.all([scanOrNull, ownOrError, partiesOrError, getClosures(), staffingOrNone])
   const squareLines: Warning[] = s
     ? [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s, closed), ...(await seatCounts(s))]
     : [{
       code: 'classes-unreadable', eventKind: 'workshop', eventId: '', when: now.toISOString(), title: 'Classes in Square',
       detail: 'Classes booked in Square couldn’t be checked for problems just now.', action: 'Refresh to try again.',
     }]
-  return [...squareLines, ...own, ...parties].sort((a, b) =>
+  return [...squareLines, ...own, ...parties, ...staffing].sort((a, b) =>
     a.when.localeCompare(b.when),
   )
 }

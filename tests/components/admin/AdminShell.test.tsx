@@ -70,7 +70,7 @@ const status = (code: number, body: unknown = {}) => ({ ok: false, status: code,
 
 /** The admin routes, by address. `fail` makes one path answer 500; `signedOut` starts at 401 until a sign-in works. */
 function server(o: any = {}) {
-  const { apps = [app()], requests = [request()], messages = [message()], items = calendar, signedOut = false, passcodeOk = true, sandbox = false, fail = [] as string[], postFails = [] as string[], settings = null, todo = [] } = o
+  const { apps = [app()], requests = [request()], messages = [message()], items = calendar, signedOut = false, passcodeOk = true, sandbox = false, fail = [] as string[], postFails = [] as string[], settings = null, todo = [], staffRows = [] } = o
   let out = signedOut
   const fn = vi.fn(async (url: string, init?: any) => {
     const path = url.split('?')[0]
@@ -89,6 +89,7 @@ function server(o: any = {}) {
       case '/api/admin/event-requests.json': return post ? ok({ data: { request: { ...requests.find((r: any) => r.id === post.id), status: post.status } } }) : ok({ data: { requests } })
       case '/api/admin/messages.json': return post ? ok({ data: { message: { ...messages.find((m: any) => m.id === post.id), status: post.status } } }) : ok({ data: { messages } })
       case '/api/admin/to-decide.json': return ok({ data: { items: todo } })
+      case '/api/admin/staffing.json': return ok({ data: { rows: staffRows, team: [], teamSource: 'square' } })
       case '/api/admin/settings.json':
         if (!settings) return status(503, { error: 'The studio settings couldn’t be reached. Try again.' })
         return ok({ data: { settings } })
@@ -366,6 +367,26 @@ describe('Home', () => {
     expect(screen.getByRole('button', { name: 'Messages 1' })).toHaveAttribute('aria-pressed', 'true')
   })
 
+  it('Needs you counts classes and parties in the next two weeks with nobody (or too few) on, and opens More › Staff', async () => {
+    const row = (state: string, needed: number, status = 'on', endIso = at('2026-10-22', '20:00')) => ({ event: { status, endIso }, state, needed })
+    const f = await signedIn(server({ staffRows: [row('none', 1), row('short', 2), row('staffed', 1), row('none', 0), row('none', 1, 'cancelled'), row('none', 1, 'on', at('2026-10-18', '12:00'))] }))
+    const tile = await screen.findByRole('button', { name: 'Need someone on, next 2 weeks: 2' })
+    const ranges = f.mock.calls.filter((c: any) => c[0].startsWith('/api/admin/staffing.json?from'))
+    // One staffing read per Home visit: the count and the row tags share it.
+    expect(ranges).toHaveLength(1)
+    for (const call of ranges) {
+      const q = new URL(`https://x.test${call[0]}`).searchParams
+      expect(Date.parse(q.get('to')!) - Date.parse(q.get('from')!)).toBeLessThanOrEqual(14 * 86_400_000)
+    }
+    fireEvent.click(tile)
+    expect(window.location.hash).toBe('#more-staff')
+  })
+
+  it('Needs you says so when staffing could not be checked (never a quiet 0)', async () => {
+    await signedIn(server({ fail: ['/api/admin/staffing.json'] }))
+    expect(await screen.findByRole('button', { name: 'Need someone on, next 2 weeks: couldn’t check' })).toHaveTextContent('!')
+  })
+
   it('a closed day the owners saved on /admin shows on Home and in More’s count (not just the config)', async () => {
     const settings = {
       cafeWeekly: [{ weekday: 'Saturday', opens: '09:00', closes: '12:00' }], cafeSpecialDays: [],
@@ -630,12 +651,12 @@ describe('More', () => {
     expect(posts(f, '/api/admin/classes/import-square.json')).toEqual([{ dryRun: true }])
   })
 
-  it('lists the setup pages; Staff and Promotions are marked as coming', async () => {
+  it('lists the setup pages; Promotions is marked as coming, Staff says what it holds', async () => {
     await signedIn()
     tab('More')
     const setup = await screen.findByRole('list', { name: 'Setup' })
     expect(within(setup).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Parties setup', 'Hours & Craft Café', 'Closed days', 'Staff', 'Promotions', 'Reports'])
-    expect(within(setup).getByRole('button', { name: /Staff/ })).toHaveTextContent('Coming in stage 3')
+    expect(within(setup).getByRole('button', { name: /Staff/ })).toHaveTextContent('Who’s on, who can work, calendar links')
     expect(within(setup).getByRole('button', { name: /Promotions/ })).toHaveTextContent('Coming in stage 4')
     // The row says what's set, from the saved Parties setup.
     expect(await within(setup).findByText('Fri, Sat, Sun · Whole studio $300 · 10–30 guests')).toBeInTheDocument()

@@ -9,6 +9,9 @@ const { mockListAllWorkshops, mockListBookings, mockProviders } = vi.hoisted(() 
   }
   return { mockListAllWorkshops, mockListBookings, mockProviders }
 })
+// Staffing lines have their own tests (tests/lib/staffing/warnings.test.ts).
+const mockStaffingWarnings = vi.hoisted(() => vi.fn(async () => [] as any[]))
+vi.mock('@lib/staffing/warnings', () => ({ staffingWarnings: mockStaffingWarnings }))
 vi.mock('@config/providers', () => ({ providers: mockProviders }))
 vi.mock('@config/site.config', () => ({ siteConfig: { providers: { booking: { config: { locationId: 'LOC' } } } } }))
 
@@ -57,6 +60,14 @@ beforeEach(() => {
 })
 
 describe('listWarnings', () => {
+  it('runs the staffing scan for the daily email, and skips it when asked (the /staff panel)', async () => {
+    await listWarnings(WINDOW)
+    expect(mockStaffingWarnings).toHaveBeenCalledTimes(1)
+    mockStaffingWarnings.mockClear()
+    await listWarnings(WINDOW, { staffing: false })
+    expect(mockStaffingWarnings).not.toHaveBeenCalled()
+  })
+
   it('is empty when nothing is wrong', async () => {
     mockListAllWorkshops.mockResolvedValue([PAILS])
     mockListBookings.mockResolvedValue([party('bk_rivera', '2026-10-18T21:00:00.000Z')]) // Sun 4:00 PM, an hour after Pails

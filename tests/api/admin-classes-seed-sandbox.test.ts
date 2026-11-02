@@ -6,7 +6,22 @@ vi.mock('@config/site.config', async (orig) => {
   return { ...real, siteConfig: { ...real.siteConfig, providers: { ...real.siteConfig.providers, catalog: { type: 'square', config: cfg } } } }
 })
 
+const site = vi.hoisted(() => ({ context: 'dev' as string }))
+vi.mock('@lib/deploy-context', () => ({ deployContext: () => site.context }))
+
+const crewList = vi.hoisted(() => ({ added: null as null | string, calls: [] as unknown[][] }))
+// D5: the crew member goes on our own staff list, never the Square team.
+vi.mock('@lib/staff-directory', () => ({
+  ensureCrewPerson: async (...args: unknown[]) => {
+    crewList.calls.push(args)
+    if (crewList.added) return { id: crewList.added, created: false }
+    crewList.added = 'stf_e2e'
+    return { id: 'stf_e2e', created: true }
+  },
+}))
+
 import { POST } from '@pages/api/admin/classes/seed-sandbox.json'
+import { NO_TEST_STORE } from '@lib/classes/test-site-guard'
 import { adminCookie } from '@lib/admin-auth'
 
 const signedIn = () => adminCookie().split(';')[0]
@@ -15,17 +30,27 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 
 /** A fake sandbox catalog: list returns what's there, upsert adds to it. */
 let catalog: any[] = []
+let team: any[] = []
 let calls: { url: string; method: string; body: any }[] = []
 beforeEach(() => {
   vi.stubEnv('ADMIN_PASSCODE', 'owner-secret')
   cfg.environment = 'sandbox'
+  site.context = 'dev'
   catalog = []; calls = []
+  crewList.added = null; crewList.calls = []
+  team = [{ id: 'TM_OWNER', given_name: 'Kaden', family_name: 'Goodell', status: 'ACTIVE', is_owner: true }]
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const body = init.body ? JSON.parse(String(init.body)) : undefined
     calls.push({ url: String(url), method: init.method ?? 'GET', body })
     expect(String(url)).toMatch(/^https:\/\/connect\.squareupsandbox\.com\/v2\//)
     expect((init.headers as any)['Square-Version']).toBe('2026-01-22')
     if (String(url).includes('/catalog/list')) return json(200, { objects: catalog })
+    if (String(url).endsWith('/team-members/search')) return json(200, { team_members: team.filter((m) => m.status === body?.query?.filter?.status) })
+    if (String(url).endsWith('/team-members')) {
+      const m = { id: `TM_NEW${team.length}`, status: 'ACTIVE', ...body.team_member }
+      team.push(m)
+      return json(200, { team_member: m })
+    }
     if (String(url).endsWith('/catalog/batch-upsert')) {
       const id_mappings = body.batches[0].objects.map((o: any, i: number) => ({ client_object_id: o.id, object_id: `REAL${catalog.length + i}` }))
       const real = new Map(id_mappings.map((m: any) => [m.client_object_id, m.object_id]))
@@ -101,6 +126,37 @@ describe('POST /api/admin/classes/seed-sandbox.json', () => {
     expect(objs[1].item_data.categories).toEqual([{ id: 'PCAT' }])
     expect(out.data.partyCraftCategoryId).toBe('PCAT')
     expect(out.data.classesCategoryId).toBe('CATX')
+  })
+})
+
+describe('the sandbox crew member for the staffing scenarios (stage 3)', () => {
+  it('puts "E2E Crew" on our own staff list (D5) once, then reuses it, with no Square team call at all', async () => {
+    const first = await (await POST({ request: req(signedIn()) } as any)).json()
+    expect(crewList.calls[0].slice(0, 2)).toEqual(['E2E', 'Crew'])
+    expect(first.data.crewMember).toEqual({ id: 'stf_e2e', name: 'E2E Crew', created: true })
+    expect(calls.some((c) => c.url.includes('/team-members'))).toBe(false)
+    expect(JSON.stringify(first)).not.toContain('tok')
+    const again = await (await POST({ request: req(signedIn()) } as any)).json()
+    expect(again.data.crewMember).toEqual({ id: 'stf_e2e', name: 'E2E Crew', created: false })
+    expect(calls.some((c) => c.url.includes('/team-members'))).toBe(false)
+  })
+
+  it('R41: refused on a test site with no store of its own, before any Square call', async () => {
+    const prev = process.env.STORE_NAMESPACE
+    delete process.env.STORE_NAMESPACE
+    site.context = 'deploy-preview'
+    try {
+      const res = await POST({ request: req(signedIn()) } as any)
+      expect(res.status).toBe(409)
+      expect(await res.json()).toEqual({ error: NO_TEST_STORE })
+      expect(calls).toHaveLength(0)
+      // with its own store (the branch preview's STORE_NAMESPACE=preview) it runs
+      process.env.STORE_NAMESPACE = 'preview'
+      expect((await POST({ request: req(signedIn()) } as any)).status).toBe(200)
+    } finally {
+      if (prev === undefined) delete process.env.STORE_NAMESPACE
+      else process.env.STORE_NAMESPACE = prev
+    }
   })
 })
 

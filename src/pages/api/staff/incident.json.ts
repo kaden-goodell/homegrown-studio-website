@@ -80,7 +80,7 @@ function parseParentNotified(raw: any, fallbackBy: string): IncidentRecord['pare
  *   incident itself is always saved once validation passes.
  */
 export const POST: APIRoute = async ({ request }) => {
-  const staff = staffAuthorized(request)
+  const staff = await staffAuthorized(request)
   if (!staff) return bad('Unauthorized', 401)
 
   const body = await request.json().catch(() => null)

@@ -1,11 +1,13 @@
 /**
- * One of our classes in one sheet: Bookings · Details · Dates (direction D).
+ * One of our classes in one sheet: Bookings · Details · Dates · Staff (direction D).
  * Bookings: who's coming, refunds (the shared RefundPanel), Print list and
  * Text everyone. Details: the class's words, photo and prices; Save offers
  * "This class and the library" only when the details differ from the
  * library's. Dates: the one date picker, the status, and a move that asks
  * before it touches anyone's booking. Cancel lists who's booked first and
  * never refunds; "Refund everyone" is its own step with its own confirm.
+ * Staff (stage 3): who's on each day, with "every day" for a class that
+ * runs on several days; a staffing line opens the sheet here on its day.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ClassBooking, PersonToTell } from '@lib/classes/admin-actions'
@@ -27,9 +29,11 @@ import { SheetFrame, useSheet, useSheetDirty } from '../shell/Sheet'
 import { dayAndSpan, timeSpan } from '../shell/time'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
 import { smsHref, telHref } from '../inbox/describe'
+import { StaffRow } from '../staffing/StaffRow'
+import { staffOpenOf } from '../staffing/api'
 
-export type ClassTab = 'bookings' | 'details' | 'dates'
-const TABS: [ClassTab, string][] = [['bookings', 'Bookings'], ['details', 'Details'], ['dates', 'Dates']]
+export type ClassTab = 'bookings' | 'details' | 'dates' | 'staff'
+const TABS: [ClassTab, string][] = [['bookings', 'Bookings'], ['details', 'Details'], ['dates', 'Dates'], ['staff', 'Staff']]
 export const STALE_KEPT = 'Someone else changed this class. Your edits are kept; check them and save again.'
 const STATUS_NOTE: Record<Exclude<ClassStatus, 'cancelled'>, string> = {
   open: 'On the website. People can book.',
@@ -51,12 +55,15 @@ function newAttempt(): string {
 }
 
 export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab?: ClassTab }) {
-  const { open } = useSheet()
+  const { open, data: handed } = useSheet()
   const { bump } = useRefresh()
   const toast = useToast()
   const [data, setData] = useState<Loaded | null>(null)
   const [loadError, setLoadError] = useState('')
-  const [tab, setTab] = useState<ClassTab>(firstTab)
+  /** A staffing line or the Staff board opens the class on Staff, on that day. */
+  const staffOpen = staffOpenOf(handed)
+  const [tab, setTab] = useState<ClassTab>(staffOpen ? 'staff' : firstTab)
+  const [staffKey, setStaffKey] = useState<string | null>(staffOpen?.staffKey ?? null)
   const [library, setLibrary] = useState<ClassContent | null>(null)
   const body = useRef<HTMLDivElement>(null)
 
@@ -530,8 +537,36 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
             <button type="button" className="adm-btn is-ghost adm-again" onClick={() => open({ kind: 'again', id: cls.id })}>Run it again on new dates</button>
           </section>
         )}
+
+        {tab === 'staff' && <ClassStaff cls={cls} staffKey={staffKey} onPick={setStaffKey} />}
       </div>
     </SheetFrame>
+  )
+}
+
+/** Staff on one day of the class (a day picker when it runs on several), with "every day". */
+function ClassStaff({ cls, staffKey, onPick }: { cls: ScheduledClass; staffKey: string | null; onPick: (key: string) => void }) {
+  if (cls.status === 'draft') return <p className="adm-note">It’s a draft, so nobody can go on it yet. Open it on Dates first.</p>
+  const sessions = [...cls.sessions].sort((a, b) => Date.parse(a.startIso) - Date.parse(b.startIso))
+  if (sessions.length === 0) return <p className="adm-note">This class has no dates.</p>
+  const keyOf = (id: string) => `ses:${id}`
+  const now = Date.now()
+  const chosen = sessions.find((x) => keyOf(x.id) === staffKey) ?? sessions.find((x) => Date.parse(x.endIso) > now) ?? sessions[sessions.length - 1]
+  const days = sessions.map((x) => ({ key: keyOf(x.id), startIso: x.startIso }))
+  return (
+    <section aria-label="Staff on this class">
+      {sessions.length > 1 && (
+        <Seg
+          label="Which day"
+          className="is-scroll"
+          value={keyOf(chosen.id)}
+          onChange={onPick}
+          options={sessions.map((x) => [keyOf(x.id), dayLabel(localDate(x.startIso))] as [string, string])}
+        />
+      )}
+      <p className="adm-small adm-muted adm-gap-top">{dayAndSpan(chosen.startIso, chosen.endIso)}</p>
+      <StaffRow key={chosen.id} eventKey={keyOf(chosen.id)} startIso={chosen.startIso} days={days} />
+    </section>
   )
 }
 

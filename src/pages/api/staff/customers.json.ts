@@ -22,7 +22,7 @@ const shape = (c: { id: string; givenName?: string; familyName?: string; email?:
  * `GET ?id=` → that customer, plus the household on their waiver (or null).
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!staffAuthorized(request)) return reply(401, { error: 'Unauthorized' })
+  if (!(await staffAuthorized(request))) return reply(401, { error: 'Unauthorized' })
   const id = url.searchParams.get('id')?.trim()
   const q = url.searchParams.get('q')?.trim() ?? ''
   try {

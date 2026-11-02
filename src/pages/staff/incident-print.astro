@@ -8,7 +8,7 @@ import { siteConfig } from '@config/site.config'
 
 // Staff-authed server-side (HOM-215), same pattern as `print.astro` — a
 // printable parent copy must never be reachable without the staff cookie.
-if (!staffAuthorized(Astro.request)) {
+if (!(await staffAuthorized(Astro.request))) {
   return new Response('Unauthorized — sign in at /staff first.', { status: 401 })
 }
 

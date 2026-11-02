@@ -52,11 +52,8 @@ export function localDate(iso: string, tz: string = partyConfig.timezone): strin
   return `${get('year')}-${get('month')}-${get('day')}`
 }
 
-/** Convert a studio-local date (YYYY-MM-DD) + time (HH:MM) to a UTC ISO string. */
-export function localToUtcISO(ymd: string, hhmm: string, tz: string = partyConfig.timezone): string {
-  const [y, m, d] = ymd.split('-').map(Number)
-  const [hh, mm] = hhmm.split(':').map(Number)
-  const guess = new Date(Date.UTC(y, m - 1, d, hh, mm))
+/** The zone's offset from UTC (ms, local − UTC) at an instant. */
+function offsetAt(ms: number, tz: string): number {
   const parts = new Intl.DateTimeFormat('en-US', {
     timeZone: tz,
     hour12: false,
@@ -66,12 +63,35 @@ export function localToUtcISO(ymd: string, hhmm: string, tz: string = partyConfi
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
-  }).formatToParts(guess)
+  }).formatToParts(new Date(ms))
   const p: Record<string, string> = {}
   for (const x of parts) p[x.type] = x.value
-  const asSeen = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second)
-  const offset = asSeen - guess.getTime()
-  return new Date(guess.getTime() - offset).toISOString()
+  const hour = +p.hour === 24 ? 0 : +p.hour
+  const asSeen = Date.UTC(+p.year, +p.month - 1, +p.day, hour, +p.minute, +p.second)
+  return asSeen - Math.floor(ms / 1000) * 1000
+}
+
+/**
+ * Convert a studio-local date (YYYY-MM-DD) + time (HH:MM) to a UTC ISO string.
+ *
+ * Right on clock-change days too: the offset is read at the first answer and,
+ * when that differs, the answer is worked out again with it (a single guess
+ * put 2–7 AM an hour off on the day the clocks go back). A time that happens
+ * twice (1:30 AM when the clocks go back) is the first one; a time that never
+ * happens (2:30 AM when they go forward) moves on an hour, as before.
+ */
+export function localToUtcISO(ymd: string, hhmm: string, tz: string = partyConfig.timezone): string {
+  const [y, m, d] = ymd.split('-').map(Number)
+  const [hh, mm] = hhmm.split(':').map(Number)
+  const wall = Date.UTC(y, m - 1, d, hh, mm)
+  const first = wall - offsetAt(wall, tz)
+  const second = wall - offsetAt(first, tz)
+  if (second === first) return new Date(first).toISOString()
+  // Keep the answer that reads back as the wall time asked for; neither does
+  // only when that time never happens (the hour the clocks skip).
+  const readsBack = (ms: number) => ms + offsetAt(ms, tz) === wall
+  if (readsBack(second)) return new Date(second).toISOString()
+  return new Date(first).toISOString()
 }
 
 function minutesOfDay(hhmm: string): number {

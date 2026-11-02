@@ -16,7 +16,7 @@ function bad(detail: string, status = 400): Response {
 /** Staff-only. `GET ?kind=&id=` — an event's incident reports, newest first.
  *  Powers the roster's "Incidents (n)" badge + read-only list (HOM-215). */
 export const GET: APIRoute = async ({ request, url }) => {
-  const staff = staffAuthorized(request)
+  const staff = await staffAuthorized(request)
   if (!staff) return bad('Unauthorized', 401)
 
   const kind = url.searchParams.get('kind') ?? ''

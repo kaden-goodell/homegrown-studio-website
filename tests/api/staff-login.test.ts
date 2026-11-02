@@ -8,7 +8,8 @@ vi.mock('@lib/staff-auth', () => ({
   clearStaffCookie: () => 'hg_staff=; Max-Age=0',
 }))
 vi.mock('@lib/staff-directory', () => ({ listStaff: async () => [{ id: 'm1', name: 'Mara', role: 'crew' }] }))
-vi.mock('@lib/rate-limit', () => ({ rateLimited: () => false }))
+vi.mock('@lib/rate-limit', () => ({ rateLimited: () => false, rateLimitFull: () => false }))
+vi.mock('@lib/staff-signin-failures', async (orig) => ({ ...(await orig<any>()), noteFailedSignIn: async () => {} }))
 
 import { POST } from '../../src/pages/api/staff/login.json'
 

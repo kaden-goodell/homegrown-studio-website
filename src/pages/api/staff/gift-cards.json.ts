@@ -18,7 +18,7 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 
 /** Staff-only: every gift card we've made, with its live balance from Square. */
 export const GET: APIRoute = async ({ request }) => {
-  if (!staffAuthorized(request)) return json({ error: 'Unauthorized' }, 401)
+  if (!(await staffAuthorized(request))) return json({ error: 'Unauthorized' }, 401)
   try {
     const records = await listMintedGiftCards()
     const cards = await Promise.all(records.map(async (r) => {
@@ -39,7 +39,7 @@ export const GET: APIRoute = async ({ request }) => {
 
 /** Staff-only: make a new gift card for a giveaway. */
 export const POST: APIRoute = async ({ request }) => {
-  const member = staffAuthorized(request)
+  const member = await staffAuthorized(request)
   if (!member) return json({ error: 'Unauthorized' }, 401)
 
   let body: unknown

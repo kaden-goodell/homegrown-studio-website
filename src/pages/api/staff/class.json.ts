@@ -16,7 +16,7 @@ const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store
  * passes and prices. Same shape as /api/classes/<id>.json.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!staffAuthorized(request)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers })
+  if (!(await staffAuthorized(request))) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers })
   const id = url.searchParams.get('id') ?? ''
   if (!/^cls_[a-z0-9]{4,40}$/.test(id)) return new Response(JSON.stringify({ error: 'Not found' }), { status: 404, headers })
   try {

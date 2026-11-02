@@ -15,6 +15,9 @@
  *
  * A party booked in Square is read only here: "Booked in Square. Change it
  * there."
+ *
+ * Staff (stage 3): who's on the party, on both kinds; a staffing line opens
+ * the sheet on Staff.
  */
 import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import PaymentForm, { type PaymentFormRef } from '@components/checkout/PaymentForm'
@@ -39,9 +42,11 @@ import {
   byStudioDay, firstOf, newKey, PARTY_ACTIONS, partyTitle, STATE_WORDS, timesWindow, useCrafts, useParty, usePartySettings, usePartyTimes,
   type AdminParty, type AdminPartyGuest, type HostToTell, type SendDetailsOffer,
 } from './api'
+import { StaffRow } from '../staffing/StaffRow'
+import { staffOpenOf } from '../staffing/api'
 import { ANOTHER_TIME_HINT, OWNER_EARLIEST, OWNER_LATEST, startClock, type PartyNotice } from './BookPartySheet'
 
-type Tab = 'details' | 'guests' | 'pay'
+type Tab = 'details' | 'guests' | 'pay' | 'staff'
 type Panel = null | 'move' | 'cancel'
 const WAIVER: Record<AdminPartyGuest['waiver'], string> = { current: 'Waiver signed', expired: 'Waiver expired', outdated: 'Needs the new waiver' }
 const CARD_UNREAD = 'We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.'
@@ -72,14 +77,15 @@ export function PartySheet({ day, id }: { day: string; id: string }) {
   const given = data && typeof data === 'object' ? data as Partial<CalendarItem> & { notice?: PartyNotice } : null
   const item = given && given.id === id && given.startIso ? given as CalendarItem : null
   const notice = given?.notice && given.notice.id === id ? given.notice : null
+  const staffFirst = !!staffOpenOf(data)
 
   if (error && !info) return <SheetFrame title="Party"><Failed message={error} onRetry={reload} /></SheetFrame>
   if (!info) return <SheetFrame title="Party" subtitle={item ? dayAndSpan(item.startIso, item.endIso) : dayLabel(day)}><Skeleton rows={4} label="Loading the party" /></SheetFrame>
   const p = info.party
-  if (!p || p.legacy) return <SquareParty party={p} item={item} guests={info.guests} day={day} />
+  if (!p || p.legacy) return <SquareParty id={id} party={p} item={item} guests={info.guests} day={day} staffFirst={staffFirst} />
   return (
     <PartyUpdate.Provider value={(next) => setParty(next as AdminParty)}>
-      <OurParty party={p} guests={info.guests} notice={notice} />
+      <OurParty party={p} guests={info.guests} notice={notice} staffFirst={staffFirst} />
     </PartyUpdate.Provider>
   )
 }
@@ -96,14 +102,15 @@ function CallText({ phone }: { phone: string }) {
 }
 
 /** Booked in Square: read only. */
-function SquareParty({ party: p, item, guests, day }: { party: AdminParty | null; item: CalendarItem | null; guests: AdminPartyGuest[] | null; day: string }) {
-  const [tab, setTab] = useState<'details' | 'guests'>('details')
+function SquareParty({ id, party: p, item, guests, day, staffFirst }: { id: string; party: AdminParty | null; item: CalendarItem | null; guests: AdminPartyGuest[] | null; day: string; staffFirst: boolean }) {
+  const [tab, setTab] = useState<'details' | 'guests' | 'staff'>(staffFirst ? 'staff' : 'details')
+  const startIso = p?.startIso ?? item?.startIso
   const title = p ? partyTitle(p.hostName) : item ? item.label.replace(/^./, (c) => c.toUpperCase()) : 'Party'
   const when = p ? (p.endIso ? dayAndSpan(p.startIso, p.endIso) : dayAndClock(p.startIso)) : item ? dayAndSpan(item.startIso, item.endIso) : dayLabel(day)
   return (
     <SheetFrame tall title={title} subtitle={<>{when} <span className="adm-tag is-grey">Booked in Square</span></>} footer={p ? <CallText phone={p.hostPhone} /> : undefined}>
       <div className="adm-panel adm-gap-bottom"><b>Booked in Square. Change it there.</b><span className="adm-small">Moving, cancelling and refunds for this party happen in Square, as before.</span></div>
-      <Seg label="Party" value={tab} onChange={setTab} options={[['details', 'Details'], ['guests', 'Guests']]} />
+      <Seg label="Party" value={tab} onChange={setTab} options={[['details', 'Details'], ['guests', 'Guests'], ['staff', 'Staff']]} />
       {tab === 'details' && (p
         ? (
           <>
@@ -118,6 +125,7 @@ function SquareParty({ party: p, item, guests, day }: { party: AdminParty | null
         )
         : <p className="adm-note">There are no details on file here for this party. Open it in Square.</p>)}
       {tab === 'guests' && <GuestList guests={guests} party={p} />}
+      {tab === 'staff' && <StaffRow eventKey={`party:${p?.bookingId ?? id}`} startIso={startIso} />}
     </SheetFrame>
   )
 }
@@ -157,11 +165,11 @@ function itemWords(it: PartyItem): string {
   return it.qty > 1 ? `${it.label} × ${it.qty}` : it.label
 }
 
-function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: AdminPartyGuest[] | null; notice: PartyNotice | null }) {
+function OurParty({ party: p, guests, notice, staffFirst }: { party: AdminParty; guests: AdminPartyGuest[] | null; notice: PartyNotice | null; staffFirst: boolean }) {
   const { bump } = useRefresh()
   const applied = useApplied()
   const toast = useToast()
-  const [tab, setTab] = useState<Tab>('details')
+  const [tab, setTab] = useState<Tab>(staffFirst ? 'staff' : 'details')
   const [panel, setPanel] = useState<Panel>(null)
   const [told, setTold] = useState<Told | null>(notice ? { title: notice.warn ? 'Booked, with something to check' : 'Booked', text: notice.text, warn: notice.warn } : null)
   const [toldSeq, setToldSeq] = useState(0)
@@ -321,7 +329,9 @@ function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: Adm
           <span className="adm-small">{`${first} paid after this time was taken by another party. Nothing was refunded. Move one of the parties, then let the hosts know.`}</span>
         </div>
       )}
-      <Seg label="Party" value={tab} onChange={setTab} options={[['details', 'Details'], ['guests', 'Guests'], ['pay', p.dueCents > 0 && !cancelled ? `Payments · ${formatMoney(p.dueCents)} due` : 'Payments']]} />
+      <Seg label="Party" value={tab} onChange={setTab} options={[['details', 'Details'], ['guests', 'Guests'], ['pay', p.dueCents > 0 && !cancelled ? `Payments · ${formatMoney(p.dueCents)} due` : 'Payments'], ['staff', 'Staff']]} />
+
+      {tab === 'staff' && <StaffRow eventKey={`party:${p.bookingId}`} startIso={p.startIso} />}
 
       {tab === 'details' && (
         editing

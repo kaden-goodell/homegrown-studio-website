@@ -17,7 +17,7 @@ export const prerender = false
  * what is really on. Capped at about six weeks.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!staffAuthorized(request)) return json(401, { error: 'Unauthorized' })
+  if (!(await staffAuthorized(request))) return json(401, { error: 'Unauthorized' })
   const from = toIso(url.searchParams.get('from')), to = toIso(url.searchParams.get('to'))
   if (!from || !to || Date.parse(to) <= Date.parse(from)) return json(400, { error: 'Pick a start and an end for the range.' })
   if (Date.parse(to) - Date.parse(from) > 45 * 86_400_000) return json(400, { error: 'Pick a range of six weeks or less.' })

@@ -383,6 +383,10 @@ export const WARNING_HELP: Record<WarningCode, string[]> = {
   'two-parties': ['two-parties'],
   'party-paid-after-cancel': ['party-paid-after-cancel'],
   'parties-unreadable': ['parties-unreadable'],
+  unstaffed: ['unstaffed'],
+  'assigned-cant': ['assigned-cant'],
+  'assigned-cancelled': ['assigned-cancelled'],
+  'staffing-unreadable': ['staffing-unreadable'],
 }
 
 /** Every To decide kind → its rows above (a missing kind doesn't compile). */

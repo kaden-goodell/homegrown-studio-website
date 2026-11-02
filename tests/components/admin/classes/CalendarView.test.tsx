@@ -138,7 +138,8 @@ describe('CalendarView', () => {
     expect(await screen.findByText("The calendar couldn't be loaded. Try again.")).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findByText("The calendar couldn't be loaded. Try again.")).toBeInTheDocument()
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    // Two calendar reads (the staffing tags are read once, on their own).
+    expect(fetchMock.mock.calls.filter((c: any[]) => String(c[0]).startsWith('/api/admin/classes/calendar.json'))).toHaveLength(2)
   })
 
   describe('fix round 1', () => {

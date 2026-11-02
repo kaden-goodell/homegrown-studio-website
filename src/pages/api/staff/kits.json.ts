@@ -60,7 +60,7 @@ function assemblyFor(orders: KitOrderRecord[], weekKey: string, today: string) {
  * GET → { data: { buckets, radar, assembly } }
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!staffAuthorized(request)) {
+  if (!(await staffAuthorized(request))) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   }
 

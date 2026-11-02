@@ -35,7 +35,7 @@ const json = (body: unknown, status: number) =>
  * double-refunds.
  */
 export const POST: APIRoute = async ({ request }) => {
-  const staff = staffAuthorized(request)
+  const staff = await staffAuthorized(request)
   if (!staff) return json({ error: 'Unauthorized' }, 401)
   const by = byOf(staff)
 

@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mockListWarnings = vi.fn()
-vi.mock('@lib/warnings', () => ({
+vi.mock('@lib/warnings', async (orig) => ({
   listWarnings: (...a: any[]) => mockListWarnings(...a),
   warningLine: (w: any) => `Sun Oct 18 · ${w.detail} ${w.action}`,
   WARNING_WINDOW_DAYS: 60,
-  UNDATED_CODES: new Set(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check']),
+  // the real list, so the digest treats exactly the real undated codes as undated
+  UNDATED_CODES: (await orig<typeof import('@lib/warnings')>()).UNDATED_CODES,
+  OWNER_ONLY_CODES: (await orig<typeof import('@lib/warnings')>()).OWNER_ONLY_CODES,
 }))
 const mockMinimum = vi.fn()
 vi.mock('@lib/classes/minimum-to-run', () => ({ runMinimumToRunAlerts: (...a: any[]) => mockMinimum(...a) }))
@@ -66,6 +68,7 @@ describe('POST /api/jobs/daily-warnings.json', () => {
     expect(mail.subject).toBe('⚠ Studio schedule needs attention (2)')
     expect(mail.text).toContain('Sun Oct 18 · Pumpkin Pails: 27 seats sold, 25 capacity. Sort it out in Square.')
     expect(mail.text).toContain('https://ourhometownstudio.com/staff')
+    expect(mail.text).not.toContain('/admin#more-staff') // no staffing lines, no /admin link
     expect(mail.html).toContain('Pumpkin Pails: 27 seats sold, 25 capacity.')
   })
 
@@ -119,6 +122,25 @@ describe('undated items and the minimum to run', () => {
     expect(day2.text).not.toContain('Counter sale u1.')
     expect(day2.text).toContain('1 thing still to decide on /admin')
     expect(day2.text).toContain('Pumpkin Pails: 27 seats sold, 25 capacity.')
+  })
+
+  it('staffing: lines go in the email; someone still on a cancelled class is undated (full once, then counted)', async () => {
+    const unstaffed = { code: 'unstaffed', eventKind: 'workshop', eventId: 'cls_1', when: '2026-10-10T15:00:00.000Z', title: 'Potholder Looms', detail: 'Potholder Looms at 10 AM has no one on yet.', action: 'Assign someone in /admin › More › Staff.' }
+    const stillOn = { code: 'assigned-cancelled', eventKind: 'workshop', eventId: '', when: '2026-10-12T15:00:00.000Z', title: 'Weaving', itemId: `ses:ses_${Math.random().toString(36).slice(2)}`, detail: 'Jessica is still on Weaving, which was cancelled.', action: 'Tell Jessica, then take Jessica off in /admin.' }
+    mockListWarnings.mockResolvedValue([unstaffed, stillOn])
+    await POST(ctx(dailyWarningsJobKey(SECRET)))
+    const day1 = mockSendEmail.mock.calls[0][0].text
+    expect(day1).toContain('Potholder Looms at 10 AM has no one on yet.')
+    // staffing lines link to /admin › More › Staff (the /staff panel doesn't show them)
+    expect(day1).toContain('https://ourhometownstudio.com/admin#more-staff')
+    expect(mockSendEmail.mock.calls[0][0].html).toContain('href="https://ourhometownstudio.com/admin#more-staff"')
+    expect(day1).toContain('Jessica is still on Weaving, which was cancelled.')
+    vi.setSystemTime(new Date('2026-10-07T12:00:00.000Z'))
+    await POST(ctx(dailyWarningsJobKey(SECRET)))
+    const day2 = mockSendEmail.mock.calls[1][0].text
+    expect(day2).toContain('Potholder Looms at 10 AM has no one on yet.')
+    expect(day2).not.toContain('Jessica is still on Weaving')
+    expect(day2).toContain('1 thing still to decide on /admin')
   })
 
   it('an item decided, then back on a later day, shows in full again (the quiet day is remembered too)', async () => {

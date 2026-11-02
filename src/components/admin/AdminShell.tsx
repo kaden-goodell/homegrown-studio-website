@@ -26,6 +26,7 @@ import { BlockSheet, PrintSheet } from './sheets/ClassSheets'
 import { ClassSheet, EditClassSheet } from './sheets/ClassSheet'
 import { LibraryEditSheet, LibraryItemSheet } from './sheets/LibrarySheets'
 import { NewClassSheet, RunAgainSheet, ScheduleFromLibrarySheet } from './sheets/NewClassSheet'
+import { StaffSheet } from './sheets/StaffSheet'
 import { ComingSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet } from './sheets/MoreSheets'
 import { HelpSheet } from './sheets/HelpSheet'
 import { ClosedDaysSheet, HoursSheet } from './sheets/SettingsSheets'
@@ -430,7 +431,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
         case 'parties': return <PartiesSetupSheet />
         case 'hours': return <HoursSheet />
         case 'closed': return <ClosedDaysSheet />
-        case 'staff': return <ComingSheet title="Staff" stage={3} what="who can work when, and who’s on each class and party." />
+        case 'staff': return <StaffSheet />
         case 'promos': return <ComingSheet title="Promotions" stage={4} what="discount codes for classes and parties, and how often each is used." />
         case 'reports': return <ReportsSheet />
         case 'import': return <ImportSquareSheet />

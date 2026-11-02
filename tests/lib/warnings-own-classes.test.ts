@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+// Staffing lines have their own tests (tests/lib/staffing/warnings.test.ts).
+vi.mock('@lib/staffing/warnings', () => ({ staffingWarnings: async () => [] }))
 vi.mock('@config/providers', () => ({
   providers: { workshop: { listAllWorkshops: async () => [], listWorkshops: async () => [] }, booking: { listBookings: async () => [] } },
 }))
