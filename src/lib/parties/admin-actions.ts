@@ -138,7 +138,7 @@ const addedMessage = (it: PartyItem) => (it.cents > 0
   ? `Added ${it.label} (${formatMoney(it.cents)}). It’s due: send the payment link or take a card on the Payments tab.`
   : `Added ${it.label}.`)
 
-const audit = (by: By, action: string, r: PartyRecord, details?: Record<string, string | number | boolean | null>) =>
+export const audit = (by: By, action: string, r: PartyRecord, details?: Record<string, string | number | boolean | null>) =>
   recordAudit({ by: { ...by, role: 'owner' }, action, target: { kind: 'party', id: r.bookingId, label: partyLabel(r) }, ...(details ? { details } : {}) })
 
 /** Thrown inside an update to stop it with the owner's answer. */
@@ -161,7 +161,7 @@ async function update(id: string, fn: (r: PartyRecord) => PartyRecord | null, ch
 }
 
 /** Our own party, ready for a write; refusals for anything else. */
-async function writable(id: unknown, request: Request): Promise<PartyRecord> {
+export async function writable(id: unknown, request: Request): Promise<PartyRecord> {
   const refusal = partyWritesRefusal(request)
   if (refusal) throw new PartyActionError(503, refusal)
   if (typeof id !== 'string' || !id) throw new PartyActionError(400, 'Pick a party.')
@@ -174,7 +174,7 @@ async function writable(id: unknown, request: Request): Promise<PartyRecord> {
  * Runs a time-changing action (move, cancel, extras) as the only one on this
  * party (withPartyLock), after the cheap refusals. Its record is read inside.
  */
-async function locked<T>(id: unknown, request: Request, fn: () => Promise<T>): Promise<T> {
+export async function locked<T>(id: unknown, request: Request, fn: () => Promise<T>): Promise<T> {
   const refusal = partyWritesRefusal(request)
   if (refusal) throw new PartyActionError(503, refusal)
   if (typeof id !== 'string' || !id) throw new PartyActionError(400, 'Pick a party.')
@@ -185,7 +185,7 @@ async function locked<T>(id: unknown, request: Request, fn: () => Promise<T>): P
     throw e
   }
 }
-const notCancelled = (r: PartyRecord) => {
+export const notCancelled = (r: PartyRecord) => {
   if (r.status === 'cancelled') throw new PartyActionError(409, PARTY_CANCELLED)
 }
 
@@ -280,8 +280,8 @@ export async function partyRefundRequests(id: string): Promise<ReturnType<typeof
 
 export interface MoveResult {
   party: AdminPartyView; hostToTell: HostToTell; from: string | null; to: string; message: string
-  /** the owner may tap it to email the host the new time and a fresh calendar file (S2-R7: never automatic) */
-  sendDetails: SendDetailsOffer
+  /** the owner may tap it to email the host the new time and a fresh calendar file (S2-R7: never automatic); null when nothing moved */
+  sendDetails: SendDetailsOffer | null
   replay?: true; warning?: string
 }
 
@@ -335,6 +335,11 @@ async function moveLocked(body: { id?: unknown; startIso?: unknown; fromIso?: un
   const reply = (saved: PartyRecord, from: string | null, extra: { replay?: true; warning?: string } = {}): MoveResult => ({
     party: adminPartyView(saved, now), hostToTell: hostOf(saved), from, to, message: movedMessage(saved), sendDetails: sendDetailsOffer(saved, true), ...extra,
   })
+  /** Asked to move to the time it is already on, with nothing to finish: nothing changed, so nothing to tell the host. */
+  const unchanged = (saved: PartyRecord, extra: { warning?: string } = {}): MoveResult => ({
+    party: adminPartyView(saved, now), hostToTell: hostOf(saved), from: saved.startIso, to,
+    message: `${firstOf(saved)}’s party is already on ${partyWhenLabel(saved.startIso)}. Nothing changed.`, sendDetails: null, replay: true, ...extra,
+  })
 
   // Already on that time: a double tap or a retry of a move that went through. The same answer.
   if (sameStart(r.startIso, to)) {
@@ -343,16 +348,19 @@ async function moveLocked(body: { id?: unknown; startIso?: unknown; fromIso?: un
     if (shown && !sameStart(shown, to) && !(await letGo(r.bookingId, shown))) {
       warning = `${movedMessage(r)} ${partyWhenLabel(shown)} still shows as held for this party. The daily warnings will list it.`
     }
-    // The daily warning "isn't held on the calendar" says to move the party to the same time again: that puts its time back.
+    // A quiet safety net (the party sheet's "Hold this time again" is the owners' way): a missing hold is put back.
+    // MERGE NOTE (kaden/admin-d b33d7d6): call `await assertPartyLockHeld()` right before holdAgain here.
     if (Date.parse(r.startIso) > now.getTime()) {
       const again = await holdAgain(r, now).catch((e) => {
         logger.error('Party time not checked on a same-time move', { partyId: r.bookingId, error: String(e) })
         return { ok: false as const, message: 'The calendar couldn’t be checked just now. Try again in a minute.' }
       })
-      if (!again.ok) warning = `This party isn’t held on the calendar, and its time couldn’t be held again. ${again.message} Tell Kaden.`
+      if (!again.ok) warning = `This party isn’t held on the calendar, and its time couldn’t be held again. ${again.message} Move the other booking, or move this party to a free time.`
       else if (again.changed) await audit(by, 'party-move', r, { from: r.startIso, to, heldAgain: true })
     }
-    return reply(r, shown, { replay: true, ...(warning ? { warning } : {}) })
+    // A retry of a move that went through: it did move, so the host may need the new details.
+    if (shown && !sameStart(shown, to)) return reply(r, shown, { replay: true, ...(warning ? { warning } : {}) })
+    return unchanged(r, warning ? { warning } : {})
   }
   // The sheet showed another time: someone else moved it meanwhile (M-f). Never moved again on a stale screen.
   if (shown && !sameStart(shown, r.startIso)) {
@@ -458,7 +466,7 @@ export interface CancelResult { party: AdminPartyView; hostToTell: HostToTell; m
 async function letCancelledGo(rec: PartyRecord): Promise<string[]> {
   const warnings: string[] = []
   if (!(await letGo(rec.bookingId, rec.startIso))) {
-    warnings.push(`${partyWhenLabel(rec.startIso)} still shows as held. Tap Cancel again to let it go, or the daily warnings will list it.`)
+    warnings.push(`${partyWhenLabel(rec.startIso)} still shows as held. Tap Free this time on this party to let it go.`)
   }
   if (rec.theme) {
     const t = kitThemes.find((k) => k.id === rec.theme!.themeId)

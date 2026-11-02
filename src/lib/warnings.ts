@@ -90,6 +90,8 @@ const capacityOf = (c: ScannedClass): number | null => c.workshop.totalCapacity 
 interface Scan {
   classes: ScannedClass[]
   parties: PartySpan[]
+  /** The parties Square itself lists as booked (party service, not cancelled): the Square side of the party checks. */
+  squareParties: PartySpan[]
 }
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
@@ -119,7 +121,9 @@ async function scan(from: string, to: string): Promise<Scan> {
   const parties: PartySpan[] = partyList.map((p) => ({
     id: p.id, startIso: p.startIso, endIso: p.endIso, ...(p.hostName ? { hostName: p.hostName } : {}),
   }))
-  return { classes, parties }
+  // Square's own list (no party-book entry): a party cancelled in Square is gone from it, one booked there by hand is in it.
+  const squareParties = parties.filter((_, i) => !partyList[i].party)
+  return { classes, parties, squareParties }
 }
 
 function classOverParty(s: Scan): Warning[] {
@@ -131,7 +135,8 @@ function classOverParty(s: Scan): Warning[] {
       when: span.startIso,
       title: span.name,
       detail: `${span.name} ${formatTimeSpan(span.startIso, span.endIso)} is within an hour of ${partyName(p)} ${formatTime(p.startIso)}.`,
-      action: 'Move one in Square.',
+      // One of our parties moves on /admin; a Square-booked one only in Square.
+      action: p.id.startsWith('pty_') ? 'Move the class in Square, or the party on /admin.' : 'Move one in Square.',
     })),
   )
 }
@@ -387,7 +392,9 @@ export async function listWarnings({ from, to }: { from: string; to: string }, o
     }]
   })
   // Our parties can't be checked: one line, the rest still shows (never an all clear).
-  const partiesOrError = partyWarnings(from, to, now).catch((e): Warning[] => {
+  // The Square side of the party checks comes from Square's own live list, read once here (never our saved records of them).
+  const scanned = scan(from, to)
+  const partiesOrError = partyWarnings(from, to, now, { squareParties: scanned.then((x) => x.squareParties) }).catch((e): Warning[] => {
     logger.error('Party warnings scan failed', { error: e instanceof Error ? e.message : String(e) })
     return [{
       code: 'parties-unreadable', eventKind: 'party', eventId: '', when: now.toISOString(), title: 'Parties',
@@ -395,7 +402,7 @@ export async function listWarnings({ from, to }: { from: string; to: string }, o
     }]
   })
   // The owners' closed days (config until they first save on /admin).
-  const [s, own, parties, closed] = await Promise.all([scan(from, to), ownOrError, partiesOrError, getClosures()])
+  const [s, own, parties, closed] = await Promise.all([scanned, ownOrError, partiesOrError, getClosures()])
   return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s, closed), ...(await seatCounts(s)), ...own, ...parties].sort((a, b) =>
     a.when.localeCompare(b.when),
   )

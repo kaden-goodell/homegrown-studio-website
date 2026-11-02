@@ -125,7 +125,7 @@ describe('GET /api/party/roster.json — our party records (stage 2)', () => {
   it('studio fee and an extra due: the host’s pay link names them (never crafts)', async () => {
     mockGetPartyRecord.mockResolvedValue(ours())
     const { data } = await load()
-    expect(data.party.pay).toEqual({ cents: 35000, what: 'the studio fee and Extra half hour', url: 'http://localhost/party/pay/pty_0000000000000001?k=paykey' })
+    expect(data.party.pay).toEqual({ cents: 35000, what: 'the studio fee and extra half hour', url: 'http://localhost/party/pay/pty_0000000000000001?k=paykey' })
   })
 
   it('paid in full: no pay link', async () => {

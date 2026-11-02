@@ -76,6 +76,8 @@ describe('listWarnings', () => {
     try {
       const [w] = await listWarnings(WINDOW)
       expect(w).toMatchObject({ code: 'class-over-party', eventId: 'clssch_pails', detail: 'Pumpkin Pails 1–3 PM is within an hour of the Patel party 1:00 PM.' })
+      // One of our parties moves on /admin (only the Square class moves in Square).
+      expect(w.action).toBe('Move the class in Square, or the party on /admin.')
     } finally {
       await releaseTime('pty_warn0000000000001', '2026-10-18T18:00:00.000Z')
     }
@@ -396,7 +398,7 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     await hold(id)
     const [w] = await partyLines()
     expect(w).toMatchObject({ code: 'party-hold-no-party', eventId: '' })
-    expect(warningLine(w)).toBe(`Sat Oct 17 · 2:00 PM is held for a party that isn’t on the books (${id}), so nobody can book that time. Tell Kaden.`)
+    expect(warningLine(w)).toBe(`Sat Oct 17 · 2:00 PM is held for a party that isn’t on the books (${id}), so nobody can book that time. Open To decide on /admin and tap Free this time.`)
   })
 
   it('a cancelled party that still holds its time is named', async () => {
@@ -404,7 +406,7 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     RECORDS.list = [rec(id, { status: 'cancelled', cancelled: { at: '2026-10-10T00:00:00Z', by: { id: 'k', name: 'K' }, note: '' } })]
     await hold(id)
     const [w] = await partyLines()
-    expect(warningLine(w)).toBe('Sat Oct 17 · Stefanie Justice’s cancelled party still holds 2:00 PM, so nobody can book that time. Tell Kaden.')
+    expect(warningLine(w)).toBe('Sat Oct 17 · Stefanie Justice’s cancelled party still holds 2:00 PM, so nobody can book that time. Open the party on /admin and tap Free this time.')
   })
 
   it('a leftover hold at a time the party isn’t on (a move that didn’t finish) is named', async () => {
@@ -415,6 +417,7 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     const lines = await partyLines()
     expect(lines.map((w) => w.code)).toEqual(['party-hold-no-party'])
     expect(lines[0].detail).toBe('Stefanie Justice’s party is on Sat, Oct 24 at 2:00 PM, but 2:00 PM is held for it too, so nobody can book that time.')
+    expect(lines[0].action).toBe('Open the party on /admin and tap Free the old time.')
   })
 
   it('a short hold of a booking still being paid, or of a checkout waiting in To decide, is left alone', async () => {
@@ -437,7 +440,7 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     RECORDS.list = [rec(id)]
     const [w] = await partyLines()
     expect(w).toMatchObject({ code: 'party-no-hold', eventId: id })
-    expect(warningLine(w)).toBe('Sat Oct 17 · Stefanie Justice’s party on Sat, Oct 17 at 2:00 PM isn’t held on the calendar, so that time could be booked by someone else. Open the party on /admin, tap Move, choose Another time and pick the same day and time, or tell Kaden.')
+    expect(warningLine(w)).toBe('Sat Oct 17 · Stefanie Justice’s party on Sat, Oct 17 at 2:00 PM isn’t held on the calendar, so that time could be booked by someone else. Open the party on /admin and tap Hold this time again.')
   })
 
   it('a booked party whose extra time isn’t held', async () => {
@@ -490,6 +493,37 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     const [w] = await partyLines()
     expect(w).toMatchObject({ code: 'party-paid-after-cancel', itemId: 'paid-after-cancel-chg_late' })
     expect(w.detail).toBe('Stefanie Justice paid $300 after their party on Sat, Oct 17 at 2:00 PM was cancelled. Nothing was refunded.')
+  })
+
+  it('Square side from Square’s live list: a Square party cancelled in Square, its time rebooked through us, raises no alarm', async () => {
+    const id = pid()
+    // Our saved record of the old Square party (no status: nothing marks it when Square cancels it).
+    RECORDS.list = [rec(id), { bookingId: 'bk_old', hostToken: 't', craftName: 'Pails', startIso: SAT2, durationMinutes: 120, hostName: 'Old Host', hostEmail: 'o@x.com', guestCount: 8, title: null, dropOff: false, createdAt: '2026-09-01T00:00:00Z' }]
+    await hold(id)
+    // Square itself lists it cancelled.
+    mockListBookings.mockResolvedValue([party('bk_old', SAT2, 'cancelled')])
+    // (an earlier test's class at 4 PM stays in the class store: only the party-vs-party line matters here)
+    expect((await partyLines()).filter((w) => w.code === 'two-parties' || w.detail.includes('Old Host') || w.detail.includes('Host party'))).toEqual([])
+  })
+
+  it('a party booked straight in Square with no record of ours is checked against our parties and our classes', async () => {
+    const id = pid()
+    RECORDS.list = [rec(id)]
+    await hold(id)
+    mockListBookings.mockResolvedValue([party('bk_lopez', SAT2)])
+    const lines = (await partyLines()).filter((w) => w.code === 'two-parties')
+    expect(lines).toHaveLength(1)
+    expect(lines[0].detail).toMatch(/the Lopez party|The Lopez party/)
+    expect(lines[0].action).toBe('Move one of them, on /admin (or in Square if it was booked there).')
+  })
+
+  it('Square’s party list can’t be read: the party warnings still run, with one line saying Square parties weren’t checked', async () => {
+    const { partyWarnings } = await import('@lib/parties/warnings')
+    const id = pid()
+    RECORDS.list = [rec(id)]
+    const lines = await partyWarnings(WINDOW.from, WINDOW.to, NOW, { squareParties: Promise.reject(new Error('square down')) })
+    expect(lines.map((w) => w.code).sort()).toEqual(['parties-unreadable', 'party-no-hold'])
+    expect(lines.find((w) => w.code === 'parties-unreadable')!.detail).toBe('Parties booked in Square couldn’t be checked against our parties and classes just now.')
   })
 
   it('parties that can’t be read: one line, the rest still shows', async () => {

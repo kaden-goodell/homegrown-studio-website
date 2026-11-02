@@ -113,13 +113,13 @@ describe('sendPaymentLink', () => {
   it('only extras due (the party is paid): the second wording, by text and email', async () => {
     const base = party()
     const rec = party({ items: [{ ...base.items![0], chargeId: 'chg_x' }, { ...base.items![0], id: 'itm_2', kind: 'addon', label: 'Balloons', cents: 2500, unitCents: 2500, chargeId: null }] })
-    expect(paymentLinkText(rec, 'U')).toBe('Hometown Studio here. Pay $25 for Balloons, added to your party on Sun, Nov 8 at 1:30 PM. U')
+    expect(paymentLinkText(rec, 'U')).toBe('Hometown Studio here. Pay $25 for balloons, added to your party on Sun, Nov 8 at 1:30 PM. U')
     await createPartyRecord(rec)
     await sendPaymentLink(rec, 'https://x.example', KADEN)
     const mail = m.sendMail.mock.calls[0][0]
     expect(mail.subject).toBe('Pay for the extras on your party')
-    expect(mail.text).toContain('We added Balloons to your party on Sun, Nov 8 at 1:30 PM.')
-    expect(mail.text).toContain('Pay $25 here for Balloons.')
+    expect(mail.text).toContain('We added balloons to your party on Sun, Nov 8 at 1:30 PM.')
+    expect(mail.text).toContain('Pay $25 here for balloons.')
     expect(mail.text).not.toContain('to finish booking')
   })
 })

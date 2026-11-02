@@ -352,7 +352,9 @@ export default function Roster({
           {event.kind === 'party' && event.endIso ? formatDayAndSpan(event.startIso, event.endIso) : formatWhen(event.startIso)}
           {multiDay && <> · Day {dayIndex + 1} of {event.days.length}</>}
         </p>
-        {event.waitingOnPayment && <p style={{ margin: '0.4rem 0 0' }}><Badge tone="warn">Waiting on payment</Badge></p>}
+        {(event.cancelled || data.partyMoney?.cancelled)
+          ? <p style={{ margin: '0.4rem 0 0' }}><Badge tone="alert">Cancelled</Badge></p>
+          : event.waitingOnPayment && <p style={{ margin: '0.4rem 0 0' }}><Badge tone="warn">Waiting on payment</Badge></p>}
 
         {multiDay && (
           <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center', flexWrap: 'wrap', marginTop: '0.7rem' }}>

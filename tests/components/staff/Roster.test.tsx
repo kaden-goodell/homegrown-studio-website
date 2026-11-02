@@ -401,6 +401,12 @@ describe('Roster for one of our parties (stage 2 Task 13)', () => {
     expect(screen.getByText(/Sat, Nov 14 · 2–4 PM/)).toBeInTheDocument()
   })
 
+  it('a cancelled party reached by a direct link says Cancelled (not Waiting on payment)', async () => {
+    serve({ payer: 'Stefanie Justice', charges: [], waiting: null, dueCents: 0, cancelled: true })
+    expect(await screen.findByText('Cancelled')).toBeInTheDocument()
+    expect(screen.queryByText('Waiting on payment')).toBeNull()
+  })
+
   it('crew refund on a party needs a reason, then names the host and the amount', async () => {
     const posts = serve({ payer: 'Stefanie Justice', charges: [{ id: 'chg_1', left: 30000, label: 'Paid online when booked · Sat, Nov 7 2:00 PM · $300' }], waiting: null, dueCents: 0, cancelled: false })
     fireEvent.click(await screen.findByRole('button', { name: 'Refund' }))

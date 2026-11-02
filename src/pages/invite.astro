@@ -8,6 +8,7 @@ import { googleCalendarUrl, buildIcs, icsDataUrl, addMinutesIso, partyInviteIcsU
 import { getPartyRecord, partyEndIso, type PartyRecord } from '@lib/party-store'
 import { formatWhen } from '@lib/studio-time'
 import { PARTY_CANCELLED_NOTICE } from '@lib/waiver-event'
+import { inviteHead } from '@lib/parties/invite-head'
 
 const params = Astro.url.searchParams
 const partyId = params.get('party') ?? ''
@@ -39,14 +40,13 @@ const isPast = record
 const isCancelled = record?.status === 'cancelled'
 
 const hasDetails = Boolean(partyId && craft && when)
-const headline = hasDetails
-  ? (title ? c.headlineWithTitle.replace('{title}', title) : c.headlineDefault)
-  : c.fallback.headline
+// A cancelled party leads with that (and in link previews): no "You're invited", no date or time.
+const { eyebrow, headline, subline, pageTitle, description, showDetails } = inviteHead({ cancelled: isCancelled, hasDetails, title, craft, when })
 
 const waiverHref = partyId ? `/waiver?party=${encodeURIComponent(partyId)}` : '/waiver'
 const ctaLabel = hasDetails ? c.rsvp.cta : c.fallback.cta
 
-const details = [
+const details = !showDetails ? [] : [
   { label: c.labels.craft, value: craft },
   { label: c.labels.when, value: when },
   { label: c.labels.where, value: c.where },
@@ -74,8 +74,8 @@ if (start && !isPast && !isCancelled) {
 ---
 
 <Layout
-  title="You're Invited"
-  description={hasDetails ? `${craft} · ${when} · at Hometown Studio. Tap to RSVP.` : "You're invited to a craft party at Hometown Studio."}
+  title={pageTitle}
+  description={description}
   ogTitle={headline}
   shareUrl={Astro.url.pathname + Astro.url.search}
   noindex
@@ -95,13 +95,13 @@ if (start && !isPast && !isCancelled) {
       "
     >
       <p class="eyebrow tone-party mb-4">
-        {c.eyebrow}
+        {eyebrow}
       </p>
       <h1 class="text-3xl sm:text-4xl font-heading font-bold" style="color: var(--color-dark);">
         {headline}
       </h1>
       <p class="text-base mt-4 max-w-md mx-auto" style="color: var(--color-muted);">
-        {c.subline}
+        {subline}
       </p>
 
       {details.length > 0 && (

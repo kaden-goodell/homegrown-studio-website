@@ -249,4 +249,45 @@ describe('Party sheet', () => {
     renderSheet(<PartySheet day={DAY} id={ID} />, { data: { notice: { id: ID, text: 'Booked Stefanie’s party. The payment link went out.' } } })
     expect(await screen.findByText('Booked Stefanie’s party. The payment link went out.')).toBeInTheDocument()
   })
+  it('fix round: "isn’t held on the calendar" shows Hold this time again; it sends hold-again (no move, no host offer)', async () => {
+    const f = server(party({ holdState: { notHeld: 'missing', freeable: [] } }), {
+      [ACT]: { body: { data: { party: party(), message: 'Sat, Mar 15 at 2:00 PM is held for Stefanie’s party again. Nothing was sent to Stefanie.' } } },
+    })
+    open()
+    const panel = await screen.findByRole('group', { name: 'Not held on the calendar' })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Hold this time again' }))
+    await waitFor(() => expect(posts(f, ACT)).toHaveLength(1))
+    expect(posts(f, ACT)[0].body).toEqual({ id: ID, action: 'hold-again' })
+    const told = await screen.findByRole('status', { name: 'What happened' })
+    expect(within(told).getByText(/held for Stefanie’s party again/)).toBeInTheDocument()
+    expect(within(told).queryByRole('button', { name: /Email Stefanie/ })).toBeNull()
+  })
+
+  it('fix round: a cancelled party still holding its time: Free this time asks first, naming the time, then sends free-time', async () => {
+    const cancelled = party({ status: 'cancelled', paymentState: 'cancelled', cancelled: { at: T1, by: { id: 'k', name: 'Kaden' }, note: '' }, holdState: { notHeld: null, freeable: [{ startIso: T1, why: 'cancelled' }] } })
+    const f = server(cancelled, { [ACT]: { body: { data: { party: cancelled, message: 'Sat, Mar 15 at 2:00 PM is free again, so others can book it. Nothing was sent to Stefanie and no money moved.' } } } })
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Free this time' }))
+    expect(posts(f, ACT)).toHaveLength(0)
+    const ask = screen.getByRole('group', { name: /^Free .*\?$/ })
+    expect(within(ask).getByText(/so others can book it\?$/)).toBeInTheDocument()
+    expect(within(ask).getByText('Nothing is sent to Stefanie and no money moves.')).toBeInTheDocument()
+    fireEvent.click(within(ask).getByRole('button', { name: 'Free this time' }))
+    await waitFor(() => expect(posts(f, ACT)).toHaveLength(1))
+    expect(posts(f, ACT)[0].body).toEqual({ id: ID, action: 'free-time', startIso: T1 })
+  })
+
+  it('fix round: a leftover hold after a move: Free the old time names both times', async () => {
+    const OLD = at('2031-03-08', '14:00')
+    const f = server(party({ holdState: { notHeld: null, freeable: [{ startIso: OLD, why: 'leftover' }] } }), {
+      [ACT]: { status: 409, body: { error: 'Stefanie’s $300 payment by link is going through right now.' } },
+    })
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: /^Free the old time \(/ }))
+    const ask = screen.getByRole('group', { name: /^Free .*\?$/ })
+    expect(within(ask).getByText(/^Stefanie’s party stays on .*\. Free .*\?$/)).toBeInTheDocument()
+    fireEvent.click(within(ask).getByRole('button', { name: 'Free the old time' }))
+    await waitFor(() => expect(posts(f, ACT)[0].body).toEqual({ id: ID, action: 'free-time', startIso: OLD }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('going through right now')
+  })
 })

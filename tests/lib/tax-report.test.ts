@@ -106,6 +106,12 @@ describe('our own classes and party fees', () => {
     expect(s.parties.salesCents).toBe(-15000)
     expect(s.other.salesCents).toBe(0)
   })
+  it('a refund whose party sale couldn’t be loaded still comes off parties by its "Party — …" line name', () => {
+    const itemized = { id: 'R3', returns: [{ source_order_id: 'GONE', return_line_items: [named('Party — Whole studio', 5000, 0)] }] }
+    const s = summarizeTax([itemized], idx)
+    expect(s.parties.salesCents).toBe(-5000)
+    expect(s.other.salesCents).toBe(0)
+  })
   it('use tax total is unchanged by the new buckets', () => {
     const s = summarizeTax([{ line_items: [line('V_OURS', 2725, 225), named('Whole Studio Party — studio fee', 30000, 2700)] }], idx)
     expect(s.classes.taxCents + s.parties.taxCents).toBe(2925)

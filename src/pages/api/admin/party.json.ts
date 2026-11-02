@@ -6,6 +6,7 @@ import { listRsvpsByEvent } from '@lib/rsvp-store'
 import { listWaiversByEvent } from '@lib/waiver-store'
 import { agreementState, type AgreementState } from '@lib/waiver-coverage'
 import { adminPartyView, partyRefundRequests, type AdminPartyView } from '@lib/parties/admin-actions'
+import { partyHoldState, type PartyHoldState } from '@lib/parties/hold-actions'
 
 export const prerender = false
 
@@ -15,10 +16,14 @@ const ID_RE = /^[A-Za-z0-9_.-]{1,80}$/
  * The party as the sheet shows it: the stage-1 fields (bookingId, host,
  * guests, craft, title, startIso, durationMinutes, themeName, createdAt)
  * and, from stage 2, status, legacy (booked in Square: read only), endIso,
- * items, charges, refunds, dueCents, paymentState, linkSent, overlap and the
- * saved refund requests (null when they couldn't be read).
+ * items, charges, refunds, dueCents, paymentState, linkSent, overlap, the
+ * saved refund requests (null when they couldn't be read) and holdState.
  */
-export type AdminParty = AdminPartyView & { refundRequests: Awaited<ReturnType<typeof partyRefundRequests>> }
+export type AdminParty = AdminPartyView & {
+  refundRequests: Awaited<ReturnType<typeof partyRefundRequests>>
+  /** the party book's view: "Hold this time again", "Free this time", "Free the old time" (null: Square-booked, or the book couldn't be read) */
+  holdState: PartyHoldState | null
+}
 /** One household that said yes, from its signed agreement and its RSVP. */
 export interface AdminPartyGuest {
   name: string
@@ -48,7 +53,8 @@ export const GET: APIRoute = async ({ request, url }) => {
     return json(503, { error: "The party couldn't be loaded. Try again." })
   }
   const party: AdminParty | null = record
-    ? { ...adminPartyView(record), refundRequests: await partyRefundRequests(record.bookingId) }
+    ? await Promise.all([partyRefundRequests(record.bookingId), partyHoldState(record)])
+      .then(([refundRequests, holdState]) => ({ ...adminPartyView(record), refundRequests, holdState }))
     : null
   let guests: AdminPartyGuest[] | null = null
   try {

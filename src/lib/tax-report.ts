@@ -69,7 +69,8 @@ export function summarizeTax(orders: any[], index: CatalogIndex, sources: Map<st
       for (const line of ret.return_line_items ?? []) {
         const source = byId.get(ret.source_order_id)
         // A refund on one of our party orders is a party refund, however Square names its lines.
-        const fromParty = party || isPartyOrder(source)
+        // Its sale couldn't be loaded: one of our party lines ("Party — …") is still a party refund.
+        const fromParty = party || isPartyOrder(source) || (!source && /^Party — /.test(line.name ?? ''))
         if (line.catalog_object_id || !source || !cents(source.total_money)) {
           add(line.catalog_object_id, cents(line.total_money), cents(line.total_tax_money), -1, false, line.name, fromParty)
           continue

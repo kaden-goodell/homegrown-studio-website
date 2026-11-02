@@ -189,11 +189,13 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
         <div style={{ ...card, textAlign: 'center' }} data-testid="party-cancelled">
           <p className="eyebrow tone-party" style={{ marginBottom: '0.5rem' }}>Your party</p>
           <h1 style={{ fontSize: '1.75rem', fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0 }}>{heading}</h1>
+          {/* Which party (a host may have two), then the news, then where to ask about money. */}
+          <p style={{ color: 'var(--color-muted)', marginTop: '0.5rem' }} data-testid="party-when">{`${formatDayAndSpan(party.startIso, endIso)} CT`}</p>
           <p style={{ color: 'var(--color-dark)', fontWeight: 600, marginTop: '0.75rem' }}>This party was cancelled.</p>
           <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
             {partyContent.textNumber
-              ? <>Questions? Text us at {partyContent.textNumber}.</>
-              : <>Questions? Contact us.</>}
+              ? <>Questions, or about a payment? Text us at {partyContent.textNumber}.</>
+              : <>Questions, or about a payment? Contact us.</>}
           </p>
         </div>
       </div>

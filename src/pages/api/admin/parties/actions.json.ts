@@ -7,6 +7,7 @@ import {
   addPartyExtra, adminPartyView, cancelParty, editPartyDetails, json, LEGACY_PARTY, moveParty, partyReply,
   PartyActionError, paymentGoingThrough, paymentWaitMessage, removePartyExtra, sendPartyDetails, sendPartyLink,
 } from '@lib/parties/admin-actions'
+import { freePartyTime, holdPartyAgain } from '@lib/parties/hold-actions'
 import { ownerTakeCardMessage, ownerTakeCardUnknown } from '@lib/parties/owner-messages'
 import { payBalance } from '@lib/parties/pay-balance'
 import { partyWhenLabel } from '@lib/parties/payment-link'
@@ -31,6 +32,10 @@ export const prerender = false
  *   send-details  { createKey }                        → { party, sent } (owner-tapped "Email Stefanie the
  *                 new details": the confirmation again with the current time and a new calendar
  *                 file; one email per createKey; never automatic, S2-R7)
+ *   hold-again    {}                                   → { party, message } ("Hold this time again": the
+ *                 party's current time back in the party book, checked; never a move; nothing sent)
+ *   free-time     { startIso }                         → { party, message } ("Free this time" on a cancelled
+ *                 party, "Free the old time" on a booked one; never the time a booked party is on)
  *   take-card     { attemptId, paymentToken, expectedCents } → { party, paidCents, receiptUrl }
  *                 (what is due, by card in /admin: the same one-payment-at-a-time
  *                 claim as the payment link, so the two never both charge)
@@ -49,6 +54,8 @@ export const POST: APIRoute = async ({ request }) => {
     case 'edit-details': return partyReply(() => editPartyDetails(body, by, request))
     case 'send-details': return partyReply(() => sendPartyDetails(body, by, request))
     case 'take-card': return partyReply(() => takeCard(body, by, request))
+    case 'hold-again': return partyReply(() => holdPartyAgain(body, by, request))
+    case 'free-time': return partyReply(() => freePartyTime(body, by, request))
     default: return json(400, { error: 'Pick what to do.' })
   }
 }

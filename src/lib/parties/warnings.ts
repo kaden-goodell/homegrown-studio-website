@@ -18,6 +18,12 @@
  *                           e.g. one paid after its time was taken (R6)
  *   class-over-party        one of OUR classes within an hour of a party (the
  *                           Square classes are checked in ../warnings.ts)
+ *
+ * Parties booked in Square are taken from Square's own live list (party
+ * service, not cancelled; `squareParties`, which listWarnings passes from the
+ * scan it already makes), never from our saved records of them: a party
+ * cancelled in Square raises nothing, one booked there by hand is checked.
+ * When that list can't be read, one "couldn't check" line says so.
  *   party-paid-after-cancel money came in on a party after it was cancelled
  *
  * Server only.
@@ -28,6 +34,8 @@ import { formatTime, formatTimeSpan, studioDayUtcRange } from '@lib/studio-time'
 import { overlaps, intervalOf, partyName } from '@lib/conflicts'
 import { listClasses } from '@lib/classes/class-store'
 import { isOurs, listParties, partyEndIso, type PartyRecord } from '@lib/party-store'
+import { legacyPartyBusy } from './legacy-square'
+import type { PartySpan } from '@lib/conflicts'
 import { holdsBetween, type PartyHold } from './party-book'
 import { listCheckouts } from './party-checkouts'
 import { dueCents, refundableOn } from './money'
@@ -40,7 +48,13 @@ export const PAYMENT_WARNING_DAYS = 7
 /** A payment that came in after a cancel stays listed this long after the party's day. */
 const PAID_AFTER_CANCEL_DAYS = 30
 
-export const NO_HOLD_ACTION = 'Open the party on /admin, tap Move, choose Another time and pick the same day and time, or tell Kaden.'
+export const NO_HOLD_ACTION = 'Open the party on /admin and tap Hold this time again.'
+/** A cancelled party still holding its time: the party sheet's "Free this time". */
+export const CANCELLED_HOLD_ACTION = 'Open the party on /admin and tap Free this time.'
+/** A leftover hold after a move: the party sheet's "Free the old time". */
+export const LEFTOVER_HOLD_ACTION = 'Open the party on /admin and tap Free the old time.'
+/** A held time with no party at all: To decide's "Free this time". */
+export const ORPHAN_HOLD_ACTION = 'Open To decide on /admin and tap Free this time.'
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
 const first = (name: string) => name.trim().split(/\s+/)[0] || 'them'
@@ -51,17 +65,23 @@ const same = (a: string, b: string) => Date.parse(a) === Date.parse(b)
 /** Held for a booking or a payment link, not a short hold while someone is paying (those run out by themselves). */
 const lasting = (h: PartyHold) => h.state === 'booked' || h.holdExpiresAt === null
 
-export async function partyWarnings(from: string, to: string, now: Date): Promise<Warning[]> {
+type SquareSide = { ok: true; spans: PartySpan[] } | { ok: false }
+
+export async function partyWarnings(from: string, to: string, now: Date, opts: { squareParties?: Promise<PartySpan[]> } = {}): Promise<Warning[]> {
   const lo = studioDayUtcRange(from).startIso
   const hi = studioDayUtcRange(to).endIso
   const inWindow = (iso: string) => iso >= lo && iso <= hi
+  // Square's own list of its parties; a failure is settled here at once (no unhandled rejection) and said in one line.
+  const squareSide: Promise<SquareSide> = (opts.squareParties ?? legacyPartyBusy(lo, hi))
+    .then((list): SquareSide => ({ ok: true, spans: list.map((p) => ({ id: p.id, startIso: p.startIso, endIso: p.endIso, ...(p.hostName ? { hostName: p.hostName } : {}) })) }), (): SquareSide => ({ ok: false }))
   // A day either side, so a party near the edge still finds its hold.
-  const [records, holds, checkouts, classes] = await Promise.all([
+  const [records, holds, checkouts, classes, square] = await Promise.all([
     listParties(),
     holdsBetween(new Date(Date.parse(lo) - DAY_MS).toISOString(), new Date(Date.parse(hi) + DAY_MS).toISOString(), now),
     listCheckouts(),
     // Our classes unreadable: the class scan already says so in its own line; the party checks still run.
     listClasses({ fromIso: lo, toIso: hi }).catch(() => []),
+    squareSide,
   ])
   const byId = new Map(records.map((r) => [r.bookingId, r]))
   const checkingOut = new Set(checkouts.filter((c) => c.state !== 'paid-elsewhere').map((c) => c.partyId))
@@ -91,19 +111,19 @@ export async function partyWarnings(from: string, to: string, now: Date): Promis
       out.push({
         code: 'party-hold-no-party', eventKind: 'party', eventId: '', when: h.startIso, title: 'A held party time',
         detail: `${time} is held for a party that isn’t on the books (${h.partyId}), so nobody can book that time.`,
-        action: 'Tell Kaden.',
+        action: ORPHAN_HOLD_ACTION,
       })
     } else if (r.status === 'cancelled') {
       out.push({
         code: 'party-hold-no-party', eventKind: 'party', eventId: r.bookingId, when: h.startIso, title: capitalize(nameOf(r)),
         detail: `${possessive(r.hostName)} cancelled party still holds ${time}, so nobody can book that time.`,
-        action: 'Tell Kaden.',
+        action: CANCELLED_HOLD_ACTION,
       })
     } else if (isOurs(r) && !same(r.startIso, h.startIso)) {
       out.push({
         code: 'party-hold-no-party', eventKind: 'party', eventId: r.bookingId, when: h.startIso, title: capitalize(nameOf(r)),
         detail: `${possessive(r.hostName)} party is on ${partyWhenLabel(r.startIso)}, but ${time} is held for it too, so nobody can book that time.`,
-        action: 'Tell Kaden.',
+        action: LEFTOVER_HOLD_ACTION,
       })
     }
   }
@@ -125,18 +145,32 @@ export async function partyWarnings(from: string, to: string, now: Date): Promis
   }
 
   // ── Two parties at once ────────────────────────────────────────────────────
-  // Every party taking the room: our lasting holds (the time they really hold) and Square-booked records.
-  const spans = [
+  // Every party taking the room: our lasting holds (the time they really hold) and the parties Square lists as booked.
+  if (!square.ok) {
+    out.push({
+      code: 'parties-unreadable', eventKind: 'party', eventId: '', when: now.toISOString(), title: 'Parties booked in Square',
+      detail: 'Parties booked in Square couldn’t be checked against our parties and classes just now.', action: 'Refresh to try again.',
+    })
+  }
+  const ourIds = new Set(holds.map((h) => h.partyId))
+  const squareSpans = (square.ok ? square.spans : []).filter((p) => !ourIds.has(p.id) && p.startIso <= hi && p.endIso >= lo)
+  const squareIds = new Set(squareSpans.map((p) => p.id))
+  const spans: PartySpan[] = [
     ...holds.filter((h) => lasting(h) && byId.get(h.partyId)?.status !== 'cancelled' && inWindow(h.startIso)).map((h) => ({ id: h.partyId, startIso: h.startIso, endIso: h.endIso })),
-    ...records.filter((r) => !isOurs(r) && inWindow(r.startIso)).map((r) => ({ id: r.bookingId, startIso: r.startIso, endIso: partyEndIso(r) ?? r.startIso })),
+    ...squareSpans,
   ].sort((a, b) => a.startIso.localeCompare(b.startIso))
+  /** "the Justice party": our record's host, else the name Square's list carries. */
+  const spanName = (p: PartySpan, fallback: string) => {
+    const r = byId.get(p.id)
+    if (r) return nameOf(r)
+    return squareIds.has(p.id) ? partyName(p) : fallback
+  }
   for (let i = 0; i < spans.length; i++) {
     for (let j = i + 1; j < spans.length; j++) {
       const a = spans[i], b = spans[j]
       if (a.id === b.id || !overlaps(intervalOf(a), intervalOf(b), PARTY_CLEANUP_MINUTES)) continue
-      const ra = byId.get(a.id), rb = byId.get(b.id)
-      const na = ra ? nameOf(ra) : 'a party', nb = rb ? nameOf(rb) : 'another party'
-      const square = [ra, rb].some((r) => r && !isOurs(r))
+      const na = spanName(a, 'a party'), nb = spanName(b, 'another party')
+      const square = squareIds.has(a.id) || squareIds.has(b.id)
       out.push({
         code: 'two-parties', eventKind: 'party', eventId: a.id, when: a.startIso, title: capitalize(na),
         detail: `${capitalize(na)} ${formatTimeSpan(a.startIso, a.endIso)} and ${nb} ${formatTimeSpan(b.startIso, b.endIso)} are booked at the same time, or without the hour between them for cleanup.`,
@@ -153,11 +187,10 @@ export async function partyWarnings(from: string, to: string, now: Date): Promis
       if (!inWindow(s.startIso)) continue
       for (const p of partySpans) {
         if (!overlaps(intervalOf(s), intervalOf(p), PARTY_CLEANUP_MINUTES)) continue
-        const r = byId.get(p.id)
         out.push({
           code: 'class-over-party', eventKind: 'workshop', eventId: cls.id, when: s.startIso, title: cls.content.name,
-          detail: `${cls.content.name} ${formatTimeSpan(s.startIso, s.endIso)} is within an hour of ${r ? nameOf(r) : 'a party'} ${formatTime(p.startIso)}.`,
-          action: r && !isOurs(r) ? 'Move the class on /admin, or the party in Square.' : 'Move one of them on /admin.',
+          detail: `${cls.content.name} ${formatTimeSpan(s.startIso, s.endIso)} is within an hour of ${spanName(p, 'a party')} ${formatTime(p.startIso)}.`,
+          action: squareIds.has(p.id) ? 'Move the class on /admin, or the party in Square.' : 'Move one of them on /admin.',
         })
       }
     }

@@ -543,8 +543,9 @@ describe('Task 13: To decide for parties (Task 7 carry-overs, Task 11 handoff)',
       const { partyId, orderId } = await partyPayingUnclear('2027-05-15')
       const item = await itemFor(partyId)
       expect(item).toMatchObject({ title: 'Party payment unclear', hint: 'Check Square, then say whether it went through' })
-      expect(item!.head).toBe(`Stefanie Justice’s $300 payment (payment link) for their party on Sat May 15 2 PM got no answer from Square. Square order ${orderId}.`)
-      expect(item!.detail).toMatchObject({ partyDay: '2027-05-15', cents: 30000, via: 'link' })
+      // The order id is its own row on the sheet (with Copy), not in the sentence.
+      expect(item!.head).toBe('Stefanie Justice’s $300 payment (payment link) for their party on Sat May 15 2 PM got no answer from Square.')
+      expect(item!.detail).toMatchObject({ partyDay: '2027-05-15', cents: 30000, via: 'link', orderId })
     })
 
     it('a card taken in /admin names who took it; one whose 24 hours ran out is not listed', async () => {
@@ -561,7 +562,7 @@ describe('Task 13: To decide for parties (Task 7 carry-overs, Task 11 handoff)',
       expect((await getPartyRecord(partyId))!.paying?.state).toBe('unclear')
     })
 
-    it('“It went through” once Square shows it paid: the charge from Square’s payment is recorded, the slot cleared, the owners told once', async () => {
+    it('“It went through” once Square shows it paid: the charge from Square’s payment is recorded, the slot cleared, the host told, no owner text about their own tap', async () => {
       const { partyId, orderId } = await partyPayingUnclear('2027-05-23')
       m.paid.set(orderId, { id: 'pay-found', orderId, amount: 30000, status: 'completed', receiptUrl: 'https://r' })
       const item = await itemFor(partyId)
@@ -572,7 +573,7 @@ describe('Task 13: To decide for parties (Task 7 carry-overs, Task 11 handoff)',
       expect(rec.charges).toEqual([expect.objectContaining({ paymentId: 'pay-found', orderId, cents: 30000, via: 'link' })])
       expect(rec.items![0].chargeId).toBe(rec.charges![0].id)
       expect(await partyForPayment('pay-found')).toMatchObject({ partyId })
-      expect(m.alert.mock.calls.filter(([t]) => String(t).startsWith('Party paid: Stefanie Justice'))).toHaveLength(1)
+      expect(m.alert.mock.calls.filter(([t]) => String(t).startsWith('Party paid'))).toHaveLength(0)
       expect(m.processPayment).not.toHaveBeenCalled()
       expect(await itemFor(partyId)).toBeUndefined()
     })
@@ -596,6 +597,88 @@ describe('Task 13: To decide for parties (Task 7 carry-overs, Task 11 handoff)',
       expect(rec.paying).toBeNull()
       expect(rec.charges).toEqual([])
       expect(m.processPayment).not.toHaveBeenCalled()
+    })
+    it('a double tap on “It went through” records one decision and one audit entry (decided inside the party lock)', async () => {
+      const { listAudit } = await import('@lib/audit')
+      const { partyId, orderId } = await partyPayingUnclear('2027-05-02')
+      m.paid.set(orderId, { id: 'pay-dbl', orderId, amount: 30000, status: 'completed', receiptUrl: null })
+      const item = await itemFor(partyId)
+      const both = await Promise.allSettled([decide(item!.id, 'went-through', {}, owner, NOW), decide(item!.id, 'went-through', {}, owner, NOW)])
+      expect(both.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+      expect(both.find((r) => r.status === 'rejected')).toMatchObject({ reason: { status: 409, message: expect.stringMatching(/^Already done: It went through/) } })
+      expect((await getPartyRecord(partyId))!.charges).toHaveLength(1)
+      const entries = (await listAudit({ limit: 500 })).filter((e) => e.action === 'to-decide-went-through' && e.target.id === partyId)
+      expect(entries).toHaveLength(1)
+    })
+
+    it('a payment Square shows still going through (APPROVED / PENDING) is neither: both choices refuse and the item stays', async () => {
+      const { partyId, orderId } = await partyPayingUnclear('2027-05-03')
+      m.paid.set(orderId, { id: 'pay-pend', orderId, amount: 30000, status: 'pending', receiptUrl: null })
+      const item = await itemFor(partyId)
+      const going = { status: 409, message: 'Square shows a payment still going through. Try again in a few minutes. Nothing was changed.' }
+      await expect(decide(item!.id, 'did-not-go-through', {}, owner, NOW)).rejects.toMatchObject(going)
+      await expect(decide(item!.id, 'went-through', {}, owner, NOW)).rejects.toMatchObject(going)
+      expect((await getPartyRecord(partyId))!.paying?.state).toBe('unclear')
+      expect(await itemFor(partyId)).toBeDefined()
+    })
+
+    it('the live Square check (orderPaymentInFlight) also counts: an APPROVED payment Square’s order lookup skips still refuses “It didn’t go through”', async () => {
+      const { providers } = await import('@config/providers')
+      const { partyId } = await partyPayingUnclear('2027-05-04')
+      ;(providers.payment as any).orderPaymentInFlight = vi.fn(async () => true)
+      try {
+        const item = await itemFor(partyId)
+        await expect(decide(item!.id, 'did-not-go-through', {}, owner, NOW)).rejects.toMatchObject({ status: 409 })
+        expect((await getPartyRecord(partyId))!.paying?.state).toBe('unclear')
+      } finally {
+        delete (providers.payment as any).orderPaymentInFlight
+      }
+    })
+  })
+
+  describe('a held party time with no party record (Free this time)', () => {
+    const SPAN = (ymd: string) => ({ startIso: at(ymd, '14:00'), endIso: at(ymd, '15:30') })
+    async function orphan(ymd: string, heldAt: Date) {
+      const { holdTime, confirmTime } = await import('@lib/parties/party-book')
+      const partyId = `pty_${randomUUID().replace(/-/g, '').slice(0, 16)}`
+      const { startIso, endIso } = SPAN(ymd)
+      expect((await holdTime({ partyId, startIso, endIso, ttlMinutes: null }, [], heldAt)).ok).toBe(true)
+      await confirmTime(partyId, startIso, endIso, heldAt)
+      return { partyId, startIso }
+    }
+    const orphanItem = async (partyId: string, now = NOW) => (await listToDecide(now)).items.find((i) => !i.done && i.kind === 'party-hold-orphan' && i.detail.partyId === partyId)
+    const heldOf = async (partyId: string) => {
+      const { holdsBetween } = await import('@lib/parties/party-book')
+      return (await holdsBetween(NOW.toISOString(), '2030-01-01T00:00:00.000Z', NOW)).filter((h) => h.partyId === partyId)
+    }
+
+    it('is listed; Free this time lets it go once it is older than the checkout window, audited; a second tap is refused', async () => {
+      const { listAudit } = await import('@lib/audit')
+      const { partyId } = await orphan('2027-05-08', new Date(NOW.getTime() - 60 * 60_000))
+      const item = await orphanItem(partyId)
+      expect(item).toMatchObject({ title: 'Party time held, no party', hint: 'Free this time, so others can book it' })
+      expect(item!.head).toBe('Sat May 8 2 PM is held for a party that isn’t on the books, so nobody can book that time.')
+      const done = await decide(item!.id, 'free', {}, owner, NOW)
+      expect(done.decided.what).toMatch(/^Freed .*: others can book it now$/)
+      expect(await heldOf(partyId)).toEqual([])
+      expect((await listAudit({ limit: 500 })).filter((e) => e.action === 'party-free-time' && e.target.id === partyId)).toHaveLength(1)
+      await expect(decide(item!.id, 'free', {}, owner, NOW)).rejects.toMatchObject({ status: expect.any(Number) })
+    })
+
+    it('a hold younger than the checkout window is refused (it may be a booking still being paid); nothing freed', async () => {
+      const { partyId } = await orphan('2027-05-09', new Date(NOW.getTime() - 3 * 60_000))
+      const item = await orphanItem(partyId)
+      await expect(decide(item!.id, 'free', {}, owner, NOW)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^This time was held only a few minutes ago, so it may be a booking still being paid\./) })
+      expect(await heldOf(partyId)).toHaveLength(1)
+    })
+
+    it('a hold with a payment attached (a checkout of any kind) is not listed and is never freed', async () => {
+      const { partyId, startIso } = await orphan('2027-05-10', new Date(NOW.getTime() - 60 * 60_000))
+      await saveCheckout(ck(partyId, { state: 'unclear', startIso }) as any)
+      expect(await orphanItem(partyId)).toBeUndefined()
+      const { freeOrphanHold } = await import('@lib/parties/hold-actions')
+      await expect(freeOrphanHold(partyId, startIso, owner, NOW)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^A payment for this time is still being sorted out/) })
+      expect(await heldOf(partyId)).toHaveLength(1)
     })
   })
 })

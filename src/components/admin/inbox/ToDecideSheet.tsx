@@ -107,6 +107,7 @@ export function ToDecideSheet({ id }: { id: string }) {
     case 'paid-not-seated': return <PaidNoSeat item={t} />
     case 'party-payment-unclear': return <PartyPaymentUnclear item={t} />
     case 'party-no-confirmation': return <PartyNoConfirmation item={t} />
+    case 'party-hold-orphan': return <PartyHoldOrphan item={t} />
   }
 }
 
@@ -218,11 +219,58 @@ function PartyPaymentUnclear({ item }: { item: ToDecideItem }) {
     >
       <Head item={item} />
       {kv('Payment', formatMoney(d.cents ?? 0))}
+      {typeof d.orderId === 'string' && d.orderId && <SquareOrder id={d.orderId} />}
       <p className="adm-note adm-gap-top">
         Look for this payment in Square under Payments. Then say what you saw. Either way we ask Square again first: It went through records the payment on the party (the host gets their email once), and It didn’t go through only works when Square shows no payment, and lets a new payment start. Nothing is charged or refunded from here.
       </p>
       {d.until && <p className="adm-small">{`Until then, Move, Cancel and new payments on this party wait. If nobody decides, it clears on ${dayAndClock(d.until)} and the next payment asks Square first.`}</p>}
       <OpenParty item={item} />
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+/** The Square order id in its own row, with Copy (to search for it in Square). */
+function SquareOrder({ id }: { id: string }) {
+  const toast = useToast()
+  return (
+    <div className="adm-kv">
+      <span>Square order</span>
+      <span>
+        <span className="adm-small" style={{ wordBreak: 'break-all' }}>{id}</span>{' '}
+        <button type="button" className="adm-quiet" onClick={() => navigator.clipboard?.writeText(id).then(() => toast('Copied the order number.'), () => toast('Couldn’t copy. Press and hold the number to copy it.'))}>Copy</button>
+      </span>
+    </div>
+  )
+}
+
+/**
+ * A party time held with no party on it: "Free this time", confirmed in the sheet first. The server
+ * refuses while it could still be a booking being paid (a hold younger than the checkout window, or a
+ * payment attached to it).
+ */
+function PartyHoldOrphan({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail & { startIso?: string; endIso?: string }
+  const { send, busy, error, setError } = useDecide(item)
+  const [asking, setAsking] = useState(false)
+  const when = d.startIso ? (d.endIso ? dayAndSpan(d.startIso, d.endIso) : dayAndClock(d.startIso)) : ''
+  const footer = asking
+    ? (
+      <div className="adm-panel is-warn" role="group" aria-label={`Free ${when}?`}>
+        <b>{`Free ${when} so others can book it?`}</b>
+        <span className="adm-small">No party is on this time, so nobody is told and no money moves. If it was a booking still being paid, it isn’t freed.</span>
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" onClick={() => { setAsking(false); setError('') }}>Keep it</button>
+          <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'free' })}>{label(busy, 'free', 'Free this time', 'Freeing…')}</button>
+        </div>
+      </div>
+    )
+    : <button type="button" className="adm-btn is-pri" onClick={() => setAsking(true)}>Free this time</button>
+  return (
+    <SheetFrame title={item.title} subtitle="To decide" footer={footer}>
+      <Head item={item} />
+      {when && kv('Held', when)}
+      <p className="adm-note adm-gap-top">This time is held in the party calendar, but there is no party on it to open. It can happen when a booking stopped halfway. Freeing it lets others book the time. It only works once the hold is more than a few minutes old and no payment is waiting on it, so a booking still being paid is never freed.</p>
       <ErrorLine text={error} />
     </SheetFrame>
   )

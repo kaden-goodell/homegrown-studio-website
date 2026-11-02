@@ -144,6 +144,9 @@ describe('PartyDashboard: our party records', () => {
     expect(screen.queryByRole('link', { name: 'Email your guests' })).toBeNull()
     expect(document.querySelector('a[href*="/waiver"]')).toBeNull()
     expect(screen.queryByText(/still to pay/)).toBeNull()
+    // Which party (a host may have two), and where to ask about a payment.
+    expect(screen.getByTestId('party-when')).toHaveTextContent(/CT$/)
+    expect(screen.getByText(/Questions, or about a payment\?/)).toBeInTheDocument()
   })
 
   it('shows the party’s end with its extra time', async () => {

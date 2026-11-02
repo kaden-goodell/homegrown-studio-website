@@ -358,4 +358,23 @@ describe('To decide sheets', () => {
     show([t], {}, 'td_rt')
     expect(await screen.findByText(/it was an earlier try the customer changed and started again, so it isn’t booked/)).toBeInTheDocument()
   })
+  it('fix round: the Square order is its own row with Copy', async () => {
+    const t = item({ id: 'td_po', kind: 'party-payment-unclear', title: 'Party payment unclear', detail: { partyId: 'pty_abc123', partyDay: '2026-11-14', cents: 30000, via: 'link', orderId: 'ORD_123' } })
+    show([t], {}, 'td_po')
+    expect(await screen.findByText('ORD_123')).toBeInTheDocument()
+    expect(screen.getByText('Square order')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument()
+  })
+
+  it('fix round: a held time with no party: Free this time asks first, then sends; a refusal shows in the sheet', async () => {
+    const t = item({ id: 'td_ho', kind: 'party-hold-orphan', title: 'Party time held, no party', head: 'Sat Nov 14 2 PM is held for a party that isn’t on the books, so nobody can book that time.',
+      detail: { partyId: 'pty_orphan', startIso: '2026-11-14T20:00:00.000Z', endIso: '2026-11-14T21:30:00.000Z' } })
+    const { f } = show([t], { decide: () => refuse(409, { error: 'This time was held only a few minutes ago, so it may be a booking still being paid.' }) }, 'td_ho')
+    fireEvent.click(await screen.findByRole('button', { name: 'Free this time' }))
+    expect(decisions(f)).toEqual([])
+    expect(screen.getByText(/so nobody is told and no money moves/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Free this time' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_ho', action: 'free' }]))
+    expect(await screen.findByRole('alert')).toHaveTextContent('it may be a booking still being paid')
+  })
 })

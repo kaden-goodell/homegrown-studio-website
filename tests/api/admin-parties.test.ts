@@ -582,6 +582,7 @@ describe('legacy (Square) parties', () => {
       { action: 'move', startIso: w.sun1 }, { action: 'cancel' }, { action: 'add-extra', addOnId: 'add_half', count: 1, createKey: `x_${randomUUID()}` },
       { action: 'remove-extra', itemId: 'itm_x' }, { action: 'send-link' }, { action: 'edit-details', guests: 12 },
       { action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 },
+      { action: 'hold-again' }, { action: 'free-time', startIso: w.sat2 },
     ]) {
       const r = await act({ id, ...b })
       expect(r.status, b.action).toBe(409)
@@ -962,7 +963,7 @@ describe('take-card (M1, M5) and owner wording (I1, I2)', () => {
     expect(r.status).toBe(200)
     expect(m.confirmEmail).not.toHaveBeenCalled()
     expect(m.paidEmail).toHaveBeenCalledTimes(1)
-    expect(r.body.data.message).toBe('Charged $350 for the studio fee and Goodie bags. The email to Stefanie didn’t go out. Check the email address on the party. Crafts are paid at the studio after the party.')
+    expect(r.body.data.message).toBe('Charged $350 for the studio fee and goodie bags. The email to Stefanie didn’t go out. Check the email address on the party. Crafts are paid at the studio after the party.')
   })
 
   it('the amount changed since the sheet opened, a declined card, and a price mismatch read in owner words', async () => {
@@ -1009,6 +1010,7 @@ describe('R41: a test site sharing the live stores writes nothing', () => {
       { action: 'move', startIso: w.sun1 }, { action: 'cancel' }, { action: 'add-extra', addOnId: 'add_half', count: 1, createKey: `x_${randomUUID()}` },
       { action: 'send-link' }, { action: 'edit-details', guests: 12 }, { action: 'send-details', createKey: `d_${randomUUID()}` },
       { action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 },
+      { action: 'hold-again' }, { action: 'free-time', startIso: w.sat2 },
     ]) {
       const r = await act({ id, ...body })
       expect(r.status, body.action).toBe(503)
@@ -1225,8 +1227,147 @@ describe('move to the same time puts a missing hold back (Task 13 warning “isn
     const other = await linkParty(w.sat2)
     const r = await act({ id, action: 'move', startIso: w.sat2, fromIso: w.sat2 })
     expect(r.status).toBe(200)
-    expect(r.body.warning).toMatch(/^This party isn’t held on the calendar, and its time couldn’t be held again\. .* Tell Kaden\.$/)
+    expect(r.body.warning).toMatch(/^This party isn’t held on the calendar, and its time couldn’t be held again\. .* Move the other booking, or move this party to a free time\.$/)
+    expect(r.body.warning).not.toMatch(/Kaden/)
     expect(await holdsOf(id)).toEqual([])
     expect((await holdsOf(other)).length).toBe(1)
   })
 })
+
+describe('Task 13 fix round: the party sheet’s hold buttons (Hold this time again, Free this time, Free the old time)', () => {
+  const NOTHING_TO_HOST = () => {
+    expect(m.confirmEmail).not.toHaveBeenCalled()
+    expect(m.paidEmail).not.toHaveBeenCalled()
+    expect(m.text).not.toHaveBeenCalled()
+  }
+
+  it('the same-time Move no longer says "Moved" or offers to email the host when nothing moved', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const r = await act({ id, action: 'move', startIso: w.sat2, fromIso: w.sat2 })
+    expect(r.status).toBe(200)
+    expect(r.body.data.sendDetails).toBeNull()
+    expect(r.body.data.message).toMatch(/^Stefanie’s party is already on .*\. Nothing changed\.$/)
+  })
+
+  it('Hold this time again: the party’s own time back in the book, audited, nothing sent, no "moved" words; twice is the same answer', async () => {
+    const { releaseTime } = await import('@lib/parties/party-book')
+    const { partyHoldState } = await import('@lib/parties/hold-actions')
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    await releaseTime(id, w.sat2)
+    expect((await partyHoldState((await getPartyRecord(id))!, NOW))!.notHeld).toBe('missing')
+    m.confirmEmail.mockClear(); m.paidEmail.mockClear(); m.text.mockClear()
+    const r = await act({ id, action: 'hold-again' })
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    expect(r.body.data.message).toMatch(/is held for Stefanie’s party again\. Nothing was sent to Stefanie\.$/)
+    expect(r.body.data.message).not.toMatch(/[Mm]oved/)
+    expect(r.body.data.sendDetails).toBeUndefined()
+    const rec = (await getPartyRecord(id))!
+    expect((await holdsOf(id)).map((h) => [h.startIso, h.endIso])).toEqual([[new Date(w.sat2).toISOString(), rec.endIso]])
+    expect(rec.startIso).toBe(new Date(w.sat2).toISOString())
+    expect(audits('party-hold-again')).toHaveLength(1)
+    expect(audits('party-move')).toHaveLength(0)
+    expect((await partyHoldState(rec, NOW))!.notHeld).toBeNull()
+    const again = await act({ id, action: 'hold-again' })
+    expect(again.body.data.message).toMatch(/is already held for Stefanie’s party\. Nothing changed\.$/)
+    expect(audits('party-hold-again')).toHaveLength(1)
+    NOTHING_TO_HOST()
+  })
+
+  it('Hold this time again: its extra time not held is held again (the "short" state)', async () => {
+    const { resizeTime } = await import('@lib/parties/party-book')
+    const { partyHoldState } = await import('@lib/parties/hold-actions')
+    const w = weekend()
+    const id = await linkParty(w.sat2, { addOns: { add_half: 1 } })
+    const rec = (await getPartyRecord(id))!
+    await resizeTime(id, w.sat2, new Date(Date.parse(rec.endIso!) - 30 * 60_000).toISOString(), [], NOW)
+    expect((await partyHoldState(rec, NOW))!.notHeld).toBe('short')
+    expect((await act({ id, action: 'hold-again' })).status).toBe(200)
+    expect((await holdsOf(id))[0].endIso).toBe(rec.endIso)
+  })
+
+  it('Hold this time again: a time taken meanwhile is refused with the clash named; nothing written over', async () => {
+    const { releaseTime } = await import('@lib/parties/party-book')
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    await releaseTime(id, w.sat2)
+    const other = await linkParty(w.sat2)
+    const r = await act({ id, action: 'hold-again' })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toMatch(/couldn’t be held for Stefanie’s party: something else is on the calendar then\. .* Move that booking, or move Stefanie’s party to a free time\.$/)
+    expect(r.body.error).not.toMatch(/Kaden/)
+    expect(await holdsOf(id)).toEqual([])
+    expect((await holdsOf(other)).length).toBe(1)
+    expect(audits('party-hold-again')).toHaveLength(0)
+  })
+
+  it('Hold this time again: refused for a cancelled party and a Square-booked one', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    await act({ id, action: 'cancel' })
+    expect((await act({ id, action: 'hold-again' })).status).toBe(409)
+    const legacy = await legacyParty(w.sun1)
+    const l = await act({ id: legacy, action: 'hold-again' })
+    expect(l.status).toBe(409)
+    expect(l.body.error).toBe(LEGACY_PARTY)
+  })
+
+  it('Free this time: a cancelled party still holding its time lets it go, audited, nothing sent; twice says it is already free', async () => {
+    const { holdTime } = await import('@lib/parties/party-book')
+    const { partyHoldState } = await import('@lib/parties/hold-actions')
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    await act({ id, action: 'cancel' })
+    const rec = (await getPartyRecord(id))!
+    // The cancel's let-go failed (a store blip): the time is still held for it.
+    expect((await holdTime({ partyId: id, startIso: w.sat2, endIso: rec.endIso!, ttlMinutes: null }, [], NOW)).ok).toBe(true)
+    expect((await partyHoldState(rec, NOW))!.freeable).toEqual([{ startIso: new Date(w.sat2).toISOString(), why: 'cancelled' }])
+    m.confirmEmail.mockClear(); m.paidEmail.mockClear(); m.text.mockClear()
+    const r = await act({ id, action: 'free-time', startIso: w.sat2 })
+    expect(r.status, JSON.stringify(r.body)).toBe(200)
+    expect(r.body.data.message).toMatch(/is free again, so others can book it\. Nothing was sent to Stefanie and no money moved\.$/)
+    expect(await holdsOf(id)).toEqual([])
+    expect(audits('party-free-time').at(-1)).toMatchObject({ details: { startIso: new Date(w.sat2).toISOString(), leftover: false } })
+    const again = await act({ id, action: 'free-time', startIso: w.sat2 })
+    expect(again.body.data.message).toBe('That time is already free.')
+    expect(audits('party-free-time')).toHaveLength(1)
+    NOTHING_TO_HOST()
+  })
+
+  it('Free the old time: a leftover hold after a move goes; the time the party is on never does', async () => {
+    const { holdTime, confirmTime } = await import('@lib/parties/party-book')
+    const { partyHoldState } = await import('@lib/parties/hold-actions')
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    expect((await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })).status).toBe(200)
+    const rec = (await getPartyRecord(id))!
+    // The old time's let-go failed: a leftover.
+    expect((await holdTime({ partyId: id, startIso: w.sat2, endIso: new Date(Date.parse(w.sat2) + 90 * 60_000).toISOString(), ttlMinutes: null }, [], NOW)).ok).toBe(true)
+    await confirmTime(id, w.sat2, new Date(Date.parse(w.sat2) + 90 * 60_000).toISOString(), NOW)
+    expect((await partyHoldState(rec, NOW))!.freeable).toEqual([{ startIso: new Date(w.sat2).toISOString(), why: 'leftover' }])
+    const own = await act({ id, action: 'free-time', startIso: w.sun1 })
+    expect(own.status).toBe(409)
+    expect(own.body.error).toMatch(/^Stefanie’s party is on .*, so that time stays held\.$/)
+    const r = await act({ id, action: 'free-time', startIso: w.sat2 })
+    expect(r.status).toBe(200)
+    expect(r.body.data.message).toMatch(/is free again\. Stefanie’s party stays on .*\. Nothing was sent to Stefanie\.$/)
+    expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sun1).toISOString()])
+    expect(audits('party-free-time').at(-1)).toMatchObject({ details: expect.objectContaining({ leftover: true }) })
+  })
+
+  it('Free this time waits while a payment is going through', async () => {
+    const { holdTime } = await import('@lib/parties/party-book')
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    await act({ id, action: 'cancel' })
+    const rec = (await getPartyRecord(id))!
+    await holdTime({ partyId: id, startIso: w.sat2, endIso: rec.endIso!, ttlMinutes: null }, [], NOW)
+    await updatePartyRecord(id, (r) => ({ ...r, paying: { attemptId: randomUUID(), state: 'charging', until: new Date(NOW.getTime() + 5 * 60_000).toISOString(), via: 'link', quotedCents: 30000 } as any }), 'test', null)
+    const r = await act({ id, action: 'free-time', startIso: w.sat2 })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toMatch(/going through/)
+    expect((await holdsOf(id)).length).toBe(1)
+  })
+})
+
