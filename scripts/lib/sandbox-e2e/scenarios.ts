@@ -309,6 +309,27 @@ export async function reconcile(ctx: Pick<Ctx, 'admin'>): Promise<any> {
   return r.body.data
 }
 
+/**
+ * Run the reconcile until `seen()` is true (up to `tries` runs, `waitMs` apart).
+ * Square's order search can leave out an order paid a moment ago: on 2026-11-02
+ * the reconcile run right after a counter sale searched 44 orders without it,
+ * and the next run, minutes later, found it and recorded both seats. The nightly
+ * job's 48-hour window covers that; a test that reconciles at once must wait.
+ * Returns the last run's answer.
+ */
+export async function reconcileUntil(
+  ctx: Pick<Ctx, 'admin' | 'sleep'>, seen: () => Promise<boolean>, opts: { tries?: number; waitMs?: number } = {},
+): Promise<any> {
+  const tries = opts.tries ?? 6
+  let ran: any
+  for (let i = 0; i < tries; i++) {
+    if (i) await ctx.sleep(opts.waitMs ?? 5_000)
+    ran = await reconcile(ctx)
+    if (await seen()) return ran
+  }
+  return ran
+}
+
 export async function toDecide(ctx: Pick<Ctx, 'admin'>): Promise<any[]> {
   const r = await ctx.admin.get('/api/admin/to-decide.json')
   checkStatus(r, 200, 'Read To decide')
@@ -591,8 +612,8 @@ export const scenarios: Scenario<Ctx>[] = [
       })
       const sale = await counterSale(ctx, scope, [{ variationId: cls.square.variations['single:person'], qty: 2 }])
       checkEqual(sale.totalCents, totalWithTax([2000, 2000]), 'Counter sale total')
-      const ran = await reconcile(ctx)
       const counter = async () => (await bookingsOf(ctx, cls.id)).bookings.filter((x) => x.source === 'pos')
+      const ran = await reconcileUntil(ctx, async () => (await counter()).length > 0)
       let pos = await counter()
       checkEqual(pos.length, 1, `Counter bookings (order ${sale.orderId}; the reconcile said ${JSON.stringify(ran)})`)
       checkEqual(pos[0].lineIds.length, 2, 'Counter seats')
@@ -607,8 +628,9 @@ export const scenarios: Scenario<Ctx>[] = [
       checkEqual((await counter())[0].customer?.givenName, 'E2E', 'Counter seat name after naming')
 
       await counterSale(ctx, scope, [{ variationId: cls.square.variations['day:person'], qty: 1 }])
-      await reconcile(ctx)
-      const item = (await toDecide(ctx)).find((i) => i.kind === 'pos-needs-days' && i.classId === cls.id && !i.done)
+      const needsDay = async () => (await toDecide(ctx)).find((i) => i.kind === 'pos-needs-days' && i.classId === cls.id && !i.done)
+      await reconcileUntil(ctx, async () => !!(await needsDay()))
+      const item = await needsDay()
       check(item, 'To decide has no "Counter seat needs its day" for the pick-your-day sale')
       const set = await ctx.admin.post('/api/admin/to-decide.json', { id: item.id, action: 'set-days', sessionIds: [cls.sessions[1].id] })
       checkStatus(set, 200, 'Set the day')

@@ -6,7 +6,7 @@ import {
   lineTax, MissingSecretError, onStop, parseArgs, type Pending, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, RefusedHostError, RUN_LINE,
   runScenarios, SkipScenario, SlotAllocator, SquareError, SquareSandbox, SQUARE_SANDBOX_VERSION, totalWithTax, type Scenario,
 } from '../../scripts/lib/sandbox-e2e/core'
-import { blockedDay, bookingIdOf, cleanUpLeftovers, CLEANUP_PLAN, firstDay, scenarios, tenderTookMoney, testContent, type Ctx } from '../../scripts/lib/sandbox-e2e/scenarios'
+import { blockedDay, bookingIdOf, cleanUpLeftovers, CLEANUP_PLAN, firstDay, reconcileUntil, scenarios, tenderTookMoney, testContent, type Ctx } from '../../scripts/lib/sandbox-e2e/scenarios'
 import { main } from '../../scripts/sandbox-e2e'
 import { bookingIdFor } from '@lib/classes/checkout'
 import { SQUARE_API_VERSION } from '@lib/classes/square-api'
@@ -633,5 +633,22 @@ describe('nothing charged', () => {
     expect(tenderTookMoney({ type: 'CARD', card_details: { status: 'CAPTURED' } })).toBe(true)
     expect(tenderTookMoney({ type: 'CARD', card_details: { status: 'AUTHORIZED' } })).toBe(true)
     expect(tenderTookMoney({ type: 'CASH' })).toBe(true)
+  })
+})
+
+describe('reconcileUntil', () => {
+  it('runs the reconcile again (after a wait) until what it looks for shows up', async () => {
+    const post = vi.fn(async () => ({ status: 200, body: { data: { orders: 1, recorded: 0 } }, text: '' }))
+    const sleep = vi.fn(async () => undefined)
+    let n = 0
+    const ran = await reconcileUntil({ admin: { post } as any, sleep }, async () => ++n >= 3, { waitMs: 10 })
+    expect(post).toHaveBeenCalledTimes(3)
+    expect(sleep).toHaveBeenCalledTimes(2)
+    expect(ran).toEqual({ orders: 1, recorded: 0 })
+  })
+  it('gives up after its tries and hands back the last answer', async () => {
+    const post = vi.fn(async () => ({ status: 200, body: { data: { orders: 0 } }, text: '' }))
+    await reconcileUntil({ admin: { post } as any, sleep: async () => undefined }, async () => false, { tries: 2 })
+    expect(post).toHaveBeenCalledTimes(2)
   })
 })

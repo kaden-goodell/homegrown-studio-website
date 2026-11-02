@@ -50,7 +50,7 @@ import {
   type Reply, type Scenario, type Scope,
 } from './core'
 import {
-  blockedDay, CARD_DECLINED, CARD_OK, checkNotCharged, checkRefundInSquare, GIFT_CARD_OK, noSquare, ordersFor, reconcile, sinceNow,
+  blockedDay, CARD_DECLINED, CARD_OK, checkNotCharged, checkRefundInSquare, GIFT_CARD_OK, noSquare, ordersFor, reconcile, reconcileUntil, sinceNow,
   testContent, toDecide, type Ctx,
 } from './scenarios'
 
@@ -659,8 +659,9 @@ export const partyScenarios: Scenario<PartyCtx>[] = [
       scope.cleanup.add(`refund the sandbox payment ${paid.id}`, () => ctx.square!.post('/refunds', {
         idempotency_key: randomUUID(), payment_id: paid.id, amount_money: { amount: total, currency: 'USD' }, reason: 'E2E cleanup',
       }))
-      await reconcile(ctx)
-      const item = (await toDecide(ctx)).find((i) => i.kind === 'party-paid-unclear' && i.detail?.partyId === bad.partyId)
+      const stray = async () => (await toDecide(ctx)).find((i) => i.kind === 'party-paid-unclear' && i.detail?.partyId === bad.partyId)
+      await reconcileUntil(ctx, async () => !!(await stray()))
+      const item = await stray()
       check(item, 'To decide has no "Party payment to check" for the paid declined try')
       checkEqual(item.detail.elsewhere, true, 'It is a payment with nothing to book it from')
       const decided = await ownerPost(ctx, '/api/admin/to-decide.json', { id: item.id, action: 'sorted' })
