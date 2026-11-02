@@ -60,7 +60,8 @@ export async function partyWarnings(from: string, to: string, now: Date): Promis
     listParties(),
     holdsBetween(new Date(Date.parse(lo) - DAY_MS).toISOString(), new Date(Date.parse(hi) + DAY_MS).toISOString(), now),
     listCheckouts(),
-    listClasses({ fromIso: lo, toIso: hi }),
+    // Our classes unreadable: the class scan already says so in its own line; the party checks still run.
+    listClasses({ fromIso: lo, toIso: hi }).catch(() => []),
   ])
   const byId = new Map(records.map((r) => [r.bookingId, r]))
   const checkingOut = new Set(checkouts.filter((c) => c.state !== 'paid-elsewhere').map((c) => c.partyId))

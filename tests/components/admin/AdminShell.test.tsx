@@ -108,7 +108,7 @@ function server(o: any = {}) {
       case '/api/admin/parties/settings.json': return ok({ data: { settings: partySettings, legacyRemaining: { count: 1, lastIso: at('2026-10-24', '13:30') } } })
       case '/api/admin/parties/book.json': return ok({ data: { party: ourParty, message: 'Booked Lee’s party for Sun, Oct 25 at 1:00 PM. The payment link for the studio fee ($300) went to Lee by email and text.' } })
       case '/api/admin/parties/times.json': return ok({ data: { minutes: 90, offered: [at('2026-10-24', '14:00')], open: [at('2026-10-24', '14:00')] } })
-      case '/api/admin/reports.json': return ok({ data: { month: '2026-10', seatsSold: 74, classSalesCents: 196800, refunds: 1, refundedCents: 1635, partiesBooked: 3 } })
+      case '/api/admin/reports.json': return ok({ data: { month: '2026-10', seatsSold: 74, classSalesCents: 196800, refunds: 1, refundedCents: 1635, partiesBooked: 3, partyFeesCents: 60000 } })
       case '/api/admin/classes/import-square.json': return ok({ data: { create: [], skip: [], addPhoto: [] } })
       case '/api/party/service-info.json': return ok({ data: { crafts: [{ id: 'c1', name: 'Beaded Necklace', perHeadCents: 1800, perHeadMaxCents: 1800 }] } })
     }
@@ -653,7 +653,9 @@ describe('More', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Reports/ }))
     expect(await within(dialog()).findByText('74')).toBeInTheDocument()
     expect(within(dialog()).getByText('$1,968')).toBeInTheDocument()
-    expect(within(dialog()).getByText('refunds (1)')).toBeInTheDocument()
+    expect(within(dialog()).getByText('class refunds (1)')).toBeInTheDocument()
+    expect(within(dialog()).getByText('$600')).toBeInTheDocument()
+    expect(within(dialog()).getByText('party fees taken, less refunds')).toBeInTheDocument()
     expect(within(dialog()).getByText(/Craft Café, party crafts and anything else rung up in Square/)).toBeInTheDocument()
   })
 
