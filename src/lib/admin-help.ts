@@ -12,8 +12,8 @@
  * asked from the app itself (Ask Square, and the checks before Refund it).
  *
  * Sections marked `comingWith` describe screens that arrive when the staffing
- * (stage 3) or extras (stage 4) work is merged; they stay hidden until then
- * (add the stage to HELP_AVAILABLE in that merge).
+ * (stage 3, merged) or extras (stage 4) work is merged; they stay hidden until
+ * then (add the stage to HELP_AVAILABLE in that merge).
  */
 import type { WarningCode } from '@lib/warnings'
 import type { ToDecideKind } from '@lib/classes/to-decide'
@@ -21,7 +21,7 @@ import type { ToDecideKind } from '@lib/classes/to-decide'
 export type ComingWith = 'staffing' | 'extras'
 
 /** The later stages merged into this build. */
-export const HELP_AVAILABLE: ReadonlySet<ComingWith> = new Set<ComingWith>()
+export const HELP_AVAILABLE: ReadonlySet<ComingWith> = new Set<ComingWith>(['staffing'])
 
 /** One step that can only be done in Square, with why and the exact way there. */
 export interface HelpSquare {
@@ -262,10 +262,11 @@ export const HELP_SECTIONS: HelpSection[] = [
     title: 'Staff',
     comingWith: 'staffing',
     points: [
-      'More › **Staff** › **People**: **+ Add someone** (first and last name, **Owner or crew**, mobile for shift texts, email for shift emails), **Edit**, and **No longer working here** (they’re signed out of /staff and leave every list; their past shifts stay). **Working here again** brings someone back.',
-      '**Change the staff passcode**: everyone on the iPad needs the new one, and anyone signed in to /staff is signed out.',
-      'Who’s on: More › **Staff** shows **Needs someone**, **To check** and **Who can work** for the week.',
-      'On a class or party › **Staff**: set **People needed**, then **Put on** or **Take off** each person. With **Tell them by text and email** ticked, they get a message.',
+      'More › **Staff** › **People**: **+ Add someone** (first and last name, **Crew** or **Owner**, mobile for shift texts, email for shift emails), **Edit**, and **No longer working here** (they’re signed out of /staff and leave every list; their past shifts stay). **Working here again** brings someone back. **Stop their calendar link** turns off a lost phone’s calendar.',
+      'Staff passcode: More › **Staff** › **People** › **Change the staff passcode**, type it twice (at least 6 letters or numbers), **Save new passcode**. Everyone on the iPad needs the new one, and anyone signed in to /staff is signed out. Home tells you if lots of wrong passcodes were typed today, or if the saved one can’t be read (then **Set a new staff passcode**).',
+      'Who’s on: More › **Staff** shows **Needs someone**, **To check** and **Who can work** for **This week**, **Next week** or **Pick a week**.',
+      'On a class or party › **Staff**: set **People needed**, then **Put on** or **Take off** each person (a class on several days also has **Every day** and **Off every day**). With **Tell them by text and email** ticked, they get a message. If a message didn’t go through, the screen says so with Call and Text buttons.',
+      '**Calendar link for my phone** (bottom of More › Staff) puts every class and party, with who’s on, in your phone’s calendar.',
       'Crew set when they can work and ask to work things on /staff › My shifts.',
     ],
   },
@@ -305,6 +306,7 @@ export const HELP_SECTIONS: HelpSection[] = [
 
 const HOME = 'Home “Needs you”, the morning email'
 const TODO = 'Inbox › To decide'
+const HOME_STAFF = 'Home › Staffing, the morning email'
 
 export const HELP_ROWS: HelpRow[] = [
   // Parties
@@ -348,10 +350,12 @@ export const HELP_ROWS: HelpRow[] = [
   { id: 'refund-unconfirmed', see: 'Refund with no answer', where: `${TODO}, ${HOME}`, means: 'Square never answered about a refund for a day.', tap: '**Ask Square**. It shows what Square did with the refund, then only the buttons that fit: **It went through** (records it with Square’s refund, the customer emailed once), **Try the refund again** (the same request, so never twice) or **It didn’t go through**.', buttons: ['Ask Square', 'It went through', 'Try the refund again', 'It didn’t go through'] },
 
   // Arrive with stage 3 (staffing)
-  { id: 'unstaffed', see: '<event> has no one on yet / has N of M on', where: HOME, means: 'A class or party needs people and doesn’t have them.', tap: 'More › Staff, or the event › **Staff** › **Put on**.', buttons: [], comingWith: 'staffing' },
-  { id: 'assigned-cant', see: '<name> is on <event> but marked that time as Can’t', where: HOME, means: 'Someone is on a shift they said they can’t do.', tap: 'Call or text them; **Take off** if they can’t.', buttons: [], comingWith: 'staffing' },
-  { id: 'assigned-cancelled', see: '<name> is still on <event>, which was cancelled', where: HOME, means: 'Someone is on something that isn’t happening.', tap: 'Tell them, then **Take off**.', buttons: [], comingWith: 'staffing' },
-  { id: 'staffing-unreadable', see: 'Couldn’t check staffing', where: HOME, means: 'The staffing check couldn’t run just now.', tap: 'Open More › Staff to look yourself.', buttons: [], comingWith: 'staffing' },
+  { id: 'unstaffed', see: '<event> has no one on yet / has N of M on', where: HOME_STAFF, means: 'A class or party needs people and doesn’t have them.', tap: '**Put someone on** (opens its **Staff** tab) › **Put on**. Or More › Staff › **Needs someone**.', buttons: ['Put someone on', 'Put on'], comingWith: 'staffing' },
+  { id: 'assigned-cant', see: '<name> is on <event> but marked that time as Can’t', where: HOME_STAFF, means: 'Someone is on a shift they said they can’t do.', tap: 'Call or text them from the line. If they can’t, **Open** › **Take off**, and put someone else on.', buttons: ['Open', 'Take off'], comingWith: 'staffing' },
+  { id: 'assigned-cancelled', see: '<name> is still on <event>, which was cancelled', where: HOME_STAFF, means: 'Someone is on something that isn’t happening. Nobody is told for you.', tap: 'Call or text them from the line, then **Take <name> off**.', buttons: [], comingWith: 'staffing' },
+  { id: 'staffing-unreadable', see: 'Couldn’t check staffing', where: HOME_STAFF, means: 'The staffing check couldn’t run just now.', tap: '**Try again**, or **Open Staff** to look yourself.', buttons: ['Try again', 'Open Staff'], comingWith: 'staffing' },
+  { id: 'staff-passcode-guesses', see: 'Lots of wrong staff passcodes today', where: 'Home “Needs you”', means: 'Someone typed the wrong /staff passcode many times today. It may be someone guessing.', tap: '**Change the staff passcode**, then tell the crew the new one.', buttons: ['Change the staff passcode'], comingWith: 'staffing' },
+  { id: 'staff-passcode-damaged', see: 'The staff passcode can’t be read', where: 'Home “Needs you”', means: 'Nobody can sign in to /staff until a new passcode is set.', tap: '**Set a new staff passcode**, type it twice, **Save new passcode**.', buttons: ['Set a new staff passcode', 'Save new passcode'], comingWith: 'staffing' },
 
   // Arrive with stage 4 (extras)
   { id: 'not-on-register', see: '<class> isn’t on the register yet', where: HOME, means: 'It can’t be booked online until it is.', tap: 'Open the class › **Put it on the register**.', buttons: [], comingWith: 'extras' },

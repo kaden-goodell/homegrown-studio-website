@@ -25,14 +25,14 @@ afterEach(() => {
 })
 
 describe('the party scenarios', () => {
-  it('are 24..40, each with a title and a plan; with the class scenarios they run 1..40 in order', () => {
+  it('are 24..40, each with a title and a plan; with the class and staffing scenarios they run 1..48 in order', () => {
     expect(partyScenarios.map((s) => s.id)).toEqual(Array.from({ length: 17 }, (_, i) => 24 + i))
     for (const s of partyScenarios) {
       expect(s.title.length).toBeGreaterThan(5)
       expect(s.title.length).toBeLessThanOrEqual(60)
       expect(s.plan.length).toBeGreaterThan(0)
     }
-    expect(ALL_SCENARIOS.map((s) => s.id)).toEqual(Array.from({ length: 40 }, (_, i) => i + 1))
+    expect(ALL_SCENARIOS.map((s) => s.id)).toEqual(Array.from({ length: 48 }, (_, i) => i + 1))
   })
 
   it('--only takes a range', () => {
@@ -42,15 +42,15 @@ describe('the party scenarios', () => {
     expect(pick(ALL_SCENARIOS, [24, 40]).map((s) => s.id)).toEqual([24, 40])
   })
 
-  it('--dry-run lists 1–23 and 24–40 with their plans, touching no network', async () => {
+  it('--dry-run lists 1–23, 24–40 and 41–48 with their plans, touching no network', async () => {
     const fetch = vi.fn()
     vi.stubGlobal('fetch', fetch)
     const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
     expect(await main(['--dry-run'], {})).toBe(0)
     expect(fetch).not.toHaveBeenCalled()
     const out = log.mock.calls.flat().join('\n')
-    for (let id = 1; id <= 40; id++) expect(out).toContain(`[${id}] `)
-    expect(out).toContain('Would run 40 scenarios')
+    for (let id = 1; id <= 48; id++) expect(out).toContain(`[${id}] `)
+    expect(out).toContain('Would run 48 scenarios')
     expect(out).toContain('$1, Only with the link')
     expect(out).toContain('40 and the To decide half of 27 would be skipped')
   })

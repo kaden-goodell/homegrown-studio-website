@@ -2,7 +2,7 @@
 import { describe, it, expect } from 'vitest'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
-import { HELP_ROWS, HELP_SECTIONS, TO_DECIDE_HELP, WARNING_HELP, boldParts, visibleHelp } from '@lib/admin-help'
+import { HELP_AVAILABLE, HELP_ROWS, HELP_SECTIONS, TO_DECIDE_HELP, WARNING_HELP, boldParts, visibleHelp } from '@lib/admin-help'
 import { WARNING_CODES } from '@lib/warnings'
 import { TO_DECIDE_KINDS } from '@lib/classes/to-decide'
 
@@ -124,9 +124,18 @@ describe('More › Help needs nobody else', () => {
     }
   })
 
-  it('later stages stay hidden until they are merged', () => {
-    const hidden = HELP_ROWS.filter((r) => r.comingWith).map((r) => r.id)
-    for (const id of hidden) expect(visibleIds.has(id)).toBe(false)
-    expect(visibleHelp().sections.some((s) => s.comingWith)).toBe(false)
+  it('staffing (merged) is shown; later stages stay hidden until they are merged', () => {
+    expect(HELP_AVAILABLE.has('staffing')).toBe(true)
+    for (const r of HELP_ROWS.filter((x) => x.comingWith)) {
+      expect(visibleIds.has(r.id), r.id).toBe(HELP_AVAILABLE.has(r.comingWith!))
+    }
+    for (const s of HELP_SECTIONS.filter((x) => x.comingWith)) {
+      expect(visibleHelp().sections.some((v) => v.id === s.id), s.id).toBe(HELP_AVAILABLE.has(s.comingWith!))
+    }
+    expect(visibleHelp().sections.map((s) => s.id)).toContain('staff')
+  })
+
+  it('both Home staff passcode alerts have a Help line', () => {
+    for (const id of ['staff-passcode-guesses', 'staff-passcode-damaged']) expect(visibleIds.has(id), id).toBe(true)
   })
 })
