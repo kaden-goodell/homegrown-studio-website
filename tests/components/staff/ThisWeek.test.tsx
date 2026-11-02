@@ -33,12 +33,12 @@ describe('This week (staff landing tab)', () => {
     expect(screen.getByText('2 events in the next 7 days · 1 with picks to prep')).toBeInTheDocument()
   })
 
-  it('a Craft Café day shows its hours (the Nov 7 grand opening runs all day)', async () => {
+  it('a Craft Café day shows its hours (the Nov 7 grand opening runs 9 to 8)', async () => {
     vi.setSystemTime(new Date('2026-11-05T15:00:00Z'))
     serve([])
     render(<ThisWeek staff={STAFF} onOpenRoster={() => {}} />)
     const sat = await screen.findByRole('region', { name: 'Sat Nov 7' })
-    expect(within(sat).getByText('☕ Craft Café 9 AM – 9 PM')).toBeInTheDocument()
+    expect(within(sat).getByText('☕ Craft Café 9 AM – 8 PM')).toBeInTheDocument()
   })
 
   it('tapping a class opens its roster', async () => {
