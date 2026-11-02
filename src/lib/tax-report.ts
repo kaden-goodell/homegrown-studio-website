@@ -52,7 +52,16 @@ const cents = (m: any) => (typeof m?.amount === 'number' ? m.amount : 0)
  * custom amount, so it takes the same share off every line of the original
  * sale (`sources`: orders refunded this month that were sold in another).
  */
-export function summarizeTax(orders: any[], index: CatalogIndex, sources: Map<string, any> = new Map()): TaxSummary {
+/** A "Charge on the reader" sale (stage 4): the seats' net and tax as our ledger has them, by Square order id. */
+export type ReaderSplit = Map<string, { netCents: number; taxCents: number }>
+
+/*
+ * OWNER-S4-8: a reader charge reaches Square as a plain amount (no item, no
+ * tax line), so Square can't say what it was. Orders in `reader` are counted
+ * under classes with our ledger's net and tax instead of their own lines; a
+ * refund of one takes the same share of that split back off.
+ */
+export function summarizeTax(orders: any[], index: CatalogIndex, sources: Map<string, any> = new Map(), reader: ReaderSplit = new Map()): TaxSummary {
   const empty = (): Totals => ({ salesCents: 0, taxCents: 0, lines: 0 })
   const out: TaxSummary = { classes: empty(), cafe: empty(), parties: empty(), kits: empty(), other: empty() }
   const byId = new Map<string, any>([...sources, ...orders.filter((o) => o.id).map((o) => [o.id, o] as [string, any])])
@@ -62,11 +71,25 @@ export function summarizeTax(orders: any[], index: CatalogIndex, sources: Map<st
     b.salesCents += sign * (totalCents - taxCentsAmt)
     if (countLine) b.lines += 1
   }
+  const readerSale = (split: { netCents: number; taxCents: number }, share: number, sign: 1 | -1, countLine: boolean) => {
+    const tax = Math.round(split.taxCents * share)
+    out.classes.taxCents += sign * tax
+    out.classes.salesCents += sign * (Math.round((split.netCents + split.taxCents) * share) - tax)
+    if (countLine) out.classes.lines += 1
+  }
   for (const order of orders) {
     const party = isPartyOrder(order)
-    for (const line of order.line_items ?? []) add(line.catalog_object_id, cents(line.total_money), cents(line.total_tax_money), 1, true, line.name, party)
+    const split = order.id ? reader.get(order.id) : undefined
+    if (split) readerSale(split, 1, 1, true)
+    else for (const line of order.line_items ?? []) add(line.catalog_object_id, cents(line.total_money), cents(line.total_tax_money), 1, true, line.name, party)
     for (const ret of order.returns ?? []) {
       for (const line of ret.return_line_items ?? []) {
+        const fromReader = reader.get(ret.source_order_id)
+        if (fromReader && !line.catalog_object_id) {
+          const whole = fromReader.netCents + fromReader.taxCents
+          readerSale(fromReader, whole ? Math.min(1, cents(line.total_money) / whole) : 0, -1, false)
+          continue
+        }
         const source = byId.get(ret.source_order_id)
         // A refund on one of our party orders is a party refund, however Square names its lines.
         // Its sale couldn't be loaded: one of our party lines ("Party — …") is still a party refund.
@@ -190,7 +213,7 @@ export function renderTaxReport(month: string, s: TaxSummary, opts: { partial?: 
   const sum = (kind: 'use' | 'sales' | 'unsure') => (Object.keys(s) as Bucket[]).filter((b) => BUCKET_TAX[b] === kind).reduce((t, b) => t + s[b].taxCents, 0)
   const use = sum('use'), sales = sum('sales'), unsure = sum('unsure')
   const rows = (Object.keys(s) as Bucket[]).filter((b) => s[b].lines > 0 || s[b].taxCents !== 0)
-  const caveat = opts.classesCategoryMissing ? 'Note: the Classes category is not set (SQUARE_CLASSES_CATEGORY_ID), so our own classes may be under Craft Café. All are use tax, so the use-tax total is the same.' : ''
+  const caveat = opts.classesCategoryMissing ? 'Note: the Classes category isn’t picked yet (in /admin, More › Register setup), so our own classes may be under Craft Café. All are use tax, so the use-tax total is the same.' : ''
   const title = `Tax collected, ${monthName}${opts.partial ? ' (so far)' : ''}`
   const text = [
     title,

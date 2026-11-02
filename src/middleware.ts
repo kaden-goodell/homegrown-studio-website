@@ -9,8 +9,10 @@
  */
 import type { MiddlewareHandler } from 'astro'
 import { deployContext } from '@lib/deploy-context'
+import { waitUntilOf, withAfterReply } from '@lib/after-reply'
 
 export const onRequest: MiddlewareHandler = (context, next) => {
   deployContext(context.request)
-  return next()
+  // Stage 4 (M7): lets library code hand slow follow-up work (a waitlist run) to Netlify's waitUntil.
+  return withAfterReply(waitUntilOf(context.locals), () => next())
 }

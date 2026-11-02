@@ -12,6 +12,7 @@ import { summarize } from '@lib/seo'
 import { withUtm } from '@lib/utm'
 import { makeKvStore } from '@lib/blob-store'
 import type { ScheduledClass } from './types'
+import { cancelPathFor } from './self-cancel-token'
 
 const sentKv = makeKvStore('class-confirmations', 'class-confirmations')
 
@@ -56,6 +57,15 @@ export async function releaseConfirmation(bookingId: string): Promise<void> {
   await sentKv.set(`sent-${bookingId.replace(/[^A-Za-z0-9_-]/g, '_')}`, '').catch(() => undefined)
 }
 
+/** The "Can't make it?" link, or nothing when it can't be signed (never stops a confirmation). */
+function cancelLink(origin: string, classId: string, bookingId: string): { cancelUrl?: string } {
+  try {
+    return { cancelUrl: `${origin}${cancelPathFor(classId, bookingId)}` }
+  } catch {
+    return {}
+  }
+}
+
 export async function sendClassConfirmation(input: {
   origin: string
   bookingId: string
@@ -74,8 +84,12 @@ export async function sendClassConfirmation(input: {
   alsoTo?: string
   /** a free seat from /staff: says "comped", not an amount paid */
   comped?: boolean
+  /** D3: a booking that came to $0 (a code or a $0 early-bird): says "free", not "$0 paid" */
+  free?: boolean
   /** a door seat paid at the counter: what is still to pay there */
   dueAtStudioCents?: number
+  /** Stage 4: the waitlist's first sentence ("A spot opened and you're in!…"). */
+  lead?: string
 }): Promise<boolean> {
   const { cls, origin } = input
   const sessions = cls.sessions
@@ -112,13 +126,14 @@ export async function sendClassConfirmation(input: {
     seatsLabel: input.seatsLabel,
     totalChargedCents: input.totalChargedCents,
     ...(input.comped ? { comped: true } : {}),
+    ...(input.free ? { free: true } : {}),
     ...(input.dueAtStudioCents !== undefined ? { dueAtStudioCents: input.dueAtStudioCents } : {}),
     receiptUrl: input.receiptUrl,
     waiverUrl,
     workshopUrl: classUrl,
     directionsUrl: `https://maps.google.com/?q=${encodeURIComponent('Hometown Studio, 525 Hughes Rd, Suite F, Madison, AL 35758')}`,
     // A free or not-yet-paid seat has nothing to refund; ask them to free it up instead.
-    policyLine: input.comped || input.dueAtStudioCents !== undefined
+    policyLine: input.comped || input.free || input.dueAtStudioCents !== undefined
       ? 'Can’t make it? Text or email us so we can pass your seat to someone else'
       : checkoutPolicySummary.workshop,
     policyUrl: `${origin}${POLICY_PATH}#${POLICY_ANCHORS.workshops}`,
@@ -128,6 +143,9 @@ export async function sendClassConfirmation(input: {
     bookingRef: input.bookingId,
     ...(sessions.length > 1 ? { sessionLines: sessions.map((s) => formatDayAndSpan(s.startIso, s.endIso)) } : {}),
     ...(input.pickLines?.length ? { pickLines: input.pickLines } : {}),
+    ...(input.lead ? { lead: input.lead } : {}),
+    // D2: their own page to cancel 48+ hours ahead (refunded) or send a note. Signed; no store needed.
+    ...(cancelLink(origin, cls.id, input.bookingId)),
   })
   return sent
 }

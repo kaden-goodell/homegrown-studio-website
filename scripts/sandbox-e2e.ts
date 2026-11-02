@@ -10,7 +10,7 @@
  * Run it (Kaden, from the repo root; the passcodes go straight from the
  * branch's Netlify env into this process and are never printed):
  *
- *   ! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts
+ *   ! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" PREVIEW_OWNER_ALERT_NUMBERS="$(npx netlify env:get OWNER_ALERT_NUMBERS --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts
  *
  * Options:
  *   --only N      just scenario N (or --only 3,5, or a range: --only 24-40)
@@ -26,6 +26,8 @@
  *                                the Square sandbox, and lets scenarios 11, 22 and 40
  *                                (and the To decide half of 27) run.
  *                                Without it those checks are skipped with a note.
+ *   (required) PREVIEW_OWNER_ALERT_NUMBERS  the branch's OWNER_ALERT_NUMBERS: the run stops unless it is
+ *                                Kaden's (402) 980-2907 only (owner texts go there).
  *   E2E_EMAIL                    where the test bookings' confirmation emails go
  *                                (default kaden+e2e@ourhometownstudio.com).
  *
@@ -40,6 +42,11 @@
  * they sign a third client in to /staff as "E2E Crew", the person "Set up sandbox"
  * puts on the preview's own staff list (skipped with how to fix it when it isn't
  * there yet), and never message anyone (tell off on every assign).
+ * Scenarios 49–67 are the stage 4 extras (scripts/lib/sandbox-e2e/extras-scenarios.ts):
+ * promo codes and the half-cent proof, early-bird, free bookings, repeating
+ * dates, the waitlist with saved sandbox cards, saved-card proofs, Register
+ * setup, the early-bird register price, the reader (simulated) and the
+ * customer's own cancel (D2).
  *
  * Every class it makes is named "E2E <run> …", link-only (scenario 1 makes
  * one public for a moment to check the list), and cancelled at the end with
@@ -52,20 +59,22 @@
  */
 import { pathToFileURL } from 'node:url'
 import {
-  formatPlan, formatSummary, MissingSecretError, onStop, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, runScenarios,
+  formatPlan, formatSummary, MissingSecretError, onStop, ownerNumbersProblem, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, runScenarios,
   SlotAllocator, SquareSandbox, checkStatus, check, Halt, type Pending, type Secrets, type StopProcess,
 } from './lib/sandbox-e2e/core'
 import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, scenarios } from './lib/sandbox-e2e/scenarios'
 import { cleanUpPartyLeftovers, PARTY_CLEANUP_PLAN, partyScenarios, type PartyCtx } from './lib/sandbox-e2e/party-scenarios'
 import { staffingScenarios, type StaffingCtx } from './lib/sandbox-e2e/staffing-scenarios'
+import { cleanUpExtrasLeftovers, EXTRAS_CLEANUP_PLAN, EXTRAS_NEED_TOKEN, extrasScenarios } from './lib/sandbox-e2e/extras-scenarios'
 import { Cleanup, type CleanupResult, type Scenario } from './lib/sandbox-e2e/core'
 
 /** The run's context: the party bits (run-level cleanup) and the crew bits (a third /staff client). */
 export type RunCtx = PartyCtx & StaffingCtx
 
-/** Every scenario, in id order: our classes (1–23), then parties (24–40), then staffing (41–48). */
+/** Every scenario, in id order: our classes (1–23), parties (24–40), staffing (41–48), then the stage 4 extras (49–67). */
 export const ALL_SCENARIOS: Scenario<RunCtx>[] = [
   ...(scenarios as Scenario<RunCtx>[]), ...(partyScenarios as Scenario<RunCtx>[]), ...(staffingScenarios as Scenario<RunCtx>[]),
+  ...(extrasScenarios as Scenario<RunCtx>[]),
 ]
 
 /** Runs the run-level undo steps (Parties setup put back) once, saying what happened. */
@@ -119,12 +128,12 @@ export async function main(argv: string[], env: Record<string, string | undefine
   }
   if (args.dryRun && args.cleanupOnly) {
     console.log(`Would clear up what earlier runs left on ${PREVIEW_ORIGIN}:`)
-    for (const step of [...CLEANUP_PLAN, ...PARTY_CLEANUP_PLAN]) console.log(`    - ${step}`)
+    for (const step of [...EXTRAS_CLEANUP_PLAN, ...CLEANUP_PLAN, ...PARTY_CLEANUP_PLAN]) console.log(`    - ${step}`)
     return 0
   }
   if (args.dryRun) {
     console.log(formatPlan(list))
-    console.log(`\nSquare-side checks: ${env.SQUARE_SANDBOX_ACCESS_TOKEN ? 'on (SQUARE_SANDBOX_ACCESS_TOKEN set)' : 'off (no SQUARE_SANDBOX_ACCESS_TOKEN; scenarios 11, 22 and 40 and the To decide half of 27 would be skipped)'}`)
+    console.log(`\nSquare-side checks: ${env.SQUARE_SANDBOX_ACCESS_TOKEN ? 'on (SQUARE_SANDBOX_ACCESS_TOKEN set)' : `off (no SQUARE_SANDBOX_ACCESS_TOKEN; scenarios 11, 22, 40, ${EXTRAS_NEED_TOKEN.join(', ')} and the To decide half of 27 would be skipped, and the others' Square checks)`}`)
     return 0
   }
 
@@ -135,6 +144,9 @@ export async function main(argv: string[], env: Record<string, string | undefine
     if (e instanceof MissingSecretError) { console.error(e.message); return 2 }
     throw e
   }
+  // T4: owner texts must reach Kaden only. Checked before anything goes over the network.
+  const owners = ownerNumbersProblem(env.PREVIEW_OWNER_ALERT_NUMBERS)
+  if (owners) { console.error(owners); return 2 }
   const hide = [secrets.adminPasscode, secrets.staffPasscode, secrets.sandboxToken]
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
   const gate = new RateGate(4, 60_000)
@@ -188,9 +200,10 @@ export async function main(argv: string[], env: Record<string, string | undefine
 
     if (args.cleanupOnly) {
       ctx.log('Clearing up what earlier runs left behind ("E2E …" only):')
+      const extras = await cleanUpExtrasLeftovers(ctx, ctx.log)
       const classes = await cleanUpLeftovers(ctx, ctx.log)
       const parties = await cleanUpPartyLeftovers(ctx, ctx.log)
-      const done = [...classes.done, ...parties.done], failed = [...classes.failed, ...parties.failed]
+      const done = [...extras.done, ...classes.done, ...parties.done], failed = [...extras.failed, ...classes.failed, ...parties.failed]
       ctx.log(`${done.length} done, ${failed.length} failed${done.length + failed.length ? '' : ' (nothing left over)'}.`)
       return failed.length ? 1 : 0
     }

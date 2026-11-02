@@ -553,7 +553,8 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
     RECORDS.list = [rec(id)] // booked, its time not held
     mockListAllWorkshops.mockRejectedValue(new Error('square down'))
     mockListBookings.mockRejectedValue(new Error('square down'))
-    const list = await listWarnings(WINDOW, { now: NOW })
+    // An own class left in the shared fake store by the stage 4 tests above isn't on the register: not what this checks.
+    const list = (await listWarnings(WINDOW, { now: NOW })).filter((w) => w.code !== 'not-on-register')
     expect(list.map((w) => w.code).sort()).toEqual(['classes-unreadable', 'parties-unreadable', 'party-no-hold'])
     expect(list.find((w) => w.code === 'classes-unreadable')!.detail).toBe('Classes booked in Square couldn’t be checked for problems just now.')
     expect(list.find((w) => w.code === 'parties-unreadable')!.detail).toBe('Parties booked in Square couldn’t be checked against our parties and classes just now.')
@@ -562,7 +563,7 @@ describe('listWarnings — our parties (stage 2 Task 13)', () => {
   it('parties that can’t be read: one line, the rest still shows', async () => {
     const spy = vi.spyOn(await import('@lib/parties/party-checkouts'), 'listCheckouts').mockRejectedValueOnce(new Error('blobs down'))
     mockListAllWorkshops.mockResolvedValue([{ ...PAILS, availableCapacity: -2 }])
-    const list = await listWarnings(WINDOW, { now: NOW })
+    const list = (await listWarnings(WINDOW, { now: NOW })).filter((w) => w.code !== 'not-on-register')
     expect(list.map((w) => w.code).sort()).toEqual(['oversold', 'parties-unreadable'])
     spy.mockRestore()
   })

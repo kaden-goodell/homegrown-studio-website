@@ -11,7 +11,7 @@ there and tell me what you saw.
    passcodes straight from Netlify into the script; they are never printed.
 
    ```
-   ! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts
+   ! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" PREVIEW_OWNER_ALERT_NUMBERS="$(npx netlify env:get OWNER_ALERT_NUMBERS --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts
    ```
 
    It only talks to the branch preview and the Square sandbox. It refuses any

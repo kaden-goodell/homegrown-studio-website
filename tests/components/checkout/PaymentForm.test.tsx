@@ -172,3 +172,70 @@ describe('PaymentForm gift card field with the real SDK', () => {
     await waitFor(() => expect(giftStub.destroy).toHaveBeenCalled())
   })
 })
+
+describe('PaymentForm store mode (stage 4: save a card for the waitlist)', () => {
+  function realSdk() {
+    const script = document.createElement('script')
+    script.src = 'https://sandbox.web.squarecdn.com/v1/square.js'
+    document.head.appendChild(script)
+    const cardStub = { attach: vi.fn(async () => {}), destroy: vi.fn(async () => {}), tokenize: vi.fn(async () => ({ status: 'OK', token: 'cnon:card-nonce-ok' })) }
+    const verifyBuyer = vi.fn(async () => ({ token: 'verf:store-1' }))
+    const applePay = vi.fn(async () => ({ destroy: vi.fn() }))
+    const googlePay = vi.fn(async () => ({ attach: vi.fn(), destroy: vi.fn() }))
+    const giftCard = vi.fn()
+    ;(window as any).Square = { payments: () => ({ card: async () => cardStub, giftCard, applePay, googlePay, paymentRequest: vi.fn(() => ({})), verifyBuyer }) }
+    return { cardStub, verifyBuyer, applePay, googlePay, giftCard }
+  }
+
+  it('card only: no wallets even when an amount is given, no gift card toggle, and says Square saves it', async () => {
+    const sdk = realSdk()
+    configAnswers('sq0idp-real')
+    const onReadyChange = vi.fn()
+    render(<PaymentForm mode="store" wallet={{ amount: '21.80', label: 'Hometown Studio' }} onWalletToken={vi.fn()} onReadyChange={onReadyChange} environmentOverride="sandbox" />)
+    await waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true))
+    expect(sdk.applePay).not.toHaveBeenCalled()
+    expect(sdk.googlePay).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: /gift card/ })).toBeNull()
+    expect(screen.queryByText(/Gift cards can’t be used/)).toBeNull()
+    expect(screen.getByText('Nothing is charged now. Square saves your card. We never see its number.')).toBeInTheDocument()
+  })
+
+  it('verifies the buyer with intent STORE (no amount) and returns the token and the verification token', async () => {
+    const sdk = realSdk()
+    configAnswers('sq0idp-real')
+    const ref = createRef<PaymentFormRef>()
+    const onReadyChange = vi.fn()
+    render(<PaymentForm ref={ref} mode="store" onReadyChange={onReadyChange} environmentOverride="sandbox" />)
+    await waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true))
+    const out = await ref.current!.tokenizeAndVerify({ givenName: 'Jane', familyName: 'Doe', email: 'jane@example.com', phone: '4029802907', amount: '21.80' })
+    expect(out).toEqual({ token: 'cnon:card-nonce-ok', verificationToken: 'verf:store-1' })
+    expect(sdk.verifyBuyer).toHaveBeenCalledWith('cnon:card-nonce-ok', {
+      intent: 'STORE',
+      billingContact: { givenName: 'Jane', familyName: 'Doe', email: 'jane@example.com', phone: '4029802907' },
+    })
+    const details = (sdk.verifyBuyer.mock.calls[0] as any[])[1]
+    expect(details).not.toHaveProperty('amount')
+  })
+
+  it('charge mode still verifies with CHARGE and the amount', async () => {
+    const sdk = realSdk()
+    configAnswers('sq0idp-real')
+    const ref = createRef<PaymentFormRef>()
+    const onReadyChange = vi.fn()
+    render(<PaymentForm ref={ref} onReadyChange={onReadyChange} environmentOverride="sandbox" />)
+    await waitFor(() => expect(onReadyChange).toHaveBeenLastCalledWith(true))
+    await ref.current!.tokenizeAndVerify({ givenName: 'Jane', amount: '21.80' })
+    expect((sdk.verifyBuyer.mock.calls[0] as any[])[1]).toMatchObject({ intent: 'CHARGE', amount: '21.80' })
+  })
+
+  it('the stand-in form in store mode: no gift card toggle, the Square line instead', async () => {
+    configAnswers('mock-app')
+    render(<PaymentForm mode="store" />)
+    await screen.findByText('Test mode')
+    expect(screen.queryByRole('button', { name: /gift card/ })).toBeNull()
+    expect(screen.getByText('Nothing is charged now. Square saves your card. We never see its number.')).toBeInTheDocument()
+    // M8: a screen reader hears "Card to save", not "Payment".
+    expect(screen.getByRole('group', { name: 'Card to save' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Payment' })).toBeNull()
+  })
+})

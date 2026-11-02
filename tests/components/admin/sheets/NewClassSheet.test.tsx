@@ -295,6 +295,50 @@ describe('New class › From a past class', () => {
   })
 })
 
+describe('New class: the early-bird (stage 4, review Important 5)', () => {
+  it('Run it again keeps a running early-bird: the form shows it and the Add sends it', async () => {
+    const eb = { untilYmd: '2031-03-15', prices: { pas_full: { person: 2500 } } }
+    const theClass = cls({ libraryId: null, content: content({ name: 'Pottery', earlyBird: eb }) })
+    const f = server({ theClass })
+    vi.stubGlobal('fetch', f)
+    const { sheet } = renderSheet(<NewClassSheet from={{ kind: 'class', id: 'cls_1' }} />)
+    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Pottery'))
+    expect(screen.getByLabelText('Early-bird price')).toBeChecked()
+    expect(screen.getByLabelText('Early-bird price ($)')).toHaveValue('25')
+    expect(screen.getByTestId('eb-shows')).toHaveTextContent('Shows as: Early-bird $25 until Sat Mar 15.')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    await waitFor(() => expect(sheet.open).toHaveBeenCalled())
+    expect(posts(f, CLASSES)[0].body.content.earlyBird).toEqual(eb)
+  })
+  it('M-f: Schedule it from a library class with a running early-bird says the copy brings it; turning it off hides the note', async () => {
+    const eb = { untilYmd: '2031-03-15', prices: { pas_full: { person: 2500 } } }
+    vi.stubGlobal('fetch', server({ library: [lib('lib_eb', content({ name: 'Pottery', earlyBird: eb }))] }))
+    renderSheet(<NewClassSheet from={{ kind: 'lib', id: 'lib_eb' }} />)
+    const note = await screen.findByTestId('copied-early-bird')
+    expect(note).toHaveTextContent('This copies its early-bird too: Early-bird $25 until Sat Mar 15. Turn it off under the price if these dates shouldn’t have it.')
+    fireEvent.click(screen.getByLabelText('Early-bird price'))
+    expect(screen.queryByTestId('copied-early-bird')).toBeNull()
+  })
+
+  it('turned on for a new class: last day and price; a price that isn\'t lower is refused in place', async () => {
+    const f = server()
+    vi.stubGlobal('fetch', f)
+    renderSheet(<NewClassSheet day="2031-03-12" />)
+    fillBasics('Pottery', '30')
+    fireEvent.click(screen.getByLabelText('Early-bird price'))
+    fireEvent.change(screen.getByLabelText('Last day of the early-bird'), { target: { value: '2031-03-01' } })
+    fireEvent.change(screen.getByLabelText('Early-bird price ($)'), { target: { value: '30' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    expect(await screen.findByText('The early-bird price has to be lower than $30.')).toBeInTheDocument()
+    expect(posts(f, CLASSES)).toHaveLength(0)
+    fireEvent.change(screen.getByLabelText('Early-bird price ($)'), { target: { value: '24' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
+    expect(posts(f, CLASSES)[0].body.content.earlyBird).toEqual({ untilYmd: '2031-03-01', prices: expect.any(Object) })
+    expect(Object.values(posts(f, CLASSES)[0].body.content.earlyBird.prices)[0]).toEqual({ person: 2400 })
+  })
+})
+
 describe('New class, fix round 1', () => {
   it('I1 (R35): one create key for this Add, the same on every retry, a new one after it worked', async () => {
     let n = 0
@@ -411,3 +455,222 @@ describe('New class, fix round 2', () => {
   })
 })
 
+
+describe('Repeat (stage 4)', () => {
+  /** A server whose repeat-preview answers `dates` and whose repeat answers `repeat(body, call)`. */
+  function repeatServer(o: { dates: any[]; repeat?: (body: any, n: number) => any }) {
+    let n = 0
+    const base = server()
+    return vi.fn(async (url: string, init?: any) => {
+      if (url.split('?')[0] === CLASSES && init?.method === 'POST') {
+        const body = JSON.parse(init.body)
+        if (body.action === 'repeat-preview') return ok({ data: { dates: o.dates } })
+        if (body.action === 'repeat') return o.repeat ? o.repeat(body, ++n) : refuse(500, {})
+      }
+      return base(url, init)
+    })
+  }
+  const made = (ymd: string, id: string) => ({ ymd, class: cls({ id }) })
+  const repeatGroup = () => screen.getByRole('group', { name: 'Repeat' })
+
+  it('every week: the list shows each date with ✓ or why it’s skipped; unticking leaves one out; Add 3 classes sends one repeat with the skip list', async () => {
+    const dates = [
+      { ymd: '2031-03-12', ok: true, reason: null },
+      { ymd: '2031-03-19', ok: true, reason: null },
+      { ymd: '2031-03-26', ok: false, reason: 'Closed for spring break.' },
+      { ymd: '2031-04-02', ok: false, reason: 'Clashes with Rivera party, Wed Apr 2 6 PM.' },
+      { ymd: '2031-04-09', ok: true, reason: null },
+      { ymd: '2031-04-16', ok: true, reason: null },
+    ]
+    const f = repeatServer({ dates, repeat: (b) => ok({ data: { created: b.skip.includes('2031-04-16') ? [made('2031-03-12', 'cls_a'), made('2031-03-19', 'cls_b'), made('2031-04-09', 'cls_c')] : [], skipped: [], left: [], leftBecause: null } }) })
+    vi.stubGlobal('fetch', f)
+    const { sheet } = renderSheet(<NewClassSheet day="2031-03-12" />)
+    fillBasics()
+    fireEvent.click(within(repeatGroup()).getByRole('button', { name: 'Every week' }))
+    expect(screen.getByLabelText('Until')).toHaveValue('2031-04-16')
+    const list = await screen.findByRole('list', { name: 'Dates it adds' })
+    expect(within(list).getAllByRole('checkbox')).toHaveLength(6)
+    expect(within(list).getByText('Skipped. Closed for spring break.')).toBeInTheDocument()
+    expect(within(list).getByText('Skipped. Clashes with Rivera party, Wed Apr 2 6 PM.')).toBeInTheDocument()
+    expect(within(list).getByRole('checkbox', { name: /Wed Mar 26/ })).toBeDisabled()
+    expect(within(footer()).getByRole('button', { name: 'Add 4 classes' })).toBeInTheDocument()
+    fireEvent.click(within(list).getByRole('checkbox', { name: /Wed Apr 16/ }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 3 classes' }))
+    await waitFor(() => expect(sheet.open).toHaveBeenCalledWith({ kind: 'class', id: 'cls_a' }))
+    const [p] = posts(f, CLASSES).filter((x: any) => x.body.action === 'repeat')
+    expect(p.body).toMatchObject({ action: 'repeat', status: 'open', pattern: { every: 1, untilYmd: '2031-04-16' } })
+    expect(p.body.skip.sort()).toEqual(['2031-03-26', '2031-04-02', '2031-04-16'])
+    expect(p.body.createKey).toEqual(expect.any(String))
+    expect(screen.getByText('Added 3 classes. They’re on the calendar and in your library.')).toBeInTheDocument()
+  })
+
+  it('pick dates: Add a date and remove one; the preview asks with the picked days', async () => {
+    const f = repeatServer({ dates: [{ ymd: '2031-03-12', ok: true, reason: null }, { ymd: '2031-03-19', ok: true, reason: null }] })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<NewClassSheet day="2031-03-12" />)
+    fillBasics()
+    fireEvent.click(within(repeatGroup()).getByRole('button', { name: 'Pick dates' }))
+    expect(screen.getByLabelText('Also on')).toHaveValue('2031-03-19')
+    fireEvent.click(screen.getByRole('button', { name: '+ Add a date' }))
+    expect(screen.getAllByLabelText('Also on')[1]).toHaveValue('2031-03-26')
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Wed Mar 26' }))
+    await screen.findByRole('list', { name: 'Dates it adds' })
+    const last = posts(f, CLASSES).filter((x: any) => x.body.action === 'repeat-preview').at(-1)
+    expect(last.body.pattern).toEqual({ dates: ['2031-03-19'] })
+  })
+
+  it('a break part way: says which were added and which weren’t, and Try the rest again sends the same repeat (same key)', async () => {
+    const dates = ['2031-03-12', '2031-03-19', '2031-03-26'].map((ymd) => ({ ymd, ok: true, reason: null }))
+    const f = repeatServer({
+      dates,
+      repeat: (_b, n) => ok({ data: n === 1
+        ? { created: [made('2031-03-12', 'cls_a')], skipped: [{ ymd: '2031-03-19', reason: 'Clashes with Pottery, Wed Mar 19 6 PM.' }], left: ['2031-03-26'], leftBecause: 'error' }
+        : { created: [made('2031-03-12', 'cls_a'), made('2031-03-26', 'cls_c')], skipped: [{ ymd: '2031-03-19', reason: 'Clashes with Pottery, Wed Mar 19 6 PM.' }], left: [], leftBecause: null } }),
+    })
+    vi.stubGlobal('fetch', f)
+    const { sheet, bump } = renderSheet(<NewClassSheet day="2031-03-12" />)
+    fillBasics()
+    fireEvent.click(within(repeatGroup()).getByRole('button', { name: 'Every week' }))
+    fireEvent.change(screen.getByLabelText('Until'), { target: { value: '2031-03-26' } })
+    await screen.findByRole('list', { name: 'Dates it adds' })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 3 classes' }))
+    const panel = await screen.findByRole('alert', { name: 'What was added' })
+    expect(within(panel).getByText('Added 1 of 3.')).toBeInTheDocument()
+    expect(within(panel).getByText('Added Wed Mar 12.')).toBeInTheDocument()
+    expect(within(panel).getByText('Not added Wed Mar 19. Clashes with Pottery, Wed Mar 19 6 PM.')).toBeInTheDocument()
+    expect(within(panel).getByText('Not added yet Wed Mar 26.')).toBeInTheDocument()
+    expect(bump).toHaveBeenCalled()
+    expect(sheet.open).not.toHaveBeenCalled()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Try the rest again' }))
+    await waitFor(() => expect(within(screen.getByRole('alert', { name: 'What was added' })).getByText('Added 2 of 3.')).toBeInTheDocument())
+    const sent = posts(f, CLASSES).filter((x: any) => x.body.action === 'repeat')
+    expect(sent).toHaveLength(2)
+    expect(sent[1].body).toEqual(sent[0].body)
+    fireEvent.click(within(screen.getByRole('alert', { name: 'What was added' })).getByRole('button', { name: 'Done' }))
+    expect(sheet.open).toHaveBeenCalledWith({ kind: 'class', id: 'cls_a' })
+  })
+
+  it('out of time: the sheet sends the same repeat again until it’s done', async () => {
+    const dates = ['2031-03-12', '2031-03-19'].map((ymd) => ({ ymd, ok: true, reason: null }))
+    const f = repeatServer({
+      dates,
+      repeat: (_b, n) => ok({ data: n === 1
+        ? { created: [made('2031-03-12', 'cls_a')], skipped: [], left: ['2031-03-19'], leftBecause: 'time' }
+        : { created: [made('2031-03-12', 'cls_a'), made('2031-03-19', 'cls_b')], skipped: [], left: [], leftBecause: null } }),
+    })
+    vi.stubGlobal('fetch', f)
+    const { sheet } = renderSheet(<NewClassSheet day="2031-03-12" />)
+    fillBasics()
+    fireEvent.click(within(repeatGroup()).getByRole('button', { name: 'Every week' }))
+    fireEvent.change(screen.getByLabelText('Until'), { target: { value: '2031-03-19' } })
+    await screen.findByRole('list', { name: 'Dates it adds' })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 2 classes' }))
+    await waitFor(() => expect(sheet.open).toHaveBeenCalledWith({ kind: 'class', id: 'cls_a' }))
+    expect(posts(f, CLASSES).filter((x: any) => x.body.action === 'repeat')).toHaveLength(2)
+    expect(screen.getByText('Added 2 classes. They’re on the calendar and in your library.')).toBeInTheDocument()
+  })
+
+  async function startWeekly(f: any, until: string) {
+    vi.stubGlobal('fetch', f)
+    const r = renderSheet(<NewClassSheet day="2031-03-12" />)
+    fillBasics()
+    fireEvent.click(within(repeatGroup()).getByRole('button', { name: 'Every week' }))
+    fireEvent.change(screen.getByLabelText('Until'), { target: { value: until } })
+    await screen.findByRole('list', { name: 'Dates it adds' })
+    return r
+  }
+
+  it('I1: every date refused at create: "None of these dates could be added." and Change the dates keeps the form with a fresh key', async () => {
+    const dates = ['2031-03-12', '2031-03-19'].map((ymd) => ({ ymd, ok: true, reason: null }))
+    const f = repeatServer({ dates, repeat: () => ok({ data: { created: [], skipped: dates.map((d) => ({ ymd: d.ymd, reason: 'Clashes with Rivera party, Wed Mar 12 6 PM.' })), left: [], leftBecause: null, libraryId: 'lib_made' } }) })
+    await startWeekly(f, '2031-03-19')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 2 classes' }))
+    const panel = await screen.findByRole('alert', { name: 'What was added' })
+    expect(within(panel).getByText('None of these dates could be added.')).toBeInTheDocument()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Change the dates' }))
+    expect(screen.queryByRole('alert', { name: 'What was added' })).toBeNull()
+    expect(screen.getByLabelText('Name')).toHaveValue('Pottery')
+    expect(screen.getByLabelText('Name')).not.toBeDisabled()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 2 classes' }))
+    await waitFor(() => expect(posts(f, CLASSES).filter((x: any) => x.body.action === 'repeat')).toHaveLength(2))
+    const sent = posts(f, CLASSES).filter((x: any) => x.body.action === 'repeat')
+    expect(sent[1].body.createKey).not.toBe(sent[0].body.createKey)
+    // N4: the library entry the first Add made is used again, never a second one.
+    expect(sent[0].body.libraryId).toBeUndefined()
+    expect(sent[1].body.libraryId).toBe('lib_made')
+  })
+
+  it('stale edits: while the partial-result panel is up the form is locked, with the line saying how to change anything', async () => {
+    const dates = ['2031-03-12', '2031-03-19'].map((ymd) => ({ ymd, ok: true, reason: null }))
+    const f = repeatServer({ dates, repeat: () => ok({ data: { created: [made('2031-03-12', 'cls_a')], skipped: [], left: ['2031-03-19'], leftBecause: 'error' } }) })
+    await startWeekly(f, '2031-03-19')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 2 classes' }))
+    const panel = await screen.findByRole('alert', { name: 'What was added' })
+    expect(within(panel).getByText('To change anything, press Stop here and add the rest as a new class.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Name')).toBeDisabled()
+    expect(within(date1()).getByLabelText('Day')).toBeDisabled()
+  })
+
+  it('I2: a dropped connection or a server error is sent again once by itself (same body); the classes it made are shown, not an error', async () => {
+    const dates = ['2031-03-12', '2031-03-19'].map((ymd) => ({ ymd, ok: true, reason: null }))
+    const f = repeatServer({ dates, repeat: (_b, n) => (n === 1 ? refuse(502, {}) : ok({ data: { created: [made('2031-03-12', 'cls_a'), made('2031-03-19', 'cls_b')], skipped: [], left: [], leftBecause: null } })) })
+    const { sheet } = await startWeekly(f, '2031-03-19')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 2 classes' }))
+    await waitFor(() => expect(sheet.open).toHaveBeenCalledWith({ kind: 'class', id: 'cls_a' }))
+    const sent = posts(f, CLASSES).filter((x: any) => x.body.action === 'repeat')
+    expect(sent).toHaveLength(2)
+    expect(sent[1].body).toEqual(sent[0].body)
+  })
+
+  it('M2: Until can’t be the first day; M4: a preview that failed has Check again', async () => {
+    let n = 0
+    const base = server()
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (url.split('?')[0] === CLASSES && init?.method === 'POST' && JSON.parse(init.body).action === 'repeat-preview') {
+        return ++n === 1 ? refuse(503, { error: 'The schedule couldn\'t be checked. Try again.' }) : ok({ data: { dates: [{ ymd: '2031-03-12', ok: true, reason: null }, { ymd: '2031-03-19', ok: true, reason: null }] } })
+      }
+      return base(url, init)
+    })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<NewClassSheet day="2031-03-12" />)
+    fillBasics()
+    fireEvent.click(within(repeatGroup()).getByRole('button', { name: 'Every week' }))
+    expect(screen.getByLabelText('Until')).toHaveAttribute('min', '2031-03-13')
+    fireEvent.click(await screen.findByRole('button', { name: 'Check again' }))
+    expect(await screen.findByRole('list', { name: 'Dates it adds' })).toBeInTheDocument()
+  })
+
+  it('M6: after a single Add that got no answer, switching to Every week uses a new key', async () => {
+    const dates = ['2031-03-12', '2031-03-19'].map((ymd) => ({ ymd, ok: true, reason: null }))
+    let creates = 0
+    const inner = repeatServer({ dates, repeat: () => ok({ data: { created: [made('2031-03-12', 'cls_a'), made('2031-03-19', 'cls_b')], skipped: [], left: [], leftBecause: null } }) })
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (url.split('?')[0] === CLASSES && init?.method === 'POST' && JSON.parse(init.body).action === 'create') { creates++; throw new Error('offline') }
+      return inner(url, init)
+    })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<NewClassSheet day="2031-03-12" />)
+    fillBasics()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    await waitFor(() => expect(creates).toBe(1))
+    fireEvent.click(within(repeatGroup()).getByRole('button', { name: 'Every week' }))
+    fireEvent.change(screen.getByLabelText('Until'), { target: { value: '2031-03-19' } })
+    await screen.findByRole('list', { name: 'Dates it adds' })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 2 classes' }))
+    await waitFor(() => expect(posts(f, CLASSES).some((x: any) => x.body.action === 'repeat')).toBe(true))
+    const create = posts(f, CLASSES).find((x: any) => x.body.action === 'create')
+    const repeat = posts(f, CLASSES).find((x: any) => x.body.action === 'repeat')
+    expect(repeat.body.createKey).not.toBe(create.body.createKey)
+  })
+
+  it('Doesn’t repeat is the default and Add class sends a plain create', async () => {
+    const f = server()
+    vi.stubGlobal('fetch', f)
+    renderSheet(<NewClassSheet />)
+    expect(within(repeatGroup()).getByRole('button', { name: 'Doesn’t repeat' })).toHaveAttribute('aria-pressed', 'true')
+    fillBasics()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
+    expect(posts(f, CLASSES)[0].body.action).toBe('create')
+  })
+})

@@ -508,3 +508,248 @@ describe('To decide sheets', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('it may be a booking still being paid')
   })
 })
+
+// ── Stage 4 waitlist sheets (waitlist fix round: I5, M2, M5) ────────────────
+describe('To decide › waitlist', () => {
+  const WL = '/api/admin/classes/waitlist.json'
+  const unclear = item({
+    kind: 'waitlist-unknown', title: 'Waitlist charge unclear', classId: 'cls_1', className: 'Potholder Looms',
+    head: 'We charged Jane Doe’s saved card (ending 4242) $21.80 from the waitlist for Potholder Looms, and Square didn’t say whether it went through.',
+    detail: { entryId: 'wle_1', name: 'Jane Doe', phone: '(402) 980-2907', email: 'jane@example.com', cents: 2180, last4: '4242', state: 'charging' },
+  })
+  /** The inbox's routes plus the waitlist "ask Square" answers, in order. */
+  function showWaitlist(t: any, answers: any[], o: Parameters<typeof server>[1] = {}) {
+    const base = server([t], o)
+    let i = 0
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (url.startsWith(WL)) return answers[Math.min(i++, answers.length - 1)]
+      return base(url, init)
+    })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<InboxProvider><ToDecideSheet id="td_1" /></InboxProvider>)
+    return f
+  }
+  const answer = (a: any) => ok({ data: { answer: { cents: 2180, decideFrom: null, choices: [], ...a } } })
+
+  it('asks Square on open; paid → only "Add them"; the note says Check again never charges (M2)', async () => {
+    const f = showWaitlist(unclear, [answer({ state: 'paid', words: 'Square shows it paid ($21.80, 3:05 PM).', choices: ['add'] })],
+      { decide: (b) => (b.action === 'add' ? { ...ok({ data: { decided: { what: 'Square showed it paid. They’re added' } } }), what: 'Square showed it paid. They’re added' } : null) })
+    expect(await screen.findByText('Square shows it paid ($21.80, 3:05 PM).')).toBeInTheDocument()
+    expect(f.mock.calls.some(([u]: any[]) => u === `${WL}?id=cls_1&ask=wle_1`)).toBe(true)
+    expect(screen.getByText(/Check Square again only asks; it never charges anyone\./)).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /already sorted/i })).toBeNull()
+    expect(within(footer()).queryByRole('button', { name: 'Keep them waiting' })).toBeNull()
+    expect(within(footer()).queryByRole('button', { name: 'Take them off' })).toBeNull()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add them' }))
+    await waitFor(() => expect(decisions(f)[0]).toEqual({ id: 'td_1', action: 'add' }))
+    expect(await screen.findByText('Done. Square showed it paid. They’re added.')).toBeInTheDocument()
+  })
+
+  it('no payment yet → only "Check Square again"; asking again later offers Keep / Take off, each asking first', async () => {
+    const f = showWaitlist(unclear, [
+      answer({ state: 'no-payment', words: 'Square shows no payment for this charge yet. A payment can take a little while to show, so give it until 3:35 PM. Their seat stays held until then.' }),
+      answer({ state: 'no-payment', words: 'Square shows no payment for this charge.', choices: ['keep', 'off'] }),
+    ])
+    expect(await screen.findByText(/give it until 3:35 PM/)).toBeInTheDocument()
+    expect(within(footer()).queryByRole('button', { name: 'Add them' })).toBeNull()
+    expect(within(footer()).queryByRole('button', { name: 'Keep them waiting' })).toBeNull()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Check Square again' }))
+    expect(await screen.findByText('Square shows no payment for this charge.')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Take them off' }))
+    const ask = screen.getByRole('group', { name: 'Take Jane Doe off the waitlist?' })
+    expect(ask).toHaveTextContent('Their held seat is let go, their saved card comes off and they get an email saying so. Nothing is charged.')
+    expect(decisions(f)).toHaveLength(0)
+    fireEvent.click(within(ask).getByRole('button', { name: 'Not yet' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Keep them waiting' }))
+    const keep = screen.getByRole('group', { name: 'Keep Jane Doe waiting?' })
+    expect(keep).toHaveTextContent('That charge is never sent again')
+    fireEvent.click(within(keep).getByRole('button', { name: 'Keep them waiting' }))
+    await waitFor(() => expect(decisions(f)[0]).toEqual({ id: 'td_1', action: 'keep' }))
+  })
+
+  it('a refused decision shows the error and asks Square again; Square not answering → only Check again', async () => {
+    const f = showWaitlist(unclear, [
+      answer({ state: 'paid', words: 'Square shows it paid ($21.80).', choices: ['add'] }),
+      answer({ state: 'unreachable', words: 'Square isn’t answering right now. Their seat stays held. Check again in a few minutes.' }),
+    ], { decide: () => refuse(409, { error: 'That doesn’t match what Square shows now.' }) })
+    fireEvent.click(await screen.findByRole('button', { name: 'Add them' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('That doesn’t match what Square shows now.')
+    expect(await screen.findByText(/Square isn’t answering right now/)).toBeInTheDocument()
+    expect(within(footer()).queryByRole('button', { name: 'Add them' })).toBeNull()
+    expect(within(footer()).getByRole('button', { name: 'Check Square again' })).toBeInTheDocument()
+    expect(f.mock.calls.filter(([u]: any[]) => String(u).startsWith(WL))).toHaveLength(2)
+  })
+
+  it('a declined card: "Got it", the head says only what went out (M5), phone and email links', async () => {
+    const t = item({ kind: 'waitlist-declined', title: 'Waitlist card didn’t go through', classId: 'cls_1', className: 'Potholder Looms',
+      head: 'A seat opened in Potholder Looms, but Jane Doe’s card ending 4242 didn’t go through, so they came off the waitlist and the seat went to the next person. They got an email (no text went out). Nothing was charged.',
+      detail: { entryId: 'wle_1', name: 'Jane Doe', phone: '(402) 980-2907', email: 'jane@example.com', state: 'declined' } })
+    const f = showWaitlist(t, [])
+    expect(await screen.findByText(/They got an email \(no text went out\)\./)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '(402) 980-2907' })).toHaveAttribute('href', 'tel:4029802907')
+    expect(screen.getByRole('link', { name: 'jane@example.com' })).toHaveAttribute('href', 'mailto:jane@example.com')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Got it' }))
+    await waitFor(() => expect(decisions(f)[0]).toEqual({ id: 'td_1', action: 'seen' }))
+  })
+})
+
+describe('D2: customers’ own cancels', () => {
+  const req = (over: any = {}) => item({
+    kind: 'cancel-request', title: 'Customer asked to cancel', className: 'Candles', classId: 'cls_1',
+    head: 'Ada Lovelace asked to cancel 2 seats of Candles (Sat, Nov 14 · 1:00 PM CT), 30 hours before it starts. Their note: “Sick”',
+    detail: { bookingId: 'bkg_1', name: 'Ada Lovelace', email: 'ada@example.com', phone: '(402) 980-2907', lineIds: ['led_a', 'led_b'], seats: 2, note: 'Sick', why: 'Your class is less than 48 hours away…', canRefund: true, refundCents: 6540, inside: true, source: 'online' },
+    ...over,
+  })
+
+  it('a note: Refund and free the seat asks first, naming who and how much; Not yet sends nothing', async () => {
+    const { f } = show([req()])
+    expect(await screen.findByText(/asked to cancel 2 seats of Candles/)).toBeInTheDocument()
+    expect(screen.getByText('$65.40')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund and free the seat' }))
+    const ask = screen.getByRole('group', { name: 'Refund Ada Lovelace?' })
+    expect(ask).toHaveTextContent('Refund $65.40 and free Ada Lovelace’s 2 seats?')
+    fireEvent.click(within(ask).getByRole('button', { name: 'Not yet' }))
+    expect(decisions(f)).toEqual([])
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund and free the seat' }))
+    fireEvent.click(within(screen.getByRole('group', { name: 'Refund Ada Lovelace?' })).getByRole('button', { name: 'Refund and free the seat' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'refund' }]))
+  })
+
+  it('a gift seat offers no refund: Free the seat, no refund (asks first) or Keep their booking', async () => {
+    const base = req()
+    const { f } = show([{ ...base, detail: { ...base.detail, canRefund: false, refundCents: 0, source: 'comp' } }])
+    await screen.findByText(/asked to cancel 2 seats/)
+    expect(within(footer()).queryByRole('button', { name: 'Refund and free the seat' })).toBeNull()
+    expect(screen.getByText(/This seat was a gift/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Keep their booking' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'keep' }]))
+  })
+
+  it('a refund Square didn’t answer: Ask Square only; a turned-down one adds Got it', async () => {
+    const unclear = item({ kind: 'cancel-unclear', title: 'Customer’s cancel, refund unclear', classId: 'cls_1', detail: { bookingId: 'bkg_1', attempt: 'att_1', cents: 3270, state: 'unclear', name: 'Ada Lovelace' } })
+    const { f } = show([unclear])
+    await screen.findByText('Customer’s cancel, refund unclear')
+    expect(within(footer()).queryByRole('button', { name: 'Got it' })).toBeNull()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Ask Square' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'ask' }]))
+  })
+
+  it('turned down: Try the refund again or Got it', async () => {
+    const turned = item({ kind: 'cancel-unclear', title: 'Customer’s cancel, refund turned down', classId: 'cls_1', detail: { bookingId: 'bkg_1', attempt: 'att_1', cents: 3270, state: 'turned-down', name: 'Ada Lovelace' } })
+    const { f } = show([turned])
+    await screen.findByText('Customer’s cancel, refund turned down')
+    expect(within(footer()).getByRole('button', { name: 'Try the refund again' })).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Got it' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'seen' }]))
+  })
+})
+
+
+describe('To decide › reader payments (fix round 5)', () => {
+  const mismatch = (over: any = {}) => item({
+    kind: 'reader-waiting', title: 'Reader payment didn’t match', className: 'Clay Camp', classId: 'cls_1',
+    head: 'Gia Winner, 1 seat of Clay Camp. Square shows a payment of $30.00 for this sale that doesn’t match the amount asked.',
+    detail: { bookingId: 'bkg_1', name: 'Gia Winner', email: 'gia@example.com', cents: 3270, paidCents: 3000, choices: ['keep', 'refund', 'check'], ...over },
+  })
+
+  it('R1: a payment that didn’t match offers Keep it, they paid $X and Refund it (no Let the seat go); a shortfall is confirmed by its amount', async () => {
+    const { f } = show([mismatch()], {
+      decide: (b) => (b.action === 'keep' && b.confirmPaidCents === undefined
+        ? refuse(409, { error: 'Square shows $30.00 paid, $2.70 less than the $32.70 seat. Keep it anyway?', short: { paidCents: 3000, askedCents: 3270, shortCents: 270 } })
+        : b.action === 'keep' ? { ...ok({ data: { decided: { what: 'Kept. They paid $30 and have their seat' } } }), what: 'Kept. They paid $30 and have their seat' } : null),
+    })
+    const keep = await screen.findByRole('button', { name: 'Keep it, they paid $30' })
+    expect(within(footer()).getByRole('button', { name: 'Refund it and let the seat go' })).toBeInTheDocument()
+    expect(within(footer()).queryByRole('button', { name: 'Let the seat go' })).toBeNull()
+    fireEvent.click(keep)
+    const confirm = await screen.findByRole('button', { name: 'Keep $30' })
+    expect(within(footer()).getByText(/\$2\.70 less than the \$32\.70 seat/)).toBeInTheDocument()
+    fireEvent.click(confirm)
+    await waitFor(() => expect(decisions(f).at(-1)).toEqual({ id: 'td_1', action: 'keep', confirmPaidCents: 3000 }))
+  })
+
+  it('R1: Refund it asks first, naming the money, then sends refund', async () => {
+    const { f } = show([mismatch()])
+    fireEvent.click(await screen.findByRole('button', { name: 'Refund it and let the seat go' }))
+    expect(within(footer()).getByText(/The whole payment goes back to their card and they get a refund email/)).toBeInTheDocument()
+    expect(decisions(f)).toHaveLength(0)
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund it' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'refund' }]))
+  })
+
+  it('M-d: a split payment offers only Refund it, and says why', async () => {
+    show([mismatch({ choices: ['refund', 'check'] })])
+    await screen.findByRole('button', { name: 'Refund it and let the seat go' })
+    expect(within(footer()).queryByRole('button', { name: /Keep it/ })).toBeNull()
+    expect(screen.getByText(/split between a gift card and a card/)).toBeInTheDocument()
+  })
+
+  it('R2: a second reader payment: Refund it / It’s already sorted, each asked first', async () => {
+    const t = item({ kind: 'reader-extra', title: 'Second reader payment', className: 'Clay Camp', detail: { bookingId: 'bkg_1', orderId: 'O2', name: 'Gia Winner', cents: 3270, email: 'gia@example.com' } })
+    const { f } = show([t])
+    fireEvent.click(await screen.findByRole('button', { name: 'It’s already sorted' }))
+    expect(within(footer()).getByText(/Nothing is refunded\./)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Not yet' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund it' }))
+    expect(within(footer()).getByText(/Their seat stays as it is/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund it' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'refund' }]))
+  })
+
+  it('R3: a late payment: Keep them, or Refund and free the seat (asked first)', async () => {
+    const t = item({ kind: 'reader-late', title: 'Reader payment came in late', className: 'Clay Camp', detail: { bookingId: 'bkg_1', name: 'Gia Winner', cents: 3270, overCapacity: true } })
+    const { f } = show([t])
+    fireEvent.click(await screen.findByRole('button', { name: 'Refund and free the seat' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund and free the seat' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'refund' }]))
+  })
+
+  it('R4: a waitlist charge on a cancelled class: Refund them (asked first)', async () => {
+    const t = item({ kind: 'waitlist-refund', title: 'Waitlist charge on a cancelled class', className: 'Potholder Looms', detail: { entryId: 'wle_1', bookingId: 'bkg_w', name: 'Jane Doe', cents: 2180, last4: '4242' } })
+    const { f } = show([t])
+    fireEvent.click(await screen.findByRole('button', { name: 'Refund them' }))
+    expect(within(footer()).getByText(/card ending 4242/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund them' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'refund' }]))
+  })
+})
+
+describe('To decide › customers’ own cancels (D2 review fixes)', () => {
+  const unclear = (over: any = {}) => item({ kind: 'cancel-unclear', title: 'Customer’s cancel, refund unclear', classId: 'cls_1', detail: { bookingId: 'bkg_1', attempt: 'att_1', cents: 3270, state: 'unclear', name: 'Ada Lovelace', ...over } })
+
+  it('F3: Ask Square showing no refund turns into “Square shows no refund — try again” and “Keep their booking (no refund)” (asked first)', async () => {
+    // This test server answers Ask Square through `ask` (the decide hook never sees it).
+    const { f } = show([unclear()], {
+      ask: () => refuse(409, { error: 'Square shows no refund on their payment.', noRefund: true }),
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Ask Square' }))
+    const retry = await within(footer()).findByRole('button', { name: 'Square shows no refund — try again' })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Keep their booking (no refund)' }))
+    expect(within(footer()).getByText(/they stay booked, and nothing is refunded/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Keep their booking' }))
+    await waitFor(() => expect(decisions(f).at(-1)).toEqual({ id: 'td_1', action: 'release' }))
+    expect(retry).toBeTruthy()
+  })
+
+  it('F3: an item already known to show no refund opens on those two choices', async () => {
+    const { f } = show([unclear({ noRefundSeen: true })])
+    fireEvent.click(await screen.findByRole('button', { name: 'Square shows no refund — try again' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'retry' }]))
+  })
+
+  it('F6: the sentence follows the booking: free, no payment, partly refunded, 48+ hours out', async () => {
+    const base = { kind: 'cancel-request', title: 'Customer asked to cancel', className: 'Candles', classId: 'cls_1', head: 'Ada asked to cancel.' }
+    const cases: [any, RegExp][] = [
+      [{ reason: 'free', canRefund: false, refundCents: 0 }, /This booking was free, so there’s nothing to refund/],
+      [{ reason: 'no-payment', canRefund: false }, /no card payment on record/],
+      [{ reason: 'partly', canRefund: false }, /Part of this booking was already refunded/],
+      [{ reason: 'outside', canRefund: true, refundCents: 3270 }, /more than 48 hours out, so a refund is within the policy/],
+    ]
+    for (const [detail, text] of cases) {
+      const { unmount } = show([item({ ...base, detail: { bookingId: 'bkg_1', name: 'Ada', lineIds: ['led_a'], seats: 1, ...detail } })])
+      expect(await screen.findByText(text)).toBeInTheDocument()
+      expect(screen.queryByText(/inside 48 hours/)).toBeNull()
+      unmount()
+    }
+  })
+})

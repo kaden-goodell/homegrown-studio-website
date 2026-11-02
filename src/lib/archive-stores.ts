@@ -14,8 +14,11 @@
  * closed days) and the party settings (party times, packages, extras), each
  * with their change history, the party records (Square-booked and our own,
  * with what was bought, every payment and refund) and the index of which party
- * each Square payment is for, the party book (which party holds which time) and the party checkouts still in flight or unclear. tests/lib/archive-stores.test.ts fails when a
- * store under src/lib/classes or src/lib/parties is missing here.
+ * each Square payment is for, the party book (which party holds which time) and the party checkouts still in flight or unclear.
+ * Stage 4 adds the waitlists, reader sales, promo codes and their uses, the
+ * saved-card setup alert markers and the customers' own cancels (D2).
+ * tests/lib/archive-stores.test.ts fails when a store under src/lib/classes,
+ * src/lib/parties or src/lib/promos (or the saved-card alerts) is missing here.
  *
  * Staffing (stage 3): when each person said they can and can't work, who
  * is on each class and party (with who asked, the history, and the party
@@ -71,9 +74,23 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'class-create-keys' },
   // our online bookings Square showed paid with no seat left (R42), and which confirmations went out
   { name: 'paid-not-seated' },
+  // Stage 4 (I2): one marker per class per day so the stale-register text goes out once.
+  { name: 'pos-price-alerts' },
   { name: 'class-confirmations' },
   // who decided what in /admin › To decide
   { name: 'to-decide' },
+  // Stage 4: each class's waitlist (who joined, consent, Square card id and last 4, every try; never card numbers)
+  { name: 'waitlists' },
+  // Stage 4: "Charge on the reader" sales (who, what, how much, how each ended) and which Square order paid which
+  { name: 'reader-sales' },
+  { name: 'reader-orders' },
+  // Stage 4: promo codes (with their change history) and who used each one (bookings, holds, uses given back)
+  { name: 'promo-codes' },
+  { name: 'promo-uses' },
+  // Stage 4: one marker per Chicago day when Square refused a saved-card request (the owners' text went out once)
+  { name: 'card-setup-alerts' },
+  // D2: customers' own online cancels and their "Send us a note" requests (what they asked, what happened)
+  { name: 'class-cancels' },
   // A small photo comes along; a large one is listed by key (the live store keeps it).
   { name: 'class-photos', maxValueBytes: 300 * 1024 },
   // staffing: who can work when, who is on what (and the party index), our own staff list (D5),

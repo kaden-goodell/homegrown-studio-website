@@ -11,8 +11,11 @@ import { CLASS_TAX_PERCENT, cutoffRefusal } from './checkout'
 import { sessionsForPass, type SaleOptions } from './pricing'
 import { classAvailability, lowestPrice, passState, publicRules, type OwnClassData, type PublicPass, type PublicSession } from './public-class'
 import { seatsTaken, type Ledger } from './seat-ledger'
-import type { ScheduledClass } from './types'
+import { earlyBirdRunning } from './early-bird'
+import type { Cents, ScheduledClass } from './types'
 import { sellableCells } from './validate'
+import type { Waitlist } from './waitlist-store'
+import { waitingOn, waitlistClosesIso } from './waitlist-rules'
 
 /** Shown on the public list: open or closed, and not link-only. */
 export function listedPublicly(cls: ScheduledClass): boolean {
@@ -25,7 +28,8 @@ export function viewableByLink(cls: ScheduledClass): boolean {
 }
 
 /** `door`: as the crew at the door see it: a session stays open until it ends, whatever the online cutoff. */
-export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, opts: SaleOptions = {}): WorkshopData {
+/** `waitlist` (stage 4): the class's waitlist, for each date's count and whether it can be joined; null = not read (nobody can join). */
+export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, opts: SaleOptions = {}, waitlist: Waitlist | null = null): WorkshopData {
   const c = cls.content
   const sessionsSorted = [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))
   // R33: at the door, a class that doesn't take people partway closes as a whole once its first session has run,
@@ -37,6 +41,10 @@ export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, op
     endIso: s.endIso,
     left: Math.max(0, s.capacity - seatsTaken(ledger, s.id, now)),
     closed: opts.door ? wholeClassClosed || Date.parse(s.endIso) <= now.getTime() : cutoffRefusal(cls, [s.id], now) !== null,
+    ...(opts.door ? {} : (() => {
+      const closesIso = waitlistClosesIso(cls, [s.id])
+      return closesIso ? { waitlist: { open: waitlist !== null && cls.status === 'open' && now.getTime() < Date.parse(closesIso), closesIso, waiting: waitingOn(waitlist, s.id) } } : {}
+    })()),
   }))
 
   const sellable = new Set(sellableCells(c).map((cell) => cell.passId))
@@ -54,6 +62,13 @@ export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, op
 
   const prices: OwnClassData['prices'] = {}
   for (const p of passes) prices[p.id] = { ...(c.prices[p.id] ?? {}) }
+  // Stage 4: the early-bird only while it runs, and only for the passes listed.
+  let earlyBird: OwnClassData['earlyBird']
+  if (c.earlyBird && earlyBirdRunning(c, now)) {
+    const ebPrices: Record<string, Record<string, Cents>> = {}
+    for (const p of passes) if (c.earlyBird.prices[p.id]) ebPrices[p.id] = { ...c.earlyBird.prices[p.id] }
+    if (Object.keys(ebPrices).length) earlyBird = { untilYmd: c.earlyBird.untilYmd, prices: ebPrices }
+  }
 
   const own: OwnClassData = {
     classId: cls.id,
@@ -66,6 +81,7 @@ export function toPublicClass(cls: ScheduledClass, ledger: Ledger, now: Date, op
     rules: publicRules(c.rules),
     instructor: c.instructor || null,
     taxPercent: c.rules.taxable ? CLASS_TAX_PERCENT : 0,
+    ...(earlyBird ? { earlyBird } : {}),
   }
 
   const first = sessionsSorted[0]

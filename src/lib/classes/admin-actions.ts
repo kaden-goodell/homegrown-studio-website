@@ -12,18 +12,28 @@
  * Cancelling never refunds and never frees a seat; owners do that by hand.
  */
 import { createHash } from 'node:crypto'
+import { afterReply } from '@lib/after-reply'
 import { recordAudit } from '@lib/audit'
 import { makeKvStore } from '@lib/blob-store'
 import { CREATE_KEY_RE } from '@lib/booking-core/ids'
 import type { By } from '@lib/staff-auth'
 import { formatDay, formatTime } from '@lib/studio-time'
 import { addBlocked, listBlocked, removeBlocked, type BlockedTime } from './blocked-time'
+import { ClassGoneError, fixPosPrices, FIX_FAILED, putOnRegister, updateRegister } from './pos-prices'
 import { ClassExistsError, createClass, getClass, listClasses, StaleClassError, updateClass } from './class-store'
 import { archiveLibrary, getLibrary, LibraryStaleError, listLibrary, restoreLibraryVersion, saveLibraryVersion } from './library-store'
 import { takenCents } from './booking-words'
 import { archiveClassInSquare, CLASS_TAX_NOT_SET, syncClassToSquare } from './square-catalog'
+import { CLASSES_CATEGORY_NOT_SET, PICK_CATEGORY, PICK_TAX, REGISTER_DOWN, type SetupNeeded } from './register-words'
+import { isSquareConnectionError, registerInForce, RegisterSetupError } from './register-setup'
+import { cancelWords, getCancelRecord } from './self-cancel'
+import { cancelPathFor } from './self-cancel-token'
+import type { RegisterInForce } from './pos-plan'
 import { contentChanges } from './content-diff'
-import { bookingCap, describeRequest, remainingOn, sessionShare } from './refunds'
+import { chicagoYmd } from './chicago-day'
+import { readPattern, repeatDates } from './repeat'
+import { dropEndedEarlyBird, dropUnchangedEndedEarlyBird } from './early-bird'
+import { bookingCap, describeRequest, isFreeBooking, remainingOn, sessionShare } from './refunds'
 import { isWaiting, listRefundRequests } from './refund-requests'
 import { getLedger, seatsTaken, type Ledger, type LedgerLine } from './seat-ledger'
 import { isComing, isLiveHold, isPaidLine, paidOn, seatFreed, takesSeat } from './seat-status'
@@ -40,11 +50,13 @@ import { LiveSquareFromTestSiteError, TestSiteStoreError } from './test-site-gua
  */
 export const ADMIN_BY: By = { id: 'admin', name: 'Owner' }
 
-export const SYNC_WARNING = "Saved. The POS item didn't update. Try Save again."
-export const TAX_WARNING = "Saved, but it isn't on the POS: Class tax isn't set up yet. It can't be sold until it is."
+export const SYNC_WARNING = "Saved. The register didn't update. Try Save again."
+export const TAX_WARNING = `Saved, but it isn't on the register yet: the class tax isn't picked. ${PICK_TAX} Then tap Put it on the register.`
+export const CATEGORY_WARNING = `Saved, but it isn't on the register yet: the Classes category isn't picked. ${PICK_CATEGORY} Then tap Put it on the register.`
+export const REGISTER_DOWN_WARNING = `Saved. ${REGISTER_DOWN}`
 export const LIBRARY_WARNING = "Saved. The library didn't update. Try again."
 export const NEW_LIBRARY_WARNING = "Added. It'll go into the library the next time you open or save it."
-export const CANCEL_WARNING = "Cancelled. The POS item didn't come off. Try Cancel again."
+export const CANCEL_WARNING = "Cancelled. The register item didn't come off. Try Cancel again."
 
 /** A refusal the owner reads: an HTTP status, a plain sentence, and anything extra for the screen. */
 export class ActionError extends Error {
@@ -84,8 +96,8 @@ function paidOf(lines: LedgerLine[]): number {
   return charged ?? lines.reduce((s, l) => s + paidOn(l), 0)
 }
 
-function okContent(raw: unknown): ClassContent {
-  const r = validateContent(raw)
+function okContent(raw: unknown, opts: { todayYmd?: string } = {}): ClassContent {
+  const r = validateContent(raw, opts)
   if (!r.ok) throw new ActionError(400, r.error, r.field ? { field: r.field } : {})
   return r.value
 }
@@ -166,8 +178,90 @@ async function syncPos(cls: ScheduledClass, by: By): Promise<{ cls: ScheduledCla
     return { cls: await updateClass(cls.id, { square }, by, 'POS item updated') }
   } catch (e) {
     console.warn(`[classes] POS sync for ${cls.id} failed: ${e instanceof Error ? e.message : e}`)
-    if (e instanceof LiveSquareFromTestSiteError) return { cls, warning: `Saved, but not on the POS. ${e.message}` }
-    return { cls, warning: e instanceof Error && e.message === CLASS_TAX_NOT_SET ? TAX_WARNING : SYNC_WARNING }
+    if (e instanceof LiveSquareFromTestSiteError) return { cls, warning: `Saved, but not on the register. ${e.message}` }
+    const msg = e instanceof Error ? e.message : ''
+    if (msg === CLASS_TAX_NOT_SET) return { cls, warning: TAX_WARNING }
+    if (msg === CLASSES_CATEGORY_NOT_SET) return { cls, warning: CATEGORY_WARNING }
+    if (isSquareConnectionError(e)) return { cls, warning: REGISTER_DOWN_WARNING }
+    return { cls, warning: SYNC_WARNING }
+  }
+}
+
+/**
+ * One rule for what the register buttons answer when they can't finish (M-e):
+ * a deleted class, a test-site block, a setup step not done (with `setup`, so
+ * the sheet shows the Register setup button), a register connection that
+ * isn't working, or Square refusing (`failed`).
+ */
+function registerButtonError(e: unknown, failed: string, what: string): never {
+  if (e instanceof ActionError) throw e
+  if (e instanceof ClassGoneError) throw new ActionError(404, e.message)
+  if (e instanceof StaleClassError) throw new ActionError(409, 'Someone saved this class just now. Reload it, then try again.', { stale: true })
+  if (e instanceof TestSiteStoreError || e instanceof LiveSquareFromTestSiteError) throw new ActionError(503, e.message)
+  const msg = e instanceof Error ? e.message : String(e)
+  if ((e as { refusal?: boolean })?.refusal) throw new ActionError(400, msg)
+  // Fix round 4: the tax or category in Register setup isn't right in Square any more.
+  if (e instanceof RegisterSetupError && e.field) throw new ActionError(503, msg, { setup: e.field satisfies SetupNeeded })
+  if (msg === CLASS_TAX_NOT_SET) throw new ActionError(503, `${what}: the class tax isn't picked. ${PICK_TAX}`, { setup: 'tax' satisfies SetupNeeded })
+  if (msg === CLASSES_CATEGORY_NOT_SET) throw new ActionError(503, `${what}: the Classes category isn't picked. ${PICK_CATEGORY}`, { setup: 'category' satisfies SetupNeeded })
+  if (isSquareConnectionError(e)) throw new ActionError(503, REGISTER_DOWN, { connection: true })
+  throw new ActionError(502, failed)
+}
+
+/** What "Put it on the register" says when Square refuses. */
+export const PUT_FAILED = 'Square didn’t take the class just now. Nothing else changed. Try again in a few minutes.'
+
+/**
+ * "Put it on the register" (fix round 3): a class that should be on the
+ * register and isn't. See putOnRegister for the safety rules. Audited when it
+ * changes something; 'already' writes nothing.
+ */
+export async function putClassOnRegister(body: { id?: unknown }, by: By = ADMIN_BY): Promise<{ data: { class: ScheduledClass; result: 'put' | 'already' }; warning?: string }> {
+  if (typeof body.id !== 'string' || !body.id) throw new ActionError(400, 'Reload the page and try again.')
+  try {
+    const { result, cls } = await putOnRegister(body.id, by)
+    if (result === 'put') await audit(by, 'class-sync-pos', { kind: 'class', id: cls.id, label: cls.content.name })
+    return { data: { class: cls, result } }
+  } catch (e) {
+    console.warn(`[classes] put on the register for ${String(body.id)} failed: ${e instanceof Error ? e.message : e}`)
+    registerButtonError(e, PUT_FAILED, "It can't go on the register yet")
+  }
+}
+
+/** What "Update the register" says when Square refuses. */
+export const UPDATE_FAILED = 'Square didn’t take the update just now. Nothing else changed. Try again in a few minutes.'
+
+/**
+ * "Update the register" (fix round 4): send the class again with the tax and
+ * category in More › Register setup now. See updateRegister for the safety
+ * rules. Audited.
+ */
+export async function updateClassRegister(body: { id?: unknown }, by: By = ADMIN_BY): Promise<{ data: { class: ScheduledClass; result: 'updated' }; warning?: string }> {
+  if (typeof body.id !== 'string' || !body.id) throw new ActionError(400, 'Reload the page and try again.')
+  try {
+    const { result, cls } = await updateRegister(body.id, by)
+    await audit(by, 'class-update-register', { kind: 'class', id: cls.id, label: cls.content.name })
+    return { data: { class: cls, result } }
+  } catch (e) {
+    console.warn(`[classes] update the register for ${String(body.id)} failed: ${e instanceof Error ? e.message : e}`)
+    registerButtonError(e, UPDATE_FAILED, "The register can't be updated yet")
+  }
+}
+
+/**
+ * "Fix the register price" (stage 4, D4): put the class's current seat prices
+ * on the POS now, instead of waiting for the hourly job. See fixPosPrices for
+ * the safety rules. Never touches a booking.
+ */
+export async function fixRegisterPrice(body: { id?: unknown }, by: By = ADMIN_BY): Promise<{ data: { class: ScheduledClass; result: 'fixed' | 'already' }; warning?: string }> {
+  if (typeof body.id !== 'string' || !body.id) throw new ActionError(400, 'Reload the page and try again.')
+  try {
+    const { result, cls } = await fixPosPrices(body.id, by)
+    if (result === 'fixed') await audit(by, 'class-fix-register-price', { kind: 'class', id: cls.id, label: cls.content.name })
+    return { data: { class: cls, result } }
+  } catch (e) {
+    console.warn(`[classes] fix register price for ${String(body.id)} failed: ${e instanceof Error ? e.message : e}`)
+    registerButtonError(e, FIX_FAILED, "The register price can't be set yet")
   }
 }
 
@@ -178,8 +272,19 @@ export async function libraryList(includeArchived = false): Promise<LibraryClass
 }
 
 export async function librarySave(body: { id?: unknown; content?: unknown; note?: unknown; expectedVersion?: unknown }, by: By = ADMIN_BY): Promise<LibraryClass> {
-  const content = okContent(body.content)
+  return (await librarySaveNoted(body, by)).data
+}
+
+/** librarySave, with the note to show when an ended early-bird was left off (M9). */
+export async function librarySaveNoted(body: { id?: unknown; content?: unknown; note?: unknown; expectedVersion?: unknown }, by: By = ADMIN_BY): Promise<Saved<LibraryClass>> {
   const id = typeof body.id === 'string' && body.id ? body.id : undefined
+  const was = id ? (await getLibrary(id))?.versions.at(-1)?.content.earlyBird ?? null : null
+  // M9: the saved early-bird sent back unchanged after its last day is left off, never refused.
+  const dropped = dropUnchangedEndedEarlyBird(body.content, was, new Date())
+  const raw = dropped.raw
+  let content = okContent(raw)
+  // Stage 4: an early-bird set or changed here can't end before today; one already there is kept as it was.
+  if (content.earlyBird && JSON.stringify(was) !== JSON.stringify(content.earlyBird)) content = okContent(raw, { todayYmd: chicagoYmd(new Date()) })
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 200) : ''
   const expectedVersion = body.expectedVersion === undefined ? undefined : Number(body.expectedVersion)
   const lib = await saveLibraryVersion({ id, content, by, note, ...(Number.isInteger(expectedVersion) ? { expectedVersion } : {}) }).catch((e) => {
@@ -187,7 +292,7 @@ export async function librarySave(body: { id?: unknown; content?: unknown; note?
     return libraryError(e)
   })
   await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: content.name }, { version: lib.versions.length })
-  return lib
+  return { data: lib, ...(dropped.note ? { warning: dropped.note } : {}) }
 }
 
 export async function libraryRestore(body: { id?: unknown; version?: unknown }, by: By = ADMIN_BY): Promise<LibraryClass> {
@@ -289,10 +394,11 @@ interface Reserved { classId: string; libraryId: string }
  * finds the class (and library entry) the first try made instead of making
  * a second one.
  */
-async function reserveCreate(createKey: unknown): Promise<Reserved | null> {
+async function reserveCreate(createKey: unknown, child?: string): Promise<Reserved | null> {
   if (createKey === undefined || createKey === null) return null
   if (typeof createKey !== 'string' || !CREATE_KEY_RE.test(createKey)) throw new ActionError(400, 'Reload the page and try again.')
-  const k = `ck-${digest(createKey).slice(0, 40)}`
+  // Repeat (stage 4): each date has its own child key `${createKey}:${ymd}`, so a retry replays every date it made.
+  const k = `ck-${digest(child ? `${createKey}:${child}` : createKey).slice(0, 40)}`
   for (let attempt = 0; attempt < 3; attempt++) {
     const { value, etag } = await createKeys.getWithMeta(k)
     if (value) return JSON.parse(value) as Reserved
@@ -373,9 +479,9 @@ export async function linkClassToLibrary(body: { id?: unknown }, by: By = ADMIN_
  * saved first. A library failure never loses the class: it is added and the
  * reply warns.
  */
-export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; createKey?: unknown }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass; replay?: true }>> {
+export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; createKey?: unknown }, by: By = ADMIN_BY, opts: { childKey?: string } = {}): Promise<Saved<{ class: ScheduledClass; replay?: true }>> {
   // R35: the same Add sent again (a lost reply, a retry) finds what the first one made.
-  const reserved = await reserveCreate(body.createKey)
+  const reserved = await reserveCreate(body.createKey, opts.childKey)
   if (reserved) {
     const made = await getClass(reserved.classId)
     if (made) return finishCreate(made, by)
@@ -394,7 +500,9 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
   }
   const sessions = okSessions(body.sessions)
   noPastStarts(sessions)
-  let content = okContent(raw)
+  // Stage 4: details copied for a new date (Schedule it, Run it again) leave off an early-bird that has ended, and say so.
+  const dropped = dropEndedEarlyBird(okContent(raw), new Date())
+  let content = dropped.content
   const status = okStatus(body.status, 'draft')
   try {
     await checkClashes(sessions, content.rules.canShareRoom)
@@ -438,7 +546,7 @@ export async function scheduleClass(body: { libraryId?: unknown; content?: unkno
   }
   const { cls, warning: posWarning } = await syncPos(created, by)
   await audit(by, 'class-create', { kind: 'class', id: cls.id, label: content.name }, { status, sessions: sessions.length, libraryId: libraryId ?? null })
-  const said = [warning, posWarning].filter(Boolean).join(' ') || undefined
+  const said = [dropped.note, warning, posWarning].filter(Boolean).join(' ') || undefined
   return { data: { class: cls }, ...(said ? { warning: said } : {}) }
 }
 
@@ -455,7 +563,8 @@ export async function duplicateClass(body: { id?: unknown; sessions?: unknown; s
   )
   noPastStarts(sessions)
   const status = okStatus(body.status, src.status === 'cancelled' ? 'draft' : src.status)
-  const content = structuredClone(src.content)
+  const dropped = dropEndedEarlyBird(structuredClone(src.content), new Date())
+  const content = dropped.content
   try {
     await checkClashes(sessions, content.rules.canShareRoom)
   } catch (e) {
@@ -476,8 +585,9 @@ export async function duplicateClass(body: { id?: unknown; sessions?: unknown; s
     if (e instanceof ClassExistsError) return finishCreate((await getClass(e.id))!, by)
     throw e
   }
-  const { cls, warning } = await syncPos(created, by)
+  const { cls, warning: posWarning } = await syncPos(created, by)
   await audit(by, 'class-duplicate', { kind: 'class', id: cls.id, label: content.name }, { from: src.id, sessions: sessions.length })
+  const warning = [dropped.note, posWarning].filter(Boolean).join(' ') || undefined
   return { data: { class: cls }, ...(warning ? { warning } : {}) }
 }
 
@@ -540,7 +650,13 @@ export async function updateScheduledClass(body: {
   const cls = await mustGetClass(body.id)
   const expectedUpdatedAt = expectedOf(body, cls)
   if (cls.status === 'cancelled') throw new ActionError(409, 'This class is cancelled. Duplicate it to run it again.')
-  const content = body.content !== undefined ? okContent(body.content) : cls.content
+  // M9: the saved early-bird sent back unchanged after its last day is left off, never refused.
+  const ebDropped = body.content !== undefined ? dropUnchangedEndedEarlyBird(body.content, cls.content.earlyBird, new Date()) : { raw: undefined, note: null }
+  let content = body.content !== undefined ? okContent(ebDropped.raw) : cls.content
+  // Stage 4: an early-bird set or changed here can't end before today; one already there is kept as it was.
+  if (body.content !== undefined && content.earlyBird && JSON.stringify(content.earlyBird) !== JSON.stringify(cls.content.earlyBird ?? null)) {
+    content = okContent(ebDropped.raw, { todayYmd: chicagoYmd(new Date()) })
+  }
   const sessions = body.sessions !== undefined ? okSessions(body.sessions) : cls.sessions
   if (body.sessions !== undefined) noPastStarts(sessions, cls.sessions)
   const status = okStatus(body.status, cls.status)
@@ -618,7 +734,15 @@ export async function updateScheduledClass(body: {
   }
 
   const { cls: synced, warning: posWarning } = await syncPos(saved, by)
-  const warning = [libraryWarning, posWarning].filter(Boolean).join(' ') || undefined
+  const warning = [ebDropped.note, libraryWarning, posWarning].filter(Boolean).join(' ') || undefined
+  // Stage 4 (S4-R3): more seats on a date → the waitlist runs (adds and charges the next person who fits).
+  // M7: after the reply where the platform allows, so the save never waits for the charges.
+  if (sessions.some((s) => s.capacity > (cls.sessions.find((o) => o.id === s.id)?.capacity ?? Infinity))) {
+    await afterReply(async () => {
+      const { runWaitlist } = await import('./waitlist-runner')
+      await runWaitlist(cls.id, { reason: 'capacity', by })
+    })
+  }
   await audit(by, 'class-update', { kind: 'class', id: cls.id, label: synced.content.name }, {
     changes: changes.join(', ') || 'none', moved: moved.length, alsoUpdateLibrary: body.alsoUpdateLibrary === true,
   })
@@ -654,6 +778,14 @@ export async function cancelClass(body: { id?: unknown; expectedUpdatedAt?: unkn
     warning = CANCEL_WARNING
   }
   const booked = bookedPeople(await getLedger(cls.id))
+  // Stage 4: cancelling closes the waitlist; nobody on it is charged, every saved card comes off.
+  const { closeWaitlist } = await import('./waitlist')
+  await closeWaitlist(cls.id)
+  // I4: anyone mid-charge is settled read only (paid → kept and the owners told to refund; not paid → off, card off).
+  await afterReply(async () => {
+    const { runWaitlist } = await import('./waitlist-runner')
+    await runWaitlist(cls.id, { reason: 'cancel', by })
+  })
   await audit(by, 'class-cancel', { kind: 'class', id: cls.id, label: cls.content.name }, { booked: booked.length })
   return { data: { class: saved, booked }, ...(warning ? { warning } : {}) }
 }
@@ -686,8 +818,12 @@ export interface BookingView {
   refundable: RefundableSeat[]
   /** false = comp, POS or counter: refunds happen in Square */
   paidHere: boolean
+  /** D3: booked online or on the iPad at $0 (no Square payment): nothing to refund, freeing the seat still works */
+  free: boolean
   /** a door seat an owner marked paid at the counter (To decide) */
   paidAtCounter: boolean
+  /** Stage 4: what came off, by name, for a tag on the booking row ("Early-bird", "Code GRANDOPENING") */
+  discounts: string[]
   /** most the booking can still give back: remaining on its seats, capped at what Square charged less refunds */
   refundableCents: number
   at: string
@@ -740,7 +876,9 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
         freed: seatFreed(l),
       })),
       paidHere: !!first.square.paymentId,
+      free: isFreeBooking(first),
       paidAtCounter: lines.some((l) => !!l.paidAtCounter),
+      discounts: [...new Set(lines.flatMap((l) => (l.discounts ?? []).filter((d) => d.cents > 0).map((d) => d.name)))],
       refundableCents: Math.min(
         lines.filter(isPaidLine).reduce((s, l) => s + remainingOn(l), 0),
         bookingCap(lines) ?? Infinity,
@@ -750,19 +888,31 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
   }).sort((a, b) => a.at.localeCompare(b.at))
 }
 
-/** A booking on the class sheet: with the refund still waiting on Square, if any (R29), so its row can ask someone to check. */
-export type ClassBooking = BookingView & { waiting: ReturnType<typeof describeRequest> | null }
+/**
+ * A booking on the class sheet: with the refund still waiting on Square, if
+ * any (R29), so its row can ask someone to check; D2: the customer's own
+ * "Can't make it?" page and what they did there (cancelled online, cancelling,
+ * asked to cancel).
+ */
+export type ClassBooking = BookingView & { waiting: ReturnType<typeof describeRequest> | null; cancelPath: string | null; cancelLine: string | null }
 
 /** The class, its bookings, and seats taken on each date (holds included, as the ledger counts them). */
-export async function classBookings(id: unknown): Promise<{ class: ScheduledClass; bookings: ClassBooking[]; seatsTaken: Record<string, number> }> {
+export async function classBookings(id: unknown): Promise<{ class: ScheduledClass; bookings: ClassBooking[]; seatsTaken: Record<string, number>; register: RegisterInForce | null }> {
   const cls = await mustGetClass(id)
   const ledger = await getLedger(cls.id)
   const now = new Date()
   const bookings = await Promise.all(groupBookings(ledger, now).map(async (b): Promise<ClassBooking> => {
-    const waitingReq = b.paidHere ? (await listRefundRequests(cls.id, b.bookingId).catch(() => [])).find(isWaiting) : undefined
-    return { ...b, waiting: waitingReq ? describeRequest(waitingReq, ledger, cls) : null }
+    const saved = b.paidHere ? await listRefundRequests(cls.id, b.bookingId).catch(() => []) : []
+    const waitingReq = saved.find(isWaiting)
+    const rec = await getCancelRecord(b.bookingId).catch(() => null)
+    const lines = ledger.lines.filter((l) => l.bookingId === b.bookingId)
+    let cancelPath: string | null = null
+    try { cancelPath = b.customer && b.state !== 'held' ? cancelPathFor(cls.id, b.bookingId) : null } catch { cancelPath = null }
+    return { ...b, waiting: waitingReq ? describeRequest(waitingReq, ledger, cls) : null, cancelPath, cancelLine: cancelWords(rec, lines, now, saved) }
   }))
-  return { class: cls, bookings, seatsTaken: Object.fromEntries(cls.sessions.map((s) => [s.id, seatsTaken(ledger, s.id, now)])) }
+  // Fix round 4: what Register setup has now, so the sheet can show "Update the register" for a class on an old tax.
+  const register = await registerInForce().catch(() => null)
+  return { class: cls, bookings, seatsTaken: Object.fromEntries(cls.sessions.map((s) => [s.id, seatsTaken(ledger, s.id, now)])), register }
 }
 
 // ── Blocked time ───────────────────────────────────────────────────────────
@@ -809,6 +959,175 @@ export async function unblockTime(body: { id?: unknown }, by: By = ADMIN_BY): Pr
   if (typeof body.id !== 'string' || !body.id) throw new ActionError(400, 'Pick the blocked time to remove.')
   await removeBlocked(body.id, by)
   await audit(by, 'blocked-time-remove', { kind: 'blocked-time', id: body.id })
+}
+
+// ── Repeating dates (stage 4, Task 7) ──────────────────────────────────────
+
+/**
+ * How long one `repeat` request keeps adding before it answers and the sheet
+ * sends it again (each date is its own POS write). I2: no new date starts
+ * after `budgetMs`, nor when the slowest date so far would carry the request
+ * past `hardMs` — well inside the ~10 s a function may run.
+ */
+export const repeatLimits = { budgetMs: 3_500, hardMs: 6_000 }
+export const PASSED = 'That date has passed.'
+
+export interface RepeatDateCheck { ymd: string; ok: boolean; reason: string | null }
+
+function readRepeat(body: { sessions?: unknown; pattern?: unknown }, now: Date) {
+  const sessions = okSessions(body.sessions)
+  const p = readPattern(body.pattern)
+  if (!p.ok) throw new ActionError(400, p.error, { field: 'repeat' })
+  const r = repeatDates(sessions, p.value, chicagoYmd(now))
+  if (!r.ok) throw new ActionError(400, r.error, { field: 'repeat' })
+  return { sessions, dates: r.value }
+}
+
+async function canShareOf(body: { libraryId?: unknown; content?: unknown }): Promise<boolean> {
+  const c = body.content as { rules?: { canShareRoom?: unknown } } | undefined
+  if (c && typeof c === 'object') return c.rules?.canShareRoom === true
+  if (typeof body.libraryId === 'string' && body.libraryId) {
+    const lib = await getLibrary(body.libraryId)
+    return lib?.versions[lib.versions.length - 1]?.content.rules.canShareRoom === true
+  }
+  return false
+}
+
+/** Each date with ✓ or the plain reason it's skipped: passed, a closed day, or what it clashes with. One schedule read for all of them. */
+async function checkDates(dates: { ymd: string; sessions: Session[] }[], canShareRoom: boolean, now: Date): Promise<RepeatDateCheck[]> {
+  const all = dates.flatMap((d) => d.sessions)
+  const pad = PARTY_CLEANUP_MINUTES * 60_000
+  const from = Math.min(...all.map((s) => Date.parse(s.startIso))) - pad
+  const to = Math.max(...all.map((s) => Date.parse(s.endIso))) + pad
+  let busy: Busy[]
+  try {
+    busy = await busyBetween(new Date(from).toISOString(), new Date(to).toISOString())
+  } catch {
+    throw new ActionError(503, "The schedule couldn't be checked. Try again.")
+  }
+  const okSoFar: { ymd: string; sessions: Session[] }[] = []
+  const overlaps = (a: Session[], b: Session[]) => a.some((x) => b.some((y) => x.startIso < y.endIso && y.startIso < x.endIso))
+  return dates.map(({ ymd, sessions }) => {
+    if (sessions.some((s) => Date.parse(s.startIso) < now.getTime())) return { ymd, ok: false, reason: PASSED }
+    const found = sessions.flatMap((s) => clashes({ startIso: s.startIso, endIso: s.endIso, kind: 'class', canShareRoom }, busy))
+    const unique = found.filter((b, i) => found.findIndex((x) => x.id === b.id && x.startIso === b.startIso) === i)
+    if (unique.length) {
+      const closed = unique.find((b) => b.kind === 'closed')
+      return { ymd, ok: false, reason: closed ? `${closed.label}.` : clashMessage(unique) }
+    }
+    // M3: copies of a multi-day class checked against each other (a camp whose picked dates overlap itself).
+    const sibling = canShareRoom ? undefined : okSoFar.find((o) => overlaps(o.sessions, sessions))
+    if (sibling) return { ymd, ok: false, reason: `Overlaps the ${formatDay(sibling.sessions[0].startIso).replace(',', '')} copy.` }
+    okSoFar.push({ ymd, sessions })
+    return { ymd, ok: true, reason: null }
+  })
+}
+
+/** The dates a repeat would make, each with ✓ or why it's skipped. Writes nothing. */
+export async function repeatPreview(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; pattern?: unknown }, now = new Date()): Promise<Saved<{ dates: RepeatDateCheck[] }>> {
+  const { dates } = readRepeat(body, now)
+  return { data: { dates: await checkDates(dates, await canShareOf(body), now) } }
+}
+
+export interface RepeatResult {
+  /** Made now or on an earlier try (a replay), in date order. */
+  created: { ymd: string; class: ScheduledClass; warning?: string }[]
+  /** Dates that couldn't be added: passed, closed, or clashing (checked again as each one is added). */
+  skipped: { ymd: string; reason: string }[]
+  /** Dates not tried yet: `time` = this request ran out of time (send it again), `error` = something broke (Try the rest again). */
+  left: string[]
+  leftBecause: 'time' | 'error' | null
+  /** N4: the library entry these dates use, so "Change the dates" sends it back instead of making a second one. */
+  libraryId?: string
+}
+
+/**
+ * Repeat a class (S4-R6): one scheduled class per date, each with its own POS
+ * item, made one by one through scheduleClass with the child key
+ * `${createKey}:${ymd}` (R35), so the same request sent again (a lost reply,
+ * "Try the rest again", or the sheet carrying on after `left`) answers with
+ * what it already made and never makes a second class or POS item. From
+ * scratch, the one library entry is made first (named by the create key);
+ * if it can't be, nothing is added. Each date runs R37 and the clash check on
+ * its own; one that fails is listed in `skipped` and the others stand.
+ * `skip`: dates she unticked.
+ */
+export async function repeatClass(body: {
+  libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; createKey?: unknown; pattern?: unknown; skip?: unknown
+}, by: By = ADMIN_BY, now = new Date()): Promise<Saved<RepeatResult>> {
+  // N5: the time budget counts from the start of the request (the library entry and the schedule read take time too).
+  const started = Date.now()
+  if (typeof body.createKey !== 'string' || !CREATE_KEY_RE.test(body.createKey)) throw new ActionError(400, 'Reload the page and try again.')
+  const { sessions, dates } = readRepeat(body, now)
+  const skip = new Set(Array.isArray(body.skip) ? body.skip.filter((d): d is string => typeof d === 'string') : [])
+  const status = okStatus(body.status, 'draft')
+  const wanted = dates.filter((d) => !skip.has(d.ymd))
+  if (!wanted.length) throw new ActionError(400, 'Tick at least one date.', { field: 'repeat' })
+
+  let libraryId = typeof body.libraryId === 'string' && body.libraryId ? body.libraryId : undefined
+  let content: unknown = body.content
+  let ebNote: string | null = null
+  if (!libraryId) {
+    // One library entry for every date, named by the create key: a retry finds it, never a second.
+    const parent = (await reserveCreate(body.createKey))!
+    const dropped = dropEndedEarlyBird(okContent(body.content), now)
+    // M5: an ended early-bird left off here is said once in the reply (each date's own drop finds nothing left).
+    ebNote = dropped.note
+    const usual = usualFrom(dropped.content, sessions)
+    try {
+      const lib = await saveLibraryVersion({ createId: parent.libraryId, content: usual, by, note: `Added with the class on ${formatDay(sessions[0].startIso).replace(',', '')}` })
+      libraryId = lib.id
+      if (lib.versions.length === 1) await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: usual.name }, { version: 1, auto: true })
+    } catch (e) {
+      console.warn(`[classes] library entry for a repeat failed: ${e instanceof Error ? e.message : e}`)
+      throw new ActionError(503, "The library couldn't be reached, so nothing was added. Try again.")
+    }
+    content = usual
+  } else if (content === undefined) {
+    const lib = await getLibrary(libraryId)
+    if (!lib) throw new ActionError(404, 'That class is not in the library.')
+  }
+
+  const checks = new Map((await checkDates(wanted, await canShareOf({ libraryId, content }), now)).map((c) => [c.ymd, c]))
+  const out: RepeatResult = { created: [], skipped: [], left: [], leftBecause: null, ...(libraryId ? { libraryId } : {}) }
+  let slowest = 0
+  for (let i = 0; i < wanted.length; i++) {
+    const d = wanted[i]
+    const elapsed = Date.now() - started
+    if (i > 0 && (elapsed > repeatLimits.budgetMs || elapsed + slowest > repeatLimits.hardMs)) {
+      out.left = wanted.slice(i).map((x) => x.ymd)
+      out.leftBecause = 'time'
+      break
+    }
+    const dateStarted = Date.now()
+    try {
+      const r = await scheduleClass(
+        { libraryId, content, sessions: d.sessions, status, createKey: body.createKey, ...(body.alsoUpdateLibrary === true ? { alsoUpdateLibrary: true } : {}) },
+        by,
+        { childKey: d.ymd },
+      )
+      slowest = Math.max(slowest, Date.now() - dateStarted)
+      out.created.push({ ymd: d.ymd, class: r.data.class, ...(r.warning ? { warning: r.warning } : {}) })
+    } catch (e) {
+      if (e instanceof ActionError && (e.status === 400 || e.status === 409)) {
+        // The preview's sentence when it had one ("Closed for Thanksgiving."), else what the create said.
+        out.skipped.push({ ymd: d.ymd, reason: checks.get(d.ymd)?.reason ?? e.message })
+        continue
+      }
+      // Nothing made yet: answer with the error itself (storage down, the test-site guard), as a single Add would.
+      if (!out.created.length && !out.skipped.length) throw e
+      console.warn(`[classes] repeat stopped at ${d.ymd}: ${e instanceof Error ? e.message : e}`)
+      out.left = wanted.slice(i).map((x) => x.ymd)
+      out.leftBecause = 'error'
+      break
+    }
+  }
+  if (out.created.length) {
+    const name = out.created[0].class.content.name
+    await audit(by, 'class-repeat', { kind: 'class', id: out.created[0].class.id, label: name }, { added: out.created.length, skipped: out.skipped.length, left: out.left.length })
+  }
+  const warnings = [...new Set([...(ebNote && out.created.length ? [ebNote] : []), ...out.created.map((c) => c.warning).filter(Boolean)])]
+  return { data: out, ...(warnings.length ? { warning: warnings.join(' ') } : {}) }
 }
 
 // ── Route replies ──────────────────────────────────────────────────────────

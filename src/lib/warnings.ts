@@ -26,12 +26,21 @@ import { formatCalendarDay, formatTime, formatTimeSpan, studioDate, studioDayUtc
 import { classSpanOf, classesOverlap, partyBlocksClass, partyName, type ClassSpan, type PartySpan } from '@lib/conflicts'
 import type { Workshop } from '@providers/interfaces/workshop'
 import { getClass, listClasses } from '@lib/classes/class-store'
+import { cardsStillOn, waitlistItems, waitlistStop } from '@lib/classes/waitlist-items'
+import { waitlistOrNull } from '@lib/classes/waitlist-store'
+import { readerDecideItems } from '@lib/classes/reader-decide'
+import { listPromos } from '@lib/promos/promo-store'
+import { cancelItems } from '@lib/classes/self-cancel'
+import { couldBeFree, promoState } from '@lib/promos/rules'
 import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
 import { listPosNeedsDays, listRefundFlags, listUnmatchedPos, openPaidNotSeated, type RefundFlag } from '@lib/classes/square-events'
 import { onStaffConsole } from '@lib/classes/staff-view'
 import { listCounterMatchChecks, listDoorUnpaid } from '@lib/classes/door-unpaid'
 import { decidedIds, minimumItemId } from '@lib/classes/decided'
 import type { ScheduledClass } from '@lib/classes/types'
+import { notOnRegister, posPricesStale, registerSetupStale } from '@lib/classes/pos-plan'
+import { registerInForce } from '@lib/classes/register-setup'
+import { earlyBirdRunning } from '@lib/classes/early-bird'
 import { formatMoney } from '@lib/money'
 import { getPartyRecord } from '@lib/party-store'
 import { partyLabel } from '@lib/parties/refunds'
@@ -48,6 +57,26 @@ export const WARNING_CODES = [
   'below-minimum', 'pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'classes-unreadable',
   // R42: Square shows one of our online bookings paid, but its seats were let go
   'paid-not-seated',
+  // Stage 4 (I2): the register's price for a class isn't its current price (the early-bird ended or started, the POS didn't follow)
+  'pos-price-stale',
+  // Fix round 3: a class that should be on the register isn't (setup not done, or a save's register write failed)
+  'not-on-register',
+  // Fix round 4: a class on the register still has an older tax or category than More › Register setup
+  'register-old-setup',
+  // Stage 4 waitlist: a saved-card charge Square never answered (seat held), or a card that didn't go through / a price that rose
+  'waitlist-unknown', 'waitlist-declined',
+  // R4: the waitlist charged someone just as their class was cancelled (nobody told them they're in): refund from To decide
+  'waitlist-refund',
+  // Task 12: the waitlist stopped with a free seat it could take; a saved card Square hasn't confirmed off file
+  'waitlist-stopped', 'waitlist-card-on',
+  // Task 12: a "Charge on the reader" payment that never came back (or didn't match); the seat is held
+  'reader-waiting',
+  // Task 12: no class tax picked in More › Register setup, so classes can't go on the register
+  'register-setup-missing',
+  // Task 12: an active promo code that books for free with no use limit
+  'promo-free-unlimited',
+  // D2: a customer asked to cancel (a note), or their own cancel's refund Square didn't answer / turned down
+  'cancel-request', 'cancel-unclear',
   // stage 3 staffing (owners only): nobody (or too few) on, someone on who can't, someone on a cancelled one
   'unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable',
   // our own parties (stage 2 Task 13, ./parties/warnings.ts)
@@ -74,7 +103,11 @@ export interface Warning {
 }
 
 /** Items that aren't tied to a day: they stay until an owner decides. */
-export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated', 'party-paid-after-cancel', 'assigned-cancelled'])
+export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>([
+  'pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated', 'waitlist-unknown', 'waitlist-declined',
+  'waitlist-refund', 'waitlist-card-on', 'reader-waiting', 'register-setup-missing', 'promo-free-unlimited', 'cancel-request', 'cancel-unclear',
+  'party-paid-after-cancel', 'assigned-cancelled',
+])
 
 /** Lines for the owners only (the daily email): never on the /staff panel, which the crew read. */
 export const OWNER_ONLY_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable'])
@@ -304,6 +337,7 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
     openPaidNotSeated(),
   ])
   const shown = classes.filter(onStaffConsole)
+  const register = await registerInForce().catch(() => null)
   const byId = new Map<string, ScheduledClass>(shown.map((c) => [c.id, c]))
   const out: Warning[] = []
   for (const cls of shown) {
@@ -317,6 +351,60 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
         out.push({
           code: 'oversold', eventKind: 'workshop', eventId: cls.id, when: s.startIso, title: name,
           detail: `${name} ${formatTime(s.startIso)}: ${sold} of ${s.capacity} booked.`, action: OWNERS_DECIDE,
+        })
+      }
+    }
+    // I2: the hourly job couldn't put the POS price right (or a save's POS write failed). Shown until it's fixed.
+    if (posPricesStale(cls, now)) {
+      const firstLeft = sessions.find((s) => Date.parse(s.endIso) > now.getTime()) ?? sessions[0]
+      out.push({
+        code: 'pos-price-stale', eventKind: 'workshop', eventId: cls.id, when: firstLeft?.startIso ?? now.toISOString(), title: name,
+        detail: earlyBirdRunning(cls.content, now)
+          ? `The register doesn’t have the early-bird price for ${name} yet.`
+          : `The register still rings the early-bird price for ${name}. The early-bird has ended.`,
+        action: 'An owner opens the class in /admin and taps Fix the register price now.',
+      })
+    }
+    // Fix round 3: it can't be booked online or rung up until it's on the register.
+    if (notOnRegister(cls, now)) {
+      const firstLeft = sessions.find((s) => Date.parse(s.endIso) > now.getTime()) ?? sessions[0]
+      out.push({
+        code: 'not-on-register', eventKind: 'workshop', eventId: cls.id, when: firstLeft?.startIso ?? now.toISOString(), title: name,
+        detail: `${name} isn’t on the register yet, so it can’t be booked online.`,
+        action: 'An owner opens the class in /admin and taps Put it on the register.',
+      })
+    } else if (registerSetupStale(cls, register, now)) {
+      const firstLeft = sessions.find((s) => Date.parse(s.endIso) > now.getTime()) ?? sessions[0]
+      out.push({
+        code: 'register-old-setup', eventKind: 'workshop', eventId: cls.id, when: firstLeft?.startIso ?? now.toISOString(), title: name,
+        detail: `The register still has the old tax or category for ${name}.`,
+        action: 'An owner taps Update them all in /admin › More › Register setup (or Update the register on the class).',
+      })
+    }
+    // Stage 4: the waitlist's unclear charges and cards that didn't go through, until an owner decides in To decide.
+    for (const w of await waitlistItems(cls, decided, now)) {
+      out.push({
+        code: w.kind, eventKind: 'workshop', eventId: cls.id, when: w.at, title: name, itemId: w.id, detail: w.warning, action: OWNERS_DECIDE,
+      })
+    }
+    // Task 12: the waitlist stopped with a seat it could take (the class sheet's button fixes it), and saved cards not yet off file.
+    const list = await waitlistOrNull(cls.id)
+    if (list?.entries.length) {
+      const stop = waitlistStop(cls, list, ledger, now)
+      if (stop) {
+        const firstLeft = sessions.find((s) => Date.parse(s.endIso) > now.getTime()) ?? sessions[0]
+        out.push({
+          code: 'waitlist-stopped', eventKind: 'workshop', eventId: cls.id, when: firstLeft?.startIso ?? now.toISOString(), title: name,
+          detail: `${name}: ${stop.words}`,
+          action: `An owner opens the class in /admin and taps ${stop.button} on its waitlist.`,
+        })
+      }
+      for (const e of cardsStillOn(list, now)) {
+        out.push({
+          code: 'waitlist-card-on', eventKind: 'workshop', eventId: cls.id, when: e.attempts[e.attempts.length - 1]?.at ?? e.createdAt, title: name,
+          itemId: `wl-card-${e.id}`,
+          detail: `${name}: ${`${e.customer.givenName} ${e.customer.familyName}`.trim()} is off the waitlist, but Square hasn’t confirmed their saved card (ending ${e.square.last4}) came off file yet. Nothing will be charged.`,
+          action: 'An owner opens the class in /admin and taps Take the card off now on its waitlist.',
         })
       }
     }
@@ -369,6 +457,14 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
       action: OWNERS_DECIDE,
     })
   }
+  // Task 12: reader sales the Square app never answered, payments that didn't match, second and late payments (each with its To decide buttons).
+  for (const r of await readerDecideItems(decided, now).catch(() => [])) {
+    out.push({ code: 'reader-waiting', eventKind: 'workshop', eventId: r.classId, when: r.at, title: r.className, itemId: r.id, detail: r.warning, action: OWNERS_DECIDE })
+  }
+  // D2: customers' notes asking to cancel, and their own cancels Square didn't answer, until an owner decides in To decide.
+  for (const c of await cancelItems(decided, now, async (id) => byId.get(id) ?? (await getClass(id).catch(() => null))).catch(() => [])) {
+    out.push({ code: c.kind, eventKind: 'workshop', eventId: c.classId, when: c.at, title: c.className, itemId: c.id, detail: c.warning, action: OWNERS_DECIDE })
+  }
   for (const f of flags) {
     if (f.classId === PARTY_SCOPE) {
       // A refund on a party: named and opened as that party (bookingId = the party id), never "A class".
@@ -379,6 +475,36 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
     }
     const name = await nameOf(f.classId)
     out.push({ code: 'refund-flag', eventKind: 'workshop', eventId: f.classId, when: f.at, title: name, itemId: f.id, detail: refundFlagDetail(f, name), action: OWNERS_DECIDE })
+  }
+  out.push(...(await setupWarnings(shown, register, now)))
+  return out
+}
+
+/**
+ * Task 12, studio-wide setup lines (no class to open):
+ * - register-setup-missing: no class tax is picked, so no class can go on the
+ *   register (only while there are classes that need it)
+ * - promo-free-unlimited: a code that's on, books for free (100% off) and has
+ *   no use limit: anyone who hears it books free
+ */
+async function setupWarnings(shown: ScheduledClass[], register: Awaited<ReturnType<typeof registerInForce>> | null, now: Date): Promise<Warning[]> {
+  const out: Warning[] = []
+  const needsRegister = shown.some((c) => notOnRegister(c, now))
+  if (register && !register.classTaxId && needsRegister) {
+    out.push({
+      code: 'register-setup-missing', eventKind: 'workshop', eventId: '', when: now.toISOString(), title: 'Register setup', itemId: 'register-setup-missing',
+      detail: 'No class tax is picked yet, so classes can’t go on the register or be booked online.',
+      action: 'An owner opens More › Register setup, picks the 9% tax (or taps Make the 9% class tax) and taps Save.',
+    })
+  }
+  const codes = await listPromos(now).catch(() => [])
+  for (const p of codes) {
+    if (promoState(p, now) !== 'on' || p.maxUses !== null || couldBeFree(p.off) !== 'free') continue
+    out.push({
+      code: 'promo-free-unlimited', eventKind: 'workshop', eventId: '', when: p.updatedAt, title: `Code ${p.code}`, itemId: `promo-free-${p.code}`,
+      detail: `Code ${p.code} books for free and has no use limit, so anyone who hears it can book free.`,
+      action: 'An owner opens More › Promotions › the code and taps Edit to set a use limit, or Turn off.',
+    })
   }
   return out
 }

@@ -27,9 +27,10 @@ import { ClassSheet, EditClassSheet } from './sheets/ClassSheet'
 import { LibraryEditSheet, LibraryItemSheet } from './sheets/LibrarySheets'
 import { NewClassSheet, RunAgainSheet, ScheduleFromLibrarySheet } from './sheets/NewClassSheet'
 import { StaffSheet } from './sheets/StaffSheet'
-import { ComingSheet, PreviewMessagesSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet } from './sheets/MoreSheets'
+import { PreviewMessagesSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet } from './sheets/MoreSheets'
 import { HelpSheet } from './sheets/HelpSheet'
-import { ClosedDaysSheet, HoursSheet } from './sheets/SettingsSheets'
+import { PromoSheet, PromosSheet } from './promos/PromosSheet'
+import { ClosedDaysSheet, HoursSheet, RegisterSetupSheet } from './sheets/SettingsSheets'
 import { ImportSquareSheet } from './sheets/ImportSquareSheet'
 import { StudioProvider } from './shell/studio'
 
@@ -426,13 +427,15 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
     case 'book-party': return <BookPartySheet day={s.day} />
     case 'request': case 'message': case 'teacher': return <InboxItemSheet kind={s.kind} id={s.id} />
     case 'todo': return <ToDecideSheet id={s.id} />
+    case 'promo': return <PromoSheet id={s.id} />
     case 'more':
       switch (s.page) {
         case 'parties': return <PartiesSetupSheet />
         case 'hours': return <HoursSheet />
         case 'closed': return <ClosedDaysSheet />
         case 'staff': return <StaffSheet />
-        case 'promos': return <ComingSheet title="Promotions" stage={4} what="discount codes for classes and parties, and how often each is used." />
+        case 'promos': return <PromosSheet />
+        case 'register': return <RegisterSetupSheet />
         case 'reports': return <ReportsSheet />
         case 'import': return <ImportSquareSheet />
         case 'sandbox': return <SandboxSheet />

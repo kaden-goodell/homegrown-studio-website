@@ -50,6 +50,16 @@ describe('archive store list', () => {
     for (const name of ['parties', 'party-settings', 'party-payments', 'party-book', 'party-locks', 'party-checkouts']) expect(ARCHIVE_STORE_NAMES).toContain(name)
   })
 
+  it('covers every stage 4 store: promo codes and uses, saved-card alerts, waitlists, reader sales, POS price alerts', () => {
+    const dir = join(root, 'src/lib/promos')
+    const files = (readdirSync(dir, { recursive: true }) as string[]).filter((f) => f.endsWith('.ts'))
+    for (const f of files) expect(readFileSync(join(dir, f), 'utf8'), f).not.toMatch(/makeKvStore\(\s*[^'"`\s)]/)
+    const found = [...files.flatMap((f) => storeNamesIn(join(dir, f))), ...storeNamesIn(join(root, 'src/lib/saved-card-alerts.ts'))]
+    expect(found).toEqual(expect.arrayContaining(['promo-codes', 'promo-uses', 'card-setup-alerts']))
+    for (const name of found) expect(ARCHIVE_STORE_NAMES, `store "${name}" is missing from the archive`).toContain(name)
+    for (const name of ['waitlists', 'reader-sales', 'reader-orders', 'pos-price-alerts', 'class-cancels']) expect(ARCHIVE_STORE_NAMES).toContain(name)
+  })
+
   it('covers the class photos and the legacy seat picks', () => {
     for (const name of [...storeNamesIn(join(root, 'src/pages/api/admin/classes/photo.json.ts')), ...storeNamesIn(join(root, 'src/lib/seat-choices.ts'))]) {
       expect(ARCHIVE_STORE_NAMES).toContain(name)

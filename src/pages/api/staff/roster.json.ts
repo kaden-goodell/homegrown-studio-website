@@ -178,7 +178,7 @@ export const GET: APIRoute = async ({ request, url }) => {
           summary: { households: households.length, people, childrenHereNow },
           households: responseHouseholds,
           choices,
-          ...(own ? { bookings: own.bookings, ticketLabels: own.ticketLabels } : {}),
+          ...(own ? { bookings: own.bookings, ticketLabels: own.ticketLabels, ...(own.waitlistWaiting ? { waitlistWaiting: own.waitlistWaiting } : {}) } : {}),
           ...(partyMoney ? { partyMoney } : {}),
         },
       }),

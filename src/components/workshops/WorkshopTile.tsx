@@ -78,7 +78,7 @@ export default function WorkshopTile({ workshop, onBook, closedNote }: WorkshopT
               See details and book
             </button>
           )}
-          {!bookable && <WorkshopWaitlist workshop={workshop} />}
+          {!bookable && <WorkshopWaitlist workshop={workshop} {...(onBook ? { onJoin: onBook } : {})} />}
         </div>
       </div>
     </article>

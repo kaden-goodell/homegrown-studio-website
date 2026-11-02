@@ -336,6 +336,30 @@ describe('Roster for one of our classes (Task 14)', () => {
     expect(screen.queryByRole('menuitem', { name: /Event settings/ })).toBeNull()
   })
 
+  it('stage 4: a reader sale still waiting shows Waiting on the reader with Check again and Let the seat go (no refund)', async () => {
+    const posts: any[] = []
+    serve([booking({ bookingId: 'bkg_rdr', source: 'door-reader', state: 'held', paidHere: false, refundable: [] })], posts)
+    render(<Roster staff={staff} onBack={vi.fn()} kind="workshop" id="cls_camp" />)
+    const row = (await screen.findAllByTestId('own-booking'))[0]
+    expect(row).toHaveTextContent('1 seat · Waiting on the reader')
+    expect(within(row).getByTestId('reader-waiting-row')).toHaveTextContent('The seat is held until the payment comes back from the Square app.')
+    expect(within(row).queryByRole('button', { name: 'Refund' })).toBeNull()
+    fireEvent.click(within(row).getByRole('button', { name: 'Check again' }))
+    await waitFor(() => expect(posts).toHaveLength(1))
+    expect(posts[0]).toEqual({ href: '/api/staff/reader.json', body: { action: 'check', bookingId: 'bkg_rdr' } })
+    fireEvent.click(within(row).getByRole('button', { name: 'Let the seat go' }))
+    await waitFor(() => expect(posts).toHaveLength(2))
+    expect(posts[1].body).toEqual({ action: 'let-go', bookingId: 'bkg_rdr' })
+  })
+
+  it('stage 4: a paid reader seat reads Paid on the reader and can be refunded', async () => {
+    serve([booking({ bookingId: 'bkg_rdr2', source: 'door-reader' })])
+    render(<Roster staff={staff} onBack={vi.fn()} kind="workshop" id="cls_camp" />)
+    const row = (await screen.findAllByTestId('own-booking'))[0]
+    expect(row).toHaveTextContent('1 seat · Paid on the reader')
+    expect(within(row).getByRole('button', { name: 'Refund' })).toBeInTheDocument()
+  })
+
   it('a counter sale with no name yet is named from a family who signed', async () => {
     const posts: any[] = []
     serve([booking({ bookingId: 'bkg_pos_O1', source: 'pos', customer: null, name: 'Counter sale, no name yet', paidHere: true })], posts)

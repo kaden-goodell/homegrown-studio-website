@@ -23,6 +23,12 @@ export interface ClassRules {
   waitlistCutoffHours: number // default 2 (stage 4 uses it)
   canShareRoom: boolean   // allows overlap with another class
 }
+/**
+ * Stage 4 (OWNER-S4-7): a lower price per price cell until the end of one
+ * Chicago day. A cell left out has no early-bird. Each cell is a sold cell
+ * and lower than its regular price.
+ */
+export interface EarlyBird { untilYmd: string; prices: Record<string, Record<string, Cents>> }
 export interface ClassContent {
   name: string
   description: string     // paragraphs separated by blank lines
@@ -37,6 +43,8 @@ export interface ClassContent {
   addOns: AddOn[]
   defaultCapacity: number
   defaultMinutes: number
+  /** Stage 4. Absent (or null) = no early-bird. */
+  earlyBird?: EarlyBird | null
 }
 /** `changed`: what this version changed from the one before, in the owner's words ("Price", "Description"); absent on old versions. */
 export interface LibraryVersion { version: number; at: string; by: { id: string; name: string }; content: ClassContent; note: string; changed?: string[] }
@@ -59,7 +67,25 @@ export interface ScheduledClass {
   status: ClassStatus
   /** POS item. variations key `${passId}:${ticketTypeId}` (seats) or `addon:${addOnId}` → variation id.
    *  imageUrl = the class image last uploaded to Square (re-uploaded only when it changes). */
-  square: { itemId: string | null; variations: Record<string, string>; imageUrl?: string | null }
+  square: {
+    itemId: string | null; variations: Record<string, string>; imageUrl?: string | null
+    /**
+     * Stage 4 (D4): the price each variation was last given on the POS, by key.
+     * A seat cell follows the current price: its early-bird price while it
+     * runs, the regular price after. Absent (classes put on the POS before
+     * this) = the regular prices.
+     */
+    prices?: Record<string, Cents>
+    /**
+     * Fix round 4: the class tax (null = none) and the Classes category the
+     * POS item was last sent with. Absent (put on the register before this
+     * was recorded) = the site's built-in values, the only ones there were.
+     * When More › Register setup changes, a class whose ids differ shows
+     * "Update the register".
+     */
+    taxId?: string | null
+    categoryId?: string
+  }
   createdAt: string
   updatedAt: string
   by: { id: string; name: string }

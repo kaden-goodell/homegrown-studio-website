@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import ClassBookingPanel from '@components/classes/ClassBookingPanel'
 import { toPublicClass } from '@lib/classes/public-view'
 import { defaultRules } from '@lib/classes/validate'
+import { quote as quoteOf } from '@lib/classes/pricing'
 import type { Ledger, LedgerLine } from '@lib/classes/seat-ledger'
 import type { ClassContent, ScheduledClass } from '@lib/classes/types'
 import { _forgetContact } from '@lib/remembered-contact'
@@ -479,5 +480,250 @@ describe('ClassBookingPanel — door mode on a full day', () => {
     expect(screen.queryByTestId('door-full')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /Sun, Oct 25/ }))
     expect(screen.getByTestId('door-full')).toBeInTheDocument()
+  })
+})
+
+describe('ClassBookingPanel — stage 4: early-bird, codes, free, the price changed', () => {
+  const promo = (over: Record<string, any> = {}): any => ({
+    code: 'FALLFRIENDS', label: '', off: { kind: 'percent', percent: 25 }, per: 'booking', appliesTo: { kind: 'all' }, includeExtras: false,
+    endsYmd: null, maxUses: null, active: true, createdAt: '', updatedAt: '', by: { id: 'k', name: 'K' }, history: [], ...over,
+  })
+  const onePass = { passes: [{ id: 'all', label: 'Full series', covers: { kind: 'all' as const } }], prices: { all: { person: 4000 } } }
+  const codeReply = (cls: ScheduledClass, p: any, people = 1) => {
+    const r = quoteOf(cls, { passId: 'all', tickets: { person: people } }, NOW, 9, { promo: p })
+    if (!r.ok) throw new Error(r.error)
+    return serverSays(200, { data: { code: p.code, quote: r.value } })
+  }
+  async function toPay(cls: ScheduledClass) {
+    open(cls)
+    cont()
+    await screen.findByText('Have a code?')
+    fillContact()
+  }
+  async function applyCode(text: string) {
+    fireEvent.click(screen.getByRole('button', { name: 'Have a code?' }))
+    fireEvent.change(screen.getByLabelText('Code'), { target: { value: text } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+  }
+
+  it('early-bird: the regular price struck through on step 1, the early-bird on Continue (before tax), a line for it on the pay step', async () => {
+    const cls = make({ ...onePass, earlyBird: { untilYmd: '2026-10-22', prices: { all: { person: 3000 } } } })
+    open(cls)
+    expect(screen.getByText('$40', { selector: 's' })).toBeInTheDocument()
+    expect(screen.getByText(/\$30 each, early-bird until Thu Oct 22/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Continue/ })).toHaveTextContent(/Continue · \$30(\.00)?$/)
+    cont()
+    await screen.findByTestId('payment-form')
+    const rows = screen.getAllByTestId('discount-row')
+    expect(rows.map((r) => r.textContent)).toEqual(['Early-bird−$10'])
+    expect(screen.getByText(/1 seat × \$40/)).toBeInTheDocument()
+    // $30 + 9% = $32.70: the same on the button and the wallet sheet.
+    expect(screen.getByRole('button', { name: 'Pay $32.70' })).toBeInTheDocument()
+    expect(paymentFormProps.wallet).toMatchObject({ amount: '32.70' })
+  })
+
+  it('a code: Apply asks the server, the summary shows the code, the Pay button and the booking carry its total', async () => {
+    const cls = make(onePass)
+    const fetchMock = vi.fn(async (url: string) => (url === '/api/classes/promo.json' ? codeReply(cls, promo()) : bookedReply({ totalChargedCents: 3270 })))
+    vi.stubGlobal('fetch', fetchMock)
+    await toPay(cls)
+    await applyCode('fall-friends')
+    await screen.findByText(/Code FALLFRIENDS/)
+    expect(JSON.parse((fetchMock.mock.calls[0] as any)[1].body)).toMatchObject({ classId: 'cls_1', code: 'fall-friends', request: { passId: 'all', tickets: { person: 1 } } })
+    expect(screen.getAllByTestId('discount-row').map((r) => r.textContent)).toEqual(['Code FALLFRIENDS Remove−$10'])
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $32.70' }))
+    await screen.findByText('You’re booked')
+    const book = fetchMock.mock.calls.find((c) => c[0] === '/api/classes/book.json') as any
+    expect(JSON.parse(book[1].body)).toMatchObject({ promoCode: 'FALLFRIENDS', expectedTotalCents: 3270 })
+  })
+
+  it('Remove takes the code off and the total goes back', async () => {
+    const cls = make(onePass)
+    vi.stubGlobal('fetch', vi.fn(async () => codeReply(cls, promo())))
+    await toPay(cls)
+    await applyCode('FALLFRIENDS')
+    await screen.findByRole('button', { name: 'Pay $32.70' })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Code FALLFRIENDS' }))
+    expect(screen.getByRole('button', { name: 'Pay $43.60' })).toBeInTheDocument()
+    expect(screen.queryByTestId('discount-row')).toBeNull()
+  })
+
+  it('a code that doesn\'t work says so kindly and changes nothing; Enter in the field never pays', async () => {
+    const cls = make(onePass)
+    const fetchMock = vi.fn(async () => serverSays(409, { detail: 'That code has ended.' }))
+    vi.stubGlobal('fetch', fetchMock)
+    await toPay(cls)
+    fireEvent.click(screen.getByRole('button', { name: 'Have a code?' }))
+    const field = screen.getByLabelText('Code')
+    expect(field).toHaveAttribute('autocapitalize', 'characters')
+    expect(field).toHaveAttribute('autocorrect', 'off')
+    fireEvent.change(field, { target: { value: 'oldcode' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    await screen.findByText('That code has ended.')
+    expect((fetchMock.mock.calls as any[]).every((c) => c[0] === '/api/classes/promo.json')).toBe(true)
+    expect(tokenCalls).toBe(0)
+    expect(screen.getByRole('button', { name: 'Pay $43.60' })).toBeInTheDocument()
+  })
+
+  it('free with a code: no card form, "Free with your code", Book it sends no card and the $0', async () => {
+    const cls = make(onePass)
+    const fetchMock = vi.fn(async (url: string) => (url === '/api/classes/promo.json'
+      ? codeReply(cls, promo({ off: { kind: 'percent', percent: 100 } }))
+      : bookedReply({ totalChargedCents: 0, ticketsLabel: '1 seat' })))
+    vi.stubGlobal('fetch', fetchMock)
+    await toPay(cls)
+    await applyCode('FREEDAY')
+    await screen.findByText('Free with your code')
+    expect(screen.queryByTestId('payment-form')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Book it' }))
+    await screen.findByText('You’re booked')
+    expect(tokenCalls).toBe(0)
+    const book = fetchMock.mock.calls.find((c) => c[0] === '/api/classes/book.json') as any
+    expect(JSON.parse(book[1].body)).toMatchObject({ paymentToken: '', expectedTotalCents: 0, promoCode: 'FALLFRIENDS' })
+    expect(document.body.textContent).toContain('1 seat for Clay Camp, free.')
+  })
+
+  it('the price changed (early-bird ended at midnight): the new total and why, nothing charged; the next tap pays it', async () => {
+    const cls = make({ ...onePass, earlyBird: { untilYmd: '2026-10-22', prices: { all: { person: 3000 } } } })
+    const regular = quoteOf(make(onePass), { passId: 'all', tickets: { person: 1 } }, NOW, 9)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(serverSays(409, { code: 'price_changed', detail: 'The price changed to $43.60 because the early-bird ended. Nothing was charged.', quote: (regular as any).value }))
+      .mockResolvedValueOnce(bookedReply({ totalChargedCents: 4360 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await toPay(cls)
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $32.70' }))
+    await screen.findByText('The price changed to $43.60 because the early-bird ended. Nothing was charged.')
+    expect(screen.queryByTestId('discount-row')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
+    await screen.findByText('You’re booked')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).expectedTotalCents).toBe(3270)
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).expectedTotalCents).toBe(4360)
+  })
+
+  it('M7: the early-bird ends at midnight while they sit on the pay step: the next tap shows the new total and says why', async () => {
+    const cls = make({ ...onePass, earlyBird: { untilYmd: '2026-10-20', prices: { all: { person: 3000 } } } })
+    await toPay(cls)
+    expect(screen.getByRole('button', { name: 'Pay $32.70' })).toBeInTheDocument()
+    expect(screen.queryByTestId('early-bird-ended')).toBeNull()
+    vi.setSystemTime(new Date('2026-10-21T05:00:30Z')) // just after midnight Chicago
+    fireEvent.change(screen.getByLabelText('First name'), { target: { value: 'Alicia' } })
+    expect(screen.getByTestId('early-bird-ended')).toHaveTextContent('The early-bird ended at midnight, so the price is now $43.60.')
+    expect(screen.getByRole('button', { name: 'Pay $43.60' })).toBeInTheDocument()
+  })
+
+  it('a code that stopped working between Apply and Pay comes off with the server\'s sentence; nothing charged', async () => {
+    const cls = make(onePass)
+    const fetchMock = vi.fn(async (url: string) => (url === '/api/classes/promo.json'
+      ? codeReply(cls, promo())
+      : serverSays(409, { code: 'promo', detail: 'That code has been used up. Nothing was charged.' })))
+    vi.stubGlobal('fetch', fetchMock)
+    await toPay(cls)
+    await applyCode('FALLFRIENDS')
+    await screen.findByRole('button', { name: 'Pay $32.70' })
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $32.70' }))
+    await screen.findByText('That code has been used up. Nothing was charged.')
+    expect(screen.getByRole('button', { name: 'Pay $43.60' })).toBeInTheDocument()
+  })
+})
+
+describe('ClassBookingPanel — stage 4 waitlist', () => {
+  // One date, full (capacity 2, 2 taken), waitlist open.
+  const one = () => make({ passes: [{ id: 'all', label: 'Full series', covers: { kind: 'all' } }], prices: { all: { person: 2000 } } }, [sess('ses_a', 24, 2)])
+  function openFull(n = 2) {
+    const cls = one()
+    const workshop = toPublicClass(cls, { classId: cls.id, lines: taken(n, ['ses_a']) }, NOW, {}, {
+      classId: cls.id, entries: [{ state: 'waiting', sessionIds: ['ses_a'] } as any],
+    })
+    render(<ClassBookingPanel workshop={workshop} onClose={vi.fn()} syncUrl={false} />)
+    return workshop
+  }
+
+  it('a full class offers the waitlist: store mode card form (no wallets), consent tick, "Join the waitlist"', async () => {
+    const w = openFull()
+    expect(w.own!.sessions[0].waitlist).toMatchObject({ open: true, waiting: 1 })
+    expect(screen.getByTestId('waitlist-note')).toHaveTextContent('This class is full. Join the waitlist')
+    cont()
+    expect(screen.getByTestId('waitlist-step')).toBeInTheDocument()
+    expect(paymentFormProps.mode).toBe('store')
+    expect(paymentFormProps.wallet).toBeUndefined()
+    // I2: the class and its date are named; the amount and close time are the ones sent with the join.
+    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('Save my card with Square. If a spot opens in Clay Camp (Sat, Oct 24 at 1 PM) before the waitlist closes on Sat, Oct 24 at 11 AM, Hometown Studio adds me and charges this card up to $21.80, even if the price goes up later, without asking again.')
+    expect(screen.getByRole('button', { name: 'Join the waitlist' })).toBeInTheDocument()
+  })
+
+  it('the consent tick is required before anything is sent', async () => {
+    openFull()
+    cont()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    for (const [label, value] of Object.entries({ 'First name': 'Alice', 'Last name': 'Smith', Email: 'alice@test.com', Phone: '(256) 555-0123' })) {
+      fireEvent.change(screen.getByLabelText(label), { target: { value } })
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Join the waitlist' }))
+    expect(await screen.findByText('Tick the box to let us save your card and charge it if a spot opens.')).toBeInTheDocument()
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('joins: sends only the card token and the consent exactly as shown (I2), shows "You\'re on the waitlist"', async () => {
+    openFull()
+    cont()
+    const fetchMock = vi.fn().mockResolvedValue(serverSays(200, { data: { position: 2, waiting: 2, card: { brand: 'VISA', last4: '4242' }, emailSent: true } }))
+    vi.stubGlobal('fetch', fetchMock)
+    fillContact()
+    fireEvent.click(screen.getByRole('button', { name: 'Join the waitlist' }))
+    expect(await screen.findByText('You’re on the waitlist')).toBeInTheDocument()
+    expect(screen.getByText(/You’re number 2 on the waitlist for Clay Camp\. We’ll add you and charge your card ending 4242/)).toBeInTheDocument()
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/classes/waitlist.json')
+    const sent = JSON.parse(init.body)
+    expect(sent).toMatchObject({ action: 'join', classId: 'cls_1', passId: 'all', tickets: { person: 1 }, consent: true, cardToken: 'cnon:test-token', verificationToken: null })
+    // The server prices it itself; the consent shown is sent only so a changed one is refused (I2).
+    expect(sent.consentShown).toEqual({ maxCents: 2180, closesIso: '2026-10-24T16:00:00.000Z', firstStartIso: expect.any(String), text: screen.queryByTestId('waitlist-consent')?.textContent ?? expect.stringContaining('up to $21.80') })
+    const { consentShown: _shown, ...rest } = sent
+    expect(JSON.stringify(rest)).not.toMatch(/Cents|price|amount/)
+  })
+
+  it('I2: the price changed while the panel was open → the new amount shows, the box is unticked, nothing joined', async () => {
+    openFull()
+    cont()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(serverSays(409, { code: 'consent_changed', detail: 'The price changed to $25.07. Check it and tick the box again. Nothing was charged.', maxCents: 2507, closesIso: '2026-10-24T16:00:00.000Z' }))
+      .mockResolvedValue(serverSays(200, {}))
+    vi.stubGlobal('fetch', fetchMock)
+    fillContact()
+    fireEvent.click(screen.getByRole('button', { name: 'Join the waitlist' }))
+    expect(await screen.findByText('The price changed to $25.07. Check it and tick the box again. Nothing was charged.')).toBeInTheDocument()
+    expect(screen.getByTestId('waitlist-consent')).toHaveTextContent('charges this card up to $25.07, even if the price goes up later, without asking again')
+    expect(screen.getByText(/Up to \$25\.07, tax included, charged only if a spot opens\./)).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /Save my card with Square/ })).not.toBeChecked()
+    expect(screen.queryByText('You’re on the waitlist')).toBeNull()
+  })
+
+  it('a spot opened meanwhile: "A spot just opened. Book it now." and fresh seat counts are fetched', async () => {
+    openFull()
+    cont()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(serverSays(409, { code: 'spot_open', detail: 'A spot just opened. Book it now.' }))
+      .mockResolvedValue(serverSays(200, {}))
+    vi.stubGlobal('fetch', fetchMock)
+    fillContact()
+    fireEvent.click(screen.getByRole('button', { name: 'Join the waitlist' }))
+    expect(await screen.findByText('A spot just opened. Book it now.')).toBeInTheDocument()
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledWith('/api/classes/cls_1.json', expect.anything()))
+  })
+
+  it('after the cutoff the full class is just sold out (no waitlist)', async () => {
+    const cls = one()
+    const late = new Date('2026-10-24T16:30:00Z') // 1.5 h before
+    vi.setSystemTime(late)
+    const workshop = toPublicClass(cls, { classId: cls.id, lines: taken(2, ['ses_a']) }, late, {}, { classId: cls.id, entries: [] })
+    expect(workshop.own!.sessions[0].waitlist!.open).toBe(false)
+  })
+
+  it('at the door there is never a waitlist step', async () => {
+    const cls = one()
+    const workshop = toPublicClass(cls, { classId: cls.id, lines: taken(2, ['ses_a']) }, NOW, { door: true })
+    render(<ClassBookingPanel workshop={workshop} onClose={vi.fn()} syncUrl={false} door />)
+    expect(screen.queryByTestId('waitlist-note')).toBeNull()
   })
 })

@@ -12,7 +12,9 @@
 import type { LedgerLine } from './seat-ledger'
 
 type Line = Pick<LedgerLine, 'state' | 'refunds' | 'holdExpiresAt'>
-type Money = Pick<LedgerLine, 'priceCents' | 'taxCents' | 'addOnCents' | 'addOnTaxCents' | 'refunds'>
+/** Stage 4: Square's own per-line totals for the seat, when the booking path kept them. */
+type SquareTotals = { square?: Pick<LedgerLine['square'], 'lineNetCents' | 'lineTaxCents'> }
+type Money = Pick<LedgerLine, 'priceCents' | 'taxCents' | 'addOnCents' | 'addOnTaxCents' | 'refunds'> & SquareTotals
 
 /** Paid for (or comped / rung up): confirmed or refunded. Holds and released lines are not. */
 export const isPaidLine = (l: Pick<LedgerLine, 'state'>): boolean => l.state === 'confirmed' || l.state === 'refunded'
@@ -34,9 +36,14 @@ export const isLiveHold = (l: Pick<LedgerLine, 'state' | 'holdExpiresAt'>, now: 
 /** The line takes a seat off seats-left: someone coming, or a hold still running. */
 export const takesSeat = (l: Line, now: Date): boolean => isComing(l) || isLiveHold(l, now)
 
-/** What the seat cost: price, tax and its add-ons. */
-export const paidOn = (l: Pick<LedgerLine, 'priceCents' | 'taxCents' | 'addOnCents' | 'addOnTaxCents'>): number =>
-  l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
+/**
+ * What the seat cost: price, tax and its add-ons. Square's own numbers for the
+ * seat's lines when kept (stage 4: money we record = money Square computed).
+ */
+export const paidOn = (l: Pick<LedgerLine, 'priceCents' | 'taxCents' | 'addOnCents' | 'addOnTaxCents'> & SquareTotals): number =>
+  typeof l.square?.lineNetCents === 'number' && typeof l.square?.lineTaxCents === 'number'
+    ? l.square.lineNetCents + l.square.lineTaxCents
+    : l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
 
 /** Given back so far. */
 export const refundedOn = (l: Pick<LedgerLine, 'refunds'>): number => l.refunds.reduce((s, r) => s + r.cents, 0)

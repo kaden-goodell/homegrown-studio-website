@@ -103,7 +103,7 @@ export default function WorkshopRow({ workshop, onBook }: WorkshopRowProps) {
         <div style={rowStyle}>{body}</div>
       )}
 
-      <WorkshopWaitlist workshop={workshop} />
+      <WorkshopWaitlist workshop={workshop} {...(onBook ? { onJoin: onBook } : {})} />
     </article>
   )
 }

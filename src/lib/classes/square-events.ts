@@ -21,6 +21,9 @@
  *   item for /admin › To decide. Never refunded, never cancelled.
  * - A 'choose' pass sold at the counter can't know its days: it is put on the
  *   next upcoming session(s) and listed in 'pos-needs-days' for staff.
+ * - A plain-amount order whose payment note names one of our "Charge on the
+ *   reader" sales (stage 4, reader-flow) is that sale's: checked against the
+ *   sale and seated, never a counter sale and never unmatched.
  * - A class item we can't match (Classes category, or sku 'cls_…') → kv
  *   'unmatched-pos'. Add-on lines attach to nothing (logged).
  * - A Square refund on one of our payments (any of the order's tenders): one
@@ -46,6 +49,10 @@ import { recordAudit } from '@lib/audit'
 import type { By } from '@lib/staff-auth'
 import { listClasses } from './class-store'
 import { squareFetch, squareSettings } from './square-api'
+import { registerIds } from './register-setup'
+import { codeFromDiscountName, codeOnLines } from '@lib/promos/rules'
+import { bookingInNote } from './reader'
+import { confirmUse, countUse } from '@lib/promos/promo-store'
 import { confirmBooking, getLedger, moveLines, paidBy, recordPos, recordRefund, type LedgerLine, type PosLineInput } from './seat-ledger'
 import { alertOwners } from '@lib/owner-alert'
 import { siteConfig } from '@config/site.config'
@@ -54,7 +61,7 @@ import { seatsLabelFor } from './checkout'
 import { claimConfirmation, markConfirmationRetry, releaseConfirmation, sendClassConfirmation, takeConfirmationRetry } from './confirmation'
 import { bookingCap, freeSeatOnly, onSeatFreed } from './refunds'
 import { claimSquareRefund } from '@lib/booking-core/refund-books'
-import { LOOSE_PAYMENT_SCOPES, PAID_ELSEWHERE_SCOPE, PAID_NOT_SEATED_SCOPE, PARTY_SCOPE } from '@lib/booking-core/refund-runner'
+import { LOOSE_PAYMENT_SCOPES, PAID_ELSEWHERE_SCOPE, PAID_NOT_SEATED_SCOPE, PARTY_SCOPE, READER_SCOPE } from '@lib/booking-core/refund-runner'
 import { refundKey } from '@lib/booking-core/refund-words'
 import { allRefundRequests, changeRefundRequest, listRefundRequests, UNCONFIRMED_AFTER_MS, type SavedRefundRequest } from './refund-requests'
 import { paidElsewhereForPayment, reopenAfterFailedRefund } from '@lib/parties/paid-elsewhere'
@@ -255,7 +262,7 @@ export class CatalogCache {
   async prefetch(variationIds: Iterable<string>): Promise<void> {
     const todo = [...new Set(variationIds)].filter((id) => id && !this.known.has(id) && !this.failed.has(id))
     if (!todo.length) return
-    const categoryId = squareSettings().classesCategoryId || ''
+    const categoryId = (await registerIds()).classesCategoryId || ''
     for (let i = 0; i < todo.length; i += CATALOG_BATCH) {
       const ids = todo.slice(i, i + CATALOG_BATCH)
       try {
@@ -352,7 +359,21 @@ export async function handleOrder(
   if (ref.startsWith('bkg_')) return handleOwnOrder(order, now, opts, out)
 
   const lineItems: any[] = (order.line_items ?? []).filter((li: any) => li?.catalog_object_id && li?.uid)
-  if (!lineItems.length) return { ...out, skipped: 'no-class-lines' }
+  if (!lineItems.length) {
+    // Stage 4: a "Charge on the reader" payment (a plain amount whose note names one of our reader sales) is that
+    // sale's, never a counter sale or an unmatched one. It is checked and seated like the app's own answer.
+    if ((order.tenders ?? []).some((t: any) => bookingInNote(t?.note))) {
+      try {
+        const { settleReaderOrderFromSquare } = await import('./reader-flow')
+        if (await settleReaderOrderFromSquare(order, siteConfig.url.replace(/\/$/, ''), now)) return { ...out, skipped: 'not-ours' }
+      } catch (e) {
+        // The sale stays waiting; the nightly run, Check again or To decide's Ask Square finds it again.
+        logger.error('Reader order not settled', { orderId, error: e instanceof Error ? e.message : String(e) })
+        return { ...out, skipped: 'not-ours' }
+      }
+    }
+    return { ...out, skipped: 'no-class-lines' }
+  }
   const ctx = opts.ctx ?? contextFor(opts.classes ?? (await listClasses()))
   const saleIso = order.closed_at ?? order.updated_at ?? order.created_at ?? now.toISOString()
   const paymentIds = tenderPaymentIds(order)
@@ -520,6 +541,9 @@ async function handleOwnOrder(
   const paidLines = mine.filter((l) => l.state === 'confirmed' || l.state === 'refunded')
   // Already booked by this order: the usual echo of a booking that went through.
   if (!held.length && paidLines.some((l) => l.square.orderId === orderId)) {
+    // I1: the request confirmed the seats; if it couldn't count the code's use, this echo (or tonight's catch-up) does.
+    const echoCode = codeOnLines(paidLines.filter((l) => l.square.orderId === orderId))
+    if (echoCode) await confirmUse(echoCode, bookingId, cls.id, now).catch(() => undefined)
     // N2: a confirmation that failed from Square's notice is tried once more by the nightly catch-up.
     if (ctx.retryConfirmations && (await takeConfirmationRetry(bookingId))) {
       const mine = paidLines.filter((l) => l.square.orderId === orderId)
@@ -543,6 +567,9 @@ async function handleOwnOrder(
   if (held.length) {
     const { lines, changed } = await confirmBooking(cls.id, bookingId, { orderId, paymentId, chargedCents }, { cls }, now)
     if (!changed) return { ...out, skipped: 'not-ours' }
+    // I1: the code's use is counted here too (the request may have died with no answer), exactly once.
+    const code = codeOnLines(lines)
+    if (code) await countUse(code, bookingId, { id: cls.id, name: cls.content.name }, now)
     logger.warn('Square shows our booking paid — seats confirmed from Square', { orderId, bookingId, classId: cls.id, seats: lines.length })
     await recordAudit({
       by: { ...SQUARE_BY, role: 'owner' }, action: 'class-confirm-from-square', target: { kind: 'class', id: cls.id, label: cls.content.name },
@@ -631,7 +658,7 @@ export async function reopenPaidNotSeated(id: string, refundFailed: NonNullable<
   return reopened
 }
 
-/** An owner seated them, refunded them, or sorted it out: it leaves the list. */
+/** An owner seated them, refunded them, or said it’s already sorted: it leaves the list. */
 export async function resolvePaidNotSeated(id: string, by: By, how: 'seated' | 'sorted' | 'refunded'): Promise<void> {
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const { value, etag } = await paidNotSeatedKv.getWithMeta(id)
@@ -681,6 +708,9 @@ export async function seatPaidOrder(
   const added = await recordPos(cls, {
     bookingId: p.bookingId, orderId: p.orderId, paymentId: p.paymentId, paymentIds: p.paymentIds, chargedCents: p.chargedCents, lines, saleIso,
   }, now, { source: 'online', customer, matchDoor: false })
+  // I1: a code on the order (its discount reads "Code X") counts its use once the seats are given.
+  const code = ((order.discounts ?? []) as any[]).map((d) => codeFromDiscountName(d?.name)).find((c): c is string => !!c)
+  if (code && added.length) await countUse(code, p.bookingId, { id: cls.id, name: cls.content.name }, now)
   for (const pl of lines.filter((x) => x.needsDays)) {
     const mine = added.filter((l) => l.square.lineUid === pl.lineUid)
     if (!mine.length) continue
@@ -1219,6 +1249,11 @@ export async function flagUnconfirmedRequests(now: Date): Promise<number> {
     // refund was started and Square didn't confirm it, and Refund it re-sends the same saved request (never twice).
     // If Square did make it, its refund (webhook or this nightly run) is claimed as that request and finishes it.
     if (LOOSE_PAYMENT_SCOPES.has(r.classId)) continue
+    // A reader payment's refund stays on its own To decide item (Refund it sends the same request again): never flagged here.
+    if (r.classId === READER_SCOPE) continue
+    // F3: a customer's own cancel keeps its refund on its own To decide item (Customer's cancel, refund unclear,
+    // with Ask Square in the app): never a second, generic "Refund with no answer" for the same refund.
+    if (r.by.id.startsWith('customer-online')) continue
     if (checkedButUnfinished(r) && now.getTime() - Date.parse(r.cleared!.at) >= UNFINISHED_AFTER_MS) {
       open++
       const id = `flag-refund-unfinished-${safeKey(r.id)}`

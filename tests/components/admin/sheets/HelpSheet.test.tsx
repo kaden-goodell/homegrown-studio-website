@@ -5,12 +5,12 @@ import { visibleHelp } from '@lib/admin-help'
 import { renderSheet } from './harness'
 
 describe('More › Help', () => {
-  it('opens on How to, with every section shown in this build (Staff included) and none of stage 4', () => {
+  it('opens on How to, with every section shown in this build (Staff and stage 4 included)', () => {
     const { container } = renderSheet(<HelpSheet />)
     expect(screen.getByRole('heading', { name: 'Help' })).toBeTruthy()
     const titles = [...container.querySelectorAll('summary')].map((x) => x.textContent)
     expect(titles).toEqual(visibleHelp().sections.map((s) => s.title))
-    expect(titles).not.toContain('Promotions and early-bird')
+    expect(titles).toContain('Promotions and early-bird') // extras (stage 4) is merged
     expect(titles).toContain('Staff') // staffing (stage 3) is merged
     // button names are bold
     expect(screen.getAllByText('Cancel this class').some((el) => el.tagName === 'B')).toBe(true)

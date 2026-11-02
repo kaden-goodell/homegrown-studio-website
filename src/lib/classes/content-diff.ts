@@ -27,6 +27,7 @@ export function contentChanges(a: ClassContent, b: ClassContent, opts: { usual?:
   if (a.name !== b.name) out.push('Name')
   if (differs(a.imageUrl ?? null, b.imageUrl ?? null)) out.push('Photo')
   if (differs(a.prices, b.prices)) out.push('Price')
+  if (differs(a.earlyBird ?? null, b.earlyBird ?? null)) out.push('Early-bird')
   if (a.rules.ages !== b.rules.ages) out.push('Ages')
   if (a.description !== b.description) out.push('Description')
   if ((a.instructor ?? '') !== (b.instructor ?? '')) out.push('Teacher')

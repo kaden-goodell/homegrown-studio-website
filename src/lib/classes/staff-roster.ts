@@ -10,8 +10,9 @@ import { groupBookings, type BookingView } from './admin-actions'
 import { getClass } from './class-store'
 import { describeRequest } from './refunds'
 import { isWaiting, listRefundRequests } from './refund-requests'
-import { getLedger, setNames, type Ledger, type LedgerLine } from './seat-ledger'
+import { getLedger, setNames, takesSeat, type Ledger, type LedgerLine } from './seat-ledger'
 import { COUNTER_SALE_NO_NAME, holdsSeat, ownRosterChoices, sessionsOn } from './staff-view'
+import { waitlistOrNull, isOnList } from './waitlist-store'
 
 export type WaitingRefund = ReturnType<typeof describeRequest>
 
@@ -30,6 +31,8 @@ export interface OwnRoster {
   bookings: RosterBooking[]
   /** ticket type id → label ("Adult"), for the refund panel */
   ticketLabels: Record<string, string>
+  /** Stage 4: people on the waitlist for this day (0 when none or it can't be read) */
+  waitlistWaiting: number
 }
 
 const fullName = (c: LedgerLine['customer']) => (c ? `${c.givenName} ${c.familyName}`.trim() : '')
@@ -47,7 +50,8 @@ export async function ownRoster(event: StudioEvent, day: string, signerEmails: s
     return {
       ...b,
       name: fullName(b.customer) || COUNTER_SALE_NO_NAME,
-      seatsToday: lines.filter((l) => onDay(l) && holdsSeat(l)).length,
+      // A reader sale still waiting on the Square app shows the seats it holds.
+      seatsToday: lines.filter((l) => onDay(l) && (holdsSeat(l) || (l.source === 'door-reader' && takesSeat(l, now)))).length,
       waiting: waitingReq ? describeRequest(waitingReq, ledger, cls) : null,
     }
   }))
@@ -56,6 +60,7 @@ export async function ownRoster(event: StudioEvent, day: string, signerEmails: s
     choices: ownRosterChoices(cls, ledger, day, signerEmails, now),
     bookings,
     ticketLabels: Object.fromEntries(cls.content.ticketTypes.map((t) => [t.id, t.label])),
+    waitlistWaiting: ((await waitlistOrNull(cls.id))?.entries ?? []).filter((e) => isOnList(e) && e.sessionIds.some((id) => today.has(id))).length,
   }
 }
 

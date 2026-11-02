@@ -65,7 +65,7 @@ export async function addDoorSeats(input: {
     const done = (await getLedger(cls.id)).lines.filter((l) => l.bookingId === bookingId && (l.state === 'confirmed' || l.state === 'refunded'))
     if (done.length) {
       const sessionIds = done[0].sessionIds
-      return answer(done, { sessionIds, seats: done.length, lines: [], subtotalCents: 0, taxCents: 0, totalCents: 0 })
+      return answer(done, { sessionIds, seats: done.length, lines: [], subtotalCents: 0, taxCents: 0, totalCents: 0, discountCents: 0, promo: null })
     }
   }
 
@@ -74,7 +74,7 @@ export async function addDoorSeats(input: {
   if (!priced.ok) return { ok: false, status: priced.field ? 400 : 409, error: priced.error }
   // A comp is a $0 seat: nothing to refund and nothing owed.
   const q: Quote = mode === 'comp'
-    ? { ...priced.value, lines: priced.value.lines.map((l) => ({ ...l, cents: 0, taxCents: 0 })), subtotalCents: 0, taxCents: 0, totalCents: 0 }
+    ? { ...priced.value, lines: priced.value.lines.map((l) => ({ ...l, discounts: [], cents: 0, taxCents: 0 })), subtotalCents: 0, taxCents: 0, totalCents: 0, discountCents: 0, promo: null }
     : priced.value
   const holdInput: HoldInput = {
     bookingId, passId: input.request.passId, source: mode, customer: input.customer, ttlMinutes: 10, by: input.by,

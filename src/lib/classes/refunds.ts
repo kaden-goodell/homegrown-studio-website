@@ -13,6 +13,7 @@
  * (`classRefundBook`) plus the class rules: planning, keys, words.
  */
 import { recordAudit } from '@lib/audit'
+import { afterReply } from '@lib/after-reply'
 import { sendRefundEmail } from '@lib/email'
 import type { By } from '@lib/staff-auth'
 import { getClass } from './class-store'
@@ -39,6 +40,11 @@ export type RefundKind = 'booking' | 'person' | 'session' | 'custom'
 export const REFUND_KINDS: RefundKind[] = ['booking', 'person', 'session', 'custom']
 
 export const AT_THE_REGISTER = 'Refund this at the register, then free the seat.'
+/** D3: said when someone tries to refund a booking that cost nothing. */
+export const NOTHING_TO_REFUND_FREE = 'This booking was free, so there’s nothing to refund. Free the seat instead.'
+/** D3: an online or iPad booking that came to $0: no order, no payment, $0 charged. */
+export const isFreeBooking = (l: Pick<LedgerLine, 'source' | 'square'>) =>
+  (l.source === 'online' || l.source === 'door-card') && !l.square.paymentId && !l.square.orderId && l.square.chargedCents === 0
 export const ALREADY_FREE = 'That seat is already free.'
 
 export interface RefundRequest {
@@ -108,7 +114,11 @@ export function bookingCap(lines: LedgerLine[]): Cents | null {
   return Math.max(0, charged - lines.reduce((s, l) => s + l.refunds.reduce((a, r) => a + r.cents, 0), 0))
 }
 
-/** What one session of a multi-session seat is worth: seat price ÷ sessions (rounded down) plus that share's tax. Add-ons are not prorated. */
+/**
+ * What one session of a multi-session seat is worth: seat price ÷ sessions (rounded down) plus that share's tax. Add-ons are not prorated.
+ * M3: worked from our own priceCents, not Square's per-seat net, so on a discounted seat it can be a cent off
+ * Square's share. Accepted: the booking cap (what Square charged) still bounds every refund.
+ */
 export function sessionShare(l: LedgerLine): Cents {
   const share = Math.floor(l.priceCents / l.sessionIds.length)
   const tax = l.priceCents > 0 ? Math.round((share * l.taxCents) / l.priceCents) : 0
@@ -137,6 +147,8 @@ export function planRefund(ledger: Ledger, req: RefundRequest): RefundPlan {
     }).sort((a, b) => a.seat - b.seat)
   }
 
+  // D3: a free booking (a code or a $0 early-bird) has nothing to refund; its seat can still be freed.
+  if (chosen.every(isFreeBooking)) throw new RefundError(409, NOTHING_TO_REFUND_FREE)
   const paymentId = chosen[0].square.paymentId
   if (!paymentId || chosen.some((l) => l.square.paymentId !== paymentId)) throw new RefundError(400, NOT_PAID_HERE)
 
@@ -193,8 +205,22 @@ export function planRefund(ledger: Ledger, req: RefundRequest): RefundPlan {
   return { lines, totalCents, paymentId, freeSeat, prior, failures: failuresOn(booking, rawKey), rawKey }
 }
 
-/** Stage 4 (waitlist) hooks in here. Called after a refund frees seats. */
-export async function onSeatFreed(_classId: string, _sessionIds: string[]): Promise<void> {}
+/**
+ * Stage 4: a refund or "free the seat" freed seats → the waitlist runs (adds
+ * and charges the next person who fits). A refund that keeps the seat never
+ * calls this. Never throws: a freed seat is never undone by a waitlist problem.
+ */
+export async function onSeatFreed(classId: string, _sessionIds: string[]): Promise<void> {
+  // M7: after the reply where the platform allows (a refund never waits for the waitlist's charges).
+  await afterReply(async () => {
+    try {
+      const { runWaitlist } = await import('./waitlist-runner')
+      await runWaitlist(classId, { reason: 'seat-freed' })
+    } catch (err) {
+      console.error(`[classes/refund] waitlist run after a freed seat failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  })
+}
 
 export interface RefundResult {
   refundId: string

@@ -41,7 +41,7 @@ Ship to prod: `git push origin dev:main` (the repo has used a force push when ma
 - Build notebooks: `docs/superpowers/ledgers/stage1-own-classes/progress.md` and `stage2-parties/progress.md` (on `kaden/admin-d`). Every decision is logged there as `R<n>` / `S2-R<n>` rulings. "COPY FOR KADEN" in the stage 2 notebook lists customer wording still waiting on approval.
 - Next: finish Task 11, Tasks 12–14, stage 2 final review, stages 3–4, then merge `kaden/admin-d` into `kaden/own-booking-system`.
 - Before real money: set `SQUARE_WEBHOOK_SIGNATURE_KEY`, `SQUARE_WEBHOOK_URL`, `SQUARE_CLASSES_CATEGORY_ID`, `SQUARE_CLASS_TAX_ID` and subscribe the Square webhook to https://ourhometownstudio.com/api/webhooks/square.json.
-- Sandbox end-to-end test: `ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts` (`--cleanup-only` if it stops part way).
+- Sandbox end-to-end test: `ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" PREVIEW_OWNER_ALERT_NUMBERS="$(npx netlify env:get OWNER_ALERT_NUMBERS --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts` (`--cleanup-only` if it stops part way).
 
 ## 3. Adding a workshop (today's way, live Square)
 

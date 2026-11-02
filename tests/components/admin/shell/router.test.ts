@@ -4,6 +4,8 @@ import { homeTabOf, isFormSheet, parseHash, parseSheet, sheetToken, type Sheet }
 describe('/admin address tokens', () => {
   const round: Sheet[] = [
     { kind: 'class', id: 'cls_abc123' },
+    { kind: 'promo', id: 'FALLFRIENDS' },
+    { kind: 'promo', id: 'new' },
     { kind: 'edit', id: 'cls_abc123' },
     { kind: 'new' },
     { kind: 'new', day: '2026-10-24' },
@@ -65,5 +67,12 @@ describe('/admin address tokens', () => {
     expect(homeTabOf({ kind: 'again', id: 'cls_1' })).toBe('classes')
     // "Add a class to the library" is gone: every class gets there on its own.
     expect(parseHash('#libnew')).toEqual({})
+  })
+})
+
+describe('/admin address tokens: Promotions (stage 4)', () => {
+  it('a code sits under More', () => {
+    expect(parseHash('#promo-FALLFRIENDS')).toEqual({ sheet: { kind: 'promo', id: 'FALLFRIENDS' } })
+    expect(homeTabOf({ kind: 'promo', id: 'new' })).toBe('more')
   })
 })

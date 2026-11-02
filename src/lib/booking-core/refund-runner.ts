@@ -120,6 +120,13 @@ export const PAID_NOT_SEATED_SCOPE = 'class-paid-not-seated'
 export const LOOSE_PAYMENT_SCOPES: ReadonlySet<string> = new Set([PAID_ELSEWHERE_SCOPE, PAID_NOT_SEATED_SCOPE])
 
 /**
+ * Stage 4 (R1/R2): a reader payment that isn't a seat's (it didn't match, or a second payment for one
+ * sale). bookingId = `{reader booking id}~{Square payment id}`; one request per payment
+ * (classes/reader-refund).
+ */
+export const READER_SCOPE = 'reader'
+
+/**
  * Finds the book that writes refunds for a scope (the static list is
  * booking-core/refund-books: classes and parties, an unknown scope throws).
  * The runner itself knows no booking kind. `hint.label` is the name the

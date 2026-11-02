@@ -7,15 +7,19 @@
  */
 import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
-import type { Quote } from './pricing'
+import type { LineDiscount, Quote } from './pricing'
 import type { Cents, ScheduledClass } from './types'
 import { newId } from './validate'
 import { studioDate } from '@lib/studio-time'
 import { assertClassWritesAllowed } from './test-site-guard'
+import { createLogger } from '@lib/logger'
 import { isExpiredHold, isPaidLine, paidOn, refundedOn, takesSeat } from './seat-status'
 export { isComing, isPaidLine, takesSeat } from './seat-status'
 
-export type SeatSource = 'online' | 'door-card' | 'door-counter' | 'comp' | 'pos'
+const logger = createLogger('classes:seat-ledger')
+
+/** door-reader (stage 4): taken at the door on the card reader through the Square POS app (reader-flow). */
+export type SeatSource = 'online' | 'door-card' | 'door-counter' | 'comp' | 'pos' | 'door-reader'
 export interface LedgerLine {
   id: string                 // 'led_'…
   bookingId: string          // groups a booking's lines ('bkg_'…)
@@ -23,8 +27,12 @@ export interface LedgerLine {
   ticketTypeId: string
   passId: string
   seat: number               // 1-based within the booking
-  /** the seat itself; add-on money is kept apart in addOnCents/addOnTaxCents */
+  /** the seat itself, net of any discount; add-on money is kept apart in addOnCents/addOnTaxCents (also net) */
   priceCents: Cents; taxCents: Cents
+  /** Stage 4, set only on a discounted seat: the seat's catalog price before discounts. */
+  listCents?: Cents
+  /** Stage 4, set only on a discounted seat: what came off this seat and its extras (early-bird, code), as on the receipt. */
+  discounts?: LineDiscount[]
   addOns: Record<string, number>
   addOnCents: Cents; addOnTaxCents: Cents
   answers: Record<string, string>
@@ -37,7 +45,15 @@ export interface LedgerLine {
    * paymentIds: every payment on the order when it was paid with several
    * tenders (POS split tender); paymentId is the first. A refund on any of them is this seat's.
    */
-  square: { orderId: string | null; paymentId: string | null; lineUid: string | null; chargedCents?: Cents; paymentIds?: string[] }
+  /**
+   * lineNetCents / lineTaxCents (stage 4): what Square itself computed for this
+   * seat's order lines (the seat and its extras), net of discounts and tax.
+   * When present, refunds use these (money we record = money Square computed).
+   */
+  square: {
+    orderId: string | null; paymentId: string | null; lineUid: string | null; chargedCents?: Cents; paymentIds?: string[]
+    lineNetCents?: Cents; lineTaxCents?: Cents
+  }
   by: By | null
   /** requestId: the saved refund request this entry was written for (our own refunds), so it is never written twice */
   /** id: set on entries written since fix round 2 (11b-C), so an Undo can take back exactly the entry its decision wrote */
@@ -62,6 +78,8 @@ export interface LedgerLine {
    * /admin › To decide and reads "Paid at the counter". No money is recorded.
    */
   paidAtCounter?: { at: string; by: By }
+  /** Stage 4 (S4-R4): a booking the waitlist made (an ordinary online booking, refundable like any other). */
+  waitlistEntryId?: string
 }
 /** A door seat taken "to pay at the counter" that no sale has paid and no owner has marked paid. */
 export const unpaidDoorSeat = (l: LedgerLine) => l.source === 'door-counter' && l.state === 'confirmed' && !l.square.orderId && !l.paidAtCounter
@@ -79,6 +97,8 @@ export interface HoldInput {
   /** POS and the door's "squeeze one more" skip the capacity check */
   allowOverCapacity?: boolean
   by?: By
+  /** Stage 4: the waitlist entry this booking is for. */
+  waitlistEntryId?: string
 }
 export type HoldResult = { ok: true; lines: LedgerLine[] } | { ok: false; reason: 'sold_out'; sessionId: string; left: number }
 
@@ -134,12 +154,19 @@ function buildLines(q: Quote, input: HoldInput, now: Date, expires: string | nul
   return q.lines.filter((l) => l.kind === 'seat').map((sl) => {
     const addOns: Record<string, number> = {}
     let addOnCents = 0, addOnTaxCents = 0
+    const discounts: LineDiscount[] = (sl.discounts ?? []).map((d) => ({ ...d }))
     for (const al of q.lines) {
       if (al.kind !== 'addon' || al.seat !== sl.seat) continue
       const addId = (al.variationKey ?? '').replace(/^addon:/, '')
       addOns[addId] = (addOns[addId] ?? 0) + 1
       addOnCents += al.cents
       addOnTaxCents += al.taxCents
+      // One entry per kind and name for the seat and its extras.
+      for (const d of al.discounts ?? []) {
+        const same = discounts.find((x) => x.kind === d.kind && x.name === d.name)
+        if (same) same.cents += d.cents
+        else discounts.push({ ...d })
+      }
     }
     return {
       id: newId('led'),
@@ -150,6 +177,7 @@ function buildLines(q: Quote, input: HoldInput, now: Date, expires: string | nul
       seat: sl.seat + 1,
       priceCents: sl.cents,
       taxCents: sl.taxCents,
+      ...(discounts.length ? { listCents: sl.listCents ?? sl.cents, discounts } : {}),
       addOns,
       addOnCents,
       addOnTaxCents,
@@ -162,6 +190,7 @@ function buildLines(q: Quote, input: HoldInput, now: Date, expires: string | nul
       by: input.by ?? null,
       refunds: [],
       at: now.toISOString(),
+      ...(input.waitlistEntryId ? { waitlistEntryId: input.waitlistEntryId } : {}),
     }
   })
 }
@@ -202,10 +231,21 @@ export async function hold(cls: ScheduledClass, q: Quote, input: HoldInput, now:
  * refunded seat and no held seat is already paid and recorded: its paid lines
  * are returned unchanged and nothing is rebuilt (safe to retry or replay).
  */
+/**
+ * What Square charged, as the booking path hands it to confirm. `lineTotals`
+ * (stage 4): Square's own per-line totals of the order, in the quote's line
+ * order; kept on each seat when they match the quote's lines and add up to
+ * the charge.
+ */
+export type PaidOnSquare = {
+  orderId: string | null; paymentId: string | null; chargedCents?: Cents
+  lineTotals?: { totalCents: Cents; taxCents: Cents }[]
+}
+
 export async function confirm(
   classId: string,
   bookingId: string,
-  square: { orderId: string | null; paymentId: string | null; chargedCents?: Cents },
+  square: PaidOnSquare,
   fallback: { cls: ScheduledClass; quote: Quote; input: HoldInput },
   now: Date,
   /** requireLiveHold: only convert a hold still running; with none, write nothing and return [] (no rebuild past capacity) */
@@ -221,10 +261,32 @@ export async function confirm(
  * order, not what was asked), a booking with no held or paid seats is left
  * alone: nothing is written and `lines` is empty.
  */
+/** Square's per-line totals summed per seat (0-based quote seat → net and tax), or null when they can't be trusted. */
+function squareTotalsBySeat(square: PaidOnSquare, q: Quote | undefined, bookingId: string): Map<number, { net: Cents; tax: Cents }> | null {
+  const t = square.lineTotals
+  if (!t || !t.length || !q) return null
+  // M1: money we record should be money Square computed. The fallback (our quote's numbers) is safe, but say so.
+  if (t.length !== q.lines.length) {
+    logger.warn('Square line totals dropped: not one per quote line — keeping the quote numbers', { bookingId, orderId: square.orderId, square: t.length, quote: q.lines.length })
+    return null
+  }
+  const sum = t.reduce((s, x) => s + x.totalCents, 0)
+  if (typeof square.chargedCents === 'number' && sum !== square.chargedCents) {
+    logger.warn('Square line totals dropped: they do not add up to the charge — keeping the quote numbers', { bookingId, orderId: square.orderId, sum, charged: square.chargedCents })
+    return null
+  }
+  const out = new Map<number, { net: Cents; tax: Cents }>()
+  q.lines.forEach((l, i) => {
+    const cur = out.get(l.seat) ?? { net: 0, tax: 0 }
+    out.set(l.seat, { net: cur.net + t[i].totalCents - t[i].taxCents, tax: cur.tax + t[i].taxCents })
+  })
+  return out
+}
+
 export async function confirmBooking(
   classId: string,
   bookingId: string,
-  square: { orderId: string | null; paymentId: string | null; chargedCents?: Cents },
+  square: PaidOnSquare,
   fallback: { cls: ScheduledClass; quote?: Quote; input?: HoldInput },
   now: Date,
   opts: { requireLiveHold?: boolean } = {},
@@ -239,10 +301,15 @@ export async function confirmBooking(
       return none
     }
     if (!hasHeld && (!fallback.quote || !fallback.input)) return none
-    const sq = (l: LedgerLine) => ({
-      ...l.square, orderId: square.orderId, paymentId: square.paymentId,
-      ...(square.chargedCents !== undefined ? { chargedCents: square.chargedCents } : {}),
-    })
+    const bySeat = squareTotalsBySeat(square, fallback.quote, bookingId)
+    const sq = (l: LedgerLine): LedgerLine['square'] => {
+      const mine = bySeat?.get(l.seat - 1)
+      return {
+        ...l.square, orderId: square.orderId, paymentId: square.paymentId,
+        ...(square.chargedCents !== undefined ? { chargedCents: square.chargedCents } : {}),
+        ...(mine ? { lineNetCents: mine.net, lineTaxCents: mine.tax } : {}),
+      }
+    }
     let lines: LedgerLine[]
     if (hasHeld) {
       // Convert this booking's holds (even expired, unswept ones); sweep everyone else's expired holds.
@@ -518,7 +585,13 @@ export async function recordPos(
           ? { counterMatch: { orderId: input.orderId, candidates: bookings, at: input.saleIso ?? now.toISOString(), checked: null } }
           : {}
         if (bookings > 1) flagged.add(door.bookingId)
-        kept = kept.map((l) => (l.id === door.id ? { ...l, priceCents: unit.priceCents, taxCents: unit.taxCents, square: sq(pl), ...check } : l))
+        // I4: the register's numbers are what was paid; any early-bird or code noted when the seat was taken goes,
+        // so the seat never shows a discount it didn't get (D4: the POS rings the current price itself).
+        kept = kept.map((l) => {
+          if (l.id !== door.id) return l
+          const { listCents: _list, discounts: _off, ...rest } = l
+          return { ...rest, priceCents: unit.priceCents, taxCents: unit.taxCents, square: sq(pl), ...check }
+        })
         have++
       }
       for (let u = have; u < pl.units.length; u++) {

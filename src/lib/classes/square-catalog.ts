@@ -11,29 +11,13 @@ import { createHash, randomUUID } from 'node:crypto'
 import { siteConfig } from '@config/site.config'
 import { formatDay } from '@lib/studio-time'
 import { squareFetch, squareSettings } from './square-api'
-import { sellableCells } from './validate'
 import { assertClassWritesAllowed, assertSquareCatalogWriteAllowed } from './test-site-guard'
+import { registerIds } from './register-setup'
+import { CLASS_TAX_NOT_SET, CLASSES_CATEGORY_NOT_SET } from './register-words'
 import type { Cents, ScheduledClass } from './types'
 
-export interface PlannedVariation { key: string; name: string; cents: Cents }
-
-/** Every variation the POS item should carry, in a stable order. */
-export function variationPlan(cls: ScheduledClass): PlannedVariation[] {
-  const c = cls.content
-  const singlePass = c.passes.length === 1
-  const plan: PlannedVariation[] = []
-  for (const cell of sellableCells(c)) {
-    const pass = c.passes.find((p) => p.id === cell.passId)!
-    const ticket = c.ticketTypes.find((t) => t.id === cell.ticketTypeId)!
-    plan.push({
-      key: `${cell.passId}:${cell.ticketTypeId}`,
-      name: singlePass ? ticket.label : `${pass.label} · ${ticket.label}`,
-      cents: cell.cents,
-    })
-  }
-  for (const a of c.addOns) plan.push({ key: `addon:${a.id}`, name: `${a.label} (add-on)`, cents: a.priceCents })
-  return plan
-}
+export { EARLY_BIRD_SUFFIX, notOnRegister, posPricesNow, posPricesStale, variationPlan, type PlannedVariation } from './pos-plan'
+import { plainName, variationPlan } from './pos-plan'
 
 /** "Pottery · Sat Oct 17" — first session's day in studio time. */
 function itemName(cls: ScheduledClass): string {
@@ -97,27 +81,29 @@ async function uploadImage(itemId: string, imageUrl: string, className: string):
   await squareFetch('/catalog/images', { method: 'POST', body: form })
 }
 
-/** Thrown (before any Square call) when a taxable class would go on the POS with no SQUARE_CLASS_TAX_ID. */
-export const CLASS_TAX_NOT_SET = "Class tax isn't set up yet."
+/** Thrown (before any Square call) when a taxable class would go on the register with no class tax picked (More › Register setup). */
+export { CLASS_TAX_NOT_SET, CLASSES_CATEGORY_NOT_SET }
 
 /**
  * Create or update the class's POS item. Reuses variation ids by key,
  * drops variations no longer sold (left out of the item, which Square
  * removes), and uploads the image only when its URL changed. Returns the
- * ids to save on the class.
+ * ids to save on the class, and the price each variation now carries (D4:
+ * the current price, early-bird while it runs).
  */
-export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledClass['square']> {
+export async function syncClassToSquare(cls: ScheduledClass, now: Date = new Date()): Promise<ScheduledClass['square']> {
   assertClassWritesAllowed() // R41: a test site with no store of its own never writes the live POS
   assertSquareCatalogWriteAllowed(squareSettings().environment) // N3: nor does any test site pointed at the live Square
-  const cfg = squareSettings()
-  const categoryId = cfg.classesCategoryId || ''
-  if (!categoryId) throw new Error("Classes category isn't set up yet.")
-  const taxId = cfg.classTaxId || ''
+  // The owners' picks in More › Register setup, else the site's values.
+  const ids = await registerIds()
+  const categoryId = ids.classesCategoryId || ''
+  if (!categoryId) throw new Error(CLASSES_CATEGORY_NOT_SET)
+  const taxId = ids.classTaxId || ''
   // Fail closed: a taxable class put on the POS without its tax would be sold untaxed.
   // A cancelled class is still taken off the POS.
   if (!taxId && cls.content.rules.taxable && cls.status !== 'cancelled') throw new Error(CLASS_TAX_NOT_SET)
-  const plan = variationPlan(cls)
-  if (!plan.length) throw new Error('Add a price before putting this class on the POS.')
+  const plan = variationPlan(cls, now)
+  if (!plan.length) throw new Error('Add a price before putting this class on the register.')
 
   let current = cls.square.itemId ? await fetchItem(cls.square.itemId) : null
   let known: Record<string, string> = cls.square.variations
@@ -125,8 +111,9 @@ export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledC
     current = await findItemBySku(cls.id)
     if (current) {
       // Adopt it: match its variations to our keys by name.
-      const byName = new Map<string, string>((current.item_data?.variations ?? []).map((v: any) => [v.item_variation_data?.name, v.id]))
-      known = Object.fromEntries(plan.flatMap((p) => (byName.has(p.name) ? [[p.key, byName.get(p.name)!]] : [])))
+      // Names compared without " (early-bird)", so an item found mid early-bird (or after) is still adopted.
+      const byName = new Map<string, string>((current.item_data?.variations ?? []).map((v: any) => [plainName(v.item_variation_data?.name), v.id]))
+      known = Object.fromEntries(plan.flatMap((p) => (byName.has(plainName(p.name)) ? [[p.key, byName.get(plainName(p.name))!]] : [])))
     }
   }
   const currentVars = new Map<string, any>(
@@ -206,7 +193,12 @@ export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledC
       console.warn(`[classes] image upload for ${cls.id} failed: ${e?.message ?? e}`)
     }
   }
-  return { itemId, variations: out, imageUrl }
+  return {
+    itemId, variations: out, imageUrl, prices: Object.fromEntries(plan.map((p) => [p.key, p.cents])),
+    // Fix round 4: what the item carries now, so a later Register setup change shows "Update the register".
+    taxId: taxId && cls.content.rules.taxable ? taxId : null,
+    categoryId,
+  }
 }
 
 /**

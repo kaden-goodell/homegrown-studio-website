@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   archive: vi.fn(),
   squareFetch: vi.fn(),
   audit: vi.fn(),
+  runWaitlist: vi.fn(async (..._a: any[]) => ({ ran: true, added: 0 })),
   libraryDown: false,
   classDown: 0,
   /** RM3: runs once just before the next class update (another sheet saving in between). */
@@ -39,6 +40,7 @@ vi.mock('@lib/party-store', () => ({ getPartyRecord: (id: string) => mocks.party
 vi.mock('@lib/classes/square-catalog', () => ({ syncClassToSquare: mocks.sync, archiveClassInSquare: mocks.archive, CLASS_TAX_NOT_SET: "Class tax isn't set up yet." }))
 vi.mock('@lib/classes/square-api', () => ({ squareFetch: mocks.squareFetch, squareSettings: () => ({ environment: 'sandbox' }) }))
 vi.mock('@lib/audit', () => ({ recordAudit: mocks.audit }))
+vi.mock('@lib/classes/waitlist-runner', () => ({ runWaitlist: (...a: any[]) => mocks.runWaitlist(...a) }))
 vi.mock('@lib/classes/library-store', async (importOriginal) => {
   const real = await importOriginal<typeof import('@lib/classes/library-store')>()
   return {
@@ -150,6 +152,32 @@ describe('library', () => {
     expect(after.body.data.library.some((l: any) => l.id === id)).toBe(false)
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-library-save', by: expect.objectContaining({ id: 'admin', name: 'Owner', role: 'owner' }) }))
   })
+  it('stage 4: the library refuses a new early-bird that has ended, and keeps one already saved', async () => {
+    const ended = { untilYmd: '2020-01-01', prices: { all: { person: 2500 } } }
+    const bad = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', content: content('Lib Early', { earlyBird: ended }), note: '' })
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toBe('The early-bird has to end today or later.')
+    const running = { untilYmd: '2099-01-01', prices: { all: { person: 2500 } } }
+    const ok = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', content: content('Lib Early', { earlyBird: running }), note: '' })
+    expect(ok.status).toBe(200)
+    expect(ok.body.data.library.versions[0].content.earlyBird).toEqual(running)
+  })
+  it('stage 4 (M9): the library leaves off its own early-bird once it has ended, with a note, instead of refusing', async () => {
+    const running = { untilYmd: '2099-01-01', prices: { all: { person: 2500 } } }
+    const first = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', content: content('Lib Old Early', { earlyBird: running }), note: '' })
+    const id = first.body.data.library.id
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2099-01-03T18:00:00Z'))
+    try {
+      // The regular price drops under the dead early-bird price: kept as a save, the early-bird left off.
+      const r = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', id, content: content('Lib Old Early', { earlyBird: running, prices: { all: { person: 2000, kid: 2000 } } }), note: '' })
+      expect(r.status).toBe(200)
+      expect(r.body.data.library.versions.at(-1).content.earlyBird).toBeUndefined()
+      expect(r.body.warning).toBe('Early-bird ended, so it was left off.')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
   it('bad content is a 400 with a plain sentence; unknown id is 404', async () => {
     const bad = await call(library, 'POST', '/api/admin/classes/library.json', { action: 'save', content: { ...content(''), name: '' }, note: '' })
     expect(bad.status).toBe(400)
@@ -188,7 +216,7 @@ describe('scheduling', () => {
     mocks.sync.mockRejectedValueOnce(new Error('Square down'))
     const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Square Down'), sessions: [ses('2031-01-23', '17:00', '18:00')], status: 'open' })
     expect(r.status).toBe(200)
-    expect(r.body.warning).toBe("Saved. The POS item didn't update. Try Save again.")
+    expect(r.body.warning).toBe("Saved. The register didn't update. Try Save again.")
     expect(await getClass(r.body.data.class.id)).not.toBeNull()
   })
 
@@ -196,7 +224,7 @@ describe('scheduling', () => {
     mocks.sync.mockRejectedValueOnce(new Error("Class tax isn't set up yet."))
     const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('No Tax Yet'), sessions: [ses('2031-01-30', '17:00', '18:00')], status: 'open' })
     expect(r.status).toBe(200)
-    expect(r.body.warning).toBe("Saved, but it isn't on the POS: Class tax isn't set up yet. It can't be sold until it is.")
+    expect(r.body.warning).toBe("Saved, but it isn't on the register yet: the class tax isn't picked. Open More › Register setup and pick the 9% tax. Then tap Put it on the register.")
     expect((await getClass(r.body.data.class.id))!.square.itemId).toBeNull()
   })
 
@@ -272,6 +300,42 @@ describe('scheduling', () => {
     expect(copy.square.itemId).toBe(`item-${copy.id}`)
   })
 
+  it('stage 4: Run it again and duplicate leave off an early-bird that has ended, and say so; a running one comes along', async () => {
+    const ended = { untilYmd: '2020-01-01', prices: { all: { person: 2500 } } }
+    const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Early Again', { earlyBird: ended }), sessions: [ses('2031-04-20', '17:00', '19:00')], status: 'open' })
+    expect(r.status).toBe(200)
+    expect(r.body.data.class.content.earlyBird).toBeUndefined()
+    expect(r.body.warning).toBe('Early-bird ended, so it was left off.')
+    const running = { untilYmd: '2031-03-01', prices: { all: { kid: 1500 } } }
+    const src = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Early Runs', { earlyBird: running }), sessions: [ses('2031-04-21', '17:00', '19:00')], status: 'open' })
+    expect(src.body.data.class.content.earlyBird).toEqual(running)
+    expect(src.body.warning).toBeUndefined()
+    const dup = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'duplicate', id: src.body.data.class.id, sessions: [{ startIso: at('2031-04-28', '17:00'), endIso: at('2031-04-28', '19:00'), capacity: 8 }] })
+    expect(dup.body.data.class.content.earlyBird).toEqual(running)
+  })
+
+  it('stage 4: an edit refuses setting an early-bird that ended, but keeps one that was already there', async () => {
+    const src = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Early Edit'), sessions: [ses('2031-04-22', '17:00', '19:00')], status: 'open' })
+    const id = src.body.data.class.id
+    const bad = await update({ id, content: content('Early Edit', { earlyBird: { untilYmd: '2020-01-01', prices: { all: { person: 2500 } } } }) })
+    expect(bad.status).toBe(400)
+    expect(bad.body.error).toBe('The early-bird has to end today or later.')
+    const higher = await update({ id, content: content('Early Edit', { earlyBird: { untilYmd: '2031-03-01', prices: { all: { person: 3000 } } } }) })
+    expect(higher.status).toBe(400)
+    expect(higher.body.error).toBe('The Person early-bird price has to be lower than its regular price.')
+    // M9: an early-bird that has since ended, saved back unchanged with other edits, is left off with a note, never refused.
+    const ended = { untilYmd: '2020-01-01', prices: { all: { person: 2500 } } }
+    const cls = (await getClass(id))!
+    const { updateClass: write } = await import('@lib/classes/class-store')
+    await write(id, { content: { ...cls.content, earlyBird: ended } }, { id: 'k', name: 'K' }, 'test: early-bird ended')
+    // Lowering the regular price under the dead early-bird would have been refused ("has to be lower…").
+    const ok = await update({ id, content: content('Early Edit, renamed', { earlyBird: ended, prices: { all: { person: 2000, kid: 2000 } } }) })
+    expect(ok.status).toBe(200)
+    expect(ok.body.data.class.content.earlyBird).toBeUndefined()
+    expect(ok.body.data.class.content.prices.all.person).toBe(2000)
+    expect(ok.body.warning).toContain('Early-bird ended, so it was left off.')
+  })
+
   it('GET lists classes in a range with seats taken', async () => {
     const c = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Listed'), sessions: [ses('2031-03-20', '17:00', '19:00')], status: 'open' })
     const sid = c.body.data.class.sessions[0].id
@@ -308,6 +372,19 @@ describe('editing a class with bookings', () => {
     expect(r.body.error).toMatch(/Apr 3/)
     const ok = await update({ id: cls.id, sessions: [{ ...cls.sessions[0], capacity: 4 }, cls.sessions[1]] })
     expect(ok.status).toBe(200)
+  })
+
+  it('stage 4 (S4-R3): raising a date\'s capacity starts the waitlist; lowering it or other edits don\'t', async () => {
+    const cls = await booked('2031-04-05', 'Wait Class')
+    mocks.runWaitlist.mockClear()
+    const lower = await update({ id: cls.id, sessions: [{ ...cls.sessions[0], capacity: cls.sessions[0].capacity - 1 }, cls.sessions[1]] })
+    expect(lower.status).toBe(200)
+    expect(mocks.runWaitlist).not.toHaveBeenCalled()
+    const raise = await update({ id: cls.id, sessions: [{ ...cls.sessions[0], capacity: cls.sessions[0].capacity + 2 }, cls.sessions[1]] })
+    expect(raise.status).toBe(200)
+    expect(mocks.runWaitlist).toHaveBeenCalledTimes(1)
+    expect(mocks.runWaitlist.mock.calls[0][0]).toBe(cls.id)
+    expect(mocks.runWaitlist.mock.calls[0][1]).toMatchObject({ reason: 'capacity' })
   })
 
   it('refuses removing a booked session, pass or price cell', async () => {

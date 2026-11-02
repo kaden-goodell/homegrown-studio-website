@@ -499,6 +499,31 @@ describe('door seats paid at the counter (Task 14)', () => {
   })
 })
 
+describe('I4/D4: the register pays a door seat taken during an early-bird', () => {
+  it('records what the register took and drops the early-bird it had noted (no phantom discount)', async () => {
+    const { recordPos } = await import('@lib/classes/seat-ledger')
+    const cls = make(4, { earlyBird: { untilYmd: '2026-12-31', prices: { day: { person: 800 } } } })
+    const TAKEN = new Date('2026-10-23T17:30:00.000Z')
+    const qq = quote(cls, { passId: 'day', sessionIds: ['ses_b'], tickets: { person: 1 } }, TAKEN, 9, { door: true })
+    if (!qq.ok) throw new Error(qq.error)
+    expect(qq.value.lines[0].discounts).toEqual([{ kind: 'early-bird', name: 'Early-bird', cents: 200 }])
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(TAKEN)
+    const inp = { bookingId: 'bkg_door_eb', passId: 'day', source: 'door-counter' as const, customer: cust, ttlMinutes: 10, by }
+    await hold(cls, qq.value, inp, TAKEN)
+    await confirm(cls.id, 'bkg_door_eb', { orderId: null, paymentId: null }, { cls, quote: qq.value, input: inp }, TAKEN)
+    vi.useRealTimers()
+    const before = (await getLedger(cls.id)).lines[0]
+    expect([before.priceCents, before.listCents, before.discounts?.length]).toEqual([800, 1000, 1])
+    // The POS item rings the current (early-bird) price: $8 + 72 tax.
+    await recordPos(cls, { bookingId: 'bkg_pos_EB', orderId: 'OEB', paymentId: 'PEB', chargedCents: 872, saleIso: '2026-10-23T19:00:00.000Z', lines: [{ lineUid: 'L1', passId: 'day', ticketTypeId: 'person', sessionIds: ['ses_b'], units: [{ priceCents: 800, taxCents: 72 }] }] }, NOW)
+    const after = (await getLedger(cls.id)).lines[0]
+    expect(after).toMatchObject({ bookingId: 'bkg_door_eb', priceCents: 800, taxCents: 72, square: { orderId: 'OEB' } })
+    expect(after.listCents).toBeUndefined()
+    expect(after.discounts).toBeUndefined()
+  })
+})
+
 describe('R32/N1/R34: which door seat a counter sale pays', () => {
   async function doorSeat(cls: ScheduledClass, bookingId: string, passId: string, sessionIds: string[], at: Date, who = cust) {
     const qq = quote(cls, { passId, ...(passId === 'day' ? { sessionIds } : {}), tickets: { person: 1 } }, at, 9, { door: true })
@@ -569,5 +594,62 @@ describe('R32/N1/R34: which door seat a counter sale pays', () => {
     expect(lines.filter((l) => l.square.orderId === 'G').map((l) => l.bookingId)).toEqual(['bkg_fam1', 'bkg_fam1'])
     expect(lines.filter((l) => l.counterMatch).map((l) => [l.bookingId, l.counterMatch!.candidates])).toEqual([['bkg_fam1', 2]])
     expect(lines.find((l) => l.bookingId === 'bkg_fam2')!.square.orderId).toBeNull()
+  })
+})
+
+describe('stage 4: discounted seats keep their list price, discounts and Square\'s line totals', () => {
+  const promo = { code: 'FIVE', label: '', off: { kind: 'amount' as const, cents: 500 }, per: 'booking' as const, appliesTo: { kind: 'all' as const }, includeExtras: false, endsYmd: null, maxUses: null, active: true, createdAt: '', updatedAt: '', by, history: [] }
+  const withGlaze = () => make(8, { addOns: [{ id: 'glaze', label: 'Glaze', priceCents: 400, maxPerSeat: 1 }] })
+  const dq = (cls: ScheduledClass) => {
+    const r = quote(cls, { passId: 'all', tickets: { person: 3 }, seats: [{ addOns: { glaze: 1 } }, {}, {}] }, NOW, 9, { promo })
+    if (!r.ok) throw new Error(r.error)
+    return r.value
+  }
+  it('hold writes the net price, the list price and the discounts; an undiscounted line has neither', async () => {
+    const cls = withGlaze()
+    const quoteD = dq(cls)
+    const inp = input()
+    const h = await hold(cls, quoteD, inp, NOW)
+    expect(h.ok && h.lines.map((l) => [l.seat, l.priceCents, l.listCents, l.discounts, l.addOnCents])).toEqual([
+      [1, 2833, 3000, [{ kind: 'promo', name: 'Code FIVE', cents: 167, code: 'FIVE' }], 400],
+      [2, 2833, 3000, [{ kind: 'promo', name: 'Code FIVE', cents: 167, code: 'FIVE' }], 0],
+      [3, 2834, 3000, [{ kind: 'promo', name: 'Code FIVE', cents: 166, code: 'FIVE' }], 0],
+    ])
+    const plain = await hold(cls, q(cls, { seats: [{}] }), input(), NOW)
+    expect(plain.ok && 'listCents' in plain.lines[0]).toBe(false)
+    expect(plain.ok && 'discounts' in plain.lines[0]).toBe(false)
+  })
+  it('confirm keeps Square\'s per-line totals per seat, its add-on lines included; a refund of one seat uses them', async () => {
+    const cls = withGlaze()
+    const quoteD = dq(cls)
+    const inp = input()
+    await hold(cls, quoteD, inp, NOW)
+    // Square's numbers, one cent off ours on seat 1's add-on tax, in quote line order (seat 1, glaze, seat 2, seat 3).
+    const lineTotals = [{ totalCents: 2833 + 255, taxCents: 255 }, { totalCents: 400 + 37, taxCents: 37 }, { totalCents: 2833 + 255, taxCents: 255 }, { totalCents: 2834 + 255, taxCents: 255 }]
+    const charged = lineTotals.reduce((s, l) => s + l.totalCents, 0)
+    const lines = await confirm(cls.id, inp.bookingId, { orderId: 'o1', paymentId: 'p1', chargedCents: charged, lineTotals }, { cls, quote: quoteD, input: inp }, NOW)
+    expect(lines.map((l) => [l.seat, l.square.lineNetCents, l.square.lineTaxCents])).toEqual([[1, 3233, 292], [2, 2833, 255], [3, 2834, 255]])
+    const { paidOn } = await import('@lib/classes/seat-status')
+    expect(paidOn(lines[0])).toBe(3525) // Square's, not our 2833 + 255 + 400 + 36
+    await expect(recordRefund(cls.id, [lines[0].id], { cents: 3526, reason: 'x', by, freeSeat: true, squareRefundId: 'r1' })).rejects.toThrow('more than was paid')
+    const after = await recordRefund(cls.id, [lines[0].id], { cents: 3525, reason: 'x', by, freeSeat: true, squareRefundId: 'r1' })
+    expect(after[0].state).toBe('refunded')
+  })
+  it('line totals that don\'t add up to the charge (or don\'t match the quote\'s lines) are not kept', async () => {
+    const cls = withGlaze()
+    const quoteD = dq(cls)
+    const inp = input()
+    await hold(cls, quoteD, inp, NOW)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const lines = await confirm(cls.id, inp.bookingId, { orderId: 'o1', paymentId: 'p1', chargedCents: 99, lineTotals: [{ totalCents: 1, taxCents: 0 }] }, { cls, quote: quoteD, input: inp }, NOW)
+    expect(lines.every((l) => l.square.lineNetCents === undefined && l.square.lineTaxCents === undefined)).toBe(true)
+    // M1: said in the log, with the booking id.
+    expect(warn.mock.calls.map((c) => String(c[0])).some((m) => m.includes('Square line totals dropped') && m.includes(inp.bookingId))).toBe(true)
+    warn.mockRestore()
+  })
+  it('paidOn of an old line (no Square line totals) is unchanged', async () => {
+    const { paidOn } = await import('@lib/classes/seat-status')
+    expect(paidOn({ priceCents: 3000, taxCents: 270, addOnCents: 400, addOnTaxCents: 36 })).toBe(3706)
+    expect(paidOn({ priceCents: 3000, taxCents: 270, addOnCents: 0, addOnTaxCents: 0, square: {} })).toBe(3270)
   })
 })

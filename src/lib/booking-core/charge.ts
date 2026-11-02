@@ -119,18 +119,18 @@ export async function chargeOrder(input: {
  * order, and then says whether it is paid. Anything that can't be asked is
  * 'unknown', never 'unpaid'.
  */
-export async function paidOnOrder(
-  makeOrder: () => Promise<{ orderId: string; totalCents: number }>,
+export async function paidOnOrder<O extends { orderId: string; totalCents: number }>(
+  makeOrder: () => Promise<O>,
 ): Promise<
-  | { kind: 'paid'; payment: Payment; order: { orderId: string; totalCents: number } }
+  | { kind: 'paid'; payment: Payment; order: O }
   /**
    * pending: Square returned a payment on the order that is neither completed nor failed (still going through).
    * `order`: the order Square gave back, so a caller can ask whether a payment on it is still going through.
    */
-  | { kind: 'unpaid'; pending?: true; order: { orderId: string; totalCents: number } }
+  | { kind: 'unpaid'; pending?: true; order: O }
   | { kind: 'unknown'; error?: unknown }
 > {
-  let order: { orderId: string; totalCents: number }
+  let order: O
   let found: Payment | null
   try {
     order = await makeOrder()

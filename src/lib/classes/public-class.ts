@@ -7,7 +7,7 @@
  */
 import { formatMoney } from '@lib/money'
 import { formatDay } from '@lib/studio-time'
-import type { AddOn, Cents, ClassRules, Pass, ScheduledClass, SeatQuestion, TicketType } from './types'
+import type { AddOn, Cents, ClassRules, EarlyBird, Pass, ScheduledClass, SeatQuestion, TicketType } from './types'
 
 export interface PublicSession {
   id: string
@@ -17,6 +17,11 @@ export interface PublicSession {
   left: number
   /** Started, or past the sign-up cutoff (decided on the server). */
   closed: boolean
+  /**
+   * Stage 4: the waitlist for this date. `open` = people can join now (class
+   * open, before `closesIso`); `waiting` = people on it. Absent at the door.
+   */
+  waitlist?: { open: boolean; closesIso: string; waiting: number }
 }
 
 export interface PublicPass extends Pass {
@@ -53,6 +58,8 @@ export interface OwnClassData {
   instructor: string | null
   /** Tax added on top, in percent (0 when the class isn't taxed). */
   taxPercent: number
+  /** Stage 4: sent only while it runs (decided on the server), cells of the listed passes only. */
+  earlyBird?: EarlyBird
 }
 
 /** The pass's state, from its sessions. A 'choose' pass needs `count` open sessions with room. */
@@ -138,10 +145,22 @@ export function asScheduledClass(own: OwnClassData, name: string): ScheduledClas
       rules: { ...own.rules, minimumToRun: null, waitlistCutoffHours: 0, canShareRoom: false },
       ticketTypes: own.ticketTypes, passes: own.passes, prices: own.prices,
       questions: own.questions, addOns: own.addOns, defaultCapacity: 0, defaultMinutes: 0,
+      ...(own.earlyBird ? { earlyBird: own.earlyBird } : {}),
     },
     sessions: own.sessions.map((s) => ({ id: s.id, startIso: s.startIso, endIso: s.endIso, capacity: s.left })),
     status: 'open',
     square: { itemId: null, variations: {} },
     createdAt: '', updatedAt: '', by: { id: '', name: '' }, history: [],
   }
+}
+
+/**
+ * The price a seat costs right now (D4): its early-bird price while the
+ * early-bird runs (the server only sends a running one), else the regular
+ * price. The card, the panel and the door screens all say this number.
+ */
+export function currentPriceCents(own: Pick<OwnClassData, 'prices' | 'earlyBird'>, passId: string, ticketTypeId: string): Cents | undefined {
+  const regular = own.prices[passId]?.[ticketTypeId]
+  const eb = own.earlyBird?.prices[passId]?.[ticketTypeId]
+  return eb !== undefined && regular !== undefined && eb < regular ? eb : regular
 }

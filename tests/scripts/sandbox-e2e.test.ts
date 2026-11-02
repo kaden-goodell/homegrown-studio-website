@@ -7,7 +7,8 @@ import {
   runScenarios, SkipScenario, SlotAllocator, SquareError, SquareSandbox, SQUARE_SANDBOX_VERSION, totalWithTax, type Scenario,
 } from '../../scripts/lib/sandbox-e2e/core'
 import { blockedDay, bookingIdOf, cleanUpLeftovers, CLEANUP_PLAN, firstDay, reconcileUntil, scenarios, tenderTookMoney, testContent, type Ctx } from '../../scripts/lib/sandbox-e2e/scenarios'
-import { main } from '../../scripts/sandbox-e2e'
+import { ALL_SCENARIOS, main } from '../../scripts/sandbox-e2e'
+import { cleanUpExtrasLeftovers, e2eCode, EXTRAS_CLEANUP_PLAN, EXTRAS_NEED_TOKEN, extrasScenarios } from '../../scripts/lib/sandbox-e2e/extras-scenarios'
 import { bookingIdFor } from '@lib/classes/checkout'
 import { SQUARE_API_VERSION } from '@lib/classes/square-api'
 import { taxCents } from '@lib/tax'
@@ -85,7 +86,7 @@ describe('secrets', () => {
   })
 
   it('the run line is the one in the brief, and in the script header', async () => {
-    expect(RUN_LINE).toBe('! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts')
+    expect(RUN_LINE).toBe('! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" PREVIEW_OWNER_ALERT_NUMBERS="$(npx netlify env:get OWNER_ALERT_NUMBERS --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts')
     const { readFileSync } = await import('node:fs')
     expect(readFileSync('scripts/sandbox-e2e.ts', 'utf8')).toContain(RUN_LINE)
     expect(readFileSync('docs/superpowers/plans/stage1-real-money-checklist.md', 'utf8')).toContain(RUN_LINE)
@@ -471,6 +472,20 @@ describe('main', () => {
     expect(err.mock.calls.flat().join('\n')).toContain('not set. Run it with: !')
   })
 
+  it('T4 preflight: stops before any network unless the preview texts owners on Kaden’s number only', async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const env = { ADMIN_PASSCODE: ADMIN, STAFF_PASSCODE: STAFF }
+    expect(await main(['--only', '2'], env)).toBe(2)
+    expect(await main(['--only', '2'], { ...env, PREVIEW_OWNER_ALERT_NUMBERS: '+14029802907,+12565550100' })).toBe(2)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(err.mock.calls.flat().join('\n')).toMatch(/isn't Kaden's \(402\) 980-2907/)
+    const { ownerNumbersProblem } = await import('../../scripts/lib/sandbox-e2e/core')
+    expect(ownerNumbersProblem('(402) 980-2907')).toBeNull()
+    expect(ownerNumbersProblem('+1 402 980 2907, 4029802907')).toBeNull()
+  })
+
   it('stops before booking when the preview is not on the sandbox, never printing a passcode', async () => {
     const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
       const p = new URL(url).pathname
@@ -485,7 +500,7 @@ describe('main', () => {
     vi.spyOn(console, 'log').mockImplementation((...a) => { out.push(a.join(' ')) })
     vi.spyOn(console, 'error').mockImplementation((...a) => { out.push(a.join(' ')) })
     const proc = new EventEmitter()
-    expect(await main(['--only', '2'], { ADMIN_PASSCODE: ADMIN, STAFF_PASSCODE: STAFF }, { proc, exit: vi.fn() })).toBe(1)
+    expect(await main(['--only', '2'], { ADMIN_PASSCODE: ADMIN, STAFF_PASSCODE: STAFF, PREVIEW_OWNER_ALERT_NUMBERS: '+14029802907' }, { proc, exit: vi.fn() })).toBe(1)
     expect(out.join('\n')).toContain('not on the Square sandbox')
     const deletes = fetch.mock.calls.filter(([, init]) => (init as any)?.method === 'DELETE').map(([u]) => new URL(u as string).pathname)
     expect(deletes).toEqual(['/api/admin/login.json', '/api/staff/login.json'])
@@ -514,7 +529,7 @@ describe('messages muted on the preview', () => {
     vi.spyOn(console, 'log').mockImplementation((...a) => { out.push(a.join(' ')) })
     vi.spyOn(console, 'error').mockImplementation((...a) => { out.push(a.join(' ')) })
     for (const argv of [['--only', '2'], ['--cleanup-only']]) {
-      expect(await main(argv, { ADMIN_PASSCODE: ADMIN, STAFF_PASSCODE: STAFF }, { proc: new EventEmitter(), exit: vi.fn() })).toBe(1)
+      expect(await main(argv, { ADMIN_PASSCODE: ADMIN, STAFF_PASSCODE: STAFF, PREVIEW_OWNER_ALERT_NUMBERS: '+14029802907' }, { proc: new EventEmitter(), exit: vi.fn() })).toBe(1)
     }
     expect(out.join('\n')).toContain('messages are not muted')
     const paths = fetch.mock.calls.map(([u]) => new URL(u as string).pathname)
@@ -650,5 +665,93 @@ describe('reconcileUntil', () => {
     const post = vi.fn(async () => ({ status: 200, body: { data: { orders: 0 } }, text: '' }))
     await reconcileUntil({ admin: { post } as any, sleep: async () => undefined }, async () => false, { tries: 2 })
     expect(post).toHaveBeenCalledTimes(2)
+  })
+})
+
+describe('stage 4 extras scenarios (49+)', () => {
+  it('are numbered 49.. with no gaps, each with a title and a plan; ALL_SCENARIOS runs 1–23, 24–40, 41–48, 49–67 in order', () => {
+    expect(extrasScenarios[0].id).toBe(49)
+    expect(extrasScenarios.map((s) => s.id)).toEqual(Array.from({ length: extrasScenarios.length }, (_, i) => i + 49))
+    expect(extrasScenarios.length).toBeGreaterThanOrEqual(19)
+    for (const s of extrasScenarios) {
+      expect(s.title.length, String(s.id)).toBeGreaterThan(5)
+      expect(s.plan.length, String(s.id)).toBeGreaterThan(0)
+    }
+    expect(ALL_SCENARIOS.map((s) => s.id)).toEqual(Array.from({ length: 67 }, (_, i) => i + 1))
+    expect(extrasScenarios.map((s) => s.id)).toEqual(Array.from({ length: 19 }, (_, i) => i + 49))
+    expect(new Set(ALL_SCENARIOS.map((s) => s.id)).size).toBe(ALL_SCENARIOS.length)
+  })
+
+  it('cover the brief: half cent, split pennies, repeat, waitlist, cards, reader and the customer cancel', () => {
+    const titles = extrasScenarios.map((s) => s.title).join('\n')
+    for (const want of ['S4-1', 'S4-2', 'S4-3', 'S4-4', 'S4-5', 'S4-6', 'S4-7', 'S4-8', 'S4-9', 'S4-10', 'S4-11', 'S4-12', 'D3', 'D4', 'Saved-card', 'Register setup', 'D2']) {
+      expect(titles, want).toContain(want)
+    }
+    expect(extrasScenarios.find((s) => s.id === 49)!.plan.join(' ')).toMatch(/must not ship/)
+  })
+
+  it('pick takes stage 4 ids alongside the others and refuses unknown ones', () => {
+    expect(pick(ALL_SCENARIOS, [49, 65]).map((s) => s.id)).toEqual([49, 65])
+    expect(pick(ALL_SCENARIOS, [30, 45, 49]).map((s) => s.id)).toEqual([30, 45, 49])
+    expect(() => pick(ALL_SCENARIOS, [68])).toThrow(/No scenario 68/)
+    expect(() => pick(ALL_SCENARIOS, [999])).toThrow(/No scenario 999/)
+  })
+
+  it('codes are valid promo codes and start E2E', () => {
+    const c = e2eCode('11021530', 'a')
+    expect(c).toMatch(/^E2E[A-Z0-9]{1,17}$/)
+    expect(c.length).toBeLessThanOrEqual(20)
+  })
+
+  it('the cleanup plan turns off E2E codes and takes E2E people off waitlists (cards off file)', () => {
+    const plan = EXTRAS_CLEANUP_PLAN.join(' ')
+    expect(plan).toMatch(/promo code starting "E2E"/)
+    expect(plan).toMatch(/waitlist/)
+    expect(plan).toMatch(/card/)
+  })
+
+  it('--dry-run --only 49,65 lists them and touches no network; the token note names the extras that skip', async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    expect(await main(['--dry-run', '--only', '49,65'], {})).toBe(0)
+    expect(fetch).not.toHaveBeenCalled()
+    const out = log.mock.calls.flat().join('\n')
+    expect(out).toContain('[49] HARD GATE · S4-1 Half cent')
+    expect(EXTRAS_NEED_TOKEN).toContain(49)
+    expect(out).toContain('[65] D2')
+    for (const id of EXTRAS_NEED_TOKEN) expect(out).toContain(String(id))
+  })
+
+  it('--dry-run --cleanup-only prints the extras steps too', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => undefined)
+    expect(await main(['--dry-run', '--cleanup-only'], {})).toBe(0)
+    const out = log.mock.calls.flat().join('\n')
+    for (const step of [...EXTRAS_CLEANUP_PLAN, ...CLEANUP_PLAN]) expect(out).toContain(step)
+  })
+
+  it('scenarios that need the token skip without one', async () => {
+    const results = await runScenarios(extrasScenarios.filter((s) => s.id === 57 || s.id === 61), { square: null } as unknown as Ctx, { secrets: [] })
+    expect(results.map((r) => r.outcome)).toEqual(['SKIP', 'SKIP'])
+  })
+
+  it('leftover cleanup only touches E2E codes and E2E people', async () => {
+    const posts: any[] = []
+    const admin = {
+      get: async (path: string) => {
+        if (path === '/api/admin/promos.json') return { status: 200, text: '', body: { data: { codes: [{ code: 'E2E1A', active: true }, { code: 'REAL10', active: true }, { code: 'E2E2B', active: false }] } } }
+        if (path.startsWith('/api/admin/promos.json?code=')) return { status: 200, text: '', body: { data: { code: { code: decodeURIComponent(path.split('=')[1]), active: true, updatedAt: 'u1' } } } }
+        if (path === '/api/admin/classes/classes.json') return { status: 200, text: '', body: { data: { classes: [{ id: 'cls_e', status: 'open', content: { name: 'E2E x Waitlist' } }, { id: 'cls_r', status: 'open', content: { name: 'Real class' } }] } } }
+        if (path.includes('waitlist.json?id=cls_e')) return { status: 200, text: '', body: { data: { rows: [{ id: 'wle_1', name: 'E2E Waiting 1', state: 'waiting' }, { id: 'wle_2', name: 'Jane Real', state: 'waiting' }] } } }
+        throw new Error(`unexpected GET ${path}`)
+      },
+      post: async (path: string, body: any) => { posts.push({ path, body }); return { status: 200, text: '', body: { data: {} } } },
+    }
+    const r = await cleanUpExtrasLeftovers({ admin, square: null } as any, () => undefined)
+    expect(r.failed).toEqual([])
+    expect(posts).toEqual([
+      { path: '/api/admin/promos.json', body: { action: 'active', code: 'E2E1A', active: false, expectedUpdatedAt: 'u1' } },
+      { path: '/api/admin/classes/waitlist.json', body: { action: 'remove', classId: 'cls_e', entryId: 'wle_1' } },
+    ])
   })
 })

@@ -1,0 +1,90 @@
+---
+export const prerender = false
+
+import Layout from '@layouts/Layout.astro'
+
+// Where the Square Point of Sale app comes back after "Charge on the reader"
+// (registered with Square for this site). It reads Square's answer from
+// ?data=, hands it to /api/staff/reader.json (which checks the payment with
+// Square before any seat is marked paid), and says what happened. No staff
+// sign-in is needed to land here: the answer carries our own signed state.
+---
+
+<Layout title="Reader payment" description="Hometown Studio reader payment." noindex bare>
+  <section class="max-w-md mx-auto px-4 sm:px-6 pt-10 pb-20">
+    <p class="text-xs font-semibold tracking-[0.18em] uppercase mb-4" style="color: var(--color-muted);">Hometown Studio</p>
+    <div id="pos-card" style="padding: 1.25rem; border-radius: 1rem; background: rgba(255,255,255,0.95); box-shadow: 0 6px 24px rgba(0,0,0,0.08);">
+      <h1 style="margin: 0 0 0.6rem; font-family: var(--font-heading); font-size: 1.35rem; color: var(--color-dark);">Reader payment</h1>
+      <p id="pos-status" role="status" aria-live="polite" style="margin: 0 0 1rem; font-size: 1.05rem; font-weight: 600; color: var(--color-dark);">Checking the payment with Square…</p>
+      <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+        <button id="pos-again" type="button" hidden style="min-height: 2.75rem; padding: 0.6rem 1.2rem; border-radius: 0.6rem; border: 1px solid rgba(0,0,0,0.15); background: white; font-weight: 600; cursor: pointer;">Check again</button>
+        <a id="pos-back" href="/staff" style="display: inline-flex; align-items: center; min-height: 2.75rem; padding: 0.6rem 1.2rem; border-radius: 0.6rem; background: var(--color-primary); color: white; font-weight: 700; text-decoration: none;">Back to the class</a>
+      </div>
+    </div>
+  </section>
+</Layout>
+
+<script>
+  const status = document.getElementById('pos-status')!
+  const back = document.getElementById('pos-back') as HTMLAnchorElement
+  const again = document.getElementById('pos-again') as HTMLButtonElement
+  const raw = new URLSearchParams(window.location.search).get('data')
+  // The answer is ours to read once; keep it out of the address bar (and the history).
+  try { history.replaceState(null, '', window.location.pathname) } catch { /* fine */ }
+
+  const tone = (outcome: string) =>
+    outcome === 'paid' ? 'rgb(21,128,61)' : outcome === 'cancelled' || outcome === 'let-go' ? 'var(--color-dark)' : '#b45309'
+
+  function show(text: string, outcome: string) {
+    status.textContent = text
+    status.style.color = tone(outcome)
+  }
+
+  let bookingId = ''
+  async function post(body: Record<string, unknown>) {
+    const res = await fetch('/api/staff/reader.json', {
+      method: 'POST', cache: 'no-store', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    })
+    const json = await res.json().catch(() => ({}))
+    return { ok: res.ok, json }
+  }
+
+  function land(d: { outcome: string; message: string; classId?: string; bookingId?: string }) {
+    show(d.message, d.outcome)
+    if (d.classId) back.href = `/staff?open=workshop:${encodeURIComponent(d.classId)}`
+    if (d.bookingId) bookingId = d.bookingId
+    // Still not settled: the crew can ask Square from here (it needs the staff sign-in).
+    again.hidden = !(bookingId && (d.outcome === 'waiting' || d.outcome === 'unknown' || d.outcome === 'not-found'))
+  }
+
+  async function run() {
+    if (!raw) {
+      show('Nothing came back from the Square app. Open the class to check on the seat.', 'unknown')
+      return
+    }
+    try {
+      const { ok, json } = await post({ action: 'return', data: raw })
+      if (ok && json?.data) land(json.data)
+      else show(typeof json?.error === 'string' ? json.error : 'That didn’t work. Open the class and tap Check again.', 'unknown')
+    } catch {
+      show('Couldn’t reach the website. Check the wifi, then open the class and tap Check again.', 'unknown')
+    }
+  }
+
+  again.addEventListener('click', async () => {
+    if (!bookingId) return
+    again.disabled = true
+    show('Asking Square…', 'waiting')
+    try {
+      const { ok, json } = await post({ action: 'check', bookingId })
+      if (ok && json?.data) land(json.data)
+      else show(typeof json?.error === 'string' ? json.error : 'That didn’t work. Try again.', 'unknown')
+    } catch {
+      show('Couldn’t reach the website. Check the wifi and try again.', 'unknown')
+    } finally {
+      again.disabled = false
+    }
+  })
+
+  void run()
+</script>

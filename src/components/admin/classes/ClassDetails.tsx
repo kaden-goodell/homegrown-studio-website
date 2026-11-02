@@ -3,7 +3,11 @@ import { agesLabel } from '@lib/workshop-copy'
 import WorkshopTile from '@components/workshops/WorkshopTile'
 import type { Pass, Session } from '@lib/classes/types'
 import { newId } from '@lib/classes/validate'
-import { firstError, hasMore, isSimple, MORE_KEYS, previewOf, type Errors, type FieldKey, type Form } from './class-form'
+import { cellLabel, dollars, firstError, hasMore, isSimple, MORE_KEYS, previewOf, type Errors, type FieldKey, type Form } from './class-form'
+import type { EarlyBird } from '@lib/classes/types'
+import { earlyBirdLabel } from '@lib/classes/early-bird'
+import { shortDay } from '@lib/classes/chicago-day'
+import { today } from './dates'
 import { uploadPhoto } from './photo'
 
 type SetForm = (fn: (cur: Form) => Form) => void
@@ -117,6 +121,7 @@ export function DetailsFields({ f, set, errors, sessions, usual, children }: {
           <input value={f.ages} onChange={(e) => patch({ ages: e.target.value })} />
         </Field>
       </div>
+      <EarlyBirdFields f={f} set={set} error={errors.earlybird} />
       <Field label="Description" field="description" error={errors.description} hint="Blank lines make paragraphs. The first one shows on the card.">
         <textarea rows={5} value={f.description} onChange={(e) => patch({ description: e.target.value })} />
       </Field>
@@ -147,6 +152,76 @@ function moreSummary(f: Form): string {
   if (f.questions.length) bits.push(`${f.questions.length} question${f.questions.length === 1 ? '' : 's'}`)
   if (f.minCount.trim()) bits.push(`needs ${f.minCount.trim()}`)
   return bits.join(' · ')
+}
+
+const MONEY = /^\d+(\.\d{1,2})?$/
+const typedCents = (v: string | undefined): number | null => {
+  const t = (v ?? '').trim().replace(/^\$/, '')
+  return MONEY.test(t) ? Math.round(parseFloat(t) * 100) : null
+}
+
+/**
+ * Early-bird (stage 4): a lower price per seat price until a last day,
+ * working to midnight that night. Shown right under the price so it's easy to
+ * find; kept on every save until it's turned off.
+ */
+function EarlyBirdFields({ f, set, error }: { f: Form; set: SetForm; error?: string }) {
+  const patch = (p: Partial<Form>) => set((cur) => ({ ...cur, ...p }))
+  const setEb = (passId: string, ticketId: string, v: string) =>
+    set((cur) => ({ ...cur, ebPrices: { ...cur.ebPrices, [passId]: { ...(cur.ebPrices[passId] ?? {}), [ticketId]: v } } }))
+  const hintId = useId()
+  // Only seat prices that are sold (have a regular price) can have an early-bird.
+  const cells = f.passes.flatMap((p) => f.ticketTypes.flatMap((t) => {
+    const regular = typedCents(f.prices[p.id]?.[t.id])
+    return regular === null ? [] : [{ passId: p.id, ticketId: t.id, regular, label: cellLabel(f, p.id, t.id) }]
+  }))
+  const ended = !!f.ebUntil && f.ebUntil < today()
+  const preview: EarlyBird = { untilYmd: f.ebUntil, prices: {} }
+  for (const c of cells) {
+    const eb = typedCents(f.ebPrices[c.passId]?.[c.ticketId])
+    if (eb !== null && eb < c.regular) (preview.prices[c.passId] ??= {})[c.ticketId] = eb
+  }
+  const shows = f.ebUntil && !ended
+    ? earlyBirdLabel({ earlyBird: preview, ticketTypes: f.ticketTypes.map((t, i) => ({ ...t, label: t.label || `Seat ${i + 1}` })), passes: f.passes })
+    : ''
+  return (
+    <div className="adm-fldwrap adm-eb" data-field="earlybird">
+      <Check label="Early-bird price" checked={f.ebOn} onChange={(ebOn) => patch({ ebOn })} />
+      {f.ebOn && (
+        <>
+          <div className="adm-two">
+            <label className="adm-fld has-hint">
+              <span>Last day of the early-bird</span>
+              <input type="date" value={f.ebUntil} aria-describedby={hintId} aria-invalid={!!error || undefined} onChange={(e) => patch({ ebUntil: e.target.value })} />
+            </label>
+            {cells.length === 1 && (
+              <label className="adm-fld">
+                <span>{cells[0].label === 'Seat' ? 'Early-bird price ($)' : `${cells[0].label} early-bird ($)`}</span>
+                <input inputMode="decimal" placeholder={`Regular $${dollars(cells[0].regular)}`} value={f.ebPrices[cells[0].passId]?.[cells[0].ticketId] ?? ''}
+                  onChange={(e) => setEb(cells[0].passId, cells[0].ticketId, e.target.value)} />
+              </label>
+            )}
+          </div>
+          <small id={hintId} className="adm-hint">It ends at midnight that night. Then the regular price is back, online and at the register.</small>
+          {cells.length > 1 && (
+            <div className="adm-two">
+              {cells.map((c) => (
+                <label key={`${c.passId}:${c.ticketId}`} className="adm-fld">
+                  <span>{`${c.label} early-bird ($)`}</span>
+                  <input inputMode="decimal" placeholder={`Regular $${dollars(c.regular)}`} value={f.ebPrices[c.passId]?.[c.ticketId] ?? ''}
+                    onChange={(e) => setEb(c.passId, c.ticketId, e.target.value)} />
+                </label>
+              ))}
+            </div>
+          )}
+          {cells.length === 0 && <p className="adm-small adm-muted">Add a price first, then the early-bird price.</p>}
+          {shows && <p className="adm-small adm-muted" data-testid="eb-shows">{`Shows as: ${shows}.`}</p>}
+          {ended && <p className="adm-small adm-warntext" data-testid="eb-ended">{`This early-bird ended ${shortDay(f.ebUntil)}. It’s left off when you save.`}</p>}
+        </>
+      )}
+      <Err text={error} />
+    </div>
+  )
 }
 
 function Sub({ title, note, error, field, children }: { title: string; note?: string; error?: string; field: FieldKey; children: ReactNode }) {

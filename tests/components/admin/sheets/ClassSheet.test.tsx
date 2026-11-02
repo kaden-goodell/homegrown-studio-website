@@ -12,11 +12,11 @@ afterEach(() => { vi.unstubAllGlobals(); setAdminWho('') })
  * The class sheet's routes. `the` is the class as stored now (a POST can change it); `post` answers
  * classes.json POSTs; `refund` answers refund.json; `library` is the library list.
  */
-function server(o: { the?: any; bookings?: any[]; seatsTaken?: any; post?: (b: any) => any; refund?: (b: any) => any; library?: any[] } = {}) {
+function server(o: { the?: any; bookings?: any[]; seatsTaken?: any; register?: any; post?: (b: any) => any; refund?: (b: any) => any; library?: any[] } = {}) {
   const state = { the: o.the ?? cls() }
   const fn = vi.fn(async (url: string, init?: any) => {
     const path = url.split('?')[0]
-    if (path === '/api/admin/classes/bookings.json') return ok({ data: { class: state.the, bookings: o.bookings ?? [], seatsTaken: o.seatsTaken ?? {} } })
+    if (path === '/api/admin/classes/bookings.json') return ok({ data: { class: state.the, bookings: o.bookings ?? [], seatsTaken: o.seatsTaken ?? {}, ...(o.register ? { register: o.register } : {}) } })
     if (path === '/api/admin/classes/library.json') return ok({ data: { library: o.library ?? [], runs: {} } })
     if (path === CLASSES && init?.method === 'POST') {
       const b = JSON.parse(init.body)
@@ -78,6 +78,12 @@ describe('class sheet › Bookings', () => {
     renderSheet(<ClassSheet id="cls_1" />)
     expect(await screen.findByText('A refund is waiting on Square')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Ask Square' })).toBeInTheDocument()
+  })
+
+  it('D2: what the customer did on their own cancel page shows on their row', async () => {
+    vi.stubGlobal('fetch', server({ bookings: [booking({ cancelLine: 'Cancelled online by the customer · 1 seat, $32.70 refunded' })] }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    expect(await screen.findByTestId('cancel-line')).toHaveTextContent('Cancelled online by the customer · 1 seat, $32.70 refunded')
   })
 
   it('more than one date: seats on each date', async () => {
@@ -603,5 +609,130 @@ describe('class sheet › Staff (stage 3)', () => {
     await loaded()
     fireEvent.click(screen.getByRole('button', { name: 'Staff' }))
     expect(screen.getByText('It’s a draft, so nobody can go on it yet. Open it on Dates first.')).toBeInTheDocument()
+  })
+})
+describe('class sheet › the early-bird and the register (stage 4)', () => {
+  const eb = { untilYmd: '2031-03-10', prices: { pas_full: { person: 2500 } } }
+  it('a Save of anything else keeps the early-bird; the header says when it ends', async () => {
+    const f = server({ the: cls({ content: content({ earlyBird: eb }) }) })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" tab="details" />)
+    await loaded()
+    expect(screen.getByText(/Early-bird until Mon Mar 10/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Pottery 2' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
+    expect(posts(f, CLASSES)[0].body.content.earlyBird).toEqual(eb)
+  })
+  it('"This class and the library" keeps it too; turning it off drops it', async () => {
+    const f = server({ the: cls({ libraryId: 'lib_1', content: content({ earlyBird: eb }) }), library: [lib('lib_1', content({ earlyBird: eb }))] })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" tab="details" />)
+    await screen.findByLabelText('Name')
+    await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).startsWith('/api/admin/classes/library.json'))).toBe(true))
+    fireEvent.change(screen.getByLabelText('Price per seat ($)'), { target: { value: '35' } })
+    fireEvent.click(await within(footer()).findByRole('button', { name: 'This class and the library' }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
+    expect(posts(f, CLASSES)[0].body).toMatchObject({ alsoUpdateLibrary: true, content: { earlyBird: eb } })
+    await screen.findByText('Saved. The library has it too.')
+    fireEvent.click(screen.getByLabelText('Early-bird price'))
+    fireEvent.click(await within(footer()).findByRole('button', { name: /Save|Only this class/ }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(2))
+    expect(posts(f, CLASSES)[1].body.content.earlyBird).toBeUndefined()
+  })
+  it('the register still rings the early-bird price: one line and "Fix the register price now"', async () => {
+    const stale = cls({
+      content: content({ earlyBird: { untilYmd: '2026-01-01', prices: { pas_full: { person: 2500 } } } }),
+      square: { itemId: 'ITEM', variations: { 'pas_full:person': 'V' }, prices: { 'pas_full:person': 2500 } },
+    })
+    const f = server({ the: stale, post: (b) => (b.action === 'fix-register-price' ? ok({ data: { result: 'fixed', class: { ...stale, square: { ...stale.square, prices: { 'pas_full:person': 3000 } } } } }) : null) })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    const line = screen.getByTestId('register-price')
+    expect(line).toHaveTextContent('The register still rings the early-bird price, which has ended.')
+    fireEvent.click(within(line).getByRole('button', { name: 'Fix the register price now' }))
+    expect(await screen.findByText('The register has the right price now.')).toBeInTheDocument()
+    expect(posts(f, CLASSES)[0].body).toEqual({ action: 'fix-register-price', id: 'cls_1' })
+    expect(screen.queryByTestId('register-price')).toBeNull()
+  })
+  it('fix 3: a class not on the register: "Put it on the register", then it goes away', async () => {
+    const off = cls()
+    const f = server({ the: off, post: (b) => (b.action === 'sync-pos' ? ok({ data: { result: 'put', class: { ...off, square: { itemId: 'ITEM', variations: { 'pas_full:person': 'V' } } } } }) : null) })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    const panel = screen.getByTestId('not-on-register')
+    expect(panel).toHaveTextContent('This class isn’t on the register yet, so it can’t be booked online.')
+    fireEvent.click(within(panel).getByRole('button', { name: 'Put it on the register' }))
+    expect(await screen.findByText('It’s on the register now. People can book it online.')).toBeInTheDocument()
+    expect(posts(f, CLASSES)[0].body).toEqual({ action: 'sync-pos', id: 'cls_1' })
+    expect(screen.queryByTestId('not-on-register')).toBeNull()
+  })
+  it('fix 3: the class tax isn’t picked: the answer says where, with a button that opens Register setup', async () => {
+    const f = server({ post: (b) => (b.action === 'sync-pos' ? refuse(503, { error: "It can't go on the register yet: the class tax isn't picked. Open More › Register setup and pick the 9% tax.", setup: 'tax' }) : null) })
+    vi.stubGlobal('fetch', f)
+    const { sheet } = renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    fireEvent.click(within(screen.getByTestId('not-on-register')).getByRole('button', { name: 'Put it on the register' }))
+    expect(await screen.findByText(/the class tax isn't picked/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Register setup' }))
+    expect(sheet.open).toHaveBeenCalledWith({ kind: 'more', page: 'register' }, expect.objectContaining({ back: { kind: 'class', id: 'cls_1' } }))
+  })
+  it('fix 3: an expired register connection says so plainly, with no setup button', async () => {
+    const f = server({ post: () => refuse(503, { error: 'The website can’t reach Square right now, so this can’t change from here. The register still works: ring the class up at the price on its class page, as a custom amount if it isn’t listed.', connection: true }) })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    fireEvent.click(within(screen.getByTestId('not-on-register')).getByRole('button', { name: 'Put it on the register' }))
+    expect(await screen.findByText('The website can’t reach Square right now, so this can’t change from here. The register still works: ring the class up at the price on its class page, as a custom amount if it isn’t listed.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open Register setup' })).toBeNull()
+  })
+  it('fix 4: on the register with an old tax: "Update the register", then it goes away', async () => {
+    const on = cls({ square: { itemId: 'ITEM', variations: { 'pas_full:person': 'V' }, taxId: 'OLD_TAX', categoryId: 'C1' } })
+    const register = { classTaxId: 'NEW_TAX', classesCategoryId: 'C1', siteTaxId: 'OLD_TAX', siteCategoryId: 'C1' }
+    const f = server({ the: on, register, post: (b) => (b.action === 'update-register' ? ok({ data: { result: 'updated', class: { ...on, square: { ...on.square, taxId: 'NEW_TAX' } } } }) : null) })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    const panel = screen.getByTestId('register-old-setup')
+    expect(panel).toHaveTextContent('The register still has the old tax or category for this class.')
+    fireEvent.click(within(panel).getByRole('button', { name: 'Update the register' }))
+    expect(await screen.findByText('The register is up to date for this class.')).toBeInTheDocument()
+    expect(posts(f, CLASSES)[0].body).toEqual({ action: 'update-register', id: 'cls_1' })
+    expect(screen.queryByTestId('register-old-setup')).toBeNull()
+    // Up to date: only the quiet link is left (what the owner texts point at).
+    expect(within(screen.getByTestId('register-refresh')).getByRole('button', { name: 'Update the register' })).toBeEnabled()
+  })
+  it('fix 4: a class put on before the tax was recorded counts as carrying the site’s tax', async () => {
+    const legacy = cls({ square: { itemId: 'ITEM', variations: { 'pas_full:person': 'V' } } })
+    vi.stubGlobal('fetch', server({ the: legacy, register: { classTaxId: 'T9', classesCategoryId: 'C1', siteTaxId: 'T9', siteCategoryId: 'C1' } }))
+    const first = renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    expect(screen.queryByTestId('register-old-setup')).toBeNull()
+    expect(screen.getByTestId('register-refresh')).toBeInTheDocument()
+    first.unmount()
+    vi.stubGlobal('fetch', server({ the: legacy, register: { classTaxId: 'T9', classesCategoryId: 'C1', siteTaxId: 'T85', siteCategoryId: 'C1' } }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    expect(screen.getByTestId('register-old-setup')).toBeInTheDocument()
+  })
+  it('fix 4: Update the register refused because the tax in Register setup is gone: the button to Register setup', async () => {
+    const on = cls({ square: { itemId: 'ITEM', variations: { 'pas_full:person': 'V' }, taxId: 'T9', categoryId: 'C1' } })
+    const f = server({ the: on, register: { classTaxId: 'T9', classesCategoryId: 'C1', siteTaxId: '', siteCategoryId: '' }, post: () => refuse(503, { error: 'The class tax in Register setup isn’t on the register any more. Open More › Register setup and pick the 9% tax.', setup: 'tax' }) })
+    vi.stubGlobal('fetch', f)
+    const { sheet } = renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    fireEvent.click(within(screen.getByTestId('register-refresh')).getByRole('button', { name: 'Update the register' }))
+    expect(await screen.findByText(/isn’t on the register any more/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Register setup' }))
+    expect(sheet.open).toHaveBeenCalledWith({ kind: 'more', page: 'register' }, expect.objectContaining({ back: { kind: 'class', id: 'cls_1' } }))
+  })
+  it('a booking row tags what came off it: "Early-bird", "Code GRANDOPENING"', async () => {
+    vi.stubGlobal('fetch', server({ bookings: [booking({ discounts: ['Early-bird', 'Code GRANDOPENING'] })] }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    const row = await screen.findByRole('article', { name: 'Ada Lovelace' })
+    expect(within(row).getByText('Early-bird')).toBeInTheDocument()
+    expect(within(row).getByText('Code GRANDOPENING')).toBeInTheDocument()
   })
 })

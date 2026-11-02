@@ -6,6 +6,7 @@
  *   'party'  → the party refund book (parties/refunds)
  *   'party-paid-elsewhere' → a party payment on no party (parties/paid-elsewhere)
  *   'class-paid-not-seated' → a class payment with no seat (classes/paid-not-seated-refund)
+ *   'reader' → a reader payment that wasn't a seat's (classes/reader-refund)
  *   'cls_…'  → the class refund book (classes/refunds)
  *   anything else throws: a wiring miss surfaces (the webhook logs it, the
  *   nightly run tries again) instead of recording a refund twice.
@@ -20,8 +21,9 @@ import { classRefundBook } from '@lib/classes/refunds'
 import { partyRefundBook } from '@lib/parties/refunds'
 import { paidElsewhereRefundBook } from '@lib/parties/paid-elsewhere'
 import { paidNotSeatedRefundBook } from '@lib/classes/paid-not-seated-refund'
+import { readerRefundBook } from '@lib/classes/reader-refund'
 import type { Cents } from '@lib/classes/types'
-import { claimSquareRefundWith, PAID_ELSEWHERE_SCOPE, PAID_NOT_SEATED_SCOPE, PARTY_SCOPE, type RefundBook, type RefundScope } from './refund-runner'
+import { claimSquareRefundWith, PAID_ELSEWHERE_SCOPE, PAID_NOT_SEATED_SCOPE, PARTY_SCOPE, READER_SCOPE, type RefundBook, type RefundScope } from './refund-runner'
 
 /** A saved request whose scope no book knows (never written by our own code; a corrupted document). */
 export class UnknownRefundScope extends Error {
@@ -38,6 +40,7 @@ export async function refundBookFor(scope: RefundScope, hint: { label?: string }
   if (scope.classId === PARTY_SCOPE) return partyRefundBook(scope.bookingId, hint) as Promise<RefundBook<unknown> | null>
   if (scope.classId === PAID_ELSEWHERE_SCOPE) return paidElsewhereRefundBook(scope.bookingId) as Promise<RefundBook<unknown>>
   if (scope.classId === PAID_NOT_SEATED_SCOPE) return paidNotSeatedRefundBook(scope.bookingId) as Promise<RefundBook<unknown>>
+  if (scope.classId === READER_SCOPE) return readerRefundBook(scope.bookingId) as Promise<RefundBook<unknown>>
   if (scope.classId.startsWith('cls_')) return classRefundBook(scope.classId, scope.bookingId, hint) as Promise<RefundBook<unknown>>
   throw new UnknownRefundScope(scope.classId)
 }

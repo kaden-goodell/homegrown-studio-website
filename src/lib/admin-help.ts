@@ -11,17 +11,18 @@
  * register), each labelled so. What Square did with a payment or a refund is
  * asked from the app itself (Ask Square, and the checks before Refund it).
  *
- * Sections marked `comingWith` describe screens that arrive when the staffing
- * (stage 3, merged) or extras (stage 4) work is merged; they stay hidden until
- * then (add the stage to HELP_AVAILABLE in that merge).
+ * Sections marked `comingWith` describe screens from the staffing (stage 3)
+ * and extras (stage 4) work; both are merged, so both are in HELP_AVAILABLE.
+ * The stage 4 sections, rows and lookups live in admin-help-stage4.ts.
  */
 import type { WarningCode } from '@lib/warnings'
 import type { ToDecideKind } from '@lib/classes/to-decide'
+import { STAGE4_HELP_ROWS, STAGE4_HELP_SECTIONS, STAGE4_TO_DECIDE_HELP, STAGE4_WARNING_HELP } from './admin-help-stage4'
 
 export type ComingWith = 'staffing' | 'extras'
 
 /** The later stages merged into this build. */
-export const HELP_AVAILABLE: ReadonlySet<ComingWith> = new Set<ComingWith>(['staffing'])
+export const HELP_AVAILABLE: ReadonlySet<ComingWith> = new Set<ComingWith>(['staffing', 'extras'])
 
 /** One step that can only be done in Square, with why and the exact way there. */
 export interface HelpSquare {
@@ -271,36 +272,8 @@ export const HELP_SECTIONS: HelpSection[] = [
       'Crew set when they can work and ask to work things on /staff › My shifts.',
     ],
   },
-  // ── Arrive with stage 4 (extras) ──
-  {
-    id: 'promotions',
-    title: 'Promotions and early-bird',
-    comingWith: 'extras',
-    points: [
-      'More › **Promotions** › **+ New code**: the code, **% off** or **$ off**, for **Every class** or **Pick classes**, a last day and a use limit if you want, then **Make the code**. Customers type it when they pay for a class.',
-      'On a code: **Edit**, **Turn off** / **Turn on**, and **Who used it**, where **Give this use back** lets someone use it again.',
-      'Early-bird: on a class’s Details tick **Early-bird price**, set its last day and price. It ends at midnight that night, online and on the register.',
-    ],
-  },
-  {
-    id: 'register',
-    title: 'Classes on the register',
-    comingWith: 'extras',
-    points: [
-      'More › **Register setup**: pick the **Class tax (9%)** and the **Classes category** once, then **Save**.',
-      'A class that “isn’t on the register yet” can’t be booked online: open it and tap **Put it on the register**.',
-      'If the register has the wrong early-bird price, open the class and tap **Fix the register price now**.',
-    ],
-  },
-  {
-    id: 'waitlist',
-    title: 'Waitlists',
-    comingWith: 'extras',
-    points: [
-      'A full class shows **Join the waitlist** to customers. On the class’s Bookings, **Waitlist** shows who’s waiting.',
-      '**Run the waitlist now** adds the next person whose group fits and charges the card they saved. **Remove** takes someone off (their card comes off and they get an email).',
-    ],
-  },
+  // ── Stage 4 (extras): promotions, repeating dates, Register setup, waitlists, customers' own cancels, the reader ──
+  ...STAGE4_HELP_SECTIONS,
 ]
 
 // ── When you see this → tap this ──────────────────────────────────────────
@@ -358,11 +331,8 @@ export const HELP_ROWS: HelpRow[] = [
   { id: 'staff-passcode-guesses', see: 'Lots of wrong staff passcodes today', where: 'Home “Needs you”', means: 'Someone typed the wrong /staff passcode many times today. It may be someone guessing.', tap: '**Change the staff passcode**, then tell the crew the new one.', buttons: ['Change the staff passcode'], comingWith: 'staffing' },
   { id: 'staff-passcode-damaged', see: 'The staff passcode can’t be read', where: 'Home “Needs you”', means: 'Nobody can sign in to /staff until a new passcode is set.', tap: '**Set a new staff passcode**, type it twice, **Save new passcode**.', buttons: ['Set a new staff passcode', 'Save new passcode'], comingWith: 'staffing' },
 
-  // Arrive with stage 4 (extras)
-  { id: 'not-on-register', see: '<class> isn’t on the register yet', where: HOME, means: 'It can’t be booked online until it is.', tap: 'Open the class › **Put it on the register**.', buttons: [], comingWith: 'extras' },
-  { id: 'pos-price-stale', see: 'The register doesn’t have the early-bird price / still rings the early-bird price', where: HOME, means: 'The register’s price is out of date.', tap: 'Open the class › **Fix the register price now**.', buttons: [], comingWith: 'extras' },
-  { id: 'waitlist-unknown', see: 'Waitlist charge unclear', where: TODO, means: 'The waitlist charged someone’s saved card and Square didn’t answer. Their seat is held.', tap: '**Check Square again**. If it still can’t tell, look in Square, then **I sorted it out in Square**.', buttons: [], square: SQ_PAYMENT, comingWith: 'extras' },
-  { id: 'waitlist-declined', see: 'Waitlist card didn’t go through / Waitlist price went up', where: TODO, means: 'The seat went to the next person; they weren’t charged.', tap: 'Call them if you like, then **Got it**.', buttons: [], comingWith: 'extras' },
+  // Stage 4 (extras): admin-help-stage4.ts
+  ...STAGE4_HELP_ROWS,
 ]
 
 /** Every warning code → its rows above (a missing code doesn't compile). */
@@ -392,6 +362,7 @@ export const WARNING_HELP: Record<WarningCode, string[]> = {
   'assigned-cant': ['assigned-cant'],
   'assigned-cancelled': ['assigned-cancelled'],
   'staffing-unreadable': ['staffing-unreadable'],
+  ...STAGE4_WARNING_HELP,
 }
 
 /** Every To decide kind → its rows above (a missing kind doesn't compile). */
@@ -411,6 +382,7 @@ export const TO_DECIDE_HELP: Record<ToDecideKind, string[]> = {
   'party-payment-unclear': ['party-payment-unclear'],
   'party-no-confirmation': ['party-no-confirmation'],
   'party-hold-orphan': ['party-hold-orphan'],
+  ...STAGE4_TO_DECIDE_HELP,
 }
 
 const shown = <T extends { comingWith?: ComingWith }>(x: T) => !x.comingWith || HELP_AVAILABLE.has(x.comingWith)

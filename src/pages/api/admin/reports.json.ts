@@ -3,6 +3,7 @@ import { adminAuthorized } from '@lib/admin-auth'
 import { json } from '@lib/classes/admin-actions'
 import { listClasses } from '@lib/classes/class-store'
 import { getLedger, type Ledger } from '@lib/classes/seat-ledger'
+import { paidOn } from '@lib/classes/seat-status'
 import { isOurs, listParties, type PartyRecord } from '@lib/party-store'
 import { localDate } from '@lib/party-slots'
 
@@ -22,6 +23,10 @@ export interface MonthReport {
   partiesBooked: number
   /** Party money taken this month (studio fees and extras, online, by link or by card in /admin), less party refunds made this month, in cents. */
   partyFeesCents: number
+  /** Stage 4: money taken off those seats this month (early-bird and codes), in cents. */
+  discountCents: number
+  /** Of that, what codes took off. */
+  codeDiscountCents: number
 }
 
 const inMonth = (iso: string, month: string) => localDate(iso).slice(0, 7) === month
@@ -29,12 +34,17 @@ const inMonth = (iso: string, month: string) => localDate(iso).slice(0, 7) === m
 /** The month's numbers from our own records. Pure, for the route and its tests. */
 export function monthReport(ledgers: Ledger[], parties: PartyRecord[], now: Date): MonthReport {
   const month = localDate(now.toISOString()).slice(0, 7)
-  let seatsSold = 0, classSalesCents = 0, refunds = 0, refundedCents = 0
+  let seatsSold = 0, classSalesCents = 0, refunds = 0, refundedCents = 0, discountCents = 0, codeDiscountCents = 0
   for (const ledger of ledgers) {
     for (const l of ledger.lines) {
       if ((l.state === 'confirmed' || l.state === 'refunded') && inMonth(l.at, month)) {
         seatsSold += 1
-        classSalesCents += l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
+        // M4: Square's own per-seat numbers when kept (a discounted seat can be a cent off ours).
+        classSalesCents += paidOn(l)
+        for (const d of l.discounts ?? []) {
+          discountCents += d.cents
+          if (d.kind === 'promo') codeDiscountCents += d.cents
+        }
       }
       for (const r of l.refunds) {
         if (r.cents > 0 && inMonth(r.at, month)) { refunds += 1; refundedCents += r.cents }
@@ -52,7 +62,7 @@ export function monthReport(ledgers: Ledger[], parties: PartyRecord[], now: Date
       if (!simulated && inMonth(f.at, month)) partyFeesCents -= f.cents
     }
   }
-  return { month, seatsSold, classSalesCents, refunds, refundedCents, partiesBooked, partyFeesCents }
+  return { month, seatsSold, classSalesCents, refunds, refundedCents, partiesBooked, partyFeesCents, discountCents, codeDiscountCents }
 }
 
 /**

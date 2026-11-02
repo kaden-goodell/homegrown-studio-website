@@ -10,6 +10,7 @@ import { remember } from '@lib/short-memory'
 import { publicListHeaders } from '@lib/cache-headers'
 import { listClasses } from '@lib/classes/class-store'
 import { getLedger } from '@lib/classes/seat-ledger'
+import { waitlistOrNull } from '@lib/classes/waitlist-store'
 import { listedPublicly, toPublicClass } from '@lib/classes/public-view'
 
 export const prerender = false
@@ -46,7 +47,7 @@ async function ownClasses(now: Date): Promise<{ list: WorkshopData[]; failed: bo
   const list = await Promise.all(
     classes.map(async (cls) => {
       try {
-        return toPublicClass(cls, await getLedger(cls.id), now)
+        return toPublicClass(cls, await getLedger(cls.id), now, {}, await waitlistOrNull(cls.id))
       } catch (err) {
         failed = true
         logger.error('Seat ledger unreadable for the workshop list — class left out', { classId: cls.id, error: err instanceof Error ? err.message : String(err) })

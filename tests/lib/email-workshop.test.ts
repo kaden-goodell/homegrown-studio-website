@@ -65,6 +65,16 @@ describe('sendWorkshopConfirmationEmail', () => {
     expect(html).toContain('Add to Google Calendar')
   })
 
+  it('D2: carries the booking’s own “Can’t make it?” link when given, and none otherwise', async () => {
+    await sendWorkshopConfirmationEmail({ ...input, cancelUrl: 'https://ourhometownstudio.com/classes/cancel/cls_1.bkg_1.sig' })
+    const { html, text } = mockSendMail.mock.calls[0][0]
+    expect(text).toContain('Can’t make it? Cancel or change your booking here https://ourhometownstudio.com/classes/cancel/cls_1.bkg_1.sig')
+    expect(html).toContain('href="https://ourhometownstudio.com/classes/cancel/cls_1.bkg_1.sig"')
+    expect(html).toContain('Can&rsquo;t make it? Cancel or change your booking')
+    await sendWorkshopConfirmationEmail(input)
+    expect(mockSendMail.mock.calls[1][0].text).not.toContain('Cancel or change your booking')
+  })
+
   it('attaches the calendar file', async () => {
     await sendWorkshopConfirmationEmail(input)
     const [file] = mockSendMail.mock.calls[0][0].attachments

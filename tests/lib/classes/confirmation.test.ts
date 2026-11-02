@@ -35,4 +35,16 @@ describe('class confirmation email (M6)', () => {
     expect(ics).not.toContain('DTSTART:20261103T180000Z')
     expect(ics).toContain('UID:class-20261102T180000Z@ourhometownstudio.com')
   })
+
+  it('D2: every class confirmation links the booking’s own signed cancel page', async () => {
+    const { readCancelToken } = await import('@lib/classes/self-cancel-token')
+    await sendClassConfirmation({
+      origin: 'https://x.test', bookingId: 'bkg_9', cls, sessionIds: ['ses_1'], seats: 1, seatsLabel: '1 seat',
+      email: 'a@b.co', givenName: 'Ada', receiptUrl: null, totalChargedCents: 1000,
+    })
+    const url: string = sent.last.cancelUrl
+    expect(url.startsWith('https://x.test/classes/cancel/')).toBe(true)
+    expect(readCancelToken(url.split('/').pop())).toEqual({ classId: 'cls_conf1', bookingId: 'bkg_9' })
+  })
 })
+

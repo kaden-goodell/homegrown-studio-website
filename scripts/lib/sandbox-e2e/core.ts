@@ -16,7 +16,23 @@ export const SQUARE_SANDBOX_VERSION = '2026-01-22'
 
 /** How Kaden runs it (the passcodes come from the branch's Netlify env, straight into the process). */
 export const RUN_LINE =
-  '! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts'
+  '! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" PREVIEW_OWNER_ALERT_NUMBERS="$(npx netlify env:get OWNER_ALERT_NUMBERS --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts'
+
+/** The only phone the preview may text owners on during a run (Kaden's). */
+export const KADEN_PHONE_DIGITS = '4029802907'
+
+/**
+ * Preflight (review T4): the preview's OWNER_ALERT_NUMBERS, read from the branch's Netlify env into
+ * PREVIEW_OWNER_ALERT_NUMBERS, must be Kaden's number and nothing else, or the run stops before anything is
+ * booked (owner texts from the waitlist, reader and cancel scenarios go there). Null = fine; else why not.
+ */
+export function ownerNumbersProblem(raw: string | undefined): string | null {
+  const list = (raw ?? '').split(',').map((x) => x.trim()).filter(Boolean)
+  if (!list.length) return `PREVIEW_OWNER_ALERT_NUMBERS is not set, so the owner texts this run sends can't be checked. Run it with: ${RUN_LINE}`
+  const other = list.filter((n) => n.replace(/\D/g, '').replace(/^1(?=\d{10}$)/, '') !== KADEN_PHONE_DIGITS)
+  if (other.length) return `The preview texts owners on ${list.length} number(s), and ${other.length} of them isn't Kaden's (402) 980-2907. Set OWNER_ALERT_NUMBERS for branch:kaden/own-booking-system to Kaden's number only, then run again. Nothing was booked.`
+  return null
+}
 
 const HOSTS = {
   preview: new URL(PREVIEW_ORIGIN).host,
