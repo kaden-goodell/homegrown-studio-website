@@ -47,6 +47,15 @@ function asSquareError(e: unknown): unknown {
   return e
 }
 
+/**
+ * Sent on every saved-card charge: seller-initiated (the buyer isn't here;
+ * they agreed when the card was saved). NOT proven yet (Task 12 sandbox proof
+ * 3). If the sandbox refuses it, set this to null and the field is left off;
+ * nothing else changes. A refusal of it classifies as 'setup' (saved-cards.ts),
+ * so it can never be read as a family's card being declined.
+ */
+export const SAVED_CARD_CUSTOMER_DETAILS: Record<string, unknown> | null = { customer_initiated: false, seller_keyed_in: false }
+
 function savedCardOf(card: any): SavedCard {
   if (!card?.id) throw new Error('Square returned a card without an id.')
   return {
@@ -309,8 +318,7 @@ export class SquarePaymentProvider implements PaymentProvider {
       autocomplete: true,
       location_id: this.config.locationId,
       note: input.note.slice(0, 500),
-      // Seller-initiated: the buyer isn't here; they agreed to it when the card was saved.
-      customer_details: { customer_initiated: false, seller_keyed_in: false },
+      ...(SAVED_CARD_CUSTOMER_DETAILS ? { customer_details: SAVED_CARD_CUSTOMER_DETAILS } : {}),
     }
     if (input.buyerEmailAddress) body.buyer_email_address = input.buyerEmailAddress
     let res: any

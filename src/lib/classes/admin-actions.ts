@@ -909,8 +909,13 @@ export async function unblockTime(body: { id?: unknown }, by: By = ADMIN_BY): Pr
 
 // ── Repeating dates (stage 4, Task 7) ──────────────────────────────────────
 
-/** How long one `repeat` request keeps adding before it answers and the sheet sends it again (each date is its own POS write). */
-export const repeatLimits = { budgetMs: 6_000 }
+/**
+ * How long one `repeat` request keeps adding before it answers and the sheet
+ * sends it again (each date is its own POS write). I2: no new date starts
+ * after `budgetMs`, nor when the slowest date so far would carry the request
+ * past `hardMs` — well inside the ~10 s a function may run.
+ */
+export const repeatLimits = { budgetMs: 3_500, hardMs: 6_000 }
 export const PASSED = 'That date has passed.'
 
 export interface RepeatDateCheck { ymd: string; ok: boolean; reason: string | null }
@@ -946,13 +951,21 @@ async function checkDates(dates: { ymd: string; sessions: Session[] }[], canShar
   } catch {
     throw new ActionError(503, "The schedule couldn't be checked. Try again.")
   }
+  const okSoFar: { ymd: string; sessions: Session[] }[] = []
+  const overlaps = (a: Session[], b: Session[]) => a.some((x) => b.some((y) => x.startIso < y.endIso && y.startIso < x.endIso))
   return dates.map(({ ymd, sessions }) => {
     if (sessions.some((s) => Date.parse(s.startIso) < now.getTime())) return { ymd, ok: false, reason: PASSED }
     const found = sessions.flatMap((s) => clashes({ startIso: s.startIso, endIso: s.endIso, kind: 'class', canShareRoom }, busy))
     const unique = found.filter((b, i) => found.findIndex((x) => x.id === b.id && x.startIso === b.startIso) === i)
-    if (!unique.length) return { ymd, ok: true, reason: null }
-    const closed = unique.find((b) => b.kind === 'closed')
-    return { ymd, ok: false, reason: closed ? `${closed.label}.` : clashMessage(unique) }
+    if (unique.length) {
+      const closed = unique.find((b) => b.kind === 'closed')
+      return { ymd, ok: false, reason: closed ? `${closed.label}.` : clashMessage(unique) }
+    }
+    // M3: copies of a multi-day class checked against each other (a camp whose picked dates overlap itself).
+    const sibling = canShareRoom ? undefined : okSoFar.find((o) => overlaps(o.sessions, sessions))
+    if (sibling) return { ymd, ok: false, reason: `Overlaps the ${formatDay(sibling.sessions[0].startIso).replace(',', '')} copy.` }
+    okSoFar.push({ ymd, sessions })
+    return { ymd, ok: true, reason: null }
   })
 }
 
@@ -995,10 +1008,14 @@ export async function repeatClass(body: {
 
   let libraryId = typeof body.libraryId === 'string' && body.libraryId ? body.libraryId : undefined
   let content: unknown = body.content
+  let ebNote: string | null = null
   if (!libraryId) {
     // One library entry for every date, named by the create key: a retry finds it, never a second.
     const parent = (await reserveCreate(body.createKey))!
-    const usual = usualFrom(dropEndedEarlyBird(okContent(body.content), now).content, sessions)
+    const dropped = dropEndedEarlyBird(okContent(body.content), now)
+    // M5: an ended early-bird left off here is said once in the reply (each date's own drop finds nothing left).
+    ebNote = dropped.note
+    const usual = usualFrom(dropped.content, sessions)
     try {
       const lib = await saveLibraryVersion({ createId: parent.libraryId, content: usual, by, note: `Added with the class on ${formatDay(sessions[0].startIso).replace(',', '')}` })
       libraryId = lib.id
@@ -1016,19 +1033,23 @@ export async function repeatClass(body: {
   const checks = new Map((await checkDates(wanted, await canShareOf({ libraryId, content }), now)).map((c) => [c.ymd, c]))
   const out: RepeatResult = { created: [], skipped: [], left: [], leftBecause: null }
   const started = Date.now()
+  let slowest = 0
   for (let i = 0; i < wanted.length; i++) {
     const d = wanted[i]
-    if (i > 0 && Date.now() - started > repeatLimits.budgetMs) {
+    const elapsed = Date.now() - started
+    if (i > 0 && (elapsed > repeatLimits.budgetMs || elapsed + slowest > repeatLimits.hardMs)) {
       out.left = wanted.slice(i).map((x) => x.ymd)
       out.leftBecause = 'time'
       break
     }
+    const dateStarted = Date.now()
     try {
       const r = await scheduleClass(
         { libraryId, content, sessions: d.sessions, status, createKey: body.createKey, ...(body.alsoUpdateLibrary === true ? { alsoUpdateLibrary: true } : {}) },
         by,
         { childKey: d.ymd },
       )
+      slowest = Math.max(slowest, Date.now() - dateStarted)
       out.created.push({ ymd: d.ymd, class: r.data.class, ...(r.warning ? { warning: r.warning } : {}) })
     } catch (e) {
       if (e instanceof ActionError && (e.status === 400 || e.status === 409)) {
@@ -1048,7 +1069,7 @@ export async function repeatClass(body: {
     const name = out.created[0].class.content.name
     await audit(by, 'class-repeat', { kind: 'class', id: out.created[0].class.id, label: name }, { added: out.created.length, skipped: out.skipped.length, left: out.left.length })
   }
-  const warnings = [...new Set(out.created.map((c) => c.warning).filter(Boolean))]
+  const warnings = [...new Set([...(ebNote && out.created.length ? [ebNote] : []), ...out.created.map((c) => c.warning).filter(Boolean)])]
   return { data: out, ...(warnings.length ? { warning: warnings.join(' ') } : {}) }
 }
 

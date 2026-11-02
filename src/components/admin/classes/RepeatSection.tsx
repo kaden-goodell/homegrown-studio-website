@@ -31,6 +31,7 @@ export const tickedDates = (r: Repeat, dates: RepeatDate[] | null) => (dates ?? 
 export function useRepeatPreview(r: Repeat, sessions: Session[] | null, body: { content?: unknown; libraryId?: string | null }) {
   const pattern = patternOf(r)
   const key = JSON.stringify([pattern, sessions?.map((s) => [s.startIso, s.endIso]), (body.content as any)?.rules?.canShareRoom ?? null, body.libraryId ?? null])
+  const [nonce, setNonce] = useState(0)
   const [state, setState] = useState<{ key: string; dates: RepeatDate[] | null; error: string }>({ key: '', dates: null, error: '' })
   useEffect(() => {
     if (r.kind === 'none' || !pattern || !sessions?.length) return
@@ -45,9 +46,11 @@ export function useRepeatPreview(r: Repeat, sessions: Session[] | null, body: { 
       setState(res.ok && res.data ? { key, dates: res.data.dates, error: '' } : { key, dates: null, error: res.error ?? 'The dates couldn’t be checked. Try again.' })
     }, 350)
     return () => { live = false; clearTimeout(t) }
-  }, [key])
+  }, [key, nonce])
   const fresh = state.key === key
-  return { dates: fresh ? state.dates : null, error: fresh ? state.error : '', checking: r.kind !== 'none' && !!pattern && !!sessions?.length && !fresh }
+  /** M4: ask again after "The dates couldn't be checked." */
+  const retry = () => { setState((cur) => ({ ...cur, key: '' })); setNonce((n) => n + 1) }
+  return { dates: fresh ? state.dates : null, error: fresh ? state.error : '', checking: r.kind !== 'none' && !!pattern && !!sessions?.length && !fresh, retry }
 }
 
 export default function RepeatSection({ value, onChange, firstDay, multi, preview, error }: {
@@ -57,7 +60,7 @@ export default function RepeatSection({ value, onChange, firstDay, multi, previe
   firstDay: string
   /** More than one date: the picked days are when the first one runs. */
   multi: boolean
-  preview: { dates: RepeatDate[] | null; error: string; checking: boolean }
+  preview: { dates: RepeatDate[] | null; error: string; checking: boolean; retry?: () => void }
   /** A refusal about the repeat from Add. */
   error?: string
 }) {
@@ -79,7 +82,7 @@ export default function RepeatSection({ value, onChange, firstDay, multi, previe
       <legend>Repeat</legend>
       <Seg label="How it repeats" className="is-wrap" value={value.kind} onChange={choose} options={[['none', 'Doesn’t repeat'], ['week', 'Every week'], ['two', 'Every 2 weeks'], ['pick', 'Pick dates']]} />
       {(value.kind === 'week' || value.kind === 'two') && (
-        <label className="adm-fld"><span>Until</span><input type="date" value={value.until} min={firstDay || undefined} onChange={(e) => set({ until: e.target.value })} /></label>
+        <label className="adm-fld"><span>Until</span><input type="date" value={value.until} min={firstDay ? addDays(firstDay, 1) : undefined} onChange={(e) => set({ until: e.target.value })} /></label>
       )}
       {value.kind === 'pick' && (
         <div className="adm-repeat-picks">
@@ -99,6 +102,7 @@ export default function RepeatSection({ value, onChange, firstDay, multi, previe
             {!firstDay ? 'Fill in the dates above to see the list.' : preview.checking ? 'Checking the dates…' : preview.dates ? `${ticked} ${ticked === 1 ? 'class' : 'classes'}, each one its own class on the calendar and the register. Untick a date to leave it out.` : ''}
           </p>
           {preview.error && <p role="alert" className="adm-error">{preview.error}</p>}
+          {preview.error && preview.retry && <button type="button" className="adm-btn is-ghost is-sm" onClick={preview.retry}>Check again</button>}
           {error && <p role="alert" className="adm-error adm-fielderr">{error}</p>}
           {preview.dates && (
             <ul className="adm-repeat-dates" aria-label="Dates it adds">

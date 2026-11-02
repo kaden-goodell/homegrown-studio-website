@@ -114,6 +114,14 @@ export interface PaymentProvider {
    * the source, the customer, our order and autocomplete. The same key sent
    * again returns the first payment. A declined, disabled or missing card
    * throws a 4xx (chargeOutcomeOf → not charged); a timeout is unknown.
+   *
+   * M9, for Task 10: a retry MUST send the identical body for the same key
+   * (`wl:{entryId}:{n}:pay`): same amount, same order, same note, same
+   * customer_details. A different body under the same key is refused as
+   * IDEMPOTENCY_KEY_REUSED, which is "unknown" for good. A re-quote (a price
+   * change) is a new attempt n, made only after findOrderPayment says the
+   * order is unpaid. Classify refusals with cardTroubleOf: 'setup' stops the
+   * run and never disables a card or tells a family (saved-cards.ts).
    */
   chargeSavedCard(input: { orderId: string; cardId: string; customerId: string; amount: number; idempotencyKey: string; buyerEmailAddress?: string; note: string }): Promise<Payment>
 

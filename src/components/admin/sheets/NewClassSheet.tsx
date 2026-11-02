@@ -243,10 +243,21 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
 
   /** Sends the repeat, carrying on while the server says it ran out of time (each send replays what's made). */
   async function sendRepeat(req: Record<string, unknown>, total: number, status: 'open' | 'draft') {
-    let r = await api<RepeatResult>(CLASSES, req)
+    // I2: a dropped connection or a server error (the function ran out of time) is sent again once by itself.
+    // Safe: every date has its own key, so what was made is answered, never made twice.
+    let resent = false
+    const send = async () => {
+      let res = await api<RepeatResult>(CLASSES, req)
+      if (!res.ok && (res.status === 0 || res.status >= 500) && !resent) {
+        resent = true
+        res = await api<RepeatResult>(CLASSES, req)
+      }
+      return res
+    }
+    let r = await send()
     for (let i = 0; i < 12 && r.ok && r.data?.leftBecause === 'time'; i++) {
       setProgress(`Added ${r.data.created.length} of ${total}…`)
-      r = await api<RepeatResult>(CLASSES, req)
+      r = await send()
     }
     setBusy('')
     setProgress('')
@@ -263,6 +274,14 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
     if (d.created.length) bump()
     if (!d.skipped.length && !d.left.length) return finishRepeat(d.created, status, r.warning)
     setOutcome({ total, created: d.created, skipped: d.skipped, left: d.left, status, ...(r.warning ? { warning: r.warning } : {}) })
+  }
+
+  /** I1: back to the form after nothing was added. A new key, so the next Add is a new request. */
+  function changeDates() {
+    setOutcome(null)
+    sentRepeat.current = null
+    createKey.current = newKey()
+    requestAnimationFrame(() => body.current?.querySelector<HTMLElement>('[data-field="dates"] input, [data-field="repeat"] input')?.focus())
   }
 
   function finishRepeat(created: RepeatResult['created'], status: 'open' | 'draft', warning?: string) {
@@ -282,11 +301,12 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
   const addLabel = repeating ? (!preview.dates ? 'Add classes' : ticked === 1 ? 'Add 1 class' : `Add ${ticked} classes`) : 'Add class'
   const outcomePanel = outcome && (
     <div className="adm-panel" role="alert" aria-label="What was added">
-      <b>{outcome.created.length ? `Added ${outcome.created.length} of ${outcome.total}.` : 'Nothing was added yet.'}</b>
+      <b>{outcome.created.length ? `Added ${outcome.created.length} of ${outcome.total}.` : outcome.left.length ? 'Nothing was added yet.' : 'None of these dates could be added.'}</b>
       {outcome.created.length > 0 && <span className="adm-small">{`Added ${days(outcome.created.map((c) => c.ymd))}.`}</span>}
       {outcome.skipped.map((x) => <span key={x.ymd} className="adm-small">{`Not added ${dayLabel(x.ymd)}. ${x.reason}`}</span>)}
       {outcome.left.length > 0 && <span className="adm-small">{`Not added yet ${days(outcome.left)}.`}</span>}
       {outcome.warning && <span className="adm-small">{outcome.warning}</span>}
+      {outcome.created.length > 0 && outcome.left.length > 0 && <span className="adm-small">To change anything, press Stop here and add the rest as a new class.</span>}
       <div className="adm-two">
         {outcome.left.length > 0 && (
           <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => { setBusy('add'); sendRepeat(sentRepeat.current!, outcome.total, outcome.status) }}>
@@ -297,6 +317,10 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
           <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => finishRepeat(outcome.created, outcome.status, outcome.warning)}>
             {outcome.left.length ? 'Stop here' : 'Done'}
           </button>
+        )}
+        {outcome.created.length === 0 && (
+          // I1: nothing was made, so nothing is lost by starting again: the form stays, with a fresh key.
+          <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={changeDates}>Change the dates</button>
         )}
       </div>
     </div>
@@ -367,17 +391,25 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
               <p className="adm-note" role="status" data-testid="copied-early-bird">{`This copies its early-bird too: ${copiedEarlyBird}. Turn it off under the price if these dates shouldn’t have it.`}</p>
             )}
             <PreviewButton f={f} sessions={previewSessions} />
+            {/* Stale edits: while the "Added 4 of 6" panel is up, the form is locked, so no change silently does nothing. */}
+            <fieldset disabled={!!outcome} aria-disabled={!!outcome} style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}>
             <DetailsFields f={f} set={(fn) => setF((cur) => fn(cur))} errors={errors} sessions={rows.map((r, i) => ({ id: r.id, label: `Date ${i + 1}` }))}>
               <DateRows rows={rows} onChange={(r) => { setRows(r); setDatesError('') }} error={datesError} />
               <RepeatSection
                 value={repeat}
-                onChange={(r) => { setRepeat(r); setRepeatError('') }}
+                onChange={(r) => {
+                  // M6: a new Repeat choice with no repeat sent yet gets its own key, so an earlier lost single Add
+                  // can't make the first date read "Clashes with" itself.
+                  if (r.kind !== repeat.kind && !sentRepeat.current) createKey.current = newKey()
+                  setRepeat(r); setRepeatError('')
+                }}
                 firstDay={checkedRows.ok ? [...rows].map((r) => r.day).sort()[0] ?? '' : ''}
                 multi={rows.length > 1}
                 preview={preview}
                 error={repeatError}
               />
             </DetailsFields>
+            </fieldset>
             <p className="adm-note">It goes into your library on its own, so you can run it again later.</p>
           </>
         )}

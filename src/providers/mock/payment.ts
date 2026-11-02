@@ -23,7 +23,12 @@ export class MockPaymentProvider implements PaymentProvider {
    * Saved cards (stage 4), as Square would keep them. Source tokens that steer
    * the mock: 'FAIL' → the save is refused (CARD_DECLINED); 'DECLINE_LATER' →
    * saved, but a later charge is declined; 'NO_FUNDS_LATER' → a later charge
-   * fails with INSUFFICIENT_FUNDS; 'TIMEOUT_LATER' → a later charge never answers.
+   * fails with INSUFFICIENT_FUNDS; 'TIMEOUT_LATER' → a later charge never answers
+   * (and charges nothing); 'LOST_REPLY_LATER' → a later charge DOES charge, but
+   * the reply is lost (TimeoutError); a retry with the same key returns that
+   * payment and findOrderPayment finds it, as Square does (M7);
+   * 'SETUP_LATER' → a later charge is refused as a setup problem (401, I3);
+   * 'SETUP' → the save itself is refused as a setup problem.
    */
   savedCards = new Map<string, SavedCard & { customerId: string; referenceId: string; enabled: boolean; behaviour: string }>()
   saveCardCalls: Parameters<PaymentProvider['saveCard']>[0][] = []
@@ -127,6 +132,7 @@ export class MockPaymentProvider implements PaymentProvider {
     const again = this.cardKeys.get(input.idempotencyKey)
     if (again) return this.faceOf(again)
     if (input.sourceToken === 'FAIL') throw squareRefusal(400, 'CARD_DECLINED', 'The card was declined.')
+    if (input.sourceToken === 'SETUP') throw squareRefusal(401, 'ACCESS_TOKEN_EXPIRED', 'The access token has expired.', 'AUTHENTICATION_ERROR')
     const cardId = this.generateId('mock-card')
     this.savedCards.set(cardId, {
       cardId, brand: 'VISA', last4: '4242', expMonth: 12, expYear: new Date().getUTCFullYear() + 3,
@@ -152,10 +158,13 @@ export class MockPaymentProvider implements PaymentProvider {
     if (card.behaviour === 'DECLINE_LATER') throw squareRefusal(400, 'CARD_DECLINED', 'The card was declined.')
     if (card.behaviour === 'NO_FUNDS_LATER') throw squareRefusal(400, 'INSUFFICIENT_FUNDS', 'Insufficient funds.')
     if (card.behaviour === 'TIMEOUT_LATER') throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
+    if (card.behaviour === 'SETUP_LATER') throw squareRefusal(401, 'ACCESS_TOKEN_EXPIRED', 'The access token has expired.', 'AUTHENTICATION_ERROR')
     const id = this.generateId('mock-payment')
     const payment: Payment = { id, orderId: input.orderId, amount: input.amount, status: 'completed', receiptUrl: `https://mock-receipt.example.com/${id}` }
     this.paid.set(input.orderId, payment)
     this.chargeKeys.set(input.idempotencyKey, payment)
+    // Charged, but the answer never arrives: the caller must treat it as unknown and look again.
+    if (card.behaviour === 'LOST_REPLY_LATER') throw Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
     return payment
   }
 
@@ -198,6 +207,6 @@ export class MockPaymentProvider implements PaymentProvider {
 }
 
 /** A refusal shaped like Square's (what chargeOutcomeOf and squareErrorCodes read). */
-function squareRefusal(statusCode: number, code: string, detail: string): Error {
-  return Object.assign(new Error(`Square said: ${detail}`), { status: statusCode, statusCode, errors: [{ code, detail, category: 'PAYMENT_METHOD_ERROR' }] })
+function squareRefusal(statusCode: number, code: string, detail: string, category = code === 'NOT_FOUND' ? 'INVALID_REQUEST_ERROR' : 'PAYMENT_METHOD_ERROR'): Error {
+  return Object.assign(new Error(`Square said: ${detail}`), { status: statusCode, statusCode, errors: [{ code, detail, category }] })
 }

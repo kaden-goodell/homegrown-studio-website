@@ -570,6 +570,96 @@ describe('Repeat (stage 4)', () => {
     expect(screen.getByText('Added 2 classes. They’re on the calendar and in your library.')).toBeInTheDocument()
   })
 
+  async function startWeekly(f: any, until: string) {
+    vi.stubGlobal('fetch', f)
+    const r = renderSheet(<NewClassSheet day="2031-03-12" />)
+    fillBasics()
+    fireEvent.click(within(repeatGroup()).getByRole('button', { name: 'Every week' }))
+    fireEvent.change(screen.getByLabelText('Until'), { target: { value: until } })
+    await screen.findByRole('list', { name: 'Dates it adds' })
+    return r
+  }
+
+  it('I1: every date refused at create: "None of these dates could be added." and Change the dates keeps the form with a fresh key', async () => {
+    const dates = ['2031-03-12', '2031-03-19'].map((ymd) => ({ ymd, ok: true, reason: null }))
+    const f = repeatServer({ dates, repeat: () => ok({ data: { created: [], skipped: dates.map((d) => ({ ymd: d.ymd, reason: 'Clashes with Rivera party, Wed Mar 12 6 PM.' })), left: [], leftBecause: null } }) })
+    await startWeekly(f, '2031-03-19')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 2 classes' }))
+    const panel = await screen.findByRole('alert', { name: 'What was added' })
+    expect(within(panel).getByText('None of these dates could be added.')).toBeInTheDocument()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Change the dates' }))
+    expect(screen.queryByRole('alert', { name: 'What was added' })).toBeNull()
+    expect(screen.getByLabelText('Name')).toHaveValue('Pottery')
+    expect(screen.getByLabelText('Name')).not.toBeDisabled()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 2 classes' }))
+    await waitFor(() => expect(posts(f, CLASSES).filter((x: any) => x.body.action === 'repeat')).toHaveLength(2))
+    const sent = posts(f, CLASSES).filter((x: any) => x.body.action === 'repeat')
+    expect(sent[1].body.createKey).not.toBe(sent[0].body.createKey)
+  })
+
+  it('stale edits: while the partial-result panel is up the form is locked, with the line saying how to change anything', async () => {
+    const dates = ['2031-03-12', '2031-03-19'].map((ymd) => ({ ymd, ok: true, reason: null }))
+    const f = repeatServer({ dates, repeat: () => ok({ data: { created: [made('2031-03-12', 'cls_a')], skipped: [], left: ['2031-03-19'], leftBecause: 'error' } }) })
+    await startWeekly(f, '2031-03-19')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 2 classes' }))
+    const panel = await screen.findByRole('alert', { name: 'What was added' })
+    expect(within(panel).getByText('To change anything, press Stop here and add the rest as a new class.')).toBeInTheDocument()
+    expect(screen.getByLabelText('Name')).toBeDisabled()
+    expect(within(date1()).getByLabelText('Day')).toBeDisabled()
+  })
+
+  it('I2: a dropped connection or a server error is sent again once by itself (same body); the classes it made are shown, not an error', async () => {
+    const dates = ['2031-03-12', '2031-03-19'].map((ymd) => ({ ymd, ok: true, reason: null }))
+    const f = repeatServer({ dates, repeat: (_b, n) => (n === 1 ? refuse(502, {}) : ok({ data: { created: [made('2031-03-12', 'cls_a'), made('2031-03-19', 'cls_b')], skipped: [], left: [], leftBecause: null } })) })
+    const { sheet } = await startWeekly(f, '2031-03-19')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 2 classes' }))
+    await waitFor(() => expect(sheet.open).toHaveBeenCalledWith({ kind: 'class', id: 'cls_a' }))
+    const sent = posts(f, CLASSES).filter((x: any) => x.body.action === 'repeat')
+    expect(sent).toHaveLength(2)
+    expect(sent[1].body).toEqual(sent[0].body)
+  })
+
+  it('M2: Until can’t be the first day; M4: a preview that failed has Check again', async () => {
+    let n = 0
+    const base = server()
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (url.split('?')[0] === CLASSES && init?.method === 'POST' && JSON.parse(init.body).action === 'repeat-preview') {
+        return ++n === 1 ? refuse(503, { error: 'The schedule couldn\'t be checked. Try again.' }) : ok({ data: { dates: [{ ymd: '2031-03-12', ok: true, reason: null }, { ymd: '2031-03-19', ok: true, reason: null }] } })
+      }
+      return base(url, init)
+    })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<NewClassSheet day="2031-03-12" />)
+    fillBasics()
+    fireEvent.click(within(repeatGroup()).getByRole('button', { name: 'Every week' }))
+    expect(screen.getByLabelText('Until')).toHaveAttribute('min', '2031-03-13')
+    fireEvent.click(await screen.findByRole('button', { name: 'Check again' }))
+    expect(await screen.findByRole('list', { name: 'Dates it adds' })).toBeInTheDocument()
+  })
+
+  it('M6: after a single Add that got no answer, switching to Every week uses a new key', async () => {
+    const dates = ['2031-03-12', '2031-03-19'].map((ymd) => ({ ymd, ok: true, reason: null }))
+    let creates = 0
+    const inner = repeatServer({ dates, repeat: () => ok({ data: { created: [made('2031-03-12', 'cls_a'), made('2031-03-19', 'cls_b')], skipped: [], left: [], leftBecause: null } }) })
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (url.split('?')[0] === CLASSES && init?.method === 'POST' && JSON.parse(init.body).action === 'create') { creates++; throw new Error('offline') }
+      return inner(url, init)
+    })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<NewClassSheet day="2031-03-12" />)
+    fillBasics()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    await waitFor(() => expect(creates).toBe(1))
+    fireEvent.click(within(repeatGroup()).getByRole('button', { name: 'Every week' }))
+    fireEvent.change(screen.getByLabelText('Until'), { target: { value: '2031-03-19' } })
+    await screen.findByRole('list', { name: 'Dates it adds' })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add 2 classes' }))
+    await waitFor(() => expect(posts(f, CLASSES).some((x: any) => x.body.action === 'repeat')).toBe(true))
+    const create = posts(f, CLASSES).find((x: any) => x.body.action === 'create')
+    const repeat = posts(f, CLASSES).find((x: any) => x.body.action === 'repeat')
+    expect(repeat.body.createKey).not.toBe(create.body.createKey)
+  })
+
   it('Doesn’t repeat is the default and Add class sends a plain create', async () => {
     const f = server()
     vi.stubGlobal('fetch', f)

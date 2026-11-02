@@ -65,7 +65,7 @@ interface PaymentFormProps {
 }
 
 /** Under the card field when a card is being saved, not charged. */
-export const STORE_NOTE = 'Square saves your card. We never see its number.'
+export const STORE_NOTE = 'Nothing is charged now. Square saves your card. We never see its number.'
 
 interface ClientConfig {
   appId: string
@@ -134,6 +134,8 @@ type WalletInstance = {
 const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
   function PaymentForm({ applicationIdOverride, environmentOverride, wallet: walletProp, onWalletToken, canPayWithWallet, onReadyChange, giftCards: giftCardsProp = 'allowed', bookingKind = 'other', mode = 'charge' }: PaymentFormProps, ref) {
     const store = mode === 'store'
+    /** M8: a form that saves a card (and charges nothing) isn't called Payment. */
+    const groupName = store ? 'Card to save' : 'Payment'
     // Saving a card: only a card can be saved, so no wallets and no gift cards.
     const wallet = store ? undefined : walletProp
     const giftCards: 'allowed' | 'cards-only' | 'none' = store ? 'none' : giftCardsProp
@@ -468,7 +470,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
     if (loading) {
       return (
-        <div className="space-y-3" role="group" aria-label="Payment">
+        <div className="space-y-3" role="group" aria-label={groupName}>
           <div className="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-400">
             Loading payment form...
           </div>
@@ -500,7 +502,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
 
     if (isMockMode) {
       return (
-        <div className="space-y-3" role="group" aria-label="Payment">
+        <div className="space-y-3" role="group" aria-label={groupName}>
           {/* Local development only. The badge sits inside the stand-in card
               field it describes; the step around it is already titled Payment. */}
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-gray-300 bg-gray-50 px-4 py-3 text-sm text-gray-500">
@@ -545,7 +547,7 @@ const PaymentForm = forwardRef<PaymentFormRef, PaymentFormProps>(
     const anyWalletReady = applePayReady || googlePayReady || afterpayReady
 
     return (
-      <div className="space-y-3" role="group" aria-label="Payment">
+      <div className="space-y-3" role="group" aria-label={groupName}>
         {applePayReady && (
           <>
             {/* Apple's <apple-pay-button> custom element (registered by

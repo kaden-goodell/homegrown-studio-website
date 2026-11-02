@@ -91,6 +91,7 @@ beforeEach(() => {
   mocks.creates = 0
   mocks.closures = []
   repeatLimits.budgetMs = 6_000
+  repeatLimits.hardMs = 6_000
 })
 afterEach(() => vi.unstubAllEnvs())
 
@@ -199,16 +200,16 @@ describe('repeat', () => {
     expect(r.body.data.created.map((c: any) => c.ymd)).toEqual(['2033-04-07', '2033-04-14'])
   })
 
-  it('a date that clashes only once the earlier copies exist (the preview said ok) is skipped at create time; others created', async () => {
+  it('M3: copies that overlap each other are caught in the preview ("Overlaps the … copy.") and skipped at create time; others created', async () => {
     // A two-week series repeated weekly overlaps itself: the second copy's first date is the first copy's second date.
     const camp = [ses('2033-06-06', 9), ses('2033-06-13', 9)]
     const preview = await post(classes, { action: 'repeat-preview', content: content('Overlap Camp'), sessions: camp, pattern: { every: 1, untilYmd: '2033-06-20' } })
-    expect(preview.body.data.dates.map((d: any) => d.ok)).toEqual([true, true, true])
+    expect(preview.body.data.dates.map((d: any) => [d.ok, d.reason])).toEqual([[true, null], [false, 'Overlaps the Mon Jun 6 copy.'], [true, null]])
     const r = await post(classes, { action: 'repeat', content: content('Overlap Camp'), sessions: camp, status: 'open', pattern: { every: 1, untilYmd: '2033-06-20' }, skip: [], createKey: 'repeat-key-camp-1' })
     expect(r.body.data.created.map((c: any) => c.ymd)).toEqual(['2033-06-06', '2033-06-20'])
     expect(r.body.data.skipped).toHaveLength(1)
     expect(r.body.data.skipped[0].ymd).toBe('2033-06-13')
-    expect(r.body.data.skipped[0].reason).toMatch(/^Clashes with Overlap Camp/)
+    expect(r.body.data.skipped[0].reason).toBe('Overlaps the Mon Jun 6 copy.')
   })
 
   it('a break part way says exactly what was added and what is left; Try the rest again makes only the rest', async () => {
@@ -238,6 +239,22 @@ describe('repeat', () => {
     const b = await post(classes, body)
     expect(b.body.data.created).toHaveLength(3)
     expect(b.body.data.created[0].class.id).toBe(a.body.data.created[0].class.id)
+  })
+
+  it('I2: no new date starts when the slowest one so far would carry the request past the hard limit', async () => {
+    repeatLimits.hardMs = 0 // any date at all is "too slow" for what's left
+    const body = { action: 'repeat', content: content('Hard Looms'), sessions: [ses('2033-09-02', 18)], status: 'open', pattern: { every: 1, untilYmd: '2033-09-16' }, skip: [], createKey: 'repeat-key-hard-1' }
+    const a = await post(classes, body)
+    expect(a.body.data.created.map((c: any) => c.ymd)).toEqual(['2033-09-02'])
+    expect(a.body.data).toMatchObject({ left: ['2033-09-09', '2033-09-16'], leftBecause: 'time' })
+  })
+
+  it('M5: from scratch, an ended early-bird left off is said once in the reply', async () => {
+    const body = { action: 'repeat', content: content('Old Bird', { earlyBird: { untilYmd: '2020-01-01', prices: { all: { person: 2000 } } } }), sessions: [ses('2033-09-05', 18)], status: 'open', pattern: { every: 1, untilYmd: '2033-09-12' }, skip: [], createKey: 'repeat-key-oldbird-1' }
+    const r = await post(classes, body)
+    expect(r.body.data.created).toHaveLength(2)
+    expect(r.body.warning).toBe('Early-bird ended, so it was left off.')
+    expect(r.body.data.created.every((c: any) => !c.class.content.earlyBird)).toBe(true)
   })
 
   it('library down from scratch: nothing is added', async () => {

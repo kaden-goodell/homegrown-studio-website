@@ -16,8 +16,8 @@ import { cardTroubleOf, CHARGE_TROUBLE_WORDS, SAVE_CARD_MESSAGES } from '../../.
 
 const cfg = { accessToken: 't', environment: 'sandbox', locationId: 'LOC1', applicationId: 'a' } as any
 /** What squareFetch throws on a non-2xx answer. */
-const refusal = (status: number, code: string, detail = code) =>
-  Object.assign(new Error(`Square said: ${detail}`), { status, errors: [{ code, detail, category: 'PAYMENT_METHOD_ERROR' }] })
+const refusal = (status: number, code: string, detail = code, category = 'PAYMENT_METHOD_ERROR') =>
+  Object.assign(new Error(`Square said: ${detail}`), { status, errors: [{ code, detail, category }] })
 const timeout = () => Object.assign(new Error('The operation was aborted due to timeout'), { name: 'TimeoutError' })
 const CARD_FIELDS = /card_number|cardNumber|\bpan\b|cvv|cvc|security_code/i
 
@@ -118,6 +118,36 @@ describe('SquarePaymentProvider saved cards', () => {
     expect(CHARGE_TROUBLE_WORDS[cardTroubleOf(err)]).toEqual(expect.any(String))
   })
 
+  it.each([
+    [401, 'ACCESS_TOKEN_EXPIRED', 'AUTHENTICATION_ERROR'],
+    [401, 'UNAUTHORIZED', 'AUTHENTICATION_ERROR'],
+    [403, 'INSUFFICIENT_SCOPES', 'AUTHENTICATION_ERROR'],
+    [429, 'RATE_LIMITED', 'RATE_LIMIT_ERROR'],
+    [400, 'INVALID_VALUE', 'INVALID_REQUEST_ERROR'], // e.g. customer_details or location_id refused
+    [400, 'BAD_REQUEST', 'INVALID_REQUEST_ERROR'],
+  ])('I3: a setup refusal (%s %s) is "setup", never "declined": nobody charged, no card blamed', async (status, code, category) => {
+    squareFetch.mockRejectedValue(refusal(status, code, code, category))
+    const err = await p.chargeSavedCard(chargeInput).catch((e) => e)
+    expect(chargeOutcomeOf(err)).toBe('not_charged')
+    expect(cardTroubleOf(err)).toBe('setup')
+    expect(CHARGE_TROUBLE_WORDS.setup).toBe('Square refused the request (a setup problem), so nobody was charged')
+    squareFetch.mockRejectedValue(refusal(status, code, code, category))
+    const saveErr = await p.saveCard(saveInput).catch((e) => e)
+    expect(SAVE_CARD_MESSAGES[cardTroubleOf(saveErr)]).toBe('We couldn’t save your card just now. Nothing was charged. Try again in a few minutes.')
+  })
+
+  it('I3: an unfamiliar code in Square\'s card category is still the card (declined)', async () => {
+    squareFetch.mockRejectedValue(refusal(400, 'SOME_NEW_CARD_CODE', 'x', 'PAYMENT_METHOD_ERROR'))
+    expect(cardTroubleOf(await p.chargeSavedCard(chargeInput).catch((e) => e))).toBe('declined')
+  })
+
+  it('customer_details is one constant: what is sent is exactly SAVED_CARD_CUSTOMER_DETAILS', async () => {
+    const { SAVED_CARD_CUSTOMER_DETAILS } = await import('../../../src/providers/square/payment')
+    squareFetch.mockResolvedValue({ payment: { id: 'P', status: 'COMPLETED', amount_money: { amount: 2180 } } })
+    await p.chargeSavedCard(chargeInput)
+    expect(JSON.parse(squareFetch.mock.calls[0][1].body).customer_details).toEqual(SAVED_CARD_CUSTOMER_DETAILS)
+  })
+
   it('a timeout, a 5xx or IDEMPOTENCY_KEY_REUSED is unknown, never not charged', async () => {
     squareFetch.mockRejectedValueOnce(timeout())
     const t = await p.chargeSavedCard(chargeInput).catch((e) => e)
@@ -167,5 +197,22 @@ describe('MockPaymentProvider saved cards (parity)', () => {
     expect(chargeOutcomeOf(await m.chargeSavedCard({ ...chargeInput, cardId: t.cardId }).catch((e) => e))).toBe('unknown')
     const ok = await m.saveCard({ ...saveInput, idempotencyKey: 'k5' })
     expect(cardTroubleOf(await m.chargeSavedCard({ ...chargeInput, cardId: ok.cardId, customerId: 'SOMEONE_ELSE' }).catch((e) => e))).toBe('card-gone')
+  })
+
+  it('M7: LOST_REPLY_LATER charges but loses the reply; the same key returns that payment, and the order shows paid', async () => {
+    const m = new MockPaymentProvider()
+    const c = await m.saveCard({ ...saveInput, sourceToken: 'LOST_REPLY_LATER', idempotencyKey: 'k6' })
+    const lost = await m.chargeSavedCard({ ...chargeInput, cardId: c.cardId }).catch((e) => e)
+    expect(chargeOutcomeOf(lost)).toBe('unknown')
+    const found = await m.findOrderPayment('ORD1')
+    expect(found).toMatchObject({ orderId: 'ORD1', amount: 2180, status: 'completed' })
+    expect(await m.chargeSavedCard({ ...chargeInput, cardId: c.cardId })).toEqual(found)
+  })
+
+  it('I3 parity: SETUP refuses the save and SETUP_LATER the charge as a setup problem', async () => {
+    const m = new MockPaymentProvider()
+    expect(cardTroubleOf(await m.saveCard({ ...saveInput, sourceToken: 'SETUP', idempotencyKey: 'k7' }).catch((e) => e))).toBe('setup')
+    const c = await m.saveCard({ ...saveInput, sourceToken: 'SETUP_LATER', idempotencyKey: 'k8' })
+    expect(cardTroubleOf(await m.chargeSavedCard({ ...chargeInput, cardId: c.cardId }).catch((e) => e))).toBe('setup')
   })
 })

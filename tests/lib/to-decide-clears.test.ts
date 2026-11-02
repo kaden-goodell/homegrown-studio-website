@@ -34,7 +34,7 @@ const cls = {
   content: { name: 'Needlepoint 101', description: '', imageUrl: null, instructor: null, rules: { ...defaultRules(), minimumToRun: { count: 6, decideByIso: '2026-10-22T22:00:00.000Z' } },
     ticketTypes: [{ id: 'person', label: 'Person' }], passes: [{ id: 'all', label: 'Full', covers: { kind: 'all' } }], prices: { all: { person: 3000 } }, questions: [], addOns: [], defaultCapacity: 8, defaultMinutes: 120 },
   sessions: [{ id: 'ses_1', startIso: '2026-10-24T23:00:00.000Z', endIso: '2026-10-25T01:00:00.000Z', capacity: 8 }],
-  square: { itemId: null, variations: {} }, createdAt: '', updatedAt: '', by: BY, history: [],
+  square: { itemId: 'ITEM', variations: { 'all:person': 'V' } }, createdAt: '', updatedAt: '', by: BY, history: [],
 }
 const window = { from: '2026-10-21', to: '2026-11-30' }
 const codes = async () => (await listWarnings(window, { now: NOW })).map((w) => w.code).sort()

@@ -197,7 +197,7 @@ describe('PaymentForm store mode (stage 4: save a card for the waitlist)', () =>
     expect(sdk.googlePay).not.toHaveBeenCalled()
     expect(screen.queryByRole('button', { name: /gift card/ })).toBeNull()
     expect(screen.queryByText(/Gift cards can’t be used/)).toBeNull()
-    expect(screen.getByText('Square saves your card. We never see its number.')).toBeInTheDocument()
+    expect(screen.getByText('Nothing is charged now. Square saves your card. We never see its number.')).toBeInTheDocument()
   })
 
   it('verifies the buyer with intent STORE (no amount) and returns the token and the verification token', async () => {
@@ -233,6 +233,9 @@ describe('PaymentForm store mode (stage 4: save a card for the waitlist)', () =>
     render(<PaymentForm mode="store" />)
     await screen.findByText('Test mode')
     expect(screen.queryByRole('button', { name: /gift card/ })).toBeNull()
-    expect(screen.getByText('Square saves your card. We never see its number.')).toBeInTheDocument()
+    expect(screen.getByText('Nothing is charged now. Square saves your card. We never see its number.')).toBeInTheDocument()
+    // M8: a screen reader hears "Card to save", not "Payment".
+    expect(screen.getByRole('group', { name: 'Card to save' })).toBeInTheDocument()
+    expect(screen.queryByRole('group', { name: 'Payment' })).toBeNull()
   })
 })
