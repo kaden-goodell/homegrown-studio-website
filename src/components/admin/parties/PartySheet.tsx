@@ -36,7 +36,7 @@ import {
   byStudioDay, firstOf, newKey, PARTY_ACTIONS, partyTitle, STATE_WORDS, timesWindow, useCrafts, useParty, usePartySettings, usePartyTimes,
   type AdminParty, type AdminPartyGuest, type HostToTell, type SendDetailsOffer,
 } from './api'
-import { startClock, type PartyNotice } from './BookPartySheet'
+import { ANOTHER_TIME_HINT, OWNER_EARLIEST, OWNER_LATEST, startClock, type PartyNotice } from './BookPartySheet'
 
 type Tab = 'details' | 'guests' | 'pay'
 type Panel = null | 'move' | 'cancel'
@@ -174,9 +174,25 @@ function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: Adm
     toast(r.warning ?? r.data.message)
   }
 
+  // "Email Stefanie the details": one request at a time (the button is off while it goes), a new key for every
+  // deliberate tap, the same key only for the one automatic retry after the network dropped (the server may have
+  // sent it already: the same key answers that result instead of a second email). A failed send never sticks to
+  // a key: the next tap is a new key, so "tap again" always tries again.
+  const sendingDetails = useRef(false)
   async function sendDetails() {
-    const r = await act<{ message: string }>({ action: 'send-details', createKey: newKey() }, 'details')
-    if (!r.ok) return toast(r.error)
+    if (sendingDetails.current) return
+    sendingDetails.current = true
+    setBusy('details')
+    const createKey = newKey()
+    let r = await api<{ message: string }>(PARTY_ACTIONS, { id: p.bookingId, action: 'send-details', createKey })
+    if (!r.ok && r.status === 0) {
+      await new Promise((res) => setTimeout(res, 1500))
+      r = await api<{ message: string }>(PARTY_ACTIONS, { id: p.bookingId, action: 'send-details', createKey })
+    }
+    sendingDetails.current = false
+    setBusy('')
+    if (!r.ok || !r.data) return toast(r.error ?? DIDNT_SAVE)
+    bump()
     toast(r.warning ?? r.data.message)
     if (told?.offer) setTold({ ...told, offer: null, text: `${told.text} ${r.warning ?? r.data.message}` })
   }
@@ -361,13 +377,26 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
   const free = (times?.open ?? []).filter((s) => Date.parse(s) !== Date.parse(p.startIso))
   const startIso = other ? (day && /^\d{2}:\d{2}$/.test(time) ? localToUtcISO(day, time) : '') : pick
 
-  async function move() {
-    if (!startIso || busy) return
+  // The record couldn't be checked after a move (both times held): "Finish the move" sends it again with the
+  // times the server named, which finishes it whichever time the party is on.
+  const [finish, setFinish] = useState<{ from: string; to: string } | null>(null)
+  async function move(target?: { from: string; to: string }) {
+    const to = target?.to ?? startIso
+    if (!to || busy) return
     setBusy(true)
     setRefusal('')
-    const r = await api<{ message: string; hostToTell: HostToTell; sendDetails: SendDetailsOffer }>(PARTY_ACTIONS, { id: p.bookingId, action: 'move', startIso, fromIso: p.startIso })
+    const r = await api<{ message: string; hostToTell: HostToTell; sendDetails: SendDetailsOffer }>(PARTY_ACTIONS, { id: p.bookingId, action: 'move', startIso: to, fromIso: target?.from ?? p.startIso })
     setBusy(false)
-    if (!r.ok || !r.data) { setRefusal(r.error ?? DIDNT_SAVE); retry(); return }
+    if (!r.ok || !r.data) {
+      setRefusal(r.error ?? DIDNT_SAVE)
+      const both = r.extra?.both as { from: string; to: string } | undefined
+      setFinish(both && typeof both.from === 'string' && typeof both.to === 'string' ? both : null)
+      // Someone else moved it, or it may have moved: show the party as it is now.
+      if (both || typeof r.extra?.startIso === 'string') bump()
+      retry()
+      return
+    }
+    setFinish(null)
     bump()
     toast(r.data.message)
     onMoved({ text: r.warning ?? r.data.message, warn: !!r.warning, host: r.data.hostToTell, offer: r.data.sendDetails })
@@ -396,15 +425,25 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
       {other && (
         <div className="adm-two">
           <label className="adm-fld" style={{ margin: 0 }}><span>Day</span><input type="date" min={today()} value={day} onChange={(e) => { setDay(e.target.value); setRefusal('') }} /></label>
-          <label className="adm-fld" style={{ margin: 0 }}><span>Start time</span><input type="time" step={900} value={time} onChange={(e) => { setTime(e.target.value); setRefusal('') }} /></label>
+          <label className="adm-fld" style={{ margin: 0 }}><span>Start time</span><input type="time" step={900} min={OWNER_EARLIEST} max={OWNER_LATEST} value={time} onChange={(e) => { setTime(e.target.value); setRefusal('') }} /></label>
         </div>
       )}
+      {other && <span className="adm-small">{ANOTHER_TIME_HINT}</span>}
       <button type="button" className="adm-quiet" onClick={() => { setOther(!other); setRefusal('') }}>{other ? 'Back to the free party times' : 'Another time'}</button>
       {refusal && <p className="adm-error" role="alert">{refusal}</p>}
-      <div className="adm-two">
-        <button type="button" className="adm-btn is-ghost" onClick={onClose}>Never mind</button>
-        <button type="button" className="adm-btn is-pri" disabled={!startIso || busy} onClick={move}>{busy ? 'Moving…' : 'Move party'}</button>
-      </div>
+      {finish
+        ? (
+          <div className="adm-two">
+            <button type="button" className="adm-btn is-ghost" onClick={onClose}>Not now</button>
+            <button type="button" className="adm-btn is-pri" disabled={busy} onClick={() => move(finish)}>{busy ? 'Moving…' : 'Finish the move'}</button>
+          </div>
+        )
+        : (
+          <div className="adm-two">
+            <button type="button" className="adm-btn is-ghost" onClick={onClose}>Never mind</button>
+            <button type="button" className="adm-btn is-pri" disabled={!startIso || busy} onClick={() => move()}>{busy ? 'Moving…' : 'Move party'}</button>
+          </div>
+        )}
     </div>
   )
 }

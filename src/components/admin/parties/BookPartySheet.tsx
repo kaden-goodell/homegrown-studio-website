@@ -40,6 +40,12 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const CARD_UNREAD = 'We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.'
 
 /** "2 PM" for a start. */
+
+/** "Another time" (owners, DV3): any day, a start from 8 AM to 8 PM; the server checks the rest. */
+export const OWNER_EARLIEST = '08:00'
+export const OWNER_LATEST = '20:00'
+export const ANOTHER_TIME_HINT = 'Any day, starting between 8 AM and 8 PM. It’s checked against classes, other parties, the café and blocked time when you book.'
+
 export const startClock = (iso: string) => clock(studioClock(iso))
 
 /** What the party sheet shows on top after a booking (the toast goes after 4 seconds). */
@@ -227,9 +233,9 @@ function BookForm({ day: openedOn, packages, addOns, settings, crafts }: {
           <div className="adm-panel adm-gap-bottom">
             <label className="adm-fld" style={{ margin: 0 }}>
               <span>{`Start time on ${dayLabel(day)}`}</span>
-              <input type="time" value={otherTime} step={900} onChange={(e) => { setOtherTime(e.target.value); setErrors((x) => ({ ...x, start: undefined })) }} />
+              <input type="time" value={otherTime} step={900} min={OWNER_EARLIEST} max={OWNER_LATEST} onChange={(e) => { setOtherTime(e.target.value); setErrors((x) => ({ ...x, start: undefined })) }} />
             </label>
-            <span className="adm-small">Any time the studio is free. It’s checked against classes, other parties and the studio’s hours when you book.</span>
+            <span className="adm-small">{ANOTHER_TIME_HINT}</span>
             <button type="button" className="adm-btn is-ghost is-sm" onClick={() => { setOther(false); setOtherTime('') }}>Back to the party times</button>
           </div>
         )

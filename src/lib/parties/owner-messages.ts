@@ -14,15 +14,13 @@
 import { partyMessages, workshopMessages, UNKNOWN_OUTCOME_MESSAGE } from '@lib/checkout-messages'
 import { formatMoney } from '@lib/money'
 import {
-  CHOICES_CHANGED_MESSAGE, IN_PROGRESS_MESSAGE, PARTY_CANCELLED_MESSAGE, PRICE_MISMATCH_MESSAGE,
+  CHOICES_CHANGED_MESSAGE, IN_PROGRESS_MESSAGE, ORDER_FAILED_MESSAGE, PARTY_CANCELLED_MESSAGE, PRICE_MISMATCH_MESSAGE,
+  THEME_NOT_RESERVED_MESSAGE,
 } from './checkout'
 import {
   LINK_AMOUNT_CHANGED_MESSAGE, LINK_BUSY_MESSAGE, LINK_CANCELLED_MESSAGE, LINK_NOT_FOUND_MESSAGE,
   LINK_ORDER_FAILED_MESSAGE, LINK_PRICE_MISMATCH_MESSAGE,
 } from './pay-balance'
-
-const ORDER_FAILED_BOOK = "We couldn't start the payment, so we released the date. Your card was not charged — please try again."
-const THEME_NOT_RESERVED = "We couldn't reserve the themed table. Your card was not charged — please try again."
 
 const first = (name: string) => name.trim().split(/\s+/)[0] || 'the host'
 
@@ -37,9 +35,9 @@ export function ownerBookMessage(code: string, message: string, hostFirst: strin
   switch (message) {
     case PRICE_MISMATCH_MESSAGE:
       return 'Square’s total didn’t match our price, so nothing was charged and the time was let go. The owners got a text with both amounts. Check the prices in Parties setup, then book again.'
-    case ORDER_FAILED_BOOK:
+    case ORDER_FAILED_MESSAGE:
       return 'Square couldn’t start the payment, so nothing was charged and the time was let go. Try again.'
-    case THEME_NOT_RESERVED:
+    case THEME_NOT_RESERVED_MESSAGE:
       return 'The themed table couldn’t be reserved, so nothing was charged. Try again.'
     case PARTY_CANCELLED_MESSAGE:
       return 'This booking was already made and then cancelled. Close this and start a new booking.'

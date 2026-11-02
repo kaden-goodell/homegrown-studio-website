@@ -84,6 +84,85 @@ describe('Party sheet', () => {
     expect(await screen.findByText(/payment by link is going through right now/)).toBeInTheDocument()
   })
 
+  it('a move that may not have finished (both times held) offers Finish the move, which sends the times the server named', async () => {
+    const OLD = T1
+    const f = server(party(), {
+      [ACT]: [
+        { status: 503, body: { error: 'The move may not have finished, and the party couldn’t be checked just now. For now both Sun, Mar 9 at 1:00 PM and Sun, Mar 16 at 1:00 PM are held for it, so nobody else can book either. In a minute, tap Finish the move. That finishes it either way.', both: { from: OLD, to: NEW } } },
+        { body: { data: { party: party({ startIso: NEW }), hostToTell: tell, message: 'Moved to Sun, Mar 16 at 1:00 PM. Nothing was sent to Stefanie, so let them know.', sendDetails: { action: 'send-details', label: 'Email Stefanie the new details' } } } },
+      ],
+    })
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Move' }))
+    fireEvent.change(await screen.findByLabelText('New day and time'), { target: { value: NEW } })
+    fireEvent.click(screen.getByRole('button', { name: 'Move party' }))
+    expect(await screen.findByText(/tap Finish the move/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Finish the move' }))
+    await screen.findByRole('status', { name: 'Let Stefanie know' })
+    expect(posts(f, ACT)[1].body).toEqual({ id: ID, action: 'move', startIso: NEW, fromIso: OLD })
+  })
+
+  it('Another time on Move says any day, 8 AM to 8 PM', async () => {
+    server()
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Move' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Another time' }))
+    expect(screen.getByText('Any day, starting between 8 AM and 8 PM. It’s checked against classes, other parties, the café and blocked time when you book.')).toBeInTheDocument()
+    const time = screen.getByLabelText('Start time')
+    expect(time).toHaveAttribute('min', '08:00')
+    expect(time).toHaveAttribute('max', '20:00')
+  })
+
+  it('Email the details: off while it sends, a new key for each tap, and a send that failed can be tapped again', async () => {
+    const f = server()
+    const base = f.getMockImplementation()!
+    const sends: any[] = []
+    let finish!: (v: any) => void
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
+      const body = init?.method === 'POST' ? JSON.parse(init.body) : null
+      if (body?.action === 'send-details') {
+        sends.push(body)
+        return new Promise((r) => { finish = r })
+      }
+      return base(url, init)
+    }))
+    const answer = (data: any, warning?: string) => ({ ok: true, status: 200, json: async () => ({ data, ...(warning ? { warning } : {}) }) })
+    open()
+    const button = await screen.findByRole('button', { name: 'Email Stefanie the details' })
+    fireEvent.click(button)
+    fireEvent.click(button) // a double tap while the first is going
+    expect(await screen.findByRole('button', { name: 'Sending…' })).toBeDisabled()
+    expect(sends).toHaveLength(1)
+    const failed = 'The email to Stefanie didn’t go out. Check the email address on the party, then tap Email Stefanie the details again.'
+    finish(answer({ party: party(), sent: false, message: failed }, failed))
+    expect(await screen.findByText(failed)).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: 'Email Stefanie the details' }))
+    await waitFor(() => expect(sends).toHaveLength(2))
+    expect(sends[1].createKey).not.toBe(sends[0].createKey)
+    finish(answer({ party: party(), sent: true, message: 'Emailed Stefanie the party details for Sun, Mar 9 at 1:00 PM, with a new calendar invite.' }))
+    expect(await screen.findByText(/^Emailed Stefanie the party details/)).toBeInTheDocument()
+  })
+
+  it('Email the details: the network drops → one automatic retry with the same key (never a second email for one tap)', async () => {
+    const f = server()
+    const base = f.getMockImplementation()!
+    const sends: any[] = []
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => {
+      const body = init?.method === 'POST' ? JSON.parse(init.body) : null
+      if (body?.action === 'send-details') {
+        sends.push(body)
+        if (sends.length === 1) throw new TypeError('Failed to fetch')
+        return { ok: true, status: 200, json: async () => ({ data: { party: party(), sent: true, replay: true, message: 'Emailed Stefanie the party details for Sun, Mar 9 at 1:00 PM, with a new calendar invite.' } }) }
+      }
+      return base(url, init)
+    }))
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Email Stefanie the details' }))
+    expect(await screen.findByText(/^Emailed Stefanie the party details/, {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(sends).toHaveLength(2)
+    expect(sends[1].createKey).toBe(sends[0].createKey)
+  })
+
   it('Cancel asks first, names the host and the money, and says nothing is refunded', async () => {
     const f = server(paid(), { [ACT]: { body: { data: { party: paid({ status: 'cancelled', paymentState: 'cancelled' }), hostToTell: tell, message: 'Cancelled. Nothing was refunded. Nothing was sent to Stefanie, so let them know. To give money back, use Refund on the Payments tab.' } } } })
     open()

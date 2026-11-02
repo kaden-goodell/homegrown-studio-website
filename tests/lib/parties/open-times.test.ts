@@ -254,18 +254,21 @@ describe('isStartOpen', () => {
   it('never a start in the past (R37), never past midnight', async () => {
     expect(await isStartOpen('2027-01-31T19:00:00.000Z', 90, { admin: true }, NOW)).toEqual({ ok: false, message: 'That time has already passed. Pick a later time.' })
     expect(await isStartOpen(at('2027-05-05', '22:00'), 90, { admin: true }, NOW)).toEqual({ ok: false, message: 'A party and its hour of cleanup have to finish by midnight.' })
-    // Finishes (with cleanup) by midnight, but a Wednesday has no studio hours: the AM/PM guard wants 8 AM to 8 PM.
+    // Finishes (with cleanup) by midnight, but the AM/PM guard wants a start between 8 AM and 8 PM.
     expect(await isStartOpen(at('2027-05-05', '21:30'), 90, { admin: true }, NOW)).toEqual({
-      ok: false, message: 'On a day the studio is usually closed, a party has to start between 8 AM and 8 PM. 9:30 PM is outside that. Check AM and PM.',
+      ok: false, message: 'A party booked here has to start between 8 AM and 8 PM. 9:30 PM is outside that. Check AM and PM.',
     })
     expect(await isStartOpen(at('2027-05-05', '20:00'), 90, { admin: true }, NOW)).toEqual({ ok: true })
   })
 
-  it('“Another time” sanity guard: inside studio hours on a day that has them; online party times are never judged by it', async () => {
-    expect(await isStartOpen(at('2027-05-08', '08:00'), 90, { admin: true }, NOW)).toEqual({
-      ok: false, message: 'On Saturdays the studio is open 9 AM – 9 PM, and a party at 8:00 AM doesn’t fit inside that. Check AM and PM, or pick a time inside those hours.',
+  it('“Another time” sanity guard: 8 AM to 8 PM on any day, opening hours or not (DV3)', async () => {
+    expect(await isStartOpen(at('2027-05-07', '08:00'), 90, { admin: true }, NOW)).toEqual({ ok: true }) // a Friday morning, long before opening
+    // still the shared schedule: Saturday's café is in the way of an 8 AM party
+    expect(await isStartOpen(at('2027-05-08', '08:00'), 90, { admin: true }, NOW)).toEqual({ ok: false, message: 'Clashes with Craft Café, Sat May 8 9 AM.' })
+    expect(await isStartOpen(at('2027-05-08', '07:30'), 90, { admin: true }, NOW)).toEqual({
+      ok: false, message: 'A party booked here has to start between 8 AM and 8 PM. 7:30 AM is outside that. Check AM and PM.',
     })
-    expect(await isStartOpen(at('2027-05-08', '19:30'), 90, { admin: true }, NOW)).toEqual({ ok: true })
-    expect((await isStartOpen(at('2027-05-08', '20:00'), 90, { admin: true }, NOW)).ok).toBe(false)
+    expect(await isStartOpen(at('2027-05-08', '20:00'), 90, { admin: true }, NOW)).toEqual({ ok: true })
+    expect((await isStartOpen(at('2027-05-08', '20:30'), 90, { admin: true }, NOW)).ok).toBe(false)
   })
 })

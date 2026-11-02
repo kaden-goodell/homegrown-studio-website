@@ -85,9 +85,11 @@ export interface PartyRecord {
   linkSent?: { at: string; by: By | null; email: boolean; text: boolean }[]
   cancelled?: { at: string; by: By; note: string }
   /** The host's booking confirmation: whether it went out (written by whoever recorded the party paid). */
-  confirmation?: { at: string; sent: boolean }
+  confirmation?: { at: string; sent: boolean; /** the start it named (a later "new details" email says the party moved from it) */ startIso?: string }
   /** "Email the details" taps (owner, after a move or an edit): one email per tap key; sent null while it goes out */
   detailsSent?: { key: string; at: string; by: By | null; startIso: string; sent: boolean | null }[]
+  /** The calendar file's SEQUENCE (UID is the booking id): bumped on every move, edit and extra-time change, so a re-sent invite replaces the old one. */
+  calendarSeq?: number
   /** R6: paid after its time was taken by someone else; warned, never refunded automatically. */
   overlap?: true
   /** oldest first, capped at PARTY_HISTORY_CAP */

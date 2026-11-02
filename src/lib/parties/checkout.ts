@@ -21,6 +21,7 @@
  *
  * Server only.
  */
+import type { PartyDetailsUpdate } from '@lib/email'
 import { providers } from '@config/providers'
 import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
@@ -110,6 +111,9 @@ export const PRICE_MISMATCH_MESSAGE = 'Pricing mismatch — your card was not ch
 export const CRAFT_GONE_MESSAGE = 'That craft isn’t available any more. Nothing was charged. Pick another craft.'
 export const PARTY_CANCELLED_MESSAGE = 'That party was cancelled. Nothing was charged. Start a new booking, or text us.'
 
+/** The themed table couldn't be reserved; Square couldn't start the order (owner-messages maps both). */
+export const THEME_NOT_RESERVED_MESSAGE = "We couldn't reserve the themed table. Your card was not charged — please try again."
+export const ORDER_FAILED_MESSAGE = "We couldn't start the payment, so we released the date. Your card was not charged — please try again."
 // DRAFT copy (new, for Kaden): a retry whose choices changed since an earlier, unpaid try.
 export const CHOICES_CHANGED_MESSAGE = 'Something changed. Nothing was charged. Please try again.'
 
@@ -339,7 +343,7 @@ export async function recordPaidParty(
  */
 export async function confirmationDone(partyId: string, rec: PartyRecord | null, sent: boolean, simulated = false): Promise<void> {
   if (!rec) return
-  await updatePartyRecord(partyId, (r) => ({ ...r, confirmation: { at: new Date().toISOString(), sent } }), sent ? 'Confirmation emailed' : 'Confirmation email did not send', null)
+  await updatePartyRecord(partyId, (r) => ({ ...r, confirmation: { at: new Date().toISOString(), sent, startIso: r.startIso } }), sent ? 'Confirmation emailed' : 'Confirmation email did not send', null)
     .catch((err) => logger.error('Party confirmation not noted', { partyId, error: String(err) }))
   if (!simulated) await deleteCheckout(partyId).catch((err) => logger.error('Party checkout not cleared', { partyId, error: String(err) }))
 }
@@ -366,7 +370,7 @@ export async function sendPartyBookedEmail(input: {
   partyId: string; rec: PartyRecord | null; draft: PartyRecord; firstName: string; email: string; origin: string
   chargedCents: number; receiptUrl: string | null; craft?: CatalogCraft | null; themeName?: string; onFile?: string | null; minGuests?: number
   /** An owner re-sending it (after a move or an edit): "Your party details", and what is paid or still due in place of "paid today". */
-  updated?: { costNote: string }
+  updated?: PartyDetailsUpdate
 }): Promise<boolean> {
   const { partyId, draft, origin } = input
   let craft = input.craft ?? null
@@ -399,7 +403,8 @@ export async function sendPartyBookedEmail(input: {
       totalChargedCents: input.chargedCents,
       receiptUrl: input.receiptUrl,
       googleCalendarUrl: googleCalendarUrl(calEvent),
-      icsContent: buildIcs(calEvent),
+      // One calendar event per booking (UID from the booking id), its SEQUENCE bumped by every move or edit: a re-sent invite replaces the old one.
+      icsContent: buildIcs(calEvent, { uid: `party-${partyId}`, sequence: draft.calendarSeq ?? 0, stamp: new Date().toISOString() }),
       bookingRef: partyId,
       bookingId: partyId,
       ...(input.onFile ? { alsoTo: input.onFile } : {}),
@@ -648,7 +653,7 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     } catch (err) {
       logger.error('claimWeek failed', { error: String(err) })
       await letGo('theme claim failed')
-      return refuse(503, 'unavailable', "We couldn't reserve the themed table. Your card was not charged — please try again.")
+      return refuse(503, 'unavailable', THEME_NOT_RESERVED_MESSAGE)
     }
   }
 
@@ -717,7 +722,7 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
     logger.error('Party order failed — releasing the time', { partyId, error: err instanceof Error ? err.message : String(err) })
     await letGo('order failed')
     await forget()
-    return refuse(503, 'unavailable', "We couldn't start the payment, so we released the date. Your card was not charged — please try again.")
+    return refuse(503, 'unavailable', ORDER_FAILED_MESSAGE)
   }
   checkout.orderId = order.id
   checkout.squareCents = order.totalAmount

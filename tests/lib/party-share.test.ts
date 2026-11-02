@@ -41,6 +41,20 @@ describe('buildIcs', () => {
   it('is deterministic for the same event (stable UID)', () => {
     expect(buildIcs(EVENT)).toBe(buildIcs(EVENT))
   })
+
+  it('a booking UID stays the same when the party moves; SEQUENCE counts the changes so the newer file replaces the event', () => {
+    const before = buildIcs(EVENT, { uid: 'party-pty_abc', sequence: 0, stamp: '2026-07-01T12:00:00.000Z' })
+    const moved = buildIcs({ ...EVENT, startIso: '2026-07-12T18:00:00.000Z', endIso: '2026-07-12T19:30:00.000Z' }, { uid: 'party-pty_abc', sequence: 1, stamp: '2026-07-02T12:00:00.000Z' })
+    const uid = (ics: string) => ics.split('\r\n').find((l) => l.startsWith('UID:'))
+    expect(uid(before)).toBe('UID:party-pty_abc@ourhometownstudio.com')
+    expect(uid(moved)).toBe(uid(before))
+    expect(before).toContain('SEQUENCE:0')
+    expect(moved).toContain('SEQUENCE:1')
+    expect(moved).toContain('METHOD:PUBLISH')
+    expect(moved).toContain('DTSTAMP:20260702T120000Z')
+    expect(moved).toContain('LAST-MODIFIED:20260702T120000Z')
+    expect(moved).toContain('DTSTART:20260712T180000Z')
+  })
 })
 
 describe('icsDataUrl', () => {

@@ -30,6 +30,8 @@ const m = vi.hoisted(() => ({
   releaseClaim: vi.fn(),
   /** store faults for the party records: a write that lands then throws; a write that throws without landing; reads that throw */
   fault: { landThenThrow: 0, throwOnSet: 0, getFailsAfterSetThrow: 0, getFails: 0 },
+  /** the next party-record write pauses (ms) just before or just after it lands, and says so (`onPause`): to line up two requests */
+  pause: { before: 0, after: 0, onPause: null as null | (() => void) },
   paid: new Map<string, any>(),
   data: new Map<string, { value: string; etag: string }>(),
   n: 0,
@@ -45,6 +47,8 @@ vi.mock('@lib/blob-store', async (orig) => {
     async getWithMeta(k: string) { readFault(); const h = m.data.get(k); return { value: h?.value ?? null, etag: h?.etag ?? null } },
     async setIfMatch(k: string, v: string, etag: string | null, exists: boolean) {
       await new Promise((r) => setTimeout(r, 0))
+      const hold = async (ms: number) => { m.pause.onPause?.(); m.pause.onPause = null; await new Promise((r) => setTimeout(r, ms)) }
+      if (m.pause.before > 0) { const ms = m.pause.before; m.pause.before = 0; await hold(ms) }
       const cur = m.data.get(k)
       if (!exists ? cur : cur?.etag !== etag) return false
       if (m.fault.throwOnSet > 0) {
@@ -53,6 +57,7 @@ vi.mock('@lib/blob-store', async (orig) => {
         throw new Error('store write timed out')
       }
       put(k, v)
+      if (m.pause.after > 0) { const ms = m.pause.after; m.pause.after = 0; await hold(ms) }
       if (m.fault.landThenThrow > 0) { m.fault.landThenThrow--; throw new Error('store write timed out after landing') }
       return true
     },
@@ -126,6 +131,7 @@ import {
   LEGACY_PARTY, NOTHING_REFUNDED, PAID_EXTRA, STARTED_NO_MOVE,
 } from '@lib/parties/admin-actions'
 import { NO_TEST_STORE } from '@lib/classes/test-site-guard'
+import { _setPartyLockWaitMs } from '@lib/parties/party-lock'
 import { STILL_BOOKED } from '@pages/api/admin/parties/settings.json'
 
 const NOW = new Date('2027-02-01T15:00:00.000Z') // Mon, Feb 1 2027
@@ -177,7 +183,7 @@ async function linkParty(startIso: string, over: Record<string, unknown> = {}) {
   expect(r.status, JSON.stringify(r.body)).toBe(200)
   return r.body.data.party.bookingId as string
 }
-const holdsOf = async (id: string) => (await holdsBetween('2027-01-01T00:00:00.000Z', '2028-01-01T00:00:00.000Z', NOW)).filter((h) => h.partyId === id)
+const holdsOf = async (id: string) => (await holdsBetween('2027-01-01T00:00:00.000Z', '2030-01-01T00:00:00.000Z', NOW)).filter((h) => h.partyId === id)
 const audits = (action: string) => m.audit.mock.calls.map(([e]) => e).filter((e: any) => e.action === action)
 
 async function legacyParty(startIso: string): Promise<string> {
@@ -207,6 +213,7 @@ beforeEach(() => {
   m.bypass.on = false
   m.testSite.on = false
   Object.assign(m.fault, { landThenThrow: 0, throwOnSet: 0, getFailsAfterSetThrow: 0, getFails: 0 })
+  Object.assign(m.pause, { before: 0, after: 0, onPause: null })
   m.releaseClaim.mockReset().mockResolvedValue(undefined)
   m.alert.mockReset().mockResolvedValue(undefined)
   m.audit.mockReset().mockResolvedValue(undefined)
@@ -710,6 +717,8 @@ describe('move: double taps and retries (C1)', () => {
     const r = await act({ id, action: 'move', startIso: w.sun1 })
     expect(r.status).toBe(200)
     expect(r.body.data.message).toMatch(/^Moved to Sun/)
+    expect(r.body.data.replay).toBeUndefined()
+    expect(audits('party-move')).toHaveLength(1) // this request's own write landed: audited as its move (M-e)
     expect((await getPartyRecord(id))!.startIso).toBe(new Date(w.sun1).toISOString())
     expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sun1).toISOString()])
   })
@@ -721,7 +730,8 @@ describe('move: double taps and retries (C1)', () => {
     m.fault.getFailsAfterSetThrow = 1
     const r = await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })
     expect(r.status).toBe(503)
-    expect(r.body.error).toMatch(/^The move may not have finished, and the party couldn’t be checked just now\. For now both Sat, .* and Sun, .* are held for it/)
+    expect(r.body.error).toMatch(/^The move may not have finished, and the party couldn’t be checked just now\. For now both Sat, .* and Sun, .* are held for it, so nobody else can book either\. In a minute, tap Finish the move\. That finishes it either way\.$/)
+    expect(r.body.both).toEqual({ from: new Date(w.sat2).toISOString(), to: new Date(w.sun1).toISOString() })
     expect((await holdsOf(id)).map((h) => h.startIso).sort()).toEqual([new Date(w.sat2).toISOString(), new Date(w.sun1).toISOString()].sort())
     expect(m.alert.mock.calls.some(([t]) => /Party move unclear/.test(String(t)))).toBe(true)
     const again = await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })
@@ -738,6 +748,110 @@ describe('move: double taps and retries (C1)', () => {
     expect(r.status).toBe(503)
     expect((await getPartyRecord(id))!.startIso).toBe(new Date(w.sat2).toISOString())
     expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(w.sat2).toISOString()])
+  })
+
+  // N1: every time-changing action on a party runs inside its lock; whatever the order, the party ends with exactly its own time held.
+  const heldIsRecord = async (id: string) => {
+    const rec = (await getPartyRecord(id))!
+    expect((await holdsOf(id)).map((h) => h.startIso)).toEqual([new Date(rec.startIso).toISOString()])
+    return rec
+  }
+
+  /** Starts `first`; once its party-record write pauses (before or after landing), sends `second`. Both replies. */
+  async function lineUp(where: 'before' | 'after', first: () => Promise<any>, second: () => Promise<any>) {
+    let paused!: () => void
+    const at = new Promise<void>((r) => { paused = r })
+    m.pause[where] = 80
+    m.pause.onPause = paused
+    const one = first()
+    await at
+    return Promise.all([one, second()])
+  }
+
+  it('N1-a: a late retry carrying the old time, sent while a move back to that time is between its hold and its record: the party keeps exactly its own time held', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    expect((await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })).status).toBe(200)
+    const [back, retry] = await lineUp('before',
+      () => act({ id, action: 'move', startIso: w.sat2, fromIso: w.sun1 }),
+      () => act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 }))
+    expect(back.status).toBe(200)
+    expect([200, 409]).toContain(retry.status)
+    await heldIsRecord(id)
+  })
+
+  it('N1-b: a double tap where one record save fails: one plain failure, one success, the party on the new time with that time held', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    m.fault.throwOnSet = 1
+    const [a, b] = await Promise.all([1, 2].map(() => act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })))
+    expect([a.status, b.status].sort()).toEqual([200, 503])
+    const rec = await heldIsRecord(id)
+    expect(rec.startIso).toBe(new Date(w.sun1).toISOString())
+    expect(audits('party-move')).toHaveLength(1)
+  })
+
+  it('N1-c: a move back sent after the first move saved its record but before it let the old time go: the party keeps exactly its own time held', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const [first, back] = await lineUp('after',
+      () => act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 }),
+      () => act({ id, action: 'move', startIso: w.sat2, fromIso: w.sun1 }))
+    expect([first.status, back.status]).toEqual([200, 200])
+    const rec = await heldIsRecord(id)
+    expect(rec.startIso).toBe(new Date(w.sat2).toISOString())
+  })
+
+  it('a move, a cancel and an extra-time change at once never leave a booked party without its time', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    await Promise.all([
+      act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 }),
+      act({ id, action: 'add-extra', addOnId: 'add_half', count: 1, createKey: `x_${randomUUID()}` }),
+    ])
+    const rec = await heldIsRecord(id)
+    expect((await holdsOf(id))[0].endIso).toBe(new Date(rec.endIso!).toISOString())
+    const [mv, cx] = await Promise.all([
+      act({ id, action: 'move', startIso: w.sun330, fromIso: rec.startIso }),
+      act({ id, action: 'cancel' }),
+    ])
+    expect(cx.status).toBe(200)
+    expect([200, 409]).toContain(mv.status)
+    expect((await getPartyRecord(id))!.status).toBe('cancelled')
+    expect(await holdsOf(id)).toEqual([])
+  })
+
+  it('another server changing the same party: refused plainly with nothing changed; a lease that ran out (its server died) frees itself', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const real = await vi.importActual<typeof import('@lib/blob-store')>('@lib/blob-store')
+    const locks = real.makeKvStore('party-locks', 'party-locks')
+    await locks.set(`lock-${id}`, JSON.stringify({ token: 'other-server', until: Date.now() + 30_000 }))
+    _setPartyLockWaitMs(300)
+    try {
+      const r = await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })
+      expect(r.status).toBe(409)
+      expect(r.body.error).toBe('Someone else is changing this party right now. Wait a moment, then try again. Nothing was changed.')
+      expect((await act({ id, action: 'cancel' })).status).toBe(409)
+      expect((await getPartyRecord(id))!).toMatchObject({ startIso: new Date(w.sat2).toISOString(), status: 'booked' })
+      await heldIsRecord(id)
+      await locks.set(`lock-${id}`, JSON.stringify({ token: 'other-server', until: Date.now() - 1 }))
+      expect((await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })).status).toBe(200)
+      await heldIsRecord(id)
+    } finally {
+      _setPartyLockWaitMs(6_000)
+    }
+  })
+
+  it('two owners move it to different times: the second, on a stale sheet, is told where it went and nothing changes (M-f)', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    expect((await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })).status).toBe(200)
+    const late = await act({ id, action: 'move', startIso: w.sun330, fromIso: w.sat2 })
+    expect(late.status).toBe(409)
+    expect(late.body.error).toMatch(/^Someone else moved this party to Sun, .* just now\. Nothing else changed\. Check it, then move it again if it still needs a new time\.$/)
+    expect(late.body.startIso).toBe(new Date(w.sun1).toISOString())
+    await heldIsRecord(id)
   })
 
   it('a party that has started can’t be moved (M3)', async () => {
@@ -947,29 +1061,42 @@ describe('other edge cases (M5)', () => {
   })
 })
 
-describe('“Another time” sanity guard (M4)', () => {
-  it('on a day with studio hours the party has to fit inside them; a party time always passes', async () => {
+describe('“Another time”: 8 AM to 8 PM on any day (DV3)', () => {
+  const dayBefore = (ymd: string, n: number) => new Date(Date.parse(`${ymd}T12:00:00Z`) - n * 86_400_000).toISOString().slice(0, 10)
+  const GUARD = (clock: string) => `A party booked here has to start between 8 AM and 8 PM. ${clock} is outside that. Check AM and PM.`
+
+  it('private parties aren’t bound to opening hours: Thu 4 PM, Fri 2 PM and Sun 11 AM are booked', async () => {
     const w = weekend()
-    const early = await book(linkBody(localToUtcISO(w.satYmd, '07:00')))
-    expect(early.status).toBe(409)
-    expect(early.body.error).toBe('On Saturdays the studio is open 9 AM – 9 PM, and a party at 7:00 AM doesn’t fit inside that. Check AM and PM, or pick a time inside those hours.')
-    const late = await book(linkBody(localToUtcISO(w.satYmd, '20:00')))
-    expect(late.status).toBe(409)
-    expect((await book(linkBody(localToUtcISO(w.satYmd, '18:00')))).status).toBe(200)
-    expect((await book(linkBody(w.sun1))).status).toBe(200)
+    for (const [ymd, hhmm] of [[dayBefore(w.satYmd, 2), '16:00'], [dayBefore(w.satYmd, 1), '14:00'], [w.sunYmd, '11:00']] as const) {
+      const r = await book(linkBody(localToUtcISO(ymd, hhmm)))
+      expect(r.status, `${ymd} ${hhmm}: ${JSON.stringify(r.body)}`).toBe(200)
+    }
   })
 
-  it('on a day without studio hours it has to start between 8 AM and 8 PM; Move is checked the same way', async () => {
-    const tue = '2027-03-09'
-    const r = await book(linkBody(localToUtcISO(tue, '02:00')))
-    expect(r.status).toBe(409)
-    expect(r.body.error).toBe('On a day the studio is usually closed, a party has to start between 8 AM and 8 PM. 2:00 AM is outside that. Check AM and PM.')
-    expect((await book(linkBody(localToUtcISO(tue, '08:00')))).status).toBe(200)
+  it('7:30 AM and 8:30 PM are refused in plain words; 8 AM and 8 PM are fine; a party time always passes; Move is checked the same way', async () => {
     const w = weekend()
+    const early = await book(linkBody(localToUtcISO(w.satYmd, '07:30')))
+    expect(early.status).toBe(409)
+    expect(early.body.error).toBe(GUARD('7:30 AM'))
+    const late = await book(linkBody(localToUtcISO(dayBefore(w.satYmd, 3), '20:30')))
+    expect(late.status).toBe(409)
+    expect(late.body.error).toBe(GUARD('8:30 PM'))
+    expect((await book(linkBody(localToUtcISO(dayBefore(w.satYmd, 4), '08:00')))).status).toBe(200)
+    expect((await book(linkBody(localToUtcISO(dayBefore(w.satYmd, 3), '20:00')))).status).toBe(200)
+    expect((await book(linkBody(w.sun1))).status).toBe(200)
     const id = await linkParty(w.sat2)
-    const mv = await act({ id, action: 'move', startIso: localToUtcISO('2027-03-10', '06:00') })
+    const mv = await act({ id, action: 'move', startIso: localToUtcISO(dayBefore(w.satYmd, 5), '06:00') })
     expect(mv.status).toBe(409)
-    expect(mv.body.error).toMatch(/^On a day the studio is usually closed/)
+    expect(mv.body.error).toBe(GUARD('6:00 AM'))
+    expect((await getPartyRecord(id))!.startIso).toBe(w.sat2)
+  })
+
+  it('still checked against the shared schedule: another party (with its cleanup) is in the way', async () => {
+    const w = weekend()
+    await linkParty(w.sun1)
+    const r = await book(linkBody(localToUtcISO(w.sunYmd, '11:00')))
+    expect(r.status).toBe(409)
+    expect(r.body.error).toMatch(/^Clashes with/)
   })
 })
 
@@ -995,6 +1122,12 @@ describe('Email the host the new details (I4)', () => {
     expect(sent).toMatchObject({ to: 'stef@example.com', craftName: 'Clay Pots', updated: { costNote: 'Nothing is due before your party.' } })
     const stamp = new Date(w.sun1).toISOString().replace(/[-:]/g, '').slice(0, 15)
     expect(sent.icsContent).toContain(`DTSTART:${stamp}`)
+    // N3: one calendar event per booking (UID from the booking id), SEQUENCE bumped by the move and the edit, so it replaces the old one
+    expect(sent.icsContent).toContain(`UID:party-${id}@ourhometownstudio.com`)
+    expect(sent.icsContent).toContain('SEQUENCE:2')
+    // the email names the time the host was told (the card booking's confirmation) and the new one
+    expect(sent.updated.moved).toEqual({ from: expect.stringMatching(/^Sat, .* at 2:00 PM$/), to: expect.stringMatching(/^Sun, .* at 1:00 PM$/) })
+    expect(sent.updated.pay).toBeUndefined()
     expect(sent.hostPageUrl).toMatch(new RegExp(`/party/${id}\\?key=`))
     expect(audits('party-details')).toHaveLength(1)
     // The same tap again (a double tap, a retry): the first answer, no second email.
@@ -1004,6 +1137,21 @@ describe('Email the host the new details (I4)', () => {
     const [x, y] = await Promise.all([1, 2].map(() => act({ id, action: 'send-details', createKey: `d_same_${id}` })))
     expect([x.status, y.status]).toEqual([200, 200])
     expect(m.confirmEmail).toHaveBeenCalledTimes(2)
+    // told about Sunday now: a later send with no move in between doesn't say it moved
+    expect(m.confirmEmail.mock.calls[1][0].updated.moved).toBeUndefined()
+  })
+
+  it('the original confirmation is the time the host knows: a move then shows “moved from”; moving back to it says nothing moved', async () => {
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    expect((await getPartyRecord(id))!.confirmation).toMatchObject({ sent: true, startIso: new Date(w.sat2).toISOString() })
+    await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })
+    await act({ id, action: 'move', startIso: w.sat2, fromIso: w.sun1 })
+    m.confirmEmail.mockClear()
+    await act({ id, action: 'send-details', createKey: `d_${randomUUID()}` })
+    const sent = m.confirmEmail.mock.calls[0][0]
+    expect(sent.updated.moved).toBeUndefined()
+    expect(sent.icsContent).toContain('SEQUENCE:2')
   })
 
   it('a phone booking with nothing paid: says what is still to pay (studio fee, never “balance”), and its first payment then sends a receipt', async () => {
@@ -1016,6 +1164,10 @@ describe('Email the host the new details (I4)', () => {
     const costNote = m.confirmEmail.mock.calls[0][0].updated.costNote
     expect(costNote).toBe('There’s $300 still to pay for the studio fee.')
     expect(costNote).not.toMatch(/balance|:/i)
+    // still to pay always comes with the way to pay (M-d)
+    expect(m.confirmEmail.mock.calls[0][0].updated.pay).toEqual({ url: expect.stringMatching(new RegExp(`/party/pay/${id}\\?k=`)), label: 'Pay $300' })
+    // never told before (a phone booking with no confirmation): nothing “moved”
+    expect(m.confirmEmail.mock.calls[0][0].updated.moved).toBeUndefined()
     expect(m.confirmEmail.mock.calls[0][0].totalChargedCents).toBe(0)
     m.confirmEmail.mockClear()
     await act({ id, action: 'take-card', attemptId: randomUUID(), paymentToken: 'cnon:ok', expectedCents: 30000 })

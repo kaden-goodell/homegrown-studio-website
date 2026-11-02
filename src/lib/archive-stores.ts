@@ -43,6 +43,8 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'party-payments' },
   // The party book: which party holds or has booked which time (one document per month)
   { name: 'party-book' },
+  // One short lease per party while a move, cancel or extra-time change runs (kept for completeness; tiny)
+  { name: 'party-locks' },
   // Party charges in flight or unclear (what's needed to record a party Square says is paid)
   { name: 'party-checkouts' },
   // our own classes

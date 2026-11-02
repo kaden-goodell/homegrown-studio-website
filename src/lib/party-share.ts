@@ -36,19 +36,34 @@ function icsEscape(text: string): string {
     .replace(/\r?\n/g, '\\n')
 }
 
-/** One calendar file; a list (a class that meets on several days) gets one VEVENT per entry. */
-export function buildIcs(input: CalendarEventInput | CalendarEventInput[], opts: { uidPrefix?: string } = {}): string {
+/**
+ * One calendar file; a list (a class that meets on several days) gets one
+ * VEVENT per entry. `uid` (one event only): a UID that stays the same for
+ * the booking, with `sequence` counting its changes, so importing a newer
+ * file replaces the event instead of adding a second one. Without it the
+ * UID comes from the start (`uidPrefix`-start). `stamp`: when the file was
+ * made (DTSTAMP and LAST-MODIFIED); defaults to the start so the file is
+ * the same every time.
+ */
+export function buildIcs(
+  input: CalendarEventInput | CalendarEventInput[],
+  opts: { uidPrefix?: string; uid?: string; sequence?: number; stamp?: string } = {},
+): string {
   const prefix = opts.uidPrefix ?? 'party'
   const events = Array.isArray(input) ? input : [input]
+  const one = events.length === 1 && opts.uid
   return [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',
     'PRODID:-//Hometown Studio//Party Booking//EN',
+    'METHOD:PUBLISH',
     ...events.flatMap((ev) => [
       'BEGIN:VEVENT',
       // Deterministic UID so the same booking never duplicates in a calendar.
-      `UID:${prefix}-${compactUtc(ev.startIso)}@ourhometownstudio.com`,
-      `DTSTAMP:${compactUtc(ev.startIso)}`,
+      one ? `UID:${opts.uid}@ourhometownstudio.com` : `UID:${prefix}-${compactUtc(ev.startIso)}@ourhometownstudio.com`,
+      ...(one ? [`SEQUENCE:${Math.max(0, Math.floor(opts.sequence ?? 0))}`] : []),
+      `DTSTAMP:${compactUtc(opts.stamp ?? ev.startIso)}`,
+      ...(opts.stamp ? [`LAST-MODIFIED:${compactUtc(opts.stamp)}`] : []),
       `DTSTART:${compactUtc(ev.startIso)}`,
       `DTEND:${compactUtc(ev.endIso)}`,
       `SUMMARY:${icsEscape(ev.title)}`,
