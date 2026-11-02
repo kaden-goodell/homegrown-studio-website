@@ -14,8 +14,11 @@
  * closed days) and the party settings (party times, packages, extras), each
  * with their change history, the party records (Square-booked and our own,
  * with what was bought, every payment and refund) and the index of which party
- * each Square payment is for, the party book (which party holds which time) and the party checkouts still in flight or unclear. tests/lib/archive-stores.test.ts fails when a
- * store under src/lib/classes or src/lib/parties is missing here.
+ * each Square payment is for, the party book (which party holds which time) and the party checkouts still in flight or unclear.
+ * Stage 4 adds the waitlists, reader sales, promo codes and their uses, the
+ * saved-card setup alert markers.
+ * tests/lib/archive-stores.test.ts fails when a store under src/lib/classes,
+ * src/lib/parties or src/lib/promos (or the saved-card alerts) is missing here.
  *
  * Deliberately left out: `otps` (one-time SMS codes, 10-minute life) and
  * `warnings-seen` (which daily-email lines were already shown), throwaway
@@ -69,6 +72,11 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   // Stage 4: "Charge on the reader" sales (who, what, how much, how each ended) and which Square order paid which
   { name: 'reader-sales' },
   { name: 'reader-orders' },
+  // Stage 4: promo codes (with their change history) and who used each one (bookings, holds, uses given back)
+  { name: 'promo-codes' },
+  { name: 'promo-uses' },
+  // Stage 4: one marker per Chicago day when Square refused a saved-card request (the owners' text went out once)
+  { name: 'card-setup-alerts' },
   // A small photo comes along; a large one is listed by key (the live store keeps it).
   { name: 'class-photos', maxValueBytes: 300 * 1024 },
 ]

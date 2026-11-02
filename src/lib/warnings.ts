@@ -26,7 +26,12 @@ import { formatCalendarDay, formatTime, formatTimeSpan, studioDate, studioDayUtc
 import { classSpanOf, classesOverlap, partyBlocksClass, partyName, type ClassSpan, type PartySpan } from '@lib/conflicts'
 import type { Workshop } from '@providers/interfaces/workshop'
 import { getClass, listClasses } from '@lib/classes/class-store'
-import { waitlistItems } from '@lib/classes/waitlist-items'
+import { cardsStillOn, waitlistItems, waitlistStop } from '@lib/classes/waitlist-items'
+import { waitlistOrNull } from '@lib/classes/waitlist-store'
+import { listWaitingReaderSales } from '@lib/classes/reader-store'
+import { readerNeedsDeciding } from '@lib/classes/reader-flow'
+import { listPromos } from '@lib/promos/promo-store'
+import { couldBeFree, promoState } from '@lib/promos/rules'
 import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
 import { listPosNeedsDays, listRefundFlags, listUnmatchedPos, openPaidNotSeated, type RefundFlag } from '@lib/classes/square-events'
 import { onStaffConsole } from '@lib/classes/staff-view'
@@ -57,6 +62,14 @@ export type WarningCode =
   | 'register-old-setup'
   // Stage 4 waitlist: a saved-card charge Square never answered (seat held), or a card that didn't go through / a price that rose
   | 'waitlist-unknown' | 'waitlist-declined'
+  // Task 12: the waitlist stopped with a free seat it could take; a saved card Square hasn't confirmed off file
+  | 'waitlist-stopped' | 'waitlist-card-on'
+  // Task 12: a "Charge on the reader" payment that never came back (or didn't match); the seat is held
+  | 'reader-waiting'
+  // Task 12: no class tax picked in More › Register setup, so classes can't go on the register
+  | 'register-setup-missing'
+  // Task 12: an active promo code that books for free with no use limit
+  | 'promo-free-unlimited'
 
 export interface Warning {
   code: WarningCode
@@ -75,7 +88,10 @@ export interface Warning {
 }
 
 /** Items that aren't tied to a day: they stay until an owner decides. */
-export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated', 'waitlist-unknown', 'waitlist-declined'])
+export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>([
+  'pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated', 'waitlist-unknown', 'waitlist-declined',
+  'waitlist-card-on', 'reader-waiting', 'register-setup-missing', 'promo-free-unlimited',
+])
 
 /** Days ahead the panel and the daily email look. */
 export const WARNING_WINDOW_DAYS = 60
@@ -345,6 +361,27 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
         code: w.kind, eventKind: 'workshop', eventId: cls.id, when: w.at, title: name, itemId: w.id, detail: w.warning, action: OWNERS_DECIDE,
       })
     }
+    // Task 12: the waitlist stopped with a seat it could take (the class sheet's button fixes it), and saved cards not yet off file.
+    const list = await waitlistOrNull(cls.id)
+    if (list?.entries.length) {
+      const stop = waitlistStop(cls, list, ledger, now)
+      if (stop) {
+        const firstLeft = sessions.find((s) => Date.parse(s.endIso) > now.getTime()) ?? sessions[0]
+        out.push({
+          code: 'waitlist-stopped', eventKind: 'workshop', eventId: cls.id, when: firstLeft?.startIso ?? now.toISOString(), title: name,
+          detail: `${name}: ${stop.words}`,
+          action: `An owner opens the class in /admin and taps ${stop.button} on its waitlist.`,
+        })
+      }
+      for (const e of cardsStillOn(list, now)) {
+        out.push({
+          code: 'waitlist-card-on', eventKind: 'workshop', eventId: cls.id, when: e.attempts[e.attempts.length - 1]?.at ?? e.createdAt, title: name,
+          itemId: `wl-card-${e.id}`,
+          detail: `${name}: ${`${e.customer.givenName} ${e.customer.familyName}`.trim()} is off the waitlist, but Square hasn’t confirmed their saved card (ending ${e.square.last4}) came off file yet. Nothing will be charged.`,
+          action: 'An owner opens the class in /admin and taps Take the card off now on its waitlist.',
+        })
+      }
+    }
     const min = cls.content.rules.minimumToRun
     const first = sessions[0]
     if (min && first && Date.parse(first.startIso) > now.getTime() && first.startIso <= endIso && !decided.has(minimumItemId(cls.id))) {
@@ -394,6 +431,19 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
       action: OWNERS_DECIDE,
     })
   }
+  // Task 12: reader sales the Square app never answered (15 minutes on) or whose order didn't match. The seat is held.
+  for (const sale of await listWaitingReaderSales().catch(() => [])) {
+    if (!readerNeedsDeciding(sale, now)) continue
+    const who = `${sale.customer.givenName} ${sale.customer.familyName}`.trim() || 'A door sale'
+    const when = `${formatCalendarDay(studioDate(sale.firstStartIso))} ${formatTime(sale.firstStartIso)}`
+    out.push({
+      code: 'reader-waiting', eventKind: 'workshop', eventId: sale.classId, when: sale.startedAt, title: sale.className, itemId: `reader-${sale.bookingId}`,
+      detail: sale.problem
+        ? `${sale.className} ${when}: Square shows a payment for ${who}’s reader sale that doesn’t match the ${formatMoney(sale.amountCents)} asked. The seat is held, not paid.`
+        : `${sale.className} ${when}: ${who}’s ${formatMoney(sale.amountCents)} reader payment never came back from the Square app. The seat is held.`,
+      action: OWNERS_DECIDE,
+    })
+  }
   for (const f of flags) {
     if (f.classId === PARTY_SCOPE) {
       // A refund on a party: named and opened as that party (bookingId = the party id), never "A class".
@@ -404,6 +454,36 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
     }
     const name = await nameOf(f.classId)
     out.push({ code: 'refund-flag', eventKind: 'workshop', eventId: f.classId, when: f.at, title: name, itemId: f.id, detail: refundFlagDetail(f, name), action: OWNERS_DECIDE })
+  }
+  out.push(...(await setupWarnings(shown, register, now)))
+  return out
+}
+
+/**
+ * Task 12, studio-wide setup lines (no class to open):
+ * - register-setup-missing: no class tax is picked, so no class can go on the
+ *   register (only while there are classes that need it)
+ * - promo-free-unlimited: a code that's on, books for free (100% off) and has
+ *   no use limit: anyone who hears it books free
+ */
+async function setupWarnings(shown: ScheduledClass[], register: Awaited<ReturnType<typeof registerInForce>> | null, now: Date): Promise<Warning[]> {
+  const out: Warning[] = []
+  const needsRegister = shown.some((c) => notOnRegister(c, now))
+  if (register && !register.classTaxId && needsRegister) {
+    out.push({
+      code: 'register-setup-missing', eventKind: 'workshop', eventId: '', when: now.toISOString(), title: 'Register setup', itemId: 'register-setup-missing',
+      detail: 'No class tax is picked yet, so classes can’t go on the register or be booked online.',
+      action: 'An owner opens More › Register setup, picks the 9% tax (or taps Make the 9% class tax) and taps Save.',
+    })
+  }
+  const codes = await listPromos(now).catch(() => [])
+  for (const p of codes) {
+    if (promoState(p, now) !== 'on' || p.maxUses !== null || couldBeFree(p.off) !== 'free') continue
+    out.push({
+      code: 'promo-free-unlimited', eventKind: 'workshop', eventId: '', when: p.updatedAt, title: `Code ${p.code}`, itemId: `promo-free-${p.code}`,
+      detail: `Code ${p.code} books for free and has no use limit, so anyone who hears it can book free.`,
+      action: 'An owner opens More › Promotions › the code and taps Edit to set a use limit, or Turn off.',
+    })
   }
   return out
 }

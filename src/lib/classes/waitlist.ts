@@ -417,6 +417,8 @@ export interface WaitlistRow {
   card: string
   maxCents: number
   bookingId: string | null
+  /** Task 12: off the list, but Square hasn't confirmed their saved card came off yet ("Take the card off now"). */
+  cardOn: boolean
   /** What happened, oldest first (joined, tries, taken off). */
   history: { at: string; by: string | null; change: string }[]
 }
@@ -461,6 +463,7 @@ export function waitlistRows(cls: ScheduledClass, list: Waitlist): WaitlistRow[]
     card: `${BRAND[e.square.brand] ?? 'Card'} ending ${e.square.last4}`,
     maxCents: e.maxCents,
     bookingId: e.bookingId ?? null,
+    cardOn: cardStillOn(e),
     history: e.history.map((h) => ({ at: h.at, by: h.by?.name ?? null, change: h.change })),
   }))
 }

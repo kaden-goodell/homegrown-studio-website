@@ -74,6 +74,20 @@ export default function WaitlistSection({ classId, onChanged }: { classId: strin
     }
   }
 
+  /** Task 12: someone off the list whose saved card Square hasn't confirmed off yet. Never charges or emails anyone. */
+  async function cardOff(row: WaitlistRow) {
+    setBusy(`card-${row.id}`)
+    setError('')
+    const r = await api<View>(WAITLIST, { action: 'card-off', classId, entryId: row.id })
+    setBusy(null)
+    if (r.ok && r.data) {
+      take(r.data)
+      toast(`${row.name}’s card is off file.`)
+    } else {
+      setError(r.error ?? DIDNT_SAVE)
+    }
+  }
+
   /** I3: fix what stopped it (the register), then run it again. */
   async function fixStop(line: WaitlistStopLine) {
     if (line.action === 'run') return run('fix')
@@ -157,6 +171,11 @@ export default function WaitlistSection({ classId, onChanged }: { classId: strin
                     <small>{[r.seatsLabel, r.stateWords].join(' · ')}</small>
                   </div>
                 </div>
+                {r.cardOn && (
+                  <button type="button" className="adm-btn is-ghost is-sm" disabled={busy === `card-${r.id}`} onClick={() => cardOff(r)}>
+                    {busy === `card-${r.id}` ? 'Taking it off…' : 'Take the card off now'}
+                  </button>
+                )}
                 <History row={r} open={opened === r.id} onToggle={() => setOpened(opened === r.id ? null : r.id)} />
               </li>
             ))}

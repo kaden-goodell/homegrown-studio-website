@@ -8,12 +8,22 @@
  *   waitlist-declined  a card didn't go through (or the price rose since
  *                      they joined), so they came off the list
  *                      → Got it (call them if you like)
+ * And, for the warnings only (Task 12), each pointing at a button on the class sheet:
+ *   waitlist-stopped   the waitlist stopped on a setup problem, the register or
+ *                      Square being down while a seat it could take is free
+ *                      → Put it on the register · Update the register · Try the waitlist again
+ *   waitlist-card-on   someone is off the list but Square hasn't confirmed their
+ *                      saved card came off (the sweep keeps trying every 10 minutes)
+ *                      → Take the card off now
  * Server only.
  */
 import { formatMoney } from '@lib/money'
 import { tokenOf } from './decided'
 import type { ScheduledClass } from './types'
-import { waitlistOrNull, lastAttempt, type WaitlistAttempt, type WaitlistEntry } from './waitlist-store'
+import type { Ledger } from './seat-ledger'
+import { notOnRegister } from './pos-plan'
+import { fitsNow, waitlistOpen, waitlistStopped, type StopOutcome } from './waitlist-rules'
+import { cardStillOn, waitlistOrNull, lastAttempt, type Waitlist, type WaitlistAttempt, type WaitlistEntry } from './waitlist-store'
 
 /** Declined or skipped people stay on To decide this long (or until "Got it"). */
 export const WAITLIST_DECLINED_DAYS = 14
@@ -77,4 +87,45 @@ export async function waitlistItems(cls: ScheduledClass, decided: Set<string>, n
     }
   }
   return out
+}
+
+/**
+ * I3: the waitlist has stopped (its last try ended on setup, the register or
+ * Square being down) while a seat it could take is free: one line saying why,
+ * and the button on the class sheet that fixes it. `action`:
+ *   'sync-pos'        Put it on the register (then run it again)
+ *   'update-register' Update the register (then run it again)
+ *   'run'             Run the waitlist again
+ */
+export interface WaitlistStop { why: StopOutcome; words: string; button: string; action: 'sync-pos' | 'update-register' | 'run' }
+
+export function stopOf(cls: ScheduledClass, why: StopOutcome, now: Date): WaitlistStop {
+  const tail = 'Nobody was charged, and people can book the free seat normally until it runs again.'
+  if (why === 'register') {
+    return notOnRegister(cls, now)
+      ? { why, words: `The waitlist has stopped because this class isn’t on the register. ${tail}`, button: 'Put it on the register', action: 'sync-pos' }
+      : { why, words: `The waitlist has stopped because the register’s price for this class doesn’t match the website. ${tail}`, button: 'Update the register', action: 'update-register' }
+  }
+  if (why === 'setup') return { why, words: `The waitlist has stopped because Square refused our request (a setup problem on our side, not the customer’s card). ${tail}`, button: 'Try the waitlist again', action: 'run' }
+  return { why, words: `The waitlist has stopped because Square couldn’t be reached. ${tail}`, button: 'Try the waitlist again', action: 'run' }
+}
+
+/** Whether the waitlist has stopped with a free seat a waiting group fits (null = running fine, or nothing to take). */
+export function waitlistStop(cls: ScheduledClass, list: Waitlist, ledger: Ledger, now: Date): WaitlistStop | null {
+  if (cls.status !== 'open') return null
+  const fits = (e: WaitlistEntry) => e.state === 'waiting' && waitlistOpen(cls, e.sessionIds, now) && fitsNow(cls, ledger, e.sessionIds, e.seats, now)
+  const on = list.entries.filter(fits).map((e) => waitlistStopped(e)).find(Boolean) ?? null
+  return on ? stopOf(cls, on, now) : null
+}
+
+/** A card not confirmed off file this long after someone came off the list is a warning (the sweep has had several goes). */
+export const CARD_ON_WARN_MS = 60 * 60_000
+
+/** People off the list whose saved card Square hasn't confirmed off file for an hour or more. */
+export function cardsStillOn(list: Waitlist, now: Date): WaitlistEntry[] {
+  return list.entries.filter((e) => {
+    if (!cardStillOn(e)) return false
+    const off = lastAttempt(e)?.at ?? e.history[e.history.length - 1]?.at ?? e.createdAt
+    return now.getTime() - Date.parse(off) >= CARD_ON_WARN_MS
+  })
 }

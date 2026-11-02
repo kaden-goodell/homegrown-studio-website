@@ -22,7 +22,10 @@ vi.mock('@lib/classes/square-events', () => ({
   openPaidNotSeated: async () => own.paidNoSeat,
 }))
 
-import { listWarnings, warningLine, OWNERS_DECIDE } from '@lib/warnings'
+import { listWarnings, warningLine, OWNERS_DECIDE, UNDATED_CODES } from '@lib/warnings'
+import { mutateWaitlist, type WaitlistEntry } from '@lib/classes/waitlist-store'
+import { createReaderSale } from '@lib/classes/reader-store'
+import { savePromo } from '@lib/promos/promo-store'
 import { defaultRules } from '@lib/classes/validate'
 import { createPartyRecord } from '@lib/party-store'
 
@@ -182,5 +185,87 @@ describe('warnings for our own classes', () => {
     ] })
     const list = (await listWarnings(WINDOW, { now: NOW })).filter((w) => w.code === 'counter-match-check')
     expect(list.map((w) => warningLine(w))).toEqual(['Counter sale of Clay Camp on Wed Oct 14 was matched to Dora Door. Check it was them. An owner decides on /admin.'])
+  })
+})
+
+describe('Task 12: stage 4 warnings, each pointing at a button', () => {
+  const entry = (over: Partial<WaitlistEntry> = {}): WaitlistEntry => ({
+    id: `wle_${Math.random().toString(36).slice(2, 8)}`, createdAt: '2026-10-14T10:00:00.000Z',
+    request: { passId: 'all', tickets: { person: 1 } }, sessionIds: ['ses_1', 'ses_2'], seats: 1, maxCents: 1090,
+    customer: { givenName: 'Jane', familyName: 'Doe', email: 'j@x.co', phone: '(402) 980-2907' },
+    square: { customerId: 'C', cardId: 'ccof:1', brand: 'VISA', last4: '4242', expMonth: 1, expYear: 2030 },
+    consent: { textVersion: 'v', text: 't', at: '', ipHash: '' }, leaveHash: 'h', state: 'waiting', attempts: [], history: [],
+    ...over,
+  })
+  const attempt = (outcome: any, at = '2026-10-15T12:00:00.000Z') => ({ n: 1, at, attemptId: 'wl:x:1', bookingId: 'bkg_w', orderId: null, amountCents: null, note: null, outcome })
+  const putList = (classId: string, entries: WaitlistEntry[]) => mutateWaitlist(classId, () => ({ next: { classId, entries }, result: null }))
+
+  it('the waitlist stopped (Square refused, the register, Square down) with a seat free: the line names the class sheet’s button', async () => {
+    own.classes = [{ ...camp(), id: 'cls_wl1' }]
+    await putList('cls_wl1', [entry({ attempts: [attempt('setup')] })])
+    const w = (await listWarnings(WINDOW, { now: NOW })).find((x) => x.code === 'waitlist-stopped')!
+    expect(w).toMatchObject({ eventId: 'cls_wl1', when: '2026-10-17T18:00:00.000Z' })
+    expect(w.action).toBe('An owner opens the class in /admin and taps Try the waitlist again on its waitlist.')
+    expect(w.detail).toMatch(/^Clay Camp: The waitlist has stopped because Square refused our request/)
+    // the register's price: Update the register
+    await putList('cls_wl1', [entry({ attempts: [attempt('register')] })])
+    expect((await listWarnings(WINDOW, { now: NOW })).find((x) => x.code === 'waitlist-stopped')!.action).toMatch(/taps Update the register on its waitlist/)
+    // ran fine last time: nothing to say
+    await putList('cls_wl1', [entry({ attempts: [attempt('no-seat')] })])
+    expect((await listWarnings(WINDOW, { now: NOW })).some((x) => x.code === 'waitlist-stopped')).toBe(false)
+  })
+
+  it('a saved card not confirmed off file an hour after they came off the list: Take the card off now (undated, by entry)', async () => {
+    own.classes = [{ ...camp(), id: 'cls_wl2' }]
+    const old = entry({ state: 'declined', attempts: [attempt('declined', '2026-10-15T13:00:00.000Z')] })
+    const fresh = entry({ state: 'left', attempts: [attempt('declined', '2026-10-15T14:30:00.000Z')] })
+    const off = entry({ state: 'added', cardOffAt: '2026-10-15T13:01:00.000Z', attempts: [attempt('paid', '2026-10-15T13:00:00.000Z')] })
+    await putList('cls_wl2', [old, fresh, off])
+    const list = (await listWarnings(WINDOW, { now: NOW })).filter((x) => x.code === 'waitlist-card-on')
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ eventId: 'cls_wl2', itemId: `wl-card-${old.id}` })
+    expect(warningLine(list[0])).toMatch(/Jane Doe is off the waitlist, but Square hasn’t confirmed their saved card \(ending 4242\) came off file yet\. Nothing will be charged\. An owner opens the class in \/admin and taps Take the card off now on its waitlist\.$/)
+    expect(UNDATED_CODES.has('waitlist-card-on')).toBe(true)
+  })
+
+  it('a reader payment that never came back (15 minutes on) or didn’t match: To decide decides it', async () => {
+    own.classes = [camp()]
+    const sale = (bookingId: string, startedAt: string, problem?: any) => createReaderSale({
+      bookingId, classId: 'cls_camp', className: 'Clay Camp', firstStartIso: '2026-10-17T18:00:00.000Z', seatsLabel: '1 seat', seats: 1, amountCents: 1090,
+      startedAt, by: { id: 'k', name: 'K' }, customer: { givenName: 'Gia', familyName: 'Winner', email: '', phone: '' }, request: { passId: 'all', tickets: { person: 1 } } as any,
+      overCapacity: false, sendEmail: false, quote: {} as any, state: 'waiting', ...(problem ? { problem } : {}),
+    })
+    await sale('bkg_r1', '2026-10-15T14:00:00.000Z')
+    await sale('bkg_r2', '2026-10-15T14:55:00.000Z') // 5 minutes: not yet
+    await sale('bkg_r3', '2026-10-15T14:58:00.000Z', { why: 'amount', orderId: 'O', at: '2026-10-15T14:59:00.000Z' })
+    const list = (await listWarnings(WINDOW, { now: NOW })).filter((x) => x.code === 'reader-waiting')
+    expect(list.map((w) => w.itemId).sort()).toEqual(['reader-bkg_r1', 'reader-bkg_r3'])
+    expect(list.find((w) => w.itemId === 'reader-bkg_r1')!.detail).toBe('Clay Camp Sat Oct 17 1:00 PM: Gia Winner’s $10.90 reader payment never came back from the Square app. The seat is held.')
+    expect(list.every((w) => w.action === OWNERS_DECIDE)).toBe(true)
+  })
+
+  it('no class tax picked while a class needs the register: one Register setup line', async () => {
+    reg.now = { classTaxId: '', classesCategoryId: '', siteTaxId: '', siteCategoryId: '' }
+    try {
+      own.classes = [{ ...camp(), square: { itemId: null, variations: {} } }]
+      const w = (await listWarnings(WINDOW, { now: NOW })).find((x) => x.code === 'register-setup-missing')!
+      expect(w.action).toBe('An owner opens More › Register setup, picks the 9% tax (or taps Make the 9% class tax) and taps Save.')
+      own.classes = [camp()]
+      expect((await listWarnings(WINDOW, { now: NOW })).some((x) => x.code === 'register-setup-missing')).toBe(false)
+    } finally {
+      reg.now = null
+    }
+  })
+
+  it('a code that books for free with no use limit is flagged until it has a limit or is off', async () => {
+    const by = { id: 'k', name: 'Kaden' }
+    const p = await savePromo({ code: 'FREEBIE', label: '', off: { kind: 'percent', percent: 100 }, appliesTo: { kind: 'all' } }, by, null, NOW)
+    await savePromo({ code: 'HALF', label: '', off: { kind: 'percent', percent: 50 }, appliesTo: { kind: 'all' } }, by, null, NOW)
+    const list = (await listWarnings(WINDOW, { now: NOW })).filter((x) => x.code === 'promo-free-unlimited')
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ itemId: 'promo-free-FREEBIE', eventId: '' })
+    expect(list[0].action).toBe('An owner opens More › Promotions › the code and taps Edit to set a use limit, or Turn off.')
+    await savePromo({ ...p, maxUses: 1 }, by, p.updatedAt, NOW)
+    expect((await listWarnings(WINDOW, { now: NOW })).some((x) => x.code === 'promo-free-unlimited')).toBe(false)
   })
 })

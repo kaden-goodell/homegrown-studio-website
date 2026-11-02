@@ -107,4 +107,13 @@ describe('WaitlistSection (class sheet › Bookings)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Set up the class tax first.')
     expect(posts(f, WL)).toHaveLength(0)
   })
+
+  it('Task 12: someone off the list whose card isn’t off file yet has Take the card off now; it never charges, and says when it worked', async () => {
+    const stuck = row({ id: 'wle_9', position: null, name: 'Ann Lee', state: 'declined', stateWords: 'Card didn’t go through · off the list · taking their card off file', cardOn: true })
+    const { f } = show([{ rows: [stuck], canRun: false }, { rows: [{ ...stuck, cardOn: false, stateWords: 'Card didn’t go through · off the list' }], canRun: false }])
+    fireEvent.click(await screen.findByRole('button', { name: 'Take the card off now' }))
+    await waitFor(() => expect(posts(f, WL)[0].body).toEqual({ action: 'card-off', classId: 'cls_1', entryId: 'wle_9' }))
+    expect(await screen.findByText('Ann Lee’s card is off file.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Take the card off now' })).toBeNull()
+  })
 })
