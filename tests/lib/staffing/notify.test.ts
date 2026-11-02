@@ -25,6 +25,8 @@ beforeEach(() => {
   vi.stubEnv('QUO_API_KEY', 'test-key')
   vi.stubEnv('QUO_FROM_NUMBER', '+12565550100')
   vi.stubEnv('STORE_NAMESPACE', 'preview')
+  // These check the preview redirect (PREVIEW_MESSAGES=on); the muted sandbox preview is below.
+  vi.stubEnv('PREVIEW_MESSAGES', 'on')
 })
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -85,6 +87,13 @@ describe('tellPerson', () => {
     const body = JSON.parse((fetchMock.mock.calls[0] as any)[1].body)
     expect(body.to).toEqual([PREVIEW_SMS_TO])
     expect(body.content).toContain("You're on Needlepoint 101")
+  })
+
+  it('on the sandbox preview (muted) no text is sent, and the assign still says it went', async () => {
+    vi.stubEnv('PREVIEW_MESSAGES', '')
+    const r = await tellPerson('on', jessica, klass, 'https://ourhometownstudio.com')
+    expect(r).toMatchObject({ text: true, failed: false })
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('a failed text keeps going and says so plainly', async () => {
