@@ -24,7 +24,7 @@ export function defaultRules(): ClassRules {
   }
 }
 
-export function newId(prefix: 'cls' | 'ses' | 'lib' | 'blk' | 'pas' | 'tkt' | 'q' | 'add' | 'led' | 'bkg'): string {
+export function newId(prefix: 'cls' | 'ses' | 'lib' | 'blk' | 'pas' | 'tkt' | 'q' | 'add' | 'led' | 'bkg' | 'rfe'): string {
   let rand = ''
   while (rand.length < 4) rand += Math.random().toString(36).slice(2)
   return `${prefix}_${Date.now().toString(36)}${rand.slice(0, 4)}`
@@ -49,7 +49,8 @@ function validateRules(raw: unknown): Result<ClassRules> {
   const r: ClassRules = { ...base }
   if (raw.ages !== undefined) r.ages = str(raw.ages)
   for (const k of ['dropOff', 'madeToOrder', 'taxable', 'linkOnly', 'joinPartway', 'canShareRoom'] as const) {
-    if (raw[k] !== undefined) r[k] = !!raw[k]
+    // M5: only a real yes is yes; "false", 0 or "" never turn a rule on.
+    if (raw[k] !== undefined) r[k] = raw[k] === true || raw[k] === 'true'
   }
   if (raw.maxPerBooking !== undefined) {
     if (!inRange(raw.maxPerBooking, 1, 40)) return fail('The most people per booking is 1 to 40.', 'rules.maxPerBooking')

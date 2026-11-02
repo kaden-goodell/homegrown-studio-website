@@ -12,6 +12,7 @@ import { siteConfig } from '@config/site.config'
 import { formatDay } from '@lib/studio-time'
 import { squareFetch, squareSettings } from './square-api'
 import { sellableCells } from './validate'
+import { assertClassWritesAllowed, assertSquareCatalogWriteAllowed } from './test-site-guard'
 import type { Cents, ScheduledClass } from './types'
 
 export interface PlannedVariation { key: string; name: string; cents: Cents }
@@ -53,6 +54,7 @@ async function fetchItem(itemId: string): Promise<any | null> {
 }
 
 async function upsert(object: any, idempotencyKey: string = randomUUID()): Promise<any> {
+  assertSquareCatalogWriteAllowed(squareSettings().environment) // N3
   return squareFetch('/catalog/batch-upsert', {
     method: 'POST',
     body: JSON.stringify({ idempotency_key: idempotencyKey, batches: [{ objects: [object] }] }),
@@ -91,6 +93,7 @@ async function uploadImage(itemId: string, imageUrl: string, className: string):
     image: { type: 'IMAGE', id: '#image', image_data: { name: className, caption: 'card' } },
   })], { type: 'application/json' }))
   form.append('image_file', blob, `class.${ext}`)
+  assertSquareCatalogWriteAllowed(squareSettings().environment) // N3
   await squareFetch('/catalog/images', { method: 'POST', body: form })
 }
 
@@ -104,6 +107,8 @@ export const CLASS_TAX_NOT_SET = "Class tax isn't set up yet."
  * ids to save on the class.
  */
 export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledClass['square']> {
+  assertClassWritesAllowed() // R41: a test site with no store of its own never writes the live POS
+  assertSquareCatalogWriteAllowed(squareSettings().environment) // N3: nor does any test site pointed at the live Square
   const cfg = squareSettings()
   const categoryId = cfg.classesCategoryId || ''
   if (!categoryId) throw new Error("Classes category isn't set up yet.")
@@ -209,6 +214,8 @@ export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledC
  * present at no location. Never deletes; past orders still point at it.
  */
 export async function archiveClassInSquare(cls: ScheduledClass): Promise<void> {
+  assertClassWritesAllowed() // R41
+  assertSquareCatalogWriteAllowed(squareSettings().environment) // N3
   if (!cls.square.itemId) return
   const item = await fetchItem(cls.square.itemId)
   if (!item) return

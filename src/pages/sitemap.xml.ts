@@ -29,12 +29,18 @@ export function classPages(classes: ScheduledClass[]): string[] {
 export const GET: APIRoute = async () => {
   let classes: string[] = []
   try {
+    // A date range: listClasses reads only the classes the class index says fall in it.
     classes = classPages(await listClasses({ fromIso: new Date().toISOString(), toIso: new Date(Date.now() + 400 * 86_400_000).toISOString() }))
   } catch (e) {
     // The fixed pages still go out; the classes come back on the next read.
     console.warn(`[sitemap] classes unreadable: ${e instanceof Error ? e.message : e}`)
   }
   return new Response(sitemapXml([...PUBLIC_PAGES, ...classes], SITE_URL), {
-    headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+    // M8: Netlify's edge keeps it an hour, so a crawl doesn't read the class store (the read itself uses the class index).
+    headers: {
+      'Content-Type': 'application/xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=3600',
+      'Netlify-CDN-Cache-Control': 'public, durable, max-age=3600, stale-while-revalidate=86400',
+    },
   })
 }

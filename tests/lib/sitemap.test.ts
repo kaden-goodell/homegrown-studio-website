@@ -1,7 +1,9 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
+const listClasses = vi.hoisted(() => vi.fn(async (_range?: { fromIso: string; toIso: string }) => [] as any[]))
+vi.mock('@lib/classes/class-store', () => ({ listClasses }))
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
-import { PUBLIC_PAGES, sitemapXml } from '@pages/sitemap.xml'
+import { GET, PUBLIC_PAGES, sitemapXml } from '@pages/sitemap.xml'
 
 const SITE = 'https://ourhometownstudio.com'
 
@@ -58,5 +60,11 @@ describe('sitemap: our classes (M7)', () => {
     const { classPages } = await import('@pages/sitemap.xml')
     expect(classPages([mk('cls_open1', 'open'), mk('cls_link1', 'open', true), mk('cls_draft1', 'draft'), mk('cls_gone1', 'cancelled')]))
       .toEqual(['/classes/cls_open1'])
+  })
+
+  it('M8: reads our classes by date range (the class index) and lets the edge keep it an hour', async () => {
+    const res: Response = await (GET as any)({})
+    expect(listClasses).toHaveBeenCalledWith(expect.objectContaining({ fromIso: expect.any(String), toIso: expect.any(String) }))
+    expect(res.headers.get('Netlify-CDN-Cache-Control')).toMatch(/max-age=3600/)
   })
 })

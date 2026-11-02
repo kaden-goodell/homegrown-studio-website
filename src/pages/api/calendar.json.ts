@@ -11,7 +11,7 @@ import { localDate, localToUtcISO } from '@lib/party-slots'
 import { partyStartsInRange } from '@lib/parties/party-times'
 import { getPartySettings } from '@lib/parties/settings-store'
 import { partyMinutes } from '@lib/parties/open-times'
-import { clashes, partyBusy, type Busy } from '@lib/classes/studio-schedule'
+import { blockedAndClosedBusy, clashes, ourClassBusy, partyBusy, type Busy } from '@lib/classes/studio-schedule'
 import {
   buildCalendarEvents,
   type PartyAvailabilitySlot,
@@ -97,7 +97,7 @@ export const GET: APIRoute = async ({ url, request }) => {
     logger.error(`${what} failed`, { error: errorText(err) })
     return fallback
   }
-  const [allWorkshops, allOpenStudioWindows, parties, ourClasses, studio, partySettings] = await Promise.all([
+  const [allWorkshops, allOpenStudioWindows, parties, ourClasses, studio, partySettings, partyBlocks] = await Promise.all([
     remember('calendar:workshops', 30_000, () => providers.workshop.listWorkshops()).catch(
       orElse('workshops fetch', [] as any[]),
     ),
@@ -114,6 +114,12 @@ export const GET: APIRoute = async ({ url, request }) => {
     getStudioDays(),
     // The owners' party times (config until they first save Parties setup).
     getPartySettings(),
+    // What the party picker keeps parties off (M1): every class of ours but a cancelled one
+    // (drafts and link-only too), blocked time and closed days. Unreadable → no party times.
+    Promise.all([
+      ourClassBusy(rangeStart.toISOString(), rangeEnd.toISOString()),
+      blockedAndClosedBusy(rangeStart.toISOString(), rangeEnd.toISOString()),
+    ]).then(([classes, held]) => [...classes, ...held]).catch(orElse('class and blocked time', null as Busy[] | null)),
   ])
   const closures = studio.closures
   // Only open/closed, not link-only, ones are public; the same ones block parties.
@@ -142,9 +148,13 @@ export const GET: APIRoute = async ({ url, request }) => {
       ? partyStartsInRange(partySettings, availStart.toISOString(), rangeEnd.toISOString(), now, studio, { minutes })
       : []
   const partyFree = (startAt: string) =>
-    clashes({ kind: 'party', startIso: startAt, endIso: new Date(Date.parse(startAt) + minutes * 60_000).toISOString() }, parties ?? []).length === 0
-  // Parties yield to classes (spec E), then booked parties come off.
-  const partyAvailable: PartyAvailabilitySlot[] = removeClassBlocked(offeredStarts, [...allWorkshops.map(classSpanOf), ...ourSpans])
+    clashes(
+      { kind: 'party', startIso: startAt, endIso: new Date(Date.parse(startAt) + minutes * 60_000).toISOString() },
+      [...(parties ?? []), ...(partyBlocks ?? [])],
+    ).length === 0
+  // Parties yield to classes (spec E) and blocked time, the same way the party picker does, then
+  // booked parties come off. If our classes or blocked time can't be read, no party time is offered.
+  const partyAvailable: PartyAvailabilitySlot[] = (partyBlocks === null ? [] : removeClassBlocked(offeredStarts, [...allWorkshops.map(classSpanOf), ...ourSpans]))
     .filter(partyFree)
     .filter(inRangeIso)
     .map((startAt) => ({ startAt }))

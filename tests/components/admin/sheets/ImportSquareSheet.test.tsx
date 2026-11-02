@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { screen, fireEvent, within, waitFor, configure } from '@testing-library/react'
 import { ImportSquareSheet } from '@components/admin/sheets/ImportSquareSheet'
 import { ok, posts, refuse, renderSheet } from './harness'
+
+// These sheets load, save, then reload; under a full parallel run that can take more than the default second.
+configure({ asyncUtilTimeout: 5000 })
 
 const IMPORT = '/api/admin/classes/import-square.json'
 afterEach(() => vi.unstubAllGlobals())

@@ -16,6 +16,7 @@
  * Server only.
  */
 import { makeKvStore } from '@lib/blob-store'
+import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
 import type { By } from '@lib/staff-auth'
 import type { Closure, Holiday } from '@config/closures'
@@ -211,6 +212,15 @@ function parse(json: string): StudioSettings {
   return { ...s, cafeWeekly: s.cafeWeekly ?? [], cafeSpecialDays: s.cafeSpecialDays ?? [], closures: s.closures ?? [], history: s.history ?? [] }
 }
 
+/**
+ * The closed days and café hours a stored settings document means: the
+ * document's, or the config when there is none. The one rule getStudioDays
+ * uses, shared with scripts that read the production store themselves.
+ */
+export function studioDaysFromJson(json: string | null): StudioDays {
+  return json ? toStudioDays(parse(json)) : CONFIG_STUDIO_DAYS
+}
+
 /** The stored settings, or null when an owner has never saved (the config is in use). Throws when the store can't be read. */
 export async function readStudioSettings(): Promise<StudioSettings | null> {
   const json = await kv.get(KEY)
@@ -275,6 +285,7 @@ export async function saveStudioSettings(
   input: SettingsInput,
   opts: { expectedUpdatedAt: string | null; by: By; now?: Date },
 ): Promise<{ saved: StudioSettings; before: SettingsInput; changed: string[] }> {
+  assertClassWritesAllowed() // R41: never the live café hours or closed days from a test site
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const { value, etag } = await kv.getWithMeta(KEY)
     const cur = value ? parse(value) : null

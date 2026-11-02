@@ -122,6 +122,20 @@ describe('Block time: Why and Note (mock-up D)', () => {
   })
 })
 
+describe('Block time starts on a day the studio opens', () => {
+  it('opened on a Monday with no day picked, it starts on Thursday', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-10-19T15:00:00Z')) // Mon Oct 19
+    try {
+      vi.stubGlobal('fetch', server())
+      render(<BlockTimeForm />)
+      expect(screen.getByLabelText('Day')).toHaveValue('2026-10-22')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
 describe('BlockTimeForm inside an /admin sheet', () => {
   it('starts on the day it was opened for, reports typing, and hands the block up instead of saying so itself', async () => {
     vi.stubGlobal('fetch', server())

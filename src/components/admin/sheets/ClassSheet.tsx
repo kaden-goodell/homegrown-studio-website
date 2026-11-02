@@ -19,7 +19,7 @@ import { build, fieldOf, fixLine, toForm, type Errors, type Form } from '../clas
 import { DetailsFields, focusFirstError, PreviewButton } from '../classes/ClassDetails'
 import DateRows, { checkRows, rowsOf, sameRows, type DateRow } from '../classes/DateRows'
 import { dayLabel } from '../classes/dates'
-import { isPast, latestOf, moneyWords, nameOf, nextSession, priceOf, seatsHeld, STATUS_TAG } from '../classes/labels'
+import { isComingBooking, isPast, latestOf, moneyWords, nameOf, nextSession, priceOf, seatsHeld, STATUS_TAG } from '../classes/labels'
 import { takenCents } from '@lib/classes/booking-words'
 import { useRefresh } from '../shell/data'
 import { Failed, Seg, Skeleton } from '../shell/items'
@@ -254,7 +254,8 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
   }
 
   // ── Cancel ────────────────────────────────────────────────────────────
-  const live = bookings.filter((b) => b.state !== 'refunded' && b.state !== 'held')
+  // Who is coming (R43): a refund that kept the seat is still coming; a booking whose seats were all freed isn't.
+  const live = bookings.filter(isComingBooking)
   async function doCancel() {
     setSaving(true)
     setCancelError('')
@@ -375,7 +376,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
   // Money in: comps and counter seats nobody has rung up yet bring in nothing (I3).
   const totalTaken = bookings.filter((b) => b.state !== 'held').reduce((s, b) => s + takenCents(b), 0)
   const settled = bookings.filter((b) => b.state !== 'held')
-  const bookingCount = settled.filter((b) => b.state !== 'refunded').length
+  const bookingCount = settled.filter(isComingBooking).length
   // After a cancel: how much has gone back so far (Q2).
   const paidOnes = settled.filter((b) => takenCents(b) > 0 || b.refundedCents > 0)
   const refundedOnes = paidOnes.filter((b) => b.refundedCents > 0)
@@ -553,13 +554,16 @@ function BookingRow({ b, cls, ticket, onChanged }: { b: ClassBooking; cls: Sched
     ? Object.entries(b.seats).map(([t, n]) => `${n} ${ticket(t)}`).join(', ')
     : `${seatCount} ${seatCount === 1 ? 'seat' : 'seats'}`
   const pass = c.passes.length > 1 ? c.passes.find((p) => p.id === b.passId)?.label : ''
-  const tag = b.state === 'refunded' ? 'Refunded' : b.state === 'part refunded' ? 'Part refunded' : b.state === 'held' ? 'Paying now' : ''
+  // A seat freed with no money back reads as that, never "Refunded" for $0.
+  const freedOnly = (b.state === 'refunded' || b.state === 'part refunded') && b.refundedCents === 0
+  const tag = freedOnly ? (b.seatsComing === 0 ? (seatCount === 1 ? 'Seat freed' : 'Seats freed') : 'Seat freed')
+    : b.state === 'refunded' ? 'Refunded' : b.state === 'part refunded' ? 'Part refunded' : b.state === 'held' ? 'Paying now' : ''
   const answers = c.questions.length > 0 && b.picks.some((p) => Object.keys(p.answers).length)
     ? b.picks.map((p) => `Seat ${p.seat} (${ticket(p.ticketTypeId)}) · ${c.questions.map((q) => (p.answers[q.id] ? `${q.label} ${p.answers[q.id]}` : '')).filter(Boolean).join(', ')}`)
     : []
   const extras = Object.entries(b.addOns).map(([a, n]) => `${n} ${c.addOns.find((x) => x.id === a)?.label ?? a}`)
   return (
-    <article className={`adm-bkc${b.state === 'refunded' ? ' is-gone' : ''}`} aria-label={name}>
+    <article className={`adm-bkc${b.state !== 'held' && b.seatsComing === 0 ? ' is-gone' : ''}`} aria-label={name}>
       <div className="adm-bk">
         <div className="adm-rm">
           <b>{name}</b>

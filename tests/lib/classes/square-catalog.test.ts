@@ -4,6 +4,8 @@ const cfg = vi.hoisted(() => ({
   accessToken: 'tok', environment: 'sandbox', locationId: 'LOC1', applicationId: 'app',
   classesCategoryId: 'CAT1', classTaxId: 'TAX1',
 } as Record<string, string>))
+const deploy = vi.hoisted(() => ({ context: 'dev' as string }))
+vi.mock('@lib/deploy-context', () => ({ deployContext: () => deploy.context, isPreviewOrDev: () => deploy.context !== 'production' }))
 vi.mock('@config/site.config', async (orig) => {
   const real = await orig<typeof import('@config/site.config')>()
   return {
@@ -14,6 +16,7 @@ vi.mock('@config/site.config', async (orig) => {
 
 import { SQUARE_API_VERSION, squareBaseUrl, squareFetch } from '@lib/classes/square-api'
 import { variationPlan, syncClassToSquare, archiveClassInSquare, classIdFromVariation } from '@lib/classes/square-catalog'
+import { LIVE_SQUARE_FROM_TEST_SITE, squareCatalogRefusal } from '@lib/classes/test-site-guard'
 import type { ScheduledClass } from '@lib/classes/types'
 
 function cls(over: Partial<ScheduledClass> = {}): ScheduledClass {
@@ -45,7 +48,7 @@ beforeEach(() => {
   calls = []
   // By default the catalog holds nothing marked with our class ids.
   replies = [(c) => (c.url.endsWith('/catalog/search') ? json(200, { objects: [] }) : undefined)]
-  cfg.classesCategoryId = 'CAT1'; cfg.classTaxId = 'TAX1'; cfg.environment = 'sandbox'
+  cfg.classesCategoryId = 'CAT1'; cfg.classTaxId = 'TAX1'; cfg.environment = 'sandbox'; deploy.context = 'dev'
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const body = typeof init.body === 'string' ? JSON.parse(init.body) : init.body
     const c: Call = { url: String(url), method: init.method ?? 'GET', headers: (init.headers ?? {}) as Record<string, string>, body }
@@ -345,5 +348,30 @@ describe('classIdFromVariation', () => {
   })
   it('misses cleanly', () => {
     expect(classIdFromVariation('NOPE', [a, b])).toBeNull()
+  })
+})
+
+describe('N3: the live POS changes only from the live site', () => {
+  it('the rule: production always; anywhere else only on the sandbox', () => {
+    expect(squareCatalogRefusal({ context: 'production', squareEnvironment: 'production' })).toBeNull()
+    expect(squareCatalogRefusal({ context: 'branch-deploy', squareEnvironment: 'sandbox' })).toBeNull()
+    expect(squareCatalogRefusal({ context: 'dev', squareEnvironment: 'sandbox' })).toBeNull()
+    expect(squareCatalogRefusal({ context: 'branch-deploy', squareEnvironment: 'production' })).toBe(LIVE_SQUARE_FROM_TEST_SITE)
+    expect(squareCatalogRefusal({ context: 'deploy-preview', squareEnvironment: 'production' })).toBe(LIVE_SQUARE_FROM_TEST_SITE)
+    expect(squareCatalogRefusal({ context: 'dev', squareEnvironment: 'production' })).toBe(LIVE_SQUARE_FROM_TEST_SITE)
+    expect(squareCatalogRefusal({ context: 'unknown', squareEnvironment: 'production' })).toBe(LIVE_SQUARE_FROM_TEST_SITE)
+  })
+
+  it('a preview (even one with its own STORE_NAMESPACE) on the live Square never writes the catalog', async () => {
+    vi.stubEnv('STORE_NAMESPACE', 'dev')
+    try {
+      deploy.context = 'branch-deploy'
+      cfg.environment = 'production'
+      await expect(syncClassToSquare(cls())).rejects.toThrow(LIVE_SQUARE_FROM_TEST_SITE)
+      await expect(archiveClassInSquare(cls({ square: { itemId: 'ITEM1', variations: {} } } as any))).rejects.toThrow(LIVE_SQUARE_FROM_TEST_SITE)
+      expect(calls).toEqual([])
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

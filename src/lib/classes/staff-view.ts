@@ -12,6 +12,7 @@ import { studioDate } from '@lib/studio-time'
 import { choiceTotals, prepOptions, type PrepOption, type SeatOption, type SeatPick } from '@lib/seat-options'
 import { summarizeChoices, type RosterChoices, type SeatChoiceRecord } from '@lib/seat-choices'
 import { seatsTaken, type Ledger, type LedgerLine } from './seat-ledger'
+import { isComing } from './seat-status'
 import type { ScheduledClass, Session } from './types'
 
 export const isOwnClassId = (id: string) => id.startsWith('cls_')
@@ -46,9 +47,7 @@ export function sessionsOn(cls: ScheduledClass, day: string): Session[] {
 
 /** A seat that is someone's (paid, comped, counter, or refunded but kept): what a roster and prep count. */
 export function holdsSeat(l: LedgerLine): boolean {
-  if (l.state === 'confirmed') return true
-  if (l.state === 'refunded') return !l.refunds.some((r) => r.freedSeat)
-  return false
+  return isComing(l)
 }
 
 /** Seats sitting in this day's session(s). */

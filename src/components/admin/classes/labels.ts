@@ -44,5 +44,8 @@ export function moneyWords(b: Pick<ClassBooking, 'source' | 'paidHere' | 'paidCe
   return money ? `${way} · ${formatMoney(money)}` : way
 }
 
-/** Seats a booking still holds (a freed seat no longer counts). */
-export const seatsHeld = (b: ClassBooking) => (b.state === 'held' ? b.lineIds.length : b.refundable.filter((s) => !s.freed).length)
+/** Seats a booking still holds (a freed seat no longer counts): the server's seat-status count (R43). */
+export const seatsHeld = (b: Pick<ClassBooking, 'seatsComing'>) => b.seatsComing
+
+/** The booking is coming to the class: at least one seat not freed, and not just someone paying right now. */
+export const isComingBooking = (b: Pick<ClassBooking, 'state' | 'seatsComing'>) => b.state !== 'held' && b.seatsComing > 0

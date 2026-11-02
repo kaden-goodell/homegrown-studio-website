@@ -1,7 +1,8 @@
 import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { json } from '@lib/classes/admin-actions'
-import { decide, DecideError, listToDecide, nameCounterSeats, openItem, saleAmount, type ToDecideItem } from '@lib/classes/to-decide'
+import { TestSiteStoreError } from '@lib/classes/test-site-guard'
+import { decide, DecideError, listToDecide, nameCounterSeats, openItem, saleAmount, undoDecision, type ToDecideItem } from '@lib/classes/to-decide'
 
 export const prerender = false
 
@@ -49,9 +50,11 @@ export const POST: APIRoute = async ({ request }) => {
       return json(200, { data: { named: await nameCounterSeats(typeof body.classId === 'string' ? body.classId : '', names, by) } })
     }
     if (typeof body?.id !== 'string' || typeof body?.action !== 'string') return json(400, { error: 'Pick what to do.' })
+    if (body.action === 'undo') { await undoDecision(body.id, by); return json(200, { data: { undone: body.id } }) }
     return json(200, { data: await decide(body.id, body.action, body, by) })
   } catch (e) {
     if (e instanceof DecideError) return json(e.status, { error: e.message, ...e.extra })
+    if (e instanceof TestSiteStoreError) return json(503, { error: e.message })
     console.error(`[admin/to-decide] ${e instanceof Error ? e.message : e}`)
     return json(503, { error: 'Didn’t save. Try again.' })
   }

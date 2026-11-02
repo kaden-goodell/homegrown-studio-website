@@ -73,8 +73,9 @@ export const POST: APIRoute = async ({ request, locals }) => {
   })
 
   // Acknowledge quickly — Square requires response within 10 seconds
-  // For handled events, send a notification so the team is aware
-  if (HANDLED_EVENTS.has(eventType)) {
+  // M4: a note to the team for booking events only. Orders, payments and refunds
+  // (every café sale makes several) are our classes' bookkeeping, not news.
+  if (HANDLED_EVENTS.has(eventType) && eventType.startsWith('booking.')) {
     try {
       await providers.notification.send({
         type: 'webhook',

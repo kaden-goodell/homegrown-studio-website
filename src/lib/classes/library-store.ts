@@ -4,6 +4,7 @@ import type { By } from '@lib/staff-auth'
 import { contentChanges } from './content-diff'
 import type { ClassContent, LibraryClass } from './types'
 import { newId, validateContent } from './validate'
+import { assertClassWritesAllowed } from './test-site-guard'
 
 const kv = makeKvStore('class-library', 'class-library')
 const key = (id: string) => `lib-${id}`
@@ -16,6 +17,7 @@ function checked(content: unknown): ClassContent {
 
 /** Read-modify-write with compare-and-set, three attempts. */
 async function mutate(id: string, fn: (cur: LibraryClass | null) => LibraryClass): Promise<LibraryClass> {
+  assertClassWritesAllowed() // R41
   const k = key(id)
   for (let attempt = 0; attempt < 3; attempt++) {
     const { value, etag } = await kv.getWithMeta(k)
@@ -107,6 +109,7 @@ export async function importLibraryClass(input: {
   by: By
   note: string
 }): Promise<LibraryClass | null> {
+  assertClassWritesAllowed() // R41
   const content = checked(input.content)
   const id = importedLibraryId(input.importKey)
   const k = key(id)

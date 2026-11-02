@@ -122,6 +122,24 @@ export function formatRange(opens: string, closes: string): string {
     : `${clock(a)} ${a.period} – ${clock(b)} ${b.period}`
 }
 
+/**
+ * Craft Café's hours as customers read them, with noon and midnight by name
+ * ("9 AM – noon", "Noon – 4 PM"), the same words /admin uses. Other times read
+ * as formatRange.
+ */
+export function formatCafeRange(opens: string, closes: string): string {
+  const word = (t: string) => (t.startsWith('00:00') ? 'midnight' : t.startsWith('12:00') ? 'noon' : null)
+  if (!word(opens) && !word(closes)) return formatRange(opens, closes)
+  const one = (t: string) => word(t) ?? (() => { const p = parts(t); return `${clock(p)} ${p.period}` })()
+  const r = `${one(opens)} – ${one(closes)}`
+  return r[0].toUpperCase() + r.slice(1)
+}
+
+/** formatHours for Craft Café (noon and midnight by name). */
+export function formatCafeHours(hours: HoursEntry[]): { days: string; time: string }[] {
+  return hours.map((h) => ({ days: joinDays(h.days), time: formatCafeRange(h.opens, h.closes) }))
+}
+
 function joinDays(days: Weekday[]): string {
   if (days.length <= 1) return days.join('')
   if (days.length === 2) return `${days[0]} & ${days[1]}`

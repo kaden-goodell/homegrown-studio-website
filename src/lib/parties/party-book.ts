@@ -34,6 +34,7 @@
  * hold. Accepted as in stage 1; the daily "class over party" warning catches it.
  */
 import { makeKvStore } from '@lib/blob-store'
+import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import { clashes, clashMessage, type Busy } from '@lib/classes/studio-schedule'
 import { localDate, PARTY_CLEANUP_MINUTES } from './party-times'
 
@@ -106,6 +107,7 @@ function timed<T>(p: Promise<T>): Promise<T> {
 
 /** Read-modify-write with CAS. `fn` sees fresh data each attempt and returns the next doc (or null to write nothing). */
 async function mutate<T>(month: string, fn: (cur: MonthDoc) => { next: MonthDoc | null; result: T }, attempts = ATTEMPTS): Promise<T> {
+  assertClassWritesAllowed() // R41: never a live party time held or let go from a test site with no store of its own
   const k = keyOf(month)
   return withLock(k, async () => {
     for (let i = 0; i < attempts; i++) {

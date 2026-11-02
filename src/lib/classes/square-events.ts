@@ -7,11 +7,18 @@
  * Rules:
  * - A paid order (COMPLETED, or OPEN with a COMPLETED payment) at our location
  *   whose lines are our class seat variations → one confirmed 'pos' line per
- *   unit, no name yet, capacity ignored. Orders with reference_id 'bkg_…' are
- *   our own online/door bookings (already on the ledger) and are skipped;
- *   'pty_…' orders are our parties, handed to @lib/parties/square-orders
- *   before any catalog lookup.
- *   Replays never add a seat twice (order id + line uid + unit).
+ *   unit, no name yet, capacity ignored. Replays never add a seat twice
+ *   (order id + line uid + unit).
+ * - 'pty_…' orders are our parties, handed to @lib/parties/square-orders
+ *   before any catalog lookup (never the seat ledger).
+ * - Orders with reference_id 'bkg_…' are our own online/door bookings (R42).
+ *   Paid, with that booking's seats still held (the charge's answer was lost,
+ *   or the seats weren't written after the charge): the seats are confirmed,
+ *   the same way the booking itself would (seat-ledger confirmBooking,
+ *   idempotent by booking id), and the confirmation and owners' text go out
+ *   unless the customer's own request already sent them (one per booking). Paid with
+ *   no seat left to confirm (the hold ran out and was swept) → a 'paid-not-seated'
+ *   item for /admin › To decide. Never refunded, never cancelled.
  * - A 'choose' pass sold at the counter can't know its days: it is put on the
  *   next upcoming session(s) and listed in 'pos-needs-days' for staff.
  * - A class item we can't match (Classes category, or sku 'cls_…') → kv
@@ -39,12 +46,18 @@ import { recordAudit } from '@lib/audit'
 import type { By } from '@lib/staff-auth'
 import { listClasses } from './class-store'
 import { squareFetch, squareSettings } from './square-api'
-import { getLedger, moveLines, paidBy, recordPos, recordRefund, type LedgerLine, type PosLineInput } from './seat-ledger'
+import { confirmBooking, getLedger, moveLines, paidBy, recordPos, recordRefund, type LedgerLine, type PosLineInput } from './seat-ledger'
+import { alertOwners } from '@lib/owner-alert'
+import { siteConfig } from '@config/site.config'
+import { formatSlotLabel } from '@lib/studio-time'
+import { seatsLabelFor } from './checkout'
+import { claimConfirmation, markConfirmationRetry, releaseConfirmation, sendClassConfirmation, takeConfirmationRetry } from './confirmation'
 import { bookingCap, freeSeatOnly, onSeatFreed } from './refunds'
 import { claimSquareRefund } from '@lib/booking-core/refund-books'
 import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
 import { allRefundRequests, listRefundRequests, UNCONFIRMED_AFTER_MS, type SavedRefundRequest } from './refund-requests'
 import { getClass } from './class-store'
+import { isComing, isPaidLine, leftOn } from './seat-status'
 import { handlePartyOrder } from '@lib/parties/square-orders'
 import { partyForPayment, type PartyPaymentEntry } from '@lib/parties/party-payments'
 import { partyLabel, recordSquarePartyRefund } from '@lib/parties/refunds'
@@ -59,9 +72,16 @@ export const SQUARE_BY: By = { id: 'square', name: 'Square' }
 const unmatchedKv = makeKvStore('unmatched-pos', 'unmatched-pos')
 const needsDaysKv = makeKvStore('pos-needs-days', 'pos-needs-days')
 const flagsKv = makeKvStore('refund-flags', 'refund-flags')
+const paidNotSeatedKv = makeKvStore('paid-not-seated', 'paid-not-seated')
 const ATTEMPTS = 3
 
-export interface UnmatchedPos { orderId: string; lineUid: string; name: string; qty: number; at: string }
+export interface UnmatchedPos {
+  orderId: string; lineUid: string; name: string; qty: number; at: string
+  /** the sold item's catalog variation, and its name ("One day"), to start the owner's match on the right seat */
+  variationId?: string; variationName?: string
+  /** set once an owner matched it to a class or said it wasn't for one (/admin › To decide) */
+  resolved?: { at: string; by: By; how: 'matched' | 'not-a-class' } | null
+}
 export interface PosNeedsDays {
   id: string; classId: string; bookingId: string; lineIds: string[]; orderId: string; lineUid: string
   passId: string; sessionIds: string[]; at: string
@@ -120,6 +140,32 @@ export interface SaleOutcome {
   /** ledger lines added this time */
   recorded: number
   unmatched: number
+  /** our own booking: held seats this run confirmed (R42) */
+  confirmed?: number
+  /** our own booking, paid, with no seat to confirm: listed in To decide (R42) */
+  paidNotSeated?: true
+}
+
+/**
+ * R42: an online (or iPad) booking of ours that Square shows paid, but whose
+ * seats couldn't be confirmed: the hold ran out and its seat was taken
+ * ('no-seats'), or the booking's seats are paid by another order ('other-order').
+ * An owner decides (To decide › Paid, no seat). Never refunded automatically.
+ */
+export interface PaidNotSeated {
+  id: string
+  why: 'no-seats' | 'other-order'
+  orderId: string
+  bookingId: string
+  classId: string
+  paymentId: string | null
+  paymentIds: string[]
+  chargedCents: Cents
+  customerId: string | null
+  /** what the order bought, per line: the seats to give if an owner says so */
+  lines: { lineUid: string; passId: string; ticketTypeId: string; qty: number }[]
+  at: string
+  resolved?: { at: string; by: By; how: 'seated' | 'sorted' } | null
 }
 
 /** The sessions a counter seat on `passId` covers, and whether staff must pick the days. */
@@ -245,6 +291,8 @@ export interface RunContext {
   catalog: CatalogCache
   /** reconcile only: payment id → the classes holding seats paid by it */
   payments?: Map<string, Set<string>>
+  /** reconcile only: send a confirmation that failed from Square's notice once more (N2) */
+  retryConfirmations?: boolean
 }
 function contextFor(classes: ScheduledClass[], catalog: CatalogCache = sharedCache()): RunContext {
   return { classes, index: indexVariations(classes), catalog }
@@ -270,13 +318,14 @@ export async function handleOrder(
   const out: SaleOutcome = { orderId, recorded: 0, unmatched: 0 }
   const loc = squareSettings().locationId || ''
   if (loc && order?.location_id && order.location_id !== loc) return { ...out, skipped: 'other-location' }
-  if (String(order?.reference_id ?? '').startsWith('bkg_')) return { ...out, skipped: 'not-ours' }
+  const ref = String(order?.reference_id ?? '')
   // Our own party orders: the party code records them (never the seat ledger), before any catalog lookup.
-  if (String(order?.reference_id ?? '').startsWith('pty_')) {
+  if (ref.startsWith('pty_')) {
     await handlePartyOrder(order, now, { paymentId: opts.paymentId })
     return { ...out, skipped: 'not-ours' }
   }
-  if (order?.state !== 'COMPLETED' && order?.state !== 'OPEN') return { ...out, skipped: 'not-paid' }
+  if (order?.state !== 'COMPLETED' && order?.state !== 'OPEN') return { ...out, skipped: ref.startsWith('bkg_') ? 'not-ours' : 'not-paid' }
+  if (ref.startsWith('bkg_')) return handleOwnOrder(order, now, opts, out)
 
   const lineItems: any[] = (order.line_items ?? []).filter((li: any) => li?.catalog_object_id && li?.uid)
   if (!lineItems.length) return { ...out, skipped: 'no-class-lines' }
@@ -354,10 +403,230 @@ export async function handleOrder(
 
 async function storeUnmatched(orderId: string, li: any, now: Date): Promise<void> {
   const name = [li.name, li.variation_name].filter(Boolean).join(' · ') || 'Unnamed item'
-  const entry: UnmatchedPos = { orderId, lineUid: String(li.uid), name, qty: Math.floor(Number(li.quantity)) || 0, at: now.toISOString() }
+  const entry: UnmatchedPos = {
+    orderId, lineUid: String(li.uid), name, qty: Math.floor(Number(li.quantity)) || 0, at: now.toISOString(),
+    ...(li.catalog_object_id ? { variationId: String(li.catalog_object_id) } : {}),
+    ...(li.variation_name ? { variationName: String(li.variation_name) } : {}),
+  }
   if (await putOnce(unmatchedKv, `unmatched-${safeKey(orderId)}-${safeKey(String(li.uid))}`, entry)) {
     logger.warn('POS class sale matches no class', { orderId, lineUid: li.uid, name })
   }
+}
+
+// ---------------------------------------------------------------- our own online bookings (R42)
+
+/** "Seat 1 · Glaze Red", as the booking's own confirmation says them. */
+function pickLinesOf(cls: ScheduledClass, lines: LedgerLine[]): string[] {
+  const out: string[] = []
+  for (const l of [...lines].sort((a, b) => a.seat - b.seat)) {
+    for (const q of cls.content.questions) if (l.answers[q.id]) out.push(`Seat ${l.seat} · ${q.label} ${l.answers[q.id]}`)
+  }
+  return out
+}
+
+/**
+ * The booking's confirmation and the owners' text, once per booking: only the
+ * caller that wins the one-email-per-booking marker (claimConfirmation) sends
+ * them, whether that is this webhook or the customer's own request. Never throws.
+ */
+async function confirmByEmail(cls: ScheduledClass, lines: LedgerLine[], chargedCents: Cents, ownerText: string, opts: { retry?: boolean } = {}): Promise<void> {
+  const who = lines.find((l) => l.customer?.email)?.customer
+  const bookingId = lines[0].bookingId
+  let claimed = false
+  try {
+    if (!(await claimConfirmation(bookingId))) return
+    claimed = true
+  } catch {
+    return
+  }
+  // N2: the email first, then the owners' text, which says when the email didn't go out.
+  let sent = false
+  if (who) {
+    try {
+      const picks = pickLinesOf(cls, lines)
+      sent = await sendClassConfirmation({
+        origin: siteConfig.url.replace(/\/$/, ''), bookingId, cls, sessionIds: lines[0].sessionIds, seats: lines.length,
+        seatsLabel: seatsLabelFor(cls, lines), email: who.email, givenName: who.givenName, receiptUrl: null, totalChargedCents: chargedCents,
+        ...(picks.length ? { pickLines: picks } : {}),
+      })
+    } catch (e) {
+      logger.error('Confirmation after Square confirmed a booking failed', { bookingId, error: e instanceof Error ? e.message : String(e) })
+    }
+  }
+  let text = ownerText
+  if (!who) {
+    text = `${ownerText} No email on file, so no confirmation went out.`
+  } else if (!sent && claimed) {
+    // Let it be tried again: once, by tonight's catch-up (never by a replay).
+    await releaseConfirmation(bookingId)
+    if (opts.retry) {
+      text = `The confirmation email to ${who.email} still didn't send on the retry. Please send them the details. Booking ${bookingId}.`
+    } else {
+      await markConfirmationRetry(bookingId)
+      text = `${ownerText} The confirmation email to ${who.email} didn't send; it's tried again tonight.`
+    }
+  } else if (opts.retry) {
+    text = `The confirmation email to ${who.email} went out on the retry. Booking ${bookingId}.`
+  }
+  await alertOwners(text).catch(() => undefined)
+}
+
+/**
+ * One of our own orders (reference_id 'bkg_…'). Only when Square shows it
+ * paid: its held seats are confirmed; with none held and none paid by this
+ * order, a 'paid-not-seated' item asks an owner. Safe to run again.
+ */
+async function handleOwnOrder(
+  order: any, now: Date, opts: { classes?: ScheduledClass[]; ctx?: RunContext; paymentCompleted?: boolean; paymentId?: string }, out: SaleOutcome,
+): Promise<SaleOutcome> {
+  const orderId = out.orderId
+  const bookingId = String(order.reference_id)
+  const lineItems: any[] = (order.line_items ?? []).filter((li: any) => li?.catalog_object_id && li?.uid)
+  if (!lineItems.length) return { ...out, skipped: 'not-ours' }
+  const ctx = opts.ctx ?? contextFor(opts.classes ?? (await listClasses()))
+  const hits = lineItems.map((li) => ({ li, m: ctx.index.get(li.catalog_object_id) })).filter((x) => !!x.m)
+  // Not one of our classes (a party, a kit, a Square class): nothing for the seat ledger.
+  if (!hits.length) return { ...out, skipped: 'not-ours' }
+  const cls = ctx.classes.find((c) => c.id === hits[0].m!.classId)
+  if (!cls) return { ...out, skipped: 'not-ours' }
+
+  const ledger = await getLedger(cls.id)
+  const mine = ledger.lines.filter((l) => l.bookingId === bookingId)
+  const held = mine.filter((l) => l.state === 'held')
+  const paidLines = mine.filter((l) => l.state === 'confirmed' || l.state === 'refunded')
+  // Already booked by this order: the usual echo of a booking that went through.
+  if (!held.length && paidLines.some((l) => l.square.orderId === orderId)) {
+    // N2: a confirmation that failed from Square's notice is tried once more by the nightly catch-up.
+    if (ctx.retryConfirmations && (await takeConfirmationRetry(bookingId))) {
+      const mine = paidLines.filter((l) => l.square.orderId === orderId)
+      await confirmByEmail(cls, mine, mine[0].square.chargedCents ?? money(order.total_money), '', { retry: true })
+    }
+    return { ...out, skipped: 'not-ours' }
+  }
+
+  const paid = order.state === 'COMPLETED' || opts.paymentCompleted || (await anyTenderCompleted(order))
+  if (!paid) return { ...out, skipped: 'not-ours' }
+  const paymentIds = tenderPaymentIds(order)
+  if (opts.paymentId && !paymentIds.includes(opts.paymentId)) paymentIds.unshift(opts.paymentId)
+  const paymentId: string | null = opts.paymentId ?? paymentIds[0] ?? null
+  const chargedCents = money(order.total_money)
+  const who = (ls: LedgerLine[]) => {
+    const c = ls.find((l) => l.customer)?.customer
+    return c ? `${c.givenName} ${c.familyName}`.trim() : 'Someone'
+  }
+  const firstStart = [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))[0]?.startIso ?? ''
+
+  if (held.length) {
+    const { lines, changed } = await confirmBooking(cls.id, bookingId, { orderId, paymentId, chargedCents }, { cls }, now)
+    if (!changed) return { ...out, skipped: 'not-ours' }
+    logger.warn('Square shows our booking paid — seats confirmed from Square', { orderId, bookingId, classId: cls.id, seats: lines.length })
+    await recordAudit({
+      by: { ...SQUARE_BY, role: 'owner' }, action: 'class-confirm-from-square', target: { kind: 'class', id: cls.id, label: cls.content.name },
+      details: { bookingId, orderId, seats: lines.length },
+    }).catch(() => undefined)
+    // Confirmation and owners' text, unless the customer's own request already sent them (one per booking).
+    await confirmByEmail(cls, lines, chargedCents,
+      `Class booked from Square's payment: ${who(lines)} paid for ${cls.content.name}${firstStart ? `, ${formatSlotLabel(firstStart)}` : ''}. ${lines.length === 1 ? 'Their seat is' : 'Their seats are'} confirmed. Booking ${bookingId}.`)
+    return { ...out, confirmed: lines.length }
+  }
+
+  // Paid, and nothing of this booking's left to confirm.
+  const why: PaidNotSeated['why'] = paidLines.length ? 'other-order' : 'no-seats'
+  const entry: PaidNotSeated = {
+    id: `pns-${safeKey(orderId)}`, why, orderId, bookingId, classId: cls.id, paymentId, paymentIds, chargedCents,
+    customerId: typeof order.customer_id === 'string' ? order.customer_id : null,
+    lines: hits.filter((x) => !x.m!.key.startsWith('addon:') && x.m!.classId === cls.id).map(({ li, m }) => {
+      const [passId, ticketTypeId] = m!.key.split(':')
+      return { lineUid: String(li.uid), passId, ticketTypeId, qty: Math.max(1, Math.floor(Number(li.quantity)) || 1) }
+    }),
+    at: now.toISOString(), resolved: null,
+  }
+  if (await putOnce(paidNotSeatedKv, entry.id, entry)) {
+    logger.error('PAID, NO SEAT: Square shows our booking paid but its seats are gone', { orderId, bookingId, classId: cls.id, why })
+    await alertOwners(
+      `Paid, no seat: Square shows a ${`$${(chargedCents / 100).toFixed(2)}`} payment for ${cls.content.name} (booking ${bookingId}), but ${why === 'no-seats' ? 'its seats were let go' : 'the booking is already paid by another order'}. Nothing was refunded. Open /admin › To decide.`,
+    ).catch(() => undefined)
+  }
+  return { ...out, paidNotSeated: true }
+}
+
+/** Paid bookings with no seat that no owner has sorted out yet, newest first. */
+export async function listPaidNotSeated(): Promise<PaidNotSeated[]> {
+  return (await readAll<PaidNotSeated>(paidNotSeatedKv, 'pns-')).filter((p) => !p.resolved).sort((a, b) => b.at.localeCompare(a.at))
+}
+
+/**
+ * The ones still waiting: also leaves out any whose seats have since been
+ * recorded by that order (the customer's own retry, or an owner), as To
+ * decide and the warnings panel both show them.
+ */
+export async function openPaidNotSeated(): Promise<PaidNotSeated[]> {
+  const all = await listPaidNotSeated()
+  const seated = await Promise.all(all.map(async (p) => (await getLedger(p.classId)).lines.some((l) =>
+    l.bookingId === p.bookingId && l.square.orderId === p.orderId && (l.state === 'confirmed' || l.state === 'refunded'))))
+  return all.filter((_, i) => !seated[i])
+}
+
+/** An owner seated them or sorted it out in Square: it leaves the list. */
+export async function resolvePaidNotSeated(id: string, by: By, how: 'seated' | 'sorted'): Promise<void> {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const { value, etag } = await paidNotSeatedKv.getWithMeta(id)
+    if (!value) return
+    const cur = JSON.parse(value) as PaidNotSeated
+    if (cur.resolved) return
+    if (await paidNotSeatedKv.setIfMatch(id, JSON.stringify({ ...cur, resolved: { at: new Date().toISOString(), by, how } }), etag, true)) return
+  }
+  throw new Error('Concurrent update — please retry')
+}
+
+/**
+ * "Give them their seat" (To decide › Paid, no seat): the order's seats are
+ * written as this booking's, paid by its payment (so a refund later finds
+ * them), with the customer's name when Square has it. Capacity is not checked:
+ * the seat is paid; a full session is marked over capacity. A pick-your-days
+ * seat goes on the next date and waits for its day, as a counter sale does.
+ * Safe to repeat (order id + line uid + unit).
+ */
+export async function seatPaidOrder(
+  p: PaidNotSeated, customer: LedgerLine['customer'], now: Date,
+): Promise<LedgerLine[]> {
+  const cls = await getClass(p.classId)
+  if (!cls) throw new Error('That class no longer exists.')
+  let order: any
+  try {
+    order = (await squareFetch(`/orders/${encodeURIComponent(p.orderId)}`, { method: 'GET' }))?.order
+  } catch {
+    throw new Error('Couldn’t reach Square to read that order. Try again.')
+  }
+  if (!order) throw new Error('That order isn’t in Square any more.')
+  const saleIso = order.closed_at ?? order.updated_at ?? order.created_at ?? now.toISOString()
+  const lines: (PosLineInput & { needsDays: boolean })[] = []
+  for (const want of p.lines) {
+    const li = (order.line_items ?? []).find((x: any) => String(x?.uid) === want.lineUid)
+    const sess = sessionsFor(cls, want.passId, saleIso)
+    if (!li || !sess || !sess.sessionIds.length) continue
+    const qty = Math.max(1, Math.floor(Number(li.quantity)) || 1)
+    const tax = money(li.total_tax_money)
+    const prices = splitCents(money(li.total_money) - tax, qty), taxes = splitCents(tax, qty)
+    lines.push({
+      lineUid: want.lineUid, passId: want.passId, ticketTypeId: want.ticketTypeId, sessionIds: sess.sessionIds, needsDays: sess.needsDays,
+      units: prices.map((c, i) => ({ priceCents: c, taxCents: taxes[i] })),
+    })
+  }
+  if (!lines.length) throw new Error('That order has no seats of this class on it any more.')
+  const added = await recordPos(cls, {
+    bookingId: p.bookingId, orderId: p.orderId, paymentId: p.paymentId, paymentIds: p.paymentIds, chargedCents: p.chargedCents, lines, saleIso,
+  }, now, { source: 'online', customer, matchDoor: false })
+  for (const pl of lines.filter((x) => x.needsDays)) {
+    const mine = added.filter((l) => l.square.lineUid === pl.lineUid)
+    if (!mine.length) continue
+    const id = `days-${safeKey(p.orderId)}-${safeKey(pl.lineUid)}-${mine[0].seat}`
+    await putOnce(needsDaysKv, id, {
+      id, classId: cls.id, bookingId: p.bookingId, lineIds: mine.map((l) => l.id), orderId: p.orderId, lineUid: pl.lineUid,
+      passId: pl.passId, sessionIds: pl.sessionIds, at: now.toISOString(),
+    } satisfies PosNeedsDays)
+  }
+  return added
 }
 
 /** Fetches the order and runs handleOrder on it. */
@@ -378,20 +647,35 @@ export type RefundOutcome =
 
 interface PaidLine { classId: string; line: LedgerLine }
 
-/** Every ledger line paid by this payment, class by class in `classIds` order. */
-async function linesForPayment(paymentId: string, classIds: string[]): Promise<PaidLine[]> {
-  const out: PaidLine[] = []
-  for (const id of classIds) {
-    const ledger = await getLedger(id)
-    for (const l of ledger.lines) if (paidBy(l, paymentId)) out.push({ classId: id, line: l })
+/** How many ledgers are read at once (M2): fast, without a burst on the store. */
+const LEDGER_READS_AT_ONCE = 8
+
+/** fn over every item, at most `limit` at a time; results in `items` order. */
+async function mapLimit<T, R>(items: T[], limit: number, fn: (t: T) => Promise<R>): Promise<R[]> {
+  const out: R[] = new Array(items.length)
+  let next = 0
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i])
+    }
   }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
   return out
 }
 
-const paidOn = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
-const leftOn = (l: LedgerLine) => paidOn(l) - l.refunds.reduce((s, r) => s + r.cents, 0)
-const isPaid = (l: LedgerLine) => l.state === 'confirmed' || l.state === 'refunded'
-const holdsSeat = (l: LedgerLine) => isPaid(l) && !l.refunds.some((r) => r.freedSeat)
+/** Every ledger line paid by this payment, class by class in `classIds` order (ledgers read in parallel). */
+async function linesForPayment(paymentId: string, classIds: string[]): Promise<PaidLine[]> {
+  const ledgers = await mapLimit(classIds, LEDGER_READS_AT_ONCE, (id) => getLedger(id))
+  const out: PaidLine[] = []
+  ledgers.forEach((ledger, i) => {
+    for (const l of ledger.lines) if (paidBy(l, paymentId)) out.push({ classId: classIds[i], line: l })
+  })
+  return out
+}
+
+const isPaid = isPaidLine
+const holdsSeat = isComing
 const bySquare = (r: LedgerLine['refunds'][number]) => r.by?.id === SQUARE_BY.id
 
 async function flag(kind: RefundFlagKind, refund: any, on: { classId: string; bookingId: string }, now: Date, extra: { cents?: Cents } = {}): Promise<void> {
@@ -660,7 +944,7 @@ const MAX_PAGES = 50
 export async function reconcileClasses(now = new Date()): Promise<ReconcileResult> {
   const loc = squareSettings().locationId || ''
   if (!loc) throw new Error('The Square location is not set up.')
-  const ctx = contextFor(await listClasses(), new CatalogCache({ rememberFailures: true }))
+  const ctx: RunContext = { ...contextFor(await listClasses(), new CatalogCache({ rememberFailures: true })), retryConfirmations: true }
   const result: ReconcileResult = { orders: 0, recorded: 0, unmatched: 0, refunds: 0, refundsHandled: 0, staleRequests: 0, errors: 0 }
   const since = new Date(now.getTime() - 48 * 3_600_000).toISOString()
 
@@ -702,22 +986,30 @@ export async function reconcileClasses(now = new Date()): Promise<ReconcileResul
     }
   }
 
-  // 2. Refunds. Which classes each payment touched, read once (after the sales above landed).
-  const payments = new Map<string, Set<string>>()
-  for (const c of ctx.classes) {
-    for (const l of (await getLedger(c.id)).lines) {
-      for (const id of [l.square.paymentId, ...(l.square.paymentIds ?? [])]) {
-        if (!id) continue
-        payments.set(id, (payments.get(id) ?? new Set()).add(c.id))
-      }
-    }
-  }
-  const refundCtx: RunContext = { ...ctx, payments }
+  // 2. Refunds: every one Square lists for the window first, then (only if there are any) which
+  // classes each payment touched, from the ledgers read in parallel after the sales above landed (M2).
+  const refunds: any[] = []
   cursor = undefined
   for (let page = 0; page < MAX_PAGES; page++) {
     const q: URLSearchParams = new URLSearchParams({ begin_time: since, location_id: loc, ...(cursor ? { cursor } : {}) })
     const res: any = await squareFetch(`/refunds?${q.toString()}`, { method: 'GET' })
-    for (const refund of res?.refunds ?? []) {
+    refunds.push(...(res?.refunds ?? []))
+    cursor = res?.cursor
+    if (!cursor) break
+  }
+  if (refunds.length) {
+    const payments = new Map<string, Set<string>>()
+    const ledgers = await mapLimit(ctx.classes, LEDGER_READS_AT_ONCE, (c) => getLedger(c.id))
+    ledgers.forEach((ledger, i) => {
+      for (const l of ledger.lines) {
+        for (const id of [l.square.paymentId, ...(l.square.paymentIds ?? [])]) {
+          if (!id) continue
+          payments.set(id, (payments.get(id) ?? new Set()).add(ctx.classes[i].id))
+        }
+      }
+    })
+    const refundCtx: RunContext = { ...ctx, payments }
+    for (const refund of refunds) {
       result.refunds++
       try {
         const r = await handleRefund(refund, now, { ctx: refundCtx })
@@ -727,8 +1019,6 @@ export async function reconcileClasses(now = new Date()): Promise<ReconcileResul
         logger.error('Reconcile could not handle a refund', { refundId: refund?.id, error: e instanceof Error ? e.message : String(e) })
       }
     }
-    cursor = res?.cursor
-    if (!cursor) break
   }
 
   // 3. Our own refunds saved and sent but never seen at Square: shown to the owners, never sent again.
@@ -783,9 +1073,34 @@ async function readAll<T>(kv: ReturnType<typeof makeKvStore>, prefix: string): P
   return jsons.filter((j): j is string => !!j).map((j) => JSON.parse(j) as T)
 }
 
-/** Counter sales of class items that match no class, newest first. */
+/** Counter sales of class items that match no class and no owner has decided on, newest first. */
 export async function listUnmatchedPos(): Promise<UnmatchedPos[]> {
-  return (await readAll<UnmatchedPos>(unmatchedKv, 'unmatched-')).sort((a, b) => b.at.localeCompare(a.at))
+  return (await readAll<UnmatchedPos>(unmatchedKv, 'unmatched-')).filter((u) => !u.resolved).sort((a, b) => b.at.localeCompare(a.at))
+}
+
+/** An owner matched a counter sale to a class, or said it wasn't for one: it leaves every list. */
+export async function resolveUnmatchedPos(orderId: string, lineUid: string, by: By, how: 'matched' | 'not-a-class'): Promise<void> {
+  const k = `unmatched-${safeKey(orderId)}-${safeKey(lineUid)}`
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const { value, etag } = await unmatchedKv.getWithMeta(k)
+    if (!value) return
+    const cur = JSON.parse(value) as UnmatchedPos
+    if (cur.resolved) return
+    if (await unmatchedKv.setIfMatch(k, JSON.stringify({ ...cur, resolved: { at: new Date().toISOString(), by, how } }), etag, true)) return
+  }
+  throw new Error('Concurrent update — please retry')
+}
+
+/** Undo of "Free a seat" from To decide: the refund flag waits for a decision again. */
+export async function reopenRefundFlag(id: string): Promise<void> {
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const { value, etag } = await flagsKv.getWithMeta(id)
+    if (!value) return
+    const cur = JSON.parse(value) as RefundFlag
+    if (!cur.resolved) return
+    if (await flagsKv.setIfMatch(id, JSON.stringify({ ...cur, resolved: null }), etag, true)) return
+  }
+  throw new Error('Concurrent update — please retry')
 }
 
 /** Counter sales of a pick-your-days pass, put on the next session(s) until staff set the days. */
@@ -889,8 +1204,7 @@ export async function decideRefundFlag(
   if (action === 'freed-seat') {
     if (!lineIds.length) {
       // Never guess which person: with more than one seat still held, a person picks.
-      const holding = (await getLedger(flag.classId)).lines.filter((l) =>
-        l.bookingId === flag.bookingId && (l.state === 'confirmed' || l.state === 'refunded') && !l.refunds.some((r) => r.freedSeat))
+      const holding = (await getLedger(flag.classId)).lines.filter((l) => l.bookingId === flag.bookingId && isComing(l))
       if (holding.length > 1) throw new Error('Pick which seat to free.')
     }
     try {

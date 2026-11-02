@@ -11,6 +11,9 @@ import type { Quote } from './pricing'
 import type { Cents, ScheduledClass } from './types'
 import { newId } from './validate'
 import { studioDate } from '@lib/studio-time'
+import { assertClassWritesAllowed } from './test-site-guard'
+import { isExpiredHold, isPaidLine, paidOn, refundedOn, takesSeat } from './seat-status'
+export { isComing, isPaidLine, takesSeat } from './seat-status'
 
 export type SeatSource = 'online' | 'door-card' | 'door-counter' | 'comp' | 'pos'
 export interface LedgerLine {
@@ -37,7 +40,8 @@ export interface LedgerLine {
   square: { orderId: string | null; paymentId: string | null; lineUid: string | null; chargedCents?: Cents; paymentIds?: string[] }
   by: By | null
   /** requestId: the saved refund request this entry was written for (our own refunds), so it is never written twice */
-  refunds: { at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null; requestId?: string }[]
+  /** id: set on entries written since fix round 2 (11b-C), so an Undo can take back exactly the entry its decision wrote */
+  refunds: { id?: string; at: string; cents: Cents; reason: string; by: By; freedSeat: boolean; squareRefundId: string | null; requestId?: string }[]
   at: string
   /** set by confirm when a paid seat landed on a session already full (the hold had run out and the seat was taken) */
   overCapacity?: boolean
@@ -83,19 +87,9 @@ const key = (classId: string) => `ledger-${classId}`
 const ATTEMPTS = 3
 const RETRY = 'Concurrent update — please retry'
 
-const isExpiredHold = (l: LedgerLine, now: Date) =>
-  l.state === 'held' && (!l.holdExpiresAt || Date.parse(l.holdExpiresAt) <= now.getTime())
-
-function counts(l: LedgerLine, now: Date): boolean {
-  if (l.state === 'held') return !isExpiredHold(l, now)
-  if (l.state === 'confirmed') return true
-  if (l.state === 'refunded') return !l.refunds.some((r) => r.freedSeat)
-  return false // released
-}
-
-/** Seats taken on a session: unexpired holds + confirmed + refunds that kept the seat. */
+/** Seats taken on a session: unexpired holds + confirmed + refunds that kept the seat (seat-status.takesSeat). */
 export function seatsTaken(ledger: Ledger, sessionId: string, now: Date): number {
-  return ledger.lines.filter((l) => l.sessionIds.includes(sessionId) && counts(l, now)).length
+  return ledger.lines.filter((l) => l.sessionIds.includes(sessionId) && takesSeat(l, now)).length
 }
 
 // One server instance runs a class's read-modify-write one at a time. Across
@@ -122,6 +116,7 @@ export async function getLedger(classId: string): Promise<Ledger> {
  * nothing) and a result.
  */
 async function mutate<T>(classId: string, fn: (cur: Ledger) => { next: Ledger | null; result: T }): Promise<T> {
+  assertClassWritesAllowed() // R41: never a seat in the live ledger from a test site with no store of its own
   const k = key(classId)
   return withLock(k, async () => {
     for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
@@ -216,14 +211,34 @@ export async function confirm(
   /** requireLiveHold: only convert a hold still running; with none, write nothing and return [] (no rebuild past capacity) */
   opts: { requireLiveHold?: boolean } = {},
 ): Promise<LedgerLine[]> {
+  return (await confirmBooking(classId, bookingId, square, fallback, now, opts)).lines
+}
+
+/**
+ * confirm, saying whether THIS call turned the booking's seats from held (or
+ * rebuilt) into confirmed (`changed`), so only that call sends the
+ * confirmation. With no quote in `fallback` (Square's webhook: it knows the
+ * order, not what was asked), a booking with no held or paid seats is left
+ * alone: nothing is written and `lines` is empty.
+ */
+export async function confirmBooking(
+  classId: string,
+  bookingId: string,
+  square: { orderId: string | null; paymentId: string | null; chargedCents?: Cents },
+  fallback: { cls: ScheduledClass; quote?: Quote; input?: HoldInput },
+  now: Date,
+  opts: { requireLiveHold?: boolean } = {},
+): Promise<{ lines: LedgerLine[]; changed: boolean }> {
   return mutate(classId, (cur) => {
     const isPaid = (l: LedgerLine) => l.bookingId === bookingId && (l.state === 'confirmed' || l.state === 'refunded')
     const hasHeld = cur.lines.some((l) => l.bookingId === bookingId && l.state === 'held')
     const paid = cur.lines.filter(isPaid)
-    if (!hasHeld && paid.length) return { next: null, result: paid }
+    const none = { next: null, result: { lines: [] as LedgerLine[], changed: false } }
+    if (!hasHeld && paid.length) return { next: null, result: { lines: paid, changed: false } }
     if (opts.requireLiveHold && !cur.lines.some((l) => l.bookingId === bookingId && l.state === 'held' && !isExpiredHold(l, now))) {
-      return { next: null, result: [] }
+      return none
     }
+    if (!hasHeld && (!fallback.quote || !fallback.input)) return none
     const sq = (l: LedgerLine) => ({
       ...l.square, orderId: square.orderId, paymentId: square.paymentId,
       ...(square.chargedCents !== undefined ? { chargedCents: square.chargedCents } : {}),
@@ -237,7 +252,7 @@ export async function confirm(
           ? { ...l, state: 'confirmed' as const, holdExpiresAt: null, square: sq(l) }
           : l))
     } else {
-      const fresh = buildLines(fallback.quote, { ...fallback.input, bookingId }, now, null)
+      const fresh = buildLines(fallback.quote!, { ...fallback.input!, bookingId }, now, null)
         .map((l) => ({ ...l, state: 'confirmed' as const, square: sq(l) }))
       lines = [...cur.lines.filter((l) => !isExpiredHold(l, now)), ...fresh]
     }
@@ -250,7 +265,7 @@ export async function confirm(
         ? { ...l, overCapacity: true }
         : l,
     )
-    return { next: { ...cur, lines }, result: lines.filter(isPaid) }
+    return { next: { ...cur, lines }, result: { lines: lines.filter(isPaid), changed: true } }
   })
 }
 
@@ -280,9 +295,6 @@ export async function release(classId: string, bookingId: string): Promise<void>
   })
 }
 
-const paidOn = (l: LedgerLine) => l.priceCents + l.taxCents + l.addOnCents + l.addOnTaxCents
-const refundedOn = (l: LedgerLine) => l.refunds.reduce((s, r) => s + r.cents, 0)
-const isPaidLine = (l: LedgerLine) => l.state === 'confirmed' || l.state === 'refunded'
 
 /** Who a ledger change made from a refund done in Square itself is recorded as (see square-events SQUARE_BY). */
 const SQUARE_ACTOR_ID = 'square'
@@ -339,7 +351,7 @@ export async function recordRefund(
     const result = () => cur.lines.filter((l) => lineIds.includes(l.id))
     if (!todo.size) return { next: replacing ? cur : null, result: result() }
     const at = new Date().toISOString()
-    const entry = (id: string) => ({ at, cents: centsOf(id), reason: input.reason, by: input.by, freedSeat: input.freeSeat, squareRefundId: input.squareRefundId })
+    const entry = (id: string) => ({ id: newId('rfe'), at, cents: centsOf(id), reason: input.reason, by: input.by, freedSeat: input.freeSeat, squareRefundId: input.squareRefundId })
     const lines = cur.lines.map((l) => (todo.has(l.id) ? { ...l, state: 'refunded' as const, refunds: [...l.refunds, entry(l.id)] } : l))
     return { next: { ...cur, lines }, result: lines.filter((l) => lineIds.includes(l.id)) }
   })
@@ -463,7 +475,14 @@ export async function recordPos(
   cls: ScheduledClass,
   input: { bookingId: string; orderId: string; paymentId: string | null; paymentIds?: string[]; chargedCents: Cents; lines: PosLineInput[]; saleIso?: string },
   now: Date,
+  /**
+   * An online booking Square shows paid whose seats were lost (R42, To decide ›
+   * Paid, no seat): its seats are written as 'online' with the customer's
+   * name, and never take a door seat's place.
+   */
+  as: { source?: SeatSource; customer?: LedgerLine['customer']; matchDoor?: boolean } = {},
 ): Promise<LedgerLine[]> {
+  const matchDoor = as.matchDoor ?? true
   const saleDay = studioDate(input.saleIso ?? now.toISOString())
   const onSaleDay = new Set(cls.sessions.filter((s) => studioDate(s.startIso) === saleDay).map((s) => s.id))
   return mutate(cls.id, (cur) => {
@@ -481,7 +500,7 @@ export async function recordPos(
     for (const pl of input.lines) {
       let have = kept.filter((l) => l.square.orderId === input.orderId && l.square.lineUid === pl.lineUid).length
       // A seat the crew took at the door to be paid at the counter is this sale: it is paid now, never a second seat.
-      while (have < pl.units.length) {
+      while (matchDoor && have < pl.units.length) {
         // N1: the door seat was TAKEN on the sale's day, and covers a session that day.
         const candidates = kept.filter((l) => unpaidDoorSeat(l)
           && l.passId === pl.passId && l.ticketTypeId === pl.ticketTypeId && !claimed.has(l.id)
@@ -514,10 +533,10 @@ export async function recordPos(
           taxCents: pl.units[u].taxCents,
           addOns: {}, addOnCents: 0, addOnTaxCents: 0,
           answers: {},
-          source: 'pos',
+          source: as.source ?? 'pos',
           state: 'confirmed',
           holdExpiresAt: null,
-          customer: null,
+          customer: as.customer ?? null,
           square: {
             orderId: input.orderId, paymentId: input.paymentId, lineUid: pl.lineUid, chargedCents: input.chargedCents,
             ...(input.paymentIds && input.paymentIds.length > 1 ? { paymentIds: [...input.paymentIds] } : {}),
@@ -612,19 +631,66 @@ export async function moveCounterPayment(classId: string, fromLineId: string, to
     if (!to || !unpaidDoorSeat(to) || to.passId !== from.passId || to.ticketTypeId !== from.ticketTypeId) {
       throw new Error('Pick someone whose seat at the door is still not paid.')
     }
+    // Every seat of the first booking that sale paid moves, onto the right person's unpaid seats in order (as many as they have).
+    const order = from.square.orderId
+    const paid = cur.lines.filter((l) => l.bookingId === from.bookingId && l.square.orderId === order && l.source === 'door-counter'
+      && l.passId === from.passId && l.ticketTypeId === from.ticketTypeId && l.state === 'confirmed' && !l.refunds.length)
+      .sort((a, b) => (a.id === from.id ? -1 : b.id === from.id ? 1 : a.seat - b.seat))
+    const targets = [to, ...cur.lines.filter((l) => l.bookingId === to.bookingId && l.id !== to.id && unpaidDoorSeat(l)
+      && l.passId === from.passId && l.ticketTypeId === from.ticketTypeId).sort((a, b) => a.seat - b.seat)]
+    const pairs = new Map<string, LedgerLine>()
+    paid.slice(0, targets.length).forEach((p, i) => pairs.set(targets[i].id, p))
+    const moving = new Set([...pairs.values()].map((p) => p.id))
     const lines = cur.lines.map((l) => {
-      if (l.id === from.id) {
+      if (moving.has(l.id)) {
         const { counterMatch: _m, ...rest } = l
         return { ...rest, square: { orderId: null, paymentId: null, lineUid: null } }
       }
-      if (l.id === to.id) {
+      const src = pairs.get(l.id)
+      if (src) {
         return {
-          ...l, priceCents: from.priceCents, taxCents: from.taxCents, square: { ...from.square },
-          counterMatch: { ...from.counterMatch!, checked: { at: now.toISOString(), by } },
+          ...l, priceCents: src.priceCents, taxCents: src.taxCents, square: { ...src.square },
+          ...(l.id === to.id ? { counterMatch: { ...from.counterMatch!, checked: { at: now.toISOString(), by } } } : {}),
         }
       }
       return l
     })
     return { next: { ...cur, lines }, result: undefined }
+  })
+}
+
+/**
+ * Undo of a "free the seat" just done in /admin › To decide (N1): takes back
+ * exactly the free-seat entries that decision wrote (by entry id), and only
+ * when that's still right:
+ *   - the entry is still there and moves no money (never a refund with money)
+ *   - no money refund was put on the seat after it
+ *   - every coming session the seat would hold again still has room
+ * Otherwise nothing changes and it says why.
+ */
+export async function unfreeSeats(cls: ScheduledClass, entries: { lineId: string; entryId: string }[], now = new Date()): Promise<void> {
+  if (!entries.length) throw new Error('There’s nothing here to undo.')
+  await mutate(cls.id, (cur) => {
+    let lines = cur.lines
+    for (const { lineId, entryId } of entries) {
+      const l = lines.find((x) => x.id === lineId)
+      const i = l ? l.refunds.findIndex((r) => r.id === entryId) : -1
+      if (!l || i < 0) throw new Error('That seat changed since. Open the class to sort it out.')
+      const e = l.refunds[i]
+      if (!e.freedSeat || e.cents !== 0 || e.squareRefundId) throw new Error('That can’t be undone from here.')
+      if (l.refunds.slice(i + 1).some((r) => r.cents > 0)) throw new Error('A refund was made on that seat since. Open the class to sort it out.')
+      const refunds = l.refunds.filter((_, n) => n !== i)
+      lines = lines.map((x) => (x.id === lineId ? { ...x, refunds, state: refunds.length ? x.state : 'confirmed' as const } : x))
+    }
+    // The seat comes back only where there's still room for it.
+    const after: Ledger = { ...cur, lines }
+    const touched = new Set(entries.flatMap((e) => lines.find((l) => l.id === e.lineId)?.sessionIds ?? []))
+    for (const s of cls.sessions) {
+      if (!touched.has(s.id) || Date.parse(s.startIso) <= now.getTime()) continue
+      if (seatsTaken(after, s.id, now) > s.capacity) {
+        throw new Error('That seat was taken since. Add them over capacity from the class if you need to.')
+      }
+    }
+    return { next: after, result: undefined }
   })
 }

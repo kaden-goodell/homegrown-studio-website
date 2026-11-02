@@ -26,14 +26,16 @@
  *                        → Confirm the party (once Square shows it paid) · It wasn't paid
  *                        Or Square shows a party order paid with nothing here
  *                        to record it from → Sorted it in Square
+ *   paid-not-seated      Square shows one of our online bookings paid, but its
+ *                        seats were let go before it could be confirmed (R42)
+ *                        → Give them their seat (over capacity if need be) · Sorted it in Square
  *
  * The decisions reuse the setters the rest of the system uses: setPosDays,
  * decideRefundFlag, clearRefundRequest, freeSeatOnly, recordPos, setNames,
  * markCounterMatchChecked. Server only.
  */
-import { createHash } from 'node:crypto'
-import { makeKvStore } from '@lib/blob-store'
 import { recordAudit } from '@lib/audit'
+import { decidedKv, minimumItemId, tokenOf } from './decided'
 import type { By } from '@lib/staff-auth'
 import { studioDate } from '@lib/studio-time'
 import { getClass, listClasses } from './class-store'
@@ -41,12 +43,15 @@ import { listCounterMatchChecks, listDoorUnpaid } from './door-unpaid'
 import { clearRefundRequest, freeSeatOnly, RefundError } from './refunds'
 import { listRefundRequests } from './refund-requests'
 import {
-  decideRefundFlag, listPosNeedsDays, listRefundFlags, listUnmatchedPos, setPosDays, splitCents, type RefundFlag,
+  decideRefundFlag, listPaidNotSeated, openPaidNotSeated, listPosNeedsDays, listRefundFlags, listUnmatchedPos, reopenRefundFlag, resolvePaidNotSeated, resolveUnmatchedPos,
+  seatPaidOrder, setPosDays, splitCents, type RefundFlag,
 } from './square-events'
 import { squareFetch } from './square-api'
 import {
-  getLedger, markCounterMatchChecked, markDoorPaid, moveCounterPayment, recordPos, seatsTaken, setNames, unpaidDoorSeat, type LedgerLine,
+  getLedger, markCounterMatchChecked, markDoorPaid, moveCounterPayment, recordPos, seatsTaken, setNames, unfreeSeats, unpaidDoorSeat, type LedgerLine,
 } from './seat-ledger'
+import { isComing } from './seat-status'
+import { assertClassWritesAllowed, TestSiteStoreError } from './test-site-guard'
 import { onStaffConsole } from './staff-view'
 import { getPartyRecord } from '@lib/party-store'
 import { clearPartyRefundRequest, partyLabel } from '@lib/parties/refunds'
@@ -55,11 +60,9 @@ import { deletePaidElsewhere, listCheckouts } from '@lib/parties/party-checkouts
 import { confirmUnclearParty, notPaidUnclearParty, PartyUnclearError } from '@lib/parties/square-orders'
 import type { Cents, ScheduledClass } from './types'
 
-const decidedKv = makeKvStore('to-decide', 'to-decide')
-
 export type ToDecideKind =
   | 'pos-unmatched' | 'refund-plain' | 'refund-failed' | 'refund-unfinished' | 'refund-unconfirmed'
-  | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check' | 'party-paid-unclear'
+  | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check' | 'party-paid-unclear' | 'paid-not-seated'
 
 /** One thing waiting for an owner (or decided lately). */
 export interface ToDecideItem {
@@ -83,10 +86,24 @@ export interface ToDecideItem {
   doneAt?: string
 }
 
-export interface Decided { id: string; kind: ToDecideKind; title: string; head: string; classId?: string; className?: string; what: string; by: By; at: string }
+export interface Decided {
+  id: string; kind: ToDecideKind; title: string; head: string; classId?: string; className?: string; what: string; by: By; at: string
+  /** A freed seat can be taken back for a while (the toast's Undo). */
+  undo?: { classId: string; entries: { lineId: string; entryId: string }[]; flagId?: string }
+}
 
 export class DecideError extends Error {
   constructor(public status: number, message: string, public extra: Record<string, unknown> = {}) { super(message) }
+}
+
+/** R41: a test site with no store of its own decides nothing (every decision writes the live records). */
+function noTestSite(): void {
+  try {
+    assertClassWritesAllowed()
+  } catch (e) {
+    if (e instanceof TestSiteStoreError) throw new DecideError(503, e.message)
+    throw e
+  }
 }
 
 /** How long a decided item still shows as "Done". */
@@ -99,24 +116,22 @@ const dayText = (ymd: string) => new Date(`${ymd}T12:00:00Z`).toLocaleDateString
 const whenText = (iso: string) => {
   const day = dayText(studioDate(iso))
   const time = new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit' }).replace(':00', '')
-  return `${day} ${time}`
+  return `${day} ${time === '12 AM' ? 'midnight' : time === '12 PM' ? 'noon' : time}`
 }
 const seatsText = (n: number) => (n === 1 ? '1 seat' : `${n} seats`)
 const safeKey = (s: string) => s.replace(/[^A-Za-z0-9_-]/g, '_')
 const personName = (c: LedgerLine['customer']) => (c ? `${c.givenName} ${c.familyName}`.trim() : '')
 
-/** An id the /admin address bar can carry (plain, at most 110 characters). */
-export function tokenOf(raw: string): string {
-  return /^[A-Za-z0-9._-]{1,110}$/.test(raw) ? raw : `h${createHash('sha1').update(raw).digest('hex').slice(0, 24)}`
-}
+export { tokenOf }
 
 // ---------------------------------------------------------------- decided store
 
 /** Every decision on file (each item once), and their ids: a decided item never shows as waiting again. */
 async function listDecided(): Promise<{ all: Decided[]; ids: Set<string> }> {
   const keys = (await decidedKv.list()).filter((k) => k.startsWith('done-'))
+  // An undone decision is an empty record: the item waits again.
   const all = (await Promise.all(keys.map((k) => decidedKv.get(k)))).filter((j): j is string => !!j).map((j) => JSON.parse(j) as Decided)
-  return { all, ids: new Set(keys.map((k) => k.slice(5))) }
+  return { all, ids: new Set(all.map((d) => d.id)) }
 }
 
 // ---------------------------------------------------------------- reading
@@ -127,11 +142,29 @@ async function classOf(cache: ClassCache, id: string): Promise<ScheduledClass | 
   return cache.get(id) ?? null
 }
 
-/** The class whose name is in the counter item's name, if exactly one is coming up (a guess to start the picker on). */
-function guessClass(name: string, classes: ScheduledClass[]): string | null {
-  const n = name.toLowerCase()
-  const hits = classes.filter((c) => c.status !== 'cancelled' && n.includes(c.content.name.toLowerCase()))
-  return hits.length === 1 ? hits[0].id : null
+/**
+ * Where to start the owner's match: the class and seat the sold item's variation
+ * is (a class whose POS item has it), else the one class whose name is in the
+ * item's name, with the way to book whose label is in the variation's name
+ * ("One day"). No guess at the seat when nothing says which.
+ */
+export function guessMatch(u: { name: string; variationId?: string; variationName?: string }, classes: ScheduledClass[]): { classId: string | null; key: string | null } {
+  const live = classes.filter((c) => c.status !== 'cancelled')
+  if (u.variationId) {
+    for (const c of live) {
+      const hit = Object.entries(c.square?.variations ?? {}).find(([k, v]) => v === u.variationId && !k.startsWith('addon:'))
+      if (hit) return { classId: c.id, key: hit[0] }
+    }
+  }
+  const n = u.name.toLowerCase()
+  const hits = live.filter((c) => n.includes(c.content.name.toLowerCase()))
+  if (hits.length !== 1) return { classId: null, key: null }
+  const cls = hits[0]
+  const words = (u.variationName ?? u.name).toLowerCase()
+  const passes = cls.content.passes.filter((p) => words.includes(p.label.toLowerCase()))
+  const pass = passes.length === 1 ? passes[0] : cls.content.passes.length === 1 ? cls.content.passes[0] : null
+  const ticket = cls.content.ticketTypes.length === 1 ? cls.content.ticketTypes[0] : cls.content.ticketTypes.find((t) => words.includes(t.label.toLowerCase())) ?? null
+  return { classId: cls.id, key: pass && ticket ? `${pass.id}:${ticket.id}` : null }
 }
 
 async function unmatchedItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]> {
@@ -139,15 +172,18 @@ async function unmatchedItems(skip: Set<string>, now: Date): Promise<ToDecideIte
   if (!list.length) return []
   const classes = await listClasses({ fromIso: new Date(now.getTime() - 60 * 86_400_000).toISOString(), toIso: new Date(now.getTime() + 400 * 86_400_000).toISOString() })
   return list
-    .map((u): ToDecideItem => ({
-      id: tokenOf(`pos-${safeKey(u.orderId)}-${safeKey(u.lineUid)}`),
-      kind: 'pos-unmatched',
-      title: 'Counter sale to match',
-      head: `${u.qty} × ${u.name} rung up at the counter, ${whenText(u.at)}`,
-      hint: 'Match it to a class',
-      at: u.at,
-      detail: { orderId: u.orderId, lineUid: u.lineUid, name: u.name, qty: u.qty, at: u.at, guessClassId: guessClass(u.name, classes) },
-    }))
+    .map((u): ToDecideItem => {
+      const guess = guessMatch(u, classes)
+      return {
+        id: tokenOf(`pos-${safeKey(u.orderId)}-${safeKey(u.lineUid)}`),
+        kind: 'pos-unmatched',
+        title: 'Counter sale to match',
+        head: `${u.qty} × ${u.name} rung up at the counter, ${whenText(u.at)}`,
+        hint: 'Match it to a class',
+        at: u.at,
+        detail: { orderId: u.orderId, lineUid: u.lineUid, name: u.name, qty: u.qty, at: u.at, guessClassId: guess.classId, guessKey: guess.key },
+      }
+    })
     .filter((i) => !skip.has(i.id))
 }
 
@@ -198,7 +234,7 @@ async function refundItems(cache: ClassCache, skip: Set<string>): Promise<ToDeci
     const className = cls?.content.name ?? 'A class'
     const lines = (await getLedger(f.classId)).lines.filter((l) => l.bookingId === f.bookingId)
     const name = personName(lines.find((l) => l.customer)?.customer ?? null) || 'Someone'
-    const held = lines.filter((l) => (l.state === 'confirmed' || l.state === 'refunded') && !l.refunds.some((r) => r.freedSeat))
+    const held = lines.filter(isComing)
     const ticket = (tid: string) => cls?.content.ticketTypes.find((t) => t.id === tid)?.label ?? 'Seat'
     const first = cls ? [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))[0] : undefined
     const amount = money(f.refundCents ?? f.cents)
@@ -261,7 +297,7 @@ async function minimumItems(skip: Set<string>, now: Date): Promise<ToDecideItem[
     if (now.getTime() < Date.parse(min.decideByIso) - MINIMUM_AHEAD_MS) continue
     const booked = seatsTaken(await getLedger(cls.id), first.id, now)
     if (booked >= min.count) continue
-    const id = tokenOf(`min-${cls.id}`)
+    const id = minimumItemId(cls.id)
     if (skip.has(id)) continue
     out.push({
       id, kind: 'below-minimum', title: 'Short of its minimum', at: min.decideByIso, classId: cls.id, className: cls.content.name,
@@ -274,13 +310,21 @@ async function minimumItems(skip: Set<string>, now: Date): Promise<ToDecideItem[
 }
 
 async function doorItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]> {
-  return (await listDoorUnpaid(now))
-    .map((u): ToDecideItem => ({
-      id: tokenOf(u.id), kind: 'door-unpaid', title: 'Not paid at the counter', at: u.sessionStartIso, classId: u.classId, className: u.className,
-      head: `${u.name || 'A door seat'} · ${seatsText(u.seats)} · ${u.className} · ${dayText(u.day)}: never rung up`,
-      hint: 'Mark it paid, or free the seat',
-      detail: { bookingId: u.bookingId, lineIds: u.lineIds, name: u.name, day: u.day, seats: u.seats },
-    }))
+  const [unpaid, checks] = await Promise.all([listDoorUnpaid(now), listCounterMatchChecks(now)])
+  return unpaid
+    .map((u): ToDecideItem => {
+      // The same story told twice: a counter sale that day went to someone else, and it may have been this person.
+      const check = checks.find((m) => m.classId === u.classId && m.day === u.day && m.bookingId !== u.bookingId)
+      return {
+        id: tokenOf(u.id), kind: 'door-unpaid', title: 'Not paid at the counter', at: u.sessionStartIso, classId: u.classId, className: u.className,
+        head: `${u.name || 'A door seat'} · ${seatsText(u.seats)} · ${u.className} · ${dayText(u.day)}: never rung up`,
+        hint: 'Mark it paid, or free the seat',
+        detail: {
+          bookingId: u.bookingId, lineIds: u.lineIds, name: u.name, day: u.day, seats: u.seats,
+          ...(check ? { related: `A counter sale that day was matched to ${check.name}. It may have been ${u.name || 'this person'}: see “Check a counter sale”.` } : {}),
+        },
+      }
+    })
     .filter((i) => !skip.has(i.id))
 }
 
@@ -342,6 +386,34 @@ async function partyItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
   return out
 }
 
+/** The money said plainly, for a paid booking with no seat. */
+const dollars = (c: Cents) => `$${(c / 100).toFixed(2)}`
+
+async function paidNotSeatedItems(cache: ClassCache, skip: Set<string>): Promise<ToDecideItem[]> {
+  const out: ToDecideItem[] = []
+  // Sorted out since (the customer's retry recorded the seats, or an owner gave them) are left out.
+  for (const p of await openPaidNotSeated()) {
+    const id = tokenOf(p.id)
+    if (skip.has(id)) continue
+    const cls = await classOf(cache, p.classId)
+    const className = cls?.content.name ?? 'A class'
+    const seats = p.lines.reduce((n, l) => n + l.qty, 0)
+    const first = cls ? [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))[0] : undefined
+    out.push({
+      id, kind: 'paid-not-seated', title: 'Paid, no seat', at: p.at, classId: p.classId, className,
+      head: p.why === 'no-seats'
+        ? `Square shows ${dollars(p.chargedCents)} paid for ${seatsText(seats)} of ${className}, but the seats were let go before the booking finished. Nothing was refunded.`
+        : `Square shows a second payment of ${dollars(p.chargedCents)} for a ${className} booking that was already paid. Nothing was refunded.`,
+      hint: p.why === 'no-seats' ? 'Give them their seat, or sort it out in Square' : 'Check it in Square',
+      detail: {
+        paidId: p.id, orderId: p.orderId, bookingId: p.bookingId, why: p.why, cents: p.chargedCents, seats,
+        canSeat: p.why === 'no-seats' && !!cls && cls.status !== 'cancelled', firstStartIso: first?.startIso ?? null,
+      },
+    })
+  }
+  return out
+}
+
 /**
  * Everything waiting, newest first, then what was decided in the last two
  * weeks. Each source is read on its own: one that fails is named in
@@ -364,8 +436,19 @@ export async function listToDecide(now = new Date()): Promise<{ items: ToDecideI
     safe('door seats', () => doorItems(skip, now)),
     safe('counter checks', () => matchItems(skip, now)),
     safe('party payments', () => partyItems(skip, now)),
+    safe('paid bookings', () => paidNotSeatedItems(cache, skip)),
   ])
   const open = groups.flat().sort((a, b) => b.at.localeCompare(a.at))
+  // Notes on waiting items (R40: "Texted the people booked"), shown on the item.
+  const noteKeys = (await decidedKv.list().catch(() => [] as string[])).filter((k) => k.startsWith('note-'))
+  if (noteKeys.length) {
+    const notes = new Map((await Promise.all(noteKeys.map((k) => decidedKv.get(k).catch(() => null))))
+      .filter((j): j is string => !!j).map((j) => JSON.parse(j) as Decided).map((n) => [n.id, n]))
+    for (const i of open) {
+      const n = notes.get(i.id)
+      if (n) i.detail = { ...i.detail, note: { what: n.what, by: n.by.name, at: n.at } }
+    }
+  }
   const done = decided
     .filter((d) => Date.parse(d.at) >= now.getTime() - DONE_SHOWN_DAYS * 86_400_000)
     .sort((a, b) => b.at.localeCompare(a.at))
@@ -389,10 +472,11 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'door-unpaid': ['paid', 'free'],
   'counter-match-check': ['confirm', 'move'],
   'party-paid-unclear': ['confirm', 'not-paid', 'sorted'],
+  'paid-not-seated': ['seat', 'sorted'],
 }
 
-async function record(item: ToDecideItem, what: string, by: By, action: string): Promise<Decided> {
-  const d: Decided = { id: item.id, kind: item.kind, title: item.title, head: item.head, classId: item.classId, className: item.className, what, by, at: new Date().toISOString() }
+async function record(item: ToDecideItem, what: string, by: By, action: string, undo?: Decided['undo']): Promise<Decided> {
+  const d: Decided = { id: item.id, kind: item.kind, title: item.title, head: item.head, classId: item.classId, className: item.className, what, by, at: new Date().toISOString(), ...(undo ? { undo } : {}) }
   await decidedKv.set(`done-${item.id}`, JSON.stringify(d))
   await recordAudit({
     by: { ...by, role: 'owner' }, action: `to-decide-${action}`,
@@ -436,6 +520,18 @@ async function readSale(orderId: string, lineUid: string): Promise<{ units: { pr
   }
 }
 
+/** The customer on a Square order, read only, for naming seats. Null when there's none or Square can't be read. */
+async function squareCustomer(customerId: string | null): Promise<LedgerLine['customer']> {
+  if (!customerId) return null
+  try {
+    const c = (await squareFetch(`/customers/${encodeURIComponent(customerId)}`, { method: 'GET' }))?.customer
+    if (!c) return null
+    return { givenName: String(c.given_name ?? ''), familyName: String(c.family_name ?? ''), email: String(c.email_address ?? ''), phone: String(c.phone_number ?? '') }
+  } catch {
+    return null
+  }
+}
+
 /** The money on a counter sale's line, for the sheet. Null when Square can't be read. */
 export async function saleAmount(item: ToDecideItem): Promise<Cents | null> {
   if (item.kind !== 'pos-unmatched') return null
@@ -451,6 +547,22 @@ export interface DecideResult {
   /** pos-unmatched › match: the counter seats made, to name next. */
   seats?: { lineId: string; seat: number; named: boolean }[]
   classId?: string
+  /** a note on the item, which stays waiting (R40: Texted) */
+  noted?: true
+}
+
+/** Ids of the refund entries on these seats now. */
+async function entryIds(classId: string, lineIds: string[]): Promise<Set<string>> {
+  const l = (await getLedger(classId)).lines.filter((x) => lineIds.includes(x.id))
+  return new Set(l.flatMap((x) => x.refunds.map((r) => r.id ?? '')).filter(Boolean))
+}
+
+/** The no-money free-seat entries written on these seats since `before`. */
+async function newFreeEntries(classId: string, lineIds: string[], before: Set<string>): Promise<{ lineId: string; entryId: string }[]> {
+  const l = (await getLedger(classId)).lines.filter((x) => lineIds.includes(x.id))
+  return l.flatMap((x) => x.refunds
+    .filter((r) => r.id && !before.has(r.id) && r.freedSeat && r.cents === 0 && !r.squareRefundId)
+    .map((r) => ({ lineId: x.id, entryId: r.id! })))
 }
 
 /** Finds an open item by id; refuses one already decided or gone. */
@@ -463,13 +575,17 @@ export async function openItem(id: string, now = new Date()): Promise<ToDecideIt
 }
 
 export async function decide(id: string, action: string, body: any, by: By, now = new Date()): Promise<DecideResult> {
+  noTestSite()
   const item = await openItem(id, now)
   if (!ACTIONS[item.kind].includes(action)) throw new DecideError(400, 'That isn’t one of the choices for this.')
   const actor = { by, role: 'owner' as const }
   const d = item.detail
   switch (item.kind) {
     case 'pos-unmatched': {
-      if (action === 'dismiss') return { decided: await record(item, 'Left as a counter sale', by, action) }
+      if (action === 'dismiss') {
+        await resolveUnmatchedPos(str(d.orderId), str(d.lineUid), by, 'not-a-class')
+        return { decided: await record(item, 'Left as a counter sale', by, action) }
+      }
       const cls = await getClass(str(body?.classId))
       if (!cls || cls.status === 'cancelled') throw new DecideError(400, 'Pick a class.')
       const pass = cls.content.passes.find((p) => p.id === str(body?.passId)) ?? (cls.content.passes.length === 1 ? cls.content.passes[0] : undefined)
@@ -498,6 +614,7 @@ export async function decide(id: string, action: string, body: any, by: By, now 
       }, now)
       const day = sorted.find((s) => sessionIds.includes(s.id))
       const what = `Added ${seatsText(lines.length || sale.units.length)} to ${cls.content.name}${day ? ` · ${dayText(studioDate(day.startIso))}` : ''}`
+      await resolveUnmatchedPos(orderId, lineUid, by, 'matched')
       const decided = await record(item, what, by, action)
       return { decided, classId: cls.id, seats: lines.map((l) => ({ lineId: l.id, seat: l.seat, named: !!l.customer })) }
     }
@@ -507,14 +624,18 @@ export async function decide(id: string, action: string, body: any, by: By, now 
         return { decided: await record(item, 'Kept their seat', by, action) }
       }
       const lineIds = strs(body?.lineIds)
+      const seats = (d.seats ?? []) as { lineId: string }[]
+      const watch = lineIds.length ? lineIds : seats.map((x) => x.lineId)
+      const before = await entryIds(item.classId!, watch)
       try {
         await asRefund(() => decideRefundFlag(str(d.flagId), 'freed-seat', actor, lineIds))
       } catch (e) {
         if (e instanceof Error && /Pick which seat/.test(e.message)) throw new DecideError(409, 'Pick which seat to free.', { needsPick: true })
         throw e
       }
-      const n = lineIds.length || 1
-      return { decided: await record(item, `Freed ${seatsText(n)}. Back on sale`, by, action) }
+      // Only what this decision wrote can be undone (a seat already freed by someone else isn't).
+      const entries = await newFreeEntries(item.classId!, watch, before)
+      return { decided: await record(item, `Freed ${seatsText(entries.length || 1)}. Back on sale`, by, action, entries.length ? { classId: item.classId!, entries, flagId: str(d.flagId) } : undefined) }
     }
     case 'refund-failed':
       await asRefund(() => decideRefundFlag(str(d.flagId), 'dismissed', actor))
@@ -543,16 +664,48 @@ export async function decide(id: string, action: string, body: any, by: By, now 
       const sessions = (d.sessions as { id: string; startIso: string }[]).filter((s) => ids.includes(s.id))
       return { decided: await record(item, `Put on ${sessions.map((s) => dayText(studioDate(s.startIso))).join(', ')}`, by, action) }
     }
-    case 'below-minimum':
-      return { decided: await record(item, action === 'texted' ? `Texted the people booked` : 'Keeping it running', by, action) }
+    case 'below-minimum': {
+      if (action === 'keep-running') return { decided: await record(item, 'Keeping it running', by, action) }
+      // R40: texting the people booked isn't deciding: the item stays waiting (and the alerts keep coming), with a note.
+      const note: Decided = { id: item.id, kind: item.kind, title: item.title, head: item.head, classId: item.classId, className: item.className, what: 'Texted the people booked', by, at: new Date().toISOString() }
+      await decidedKv.set(`note-${item.id}`, JSON.stringify(note))
+      await recordAudit({
+        by: { ...by, role: 'owner' }, action: 'to-decide-texted', target: { kind: 'class', id: item.classId ?? '', label: item.className ?? item.title },
+        details: { item: item.id, kind: item.kind, what: note.what },
+      })
+      return { decided: note, noted: true }
+    }
     case 'door-unpaid': {
       const lineIds = strs(d.lineIds)
       if (action === 'paid') {
         await markDoorPaid(item.classId!, lineIds, by, now)
         return { decided: await record(item, 'Marked paid at the counter', by, action) }
       }
+      const before = await entryIds(item.classId!, lineIds)
       await asRefund(() => freeSeatOnly(item.classId!, str(d.bookingId), lineIds, actor, 'Not paid at the counter'))
-      return { decided: await record(item, `Freed ${seatsText(lineIds.length)}`, by, action) }
+      const entries = await newFreeEntries(item.classId!, lineIds, before)
+      return { decided: await record(item, `Freed ${seatsText(lineIds.length)}`, by, action, entries.length ? { classId: item.classId!, entries } : undefined) }
+    }
+    case 'paid-not-seated': {
+      const paidId = str(d.paidId)
+      if (action === 'sorted') {
+        await resolvePaidNotSeated(paidId, by, 'sorted')
+        return { decided: await record(item, 'Sorted out in Square', by, action) }
+      }
+      if (d.canSeat !== true) throw new DecideError(409, 'This one can’t be seated from here. Check it in Square.')
+      const entry = (await listPaidNotSeated()).find((p) => p.id === paidId)
+      if (!entry) throw new DecideError(404, 'This isn’t waiting any more.')
+      const customer = await squareCustomer(entry.customerId)
+      let lines: LedgerLine[]
+      try {
+        lines = await seatPaidOrder(entry, customer, now)
+      } catch (e) {
+        throw new DecideError(409, e instanceof Error ? e.message : 'That didn’t work. Try again.')
+      }
+      await resolvePaidNotSeated(paidId, by, 'seated')
+      const over = lines.some((l) => l.overCapacity)
+      const decided = await record(item, `Gave them ${seatsText(lines.length)}${over ? ' (over capacity)' : ''}`, by, action)
+      return { decided, classId: item.classId, seats: lines.map((l) => ({ lineId: l.id, seat: l.seat, named: !!l.customer })) }
     }
     case 'counter-match-check': {
       if (action === 'confirm') {
@@ -596,6 +749,7 @@ export async function decide(id: string, action: string, body: any, by: By, now 
  * are the seats for?"). Only that sale's own counter seats, still unnamed.
  */
 export async function nameCounterSeats(classId: string, names: { lineId: string; name: string }[], by: By): Promise<number> {
+  noTestSite()
   const cls = await getClass(classId)
   if (!cls) throw new DecideError(404, 'That class no longer exists.')
   const ledger = await getLedger(cls.id)
@@ -604,7 +758,7 @@ export async function nameCounterSeats(classId: string, names: { lineId: string;
     const clean = name.trim().replace(/\s+/g, ' ').slice(0, 80)
     if (!clean) continue
     const line = ledger.lines.find((l) => l.id === lineId)
-    if (!line || line.source !== 'pos' || line.customer) throw new DecideError(400, 'One of those seats can’t be named here.')
+    if (!line || (line.source !== 'pos' && line.source !== 'online') || line.customer) throw new DecideError(400, 'One of those seats can’t be named here.')
     const [given, ...rest] = clean.split(' ')
     await setNames(cls.id, [lineId], { givenName: given, familyName: rest.join(' '), email: '', phone: '' })
     named++
@@ -616,4 +770,33 @@ export async function nameCounterSeats(classId: string, names: { lineId: string;
     })
   }
   return named
+}
+
+/** How long a freed seat can be taken back from the toast. */
+export const UNDO_MS = 10 * 60_000
+
+/**
+ * The toast's Undo after freeing a seat: the seat holds again, the item waits
+ * again (a refund flag is reopened), and it's audited. Only a free-the-seat
+ * decision, only for a few minutes.
+ */
+export async function undoDecision(id: string, by: By, now = new Date()): Promise<void> {
+  noTestSite()
+  const raw = await decidedKv.get(`done-${id}`)
+  const d = raw ? (JSON.parse(raw) as Decided) : null
+  if (!d?.undo) throw new DecideError(409, 'That can’t be undone from here.')
+  if (now.getTime() - Date.parse(d.at) > UNDO_MS) throw new DecideError(409, 'Too late to undo. Open the class to change it.')
+  const cls = await getClass(d.undo.classId)
+  if (!cls) throw new DecideError(404, 'That class no longer exists.')
+  try {
+    await unfreeSeats(cls, d.undo.entries ?? [], now)
+  } catch (e) {
+    throw new DecideError(409, e instanceof Error ? e.message : 'That can’t be undone from here.')
+  }
+  if (d.undo.flagId) await reopenRefundFlag(d.undo.flagId)
+  await decidedKv.set(`done-${id}`, '')
+  await recordAudit({
+    by: { ...by, role: 'owner' }, action: 'to-decide-undo', target: { kind: 'class', id: d.undo.classId, label: d.className ?? d.title },
+    details: { item: id, kind: d.kind, what: `Undid: ${d.what}` },
+  })
 }

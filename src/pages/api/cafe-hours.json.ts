@@ -1,5 +1,5 @@
 import type { APIRoute } from 'astro'
-import { cafeHoursEntries, formatHours, formatRange } from '@config/hours'
+import { cafeHoursEntries, formatCafeHours, formatCafeRange } from '@config/hours'
 import { closureOn } from '@config/closures'
 import { getStudioDays } from '@lib/studio-settings'
 import { studioDate } from '@lib/studio-time'
@@ -25,8 +25,8 @@ export const GET: APIRoute = async ({ request }) => {
   const special = studio.cafe.special
     .filter((d) => d.date >= today && d.date <= until && !closureOn(d.date, studio.closures))
     .sort((a, b) => a.date.localeCompare(b.date))
-    .map((d) => ({ date: d.date, name: d.name, time: formatRange(d.opens, d.closes) }))
-  return new Response(JSON.stringify({ data: { weekly: formatHours(cafeHoursEntries(studio.cafe)), special } }), {
+    .map((d) => ({ date: d.date, name: d.name, time: formatCafeRange(d.opens, d.closes) }))
+  return new Response(JSON.stringify({ data: { weekly: formatCafeHours(cafeHoursEntries(studio.cafe)), special } }), {
     status: 200,
     headers: publicListHeaders(request),
   })

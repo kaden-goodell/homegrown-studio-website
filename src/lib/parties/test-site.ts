@@ -1,32 +1,22 @@
 /**
- * R41 for parties: a test site (a Netlify deploy preview or branch deploy)
- * with no STORE_NAMESPACE shares the live site's stores. A party hold made
- * there would take a real party time from customers, so every party booking
- * write (card, link or simulated) is refused there.
+ * R41 for parties. There is ONE test-site rule for every booking write,
+ * classes and parties alike: `@lib/classes/test-site-guard`. A test site (a
+ * Netlify deploy preview or branch deploy) with no STORE_NAMESPACE shares the
+ * live site's stores; a party hold made there would take a real party time
+ * from customers, so every party booking write (card, link or simulated),
+ * party settings save and party book change is refused there.
  *
- * Allowed: production, local dev (not on Netlify), and any deploy with its
- * own STORE_NAMESPACE. On Netlify, a deploy whose context can't be told is
- * treated as a test site (fail safe). Same rule as the class guard (stage 1).
+ * These names are kept so the party code reads naturally; they are the same
+ * functions as the class guard, never a second copy of the rule.
  *
  * Server only.
  */
-import { deployContext, type DeployContext } from '@lib/deploy-context'
+import { classWritesRefusal, NO_TEST_STORE, testSiteRefusal } from '@lib/classes/test-site-guard'
 
-export const NO_TEST_STORE = 'This test site has no store of its own. Set STORE_NAMESPACE first.'
+export { NO_TEST_STORE }
 
 /** The rule, with its inputs passed in: the refusal, or null when writes may go ahead. */
-export function partyTestSiteRefusal(input: { context: DeployContext; namespace?: string | null; onNetlify?: boolean }): string | null {
-  if ((input.namespace ?? '').trim()) return null
-  if (input.context === 'production' || input.context === 'dev') return null
-  if (input.context === 'deploy-preview' || input.context === 'branch-deploy') return NO_TEST_STORE
-  return input.onNetlify ? NO_TEST_STORE : null
-}
+export const partyTestSiteRefusal = testSiteRefusal
 
 /** This deploy's refusal for party writes, or null. */
-export function partyWritesRefusal(request?: Request): string | null {
-  return partyTestSiteRefusal({
-    context: deployContext(request),
-    namespace: process.env.STORE_NAMESPACE,
-    onNetlify: process.env.NETLIFY === 'true',
-  })
-}
+export const partyWritesRefusal = classWritesRefusal

@@ -50,6 +50,13 @@ describe('public view — which classes are listed', () => {
 })
 
 describe('public view — seats', () => {
+  it('M6: the browser gets only the rules the booking panel uses, never the minimum to run, waitlist cutoff or room sharing', () => {
+    const cls = make({ rules: { ...defaultRules(), minimumToRun: { count: 4, decideByIso: '2026-10-22T12:00:00Z' }, waitlistCutoffHours: 6, canShareRoom: true, maxPerBooking: 3, dropOff: true } })
+    const rules = toPublicClass(cls, ledger(), NOW)!.own!.rules as Record<string, unknown>
+    expect(Object.keys(rules).sort()).toEqual(['ages', 'dropOff', 'joinPartway', 'linkOnly', 'madeToOrder', 'maxPerBooking', 'signupCutoffHours', 'taxable'])
+    expect(rules).toMatchObject({ maxPerBooking: 3, dropOff: true })
+  })
+
   it('counts seats left per session from the ledger', () => {
     const w = toPublicClass(make(), ledger([...many(3, ['ses_a', 'ses_b']), ...many(2, ['ses_b'])]), NOW)
     expect(w.own!.sessions.map((s) => [s.id, s.left])).toEqual([['ses_a', 5], ['ses_b', 3]])

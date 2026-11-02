@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import type { ReactElement } from 'react'
-import { act, screen, fireEvent, within, waitFor } from '@testing-library/react'
+import { act, screen, fireEvent, within, waitFor, configure } from '@testing-library/react'
 import { ClosedDaysSheet, HoursSheet } from '@components/admin/sheets/SettingsSheets'
 import { StudioProvider, useStudio } from '@components/admin/shell/studio'
+import { WhoContext } from '@components/admin/sheets/MoreSheets'
 import { at, ok, posts, refuse, renderSheet } from './harness'
+
+// These sheets load, save, then reload; under a full parallel run that can take more than the default second.
+configure({ asyncUtilTimeout: 5000 })
 
 const SETTINGS = '/api/admin/settings.json'
 const view = () => ({
@@ -86,7 +90,7 @@ describe('More › Hours & Craft Café', () => {
     const set = await findGroup('Saturdays')
     isNamed('group', 'Saturdays', set)
     expect(within(set).getByLabelText('Opens')).toHaveValue('09:00')
-    expect(screen.getByText('Saturdays 9 AM–12 PM')).toBeInTheDocument()
+    expect(screen.getByText('Saturdays 9 AM–noon')).toBeInTheDocument()
     expect(screen.getByText('Sat Nov 7 · Craft Café grand opening')).toBeInTheDocument()
     isNamed('button', 'Save café hours', button('Save café hours'))
     expect(button('Save café hours')).toBeDisabled()
@@ -121,7 +125,7 @@ describe('More › Hours & Craft Café', () => {
     const sat = await findGroup('Saturdays')
     fireEvent.change(within(sat).getByLabelText('Closes'), { target: { value: '08:00' } })
     fireEvent.click(button('Save café hours'))
-    expect(screen.getByRole('alert')).toHaveTextContent('Saturday: it has to close after it opens.')
+    expect(await screen.findByRole('alert', undefined, { timeout: 3000 })).toHaveTextContent('Saturday: it has to close after it opens.')
     expect(posts(f, SETTINGS)).toHaveLength(0)
   })
 
@@ -154,14 +158,14 @@ describe('More › Hours & Craft Café', () => {
   })
 
   it('Square refused: the settings are saved, the sheet says so and Try again rewrites', async () => {
-    const f = server({ square: { status: 'failed', message: 'Square didn’t take the new café hours.' } })
+    const f = server({ square: { status: 'failed', message: 'Craft Café’s hours in Square didn’t update.' } })
     vi.stubGlobal('fetch', f)
     sheet(<HoursSheet />)
     const sat = await findGroup('Saturdays')
     fireEvent.change(within(sat).getByLabelText('Opens'), { target: { value: '10:00' } })
     fireEvent.click(button('Save café hours'))
-    expect(await screen.findByText('Café hours saved. Square didn’t update.', undefined, { timeout: 3000 })).toBeInTheDocument()
-    const panel = screen.getByText('Saved here. Square didn’t take the new café hours.').closest('.adm-panel') as HTMLElement
+    // The panel stays (the toast may be gone on a slow run).
+    const panel = (await screen.findByText('Saved here. Craft Café’s hours in Square didn’t update.', undefined, { timeout: 5000 })).closest('.adm-panel') as HTMLElement
     fireEvent.click(within(panel).getByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(posts(f, SETTINGS).at(-1)!.body).toEqual({ action: 'square-retry' }), { timeout: 3000 })
     expect(await screen.findByText('Square has the new café hours.', undefined, { timeout: 3000 })).toBeInTheDocument()
@@ -191,6 +195,21 @@ describe('More › Hours & Craft Café', () => {
   })
 })
 
+describe('fix round 1', () => {
+  it('studio hours point to the other owner', async () => {
+    vi.stubGlobal('fetch', server())
+    renderSheet(<WhoContext.Provider value={{ who: 'Kaden', setWho: () => {} }}><StudioProvider><HoursSheet /></StudioProvider></WhoContext.Provider>)
+    expect(await screen.findByText('Studio hours show on the website and Google. Ask Catherine to change them.', undefined, { timeout: 3000 })).toBeInTheDocument()
+  })
+  it('Add closed days with nothing picked takes her to From', async () => {
+    vi.stubGlobal('fetch', server())
+    sheet(<ClosedDaysSheet />)
+    await screen.findByText('Halloween weekend', undefined, { timeout: 3000 })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add closed days' }))
+    expect(screen.getByLabelText('From')).toHaveFocus()
+  })
+})
+
 describe('More › Closed days', () => {
   it('lists the closed days coming up, with the note; Add closed days sits in the footer', async () => {
     vi.stubGlobal('fetch', server())
@@ -208,12 +227,12 @@ describe('More › Closed days', () => {
     sheet(<ClosedDaysSheet />)
     await screen.findByText('Halloween weekend')
     fireEvent.click(within(footer()).getByRole('button', { name: 'Add closed days' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('Pick the first closed day.')
+    expect(await screen.findByRole('alert', undefined, { timeout: 3000 })).toHaveTextContent('Pick the first closed day.')
     expect(screen.getByLabelText('From')).toHaveAttribute('aria-invalid', 'true')
     fireEvent.change(screen.getByLabelText('From'), { target: { value: '2027-03-19' } })
     fireEvent.change(screen.getByLabelText('To (blank for one day)'), { target: { value: '2027-03-15' } })
     fireEvent.click(within(footer()).getByRole('button', { name: 'Add closed days' }))
-    expect(screen.getByRole('alert')).toHaveTextContent('The last closed day can’t be before the first.')
+    expect(await screen.findByRole('alert', undefined, { timeout: 3000 })).toHaveTextContent('The last closed day can’t be before the first.')
     expect(posts(f, SETTINGS)).toHaveLength(0)
   })
 
@@ -223,17 +242,20 @@ describe('More › Closed days', () => {
     ] }]
     const f = server({ booked })
     vi.stubGlobal('fetch', f)
-    const { dirty } = sheet(<ClosedDaysSheet />)
+    const rendered = sheet(<ClosedDaysSheet />)
+    const { dirty } = rendered
     await screen.findByText('Halloween weekend')
     fireEvent.change(screen.getByLabelText('From'), { target: { value: '2026-12-05' } })
     fireEvent.change(screen.getByLabelText('Why'), { target: { value: 'a snow day' } })
     fireEvent.change(screen.getByLabelText(/Holiday look/), { target: { value: 'christmas' } })
     expect(dirty()).toBe(true)
     fireEvent.click(within(footer()).getByRole('button', { name: 'Add closed days' }))
-    expect(await screen.findByText('Closed Sat Dec 5. Heads up: 1 thing is booked then. Nothing was cancelled.')).toBeInTheDocument()
+    expect(await screen.findByText('Closed Sat Dec 5. 1 booking stays booked.')).toBeInTheDocument()
     expect(posts(f, SETTINGS)[0].body.closures.at(-1)).toEqual({ from: '2026-12-05', to: '2026-12-05', name: 'a snow day', holiday: 'christmas' })
     const panel = screen.getByText('Already booked on those days').closest('.adm-panel') as HTMLElement
-    expect(within(panel).getByText('The Justice party · Sat Dec 5 · 1:30–4 PM')).toBeInTheDocument()
+    // Each booked thing opens its own sheet.
+    fireEvent.click(within(panel).getByRole('button', { name: /The Justice party · Sat Dec 5 · 1:30–4/ }))
+    expect(rendered.sheet.open).toHaveBeenCalledWith({ kind: 'party', day: '2026-12-05', id: 'bk_1' })
     expect(within(panel).getByText(/nothing was cancelled/)).toBeInTheDocument()
     await waitFor(() => expect(dirty()).toBe(false))
     fireEvent.click(button('Undo'))

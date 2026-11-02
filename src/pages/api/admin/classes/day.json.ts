@@ -3,6 +3,7 @@ import { adminAuthorized } from '@lib/admin-auth'
 import { groupBookings, json, type BookingView } from '@lib/classes/admin-actions'
 import { getClass } from '@lib/classes/class-store'
 import { getLedger } from '@lib/classes/seat-ledger'
+import { takesSeat } from '@lib/classes/seat-status'
 import { busyBetween, type Busy } from '@lib/classes/studio-schedule'
 import type { ClassContent } from '@lib/classes/types'
 import { localToUtcISO } from '@lib/party-slots'
@@ -65,7 +66,10 @@ export const GET: APIRoute = async ({ request, url }) => {
         const cls = await getClass(b.id)
         if (!cls) continue
         const session = cls.sessions.find((s) => s.id === b.sessionId)
-        const bookings = groupBookings(await getLedger(cls.id), now).filter((x) => x.sessionIds.includes(b.sessionId!) && x.state !== 'refunded')
+        // Who is coming, seat by seat (R43): a refund that kept the seat is on the sheet, a freed seat is not.
+        const ledger = await getLedger(cls.id)
+        const onSession = { ...ledger, lines: ledger.lines.filter((l) => l.sessionIds.includes(b.sessionId!) && takesSeat(l, now)) }
+        const bookings = groupBookings(onSession, now)
         classes.push({
           id: cls.id, sessionId: b.sessionId, name: cls.content.name, startIso: b.startIso, endIso: b.endIso,
           capacity: session?.capacity ?? 0,

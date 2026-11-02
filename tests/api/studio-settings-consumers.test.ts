@@ -174,7 +174,7 @@ describe('café hours saved on /admin', () => {
   })
 
   it('with nothing saved, every answer is the config’s', async () => {
-    expect((await get(cafeHours, '/api/cafe-hours.json')).body.data.weekly).toEqual([{ days: 'Saturday', time: '9 AM – 12 PM' }])
+    expect((await get(cafeHours, '/api/cafe-hours.json')).body.data.weekly).toEqual([{ days: 'Saturday', time: '9 AM – noon' }])
     expect((await getSettingsView()).closures).toEqual(configSettings().closures)
   })
 })

@@ -6,7 +6,9 @@
  * Craft Café's dated windows in Square (the calendar reads them); if Square
  * refuses, the settings are still saved and the sheet offers Try again.
  */
-import { useEffect, useRef, useState, type ReactElement } from 'react'
+import { useContext, useEffect, useRef, useState, type ReactElement } from 'react'
+import { OWNERS } from '@lib/admin-who'
+import { localDate } from '@lib/party-slots'
 import type { CafeSquareResult } from '@lib/cafe-windows'
 import type { BookedOnClosure } from '@lib/settings-effects'
 import type { SettingsInput, SettingsView, StoredClosure } from '@lib/studio-settings'
@@ -16,7 +18,8 @@ import { api, SETTINGS } from '../classes/api'
 import { dayLabel, today } from '../classes/dates'
 import { useRefresh } from '../shell/data'
 import { Failed, Skeleton } from '../shell/items'
-import { SheetFrame, useSheetDirty } from '../shell/Sheet'
+import { SheetFrame, useSheet, useSheetDirty } from '../shell/Sheet'
+import { WhoContext } from './MoreSheets'
 import { useStudio } from '../shell/studio'
 import { clockRange, dayAndSpan } from '../shell/time'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
@@ -37,9 +40,8 @@ const STALE = 'Someone else changed these settings. Check them and save again.'
 
 /** "Saved." plus how Square went; a failure stays in the sheet with Try again. */
 function savedText(square: CafeSquareResult | null, lead = 'Saved.'): string {
-  if (!square || square.status === 'updated') return lead
-  if (square.status === 'skipped') return `${lead} ${square.message}`
-  return `${lead} Square didn’t update.`
+  if (!square || square.status === 'updated' || square.status === 'unchanged') return lead
+  return `${lead} ${square.message}`
 }
 
 /** Saving the settings: always the latest updatedAt, the new settings everywhere at once, Square's answer kept for the sheet. */
@@ -88,7 +90,7 @@ function useSettingsSave() {
 function SquareFailed({ square, onRetry, busy }: { square: CafeSquareResult | null; onRetry: () => void; busy: boolean }) {
   if (square?.status !== 'failed') return null
   return (
-    <div className="adm-panel is-warn" role="alert" style={{ marginBottom: '0.75rem' }}>
+    <div className="adm-panel is-warn adm-gap-bottom" role="alert">
       <b>Saved here. {square.message}</b>
       <span className="adm-small">The public calendar may show the old Craft Café hours until Square has them.</span>
       <button type="button" className="adm-btn is-ghost is-sm" disabled={busy} onClick={onRetry}>{busy ? 'Trying…' : 'Try again'}</button>
@@ -127,6 +129,8 @@ export function HoursSheet() {
 
 function HoursForm({ view }: { view: SettingsView }) {
   const { save, square, retrySquare, retrying, toast } = useSettingsSave()
+  const { who } = useContext(WhoContext)
+  const otherOwner = OWNERS.find((o) => o !== who) ?? 'the other owner'
   const { days } = useStudio()
   const [weekly, setWeekly] = useState<CafeWeekly[]>(() => [...view.cafeWeekly].sort(byWeek))
   const [weeklyError, setWeeklyError] = useState('')
@@ -193,7 +197,7 @@ function HoursForm({ view }: { view: SettingsView }) {
     <>
       {stale && <p className="adm-error" role="alert">{stale}</p>}
       <SquareFailed square={square} onRetry={retrySquare} busy={retrying} />
-      <p className="adm-lbl" style={{ marginTop: 0 }}>Craft Café · every week</p>
+      <p className="adm-lbl adm-lbl-first">Craft Café · every week</p>
       {weekly.length === 0 && <p className="adm-empty">No weekly hours. Craft Café runs only on special days.</p>}
       {weekly.map((w, i) => (
         <fieldset key={w.weekday} className="adm-date">
@@ -234,7 +238,7 @@ function HoursForm({ view }: { view: SettingsView }) {
         </div>
       ))}
       {adding ? (
-        <fieldset className="adm-date" style={{ marginTop: '0.75rem' }}>
+        <fieldset className="adm-date adm-gap-top">
           <legend>New special day</legend>
           <label className="adm-fld"><span>Day</span><input type="date" min={now} value={sp.date} aria-invalid={spError === 'Pick the day.' || undefined} onChange={(e) => { setSp({ ...sp, date: e.target.value }); setSpError('') }} /></label>
           <label className="adm-fld"><span>What is it?</span><input value={sp.name} maxLength={60} placeholder="Like: Holiday market" onChange={(e) => setSp({ ...sp, name: e.target.value })} /></label>
@@ -250,14 +254,14 @@ function HoursForm({ view }: { view: SettingsView }) {
           </div>
         </fieldset>
       ) : (
-        <button type="button" className="adm-btn is-ghost" style={{ marginTop: '0.6rem' }} onClick={() => setAdding(true)}>+ Add a special day</button>
+        <button type="button" className="adm-btn is-ghost adm-gap-top" onClick={() => setAdding(true)}>+ Add a special day</button>
       )}
-      <p className="adm-note" style={{ marginTop: '0.75rem' }}>A special day replaces the usual hours for that day. Closed days beat both.</p>
+      <p className="adm-note adm-gap-top">A special day replaces the usual hours for that day. Closed days beat both.</p>
 
       <p className="adm-lbl">Studio hours</p>
       {cafeHoursEntries({ weekly: STUDIO_HOURS.flatMap((h) => h.days.map((weekday) => ({ weekday, opens: h.opens, closes: h.closes }))), special: [] })
         .map((h) => <div key={h.days.join()} className="adm-kv"><span>{h.days.join(' & ')}</span><span>{clockRange(h.opens, h.closes)}</span></div>)}
-      <p className="adm-small adm-muted" style={{ marginTop: '0.4rem' }}>Studio hours show on the website and Google. Ask Kaden to change them.</p>
+      <p className="adm-small adm-muted adm-gap-top">{`Studio hours show on the website and Google. Ask ${otherOwner} to change them.`}</p>
     </>
   )
 }
@@ -286,6 +290,8 @@ export function ClosedDaysSheet() {
 
 function ClosedForm({ view, addRef, busy, setBusy }: { view: SettingsView; addRef: { current: () => void }; busy: boolean; setBusy: (b: boolean) => void }) {
   const { save, square, retrySquare, retrying, toast } = useSettingsSave()
+  const { open } = useSheet()
+  const fromRef = useRef<HTMLInputElement>(null)
   const [f, setF] = useState<{ from: string; to: string; name: string; holiday: Holiday | '' }>({ from: '', to: '', name: '', holiday: '' })
   const [error, setError] = useState<{ field: 'from' | 'to' | 'name' | ''; text: string } | null>(null)
   const [asking, setAsking] = useState<string | null>(null)
@@ -299,7 +305,12 @@ function ClosedForm({ view, addRef, busy, setBusy }: { view: SettingsView; addRe
     if (busy) return
     setError(null)
     setStale('')
-    if (!f.from) return setError({ field: 'from', text: 'Pick the first closed day.' })
+    if (!f.from) {
+      // The footer button with the form out of sight: take her to it.
+      fromRef.current?.scrollIntoView?.({ block: 'center' })
+      fromRef.current?.focus({ preventScroll: true })
+      return setError({ field: 'from', text: 'Pick the first closed day.' })
+    }
     if (f.to && f.to < f.from) return setError({ field: 'to', text: 'The last closed day can’t be before the first.' })
     setBusy(true)
     const draft = { from: f.from, to: f.to || f.from, name: f.name.trim(), ...(f.holiday ? { holiday: f.holiday } : {}) }
@@ -314,8 +325,10 @@ function ClosedForm({ view, addRef, busy, setBusy }: { view: SettingsView; addRe
     setF({ from: '', to: '', name: '', holiday: '' })
     setBooked(r.data.booked.length || r.data.bookedUnknown ? { list: r.data.booked, unknown: !!r.data.bookedUnknown } : null)
     const n = r.data.booked.reduce((s, b) => s + b.items.length, 0)
-    const heads = n ? ` Heads up: ${n === 1 ? '1 thing is' : `${n} things are`} booked then. Nothing was cancelled.` : ''
-    toast(savedText(r.data.square, `Closed ${rangeText(draft)}.${heads}`), made ? {
+    // Short: the sheet's panels carry the booked list and any Square trouble.
+    const heads = n ? ` ${n === 1 ? '1 booking stays' : `${n} bookings stay`} booked.` : ''
+    const skipped = r.data.square?.status === 'skipped' ? ` ${r.data.square.message}` : ''
+    toast(`Closed ${rangeText(draft)}.${heads}${skipped}`, made ? {
       undo: () => { save((cur) => ({ ...cur, closures: cur.closures.filter((c) => c.id !== made.id) })).then((u) => { if (u.ok) setBooked(null); else toast(DIDNT_SAVE) }) },
     } : undefined)
   }
@@ -338,11 +351,18 @@ function ClosedForm({ view, addRef, busy, setBusy }: { view: SettingsView; addRe
       {stale && <p className="adm-error" role="alert">{stale}</p>}
       <SquareFailed square={square} onRetry={retrySquare} busy={retrying} />
       {booked && (
-        <div className="adm-panel is-warn" role="status" style={{ marginBottom: '0.75rem' }}>
+        <div className="adm-panel is-warn adm-gap-bottom" role="status">
           <b>Already booked on those days</b>
           <span className="adm-small">It all stays booked; nothing was cancelled. Let them know, or move them.</span>
           {booked.list.flatMap((b) => b.items.map((i) => (
-            <span key={`${b.closureId}-${i.kind}-${i.id}-${i.startIso}`} className="adm-small">{`${cap(i.label)} · ${dayAndSpan(i.startIso, i.endIso)}`}</span>
+            <button
+              key={`${b.closureId}-${i.kind}-${i.id}-${i.startIso}`}
+              type="button"
+              className="adm-bookedlink"
+              onClick={() => open(i.kind === 'class' ? { kind: 'class', id: i.id } : { kind: i.kind === 'party' ? 'party' : 'legacy', day: localDate(i.startIso), id: i.id })}
+            >
+              {`${cap(i.label)} · ${dayAndSpan(i.startIso, i.endIso)}`}<span aria-hidden="true"> ›</span>
+            </button>
           )))}
           {booked.unknown && <span className="adm-small">Some bookings couldn’t be checked. Look at those days on the calendar.</span>}
           <button type="button" className="adm-btn is-ghost is-sm" onClick={() => setBooked(null)}>Got it</button>
@@ -369,7 +389,7 @@ function ClosedForm({ view, addRef, busy, setBusy }: { view: SettingsView; addRe
       ))}
       <p className="adm-lbl">Add closed days</p>
       <div className="adm-two">
-        <label className="adm-fld"><span>From</span><input type="date" min={now} value={f.from} aria-invalid={!!errFor('from') || undefined} onChange={(e) => { setF({ ...f, from: e.target.value }); setError(null) }} /></label>
+        <label className="adm-fld"><span>From</span><input ref={fromRef} type="date" min={now} value={f.from} aria-invalid={!!errFor('from') || undefined} onChange={(e) => { setF({ ...f, from: e.target.value }); setError(null) }} /></label>
         <label className="adm-fld"><span>To (blank for one day)</span><input type="date" min={f.from || now} value={f.to} aria-invalid={!!errFor('to') || undefined} onChange={(e) => { setF({ ...f, to: e.target.value }); setError(null) }} /></label>
       </div>
       {(errFor('from') || errFor('to')) && <p className="adm-error adm-fielderr" role="alert">{errFor('from') || errFor('to')}</p>}
@@ -383,7 +403,7 @@ function ClosedForm({ view, addRef, busy, setBusy }: { view: SettingsView; addRe
       </label>
       {error?.field === '' && <p className="adm-error" role="alert">{error.text}</p>}
       <p className="adm-note">Nothing can be booked on closed days. Anything already booked stays booked, and we’ll tell you about it.</p>
-      <p className="adm-small adm-muted" style={{ marginTop: '0.4rem' }}>The studio is also closed every Monday to Wednesday.</p>
+      <p className="adm-small adm-muted adm-gap-top">The studio is also closed every Monday to Wednesday.</p>
     </>
   )
 }

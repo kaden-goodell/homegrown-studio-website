@@ -33,9 +33,10 @@ import {
   type ClassCheckoutCode,
   type OrderLine,
 } from '@lib/classes/checkout'
-import { sendClassConfirmation } from '@lib/classes/confirmation'
+import { claimConfirmation, releaseConfirmation, sendClassConfirmation } from '@lib/classes/confirmation'
 import type { ScheduledClass } from '@lib/classes/types'
 import { byOf, staffAuthorized } from '@lib/staff-auth'
+import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import type { SaleOptions } from '@lib/classes/pricing'
 
 const logger = createLogger('api:classes:book')
@@ -64,6 +65,9 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const member = door ? staffAuthorized(request) : null
   if (door && !member) return fail(401, 'invalid', 'Sign in to /staff to sell a seat at the door. Nothing was charged.')
   const sale: SaleOptions = door ? { door: true } : {}
+  // R41: a test site with no store of its own never books (or simulates paying for) a live seat.
+  const testSite = classWritesRefusal(request)
+  if (testSite) return fail(503, 'unavailable', testSite)
   if (!door && !bookingsOpen(request, 'workshops')) return bookingsClosedResponse()
   if (!door && rateLimited(`class-book:${clientAddress}`, 5, 60_000)) {
     return fail(429, 'unavailable', 'That’s a lot of attempts in a row. Give it a minute, then try again.')
@@ -327,7 +331,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     })
     await keepHeld()
     await alertOwners(
-      `Class payment unclear: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Check Square for a${order ? ` ${dollars(order.totalCents)}` : ''} payment${order ? ` on order ${order.orderId}` : ''}. Booking ${bookingId}, attempt ${attemptId}. The seats are held for a day, not confirmed.`,
+      `Class payment unclear: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Seats held a day; if Square shows it paid they're booked for you and you get a text. Check Square for a${order ? ` ${dollars(order.totalCents)}` : ''} payment${order ? ` on order ${order.orderId}` : ''}. Booking ${bookingId}, attempt ${attemptId}.`,
     ).catch(() => undefined)
     return fail(502, 'unknown_outcome')
   }
@@ -348,7 +352,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       logger.error('PAID CLASS SEATS NOT RECORDED', { bookingId, orderId: square.orderId, error: String(err) })
       await keepHeld()
       await alertOwners(
-        `${simulated ? '(test booking, no action needed) ' : ''}Class booked and paid, but the seats weren't recorded: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Order ${square.orderId}, booking ${bookingId}. Add them by hand.`,
+        `${simulated ? '(test booking, no action needed) ' : ''}Class paid, seats not recorded yet: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Held a day; Square's payment notice books them, or it shows in /admin › To decide. Order ${square.orderId}, booking ${bookingId}.`,
       ).catch(() => undefined)
       // Answer from the quote: the customer has paid.
       return q!.lines.filter((l) => l.kind === 'seat').map((l) => ({
@@ -384,8 +388,13 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       }
     }
     const finishing = async (): Promise<boolean> => {
-      const [sent] = await Promise.all([
-        sendClassConfirmation({
+      // One confirmation and one owners' note per booking (T8, R42): a retry racing the first try,
+      // or Square's payment notice, may already have sent them. Whoever claims the marker sends both.
+      const mine = await claimConfirmation(bookingId)
+      if (!mine) logger.info('Class confirmation already sent for this booking', { bookingId })
+      const sendOnce = async (): Promise<boolean> => {
+        if (!mine) return true
+        const sent = await sendClassConfirmation({
           origin: new URL(request.url).origin,
           bookingId, cls: c, sessionIds: qq.sessionIds, seats: qq.seats, seatsLabel,
           email, givenName, receiptUrl: f.receiptUrl, totalChargedCents: f.charged,
@@ -394,8 +403,13 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
         }).catch((err) => {
           logger.error('Class confirmation email failed (booking still confirmed)', { bookingId, error: String(err) })
           return false
-        }),
-        f.simulated
+        })
+        if (!sent) await releaseConfirmation(bookingId)
+        return sent
+      }
+      const [sent] = await Promise.all([
+        sendOnce(),
+        f.simulated || !mine
           ? Promise.resolve()
           : announceBooking({
               kind: 'class', who: `${givenName} ${familyName}`, what: `${seatsLabel}, ${c.content.name}`,

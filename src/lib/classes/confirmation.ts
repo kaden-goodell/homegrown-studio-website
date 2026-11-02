@@ -10,7 +10,51 @@ import { buildIcs, googleCalendarUrl } from '@lib/party-share'
 import { formatDayAndSpan, formatSlotLabel, formatTimeSpan } from '@lib/studio-time'
 import { summarize } from '@lib/seo'
 import { withUtm } from '@lib/utm'
+import { makeKvStore } from '@lib/blob-store'
 import type { ScheduledClass } from './types'
+
+const sentKv = makeKvStore('class-confirmations', 'class-confirmations')
+
+/**
+ * One confirmation per booking: true for the first caller only (a create-only
+ * write), so two finishes of the same booking (a retry racing the first try,
+ * or Square's webhook confirming a booking whose answer was lost) never send
+ * it twice. A failed read or write counts as claimed by us: better a rare
+ * second email than none.
+ */
+export async function claimConfirmation(bookingId: string): Promise<boolean> {
+  const k = `sent-${bookingId.replace(/[^A-Za-z0-9_-]/g, '_')}`
+  try {
+    const { value, etag } = await sentKv.getWithMeta(k)
+    if (value) return false
+    return await sentKv.setIfMatch(k, JSON.stringify({ at: new Date().toISOString() }), etag, value !== null)
+  } catch {
+    return true
+  }
+}
+
+const retryKey = (bookingId: string) => `retry-${bookingId.replace(/[^A-Za-z0-9_-]/g, '_')}`
+
+/** N2: the confirmation sent from Square's payment notice failed: the nightly catch-up tries it once more. */
+export async function markConfirmationRetry(bookingId: string): Promise<void> {
+  await sentKv.set(retryKey(bookingId), JSON.stringify({ at: new Date().toISOString() })).catch(() => undefined)
+}
+
+/** Takes the one retry waiting for this booking: true for the first caller only, never again after. */
+export async function takeConfirmationRetry(bookingId: string): Promise<boolean> {
+  try {
+    const { value, etag } = await sentKv.getWithMeta(retryKey(bookingId))
+    if (!value) return false
+    return await sentKv.setIfMatch(retryKey(bookingId), '', etag, true)
+  } catch {
+    return false
+  }
+}
+
+/** The confirmation didn't go out: let a later finish try again. */
+export async function releaseConfirmation(bookingId: string): Promise<void> {
+  await sentKv.set(`sent-${bookingId.replace(/[^A-Za-z0-9_-]/g, '_')}`, '').catch(() => undefined)
+}
 
 export async function sendClassConfirmation(input: {
   origin: string

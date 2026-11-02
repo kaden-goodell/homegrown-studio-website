@@ -16,6 +16,7 @@
  * Never writes Square (R38). Server only.
  */
 import { makeKvStore } from '@lib/blob-store'
+import { assertClassWritesAllowed } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
 import type { By } from '@lib/staff-auth'
 import { SettingsError } from '@lib/settings-error'
@@ -80,6 +81,7 @@ export async function savePartySettings(
   input: PartySettingsInput,
   opts: { expectedUpdatedAt: string | null; by: By; now?: Date },
 ): Promise<{ saved: PartySettings; changed: string[] }> {
+  assertClassWritesAllowed() // R41: never the live party times from a test site
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const { value, etag } = await kv.getWithMeta(KEY)
     const cur = value ? parse(value) : null

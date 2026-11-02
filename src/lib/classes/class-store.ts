@@ -2,6 +2,7 @@ import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
 import type { ClassContent, ClassStatus, ScheduledClass, Session } from './types'
 import { newId, validateContent, validateSessions } from './validate'
+import { assertClassWritesAllowed } from './test-site-guard'
 
 const kv = makeKvStore('classes', 'classes')
 const key = (id: string) => `class-${id}`
@@ -146,6 +147,7 @@ export async function listClasses(range?: { fromIso: string; toIso: string }): P
 export async function createClass(input: {
   content: ClassContent; sessions: Session[]; libraryId?: string; libraryVersion?: number; status: ClassStatus; by: By; id?: string
 }): Promise<ScheduledClass> {
+  assertClassWritesAllowed() // R41
   const content = okContent(input.content)
   const sessions = okSessions(input.sessions)
   const now = new Date().toISOString()
@@ -188,6 +190,7 @@ export async function updateClass(
   change: string,
   opts: { expectedUpdatedAt?: string } = {},
 ): Promise<ScheduledClass> {
+  assertClassWritesAllowed() // R41
   const content = patch.content !== undefined ? okContent(patch.content) : undefined
   const sessions = patch.sessions !== undefined ? okSessions(patch.sessions) : undefined
   const k = key(id)
