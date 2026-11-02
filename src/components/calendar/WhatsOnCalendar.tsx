@@ -165,16 +165,19 @@ const KIND_LABELS: Record<CalendarEvent['kind'], string> = {
 }
 
 /**
- * Collapse a day's individual party-available slots into ONE inviting chip for
- * the month grid ("4 party times" → /book with the date preselected).
- * The selected-day detail below the grid still lists each time individually.
+ * A day's items for the month grid, in start-time order. Each open party time
+ * gets its own line ("2pm Party available", "4:30pm Party available"), now that
+ * the day boxes are tall enough (Kaden, 1 Nov 2026). Only when that would run
+ * past MAX_CHIPS do the open times fold into one "4 party times" chip (to
+ * /book with the date picked), so an evening workshop is never pushed out.
  */
-function aggregatePartySlots(dayEvents: CalendarEvent[]): CalendarEvent[] {
-  const partySlots = dayEvents.filter((e) => e.kind === 'party-available')
-  if (partySlots.length <= 1) return dayEvents
-  const rest = dayEvents.filter((e) => e.kind !== 'party-available')
+function gridChips(dayEvents: CalendarEvent[]): CalendarEvent[] {
+  const each = collapseBookedParties(byStartTime(dayEvents))
+  if (each.length <= MAX_CHIPS) return each
+  const partySlots = each.filter((e) => e.kind === 'party-available')
+  if (partySlots.length <= 1) return each
   const date = partySlots[0].date
-  const aggregate: CalendarEvent = {
+  const folded: CalendarEvent = {
     id: `party-available-agg-${date}`,
     kind: 'party-available',
     title: `${partySlots.length} party times`,
@@ -183,13 +186,15 @@ function aggregatePartySlots(dayEvents: CalendarEvent[]): CalendarEvent[] {
     bookable: true,
     href: `/book?date=${encodeURIComponent(date)}`,
   }
-  const out = [...rest, aggregate]
-  out.sort((a, b) => {
+  return byStartTime([...each.filter((e) => e.kind !== 'party-available'), folded])
+}
+
+function byStartTime(dayEvents: CalendarEvent[]): CalendarEvent[] {
+  return [...dayEvents].sort((a, b) => {
     const at = a.startTime ?? ''
     const bt = b.startTime ?? ''
     return at < bt ? -1 : at > bt ? 1 : 0
   })
-  return out
 }
 
 function getMonthData(year: number, month: number) {
@@ -771,7 +776,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
           const dayEvents = eventsByDay.get(day) ?? []
           const hasEvents = dayEvents.length > 0
           const isSelected = selectedDay === day
-          const chips = collapseBookedParties(aggregatePartySlots(dayEvents))
+          const chips = gridChips(dayEvents)
           const cellBg = isSelected
             ? 'rgba(var(--color-primary-rgb), 0.10)'
             : isPast

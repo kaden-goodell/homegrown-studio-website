@@ -276,6 +276,15 @@ describe('WhatsOnCalendar month view', () => {
     expect(chip).toHaveAttribute('href', '/')
   })
 
+  it('shows each open party time on its own line when the day has room', async () => {
+    stubCalendarApi([EVENTS[2], EVENTS[3], EVENTS[4], EVENTS[6]]) // café, 2:00 and 4:30 parties, workshop
+    render(<WhatsOnCalendar initialView="list" />)
+    fireEvent.click(screen.getByRole('button', { name: 'Month' }))
+    expect(await screen.findByTitle('Party available · 2:00 PM')).toHaveAttribute('href', '/book?start=c')
+    expect(screen.getByTitle('Party available · 4:30 PM')).toHaveAttribute('href', '/book?start=d')
+    expect(screen.queryByTitle(/party times$/)).toBeNull()
+  })
+
   it('sets chip labels in dark text and keeps the kind colour on the edge', async () => {
     render(<WhatsOnCalendar initialView="list" />)
     fireEvent.click(screen.getByRole('button', { name: 'Month' }))
@@ -459,7 +468,9 @@ describe('WhatsOnCalendar filters (HOM-192)', () => {
 
     fireEvent.click(chip('Party dates'))
     expect(screen.queryByTitle('Fall Earring Bar')).toBeNull()
-    expect(screen.getByTitle('4 party times')).toBeInTheDocument()
+    // Five items fit, so each open party time gets its own line.
+    expect(screen.getByTitle('Party available · 9:00 AM')).toBeInTheDocument()
+    expect(screen.getByTitle('Party available · 4:30 PM')).toBeInTheDocument()
     expect(screen.getByTitle('1 party booked')).toBeInTheDocument()
   })
 
