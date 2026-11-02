@@ -40,3 +40,6 @@ captures/
 *.har
 docs/alcohol-license/
 docs/filings/
+
+# printable flyers (scripts/make-day-flyer.ts)
+flyers/
