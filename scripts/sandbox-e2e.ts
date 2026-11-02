@@ -36,6 +36,7 @@
  * preview; the run's cleanup (after the last scenario, or on Ctrl-C) takes them
  * out again. Every party's host is "E2E <run> …"; each scenario cancels its
  * parties (never refunding); refunds only in 35, 36, 37 and 40 (sandbox money).
+ * Scenario 60 is crafts in /admin (scripts/lib/sandbox-e2e/craft-scenarios.ts).
  * Scenarios 41–48 are staffing (stage 3, scripts/lib/sandbox-e2e/staffing-scenarios.ts):
  * they sign a third client in to /staff as "E2E Crew", the person "Set up sandbox"
  * puts on the preview's own staff list (skipped with how to fix it when it isn't
@@ -58,14 +59,16 @@ import {
 import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, scenarios } from './lib/sandbox-e2e/scenarios'
 import { cleanUpPartyLeftovers, PARTY_CLEANUP_PLAN, partyScenarios, type PartyCtx } from './lib/sandbox-e2e/party-scenarios'
 import { staffingScenarios, type StaffingCtx } from './lib/sandbox-e2e/staffing-scenarios'
+import { craftScenarios } from './lib/sandbox-e2e/craft-scenarios'
 import { Cleanup, type CleanupResult, type Scenario } from './lib/sandbox-e2e/core'
 
 /** The run's context: the party bits (run-level cleanup) and the crew bits (a third /staff client). */
 export type RunCtx = PartyCtx & StaffingCtx
 
-/** Every scenario, in id order: our classes (1–23), then parties (24–40), then staffing (41–48). */
+/** Every scenario, in id order: our classes (1–23), then parties (24–40), then staffing (41–48), then crafts in /admin (60). */
 export const ALL_SCENARIOS: Scenario<RunCtx>[] = [
   ...(scenarios as Scenario<RunCtx>[]), ...(partyScenarios as Scenario<RunCtx>[]), ...(staffingScenarios as Scenario<RunCtx>[]),
+  ...(craftScenarios as Scenario<RunCtx>[]),
 ]
 
 /** Runs the run-level undo steps (Parties setup put back) once, saying what happened. */

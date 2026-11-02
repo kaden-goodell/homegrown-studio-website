@@ -6,7 +6,7 @@ import { kitConfig } from '@config/kit.config'
 import { kitThemes } from '@config/kit-content'
 import { createLogger } from '@lib/logger'
 import type { SquareConfig } from '@config/site.config'
-import { isTestCraft, partyCraftCategoryId } from '@lib/craft-catalog'
+import { hiddenCraftIds, isTestCraft, partyCraftCategoryId } from '@lib/craft-catalog'
 import { getPartySettings } from '@lib/parties/settings-store'
 import { publicPartyFacts } from '@lib/parties/party-times'
 import { getStudioDays } from '@lib/studio-settings'
@@ -30,6 +30,8 @@ export const GET: APIRoute = async ({ url }) => {
     const craftItems: any[] = []
     const imageIds = new Set<string>()
     const categoryId = partyCraftCategoryId()
+    // Hidden on the website by an owner (/admin › More › Crafts): still on the register, never on a menu.
+    const hidden = await hiddenCraftIds()
     for await (const obj of await client.catalog.list({ types: 'ITEM' })) {
       const o = obj as any
       const inCat = (o.itemData?.categories ?? []).some(
@@ -37,6 +39,7 @@ export const GET: APIRoute = async ({ url }) => {
       )
       if (!inCat) continue
       if (!includeTest && isTestCraft(o.itemData?.name)) continue
+      if (hidden.has(o.id)) continue
       craftItems.push(o)
       for (const id of o.itemData?.imageIds ?? []) imageIds.add(id)
     }
@@ -151,7 +154,8 @@ export const GET: APIRoute = async ({ url }) => {
       status: 200,
       headers: {
         // No caching: crafts carry live price + the non-refundable "personalized"
-        // flag, which must reach the booking flow immediately when changed.
+        // flag, which must reach the booking flow immediately when changed
+        // (and an owner's change in /admin › More › Crafts shows on the next load).
         'Content-Type': 'application/json',
         'Cache-Control': 'no-store',
       },

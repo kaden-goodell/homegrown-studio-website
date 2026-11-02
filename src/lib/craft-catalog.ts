@@ -11,6 +11,7 @@ import { createSquareClient } from '@providers/square/client'
 import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
 import type { SquareConfig } from '@config/site.config'
+import { getHiddenCraftIds } from '@lib/crafts/craft-settings'
 
 export interface CatalogCraft {
   id: string
@@ -44,6 +45,19 @@ export function isTestCraft(name: string | undefined | null): boolean {
   return (name ?? '').trim().toUpperCase().startsWith('TEST')
 }
 
+/**
+ * The crafts an owner hid on the website (/admin › More › Crafts). A store
+ * that can't be read hides nothing (the menu stays up; logged).
+ */
+export async function hiddenCraftIds(): Promise<Set<string>> {
+  try {
+    return await getHiddenCraftIds()
+  } catch (e) {
+    console.error(`[craft-catalog] hidden crafts unreadable: ${e instanceof Error ? e.message : e}`)
+    return new Set()
+  }
+}
+
 /** Crafts for parties and take-home kits. Café-only crafts are left out (they
  *  are never sold that way), so a kit can't be priced or ordered with one. */
 export async function fetchPartyCrafts(
@@ -51,6 +65,7 @@ export async function fetchPartyCrafts(
 ): Promise<CatalogCraft[]> {
   const client = createSquareClient(siteConfig.providers.catalog.config as SquareConfig)
   const categoryId = partyCraftCategoryId()
+  const hidden = await hiddenCraftIds()
 
   const craftItems: any[] = []
   const imageIds = new Set<string>()
@@ -61,6 +76,8 @@ export async function fetchPartyCrafts(
     )
     if (!inCat) continue
     if (!opts.includeTest && isTestCraft(o.itemData?.name)) continue
+    // Hidden on the website by an owner: not offered, not bookable.
+    if (hidden.has(o.id)) continue
     craftItems.push(o)
     for (const id of o.itemData?.imageIds ?? []) imageIds.add(id)
   }

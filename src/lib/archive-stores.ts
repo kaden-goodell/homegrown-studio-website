@@ -84,6 +84,9 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'staffing' },
   { name: 'staff-people' },
   { name: 'staff-team' },
+  // crafts (/admin › More › Crafts): which are hidden on the website (with who and when), and which Add made which craft
+  { name: 'craft-settings' },
+  { name: 'craft-create-keys' },
 ]
 
 export const ARCHIVE_STORE_NAMES: string[] = ARCHIVE_STORES.map((s) => s.name)

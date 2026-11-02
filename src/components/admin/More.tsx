@@ -8,7 +8,8 @@ import { usePartySettings } from './parties/api'
 import { partiesSummary } from './parties/PartiesSetupSheet'
 
 const ROWS: [MorePage, string, string][] = [
-  ['parties', 'Parties setup', 'Party times, packages, extras, crafts'],
+  ['parties', 'Parties setup', 'Party times, packages, extras'],
+  ['crafts', 'Crafts', 'Party and Craft Café crafts: photos, prices, words'],
   ['hours', 'Hours & Craft Café', 'Café hours and special days'],
   ['closed', 'Closed days', ''],
   ['staff', 'Staff', 'Who’s on, who can work, calendar links'],

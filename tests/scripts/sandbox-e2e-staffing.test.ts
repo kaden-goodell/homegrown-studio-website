@@ -168,13 +168,14 @@ function ctxFor(f: ReturnType<typeof fakePreview>): StaffingCtx {
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals() })
 
 describe('staffing scenarios: the list', () => {
-  it('are 41–48, after the class (1–23) and party (24–40) scenarios', () => {
+  it('are 41–48, after the class (1–23) and party (24–40) scenarios (crafts, 60, after them)', () => {
     expect(staffingScenarios.map((s) => s.id)).toEqual([41, 42, 43, 44, 45, 46, 47, 48])
     const ids = ALL_SCENARIOS.map((s) => s.id)
     expect(new Set(ids).size).toBe(ids.length)
     expect(ids).toEqual([...ids].sort((a, b) => a - b))
-    expect(ids).toEqual(Array.from({ length: 48 }, (_, i) => i + 1))
-    expect(ALL_SCENARIOS.slice(-staffingScenarios.length)).toEqual(staffingScenarios)
+    expect(ids.slice(0, 48)).toEqual(Array.from({ length: 48 }, (_, i) => i + 1))
+    expect(ids.slice(48)).toEqual([60])
+    expect(ALL_SCENARIOS.slice(48 - staffingScenarios.length, 48)).toEqual(staffingScenarios)
     expect(ALL_SCENARIOS.slice(0, scenarios.length)).toEqual(scenarios)
   })
 

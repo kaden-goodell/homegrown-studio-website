@@ -110,6 +110,16 @@ function server(o: any = {}) {
       case '/api/admin/parties/book.json': return ok({ data: { party: ourParty, message: 'Booked Lee’s party for Sun, Oct 25 at 1:00 PM. The payment link for the studio fee ($300) went to Lee by email and text.' } })
       case '/api/admin/parties/times.json': return ok({ data: { minutes: 90, offered: [at('2026-10-24', '14:00')], open: [at('2026-10-24', '14:00')] } })
       case '/api/admin/reports.json': return ok({ data: { month: '2026-10', seatsSold: 74, classSalesCents: 196800, refunds: 1, refundedCents: 1635, partiesBooked: 3, partyFeesCents: 60000 } })
+      case '/api/admin/crafts.json': {
+        const crafts = [
+          { id: 'c1', version: 3, name: 'Beaded Necklace', description: 'String a necklace.\n\nEveryone picks beads.\n\nEach guest goes home with a necklace. Ages 8 and up.', sizes: [{ id: 'v1', name: 'Per Guest', cents: 1800 }], imageUrl: 'https://cdn.test/a.jpg', personalized: false, popular: true, where: 'both', hidden: false, test: false },
+          { id: 'c2', version: 1, name: 'Pot Holders', description: '', sizes: [{ id: 'v2', name: 'Per Guest', cents: 1500 }], imageUrl: null, personalized: false, popular: false, where: 'parties', hidden: true, test: false },
+        ]
+        if (post?.action === 'update') return ok({ data: { craft: { ...crafts[0], sizes: [{ id: 'v1', name: 'Per Guest', cents: post.cents ?? 1800 }], version: 4 }, message: 'Saved. New bookings and the register use the new price. Crafts are paid at the studio, so nothing already booked changes.' } })
+        if (post?.action === 'create') return ok({ data: { craft: { ...crafts[1], id: 'c3', name: post.name, hidden: false }, message: `Added ${post.name}. The website shows it within a minute.` } })
+        if (post?.action === 'hide' || post?.action === 'show') return ok({ data: { craft: crafts[1], message: post.action === 'show' ? 'Pot Holders is back on the website.' : 'Pot Holders is off the website. It stays on the register.' } })
+        return ok({ data: { crafts, markers: { personalized: true, popular: true, where: true }, refusal: o.craftsRefusal ?? null } })
+      }
       case '/api/admin/records.json':
         if (post && post.passcode !== 'owner-secret') return status(403, { error: 'That passcode isn’t right.', field: 'passcode' })
         if (post) return { ok: true, status: 200, headers: new Headers({ 'X-Records-Filename': 'hometown-records-2026-01-01-to-2026-10-20.zip' }), blob: async () => new Blob(['zip']), json: async () => ({}) }
@@ -666,7 +676,7 @@ describe('More', () => {
     await signedIn()
     tab('More')
     const setup = await screen.findByRole('list', { name: 'Setup' })
-    expect(within(setup).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Parties setup', 'Hours & Craft Café', 'Closed days', 'Staff', 'Promotions', 'Reports', 'Records'])
+    expect(within(setup).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Parties setup', 'Crafts', 'Hours & Craft Café', 'Closed days', 'Staff', 'Promotions', 'Reports', 'Records'])
     expect(within(setup).getByRole('button', { name: /Staff/ })).toHaveTextContent('Who’s on, who can work, calendar links')
     expect(within(setup).getByRole('button', { name: /Promotions/ })).toHaveTextContent('Coming in stage 4')
     // The row says what's set, from the saved Parties setup.
@@ -709,6 +719,49 @@ describe('More', () => {
     fireEvent.change(pick, { target: { value: '2026' } })
     expect(await within(dialog()).findByText('Tax split, all of 2026')).toBeInTheDocument()
     await waitFor(() => expect(f.mock.calls.some((c) => c[0] === '/api/admin/reports.json?period=2026')).toBe(true))
+  })
+
+  it('Crafts: list, change a price, add one, hide/show; Parties setup links here', async () => {
+    const f = await signedIn()
+    tab('More')
+    fireEvent.click(await screen.findByRole('button', { name: /Parties setup/ }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Change the crafts' }))
+    const list = await screen.findByRole('list', { name: 'Crafts' })
+    expect(within(list).getByText('Beaded Necklace')).toBeInTheDocument()
+    expect(within(list).getByText(/\$15 a guest · Parties only · No photo/)).toBeInTheDocument()
+    expect(within(list).getByText('Hidden on the website')).toBeInTheDocument()
+    // show the hidden one again
+    fireEvent.click(within(list).getByRole('button', { name: 'Show on website' }))
+    expect((await screen.findAllByText('Pot Holders is back on the website.')).length).toBeGreaterThan(0)
+    expect(posts(f, '/api/admin/crafts.json').at(-1)).toEqual({ action: 'show', id: 'c2' })
+    // change a price
+    fireEvent.click(within(list).getByRole('button', { name: 'Change Beaded Necklace' }))
+    const price = await screen.findByLabelText('Price per guest ($)')
+    expect(within(dialog()).getByRole('button', { name: 'Save craft' })).toBeDisabled()
+    fireEvent.change(price, { target: { value: '20' } })
+    expect(within(dialog()).getByText(/New bookings and the register use the new price/)).toBeInTheDocument()
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Save craft' }))
+    await screen.findByRole('list', { name: 'Crafts' })
+    expect(posts(f, '/api/admin/crafts.json').at(-1)).toEqual({ action: 'update', id: 'c1', version: 3, cents: 2000 })
+    // add one, with the voice notes as hints
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add a craft' }))
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Keychain Bar' } })
+    fireEvent.change(within(dialog()).getByLabelText('Price per guest ($)'), { target: { value: '15' } })
+    fireEvent.change(within(dialog()).getByLabelText('What it is'), { target: { value: 'A birthday keychain: fun' } })
+    expect(within(dialog()).getByText('Leave out colons. Use a period or a comma.')).toBeInTheDocument()
+    expect(within(dialog()).getByRole('region', { name: 'How the card looks' })).toHaveTextContent('No photo yet. The card shows without one.')
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Add craft' }))
+    await screen.findByRole('list', { name: 'Crafts' })
+    const created = posts(f, '/api/admin/crafts.json').at(-1)
+    expect(created).toMatchObject({ action: 'create', name: 'Keychain Bar', cents: 1500, description: 'A birthday keychain: fun', where: 'both', requestId: expect.any(String) })
+  })
+
+  it('Crafts on a test site that can’t change Square: says why, no Add', async () => {
+    await signedIn(server({ craftsRefusal: 'This test site uses the live Square. Switch it to the sandbox before changing the POS.' }))
+    tab('More')
+    fireEvent.click(await screen.findByRole('button', { name: /^Crafts/ }))
+    expect(await screen.findByText(/This test site uses the live Square/)).toBeInTheDocument()
+    expect(within(dialog()).queryByRole('button', { name: '+ Add a craft' })).toBeNull()
   })
 
   it('Records: says what’s inside, asks the passcode again, and saves the file', async () => {

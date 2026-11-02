@@ -197,6 +197,19 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
+    id: 'crafts',
+    title: 'Crafts (party and Craft Café)',
+    points: [
+      'More › **Crafts**: every party and Craft Café craft, with its photo, price per guest and words. Tap a craft to change it, then **Save craft**. **+ Add a craft** adds a new one (then **Add craft**). Parties setup links here with **Change the crafts**.',
+      'Photos are cropped to the card’s shape. A craft with no photo still shows on the website, just without a picture.',
+      'The words box shows how craft descriptions are written (three short paragraphs, about 350 characters, ending with the ages) and suggests fixes as you type. They’re only suggestions; it saves either way.',
+      '**Where it’s offered** (Both, Parties only, Craft Café only), **Made to order** and **Most popular** (one craft at a time) are set on each craft.',
+      'A new price is used for new bookings and on the register. Crafts are always paid at the studio, so nothing already booked changes.',
+      '**Hide on website** takes a craft off /book and the Craft Café menu. It stays on the register, and parties that picked it keep it. **Show on website** puts it back.',
+      'Changes show on the website within a minute. If it says someone changed the craft since you opened it, tap **See the latest** and make your change again.',
+    ],
+  },
+  {
     id: 'calendar',
     title: 'The calendar, blocked time and printing',
     points: [
