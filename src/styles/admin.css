@@ -2520,3 +2520,27 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
 .adm-paygroup:last-child {
   border-bottom: 0;
 }
+
+/* More › Help (DV13) */
+.adm-help-fold {
+  border-bottom: 1px solid var(--adm-line);
+  margin-top: 0;
+  padding-bottom: 0.25rem;
+}
+.adm-help-fold summary {
+  color: var(--color-dark);
+}
+.adm-help-list {
+  margin: 0 0 0.75rem;
+}
+.adm-help-list li {
+  margin: 0 0 0.5rem;
+  overflow-wrap: anywhere;
+}
+.adm-help-rows {
+  display: grid;
+  gap: 0.6rem;
+}
+.adm-help-row {
+  overflow-wrap: anywhere;
+}

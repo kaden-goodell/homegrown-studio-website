@@ -27,6 +27,7 @@ import { ClassSheet, EditClassSheet } from './sheets/ClassSheet'
 import { LibraryEditSheet, LibraryItemSheet } from './sheets/LibrarySheets'
 import { NewClassSheet, RunAgainSheet, ScheduleFromLibrarySheet } from './sheets/NewClassSheet'
 import { ComingSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet } from './sheets/MoreSheets'
+import { HelpSheet } from './sheets/HelpSheet'
 import { ClosedDaysSheet, HoursSheet } from './sheets/SettingsSheets'
 import { ImportSquareSheet } from './sheets/ImportSquareSheet'
 import { StudioProvider } from './shell/studio'
@@ -435,6 +436,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
         case 'import': return <ImportSquareSheet />
         case 'sandbox': return <SandboxSheet />
         case 'who': return <WhoSheet />
+        case 'help': return <HelpSheet />
       }
   }
 }

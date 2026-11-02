@@ -53,6 +53,14 @@ export default function More({ onOpen, onSignOut }: { onOpen: (s: Sheet) => void
           )
         })}
       </ul>
+      <ul className="adm-mlist" aria-label="Help">
+        <li>
+          <button type="button" className="adm-mrow" onClick={() => onOpen({ kind: 'more', page: 'help' })}>
+            <span className="adm-rm"><b>Help</b><small>How to do everything, and what each warning means</small></span>
+            <span className="adm-chev" aria-hidden="true">›</span>
+          </button>
+        </li>
+      </ul>
       <ul className="adm-mlist" aria-label="Classes from Square">
         <li>
           <button type="button" className="adm-mrow" onClick={() => onOpen({ kind: 'more', page: 'import' })}>

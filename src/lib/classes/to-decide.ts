@@ -85,10 +85,13 @@ import { paidOnOrder } from '@lib/booking-core/charge'
 import { providers } from '@config/providers'
 import type { Cents, ScheduledClass } from './types'
 
-export type ToDecideKind =
-  | 'pos-unmatched' | 'refund-plain' | 'refund-failed' | 'refund-unfinished' | 'refund-unconfirmed'
-  | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check' | 'party-paid-unclear' | 'paid-not-seated' | 'party-not-told'
-  | 'party-payment-unclear' | 'party-no-confirmation' | 'party-hold-orphan'
+/** Every kind of To decide item (a runtime list, so /admin › More › Help can be checked against it). */
+export const TO_DECIDE_KINDS = [
+  'pos-unmatched', 'refund-plain', 'refund-failed', 'refund-unfinished', 'refund-unconfirmed',
+  'pos-needs-days', 'below-minimum', 'door-unpaid', 'counter-match-check', 'party-paid-unclear', 'paid-not-seated', 'party-not-told',
+  'party-payment-unclear', 'party-no-confirmation', 'party-hold-orphan',
+] as const
+export type ToDecideKind = (typeof TO_DECIDE_KINDS)[number]
 
 /** One thing waiting for an owner (or decided lately). */
 export interface ToDecideItem {

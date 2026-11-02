@@ -40,14 +40,17 @@ import { partyWarnings } from '@lib/parties/warnings'
 
 const logger = createLogger('warnings')
 
-export type WarningCode =
-  | 'class-over-party' | 'class-over-class' | 'oversold' | 'party-on-closed-day' | 'picks-missing' | 'capacity-unknown' | 'recorded-over-sold'
+/** Every warning code (a runtime list, so /admin › More › Help can be checked against it). */
+export const WARNING_CODES = [
+  'class-over-party', 'class-over-class', 'oversold', 'party-on-closed-day', 'picks-missing', 'capacity-unknown', 'recorded-over-sold',
   // our own classes (Task 14): read-only for the crew; owners decide on /admin
-  | 'below-minimum' | 'pos-unmatched' | 'pos-needs-days' | 'refund-flag' | 'door-unpaid' | 'counter-match-check' | 'classes-unreadable'
+  'below-minimum', 'pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'classes-unreadable',
   // R42: Square shows one of our online bookings paid, but its seats were let go
-  | 'paid-not-seated'
+  'paid-not-seated',
   // our own parties (stage 2 Task 13, ./parties/warnings.ts)
-  | 'party-waiting-payment' | 'party-hold-no-party' | 'party-no-hold' | 'two-parties' | 'party-paid-after-cancel' | 'parties-unreadable'
+  'party-waiting-payment', 'party-hold-no-party', 'party-no-hold', 'two-parties', 'party-paid-after-cancel', 'parties-unreadable',
+] as const
+export type WarningCode = (typeof WARNING_CODES)[number]
 
 export interface Warning {
   code: WarningCode
