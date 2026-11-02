@@ -37,6 +37,7 @@ vi.mock('@lib/staff-directory', () => ({
   staffIdStatus: vi.fn(async (id: string) => (src.teamDown ? 'unknown' : src.team.some((p) => p.id === id && p.active) ? 'yes' : 'no')),
   staffIdForOwner: vi.fn(async (owner: string) => src.team.find((p) => p.role === 'owner' && p.givenName === owner)?.id ?? null),
   FALLBACK_IDS: new Set(['kaden', 'catherine']),
+  staffListReadable: vi.fn(async () => !src.teamDown),
 }))
 
 import * as feedRoute from '@pages/api/calendar/feed/[token].ics'
@@ -238,8 +239,11 @@ describe('making and stopping links', () => {
     await callRoute(staffFeed, 'DELETE', await staffReq('DELETE', me))
     expect((await fetchFeed(tokenOf(b.body.data.https))).status).toBe(404)
     expect(src.audit.map((x) => x.action)).toEqual(['feed.make', 'feed.make', 'feed.revoke'])
-    // a fallback id can't make one
+    // a fallback id can't make one: signed out once the list reads (S5), and refused by the route while it can't
+    expect((await callRoute(staffFeed, 'POST', await staffReq('POST', { id: 'kaden', name: 'Kaden', role: 'owner' }))).status).toBe(401)
+    src.teamDown = true
     expect((await callRoute(staffFeed, 'POST', await staffReq('POST', { id: 'kaden', name: 'Kaden', role: 'owner' }))).status).toBe(403)
+    src.teamDown = false
   })
 
   it('owners: their own whole-studio link; stop a team member\'s link; who has one', async () => {

@@ -5,8 +5,9 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 const { searchMock } = vi.hoisted(() => ({ searchMock: vi.fn() }))
 vi.mock('@providers/square/client', () => ({ createSquareClient: () => ({ teamMembers: { search: searchMock } }) }))
 
+import { makeKvStore } from '@lib/blob-store'
 import { staffCookie, staffAuthorized, checkPasscode, passcodeConfigured } from '@lib/staff-auth'
-import { _resetStaffCache, _resetStaffListForTests, setWorking } from '@lib/staff-directory'
+import { _expireStaffCacheForTests, _resetStaffCache, _resetStaffListForTests, setWorking } from '@lib/staff-directory'
 import { _resetPasscodeCache, _resetPasscodeForTests, setStaffPasscode } from '@lib/staff-passcode'
 
 const member = { id: 'TM1', name: 'Kaden', role: 'owner' as const }
@@ -83,9 +84,40 @@ describe('someone who no longer works here is locked out at once', () => {
     expect(await staffAuthorized(req(c))).toEqual(crew)
   })
 
-  it('the fallback owner ids (handed out only while the list is unreadable) still count', async () => {
+  it('the fallback owner ids count only while the list is unreadable, and stop once it comes back (S5)', async () => {
     const fallback = { id: 'catherine', name: 'Catherine', role: 'owner' as const }
-    expect(await staffAuthorized(req((await staffCookie(fallback)).split(';')[0]))).toEqual(fallback)
+    const c = (await staffCookie(fallback)).split(';')[0]
+    await _resetStaffListForTests()
+    searchMock.mockRejectedValue(new Error('square down'))
+    expect(await staffAuthorized(req(c))).toEqual(fallback)
+    searchMock.mockResolvedValue({ teamMembers: TEAM })
+    _expireStaffCacheForTests()
+    expect(await staffAuthorized(req(c))).toBeNull()
+  })
+
+  it('while the list can’t be read, someone this server already knows left is still refused (S5)', async () => {
+    const c = await cookieOf(crew)
+    await setWorking('TM2', false, BY)
+    expect(await staffAuthorized(req(c))).toBeNull()
+    // The saved list can't be read (a damaged record stands in for a store blip).
+    await makeKvStore('staff-people', 'staff-people').set('people', '{not json')
+    _expireStaffCacheForTests()
+    expect(await staffAuthorized(req(c))).toBeNull()
+    expect(await staffAuthorized(req(await cookieOf(member)))).toEqual(member)
+    // A different server that never read the list lets the cookie through (logged), as before.
+    _resetStaffCache()
+    expect(await staffAuthorized(req(c))).toEqual(crew)
+  })
+
+  it('a failed first import is remembered for a minute: polling iPads don’t each call Square (S5)', async () => {
+    const c = await cookieOf(crew)
+    await _resetStaffListForTests()
+    searchMock.mockRejectedValue(new Error('square down'))
+    for (let i = 0; i < 5; i++) {
+      _resetPasscodeCache()
+      expect(await staffAuthorized(req(c))).toEqual(crew)
+    }
+    expect(searchMock).toHaveBeenCalledTimes(1)
   })
 })
 

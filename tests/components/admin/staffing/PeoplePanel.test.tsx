@@ -3,6 +3,7 @@ import { fireEvent, screen, within } from '@testing-library/react'
 import { renderSheet } from '../sheets/harness'
 import { PeoplePanel } from '@components/admin/staffing/PeoplePanel'
 import { HomeStaffing } from '@components/admin/staffing/HomeStaffing'
+import { HomePasscodeAlert } from '@components/admin/staffing/HomePasscodeAlert'
 import { bodies, ok, refuse } from './fixtures'
 
 const PEOPLE = '/api/admin/staff-people.json'
@@ -34,6 +35,16 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock)
 })
 afterEach(() => vi.unstubAllGlobals())
+
+/** The next staff list read answers `res` (the passcode panel reads on its own, so a plain "once" could go to it). */
+function peopleReadOnce(res: unknown) {
+  const base = fetchMock.getMockImplementation() as (url: string, init?: RequestInit) => Promise<unknown>
+  let used = false
+  fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
+    if (!used && String(url).split('?')[0] === PEOPLE && (init.method ?? 'GET') === 'GET') { used = true; return res }
+    return base(url, init)
+  })
+}
 
 describe('More › Staff › People (our own list)', () => {
   it('shows who works here with contacts and calendar link status; people who left are folded away', async () => {
@@ -119,7 +130,7 @@ describe('More › Staff › People (our own list)', () => {
   })
 
   it('one failed set-up only offers Try again (a short blip never costs the links)', async () => {
-    fetchMock.mockResolvedValueOnce(refuse(503, { error: 'We couldn’t set up the staff list yet. Try again in a minute.', canStartFresh: false }))
+    peopleReadOnce(refuse(503, { error: 'We couldn’t set up the staff list yet. Try again in a minute.', canStartFresh: false }))
     renderSheet(<PeoplePanel />)
     expect(await screen.findByText('We couldn’t set up the staff list yet. Try again in a minute.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
@@ -127,7 +138,7 @@ describe('More › Staff › People (our own list)', () => {
   })
 
   it('after it has kept failing: Try again, and a way to start it with just the owners, with what won’t carry over', async () => {
-    fetchMock.mockResolvedValueOnce(refuse(503, { error: 'We couldn’t set up the staff list yet. Try again in a minute.', canStartFresh: true }))
+    peopleReadOnce(refuse(503, { error: 'We couldn’t set up the staff list yet. Try again in a minute.', canStartFresh: true }))
     renderSheet(<PeoplePanel />)
     expect(await screen.findByText('We couldn’t set up the staff list yet. Try again in a minute.')).toBeInTheDocument()
     expect(screen.getByText(/won’t carry over to the new list/)).toBeInTheDocument()
@@ -175,6 +186,109 @@ describe('Staff passcode', () => {
     const panel = await screen.findByRole('region', { name: 'Staff passcode' })
     expect(await within(panel).findByText(/Changed here by Catherine/)).toBeInTheDocument()
     expect(within(panel).getByRole('button', { name: 'Change the staff passcode' })).toBeDisabled()
+  })
+})
+
+describe('Staff passcode is always reachable (S2) and test sites are plain (m6)', () => {
+  it('when the staff list can’t be read, the passcode panel is still there and still saves', async () => {
+    peopleReadOnce(refuse(503, { error: 'We couldn’t set up the staff list yet. Try again in a minute.', canStartFresh: false }))
+    renderSheet(<PeoplePanel />)
+    expect(await screen.findByText('We couldn’t set up the staff list yet. Try again in a minute.')).toBeInTheDocument()
+    const panel = screen.getByRole('region', { name: 'Staff passcode' })
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Change the staff passcode' }))
+    const form = within(panel).getByRole('group', { name: 'Change the staff passcode' })
+    expect(form).toHaveTextContent('Use at least 6 letters or numbers.')
+    fireEvent.change(within(form).getByLabelText('New passcode'), { target: { value: 'door-4821' } })
+    fireEvent.change(within(form).getByLabelText('Type it again'), { target: { value: 'door-4821' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save new passcode' }))
+    expect(await screen.findByText('The staff passcode is changed. Everyone on the iPad will need the new passcode.')).toBeInTheDocument()
+    expect(bodies(fetchMock, PASSCODE)).toHaveLength(1)
+  })
+
+  it('while the staff list is still loading, the passcode panel shows, and keeps what was typed when the list arrives', async () => {
+    let release: (v: unknown) => void = () => {}
+    const base = fetchMock.getMockImplementation() as (url: string, init?: RequestInit) => Promise<unknown>
+    fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      if (String(url).split('?')[0] === PEOPLE && (init.method ?? 'GET') === 'GET') return new Promise((r) => { release = r })
+      return base(url, init)
+    })
+    renderSheet(<PeoplePanel />)
+    const panel = await screen.findByRole('region', { name: 'Staff passcode' })
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Change the staff passcode' }))
+    fireEvent.change(within(panel).getByLabelText('New passcode'), { target: { value: 'door-4821' } })
+    release(ok({ data: { people: LIST, saved: true, startedFrom: 'square' } }))
+    await screen.findByRole('list', { name: 'Working here' })
+    expect(screen.getByLabelText('New passcode')).toHaveValue('door-4821')
+  })
+
+  it('a damaged saved passcode says nobody can sign in, and saving a new one sends no date (it repairs it)', async () => {
+    const base = fetchMock.getMockImplementation() as (url: string, init?: RequestInit) => Promise<unknown>
+    fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      if (String(url).split('?')[0] === PASSCODE && (init.method ?? 'GET') === 'GET') return ok({ data: { setInAdmin: true, updatedAt: null, by: null, damaged: true, readOnly: false } })
+      return base(url, init)
+    })
+    renderSheet(<PeoplePanel />)
+    const panel = await screen.findByRole('region', { name: 'Staff passcode' })
+    expect(await within(panel).findByText('The saved staff passcode can’t be read, so nobody can sign in to /staff. Set a new one below to fix it.')).toBeInTheDocument()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Change the staff passcode' }))
+    fireEvent.change(within(panel).getByLabelText('New passcode'), { target: { value: 'door-4821' } })
+    fireEvent.change(within(panel).getByLabelText('Type it again'), { target: { value: 'door-4821' } })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Save new passcode' }))
+    await screen.findByText('The staff passcode is changed. Everyone on the iPad will need the new passcode.')
+    expect(bodies(fetchMock, PASSCODE)[0].body.expectedUpdatedAt).toBeNull()
+  })
+
+  it('opened from Home: the passcode form is already open', async () => {
+    renderSheet(<PeoplePanel focusPasscode />)
+    const panel = await screen.findByRole('region', { name: 'Staff passcode' })
+    expect(await within(panel).findByRole('group', { name: 'Change the staff passcode' })).toBeInTheDocument()
+  })
+
+  it('on a test site sharing the live stores, every change button is off and it says why', async () => {
+    const base = fetchMock.getMockImplementation() as (url: string, init?: RequestInit) => Promise<unknown>
+    fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      if (String(url).split('?')[0] === PEOPLE && (init.method ?? 'GET') === 'GET') return ok({ data: { people: LIST, saved: true, startedFrom: 'square', readOnly: true } })
+      return base(url, init)
+    })
+    renderSheet(<PeoplePanel />)
+    expect(await screen.findByText('This is a test site, and it shares the live staff list. So nothing on the list can be changed here. Make changes on the live site.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '+ Add someone' })).toBeDisabled()
+    for (const b of screen.getAllByRole('button', { name: 'Edit' })) expect(b).toBeDisabled()
+    for (const b of screen.getAllByRole('button', { name: 'No longer working here' })) expect(b).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Stop their calendar link' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Working here again' })).toBeDisabled()
+  })
+})
+
+describe('Home › staff passcode line', () => {
+  const home = (data: Record<string, unknown>) => {
+    fetchMock.mockImplementation(async (url: string) => {
+      if (String(url).split('?')[0] === PASSCODE) return ok({ data: { setInAdmin: true, updatedAt: '2026-11-01T15:00:00.000Z', by: 'Catherine', readOnly: false, failedToday: 0, manyFailed: false, damaged: false, ...data } })
+      throw new Error(`unexpected ${url}`)
+    })
+  }
+
+  it('lots of wrong passcodes today: says so, with a button that opens More › Staff › People on the passcode', async () => {
+    home({ failedToday: 31, manyFailed: true })
+    const onOpen = vi.fn()
+    renderSheet(<HomePasscodeAlert onOpen={onOpen} />)
+    expect(await screen.findByText('Lots of wrong staff passcodes today — change it in More › Staff › People')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Change the staff passcode' }))
+    expect(onOpen).toHaveBeenCalledWith({ kind: 'more', page: 'staff' }, { part: 'people', passcode: true })
+  })
+
+  it('a damaged passcode: nobody can sign in, Set a new staff passcode', async () => {
+    home({ damaged: true, updatedAt: null, by: null })
+    renderSheet(<HomePasscodeAlert onOpen={vi.fn()} />)
+    expect(await screen.findByText('The staff passcode can’t be read, so nobody can sign in to /staff. Set a new one in More › Staff › People.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Set a new staff passcode' })).toBeInTheDocument()
+  })
+
+  it('says nothing when all is well', async () => {
+    home({})
+    const { container } = renderSheet(<HomePasscodeAlert onOpen={vi.fn()} />)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(container.querySelector('[aria-label="Staff passcode"]')).toBeNull()
   })
 })
 

@@ -11,6 +11,7 @@ import { useWide } from './shell/useWide'
 import type { InboxSegment } from './inbox/Inbox'
 import { countUnstaffed, HOME_STAFF_DAYS } from './staffing/useUnstaffed'
 import { HomeStaffing } from './staffing/HomeStaffing'
+import { HomePasscodeAlert } from './staffing/HomePasscodeAlert'
 import { tagLookup, useBoard } from './staffing/api'
 import { dayStartIso } from './classes/dates'
 
@@ -118,6 +119,7 @@ export default function Home({ who, onOpen, onInbox }: {
           <small>{unstaffed.error ? 'Couldn’t check staffing. Tap to open Staff.' : 'Need someone on, next 2 weeks'}</small>
         </button>
       </div>
+      <HomePasscodeAlert onOpen={onOpen} />
       <HomeStaffing onOpen={onOpen} />
     </div>
   )

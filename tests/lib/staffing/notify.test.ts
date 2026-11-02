@@ -78,7 +78,7 @@ describe('the words', () => {
 describe('tellPerson', () => {
   it('one email and one text; on a preview the text goes to Kaden only', async () => {
     const r = await tellPerson('on', jessica, klass, 'https://ourhometownstudio.com')
-    expect(r).toEqual({ email: true, text: true, warning: null })
+    expect(r).toEqual({ email: true, text: true, failed: false, warning: null })
     expect(sent.emails).toHaveLength(1)
     expect(sent.emails[0]).toMatchObject({ to: 'jessica@example.com', givenName: 'Jessica', subject: "You're on Needlepoint 101, Sun Oct 25", shiftsUrl: 'https://ourhometownstudio.com/staff' })
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -90,7 +90,7 @@ describe('tellPerson', () => {
   it('a failed text keeps going and says so plainly', async () => {
     fetchMock.mockResolvedValue(new Response('nope', { status: 500 }))
     const r = await tellPerson('on', jessica, klass, 'https://ourhometownstudio.com')
-    expect(r).toEqual({ email: true, text: false, warning: "Saved. The text to Jessica didn't go through." })
+    expect(r).toEqual({ email: true, text: false, failed: true, warning: "Saved. The text to Jessica didn't go through." })
   })
 
   it('missing contact details', async () => {

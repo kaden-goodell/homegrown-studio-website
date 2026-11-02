@@ -34,7 +34,9 @@ type Part = 'board' | 'people'
 type Week = 'this' | 'next' | 'pick'
 
 export function StaffSheet() {
-  const [part, setPart] = useState<Part>('board')
+  const { data } = useSheet()
+  const toPasscode = !!data && typeof data === 'object' && (data as { passcode?: unknown }).passcode === true
+  const [part, setPart] = useState<Part>(toPasscode ? 'people' : 'board')
   const [linkOpen, setLinkOpen] = useState(false)
   const [mine, setMine] = useState<{ has: boolean } | null>(null)
   useEffect(() => {
@@ -54,7 +56,7 @@ export function StaffSheet() {
       )}
     >
       <Seg label="Show" value={part} onChange={setPart} options={[['board', 'Who’s on'], ['people', 'People']]} />
-      {part === 'board' ? <Board /> : <PeoplePanel />}
+      {part === 'board' ? <Board /> : <PeoplePanel focusPasscode={toPasscode} />}
       {linkOpen && createPortal(
         <div className="adm">
           <CalendarLinkSheet

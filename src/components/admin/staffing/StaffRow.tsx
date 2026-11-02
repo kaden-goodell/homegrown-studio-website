@@ -48,6 +48,8 @@ export function StaffRow({ eventKey, startIso, days, onChanged, headingLevel = 3
   const [tell, setTell] = useState(true)
   /** Which change is saving ('' = none): every button waits for it. */
   const [busy, setBusy] = useState('')
+  /** B5: the last message that didn't go through, so the owner can call or text them instead. */
+  const [missed, setMissed] = useState<{ staffId: string; name: string } | null>(null)
   const live = useRef(true)
   useEffect(() => () => { live.current = false }, [])
 
@@ -87,6 +89,7 @@ export function StaffRow({ eventKey, startIso, days, onChanged, headingLevel = 3
   async function change(p: { staffId: string; name: string }, action: 'assign' | 'unassign', all: boolean) {
     if (busy) return
     setBusy(`${action}-${p.staffId}-${all ? 'all' : 'one'}`)
+    setMissed(null)
     const sendTell = tell && !cancelled && (all || !past)
     const keys = all ? (upcomingDays.length ? upcomingDays : days ?? []).map((d) => d.key) : null
     const r = keys
@@ -101,6 +104,8 @@ export function StaffRow({ eventKey, startIso, days, onChanged, headingLevel = 3
       ? keys ? `${p.name} is on ${keys.length === 1 ? 'that day' : `all ${keys.length} days`}.` : `${p.name} is on.`
       : keys ? `${p.name} is off ${keys.length === 1 ? 'that day' : `all ${keys.length} days`}.` : `${p.name} is off.`
     toast(r.warning ? `${done} ${r.warning}` : done)
+    const u = r.extra.undelivered
+    if (u && typeof u.staffId === 'string' && typeof u.name === 'string') setMissed({ staffId: u.staffId, name: u.name })
   }
 
   async function setNeeded(n: number | null) {
@@ -153,6 +158,14 @@ export function StaffRow({ eventKey, startIso, days, onChanged, headingLevel = 3
         </div>
       )}
 
+      {missed && (
+        <div className="adm-panel is-warn adm-gap-bottom" role="group" aria-label={`Tell ${missed.name} yourself`}>
+          <b>{`The message to ${missed.name} didn’t go through`}</b>
+          <span className="adm-small">{`Call or text ${missed.name} to tell them yourself.`}</span>
+          <ContactRow name={missed.name} phone={contacts[missed.staffId]?.phone ?? null} left={contacts[missed.staffId]?.left} />
+          <button type="button" className="adm-quiet" onClick={() => setMissed(null)}>Done</button>
+        </div>
+      )}
       {cant.map((p) => <CheckWith key={p.staffId} person={p} contacts={contacts} />)}
 
       {showTell && (

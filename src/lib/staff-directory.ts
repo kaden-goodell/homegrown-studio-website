@@ -109,10 +109,26 @@ const KEY = 'people'
 /** A few seconds' memory, so one request reading the list several times reads it once. Cleared by every write here. */
 const CACHE_MS = 5_000
 let cache: { at: number; doc: StaffDoc; saved: boolean } | null = null
+/**
+ * The last saved list this server read (S5). When the list can't be read for
+ * a moment, someone this server already knows left is still refused.
+ */
+let lastKnown: StaffDoc | null = null
+/** When the first import last failed on this server: no new Square try for IMPORT_RETRY_MS (S5). */
+let importFailedAt = 0
+export const IMPORT_RETRY_MS = 60_000
 
-/** @internal test-only: forget the cached list. */
+/** @internal test-only: forget the cached list (and this server's memories of it). */
 export function _resetStaffCache(): void {
   cache = null
+  lastKnown = null
+  importFailedAt = 0
+}
+
+/** @internal test-only: forget only the few-seconds cache (as if time passed), keeping this server's last-read list. */
+export function _expireStaffCacheForTests(): void {
+  cache = null
+  importFailedAt = 0
 }
 
 /** Read the list again on the next look. This server only. */
@@ -123,6 +139,8 @@ export function forgetTeamCache(): void {
 /** @internal test-only: delete the saved list (so the next read imports again). */
 export async function _resetStaffListForTests(): Promise<void> {
   cache = null
+  lastKnown = null
+  importFailedAt = 0
   await kv.set(KEY, 'null')
   await kv.set(FAILS_KEY, 'null')
 }
@@ -200,16 +218,21 @@ async function loadDoc(): Promise<{ doc: StaffDoc; saved: boolean }> {
   const first = await readSaved()
   if (first.doc) {
     cache = { at: Date.now(), doc: first.doc, saved: true }
+    lastKnown = first.doc
     return { doc: first.doc, saved: true }
   }
+  // A failed import is remembered for a minute: iPads polling /staff don't each call Square and bump the count.
+  if (importFailedAt && Date.now() - importFailedAt < IMPORT_RETRY_MS) throw new StaffListUnavailable(IMPORT_FAILED)
   let people: StaffRecord[]
   try {
     people = await squareTeamForImport()
   } catch (err) {
     logger.error('Could not bring in the Square team for the first staff list', { error: err instanceof Error ? err.message : String(err) })
+    importFailedAt = Date.now()
     await noteImportFailure()
     throw new StaffListUnavailable(IMPORT_FAILED)
   }
+  importFailedAt = 0
   const now = new Date().toISOString()
   const doc: StaffDoc = { v: 1, startedFrom: 'square', startedAt: now, updatedAt: now, people }
   if (classWritesRefusal()) {
@@ -220,12 +243,14 @@ async function loadDoc(): Promise<{ doc: StaffDoc; saved: boolean }> {
   if (await kv.setIfMatch(KEY, JSON.stringify(doc), first.etag, first.exists)) {
     logger.info('Staff list started from the Square team', { people: people.length })
     cache = { at: Date.now(), doc, saved: true }
+    lastKnown = doc
     return { doc, saved: true }
   }
   // Another server saved the list first: use theirs.
   const again = await readSaved()
   if (!again.doc) throw new StaffListUnavailable(IMPORT_FAILED)
   cache = { at: Date.now(), doc: again.doc, saved: true }
+  lastKnown = again.doc
   return { doc: again.doc, saved: true }
 }
 
@@ -330,7 +355,9 @@ export async function isActiveStaffId(id: string): Promise<boolean> {
 /**
  * Like isActiveStaffId, but tells "not working here" ('no') apart from "the
  * list can't be read at all" ('unknown'), so a calendar link can answer
- * "try again soon" instead of looking dead.
+ * "try again soon" instead of looking dead. While the list can't be read,
+ * the last list this server read still answers for the people on it (so
+ * someone known to have left stays refused); anyone else is 'unknown'.
  */
 export async function staffIdStatus(id: string): Promise<'yes' | 'no' | 'unknown'> {
   if (typeof id !== 'string' || !id || FALLBACK_IDS.has(id)) return 'no'
@@ -338,7 +365,22 @@ export async function staffIdStatus(id: string): Promise<'yes' | 'no' | 'unknown
     const { people } = await teamWithContacts()
     return people.some((p) => p.id === id && p.active) ? 'yes' : 'no'
   } catch {
+    const known = lastKnown?.people.find((p) => p.id === id)
+    if (known) return known.active ? 'yes' : 'no'
     return 'unknown'
+  }
+}
+
+/**
+ * True when the staff list can be read now (S5). The fallback owner ids are
+ * handed out only while it can't, so their cookies stop counting once it can.
+ */
+export async function staffListReadable(): Promise<boolean> {
+  try {
+    await loadDoc()
+    return true
+  } catch {
+    return false
   }
 }
 
@@ -354,7 +396,8 @@ export async function staffIdForOwner(owner: Owner): Promise<string | null> {
   } catch {
     return null
   }
-  const linked = people.filter((p) => p.owner === owner)
+  // The link counts only while they're still an Owner (S4: an edit to Crew clears it, and older lists may still carry it).
+  const linked = people.filter((p) => p.owner === owner && p.role === 'owner')
   if (linked.length === 1) return linked[0].id
   const want = owner.trim().toLowerCase()
   const hits = people.filter((p) => p.role === 'owner' && !p.owner && p.givenName.trim().toLowerCase() === want)
@@ -438,6 +481,7 @@ async function change<T>(fn: (doc: StaffDoc, now: string) => { doc: StaffDoc; re
     const saved: StaffDoc = { ...next.doc, updatedAt: now }
     if (await kv.setIfMatch(KEY, JSON.stringify(saved), etag, exists)) {
       cache = { at: Date.now(), doc: saved, saved: true }
+      lastKnown = saved
       return next.result
     }
   }
@@ -477,7 +521,9 @@ export async function editPerson(id: string, raw: unknown, by: By, expectedUpdat
       (was.email ?? '') !== input.email ? 'email' : null,
     ].filter(Boolean)
     if (what.length === 0) return { doc, result: was, unchanged: true }
-    const next = pushHistory({ ...was, givenName: input.givenName, familyName: input.familyName, role: input.role, phone: input.phone || null, email: input.email || null }, now, by, `${by.name} changed ${what.join(', ')}`)
+    // Made crew: no longer linked to an /admin owner (S4), so "You're on" never follows the wrong person.
+    const owner = input.role === 'crew' ? null : was.owner
+    const next = pushHistory({ ...was, givenName: input.givenName, familyName: input.familyName, role: input.role, owner, phone: input.phone || null, email: input.email || null }, now, by, `${by.name} changed ${what.join(', ')}`)
     const people = doc.people.slice()
     people[at] = next
     return { doc: { ...doc, people }, result: next }
@@ -520,6 +566,8 @@ export async function startFresh(by: By): Promise<StaffDoc> {
   const doc: StaffDoc = { v: 1, startedFrom: 'fresh', startedAt: now, updatedAt: now, people }
   if (!(await kv.setIfMatch(KEY, JSON.stringify(doc), first.etag, first.exists))) throw new StaffingError(409, STAFF_MESSAGES.already)
   cache = { at: Date.now(), doc, saved: true }
+  lastKnown = doc
+  importFailedAt = 0
   return doc
 }
 

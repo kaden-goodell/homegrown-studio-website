@@ -18,10 +18,10 @@ export const STORE_DOWN = "We couldn't reach the staffing records. Try again."
 export const json = (status: number, body: unknown, headers: Record<string, string> = {}) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers } })
 
-export async function staffingReply(fn: () => Promise<{ data: unknown; warning?: string }>): Promise<Response> {
+export async function staffingReply(fn: () => Promise<{ data: unknown; warning?: string; undelivered?: { staffId: string; name: string } }>): Promise<Response> {
   try {
-    const { data, warning } = await fn()
-    return json(200, { data, ...(warning ? { warning } : {}) })
+    const { data, warning, undelivered } = await fn()
+    return json(200, { data, ...(warning ? { warning } : {}), ...(undelivered ? { undelivered } : {}) })
   } catch (e) {
     return staffingFailure(e)
   }

@@ -9,7 +9,7 @@ const src = vi.hoisted(() => ({
   team: [] as any[],
   audit: [] as any[],
   told: [] as any[],
-  tellResult: { email: true, text: true, warning: null as string | null },
+  tellResult: { email: true, text: true, failed: false, warning: null as string | null } as { email: boolean; text: boolean; failed?: boolean; warning: string | null },
 }))
 
 vi.mock('@lib/audit', () => ({ recordAudit: vi.fn(async (e: any) => { src.audit.push(e) }) }))
@@ -78,7 +78,7 @@ beforeEach(() => {
   src.team = [person('TM1', 'Kaden', 'owner'), person('TM4', 'Catherine', 'owner'), person('TM2', 'Jessica'), person('TM3', 'Sam')]
   src.audit = []
   src.told = []
-  src.tellResult = { email: true, text: true, warning: null }
+  src.tellResult = { email: true, text: true, failed: false, warning: null }
 })
 
 describe('who may', () => {
@@ -193,9 +193,16 @@ describe('assign and unassign', () => {
   it("a message that didn't go keeps the assignment and says so", async () => {
     const c = klass()
     src.classes = [c]
-    src.tellResult = { email: true, text: false, warning: "Saved. The text to Jessica didn't go through." }
+    src.tellResult = { email: true, text: false, failed: true, warning: "Saved. The text to Jessica didn't go through." }
     const r = await call('POST', { action: 'assign', key: keyOf(c), staffId: 'TM2', tell: true })
     expect(r).toMatchObject({ status: 200, body: { warning: "Saved. The text to Jessica didn't go through." } })
+    // B5: the sheet is told who to call or text instead.
+    expect(r.body.undelivered).toEqual({ staffId: 'TM2', name: expect.any(String) })
+    const off = await call('POST', { action: 'unassign', key: keyOf(c), staffId: 'TM2', tell: true })
+    expect(off.body.undelivered).toEqual({ staffId: 'TM2', name: expect.any(String) })
+    src.tellResult = { email: true, text: true, failed: false, warning: null }
+    const fine = await call('POST', { action: 'assign', key: keyOf(c), staffId: 'TM2', tell: true })
+    expect(fine.body.undelivered).toBeUndefined()
     expect((await getEntries([keyOf(c)])).get(keyOf(c))!.assigned.map((a) => a.staffId)).toEqual(['TM2'])
   })
 

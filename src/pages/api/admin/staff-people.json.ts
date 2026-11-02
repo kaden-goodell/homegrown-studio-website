@@ -8,6 +8,7 @@ import {
 import { feedStatus, revokeFeed } from '@lib/staffing/feed-store'
 import { staffingRows } from '@lib/staffing/events'
 import { json, staffingFailure } from '@lib/staffing/http'
+import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
 
 export const prerender = false
@@ -17,7 +18,7 @@ const DAY_MS = 86_400_000
 
 /**
  * Owners only: our own staff list (D5), /admin › More › Staff › People.
- * GET → { people: [...with phone, email, calendar link status], saved, startedFrom }.
+ * GET → { people: [...with phone, email, calendar link status], saved, startedFrom, readOnly }.
  *   The first look brings in the Square team once (same ids). When that
  *   fails: 503 { error, canStartFresh: true }.
  * POST
@@ -42,6 +43,8 @@ export const GET: APIRoute = async ({ request }) => {
         people: list.people.map((p, i) => ({ ...p, feed: statuses[i] })),
         saved: list.saved,
         startedFrom: list.startedFrom,
+        // m6: a test site sharing the live stores can't change the live list (the buttons are off, with why).
+        readOnly: !!classWritesRefusal(),
       },
     })
   } catch (e) {

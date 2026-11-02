@@ -13,7 +13,7 @@ vi.mock('@providers/square/client', () => ({
 import {
   listStaff, teamWithContacts, isActiveStaffId, staffIdStatus, staffIdForOwner, FALLBACK_IDS,
   staffListForOwners, addPerson, editPerson, setWorking, startFresh, ensureCrewPerson, cleanPerson,
-  _resetStaffCache, _resetStaffListForTests, _setImportFailuresForTests, canStartFresh, STAFF_MESSAGES, IMPORT_FAILED, StaleStaffError,
+  _resetStaffCache, _expireStaffCacheForTests, _resetStaffListForTests, _setImportFailuresForTests, canStartFresh, STAFF_MESSAGES, IMPORT_FAILED, StaleStaffError,
 } from '@lib/staff-directory'
 import { NO_TEST_STORE } from '@lib/classes/test-site-guard'
 import { makeKvStore } from '@lib/blob-store'
@@ -111,7 +111,9 @@ describe('first use: the Square team is brought in once, with the same ids', () 
     expect(await canStartFresh()).toBe(false)
     await expect(startFresh(BY)).rejects.toThrow(STAFF_MESSAGES.tooSoon)
     // Three tries in a row, a minute apart: still too soon.
+    _expireStaffCacheForTests()
     await expect(teamWithContacts()).rejects.toThrow(IMPORT_FAILED)
+    _expireStaffCacheForTests()
     await expect(teamWithContacts()).rejects.toThrow(IMPORT_FAILED)
     expect(await canStartFresh()).toBe(false)
     expect(await canStartFresh(Date.now() + 11 * 60_000)).toBe(true)
@@ -253,6 +255,30 @@ describe('staffIdForOwner', () => {
     await _resetStaffListForTests()
     searchMock.mockRejectedValue(new Error('square down'))
     expect(await staffIdForOwner('Kaden')).toBeNull()
+  })
+})
+
+describe('S4: the owner link follows the Owner role', () => {
+  it('a crew member named Catherine who came in as Owner: made Crew, the link is cleared, and the real Catherine added by hand is found', async () => {
+    searchMock.mockResolvedValue({ teamMembers: [
+      { id: 'TM1', givenName: 'Kaden', familyName: 'Goodell', status: 'ACTIVE', isOwner: true },
+      { id: 'TM9', givenName: 'Catherine', familyName: 'Smith', status: 'ACTIVE', isOwner: false },
+    ] })
+    expect(await staffIdForOwner('Catherine')).toBe('TM9')
+    const smith = (await staffListForOwners()).people.find((p) => p.id === 'TM9')!
+    const edited = await editPerson('TM9', { givenName: 'Catherine', familyName: 'Smith', role: 'crew', phone: '', email: '' }, BY, smith.updatedAt)
+    expect(edited.owner).toBeNull()
+    expect(await staffIdForOwner('Catherine')).toBeNull()
+    const real = await addPerson({ givenName: 'Catherine', familyName: 'Goodell', role: 'owner', phone: '', email: '' }, BY)
+    expect(await staffIdForOwner('Catherine')).toBe(real.id)
+  })
+
+  it('an older list where a Crew person still carries the link: the link is ignored', async () => {
+    const kv = makeKvStore('staff-people', 'staff-people')
+    const rec = (id: string, givenName: string, role: string, owner: string | null) => ({ id, givenName, familyName: '', role, owner, email: null, phone: null, active: true, leftAt: null, from: 'square', createdAt: 'x', updatedAt: 'x', history: [] })
+    await kv.set('people', JSON.stringify({ v: 1, startedFrom: 'square', startedAt: 'x', updatedAt: 'x', people: [rec('TM1', 'Kaden', 'owner', 'Kaden'), rec('TM9', 'Catherine', 'crew', 'Catherine'), rec('TM4', 'Catherine', 'owner', null)] }))
+    _resetStaffCache()
+    expect(await staffIdForOwner('Catherine')).toBe('TM4')
   })
 })
 

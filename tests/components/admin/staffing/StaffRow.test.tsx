@@ -79,6 +79,23 @@ describe('Staff section', () => {
     expect(within(check).getByRole('link', { name: /Text Jessica/ })).toHaveAttribute('href', 'sms:+12565550199')
   })
 
+  it("a message that didn't go through: Call and Text for that person stay on the sheet until Done (B5)", async () => {
+    fetchMock.mockResolvedValueOnce(loaded())
+    renderSheet(<StaffRow eventKey="ses:ses_1" />)
+    await screen.findByRole('list', { name: 'Who can work' })
+    const after = row({ people: [person('TM1', 'Kaden'), person('TM2', 'Jessica', { assigned: true }), person('TM3', 'Sam')] })
+    fetchMock.mockResolvedValueOnce(ok({ data: { row: after }, warning: "Saved. The text to Jessica didn't go through.", undelivered: { staffId: 'TM2', name: 'Jessica' } }))
+    fireEvent.click(within(screen.getAllByRole('listitem')[1]).getByRole('button', { name: 'Put on' }))
+    expect(await screen.findByText("Jessica is on. Saved. The text to Jessica didn't go through.")).toBeInTheDocument()
+    const tell = screen.getByRole('group', { name: 'Tell Jessica yourself' })
+    expect(tell).toHaveTextContent('The message to Jessica didn’t go through')
+    expect(tell).toHaveTextContent('Call or text Jessica to tell them yourself.')
+    expect(within(tell).getByRole('link', { name: /Call Jessica/ })).toHaveAttribute('href', 'tel:+12565550199')
+    expect(within(tell).getByRole('link', { name: /Text Jessica/ })).toHaveAttribute('href', 'sms:+12565550199')
+    fireEvent.click(within(tell).getByRole('button', { name: 'Done' }))
+    expect(screen.queryByRole('group', { name: 'Tell Jessica yourself' })).toBeNull()
+  })
+
   it('no phone saved: says where to add one', async () => {
     fetchMock.mockResolvedValueOnce(loaded(row({ people: [person('TM3', 'Sam', { assigned: true, verdict: 'cant' })] })))
     renderSheet(<StaffRow eventKey="ses:ses_1" />)

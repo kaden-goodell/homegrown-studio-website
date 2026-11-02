@@ -175,6 +175,7 @@ async function assign(keys: EventKey[], hints: Map<EventKey, string | null>, man
 
   const warnings: string[] = []
   let told: { email: boolean; text: boolean } | null = null
+  let undelivered = false
   // A batch tells them about every upcoming day they're on and haven't been told about yet, not just the
   // days added now: when an earlier try saved Mon–Tue and then failed, the retry's one message lists them all (m2).
   // A single assign keeps to what was just added (a double tap never sends twice).
@@ -187,6 +188,7 @@ async function assign(keys: EventKey[], hints: Map<EventKey, string | null>, man
     // One message for every day they were just put on.
     const r = await tellPerson('on', person, toTell.map((x) => x.event), origin)
     told = { email: r.email, text: r.text }
+    undelivered = r.failed
     if (r.warning) warnings.push(r.warning)
     if (r.email || r.text) {
       const how = [r.text ? 'text' : null, r.email ? 'email' : null].filter(Boolean).join(' and ')
@@ -214,7 +216,9 @@ async function assign(keys: EventKey[], hints: Map<EventKey, string | null>, man
   }
   const fresh = rows.map((row, i) => refreshRow(row, saved[i]))
   const warning = warnings.length ? { warning: warnings.join(' ') } : {}
-  return many ? { data: { rows: fresh }, ...warning } : { data: { row: fresh[0] }, ...warning }
+  // B5: a message that didn't go through → the sheet offers Call / Text for that person.
+  const missed = undelivered ? { undelivered: { staffId: person.id, name: person.name } } : {}
+  return many ? { data: { rows: fresh }, ...warning, ...missed } : { data: { row: fresh[0] }, ...warning, ...missed }
 }
 
 async function unassign(keys: EventKey[], hints: Map<EventKey, string | null>, many: boolean, staffId: unknown, tell: boolean, by: By, origin: string) {
@@ -248,12 +252,14 @@ async function unassign(keys: EventKey[], hints: Map<EventKey, string | null>, m
 
   let warning: string | null = null
   let told: { email: boolean; text: boolean } | null = null
+  let undelivered = false
   const person = people.find((p) => p.id === staffId && p.active)
   // Only tell someone still on the team, about classes or parties still on and still to come, in one message.
   const toTell = removed.filter((r) => r.event.status === 'on' && upcoming(r, now))
   if (removedAny && tell && person && toTell.length > 0) {
     const r = await tellPerson('off', person, toTell.map((x) => x.event), origin)
     told = { email: r.email, text: r.text }
+    undelivered = r.failed
     warning = r.warning
   }
   for (let i = 0; i < keys.length; i++) {
@@ -264,7 +270,7 @@ async function unassign(keys: EventKey[], hints: Map<EventKey, string | null>, m
       details: { staffId, name, toldByEmail: told?.email ?? false, toldByText: told?.text ?? false },
     })
   }
-  const w = warning ? { warning } : {}
+  const w = { ...(warning ? { warning } : {}), ...(undelivered && person ? { undelivered: { staffId: person.id, name: person.name } } : {}) }
   if (many) return { data: { rows: rows.map((r, i) => (r ? refreshRow(r, saved[i]) : null)), entries: saved }, ...w }
   return { data: { row: rows[0] ? refreshRow(rows[0], saved[0]) : null, entry: saved[0] }, ...w }
 }

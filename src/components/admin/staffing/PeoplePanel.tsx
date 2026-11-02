@@ -7,9 +7,14 @@
  * are-you-sure is asked here, never in a browser pop-up.
  *
  * Staff passcode (bus factor): an owner sets a new /staff passcode here. It
- * is never shown back, and saving it signs everyone out of /staff.
+ * is never shown back, and saving it signs everyone out of /staff. It shows
+ * even while the staff list is loading or can't be read (S2): that is when
+ * the passcode is the only lock left.
+ *
+ * On a test site that shares the live stores (R41) every change button is
+ * off, with a sentence saying why (m6).
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { api } from '../classes/api'
 import { dayAndClock } from '../shell/time'
 import { Failed, Seg, Skeleton } from '../shell/items'
@@ -40,11 +45,13 @@ const full = (p: { givenName: string; familyName: string }) => `${p.givenName} $
 
 type Confirm = null | { kind: 'leave' | 'stop-link'; id: string }
 
-export function PeoplePanel() {
+/** `focusPasscode`: opened from Home's "Change the staff passcode": scroll to it with the form open. */
+export function PeoplePanel({ focusPasscode = false }: { focusPasscode?: boolean } = {}) {
   const toast = useToast()
   const { bump } = useRefresh()
   const [people, setPeople] = useState<PersonView[] | null>(null)
   const [saved, setSaved] = useState(true)
+  const [readOnly, setReadOnly] = useState(false)
   const [error, setError] = useState('')
   const [canStartFresh, setCanStartFresh] = useState(false)
   const [tries, setTries] = useState(0)
@@ -63,9 +70,9 @@ export function PeoplePanel() {
   useEffect(() => {
     let current = true
     setError('')
-    api<{ people: PersonView[]; saved: boolean }>(PEOPLE).then((r) => {
+    api<{ people: PersonView[]; saved: boolean; readOnly?: boolean }>(PEOPLE).then((r) => {
       if (!current) return
-      if (r.ok && r.data) { setPeople(r.data.people); setSaved(r.data.saved); setCanStartFresh(false) }
+      if (r.ok && r.data) { setPeople(r.data.people); setSaved(r.data.saved); setReadOnly(r.data.readOnly === true); setCanStartFresh(false) }
       else { setError(r.error ?? 'Couldn’t read the staff list.'); setCanStartFresh(r.extra.canStartFresh === true) }
     })
     return () => { current = false }
@@ -146,9 +153,14 @@ export function PeoplePanel() {
     reload()
   }
 
+  const passcode = <PasscodePanel onDirty={setPassDirty} focus={focusPasscode} />
+
+  // The passcode panel sits at the same place in every state (loading, failed, loaded), so it never reloads or loses typing.
+  const frame = (body: ReactNode) => <section aria-label="People"><div>{body}</div>{passcode}</section>
+
   if (error) {
-    return (
-      <section aria-label="People">
+    return frame(
+      <>
         <Failed message={error} onRetry={reload} />
         {canStartFresh && (
           <div className="adm-panel adm-gap-top">
@@ -164,10 +176,13 @@ export function PeoplePanel() {
               )}
           </div>
         )}
-      </section>
+      </>,
     )
   }
-  if (!people) return <Skeleton rows={3} label="Loading the staff list" />
+  if (!people) return frame(<Skeleton rows={3} label="Loading the staff list" />)
+
+  /** Nothing on the list can be changed here (a test site). */
+  const locked = !saved || readOnly
 
   const working = people.filter((p) => p.active)
   const left = people.filter((p) => !p.active)
@@ -183,11 +198,13 @@ export function PeoplePanel() {
     />
   )
 
-  return (
-    <section aria-label="People">
-      {!saved && <p className="adm-note">This test site shows the team read only. Changes are made on the live site.</p>}
+  return frame(
+    <>
+      {readOnly
+        ? <p className="adm-note">This is a test site, and it shares the live staff list. So nothing on the list can be changed here. Make changes on the live site.</p>
+        : !saved && <p className="adm-note">This test site shows the team read only. Changes are made on the live site.</p>}
       {editing === 'new' ? editForm : (
-        <button type="button" className="adm-btn is-pri adm-gap-bottom" disabled={!saved} onClick={() => startEdit('new')}>+ Add someone</button>
+        <button type="button" className="adm-btn is-pri adm-gap-bottom" disabled={locked} onClick={() => startEdit('new')}>+ Add someone</button>
       )}
       <p className="adm-lbl">{`Working here (${working.length})`}</p>
       <ul className="adm-plain" aria-label="Working here">
@@ -201,7 +218,7 @@ export function PeoplePanel() {
                     <small>{[phoneWords(p.phone) || 'No phone saved', p.email || 'No email saved'].join(' · ')}</small>
                     <small>{linkWords(p)}</small>
                   </div>
-                  <button type="button" className="adm-btn is-ghost is-sm" disabled={!saved || !!busy} onClick={() => startEdit(p)}>Edit</button>
+                  <button type="button" className="adm-btn is-ghost is-sm" disabled={locked || !!busy} onClick={() => startEdit(p)}>Edit</button>
                 </div>
                 {p.phone && <ContactRow name={p.givenName} phone={p.phone} />}
                 {confirm?.id === p.id && confirm.kind === 'leave' && (
@@ -227,8 +244,8 @@ export function PeoplePanel() {
                 )}
                 {!confirm || confirm.id !== p.id ? (
                   <div className="adm-person-actions">
-                    {p.feed?.has && <button type="button" className="adm-quiet" disabled={!!busy} onClick={() => setConfirm({ kind: 'stop-link', id: p.id })}>Stop their calendar link</button>}
-                    <button type="button" className="adm-quiet" disabled={!saved || !!busy} onClick={() => setConfirm({ kind: 'leave', id: p.id })}>No longer working here</button>
+                    {p.feed?.has && <button type="button" className="adm-quiet" disabled={readOnly || !!busy} onClick={() => setConfirm({ kind: 'stop-link', id: p.id })}>Stop their calendar link</button>}
+                    <button type="button" className="adm-quiet" disabled={locked || !!busy} onClick={() => setConfirm({ kind: 'leave', id: p.id })}>No longer working here</button>
                   </div>
                 ) : null}
               </>
@@ -247,27 +264,28 @@ export function PeoplePanel() {
                     <b>{full(p)}</b>
                     <small>{p.leftAt ? `Left ${dayAndClock(p.leftAt)}` : 'Left'}</small>
                   </div>
-                  <button type="button" className="adm-btn is-ghost is-sm" disabled={!saved || !!busy} onClick={() => setWorking(p, true)}>{busy === `work-${p.id}` ? 'Saving…' : 'Working here again'}</button>
+                  <button type="button" className="adm-btn is-ghost is-sm" disabled={locked || !!busy} onClick={() => setWorking(p, true)}>{busy === `work-${p.id}` ? 'Saving…' : 'Working here again'}</button>
                 </div>
               </li>
             ))}
           </ul>
         </details>
       )}
-      <PasscodePanel onDirty={setPassDirty} />
-    </section>
+    </>,
   )
 }
 
-interface PasscodeView { setInAdmin: boolean; updatedAt: string | null; by: string | null; readOnly: boolean }
+interface PasscodeView { setInAdmin: boolean; updatedAt: string | null; by: string | null; damaged?: boolean; readOnly: boolean }
 
-/** Staff passcode: change it here; never shown back. Saving signs everyone out of /staff. */
-export function PasscodePanel({ onDirty }: { onDirty?: (dirty: boolean) => void }) {
+/** Staff passcode: change it here; never shown back. Saving signs everyone out of /staff. `focus`: scroll here with the form open. */
+export function PasscodePanel({ onDirty, focus = false }: { onDirty?: (dirty: boolean) => void; focus?: boolean }) {
   const toast = useToast()
   const [view, setView] = useState<PasscodeView | null>(null)
   const [error, setError] = useState('')
   const [tries, setTries] = useState(0)
   const [open, setOpen] = useState(false)
+  const box = useRef<HTMLElement>(null)
+  const focused = useRef(false)
   const [code, setCode] = useState('')
   const [again, setAgain] = useState('')
   const [formError, setFormError] = useState('')
@@ -287,6 +305,13 @@ export function PasscodePanel({ onDirty }: { onDirty?: (dirty: boolean) => void 
     })
     return () => { current = false }
   }, [tries])
+
+  useEffect(() => {
+    if (!focus || !view || focused.current) return
+    focused.current = true
+    if (!view.readOnly) setOpen(true)
+    box.current?.scrollIntoView?.({ block: 'start' })
+  }, [focus, view])
 
   function close() {
     setOpen(false)
@@ -312,14 +337,19 @@ export function PasscodePanel({ onDirty }: { onDirty?: (dirty: boolean) => void 
   }
 
   return (
-    <section aria-label="Staff passcode" className="adm-gap-top">
+    <section ref={box} aria-label="Staff passcode" className="adm-gap-top">
       <p className="adm-lbl">Staff passcode</p>
       {error && <Failed message={error} onRetry={() => setTries((n) => n + 1)} />}
       {!error && !view && <Skeleton rows={1} label="Checking the staff passcode" />}
       {view && (
         <>
+          {view.damaged && (
+            <p className="adm-panel is-warn" role="alert">The saved staff passcode can’t be read, so nobody can sign in to /staff. Set a new one below to fix it.</p>
+          )}
           <p className="adm-small">
-            {view.setInAdmin && view.updatedAt
+            {view.damaged
+              ? 'This is the passcode everyone types to sign in to /staff on the iPad.'
+              : view.setInAdmin && view.updatedAt
               ? `Changed here${view.by ? ` by ${view.by}` : ''} ${dayAndClock(view.updatedAt)}. It’s never shown again after it’s saved.`
               : 'This is the passcode everyone types to sign in to /staff on the iPad. You can change it any time, for example when someone stops working here.'}
           </p>
@@ -330,6 +360,7 @@ export function PasscodePanel({ onDirty }: { onDirty?: (dirty: boolean) => void 
             <div className="adm-panel adm-gap-top" role="group" aria-label="Change the staff passcode">
               <b>Change the staff passcode</b>
               <span className="adm-small">Everyone on the iPad will need the new passcode. Anyone signed in to /staff now is signed out.</span>
+              <span className="adm-small">Use at least 6 letters or numbers.</span>
               <label className="adm-fld"><span>New passcode</span><input type="password" value={code} autoComplete="new-password" maxLength={40} onChange={(e) => { setCode(e.target.value); setFormError('') }} /></label>
               <label className="adm-fld"><span>Type it again</span><input type="password" value={again} autoComplete="new-password" maxLength={40} onChange={(e) => { setAgain(e.target.value); setFormError('') }} /></label>
               {formError && <p className="adm-error" role="alert">{formError}</p>}

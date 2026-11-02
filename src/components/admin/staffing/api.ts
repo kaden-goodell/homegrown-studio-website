@@ -18,6 +18,8 @@ export const STAFFING = '/api/admin/staffing.json'
 export const OWNER_FEED = '/api/admin/feed.json'
 export const PEOPLE = '/api/admin/staff-people.json'
 export const PASSCODE = '/api/admin/staff-passcode.json'
+/** What Home hands More › Staff to open on People › Staff passcode, with the form open. */
+export const PASSCODE_OPEN = { part: 'people', passcode: true } as const
 
 /** Owners only: how to reach each person (`left` = no longer working here). */
 export type Contacts = Record<string, { phone: string | null; email: string | null; left?: boolean }>

@@ -1,8 +1,9 @@
 import type { APIRoute } from 'astro'
 import { checkPasscode, passcodeConfigured, clearStaffCookie } from '@lib/staff-auth'
 import { listStaff } from '@lib/staff-directory'
-import { rateLimited } from '@lib/rate-limit'
+import { rateLimited, rateLimitFull } from '@lib/rate-limit'
 import { recordAudit } from '@lib/audit'
+import { noteFailedSignIn, SIGNIN_BUCKET, SIGNIN_MAX, SIGNIN_WINDOW_MS } from '@lib/staff-signin-failures'
 
 export const prerender = false
 
@@ -12,7 +13,8 @@ export const prerender = false
  * once a specific staff member is chosen.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  if (rateLimited(`staff-login:${clientAddress}`, 5, 5 * 60_000)) {
+  // One bucket of wrong passcodes per address, shared with pick.json (S1): 5 per 5 minutes; right ones don't count.
+  if (rateLimitFull(SIGNIN_BUCKET(clientAddress), SIGNIN_MAX, SIGNIN_WINDOW_MS)) {
     return new Response(JSON.stringify({ error: 'Too many attempts — wait a few minutes.' }), { status: 429 })
   }
   if (!(await passcodeConfigured())) {
@@ -24,6 +26,8 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     // A wrong passcode has no staff identity yet; log where it came from.
     // (A good one is logged at pick.json, once a person is chosen. Rate-limited
     // requests return above, so this can't be used to flood the log.)
+    rateLimited(SIGNIN_BUCKET(clientAddress), SIGNIN_MAX, SIGNIN_WINDOW_MS)
+    await noteFailedSignIn()
     await recordAudit({
       by: { id: 'unknown', name: 'Unknown (wrong passcode)', role: 'crew' },
       action: 'staff.login-refused',

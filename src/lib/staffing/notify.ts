@@ -83,7 +83,8 @@ export function shiftsLinkFor(origin: string): { bare: string; url: string } {
   return { bare: `${host}/staff`, url: `https://${host}/staff` }
 }
 
-export interface Told { email: boolean; text: boolean; warning: string | null }
+/** `failed`: a saved phone or email was tried and didn't go through (the owner is offered Call / Text). */
+export interface Told { email: boolean; text: boolean; warning: string | null; failed: boolean }
 
 /**
  * Sends the email and the text to one person. Never throws. `warning` is
@@ -109,7 +110,8 @@ export async function tellPerson(kind: 'on' | 'off', person: Pick<StaffPerson, '
       logger.error('Shift text failed', { error: err instanceof Error ? err.message : String(err) })
     }
   }
-  return { email, text, warning: toldWarning(name, { hasEmail: !!person.email, hasPhone: !!person.phone, email, text }) }
+  const failed = (!!person.phone && !text) || (!!person.email && !email)
+  return { email, text, failed, warning: toldWarning(name, { hasEmail: !!person.email, hasPhone: !!person.phone, email, text }) }
 }
 
 /** What the owner is told when a message didn't go. */

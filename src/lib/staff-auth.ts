@@ -12,16 +12,17 @@
  *
  * Every signed-in request also checks the person still works here (the staff
  * list): someone marked "No longer working here" is refused at once, not after
- * their cookie runs out. When the list can't be read at all, the cookie is
- * allowed (logged), so a store blip never locks the door; the two fallback
- * owner ids (handed out only while the list is unreadable) are allowed too.
+ * their cookie runs out. When the list can't be read at all, the last list
+ * this server read still refuses anyone it knows left; anyone else is allowed
+ * (logged), so a store blip never locks the door. The two fallback owner ids
+ * (handed out only while the list is unreadable) count only while it still is.
  *
  * `Secure` is added only in prod builds — `netlify dev` serves plain http, and
  * Safari (unlike Chrome) drops `Secure` cookies over http, breaking local dev.
  */
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { createLogger } from '@lib/logger'
-import { FALLBACK_IDS, staffIdStatus } from '@lib/staff-directory'
+import { FALLBACK_IDS, staffIdStatus, staffListReadable } from '@lib/staff-directory'
 import { matchesRecord, readPasscodeRecord } from '@lib/staff-passcode'
 
 const COOKIE = 'hg_staff'
@@ -112,7 +113,8 @@ export async function staffAuthorized(request: Request): Promise<StaffMember | n
   } catch {
     return null
   }
-  if (FALLBACK_IDS.has(member.id)) return member
+  // The fallback owner ids are handed out only while the list can't be read; once it can, they stop counting (S5).
+  if (FALLBACK_IDS.has(member.id)) return (await staffListReadable()) ? null : member
   const status = await staffIdStatus(member.id)
   if (status === 'no') return null
   if (status === 'unknown') logger.warn('Staff list unreadable — letting a signed-in person through', { id: member.id })
