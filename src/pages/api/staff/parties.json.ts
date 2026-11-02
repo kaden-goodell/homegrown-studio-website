@@ -1,16 +1,21 @@
 import type { APIRoute } from 'astro'
 import { staffAuthorized } from '@lib/staff-auth'
-import { listParties } from '@lib/party-store'
+import { isOurs, listParties, partyEndIso } from '@lib/party-store'
+import { dueCents } from '@lib/parties/money'
 import { listWaiversByParty } from '@lib/waiver-store'
 
 export const prerender = false
 
-/** Staff-only: list parties with an RSVP count, newest first. */
+/**
+ * Staff-only: list parties with an RSVP count, newest first. A cancelled
+ * party is left out (its record stays for refunds on /admin); a party of
+ * ours with something still to pay says so ("Waiting on payment").
+ */
 export const GET: APIRoute = async ({ request }) => {
   if (!staffAuthorized(request)) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   }
-  const parties = await listParties()
+  const parties = (await listParties()).filter((p) => p.status !== 'cancelled')
   const withCounts = await Promise.all(
     parties.map(async (p) => {
       const waivers = await listWaiversByParty(p.bookingId)
@@ -19,6 +24,8 @@ export const GET: APIRoute = async ({ request }) => {
         bookingId: p.bookingId,
         craftName: p.craftName,
         startIso: p.startIso,
+        endIso: partyEndIso(p) ?? null,
+        waitingOnPayment: isOurs(p) && dueCents(p) > 0,
         title: p.title,
         hostName: p.hostName,
         hostPhone: p.hostPhone ?? null,

@@ -49,8 +49,11 @@ export function andList(words: string[]): string {
  * and says which): "the studio fee", "the studio fee and Goodie bags",
  * "Goodie bags". `items`: the ones to name (default: what is due now).
  */
+/** "Goodie bags" → "goodie bags" mid-sentence; "DJ" stays "DJ". */
+const midSentence = (label: string) => (/^[A-Z][a-z]/.test(label) ? label.charAt(0).toLowerCase() + label.slice(1) : label)
+
 export function whatIsDue(rec: PartyRecord, items = (rec.items ?? []).filter((it) => it.chargeId === null)): string {
-  const words = [...new Set(items.map((it) => (it.kind === 'package' ? 'the studio fee' : it.label)))]
+  const words = [...new Set(items.map((it) => (it.kind === 'package' ? 'the studio fee' : midSentence(it.label))))]
   return andList(words) || 'your party'
 }
 

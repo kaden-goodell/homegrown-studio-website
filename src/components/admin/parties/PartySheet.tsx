@@ -264,17 +264,6 @@ function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: Adm
     show({ title: 'Extras', text, warn: !r.ok || !!r.warning })
   }
 
-  /**
-   * A time left held for this party (m8): let only that time go (release-hold, never a move). The start and
-   * version this screen shows go with it, so a party changed elsewhere meanwhile is refused (T12 re-review N1).
-   */
-  async function letGoOf(iso: string) {
-    const r = await act<{ message: string }>({ action: 'release-hold', holdIso: iso, shownStartIso: p.startIso, shownVersion: p.timeVersion }, `free-${iso}`)
-    const text = r.ok ? (r.warning ?? r.data.message) : r.error
-    toast(text)
-    show({ title: 'Held time', text, warn: !r.ok || !!r.warning })
-  }
-
   const lastSent = p.linkSent.length ? p.linkSent[p.linkSent.length - 1] : null
   const charges: AmountCharge[] = p.charges.filter((c) => !c.simulated).map((c) => ({
     id: c.id,
@@ -285,7 +274,6 @@ function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: Adm
   const waiting: WaitingAmountRefund | null = waitingReq ? { requestId: waitingReq.requestId, cents: waitingReq.cents, at: waitingReq.at, by: waitingReq.by, chargeId: waitingReq.chargeId } : null
   const canPay = !cancelled && p.dueCents > 0 && !paying
   const paidCents = p.charges.reduce((s, c) => s + c.cents, 0) - p.refunds.reduce((s, f) => s + f.cents, 0)
-  const leftovers = cancelled ? [] : (p.leftoverHolds ?? [])
   const paidRows = p.charges.length + p.refunds.length
 
   // The footer keeps only Call and Text while a panel, the card box or a form is open (I7: nothing pinned under them).
@@ -326,19 +314,13 @@ function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: Adm
           <span className="adm-small">{paidCents > 0 ? `Nothing was refunded. ${formatMoney(paidCents)} is still with us. Use Refund on the Payments tab if ${first} should get money back.` : 'Nothing is owed either way.'}</span>
         </div>
       )}
+      <HoldPanels party={p} onDone={(text) => show({ title: 'Held time', text })} />
       {p.overlap && !cancelled && (
         <div className="adm-panel is-warn adm-gap-bottom" role="alert">
           <b>Two parties at once</b>
           <span className="adm-small">{`${first} paid after this time was taken by another party. Nothing was refunded. Move one of the parties, then let the hosts know.`}</span>
         </div>
       )}
-      {leftovers.map((h) => (
-        <div key={h} className="adm-panel is-warn adm-gap-bottom" role="group" aria-label={`${dayAndClock(h)} still held`}>
-          <b>{`${dayAndClock(h)} still shows as held for this party`}</b>
-          <span className="adm-small">{`Nobody else can book it. The party itself is on ${dayAndClock(p.startIso)}. Letting it go changes nothing else and sends nothing.`}</span>
-          <button type="button" className="adm-btn is-ghost" disabled={busy === `free-${h}`} onClick={() => letGoOf(h)}>{busy === `free-${h}` ? 'Letting it go…' : `Let ${startClock(h)} go`}</button>
-        </div>
-      ))}
       <Seg label="Party" value={tab} onChange={setTab} options={[['details', 'Details'], ['guests', 'Guests'], ['pay', p.dueCents > 0 && !cancelled ? `Payments · ${formatMoney(p.dueCents)} due` : 'Payments']]} />
 
       {tab === 'details' && (
@@ -520,7 +502,7 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
     if (!to || busy) return
     setBusy(true)
     setRefusal('')
-    const r = await api<{ message: string; hostToTell: HostToTell; sendDetails: SendDetailsOffer }>(PARTY_ACTIONS, { id: p.bookingId, action: 'move', startIso: to, fromIso: target?.from ?? p.startIso })
+    const r = await api<{ message: string; hostToTell: HostToTell; sendDetails: SendDetailsOffer | null; from: string | null; to: string }>(PARTY_ACTIONS, { id: p.bookingId, action: 'move', startIso: to, fromIso: target?.from ?? p.startIso })
     setBusy(false)
     if (!r.ok || !r.data) {
       setRefusal(r.error ?? DIDNT_SAVE)
@@ -534,7 +516,9 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
     setFinish(null)
     applied(r.data)
     toast(r.data.message)
-    onMoved({ title: `Moved ${first}’s party`, text: r.warning ?? r.data.message, warn: !!r.warning })
+    // Nothing moved (already on that time): a plain "Nothing changed" heading.
+    const moved = !r.data.from || Date.parse(r.data.from) !== Date.parse(r.data.to)
+    onMoved({ title: moved ? `Moved ${first}’s party` : 'Nothing changed', text: r.warning ?? r.data.message, warn: !!r.warning })
   }
 
   return (
@@ -584,6 +568,84 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
 }
 
 // ── Cancel ──────────────────────────────────────────────────────────────────
+
+/**
+ * The party book's repairs, each one button with its own safety rules on the server:
+ * "Hold this time again" (a booked party whose time isn't held), "Free this time" (a cancelled
+ * party still holding a time) and "Free the old time" (a leftover hold after a move). Nothing
+ * is sent to the host and no money moves.
+ */
+function HoldPanels({ party: p, onDone }: { party: AdminParty; onDone: (text: string) => void }) {
+  const { bump } = useRefresh()
+  const applied = useApplied()
+  const toast = useToast()
+  const [busy, setBusy] = useState('')
+  const [asking, setAsking] = useState<string | null>(null)
+  const [refusal, setRefusal] = useState('')
+  const st = p.holdState
+  if (!st) return null
+  const first = firstOf(p.hostName)
+  const cancelled = p.status === 'cancelled'
+  async function send(body: Record<string, unknown>, tag: string) {
+    setBusy(tag)
+    setRefusal('')
+    const r = await api<{ message: string }>(PARTY_ACTIONS, { id: p.bookingId, ...body })
+    setBusy('')
+    if (!r.ok || !r.data) {
+      // Changed elsewhere since this screen loaded: show the party as it is now (the refusal stays).
+      if (typeof r.extra?.startIso === 'string') bump()
+      return setRefusal(r.error ?? DIDNT_SAVE)
+    }
+    setAsking(null)
+    // The reply carries the party book's view: the panel that was acted on goes at once (the reload follows).
+    applied(r.data)
+    toast(r.data.message)
+    onDone(r.data.message)
+  }
+  const notHeld = !cancelled && st.notHeld
+  if (!notHeld && st.freeable.length === 0) return null
+  return (
+    <div className="adm-stack adm-gap-bottom">
+      {notHeld && (
+        <div className="adm-panel is-warn" role="group" aria-label="Not held on the calendar">
+          <b>{st.notHeld === 'short' ? 'Extra time not held on the calendar' : 'Not held on the calendar'}</b>
+          <span className="adm-small">{st.notHeld === 'short'
+            ? `The extra time of ${first}’s party isn’t held, so someone else could book right after it. Holding it again keeps the party where it is and sends nothing to ${first}.`
+            : `${dayAndClock(p.startIso)} isn’t held for ${first}’s party, so someone else could book it. Holding it again keeps the party where it is and sends nothing to ${first}.`}</span>
+          <button type="button" className="adm-btn is-pri" disabled={busy === 'hold'} onClick={() => send({ action: 'hold-again' }, 'hold')}>{busy === 'hold' ? 'Holding…' : 'Hold this time again'}</button>
+        </div>
+      )}
+      {st.freeable.map((f) => {
+        const when = dayAndClock(f.startIso)
+        const own = Date.parse(f.startIso) === Date.parse(p.startIso)
+        const button = f.why === 'cancelled' ? (own ? 'Free this time' : `Free ${when}`) : `Free the old time (${when})`
+        const tag = `free-${f.startIso}`
+        if (asking === f.startIso) {
+          return (
+            <div key={tag} className="adm-panel is-warn" role="group" aria-label={`Free ${when}?`}>
+              <b>{f.why === 'cancelled' ? `Free ${when} so others can book it?` : `${first}’s party stays on ${dayAndClock(p.startIso)}. Free ${when}?`}</b>
+              <span className="adm-small">{`Nothing is sent to ${first} and no money moves.`}</span>
+              <div className="adm-two">
+                <button type="button" className="adm-btn is-ghost" onClick={() => { setAsking(null); setRefusal('') }}>Keep it</button>
+                <button type="button" className="adm-btn is-danger" disabled={busy === tag} onClick={() => send({ action: 'free-time', startIso: f.startIso, shownStartIso: p.startIso, shownVersion: p.timeVersion }, tag)}>{busy === tag ? 'Freeing…' : (f.why === 'cancelled' ? 'Free this time' : 'Free the old time')}</button>
+              </div>
+            </div>
+          )
+        }
+        return (
+          <div key={tag} className="adm-panel is-warn" role="group" aria-label={`${when} still held`}>
+            <b>{`${when} is still held`}</b>
+            <span className="adm-small">{f.why === 'cancelled'
+              ? `This party was cancelled, but ${when} is still held for it, so nobody can book that time.`
+              : `${first}’s party moved to ${dayAndClock(p.startIso)}, but ${when} is still held for it, so nobody can book that time.`}</span>
+            <button type="button" className="adm-btn is-ghost" onClick={() => { setAsking(f.startIso); setRefusal('') }}>{button}</button>
+          </div>
+        )
+      })}
+      {refusal && <p className="adm-error" role="alert">{refusal}</p>}
+    </div>
+  )
+}
 
 function CancelPanel({ party: p, paidCents, onClose, onDone }: { party: AdminParty; paidCents: number; onClose: () => void; onDone: (t: Told) => void }) {
   const applied = useApplied()

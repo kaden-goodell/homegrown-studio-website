@@ -375,3 +375,48 @@ describe('Roster for one of our classes (Task 14)', () => {
     expect(options).toEqual(['Who is it?', 'Jamie Rivera']) // Gia is already on a booking
   })
 })
+
+describe('Roster for one of our parties (stage 2 Task 13)', () => {
+  afterEach(() => { vi.restoreAllMocks() })
+  const PARTY = { kind: 'party', id: 'pty_0000000000000001', title: 'Suncatchers Party', startIso: '2026-11-14T20:00:00.000Z', endIso: '2026-11-14T22:00:00.000Z', days: ['2026-11-14'], dropOff: false, waitingOnPayment: true }
+
+  function serve(partyMoney: any) {
+    const posts: any[] = []
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (url: any, init?: any) => {
+      const href = String(url)
+      if (href.includes('/api/staff/incidents.json')) return { ok: true, json: async () => ({ data: { incidents: [] } }) } as Response
+      if (href.includes('/api/staff/party-refund.json')) {
+        posts.push(JSON.parse(init.body))
+        return { ok: true, status: 200, json: async () => ({ data: { cents: 30000, emailed: true } }) } as Response
+      }
+      return { ok: true, json: async () => ({ data: { event: PARTY, day: '2026-11-14', summary: { households: 0, people: 0, childrenHereNow: 0 }, households: [], partyMoney } }) } as Response
+    })
+    render(<Roster staff={staff} onBack={vi.fn()} kind="party" id={PARTY.id} />)
+    return posts
+  }
+
+  it('shows its span with extra time and that it is waiting on payment', async () => {
+    serve({ payer: 'Stefanie Justice', charges: [], waiting: null, dueCents: 30000, cancelled: false })
+    expect(await screen.findByText('Waiting on payment')).toBeInTheDocument()
+    expect(screen.getByText(/Sat, Nov 14 · 2–4 PM/)).toBeInTheDocument()
+  })
+
+  it('a cancelled party reached by a direct link says Cancelled (not Waiting on payment)', async () => {
+    serve({ payer: 'Stefanie Justice', charges: [], waiting: null, dueCents: 0, cancelled: true })
+    expect(await screen.findByText('Cancelled')).toBeInTheDocument()
+    expect(screen.queryByText('Waiting on payment')).toBeNull()
+  })
+
+  it('crew refund on a party needs a reason, then names the host and the amount', async () => {
+    const posts = serve({ payer: 'Stefanie Justice', charges: [{ id: 'chg_1', left: 30000, label: 'Paid online when booked · Sat, Nov 7 2:00 PM · $300' }], waiting: null, dueCents: 0, cancelled: false })
+    fireEvent.click(await screen.findByRole('button', { name: 'Refund' }))
+    const go = screen.getByRole('button', { name: 'Refund $300' })
+    expect(go).toBeDisabled()
+    expect(screen.getByTestId('refund-hint')).toHaveTextContent('Add a reason to refund.')
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Host is sick' } })
+    expect(screen.getByText('Refund $300 to Stefanie Justice? This sends money back to their card. The party stays booked.')).toBeInTheDocument()
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Refund $300' })) })
+    expect(posts).toHaveLength(1)
+    expect(posts[0]).toMatchObject({ partyId: PARTY.id, chargeId: 'chg_1', cents: 30000, reason: 'Host is sick' })
+  })
+})

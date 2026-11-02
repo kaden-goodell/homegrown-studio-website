@@ -15,6 +15,9 @@ import { getClass } from '@lib/classes/class-store'
 import { isOwnClassId } from '@lib/classes/staff-view'
 import type { EventOutcome } from '@lib/waiver-page'
 
+/** What a guest sees on the invite and RSVP pages of a party that was cancelled. */
+export const PARTY_CANCELLED_NOTICE = 'This party was cancelled.'
+
 export async function waiverEventOutcome(eventKind: 'party' | 'workshop' | null, rawId: string | undefined, now = new Date()): Promise<EventOutcome> {
   if (!eventKind || !rawId) return { kind: 'none' }
   try {
@@ -31,6 +34,8 @@ export async function waiverEventOutcome(eventKind: 'party' | 'workshop' | null,
           : 'That link wasn’t recognized — ask the studio for a fresh link. You can still sign the general agreement below.',
       }
     }
+    // A party that was cancelled: say so, and no form (nothing to RSVP to).
+    if (event.cancelled) return { kind: 'cancelled', notice: PARTY_CANCELLED_NOTICE }
     // Days-based rule, aligned with sign.json's validateEvent: past once every
     // day of the event is before yesterday (studio-local).
     if (isEventPast(event, now)) return { kind: 'past', notice: 'This event has already happened.' }

@@ -5,8 +5,10 @@ import Layout from '@layouts/Layout.astro'
 import { inviteContent as c } from '@config/invite-content'
 import { partyConfig } from '@config/party.config'
 import { googleCalendarUrl, buildIcs, icsDataUrl, addMinutesIso, partyInviteIcsUrl } from '@lib/party-share'
-import { getPartyRecord, type PartyRecord } from '@lib/party-store'
+import { getPartyRecord, partyEndIso, type PartyRecord } from '@lib/party-store'
 import { formatWhen } from '@lib/studio-time'
+import { PARTY_CANCELLED_NOTICE } from '@lib/waiver-event'
+import { inviteHead } from '@lib/parties/invite-head'
 
 const params = Astro.url.searchParams
 const partyId = params.get('party') ?? ''
@@ -34,15 +36,17 @@ const isPast = record
   ? new Date(record.startIso).getTime() + 24 * 3600_000 < Date.now()
   : false
 
+// A cancelled party: say so, and no RSVP or calendar (the host's details and payments are never on this page).
+const isCancelled = record?.status === 'cancelled'
+
 const hasDetails = Boolean(partyId && craft && when)
-const headline = hasDetails
-  ? (title ? c.headlineWithTitle.replace('{title}', title) : c.headlineDefault)
-  : c.fallback.headline
+// A cancelled party leads with that (and in link previews): no "You're invited", no date or time.
+const { eyebrow, headline, subline, pageTitle, description, showDetails } = inviteHead({ cancelled: isCancelled, hasDetails, title, craft, when })
 
 const waiverHref = partyId ? `/waiver?party=${encodeURIComponent(partyId)}` : '/waiver'
 const ctaLabel = hasDetails ? c.rsvp.cta : c.fallback.cta
 
-const details = [
+const details = !showDetails ? [] : [
   { label: c.labels.craft, value: craft },
   { label: c.labels.when, value: when },
   { label: c.labels.where, value: c.where },
@@ -50,11 +54,12 @@ const details = [
 
 // Build calendar links when we have a start time, so guests can add the party.
 let calendar: { google: string; ics: string } | null = null
-if (start && !isPast) {
+if (start && !isPast && !isCancelled) {
   const event = {
     title: title ? `${title} — Hometown Studio` : `${craft} Party — Hometown Studio`,
     startIso: start,
-    endIso: addMinutesIso(start, partyConfig.durationMinutes),
+    // The party's own end (extra time included) when the record is known.
+    endIso: (record && partyEndIso(record)) || addMinutesIso(start, partyConfig.durationMinutes),
     // Invitee's calendar event links back to the invitation / RSVP page.
     details: `We're making ${craft} at Hometown Studio.\n\nInvitation & RSVP: ${Astro.url.href}`,
     location: c.where,
@@ -69,8 +74,8 @@ if (start && !isPast) {
 ---
 
 <Layout
-  title="You're Invited"
-  description={hasDetails ? `${craft} · ${when} · at Hometown Studio. Tap to RSVP.` : "You're invited to a craft party at Hometown Studio."}
+  title={pageTitle}
+  description={description}
   ogTitle={headline}
   shareUrl={Astro.url.pathname + Astro.url.search}
   noindex
@@ -90,13 +95,13 @@ if (start && !isPast) {
       "
     >
       <p class="eyebrow tone-party mb-4">
-        {c.eyebrow}
+        {eyebrow}
       </p>
       <h1 class="text-3xl sm:text-4xl font-heading font-bold" style="color: var(--color-dark);">
         {headline}
       </h1>
       <p class="text-base mt-4 max-w-md mx-auto" style="color: var(--color-muted);">
-        {c.subline}
+        {subline}
       </p>
 
       {details.length > 0 && (
@@ -131,7 +136,11 @@ if (start && !isPast) {
         class="mt-8"
         style="border-top: 1px solid rgba(var(--color-primary-rgb),0.14); padding-top: 1.75rem;"
       >
-        {isPast ? (
+        {isCancelled ? (
+          <p class="text-base max-w-md mx-auto" data-testid="party-cancelled" style="color: var(--color-dark); font-weight: 600;">
+            {PARTY_CANCELLED_NOTICE}
+          </p>
+        ) : isPast ? (
           /* Past-party state: friendly closed message, no RSVP CTA */
           <div>
             <p class="text-base max-w-md mx-auto" style="color: var(--color-muted); margin-bottom: 1.25rem;">

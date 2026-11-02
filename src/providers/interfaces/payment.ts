@@ -103,6 +103,13 @@ export interface PaymentProvider {
    */
   findOrderPayment(orderId: string): Promise<Payment | null>
 
+  /**
+   * True when Square shows a payment on this order that is still going
+   * through (APPROVED or PENDING): not paid yet, not failed either. Optional:
+   * a provider without it is read as "none going through".
+   */
+  orderPaymentInFlight?(orderId: string): Promise<boolean>
+
   refundPayment(input: {
     paymentId: string
     amountCents: number

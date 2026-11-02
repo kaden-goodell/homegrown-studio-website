@@ -425,7 +425,11 @@ function originOf(requestUrl?: string): string {
  * the payment link): its first payment sends the full confirmation (host
  * page, invite link, calendar, crafts per person) instead of a plain receipt.
  */
-export async function tellLinkPaid(rec: PartyRecord, charge: PartyCharge, origin: string = siteConfig.url): Promise<HostEmailed | null> {
+export async function tellLinkPaid(
+  rec: PartyRecord, charge: PartyCharge, origin: string = siteConfig.url,
+  /** ownerDecided: an owner recorded it from To decide, so no "Party paid" text to the owners about their own tap */
+  opts: { ownerDecided?: boolean } = {},
+): Promise<HostEmailed | null> {
   let mine = true
   try {
     let claimed = false
@@ -472,8 +476,8 @@ export async function tellLinkPaid(rec: PartyRecord, charge: PartyCharge, origin
     }
     emailed = { kind: 'receipt', sent }
   }
-  // An owner took this card themselves: they already know.
-  if (charge.via === 'admin-card') return emailed
+  // An owner took this card themselves, or just recorded it from To decide: they already know.
+  if (charge.via === 'admin-card' || opts.ownerDecided) return emailed
   await alertOwners(`Party paid: ${rec.hostName} paid ${dollars(charge.cents)} for ${paidFor} by payment link, party on ${whenLabel}.`).catch(() => undefined)
   return emailed
 }

@@ -270,11 +270,11 @@ export async function extendHold(
   })
 }
 
-/** Lets the time go, held or booked. */
-export async function releaseTime(partyId: string, startIso: string): Promise<void> {
-  await mutate(monthOf(startIso), (cur) => {
-    if (!cur.holds.some((h) => sameTime(h, partyId, startIso))) return { next: null, result: undefined }
-    return { next: { ...cur, holds: cur.holds.filter((h) => !sameTime(h, partyId, startIso)) }, result: undefined }
+/** Lets the time go, held or booked. True when a hold of this party was removed; false when it held nothing there. */
+export async function releaseTime(partyId: string, startIso: string): Promise<boolean> {
+  return mutate<boolean>(monthOf(startIso), (cur) => {
+    if (!cur.holds.some((h) => sameTime(h, partyId, startIso))) return { next: null, result: false }
+    return { next: { ...cur, holds: cur.holds.filter((h) => !sameTime(h, partyId, startIso)) }, result: true }
   })
 }
 

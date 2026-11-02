@@ -163,7 +163,7 @@ export function useParty(id: string) {
       party: {
         ...party,
         refundRequests: party.refundRequests ?? was?.refundRequests ?? [],
-        leftoverHolds: party.leftoverHolds ?? was?.leftoverHolds ?? [],
+        holdState: party.holdState !== undefined ? party.holdState : (was?.holdState ?? null),
         payUrl: party.dueCents > 0 && party.status !== 'cancelled' ? (party.payUrl ?? was?.payUrl ?? null) : null,
       },
     }

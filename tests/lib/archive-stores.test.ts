@@ -32,6 +32,11 @@ describe('archive store list', () => {
     for (const name of found) expect(ARCHIVE_STORE_NAMES, `store "${name}" is missing from the archive`).toContain(name)
   })
 
+  it('covers the party records and every new parties store (party-locks, party-checkouts too)', () => {
+    for (const name of storeNamesIn(join(root, 'src/lib/party-store.ts'))) expect(ARCHIVE_STORE_NAMES).toContain(name)
+    for (const name of ['parties', 'party-settings', 'party-payments', 'party-book', 'party-locks', 'party-checkouts']) expect(ARCHIVE_STORE_NAMES).toContain(name)
+  })
+
   it('covers the class photos and the legacy seat picks', () => {
     for (const name of [...storeNamesIn(join(root, 'src/pages/api/admin/classes/photo.json.ts')), ...storeNamesIn(join(root, 'src/lib/seat-choices.ts'))]) {
       expect(ARCHIVE_STORE_NAMES).toContain(name)

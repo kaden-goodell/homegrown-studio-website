@@ -40,7 +40,7 @@ import { reportBooking } from '@lib/posthog-server'
 import { cleanAttribution } from '@lib/attribution'
 import { sendPartyConfirmationEmail } from '@lib/email'
 import { issueEmailFixTicket, onFileToAskAbout } from '@lib/email-fix'
-import { partyInviteUrl, googleCalendarUrl, buildIcs } from '@lib/party-share'
+import { partyInviteUrl, googleCalendarUrl, buildIcs, partyCalendarIds } from '@lib/party-share'
 import { formatSlotLabel, formatCalendarDate } from '@lib/studio-time'
 import { lookupHouseholdEntry } from '@lib/waiver-store'
 import { withUtm } from '@lib/utm'
@@ -422,7 +422,7 @@ export async function sendPartyBookedEmail(input: {
       receiptUrl: input.receiptUrl,
       googleCalendarUrl: googleCalendarUrl(calEvent),
       // One calendar event per booking (UID from the booking id), its SEQUENCE bumped by every move or edit: a re-sent invite replaces the old one.
-      icsContent: buildIcs(calEvent, { uid: `party-${partyId}`, sequence: draft.calendarSeq ?? 0, stamp: new Date().toISOString() }),
+      icsContent: buildIcs(calEvent, partyCalendarIds(partyId, draft.calendarSeq)),
       bookingRef: partyId,
       bookingId: partyId,
       ...(input.onFile ? { alsoTo: input.onFile } : {}),

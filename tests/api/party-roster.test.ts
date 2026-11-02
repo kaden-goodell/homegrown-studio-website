@@ -10,7 +10,8 @@ const mockGetPartyRecord = vi.fn()
 const mockListWaiversByParty = vi.fn()
 const mockGetCheckin = vi.fn()
 
-vi.mock('@lib/party-store', () => ({
+vi.mock('@lib/party-store', async (importOriginal) => ({
+  ...(await importOriginal<any>()),
   getPartyRecord: (...args: any[]) => mockGetPartyRecord(...args),
   hostTokenValid: (party: any, key: string) => !!party && key === 'good-key',
 }))
@@ -91,5 +92,59 @@ describe('GET /api/party/roster.json — host headcount with duplicate children'
     expect(res.status).toBe(200)
     const json = await res.json()
     expect(json.data.summary.people).toBe(3)
+  })
+})
+
+describe('GET /api/party/roster.json — our party records (stage 2)', () => {
+  let GET: any
+  const ours = (over: Record<string, unknown> = {}) => ({
+    bookingId: 'pty_0000000000000001', hostToken: 'good-key', craftName: 'Suncatchers', startIso: '2026-12-05T20:00:00.000Z', durationMinutes: 90,
+    hostName: 'Alice Test', hostEmail: 'a@x.com', guestCount: 10, title: null, dropOff: false, createdAt: '2026-11-01T00:00:00Z',
+    source: 'ours', status: 'booked', endIso: '2026-12-05T22:00:00.000Z', payToken: 'paykey', calendarSeq: 2,
+    items: [
+      { id: 'itm_p', kind: 'package', refId: 'pkg_whole', label: 'Whole studio', qty: 1, unitCents: 30000, cents: 30000, extraMinutes: 0, chargeId: null, addedAt: '', by: null },
+      { id: 'itm_x', kind: 'addon', refId: 'add_time', label: 'Extra half hour', qty: 1, unitCents: 5000, cents: 5000, extraMinutes: 30, chargeId: null, addedAt: '', by: null },
+    ],
+    charges: [], refunds: [],
+    ...over,
+  })
+  const load = async () => (await GET({ url: new URL('http://localhost/api/party/roster.json?party=pty_0000000000000001&key=good-key') } as any)).json()
+
+  beforeEach(async () => {
+    vi.clearAllMocks()
+    mockListWaiversByParty.mockResolvedValue([])
+    GET = (await import('@pages/api/party/roster.json')).GET
+  })
+
+  it('the end includes extra time; the calendar sequence comes along', async () => {
+    mockGetPartyRecord.mockResolvedValue(ours())
+    const { data } = await load()
+    expect(data.party).toMatchObject({ endIso: '2026-12-05T22:00:00.000Z', cancelled: false, calendarSeq: 2 })
+  })
+
+  it('studio fee and an extra due: the host’s pay link names them (never crafts)', async () => {
+    mockGetPartyRecord.mockResolvedValue(ours())
+    const { data } = await load()
+    expect(data.party.pay).toEqual({ cents: 35000, what: 'the studio fee and extra half hour', url: 'http://localhost/party/pay/pty_0000000000000001?k=paykey' })
+  })
+
+  it('paid in full: no pay link', async () => {
+    const rec = ours()
+    mockGetPartyRecord.mockResolvedValue({ ...rec, items: (rec.items as any[]).map((it) => ({ ...it, chargeId: 'chg_1' })) })
+    expect((await load()).data.party.pay).toBeNull()
+  })
+
+  it('cancelled: says so and never offers a payment', async () => {
+    mockGetPartyRecord.mockResolvedValue(ours({ status: 'cancelled' }))
+    const { data } = await load()
+    expect(data.party.cancelled).toBe(true)
+    expect(data.party.pay).toBeNull()
+  })
+
+  it('a party booked in Square: no pay link, its end from its length', async () => {
+    mockGetPartyRecord.mockResolvedValue({ bookingId: 'party-1', craftName: 'Suncatchers', startIso: '2026-09-05T14:00:00.000Z', durationMinutes: 120, hostName: 'Alice Test', guestCount: 10, title: null })
+    const { data } = await GET({ url: new URL('http://localhost/api/party/roster.json?party=party-1&key=good-key') } as any).then((r: Response) => r.json())
+    expect(data.party.pay).toBeNull()
+    expect(data.party.endIso).toBe('2026-09-05T16:00:00.000Z')
   })
 })

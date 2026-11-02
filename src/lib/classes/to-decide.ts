@@ -26,6 +26,23 @@
  *                        → Confirm the party (once Square shows it paid) · It wasn't paid
  *                        Or Square shows a party order paid with nothing here
  *                        to record it from → Sorted it in Square
+ *   party-payment-unclear a payment on a party already booked (its payment link,
+ *                        or a card taken in /admin) got no answer from Square
+ *                        → It went through (recorded from Square's payment on that
+ *                        order, never a guess) · It didn't go through (only once
+ *                        Square shows that order unpaid)
+ *   party-no-confirmation a party recorded paid whose booking stopped before the
+ *                        host's confirmation went out → Done (after Email the details)
+ *   party-hold-orphan    a party time held (booked, or for a payment link) that no
+ *                        party record is on → Free this time (only once the hold is
+ *                        older than the checkout hold window and no payment of any
+ *                        kind is attached to it; see parties/hold-actions)
+ *
+ * Party decisions run inside that party's lock (withPartyLock) and re-check
+ * "already decided" inside it, so a double tap records one decision. Each one
+ * is fenced (assertPartyLockHeld) right before it writes the party record,
+ * the party book or a checkout, so a server whose lease was taken over never
+ * writes.
  *   paid-not-seated      Square shows one of our online bookings paid, but its
  *                        seats were let go before it could be confirmed (R42)
  *                        → Give them their seat (over capacity if need be) · Sorted it in Square
@@ -53,16 +70,23 @@ import {
 import { isComing } from './seat-status'
 import { assertClassWritesAllowed, TestSiteStoreError } from './test-site-guard'
 import { onStaffConsole } from './staff-view'
-import { getPartyRecord, isOurs, listParties, PartyNotFoundError, updatePartyRecord } from '@lib/party-store'
+import { getPartyRecord, isOurs, listParties, PartyNotFoundError, updatePartyRecord, type PartyRecord } from '@lib/party-store'
 import { clearPartyRefundRequest, partyLabel } from '@lib/parties/refunds'
 import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
-import { deletePaidElsewhere, listCheckouts } from '@lib/parties/party-checkouts'
-import { confirmUnclearParty, notPaidUnclearParty, PartyUnclearError } from '@lib/parties/square-orders'
+import { deleteCheckout, deletePaidElsewhere, listCheckouts } from '@lib/parties/party-checkouts'
+import { confirmUnclearParty, notPaidUnclearParty, paidElsewhereWhy, PartyUnclearError } from '@lib/parties/square-orders'
+import { recordLinkCharge, tellLinkPaid } from '@lib/parties/pay-balance'
+import { holdsBetween } from '@lib/parties/party-book'
+import { freeOrphanHold, lastingHold, OrphanHoldError } from '@lib/parties/hold-actions'
+import { assertPartyLockHeld, PartyBusyError, withPartyLock } from '@lib/parties/party-lock'
+import { paidOnOrder } from '@lib/booking-core/charge'
+import { providers } from '@config/providers'
 import type { Cents, ScheduledClass } from './types'
 
 export type ToDecideKind =
   | 'pos-unmatched' | 'refund-plain' | 'refund-failed' | 'refund-unfinished' | 'refund-unconfirmed'
   | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check' | 'party-paid-unclear' | 'paid-not-seated' | 'party-not-told'
+  | 'party-payment-unclear' | 'party-no-confirmation' | 'party-hold-orphan'
 
 /** One thing waiting for an owner (or decided lately). */
 export interface ToDecideItem {
@@ -360,6 +384,8 @@ async function partyItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
     const stale = c.state === 'charging' && now.getTime() - Date.parse(c.updatedAt) >= PARTY_CHARGING_STALE_MS
     if (c.state !== 'unclear' && c.state !== 'paid-elsewhere' && !stale) continue
     const elsewhere = c.state === 'paid-elsewhere'
+    const who = `${c.host.firstName} ${c.host.lastName}`.trim() || 'Someone'
+    const when = c.startIso ? whenText(c.startIso) : 'a party'
     // Sorted out since (a retry, Square's payment event or an owner recorded it paid): not waiting any more.
     if (!elsewhere) {
       // A failed read shows the item (Confirm is safe on a recorded party) rather than hiding the rest.
@@ -367,17 +393,27 @@ async function partyItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
         console.error(`[to-decide] party ${c.partyId}: ${e instanceof Error ? e.message : String(e)}`)
         return null
       })
-      if (rec && (rec.charges?.length ?? 0) > 0) continue
+      if (rec && (rec.charges?.length ?? 0) > 0) {
+        // Recorded paid, but the booking stopped before the host's confirmation went out (Task 7 M1).
+        if (rec.confirmation?.sent || rec.status === 'cancelled') continue
+        const id = tokenOf(`pnc-${c.partyId}`)
+        if (skip.has(id)) continue
+        out.push({
+          id, kind: 'party-no-confirmation', title: 'Party booked, no confirmation', at: c.updatedAt,
+          head: `${rec.hostName || who}’s party on ${whenText(rec.startIso)} is paid and booked, but the booking stopped before their confirmation email went out.`,
+          hint: `Open the party and tap Email ${firstWord(rec.hostName || who)} the details`,
+          detail: { partyId: c.partyId, partyDay: studioDate(rec.startIso), email: rec.hostEmail, phone: rec.hostPhone ?? '' },
+        })
+        continue
+      }
     }
     const id = tokenOf(elsewhere ? `ppe-${safeKey(c.orderId ?? '')}` : `ppu-${c.partyId}`)
     if (skip.has(id)) continue
-    const who = `${c.host.firstName} ${c.host.lastName}`.trim() || 'Someone'
-    const when = c.startIso ? whenText(c.startIso) : 'a party'
     const cents = c.squareCents ?? c.quotedCents
     out.push({
       id, kind: 'party-paid-unclear', title: elsewhere ? 'Party payment to check' : 'Party payment unclear', at: c.updatedAt,
       head: elsewhere
-        ? `Square shows ${money(cents)} paid for a party (${who}, ${when}), but ${c.why === 'other-payment' ? 'that party is already paid by another order' : 'there is nothing here to book it from'}. Nothing was refunded.`
+        ? `Square shows ${money(cents)} paid for a party (${who}, ${when}), but ${paidElsewhereWhy(c.why)}. Nothing was refunded.`
         : `${who}’s ${money(cents)} party payment for ${when} got no answer from Square. The time is held, not confirmed.`,
       hint: elsewhere ? 'Check it in Square' : 'Check Square, then confirm the party or say it wasn’t paid',
       detail: { partyId: c.partyId, orderId: c.orderId, cents, elsewhere, why: c.why ?? null, startIso: c.startIso, email: c.host.email, phone: c.host.phone },
@@ -395,9 +431,9 @@ async function partyItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
 /** "I told them" on a party that is no longer here. */
 export const PARTY_GONE = 'That party isn’t on the books any more, so there’s nothing to tell the host. Reload to clear this.'
 
-async function partyNotToldItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]> {
+async function partyNotToldItems(skip: Set<string>, now: Date, parties: () => Promise<PartyRecord[]>): Promise<ToDecideItem[]> {
   const out: ToDecideItem[] = []
-  for (const r of await listParties()) {
+  for (const r of await parties()) {
     const n = r.notTold
     if (!n || !isOurs(r) || Date.parse(r.startIso) <= now.getTime()) continue
     const id = tokenOf(`pnt-${r.bookingId}-${Date.parse(n.at)}`)
@@ -410,6 +446,65 @@ async function partyNotToldItems(skip: Set<string>, now: Date): Promise<ToDecide
       head: `${first} hasn’t been told ${n.what.includes('cancelled') ? '' : 'about '}${what}. Nothing is sent to them on its own.`,
       hint: 'Email them the details from the party, or say you told them',
       detail: { partyId: r.bookingId, partyDay: studioDate(r.startIso), notToldAt: n.at, cancelled: n.what.includes('cancelled'), host: r.hostName, phone: r.hostPhone ?? '' },
+    })
+  }
+  return out
+}
+
+const firstWord = (name: string) => name.trim().split(/\s+/)[0] || 'them'
+
+/**
+ * A payment on a party already booked (its payment link, or a card an owner
+ * took in /admin) that Square never answered: the party's `paying` is
+ * 'unclear' and still inside its 24 hours. After that the next payment asks
+ * Square first, so it leaves the list.
+ */
+async function partyPaymentItems(skip: Set<string>, now: Date, parties: () => Promise<PartyRecord[]>): Promise<ToDecideItem[]> {
+  const out: ToDecideItem[] = []
+  for (const r of await parties()) {
+    const p = r.paying
+    if (!isOurs(r) || !p || p.state !== 'unclear' || Date.parse(p.until) <= now.getTime()) continue
+    const id = tokenOf(`ppx-${r.bookingId}-${p.attemptId}`)
+    if (skip.has(id)) continue
+    const via = p.via === 'admin-card' ? `card taken in /admin${p.by?.name ? ` by ${p.by.name}` : ''}` : 'payment link'
+    const cents = p.quotedCents ?? 0
+    out.push({
+      id, kind: 'party-payment-unclear', title: 'Party payment unclear', at: p.at ?? p.until,
+      head: `${r.hostName}’s ${money(cents)} payment (${via}) for their party on ${whenText(r.startIso)} got no answer from Square.`,
+      hint: 'Check Square, then say whether it went through',
+      detail: { partyId: r.bookingId, partyDay: studioDate(r.startIso), attemptId: p.attemptId, orderId: p.orderId ?? null, cents, via: p.via ?? 'link', until: p.until },
+    })
+  }
+  return out
+}
+
+/** How far ahead held party times with no party are looked for (past the warnings' 60 days and the usual 90-day booking window). */
+export const ORPHAN_LOOK_AHEAD_DAYS = 120
+
+/**
+ * A party time held (booked, or for a payment link) that no party record is
+ * on: nothing to open, so it waits here with "Free this time". A short hold
+ * (someone paying right now) and a hold with a checkout of any kind attached
+ * (To decide has that payment as its own item) are left out.
+ */
+async function partyHoldItems(skip: Set<string>, now: Date, parties: () => Promise<PartyRecord[]>): Promise<ToDecideItem[]> {
+  const [holds, records, checkouts] = await Promise.all([
+    holdsBetween(now.toISOString(), new Date(now.getTime() + ORPHAN_LOOK_AHEAD_DAYS * 86_400_000).toISOString(), now),
+    parties(),
+    listCheckouts(),
+  ])
+  const known = new Set(records.map((r) => r.bookingId))
+  const paying = new Set(checkouts.filter((c) => c.state !== 'retired').map((c) => c.partyId))
+  const out: ToDecideItem[] = []
+  for (const h of holds) {
+    if (!lastingHold(h) || known.has(h.partyId) || paying.has(h.partyId) || Date.parse(h.endIso) <= now.getTime()) continue
+    const id = tokenOf(`pho-${h.partyId}-${Date.parse(h.startIso)}`)
+    if (skip.has(id)) continue
+    out.push({
+      id, kind: 'party-hold-orphan', title: 'Party time held, no party', at: h.at,
+      head: `${whenText(h.startIso)} is held for a party that isn’t on the books, so nobody can book that time.`,
+      hint: 'Free this time, so others can book it',
+      detail: { partyId: h.partyId, startIso: h.startIso, endIso: h.endIso, heldAt: h.at },
     })
   }
   return out
@@ -451,6 +546,9 @@ async function paidNotSeatedItems(cache: ClassCache, skip: Set<string>): Promise
 export async function listToDecide(now = new Date()): Promise<{ items: ToDecideItem[]; failed: string[] }> {
   const cache: ClassCache = new Map()
   const { all: decided, ids: skip } = await listDecided()
+  // Every party record, read once for this build and shared by the party item builders.
+  let partiesOnce: Promise<PartyRecord[]> | null = null
+  const parties = () => (partiesOnce ??= listParties())
   const failed: string[] = []
   const safe = async (what: string, fn: () => Promise<ToDecideItem[]>) => fn().catch((e) => {
     failed.push(what)
@@ -465,8 +563,10 @@ export async function listToDecide(now = new Date()): Promise<{ items: ToDecideI
     safe('door seats', () => doorItems(skip, now)),
     safe('counter checks', () => matchItems(skip, now)),
     safe('party payments', () => partyItems(skip, now)),
+    safe('party payments in flight', () => partyPaymentItems(skip, now, parties)),
+    safe('held party times', () => partyHoldItems(skip, now, parties)),
     safe('paid bookings', () => paidNotSeatedItems(cache, skip)),
-    safe('hosts to tell', () => partyNotToldItems(skip, now)),
+    safe('hosts to tell', () => partyNotToldItems(skip, now, parties)),
   ])
   const open = groups.flat().sort((a, b) => b.at.localeCompare(a.at))
   // Notes on waiting items (R40: "Texted the people booked"), shown on the item.
@@ -504,6 +604,9 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'party-paid-unclear': ['confirm', 'not-paid', 'sorted'],
   'paid-not-seated': ['seat', 'sorted'],
   'party-not-told': ['told'],
+  'party-payment-unclear': ['went-through', 'did-not-go-through'],
+  'party-no-confirmation': ['sorted'],
+  'party-hold-orphan': ['free'],
 }
 
 async function record(item: ToDecideItem, what: string, by: By, action: string, undo?: Decided['undo']): Promise<Decided> {
@@ -511,7 +614,7 @@ async function record(item: ToDecideItem, what: string, by: By, action: string, 
   await decidedKv.set(`done-${item.id}`, JSON.stringify(d))
   await recordAudit({
     by: { ...by, role: 'owner' }, action: `to-decide-${action}`,
-    target: item.kind === 'party-paid-unclear' || typeof item.detail.partyId === 'string'
+    target: item.kind === 'party-paid-unclear' || item.kind === 'party-payment-unclear' || item.kind === 'party-no-confirmation' || item.kind === 'party-hold-orphan' || item.kind === 'party-not-told' || typeof item.detail.partyId === 'string'
       ? { kind: 'party', id: String(item.detail.partyId ?? item.id), label: item.className ?? item.title }
       : { kind: item.classId ? 'class' : 'counter-sale', id: item.classId ?? String(item.detail.orderId ?? item.id), label: item.className ?? item.title },
     details: { item: item.id, kind: item.kind, what },
@@ -605,10 +708,29 @@ export async function openItem(id: string, now = new Date()): Promise<ToDecideIt
   return item
 }
 
+/** The party kinds: decided inside that party's lock. */
+const PARTY_KINDS: ReadonlySet<ToDecideKind> = new Set(['party-paid-unclear', 'party-payment-unclear', 'party-no-confirmation', 'party-hold-orphan', 'party-not-told'])
+
 export async function decide(id: string, action: string, body: any, by: By, now = new Date()): Promise<DecideResult> {
   noTestSite()
   const item = await openItem(id, now)
   if (!ACTIONS[item.kind].includes(action)) throw new DecideError(400, 'That isn’t one of the choices for this.')
+  const partyId = typeof item.detail.partyId === 'string' ? item.detail.partyId : ''
+  if (!PARTY_KINDS.has(item.kind) || !partyId) return decideItem(item, action, body, by, now)
+  // One decision per party at a time (a double tap, two owners): the second one, inside the lock, sees the first's.
+  try {
+    return await withPartyLock(partyId, async () => {
+      const done = await decidedKv.get(`done-${item.id}`)
+      if (done) throw new DecideError(409, `Already done: ${(JSON.parse(done) as Decided).what}.`)
+      return decideItem(item, action, body, by, now)
+    })
+  } catch (e) {
+    if (e instanceof PartyBusyError) throw new DecideError(409, e.message)
+    throw e
+  }
+}
+
+async function decideItem(item: ToDecideItem, action: string, body: any, by: By, now: Date): Promise<DecideResult> {
   const actor = { by, role: 'owner' as const }
   const d = item.detail
   switch (item.kind) {
@@ -752,15 +874,32 @@ export async function decide(id: string, action: string, body: any, by: By, now 
       }
       return { decided: await record(item, `It was ${to.name}: the payment moved`, by, action) }
     }
+    case 'party-no-confirmation': {
+      await assertPartyLockHeld()
+      await deleteCheckout(str(d.partyId))
+      return { decided: await record(item, 'Done', by, action) }
+    }
+    case 'party-payment-unclear':
+      return { decided: await record(item, await decidePartyPayment(str(d.partyId), str(d.attemptId), action === 'went-through', by, now), by, action) }
+    case 'party-hold-orphan': {
+      try {
+        return { decided: await record(item, await freeOrphanHold(str(d.partyId), str(d.startIso), by, now), by, action) }
+      } catch (e) {
+        if (e instanceof OrphanHoldError) throw new DecideError(e.status, e.message)
+        throw e
+      }
+    }
     case 'party-paid-unclear': {
       const partyId = str(d.partyId)
       if (d.elsewhere === true) {
         if (action !== 'sorted') throw new DecideError(400, 'That isn’t one of the choices for this.')
+        await assertPartyLockHeld()
         await deletePaidElsewhere(str(d.orderId))
         return { decided: await record(item, 'Checked in Square', by, action) }
       }
       if (action === 'sorted') throw new DecideError(400, 'That isn’t one of the choices for this.')
       try {
+        await assertPartyLockHeld()
         if (action === 'confirm') {
           const done = await confirmUnclearParty(partyId, now)
           return { decided: await record(item, done.overlap ? 'Confirmed the party (its time clashes with another party)' : 'Confirmed the party', by, action) }
@@ -778,6 +917,7 @@ export async function decide(id: string, action: string, body: any, by: By, now 
       const shown = str(d.notToldAt)
       const at = now.toISOString()
       try {
+        await assertPartyLockHeld()
         await updatePartyRecord(partyId, (cur) => {
           if (!isOurs(cur)) throw new DecideError(409, PARTY_GONE)
           if (!cur.notTold) return null
@@ -792,6 +932,68 @@ export async function decide(id: string, action: string, body: any, by: By, now 
       return { decided: await record(item, 'Told them', by, action) }
     }
   }
+}
+
+export const PARTY_PAY_NOT_FOUND = 'Square shows no payment on this order yet, so nothing was recorded. If you can see it paid in Square, wait a few minutes and try again. If not, choose It didn’t go through.'
+export const PARTY_PAY_FOUND = 'Square shows this payment went through. Choose It went through, so it’s recorded on the party.'
+export const PARTY_PAY_NO_ORDER = 'We can’t tell which Square order this payment made, so it can’t be checked from here. Look for it in Square. If it was paid, it shows up on the party by itself once Square tells us. If not, this clears by itself within a day.'
+export const PARTY_PAY_ASK_FAILED = 'Square couldn’t be asked just now. Try again in a minute.'
+export const PARTY_PAY_GOING_THROUGH = 'Square shows a payment still going through. Try again in a few minutes. Nothing was changed.'
+
+/**
+ * "It went through" / "It didn't go through" on a party payment Square never
+ * answered (Task 11 handoff). Both ask Square about that payment's own order
+ * first, and act only on what Square says: went through → the charge is
+ * recorded from Square's payment (recordLinkCharge, the host and owners told
+ * once); didn't → refused while Square shows it paid, else the party's
+ * payment slot is cleared so a new payment can start. Nothing is charged or
+ * refunded here. Returns what was done, for the item's "Done · …".
+ */
+async function decidePartyPayment(partyId: string, attemptId: string, wentThrough: boolean, by: By, now: Date): Promise<string> {
+  const rec: PartyRecord | null = await getPartyRecord(partyId)
+  if (!rec) throw new DecideError(404, 'That party isn’t there any more.')
+  const p = rec.paying
+  if (!p || p.attemptId !== attemptId) {
+    if (rec.charges?.some((c) => c.attemptId === attemptId)) return 'It went through (already on the party)'
+    throw new DecideError(404, 'This isn’t waiting any more.')
+  }
+  if (!p.orderId && !p.order) throw new DecideError(409, PARTY_PAY_NO_ORDER)
+  const asked = await paidOnOrder(async () => {
+    if (p.orderId) return { orderId: p.orderId, totalCents: p.quotedCents ?? 0 }
+    const o = await providers.payment.createOrder(p.order!)
+    return { orderId: o.id, totalCents: o.totalAmount }
+  })
+  if (asked.kind === 'unknown') throw new DecideError(503, PARTY_PAY_ASK_FAILED)
+  // A payment Square shows as still going through (APPROVED / PENDING) is neither: the item stays.
+  if (asked.kind === 'unpaid') {
+    let inFlight = asked.pending === true
+    if (!inFlight && providers.payment.orderPaymentInFlight) {
+      const orderId = p.orderId
+      if (orderId) {
+        try {
+          inFlight = await providers.payment.orderPaymentInFlight(orderId)
+        } catch {
+          throw new DecideError(503, PARTY_PAY_ASK_FAILED)
+        }
+      }
+    }
+    if (inFlight) throw new DecideError(409, PARTY_PAY_GOING_THROUGH)
+  }
+  if (wentThrough) {
+    if (asked.kind !== 'paid') throw new DecideError(409, PARTY_PAY_NOT_FOUND)
+    const cents = asked.payment.amount || asked.order.totalCents
+    await assertPartyLockHeld()
+    const out = await recordLinkCharge(partyId, p, { orderId: asked.order.orderId, paymentId: asked.payment.id, cents, receiptUrl: asked.payment.receiptUrl ?? null }, now)
+    if (!out.rec) throw new DecideError(503, 'The payment couldn’t be written on the party just now. Try again in a minute.')
+    if (!out.created) return 'It went through (already on the party)'
+    // The owner just decided it: the host is told once, the owners get no "Party paid" text about their own tap.
+    await tellLinkPaid(out.rec, out.charge, undefined, { ownerDecided: true })
+    return `It went through: ${money(cents)} recorded on the party`
+  }
+  if (asked.kind === 'paid') throw new DecideError(409, PARTY_PAY_FOUND)
+  await assertPartyLockHeld()
+  await updatePartyRecord(partyId, (r) => (r.paying?.attemptId === attemptId ? { ...r, paying: null } : null), 'Payment didn’t go through (checked in Square, To decide)', by)
+  return 'It didn’t go through: nothing was charged, a new payment can start'
 }
 
 /**

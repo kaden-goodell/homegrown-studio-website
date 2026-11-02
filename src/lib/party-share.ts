@@ -75,6 +75,18 @@ export function buildIcs(
   ].join('\r\n')
 }
 
+/**
+ * The calendar ids every party calendar file uses (the confirmation email,
+ * the host page, the guest invite): UID from the booking id, so it never
+ * changes with the time, and SEQUENCE from the party's `calendarSeq`, bumped
+ * on every move, edit and extra-time change. A file added again after a move
+ * replaces the old event in Apple Calendar and Outlook instead of adding a
+ * second one.
+ */
+export function partyCalendarIds(bookingId: string, calendarSeq: number | undefined, now: Date = new Date()): { uid: string; sequence: number; stamp: string } {
+  return { uid: `party-${bookingId}`, sequence: calendarSeq ?? 0, stamp: now.toISOString() }
+}
+
 export function icsDataUrl(ics: string): string {
   return `data:text/calendar;charset=utf-8,${encodeURIComponent(ics)}`
 }

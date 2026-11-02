@@ -1,5 +1,8 @@
 import type { APIRoute } from 'astro'
-import { getPartyRecord, hostTokenValid } from '@lib/party-store'
+import { getPartyRecord, hostTokenValid, isOurs, partyEndIso, type PartyRecord } from '@lib/party-store'
+import { partyConfig } from '@config/party.config'
+import { dueCents } from '@lib/parties/money'
+import { payLinkUrl, whatIsDue } from '@lib/parties/payment-link'
 import { listWaiversByParty, markDuplicateChildren } from '@lib/waiver-store'
 import { getRsvp } from '@lib/rsvp-store'
 import { getCheckin } from '@lib/checkin-store'
@@ -17,6 +20,18 @@ const logger = createLogger('api:party:roster')
  *
  * GET /api/party/roster.json?party={bookingId}&key={hostToken}
  */
+/**
+ * What the host still owes online (D1: the studio fee and priced extras,
+ * never crafts) and the payment link for it. Only on the host's own page
+ * (the host token), never on the guest invite.
+ */
+export function hostPayment(rec: PartyRecord, origin: string): { cents: number; what: string; url: string } | null {
+  if (!isOurs(rec) || rec.status === 'cancelled' || !rec.payToken) return null
+  const cents = dueCents(rec)
+  if (cents <= 0) return null
+  return { cents, what: whatIsDue(rec), url: payLinkUrl(origin, rec) }
+}
+
 export const GET: APIRoute = async ({ url }) => {
   const partyId = url.searchParams.get('party') ?? ''
   const key = url.searchParams.get('key') ?? ''
@@ -101,6 +116,12 @@ export const GET: APIRoute = async ({ url }) => {
             craftName: party!.craftName,
             startIso: party!.startIso,
             durationMinutes: party!.durationMinutes,
+            /** extra time included */
+            endIso: partyEndIso(party!) ?? new Date(Date.parse(party!.startIso) + partyConfig.durationMinutes * 60_000).toISOString(),
+            cancelled: party!.status === 'cancelled',
+            /** the calendar file's SEQUENCE (its UID is the booking id), so a re-added invite replaces the old one */
+            calendarSeq: party!.calendarSeq ?? 0,
+            pay: hostPayment(party!, url.origin),
             hostName: party!.hostName,
             guestCount: party!.guestCount,
             title: party!.title,

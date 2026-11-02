@@ -196,6 +196,13 @@ function needId(id: string): void {
   if (typeof id !== 'string' || id.trim() === '') throw new Error('A party needs an id.')
 }
 
+/** The party's end: our record's own (extra time included), else start + its length; undefined when neither is known. */
+export function partyEndIso(p: Pick<PartyRecord, 'startIso' | 'endIso' | 'durationMinutes'>): string | undefined {
+  if (p.endIso) return p.endIso
+  if (typeof p.durationMinutes === 'number' && p.durationMinutes > 0) return new Date(Date.parse(p.startIso) + p.durationMinutes * 60_000).toISOString()
+  return undefined
+}
+
 /** Ours (stage 2) rather than booked in Square. */
 export const isOurs = (r: PartyRecord): boolean => r.source === 'ours'
 

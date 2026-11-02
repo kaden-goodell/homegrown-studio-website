@@ -106,6 +106,9 @@ export function ToDecideSheet({ id }: { id: string }) {
     case 'party-paid-unclear': return <PartyPaidUnclear item={t} />
     case 'paid-not-seated': return <PaidNoSeat item={t} />
     case 'party-not-told': return <PartyNotTold item={t} />
+    case 'party-payment-unclear': return <PartyPaymentUnclear item={t} />
+    case 'party-no-confirmation': return <PartyNoConfirmation item={t} />
+    case 'party-hold-orphan': return <PartyHoldOrphan item={t} />
   }
 }
 
@@ -172,11 +175,13 @@ function Unconfirmed({ item }: { item: ToDecideItem }) {
 }
 
 function PartyPaidUnclear({ item }: { item: ToDecideItem }) {
-  const d = item.detail as Detail & { elsewhere?: boolean; cents?: number }
+  const d = item.detail as Detail & { elsewhere?: boolean; cents?: number; why?: string | null }
   const { send, busy, error } = useDecide(item)
   if (d.elsewhere) {
     return (
-      <OneChoiceParty item={item} note="Square shows this party order paid, and there is nothing here to book it from. Look it up in Square and sort it out there. Nothing is sent to Square from here." send={send} busy={busy} error={error} />
+      <OneChoiceParty item={item} note={d.why === 'retired'
+        ? 'Square shows this order paid, but it was an earlier try the customer changed and started again, so it isn’t booked. Look it up in Square: if they paid twice, refund the extra payment there. Nothing is sent to Square from here.'
+        : 'Square shows this party order paid, and there is nothing here to book it from. Look it up in Square and sort it out there. Nothing is sent to Square from here.'} send={send} busy={busy} error={error} />
     )
   }
   return (
@@ -208,6 +213,93 @@ function PartyNotTold({ item }: { item: ToDecideItem }) {
       <p className="adm-note">{d.cancelled
         ? 'Call or text them. Once they know, tap I told them. It notes who told them and when.'
         : 'Open the party to email them the new details and a calendar invite. If you called or texted instead, tap I told them.'}</p>
+      <OpenParty item={item} />
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+/** A payment on a booked party (link, or a card taken here) that Square never answered. */
+function PartyPaymentUnclear({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail & { cents?: number; until?: string }
+  const { send, busy, error } = useDecide(item)
+  return (
+    <SheetFrame
+      title={item.title}
+      subtitle="To decide"
+      footer={(
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => send({ action: 'did-not-go-through' })}>{label(busy, 'did-not-go-through', 'It didn’t go through', 'Checking Square…')}</button>
+          <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'went-through' })}>{label(busy, 'went-through', 'It went through', 'Checking Square…')}</button>
+        </div>
+      )}
+    >
+      <Head item={item} />
+      {kv('Payment', formatMoney(d.cents ?? 0))}
+      {typeof d.orderId === 'string' && d.orderId && <SquareOrder id={d.orderId} />}
+      <p className="adm-note adm-gap-top">
+        Look for this payment in Square under Payments. Then say what you saw. Either way we ask Square again first: It went through records the payment on the party (the host gets their email once), and It didn’t go through only works when Square shows no payment, and lets a new payment start. Nothing is charged or refunded from here.
+      </p>
+      {d.until && <p className="adm-small">{`Until then, Move, Cancel and new payments on this party wait. If nobody decides, it clears on ${dayAndClock(d.until)} and the next payment asks Square first.`}</p>}
+      <OpenParty item={item} />
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+/** The Square order id in its own row, with Copy (to search for it in Square). */
+function SquareOrder({ id }: { id: string }) {
+  const toast = useToast()
+  return (
+    <div className="adm-kv">
+      <span>Square order</span>
+      <span>
+        <span className="adm-small" style={{ wordBreak: 'break-all' }}>{id}</span>{' '}
+        <button type="button" className="adm-quiet" onClick={() => navigator.clipboard?.writeText(id).then(() => toast('Copied the order number.'), () => toast('Couldn’t copy. Press and hold the number to copy it.'))}>Copy</button>
+      </span>
+    </div>
+  )
+}
+
+/**
+ * A party time held with no party on it: "Free this time", confirmed in the sheet first. The server
+ * refuses while it could still be a booking being paid (a hold younger than the checkout window, or a
+ * payment attached to it).
+ */
+function PartyHoldOrphan({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail & { startIso?: string; endIso?: string }
+  const { send, busy, error, setError } = useDecide(item)
+  const [asking, setAsking] = useState(false)
+  const when = d.startIso ? (d.endIso ? dayAndSpan(d.startIso, d.endIso) : dayAndClock(d.startIso)) : ''
+  const footer = asking
+    ? (
+      <div className="adm-panel is-warn" role="group" aria-label={`Free ${when}?`}>
+        <b>{`Free ${when} so others can book it?`}</b>
+        <span className="adm-small">No party is on this time, so nobody is told and no money moves. If it was a booking still being paid, it isn’t freed.</span>
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" onClick={() => { setAsking(false); setError('') }}>Keep it</button>
+          <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'free' })}>{label(busy, 'free', 'Free this time', 'Freeing…')}</button>
+        </div>
+      </div>
+    )
+    : <button type="button" className="adm-btn is-pri" onClick={() => setAsking(true)}>Free this time</button>
+  return (
+    <SheetFrame title={item.title} subtitle="To decide" footer={footer}>
+      <Head item={item} />
+      {when && kv('Held', when)}
+      <p className="adm-note adm-gap-top">This time is held in the party calendar, but there is no party on it to open. It can happen when a booking stopped halfway. Freeing it lets others book the time. It only works once the hold is more than a few minutes old and no payment is waiting on it, so a booking still being paid is never freed.</p>
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+/** A party recorded paid whose booking stopped before the host's confirmation went out. */
+function PartyNoConfirmation({ item }: { item: ToDecideItem }) {
+  const { send, busy, error } = useDecide(item)
+  return (
+    <SheetFrame title={item.title} subtitle="To decide" footer={<button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'sorted' })}>{label(busy, 'sorted', 'Done', 'Saving…')}</button>}>
+      <Head item={item} />
+      <p className="adm-note adm-gap-top">The party is paid and on the calendar. Open the party and tap the button that emails the host the details, so they get their host page, invite link and calendar. Then tap Done here.</p>
       <OpenParty item={item} />
       <ErrorLine text={error} />
     </SheetFrame>

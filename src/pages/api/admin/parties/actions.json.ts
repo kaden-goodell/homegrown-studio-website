@@ -5,8 +5,9 @@ import { isAttemptId } from '@lib/checkout-attempt'
 import { recordAudit } from '@lib/audit'
 import {
   addPartyExtra, adminPartyView, cancelParty, markPartyTold, editPartyDetails, json, LEGACY_PARTY, moveParty, partyReply,
-  PartyActionError, paymentGoingThrough, paymentWaitMessage, releasePartyHold, removePartyExtra, sendPartyDetails, sendPartyLink,
+  PartyActionError, paymentGoingThrough, paymentWaitMessage, removePartyExtra, sendPartyDetails, sendPartyLink,
 } from '@lib/parties/admin-actions'
+import { freePartyTime, holdPartyAgain } from '@lib/parties/hold-actions'
 import { ownerTakeCardMessage, ownerTakeCardUnknown } from '@lib/parties/owner-messages'
 import { payBalance } from '@lib/parties/pay-balance'
 import { partyWhenLabel } from '@lib/parties/payment-link'
@@ -33,9 +34,12 @@ export const prerender = false
  *                 file; one email per createKey; never automatic, S2-R7)
  *   mark-told     { notToldAt? }                       → { party } ("I told them": the Not told yet
  *                 reminder goes, with who and when)
- *   release-hold  { holdIso, shownStartIso, shownVersion } → { party, released } ("Let 2 PM go": frees a
- *                 leftover held time that isn't the party's start; never moves it; refused when the
- *                 party's time changed since the screen loaded)
+ *   hold-again    {}                                   → { party, message } ("Hold this time again": the
+ *                 party's current time back in the party book, checked; never a move; nothing sent)
+ *   free-time     { startIso, shownStartIso, shownVersion } → { party, message, released } ("Free this time" on a
+ *                 cancelled party, "Free the old time" on a booked one: never the time a booked party is
+ *                 on, never on a stale screen (start or timeVersion changed), waits while a payment goes
+ *                 through). `release-hold { holdIso, … }` is the same action under its earlier name.
  *   take-card     { attemptId, paymentToken, expectedCents } → { party, paidCents, receiptUrl }
  *                 (what is due, by card in /admin: the same one-payment-at-a-time
  *                 claim as the payment link, so the two never both charge)
@@ -55,7 +59,10 @@ export const POST: APIRoute = async ({ request }) => {
     case 'send-details': return partyReply(() => sendPartyDetails(body, by, request))
     case 'take-card': return partyReply(() => takeCard(body, by, request))
     case 'mark-told': return partyReply(() => markPartyTold(body, by, request))
-    case 'release-hold': return partyReply(() => releasePartyHold(body, by, request))
+    case 'hold-again': return partyReply(() => holdPartyAgain(body, by, request))
+    case 'free-time': return partyReply(() => freePartyTime(body, by, request))
+    // The earlier name of free-time (T12): the same rules, `holdIso` for the time.
+    case 'release-hold': return partyReply(() => freePartyTime({ ...body, startIso: body.startIso ?? body.holdIso }, by, request))
     default: return json(400, { error: 'Pick what to do.' })
   }
 }

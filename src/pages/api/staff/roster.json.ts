@@ -8,6 +8,8 @@ import { getCheckin, toPublicCheckin, presenceOn } from '@lib/checkin-store'
 import { listSeatChoicesByEvent, summarizeChoices, type RosterChoices } from '@lib/seat-choices'
 import { createLogger } from '@lib/logger'
 import { ownRoster, type OwnRoster } from '@lib/classes/staff-roster'
+import { getPartyRecord } from '@lib/party-store'
+import { crewPartyMoney, type CrewPartyMoney } from '@lib/parties/staff-money'
 
 export const prerender = false
 
@@ -157,6 +159,17 @@ export const GET: APIRoute = async ({ request, url }) => {
       }
     }
 
+    // Our parties: the payments the crew can refund (with a reason), and whether anything is still to pay.
+    let partyMoney: CrewPartyMoney | null = null
+    if (kind === 'party' && id.startsWith('pty_')) {
+      try {
+        const rec = await getPartyRecord(id)
+        partyMoney = rec ? await crewPartyMoney(rec) : null
+      } catch (err) {
+        logger.error('Party payments read failed', { id, error: err instanceof Error ? err.message : String(err) })
+      }
+    }
+
     return new Response(
       JSON.stringify({
         data: {
@@ -166,6 +179,7 @@ export const GET: APIRoute = async ({ request, url }) => {
           households: responseHouseholds,
           choices,
           ...(own ? { bookings: own.bookings, ticketLabels: own.ticketLabels } : {}),
+          ...(partyMoney ? { partyMoney } : {}),
         },
       }),
       { status: 200, headers: { 'Content-Type': 'application/json' } },
