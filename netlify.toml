@@ -5,6 +5,11 @@
 [dev]
   command = "npm run dev"
 
+# Functions: Netlify's synchronous limit is 60 s and can't be configured (Netlify docs, Functions >
+# Configuration, checked 2 Nov 2026). The per-party lock (src/lib/parties/party-lock.ts) keeps its
+# 30 s lease alive with a heartbeat while an action runs and checks it before each write (fencing),
+# so a request that runs past 30 s never overlaps another server's change of the same party.
+
 [[headers]]
   for = "/api/*"
   [headers.values]

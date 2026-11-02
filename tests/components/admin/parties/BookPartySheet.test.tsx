@@ -77,6 +77,9 @@ describe('Book a party', () => {
     expect(await screen.findByText('Parties are for 10 to 30 guests.')).toBeInTheDocument()
     expect(screen.getByText('Add the host’s name.')).toBeInTheDocument()
     expect(posts(f, BOOK)).toHaveLength(0)
+    // m6: one alert (the footer), and focus on the first part marked
+    expect(screen.getAllByRole('alert')).toHaveLength(1)
+    await waitFor(() => expect(screen.getByLabelText(/^Guests/)).toHaveFocus())
   })
 
   it('shows what is paid now (studio fee and extras) and what is paid at the studio (crafts, an estimate)', async () => {
@@ -103,6 +106,7 @@ describe('Book a party', () => {
     expect(body).toMatchObject({
       startIso: T1, packageId: 'pkg_whole', guests: 14, craftId: 'craft_neck', addOns: {},
       host: { firstName: 'Stefanie', lastName: 'Justice', phone: '(256) 555-0199', email: 'stef@example.com' }, pay: { kind: 'link' },
+      expectedCents: 30000, // I1: what the sheet showed
     })
     expect(body.createKey).toMatch(/^[A-Za-z0-9_-]{8,80}$/)
     expect(sheet.open).toHaveBeenCalledWith({ kind: 'party', day: DAY, id: 'pty_0123456789abcdef' }, { notice: expect.objectContaining({ text: booked.data.message }) })
@@ -176,5 +180,45 @@ describe('Book a party', () => {
     expect(dirty()).toBe(false)
     fireEvent.change(screen.getByLabelText('First name'), { target: { value: 'S' } })
     expect(dirty()).toBe(true)
+  })
+
+  it('I1: the price changed since the sheet opened: the server’s words with the new amount, Parties setup loads again, and the button shows the new price', async () => {
+    let fee = 30000
+    const words = 'The price changed to $350 since this opened, so nothing was charged or booked. The sheet now shows the new price. Check it with Stefanie, then book again.'
+    const f = server(() => { fee = 35000; return { status: 409, body: { error: words, why: 'price_changed', newCents: 35000, oldCents: 30000, field: 'price' } } }, {
+      routes: { '/api/admin/parties/settings.json': () => ({ body: { data: { settings: settings({ packages: [{ ...settings().packages[0], priceCents: fee }] }), legacyRemaining: { count: 0, lastIso: null } } } }) },
+    })
+    renderSheet(<BookPartySheet day={DAY} />)
+    await fill()
+    fireEvent.click(screen.getByRole('button', { name: 'Take card now' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Charge $300 and book' }))
+    expect(await screen.findByText(words)).toBeInTheDocument()
+    expect(posts(f, BOOK)[0].body.expectedCents).toBe(30000)
+    expect(await screen.findByRole('button', { name: 'Charge $350 and book' })).toBeInTheDocument()
+  })
+
+  it('m7: a plain refusal booked nothing, so the next tap is a new create key', async () => {
+    const f = server([{ status: 409, body: { error: 'That time is taken by Pottery (2–4 PM). Pick another time.', field: 'startIso' } }, { body: booked }])
+    const { sheet } = renderSheet(<BookPartySheet day={DAY} />)
+    await fill()
+    fireEvent.click(screen.getByRole('button', { name: 'Book and send link' }))
+    expect(await screen.findAllByText(/That time is taken/)).not.toHaveLength(0)
+    fireEvent.click(screen.getByRole('button', { name: /^2\sPM$/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Book and send link' }))
+    await waitFor(() => expect(sheet.open).toHaveBeenCalled())
+    const keys = posts(f, BOOK).map((p: any) => p.body.createKey)
+    expect(keys[1]).not.toBe(keys[0])
+  })
+
+  it('m7: a lost reply then a different time: the replay names the first booking’s own time', async () => {
+    const elsewhere = { data: { party: party({ startIso: at('2031-03-16', '13:00') }), replay: true, message: 'Booked Stefanie’s party for Sun, Mar 16 at 1:00 PM.' } }
+    server([{ status: 500, body: { error: 'Something on our side didn’t answer, so we can’t tell if the party was booked. Look for it on the calendar before trying again.', code: 'unknown_outcome' } }, { body: elsewhere }])
+    const { sheet } = renderSheet(<BookPartySheet day={DAY} />)
+    await fill()
+    fireEvent.click(screen.getByRole('button', { name: 'Book and send link' }))
+    await screen.findByText(/we can’t tell if the party was booked/)
+    fireEvent.click(screen.getByRole('button', { name: 'Book and send link' }))
+    await waitFor(() => expect(sheet.open).toHaveBeenCalled())
+    expect(sheet.open.mock.calls[0][1].notice.text).toMatch(/^This party was already booked from your first tap, for Sun Mar 16 at 1\sPM\. Nothing new was booked or sent\. Use Move if it should be at another time\.$/)
   })
 })

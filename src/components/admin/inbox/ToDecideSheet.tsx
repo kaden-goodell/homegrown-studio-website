@@ -105,6 +105,7 @@ export function ToDecideSheet({ id }: { id: string }) {
     case 'counter-match-check': return <CounterCheck item={t} />
     case 'party-paid-unclear': return <PartyPaidUnclear item={t} />
     case 'paid-not-seated': return <PaidNoSeat item={t} />
+    case 'party-not-told': return <PartyNotTold item={t} />
   }
 }
 
@@ -192,6 +193,22 @@ function PartyPaidUnclear({ item }: { item: ToDecideItem }) {
       <Head item={item} />
       {kv('Payment', formatMoney(d.cents ?? 0))}
       <p className="adm-note adm-gap-top">Look for the payment in Square. Confirm the party once Square shows it paid: the time is booked and the host gets their confirmation. If it wasn’t paid, the held time is let go. Nothing is charged or refunded from here.</p>
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+/** A host who hasn't been told about a change (DV8): open the party to email them, or say they were told. */
+function PartyNotTold({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail & { cancelled?: boolean; phone?: string }
+  const { send, busy, error } = useDecide(item)
+  return (
+    <SheetFrame title={item.title} subtitle="To decide" footer={<button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'told', toast: 'Noted that they’ve been told.' })}>{label(busy, 'told', 'I told them', 'Saving…')}</button>}>
+      <Head item={item} />
+      <p className="adm-note">{d.cancelled
+        ? 'Call or text them. Once they know, tap I told them. It notes who told them and when.'
+        : 'Open the party to email them the new details and a calendar invite. If you called or texted instead, tap I told them.'}</p>
+      <OpenParty item={item} />
       <ErrorLine text={error} />
     </SheetFrame>
   )

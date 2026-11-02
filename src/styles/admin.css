@@ -2442,6 +2442,11 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.5rem;
 }
+/* Fields three across only when each gets at least 11rem; on a phone they wrap or stack (T12 review I7). */
+.adm-three.is-fields {
+  grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr));
+  align-items: end;
+}
 .adm-kv.adm-kv-tight {
   padding: 0.3rem 0;
 }
@@ -2470,4 +2475,37 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
   .adm-time {
     transition: none;
   }
+}
+
+/* T12 fix round 1: the party sheet */
+/* Move and Cancel open in the sheet body, not the pinned footer, so the keyboard never hides them. */
+.adm-actpanel {
+  margin: 0 0 0.75rem;
+  scroll-margin-top: 0.5rem;
+}
+.adm-actpanel h3,
+.adm-toldpanel h3 {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--color-dark);
+}
+.adm-toldpanel h3:focus,
+.adm-actpanel h3:focus {
+  outline: none;
+}
+/* The payment link, written out so it can be read aloud or checked. */
+.adm-linkbox {
+  display: block;
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+  color: var(--color-muted);
+}
+/* Payments: what's due and how to pay first; what was paid folds away. */
+.adm-paygroup {
+  border-bottom: 1px solid var(--adm-line);
+  padding: 0 0 0.75rem;
+  margin: 0 0 0.75rem;
+}
+.adm-paygroup:last-child {
+  border-bottom: 0;
 }

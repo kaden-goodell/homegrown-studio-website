@@ -734,6 +734,8 @@ describe('move: double taps and retries (C1)', () => {
     expect(r.body.both).toEqual({ from: new Date(w.sat2).toISOString(), to: new Date(w.sun1).toISOString() })
     expect((await holdsOf(id)).map((h) => h.startIso).sort()).toEqual([new Date(w.sat2).toISOString(), new Date(w.sun1).toISOString()].sort())
     expect(m.alert.mock.calls.some(([t]) => /Party move unclear/.test(String(t)))).toBe(true)
+    // m12: the owner text names the host and the times, never the party id
+    expect(m.alert.mock.calls.filter(([t]) => /Party move unclear/.test(String(t))).every(([t]) => /Stefanie Justice's party was being moved/.test(String(t)) && !/pty_/.test(String(t)))).toBe(true)
     const again = await act({ id, action: 'move', startIso: w.sun1, fromIso: w.sat2 })
     expect(again.status).toBe(200)
     expect((await getPartyRecord(id))!.startIso).toBe(new Date(w.sun1).toISOString())
@@ -1189,5 +1191,118 @@ describe('Email the host the new details (I4)', () => {
     const l = await act({ id: legacy, action: 'send-details', createKey: `d_${randomUUID()}` })
     expect(l.status).toBe(409)
     expect(l.body.error).toBe(LEGACY_PARTY)
+  })
+})
+
+// ── T12 review fix round 1 ──────────────────────────────────────────────────
+
+describe('Book: the price the sheet showed (T12 review I1)', () => {
+  it('a different saved price refuses with the new amount: nothing charged, held, recorded or sent; the right amount books', async () => {
+    const w = weekend()
+    m.processPayment.mockClear(); m.linkEmail.mockClear(); m.text.mockClear()
+    const body = cardBody(w.sat2, { expectedCents: 100 })
+    const r = await book(body)
+    expect(r.status).toBe(409)
+    expect(r.body).toMatchObject({ why: 'price_changed', field: 'price', oldCents: 100 })
+    const newCents = r.body.newCents as number
+    expect(newCents).toBeGreaterThan(100)
+    expect(r.body.error).toBe(`The price changed to $${newCents / 100} since this opened, so nothing was charged or booked. The sheet now shows the new price. Check it with Stefanie, then book again.`)
+    expect(m.processPayment).not.toHaveBeenCalled()
+    expect(await getPartyRecord(partyIdFor((body.pay as any).attemptId))).toBeNull()
+    const lr = await book(linkBody(w.sat2, { expectedCents: 100 }))
+    expect(lr.status).toBe(409)
+    expect(lr.body.error).toMatch(/so nothing was booked or sent\./)
+    expect(m.linkEmail).not.toHaveBeenCalled()
+    expect(m.text).not.toHaveBeenCalled()
+    expect((await holdsBetween(w.sat2, w.sat430, NOW)).length).toBe(0)
+    const ok = await book(cardBody(w.sat2, { expectedCents: newCents }))
+    expect(ok.status, JSON.stringify(ok.body)).toBe(200)
+    expect(ok.body.data.charge.cents).toBe(newCents)
+  })
+})
+
+describe('Not told yet (DV8, T12 review I3) and what the host was last told (m9, m10)', () => {
+  it('Move sets it; I told them with an older screen is refused; with the right one it goes, with who and when', async () => {
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    expect((await act({ id, action: 'move', startIso: w.sun1 })).status).toBe(200)
+    let rec = (await getPartyRecord(id))!
+    expect(rec.notTold).toMatchObject({ what: ['time'], fromStartIso: new Date(w.sat2).toISOString(), by: KADEN })
+    const party = (await act({ id, action: 'send-link' })).status // nothing due: refused, the reminder stays
+    expect(party).not.toBe(200)
+    const view = (await act({ id, action: 'edit-details', guests: 10 })).body.data.party // nothing changed
+    expect(view.notTold.message).toMatch(/^Stefanie hasn’t been told about the new time\. Their email and calendar still say Sat, .* at 2:00 PM\.$/)
+    expect(view.sendDetails.label).toBe('Email Stefanie the new details')
+    const stale = await act({ id, action: 'mark-told', notToldAt: '2000-01-01T00:00:00.000Z' })
+    expect(stale.status).toBe(409)
+    expect(stale.body.error).toBe('Something else changed on this party since. Check it, then tap I told them again.')
+    const told = await act({ id, action: 'mark-told', notToldAt: rec.notTold!.at })
+    expect(told.status).toBe(200)
+    expect(told.body.data.message).toBe('Noted that Stefanie has been told.')
+    rec = (await getPartyRecord(id))!
+    expect(rec.notTold).toBeNull()
+    expect(rec.told).toMatchObject({ how: 'owner', by: KADEN })
+    expect(audits('party-told').at(-1)).toMatchObject({ target: { id } })
+    expect((await act({ id, action: 'mark-told' })).body.data).toMatchObject({ replay: true })
+  })
+
+  it('Change details sets it; the details email that went clears it (a change after the email was claimed would stay)', async () => {
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    await act({ id, action: 'edit-details', craftId: 'craft-2' })
+    expect((await getPartyRecord(id))!.notTold).toMatchObject({ what: ['details'] })
+    const r = await act({ id, action: 'send-details', createKey: `d_${randomUUID()}` })
+    expect(r.body.data.sent).toBe(true)
+    expect(r.body.data.party.notTold).toBeNull()
+    expect((await getPartyRecord(id))!.told).toMatchObject({ how: 'email' })
+  })
+
+  it('Cancel sets it (cancelled); only I told them clears it, the details email is refused', async () => {
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    await act({ id, action: 'move', startIso: w.sun1 })
+    await act({ id, action: 'cancel' })
+    const rec = (await getPartyRecord(id))!
+    expect(rec.notTold).toMatchObject({ what: ['cancelled'] })
+    expect((await act({ id, action: 'send-details', createKey: `d_${randomUUID()}` })).status).toBe(409)
+    expect((await act({ id, action: 'mark-told', notToldAt: rec.notTold!.at })).status).toBe(200)
+    expect((await getPartyRecord(id))!.notTold).toBeNull()
+  })
+
+  it('extra time sets it; the email then says the end time changed, so Google users delete the old event (m10)', async () => {
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    m.confirmEmail.mockClear()
+    expect((await act({ id, action: 'add-extra', addOnId: 'add_half', count: 1, createKey: `x_${randomUUID()}` })).status).toBe(200)
+    expect((await getPartyRecord(id))!.notTold).toMatchObject({ what: ['time'] })
+    await act({ id, action: 'send-details', createKey: `d_${randomUUID()}` })
+    const sent = m.confirmEmail.mock.calls.at(-1)![0]
+    expect(sent.updated.moved).toBeUndefined()
+    expect(sent.updated.endChanged).toBe(true)
+  })
+
+  it('a party booked by link: the link text counts as told, so a details email after a move says where it moved from (m9)', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    expect((await getPartyRecord(id))!.linkSent!.at(-1)).toMatchObject({ startIso: new Date(w.sat2).toISOString() })
+    vi.setSystemTime(new Date(NOW.getTime() + 60_000))
+    await act({ id, action: 'move', startIso: w.sun1 })
+    m.confirmEmail.mockClear()
+    await act({ id, action: 'send-details', createKey: `d_${randomUUID()}` })
+    expect(m.confirmEmail.mock.calls.at(-1)![0].updated.moved).toEqual({ from: expect.stringMatching(/^Sat, .* at 2:00 PM$/), to: expect.stringMatching(/^Sun, .* at 1:00 PM$/) })
+  })
+
+  it('To decide lists a host not told yet (no party id in the words); I told them there clears it on the party', async () => {
+    const { listToDecide, decide } = await import('@lib/classes/to-decide')
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    await act({ id, action: 'move', startIso: w.sun1 })
+    const item = (await listToDecide(NOW)).items.find((i) => i.kind === 'party-not-told' && i.detail.partyId === id)!
+    expect(item).toMatchObject({ title: 'Host not told yet', className: expect.stringMatching(/Justice/) })
+    expect(item.head).toMatch(/^Stefanie hasn’t been told about the new time \(.+\)\. Nothing is sent to them on its own\.$/)
+    expect(item.head).not.toContain(id)
+    await decide(item.id, 'told', {}, KADEN, NOW)
+    expect((await getPartyRecord(id))!.notTold).toBeNull()
+    expect((await listToDecide(NOW)).items.find((i) => i.id === item.id)?.done).toBe('Told them')
   })
 })

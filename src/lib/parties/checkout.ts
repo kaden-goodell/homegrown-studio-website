@@ -95,6 +95,12 @@ export interface BookInput {
   posthogId?: unknown
   origin: string
   requestUrl: string
+  /**
+   * Owners (/admin): the pay-now total the sheet showed (T12 review I1). When
+   * the saved prices make it something else, nothing is held or charged and
+   * the refusal carries the new amount (`extra.newCents`, `extra.why: 'price_changed'`).
+   */
+  expectedCents?: number
 }
 
 export type BookOutcome =
@@ -115,6 +121,8 @@ export const PARTY_CANCELLED_MESSAGE = 'That party was cancelled. Nothing was ch
 export const THEME_NOT_RESERVED_MESSAGE = "We couldn't reserve the themed table. Your card was not charged — please try again."
 export const ORDER_FAILED_MESSAGE = "We couldn't start the payment, so we released the date. Your card was not charged — please try again."
 // DRAFT copy (new, for Kaden): a retry whose choices changed since an earlier, unpaid try.
+/** Owners only: the saved prices changed since the Book sheet opened (the admin route words it with the amounts). */
+export const PRICE_CHANGED_MESSAGE = 'The price changed since this opened. Nothing was charged or booked.'
 export const CHOICES_CHANGED_MESSAGE = 'Something changed. Nothing was charged. Please try again.'
 
 /** The Square order lines for a quote (and themed table). */
@@ -272,7 +280,7 @@ export async function recordPaidParty(
   } catch (err) {
     logger.error('PAID PARTY TIME NOT MARKED BOOKED', { partyId, error: String(err) })
     await alertOwners(
-      `Party paid, but its time couldn't be marked booked in the party book: ${whoOf(c.host)}, ${slot}, party ${partyId}. The party is recorded; check its time on /admin.`,
+      `Party paid, but its time couldn't be marked booked in the party book: ${whoOf(c.host)}, ${slot}. The party is recorded; check its time on /admin.`,
     ).catch(() => undefined)
   }
   const chargeId = idFor('chg', pay.paymentId)
@@ -300,7 +308,7 @@ export async function recordPaidParty(
   }
   if (!saved) {
     await alertOwners(
-      `Party booked and paid, but its party page could not be set up: ${whoOf(c.host)}, ${slot}, party ${partyId}, order ${pay.orderId}. They were told to text us for the link.`,
+      `Party booked and paid, but its party page could not be set up: ${whoOf(c.host)}, ${slot}, Square order ${pay.orderId}. They were told to text us for the link.`,
     ).catch(() => undefined)
   }
   if (!pay.simulated) {
@@ -478,6 +486,10 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
   if (!resolved.ok) return resolved.out
   const theme = resolved.theme
   let quotedCents = q.totalCents + (theme?.priceCents ?? 0)
+  if (input.expectedCents !== undefined && input.expectedCents !== quotedCents) {
+    logger.info('Owner booking refused: the price changed since the sheet opened', { partyId, expected: input.expectedCents, quoted: quotedCents })
+    return refuse(409, 'invalid', PRICE_CHANGED_MESSAGE, 'price', { why: 'price_changed', newCents: quotedCents, oldCents: input.expectedCents })
+  }
 
   // Is this party's time already held by an earlier try of this key?
   let mine: Awaited<ReturnType<typeof holdsBetween>>[number] | undefined

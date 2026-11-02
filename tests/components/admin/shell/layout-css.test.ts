@@ -83,4 +83,13 @@ describe('admin.css', () => {
     expect(view).not.toContain('⌄')
     expect(view).toContain('adm-chevron')
   })
+
+  it('party sheet, narrow widths (T12 review I7): guest fields wrap instead of three squeezed columns; panels sit in the body', () => {
+    // At 400 px the sheet's content is about 368 px: three 11rem (176 px) fields can't fit, so they wrap; on an iPad they sit three across.
+    expect(blocks('.adm-three.is-fields').join('\n')).toContain('grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr))')
+    expect(readFileSync('src/components/admin/parties/PartiesSetupSheet.tsx', 'utf8')).toContain('adm-three is-fields')
+    expect(blocks('.adm-actpanel').join('\n')).toContain('scroll-margin-top')
+    // The payment link wraps anywhere, so a long link never scrolls the page sideways.
+    expect(blocks('.adm-linkbox').join('\n')).toContain('overflow-wrap: anywhere')
+  })
 })

@@ -282,12 +282,12 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
     logger.error('Link payment order far above the quote — refusing', { partyId, orderId: order.id, quote: quotedCents, square: order.totalAmount })
     await letGo('price mismatch')
     await alertOwners(
-      `Party payment link refused, price mismatch: party ${partyId}. Quote ${dollars(quotedCents)}, Square ${dollars(order.totalAmount)}. Nothing was charged.`,
+      `Party payment ${how === 'link' ? 'link' : 'by card in /admin'} refused, price mismatch: ${rec!.hostName}’s party on ${partyWhenLabel(rec!.startIso)}. Quote ${dollars(quotedCents)}, Square ${dollars(order.totalAmount)}. Nothing was charged.`,
     ).catch(() => undefined)
     return refuse(503, 'unavailable', LINK_PRICE_MISMATCH_MESSAGE)
   }
   if (verdict.kind === 'charge-and-tell') {
-    await tellOwnersOfDrift('Party price differed', `party ${partyId} (payment link)`, quotedCents, order.totalAmount, '')
+    await tellOwnersOfDrift('Party price differed', `${rec!.hostName}’s party on ${partyWhenLabel(rec!.startIso)} (${how === 'link' ? 'payment link' : 'card in /admin'})`, quotedCents, order.totalAmount, '')
   }
 
   const result = await chargeOrder({ orderId: order.id, amountCents: order.totalAmount, paymentToken: card!.paymentToken, email: rec.hostEmail, attemptId })
@@ -322,7 +322,7 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
       `Payment unclear (${how})`, owner,
     ).catch((e) => logger.error('Unclear link payment not noted', { partyId, error: String(e) }))
     await alertOwners(
-      `Party payment ${owner ? `by card in /admin (${owner.name})` : 'link'} unclear: ${rec!.hostName}, party on ${partyWhenLabel(rec!.startIso)}. Check Square for a${o ? ` ${dollars(o.totalAmount)}` : ''} payment${o ? ` on order ${o.id}` : ''}. Party ${partyId}. No other payment can start on it for 24 hours.`,
+      `Party payment ${owner ? `by card in /admin (${owner.name})` : 'link'} unclear: ${rec!.hostName}, party on ${partyWhenLabel(rec!.startIso)}. Check Square for a${o ? ` ${dollars(o.totalAmount)}` : ''} payment${o ? ` on order ${o.id}` : ''}. No other payment can start on it for 24 hours.`,
     ).catch(() => undefined)
     return { kind: 'unknown', partyId }
   }
@@ -381,8 +381,10 @@ export async function recordLinkCharge(
   }
   if (threw && rec) logger.warn('Link payment record landed on the retry', { partyId })
   if (!rec) {
+    const named = await getPartyRecord(partyId).catch(() => null)
+    const which = named ? `${named.hostName}’s party on ${partyWhenLabel(named.startIso)}` : `a party (Square order ${pay.orderId})`
     await alertOwners(
-      `Party paid ${paying.via === 'admin-card' ? 'by card in /admin' : 'by payment link'} (${dollars(pay.cents)}, payment ${pay.paymentId}, order ${pay.orderId}), but it couldn't be written on party ${partyId}. Nothing was refunded. Check the party on /admin.`,
+      `Party paid ${paying.via === 'admin-card' ? 'by card in /admin' : 'by payment link'} (${dollars(pay.cents)}), but it couldn't be written on ${which}. Nothing was refunded. Check the party on /admin.`,
     ).catch(() => undefined)
   }
   if (!pay.simulated) {
@@ -396,7 +398,7 @@ export async function recordLinkCharge(
       }
     }
     if (!indexed) {
-      await alertOwners(`Party ${partyId} took a link payment (payment ${pay.paymentId}), but it couldn't be filed under it. A refund made in Square on it won't be matched; refund it from /admin.`).catch(() => undefined)
+      await alertOwners(`${rec ? `${rec.hostName}’s party on ${partyWhenLabel(rec.startIso)}` : `A party (Square order ${pay.orderId})`} took a payment, but it couldn't be filed under it. A refund made in Square on it won't be matched; refund it from /admin.`).catch(() => undefined)
     }
   }
   return { rec, charge, created }
@@ -442,7 +444,7 @@ export async function tellLinkPaid(rec: PartyRecord, charge: PartyCharge, origin
   const how = charge.via === 'admin-card' ? 'by card in /admin' : 'by payment link'
   const paidFor = whatIsDue(rec, (rec.items ?? []).filter((it) => charge.itemIds.includes(it.id)))
   if (rec.status === 'cancelled') {
-    await alertOwners(`Paid after it was cancelled. Check it. ${rec.hostName} paid ${dollars(charge.cents)} (${paidFor}) ${how} for the cancelled party on ${whenLabel}. Party ${rec.bookingId}. Nothing was refunded.`).catch(() => undefined)
+    await alertOwners(`Paid after it was cancelled. Check it. ${rec.hostName} paid ${dollars(charge.cents)} (${paidFor}) ${how} for the cancelled party on ${whenLabel}. Nothing was refunded.`).catch(() => undefined)
     return null
   }
   let emailed: HostEmailed
@@ -472,7 +474,7 @@ export async function tellLinkPaid(rec: PartyRecord, charge: PartyCharge, origin
   }
   // An owner took this card themselves: they already know.
   if (charge.via === 'admin-card') return emailed
-  await alertOwners(`Party paid: ${rec.hostName} paid ${dollars(charge.cents)} for ${paidFor} by payment link, party on ${whenLabel}. Party ${rec.bookingId}.`).catch(() => undefined)
+  await alertOwners(`Party paid: ${rec.hostName} paid ${dollars(charge.cents)} for ${paidFor} by payment link, party on ${whenLabel}.`).catch(() => undefined)
   return emailed
 }
 

@@ -5,7 +5,7 @@ import { getPartyRecord } from '@lib/party-store'
 import { listRsvpsByEvent } from '@lib/rsvp-store'
 import { listWaiversByEvent } from '@lib/waiver-store'
 import { agreementState, type AgreementState } from '@lib/waiver-coverage'
-import { adminPartyView, partyRefundRequests, type AdminPartyView } from '@lib/parties/admin-actions'
+import { adminPartyView, leftoverHolds, partyRefundRequests, type AdminPartyView } from '@lib/parties/admin-actions'
 
 export const prerender = false
 
@@ -18,7 +18,11 @@ const ID_RE = /^[A-Za-z0-9_.-]{1,80}$/
  * items, charges, refunds, dueCents, paymentState, linkSent, overlap and the
  * saved refund requests (null when they couldn't be read).
  */
-export type AdminParty = AdminPartyView & { refundRequests: Awaited<ReturnType<typeof partyRefundRequests>> }
+export type AdminParty = AdminPartyView & {
+  refundRequests: Awaited<ReturnType<typeof partyRefundRequests>>
+  /** other times still held for this party (a move left them behind): the sheet offers to let them go */
+  leftoverHolds?: string[]
+}
 /** One household that said yes, from its signed agreement and its RSVP. */
 export interface AdminPartyGuest {
   name: string
@@ -48,7 +52,11 @@ export const GET: APIRoute = async ({ request, url }) => {
     return json(503, { error: "The party couldn't be loaded. Try again." })
   }
   const party: AdminParty | null = record
-    ? { ...adminPartyView(record), refundRequests: await partyRefundRequests(record.bookingId) }
+    ? {
+        ...adminPartyView(record, new Date(), new URL(request.url).origin),
+        refundRequests: await partyRefundRequests(record.bookingId),
+        leftoverHolds: await leftoverHolds(record),
+      }
     : null
   let guests: AdminPartyGuest[] | null = null
   try {

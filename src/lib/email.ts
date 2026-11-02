@@ -122,6 +122,8 @@ export interface PartyDetailsUpdate {
   costNote: string
   pay?: { url: string; label: string }
   moved?: { from: string; to: string }
+  /** the start is the same, the end changed (extra time): Google keeps the old event, so say to delete it */
+  endChanged?: true
 }
 
 export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
@@ -178,7 +180,9 @@ export async function sendPartyConfirmationEmail(input: ConfirmationExtras & {
   const pay = updated?.pay && updated.costNote ? updated.pay : null
   const updatedLine = moved
     ? `Your party moved from ${moved.from} to ${moved.to}. If you added it to your calendar, delete the old one and add this new invite.`
-    : 'If you added the party to your calendar before, use the new invite in this email.'
+    : updated?.endChanged
+      ? 'Your party’s end time changed. If you added it to your calendar, delete the old one and add this new invite.'
+      : 'If you added the party to your calendar before, use the new invite in this email.'
   const heading = moved ? 'Your party has a new time' : 'Your party details'
   const arriveLine = input.arriveEarlyMinutes ? `Arrive up to ${input.arriveEarlyMinutes} minutes early to set up.` : ''
   const headcountLine = `About a week before, we'll text you to check your headcount. It's for our prep only: you pay for who comes${input.minGuests ? `, minimum ${input.minGuests}` : ''}.`

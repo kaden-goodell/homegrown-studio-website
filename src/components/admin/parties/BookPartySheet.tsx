@@ -59,15 +59,17 @@ export function BookPartySheet({ day }: { day?: string }) {
   if (!party.settings) return <SheetFrame title={title}><Skeleton rows={4} label="Loading party times" /></SheetFrame>
   const packages = party.settings.packages.filter((p) => !p.archived)
   const addOns = party.settings.addOns.filter((a) => !a.archived)
-  return <BookForm day={day} packages={packages} addOns={addOns} settings={party.settings} crafts={crafts} />
+  return <BookForm day={day} packages={packages} addOns={addOns} settings={party.settings} crafts={crafts} onPriceChanged={party.retry} />
 }
 
-function BookForm({ day: openedOn, packages, addOns, settings, crafts }: {
+function BookForm({ day: openedOn, packages, addOns, settings, crafts, onPriceChanged }: {
   day?: string
   packages: PartyPackage[]
   addOns: PartyAddOn[]
   settings: NonNullable<ReturnType<typeof usePartySettings>['settings']>
   crafts: ReturnType<typeof useCrafts>
+  /** the server's prices differ from the sheet's: load Parties setup again (I1) */
+  onPriceChanged: () => void
 }) {
   const { open, setDirty } = useSheet()
   const { bump } = useRefresh()
@@ -91,6 +93,15 @@ function BookForm({ day: openedOn, packages, addOns, settings, crafts }: {
   const createKey = useRef(newKey())
   const attemptId = useRef(newAttemptId())
   const cardRef = useRef<PaymentFormRef>(null)
+  const formRef = useRef<HTMLDivElement>(null)
+  // After a refusal: focus the first part marked, so she isn't left hunting on a tall sheet (m6).
+  const [focusSeq, setFocusSeq] = useState(0)
+  useEffect(() => {
+    if (!focusSeq) return
+    const el = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]')
+    el?.focus()
+    el?.scrollIntoView?.({ block: 'center' })
+  }, [focusSeq])
 
   const touched = day !== (openedOn ?? '') || !!start || !!otherTime || craftId !== '' || Object.values(extras).some((n) => n > 0)
     || Object.values(host).some((v) => v.trim() !== '') || guests !== String(pkg?.defaultGuests ?? 10)
@@ -138,7 +149,7 @@ function BookForm({ day: openedOn, packages, addOns, settings, crafts }: {
     setRefusal('')
     const e = check()
     setErrors(e)
-    if (Object.keys(e).length) return
+    if (Object.keys(e).length) { setFocusSeq((n) => n + 1); return }
     setBusy(true)
     let token = ''
     if (pay === 'card') {
@@ -157,6 +168,8 @@ function BookForm({ day: openedOn, packages, addOns, settings, crafts }: {
       guests: guestN,
       craftId,
       addOns: chosenExtras,
+      // What the button and the summary said (I1): a different saved price is refused, nothing charged.
+      expectedCents: nowCents,
       host: { firstName: host.firstName.trim(), lastName: host.lastName.trim(), phone: host.phone.trim(), email: host.email.trim() },
       pay: pay === 'link' ? { kind: 'link' } : { kind: 'card', attemptId: attemptId.current, paymentToken: token },
     }
@@ -165,27 +178,39 @@ function BookForm({ day: openedOn, packages, addOns, settings, crafts }: {
     if (r.ok && r.data) {
       bump()
       const p = r.data.party
-      const text = r.warning ?? r.data.message
+      // A reply to an earlier tap that got lost (same key): that booking stands, at its own time (m7).
+      const replayElsewhere = (r.data as { replay?: boolean }).replay && Date.parse(p.startIso) !== Date.parse(startIso)
+      const text = replayElsewhere
+        ? `This party was already booked from your first tap, for ${dayLabel(localDate(p.startIso))} at ${startClock(p.startIso)}. Nothing new was booked or sent. Use Move if it should be at another time.`
+        : r.warning ?? r.data.message
       toast(text)
       // Booked: nothing is left unsaved, so the party opens without "Leave without saving?".
       setDirty(false)
-      open({ kind: 'party', day: localDate(p.startIso), id: p.bookingId }, { notice: { id: p.bookingId, text, warn: !!r.warning } satisfies PartyNotice })
+      open({ kind: 'party', day: localDate(p.startIso), id: p.bookingId }, { notice: { id: p.bookingId, text, warn: !!r.warning || !!replayElsewhere } satisfies PartyNotice })
       return
     }
     // A plain answer ends this card try; "not sure yet" and "still going through" keep it, so a retry is recognised.
     const unsure = r.status === 0 || r.extra.code === 'unknown_outcome' || r.extra.code === 'in_progress'
     if (pay === 'card' && !unsure) attemptId.current = newAttemptId()
+    // A plain refusal booked nothing: the next tap is a new booking, with whatever she changes (m7).
+    if (pay === 'link' && !unsure) createKey.current = newKey()
+    if (r.extra.why === 'price_changed') {
+      setRefusal(r.error ?? 'The price changed. Nothing was charged or booked.')
+      onPriceChanged()
+      return
+    }
     const msg = r.error ?? 'That didn’t book. Try again.'
     const field = String(r.extra.field ?? '')
     const at: Field | null = field === 'startIso' ? 'start' : field === 'craftId' ? 'craft' : field === 'guests' ? 'guests'
       : field === 'host.firstName' ? 'firstName' : field === 'host.email' ? 'email' : field === 'host.phone' ? 'phone' : field === 'pay' ? 'card' : null
-    if (at) setErrors({ [at]: msg })
+    if (at) { setErrors({ [at]: msg }); setFocusSeq((n) => n + 1) }
     setRefusal(msg)
     // Someone else may have just taken the time: show the times as they are now.
     if (at === 'start' || r.status === 409) { dayTimes.retry(); upcoming.retry() }
   }
 
-  const fieldErr = (f: Field) => errors[f] ? <p className="adm-error adm-fielderr" role="alert">{errors[f]}</p> : null
+  // One alert (the footer line); the field lines are plain text next to their field, and focus goes to the first (m6).
+  const fieldErr = (f: Field) => errors[f] ? <p className="adm-error adm-fielderr">{errors[f]}</p> : null
   const label = pay === 'link' ? 'Book and send link' : `Charge ${formatMoney(nowCents)} and book`
   const footer = (
     <div className="adm-stack">
@@ -205,10 +230,11 @@ function BookForm({ day: openedOn, packages, addOns, settings, crafts }: {
 
   return (
     <SheetFrame tall title="Book a party" subtitle={openedOn ? `On ${dayLabel(openedOn)}` : `${pkg?.name ?? 'Party'} · ${formatMoney(pkg?.priceCents ?? 0)} + crafts`} footer={footer}>
+      <div ref={formRef}>
       <p className="adm-lbl adm-lbl-first">Day and time</p>
       <label className="adm-fld">
         <span>Day</span>
-        <input type="date" min={today()} value={day} onChange={(e) => { setDay(e.target.value); setStart(''); setErrors((x) => ({ ...x, start: undefined })) }} />
+        <input type="date" min={today()} value={day} aria-invalid={!!errors.start || undefined} onChange={(e) => { setDay(e.target.value); setStart(''); setErrors((x) => ({ ...x, start: undefined })) }} />
       </label>
       {day && !other && (
         dayTimes.error ? <Failed message={dayTimes.error} onRetry={dayTimes.retry} />
@@ -337,6 +363,7 @@ function BookForm({ day: openedOn, packages, addOns, settings, crafts }: {
             {fieldErr('card')}
           </>
         )}
+      </div>
     </SheetFrame>
   )
 }

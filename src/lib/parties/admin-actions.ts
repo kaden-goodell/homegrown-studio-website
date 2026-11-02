@@ -49,7 +49,7 @@ import { quoteAddOn } from './pricing'
 import { describePartyRequest, partyLabel } from './refunds'
 import { getPartySettings } from './settings-store'
 import { partyWritesRefusal } from './test-site'
-import { PartyBusyError, withPartyLock } from './party-lock'
+import { assertPartyLockHeld, PartyBusyError, withPartyLock } from './party-lock'
 import type { PartyTimes } from './types'
 
 const logger = createLogger('parties:admin')
@@ -90,7 +90,7 @@ export function cancelledMessage(r: PartyRecord): string {
 /** After the link went out (or didn't). */
 export function linkMessage(r: PartyRecord, dueCents: number, email: boolean, text: boolean): string {
   const how = email && text ? 'by email and text' : email ? 'by email' : text ? 'by text' : null
-  if (!how) return `The payment link didn’t go out. Copy it and send it to ${firstOf(r)} yourself.`
+  if (!how) return `The payment link didn’t go out by email or text. Tap Copy payment link on the Payments tab and send it to ${firstOf(r)} yourself, or tap Send it again.`
   return `The payment link for ${whatIsDue(r)} (${formatMoney(dueCents)}) went to ${firstOf(r)} ${how}.`
 }
 
@@ -151,6 +151,8 @@ const stop = (status: number, message: string, extra: Record<string, unknown> = 
 /** updatePartyRecord, turning a Stop into its PartyActionError and a missing party into 404. */
 async function update(id: string, fn: (r: PartyRecord) => PartyRecord | null, change: string, by: By): Promise<PartyRecord> {
   try {
+    // Fencing (inside withPartyLock): never write after another server took the lease over.
+    await assertPartyLockHeld()
     return await updatePartyRecord(id, fn, change, by)
   } catch (e) {
     if (e instanceof Stop) throw e.err
@@ -223,10 +225,19 @@ export interface AdminPartyView {
   cancelled: PartyRecord['cancelled'] | null
   /** "Email Stefanie the details" (re-sends the confirmation with the current time); null when it can't be sent */
   sendDetails: SendDetailsOffer | null
+  /** The host's payment link (owner only), while something is due on a booked party; null without an origin or a link. */
+  payUrl: string | null
+  /** The host hasn't been told about a change (DV8): what, since when, the sentence the sheet shows. Null when told, or once the party started. */
+  notTold: { at: string; what: string[]; message: string } | null
+  /** What the host was last told: by the confirmation, a details email or the payment link's text. */
+  lastTold: { startIso: string; at: string } | null
+  /** The last time someone noted the host was told. */
+  told: PartyRecord['told'] | null
 }
 
-export function adminPartyView(r: PartyRecord, now: Date = new Date()): AdminPartyView {
+export function adminPartyView(r: PartyRecord, now: Date = new Date(), origin?: string): AdminPartyView {
   const legacy = !isOurs(r)
+  const last = lastToldEntry(r)
   return {
     bookingId: r.bookingId,
     hostName: r.hostName,
@@ -259,8 +270,50 @@ export function adminPartyView(r: PartyRecord, now: Date = new Date()): AdminPar
         }
       : null,
     cancelled: r.cancelled ?? null,
-    sendDetails: !legacy && r.status !== 'cancelled' ? sendDetailsOffer(r, false) : null,
+    sendDetails: !legacy && r.status !== 'cancelled' ? sendDetailsOffer(r, r.notTold ? r.notTold.what.some((w) => w !== 'cancelled') : false) : null,
+    payUrl: !legacy && origin && r.payToken && r.status !== 'cancelled' && dueCents(r) > 0 ? payLinkUrl(origin, r) : null,
+    notTold: !legacy && r.notTold && Date.parse(r.startIso) > now.getTime()
+      ? { at: r.notTold.at, what: r.notTold.what, message: notToldMessage(r) }
+      : null,
+    lastTold: last ? { startIso: last.startIso, at: last.at } : null,
+    told: r.told ?? null,
   }
+}
+
+// ── The host hasn't been told (DV8) ─────────────────────────────────────────
+
+type Untold = NonNullable<PartyRecord['notTold']>['what'][number]
+
+/** The reminder after an owner's change: what changed, kept until the host is told. */
+export function noteNotTold(cur: PartyRecord, what: Untold, by: By, now: Date): PartyRecord['notTold'] {
+  const prev = cur.notTold ?? null
+  const at = now.toISOString()
+  const fromStartIso = prev?.fromStartIso ?? (what === 'time' ? cur.startIso : undefined)
+  const list: Untold[] = what === 'cancelled' ? ['cancelled'] : [...new Set([...(prev?.what ?? []).filter((w) => w !== 'cancelled'), what])]
+  return { at, by, what: list, ...(fromStartIso ? { fromStartIso } : {}) }
+}
+
+/** What the host was last told, newest first: a details email that went, the confirmation, or the payment link (email or text). */
+export function lastToldEntry(r: PartyRecord, exceptKey?: string): { startIso: string; endIso?: string; at: string } | null {
+  const seen: { startIso: string; endIso?: string; at: string }[] = []
+  // Oldest kind first: on the same instant, the later kind wins (a details email over the link, over the confirmation).
+  if (r.confirmation?.sent && r.confirmation.startIso) seen.push({ startIso: r.confirmation.startIso, ...(r.confirmation.endIso ? { endIso: r.confirmation.endIso } : {}), at: r.confirmation.at })
+  for (const l of r.linkSent ?? []) if ((l.email || l.text) && l.startIso) seen.push({ startIso: l.startIso, at: l.at })
+  for (const d of r.detailsSent ?? []) if (d.sent === true && d.key !== exceptKey) seen.push({ startIso: d.startIso, ...(d.endIso ? { endIso: d.endIso } : {}), at: d.at })
+  if (!seen.length) return null
+  return seen.reduce((a, b) => (Date.parse(b.at) >= Date.parse(a.at) ? b : a))
+}
+
+/** "Stefanie hasn’t been told about the new time. Their email and calendar still say Sat, Feb 13 at 2:00 PM." */
+export function notToldMessage(r: PartyRecord): string {
+  const n = r.notTold
+  const first = firstOf(r)
+  if (!n) return ''
+  if (n.what.includes('cancelled')) return `${first} hasn’t been told the party is cancelled. Call or text them, then tap I told them.`
+  const parts = [n.what.includes('time') ? 'the new time' : null, n.what.includes('details') ? 'the changed details' : null].filter(Boolean)
+  const last = lastToldEntry(r)
+  const still = n.what.includes('time') && last && !sameStart(last.startIso, r.startIso) ? ` Their email and calendar still say ${partyWhenLabel(last.startIso)}.` : ''
+  return `${first} hasn’t been told about ${parts.join(' and ')}.${still}`
 }
 
 /** The party's saved refund requests as the sheet shows them; null when they can't be read. */
@@ -272,6 +325,24 @@ export async function partyRefundRequests(id: string): Promise<ReturnType<typeof
   } catch (e) {
     logger.warn('Party refund requests unreadable', { partyId: id, error: String(e) })
     return null
+  }
+}
+
+/**
+ * Times still held for this party besides its own (a leftover after "Not now"
+ * on Finish the move, m8): the sheet offers to let each go. Only for a booked
+ * party of ours whose start is still to come; [] when the book can't be read.
+ */
+export async function leftoverHolds(r: PartyRecord, now: Date = new Date()): Promise<string[]> {
+  if (!isOurs(r) || r.status === 'cancelled') return []
+  try {
+    const to = new Date(Math.max(now.getTime(), Date.parse(r.startIso)) + 180 * 86_400_000).toISOString()
+    return (await holdsBetween(now.toISOString(), to, now))
+      .filter((h) => h.partyId === r.bookingId && !sameStart(h.startIso, r.startIso) && Date.parse(h.startIso) > now.getTime())
+      .map((h) => h.startIso)
+  } catch (e) {
+    logger.warn('Party book unreadable for leftover holds', { partyId: r.bookingId, error: String(e) })
+    return []
   }
 }
 
@@ -370,7 +441,7 @@ async function moveLocked(body: { id?: unknown; startIso?: unknown; fromIso?: un
   /** Both times stay held: the record couldn't be checked, so neither may be let go. */
   const bothHeld = async (): Promise<never> => {
     await alertOwners(
-      `Party move unclear: ${r.hostName}'s party ${r.bookingId} was being moved from ${partyWhenLabel(from)} to ${partyWhenLabel(to)}, and the party couldn't be checked. Both times are held for it. Open it on /admin. If it still shows ${partyWhenLabel(from)}, move it to ${partyWhenLabel(to)} again. If it shows ${partyWhenLabel(to)}, the move went through.`,
+      `Party move unclear: ${r.hostName}'s party was being moved from ${partyWhenLabel(from)} to ${partyWhenLabel(to)}, and the party couldn't be checked. Both times are held for it. Open it on /admin. If it still shows ${partyWhenLabel(from)}, move it to ${partyWhenLabel(to)} again. If it shows ${partyWhenLabel(to)}, the move went through.`,
     ).catch(() => undefined)
     throw new PartyActionError(503, bothHeldMessage(from, to), { both: { from, to } })
   }
@@ -384,6 +455,7 @@ async function moveLocked(body: { id?: unknown; startIso?: unknown; fromIso?: un
 
   let moved: Awaited<ReturnType<typeof moveTime>>
   try {
+    await assertPartyLockHeld()
     moved = await moveTime(r.bookingId, { startIso: from }, { startIso: to, endIso: toEnd }, open.busy, now)
   } catch (e) {
     logger.error('Party move did not finish in the party book', { partyId: r.bookingId, error: String(e) })
@@ -407,7 +479,7 @@ async function moveLocked(body: { id?: unknown; startIso?: unknown; fromIso?: un
       if (cur.status === 'cancelled') stop(409, PARTY_CANCELLED)
       if (paymentGoingThrough(cur, now)) stop(409, paymentWaitMessage(cur, now))
       if (!sameStart(cur.startIso, from)) stop(409, CHANGED_MEANWHILE)
-      return { ...cur, startIso: to, endIso: toEnd, calendarSeq: (cur.calendarSeq ?? 0) + 1 }
+      return { ...cur, startIso: to, endIso: toEnd, calendarSeq: (cur.calendarSeq ?? 0) + 1, notTold: noteNotTold(cur, 'time', by, now) }
     }, `Moved from ${formatSlotLabel(from)} to ${formatSlotLabel(to)}`, by)
   } catch (e) {
     // Re-read before letting the new time go: the write may have landed.
@@ -488,7 +560,7 @@ async function cancelLocked(body: { id?: unknown; note?: unknown }, by: By, requ
   const saved = await update(r.bookingId, (cur) => {
     if (cur.status === 'cancelled') return null
     if (paymentGoingThrough(cur, now)) stop(409, paymentWaitMessage(cur, now))
-    return { ...cur, status: 'cancelled', cancelled: { at: now.toISOString(), by, note } }
+    return { ...cur, status: 'cancelled', cancelled: { at: now.toISOString(), by, note }, notTold: noteNotTold(cur, 'cancelled', by, now) }
   }, `Cancelled${note ? `: ${note}` : ''}. Nothing was refunded`, by)
   const warnings = await letCancelledGo(saved)
   await audit(by, 'party-cancel', saved, { note: note || null, refunded: false })
@@ -551,6 +623,7 @@ async function addExtraLocked(
     if (!open.ok) throw new PartyActionError(409, open.message, { field: `addOns.${addOnId}` })
     let grown: Awaited<ReturnType<typeof resizeTime>>
     try {
+      await assertPartyLockHeld()
       grown = await resizeTime(r.bookingId, r.startIso, newEnd, open.busy, now)
     } catch (e) {
       logger.error('Party extra time not written in the party book', { partyId: r.bookingId, error: String(e) })
@@ -579,7 +652,7 @@ async function addExtraLocked(
         items: [...(cur.items ?? []), item],
         endIso: newEnd,
         durationMinutes: (cur.durationMinutes ?? partyMinutesOf(cur)) + extra,
-        ...(extra > 0 ? { calendarSeq: (cur.calendarSeq ?? 0) + 1 } : {}),
+        ...(extra > 0 ? { calendarSeq: (cur.calendarSeq ?? 0) + 1, notTold: noteNotTold(cur, 'time', by, now) } : {}),
       }
     }, `Added ${q.value.label}${q.value.topUp ? ` for ${q.value.forGuests} more guests` : ''}`, by)
   } catch (e) {
@@ -623,7 +696,7 @@ async function removeExtraLocked(body: { id?: unknown; itemId?: unknown }, by: B
       items: (cur.items ?? []).filter((x) => x.id !== itemId),
       endIso: plus(endOf(cur), -extra),
       durationMinutes: Math.max(0, (cur.durationMinutes ?? partyMinutesOf(cur)) - extra),
-      ...(extra > 0 ? { calendarSeq: (cur.calendarSeq ?? 0) + 1 } : {}),
+      ...(extra > 0 ? { calendarSeq: (cur.calendarSeq ?? 0) + 1, notTold: noteNotTold(cur, 'time', by, now) } : {}),
     }
   }, 'Took off an extra', by)
   let warning: string | undefined
@@ -702,7 +775,7 @@ export async function editPartyDetails(
   const saved = await update(r.bookingId, (cur) => {
     if (cur.status === 'cancelled') stop(409, PARTY_CANCELLED)
     // The calendar file's SEQUENCE: a re-sent invite replaces the old one in Apple and Outlook (N3).
-    return { ...cur, ...patch, calendarSeq: (cur.calendarSeq ?? 0) + 1 }
+    return { ...cur, ...patch, calendarSeq: (cur.calendarSeq ?? 0) + 1, notTold: noteNotTold(cur, 'details', by, now) }
   }, `Changed ${said.join(', ')}`, by)
   await audit(by, 'party-edit', saved, { changed: said.join('; ').slice(0, 300) })
   // More guests than a per-guest extra covers: the new guests don't have it until it's added for them (S2-R4a).
@@ -754,9 +827,7 @@ export function detailsCostNote(r: PartyRecord, origin: string): { costNote: str
 
 /** The start the host was last told about: the last details email that went, else the first confirmation. */
 export function lastToldStart(r: PartyRecord, exceptKey?: string): string | null {
-  const sent = (r.detailsSent ?? []).filter((d) => d.sent === true && d.key !== exceptKey)
-  if (sent.length) return sent[sent.length - 1].startIso
-  return r.confirmation?.sent && r.confirmation.startIso ? r.confirmation.startIso : null
+  return lastToldEntry(r, exceptKey)?.startIso ?? null
 }
 
 export interface SendDetailsResult { party: AdminPartyView; sent: boolean | null; message: string; replay?: true; warning?: string }
@@ -797,7 +868,7 @@ export async function sendPartyDetails(body: { id?: unknown; createKey?: unknown
     if (cur.detailsSent?.some((d) => d.key === key)) return null
     if (cur.status === 'cancelled') stop(409, PARTY_CANCELLED)
     mine = true
-    return { ...cur, detailsSent: [...(cur.detailsSent ?? []), { key, at, by, startIso: cur.startIso, sent: null }].slice(-20) }
+    return { ...cur, detailsSent: [...(cur.detailsSent ?? []), { key, at, by, startIso: cur.startIso, endIso: endOf(cur), sent: null }].slice(-20) }
   }, 'Emailing the party details', by)
   if (!mine) return answer(claimed, claimed.detailsSent?.find((d) => d.key === key)?.sent ?? null, true)
 
@@ -808,12 +879,16 @@ export async function sendPartyDetails(body: { id?: unknown; createKey?: unknown
   const last = claimed.charges?.length ? claimed.charges[claimed.charges.length - 1] : null
   const origin = new URL(request.url).origin
   // Moved since the host was last told: the email names the old time, and its subject says the time changed (N3).
-  const told = lastToldStart(claimed, key)
+  const toldEntry = lastToldEntry(claimed, key)
+  const told = toldEntry?.startIso ?? null
+  // Same start, but the end changed since (extra time): Google keeps the old event, so the email says to delete it (m10).
+  const endChanged = !!toldEntry && sameStart(toldEntry.startIso, claimed.startIso)
+    && (toldEntry.endIso ? toldEntry.endIso !== endOf(claimed) : !!claimed.notTold?.what.includes('time'))
   const sent = await sendPartyBookedEmail({
     partyId: claimed.bookingId, rec: claimed, draft: claimed, firstName: claimed.hostName.split(' ')[0] ?? '', email: claimed.hostEmail,
     origin, chargedCents: paidCents(claimed), receiptUrl: last?.receiptUrl ?? null,
     themeName: claimed.theme?.displayName, ...(minGuests ? { minGuests } : {}),
-    updated: { ...detailsCostNote(claimed, origin), ...(told && !sameStart(told, claimed.startIso) ? { moved: { from: partyWhenLabel(told), to: partyWhenLabel(claimed.startIso) } } : {}) },
+    updated: { ...detailsCostNote(claimed, origin), ...(told && !sameStart(told, claimed.startIso) ? { moved: { from: partyWhenLabel(told), to: partyWhenLabel(claimed.startIso) } } : endChanged ? { endChanged: true as const } : {}) },
   })
   let saved = claimed
   try {
@@ -821,13 +896,44 @@ export async function sendPartyDetails(body: { id?: unknown; createKey?: unknown
       ...cur,
       detailsSent: (cur.detailsSent ?? []).map((d) => (d.key === key ? { ...d, sent } : d)),
       // A party that never had its confirmation (booked by phone) has it now: its first payment sends a plain receipt.
-      ...(sent && !cur.confirmation ? { confirmation: { at, sent: true, startIso: claimed.startIso } } : {}),
+      ...(sent && !cur.confirmation ? { confirmation: { at, sent: true, startIso: claimed.startIso, endIso: endOf(claimed) } } : {}),
+      // The email told them everything up to the moment it was claimed: a change made after that stays untold.
+      ...(sent && cur.notTold && Date.parse(cur.notTold.at) <= Date.parse(at) ? { notTold: null, told: { at, by, how: 'email' as const } } : {}),
     }), sent ? 'Party details emailed' : 'Party details email did not send', by)
   } catch (e) {
     logger.error('Party details email result not noted', { partyId: claimed.bookingId, error: String(e) })
   }
   await audit(by, 'party-details', saved, { sent, startIso: claimed.startIso })
   return answer(saved, sent, false)
+}
+
+// ── "I told them" ───────────────────────────────────────────────────────────
+
+export const TOLD_CHANGED = 'Something else changed on this party since. Check it, then tap I told them again.'
+
+/**
+ * An owner says the host has been told about the changes (by phone, text or
+ * in person): the "Not told yet" reminder goes, with who and when. `notToldAt`
+ * (the reminder the screen showed) keeps a newer change from being cleared
+ * by an older screen. Works on a cancelled party too.
+ */
+export async function markPartyTold(body: { id?: unknown; notToldAt?: unknown }, by: By, request: Request, now: Date = new Date()): Promise<{ party: AdminPartyView; message: string; replay?: true }> {
+  const r = await writable(body.id, request)
+  const first = firstOf(r)
+  if (!r.notTold) return { party: adminPartyView(r, now), message: `Nothing is waiting to be told to ${first}.`, replay: true }
+  const shown = typeof body.notToldAt === 'string' ? body.notToldAt : null
+  if (shown && shown !== r.notTold.at) throw new PartyActionError(409, TOLD_CHANGED)
+  const at = now.toISOString()
+  let cleared = false
+  const saved = await update(r.bookingId, (cur) => {
+    cleared = false
+    if (!cur.notTold) return null
+    if (shown && shown !== cur.notTold.at) stop(409, TOLD_CHANGED)
+    cleared = true
+    return { ...cur, notTold: null, told: { at, by, how: 'owner' } }
+  }, `${by.name} told ${first} about the changes`, by)
+  if (cleared) await audit(by, 'party-told', saved, { what: r.notTold.what.join(', ') })
+  return { party: adminPartyView(saved, now), message: `Noted that ${first} has been told.`, ...(cleared ? {} : { replay: true as const }) }
 }
 
 // ── Parties setup: what a save takes away ───────────────────────────────────

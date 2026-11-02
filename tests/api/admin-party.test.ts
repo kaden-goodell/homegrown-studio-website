@@ -63,7 +63,7 @@ describe('GET /api/admin/party.json', () => {
     expect((await get('a b')).status).toBe(400)
   })
 
-  it('a party of ours: money, status and end time for the sheet; never the host page key or the payment key', async () => {
+  it('a party of ours: money, status and end time for the sheet; never the host page key; the payment key only inside the payment link (owners, T12 I2)', async () => {
     const rec = ours()
     await createPartyRecord(rec)
     const r = await get(rec.bookingId)
@@ -76,7 +76,9 @@ describe('GET /api/admin/party.json', () => {
     expect(r.body.data.party.items.map((it: any) => it.id)).toEqual(['itm_pkg', 'itm_half'])
     expect(r.body.data.party.charges).toEqual([expect.objectContaining({ id: 'chg_1', cents: 30000, receiptUrl: 'https://r/1' })])
     expect(JSON.stringify(r.body)).not.toContain('host-secret')
-    expect(JSON.stringify(r.body)).not.toContain('pay-secret')
+    // The payment link is on the sheet for "Copy payment link" (owner only); the key appears nowhere else.
+    expect(r.body.data.party.payUrl).toMatch(/pay-secret/)
+    expect(JSON.stringify({ ...r.body.data.party, payUrl: null })).not.toContain('pay-secret')
   })
 
   it('R6: a party paid after its time was taken carries the overlap warning; a cancelled one says so', async () => {

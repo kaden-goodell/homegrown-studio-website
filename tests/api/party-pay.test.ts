@@ -346,7 +346,7 @@ describe('POST /api/party/pay.json', () => {
     }
     expect((await pay(payBody(p))).status).toBe(200)
     expect((await getPartyRecord(p.id))!.charges).toHaveLength(1)
-    expect(m.alert.mock.calls.some(([t]) => /^Paid after it was cancelled\. Check it\./.test(String(t)) && String(t).includes(p.id))).toBe(true)
+    expect(m.alert.mock.calls.some(([t]) => /^Paid after it was cancelled\. Check it\./.test(String(t)) && !String(t).includes(p.id))).toBe(true) // m12: no party id in owner texts
     expect(m.paidEmail).not.toHaveBeenCalled()
   })
 
@@ -440,7 +440,7 @@ describe('no answer from Square', () => {
     const rec = (await getPartyRecord(p.id))!
     expect(rec.paying).toMatchObject({ attemptId: b.attemptId, state: 'unclear' })
     expect(Date.parse(rec.paying!.until) - NOW.getTime()).toBe(24 * 3600_000)
-    expect(m.alert.mock.calls.some(([t]) => /unclear/.test(String(t)) && String(t).includes(p.id))).toBe(true)
+    expect(m.alert.mock.calls.some(([t]) => /unclear/.test(String(t)) && !String(t).includes(p.id))).toBe(true) // m12: host and time, no party id
     // Another attempt hours later: refused before any order.
     vi.setSystemTime(new Date(NOW.getTime() + 3 * 3600_000))
     m.createOrder.mockClear()

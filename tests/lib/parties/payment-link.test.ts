@@ -77,7 +77,8 @@ describe('sendPaymentLink', () => {
     expect(mail.text).toContain('Crafts are paid at the studio for whoever comes.')
     expect(`${mail.subject} ${mail.text} ${sms.content}`).not.toMatch(/balance/i)
     const saved = await getPartyRecord(rec.bookingId)
-    expect(saved!.linkSent).toEqual([{ at: expect.any(String), by: KADEN, email: true, text: true }])
+    // the time the link's text named, so a later details email can say the party moved from it (m9)
+    expect(saved!.linkSent).toEqual([{ at: expect.any(String), by: KADEN, email: true, text: true, startIso: rec.startIso }])
     expect(saved!.history!.at(-1)).toMatchObject({ by: KADEN, change: 'Payment link emailed and texted' })
   })
 

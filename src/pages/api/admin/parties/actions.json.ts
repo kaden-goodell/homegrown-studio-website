@@ -4,7 +4,7 @@ import { paymentBypassEnabled } from '@lib/dev-flags'
 import { isAttemptId } from '@lib/checkout-attempt'
 import { recordAudit } from '@lib/audit'
 import {
-  addPartyExtra, adminPartyView, cancelParty, editPartyDetails, json, LEGACY_PARTY, moveParty, partyReply,
+  addPartyExtra, adminPartyView, cancelParty, markPartyTold, editPartyDetails, json, LEGACY_PARTY, moveParty, partyReply,
   PartyActionError, paymentGoingThrough, paymentWaitMessage, removePartyExtra, sendPartyDetails, sendPartyLink,
 } from '@lib/parties/admin-actions'
 import { ownerTakeCardMessage, ownerTakeCardUnknown } from '@lib/parties/owner-messages'
@@ -31,6 +31,8 @@ export const prerender = false
  *   send-details  { createKey }                        → { party, sent } (owner-tapped "Email Stefanie the
  *                 new details": the confirmation again with the current time and a new calendar
  *                 file; one email per createKey; never automatic, S2-R7)
+ *   mark-told     { notToldAt? }                       → { party } ("I told them": the Not told yet
+ *                 reminder goes, with who and when)
  *   take-card     { attemptId, paymentToken, expectedCents } → { party, paidCents, receiptUrl }
  *                 (what is due, by card in /admin: the same one-payment-at-a-time
  *                 claim as the payment link, so the two never both charge)
@@ -49,6 +51,7 @@ export const POST: APIRoute = async ({ request }) => {
     case 'edit-details': return partyReply(() => editPartyDetails(body, by, request))
     case 'send-details': return partyReply(() => sendPartyDetails(body, by, request))
     case 'take-card': return partyReply(() => takeCard(body, by, request))
+    case 'mark-told': return partyReply(() => markPartyTold(body, by, request))
     default: return json(400, { error: 'Pick what to do.' })
   }
 }

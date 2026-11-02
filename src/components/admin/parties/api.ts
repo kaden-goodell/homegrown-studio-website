@@ -155,5 +155,17 @@ export function useParty(id: string) {
     })
     return () => { live = false }
   }, [id, version, tries])
-  return { info, error, reload: () => setTries((n) => n + 1), setParty: (party: AdminParty) => setInfo((cur) => ({ guests: cur?.guests ?? null, party: { ...party, refundRequests: party.refundRequests ?? cur?.party?.refundRequests ?? [] } })) }
+  return { info, error, reload: () => setTries((n) => n + 1), setParty: (party: AdminParty) => setInfo((cur) => {
+    // An action's reply: the party as saved, shown at once (the reload follows). Fields only the GET adds are kept.
+    const was = cur?.party ?? null
+    return {
+      guests: cur?.guests ?? null,
+      party: {
+        ...party,
+        refundRequests: party.refundRequests ?? was?.refundRequests ?? [],
+        leftoverHolds: party.leftoverHolds ?? was?.leftoverHolds ?? [],
+        payUrl: party.dueCents > 0 && party.status !== 'cancelled' ? (party.payUrl ?? was?.payUrl ?? null) : null,
+      },
+    }
+  }) }
 }

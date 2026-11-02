@@ -53,7 +53,7 @@ import {
 import { isComing } from './seat-status'
 import { assertClassWritesAllowed, TestSiteStoreError } from './test-site-guard'
 import { onStaffConsole } from './staff-view'
-import { getPartyRecord } from '@lib/party-store'
+import { getPartyRecord, isOurs, listParties, updatePartyRecord } from '@lib/party-store'
 import { clearPartyRefundRequest, partyLabel } from '@lib/parties/refunds'
 import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
 import { deletePaidElsewhere, listCheckouts } from '@lib/parties/party-checkouts'
@@ -62,7 +62,7 @@ import type { Cents, ScheduledClass } from './types'
 
 export type ToDecideKind =
   | 'pos-unmatched' | 'refund-plain' | 'refund-failed' | 'refund-unfinished' | 'refund-unconfirmed'
-  | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check' | 'party-paid-unclear' | 'paid-not-seated'
+  | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check' | 'party-paid-unclear' | 'paid-not-seated' | 'party-not-told'
 
 /** One thing waiting for an owner (or decided lately). */
 export interface ToDecideItem {
@@ -377,10 +377,36 @@ async function partyItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
     out.push({
       id, kind: 'party-paid-unclear', title: elsewhere ? 'Party payment to check' : 'Party payment unclear', at: c.updatedAt,
       head: elsewhere
-        ? `Square shows ${money(cents)} paid for party ${c.partyId} (${who}, ${when}), but ${c.why === 'other-payment' ? 'that party is already paid by another order' : 'there is nothing here to book it from'}. Nothing was refunded.`
+        ? `Square shows ${money(cents)} paid for a party (${who}, ${when}), but ${c.why === 'other-payment' ? 'that party is already paid by another order' : 'there is nothing here to book it from'}. Nothing was refunded.`
         : `${who}’s ${money(cents)} party payment for ${when} got no answer from Square. The time is held, not confirmed.`,
       hint: elsewhere ? 'Check it in Square' : 'Check Square, then confirm the party or say it wasn’t paid',
       detail: { partyId: c.partyId, orderId: c.orderId, cents, elsewhere, why: c.why ?? null, startIso: c.startIso, email: c.host.email, phone: c.host.phone },
+    })
+  }
+  return out
+}
+
+/**
+ * Parties whose host hasn't been told about an owner's change (DV8): moved,
+ * cancelled, details or length changed, and no "Email the details" or "I told
+ * them" since. Only parties still to come. One item per change (a later
+ * change makes a new one); it goes by itself once the host is told.
+ */
+async function partyNotToldItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]> {
+  const out: ToDecideItem[] = []
+  for (const r of await listParties()) {
+    const n = r.notTold
+    if (!n || !isOurs(r) || Date.parse(r.startIso) <= now.getTime()) continue
+    const id = tokenOf(`pnt-${r.bookingId}-${Date.parse(n.at)}`)
+    if (skip.has(id)) continue
+    const first = r.hostName.split(' ')[0] || 'The host'
+    const what = n.what.includes('cancelled') ? `the party on ${whenText(r.startIso)} is cancelled`
+      : [n.what.includes('time') ? `the new time (${whenText(r.startIso)})` : null, n.what.includes('details') ? 'the changed details' : null].filter(Boolean).join(' and ')
+    out.push({
+      id, kind: 'party-not-told', title: 'Host not told yet', at: n.at, className: partyLabel(r),
+      head: `${first} hasn’t been told ${n.what.includes('cancelled') ? '' : 'about '}${what}. Nothing is sent to them on its own.`,
+      hint: 'Email them the details from the party, or say you told them',
+      detail: { partyId: r.bookingId, partyDay: studioDate(r.startIso), notToldAt: n.at, cancelled: n.what.includes('cancelled'), host: r.hostName, phone: r.hostPhone ?? '' },
     })
   }
   return out
@@ -437,6 +463,7 @@ export async function listToDecide(now = new Date()): Promise<{ items: ToDecideI
     safe('counter checks', () => matchItems(skip, now)),
     safe('party payments', () => partyItems(skip, now)),
     safe('paid bookings', () => paidNotSeatedItems(cache, skip)),
+    safe('hosts to tell', () => partyNotToldItems(skip, now)),
   ])
   const open = groups.flat().sort((a, b) => b.at.localeCompare(a.at))
   // Notes on waiting items (R40: "Texted the people booked"), shown on the item.
@@ -473,6 +500,7 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'counter-match-check': ['confirm', 'move'],
   'party-paid-unclear': ['confirm', 'not-paid', 'sorted'],
   'paid-not-seated': ['seat', 'sorted'],
+  'party-not-told': ['told'],
 }
 
 async function record(item: ToDecideItem, what: string, by: By, action: string, undo?: Decided['undo']): Promise<Decided> {
@@ -740,6 +768,18 @@ export async function decide(id: string, action: string, body: any, by: By, now 
         if (e instanceof PartyUnclearError) throw new DecideError(e.status, e.message)
         throw e
       }
+    }
+    case 'party-not-told': {
+      // "I told them": the same as the party sheet's button, for the change this item named.
+      const partyId = str(d.partyId)
+      const shown = str(d.notToldAt)
+      const at = now.toISOString()
+      await updatePartyRecord(partyId, (cur) => {
+        if (!cur.notTold) return null
+        if (cur.notTold.at !== shown) throw new DecideError(409, 'Something else changed on this party since. Open the party to check it.')
+        return { ...cur, notTold: null, told: { at, by, how: 'owner' } }
+      }, `${by.name} told ${str(d.host).split(' ')[0] || 'the host'} about the changes`, by)
+      return { decided: await record(item, 'Told them', by, action) }
     }
   }
 }

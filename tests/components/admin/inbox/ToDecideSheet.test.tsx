@@ -328,4 +328,17 @@ describe('To decide sheets', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Didn’t save. Try again.')
     expect(screen.getAllByText("Didn't save. Try again.").length).toBeGreaterThan(0)
   })
+
+  it('a host not told yet (DV8): open the party, or I told them, which posts told and shows Done', async () => {
+    const t = item({ kind: 'party-not-told', title: 'Host not told yet', head: 'Stefanie hasn’t been told about the new time (Sun Mar 16 1 PM). Nothing is sent to them on its own.', className: 'the Justice party',
+      detail: { partyId: 'pty_0123456789abcdef', partyDay: '2031-03-16', notToldAt: '2031-03-05T15:00:00Z', cancelled: false, host: 'Stefanie Justice' } })
+    const { f, sheet } = show([t])
+    expect(await screen.findByText(t.head)).toBeInTheDocument()
+    expect(screen.getByText(/Open the party to email them the new details and a calendar invite/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open the party' }))
+    expect(sheet.open).toHaveBeenCalledWith({ kind: 'party', day: '2031-03-16', id: 'pty_0123456789abcdef' })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'I told them' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'told' }]))
+    expect(await screen.findByText(/^Done · /)).toBeInTheDocument()
+  })
 })

@@ -7,13 +7,16 @@
  * Actions: Move (only free party times, or another free time), Cancel (never
  * refunds), Change details, + Add an extra, Send payment link, Take card now
  * (Square's card box), Email the host the details, Refund (one payment at a
- * time). Nothing is sent to the host on its own (S2-R7): after a move or a
- * cancel the sheet shows "Let Stefanie know" with Call, Text and Email.
+ * time). Nothing is sent to the host on its own (S2-R7). After every
+ * action the result stays on the sheet (heading focused, so it's read out),
+ * and a move, cancel or change leaves a "Not told yet" reminder (Call, Text,
+ * Write, Email the new details, I told them) until the host is told (DV8).
+ * Move and Cancel open in the body, never in the pinned footer.
  *
  * A party booked in Square is read only here: "Booked in Square. Change it
  * there."
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import PaymentForm, { type PaymentFormRef } from '@components/checkout/PaymentForm'
 import { AmountRefundPanel, type AmountCharge, type WaitingAmountRefund } from '@components/shared/RefundPanel'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
@@ -43,8 +46,21 @@ type Panel = null | 'move' | 'cancel'
 const WAIVER: Record<AdminPartyGuest['waiver'], string> = { current: 'Waiver signed', expired: 'Waiver expired', outdated: 'Needs the new waiver' }
 const CARD_UNREAD = 'We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.'
 
-/** After a move, a cancel or a change: what happened and how to tell the host (nothing is sent for her). */
-interface Told { text: string; warn?: boolean; host: HostToTell | null; offer: SendDetailsOffer | null }
+/** What just happened (after a move, a cancel, a change, a payment, a refund), kept on the sheet: a heading and the server's words. */
+interface Told { title: string; text: string; warn?: boolean }
+
+/** Shows an action's reply on the sheet at once (the party as the server saved it); the reload follows. */
+const PartyUpdate = createContext<(p: unknown) => void>(() => {})
+/** bump() plus the reply's party shown right away. */
+function useApplied() {
+  const { bump } = useRefresh()
+  const update = useContext(PartyUpdate)
+  return (data?: unknown) => {
+    const party = data && typeof data === 'object' ? (data as { party?: unknown }).party : undefined
+    if (party && typeof party === 'object') update(party)
+    bump()
+  }
+}
 
 const kv = (k: string, v: ReactNode, key?: string) => (
   <div key={key ?? k} className="adm-kv"><span>{k}</span><span>{v === '' || v === null ? '—' : v}</span></div>
@@ -52,7 +68,7 @@ const kv = (k: string, v: ReactNode, key?: string) => (
 
 export function PartySheet({ day, id }: { day: string; id: string }) {
   const { data } = useSheet()
-  const { info, error, reload } = useParty(id)
+  const { info, error, reload, setParty } = useParty(id)
   const given = data && typeof data === 'object' ? data as Partial<CalendarItem> & { notice?: PartyNotice } : null
   const item = given && given.id === id && given.startIso ? given as CalendarItem : null
   const notice = given?.notice && given.notice.id === id ? given.notice : null
@@ -61,7 +77,11 @@ export function PartySheet({ day, id }: { day: string; id: string }) {
   if (!info) return <SheetFrame title="Party" subtitle={item ? dayAndSpan(item.startIso, item.endIso) : dayLabel(day)}><Skeleton rows={4} label="Loading the party" /></SheetFrame>
   const p = info.party
   if (!p || p.legacy) return <SquareParty party={p} item={item} guests={info.guests} day={day} />
-  return <OurParty party={p} guests={info.guests} notice={notice} />
+  return (
+    <PartyUpdate.Provider value={(next) => setParty(next as AdminParty)}>
+      <OurParty party={p} guests={info.guests} notice={notice} />
+    </PartyUpdate.Provider>
+  )
 }
 
 /** Call and Text, with the number showing underneath (pinned at the bottom). */
@@ -139,15 +159,18 @@ function itemWords(it: PartyItem): string {
 
 function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: AdminPartyGuest[] | null; notice: PartyNotice | null }) {
   const { bump } = useRefresh()
+  const applied = useApplied()
   const toast = useToast()
   const [tab, setTab] = useState<Tab>('details')
   const [panel, setPanel] = useState<Panel>(null)
-  const [told, setTold] = useState<Told | null>(notice ? { text: notice.text, warn: notice.warn, host: null, offer: null } : null)
+  const [told, setTold] = useState<Told | null>(notice ? { title: notice.warn ? 'Booked, with something to check' : 'Booked', text: notice.text, warn: notice.warn } : null)
+  const [toldSeq, setToldSeq] = useState(0)
   const [editing, setEditing] = useState(false)
   const [adding, setAdding] = useState(false)
   const [taking, setTaking] = useState(false)
   const [busy, setBusy] = useState('')
-  const top = useRef<HTMLDivElement>(null)
+  const toldHead = useRef<HTMLHeadingElement>(null)
+  const toldId = useId()
   const cancelled = p.status === 'cancelled'
   const first = firstOf(p.hostName)
   const paying = p.paymentInFlight
@@ -155,54 +178,100 @@ function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: Adm
   const when = p.endIso ? dayAndSpan(p.startIso, p.endIso) : dayAndClock(p.startIso)
   const started = Date.parse(p.startIso) <= Date.now()
 
+  /** What just happened, kept on the sheet (the toast goes after 4 s); focus moves to its heading so it's read out (I4). */
   function show(t: Told) {
     setTold(t)
-    top.current?.scrollIntoView?.({ block: 'start' })
+    setToldSeq((n) => n + 1)
   }
+  useEffect(() => {
+    if (!toldSeq) return
+    toldHead.current?.focus({ preventScroll: true })
+    toldHead.current?.scrollIntoView?.({ block: 'start' })
+  }, [toldSeq])
 
   async function act<T>(body: Record<string, unknown>, tag: string): Promise<{ ok: true; data: T; warning?: string } | { ok: false; error: string }> {
     setBusy(tag)
     const r = await api<T>(PARTY_ACTIONS, { id: p.bookingId, ...body })
     setBusy('')
-    if (r.ok && r.data) { bump(); return { ok: true, data: r.data, warning: r.warning } }
+    if (r.ok && r.data) { applied(r.data); return { ok: true, data: r.data, warning: r.warning } }
     return { ok: false, error: r.error ?? DIDNT_SAVE }
   }
 
+  // One send at a time (m16): the server sends the same link again anyway, but a double tap shouldn't send two.
+  const sendingLink = useRef(false)
   async function sendLink() {
+    if (sendingLink.current) return
+    sendingLink.current = true
     const r = await act<{ message: string }>({ action: 'send-link' }, 'link')
-    if (!r.ok) return toast(r.error)
-    toast(r.warning ?? r.data.message)
+    sendingLink.current = false
+    const text = r.ok ? (r.warning ?? r.data.message) : r.error
+    toast(text)
+    show({ title: 'Payment link', text, warn: !r.ok || !!r.warning })
+  }
+
+  function copyPayLink() {
+    const url = p.payUrl
+    if (!url) return
+    const failed = () => show({ title: 'Payment link', text: `Couldn’t copy. ${first}’s payment link is ${url}`, warn: true })
+    const clip = navigator.clipboard
+    if (!clip) return failed()
+    clip.writeText(url).then(() => {
+      const text = `Copied ${first}’s payment link. Paste it into a text or email to ${first}. It isn’t the guest invite.`
+      toast(text)
+      show({ title: 'Payment link', text })
+    }, failed)
   }
 
   // "Email Stefanie the details": one request at a time (the button is off while it goes), a new key for every
   // deliberate tap, the same key only for the one automatic retry after the network dropped (the server may have
   // sent it already: the same key answers that result instead of a second email). A failed send never sticks to
-  // a key: the next tap is a new key, so "tap again" always tries again.
+  // a key: the next tap is a new key, so "tap again" always tries again. The button stays until it went (m3).
   const sendingDetails = useRef(false)
   async function sendDetails() {
     if (sendingDetails.current) return
     sendingDetails.current = true
     setBusy('details')
     const createKey = newKey()
-    let r = await api<{ message: string }>(PARTY_ACTIONS, { id: p.bookingId, action: 'send-details', createKey })
+    let r = await api<{ message: string; sent: boolean | null }>(PARTY_ACTIONS, { id: p.bookingId, action: 'send-details', createKey })
     if (!r.ok && r.status === 0) {
       await new Promise((res) => setTimeout(res, 1500))
-      r = await api<{ message: string }>(PARTY_ACTIONS, { id: p.bookingId, action: 'send-details', createKey })
+      r = await api<{ message: string; sent: boolean | null }>(PARTY_ACTIONS, { id: p.bookingId, action: 'send-details', createKey })
     }
     sendingDetails.current = false
     setBusy('')
-    if (!r.ok || !r.data) return toast(r.error ?? DIDNT_SAVE)
-    bump()
-    toast(r.warning ?? r.data.message)
-    if (told?.offer) setTold({ ...told, offer: null, text: `${told.text} ${r.warning ?? r.data.message}` })
+    if (!r.ok || !r.data) {
+      const text = r.error ?? DIDNT_SAVE
+      toast(text)
+      return show({ title: 'Email', text, warn: true })
+    }
+    applied(r.data)
+    const text = r.warning ?? r.data.message
+    toast(text)
+    show({ title: 'Email', text, warn: r.data.sent !== true })
+  }
+
+  async function markTold() {
+    const r = await act<{ message: string }>({ action: 'mark-told', ...(p.notTold ? { notToldAt: p.notTold.at } : {}) }, 'told')
+    const text = r.ok ? r.data.message : r.error
+    toast(text)
+    show({ title: r.ok ? 'Noted' : 'Didn’t save', text, warn: !r.ok })
   }
 
   async function takeOff(it: PartyItem) {
     const r = await act<{ message: string }>({ action: 'remove-extra', itemId: it.id }, `off-${it.id}`)
-    toast(r.ok ? (r.warning ?? r.data.message) : r.error)
+    const text = r.ok ? (r.warning ?? r.data.message) : r.error
+    toast(text)
+    show({ title: 'Extras', text, warn: !r.ok || !!r.warning })
   }
 
-  const host: HostToTell = { name: p.hostName, phone: p.hostPhone, email: p.hostEmail }
+  /** A time left held for this party (m8): let it go, the same request as finishing a move. */
+  async function letGoOf(iso: string) {
+    const r = await act<{ message: string }>({ action: 'move', startIso: p.startIso, fromIso: iso }, `free-${iso}`)
+    const text = !r.ok ? r.error : r.warning ? r.warning : `${dayAndClock(iso)} is free again. Nothing else changed and nothing was sent to ${first}.`
+    toast(text)
+    show({ title: 'Held time', text, warn: !r.ok || !!r.warning })
+  }
+
   const lastSent = p.linkSent.length ? p.linkSent[p.linkSent.length - 1] : null
   const charges: AmountCharge[] = p.charges.filter((c) => !c.simulated).map((c) => ({
     id: c.id,
@@ -213,16 +282,14 @@ function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: Adm
   const waiting: WaitingAmountRefund | null = waitingReq ? { requestId: waitingReq.requestId, cents: waitingReq.cents, at: waitingReq.at, by: waitingReq.by, chargeId: waitingReq.chargeId } : null
   const canPay = !cancelled && p.dueCents > 0 && !paying
   const paidCents = p.charges.reduce((s, c) => s + c.cents, 0) - p.refunds.reduce((s, f) => s + f.cents, 0)
+  const leftovers = cancelled ? [] : (p.leftoverHolds ?? [])
+  const paidRows = p.charges.length + p.refunds.length
 
-  let footer: ReactNode
-  if (panel === 'move') footer = <MovePanel party={p} onClose={() => setPanel(null)} onMoved={(t) => { setPanel(null); show(t) }} />
-  else if (panel === 'cancel') {
-    footer = (
-      <CancelPanel party={p} paidCents={paidCents} onClose={() => setPanel(null)} onDone={(t) => { setPanel(null); setTab('details'); show(t) }} />
-    )
-  } else if (cancelled || started) footer = <CallText phone={p.hostPhone} />
-  else {
-    footer = (
+  // The footer keeps only Call and Text while a panel, the card box or a form is open (I7: nothing pinned under them).
+  const quiet = cancelled || started || panel !== null || taking || adding || editing
+  const footer: ReactNode = quiet
+    ? <CallText phone={p.hostPhone} />
+    : (
       <div className="adm-stack">
         <div className="adm-two">
           <button type="button" className="adm-btn is-ghost" onClick={() => setPanel('move')}>Move</button>
@@ -231,29 +298,24 @@ function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: Adm
         <CallText phone={p.hostPhone} />
       </div>
     )
-  }
 
   const statusTag = <span className={`adm-tag${p.paymentState === 'paid' ? ' is-grey' : p.paymentState === 'cancelled' ? ' is-red' : ''}`}>{STATE_WORDS[p.paymentState]}</span>
 
   return (
     <SheetFrame tall title={partyTitle(p.hostName)} subtitle={<>{when} {statusTag}</>} footer={footer}>
-      <div ref={top} />
       {told && (
-        <div className={`adm-panel adm-gap-bottom${told.warn ? ' is-warn' : ''}`} role="status" aria-label={told.host ? `Let ${first} know` : 'What happened'}>
-          {told.host && <b>{`Let ${first} know`}</b>}
-          <span>{told.text}</span>
-          {told.host && (
-            <div className="adm-three">
-              {told.host.phone ? <a className="adm-btn is-ghost" href={telHref(told.host.phone)}>Call</a> : <span />}
-              {told.host.phone ? <a className="adm-btn is-ghost" href={smsHref(told.host.phone)}>Text</a> : <span />}
-              {told.host.email ? <a className="adm-btn is-ghost" href={`mailto:${told.host.email}`}>Email</a> : <span />}
-            </div>
-          )}
-          {told.offer && !cancelled && (
-            <button type="button" className="adm-btn is-pri" disabled={busy === 'details'} onClick={sendDetails}>{busy === 'details' ? 'Sending…' : told.offer.label}</button>
-          )}
+        <div className={`adm-panel adm-gap-bottom adm-toldpanel${told.warn ? ' is-warn' : ''}`} role="group" aria-labelledby={`${toldId}-h`}>
+          <h3 id={`${toldId}-h`} ref={toldHead} tabIndex={-1} aria-describedby={`${toldId}-t`}>{told.title}</h3>
+          <span id={`${toldId}-t`}>{told.text}</span>
           <button type="button" className="adm-btn is-ghost is-sm" onClick={() => setTold(null)}>Done</button>
         </div>
+      )}
+      {p.notTold && (
+        <NotTold party={p} busy={busy} onEmail={sendDetails} onTold={markTold} />
+      )}
+      {panel === 'move' && <MovePanel party={p} onClose={() => setPanel(null)} onMoved={(t) => { setPanel(null); show(t) }} />}
+      {panel === 'cancel' && (
+        <CancelPanel party={p} paidCents={paidCents} onClose={() => setPanel(null)} onDone={(t) => { setPanel(null); setTab('details'); show(t) }} />
       )}
       {cancelled && (
         <div className="adm-panel is-warn adm-gap-bottom">
@@ -267,6 +329,13 @@ function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: Adm
           <span className="adm-small">{`${first} paid after this time was taken by another party. Nothing was refunded. Move one of the parties, then let the hosts know.`}</span>
         </div>
       )}
+      {leftovers.map((h) => (
+        <div key={h} className="adm-panel is-warn adm-gap-bottom" role="group" aria-label={`${dayAndClock(h)} still held`}>
+          <b>{`${dayAndClock(h)} still shows as held for this party`}</b>
+          <span className="adm-small">{`Nobody else can book it. The party itself is on ${dayAndClock(p.startIso)}. Letting it go changes nothing else and sends nothing.`}</span>
+          <button type="button" className="adm-btn is-ghost" disabled={busy === `free-${h}`} onClick={() => letGoOf(h)}>{busy === `free-${h}` ? 'Letting it go…' : `Let ${startClock(h)} go`}</button>
+        </div>
+      ))}
       <Seg label="Party" value={tab} onChange={setTab} options={[['details', 'Details'], ['guests', 'Guests'], ['pay', p.dueCents > 0 && !cancelled ? `Payments · ${formatMoney(p.dueCents)} due` : 'Payments']]} />
 
       {tab === 'details' && (
@@ -284,9 +353,10 @@ function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: Adm
               {kv('Extras', p.items.filter((it) => it.kind === 'addon').map(itemWords).join(', ') || 'None')}
               {p.themeName && kv('Themed table', p.themeName)}
               {kv('Payment', STATE_WORDS[p.paymentState])}
+              {!p.notTold && p.told && kv('Host told', `${p.told.how === 'email' ? 'Emailed the details' : 'Told by phone or text'} · ${dayAndClock(p.told.at)}${p.told.by ? ` · ${p.told.by.name}` : ''}`)}
               {!cancelled && (
                 <div className="adm-stack adm-gap-top">
-                  {p.sendDetails && (
+                  {p.sendDetails && !p.notTold && (
                     <>
                       <button type="button" className="adm-btn is-ghost" disabled={busy === 'details'} onClick={sendDetails}>{busy === 'details' ? 'Sending…' : p.sendDetails.label}</button>
                       <p className="adm-small adm-muted" style={{ margin: '-0.25rem 0 0' }}>{`Emails ${first} the party details with a calendar invite and the invite link for guests.`}</p>
@@ -304,53 +374,102 @@ function OurParty({ party: p, guests, notice }: { party: AdminParty; guests: Adm
 
       {tab === 'pay' && (
         <section aria-label="Payments">
-          {paying && <div className="adm-panel is-warn adm-gap-bottom" role="status"><b>A payment is going through</b><span className="adm-small">{paying.message}</span></div>}
-          {p.items.map((it) => (
-            <div key={it.id} className="adm-kv">
-              <span>{itemWords(it)}{it.chargeId === null && it.kind === 'addon' && !cancelled && (
-                <><br /><button type="button" className="adm-quiet" disabled={busy === `off-${it.id}`} aria-label={`Take off ${it.label}`} onClick={() => takeOff(it)}>Take off</button></>
-              )}</span>
-              <span>{formatMoney(it.cents)} <span className={`adm-tag${it.chargeId ? ' is-grey' : ''}`}>{it.chargeId ? 'Paid' : cancelled ? 'Not paid' : 'Due'}</span></span>
-            </div>
-          ))}
-          <div className="adm-kv is-tot"><span>{cancelled ? 'Nothing due, the party was cancelled' : p.dueCents > 0 ? 'Still due' : 'Nothing due'}</span><span>{cancelled ? '' : formatMoney(p.dueCents)}</span></div>
-          <p className="adm-small adm-muted adm-gap-top">{`Crafts (${p.craftName}) are rung up on the POS at the studio, for whoever comes.`}</p>
+          <div className="adm-paygroup" role="group" aria-label={cancelled ? 'What was bought' : 'What’s due'}>
+            {paying && <div className="adm-panel is-warn adm-gap-bottom" role="status"><b>A payment is going through</b><span className="adm-small">{paying.message}</span></div>}
+            {p.items.map((it) => (
+              <div key={it.id} className="adm-kv">
+                <span>{itemWords(it)}{it.chargeId === null && it.kind === 'addon' && !cancelled && (
+                  <><br /><button type="button" className="adm-quiet" disabled={busy === `off-${it.id}`} aria-label={`Take off ${it.label}`} onClick={() => takeOff(it)}>Take off</button></>
+                )}</span>
+                <span>{formatMoney(it.cents)} <span className={`adm-tag${it.chargeId ? ' is-grey' : ''}`}>{it.chargeId ? 'Paid' : cancelled ? 'Not paid' : 'Due'}</span></span>
+              </div>
+            ))}
+            <div className="adm-kv is-tot"><span>{cancelled ? 'Nothing due, the party was cancelled' : p.dueCents > 0 ? 'Still due' : 'Nothing due'}</span><span>{cancelled ? '' : formatMoney(p.dueCents)}</span></div>
+            <p className="adm-small adm-muted adm-gap-top">{`Crafts (${p.craftName}) are rung up on the POS at the studio, for whoever comes.`}</p>
 
-          {canPay && !taking && (
-            <div className="adm-stack adm-gap-top">
-              <button type="button" className="adm-btn is-pri" disabled={busy === 'link'} onClick={sendLink}>{busy === 'link' ? 'Sending…' : lastSent ? 'Send it again' : 'Send payment link'}</button>
-              {lastSent && <p className="adm-small adm-muted" style={{ margin: 0 }}>{`Last sent ${dayAndClock(lastSent.at)}${lastSent.email || lastSent.text ? ` by ${[lastSent.email && 'email', lastSent.text && 'text'].filter(Boolean).join(' and ')}` : ', but it didn’t go out'}.`}</p>}
-              <button type="button" className="adm-btn is-ghost" onClick={() => setTaking(true)}>Take card now</button>
+            {canPay && !taking && (
+              <div className="adm-stack adm-gap-top">
+                <button type="button" className="adm-btn is-pri" disabled={busy === 'link'} onClick={sendLink}>{busy === 'link' ? 'Sending…' : lastSent ? 'Send it again' : 'Send payment link'}</button>
+                {lastSent && <p className="adm-small adm-muted" style={{ margin: 0 }}>{`Last sent ${dayAndClock(lastSent.at)}${lastSent.email || lastSent.text ? ` by ${[lastSent.email && 'email', lastSent.text && 'text'].filter(Boolean).join(' and ')}` : ', but it didn’t go out'}.`}</p>}
+                {p.payUrl && (
+                  <>
+                    <button type="button" className="adm-btn is-ghost" onClick={copyPayLink}>Copy payment link</button>
+                    <p className="adm-small adm-muted" style={{ margin: 0 }}>{`The link ${first} pays ${formatMoney(p.dueCents)} with. It isn’t the guest invite.`}</p>
+                    <span className="adm-linkbox">{p.payUrl}</span>
+                  </>
+                )}
+                <button type="button" className="adm-btn is-ghost" onClick={() => setTaking(true)}>Take card now</button>
+              </div>
+            )}
+            {canPay && taking && <TakeCard party={p} onClose={() => setTaking(false)} onPaid={(t) => { setTaking(false); show(t) }} />}
+          </div>
+
+          {!cancelled && (
+            <div className="adm-paygroup">
+              {adding
+                ? <AddExtra party={p} onClose={() => setAdding(false)} onAdded={(text, warn) => { setAdding(false); toast(text); show({ title: 'Extras', text, warn }) }} />
+                : <button type="button" className="adm-btn is-ghost" onClick={() => setAdding(true)}>+ Add an extra</button>}
             </div>
           )}
-          {canPay && taking && <TakeCard party={p} onClose={() => setTaking(false)} onPaid={(t) => { setTaking(false); show(t) }} />}
 
-          {!cancelled && (adding
-            ? <AddExtra party={p} onClose={() => setAdding(false)} onAdded={(text) => { setAdding(false); toast(text) }} />
-            : <button type="button" className="adm-btn is-ghost adm-gap-top" onClick={() => setAdding(true)}>+ Add an extra</button>)}
-
-          {p.charges.length > 0 && <p className="adm-lbl">Payments</p>}
-          {p.charges.map((c) => (
-            <div key={c.id} className="adm-kv">
-              <span>{chargeWords(c)}{c.receiptUrl && <><br /><a href={c.receiptUrl} target="_blank" rel="noopener">Receipt</a></>}</span>
-              <span>{formatMoney(c.cents)}</span>
-            </div>
-          ))}
-          {p.refunds.map((f) => (
-            <div key={f.id} className="adm-kv">
-              <span>{`Refunded · ${dayAndClock(f.at)}${f.by ? ` · by ${f.by.name}` : ''}`}{f.reason && <><br /><span className="adm-small">{f.reason}</span></>}</span>
-              <span>{`−${formatMoney(f.cents)}`}</span>
-            </div>
-          ))}
+          {paidRows > 0 && (
+            <details className="adm-fold-group adm-paygroup" open={paidRows <= 2}>
+              <summary><span>{`Payments and refunds (${paidRows})`}</span><i className="adm-chevron" aria-hidden="true" /></summary>
+              {p.charges.map((c) => (
+                <div key={c.id} className="adm-kv">
+                  <span>{chargeWords(c)}{c.receiptUrl && <><br /><a href={c.receiptUrl} target="_blank" rel="noopener">Receipt</a></>}</span>
+                  <span>{formatMoney(c.cents)}</span>
+                </div>
+              ))}
+              {p.refunds.map((f) => (
+                <div key={f.id} className="adm-kv">
+                  <span>{`Refunded · ${dayAndClock(f.at)}${f.by ? ` · by ${f.by.name}` : ''}`}{f.reason && <><br /><span className="adm-small">{f.reason}</span></>}</span>
+                  <span>{`−${formatMoney(f.cents)}`}</span>
+                </div>
+              ))}
+            </details>
+          )}
           {(charges.some((c) => c.left > 0) || waiting) && (
-            <div className="adm-gap-top">
-              <AmountRefundPanel partyId={p.bookingId} payer={p.hostName} charges={charges} waiting={waiting} send={(url, body) => api(url, body)} onDone={bump} />
+            <div className="adm-paygroup">
+              <AmountRefundPanel partyId={p.bookingId} payer={p.hostName} charges={charges} waiting={waiting} cancelled={cancelled} send={(url, body) => api(url, body)}
+                onDone={(text) => { bump(); show({ title: 'Refund', text }) }} />
             </div>
           )}
           {p.charges.some((c) => c.simulated) && <p className="adm-small adm-muted">A test payment with no real card can’t be refunded.</p>}
         </section>
       )}
     </SheetFrame>
+  )
+}
+
+/**
+ * "Not told yet" (DV8): the host hasn't heard about a move, a cancel or a
+ * change. Stays until the details email goes out or someone taps I told them.
+ */
+function NotTold({ party: p, busy, onEmail, onTold }: { party: AdminParty; busy: string; onEmail: () => void; onTold: () => void }) {
+  const id = useId()
+  const first = firstOf(p.hostName)
+  const n = p.notTold!
+  const cancelled = p.status === 'cancelled'
+  return (
+    <div className="adm-panel is-warn adm-gap-bottom adm-toldpanel" role="group" aria-labelledby={`${id}-h`}>
+      <h3 id={`${id}-h`}>{`Not told yet · let ${first} know`}</h3>
+      <span>{n.message}</span>
+      {!cancelled && p.sendDetails && (
+        <button type="button" className="adm-btn is-pri" disabled={busy === 'details'} onClick={onEmail}>{busy === 'details' ? 'Sending…' : p.sendDetails.label}</button>
+      )}
+      {(p.hostPhone || p.hostEmail) && (
+        <div className="adm-three">
+          {p.hostPhone ? <a className="adm-btn is-ghost" href={telHref(p.hostPhone)}>Call</a> : <span />}
+          {p.hostPhone ? <a className="adm-btn is-ghost" href={smsHref(p.hostPhone)}>Text</a> : <span />}
+          {p.hostEmail ? <a className="adm-btn is-ghost" href={`mailto:${p.hostEmail}`}>{`Write to ${first}`}</a> : <span />}
+        </div>
+      )}
+      <button type="button" className="adm-btn is-ghost" disabled={busy === 'told'} onClick={onTold}>{busy === 'told' ? 'Saving…' : 'I told them'}</button>
+      <span className="adm-small adm-muted">{cancelled
+        ? `Nothing is sent to ${first} on its own. Once you’ve called or texted, tap I told them. It notes who told them and when.`
+        : `Nothing is sent to ${first} on its own. The email sends the new details and a calendar invite. If you called or texted instead, tap I told them.`}</span>
+    </div>
   )
 }
 
@@ -361,11 +480,23 @@ function copyInvite(p: AdminParty, toast: (t: string) => void) {
   clip.writeText(url).then(() => toast(`Copied the invite link for ${firstOf(p.hostName)}’s guests.`), () => toast(`Couldn’t copy. The link is ${url}`))
 }
 
+/** A panel's heading takes focus when it opens, so the keyboard and VoiceOver land in it (I4). */
+function useFocusOnOpen() {
+  const head = useRef<HTMLHeadingElement>(null)
+  useEffect(() => {
+    head.current?.focus({ preventScroll: true })
+    head.current?.scrollIntoView?.({ block: 'start' })
+  }, [])
+  return head
+}
+
 // ── Move ────────────────────────────────────────────────────────────────────
 
 function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose: () => void; onMoved: (t: Told) => void }) {
   const { bump } = useRefresh()
+  const applied = useApplied()
   const toast = useToast()
+  const head = useFocusOnOpen()
   const { times, error, retry } = usePartyTimes({ ...timesWindow(), exclude: p.bookingId })
   const [pick, setPick] = useState('')
   const [other, setOther] = useState(false)
@@ -376,6 +507,7 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
   useSheetDirty(!!pick || !!day || !!time)
   const free = (times?.open ?? []).filter((s) => Date.parse(s) !== Date.parse(p.startIso))
   const startIso = other ? (day && /^\d{2}:\d{2}$/.test(time) ? localToUtcISO(day, time) : '') : pick
+  const first = firstOf(p.hostName)
 
   // The record couldn't be checked after a move (both times held): "Finish the move" sends it again with the
   // times the server named, which finishes it whichever time the party is on.
@@ -397,15 +529,15 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
       return
     }
     setFinish(null)
-    bump()
+    applied(r.data)
     toast(r.data.message)
-    onMoved({ text: r.warning ?? r.data.message, warn: !!r.warning, host: r.data.hostToTell, offer: r.data.sendDetails })
+    onMoved({ title: `Moved ${first}’s party`, text: r.warning ?? r.data.message, warn: !!r.warning })
   }
 
   return (
-    <div className="adm-panel" role="group" aria-label={`Move ${firstOf(p.hostName)}’s party`}>
-      <b>{`Move ${firstOf(p.hostName)}’s party`}</b>
-      <span className="adm-small">{`Now ${dayAndClock(p.startIso)}. Its length, extras and payments stay the same.`}</span>
+    <div className="adm-panel adm-actpanel" role="group" aria-labelledby={`move-${p.bookingId}`}>
+      <h3 id={`move-${p.bookingId}`} ref={head} tabIndex={-1}>{`Move ${first}’s party`}</h3>
+      <span className="adm-small">{`Now ${dayAndClock(p.startIso)}. Its length, extras and payments stay the same. Nothing is sent to ${first}.`}</span>
       {!other && (error ? <Failed message={error} onRetry={retry} />
         : !times ? <Skeleton rows={1} label="Loading the free party times" />
           : free.length === 0 ? <span className="adm-small">No other free party times in the next eight weeks. Use Another time.</span>
@@ -451,8 +583,9 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
 // ── Cancel ──────────────────────────────────────────────────────────────────
 
 function CancelPanel({ party: p, paidCents, onClose, onDone }: { party: AdminParty; paidCents: number; onClose: () => void; onDone: (t: Told) => void }) {
-  const { bump } = useRefresh()
+  const applied = useApplied()
   const toast = useToast()
+  const head = useFocusOnOpen()
   const [busy, setBusy] = useState(false)
   const [refusal, setRefusal] = useState('')
   const first = firstOf(p.hostName)
@@ -462,15 +595,15 @@ function CancelPanel({ party: p, paidCents, onClose, onDone }: { party: AdminPar
     const r = await api<{ message: string; hostToTell: HostToTell }>(PARTY_ACTIONS, { id: p.bookingId, action: 'cancel' })
     setBusy(false)
     if (!r.ok || !r.data) return setRefusal(r.error ?? DIDNT_SAVE)
-    bump()
+    applied(r.data)
     toast(r.data.message)
-    onDone({ text: r.warning ?? r.data.message, warn: !!r.warning, host: r.data.hostToTell, offer: null })
+    onDone({ title: `Cancelled ${first}’s party`, text: r.warning ?? r.data.message, warn: !!r.warning })
   }
   return (
-    <div className="adm-panel is-warn" role="group" aria-label={`Cancel ${first}’s party?`}>
-      <b>{`Cancel ${first}’s party?`}</b>
+    <div className="adm-panel is-warn adm-actpanel" role="group" aria-labelledby={`cancel-${p.bookingId}`}>
+      <h3 id={`cancel-${p.bookingId}`} ref={head} tabIndex={-1}>{`Cancel ${first}’s party?`}</h3>
       <span className="adm-small">{`${dayAndClock(p.startIso)}. ${paidCents > 0 ? `${p.hostName} has paid ${formatMoney(paidCents)}.` : 'Nothing has been paid.'}`}</span>
-      <span className="adm-small">The time opens up on the calendar. This does not refund anything. Use Refund on the Payments tab if they should get money back.</span>
+      <span className="adm-small">{`The time opens up on the calendar. This does not refund anything, and nothing is sent to ${first}. Use Refund on the Payments tab if they should get money back.`}</span>
       {refusal && <p className="adm-error" role="alert">{refusal}</p>}
       <div className="adm-two">
         <button type="button" className="adm-btn is-ghost" onClick={onClose}>Keep it</button>
@@ -480,10 +613,11 @@ function CancelPanel({ party: p, paidCents, onClose, onDone }: { party: AdminPar
   )
 }
 
+
 // ── Change details ──────────────────────────────────────────────────────────
 
 function EditDetails({ party: p, onClose, onSaved }: { party: AdminParty; onClose: () => void; onSaved: (t: Told) => void }) {
-  const { bump } = useRefresh()
+  const applied = useApplied()
   const toast = useToast()
   const { crafts, error: craftError, retry } = useCrafts()
   const [f, setF] = useState({ hostName: p.hostName, hostPhone: p.hostPhone, hostEmail: p.hostEmail, guests: String(p.guestCount), craftId: p.craftId ?? '' })
@@ -504,9 +638,14 @@ function EditDetails({ party: p, onClose, onSaved }: { party: AdminParty; onClos
     const r = await api<{ message: string; sendDetails?: SendDetailsOffer }>(PARTY_ACTIONS, { id: p.bookingId, action: 'edit-details', ...changed })
     setBusy(false)
     if (!r.ok || !r.data) return setRefusal({ field: String(r.extra.field ?? ''), text: r.error ?? DIDNT_SAVE })
-    bump()
+    applied(r.data)
     toast(r.warning ?? r.data.message)
-    onSaved({ text: r.warning ?? `Saved. Nothing was sent to ${firstOf(f.hostName)}.`, warn: !!r.warning, host: { name: f.hostName, phone: f.hostPhone, email: f.hostEmail }, offer: r.data.sendDetails ?? null })
+    const nothing = r.data.message === 'Nothing changed.'
+    onSaved({
+      title: nothing ? 'Nothing changed' : 'Details saved',
+      text: nothing ? 'Nothing changed.' : `${r.warning ?? 'Saved.'} Nothing was sent to ${firstOf(f.hostName)}.`,
+      warn: !!r.warning,
+    })
   }
   const err = (field: string) => refusal?.field === field ? <p className="adm-error adm-fielderr" role="alert">{refusal.text}</p> : null
   return (
@@ -541,8 +680,8 @@ function EditDetails({ party: p, onClose, onSaved }: { party: AdminParty; onClos
 
 // ── Extras ──────────────────────────────────────────────────────────────────
 
-function AddExtra({ party: p, onClose, onAdded }: { party: AdminParty; onClose: () => void; onAdded: (text: string) => void }) {
-  const { bump } = useRefresh()
+function AddExtra({ party: p, onClose, onAdded }: { party: AdminParty; onClose: () => void; onAdded: (text: string, warn: boolean) => void }) {
+  const applied = useApplied()
   const { settings, error, retry } = usePartySettings()
   const [addOnId, setAddOnId] = useState('')
   const [count, setCount] = useState(1)
@@ -556,6 +695,12 @@ function AddExtra({ party: p, onClose, onAdded }: { party: AdminParty; onClose: 
   // Already on the party, per guest: this adds it for guests who joined since (S2-R4a).
   const topUp = !!a && a.per === 'guest' && p.items.some((it) => it.kind === 'addon' && it.refId === a.id)
   useEffect(() => { setCount(1); setNewGuests(''); setRefusal('') }, [addOnId])
+  // A different choice is a different extra: a new key, so a retry never replays the first choice (m5).
+  const firstRender = useRef(true)
+  useEffect(() => {
+    if (firstRender.current) { firstRender.current = false; return }
+    key.current = newKey()
+  }, [addOnId, count, newGuests])
 
   async function add() {
     if (!a) return
@@ -567,8 +712,8 @@ function AddExtra({ party: p, onClose, onAdded }: { party: AdminParty; onClose: 
     setBusy(false)
     if (!r.ok || !r.data) return setRefusal(r.error ?? DIDNT_SAVE)
     key.current = newKey()
-    bump()
-    onAdded(r.warning ?? r.data.message)
+    applied(r.data)
+    onAdded(`${r.warning ?? r.data.message} Nothing was sent to ${firstOf(p.hostName)}.`, !!r.warning)
   }
 
   if (error && !settings) return <Failed message={error} onRetry={retry} />
@@ -615,6 +760,7 @@ function AddExtra({ party: p, onClose, onAdded }: { party: AdminParty; onClose: 
 
 function TakeCard({ party: p, onClose, onPaid }: { party: AdminParty; onClose: () => void; onPaid: (t: Told) => void }) {
   const { bump } = useRefresh()
+  const applied = useApplied()
   const toast = useToast()
   const card = useRef<PaymentFormRef>(null)
   const attempt = useRef(newAttemptId())
@@ -643,9 +789,9 @@ function TakeCard({ party: p, onClose, onPaid }: { party: AdminParty; onClose: (
       bump()
       return
     }
-    bump()
+    applied(r.data)
     toast(r.data.message)
-    onPaid({ text: r.data.message, host: null, offer: null })
+    onPaid({ title: 'Card payment', text: r.data.message })
   }
 
   return (

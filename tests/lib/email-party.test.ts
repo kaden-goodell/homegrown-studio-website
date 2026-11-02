@@ -110,6 +110,14 @@ describe('sendPartyConfirmationEmail', () => {
     }
   })
 
+  it('re-sent after extra time changed the end (m10): says to delete the old calendar event, since Google keeps it', async () => {
+    await sendPartyConfirmationEmail({ ...input, updated: { costNote: '', endChanged: true } })
+    expect(mockSendMail.mock.calls[0][0].subject).toMatch(/^Your party details — /)
+    const [text, html] = bodies()
+    expect(text).toContain('Your party’s end time changed. If you added it to your calendar, delete the old one and add this new invite.')
+    expect(html).toMatch(/end time changed/)
+  })
+
   it('re-sent with no move: “Your party details”; still to pay always comes with the pay link (never one without the other)', async () => {
     await sendPartyConfirmationEmail({
       ...input, totalChargedCents: 0,

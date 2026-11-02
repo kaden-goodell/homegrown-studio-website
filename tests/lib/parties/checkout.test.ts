@@ -157,7 +157,8 @@ describe('money taken always means a party recorded (R6)', () => {
     const partyId = partyIdFor(inp.key)
     const out = await bookParty(inp, NOW)
     expect(out).toMatchObject({ kind: 'booked' })
-    expect(m.alert.mock.calls.some(([t]) => /party page could not be set up/.test(String(t)) && String(t).includes(partyId))).toBe(true)
+    // Owner texts name the host and the time, never the party id (T12 review m12).
+    expect(m.alert.mock.calls.some(([t]) => /party page could not be set up/.test(String(t)) && !String(t).includes(partyId))).toBe(true)
     expect(m.email.mock.calls[0][0].hostPageUrl).toBeNull()
     expect(await getPartyRecord(partyId)).toBeNull()
     expect(await getCheckout(partyId)).toBeTruthy()

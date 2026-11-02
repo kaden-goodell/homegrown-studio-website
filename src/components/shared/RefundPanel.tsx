@@ -398,7 +398,7 @@ const givenName = (name: string) => name.trim().split(/\s+/)[0] || 'they'
  * refunded" with Refund again (R31), and a refund still waiting on Square
  * turns into "It went through / It didn't go through" (R29).
  */
-export function AmountRefundPanel({ partyId, payer, charges, endpoint = ADMIN_PARTY_REFUND, reasonRequired = false, waiting: waitingProp = null, send = api, onDone }: {
+export function AmountRefundPanel({ partyId, payer, charges, endpoint = ADMIN_PARTY_REFUND, reasonRequired = false, waiting: waitingProp = null, send = api, onDone, cancelled = false }: {
   partyId: string
   /** who the money goes back to: "Stefanie Justice" */
   payer: string
@@ -407,7 +407,10 @@ export function AmountRefundPanel({ partyId, payer, charges, endpoint = ADMIN_PA
   reasonRequired?: boolean
   waiting?: WaitingAmountRefund | null
   send?: Send
-  onDone?: () => void
+  /** after a refund or a check: the sentence shown (so the sheet can keep it when this panel goes away, m4) */
+  onDone?: (message: string) => void
+  /** the party was cancelled: the confirm never says it stays booked (I5) */
+  cancelled?: boolean
 }) {
   const refundable = charges.filter((c) => c.left > 0)
   const [open, setOpen] = useState(false)
@@ -468,13 +471,14 @@ export function AmountRefundPanel({ partyId, payer, charges, endpoint = ADMIN_PA
   function finished(c: number, emailed: boolean) {
     setAlready('')
     setAgainOf(null)
-    setDone(`Refunded ${formatMoney(c)} to ${payer}.${emailed ? ` ${first} got an email about it.` : ''}`)
+    const text = `Refunded ${formatMoney(c)} to ${payer}.${emailed ? ` ${first} got an email about it.` : ''}`
+    setDone(text)
     setAttempt(newAttempt())
     setOpen(false)
     setReason('')
     setAmount('')
     setAll(true)
-    onDone?.()
+    onDone?.(text)
   }
 
   async function check(outcome: 'went-through' | 'did-not-go-through') {
@@ -484,10 +488,11 @@ export function AmountRefundPanel({ partyId, payer, charges, endpoint = ADMIN_PA
     const r = await send<{ status: string }>(endpoint, { action: 'clear', partyId, requestId: waiting.requestId, outcome, reason: seen.trim() })
     setBusy(false)
     if (!r.ok) { setError(r.error ?? ''); return }
-    setDone(outcome === 'went-through' ? `Saved. ${formatMoney(waiting.cents)} refunded.` : 'Saved. That refund didn’t go through, so you can refund again.')
+    const text = outcome === 'went-through' ? `Saved. ${formatMoney(waiting.cents)} refunded.` : 'Saved. That refund didn’t go through, so you can refund again.'
+    setDone(text)
     setWaiting(null)
     setSeen('')
-    onDone?.()
+    onDone?.(text)
   }
 
   if (waiting) {
@@ -558,7 +563,7 @@ export function AmountRefundPanel({ partyId, payer, charges, endpoint = ADMIN_PA
       </label>
       {tooMuch && <p role="alert" style={errorText}>That is more than is left to refund on this payment.</p>}
       {cents > 0 && !tooMuch && (
-        <p style={{ margin: 0, fontWeight: 600 }}>{`Refund ${formatMoney(cents)} to ${payer}? This sends money back to their card. The party stays booked.`}</p>
+        <p style={{ margin: 0, fontWeight: 600 }}>{`Refund ${formatMoney(cents)} to ${payer}? This sends money back to their card.${cancelled ? ' The party stays cancelled.' : ' The party stays booked.'}`}</p>
       )}
       {error && <p role="alert" style={errorText}>{error}</p>}
       {already ? (

@@ -51,29 +51,79 @@ describe('Party sheet', () => {
     expect(screen.getByRole('link', { name: 'Call' })).toHaveAttribute('href', 'tel:2565550199')
   })
 
-  it('Move lists only free party times (not its own), sends where it was, then says to let the host know', async () => {
+  it('Move opens in the sheet (not the footer), lists only free party times, then keeps a Not told yet reminder with Call, Text, Write and Email', async () => {
+    let cur = party()
+    const NOT_TOLD = { at: '2031-03-05T15:00:00Z', what: ['time'], message: 'Stefanie hasn’t been told about the new time. Their email and calendar still say Sat, Mar 15 at 2:00 PM.' }
     const f = server(party(), {
-      [ACT]: (b: any) => b.action === 'move'
-        ? { body: { data: { party: party({ startIso: NEW }), hostToTell: tell, message: 'Moved to Sun, Mar 16 at 1:00 PM. Nothing was sent to Stefanie, so let them know.', sendDetails: { action: 'send-details', label: 'Email Stefanie the new details' } } } }
-        : { body: { data: { party: party(), sent: true, message: 'Emailed Stefanie the party details for Sun, Mar 16 at 1:00 PM, with a new calendar invite.' } } },
+      '/api/admin/party.json': () => ({ body: { data: { party: cur, guests: [] } } }),
+      [ACT]: (b: any) => {
+        if (b.action === 'move') {
+          cur = party({ startIso: NEW, notTold: NOT_TOLD, sendDetails: { action: 'send-details', label: 'Email Stefanie the new details' } })
+          return { body: { data: { party: cur, hostToTell: tell, message: 'Moved to Sun, Mar 16 at 1:00 PM. Nothing was sent to Stefanie, so let them know.', sendDetails: { action: 'send-details', label: 'Email Stefanie the new details' } } } }
+        }
+        cur = party({ startIso: NEW, told: { at: '2031-03-05T15:01:00Z', by: { id: 'o', name: 'Catherine' }, how: 'email' } })
+        return { body: { data: { party: cur, sent: true, message: 'Emailed Stefanie the party details for Sun, Mar 16 at 1:00 PM, with a new calendar invite.' } } }
+      },
     })
-    open()
+    const { container } = open()
     fireEvent.click(await screen.findByRole('button', { name: 'Move' }))
+    const panel = screen.getByRole('group', { name: 'Move Stefanie’s party' })
+    // I7: the Move panel is in the body, not the pinned footer (a phone keyboard can't push it off), and its heading has focus (I4).
+    expect(container.querySelector('.adm-sheet-foot')?.contains(panel)).toBe(false)
+    expect(within(panel).getByRole('heading', { name: 'Move Stefanie’s party' })).toHaveFocus()
+    expect(container.querySelector('.adm-sheet-foot')!.textContent).not.toMatch(/Cancel party/)
     const select = await screen.findByLabelText('New day and time') as HTMLSelectElement
     const values = [...select.options].map((o) => o.value).filter(Boolean)
     expect(values).toEqual([NEW])
     fireEvent.change(select, { target: { value: NEW } })
     fireEvent.click(screen.getByRole('button', { name: 'Move party' }))
-    const told = await screen.findByRole('status', { name: 'Let Stefanie know' })
-    expect(within(told).getByText(/Nothing was sent to Stefanie, so let them know/)).toBeInTheDocument()
-    expect(within(told).getByRole('link', { name: 'Call' })).toHaveAttribute('href', 'tel:2565550199')
-    expect(within(told).getByRole('link', { name: 'Text' })).toHaveAttribute('href', 'sms:2565550199')
-    expect(within(told).getByRole('link', { name: 'Email' })).toHaveAttribute('href', 'mailto:stef@example.com')
+    // The result is kept on the sheet and its heading takes focus (read out with the text), not just a toast.
+    const done = await screen.findByRole('heading', { name: 'Moved Stefanie’s party' })
+    await waitFor(() => expect(done).toHaveFocus())
+    expect(done).toHaveAccessibleDescription(/Nothing was sent to Stefanie, so let them know/)
     expect(posts(f, ACT)[0].body).toEqual({ id: ID, action: 'move', startIso: NEW, fromIso: T1 })
-    fireEvent.click(within(told).getByRole('button', { name: 'Email Stefanie the new details' }))
+    // I3: the reminder stays after Done, until the host is told.
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }))
+    const remind = await screen.findByRole('group', { name: 'Not told yet · let Stefanie know' })
+    expect(within(remind).getByText(/Their email and calendar still say Sat, Mar 15 at 2:00 PM/)).toBeInTheDocument()
+    expect(within(remind).getByRole('link', { name: 'Call' })).toHaveAttribute('href', 'tel:2565550199')
+    expect(within(remind).getByRole('link', { name: 'Text' })).toHaveAttribute('href', 'sms:2565550199')
+    expect(within(remind).getByRole('link', { name: 'Write to Stefanie' })).toHaveAttribute('href', 'mailto:stef@example.com')
+    fireEvent.click(within(remind).getByRole('button', { name: 'Email Stefanie the new details' }))
     await waitFor(() => expect(posts(f, ACT)).toHaveLength(2))
     expect(posts(f, ACT)[1].body).toEqual({ id: ID, action: 'send-details', createKey: expect.stringMatching(/^[A-Za-z0-9_-]{8,80}$/) })
+    // Told: the reminder goes, and Details says who told them and how.
+    await waitFor(() => expect(screen.queryByRole('group', { name: /Not told yet/ })).toBeNull())
+    expect(screen.getByText(/Emailed the details · .* · Catherine/)).toBeInTheDocument()
   })
+
+  it('I told them: records it with the reminder the screen showed; the reminder goes', async () => {
+    let cur = party({ notTold: { at: '2031-03-05T15:00:00Z', what: ['details'], message: 'Stefanie hasn’t been told about the changed details.' } })
+    const f = server(party(), {
+      '/api/admin/party.json': () => ({ body: { data: { party: cur, guests: [] } } }),
+      [ACT]: () => { cur = party({ told: { at: '2031-03-05T15:02:00Z', by: { id: 'o', name: 'Catherine' }, how: 'owner' } }); return { body: { data: { party: cur, message: 'Noted that Stefanie has been told.' } } } },
+    })
+    open()
+    const remind = await screen.findByRole('group', { name: 'Not told yet · let Stefanie know' })
+    fireEvent.click(within(remind).getByRole('button', { name: 'I told them' }))
+    expect(await screen.findByRole('heading', { name: 'Noted' })).toBeInTheDocument()
+    expect(posts(f, ACT)[0].body).toEqual({ id: ID, action: 'mark-told', notToldAt: '2031-03-05T15:00:00Z' })
+    await waitFor(() => expect(screen.queryByRole('group', { name: /Not told yet/ })).toBeNull())
+    expect(screen.getByText(/Told by phone or text · .* · Catherine/)).toBeInTheDocument()
+  })
+
+  it('a cancelled party not told yet: only I told them (no email), and the refund confirm never says it stays booked (I5)', async () => {
+    server(paid({ status: 'cancelled', paymentState: 'cancelled', dueCents: 0, sendDetails: null, cancelled: { at: '2031-03-03T15:00:00Z', by: { id: 'o', name: 'Catherine' }, note: '' }, notTold: { at: '2031-03-03T15:00:00Z', what: ['cancelled'], message: 'Stefanie hasn’t been told the party is cancelled. Call or text them, then tap I told them.' } }))
+    open()
+    const remind = await screen.findByRole('group', { name: 'Not told yet · let Stefanie know' })
+    expect(within(remind).queryByRole('button', { name: /Email/ })).toBeNull()
+    expect(within(remind).getByRole('button', { name: 'I told them' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Payments' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
+    expect(screen.getByText('Refund $300 to Stefanie Justice? This sends money back to their card. The party stays cancelled.')).toBeInTheDocument()
+    expect(screen.queryByText(/stays booked/)).toBeNull()
+  })
+
 
   it('a move refused shows the server’s sentence in the panel', async () => {
     server(party(), { [ACT]: { status: 409, body: { error: 'Stefanie’s $300 payment by link is going through right now. Wait 10 minutes, then check Payments on this party and try again.' } } })
@@ -98,7 +148,7 @@ describe('Party sheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Move party' }))
     expect(await screen.findByText(/tap Finish the move/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Finish the move' }))
-    await screen.findByRole('status', { name: 'Let Stefanie know' })
+    await screen.findByRole('heading', { name: 'Moved Stefanie’s party' })
     expect(posts(f, ACT)[1].body).toEqual({ id: ID, action: 'move', startIso: NEW, fromIso: OLD })
   })
 
@@ -135,12 +185,21 @@ describe('Party sheet', () => {
     expect(sends).toHaveLength(1)
     const failed = 'The email to Stefanie didn’t go out. Check the email address on the party, then tap Email Stefanie the details again.'
     finish(answer({ party: party(), sent: false, message: failed }, failed))
-    expect(await screen.findByText(failed)).toBeInTheDocument()
+    // m3: the result stays on the sheet, and the button stays to tap again
+    expect(await screen.findByRole('heading', { name: 'Email' })).toHaveAccessibleDescription(failed)
     fireEvent.click(await screen.findByRole('button', { name: 'Email Stefanie the details' }))
     await waitFor(() => expect(sends).toHaveLength(2))
     expect(sends[1].createKey).not.toBe(sends[0].createKey)
     finish(answer({ party: party(), sent: true, message: 'Emailed Stefanie the party details for Sun, Mar 9 at 1:00 PM, with a new calendar invite.' }))
-    expect(await screen.findByText(/^Emailed Stefanie the party details/)).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Email' })).toHaveAccessibleDescription(/^Emailed Stefanie the party details/)
+  })
+
+  it('Email the details failing outright (an error answer) is kept on the sheet, not only a toast (m3)', async () => {
+    server(party(), { [ACT]: { status: 503, body: { error: 'The party couldn’t be reached. Try again.' } } })
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: 'Email Stefanie the details' }))
+    expect(await screen.findByRole('heading', { name: 'Email' })).toHaveAccessibleDescription('The party couldn’t be reached. Try again.')
+    expect(screen.getByRole('button', { name: 'Email Stefanie the details' })).toBeEnabled()
   })
 
   it('Email the details: the network drops → one automatic retry with the same key (never a second email for one tap)', async () => {
@@ -158,7 +217,7 @@ describe('Party sheet', () => {
     }))
     open()
     fireEvent.click(await screen.findByRole('button', { name: 'Email Stefanie the details' }))
-    expect(await screen.findByText(/^Emailed Stefanie the party details/, {}, { timeout: 4000 })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Email' }, { timeout: 4000 })).toHaveAccessibleDescription(/^Emailed Stefanie the party details/)
     expect(sends).toHaveLength(2)
     expect(sends[1].createKey).toBe(sends[0].createKey)
   })
@@ -169,11 +228,13 @@ describe('Party sheet', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel party' }))
     const ask = screen.getByRole('group', { name: 'Cancel Stefanie’s party?' })
     expect(within(ask).getByText(/Stefanie Justice has paid \$300\./)).toBeInTheDocument()
-    expect(within(ask).getByText('The time opens up on the calendar. This does not refund anything. Use Refund on the Payments tab if they should get money back.')).toBeInTheDocument()
+    expect(within(ask).getByText('The time opens up on the calendar. This does not refund anything, and nothing is sent to Stefanie. Use Refund on the Payments tab if they should get money back.')).toBeInTheDocument()
+    expect(within(ask).getByRole('heading', { name: 'Cancel Stefanie’s party?' })).toHaveFocus()
     expect(posts(f, ACT)).toHaveLength(0)
     fireEvent.click(within(ask).getByRole('button', { name: 'Cancel party' }))
-    const told = await screen.findByRole('status', { name: 'Let Stefanie know' })
-    expect(within(told).getByText(/Cancelled. Nothing was refunded./)).toBeInTheDocument()
+    const done = await screen.findByRole('heading', { name: 'Cancelled Stefanie’s party' })
+    await waitFor(() => expect(done).toHaveFocus())
+    expect(done).toHaveAccessibleDescription(/Cancelled. Nothing was refunded./)
     expect(posts(f, ACT)[0].body).toEqual({ id: ID, action: 'cancel' })
   })
 
@@ -185,8 +246,44 @@ describe('Party sheet', () => {
     fireEvent.click(await screen.findByRole('button', { name: /^Payments/ }))
     expect(screen.getByText(/Last sent .* by email and text\./)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Send it again' }))
-    expect(await screen.findByText('The payment link for the studio fee ($300) went to Stefanie by email and text.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /Send it again|Sending/ })) // m16: a double tap sends once
+    expect(await screen.findByRole('heading', { name: 'Payment link' })).toHaveAccessibleDescription('The payment link for the studio fee ($300) went to Stefanie by email and text.')
+    expect(posts(f, ACT)).toHaveLength(1)
     expect(posts(f, ACT)[0].body).toEqual({ id: ID, action: 'send-link' })
+  })
+
+  it('I2: the payment link is on the sheet with Copy payment link, labelled apart from the guest invite', async () => {
+    const url = 'https://ourhometownstudio.com/party/pay/pty_0123456789abcdef?k=pay-key'
+    const writeText = vi.fn(async () => undefined)
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+    server(party({ payUrl: url }))
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: /^Payments/ }))
+    expect(screen.getByText('The link Stefanie pays $300 with. It isn’t the guest invite.')).toBeInTheDocument()
+    expect(screen.getByText(url)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Copy payment link' }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(url))
+    expect(await screen.findByRole('heading', { name: 'Payment link' })).toHaveAccessibleDescription('Copied Stefanie’s payment link. Paste it into a text or email to Stefanie. It isn’t the guest invite.')
+  })
+
+  it('the card box open on Payments: the footer shows no Move or Cancel under it (I7)', async () => {
+    server()
+    const { container } = open()
+    fireEvent.click(await screen.findByRole('button', { name: /^Payments/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Take card now' }))
+    const foot = container.querySelector('.adm-sheet-foot') as HTMLElement
+    expect(foot.textContent).not.toMatch(/Move|Cancel party/)
+    expect(within(foot).getByRole('link', { name: 'Call' })).toBeInTheDocument()
+  })
+
+  it('a time still held for the party after a move (m8): offers to let it go, the same request as finishing the move', async () => {
+    const OLD = at('2031-03-08', '13:00')
+    const f = server(party({ leftoverHolds: [OLD] }), { [ACT]: { body: { data: { party: party(), hostToTell: tell, message: 'Moved to …', replay: true } } } })
+    open()
+    const held = await screen.findByRole('group', { name: /still held$/ })
+    fireEvent.click(within(held).getByRole('button', { name: /^Let .+ go$/ }))
+    expect(await screen.findByRole('heading', { name: 'Held time' })).toHaveAccessibleDescription(/is free again. Nothing else changed and nothing was sent to Stefanie\./)
+    expect(posts(f, ACT)[0].body).toEqual({ id: ID, action: 'move', startIso: T1, fromIso: OLD })
   })
 
   it('Take card now: Square’s card box, charges what is due', async () => {
@@ -217,7 +314,8 @@ describe('Party sheet', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
     expect(screen.getByText('Refund $300 to Stefanie Justice? This sends money back to their card. The party stays booked.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Refund $300' }))
-    expect(await screen.findByText(/Refunded \$300 to Stefanie Justice\. Stefanie got an email about it\./)).toBeInTheDocument()
+    // m4: a full refund's confirmation stays on the sheet after the refund panel goes
+    expect(await screen.findByRole('heading', { name: 'Refund' })).toHaveAccessibleDescription('Refunded $300 to Stefanie Justice. Stefanie got an email about it.')
     expect(posts(f, REFUND)[0].body).toMatchObject({ partyId: ID, chargeId: 'chg_1', cents: 30000, reason: '' })
   })
 
@@ -248,5 +346,32 @@ describe('Party sheet', () => {
     server()
     renderSheet(<PartySheet day={DAY} id={ID} />, { data: { notice: { id: ID, text: 'Booked Stefanie’s party. The payment link went out.' } } })
     expect(await screen.findByText('Booked Stefanie’s party. The payment link went out.')).toBeInTheDocument()
+  })
+
+  it('m5: Add extra keeps its key for a retry of the same choice, and gets a new one when the choice changes', async () => {
+    const two = settings({ addOns: [...settings().addOns, { id: 'add_bags', label: 'Goodie bags', priceCents: 500, per: 'party', extraMinutes: 0, maxQty: 1, online: false, archived: false }] })
+    const f = server(party(), {
+      '/api/admin/parties/settings.json': { body: { data: { settings: two, legacyRemaining: { count: 0, lastIso: null } } } },
+      [ACT]: [
+        { status: 409, body: { error: 'That time is taken right after. Nothing changed.' } },
+        { status: 409, body: { error: 'That time is taken right after. Nothing changed.' } },
+        { body: { data: { party: party(), message: 'Added Goodie bags ($5). It’s due: send the payment link or take a card on the Payments tab.' } } },
+      ],
+    })
+    open()
+    fireEvent.click(await screen.findByRole('button', { name: /^Payments/ }))
+    fireEvent.click(screen.getByRole('button', { name: '+ Add an extra' }))
+    fireEvent.change(await screen.findByLabelText('Extra'), { target: { value: 'add_half' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add it' }))
+    await screen.findByText('That time is taken right after. Nothing changed.')
+    fireEvent.click(screen.getByRole('button', { name: 'Add it' }))
+    await waitFor(() => expect(posts(f, ACT)).toHaveLength(2))
+    fireEvent.change(screen.getByLabelText('Extra'), { target: { value: 'add_bags' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add it' }))
+    // The result stays on the sheet, and says nothing was sent to the host.
+    expect(await screen.findByRole('heading', { name: 'Extras' })).toHaveAccessibleDescription(/^Added Goodie bags \(\$5\)\. .* Nothing was sent to Stefanie\.$/)
+    const keys = posts(f, ACT).map((p: any) => p.body.createKey)
+    expect(keys[1]).toBe(keys[0])
+    expect(keys[2]).not.toBe(keys[0])
   })
 })

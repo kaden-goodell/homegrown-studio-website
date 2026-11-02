@@ -103,7 +103,7 @@ export async function sendPaymentLink(
   try {
     saved = await updatePartyRecord(
       rec.bookingId,
-      (r) => ({ ...r, linkSent: [...(r.linkSent ?? []), { at, by, email, text }] }),
+      (r) => ({ ...r, linkSent: [...(r.linkSent ?? []), { at, by, email, text, startIso: rec.startIso }] }),
       `Payment link ${how}`,
       by,
     )

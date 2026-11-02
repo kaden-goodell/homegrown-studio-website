@@ -111,8 +111,14 @@ function SetupForm({ settings, legacy, replace }: { settings: PartySettings; leg
   useSheetDirty(dirty)
   const set = (patch: Partial<Draft>) => { setD((cur) => ({ ...cur, ...patch })); setError(null) }
 
+  // A date row with no date is never dropped quietly (m13): Save says to pick it.
+  const undated = d.dates.some((x) => !x.ymd)
   async function save() {
     if (busy) return
+    if (undated) {
+      setError({ field: 'undated-date', text: 'Pick the date for each new date row, or remove the row. Nothing was saved.' })
+      return
+    }
     setBusy(true)
     setError(null)
     setStale(null)
@@ -159,7 +165,7 @@ function SetupForm({ settings, legacy, replace }: { settings: PartySettings; leg
         </div>
       )}
       {error && <p className="adm-footline" role="alert">{error.text}</p>}
-      <button type="button" className="adm-btn is-pri" disabled={!dirty || busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
+      <button type="button" className="adm-btn is-pri" disabled={(!dirty && !undated) || busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button>
     </div>
   )
 
@@ -197,7 +203,7 @@ function SetupForm({ settings, legacy, replace }: { settings: PartySettings; leg
           date={{ ymd: x.ymd, onDate: (ymd) => set({ dates: d.dates.map((y) => (y._k === x._k ? { ...y, ymd } : y)) }) }}
           onChange={(s) => set({ dates: d.dates.map((y) => (y._k === x._k ? { ...y, starts: s } : y)) })}
           onRemove={() => set({ dates: d.dates.filter((y) => y._k !== x._k) })}
-          error={x.ymd ? errAt(`times.dates.${x.ymd}`) : null}
+          error={x.ymd ? errAt(`times.dates.${x.ymd}`) : <p className={`adm-error adm-fielderr${error?.field === 'undated-date' ? '' : ' adm-muted'}`}>Pick the date.</p>}
         />
       ))}
       {errAt('times.dates')}
@@ -252,6 +258,7 @@ function TimesRow({ label, starts, onChange, error, noneText = 'No parties', dat
   date?: { ymd: string; onDate: (ymd: string) => void }
   onRemove?: () => void
 }) {
+  const toast = useToast()
   const [adding, setAdding] = useState(false)
   const [t, setT] = useState('')
   const input = useRef<HTMLInputElement>(null)
@@ -274,7 +281,12 @@ function TimesRow({ label, starts, onChange, error, noneText = 'No parties', dat
       <div className="adm-times">
         {sorted.length === 0 && <span className="adm-small adm-muted">{noneText}</span>}
         {sorted.map((s) => (
-          <button key={s} type="button" className="adm-time is-chip" aria-label={`Remove ${clock(s)} on ${label}`} onClick={() => onChange(starts.filter((x) => x !== s))}>
+          <button key={s} type="button" className="adm-time is-chip" aria-label={`Remove ${clock(s)} on ${label}`} onClick={() => {
+            const before = starts
+            onChange(starts.filter((x) => x !== s))
+            // One tap takes it away; the toast's Undo puts it back (m14). Nothing is saved until Save.
+            toast(`Took away ${clock(s)} on ${label}. Not saved yet.`, { undo: () => onChange(before) })
+          }}>
             {clock(s)} <span aria-hidden="true">×</span>
           </button>
         ))}
@@ -311,7 +323,7 @@ function PackageBox({ p, saved, error, onChange, onRemove }: { p: Keyed<PartyPac
         <label className="adm-fld"><span>Price ($)</span><input type="number" inputMode="decimal" min={0} step="0.01" value={dollars(p.priceCents)} onChange={(e) => onChange({ priceCents: toCents(e.target.value) })} /></label>
         <label className="adm-fld"><span>Length (minutes)</span><input type="number" inputMode="numeric" min={15} max={480} step={15} value={shown(p.minutes)} onChange={(e) => onChange({ minutes: num(e.target.value) })} /></label>
       </div>
-      <div className="adm-three">
+      <div className="adm-three is-fields">
         <label className="adm-fld"><span>Fewest guests</span><input type="number" inputMode="numeric" min={1} max={60} value={shown(p.minGuests)} onChange={(e) => onChange({ minGuests: num(e.target.value) })} /></label>
         <label className="adm-fld"><span>Most guests</span><input type="number" inputMode="numeric" min={1} max={60} value={shown(p.maxGuests)} onChange={(e) => onChange({ maxGuests: num(e.target.value) })} /></label>
         <label className="adm-fld"><span>Usual guests</span><input type="number" inputMode="numeric" min={1} max={60} value={shown(p.defaultGuests)} onChange={(e) => onChange({ defaultGuests: num(e.target.value) })} /></label>
