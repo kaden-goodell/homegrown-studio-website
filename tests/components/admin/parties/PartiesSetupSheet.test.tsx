@@ -92,6 +92,21 @@ describe('Parties setup', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeEnabled()
   })
 
+  it('with the read switched off it says Square isn’t asked any more, and it can be turned on again', async () => {
+    partyServer({
+      [URL_]: (body) => (body ? { body: {} } : { body: { data: { settings: settings({ readSquareBookings: false }), legacyRemaining: { count: 0, lastIso: null, off: true } } } }),
+      '/api/party/service-info.json': { body: { data: { crafts: CRAFTS } } },
+    })
+    renderSheet(<PartiesSetupSheet />)
+    const box = await screen.findByRole('checkbox', { name: 'Keep their times blocked on the calendar' })
+    expect(box).not.toBeChecked()
+    expect(box).toBeEnabled()
+    expect(screen.getByText('Not checked, reading is off')).toBeInTheDocument()
+    expect(screen.getByText(/Square isn’t asked about parties any more/)).toBeInTheDocument()
+    fireEvent.click(box)
+    expect(screen.getByText('Save to start reading parties booked in Square again.')).toBeInTheDocument()
+  })
+
   it('a new package starts as only from here, and who can book is said in words', async () => {
     server(() => ({ body: {} }))
     renderSheet(<PartiesSetupSheet />)

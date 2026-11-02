@@ -680,6 +680,25 @@ describe('Parties setup', () => {
     const back = ok.body.data.settings
     await post({ ...back, readSquareBookings: true, expectedUpdatedAt: back.updatedAt })
   })
+
+  it('once the read is off, Square bookings are never asked again (Task 14: retired behind the switch)', async () => {
+    m.legacy.mockResolvedValue([])
+    const cur = (await get()).body.data.settings
+    const off = await post({ ...cur, readSquareBookings: false, expectedUpdatedAt: cur.updatedAt })
+    expect(off.status).toBe(200)
+    m.legacy.mockClear()
+    m.legacy.mockRejectedValue(new Error('Appointments cancelled'))
+    const r = await get()
+    expect(r.status).toBe(200)
+    expect(r.body.data.legacyRemaining).toEqual({ count: 0, lastIso: null, off: true })
+    expect(m.legacy).not.toHaveBeenCalled()
+    // Turning it back on asks Square again.
+    m.legacy.mockResolvedValue([])
+    const back = off.body.data.settings
+    expect((await post({ ...back, readSquareBookings: true, expectedUpdatedAt: back.updatedAt })).status).toBe(200)
+    expect((await get()).body.data.legacyRemaining).toEqual({ count: 0, lastIso: null })
+    expect(m.legacy).toHaveBeenCalled()
+  })
 })
 
 describe('the party id', () => {

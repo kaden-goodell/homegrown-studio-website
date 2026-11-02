@@ -26,7 +26,8 @@ export type { AdminParty, AdminPartyGuest, HostToTell, SendDetailsOffer }
 export interface PartyCraft { id: string; name: string; perHeadCents: number; perHeadMaxCents: number }
 
 /** Parties still booked in Square: how many are to come, and when the last is. Null when Square couldn't be asked. */
-export type LegacyRemaining = { count: number; lastIso: string | null } | null
+/** Parties still booked in Square. `off`: the read is switched off, so Square isn't asked any more. Null: Square couldn't be asked. */
+export type LegacyRemaining = { count: number; lastIso: string | null; off?: true } | null
 
 /** A fresh key for one create or one tap (the server's CREATE_KEY_RE: 8–80 letters, digits, - and _). */
 export function newKey(): string {

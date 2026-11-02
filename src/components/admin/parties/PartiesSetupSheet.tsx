@@ -400,14 +400,20 @@ function PartyCrafts() {
 function LegacyRow({ legacy, on, onChange, error }: { legacy: LegacyRemaining; on: boolean; onChange: (v: boolean) => void; error: ReactNode }) {
   const left = legacy === null ? null : legacy.count
   const locked = on && left !== 0
-  const why = legacy === null
-    ? 'Square couldn’t be asked how many are left, so this stays on.'
-    : legacy.count > 0
-      ? `${legacy.count === 1 ? '1 party' : `${legacy.count} parties`} booked in Square ${legacy.count === 1 ? 'is' : 'are'} still to come${legacy.lastIso ? `, the last on ${dayLabel(localDate(legacy.lastIso))}` : ''}. This stays on until they’ve run.`
-      : 'None left to come. You can turn this off.'
+  // Saved as off: Square isn't asked any more. Ticking it again (and saving) starts reading Square once more.
+  const notAsked = !!legacy?.off && !on
+  const why = notAsked
+    ? 'Square isn’t asked about parties any more. Tick this and save only if a party was booked in Square after all.'
+    : legacy === null
+      ? 'Square couldn’t be asked how many are left, so this stays on.'
+      : legacy.off
+        ? 'Save to start reading parties booked in Square again.'
+        : legacy.count > 0
+          ? `${legacy.count === 1 ? '1 party' : `${legacy.count} parties`} booked in Square ${legacy.count === 1 ? 'is' : 'are'} still to come${legacy.lastIso ? `, the last on ${dayLabel(localDate(legacy.lastIso))}` : ''}. This stays on until they’ve run.`
+          : 'None left to come. You can turn this off.'
   return (
     <>
-      <div className="adm-kv"><span>Parties still booked in Square</span><span>{legacy === null ? 'Couldn’t check' : legacy.count === 0 ? 'None' : `${legacy.count}${legacy.lastIso ? `, last on ${dayLabel(localDate(legacy.lastIso))}` : ''}`}</span></div>
+      <div className="adm-kv"><span>Parties still booked in Square</span><span>{legacy?.off ? 'Not checked, reading is off' : legacy === null ? 'Couldn’t check' : legacy.count === 0 ? 'None' : `${legacy.count}${legacy.lastIso ? `, last on ${dayLabel(localDate(legacy.lastIso))}` : ''}`}</span></div>
       <label className="adm-check">
         <input type="checkbox" checked={on} disabled={locked} aria-describedby="adm-legacy-why" onChange={(e) => onChange(e.target.checked)} />
         <span>Keep their times blocked on the calendar</span>

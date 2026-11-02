@@ -32,13 +32,18 @@ async function remaining(now: Date): Promise<{ count: number; lastIso: string | 
 /**
  * GET: Parties setup as saved (or the config until an owner first saves),
  * and the parties still booked in Square (`legacyRemaining`: { count,
- * lastIso }, null when Square couldn't be asked). Owners only.
+ * lastIso }, null when Square couldn't be asked). Once the owners have
+ * switched the Square read off, Square's bookings are never asked again
+ * (Task 14: the last Square booking read retired behind the switch, S2-R27,
+ * so Appointments can be cancelled): `{ count: 0, lastIso: null, off: true }`.
+ * Owners only.
  */
 export const GET: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
   try {
     const now = new Date()
-    const [settings, legacy] = await Promise.all([getPartySettings({ strict: true, fresh: true }), remaining(now)])
+    const settings = await getPartySettings({ strict: true, fresh: true })
+    const legacy = settings.readSquareBookings ? await remaining(now) : { count: 0, lastIso: null, off: true as const }
     return json(200, { data: { settings, legacyRemaining: legacy } })
   } catch (e) {
     logger.error('Party settings read failed', { error: e instanceof Error ? e.message : String(e) })

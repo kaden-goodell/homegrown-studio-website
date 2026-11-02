@@ -1,42 +1,22 @@
 import { describe, it, expect } from 'vitest'
 
-function createMockContext(options: { method?: string; body?: any; url?: string } = {}) {
-  const url = new URL(options.url || 'http://localhost/api/test')
-  const request = new Request(url, {
-    method: options.method || 'GET',
-    ...(options.body
-      ? {
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(options.body),
-        }
-      : {}),
-  })
-  return { request, url, params: {}, redirect: () => new Response(), locals: {} } as any
-}
-
-describe('POST /api/booking/availability.json', () => {
-  it('returns slots array', async () => {
-    const { POST } = await import('@pages/api/booking/availability.json')
-    const ctx = createMockContext({
-      method: 'POST',
-      body: {
-        startDate: '2026-03-10',
-        endDate: '2026-03-12',
-        locationId: 'loc-1',
-      },
-    })
-    const response = await POST(ctx)
-    expect(response.status).toBe(200)
-    const json = await response.json()
-    expect(json).toHaveProperty('data')
-    expect(Array.isArray(json.data)).toBe(true)
-  })
-})
-
 describe('retired booking endpoints', () => {
   // No page used them, and cancel took any Square booking id with no sign-in.
   it('create.json and cancel.json are gone', async () => {
     const pages = import.meta.glob('/src/pages/api/booking/*.ts')
     expect(Object.keys(pages).some((p) => /\/(create|cancel)\.json\.ts$/.test(p))).toBe(false)
+  })
+
+  // Stage 2 Task 14 (S2-R19): asked Square's Bookings availability for anyone, used by no page.
+  // Party times come from our own party book (/api/party/availability.json, available-dates.json).
+  it('availability.json is gone; only fix-email stays', async () => {
+    const pages = Object.keys(import.meta.glob('/src/pages/api/booking/*.ts'))
+    expect(pages.map((p) => p.split('/').pop())).toEqual(['fix-email.json.ts'])
+  })
+
+  it('no page or component calls the old endpoints', async () => {
+    const files = import.meta.glob(['/src/**/*.{ts,tsx,astro}', '!/src/pages/api/booking/**'], { query: '?raw', import: 'default', eager: true }) as Record<string, string>
+    const callers = Object.entries(files).filter(([, text]) => /api\/booking\/(availability|create|cancel)\.json/.test(text)).map(([f]) => f)
+    expect(callers).toEqual([])
   })
 })
