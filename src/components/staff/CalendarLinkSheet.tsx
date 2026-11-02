@@ -19,7 +19,54 @@ import { btn, field } from '@components/staff/ui'
  *     Switch person or Log out closes it and forgets the link.
  */
 
-type View = 'start' | 'confirm-new' | 'confirm-stop' | 'links' | 'stopped'
+type View = 'start' | 'confirm-new' | 'confirm-stop' | 'links' | 'stopped' | 'hidden'
+
+/**
+ * The words that differ between a crew member's own shifts (/staff) and an
+ * owner's whole-studio link (/admin › More › Staff). An owner never reads
+ * "When Catherine or Kaden put you on something".
+ */
+export interface LinkCopy {
+  title: string
+  linksTitle: string
+  intro: string
+  has: string
+  calendarName: string
+  privacy: string
+  iphoneShows: string
+  androidOnIpad: string
+  googleSlow: string
+  confirmStop: string
+  startButton: string
+}
+
+export const CREW_COPY: LinkCopy = {
+  title: 'My shifts on my phone',
+  linksTitle: 'Your calendar link',
+  intro: 'Get a private link that puts your shifts in your phone’s calendar. When Catherine or Kaden put you on something, or a time changes, your phone updates by itself.',
+  has: 'You already have a calendar link. For your privacy it was only shown once, when it was made.',
+  calendarName: 'Hometown Studio · my shifts',
+  privacy: 'This link is only shown now. Keep it private: anyone with it can see your shifts.',
+  iphoneShows: 'Tap it, tap Subscribe, then tap Add. Your shifts show in the Calendar app.',
+  androidOnIpad: 'Do these steps on your own phone. On the iPad? Open ourhometownstudio.com/staff on your phone and make your link there.',
+  googleSlow: 'Google can take up to a day to show changes. Your text from Catherine or Kaden is the quick way to hear.',
+  confirmStop: 'Your shifts stop updating on any phone that has it. You can make a new one any time.',
+  startButton: 'Get my calendar link',
+}
+
+export const OWNER_COPY: LinkCopy = {
+  title: 'The studio on my phone',
+  linksTitle: 'Your calendar link',
+  intro: 'Get a private link that puts every class, party, closed day and blocked time in your phone’s calendar, with who’s on each one. Anything that still needs someone starts with ⚠. When something changes, your phone updates by itself.',
+  has: 'You already have a calendar link for the whole studio. For your privacy it was only shown once, when it was made.',
+  calendarName: 'Hometown Studio',
+  privacy: 'This link is only shown now. Keep it private: anyone with it can see the studio’s schedule and who’s working.',
+  iphoneShows: 'Tap it, tap Subscribe, then tap Add. The studio’s schedule shows in the Calendar app.',
+  androidOnIpad: 'Do these steps on your own phone. On the iPad? Open ourhometownstudio.com/admin on your phone, go to More, Staff, and make your link there.',
+  googleSlow: 'Google can take up to a day to show changes. This page always has the latest.',
+  confirmStop: 'The studio’s schedule stops updating on any phone that has it. You can make a new one any time.',
+  startButton: 'Get my calendar link',
+}
 
 /** A shown link hides itself after this long (someone may walk away from the iPad). */
 export const LINK_SHOW_MS = 3 * 60_000
@@ -30,7 +77,16 @@ const ownPhone: CSSProperties = { ...help, padding: '0.7rem 0.85rem', borderRadi
 
 const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: boolean; onClose: () => void; onChanged: (has: boolean) => void }) {
+export default function CalendarLinkSheet({ has, onClose, onChanged, endpoint = '/api/staff/feed.json', headers, copy: words = CREW_COPY }: {
+  has: boolean
+  onClose: () => void
+  onChanged: (has: boolean) => void
+  /** Where the link is made and stopped: the crew's own (/api/staff/feed.json) or an owner's (/api/admin/feed.json). */
+  endpoint?: string
+  /** Extra headers (an owner's X-Admin-Who). */
+  headers?: Record<string, string>
+  copy?: LinkCopy
+}) {
   const [view, setView] = useState<View>('start')
   const [links, setLinks] = useState<{ https: string; webcal: string } | null>(null)
   const [shown, setShown] = useState(false)
@@ -75,7 +131,8 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
   // A shown link hides itself after a few minutes.
   useEffect(() => {
     if (!shown) return
-    const t = setTimeout(() => { setShown(false); setCopied(null) }, LINK_SHOW_MS)
+    // It forgets the link too, so the next person at the iPad can't bring it back (review m1).
+    const t = setTimeout(() => { setShown(false); setCopied(null); setLinks(null); setView('hidden') }, LINK_SHOW_MS)
     return () => clearTimeout(t)
   }, [shown])
 
@@ -83,7 +140,7 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch('/api/staff/feed.json', { method: 'POST' })
+      const res = await fetch(endpoint, { method: 'POST', headers: { ...(headers ?? {}) } })
       const json = await res.json().catch(() => null)
       if (!res.ok) { setError(json?.error ?? 'Couldn’t make your link. Try again.'); return }
       setLinks(json.data)
@@ -102,7 +159,7 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
     setBusy(true)
     setError(null)
     try {
-      const res = await fetch('/api/staff/feed.json', { method: 'DELETE' })
+      const res = await fetch(endpoint, { method: 'DELETE', headers: { 'Content-Type': 'application/json', ...(headers ?? {}) }, body: '{}' })
       const json = await res.json().catch(() => null)
       if (!res.ok) { setError(json?.error ?? 'Couldn’t stop your link. Try again.'); return }
       setLinks(null)
@@ -141,7 +198,7 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
     >
       <div ref={panelRef} onClick={(e) => e.stopPropagation()} style={{ background: 'var(--color-surface, #fff)', width: '100%', maxWidth: '32rem', maxHeight: '92vh', overflowY: 'auto', borderRadius: '1rem 1rem 0 0', padding: '1.25rem 1.25rem calc(1.25rem + env(safe-area-inset-bottom, 0px))', display: 'grid', gap: '0.75rem' }}>
         <h2 id="cal-link-title" style={{ margin: 0, fontSize: '1.2rem', fontWeight: 700, color: 'var(--color-dark)' }}>
-          {view === 'links' ? 'Your calendar link' : view === 'stopped' ? 'Calendar link stopped' : 'My shifts on my phone'}
+          {view === 'links' ? words.linksTitle : view === 'stopped' ? 'Calendar link stopped' : view === 'hidden' ? 'Link hidden' : words.title}
         </h2>
 
         {(view === 'start' || view === 'links') && (
@@ -152,14 +209,14 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
 
         {view === 'start' && !has && (
           <>
-            <p style={help}>Get a private link that puts your shifts in your phone’s calendar. When Catherine or Kaden put you on something, or a time changes, your phone updates by itself.</p>
-            <button ref={firstRef} type="button" disabled={busy} onClick={make} style={sheetBtn(true)}>{busy ? 'Making your link…' : 'Get my calendar link'}</button>
+            <p style={help}>{words.intro}</p>
+            <button ref={firstRef} type="button" disabled={busy} onClick={make} style={sheetBtn(true)}>{busy ? 'Making your link…' : words.startButton}</button>
           </>
         )}
 
         {view === 'start' && has && (
           <>
-            <p style={help}>You already have a calendar link. For your privacy it was only shown once, when it was made.</p>
+            <p style={help}>{words.has}</p>
             <p style={help}>To add it to a new phone, or if you lost it, make a new link. The old one stops working.</p>
             <button ref={firstRef} type="button" onClick={() => setView('confirm-new')} style={sheetBtn(true)}>Make a new link</button>
             <button type="button" onClick={() => setView('confirm-stop')} style={sheetBtn()}>Stop my calendar link</button>
@@ -176,7 +233,7 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
 
         {view === 'confirm-stop' && (
           <>
-            <p style={help}><strong>Stop your calendar link?</strong> Your shifts stop updating on any phone that has it. You can make a new one any time.</p>
+            <p style={help}><strong>Stop your calendar link?</strong> {words.confirmStop}</p>
             <button ref={firstRef} type="button" disabled={busy} onClick={stop} style={{ ...sheetBtn(true), background: '#b91c1c' }}>{busy ? 'Stopping…' : 'Yes, stop it'}</button>
             <button type="button" onClick={() => setView('start')} style={sheetBtn()}>Keep it</button>
           </>
@@ -191,7 +248,7 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
 
         {view === 'links' && links && shown && (
           <>
-            <p style={{ ...help, fontWeight: 600 }}>This link is only shown now. Keep it private: anyone with it can see your shifts.</p>
+            <p style={{ ...help, fontWeight: 600 }}>{words.privacy}</p>
 
             <section aria-labelledby="cal-qr" style={{ display: 'grid', gap: '0.45rem', justifyItems: 'center' }}>
               <h3 id="cal-qr" style={{ margin: 0, fontSize: '1rem', color: 'var(--color-dark)', justifySelf: 'start' }}>On the iPad? Scan with your iPhone</h3>
@@ -208,12 +265,12 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
             <section aria-labelledby="cal-iphone" style={{ display: 'grid', gap: '0.45rem' }}>
               <h3 id="cal-iphone" style={{ margin: 0, fontSize: '1rem', color: 'var(--color-dark)' }}>On your iPhone</h3>
               <a href={links.webcal} style={{ ...sheetBtn(true), display: 'flex', alignItems: 'center', justifyContent: 'center', textDecoration: 'none', boxSizing: 'border-box' }}>Add to my iPhone calendar</a>
-              <p style={help}>Tap it, tap Subscribe, then tap Add. Your shifts show in the Calendar app.</p>
+              <p style={help}>{words.iphoneShows}</p>
             </section>
 
             <section aria-labelledby="cal-android" style={{ display: 'grid', gap: '0.45rem' }}>
               <h3 id="cal-android" style={{ margin: 0, fontSize: '1rem', color: 'var(--color-dark)' }}>Android or Google Calendar</h3>
-              <p style={help}>Do these steps on your own phone. On the iPad? Open ourhometownstudio.com/staff on your phone and make your link there.</p>
+              <p style={help}>{words.androidOnIpad}</p>
               <button ref={firstRef} type="button" onClick={copy} style={sheetBtn()}>{copied === 'yes' ? '✓ Link copied' : 'Copy my link'}</button>
               <p role="status" aria-live="polite" style={{ ...help, minHeight: 0, color: copied === 'yes' ? '#15803d' : 'var(--color-dark)', fontWeight: copied ? 600 : 400 }}>
                 {copied === 'yes' ? 'Copied. Now paste it in Google Calendar.' : copied === 'manual' ? 'Press and hold the link below, then tap Copy.' : ''}
@@ -228,9 +285,9 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
                 <li>Copy your link.</li>
                 <li>Open calendar.google.com in Chrome. On a phone, tap ⋮ and tick Desktop site first. Use the same Google account as your phone.</li>
                 <li>Next to Other calendars, tap +, then From URL. Paste and tap Add calendar.</li>
-                <li>On your phone, open the Google Calendar app › Settings › Hometown Studio · my shifts, and turn on Sync.</li>
+                <li>{`On your phone, open the Google Calendar app › Settings › ${words.calendarName}, and turn on Sync.`}</li>
               </ol>
-              <p style={{ ...help, color: 'var(--color-muted)' }}>Google can take up to a day to show changes. Your text from Catherine or Kaden is the quick way to hear.</p>
+              <p style={{ ...help, color: 'var(--color-muted)' }}>{words.googleSlow}</p>
             </section>
 
             <button type="button" onClick={() => { setShown(false); setCopied(null) }} style={sheetBtn()}>Hide my link</button>
@@ -239,8 +296,15 @@ export default function CalendarLinkSheet({ has, onClose, onChanged }: { has: bo
 
         {view === 'stopped' && (
           <>
-            <p style={help}>Your calendar link is stopped. You can delete the “Hometown Studio · my shifts” calendar from your phone.</p>
+            <p style={help}>{`Your calendar link is stopped. You can delete the “${words.calendarName}” calendar from your phone.`}</p>
             <button ref={firstRef} type="button" disabled={busy} onClick={make} style={sheetBtn()}>{busy ? 'Making your link…' : 'Get a new calendar link'}</button>
+          </>
+        )}
+
+        {view === 'hidden' && (
+          <>
+            <p style={help}>Your link was hidden after a few minutes, so nobody else at this screen can see it. Make a new link to see one again. The old one stops working.</p>
+            <button ref={firstRef} type="button" disabled={busy} onClick={make} style={sheetBtn(true)}>{busy ? 'Making your link…' : 'Make a new link'}</button>
           </>
         )}
 

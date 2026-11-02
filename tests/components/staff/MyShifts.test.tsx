@@ -317,7 +317,11 @@ describe('calendar link', () => {
     const { LINK_SHOW_MS } = await import('@components/staff/CalendarLinkSheet')
     act(() => { vi.advanceTimersByTime(LINK_SHOW_MS + 10) })
     expect(within(dialog).queryByRole('link', { name: 'Add to my iPhone calendar' })).toBeNull()
-    expect(within(dialog).getByRole('button', { name: 'Show my link' })).toBeInTheDocument()
+    // It forgets the link too (review m1): nothing brings it back but a new link.
+    expect(within(dialog).queryByRole('button', { name: 'Show my link' })).toBeNull()
+    expect(dialog).toHaveTextContent('Your link was hidden after a few minutes')
+    expect(dialog.innerHTML).not.toContain('x.test')
+    expect(within(dialog).getByRole('button', { name: 'Make a new link' })).toBeInTheDocument()
   })
 
   it('with a link already: "Make a new link" asks in the sheet first; Keep my old link does nothing', async () => {

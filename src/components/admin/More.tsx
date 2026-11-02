@@ -11,7 +11,7 @@ const ROWS: [MorePage, string, string][] = [
   ['parties', 'Parties setup', 'Party times, packages, extras, crafts'],
   ['hours', 'Hours & Craft Café', 'Café hours and special days'],
   ['closed', 'Closed days', ''],
-  ['staff', 'Staff', 'Coming in stage 3'],
+  ['staff', 'Staff', 'Who’s on, who can work, calendar links'],
   ['promos', 'Promotions', 'Coming in stage 4'],
   ['reports', 'Reports', 'This month: seats sold, sales, refunds'],
 ]

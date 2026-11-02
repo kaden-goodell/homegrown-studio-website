@@ -58,10 +58,17 @@ describe('verdict', () => {
   it('two can ranges that together cover the event are can', () => {
     expect(verdict(avail({}, { '2026-10-31': [can('09:00', '11:00'), can('11:00', '13:00')] }), satAt(10))).toBe('can')
   })
-  it('date marks replace the weekly mark for that whole day', () => {
+  it('a date with only hours off keeps the usual week for the rest of that day (review m2)', () => {
     const a = avail({ '6': can() }, { '2026-10-31': [cant('09:00', '12:00')] })
     expect(verdict(a, satAt(10))).toBe('cant')
-    expect(verdict(a, satAt(14))).toBe('unknown')
+    expect(verdict(a, satAt(14))).toBe('can')
+  })
+  it('a date with any Can mark replaces the weekly mark for that whole day', () => {
+    const a = avail({ '6': can() }, { '2026-10-31': [can('09:00', '11:00')] })
+    expect(verdict(a, satAt(9))).toBe('can')
+    expect(verdict(a, satAt(14))).toBe('outside')
+    const allDayOff = avail({ '6': can() }, { '2026-10-31': [cant()] })
+    expect(verdict(allDayOff, satAt(14))).toBe('cant')
     // another Saturday still uses the weekly mark
     expect(verdict(a, { startIso: '2026-11-07T16:00:00.000Z', endIso: '2026-11-07T18:00:00.000Z' })).toBe('can')
   })

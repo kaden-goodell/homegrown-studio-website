@@ -103,8 +103,37 @@ describe('GET', () => {
       { id: 'TM2', name: 'Jessica', role: 'crew' }, { id: 'TM3', name: 'Sam', role: 'crew' },
     ])
     expect(r.body.data.teamSource).toBe('square')
-    expect(JSON.stringify(r.body)).not.toMatch(/example\.com|\+1256/)
+    // Contact details only in `contacts` (this route is owners only: Call / Text on "Check with Jessica").
+    expect(JSON.stringify({ ...r.body.data, contacts: null })).not.toMatch(/example\.com|\+1256/)
+    expect(r.body.data.contacts.TM2).toEqual({ phone: '+12565550199', email: 'jessica@example.com' })
     expect((await call('GET', undefined, { query: `?from=${inDays(0)}&to=${inDays(71)}` })).status).toBe(400)
+  })
+
+  it('lines=1: the owners\' staffing lines for two weeks, each with its event key and where it opens', async () => {
+    const c = klass('Potholder Looms', inDays(2))
+    src.classes = [c]
+    const r = await call('GET', undefined, { query: '?lines=1' })
+    expect(r.status).toBe(200)
+    const line = r.body.data.lines.find((l: any) => l.code === 'unstaffed')
+    expect(line.detail).toMatch(/Potholder Looms at .* has no one on yet\./)
+    expect(line.staff).toEqual({ key: keyOf(c), openHref: `#class-${c.id}`, people: [] })
+    expect(r.body.data.contacts.TM2.phone).toBe('+12565550199')
+    // owners only
+    expect((await call('GET', undefined, { query: '?lines=1', cookie: null })).status).toBe(401)
+  })
+
+  it('lines=1: someone on at a time they marked Can\'t names them, for Call and Text', async () => {
+    const c = klass('Weaving', inDays(3))
+    src.classes = [c]
+    const day = new Date(Date.parse(c.sessions[0].startIso)).toLocaleDateString('en-CA', { timeZone: 'America/Chicago' })
+    await saveAvailability('TM2', 'Jessica', { weekly: {}, dates: { [day]: [{ kind: 'cant', range: null, note: 'dentist' }] } }, { id: 'TM2', name: 'Jessica' }, (await getAvailability('TM2'))?.updatedAt ?? null)
+    await updateEntry(keyOf(c), (e) => withAssigned(e, { staffId: 'TM2', name: 'Jessica', by: { id: 'k', name: 'Kaden' }, at: new Date().toISOString(), notified: null }), 'on', { id: 'k', name: 'Kaden' })
+    const r = await call('GET', undefined, { query: '?lines=1' })
+    const cant = r.body.data.lines.find((l: any) => l.code === 'assigned-cant')
+    expect(cant.action).toBe('Check with Jessica.')
+    expect(cant.staff.people).toEqual([{ staffId: 'TM2', name: 'Jessica' }])
+    // put Jessica's times back for the other tests
+    await saveAvailability('TM2', 'Jessica', { weekly: {}, dates: {} }, { id: 'TM2', name: 'Jessica' }, (await getAvailability('TM2'))?.updatedAt ?? null)
   })
 
   it('one row by key, and 404 for an unknown key', async () => {

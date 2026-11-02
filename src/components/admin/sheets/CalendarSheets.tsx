@@ -8,6 +8,7 @@ import { localDate } from '@lib/party-slots'
 import { api, BLOCKED } from '../classes/api'
 import { addDays, dayLabel, weekday } from '../classes/dates'
 import { useCalendar, useRefresh } from '../shell/data'
+import { StaffRow } from '../staffing/StaffRow'
 import { Failed, ItemRow, itemKey, itemName, itemTime, sheetOf, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet } from '../shell/Sheet'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
@@ -83,6 +84,7 @@ export function LegacySheet({ day, id }: { day: string; id: string }) {
   return (
     <SheetFrame title={item.label} subtitle={whenOf(item)}>
       <div className="adm-card"><p>This class lives in Square. Change it there.</p></div>
+      <StaffRow eventKey={`legacy:${item.id}`} startIso={item.startIso} />
     </SheetFrame>
   )
 }

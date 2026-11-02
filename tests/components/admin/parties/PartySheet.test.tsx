@@ -458,3 +458,14 @@ describe('Party sheet', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('going through right now')
   })
 })
+
+describe('Party sheet › Staff (stage 3)', () => {
+  const staffRow = { event: { key: `party:${ID}`, kind: 'party', title: 'Party · 14 guests', startIso: T1, endIso: T1, status: 'on', openHref: '', roster: {}, detail: {} }, entry: null, state: 'none', needed: 1, leftTeam: [], people: [{ staffId: 'TM2', name: 'Jessica', verdict: 'can', asked: true, assigned: false, askNote: '', markNote: '', hours: '' }] }
+  it('a staffing line opens the party on Staff; the section reads the party’s key', async () => {
+    const f = server(party(), { '/api/admin/staffing.json': { body: { data: { row: staffRow, contacts: {} } } } })
+    renderSheet(<PartySheet day={DAY} id={ID} />, { data: { staffKey: `party:${ID}` } })
+    expect(await screen.findByRole('button', { name: 'Staff' })).toHaveAttribute('aria-pressed', 'true')
+    expect(await screen.findByText(/★ Asked/)).toBeInTheDocument()
+    expect(f.mock.calls.some((c: any) => String(c[0]).startsWith(`/api/admin/staffing.json?key=party%3A${ID}`))).toBe(true)
+  })
+})

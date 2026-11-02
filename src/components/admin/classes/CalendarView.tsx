@@ -3,10 +3,11 @@ import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 import { closureOn, OPEN_WEEKDAYS, type Closure } from '@config/closures'
 import { useStudio } from '../shell/studio'
 import { useCalendar, useShell } from '../shell/data'
+import { useStaffTags } from '../staffing/api'
 import { byDay, Failed, ItemRow, itemKey, itemName, itemTag, itemTime, Key, KIND_STYLE, Seg, sheetOf, Skeleton } from '../shell/items'
 import { sheetToken, type Sheet } from '../shell/router'
 import { useWide } from '../shell/useWide'
-import { addDays, addMonths, dayLabel, monthLabel, monthStart, today, weekday, weekStartMonday } from './dates'
+import { addDays, addMonths, dayLabel, dayStartIso, monthLabel, monthStart, today, weekday, weekStartMonday } from './dates'
 
 export { KIND_STYLE }
 
@@ -81,6 +82,8 @@ export default function CalendarView({ initialDay, onOpen }: {
   const [unfoldWeek, setUnfoldWeek] = useState<string | null>(null)
   const { days } = rangeOf(view, day)
   const { items, error, retry } = useCalendar(days[0], addDays(days[days.length - 1], 1))
+  // "No one on" / "1 of 2 on" on classes and parties that still need someone (week view only).
+  const staffTag = useStaffTags(dayStartIso(days[0]), dayStartIso(addDays(days[days.length - 1], 1)))
   const map = items ? byDay(items) : null
   const now = today()
   const showsToday = days.includes(now) && (view === 'week' || day.slice(0, 7) === now.slice(0, 7))
@@ -135,7 +138,7 @@ export default function CalendarView({ initialDay, onOpen }: {
             <button type="button" className="adm-plus" aria-label={`Add on ${dayLabel(d)}`} onClick={() => openDay(d)}>+</button>
           </div>
           {(usually || (d === now && quietClosed(d, list))) && <p className="adm-usually">Usually closed</p>}
-          {list.map((i) => <ItemRow key={itemKey(i)} item={i} active={isActive(i, d)} onOpen={() => openItem(i, d)} />)}
+          {list.map((i) => <ItemRow key={itemKey(i)} item={i} tag={staffTag(i)} active={isActive(i, d)} onOpen={() => openItem(i, d)} />)}
           {!list.length && (
             <button type="button" className="adm-empty" onClick={() => openDay(d)}>Nothing on this day<em>+ Add</em></button>
           )}
@@ -185,14 +188,15 @@ export default function CalendarView({ initialDay, onOpen }: {
                 </h3>
                 {shut && <p className="adm-usually">Usually closed</p>}
                 {list.map((i) => {
-                  const tag = itemTag(i)
+                  const staff = staffTag(i)
+                  const tag = itemTag(i) ?? (staff ? { text: staff, red: false } : null)
                   const active = isActive(i, d)
                   return (
                     <button
                       key={itemKey(i)}
                       type="button"
                       data-kind={i.kind}
-                      title={`${itemName(i)} · ${itemTime(i)}`}
+                      title={`${itemName(i)} · ${itemTime(i)}${staff ? ` · ${staff}` : ''}`}
                       aria-current={active ? 'true' : undefined}
                       className={`adm-chip ${KIND_STYLE[i.kind].className}${active ? ' is-active' : ''}`}
                       onClick={() => openItem(i, d)}

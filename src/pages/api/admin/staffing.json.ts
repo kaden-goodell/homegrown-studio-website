@@ -11,6 +11,9 @@ import { storableStaffId } from '@lib/staffing/ids'
 import { StaffingError } from '@lib/staffing/errors'
 import { shiftDay, tellPerson } from '@lib/staffing/notify'
 import { json, staffingReply } from '@lib/staffing/http'
+import { staffingWarnings, UNSTAFFED_HORIZON_DAYS } from '@lib/staffing/warnings'
+import { addDays } from '@lib/kit-dates'
+import { studioDate } from '@lib/studio-time'
 import type { Assignment, EventKey, StaffingEntry } from '@lib/staffing/types'
 
 export const prerender = false
@@ -25,11 +28,19 @@ export const NEEDED_RANGE = `Pick a number from 0 to ${MAX_NEEDED}, or Usual.`
 
 const auditBy = (by: By) => ({ ...by, role: 'owner' as const })
 const shownTeam = (people: StaffPerson[]) => people.filter((p) => p.active).map((p) => ({ id: p.id, name: p.name, role: p.role }))
+/** Owners only: how to reach each person working here (Call / Text on "Check with Jessica"). */
+const contactsOf = (people: StaffPerson[]) =>
+  Object.fromEntries(people.filter((p) => p.active).map((p) => [p.id, { phone: p.phone, email: p.email }]))
 
 /**
  * Owners only.
  * GET ?from&to (ISO, at most ten weeks) → { rows, team, teamSource }: every
  *   class session and party with who can work, who asked and who is on.
+ * GET ?lines=1 → { lines }: the owners' staffing lines for today and the next
+ *   13 days (nobody on, on but marked Can't, still on something cancelled),
+ *   each with the event key and the /admin address that opens it, for Home.
+ *   Never fails quietly: an unreadable store is one "Couldn't check staffing" line.
+ * Every reply carries `contacts` ({ [staffId]: { phone, email } }, owners only).
  * GET ?key=<eventKey>[&start=<iso>] → { row } for a class or party sheet's
  *   Staff section, on any date (last week's class shows who worked it).
  *   `start` (the time the sheet shows) only helps find a Square-booked party
@@ -38,14 +49,23 @@ const shownTeam = (people: StaffPerson[]) => people.filter((p) => p.active).map(
  */
 export const GET: APIRoute = async ({ request, url }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (url.searchParams.get('lines') === '1') {
+    const now = new Date()
+    const from = studioDate(now.toISOString())
+    const [lines, team] = await Promise.all([
+      staffingWarnings(from, addDays(from, UNSTAFFED_HORIZON_DAYS - 1), now),
+      teamWithContacts().catch(() => null),
+    ])
+    return json(200, { data: { lines, contacts: team ? contactsOf(team.people) : {} } })
+  }
   const key = url.searchParams.get('key')
   if (key !== null) {
     if (!isEventKey(key)) return json(400, { error: NOT_FOUND })
     return staffingReply(async () => {
-      const row = await rowByKey(key, new Date(), url.searchParams.get('start'))
+      const [row, team] = await Promise.all([rowByKey(key, new Date(), url.searchParams.get('start')), teamWithContacts()])
       if (!row) throw new StaffingError(404, NOT_FOUND)
       await rememberSeen([row])
-      return { data: { row } }
+      return { data: { row, contacts: contactsOf(team.people) } }
     })
   }
   const from = toIso(url.searchParams.get('from')), to = toIso(url.searchParams.get('to'))
@@ -54,7 +74,7 @@ export const GET: APIRoute = async ({ request, url }) => {
   return staffingReply(async () => {
     const [rows, team] = await Promise.all([staffingRows(from, to, { seats: true }), teamWithContacts()])
     await rememberSeen(rows)
-    return { data: { rows, team: shownTeam(team.people), teamSource: team.source } }
+    return { data: { rows, team: shownTeam(team.people), teamSource: team.source, contacts: contactsOf(team.people) } }
   })
 }
 

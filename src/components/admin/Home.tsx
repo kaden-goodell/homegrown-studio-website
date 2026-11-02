@@ -9,6 +9,9 @@ import { useInbox } from './inbox/InboxData'
 import { useWide } from './shell/useWide'
 import type { InboxSegment } from './inbox/Inbox'
 import { useUnstaffed } from './staffing/useUnstaffed'
+import { HomeStaffing } from './staffing/HomeStaffing'
+import { useStaffTags } from './staffing/api'
+import { dayStartIso } from './classes/dates'
 
 /** "Good morning" by the studio's clock (America/Chicago). */
 export function greeting(now = new Date()): string {
@@ -35,6 +38,7 @@ export default function Home({ who, onOpen, onInbox }: {
   const { items, error, retry } = useCalendar(day, addDays(day, 7))
   const inbox = useInbox()
   const unstaffed = useUnstaffed()
+  const staffTag = useStaffTags(dayStartIso(day), dayStartIso(addDays(day, 7)))
   const wide = useWide()
   const days = items ? byDay(items) : null
   const open = (i: CalendarItem, d: string) => onOpen(sheetOf(i, d), i)
@@ -58,7 +62,7 @@ export default function Home({ who, onOpen, onInbox }: {
       <p className="adm-lbl">Today</p>
       {error && <Failed message={error} onRetry={retry} />}
       {!error && !days && <Skeleton rows={2} label="Loading today" />}
-      {days && todays.map((i) => <ItemRow key={itemKey(i)} item={i} onOpen={() => open(i, day)} />)}
+      {days && todays.map((i) => <ItemRow key={itemKey(i)} item={i} tag={staffTag(i)} onOpen={() => open(i, day)} />)}
       {days && !todays.length && (shut
         ? (
           <div className="adm-empty" style={{ display: 'grid', gap: '0.15rem' }}>
@@ -76,7 +80,7 @@ export default function Home({ who, onOpen, onInbox }: {
         return rest.map((d) => (
           <section key={d} aria-label={dayLabel(d)}>
             <p className="adm-dayname">{dayLabel(d)}</p>
-            {(days.get(d) ?? []).map((i) => <ItemRow key={itemKey(i)} item={i} onOpen={() => open(i, d)} />)}
+            {(days.get(d) ?? []).map((i) => <ItemRow key={itemKey(i)} item={i} tag={staffTag(i)} onOpen={() => open(i, d)} />)}
           </section>
         ))
       })()}
@@ -109,6 +113,7 @@ export default function Home({ who, onOpen, onInbox }: {
           <small>{unstaffed.error ? 'Couldn’t check staffing. Tap to open Staff.' : 'Need someone on, next 2 weeks'}</small>
         </button>
       </div>
+      <HomeStaffing onOpen={onOpen} />
     </div>
   )
 

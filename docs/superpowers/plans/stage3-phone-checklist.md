@@ -1,6 +1,6 @@
 # Stage 3 — phone checklist (staffing)
 
-For Kaden, on the live site **after** he says go. This stage moves no money and makes no Square write on the live site, so there is no real-money checklist. This is the check that phones, the shared iPad and Square behave.
+For Kaden or Catherine, on the live site **after** Kaden says go. This stage moves no money and makes no Square write on the live site, so there is no real-money checklist. This is the check that phones, the shared iPad and Square behave.
 
 Before you start:
 - Use your own iPhone, plus one Android phone if any crew use Android.
@@ -72,4 +72,15 @@ Before you start:
 14. **No Square changes from staffing.**
     - In Square Dashboard › Staff, no team member became bookable.
     - No new services, bookings or anything else came from staffing.
-    - (The "E2E Crew" team member exists only in the **sandbox**, made by "Set up sandbox" on the branch preview.)
+    - "E2E Crew" is on the branch preview's own staff list only (made by "Set up sandbox"), never in Square.
+
+## Our own staff list (D5)
+
+15. **The team came across once, then lives in /admin.**
+    - Open /admin › More › Staff › People. **Expect:** everyone who was on the Square team, with phones and emails.
+    - Add someone (a test name with your own phone), then open /staff on the iPad. **Expect:** they're on "Who's on the iPad?".
+    - Put them on tomorrow's class with "Tell them" on. **Expect:** one text and one email to your phone.
+    - Tap "No longer working here". **Expect:** they leave the iPad picker; their calendar link stops; the class now shows as needing someone. Then take them off it.
+16. **Staff from Home and the sheets.**
+    - Home › Staffing lists anything with nobody on in the next two weeks; "Put someone on" opens that class or party on its Staff tab.
+    - On a class that runs several days, "Every day" sends one message listing the days.

@@ -66,6 +66,8 @@ export interface Warning {
   action: string
   /** Stable id of an undated item (a counter sale, a refund flag…), so the daily email can tell new from old. */
   itemId?: string
+  /** Staffing lines (owners only): the class session or party, the /admin address that opens it, and who the line is about. */
+  staff?: { key: string; openHref: string | null; people: { staffId: string; name: string }[] }
 }
 
 /** Items that aren't tied to a day: they stay until an owner decides. */

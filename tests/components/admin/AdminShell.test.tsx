@@ -371,9 +371,12 @@ describe('Home', () => {
     const row = (state: string, needed: number, status = 'on', endIso = at('2026-10-22', '20:00')) => ({ event: { status, endIso }, state, needed })
     const f = await signedIn(server({ staffRows: [row('none', 1), row('short', 2), row('staffed', 1), row('none', 0), row('none', 1, 'cancelled'), row('none', 1, 'on', at('2026-10-18', '12:00'))] }))
     const tile = await screen.findByRole('button', { name: 'Need someone on, next 2 weeks: 2' })
-    const call = f.mock.calls.find((c: any) => c[0].startsWith('/api/admin/staffing.json'))!
-    const q = new URL(`https://x.test${call[0]}`).searchParams
-    expect(Date.parse(q.get('to')!) - Date.parse(q.get('from')!)).toBeLessThanOrEqual(14 * 86_400_000)
+    const ranges = f.mock.calls.filter((c: any) => c[0].startsWith('/api/admin/staffing.json?from'))
+    expect(ranges.length).toBeGreaterThan(0)
+    for (const call of ranges) {
+      const q = new URL(`https://x.test${call[0]}`).searchParams
+      expect(Date.parse(q.get('to')!) - Date.parse(q.get('from')!)).toBeLessThanOrEqual(14 * 86_400_000)
+    }
     fireEvent.click(tile)
     expect(window.location.hash).toBe('#more-staff')
   })
@@ -647,12 +650,12 @@ describe('More', () => {
     expect(posts(f, '/api/admin/classes/import-square.json')).toEqual([{ dryRun: true }])
   })
 
-  it('lists the setup pages; Staff and Promotions are marked as coming', async () => {
+  it('lists the setup pages; Promotions is marked as coming, Staff says what it holds', async () => {
     await signedIn()
     tab('More')
     const setup = await screen.findByRole('list', { name: 'Setup' })
     expect(within(setup).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Parties setup', 'Hours & Craft Café', 'Closed days', 'Staff', 'Promotions', 'Reports'])
-    expect(within(setup).getByRole('button', { name: /Staff/ })).toHaveTextContent('Coming in stage 3')
+    expect(within(setup).getByRole('button', { name: /Staff/ })).toHaveTextContent('Who’s on, who can work, calendar links')
     expect(within(setup).getByRole('button', { name: /Promotions/ })).toHaveTextContent('Coming in stage 4')
     // The row says what's set, from the saved Parties setup.
     expect(await within(setup).findByText('Fri, Sat, Sun · Whole studio $300 · 10–30 guests')).toBeInTheDocument()

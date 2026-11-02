@@ -68,11 +68,19 @@ function markSpan(day: string, range: TimeRange | null): [number, number] {
   return [Date.parse(localToUtcISO(day, range.from)), end]
 }
 
-/** The marks in force on a day: that date's marks when it has any, else the usual week's mark. */
+/**
+ * The marks in force on a day: that date's marks when it has any, else the
+ * usual week's mark. When the date only has "can't, these hours" marks, the
+ * usual week still holds for the rest of the day (usually Can on Saturdays +
+ * "Nov 7 can't 9–12, dentist" → a 1:30 party that day is still Can).
+ */
 function marksOn(a: Availability, day: string): DayMark[] {
   const dated = a.dates?.[day]
-  if (dated && dated.length > 0) return dated
   const w = a.weekly?.[weekdayOf(day)]
+  if (dated && dated.length > 0) {
+    const onlyHoursOff = dated.every((m) => m.kind === 'cant' && m.range)
+    return onlyHoursOff && w ? [...dated, w] : dated
+  }
   return w ? [w] : []
 }
 

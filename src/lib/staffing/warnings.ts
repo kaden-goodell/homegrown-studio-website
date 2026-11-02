@@ -54,6 +54,7 @@ function unstaffedLine(r: StaffingRow): Warning {
     code: 'unstaffed', eventKind: kindOf(r.event), eventId: eventIdOf(r.event), when: r.event.startIso, title: r.event.title,
     detail: on === 0 ? `${what} has no one on yet.` : `${what} has ${on} of ${r.needed} on.`,
     action: ASSIGN_IN_ADMIN,
+    staff: { key: r.event.key, openHref: r.event.openHref, people: [] },
   }
 }
 
@@ -64,6 +65,7 @@ function cantLines(r: StaffingRow): Warning[] {
       code: 'assigned-cant' as const, eventKind: kindOf(r.event), eventId: eventIdOf(r.event), when: r.event.startIso, title: r.event.title,
       detail: `${p.name} is on ${eventName(r.event)} at ${shiftClock(r.event.startIso)} but marked that time as Can't.`,
       action: `Check with ${p.name}.`,
+      staff: { key: r.event.key, openHref: r.event.openHref, people: [{ staffId: p.staffId, name: p.name }] },
     }))
 }
 
@@ -97,6 +99,7 @@ export async function staffingWarnings(from: string, to: string, now: Date): Pro
           ? `${who} ${one ? 'is' : 'are'} still on ${what}, which was cancelled.`
           : `${who} ${one ? 'is' : 'are'} still on ${what}, which is no longer on the schedule.`,
         action: one ? `Tell ${who}, then take ${who} off in /admin.` : 'Tell them, then take them off in /admin.',
+        staff: { key: o.key, openHref: null, people: o.entry.assigned.map((a) => ({ staffId: a.staffId, name: a.name })) },
       })
     }
     return out
