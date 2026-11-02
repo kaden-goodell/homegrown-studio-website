@@ -484,6 +484,31 @@ describe('main', () => {
   })
 })
 
+describe('messages muted on the preview', () => {
+  afterEach(() => { vi.unstubAllGlobals(); vi.restoreAllMocks() })
+  it('stops before booking (or cleaning up) when the preview would send emails and texts', async () => {
+    const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
+      const p = new URL(url).pathname
+      if (p === '/api/admin/login.json') return res(200, { data: { ok: true } }, { 'Set-Cookie': 'hg_admin=a.b; Path=/' })
+      if (p === '/api/staff/login.json') return res(200, { data: { staff: [{ id: 's1', name: 'Kaden', role: 'owner' }] } })
+      if (p === '/api/staff/pick.json') return res(200, { data: {} }, { 'Set-Cookie': 'hg_staff=c.d; Path=/' })
+      if (p === '/api/admin/classes/seed-sandbox.json') return res(200, { data: { sandbox: true } })
+      if (p === '/api/admin/preview-messages.json') return res(200, { data: { muted: false, messages: [] } })
+      return res(500, {})
+    })
+    vi.stubGlobal('fetch', fetch)
+    const out: string[] = []
+    vi.spyOn(console, 'log').mockImplementation((...a) => { out.push(a.join(' ')) })
+    vi.spyOn(console, 'error').mockImplementation((...a) => { out.push(a.join(' ')) })
+    for (const argv of [['--only', '2'], ['--cleanup-only']]) {
+      expect(await main(argv, { ADMIN_PASSCODE: ADMIN, STAFF_PASSCODE: STAFF }, { proc: new EventEmitter(), exit: vi.fn() })).toBe(1)
+    }
+    expect(out.join('\n')).toContain('messages are not muted')
+    const paths = fetch.mock.calls.map(([u]) => new URL(u as string).pathname)
+    expect(paths.some((p) => p.startsWith('/api/classes/') || p.startsWith('/api/party/') || p === '/api/admin/settings.json')).toBe(false)
+  })
+})
+
 describe('stopping part way', () => {
   it('a signal runs the running scenario’s cleanups once, last in first out, signs out, then exits', async () => {
     const proc = new EventEmitter()

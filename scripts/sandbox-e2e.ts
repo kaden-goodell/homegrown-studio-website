@@ -173,6 +173,10 @@ export async function main(argv: string[], env: Record<string, string | undefine
       const sandbox = await ctx.admin.get('/api/admin/classes/seed-sandbox.json')
       checkStatus(sandbox, 200, 'Ask the preview which Square it uses')
       check(sandbox.body?.data?.sandbox === true, 'The preview is not on the Square sandbox. Stopping before anything is booked.')
+      // No emails or texts from tests (Kaden, 2 Nov 2026): the preview must say it sends none.
+      const muted = await ctx.admin.get('/api/admin/preview-messages.json')
+      checkStatus(muted, 200, 'Ask the preview whether its emails and texts are muted')
+      check(muted.body?.data?.muted === true, 'The preview would send real emails and texts (messages are not muted there). Stopping before anything is booked.')
       const settings = await ctx.admin.get('/api/admin/settings.json')
       checkStatus(settings, 200, 'Read the studio settings')
       ctx.settings = settings.body.data.settings

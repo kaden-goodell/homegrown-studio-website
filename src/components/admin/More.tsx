@@ -1,5 +1,5 @@
 import { useContext, useEffect, useState } from 'react'
-import { api, SEED } from './classes/api'
+import { api, PREVIEW_MESSAGES, SEED } from './classes/api'
 import type { MorePage, Sheet } from './shell/router'
 import { WhoContext } from './sheets/MoreSheets'
 import { useStudio } from './shell/studio'
@@ -27,10 +27,13 @@ const OWNER_ROWS: [MorePage, string, string][] = [
 export default function More({ onOpen, onSignOut }: { onOpen: (s: Sheet) => void; onSignOut: () => void }) {
   const { who } = useContext(WhoContext)
   const [sandbox, setSandbox] = useState(false)
+  const [muted, setMuted] = useState(false)
   useEffect(() => {
     let live = true
     // Only the sandbox shows "Set up sandbox"; anything but a clear yes hides it.
     api<{ sandbox: boolean }>(SEED).then((r) => { if (live) setSandbox(r.ok && r.data?.sandbox === true) })
+    // Only the sandbox preview (messages muted) shows "Messages".
+    api<{ muted: boolean }>(PREVIEW_MESSAGES).then((r) => { if (live) setMuted(r.ok && r.data?.muted === true) })
     return () => { live = false }
   }, [])
   const coming = closedComing(useStudio().days.closures)
@@ -97,6 +100,14 @@ export default function More({ onOpen, onSignOut }: { onOpen: (s: Sheet) => void
           <li>
             <button type="button" className="adm-mrow" onClick={() => onOpen({ kind: 'more', page: 'sandbox' })}>
               <span className="adm-rm"><b>Set up sandbox</b><small>For the test site only</small></span>
+              <span className="adm-chev" aria-hidden="true">›</span>
+            </button>
+          </li>
+        )}
+        {muted && (
+          <li>
+            <button type="button" className="adm-mrow" onClick={() => onOpen({ kind: 'more', page: 'messages' })}>
+              <span className="adm-rm"><b>Messages</b><small>Emails and texts this test site would have sent</small></span>
               <span className="adm-chev" aria-hidden="true">›</span>
             </button>
           </li>

@@ -4,7 +4,7 @@
  * unset, sends are skipped and callers get { sent: false } — the UI must not
  * promise an email it can't verify was attempted.
  */
-import { previewEmail } from '@lib/preview-outbound'
+import { messagesMuted, outboundEnv, previewEmail, recordMuted } from '@lib/preview-outbound'
 import { emailFailureKind, noteFailure, noteOk } from '@lib/outbound-health'
 import { createLogger } from '@lib/logger'
 import { siteConfig } from '@config/site.config'
@@ -41,8 +41,15 @@ export async function sendEmail(input: {
    *  .ics attachments below. Omitted (utf8) by every other caller. */
   attachments?: { filename: string; content: string; contentType: string; encoding?: string }[]
 }): Promise<{ sent: boolean }> {
-  // A preview branch on Square's sandbox emails Kaden only (preview-outbound.ts).
-  input = previewEmail(input, typeof process !== 'undefined' ? process.env : {})
+  // The sandbox preview sends no email at all: it is listed and logged, and the caller
+  // is told it went (preview-outbound.ts). Production is unchanged.
+  const outEnv = outboundEnv()
+  if (messagesMuted(outEnv)) {
+    await recordMuted({ kind: 'email', to: input.to, subject: input.subject, body: input.text })
+    return { sent: true }
+  }
+  // A preview with PREVIEW_MESSAGES=on emails Kaden only.
+  input = previewEmail(input, outEnv)
   const c = creds()
   if (!c) {
     logger.warn('Email not configured — skipping send', { subject: input.subject })
