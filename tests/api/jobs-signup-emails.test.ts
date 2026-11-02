@@ -39,6 +39,14 @@ vi.mock('@lib/classes/seat-ledger', async (orig) => ({
   getLedger: async (id: string) => own.ledgers.get(id) ?? { classId: id, lines: [] },
 }))
 
+const partySettings = vi.hoisted(() => ({ windowDays: 90 as number | null }))
+vi.mock('@lib/parties/settings-store', () => ({
+  getPartySettings: async () => {
+    if (partySettings.windowDays === null) throw new Error('blobs down')
+    return { times: { bookingWindowDays: partySettings.windowDays } }
+  },
+}))
+
 const SECRET = 'a-secret-only-the-site-holds'
 const OCT_24 = '2026-10-24T14:00:00.000Z'
 
@@ -88,6 +96,7 @@ beforeEach(async () => {
   own.classes = []
   own.ledgers.clear()
   own.fail = false
+  partySettings.windowDays = 90
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(new Date('2026-10-10T15:00:00.000Z'))
   ;({ POST, jobKey } = await import('@pages/api/jobs/signup-emails.json'))
@@ -251,6 +260,20 @@ describe('once booking is open', () => {
     // The workshop email still goes.
     expect(json.data.sent).toBe(1)
     expect(mockSend.mock.calls[0][0].to).toBe('person2@example.com')
+  })
+
+  it('party dates (stage 2 Task 13): how far ahead they open comes from Parties setup', async () => {
+    partySettings.windowDays = 45
+    mockListWithNotes.mockResolvedValue([person(1, '2026-09-27 Asked to be told: party-later:2026-10')])
+    await run()
+    expect(mockSend.mock.calls[0][0].items[0].lines).toContain('We open dates 45 days ahead, so the rest of October opens day by day.')
+  })
+
+  it('party dates: Parties setup unreadable falls back to the usual window', async () => {
+    partySettings.windowDays = null
+    mockListWithNotes.mockResolvedValue([person(1, '2026-09-27 Asked to be told: party-later:2026-10')])
+    await run()
+    expect(mockSend.mock.calls[0][0].items[0].lines.join(' ')).toMatch(/We open dates \d+ days ahead/)
   })
 
   it('emails a few people per call and says how many are left', async () => {

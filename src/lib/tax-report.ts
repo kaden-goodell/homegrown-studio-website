@@ -13,7 +13,7 @@ export type Bucket = 'classes' | 'cafe' | 'parties' | 'kits' | 'other'
 export const BUCKET_LABEL: Record<Bucket, string> = {
   classes: 'Classes & workshops',
   cafe: 'Craft Café & party crafts',
-  parties: 'Party studio fees',
+  parties: 'Party studio fees and extras',
   kits: 'Take-home kits',
   other: 'Not linked to an item (custom amounts)',
 }
@@ -29,8 +29,11 @@ export type CatalogIndex = Map<string, ItemInfo> // variation id → item
 export interface Totals { salesCents: number; taxCents: number; lines: number }
 export type TaxSummary = Record<Bucket, Totals>
 
-/** The studio fee line on a party order is ad hoc (no catalog item); matched by name. */
+/** The studio fee line on an older party order (booked in Square) is ad hoc (no catalog item); matched by name. */
 export const PARTY_FEE_PREFIX = 'Whole Studio Party'
+
+/** Our own party orders (stage 2) carry the party id as reference_id: every line on them is a party line, whatever it is named (OWNER-1: untaxed). */
+export const isPartyOrder = (order: any): boolean => typeof order?.reference_id === 'string' && order.reference_id.startsWith('pty_')
 
 export function bucketFor(info: ItemInfo | undefined, lineName?: string): Bucket {
   if (!info) return lineName?.startsWith(PARTY_FEE_PREFIX) ? 'parties' : 'other'
@@ -53,24 +56,27 @@ export function summarizeTax(orders: any[], index: CatalogIndex, sources: Map<st
   const empty = (): Totals => ({ salesCents: 0, taxCents: 0, lines: 0 })
   const out: TaxSummary = { classes: empty(), cafe: empty(), parties: empty(), kits: empty(), other: empty() }
   const byId = new Map<string, any>([...sources, ...orders.filter((o) => o.id).map((o) => [o.id, o] as [string, any])])
-  const add = (catalogId: string | undefined, totalCents: number, taxCentsAmt: number, sign: 1 | -1, countLine: boolean, name?: string) => {
-    const b = out[bucketFor(index.get(catalogId ?? ''), name)]
+  const add = (catalogId: string | undefined, totalCents: number, taxCentsAmt: number, sign: 1 | -1, countLine: boolean, name?: string, party = false) => {
+    const b = out[party ? 'parties' : bucketFor(index.get(catalogId ?? ''), name)]
     b.taxCents += sign * taxCentsAmt
     b.salesCents += sign * (totalCents - taxCentsAmt)
     if (countLine) b.lines += 1
   }
   for (const order of orders) {
-    for (const line of order.line_items ?? []) add(line.catalog_object_id, cents(line.total_money), cents(line.total_tax_money), 1, true, line.name)
+    const party = isPartyOrder(order)
+    for (const line of order.line_items ?? []) add(line.catalog_object_id, cents(line.total_money), cents(line.total_tax_money), 1, true, line.name, party)
     for (const ret of order.returns ?? []) {
       for (const line of ret.return_line_items ?? []) {
         const source = byId.get(ret.source_order_id)
+        // A refund on one of our party orders is a party refund, however Square names its lines.
+        const fromParty = party || isPartyOrder(source)
         if (line.catalog_object_id || !source || !cents(source.total_money)) {
-          add(line.catalog_object_id, cents(line.total_money), cents(line.total_tax_money), -1, false, line.name)
+          add(line.catalog_object_id, cents(line.total_money), cents(line.total_tax_money), -1, false, line.name, fromParty)
           continue
         }
         const share = Math.min(1, cents(line.total_money) / cents(source.total_money))
         for (const sold of source.line_items ?? []) {
-          add(sold.catalog_object_id, Math.round(cents(sold.total_money) * share), Math.round(cents(sold.total_tax_money) * share), -1, false, sold.name)
+          add(sold.catalog_object_id, Math.round(cents(sold.total_money) * share), Math.round(cents(sold.total_tax_money) * share), -1, false, sold.name, fromParty)
         }
       }
     }

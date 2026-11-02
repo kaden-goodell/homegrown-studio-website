@@ -9,6 +9,7 @@ import { createLogger } from '@lib/logger'
 import { alertOwners } from '@lib/owner-alert'
 import { emailReady, sendSignupNewsEmail } from '@lib/email'
 import { openPartyStartsInWindow } from '@lib/party-open-dates'
+import { getPartySettings } from '@lib/parties/settings-store'
 import { emailedLine, failedLine, openSignups } from '@lib/signup-ledger'
 import { judge, type DueItem, type StudioFacts, type WorkshopFact } from '@lib/signup-due'
 import { getEventMeta } from '@lib/event-meta'
@@ -110,7 +111,7 @@ async function squareFact(w: Awaited<ReturnType<typeof providers.workshop.listWo
 async function gatherFacts(now: Date): Promise<StudioFacts> {
   const bookingOpen = envBookingsOpen()
   const partiesOpen = envBookingsOpen('parties')
-  const [workshops, openPartyStarts, ours] = await Promise.all([
+  const [workshops, openPartyStarts, ours, windowDays] = await Promise.all([
     providers.workshop.listWorkshops().catch((err) => {
       logger.error('Workshop list failed: no workshop email this time', { error: String(err) })
       return []
@@ -121,6 +122,8 @@ async function gatherFacts(now: Date): Promise<StudioFacts> {
       return [] as string[]
     }),
     ownClassFacts(now),
+    // How far ahead party dates open: the owners' Parties setup (config until they first save).
+    getPartySettings().then((p) => p.times.bookingWindowDays, () => partyConfig.bookingWindowDays),
   ])
   return {
     now,
@@ -129,7 +132,7 @@ async function gatherFacts(now: Date): Promise<StudioFacts> {
     openPartyStarts,
     workshops: [...(await Promise.all(workshops.map(squareFact))), ...ours].sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt)),
     kitsOpen: envBookingsOpen('kits') && siteConfig.features.kits.enabled,
-    bookingWindowDays: partyConfig.bookingWindowDays,
+    bookingWindowDays: windowDays,
     timeZone: partyConfig.timezone,
   }
 }

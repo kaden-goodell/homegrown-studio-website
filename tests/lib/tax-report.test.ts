@@ -91,6 +91,21 @@ describe('our own classes and party fees', () => {
     expect(s.cafe.lines).toBe(1)
     expect(s.other.lines).toBe(1)
   })
+  it('stage 2: an order with reference_id pty_… is a party whatever its lines are named (untaxed, OWNER-1)', () => {
+    const order = { id: 'OP', reference_id: 'pty_0123456789abcdef', total_money: { amount: 30100 }, line_items: [named('Party — Test party', 100, 0), named('Extra half hour', 5000, 0), named('Goodie bags', 2500, 0)] }
+    const s = summarizeTax([order, { line_items: [named('Party — Test party', 100, 0)] }], idx)
+    expect(s.parties).toEqual({ salesCents: 7600, taxCents: 0, lines: 3 })
+    // the same name on an order that isn't ours is not a party
+    expect(s.other.lines).toBe(1)
+  })
+  it('stage 2: a refund on one of our party orders comes off parties, itemized or plain, this month or an earlier one', () => {
+    const sale = { id: 'OP', reference_id: 'pty_0123456789abcdef', total_money: { amount: 30000 }, line_items: [named('Party — Whole studio', 30000, 0)] }
+    const plain = { id: 'R1', returns: [{ source_order_id: 'OP', return_line_items: [{ item_type: 'CUSTOM_AMOUNT', total_money: { amount: 10000 }, total_tax_money: { amount: 0 } }] }] }
+    const itemized = { id: 'R2', returns: [{ source_order_id: 'OP', return_line_items: [named('Party — Whole studio', 5000, 0)] }] }
+    const s = summarizeTax([plain, itemized], idx, new Map([['OP', sale]]))
+    expect(s.parties.salesCents).toBe(-15000)
+    expect(s.other.salesCents).toBe(0)
+  })
   it('use tax total is unchanged by the new buckets', () => {
     const s = summarizeTax([{ line_items: [line('V_OURS', 2725, 225), named('Whole Studio Party — studio fee', 30000, 2700)] }], idx)
     expect(s.classes.taxCents + s.parties.taxCents).toBe(2925)

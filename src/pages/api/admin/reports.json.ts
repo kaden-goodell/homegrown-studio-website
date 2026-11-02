@@ -3,7 +3,7 @@ import { adminAuthorized } from '@lib/admin-auth'
 import { json } from '@lib/classes/admin-actions'
 import { listClasses } from '@lib/classes/class-store'
 import { getLedger, type Ledger } from '@lib/classes/seat-ledger'
-import { listParties, type PartyRecord } from '@lib/party-store'
+import { isOurs, listParties, type PartyRecord } from '@lib/party-store'
 import { localDate } from '@lib/party-slots'
 
 export const prerender = false
@@ -18,8 +18,10 @@ export interface MonthReport {
   /** Refunds on our classes made this month: how many, and how much. */
   refunds: number
   refundedCents: number
-  /** Parties booked on the website this month (by the day they were booked). */
+  /** Parties booked this month (by the day they were booked): ours not cancelled, and Square-booked ones. */
   partiesBooked: number
+  /** Party money taken this month (studio fees and extras, online, by link or by card in /admin), less party refunds made this month, in cents. */
+  partyFeesCents: number
 }
 
 const inMonth = (iso: string, month: string) => localDate(iso).slice(0, 7) === month
@@ -39,15 +41,25 @@ export function monthReport(ledgers: Ledger[], parties: PartyRecord[], now: Date
       }
     }
   }
-  const partiesBooked = parties.filter((p) => inMonth(p.createdAt, month)).length
-  return { month, seatsSold, classSalesCents, refunds, refundedCents, partiesBooked }
+  // A cancelled party of ours isn't counted as booked (its money still counts below, refunds included).
+  const partiesBooked = parties.filter((p) => inMonth(p.createdAt, month) && !(isOurs(p) && p.status === 'cancelled')).length
+  let partyFeesCents = 0
+  for (const p of parties) {
+    if (!isOurs(p)) continue
+    for (const c of p.charges ?? []) if (!c.simulated && inMonth(c.at, month)) partyFeesCents += c.cents
+    for (const f of p.refunds ?? []) {
+      const simulated = (p.charges ?? []).find((c) => c.id === f.chargeId)?.simulated
+      if (!simulated && inMonth(f.at, month)) partyFeesCents -= f.cents
+    }
+  }
+  return { month, seatsSold, classSalesCents, refunds, refundedCents, partiesBooked, partyFeesCents }
 }
 
 /**
  * GET: this month so far (studio time) for /admin › More › Reports: class
- * seats sold, class sales, refunds, and parties booked. Only what our own
- * records hold: Craft Café, party payments and anything else rung up in
- * Square are in Square's reports. Owners only.
+ * seats sold, class sales, refunds, parties booked and party fees taken.
+ * Only what our own records hold: Craft Café, party crafts and anything else
+ * rung up in Square are in Square's reports. Owners only.
  */
 export const GET: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })

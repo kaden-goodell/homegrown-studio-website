@@ -36,6 +36,7 @@ import { formatMoney } from '@lib/money'
 import { getPartyRecord } from '@lib/party-store'
 import { partyLabel } from '@lib/parties/refunds'
 import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
+import { partyWarnings } from '@lib/parties/warnings'
 
 const logger = createLogger('warnings')
 
@@ -45,6 +46,8 @@ export type WarningCode =
   | 'below-minimum' | 'pos-unmatched' | 'pos-needs-days' | 'refund-flag' | 'door-unpaid' | 'counter-match-check' | 'classes-unreadable'
   // R42: Square shows one of our online bookings paid, but its seats were let go
   | 'paid-not-seated'
+  // our own parties (stage 2 Task 13, ./parties/warnings.ts)
+  | 'party-waiting-payment' | 'party-hold-no-party' | 'party-no-hold' | 'two-parties' | 'party-paid-after-cancel' | 'parties-unreadable'
 
 export interface Warning {
   code: WarningCode
@@ -63,7 +66,7 @@ export interface Warning {
 }
 
 /** Items that aren't tied to a day: they stay until an owner decides. */
-export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated'])
+export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated', 'party-paid-after-cancel'])
 
 /** Days ahead the panel and the daily email look. */
 export const WARNING_WINDOW_DAYS = 60
@@ -186,7 +189,7 @@ function partyOnClosedDay(s: Scan, closed: Closure[]): Warning[] {
       when: p.startIso,
       title: capitalize(partyName(p)),
       detail: `${capitalize(partyName(p))} ${formatTime(p.startIso)} is booked on a closed day.`,
-      action: 'Move it in Square or open the day.',
+      action: p.id.startsWith('pty_') ? 'Move it on /admin, or open the day.' : 'Move it in Square or open the day.',
     }))
 }
 
@@ -383,9 +386,17 @@ export async function listWarnings({ from, to }: { from: string; to: string }, o
       detail: 'Our classes couldn’t be checked for problems.', action: 'Refresh to try again.',
     }]
   })
+  // Our parties can't be checked: one line, the rest still shows (never an all clear).
+  const partiesOrError = partyWarnings(from, to, now).catch((e): Warning[] => {
+    logger.error('Party warnings scan failed', { error: e instanceof Error ? e.message : String(e) })
+    return [{
+      code: 'parties-unreadable', eventKind: 'party', eventId: '', when: now.toISOString(), title: 'Parties',
+      detail: 'Our parties couldn’t be checked for problems.', action: 'Refresh to try again.',
+    }]
+  })
   // The owners' closed days (config until they first save on /admin).
-  const [s, own, closed] = await Promise.all([scan(from, to), ownOrError, getClosures()])
-  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s, closed), ...(await seatCounts(s)), ...own].sort((a, b) =>
+  const [s, own, parties, closed] = await Promise.all([scan(from, to), ownOrError, partiesOrError, getClosures()])
+  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s, closed), ...(await seatCounts(s)), ...own, ...parties].sort((a, b) =>
     a.when.localeCompare(b.when),
   )
 }

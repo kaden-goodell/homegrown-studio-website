@@ -50,6 +50,7 @@ import { describePartyRequest, partyLabel } from './refunds'
 import { getPartySettings } from './settings-store'
 import { partyWritesRefusal } from './test-site'
 import { PartyBusyError, withPartyLock } from './party-lock'
+import { holdAgain } from './hold-again'
 import type { PartyTimes } from './types'
 
 const logger = createLogger('parties:admin')
@@ -341,6 +342,15 @@ async function moveLocked(body: { id?: unknown; startIso?: unknown; fromIso?: un
     // Inside the lock and with the record on `to`, a hold at the old time is only a leftover.
     if (shown && !sameStart(shown, to) && !(await letGo(r.bookingId, shown))) {
       warning = `${movedMessage(r)} ${partyWhenLabel(shown)} still shows as held for this party. The daily warnings will list it.`
+    }
+    // The daily warning "isn't held on the calendar" says to move the party to the same time again: that puts its time back.
+    if (Date.parse(r.startIso) > now.getTime()) {
+      const again = await holdAgain(r, now).catch((e) => {
+        logger.error('Party time not checked on a same-time move', { partyId: r.bookingId, error: String(e) })
+        return { ok: false as const, message: 'The calendar couldn’t be checked just now. Try again in a minute.' }
+      })
+      if (!again.ok) warning = `This party isn’t held on the calendar, and its time couldn’t be held again. ${again.message} Tell Kaden.`
+      else if (again.changed) await audit(by, 'party-move', r, { from: r.startIso, to, heldAgain: true })
     }
     return reply(r, shown, { replay: true, ...(warning ? { warning } : {}) })
   }

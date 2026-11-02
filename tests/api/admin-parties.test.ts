@@ -1191,3 +1191,42 @@ describe('Email the host the new details (I4)', () => {
     expect(l.body.error).toBe(LEGACY_PARTY)
   })
 })
+
+describe('move to the same time puts a missing hold back (Task 13 warning “isn’t held on the calendar”)', () => {
+  it('a party whose time is gone from the calendar: Move to the same time holds it again', async () => {
+    const { releaseTime } = await import('@lib/parties/party-book')
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    await releaseTime(id, w.sat2)
+    expect(await holdsOf(id)).toEqual([])
+    const r = await act({ id, action: 'move', startIso: w.sat2, fromIso: w.sat2 })
+    expect(r.status).toBe(200)
+    expect(r.body.warning).toBeUndefined()
+    const holds = await holdsOf(id)
+    expect(holds.map((h) => [h.startIso, h.endIso, h.holdExpiresAt])).toEqual([[new Date(w.sat2).toISOString(), (await getPartyRecord(id))!.endIso, null]])
+    expect(audits('party-move').at(-1)).toMatchObject({ details: expect.objectContaining({ heldAgain: true }) })
+  })
+
+  it('its extra time not held: the same Move holds the full length again', async () => {
+    const { resizeTime } = await import('@lib/parties/party-book')
+    const w = weekend()
+    const id = await linkParty(w.sat2, { addOns: { add_half: 1 } })
+    const rec = (await getPartyRecord(id))!
+    await resizeTime(id, w.sat2, new Date(Date.parse(rec.endIso!) - 30 * 60_000).toISOString(), [], NOW)
+    await act({ id, action: 'move', startIso: w.sat2, fromIso: w.sat2 })
+    expect((await holdsOf(id))[0].endIso).toBe(rec.endIso)
+  })
+
+  it('its time was taken meanwhile: nothing written over, the owner is told plainly', async () => {
+    const { releaseTime } = await import('@lib/parties/party-book')
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    await releaseTime(id, w.sat2)
+    const other = await linkParty(w.sat2)
+    const r = await act({ id, action: 'move', startIso: w.sat2, fromIso: w.sat2 })
+    expect(r.status).toBe(200)
+    expect(r.body.warning).toMatch(/^This party isn’t held on the calendar, and its time couldn’t be held again\. .* Tell Kaden\.$/)
+    expect(await holdsOf(id)).toEqual([])
+    expect((await holdsOf(other)).length).toBe(1)
+  })
+})
