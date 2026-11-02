@@ -18,7 +18,8 @@ import { getStudioDays } from '@lib/studio-settings'
 import { studioDayUtcRange } from '@lib/studio-time'
 import { busyBetween, clashes, clashMessage, type Busy } from '@lib/classes/studio-schedule'
 import type { StudioDays } from '@config/studio-days'
-import { bookableDates, localDate, localToUtcISO, partyStartsForDate, partyStartsInRange, PARTY_CLEANUP_MINUTES } from './party-times'
+import { bookableDates, bookableOn, localDate, localToUtcISO, partyStartsForDate, partyStartsInRange, PARTY_CLEANUP_MINUTES } from './party-times'
+import { formatDay } from '@lib/studio-time'
 import { getPartySettings } from './settings-store'
 import type { PartySettings } from './types'
 
@@ -170,12 +171,14 @@ const NOT_OFFERED = 'That party time isn’t offered. Please pick another time.'
 const NOT_OPEN = 'That party time was just taken. Please pick another time.'
 const PAST = 'That time has already passed. Pick a later time.'
 const MIDNIGHT = 'A party and its hour of cleanup have to finish by midnight.'
+const beforeOpening = (opensYmd: string) => `Parties start on ${formatDay(localToUtcISO(opensYmd, '12:00'))}. Pick that day or later, or add this day in Parties setup.`
 
 /**
  * Can a party of `minutes` start at exactly `startIso`? Online: only an
  * offered party time, and the refusal never names who is in the way. Owners
  * (`admin`): any time not in the past (R37) that the shared schedule allows
- * (OWNER-3), and the refusal names the clash. Throws when anything can't be read.
+ * (OWNER-3), never before the first party day, and the refusal names the clash.
+ * Throws when anything can't be read.
  */
 export async function isStartOpen(
   startIso: string,
@@ -203,6 +206,10 @@ export async function checkStart(
   if (start <= now.getTime()) return { ok: false, message: PAST }
   if (!endsByMidnight(iso, minutes)) return { ok: false, message: MIDNIGHT }
   const { settings, days } = await load()
+  // Owners too: nothing before the first party day (a dated party day before it is fine).
+  if (opts.admin && bookableOn(settings.times, localDate(iso), now, days) === 'before_opening') {
+    return { ok: false, message: beforeOpening(settings.times.opensDate) }
+  }
   if (!opts.admin) {
     const offered = partyStartsForDate(settings, localDate(iso), now, days, { minutes })
     if (!offered.some((s) => Date.parse(s) === start)) return { ok: false, message: NOT_OFFERED }

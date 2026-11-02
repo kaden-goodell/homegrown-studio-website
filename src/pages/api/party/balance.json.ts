@@ -35,7 +35,8 @@ export const GET: APIRoute = async ({ request, clientAddress }) => {
       when: partyWhenLabel(rec.startIso),
       hostFirstName: rec.hostName.split(' ')[0] ?? '',
       packageName: packageName || rec.items?.find((it) => it.kind === 'package')?.label || 'Party',
-      items: rec.status === 'cancelled' ? [] : items.map((it) => ({ id: it.id, label: it.label, qty: it.qty, cents: it.cents })),
+      // D1: the link only ever carries the studio fee and priced extras (crafts are paid at the studio), and says so.
+      items: rec.status === 'cancelled' ? [] : items.map((it) => ({ id: it.id, label: it.kind === 'package' ? 'Studio fee' : it.label, qty: it.qty, cents: it.cents })),
       dueCents: dueCents(rec),
       state: paymentState(rec),
       receiptUrl: last?.receiptUrl ?? null,

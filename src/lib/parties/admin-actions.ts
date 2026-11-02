@@ -32,6 +32,7 @@ import { weekKeyFor } from '@lib/kit-dates'
 import { releaseWeekClaim } from '@lib/kit-store'
 import { createLogger } from '@lib/logger'
 import { formatSlotLabel } from '@lib/studio-time'
+import { formatMoney } from '@lib/money'
 import type { By } from '@lib/staff-auth'
 import {
   getPartyRecord, isOurs, PartyNotFoundError, updatePartyRecord,
@@ -41,7 +42,7 @@ import { dueCents, paymentState } from './money'
 import { checkStart, PARTY_TIMES_UNREADABLE } from './open-times'
 import { holdsBetween, moveTime, releaseTime, resizeTime } from './party-book'
 import { localDate, startsOn } from './party-times'
-import { PaymentLinkError, sendPaymentLink } from './payment-link'
+import { PaymentLinkError, partyWhenLabel, sendPaymentLink, whatIsDue } from './payment-link'
 import { quoteAddOn } from './pricing'
 import { describePartyRequest, partyLabel } from './refunds'
 import { getPartySettings } from './settings-store'
@@ -72,6 +73,18 @@ export class PartyActionError extends Error {
 /** Who to tell after a move or a cancel (the owner does, S2-R7). */
 export interface HostToTell { name: string; phone: string; email: string }
 const hostOf = (r: PartyRecord): HostToTell => ({ name: r.hostName, phone: r.hostPhone ?? '', email: r.hostEmail })
+const firstOf = (r: PartyRecord) => r.hostName.split(' ')[0] || 'the host'
+
+/** What the owner reads after a move: where it went, and that the host still has to be told. */
+export const movedMessage = (r: PartyRecord) => `Moved to ${partyWhenLabel(r.startIso)}. Nothing was sent to ${firstOf(r)}, so let them know.`
+/** After a cancel: nothing refunded, nothing sent. */
+export const cancelledMessage = (r: PartyRecord) => `Cancelled. ${NOTHING_REFUNDED} Nothing was sent to ${firstOf(r)}, so let them know. To give money back, use Refund on the Payments tab.`
+/** After the link went out (or didn't). */
+export function linkMessage(r: PartyRecord, dueCents: number, email: boolean, text: boolean): string {
+  const how = email && text ? 'by email and text' : email ? 'by email' : text ? 'by text' : null
+  if (!how) return `The payment link didn’t go out. Copy it and send it to ${firstOf(r)} yourself.`
+  return `The payment link for ${whatIsDue(r)} (${formatMoney(dueCents)}) went to ${firstOf(r)} ${how}.`
+}
 
 /** The party's length now: start to end (extra time included). */
 export function partyMinutesOf(r: PartyRecord): number {
@@ -85,6 +98,11 @@ const plus = (iso: string, minutes: number) => new Date(Date.parse(iso) + minute
 export function paymentGoingThrough(r: PartyRecord, now: Date): boolean {
   return !!r.paying && Date.parse(r.paying.until) > now.getTime()
 }
+
+/** After an extra goes on: what it costs and the next step (it is due until paid). */
+const addedMessage = (it: PartyItem) => (it.cents > 0
+  ? `Added ${it.label} (${formatMoney(it.cents)}). It’s due: send the payment link or take a card on the Payments tab.`
+  : `Added ${it.label}.`)
 
 const audit = (by: By, action: string, r: PartyRecord, details?: Record<string, string | number | boolean | null>) =>
   recordAudit({ by: { ...by, role: 'owner' }, action, target: { kind: 'party', id: r.bookingId, label: partyLabel(r) }, ...(details ? { details } : {}) })
@@ -188,6 +206,8 @@ export function adminPartyView(r: PartyRecord, now: Date = new Date()): AdminPar
 
 /** The party's saved refund requests as the sheet shows them; null when they can't be read. */
 export async function partyRefundRequests(id: string): Promise<ReturnType<typeof describePartyRequest>[] | null> {
+  // Only our own parties are refunded here: a Square-booked one has none.
+  if (!id.startsWith('pty_')) return []
   try {
     return (await listRefundRequests(PARTY_SCOPE, id)).map(describePartyRequest)
   } catch (e) {
@@ -198,7 +218,7 @@ export async function partyRefundRequests(id: string): Promise<ReturnType<typeof
 
 // ── Move ────────────────────────────────────────────────────────────────────
 
-export interface MoveResult { party: AdminPartyView; hostToTell: HostToTell; from: string; to: string; warning?: string }
+export interface MoveResult { party: AdminPartyView; hostToTell: HostToTell; from: string; to: string; message: string; warning?: string }
 
 /**
  * Moves a party of ours to `startIso` (its length kept). Order: the new time
@@ -239,8 +259,8 @@ export async function moveParty(body: { id?: unknown; startIso?: unknown }, by: 
     logger.error('Party move did not finish in the party book', { partyId: r.bookingId, error: String(e) })
     const freed = await releaseTime(r.bookingId, to).then(() => true, () => false)
     throw new PartyActionError(503, freed
-      ? `The move didn’t finish. The party is still on ${formatSlotLabel(from)}. Try Move again.`
-      : `The move didn’t finish. The party is still on ${formatSlotLabel(from)}, but ${formatSlotLabel(to)} may show as held for it. Try Move again to finish it.`)
+      ? `The move didn’t finish. The party is still on ${partyWhenLabel(from)}. Try Move again.`
+      : `The move didn’t finish. The party is still on ${partyWhenLabel(from)}, but ${partyWhenLabel(to)} may show as held for it. Try Move again to finish it.`)
   }
   if (!moved.ok) throw new PartyActionError(409, moved.message, { field: 'startIso' })
 
@@ -262,10 +282,10 @@ export async function moveParty(body: { id?: unknown; startIso?: unknown }, by: 
     await releaseTime(r.bookingId, from)
   } catch (e) {
     logger.error('PARTY MOVE: old time not let go', { partyId: r.bookingId, error: String(e) })
-    warning = `Moved. ${formatSlotLabel(from)} still shows as held for this party; the daily warnings will list it.`
+    warning = `${movedMessage(saved)} ${partyWhenLabel(from)} still shows as held for this party. The daily warnings will list it.`
   }
   await audit(by, 'party-move', saved, { from, to })
-  return { party: adminPartyView(saved, now), hostToTell: hostOf(saved), from, to, ...(warning ? { warning } : {}) }
+  return { party: adminPartyView(saved, now), hostToTell: hostOf(saved), from, to, message: movedMessage(saved), ...(warning ? { warning } : {}) }
 }
 
 // ── Cancel ──────────────────────────────────────────────────────────────────
@@ -294,7 +314,7 @@ export async function cancelParty(body: { id?: unknown; note?: unknown }, by: By
     await releaseTime(saved.bookingId, saved.startIso)
   } catch (e) {
     logger.error('PARTY CANCEL: time not let go', { partyId: saved.bookingId, error: String(e) })
-    warnings.push(`${formatSlotLabel(saved.startIso)} still shows as held; the daily warnings will list it.`)
+    warnings.push(`${partyWhenLabel(saved.startIso)} still shows as held. The daily warnings will list it.`)
   }
   if (saved.theme) {
     const t = kitThemes.find((k) => k.id === saved.theme!.themeId)
@@ -307,14 +327,14 @@ export async function cancelParty(body: { id?: unknown; note?: unknown }, by: By
   }
   await audit(by, 'party-cancel', saved, { note: note || null, refunded: false })
   return {
-    party: adminPartyView(saved, now), hostToTell: hostOf(saved), message: `Cancelled. ${NOTHING_REFUNDED}`,
-    ...(warnings.length ? { warning: `Cancelled. ${NOTHING_REFUNDED} ${warnings.join(' ')}` } : {}),
+    party: adminPartyView(saved, now), hostToTell: hostOf(saved), message: cancelledMessage(saved),
+    ...(warnings.length ? { warning: `${cancelledMessage(saved)} ${warnings.join(' ')}` } : {}),
   }
 }
 
 // ── Extras ──────────────────────────────────────────────────────────────────
 
-export interface ExtraResult { party: AdminPartyView; item: PartyItem; replay?: true; warning?: string }
+export interface ExtraResult { party: AdminPartyView; item: PartyItem; message: string; replay?: true; warning?: string }
 
 /**
  * Adds an extra (due until paid). `createKey` (minted by the sheet) makes a
@@ -329,7 +349,7 @@ export async function addPartyExtra(
   if (typeof body.createKey !== 'string' || !CREATE_KEY_RE.test(body.createKey)) throw new PartyActionError(400, 'Reload the page and try again.')
   const itemId = idFor('itm', `${r.bookingId}:${body.createKey}`)
   const already = r.items?.find((it) => it.id === itemId)
-  if (already) return { party: adminPartyView(r, now), item: already, replay: true }
+  if (already) return { party: adminPartyView(r, now), item: already, message: addedMessage(already), replay: true }
   if (typeof body.addOnId !== 'string' || !body.addOnId) throw new PartyActionError(400, 'Pick an extra.', { field: 'addOnId' })
   const addOnId = body.addOnId
   const count = typeof body.count === 'number' ? body.count : Number.NaN
@@ -391,14 +411,19 @@ export async function addPartyExtra(
     }, `Added ${q.value.label}${q.value.topUp ? ` for ${q.value.forGuests} more guests` : ''}`, by)
   } catch (e) {
     if (extra > 0) {
-      await resizeTime(r.bookingId, r.startIso, oldEnd, [], now)
-        .catch((err) => logger.error('PARTY EXTRA: hold not shrunk back after the record refused', { partyId: r.bookingId, error: String(err) }))
+      // Back to the party's end as saved now (another extra may have grown it meanwhile); unreadable → leave it longer (safe).
+      try {
+        const cur = await getPartyRecord(r.bookingId)
+        if (cur && cur.startIso === r.startIso) await resizeTime(r.bookingId, r.startIso, endOf(cur), [], now)
+      } catch (err) {
+        logger.error('PARTY EXTRA: hold not shrunk back after the record refused', { partyId: r.bookingId, error: String(err) })
+      }
     }
     throw e
   }
-  if (replay) return { party: adminPartyView(saved, now), item, replay: true }
+  if (replay) return { party: adminPartyView(saved, now), item, message: addedMessage(item), replay: true }
   await audit(by, 'party-extra', saved, { added: item.label, cents: item.cents, extraMinutes: extra })
-  return { party: adminPartyView(saved, now), item }
+  return { party: adminPartyView(saved, now), item, message: addedMessage(item) }
 }
 
 /** Takes an unpaid extra off (never a paid one, nor one a payment going through is paying for); extra time shrinks the hold. */
@@ -434,7 +459,7 @@ export async function removePartyExtra(body: { id?: unknown; itemId?: unknown },
     }
   }
   await audit(by, 'party-extra', saved, { removed: removed.label, cents: removed.cents, extraMinutes: -removed.extraMinutes })
-  return { party: adminPartyView(saved, now), item: removed, ...(warning ? { warning } : {}) }
+  return { party: adminPartyView(saved, now), item: removed, message: `Took off ${removed.label}. Nothing was charged for it.`, ...(warning ? { warning } : {}) }
 }
 
 // ── Details ─────────────────────────────────────────────────────────────────
@@ -448,7 +473,7 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
  */
 export async function editPartyDetails(
   body: { id?: unknown; hostName?: unknown; hostPhone?: unknown; hostEmail?: unknown; guests?: unknown; craftId?: unknown }, by: By, request: Request, now: Date = new Date(),
-): Promise<{ party: AdminPartyView }> {
+): Promise<{ party: AdminPartyView; message: string; warning?: string }> {
   const r = await writable(body.id, request)
   notCancelled(r)
   const patch: Partial<PartyRecord> = {}
@@ -495,13 +520,19 @@ export async function editPartyDetails(
     if (!craft) throw new PartyActionError(404, 'That craft isn’t available any more. Pick another craft.', { field: 'craftId' })
     if (craft.id !== r.craftId || craft.name !== r.craftName) { patch.craftId = craft.id; patch.craftName = craft.name; said.push(`craft ${craft.name}`) }
   }
-  if (said.length === 0) return { party: adminPartyView(r, now) }
+  if (said.length === 0) return { party: adminPartyView(r, now), message: 'Nothing changed.' }
   const saved = await update(r.bookingId, (cur) => {
     if (cur.status === 'cancelled') stop(409, PARTY_CANCELLED)
     return { ...cur, ...patch }
   }, `Changed ${said.join(', ')}`, by)
   await audit(by, 'party-edit', saved, { changed: said.join('; ').slice(0, 300) })
-  return { party: adminPartyView(saved, now) }
+  // More guests than a per-guest extra covers: the new guests don't have it until it's added for them (S2-R4a).
+  const added = (patch.guestCount ?? r.guestCount) - r.guestCount
+  const perGuest = added > 0 ? [...new Set((saved.items ?? []).filter((it) => it.kind === 'addon' && it.forGuests !== undefined).map((it) => it.label))] : []
+  const warning = perGuest.length
+    ? `Saved. ${perGuest.join(' and ')} ${perGuest.length === 1 ? 'is' : 'are'} paid for ${r.guestCount} guests. To cover the ${added} new ${added === 1 ? 'guest' : 'guests'}, use + Add an extra.`
+    : undefined
+  return { party: adminPartyView(saved, now), message: 'Saved.', ...(warning ? { warning } : {}) }
 }
 
 // ── Payment link ────────────────────────────────────────────────────────────
@@ -518,9 +549,10 @@ export async function sendPartyLink(body: { id?: unknown }, by: By, request: Req
     throw e
   }
   await audit(by, 'party-link', sent.rec, { email: sent.email, text: sent.text, dueCents: dueCents(sent.rec) })
+  const message = linkMessage(sent.rec, dueCents(sent.rec), sent.email, sent.text)
   return {
-    party: adminPartyView(sent.rec, now), url: sent.url, email: sent.email, text: sent.text,
-    ...(!sent.email && !sent.text ? { warning: 'The link didn’t go out by email or text. Copy it and send it yourself.' } : {}),
+    party: adminPartyView(sent.rec, now), url: sent.url, email: sent.email, text: sent.text, message,
+    ...(!sent.email && !sent.text ? { warning: message } : {}),
   }
 }
 
@@ -548,8 +580,9 @@ export async function bookedOnRemovedStarts(before: PartyTimes, after: PartyTime
     const hhmm = localHhmm(h.startIso)
     if (!startsOn(before, ymd).includes(hhmm) || startsOn(after, ymd).includes(hhmm)) continue
     const rec = await getPartyRecord(h.partyId).catch(() => null)
-    if (rec?.status === 'cancelled') continue
-    out.push({ partyId: h.partyId, hostName: rec?.hostName ?? '', startIso: h.startIso, label: formatSlotLabel(h.startIso) })
+    // Only parties really on the books: a cancelled one, or a time held for a checkout still running, isn't.
+    if (!rec || rec.status === 'cancelled') continue
+    out.push({ partyId: h.partyId, hostName: rec.hostName, startIso: h.startIso, label: partyWhenLabel(h.startIso) })
   }
   return out
 }

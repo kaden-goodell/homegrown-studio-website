@@ -750,41 +750,46 @@ export async function sendPartyPaymentLinkEmail(input: {
   to: string; givenName: string; whenLabel: string; dueCents: number; payUrl: string
   /** the party is already paid for and only extras added since are due */
   extrasOnly?: boolean
+  /** what the money is for: "the studio fee", "the studio fee and Goodie bags", "Goodie bags" (never crafts, D1) */
+  what?: string
 }): Promise<{ sent: boolean }> {
   const amount = formatMoney(input.dueCents)
+  const what = input.what || (input.extrasOnly ? 'the extras' : 'the studio fee')
   return partyMoneyEmail({
     to: input.to,
-    subject: input.extrasOnly ? 'Pay for the extras on your party' : 'Pay for your party at Hometown Studio',
+    subject: input.extrasOnly ? 'Pay for the extras on your party' : 'Pay the studio fee for your party',
     givenName: input.givenName,
     lines: input.extrasOnly
       ? [
-          `We added extras to your party on ${input.whenLabel}.`,
-          `Pay ${amount} here for them.`,
+          `We added ${what} to your party on ${input.whenLabel}.`,
+          `Pay ${amount} here for ${what}.`,
           'Crafts are paid at the studio for whoever comes.',
         ]
       : [
           `Your party on ${input.whenLabel} is held for you.`,
-          `Pay ${amount} here to finish booking.`,
+          `Pay ${amount} for ${what} here to finish booking.`,
           'Crafts are paid at the studio for whoever comes.',
         ],
     button: { label: `Pay ${amount}`, url: input.payUrl },
   })
 }
 
-/** Thanks for paying the balance from a payment link. DRAFT copy for Kaden. */
+/** Thanks for a payment from the link (extras, or anything after the confirmation). DRAFT copy for Kaden. */
 export async function sendPartyPaidEmail(input: {
   to: string; givenName: string; whenLabel: string; paidCents: number; receiptUrl: string | null; stillDueCents?: number
+  /** what it paid for: "the studio fee", "Goodie bags" (never crafts, D1) */
+  what?: string
 }): Promise<{ sent: boolean }> {
   const lines = [
-    `Thank you! We got your payment of ${formatMoney(input.paidCents)} for your party on ${input.whenLabel}.`,
+    `Thank you! We got your ${formatMoney(input.paidCents)} payment${input.what ? ` for ${input.what}` : ''}. Your party is on ${input.whenLabel}.`,
     input.stillDueCents && input.stillDueCents > 0
       ? `There is still ${formatMoney(input.stillDueCents)} to pay for extras added since.`
-      : 'Your party is all paid.',
+      : 'Nothing else is due before your party.',
     'Crafts are paid at the studio for whoever comes.',
   ]
   return partyMoneyEmail({
     to: input.to,
-    subject: input.stillDueCents && input.stillDueCents > 0 ? 'We got your payment' : 'Your party is paid',
+    subject: 'We got your payment',
     givenName: input.givenName,
     lines,
     ...(input.receiptUrl ? { link: { label: 'See your receipt', url: input.receiptUrl } } : {}),

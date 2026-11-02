@@ -2,7 +2,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mocks = vi.hoisted(() => ({ party: vi.fn(), parties: vi.fn(), waivers: vi.fn(), rsvps: vi.fn() }))
-vi.mock('@lib/party-store', () => ({ getPartyRecord: mocks.party, listParties: mocks.parties }))
+vi.mock('@lib/party-store', async (orig) => ({ ...(await orig<typeof import('@lib/party-store')>()), getPartyRecord: mocks.party, listParties: mocks.parties }))
 vi.mock('@lib/waiver-store', () => ({ listWaiversByEvent: mocks.waivers }))
 vi.mock('@lib/rsvp-store', () => ({ listRsvpsByEvent: mocks.rsvps }))
 

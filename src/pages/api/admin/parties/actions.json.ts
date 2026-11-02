@@ -10,6 +10,8 @@ import {
 } from '@lib/parties/admin-actions'
 import { payBalance } from '@lib/parties/pay-balance'
 import { partyLabel } from '@lib/parties/refunds'
+import { whatIsDue } from '@lib/parties/payment-link'
+import { formatMoney } from '@lib/money'
 import { getPartyRecord, isOurs } from '@lib/party-store'
 
 export const prerender = false
@@ -72,7 +74,13 @@ async function takeCard(body: any, by: ReturnType<typeof adminActor>, request: R
       details: { cents: out.charge.cents, chargeId: out.charge.id },
     })
   }
+  const first = out.rec.hostName.split(' ')[0] || 'the host'
+  const message = out.already
+    ? 'Nothing is due on this party. It was already paid.'
+    : `Charged ${formatMoney(out.charge?.cents ?? 0)} for ${whatIsDue(out.rec, (out.rec.items ?? []).filter((it) => out.charge?.itemIds.includes(it.id)))}. ${
+      before?.confirmation ? `${first} gets a receipt by email.` : `${first} gets the booking confirmation by email.`} Crafts are paid at the studio after the party.`
   return {
+    message,
     party: adminPartyView(out.rec), paidCents: out.already ? 0 : out.charge?.cents ?? 0, receiptUrl: out.charge?.receiptUrl ?? null,
     ...(out.already ? { alreadyPaid: true } : {}), ...(out.replay ? { replay: true } : {}),
   }

@@ -49,8 +49,8 @@ import { orderLineItems } from './pricing'
 import { recordPartyPayment } from './party-payments'
 import { getPartySettings } from './settings-store'
 import { partyWritesRefusal } from './test-site'
-import { giftCardRefusal } from './checkout'
-import { partyWhenLabel } from './payment-link'
+import { partyWhenLabel, whatIsDue } from './payment-link'
+import { confirmationDone, giftCardRefusal, sendPartyBookedEmail } from './checkout'
 
 const logger = createLogger('parties:pay-balance')
 const MINUTE = 60_000
@@ -244,7 +244,7 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
   if (input.pay.kind === 'simulated') {
     logger.warn('Payment bypassed (simulated link payment)', { partyId })
     const out = await recordLinkCharge(partyId, paying, { orderId: `sim-${attemptId}`, paymentId: `sim-${attemptId}`, cents: quotedCents, receiptUrl: null, simulated: true }, now)
-    if (out.rec) await tellLinkPaid(out.rec, out.charge)
+    if (out.rec) await tellLinkPaid(out.rec, out.charge, originOf(input.requestUrl))
     return paidAnswer(out, rec)
   }
 
@@ -299,7 +299,7 @@ export async function payBalance(input: PayInput, now: Date = new Date()): Promi
     const out = await recordLinkCharge(partyId, paying, {
       orderId: order.id, paymentId: payment.id, cents: payment.amount || order.totalAmount, receiptUrl: payment.receiptUrl ?? null,
     }, now)
-    if (out.rec) await tellLinkPaid(out.rec, out.charge)
+    if (out.rec) await tellLinkPaid(out.rec, out.charge, originOf(input.requestUrl))
     return paidAnswer(out, rec!)
   }
 
@@ -375,7 +375,7 @@ export async function recordLinkCharge(
   if (threw && rec) logger.warn('Link payment record landed on the retry', { partyId })
   if (!rec) {
     await alertOwners(
-      `Party balance paid by link (${dollars(pay.cents)}, payment ${pay.paymentId}, order ${pay.orderId}), but it couldn't be written on party ${partyId}. Nothing was refunded. Check the party on /admin.`,
+      `Party paid ${paying.via === 'admin-card' ? 'by card in /admin' : 'by payment link'} (${dollars(pay.cents)}, payment ${pay.paymentId}, order ${pay.orderId}), but it couldn't be written on party ${partyId}. Nothing was refunded. Check the party on /admin.`,
     ).catch(() => undefined)
   }
   if (!pay.simulated) {
@@ -395,15 +395,28 @@ export async function recordLinkCharge(
   return { rec, charge, created }
 }
 
+/** The site's address for links in emails: the request's, else the configured one (Square's payment event has no request). */
+function originOf(requestUrl?: string): string {
+  try {
+    return requestUrl ? new URL(requestUrl).origin : siteConfig.url
+  } catch {
+    return siteConfig.url
+  }
+}
+
 /**
- * The host's email and the owners' "Balance paid" text, once per charge:
+ * The host's email and the owners' "Party paid" text, once per charge:
  * whoever marks the charge told (`toldAt`, compare-and-set) sends them, so a
  * request and Square's payment event landing together never both send. If
  * that mark can't be written, they are sent anyway (a rare second message
  * beats none). A party cancelled before the money landed: the owners are
  * asked to check it and the host isn't told it is paid. Never throws.
+ *
+ * A party an owner booked by phone has had no booking confirmation yet (only
+ * the payment link): its first payment sends the full confirmation (host
+ * page, invite link, calendar, crafts per person) instead of a plain receipt.
  */
-export async function tellLinkPaid(rec: PartyRecord, charge: PartyCharge): Promise<void> {
+export async function tellLinkPaid(rec: PartyRecord, charge: PartyCharge, origin: string = siteConfig.url): Promise<void> {
   let mine = true
   try {
     let claimed = false
@@ -419,20 +432,32 @@ export async function tellLinkPaid(rec: PartyRecord, charge: PartyCharge): Promi
   }
   if (!mine) return
   const whenLabel = partyWhenLabel(rec.startIso)
+  const how = charge.via === 'admin-card' ? 'by card in /admin' : 'by payment link'
+  const paidFor = whatIsDue(rec, (rec.items ?? []).filter((it) => charge.itemIds.includes(it.id)))
   if (rec.status === 'cancelled') {
-    await alertOwners(`Paid after it was cancelled. Check it. ${rec.hostName} paid ${dollars(charge.cents)} by payment link for the cancelled party on ${whenLabel}. Party ${rec.bookingId}. Nothing was refunded.`).catch(() => undefined)
+    await alertOwners(`Paid after it was cancelled. Check it. ${rec.hostName} paid ${dollars(charge.cents)} (${paidFor}) ${how} for the cancelled party on ${whenLabel}. Party ${rec.bookingId}. Nothing was refunded.`).catch(() => undefined)
     return
   }
-  try {
-    await sendPartyPaidEmail({
-      to: rec.hostEmail, givenName: rec.hostName.split(' ')[0] ?? '', whenLabel, paidCents: charge.cents, receiptUrl: charge.receiptUrl, stillDueCents: dueCents(rec),
+  const givenName = rec.hostName.split(' ')[0] ?? ''
+  if (!rec.confirmation) {
+    // First payment on a party booked without paying: the booking confirmation, once.
+    const sent = await sendPartyBookedEmail({
+      partyId: rec.bookingId, rec, draft: rec, firstName: givenName, email: rec.hostEmail, origin,
+      chargedCents: charge.cents, receiptUrl: charge.receiptUrl, themeName: rec.theme?.displayName,
     })
-  } catch (err) {
-    logger.error('Link payment email failed (payment recorded)', { partyId: rec.bookingId, error: String(err) })
+    await confirmationDone(rec.bookingId, rec, sent, charge.simulated === true)
+  } else {
+    try {
+      await sendPartyPaidEmail({
+        to: rec.hostEmail, givenName, whenLabel, paidCents: charge.cents, receiptUrl: charge.receiptUrl, stillDueCents: dueCents(rec), what: paidFor,
+      })
+    } catch (err) {
+      logger.error('Link payment email failed (payment recorded)', { partyId: rec.bookingId, error: String(err) })
+    }
   }
   // An owner took this card themselves: they already know.
   if (charge.via === 'admin-card') return
-  await alertOwners(`Balance paid: ${rec.hostName} paid ${dollars(charge.cents)} for the party on ${whenLabel}. Party ${rec.bookingId}.`).catch(() => undefined)
+  await alertOwners(`Party paid: ${rec.hostName} paid ${dollars(charge.cents)} for ${paidFor} by payment link, party on ${whenLabel}. Party ${rec.bookingId}.`).catch(() => undefined)
 }
 
 /**
