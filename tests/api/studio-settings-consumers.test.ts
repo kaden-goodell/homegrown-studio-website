@@ -220,3 +220,17 @@ describe('studio hours saved on /admin (G3)', () => {
     expect((await listWarnings({ from: WED, to: WED })).map((w) => w.code)).not.toContain('party-on-closed-day')
   })
 })
+
+describe('special-day announcement saved on /admin (G9)', () => {
+  it('a newly announced day goes out with everything the bar and card need; un-announcing takes it away', async () => {
+    const MARKET = '2026-12-12'
+    await saveSettings((s) => ({ ...s, cafeSpecialDays: [...s.cafeSpecialDays, { date: MARKET, opens: '10:00', closes: '16:00', name: 'Holiday market', announce: { headline: 'Holiday Market Day', daysBefore: 14 } }] }))
+    const notices = (await get(cafeHours, '/api/cafe-hours.json')).body.data.notices
+    expect(notices).toEqual(expect.arrayContaining([expect.objectContaining({
+      date: MARKET, headline: 'Holiday Market Day', weekday: 'SAT', monthDay: 'DEC 12', shortDate: 'Sat Dec 12', hours: '10 AM – 4 PM',
+      showFromIso: localToUtcISO('2026-11-28', '00:00'), showUntilIso: localToUtcISO(MARKET, '16:00'),
+    })]))
+    await saveSettings((s) => ({ ...s, cafeSpecialDays: s.cafeSpecialDays.map((d) => (d.date === MARKET ? { date: d.date, opens: d.opens, closes: d.closes, name: d.name } : d)) }))
+    expect((await get(cafeHours, '/api/cafe-hours.json')).body.data.notices.map((n: any) => n.date)).not.toContain(MARKET)
+  })
+})

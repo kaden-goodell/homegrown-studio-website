@@ -226,6 +226,8 @@ export const HELP_SECTIONS: HelpSection[] = [
       '**Studio hours** (same screen, at the bottom): each day **Open** with its times, or **Closed**, then **Save studio hours**. The days with hours are the days the studio opens. The website footer, Google’s business details on the website, the calendar and party times all follow them.',
       'If a party time wouldn’t fit the new hours, it says which one. Move it in **Parties setup** first. Parties and classes already booked stay booked.',
       'Google Maps keeps its own copy of your hours: after a change, tap **Open Google Business Profile** › Edit profile › Hours.',
+      'To put a special day on the website, tick **Announce it on the website** when you add it (or tap **Announce it on the website** under a day already there): a headline (up to 60 letters) and how many days before to start showing it. The website shows a bar on every page and a big card on the home and Craft Café pages until the café closes that day. **Change the announcement** to edit or stop it.',
+      '**Print a flyer** under any special day opens a letter-size flyer with the same words and a QR code to the Craft Café page. Tap **Print** (on an iPad: Share › Print).',
       'If it says Square didn’t take the café hours, tap **Try again**.',
     ],
   },

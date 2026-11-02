@@ -15,7 +15,7 @@ import { closureOn, type Holiday } from '@config/closures'
 import { cafeHoursEntries, WEEKDAYS, weeklyEntries, type CafeSpecialDay, type CafeWeekly, type Weekday } from '@config/hours'
 import { openWeekdaysOf } from '@config/studio-days'
 import { api, SETTINGS } from '../classes/api'
-import { dayLabel, today } from '../classes/dates'
+import { addDays, dayLabel, today } from '../classes/dates'
 import { useRefresh } from '../shell/data'
 import { Failed, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet, useSheetDirty } from '../shell/Sheet'
@@ -135,11 +135,13 @@ function HoursForm({ view }: { view: SettingsView }) {
   const [savingWeekly, setSavingWeekly] = useState(false)
   const [adding, setAdding] = useState(false)
   const [sp, setSp] = useState({ date: '', name: '', opens: '09:00', closes: '17:00' })
+  const [spAnnounce, setSpAnnounce] = useState<AnnounceDraft>(NO_ANNOUNCE)
+  const [editing, setEditing] = useState<string | null>(null)
   const [spError, setSpError] = useState('')
   const [savingSpecial, setSavingSpecial] = useState(false)
   const [stale, setStale] = useState('')
   const weeklyDirty = !sameWeekly(weekly, view.cafeWeekly)
-  const specialDirty = adding && (sp.date !== '' || sp.name.trim() !== '')
+  const specialDirty = adding && (sp.date !== '' || sp.name.trim() !== '' || spAnnounce.on)
   const [studioDirty, setStudioDirty] = useState(false)
   useSheetDirty(weeklyDirty || specialDirty || studioDirty)
   // Someone else's save came in and nothing here was touched: show theirs.
@@ -178,17 +180,44 @@ function HoursForm({ view }: { view: SettingsView }) {
     if (!sp.date) return setSpError('Pick the day.')
     if (!sp.opens || !sp.closes || sp.closes <= sp.opens) return setSpError('It has to close after it opens.')
     if (view.cafeSpecialDays.some((d) => d.date === sp.date)) return setSpError('That day already has special hours. Remove them first.')
+    const announceError = checkAnnounce(spAnnounce)
+    if (announceError) return setSpError(announceError)
     setSavingSpecial(true)
     setStale('')
-    const day: CafeSpecialDay = { date: sp.date, opens: sp.opens, closes: sp.closes, name: sp.name.trim() }
+    const announce = announceOf(spAnnounce)
+    const day: CafeSpecialDay = { date: sp.date, opens: sp.opens, closes: sp.closes, name: sp.name.trim(), ...(announce ? { announce } : {}) }
     const r = await save((cur) => ({ ...cur, cafeSpecialDays: [...cur.cafeSpecialDays, day] }))
     setSavingSpecial(false)
     if (!r.ok) return r.stale ? setStale(r.error) : setSpError(r.error)
     setAdding(false)
     setSp({ date: '', name: '', opens: '09:00', closes: '17:00' })
-    toast(savedText(r.data.square, `Added ${dayLabel(day.date)}. It’s on the calendar.`), {
+    setSpAnnounce(NO_ANNOUNCE)
+    const shown = announce ? ` The website announces it from ${dayLabel(addDays(day.date, -announce.daysBefore))}.` : ''
+    toast(savedText(r.data.square, `Added ${dayLabel(day.date)}. It’s on the calendar.${shown}`), {
       undo: () => { save((cur) => ({ ...cur, cafeSpecialDays: cur.cafeSpecialDays.filter((d) => d.date !== day.date) })).then((u) => { if (!u.ok) toast(DIDNT_SAVE) }) },
     })
+  }
+
+  async function saveAnnounce(day: CafeSpecialDay, draft: AnnounceDraft): Promise<string | null> {
+    const bad = checkAnnounce(draft)
+    if (bad) return bad
+    setStale('')
+    const announce = announceOf(draft)
+    const r = await save((cur) => ({
+      ...cur,
+      cafeSpecialDays: cur.cafeSpecialDays.map((d) => {
+        if (d.date !== day.date) return d
+        const { announce: _old, ...rest } = d
+        void _old
+        return announce ? { ...rest, announce } : rest
+      }),
+    }))
+    if (!r.ok) { if (r.stale) setStale(r.error); return r.stale ? null : r.error }
+    setEditing(null)
+    toast(announce
+      ? `Saved. The website announces ${dayLabel(day.date)} from ${dayLabel(addDays(day.date, -announce.daysBefore))}.`
+      : `The website stopped announcing ${dayLabel(day.date)}. The day itself stays.`)
+    return null
   }
 
   async function removeSpecial(day: CafeSpecialDay) {
@@ -241,9 +270,25 @@ function HoursForm({ view }: { view: SettingsView }) {
       <p className="adm-lbl">Special days</p>
       {special.length === 0 && <p className="adm-muted adm-small">None coming up.</p>}
       {special.map((d) => (
-        <div key={d.date} className="adm-kv adm-setrow">
-          <span><b>{`${dayLabel(d.date)} · ${d.name}`}</b><br /><span className="adm-small adm-muted">{clockRange(d.opens, d.closes)}{closureOn(d.date, days.closures) ? ' · closed that day, so no café' : ''}</span></span>
-          <button type="button" className="adm-btn is-ghost is-sm" aria-label={`Remove ${dayLabel(d.date)}`} onClick={() => removeSpecial(d)}>Remove</button>
+        <div key={d.date} className="adm-setrow-wrap">
+          <div className="adm-kv adm-setrow">
+            <span>
+              <b>{`${dayLabel(d.date)} · ${d.name}`}</b><br />
+              <span className="adm-small adm-muted">{clockRange(d.opens, d.closes)}{closureOn(d.date, days.closures) ? ' · closed that day, so no café' : ''}</span>
+              {d.announce && <><br /><span className="adm-small">{`On the website from ${dayLabel(addDays(d.date, -d.announce.daysBefore))}: “${d.announce.headline}”`}</span></>}
+            </span>
+            <button type="button" className="adm-btn is-ghost is-sm" aria-label={`Remove ${dayLabel(d.date)}`} onClick={() => removeSpecial(d)}>Remove</button>
+          </div>
+          {editing === d.date ? (
+            <AnnounceEditor day={d} onSave={(draft) => saveAnnounce(d, draft)} onCancel={() => setEditing(null)} />
+          ) : (
+            <div className="adm-two adm-gap-bottom">
+              <button type="button" className="adm-btn is-ghost is-sm" aria-label={`${d.announce ? 'Change the announcement' : 'Announce it on the website'}: ${dayLabel(d.date)}`} onClick={() => setEditing(d.date)}>
+                {d.announce ? 'Change the announcement' : 'Announce it on the website'}
+              </button>
+              <a className="adm-btn is-ghost is-sm" href={`/admin/flyer/${d.date}`} target="_blank" rel="noopener" aria-label={`Print a flyer: ${dayLabel(d.date)}`}>Print a flyer</a>
+            </div>
+          )}
         </div>
       ))}
       {adding ? (
@@ -257,6 +302,7 @@ function HoursForm({ view }: { view: SettingsView }) {
           </div>
           {spClosed && <p className="adm-small adm-warntext">{`That day is closed for ${spClosed.name}. Closed days beat special hours.`}</p>}
           {spUsuallyShut && <p className="adm-small adm-muted">The studio is usually closed that day. The special day opens it for Craft Café.</p>}
+          <AnnounceFields draft={spAnnounce} onChange={(a) => { setSpAnnounce(a); setSpError('') }} day={sp.date ? { date: sp.date, opens: sp.opens, closes: sp.closes } : null} />
           {spError && <p className="adm-error adm-fielderr" role="alert">{spError}</p>}
           <div className="adm-two">
             <button type="button" className="adm-btn is-ghost" onClick={() => { setAdding(false); setSpError('') }}>Never mind</button>
@@ -270,6 +316,88 @@ function HoursForm({ view }: { view: SettingsView }) {
 
       <StudioHoursForm view={view} save={save} toast={toast} cafeWeekly={view.cafeWeekly} onDirty={setStudioDirty} />
     </>
+  )
+}
+
+// ---------------------------------------------------------------- Special-day announcement (G9)
+
+/** The announcement as typed: on or off, the headline, and how many days ahead it starts showing. */
+export interface AnnounceDraft { on: boolean; headline: string; daysBefore: string }
+export const NO_ANNOUNCE: AnnounceDraft = { on: false, headline: '', daysBefore: '14' }
+export const HEADLINE_MAX = 60
+
+const draftOf = (d: CafeSpecialDay): AnnounceDraft =>
+  d.announce ? { on: true, headline: d.announce.headline, daysBefore: String(d.announce.daysBefore) } : { ...NO_ANNOUNCE, headline: d.name }
+
+/** What's wrong with the draft in plain words, or '' when it's fine (or off). */
+export function checkAnnounce(a: AnnounceDraft): string {
+  if (!a.on) return ''
+  const h = a.headline.trim().replace(/\s+/g, ' ')
+  if (!h) return 'Write the headline for the website.'
+  if (h.length > HEADLINE_MAX) return `Keep the headline to ${HEADLINE_MAX} characters.`
+  const n = Number(a.daysBefore)
+  if (a.daysBefore.trim() === '' || !Number.isInteger(n) || n < 0 || n > 90) return 'Start showing it 0 to 90 days before.'
+  return ''
+}
+
+const announceOf = (a: AnnounceDraft): CafeSpecialDay['announce'] | undefined =>
+  a.on ? { headline: a.headline.trim().replace(/\s+/g, ' '), daysBefore: Number(a.daysBefore) } : undefined
+
+/** "Sat Nov 7" for the bar's preview. */
+const barDate = (ymd: string) => new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'UTC' }).replace(',', '')
+
+/** The switch, the headline, the days ahead, and a preview of the bar customers see. */
+function AnnounceFields({ draft, onChange, day }: { draft: AnnounceDraft; onChange: (a: AnnounceDraft) => void; day: { date: string; opens: string; closes: string } | null }) {
+  const n = Number(draft.daysBefore)
+  return (
+    <>
+      <label className="adm-check">
+        <input type="checkbox" checked={draft.on} onChange={(e) => onChange({ ...draft, on: e.target.checked })} />
+        <span>Announce it on the website</span>
+      </label>
+      {draft.on && (
+        <>
+          <label className="adm-fld">
+            <span>Headline</span>
+            <input value={draft.headline} maxLength={HEADLINE_MAX} placeholder="Like: Holiday Market Day" onChange={(e) => onChange({ ...draft, headline: e.target.value })} />
+          </label>
+          <label className="adm-fld">
+            <span>Start showing it how many days before?</span>
+            <input type="number" inputMode="numeric" min={0} max={90} value={draft.daysBefore} onChange={(e) => onChange({ ...draft, daysBefore: e.target.value })} />
+          </label>
+          {day && draft.headline.trim() && (
+            <div className="adm-panel" aria-label="What the website shows">
+              <span className="adm-small adm-muted">{`A bar on every page${Number.isInteger(n) && n >= 0 && n <= 90 ? ` from ${dayLabel(addDays(day.date, -n))}` : ''} until the café closes that day, and a big card on the home and Craft Café pages:`}</span>
+              <b>{`🎉 ${draft.headline.trim()} ${barDate(day.date)} · Craft Café ${clockRange(day.opens, day.closes)} →`}</b>
+            </div>
+          )}
+        </>
+      )}
+    </>
+  )
+}
+
+/** Change or stop an existing day's announcement. */
+function AnnounceEditor({ day, onSave, onCancel }: { day: CafeSpecialDay; onSave: (a: AnnounceDraft) => Promise<string | null>; onCancel: () => void }) {
+  const [draft, setDraft] = useState<AnnounceDraft>(() => ({ ...draftOf(day), on: true }))
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  async function go(d: AnnounceDraft) {
+    setBusy(true)
+    const e = await onSave(d)
+    setBusy(false)
+    if (e) setError(e)
+  }
+  return (
+    <fieldset className="adm-date adm-gap-bottom">
+      <legend>{`Announce ${dayLabel(day.date)}`}</legend>
+      <AnnounceFields draft={draft} onChange={(a) => { setDraft(a); setError('') }} day={day} />
+      {error && <p className="adm-error adm-fielderr" role="alert">{error}</p>}
+      <div className="adm-two">
+        <button type="button" className="adm-btn is-ghost" onClick={onCancel}>Never mind</button>
+        <button type="button" className="adm-btn is-pri" disabled={busy || (!draft.on && !day.announce)} onClick={() => go(draft)}>{busy ? 'Saving…' : draft.on ? 'Save announcement' : 'Stop announcing'}</button>
+      </div>
+    </fieldset>
   )
 }
 

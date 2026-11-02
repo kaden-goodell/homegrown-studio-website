@@ -119,9 +119,10 @@ function name(v: unknown, field: string, fallback: string): string {
 }
 
 /**
- * A special day's announcement (hours.ts `announce`: the site-wide bar and the
- * big card). Not edited on /admin, but kept when the owners save, so a save
- * never silently drops an announced day. Anything malformed is left off.
+ * A special day's announcement (the site-wide bar and the big card, and the
+ * flyer's headline): owners set it in /admin › Hours & Craft Café ("Announce it
+ * on the website": a headline up to 60 characters, shown from 0–90 days
+ * before). Anything malformed is left off.
  */
 function announceOf(v: any): CafeSpecialDay['announce'] | undefined {
   const headline = str(v?.headline).replace(/\s+/g, ' ')
