@@ -50,7 +50,7 @@ export const GET: APIRoute = async ({ request, url }) => {
   if (!from || !to || Date.parse(to) <= Date.parse(from)) return json(400, { error: 'Pick a start and an end for the range.' })
   if (Date.parse(to) - Date.parse(from) > MAX_RANGE_MS) return json(400, { error: 'Pick ten weeks or less.' })
   return staffingReply(async () => {
-    const [rows, team] = await Promise.all([staffingRows(from, to), teamWithContacts()])
+    const [rows, team] = await Promise.all([staffingRows(from, to, { seats: true }), teamWithContacts()])
     await rememberSeen(rows)
     return { data: { rows, team: shownTeam(team.people), teamSource: team.source } }
   })

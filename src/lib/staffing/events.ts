@@ -26,6 +26,7 @@
 import { partyConfig } from '@config/party.config'
 import { sheetToken, type Sheet } from '@components/admin/shell/router'
 import { listClasses } from '@lib/classes/class-store'
+import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
 import { legacyClassSpans, partyBusy } from '@lib/classes/studio-schedule'
 import { getPartyRecord, type PartyRecord } from '@lib/party-store'
 import { onSandbox } from '@lib/parties/legacy-square'
@@ -112,7 +113,7 @@ function partyEvent(key: EventKey, id: string, startIso: string, endIso: string,
 }
 
 /** The events in range plus every staffing entry they have (one read of each). */
-async function collect(fromIso: string, toIso: string, now: Date): Promise<{ events: StaffableEvent[]; entries: Map<EventKey, StaffingEntry> }> {
+async function collect(fromIso: string, toIso: string, now: Date, opts: { seats?: boolean | EventKey } = {}): Promise<{ events: StaffableEvent[]; entries: Map<EventKey, StaffingEntry> }> {
   const from = Date.parse(fromIso), to = Date.parse(toIso)
   const [classes, parties, legacy, index] = await Promise.all([
     listClasses({ fromIso, toIso }),
@@ -123,16 +124,22 @@ async function collect(fromIso: string, toIso: string, now: Date): Promise<{ eve
 
   const on: StaffableEvent[] = []
   const cancelledSessions: StaffableEvent[] = []
+  const seatTargets: { ev: StaffableEvent; classId: string; sessionId: string; capacity: number }[] = []
   for (const c of classes) {
     if (c.status === 'draft') continue
     for (const s of c.sessions) {
       if (!overlapsRange(s.startIso, s.endIso, from, to)) continue
       const key = keyOrSkip({ kind: 'class', id: c.id, sessionId: s.id })
       if (!key) continue
-      if (c.status === 'cancelled') cancelledSessions.push(sessionEvent(key, c, s, 'cancelled'))
-      else on.push(sessionEvent(key, c, s, 'on'))
+      const ev = sessionEvent(key, c, s, c.status === 'cancelled' ? 'cancelled' : 'on')
+      if (c.status === 'cancelled') cancelledSessions.push(ev)
+      else {
+        on.push(ev)
+        seatTargets.push({ ev, classId: c.id, sessionId: s.id, capacity: s.capacity })
+      }
     }
   }
+  if (opts.seats) await fillSeats(opts.seats === true ? seatTargets : seatTargets.filter((t) => t.ev.key === opts.seats), now)
 
   const records = await Promise.all(parties.map((b) => getPartyRecord(b.id)))
   parties.forEach((b, i) => {
@@ -179,6 +186,21 @@ async function collect(fromIso: string, toIso: string, now: Date): Promise<{ eve
 
   const events = [...on, ...cancelled].sort((a, b) => Date.parse(a.startIso) - Date.parse(b.startIso) || a.key.localeCompare(b.key))
   return { events, entries }
+}
+
+/** "8 of 12 seats" on each class session (owner views), from the seat ledger: one read per class. Throws when a ledger can't be read. */
+async function fillSeats(targets: { ev: StaffableEvent; classId: string; sessionId: string; capacity: number }[], now: Date): Promise<void> {
+  const classIds = [...new Set(targets.map((t) => t.classId))]
+  const ledgers = new Map<string, Awaited<ReturnType<typeof getLedger>>>()
+  for (let i = 0; i < classIds.length; i += 8) {
+    const batch = classIds.slice(i, i + 8)
+    const got = await Promise.all(batch.map((id) => getLedger(id)))
+    got.forEach((l, j) => ledgers.set(batch[j], l))
+  }
+  for (const t of targets) {
+    const taken = seatsTaken(ledgers.get(t.classId)!, t.sessionId, now)
+    t.ev.detail = { ...t.ev.detail, seats: `${taken} of ${t.capacity} seats` }
+  }
 }
 
 export async function staffableBetween(fromIso: string, toIso: string): Promise<StaffableEvent[]> {
@@ -263,8 +285,8 @@ function buildRows(events: StaffableEvent[], entries: Map<EventKey, StaffingEntr
  * Owner rows for every event in range. `onlyStaffId` (crew): only events
  * that person is on or asked for, each passed through rowForCrew.
  */
-export async function staffingRows(fromIso: string, toIso: string, opts: { onlyStaffId?: string } = {}): Promise<StaffingRow[]> {
-  const [{ events, entries }, { people: team }] = await Promise.all([collect(fromIso, toIso, new Date()), teamWithContacts()])
+export async function staffingRows(fromIso: string, toIso: string, opts: { onlyStaffId?: string; seats?: boolean } = {}): Promise<StaffingRow[]> {
+  const [{ events, entries }, { people: team }] = await Promise.all([collect(fromIso, toIso, new Date(), { seats: opts.seats && !opts.onlyStaffId }), teamWithContacts()])
   const active = team.filter((p) => p.active)
   const only = opts.onlyStaffId
   const shown = only ? active.filter((p) => p.id === only) : active
@@ -279,11 +301,11 @@ export async function staffingRows(fromIso: string, toIso: string, opts: { onlyS
 
 /**
  * One owner row by key (searched from a day back to ten weeks ahead, like
- * eventByKey), or null. Throws when a source or the team can't be read.
+ * eventByKey), with its seat count, or null. Throws when a source or the team can't be read.
  */
 export async function rowByKey(key: EventKey, now: Date = new Date()): Promise<StaffingRow | null> {
   const fromIso = new Date(now.getTime() - LOOKUP_BACK_MS).toISOString(), toIso = new Date(now.getTime() + LOOKUP_AHEAD_MS).toISOString()
-  const [{ events, entries }, { people: team }] = await Promise.all([collect(fromIso, toIso, now), teamWithContacts()])
+  const [{ events, entries }, { people: team }] = await Promise.all([collect(fromIso, toIso, now, { seats: key }), teamWithContacts()])
   const event = events.find((e) => e.key === key)
   if (!event) return null
   const active = team.filter((p) => p.active)

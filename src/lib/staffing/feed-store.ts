@@ -164,3 +164,16 @@ export async function hasFeed(who: Who): Promise<boolean> {
   const json = await kv.get(k)
   return !!(json && (JSON.parse(json) as { hash: string | null } | null)?.hash)
 }
+
+/** Whether a person has a working link, when it was made and last used (owners' "Stop their calendar link" list). Throws when the store fails. */
+export async function feedStatus(who: Who): Promise<{ has: boolean; createdAt: string | null; lastUsedAt: string | null }> {
+  const none = { has: false, createdAt: null, lastUsedAt: null }
+  let k: string
+  try { k = whoKey(who) } catch { return none }
+  const json = await kv.get(k)
+  const hash = json ? (JSON.parse(json) as { hash: string | null } | null)?.hash ?? null : null
+  if (!hash) return none
+  const rec = await kv.get(tokKey(hash))
+  const record = rec ? (JSON.parse(rec) as FeedRecord | null) : null
+  return { has: true, createdAt: record?.createdAt ?? null, lastUsedAt: record?.lastUsedAt ?? null }
+}
