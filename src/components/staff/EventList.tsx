@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { card, btn, Badge } from '@components/staff/ui'
-import { formatTime, formatCalendarDay } from '@lib/studio-time'
+import { formatTime, formatTimeSpan, formatCalendarDay } from '@lib/studio-time'
 import { addDays } from '@lib/kit-dates'
 import type { EventKind, EventSources, StudioEvent } from '@lib/events'
 import type { PrepOption } from '@lib/seat-options'
@@ -161,8 +161,9 @@ export default function EventList({
                 <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{e.title}</span>
                 {e.dropOff && <Badge tone="alert">DROP-OFF</Badge>}
                 {multiDay && <Badge tone="muted">Day {dayIndex + 1} of {e.days.length}</Badge>}
+                {e.waitingOnPayment && <Badge tone="warn">Waiting on payment</Badge>}
               </span>
-              <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{formatTime(e.startIso)}</span>
+              <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{e.kind === 'party' && e.endIso ? formatTimeSpan(e.startIso, e.endIso) : formatTime(e.startIso)}</span>
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
               {e.kind === 'workshop' && typeof e.capacity === 'number' && typeof e.seats === 'number' && (

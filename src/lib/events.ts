@@ -6,7 +6,9 @@
  * `@lib/event-meta`. `open-studio` walk-ins are handled by the door check,
  * never as an event here.
  */
-import { getPartyRecord, listParties, type PartyRecord } from '@lib/party-store'
+import { getPartyRecord, isOurs, listParties, partyEndIso, type PartyRecord } from '@lib/party-store'
+export { partyEndIso }
+import { dueCents } from '@lib/parties/money'
 import { providers } from '@config/providers'
 import type { Workshop } from '@providers/interfaces/workshop'
 import { getEventMeta, type EventMeta } from '@lib/event-meta'
@@ -48,6 +50,12 @@ export interface StudioEvent {
   capacity?: number
   /** Guests the host booked (parties only). */
   guests?: number
+  /** Parties: when it ends, extra time included (cleanup not included). */
+  endIso?: string
+  /** Our parties with something still to pay (studio fee or extras): crew see "Waiting on payment". */
+  waitingOnPayment?: true
+  /** A party of ours that was cancelled: off This week and the door list; no RSVPs. */
+  cancelled?: true
   /** Present only when an event-meta override exists for this event. */
   updatedAt?: string
   by?: By
@@ -96,6 +104,7 @@ async function findWorkshop(id: string): Promise<Workshop | null> {
 }
 
 function partyEvent(id: string, p: PartyRecord, meta: EventMeta | null): StudioEvent {
+  const endIso = partyEndIso(p)
   return {
     kind: 'party',
     id,
@@ -108,6 +117,9 @@ function partyEvent(id: string, p: PartyRecord, meta: EventMeta | null): StudioE
     options: [],
     signupCutoffHours: null,
     ...(typeof p.guestCount === 'number' ? { guests: p.guestCount } : {}),
+    ...(endIso ? { endIso } : {}),
+    ...(isOurs(p) && p.status !== 'cancelled' && dueCents(p) > 0 ? { waitingOnPayment: true as const } : {}),
+    ...(p.status === 'cancelled' ? { cancelled: true as const } : {}),
     ...(meta ? { updatedAt: meta.updatedAt, by: meta.by } : {}),
   }
 }
@@ -229,7 +241,8 @@ export async function listEvents({ from, to }: { from: string; to: string }, opt
     logger.error('Class store unavailable', { error: String(classesResult.reason) })
   }
 
-  const parties = partiesResult.status === 'fulfilled' ? partiesResult.value : []
+  // A cancelled party leaves This week, the door list and every day's list (its record stays for refunds).
+  const parties = partiesResult.status === 'fulfilled' ? partiesResult.value.filter((p) => p.status !== 'cancelled') : []
   const workshops = workshopsResult.status === 'fulfilled' ? workshopsResult.value : []
   const own = classesResult.status === 'fulfilled' ? classesResult.value : []
 

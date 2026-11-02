@@ -7,13 +7,15 @@ import CompSeatSheet from '@components/staff/CompSeatSheet'
 import type { HouseholdMatch } from '@components/staff/DoorSearch'
 import HouseholdCard, { type Household, type Checkin } from '@components/staff/HouseholdCard'
 import { card, btn, field, Badge, FlagBanner } from '@components/staff/ui'
-import { formatWhen, studioDate } from '@lib/studio-time'
+import { formatDayAndSpan, formatWhen, studioDate } from '@lib/studio-time'
 import type { StaffMember } from '@lib/staff-auth'
 import type { EventKind, StudioEvent } from '@lib/events'
 import type { IncidentRecord } from '@lib/incident-store'
 import { picksShort, prepOptions } from '@lib/seat-options'
 import type { RosterChoices } from '@lib/seat-choices'
-import RefundPanel, { STAFF_REFUND, type WaitingRefund } from '@components/shared/RefundPanel'
+import RefundPanel, { AmountRefundPanel, STAFF_PARTY_REFUND, STAFF_REFUND, type WaitingRefund } from '@components/shared/RefundPanel'
+import type { CrewPartyMoney } from '@lib/parties/staff-money'
+import { formatMoney } from '@lib/money'
 import type { BookingView } from '@lib/classes/admin-actions'
 import { overCapacityNote, paidWay } from '@lib/classes/booking-words'
 
@@ -30,6 +32,8 @@ interface RosterData {
   bookings?: (BookingView & { name: string; seatsToday: number; waiting: WaitingRefund | null })[]
   /** Our own classes: ticket type id → label. */
   ticketLabels?: Record<string, string>
+  /** Our own parties: payments the crew can refund (reason required), and what is still to pay. */
+  partyMoney?: CrewPartyMoney
 }
 
 /**
@@ -345,9 +349,10 @@ export default function Roster({
           <span aria-hidden="true">{ICON[event.kind]}</span> {event.title}
         </h2>
         <p style={{ color: 'var(--color-dark)', fontWeight: 600, margin: '0.3rem 0 0', fontSize: '1rem' }}>
-          {formatWhen(event.startIso)}
+          {event.kind === 'party' && event.endIso ? formatDayAndSpan(event.startIso, event.endIso) : formatWhen(event.startIso)}
           {multiDay && <> · Day {dayIndex + 1} of {event.days.length}</>}
         </p>
+        {event.waitingOnPayment && <p style={{ margin: '0.4rem 0 0' }}><Badge tone="warn">Waiting on payment</Badge></p>}
 
         {multiDay && (
           <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'center', flexWrap: 'wrap', marginTop: '0.7rem' }}>
@@ -532,6 +537,23 @@ export default function Roster({
               <OwnBooking key={b.bookingId} b={b} classId={id} households={data.households} taken={new Set(data.bookings!.map((x) => x.customer?.email.trim().toLowerCase()).filter((e): e is string => !!e))} ticketLabels={data.ticketLabels ?? {}} onChanged={refresh} />
             ))}
           </ul>
+        </section>
+      )}
+
+      {data.partyMoney && (data.partyMoney.charges.length > 0 || data.partyMoney.waiting) && (
+        <section aria-label="Payments" style={{ ...card, background: 'rgba(255,255,255,0.9)' }}>
+          <p style={{ margin: 0, fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.12em', color: 'var(--color-primary)' }}>PAYMENTS</p>
+          <ul style={{ margin: '0.3rem 0 0.6rem', padding: 0, listStyle: 'none' }}>
+            {data.partyMoney.charges.map((c) => (
+              <li key={c.id} style={{ fontSize: '0.9rem', color: 'var(--color-dark)', padding: '0.15rem 0' }}>
+                {c.label}{c.left === 0 ? ' · refunded' : ''}
+              </li>
+            ))}
+          </ul>
+          {data.partyMoney.dueCents > 0 && (
+            <p style={{ margin: '0 0 0.6rem', fontSize: '0.875rem', color: 'var(--color-muted)' }}>{`Still to pay: ${formatMoney(data.partyMoney.dueCents)}`}</p>
+          )}
+          <AmountRefundPanel partyId={id} payer={data.partyMoney.payer} charges={data.partyMoney.charges} endpoint={STAFF_PARTY_REFUND} reasonRequired waiting={data.partyMoney.waiting} onDone={refresh} />
         </section>
       )}
 

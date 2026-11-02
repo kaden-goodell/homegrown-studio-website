@@ -54,6 +54,8 @@ export const GET: APIRoute = async ({ request }) => {
         dropOff: e.dropOff,
         ...(typeof e.capacity === 'number' && typeof e.seats === 'number' ? { sold: e.capacity - e.seats, capacity: e.capacity } : {}),
         ...(typeof e.guests === 'number' ? { guests: e.guests } : {}),
+        ...(e.endIso ? { endIso: e.endIso } : {}),
+        ...(e.waitingOnPayment ? { waitingOnPayment: true } : {}),
         ...(byDay ? { byDay } : await prepForEvent(e)),
       }
     }))

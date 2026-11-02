@@ -314,6 +314,10 @@ async function validateEvent(
   if (!event) {
     return { err: bad("We couldn't find that event link.", 404), event: null }
   }
+  // A cancelled party takes no more RSVPs.
+  if (event.cancelled) {
+    return { err: bad('This party was cancelled.', 410), event: null }
+  }
   // A full studio day of grace past the event's last day before it's "past".
   if (isEventPast(event, now)) {
     return { err: bad('That event has already happened.', 410), event: null }

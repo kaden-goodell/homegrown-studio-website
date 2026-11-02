@@ -1,9 +1,9 @@
 import type { APIRoute } from 'astro'
 import { rateLimited } from '@lib/rate-limit'
-import { getPartyRecord } from '@lib/party-store'
+import { getPartyRecord, partyEndIso } from '@lib/party-store'
 import { partyConfig } from '@config/party.config'
 import { inviteContent } from '@config/invite-content'
-import { buildIcs, addMinutesIso, partyInviteUrl } from '@lib/party-share'
+import { buildIcs, addMinutesIso, partyInviteUrl, partyCalendarIds } from '@lib/party-share'
 import { formatSlotLabel } from '@lib/studio-time'
 import { createLogger } from '@lib/logger'
 
@@ -34,6 +34,7 @@ export const GET: APIRoute = async ({ url, clientAddress }) => {
     return new Response('Couldn’t load the party — try again.', { status: 503 })
   }
   if (!party) return new Response('Not found', { status: 404 })
+  if (party.status === 'cancelled') return new Response('This party was cancelled.', { status: 410 })
 
   const origin = url.origin
   const slotLabel = formatSlotLabel(party.startIso)
@@ -44,10 +45,10 @@ export const GET: APIRoute = async ({ url, clientAddress }) => {
   const ics = buildIcs({
     title: `${party.title ?? `${party.craftName} Party`} — Hometown Studio`,
     startIso: party.startIso,
-    endIso: addMinutesIso(party.startIso, party.durationMinutes ?? partyConfig.durationMinutes),
+    endIso: partyEndIso(party) ?? addMinutesIso(party.startIso, partyConfig.durationMinutes),
     details: `We’re making ${party.craftName} at Hometown Studio.\n\nInvitation & RSVP: ${inviteUrl}`,
     location: inviteContent.where,
-  })
+  }, partyCalendarIds(partyId, party.calendarSeq))
 
   return new Response(ics, {
     status: 200,

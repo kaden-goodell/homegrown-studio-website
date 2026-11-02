@@ -11,10 +11,12 @@ import {
   buildIcs,
   icsDataUrl,
   addMinutesIso,
+  partyCalendarIds,
 } from '@lib/party-share'
+import { formatMoney } from '@lib/money'
 import { inviteContent } from '@config/invite-content'
 import { waiverContent } from '@config/waiver-content'
-import { formatWhen } from '@lib/studio-time'
+import { formatDayAndSpan, formatWhen } from '@lib/studio-time'
 import { rememberedPageKey } from '@lib/page-key'
 import { trackAddToCalendar, trackShare, trackWaiverLinkClick } from '@lib/analytics'
 
@@ -41,6 +43,12 @@ interface Roster {
     hostName: string
     guestCount: number
     title: string | null
+    /** extra time included (older servers sent none) */
+    endIso?: string
+    cancelled?: boolean
+    calendarSeq?: number
+    /** the studio fee or extras still to pay online, with the payment link (D1: never crafts) */
+    pay?: { cents: number; what: string; url: string } | null
   }
   summary: { households: number; people: number }
   households: Household[]
@@ -141,6 +149,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
   const { party, summary, households } = roster
   const heading = party.title || `${party.craftName} Party`
   const slotLabel = formatWhen(party.startIso) + ' CT'
+  const endIso = party.endIso ?? addMinutesIso(party.startIso, party.durationMinutes ?? partyConfig.durationMinutes)
   const origin = typeof window !== 'undefined' ? window.location.origin : ''
   const inviteUrl = partyInviteUrl(
     { bookingId, craftName: party.craftName, slotLabel, startIso: party.startIso, title: party.title || undefined },
@@ -149,7 +158,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
   const calEvent = {
     title: heading + ' — Hometown Studio',
     startIso: party.startIso,
-    endIso: addMinutesIso(party.startIso, party.durationMinutes ?? partyConfig.durationMinutes),
+    endIso,
     details: `Your private party at Hometown Studio.\n\nInvitation link for guests: ${inviteUrl}`,
     location: inviteContent.where,
   }
@@ -174,6 +183,23 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
     }
   }
 
+  if (party.cancelled) {
+    return (
+      <div>
+        <div style={{ ...card, textAlign: 'center' }} data-testid="party-cancelled">
+          <p className="eyebrow tone-party" style={{ marginBottom: '0.5rem' }}>Your party</p>
+          <h1 style={{ fontSize: '1.75rem', fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0 }}>{heading}</h1>
+          <p style={{ color: 'var(--color-dark)', fontWeight: 600, marginTop: '0.75rem' }}>This party was cancelled.</p>
+          <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', marginTop: '0.5rem' }}>
+            {partyContent.textNumber
+              ? <>Questions? Text us at {partyContent.textNumber}.</>
+              : <>Questions? Contact us.</>}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div>
       {/* Party header */}
@@ -184,7 +210,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
         <h1 style={{ fontSize: '1.75rem', fontFamily: 'var(--font-heading)', fontWeight: 700, color: 'var(--color-dark)', margin: 0 }}>
           {heading}
         </h1>
-        <p style={{ color: 'var(--color-dark)', fontWeight: 600, marginTop: '0.5rem' }}>{slotLabel}</p>
+        <p style={{ color: 'var(--color-dark)', fontWeight: 600, marginTop: '0.5rem' }} data-testid="party-when">{`${formatDayAndSpan(party.startIso, endIso)} CT`}</p>
         <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem' }}>{inviteContent.where}</p>
 
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', justifyContent: 'center', marginTop: '1.1rem' }}>
@@ -192,7 +218,7 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
             {copied ? 'Link copied' : 'Invite your guests'}
           </button>
           <a href={googleCalendarUrl(calEvent)} target="_blank" rel="noopener noreferrer" style={chip} onClick={() => trackAddToCalendar('host_dashboard', 'google', 'party')}>Google Calendar</a>
-          <a href={icsDataUrl(buildIcs(calEvent))} download="hometown-party.ics" style={chip} onClick={() => trackAddToCalendar('host_dashboard', 'ics', 'party')}>Apple / Outlook</a>
+          <a href={icsDataUrl(buildIcs(calEvent, partyCalendarIds(bookingId, party.calendarSeq)))} download="hometown-party.ics" style={chip} onClick={() => trackAddToCalendar('host_dashboard', 'ics', 'party')}>Apple / Outlook</a>
           <a
             href={partyInviteMailto({
               craftName: party.craftName,
@@ -213,6 +239,23 @@ export default function PartyDashboard({ bookingId, hostKey }: Props) {
           </a>
         </div>
       </div>
+
+      {/* Still to pay online: the studio fee or extras (D1: crafts are paid at the studio) */}
+      {party.pay && (
+        <div style={{ ...card, textAlign: 'center' }} data-testid="party-pay">
+          <p style={{ color: 'var(--color-dark)', fontWeight: 600, margin: 0 }}>
+            {`There’s ${formatMoney(party.pay.cents)} still to pay for ${party.pay.what}.`}
+          </p>
+          <p style={{ color: 'var(--color-muted)', fontSize: '0.875rem', margin: '0.35rem 0 0' }}>Crafts are paid at the studio for whoever comes.</p>
+          <a
+            href={party.pay.url}
+            className="ph-no-capture"
+            style={{ ...chip, marginTop: '0.9rem', background: 'var(--color-button)', color: '#fff', border: 'none', fontSize: '0.9375rem', padding: '0.7rem 1.3rem', minHeight: '2.75rem' }}
+          >
+            {`Pay ${formatMoney(party.pay.cents)}`}
+          </a>
+        </div>
+      )}
 
       {/* RSVP summary */}
       <div style={card}>

@@ -3,8 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 const partyFixture = { bookingId: 'p1', title: 'Rivera Party', craftName: 'Slime', startIso: '2026-10-20T15:00:00.000Z', dropOff: true }
 
 const mockListParties = vi.fn(async () => [partyFixture])
-vi.mock('@lib/party-store', () => ({
-  getPartyRecord: vi.fn(async (id: string) => (id === 'p1' ? partyFixture : null)),
+const partyById = vi.hoisted(() => new Map<string, any>())
+vi.mock('@lib/party-store', async (orig) => ({
+  ...(await orig<any>()),
+  getPartyRecord: vi.fn(async (id: string) => (id === 'p1' ? partyFixture : partyById.get(id) ?? null)),
   listParties: (...a: any[]) => (mockListParties as any)(...a),
 }))
 
@@ -279,5 +281,34 @@ describe('our own classes (Task 14)', () => {
     const { events, sources } = await listEvents({ from: '2026-10-20', to: '2026-10-20' })
     expect(events.map((e) => e.id).sort()).toEqual(['cs1', 'p1'])
     expect(sources).toEqual({ parties: 'ok', workshops: 'ok', classes: 'error' })
+  })
+})
+
+describe('our party records (stage 2 Task 13)', () => {
+  const item = (chargeId: string | null) => ({ id: 'itm_p', kind: 'package', refId: 'pkg_whole', label: 'Whole studio', qty: 1, unitCents: 30000, cents: 30000, extraMinutes: 0, chargeId, addedAt: '', by: null })
+  const ours = (id: string, over: Record<string, unknown> = {}) => ({
+    bookingId: id, title: null, craftName: 'Slime', startIso: '2026-10-17T19:00:00.000Z', durationMinutes: 90, dropOff: false, guestCount: 12,
+    source: 'ours', status: 'booked', endIso: '2026-10-17T21:00:00.000Z', items: [item('chg_1')], ...over,
+  })
+
+  it('a cancelled party is not on any day’s list (This week, the door list)', async () => {
+    mockListParties.mockResolvedValue([ours('pty_a'), ours('pty_b', { status: 'cancelled' })] as any)
+    const { events } = await listEvents({ from: '2026-10-17', to: '2026-10-17' })
+    expect(events.filter((e) => e.kind === 'party').map((e) => e.id)).toEqual(['pty_a'])
+  })
+
+  it('the end includes extra time; a party with something to pay says "waiting on payment"', async () => {
+    mockListParties.mockResolvedValue([ours('pty_a', { items: [item(null)] }), ours('pty_b', { startIso: '2026-10-17T15:00:00.000Z', endIso: undefined })] as any)
+    const { events } = await listEvents({ from: '2026-10-17', to: '2026-10-17' })
+    const a = events.find((e) => e.id === 'pty_a')!
+    const b = events.find((e) => e.id === 'pty_b')!
+    expect(a).toMatchObject({ endIso: '2026-10-17T21:00:00.000Z', waitingOnPayment: true })
+    expect(b.endIso).toBe('2026-10-17T16:30:00.000Z') // no saved end: start + its length
+    expect(b.waitingOnPayment).toBeUndefined()
+  })
+
+  it('getEvent still finds a cancelled party (staff and refunds) and marks it', async () => {
+    partyById.set('pty_c', ours('pty_c', { status: 'cancelled' }))
+    expect(await getEvent('party', 'pty_c')).toMatchObject({ cancelled: true })
   })
 })

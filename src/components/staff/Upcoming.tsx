@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import StaffHeader from '@components/staff/StaffHeader'
 import { type HouseholdMatch } from '@components/staff/DoorSearch'
 import { card, btn, Badge } from '@components/staff/ui'
-import { formatWhen, studioDate } from '@lib/studio-time'
+import { formatDayAndSpan, formatWhen, studioDate } from '@lib/studio-time'
 import { addDays } from '@lib/kit-dates'
 import EventList from '@components/staff/EventList'
 import type { StaffMember } from '@lib/staff-auth'
@@ -12,6 +12,10 @@ interface PartyRow {
   bookingId: string
   craftName: string
   startIso: string
+  /** extra time included; null for an old record with no length */
+  endIso?: string | null
+  /** a party of ours with the studio fee or extras still to pay */
+  waitingOnPayment?: boolean
   title: string | null
   hostName: string
   hostPhone: string | null
@@ -84,8 +88,9 @@ export default function Upcoming({
               <span style={{ display: 'inline-flex', gap: '0.4rem', alignItems: 'center', flexWrap: 'wrap' }}>
                 <span style={{ fontWeight: 600, color: 'var(--color-dark)' }}>{p.title || `${p.craftName} Party`}</span>
                 {p.themeName && <Badge tone="muted">🎀 {p.themeName}</Badge>}
+                {p.waitingOnPayment && <Badge tone="warn">Waiting on payment</Badge>}
               </span>
-              <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{formatWhen(p.startIso)}</span>
+              <span style={{ fontSize: '0.875rem', color: 'var(--color-muted)' }}>{p.endIso ? formatDayAndSpan(p.startIso, p.endIso) : formatWhen(p.startIso)}</span>
             </div>
             <p style={{ fontSize: '0.875rem', color: 'var(--color-muted)', margin: '0.3rem 0 0' }}>
               Host: {p.hostName}{p.hostPhone ? ` · ${p.hostPhone}` : ''} · <strong style={{ color: 'var(--color-dark)' }}>{p.rsvpHouseholds}</strong> RSVP’d ({p.rsvpPeople} ppl on file)
