@@ -122,13 +122,14 @@ describe('WorkshopBookingModal — the panel', () => {
     expect(screen.getByText('Your details and payment')).toBeInTheDocument()
   })
 
-  it('keeps the date, time, seats and total in view on both steps, in studio time', async () => {
+  it('keeps the date, time and seats in view on both steps, in studio time; the total is on the button only', async () => {
     open()
     addSeats(1)
-    expect(screen.getByText(/Fri, Oct 16 · 7–9 PM · 2 seats ·/)).toHaveTextContent('Fri, Oct 16 · 7–9 PM · 2 seats · $90')
+    expect(screen.getByText('Fri, Oct 16 · 7–9 PM · 2 seats')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Continue/ })).toHaveTextContent('$90')
     fireEvent.click(screen.getByRole('button', { name: /^Continue/ }))
     await screen.findByTestId('payment-form')
-    expect(screen.getByText(/Fri, Oct 16 · 7–9 PM · 2 seats ·/)).toHaveTextContent('$90')
+    expect(screen.getByText('Fri, Oct 16 · 7–9 PM · 2 seats')).not.toHaveTextContent('$')
   })
 
   it('shows the whole description on the first step', () => {
@@ -812,5 +813,12 @@ describe('WorkshopBookingModal — tax to the cent', () => {
     await goToPayment(makeWorkshop({ price: 1250, taxPercent: 9 }), 3)
     fireEvent.click(screen.getByRole('checkbox'))
     expect(await screen.findByRole('button', { name: 'Pay $40.89' })).toBeInTheDocument()
+  })
+
+  it('shows the price before tax on the first step; the tax only appears on the payment step', () => {
+    open(makeWorkshop({ price: 1250, taxPercent: 9 }))
+    addSeats(2)
+    expect(screen.getByRole('button', { name: /^Continue/ })).toHaveTextContent(/^Continue · \$37\.50$/)
+    expect(screen.queryByText(/tax/i)).toBeNull()
   })
 })
