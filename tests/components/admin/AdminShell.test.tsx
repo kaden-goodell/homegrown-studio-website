@@ -110,6 +110,10 @@ function server(o: any = {}) {
       case '/api/admin/parties/book.json': return ok({ data: { party: ourParty, message: 'Booked Lee’s party for Sun, Oct 25 at 1:00 PM. The payment link for the studio fee ($300) went to Lee by email and text.' } })
       case '/api/admin/parties/times.json': return ok({ data: { minutes: 90, offered: [at('2026-10-24', '14:00')], open: [at('2026-10-24', '14:00')] } })
       case '/api/admin/reports.json': return ok({ data: { month: '2026-10', seatsSold: 74, classSalesCents: 196800, refunds: 1, refundedCents: 1635, partiesBooked: 3, partyFeesCents: 60000 } })
+      case '/api/admin/records.json':
+        if (post && post.passcode !== 'owner-secret') return status(403, { error: 'That passcode isn’t right.', field: 'passcode' })
+        if (post) return { ok: true, status: 200, headers: new Headers({ 'X-Records-Filename': 'hometown-records-2026-01-01-to-2026-10-20.zip' }), blob: async () => new Blob(['zip']), json: async () => ({}) }
+        return ok({ data: { lastArchive: '2026-10-18' } })
       case '/api/admin/tax-report.json':
         if (post) return ok({ data: { sent: true, to: 'kaden@ourhometownstudio.com', at: '2026-10-20T15:00:00Z' } })
         return ok({ data: {
@@ -662,7 +666,7 @@ describe('More', () => {
     await signedIn()
     tab('More')
     const setup = await screen.findByRole('list', { name: 'Setup' })
-    expect(within(setup).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Parties setup', 'Hours & Craft Café', 'Closed days', 'Staff', 'Promotions', 'Reports'])
+    expect(within(setup).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Parties setup', 'Hours & Craft Café', 'Closed days', 'Staff', 'Promotions', 'Reports', 'Records'])
     expect(within(setup).getByRole('button', { name: /Staff/ })).toHaveTextContent('Who’s on, who can work, calendar links')
     expect(within(setup).getByRole('button', { name: /Promotions/ })).toHaveTextContent('Coming in stage 4')
     // The row says what's set, from the saved Parties setup.
@@ -705,6 +709,27 @@ describe('More', () => {
     fireEvent.change(pick, { target: { value: '2026' } })
     expect(await within(dialog()).findByText('Tax split, all of 2026')).toBeInTheDocument()
     await waitFor(() => expect(f.mock.calls.some((c) => c[0] === '/api/admin/reports.json?period=2026')).toBe(true))
+  })
+
+  it('Records: says what’s inside, asks the passcode again, and saves the file', async () => {
+    vi.stubGlobal('URL', Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:x'), revokeObjectURL: vi.fn() }))
+    const f = await signedIn()
+    tab('More')
+    fireEvent.click(await screen.findByRole('button', { name: /Records/ }))
+    expect(await within(dialog()).findByText(/Last copy: Oct 18, 2026/)).toBeInTheDocument()
+    expect(within(dialog()).getByText('custody.csv')).toBeInTheDocument()
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Download records' }))
+    expect(await within(dialog()).findByText('Type your admin passcode first.')).toBeInTheDocument()
+    fireEvent.change(within(dialog()).getByLabelText('Your admin passcode'), { target: { value: 'wrong' } })
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Download records' }))
+    expect(await within(dialog()).findByText('That passcode isn’t right.')).toBeInTheDocument()
+    // still signed in
+    expect(screen.queryByLabelText('Passcode')).toBeNull()
+    fireEvent.change(within(dialog()).getByLabelText('Your admin passcode'), { target: { value: 'owner-secret' } })
+    fireEvent.click(within(dialog()).getByRole('button', { name: 'Download records' }))
+    expect(await within(dialog()).findByText(/Downloaded hometown-records-2026-01-01-to-2026-10-20\.zip/)).toBeInTheDocument()
+    const sent = posts(f, '/api/admin/records.json').at(-1)
+    expect(sent).toMatchObject({ passcode: 'owner-secret', from: expect.stringMatching(/^\d{4}-01-01$/) })
   })
 
   it('Set up sandbox is not offered on the live site', async () => {

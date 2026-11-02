@@ -250,6 +250,16 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
+    id: 'records',
+    title: 'Records (waivers, check-ins, who did what)',
+    points: [
+      'More › **Records**: pick the days (**This year**, **Last year**, **Pick the days** or **Everything**), type your admin passcode, then **Download records**. One .zip file is saved to this device (on an iPad, in Files › Downloads).',
+      'Inside: every signed waiver, who said they were coming, check-ins and who picked each child up (custody.csv, the file to hand a lawyer), incident reports, and who did what on /admin and /staff. README.txt in the file says what each part is.',
+      'Nothing on the site is changed or deleted. Keep the file somewhere safe and private: it has children’s details and signatures. Each download is recorded with your name.',
+      'If it says it’s too much for one download, pick fewer days and download it in parts.',
+    ],
+  },
+  {
     id: 'square-only',
     title: 'When Square is the only place',
     intro: 'Everything else is done here. Square is needed only for these, each marked “Look in Square” in the table below.',

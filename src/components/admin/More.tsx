@@ -14,6 +14,7 @@ const ROWS: [MorePage, string, string][] = [
   ['staff', 'Staff', 'Who’s on, who can work, calendar links'],
   ['promos', 'Promotions', 'Coming in stage 4'],
   ['reports', 'Reports', 'Any month or year, and the tax split'],
+  ['records', 'Records', 'Download waivers, check-ins and who did what'],
 ]
 
 /** More: the setup pages, reports, who's using this, and sign out. */

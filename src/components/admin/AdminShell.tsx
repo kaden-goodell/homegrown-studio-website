@@ -28,6 +28,7 @@ import { LibraryEditSheet, LibraryItemSheet } from './sheets/LibrarySheets'
 import { NewClassSheet, RunAgainSheet, ScheduleFromLibrarySheet } from './sheets/NewClassSheet'
 import { StaffSheet } from './sheets/StaffSheet'
 import { ComingSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet } from './sheets/MoreSheets'
+import { RecordsSheet } from './sheets/RecordsSheet'
 import { HelpSheet } from './sheets/HelpSheet'
 import { ClosedDaysSheet, HoursSheet } from './sheets/SettingsSheets'
 import { ImportSquareSheet } from './sheets/ImportSquareSheet'
@@ -434,6 +435,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
         case 'staff': return <StaffSheet />
         case 'promos': return <ComingSheet title="Promotions" stage={4} what="discount codes for classes and parties, and how often each is used." />
         case 'reports': return <ReportsSheet />
+        case 'records': return <RecordsSheet />
         case 'import': return <ImportSquareSheet />
         case 'sandbox': return <SandboxSheet />
         case 'who': return <WhoSheet />
