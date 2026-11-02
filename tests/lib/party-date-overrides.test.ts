@@ -42,10 +42,10 @@ describe('Thursday and Friday parties', () => {
     expect(partyStartsForDate('2026-10-23', now)).toEqual(['2026-10-23T21:00:00.000Z'])
   })
 
-  it('carries on every Thursday and Friday at 4:00, before and after Nov 7', () => {
+  it('keeps 4:00 on Thursdays and Fridays before Nov 7, then 4:30 from the weekly schedule', () => {
     expect(partyStartsForDate('2026-11-05', new Date('2026-10-20T17:00:00Z'))).toEqual(['2026-11-05T22:00:00.000Z'])
-    expect(partyStartsForDate('2026-11-13', now)).toEqual(['2026-11-13T22:00:00.000Z'])
-    expect(partyStartsForDate('2026-11-19', now)).toEqual(['2026-11-19T22:00:00.000Z'])
+    expect(partyStartsForDate('2026-11-13', now)).toEqual(['2026-11-13T22:30:00.000Z'])
+    expect(partyStartsForDate('2026-11-19', now)).toEqual(['2026-11-19T22:30:00.000Z'])
   })
 
   it('never on Monday to Wednesday', () => {

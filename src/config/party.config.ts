@@ -89,21 +89,19 @@ export const partyConfig = {
  * step by (durationMinutes + cleanupBufferMinutes) from `firstStart`, while
  * start + party + cleanup ≤ `lastWrap`, so the evening workshop slot stays clear.
  * Weekdays not listed have no parties (Mon–Wed).
- * Weekend shape (Kaden, 8 Oct 2026):
- *   Sat: Craft Café 9–12 · party 1:30 · workshop 4–6 · workshop 7–9
+ * Weekly shape from Nov 7 (Kaden, 1 Nov 2026):
+ *   Thu/Fri: party 4:30–6 · workshop 7–9
+ *   Sat: Craft Café 9–1 · party 2–3:30 · party 4:30–6 · workshop 7–9
  *   Sun: party 1:00 · party 3:30 · workshop 6–8
- * so Saturday offers ONE party start (1:30; a 90-min party + the hour's
- * cleanup wraps by 4:00 for the first class) and Sunday two (3:30 steps aside
- * automatically if a class is ever scheduled there).
+ * Each party is 90 min + the hour's cleanup, so lastWrap 19:00 clears the room
+ * for the 7:00 workshop (Sunday's 18:00 for the 6:00 one). A party time steps
+ * aside on its own if a class is ever scheduled over it.
  */
 export const partyDays: Record<number, { firstStart: string; lastWrap: string }> = {
   0: { firstStart: '13:00', lastWrap: '18:00' }, // Sunday: 1:00, 3:30
-  // Thursday and Friday (Kaden, 9 Oct 2026): one party at 4:00, before the
-  // evening class. A class at 6:00 leaves no time to clean up, so that day's
-  // 4:00 steps aside on its own.
-  4: { firstStart: '16:00', lastWrap: '18:30' }, // Thursday: 4:00
-  5: { firstStart: '16:00', lastWrap: '18:30' }, // Friday: 4:00
-  6: { firstStart: '13:30', lastWrap: '16:00' }, // Saturday: 1:30 only
+  4: { firstStart: '16:30', lastWrap: '19:00' }, // Thursday: 4:30
+  5: { firstStart: '16:30', lastWrap: '19:00' }, // Friday: 4:30
+  6: { firstStart: '14:00', lastWrap: '19:00' }, // Saturday: 2:00, 4:30
 }
 
 /**

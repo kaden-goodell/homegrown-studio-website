@@ -9,7 +9,7 @@ describe('Craft Café special days', () => {
     expect(cafeRunsOn('2026-11-07')).toBe(true)
   })
   it('other Saturdays keep the weekly morning hours; other days have none', () => {
-    expect(cafeHoursOn('2026-11-14')).toEqual({ opens: '09:00', closes: '12:00' })
+    expect(cafeHoursOn('2026-11-14')).toEqual({ opens: '09:00', closes: '13:00' })
     expect(cafeHoursOn('2026-11-15')).toBeNull()
     expect(cafeRunsOn('2026-11-15')).toBe(false)
   })

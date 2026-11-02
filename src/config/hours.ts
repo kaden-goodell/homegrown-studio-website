@@ -4,7 +4,7 @@
  * are built from the same list, so the two can never disagree.
  *
  * 24-hour, studio-local (America/Chicago). Days not listed are closed.
- * Hours must cover every scheduled workshop (Sunday workshops run 7–9 PM).
+ * Hours must cover every scheduled workshop (Sunday workshops run 6–8 PM).
  *
  * Client-safe: no imports, no env.
  */
@@ -30,7 +30,7 @@ export const STUDIO_HOURS: HoursEntry[] = [
  * (Kaden, 8 Oct 2026). Shown wherever the site says "walk-in hours".
  */
 export const CAFE_HOURS: HoursEntry[] = [
-  { days: ['Saturday'], opens: '09:00', closes: '12:00' },
+  { days: ['Saturday'], opens: '09:00', closes: '13:00' }, // 9–1 (Kaden, 1 Nov 2026)
 ]
 
 /**
