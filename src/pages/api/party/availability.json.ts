@@ -26,7 +26,7 @@ function addOnsOf(raw: unknown): Record<string, number> | undefined {
  * answer is 503 and no time is shown (never "every time").
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  if (!bookingsOpen(request, 'parties')) return bookingsClosedResponse()
+  if (!await bookingsOpen(request, 'parties')) return await bookingsClosedResponse()
   if (rateLimited(`party-avail:${clientAddress}`, 30, 60_000)) {
     return json({ error: 'Too many requests — give it a minute.' }, 429)
   }

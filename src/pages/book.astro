@@ -9,11 +9,10 @@ import { partyContentFor, partyCopyFacts } from '@config/party-content'
 import { getPartySettings } from '@lib/parties/settings-store'
 import { siteConfig } from '@config/site.config'
 import { partyConfig } from '@config/party.config'
-import { OPENING_DATE } from '@config/opening'
 import NotifyMe from '@components/shared/NotifyMe'
-import { longDate, partyNotifyContext } from '@lib/notify-context'
+import { partyNotifyContext } from '@lib/notify-context'
 import { formatMoney } from '@lib/money'
-import { envBookingsOpen, previewToken, hasValidPreviewCookie, previewQueryMatches, previewCookieName } from '@lib/bookings-gate'
+import { bookingPageGate } from '@lib/bookings-gate'
 
 // The owners' Parties setup (the config until they first save), read once
 // for the whole page; never strict, so a store hiccup shows the last good
@@ -22,18 +21,15 @@ const copy = partyCopyFacts(await getPartySettings())
 const { hero } = partyContentFor(copy)
 const kitsLive = siteConfig.features.kits.enabled
 
-// Pre-opening gate: hide the live booking flow from the public; owner can preview
-// with ?preview=<PREVIEW_TOKEN> (drops a cookie that unlocks this browser).
-const _previewMatch = previewQueryMatches(Astro.url)
-if (_previewMatch) {
-  Astro.cookies.set(previewCookieName, previewToken(), { path: '/', httpOnly: true, sameSite: 'lax', maxAge: 60 * 60 * 24 * 30 })
-}
-const bookingsOpen = envBookingsOpen('parties') || _previewMatch || hasValidPreviewCookie(Astro.request)
+// The owners' online booking switch (/admin › More › Online booking): while
+// parties are paused the live booking flow is hidden and the pause note shows;
+// the owners' test link (?preview=…) unlocks this browser.
+const gate = await bookingPageGate({ url: Astro.url, request: Astro.request, setCookie: (n, v, o) => Astro.cookies.set(n, v, o) }, 'parties')
+const bookingsOpen = gate.open
 
 // While booking is closed the page offers a "tell me when it opens" sign-up.
 // If the visitor arrived from the calendar or a shared link, say back to them
 // what they were looking at, and pass it along with their email.
-const openingLabel = longDate(OPENING_DATE)
 const studioFee = formatMoney(copy.feeCents)
 const { lookingAt, interest } = partyNotifyContext(Astro.url.searchParams, partyConfig.timezone)
 ---
@@ -99,7 +95,7 @@ const { lookingAt, interest } = partyNotifyContext(Astro.url.searchParams, party
       </div>
       {!bookingsOpen && (
         <p class="mt-6 text-sm font-semibold" style="color: var(--color-dark);">
-          {studioFee} holds a date once booking opens.
+          {studioFee} holds a date once online booking is back.
         </p>
       )}
     </div>
@@ -107,9 +103,9 @@ const { lookingAt, interest } = partyNotifyContext(Astro.url.searchParams, party
       <PartyLanding client:load copy={copy} />
     ) : (
       <div class="notice-panel tone-party" id="notify">
-        <p class="eyebrow mb-3">Opening soon</p>
-        <h2 class="text-2xl sm:text-3xl font-heading font-bold" style="color: var(--color-dark);">
-          Booking opens with our grand opening, planned for {openingLabel}
+        <p class="eyebrow mb-3">Online booking</p>
+        <h2 class="text-2xl sm:text-3xl font-heading font-bold" style="color: var(--color-dark);" data-pause-note>
+          {gate.note}
         </h2>
         <p class="mt-4 mb-6 text-base" style="color: var(--color-text);">
           {lookingAt && <Fragment>You were looking at <strong>{lookingAt}</strong>. </Fragment>}

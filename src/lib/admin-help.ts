@@ -206,6 +206,18 @@ export const HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
+    id: 'online-booking',
+    title: 'Pausing online booking',
+    points: [
+      'More › **Online booking**: parties and classes & workshops each **Open** or **Paused**. It changes the website within a minute. No other step is needed.',
+      'Pausing asks first (**Pause parties**). People already booked keep their booking, and payment links already sent still work. The website shows your note and your phone number instead of the booking buttons.',
+      'Write a short note for customers (up to 140 letters) and tap **Save note**. Left blank, it says booking is paused and to call or text the studio.',
+      'To try booking while it’s paused, tap **Copy party test link** or **Copy class test link** and open it on your phone or iPad. That device can book for 30 days. Bookings made with it are real.',
+      '**Make a new test link** stops every test link you gave out before.',
+      'While anything is paused, Home says so, with **Open online booking**.',
+    ],
+  },
+  {
     id: 'hours',
     title: 'Hours and Craft Café',
     points: [

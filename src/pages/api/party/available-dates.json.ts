@@ -17,7 +17,7 @@ const json = (body: unknown, status = 200) =>
  * be read the answer is 503 and no date is shown (never "every date").
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!bookingsOpen(request, 'parties')) return bookingsClosedResponse()
+  if (!await bookingsOpen(request, 'parties')) return await bookingsClosedResponse()
   const startTime = Date.now()
   let body: any = {}
   try {

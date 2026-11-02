@@ -26,7 +26,8 @@
  * data with no record value, `calendar-feeds` (scrambled calendar-link
  * keys only; a lost one is replaced with "Make a new link"), and
  * `staff-access` (the staff passcode's salted hash; an owner sets a new one
- * in /admin). `staff-people` keeps its `import-failures` counter next to the
+ * in /admin), and `site-switches` (the online booking switch, which holds
+ * the test link's secret; who changed it is in the audit log). `staff-people` keeps its `import-failures` counter next to the
  * list; it is harmless in an export.
  */
 export interface ArchiveStoreEntry {

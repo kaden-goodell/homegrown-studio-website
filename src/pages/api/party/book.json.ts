@@ -21,7 +21,7 @@ import { getPartyRecord, type PartyCharge, type PartyRecord } from '@lib/party-s
  * no `packageId`) books the default package.
  */
 export const POST: APIRoute = async ({ request, clientAddress }) => {
-  const open = bookingsOpen(request, 'parties')
+  const open = await bookingsOpen(request, 'parties')
   if (open && rateLimited(`party-book:${clientAddress}`, 5, 60_000)) {
     return errorResponse('Too many booking attempts — give it a minute.', 429)
   }
@@ -29,14 +29,14 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   try {
     body = await request.json()
   } catch {
-    return open ? errorResponse('Invalid request body', 400) : bookingsClosedResponse()
+    return open ? errorResponse('Invalid request body', 400) : await bookingsClosedResponse()
   }
-  if (!body || typeof body !== 'object') return open ? errorResponse('Invalid request body', 400) : bookingsClosedResponse()
+  if (!body || typeof body !== 'object') return open ? errorResponse('Invalid request body', 400) : await bookingsClosedResponse()
   if (!open) {
     // A paid customer retrying after bookings closed still gets their confirmation (read only).
     const stored = isAttemptId(body.attemptId) ? await getPartyRecord(partyIdFor(body.attemptId)).catch(() => null) : null
     if (stored && stored.status === 'booked') return bookedResponse(stored, stored.charges?.[0] ?? null, { emailSent: true, replay: true })
-    return bookingsClosedResponse()
+    return await bookingsClosedResponse()
   }
 
   // --- Validation (today's words) ---

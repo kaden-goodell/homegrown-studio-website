@@ -67,7 +67,7 @@ export function paymentTokensFor(body: any, seats: number): string[] | null {
 }
 
 export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
-  if (!bookingsOpen(request, 'workshops')) return bookingsClosedResponse()
+  if (!await bookingsOpen(request, 'workshops')) return await bookingsClosedResponse()
   if (rateLimited(`workshop-book:${clientAddress}`, 5, 60_000)) {
     return fail(429, 'unavailable', 'That’s a lot of attempts in a row. Give it a minute, then try again.')
   }

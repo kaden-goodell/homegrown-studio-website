@@ -30,6 +30,7 @@ import { StaffSheet } from './sheets/StaffSheet'
 import { ComingSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet } from './sheets/MoreSheets'
 import { HelpSheet } from './sheets/HelpSheet'
 import { ClosedDaysSheet, HoursSheet } from './sheets/SettingsSheets'
+import { OnlineBookingSheet } from './sheets/OnlineBookingSheet'
 import { ImportSquareSheet } from './sheets/ImportSquareSheet'
 import { StudioProvider } from './shell/studio'
 
@@ -428,6 +429,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
     case 'todo': return <ToDecideSheet id={s.id} />
     case 'more':
       switch (s.page) {
+        case 'booking': return <OnlineBookingSheet />
         case 'parties': return <PartiesSetupSheet />
         case 'hours': return <HoursSheet />
         case 'closed': return <ClosedDaysSheet />

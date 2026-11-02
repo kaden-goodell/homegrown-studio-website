@@ -22,6 +22,8 @@ npx netlify login && npx netlify link        # site: iridescent-croissant-494fc3
 | `GMAIL_USER`, `GMAIL_APP_PASSWORD`, `QUO_API_KEY`, `QUO_FROM_NUMBER` | email and text. **Local `.env` sends REAL email/texts.** Test texts go only to (402) 980-2907. |
 | `STAFF_PASSCODE`, `BOOKINGS_OPEN`, `DEV_BYPASS_PAYMENT`, `PUBLIC_*` | site behaviour |
 
+`BOOKINGS_OPEN` / `PREVIEW_TOKEN` are only the fallback once the own booking system is on: /admin › More › Online booking saves a switch (kv `site-switches`) that wins over both from the first save, takes effect within ~30 s with no redeploy, and has its own test link.
+
 `npm run dev` → http://localhost:4321. `npx vitest run <path>` for targeted tests (the full suite is heavy).
 
 ## 2. Branches and what's live

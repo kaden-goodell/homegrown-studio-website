@@ -9,7 +9,7 @@ import { toPublicClass, viewableByLink } from '@lib/classes/public-view'
 import { ownPriceLabel, sessionsLine } from '@lib/classes/public-class'
 import { summarize } from '@lib/seo'
 import { formatDay } from '@lib/studio-time'
-import { envBookingsOpen, hasValidPreviewCookie, previewQueryMatches, previewCookieName, previewToken } from '@lib/bookings-gate'
+import { bookingPageGate } from '@lib/bookings-gate'
 import { createLogger } from '@lib/logger'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 
@@ -31,11 +31,9 @@ if (/^cls_[a-z0-9]{4,40}$/.test(id)) {
 }
 if (!workshop) Astro.response.status = failed ? 503 : 404
 
-const _previewMatch = previewQueryMatches(Astro.url)
-if (_previewMatch) {
-  Astro.cookies.set(previewCookieName, previewToken(), { path: '/', httpOnly: true, sameSite: 'lax', maxAge: 60 * 60 * 24 * 30 })
-}
-const bookingsOpen = envBookingsOpen('workshops') || _previewMatch || hasValidPreviewCookie(Astro.request)
+// The owners' online booking switch; their test link unlocks this browser.
+const gate = await bookingPageGate({ url: Astro.url, request: Astro.request, setCookie: (n, v, o) => Astro.cookies.set(n, v, o) }, 'workshops')
+const bookingsOpen = gate.open
 Astro.response.headers.set('Cache-Control', 'private, no-store')
 
 const when = workshop?.own ? sessionsLine(workshop.own) || formatDay(workshop.startTime) : ''
@@ -56,7 +54,7 @@ const description = workshop
     {workshop ? (
       <Fragment>
         <p class="eyebrow tone-workshop mb-4 text-center">Class</p>
-        <ClassPage client:load workshop={workshop} bookingsOpen={bookingsOpen} />
+        <ClassPage client:load workshop={workshop} bookingsOpen={bookingsOpen} closedNote={gate.note} />
         <p class="mt-8 text-center text-sm">
           <a href="/workshops" class="underline" style="color: var(--color-primary);">See all workshops</a>
         </p>
