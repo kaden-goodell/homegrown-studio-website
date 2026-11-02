@@ -63,3 +63,143 @@ describe('listStaff', () => {
     ])
   })
 })
+
+// ---------------------------------------------------------------- stage 3: contacts, last-known team, owner mapping
+import {
+  teamWithContacts, isActiveStaffId, staffIdForOwner, FALLBACK_IDS, _resetLastKnownForTests,
+} from '@lib/staff-directory'
+
+const TEAM = [
+  { id: 'TM1', givenName: 'Kaden', familyName: 'Goodell', status: 'ACTIVE', isOwner: true, emailAddress: 'k@example.com', phoneNumber: '+12565550100' },
+  { id: 'TM4', givenName: 'Catherine', familyName: 'Goodell', status: 'ACTIVE', isOwner: true, emailAddress: '', phoneNumber: undefined },
+  { id: 'TM2', givenName: 'Emma', familyName: 'R', status: 'ACTIVE', isOwner: false, emailAddress: 'emma@example.com' },
+  { id: 'TM3', givenName: 'Gone', familyName: 'Person', status: 'INACTIVE', isOwner: false, emailAddress: 'gone@example.com' },
+]
+
+describe('teamWithContacts', () => {
+  beforeEach(async () => {
+    _resetStaffCache()
+    await _resetLastKnownForTests()
+    searchMock.mockReset()
+    searchMock.mockResolvedValue({ teamMembers: TEAM })
+  })
+
+  it('maps contact fields from the Square shape and leaves inactive members out', async () => {
+    const { people, source } = await teamWithContacts()
+    expect(source).toBe('square')
+    expect(people).toEqual([
+      { id: 'TM1', name: 'Kaden', givenName: 'Kaden', role: 'owner', email: 'k@example.com', phone: '+12565550100', active: true },
+      { id: 'TM4', name: 'Catherine', givenName: 'Catherine', role: 'owner', email: null, phone: null, active: true },
+      { id: 'TM2', name: 'Emma', givenName: 'Emma', role: 'crew', email: 'emma@example.com', phone: null, active: true },
+    ])
+  })
+
+  it('uses the last-known team when Square fails after once answering', async () => {
+    await teamWithContacts()
+    _resetStaffCache()
+    searchMock.mockRejectedValue(new Error('square down'))
+    const { people, source } = await teamWithContacts()
+    expect(source).toBe('last-known')
+    expect(people.map((p) => p.id)).toEqual(['TM1', 'TM4', 'TM2'])
+  })
+
+  it('throws when Square fails and there is no saved copy', async () => {
+    searchMock.mockRejectedValue(new Error('square down'))
+    await expect(teamWithContacts()).rejects.toThrow()
+  })
+
+  it('treats an empty active list as a failure (last-known, or throw)', async () => {
+    searchMock.mockResolvedValue({ teamMembers: [] })
+    await expect(teamWithContacts()).rejects.toThrow()
+  })
+
+  it('keeps listStaff output unchanged: no email or phone in it', async () => {
+    const list = await listStaff()
+    expect(list).toEqual([
+      { id: 'TM1', name: 'Kaden', role: 'owner' },
+      { id: 'TM4', name: 'Catherine', role: 'owner' },
+      { id: 'TM2', name: 'Emma', role: 'crew' },
+    ])
+    for (const m of list) {
+      expect(m).not.toHaveProperty('email')
+      expect(m).not.toHaveProperty('phone')
+    }
+  })
+
+  it('shares one Square call between listStaff and teamWithContacts', async () => {
+    await listStaff()
+    await teamWithContacts()
+    expect(searchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('isActiveStaffId — fallback never keys data', () => {
+  beforeEach(async () => {
+    _resetStaffCache()
+    await _resetLastKnownForTests()
+    searchMock.mockReset()
+    searchMock.mockResolvedValue({ teamMembers: TEAM })
+  })
+
+  it('is true for an active id and false for inactive or unknown ones', async () => {
+    expect(await isActiveStaffId('TM2')).toBe(true)
+    expect(await isActiveStaffId('TM3')).toBe(false)
+    expect(await isActiveStaffId('nobody')).toBe(false)
+    expect(await isActiveStaffId('')).toBe(false)
+  })
+
+  it("is false for 'kaden' and 'catherine' even while listStaff answers with the fallback", async () => {
+    searchMock.mockRejectedValue(new Error('square down'))
+    expect((await listStaff()).map((m) => m.id)).toEqual(['kaden', 'catherine'])
+    expect(FALLBACK_IDS.has('kaden')).toBe(true)
+    expect(FALLBACK_IDS.has('catherine')).toBe(true)
+    expect(await isActiveStaffId('kaden')).toBe(false)
+    expect(await isActiveStaffId('catherine')).toBe(false)
+  })
+
+  it('answers from the last-known team while Square is down', async () => {
+    await teamWithContacts()
+    _resetStaffCache()
+    searchMock.mockRejectedValue(new Error('square down'))
+    expect(await isActiveStaffId('TM2')).toBe(true)
+    expect(await isActiveStaffId('kaden')).toBe(false)
+  })
+
+  it('is false (never throws) when Square is down and nothing is saved', async () => {
+    searchMock.mockRejectedValue(new Error('square down'))
+    expect(await isActiveStaffId('TM2')).toBe(false)
+  })
+})
+
+describe('staffIdForOwner', () => {
+  beforeEach(async () => {
+    _resetStaffCache()
+    await _resetLastKnownForTests()
+    searchMock.mockReset()
+    searchMock.mockResolvedValue({ teamMembers: TEAM })
+  })
+
+  it('finds the owner whose given name matches', async () => {
+    expect(await staffIdForOwner('Catherine')).toBe('TM4')
+    expect(await staffIdForOwner('Kaden')).toBe('TM1')
+  })
+
+  it('ignores crew who share the given name', async () => {
+    searchMock.mockResolvedValue({ teamMembers: [...TEAM, { id: 'TM9', givenName: 'Catherine', familyName: 'Smith', status: 'ACTIVE', isOwner: false }] })
+    expect(await staffIdForOwner('Catherine')).toBe('TM4')
+  })
+
+  it('is null when two owners share the given name', async () => {
+    searchMock.mockResolvedValue({ teamMembers: [...TEAM, { id: 'TM8', givenName: 'Catherine', familyName: 'Other', status: 'ACTIVE', isOwner: true }] })
+    expect(await staffIdForOwner('Catherine')).toBeNull()
+  })
+
+  it('is null when no owner has the name, or the team cannot be read', async () => {
+    searchMock.mockResolvedValue({ teamMembers: TEAM.filter((m) => m.id !== 'TM4') })
+    expect(await staffIdForOwner('Catherine')).toBeNull()
+    _resetStaffCache()
+    await _resetLastKnownForTests()
+    searchMock.mockRejectedValue(new Error('square down'))
+    expect(await staffIdForOwner('Kaden')).toBeNull()
+  })
+})
