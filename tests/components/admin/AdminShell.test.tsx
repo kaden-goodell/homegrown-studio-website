@@ -571,13 +571,13 @@ describe('More', () => {
     expect(posts(f, '/api/admin/classes/import-square.json')).toEqual([{ dryRun: true }])
   })
 
-  it('lists the setup pages; Staff and Promotions are marked as coming', async () => {
+  it('lists the setup pages; Staff is marked as coming; Promotions is live (codes, early-bird)', async () => {
     await signedIn()
     tab('More')
     const setup = await screen.findByRole('list', { name: 'Setup' })
     expect(within(setup).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Parties setup', 'Hours & Craft Café', 'Closed days', 'Staff', 'Promotions', 'Reports'])
     expect(within(setup).getByRole('button', { name: /Staff/ })).toHaveTextContent('Coming in stage 3')
-    expect(within(setup).getByRole('button', { name: /Promotions/ })).toHaveTextContent('Coming in stage 4')
+    expect(within(setup).getByRole('button', { name: /Promotions/ })).toHaveTextContent('Codes, early-bird')
     fireEvent.click(within(setup).getByRole('button', { name: /Parties setup/ }))
     expect(within(dialog()).getByText('Editing party times comes with party booking.')).toBeInTheDocument()
     expect(within(dialog()).getByText('Sundays')).toBeInTheDocument()

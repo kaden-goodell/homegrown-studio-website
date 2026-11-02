@@ -41,3 +41,15 @@ describe('WorkshopTile — ticket types', () => {
     expect(screen.getByText(/\$20 adult · \$15 kid/)).toBeInTheDocument()
   })
 })
+
+describe('WorkshopTile — our own class with an early-bird (stage 4)', () => {
+  it('the card says the early-bird price and the day it ends', async () => {
+    const { previewData } = await import('@components/admin/classes/preview')
+    const { content } = await import('../admin/sheets/harness')
+    const w = previewData(content({ name: 'Pottery', prices: { pas_full: { person: 2500 } }, earlyBird: { untilYmd: '2031-10-31', prices: { pas_full: { person: 2000 } } } }), [
+      { id: 's1', startIso: '2031-11-20T18:00:00Z', endIso: '2031-11-20T20:00:00Z', capacity: 8 },
+    ])
+    render(<WorkshopTile workshop={w} />)
+    expect(screen.getByText(/\$25 · Early-bird \$20 until Fri Oct 31/)).toBeInTheDocument()
+  })
+})

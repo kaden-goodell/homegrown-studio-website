@@ -42,6 +42,8 @@ export type Sheet =
   | { kind: InboxKind; id: string }
   | { kind: 'todo'; id: string }
   | { kind: 'more'; page: MorePage }
+  /** A promo code (More › Promotions): `promo-FALLFRIENDS`; `promo-new` is the New code form. */
+  | { kind: 'promo'; id: string }
 
 const plain = (s: string) => TOKEN_RE.test(s)
 
@@ -85,7 +87,7 @@ export function parseSheet(token: string): Sheet | null {
     const page = token.slice(5) as MorePage
     return MORE_PAGES.includes(page) ? { kind: 'more', page } : null
   }
-  for (const k of ['class', 'edit', 'again', 'libedit', 'libsched', 'lib', 'request', 'message', 'teacher', 'todo'] as const) {
+  for (const k of ['class', 'edit', 'again', 'libedit', 'libsched', 'lib', 'request', 'message', 'teacher', 'todo', 'promo'] as const) {
     if (token.startsWith(`${k}-`) && token.length > k.length + 1) return { kind: k, id: token.slice(k.length + 1) } as Sheet
   }
   return null
@@ -109,7 +111,7 @@ export function parseHash(hash: string): { tab?: Tab; sheet?: Sheet } {
 export function homeTabOf(s: Sheet): Tab {
   switch (s.kind) {
     case 'request': case 'message': case 'teacher': case 'todo': return 'inbox'
-    case 'more': return 'more'
+    case 'more': case 'promo': return 'more'
     case 'class': case 'edit': case 'lib': case 'libedit': case 'libsched': case 'again': return 'classes'
     case 'day': case 'legacy': case 'blocked': case 'party': case 'cafe': case 'closed': return 'calendar'
     default: return 'home'

@@ -122,7 +122,7 @@ describe('D4: POS prices follow the early-bird', () => {
     store.syncFails.add(id)
     await followCurrentPricesOnPos(AFTER)
     expect(texts).toHaveBeenCalledTimes(1)
-    expect(texts.mock.calls[0][0]).toBe("The POS price for Clay Camp didn't update: the register still rings the early-bird price. Open it in /admin and Save. We'll keep trying every hour.")
+    expect(texts.mock.calls[0][0]).toBe("The register price for Clay Camp didn't update: it still rings the early-bird price. Open the class in /admin and tap Fix the register price now. We'll keep trying every hour.")
     // The next hourly runs that day: still failing, no more texts.
     await followCurrentPricesOnPos(new Date(AFTER.getTime() + 3_600_000))
     await followCurrentPricesOnPos(new Date(AFTER.getTime() + 20 * 3_600_000))
@@ -151,5 +151,32 @@ describe('POST /api/jobs/class-prices.json', () => {
     const res = await call()
     expect(res.status).toBe(200)
     expect((await res.json()).data.updated).toEqual(['cls_a'])
+  })
+})
+
+describe('Fix the register price now (owner button)', () => {
+  it('fixes one class now: re-read, Square written, record saved only on the version read', async () => {
+    const { fixPosPrices } = await import('@lib/classes/pos-prices')
+    store.classes = [cls('cls_fix', { updatedAt: 'v7' })]
+    const r = await fixPosPrices('cls_fix', { id: 'owner-catherine', name: 'Catherine' }, AFTER)
+    expect(r.result).toBe('fixed')
+    expect(store.synced).toEqual(['cls_fix'])
+    expect(store.updates[0]).toMatchObject({ id: 'cls_fix', change: 'Register price fixed', opts: { expectedUpdatedAt: 'v7' }, patch: { square: { prices: { 'all:p': 2500 } } } })
+  })
+  it('already right: nothing written', async () => {
+    const { fixPosPrices } = await import('@lib/classes/pos-prices')
+    store.classes = [cls('cls_ok')]
+    expect((await fixPosPrices('cls_ok', { id: 'k', name: 'K' }, DURING)).result).toBe('already')
+    expect(store.synced).toEqual([])
+  })
+  it('the admin action: a Square failure reads as a plain sentence, nothing else changed', async () => {
+    const { fixRegisterPrice } = await import('@lib/classes/admin-actions')
+    store.classes = [cls('cls_down')]
+    store.syncFails.add('cls_down')
+    vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(AFTER)
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    await expect(fixRegisterPrice({ id: 'cls_down' }, { id: 'k', name: 'K' })).rejects.toMatchObject({ status: 502, message: 'Square didn’t take the new price just now. Nothing else changed. Try again in a few minutes.' })
+    expect(store.updates).toEqual([])
+    warn.mockRestore()
   })
 })

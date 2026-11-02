@@ -3,6 +3,7 @@ import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import { studioDate } from '@components/workshops/workshop-view-model'
 import { classAvailability, lowestPrice, type OwnClassData, type PublicPass } from '@lib/classes/public-class'
 import type { ClassContent, Session } from '@lib/classes/types'
+import { earlyBirdRunning } from '@lib/classes/early-bird'
 
 export function previewData(content: ClassContent, sessions: Session[], now = new Date()): WorkshopData {
   const list = [...sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))
@@ -22,6 +23,8 @@ export function previewData(content: ClassContent, sessions: Session[], now = ne
   const own: OwnClassData = {
     classId: 'preview', sessions: pub, passes, ticketTypes: content.ticketTypes, prices: content.prices,
     questions: content.questions, addOns: content.addOns, rules: content.rules, instructor: content.instructor, taxPercent: 0,
+    // Stage 4: the card says "Early-bird $20 until Fri Oct 30" while one runs, as the public card does.
+    ...(content.earlyBird && earlyBirdRunning(content, now) ? { earlyBird: content.earlyBird } : {}),
   }
   const first = list[0]
   return {

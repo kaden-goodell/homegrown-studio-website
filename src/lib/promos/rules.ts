@@ -127,14 +127,56 @@ export function promoRefusal(p: PromoCode | null, cls: Pick<ScheduledClass, 'id'
   return null
 }
 
-/** The owner's one-line summary: "10% off · every class · ends Mon Nov 30". */
-export function describePromo(p: Pick<PromoCode, 'off' | 'per' | 'appliesTo' | 'includeExtras' | 'endsYmd'>): string {
+/**
+ * The owner's one-line summary: "10% off · every class · ends Mon Nov 30".
+ * With `names` (id → "Clay Camp", "Looms · Sat Oct 24"), picked classes are
+ * named (M10): "Clay Camp and Looms", "Clay Camp, Looms and 2 more".
+ */
+export function describePromo(
+  p: Pick<PromoCode, 'off' | 'per' | 'appliesTo' | 'includeExtras' | 'endsYmd'>,
+  names?: Record<string, string>,
+): string {
   const off = p.off.kind === 'percent'
     ? `${p.off.percent}% off`
     : `${formatMoney(p.off.cents)} off ${p.per === 'seat' ? 'each person' : 'the booking'}`
-  const n = p.appliesTo.kind === 'classes' ? p.appliesTo.libraryIds.length + p.appliesTo.classIds.length : 0
-  const forWhat = p.appliesTo.kind === 'all' ? 'every class' : `${n} class${n === 1 ? '' : 'es'}`
-  return [off, forWhat, p.includeExtras ? 'extras too' : '', p.endsYmd ? `ends ${shortDay(p.endsYmd)}` : ''].filter(Boolean).join(' · ')
+  return [off, forWhat(p, names), p.includeExtras ? 'extras too' : '', p.endsYmd ? `ends ${shortDay(p.endsYmd)}` : ''].filter(Boolean).join(' · ')
+}
+
+/** "every class", "Clay Camp and Looms", "Clay Camp, Looms and 2 more", or "3 classes" when the names aren't known. */
+export function forWhat(p: Pick<PromoCode, 'appliesTo'>, names?: Record<string, string>): string {
+  if (p.appliesTo.kind === 'all') return 'every class'
+  const ids = [...p.appliesTo.libraryIds, ...p.appliesTo.classIds]
+  const n = ids.length
+  const known = names ? ids.map((id) => names[id]).filter((x): x is string => !!x) : []
+  if (!known.length) return `${n} class${n === 1 ? '' : 'es'}`
+  const more = n - Math.min(2, known.length)
+  if (n === 1) return known[0]
+  if (n === 2 && known.length === 2) return `${known[0]} and ${known[1]}`
+  return `${known.slice(0, 2).join(', ')} and ${more} more`
+}
+
+/** "3 of 20 used", "4 used" (no limit), with " · 1 paying now" while someone is at the pay step. */
+export function usesText(p: { usedCount: number; maxUses: number | null; payingNow?: number }): string {
+  const used = p.maxUses === null ? `${p.usedCount} used` : `${p.usedCount} of ${p.maxUses} used`
+  return p.payingNow ? `${used} · ${p.payingNow} paying now` : used
+}
+
+/** Where a code stands for the owner's list: off, ended, used up, or working. */
+export function promoState(p: Pick<PromoCode, 'active' | 'endsYmd' | 'maxUses'> & { usedCount: number }, now: Date): 'off' | 'ended' | 'used-up' | 'on' {
+  if (!p.active) return 'off'
+  if (p.endsYmd && !onOrBeforeDay(p.endsYmd, now)) return 'ended'
+  if (p.maxUses !== null && p.usedCount >= p.maxUses) return 'used-up'
+  return 'on'
+}
+
+/**
+ * M4: a code that could make a booking free (100% off, or $20 or more off,
+ * which covers most of our seats). With no use limit, anyone who hears of it
+ * books free, so the form says so before saving.
+ */
+export function couldBeFree(off: PromoCode['off']): 'free' | 'maybe' | null {
+  if (off.kind === 'percent') return off.percent >= 100 ? 'free' : null
+  return off.cents >= 2000 ? 'maybe' : null
 }
 
 /** "Code FALLFRIENDS" (a receipt line or a Square order discount's name) → "FALLFRIENDS"; null for anything else. */

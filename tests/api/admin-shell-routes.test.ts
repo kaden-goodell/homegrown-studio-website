@@ -72,7 +72,7 @@ describe('reports', () => {
       [{
         classId: 'cls_a',
         lines: [
-          line({}),
+          line({ discounts: [{ kind: 'early-bird', name: 'Early-bird', cents: 500 }, { kind: 'promo', name: 'Code FALL', cents: 250 }] }),
           line({ state: 'refunded', refunds: [{ at: '2026-10-10T15:00:00Z', cents: 1635, reason: '', by: { id: 'a', name: 'A' }, freedSeat: true, squareRefundId: 'r' }] }),
           line({ state: 'held' }),
           line({ state: 'released' }),
@@ -84,7 +84,7 @@ describe('reports', () => {
       now,
     )
     // Nov 1 04:30Z is Oct 31 11:30 PM studio time: this month.
-    expect(r).toEqual({ month: '2026-10', seatsSold: 3, classSalesCents: 3 * 3815, refunds: 1, refundedCents: 1635, partiesBooked: 1 })
+    expect(r).toEqual({ month: '2026-10', seatsSold: 3, classSalesCents: 3 * 3815, refunds: 1, refundedCents: 1635, partiesBooked: 1, discountCents: 750, codeDiscountCents: 250 })
   })
   it('owners only; a storage failure is a 503 with a sentence', async () => {
     expect((await get(reports, '/api/admin/reports.json', false)).status).toBe(401)

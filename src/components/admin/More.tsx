@@ -10,7 +10,7 @@ const ROWS: [MorePage, string, string][] = [
   ['hours', 'Hours & Craft Café', 'Café hours and special days'],
   ['closed', 'Closed days', ''],
   ['staff', 'Staff', 'Coming in stage 3'],
-  ['promos', 'Promotions', 'Coming in stage 4'],
+  ['promos', 'Promotions', 'Codes, early-bird'],
   ['reports', 'Reports', 'This month: seats sold, sales, refunds'],
 ]
 

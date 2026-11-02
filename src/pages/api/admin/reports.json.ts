@@ -21,6 +21,10 @@ export interface MonthReport {
   refundedCents: number
   /** Parties booked on the website this month (by the day they were booked). */
   partiesBooked: number
+  /** Stage 4: money taken off those seats this month (early-bird and codes), in cents. */
+  discountCents: number
+  /** Of that, what codes took off. */
+  codeDiscountCents: number
 }
 
 const inMonth = (iso: string, month: string) => localDate(iso).slice(0, 7) === month
@@ -28,13 +32,17 @@ const inMonth = (iso: string, month: string) => localDate(iso).slice(0, 7) === m
 /** The month's numbers from our own records. Pure, for the route and its tests. */
 export function monthReport(ledgers: Ledger[], parties: PartyRecord[], now: Date): MonthReport {
   const month = localDate(now.toISOString()).slice(0, 7)
-  let seatsSold = 0, classSalesCents = 0, refunds = 0, refundedCents = 0
+  let seatsSold = 0, classSalesCents = 0, refunds = 0, refundedCents = 0, discountCents = 0, codeDiscountCents = 0
   for (const ledger of ledgers) {
     for (const l of ledger.lines) {
       if ((l.state === 'confirmed' || l.state === 'refunded') && inMonth(l.at, month)) {
         seatsSold += 1
         // M4: Square's own per-seat numbers when kept (a discounted seat can be a cent off ours).
         classSalesCents += paidOn(l)
+        for (const d of l.discounts ?? []) {
+          discountCents += d.cents
+          if (d.kind === 'promo') codeDiscountCents += d.cents
+        }
       }
       for (const r of l.refunds) {
         if (r.cents > 0 && inMonth(r.at, month)) { refunds += 1; refundedCents += r.cents }
@@ -42,7 +50,7 @@ export function monthReport(ledgers: Ledger[], parties: PartyRecord[], now: Date
     }
   }
   const partiesBooked = parties.filter((p) => inMonth(p.createdAt, month)).length
-  return { month, seatsSold, classSalesCents, refunds, refundedCents, partiesBooked }
+  return { month, seatsSold, classSalesCents, refunds, refundedCents, partiesBooked, discountCents, codeDiscountCents }
 }
 
 /**

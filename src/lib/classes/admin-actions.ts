@@ -18,6 +18,7 @@ import { CREATE_KEY_RE } from '@lib/booking-core/ids'
 import type { By } from '@lib/staff-auth'
 import { formatDay, formatTime } from '@lib/studio-time'
 import { addBlocked, listBlocked, removeBlocked, type BlockedTime } from './blocked-time'
+import { fixPosPrices, FIX_FAILED } from './pos-prices'
 import { ClassExistsError, createClass, getClass, listClasses, StaleClassError, updateClass } from './class-store'
 import { archiveLibrary, getLibrary, LibraryStaleError, listLibrary, restoreLibraryVersion, saveLibraryVersion } from './library-store'
 import { takenCents } from './booking-words'
@@ -170,6 +171,26 @@ async function syncPos(cls: ScheduledClass, by: By): Promise<{ cls: ScheduledCla
     console.warn(`[classes] POS sync for ${cls.id} failed: ${e instanceof Error ? e.message : e}`)
     if (e instanceof LiveSquareFromTestSiteError) return { cls, warning: `Saved, but not on the POS. ${e.message}` }
     return { cls, warning: e instanceof Error && e.message === CLASS_TAX_NOT_SET ? TAX_WARNING : SYNC_WARNING }
+  }
+}
+
+/**
+ * "Fix the register price" (stage 4, D4): put the class's current seat prices
+ * on the POS now, instead of waiting for the hourly job. See fixPosPrices for
+ * the safety rules. Never touches a booking.
+ */
+export async function fixRegisterPrice(body: { id?: unknown }, by: By = ADMIN_BY): Promise<{ data: { class: ScheduledClass; result: 'fixed' | 'already' }; warning?: string }> {
+  if (typeof body.id !== 'string' || !body.id) throw new ActionError(400, 'Reload the page and try again.')
+  try {
+    const { result, cls } = await fixPosPrices(body.id, by)
+    if (result === 'fixed') await audit(by, 'class-fix-register-price', { kind: 'class', id: cls.id, label: cls.content.name })
+    return { data: { class: cls, result } }
+  } catch (e) {
+    if (e instanceof StaleClassError) throw new ActionError(409, 'Someone saved this class just now. Reload it, then try again.')
+    if (e instanceof LiveSquareFromTestSiteError) throw new ActionError(503, e.message)
+    if (e instanceof Error && e.message === CLASS_TAX_NOT_SET) throw new ActionError(503, "The register price can't be set: Class tax isn't set up yet.")
+    console.warn(`[classes] fix register price for ${String(body.id)} failed: ${e instanceof Error ? e.message : e}`)
+    throw new ActionError(502, FIX_FAILED)
   }
 }
 
@@ -713,6 +734,8 @@ export interface BookingView {
   free: boolean
   /** a door seat an owner marked paid at the counter (To decide) */
   paidAtCounter: boolean
+  /** Stage 4: what came off, by name, for a tag on the booking row ("Early-bird", "Code GRANDOPENING") */
+  discounts: string[]
   /** most the booking can still give back: remaining on its seats, capped at what Square charged less refunds */
   refundableCents: number
   at: string
@@ -767,6 +790,7 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
       paidHere: !!first.square.paymentId,
       free: isFreeBooking(first),
       paidAtCounter: lines.some((l) => !!l.paidAtCounter),
+      discounts: [...new Set(lines.flatMap((l) => (l.discounts ?? []).filter((d) => d.cents > 0).map((d) => d.name)))],
       refundableCents: Math.min(
         lines.filter(isPaidLine).reduce((s, l) => s + remainingOn(l), 0),
         bookingCap(lines) ?? Infinity,

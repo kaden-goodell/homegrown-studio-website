@@ -59,6 +59,8 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'class-create-keys' },
   // our online bookings Square showed paid with no seat left (R42), and which confirmations went out
   { name: 'paid-not-seated' },
+  // Stage 4 (I2): one marker per class per day so the stale-register text goes out once.
+  { name: 'pos-price-alerts' },
   { name: 'class-confirmations' },
   // who decided what in /admin › To decide
   { name: 'to-decide' },

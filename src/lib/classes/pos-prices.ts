@@ -50,8 +50,29 @@ async function tellOwnersOnce(cls: ScheduledClass, now: Date): Promise<void> {
     return
   }
   await alertOwners(
-    `The POS price for ${cls.content.name} didn't update: the register ${wrongNow(cls, now)}. Open it in /admin and Save. We'll keep trying every hour.`,
+    `The register price for ${cls.content.name} didn't update: it ${wrongNow(cls, now)}. Open the class in /admin and tap Fix the register price now. We'll keep trying every hour.`,
   ).catch(() => undefined)
+}
+
+/** What the owner reads when "Fix the register price" can't finish. */
+export const FIX_FAILED = 'Square didn’t take the new price just now. Nothing else changed. Try again in a few minutes.'
+
+/**
+ * "Fix the register price" (an owner's button on the class sheet, next to the
+ * "register still rings the early-bird price" line): the same safe write the
+ * hourly job makes, for one class, now. Safety rules: only a class on the POS
+ * that isn't over; it re-reads the class first; it writes only the seat
+ * prices and names the class already has (through syncClassToSquare, with the
+ * test-site guards); it saves the record only if nobody saved the class
+ * meanwhile; nothing about any booking changes. 'already' = nothing to fix.
+ */
+export async function fixPosPrices(classId: string, by: By, now = new Date()): Promise<{ result: 'fixed' | 'already'; cls: ScheduledClass }> {
+  const cls = await getClass(classId)
+  if (!cls) throw new Error('That class is gone. Reload and try again.')
+  if (!posPricesStale(cls, now)) return { result: 'already', cls }
+  const square = await syncClassToSquare(cls, now)
+  const saved = await updateClass(cls.id, { square }, by, 'Register price fixed', { expectedUpdatedAt: cls.updatedAt })
+  return { result: 'fixed', cls: saved }
 }
 
 export async function followCurrentPricesOnPos(now = new Date()): Promise<{ checked: number; updated: string[]; failed: string[] }> {

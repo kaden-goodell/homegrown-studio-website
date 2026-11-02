@@ -311,7 +311,7 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
         detail: earlyBirdRunning(cls.content, now)
           ? `The POS doesn’t have the early-bird price for ${name} yet.`
           : `POS price still early-bird for ${name}. The early-bird has ended.`,
-        action: 'An owner opens it in /admin and taps Save.',
+        action: 'An owner opens the class in /admin and taps Fix the register price now.',
       })
     }
     const min = cls.content.rules.minimumToRun

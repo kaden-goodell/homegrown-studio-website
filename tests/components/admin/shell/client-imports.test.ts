@@ -7,7 +7,7 @@ import { join } from 'node:path'
  * reaches node:crypto or the blob stores) breaks hydration with a blank page,
  * which jsdom tests don't notice. Types are fine.
  */
-const SERVER = ['artist-applications', 'submissions', 'event-requests', 'contact-messages', 'party-store', 'rsvp-store', 'waiver-store', 'admin-auth', 'staff-auth', 'audit', 'blob-store', 'classes/admin-actions', 'classes/class-store', 'classes/seat-ledger', 'classes/library-store', 'studio-settings', 'settings-effects', 'cafe-windows', 'classes/to-decide', 'to-decide-store']
+const SERVER = ['artist-applications', 'submissions', 'event-requests', 'contact-messages', 'party-store', 'rsvp-store', 'waiver-store', 'admin-auth', 'staff-auth', 'audit', 'blob-store', 'classes/admin-actions', 'classes/class-store', 'classes/seat-ledger', 'classes/library-store', 'studio-settings', 'settings-effects', 'cafe-windows', 'classes/to-decide', 'to-decide-store', 'promos/promo-store']
 /** Config modules written client-safe (no env, no server imports). */
 const CLIENT_CONFIG = ['closures', 'hours', 'party.config', 'opening', 'studio-days']
 const files = (dir: string): string[] => readdirSync(dir).flatMap((f) => {

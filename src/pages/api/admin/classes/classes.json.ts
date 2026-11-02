@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { toIso } from '@lib/classes/validate'
 import {
-  ActionError, cancelClass, classesBetween, duplicateClass, json, linkClassToLibrary, reply, scheduleClass, updateScheduledClass,
+  ActionError, cancelClass, classesBetween, duplicateClass, json, fixRegisterPrice, linkClassToLibrary, reply, scheduleClass, updateScheduledClass,
 } from '@lib/classes/admin-actions'
 
 export const prerender = false
@@ -24,6 +24,7 @@ export const GET: APIRoute = async ({ request, url }) => {
  *      { action: 'link-library', id } (puts an unlinked class in the library, R36)
  *      { action: 'update', id, content?, sessions?, status?, alsoUpdateLibrary?, confirmMove? }
  *      { action: 'cancel', id }
+ *      { action: 'fix-register-price', id } (D4: the POS seat prices follow the early-bird now, not at the next hourly run)
  */
 export const POST: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
@@ -36,6 +37,7 @@ export const POST: APIRoute = async ({ request }) => {
       case 'update': return updateScheduledClass(body, by)
       case 'cancel': return cancelClass(body, by)
       case 'link-library': return linkClassToLibrary(body, by)
+      case 'fix-register-price': return fixRegisterPrice(body, by)
       default: throw new ActionError(400, 'That is not something a class can do.')
     }
   })

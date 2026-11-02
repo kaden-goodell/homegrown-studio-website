@@ -563,3 +563,56 @@ describe('class sheet, fix round 2', () => {
   })
 })
 
+describe('class sheet › the early-bird and the register (stage 4)', () => {
+  const eb = { untilYmd: '2031-03-10', prices: { pas_full: { person: 2500 } } }
+  it('a Save of anything else keeps the early-bird; the header says when it ends', async () => {
+    const f = server({ the: cls({ content: content({ earlyBird: eb }) }) })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" tab="details" />)
+    await loaded()
+    expect(screen.getByText(/Early-bird until Mon Mar 10/)).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Pottery 2' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
+    expect(posts(f, CLASSES)[0].body.content.earlyBird).toEqual(eb)
+  })
+  it('"This class and the library" keeps it too; turning it off drops it', async () => {
+    const f = server({ the: cls({ libraryId: 'lib_1', content: content({ earlyBird: eb }) }), library: [lib('lib_1', content({ earlyBird: eb }))] })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" tab="details" />)
+    await screen.findByLabelText('Name')
+    await waitFor(() => expect(f.mock.calls.some((c) => String(c[0]).startsWith('/api/admin/classes/library.json'))).toBe(true))
+    fireEvent.change(screen.getByLabelText('Price per seat ($)'), { target: { value: '35' } })
+    fireEvent.click(await within(footer()).findByRole('button', { name: 'This class and the library' }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
+    expect(posts(f, CLASSES)[0].body).toMatchObject({ alsoUpdateLibrary: true, content: { earlyBird: eb } })
+    await screen.findByText('Saved. The library has it too.')
+    fireEvent.click(screen.getByLabelText('Early-bird price'))
+    fireEvent.click(await within(footer()).findByRole('button', { name: /Save|Only this class/ }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(2))
+    expect(posts(f, CLASSES)[1].body.content.earlyBird).toBeUndefined()
+  })
+  it('the register still rings the early-bird price: one line and "Fix the register price now"', async () => {
+    const stale = cls({
+      content: content({ earlyBird: { untilYmd: '2026-01-01', prices: { pas_full: { person: 2500 } } } }),
+      square: { itemId: 'ITEM', variations: { 'pas_full:person': 'V' }, prices: { 'pas_full:person': 2500 } },
+    })
+    const f = server({ the: stale, post: (b) => (b.action === 'fix-register-price' ? ok({ data: { result: 'fixed', class: { ...stale, square: { ...stale.square, prices: { 'pas_full:person': 3000 } } } } }) : null) })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<ClassSheet id="cls_1" />)
+    await loaded()
+    const line = screen.getByTestId('register-price')
+    expect(line).toHaveTextContent('The register still rings the early-bird price, which has ended.')
+    fireEvent.click(within(line).getByRole('button', { name: 'Fix the register price now' }))
+    expect(await screen.findByText('The register has the right price now.')).toBeInTheDocument()
+    expect(posts(f, CLASSES)[0].body).toEqual({ action: 'fix-register-price', id: 'cls_1' })
+    expect(screen.queryByTestId('register-price')).toBeNull()
+  })
+  it('a booking row tags what came off it: "Early-bird", "Code GRANDOPENING"', async () => {
+    vi.stubGlobal('fetch', server({ bookings: [booking({ discounts: ['Early-bird', 'Code GRANDOPENING'] })] }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    const row = await screen.findByRole('article', { name: 'Ada Lovelace' })
+    expect(within(row).getByText('Early-bird')).toBeInTheDocument()
+    expect(within(row).getByText('Code GRANDOPENING')).toBeInTheDocument()
+  })
+})

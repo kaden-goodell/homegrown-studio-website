@@ -118,7 +118,7 @@ describe('warnings for our own classes', () => {
     own.classes = [onPos({ 'all:person': 800 })]
     const w = (await listWarnings(WINDOW, { now: NOW })).find((x) => x.code === 'pos-price-stale')!
     expect(w).toMatchObject({ eventId: 'cls_camp', when: '2026-10-17T18:00:00.000Z' })
-    expect(warningLine(w)).toBe('Sat Oct 17 · POS price still early-bird for Clay Camp. The early-bird has ended. An owner opens it in /admin and taps Save.')
+    expect(warningLine(w)).toBe('Sat Oct 17 · POS price still early-bird for Clay Camp. The early-bird has ended. An owner opens the class in /admin and taps Fix the register price now.')
     // Fixed (the job or a save put the regular price on the POS): gone.
     own.classes = [onPos({ 'all:person': 1000 })]
     expect((await listWarnings(WINDOW, { now: NOW })).some((x) => x.code === 'pos-price-stale')).toBe(false)

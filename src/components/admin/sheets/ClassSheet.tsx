@@ -7,6 +7,9 @@
  * before it touches anyone's booking. Cancel lists who's booked first and
  * never refunds; "Refund everyone" is its own step with its own confirm.
  */
+import { earlyBirdRunning } from '@lib/classes/early-bird'
+import { shortDay } from '@lib/classes/chicago-day'
+import { posPricesStale } from '@lib/classes/pos-plan'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ClassBooking, PersonToTell } from '@lib/classes/admin-actions'
 import { contentChanges, sameDetails } from '@lib/classes/content-diff'
@@ -144,6 +147,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
   const subtitle = (
     <>
       {next ? `${dayLabel(localDate(next.startIso))} · ${timeSpan(next.startIso, next.endIso)}` : ''}{priceOf(c) ? ` · ${priceOf(c)}` : ''}
+      {c.earlyBird && earlyBirdRunning(c, new Date()) ? ` · Early-bird until ${shortDay(c.earlyBird.untilYmd)}` : ''}
       {tag && <span className={`adm-tag${cancelled ? ' is-red' : ''}`}>{tag}</span>}
       {past && <span className="adm-tag is-grey">Past</span>}
     </>
@@ -390,6 +394,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     <SheetFrame tall title={c.name} subtitle={subtitle} footer={footer}>
       <div ref={body}>
         <Seg label="Show" value={tab} options={TABS} onChange={(t) => { setTab(t); setTexting(false) }} />
+        <RegisterPrice cls={cls} onFixed={(saved) => { setData((d) => (d ? { ...d, cls: saved } : d)); bump() }} />
 
         {tab === 'bookings' && (
           <section aria-label="Bookings">
@@ -570,6 +575,7 @@ function BookingRow({ b, cls, ticket, onChanged }: { b: ClassBooking; cls: Sched
           <small>{[seats, pass, moneyWords(b), b.refundedCents ? `refunded ${formatMoney(b.refundedCents)}` : ''].filter(Boolean).join(' · ')}</small>
         </div>
         {tag && <span className={`adm-tag ${b.state === 'held' ? '' : 'is-grey'}`}>{tag}</span>}
+        {(b.discounts ?? []).map((d) => <span key={d} className="adm-tag is-grey">{d}</span>)}
       </div>
       {(answers.length > 0 || extras.length > 0) && (
         <ul className="adm-plain adm-small">
@@ -588,6 +594,37 @@ function BookingRow({ b, cls, ticket, onChanged }: { b: ClassBooking; cls: Sched
         {b.state !== 'held' && <RefundPanel classId={cls.id} booking={b} ticketLabel={ticket} waiting={b.waiting} counterSalesAtRegister send={(url, body) => api(url, body)} onDone={onChanged} />}
       </div>
     </article>
+  )
+}
+
+/**
+ * D4: the register (POS) doesn't ring this class's current price (the
+ * early-bird ended or started and the hourly update didn't land). One line and
+ * the button that fixes it; the server re-checks and writes only the prices.
+ */
+function RegisterPrice({ cls, onFixed }: { cls: ScheduledClass; onFixed: (c: ScheduledClass) => void }) {
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const now = new Date()
+  if (!posPricesStale(cls, now)) return null
+  const running = !!cls.content.earlyBird && earlyBirdRunning(cls.content, now)
+  async function fix() {
+    setBusy(true)
+    setError('')
+    const r = await api<{ class: ScheduledClass; result: 'fixed' | 'already' }>(CLASSES, { action: 'fix-register-price', id: cls.id })
+    setBusy(false)
+    if (!r.ok || !r.data) { setError(r.error ?? DIDNT_SAVE); return }
+    onFixed(r.data.class)
+    toast(r.data.result === 'fixed' ? 'The register has the right price now.' : 'The register already had the right price.')
+  }
+  return (
+    <div className="adm-panel is-warn" role="status" data-testid="register-price">
+      <b>{running ? 'The register doesn’t have the early-bird price yet.' : 'The register still rings the early-bird price, which has ended.'}</b>
+      <span className="adm-small">Nothing about anyone’s booking changes. This only puts the right seat prices on the register.</span>
+      <button type="button" className="adm-btn is-pri" disabled={busy} onClick={fix}>{busy ? 'Fixing…' : 'Fix the register price now'}</button>
+      {error && <p className="adm-error" role="alert">{error}</p>}
+    </div>
   )
 }
 

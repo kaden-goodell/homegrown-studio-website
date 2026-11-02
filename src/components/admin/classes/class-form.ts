@@ -4,9 +4,9 @@
  * ClassContent. Used by the class sheet's Details tab, New class and the
  * library's Edit details. Dates live in DateRows, not here.
  */
-import type { AddOn, ClassContent, ClassRules, Pass, SeatQuestion, Session, TicketType } from '@lib/classes/types'
+import type { AddOn, ClassContent, ClassRules, EarlyBird, Pass, SeatQuestion, Session, TicketType } from '@lib/classes/types'
 import { defaultRules, newId } from '@lib/classes/validate'
-import { partsOf, toIsoAt } from './dates'
+import { partsOf, toIsoAt, today } from './dates'
 import { previewData } from './preview'
 
 export interface AddOnRow { id: string; label: string; price: string; maxPerSeat: string }
@@ -35,10 +35,19 @@ export interface Form {
   /** Library only: how long it usually runs (minutes) and the seats it usually has. */
   defaultMinutes: string
   defaultCapacity: string
+  /**
+   * Stage 4 early-bird (OWNER-S4-7): on or off, its last day (YYYY-MM-DD, it
+   * works to midnight that night) and a lower price per sold seat price, as
+   * typed. Kept through every save (review Important 5): a class saved here
+   * keeps its early-bird unless it is turned off.
+   */
+  ebOn: boolean
+  ebUntil: string
+  ebPrices: Record<string, Record<string, string>>
 }
 
 /** Where an error shows, in the order the form reads (the first one gets the focus). */
-export const FIELD_ORDER = ['photo', 'name', 'price', 'ages', 'description', 'dates', 'prices', 'tickets', 'addons', 'questions', 'rules', 'usual'] as const
+export const FIELD_ORDER = ['photo', 'name', 'price', 'earlybird', 'ages', 'description', 'dates', 'prices', 'tickets', 'addons', 'questions', 'rules', 'usual'] as const
 export type FieldKey = (typeof FIELD_ORDER)[number]
 export type Errors = Partial<Record<FieldKey | 'form', string>>
 /** Errors that live under More options. */
@@ -46,7 +55,7 @@ export const MORE_KEYS: FieldKey[] = ['prices', 'tickets', 'addons', 'questions'
 
 /** "Fix the price." for the footer line, so an error far up the form is never missed. */
 const WHAT: Record<FieldKey, string> = {
-  photo: 'the photo', name: 'the name', price: 'the price', ages: 'the ages', description: 'the description', dates: 'the dates',
+  photo: 'the photo', name: 'the name', price: 'the price', earlybird: 'the early-bird', ages: 'the ages', description: 'the description', dates: 'the dates',
   prices: 'the prices under Ways to book', tickets: 'Seat prices', addons: 'the extras', questions: 'the questions', rules: 'Ages and booking rules',
   usual: 'the usual length or seats',
 }
@@ -92,6 +101,9 @@ export function toForm(content: ClassContent): Form {
     minTime: min?.time ?? '',
     defaultMinutes: String(content.defaultMinutes),
     defaultCapacity: String(content.defaultCapacity),
+    ebOn: !!content.earlyBird,
+    ebUntil: content.earlyBird?.untilYmd ?? '',
+    ebPrices: Object.fromEntries(Object.entries(content.earlyBird?.prices ?? {}).map(([p, row]) => [p, Object.fromEntries(Object.entries(row).map(([t, c]) => [t, dollars(c)]))])),
   }
 }
 
@@ -124,6 +136,7 @@ export function fieldOf(field: string | undefined, f: Form): FieldKey | 'form' {
   if (head === 'rules') return field === 'rules.ages' ? 'ages' : 'rules'
   if (head === 'defaultCapacity' || head === 'defaultMinutes') return 'usual'
   if (head === 'imageUrl') return 'photo'
+  if (head === 'earlyBird') return 'earlybird'
   if (head === 'description') return 'description'
   return 'name'
 }
@@ -198,6 +211,9 @@ export function build(f: Form, opts: { usual?: boolean } = {}): Built {
   if (!(maxPer >= 1 && maxPer <= 40)) errors.rules = 'The most people per booking is 1 to 40.'
   else rules.maxPerBooking = maxPer
 
+  const eb = f.ebOn ? buildEarlyBird(f, prices) : null
+  if (eb && !eb.ok) errors.earlybird = eb.error
+
   if (Object.keys(errors).length) return { ok: false, errors }
   return {
     ok: true,
@@ -205,10 +221,45 @@ export function build(f: Form, opts: { usual?: boolean } = {}): Built {
       name, description: f.description.trim(), imageUrl: f.imageUrl, instructor: f.instructor.trim() || null, rules,
       ticketTypes: f.ticketTypes.map((t) => ({ id: t.id, label: t.label.trim() })),
       passes, prices, questions, addOns,
+      ...(eb?.ok ? { earlyBird: eb.value } : {}),
       defaultCapacity: Number.isNaN(defaultCapacity) ? 12 : defaultCapacity,
       defaultMinutes: Number.isNaN(defaultMinutes) ? 120 : defaultMinutes,
     },
   }
+}
+
+/** The seat a price cell is for, in the owner's words: "Adult", "Full series · Adult", or "Seat" on a one-price class. */
+export function cellLabel(f: Pick<Form, 'passes' | 'ticketTypes'>, passId: string, ticketId: string): string {
+  const p = f.passes.find((x) => x.id === passId), t = f.ticketTypes.find((x) => x.id === ticketId)
+  if (isSimple(f)) return 'Seat'
+  const tl = t?.label.trim() || 'Seat'
+  return f.passes.length > 1 ? `${p?.label.trim() || 'Way to book'} · ${tl}` : tl
+}
+
+/**
+ * The early-bird as saved, from the typed boxes: its last day and a price for
+ * at least one sold seat price, each lower than its regular price. Prices for
+ * seats no longer sold are left out. Whether the last day is in the past is
+ * the server's to say (an unchanged early-bird that has ended is left off on
+ * save, with a note, never refused).
+ */
+function buildEarlyBird(f: Form, prices: ClassContent['prices']): { ok: true; value: EarlyBird } | { ok: false; error: string } {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(f.ebUntil)) return { ok: false, error: 'Pick the last day of the early-bird.' }
+  const out: EarlyBird['prices'] = {}
+  for (const [passId, row] of Object.entries(prices)) {
+    for (const [ticketId, regular] of Object.entries(row)) {
+      const v = (f.ebPrices[passId]?.[ticketId] ?? '').trim().replace(/^\$/, '')
+      if (!v) continue
+      const name = cellLabel(f, passId, ticketId)
+      if (!MONEY_RE.test(v)) return { ok: false, error: `The ${name === 'Seat' ? '' : `${name} `}early-bird price is a dollar amount, like 20 or 12.50.` }
+      const cents = toCents(v)
+      // An early-bird that has ended is the server's to leave off (M9); a lowered regular price never blocks the save.
+      if (cents >= regular && f.ebUntil >= today()) return { ok: false, error: `The ${name === 'Seat' ? '' : `${name} `}early-bird price has to be lower than $${dollars(regular)}.` }
+      ;(out[passId] ??= {})[ticketId] = cents
+    }
+  }
+  if (!Object.keys(out).length) return { ok: false, error: 'Add an early-bird price, or turn the early-bird off.' }
+  return { ok: true, value: { untilYmd: f.ebUntil, prices: out } }
 }
 
 /** What the preview card can draw from a half-typed form: never throws. */
@@ -223,6 +274,10 @@ export function previewOf(f: Form, sessions: Session[]) {
     rules: { ...f.rules, ages: f.ages }, ticketTypes: f.ticketTypes.map((t, i) => ({ ...t, label: t.label || `Seat ${i + 1}` })), prices,
     passes: f.passes.map((p) => (p.covers.kind === 'choose' ? { ...p, covers: { kind: 'choose' as const, count: intOf(f.chooseCounts[p.id] ?? '') || 1 } } : p)),
     defaultMinutes: intOf(f.defaultMinutes) || 120, defaultCapacity: intOf(f.defaultCapacity) || 12,
+  }
+  if (f.ebOn) {
+    const eb = buildEarlyBird(f, prices)
+    if (eb.ok) content.earlyBird = eb.value
   }
   return previewData(content, sessions)
 }

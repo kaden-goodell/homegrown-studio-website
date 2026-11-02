@@ -295,6 +295,40 @@ describe('New class › From a past class', () => {
   })
 })
 
+describe('New class: the early-bird (stage 4, review Important 5)', () => {
+  it('Run it again keeps a running early-bird: the form shows it and the Add sends it', async () => {
+    const eb = { untilYmd: '2031-03-15', prices: { pas_full: { person: 2500 } } }
+    const theClass = cls({ libraryId: null, content: content({ name: 'Pottery', earlyBird: eb }) })
+    const f = server({ theClass })
+    vi.stubGlobal('fetch', f)
+    const { sheet } = renderSheet(<NewClassSheet from={{ kind: 'class', id: 'cls_1' }} />)
+    await waitFor(() => expect(screen.getByLabelText('Name')).toHaveValue('Pottery'))
+    expect(screen.getByLabelText('Early-bird price')).toBeChecked()
+    expect(screen.getByLabelText('Early-bird price ($)')).toHaveValue('25')
+    expect(screen.getByTestId('eb-shows')).toHaveTextContent('Shows as: Early-bird $25 until Sat Mar 15.')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    await waitFor(() => expect(sheet.open).toHaveBeenCalled())
+    expect(posts(f, CLASSES)[0].body.content.earlyBird).toEqual(eb)
+  })
+  it('turned on for a new class: last day and price; a price that isn\'t lower is refused in place', async () => {
+    const f = server()
+    vi.stubGlobal('fetch', f)
+    renderSheet(<NewClassSheet day="2031-03-12" />)
+    fillBasics('Pottery', '30')
+    fireEvent.click(screen.getByLabelText('Early-bird price'))
+    fireEvent.change(screen.getByLabelText('Last day of the early-bird'), { target: { value: '2031-03-01' } })
+    fireEvent.change(screen.getByLabelText('Early-bird price ($)'), { target: { value: '30' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    expect(await screen.findByText('The early-bird price has to be lower than $30.')).toBeInTheDocument()
+    expect(posts(f, CLASSES)).toHaveLength(0)
+    fireEvent.change(screen.getByLabelText('Early-bird price ($)'), { target: { value: '24' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Add class' }))
+    await waitFor(() => expect(posts(f, CLASSES)).toHaveLength(1))
+    expect(posts(f, CLASSES)[0].body.content.earlyBird).toEqual({ untilYmd: '2031-03-01', prices: expect.any(Object) })
+    expect(Object.values(posts(f, CLASSES)[0].body.content.earlyBird.prices)[0]).toEqual({ person: 2400 })
+  })
+})
+
 describe('New class, fix round 1', () => {
   it('I1 (R35): one create key for this Add, the same on every retry, a new one after it worked', async () => {
     let n = 0

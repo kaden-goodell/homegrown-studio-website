@@ -161,6 +161,35 @@ describe('describePromo', () => {
   })
 })
 
+describe('Task 6: the owner\'s words for a code', () => {
+  it('M10: picked classes are named', async () => {
+    const { describePromo } = await import('@lib/promos/rules')
+    const names = { a: 'Clay Camp', b: 'Looms · Sat Oct 24', c: 'Mugs', d: 'Wreaths' }
+    const pick = (libraryIds: string[], classIds: string[] = []) => promo({ appliesTo: { kind: 'classes', libraryIds, classIds } })
+    expect(describePromo(pick(['a']), names)).toBe('10% off · Clay Camp')
+    expect(describePromo(pick(['a'], ['b']), names)).toBe('10% off · Clay Camp and Looms · Sat Oct 24')
+    expect(describePromo(pick(['a', 'c', 'd'], ['b']), names)).toBe('10% off · Clay Camp, Mugs and 2 more')
+    expect(describePromo(pick(['a', 'gone']), names)).toBe('10% off · Clay Camp and 1 more')
+  })
+  it('usesText and promoState', async () => {
+    const { usesText, promoState } = await import('@lib/promos/rules')
+    expect(usesText({ usedCount: 3, maxUses: 20 })).toBe('3 of 20 used')
+    expect(usesText({ usedCount: 4, maxUses: null, payingNow: 1 })).toBe('4 used · 1 paying now')
+    const now = new Date('2026-11-02T18:00:00Z')
+    expect(promoState({ ...promo(), usedCount: 0 }, now)).toBe('on')
+    expect(promoState({ ...promo({ active: false }), usedCount: 0 }, now)).toBe('off')
+    expect(promoState({ ...promo({ endsYmd: '2026-11-01' }), usedCount: 0 }, now)).toBe('ended')
+    expect(promoState({ ...promo({ maxUses: 1 }), usedCount: 1 }, now)).toBe('used-up')
+  })
+  it('M4: couldBeFree', async () => {
+    const { couldBeFree } = await import('@lib/promos/rules')
+    expect(couldBeFree({ kind: 'percent', percent: 100 })).toBe('free')
+    expect(couldBeFree({ kind: 'percent', percent: 50 })).toBeNull()
+    expect(couldBeFree({ kind: 'amount', cents: 2000 })).toBe('maybe')
+    expect(couldBeFree({ kind: 'amount', cents: 500 })).toBeNull()
+  })
+})
+
 describe('I1: the code on a booking', () => {
   it('codeFromDiscountName reads "Code X" (a receipt line or an order discount), nothing else', async () => {
     const { codeFromDiscountName } = await import('@lib/promos/rules')

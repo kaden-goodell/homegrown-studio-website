@@ -2380,3 +2380,13 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
   font-size: 0.9rem;
   cursor: pointer;
 }
+
+/* ── Promotions (stage 4) ─────────────────────────────────────────────── */
+.adm-promo-use {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0 0 0.5rem;
+}
+.adm-promo-pick {
+  margin: 0.5rem 0;
+}
