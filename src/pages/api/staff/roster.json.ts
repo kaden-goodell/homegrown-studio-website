@@ -27,7 +27,7 @@ type RosterKind = 'party' | 'workshop'
  *  are per event now, not per party — `?kind=&id=&day=` (`?party=` kept as
  *  the legacy alias for `kind=party`). */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!staffAuthorized(request)) {
+  if (!(await staffAuthorized(request))) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   }
 

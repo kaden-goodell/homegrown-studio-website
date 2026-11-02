@@ -8,12 +8,18 @@ vi.mock('@lib/audit', () => ({ recordAudit: vi.fn(async (e: any) => { audit.push
 // Upcoming shifts for the "still on something" warning.
 const shifts = vi.hoisted(() => ({ rows: [] as any[] }))
 vi.mock('@lib/staffing/events', () => ({ staffingRows: vi.fn(async () => shifts.rows) }))
+// Lets a test make stopping a calendar link fail.
+const feedFail = vi.hoisted(() => ({ on: false }))
+vi.mock('@lib/staffing/feed-store', async (orig) => {
+  const real = await orig<typeof import('@lib/staffing/feed-store')>()
+  return { ...real, revokeFeed: async (...a: Parameters<typeof real.revokeFeed>) => { if (feedFail.on) throw new Error('blob blip'); return real.revokeFeed(...a) } }
+})
 
 import * as route from '@pages/api/admin/staff-people.json'
 import * as loginRoute from '@pages/api/staff/login.json'
 import * as pickRoute from '@pages/api/staff/pick.json'
 import { adminCookie } from '@lib/admin-auth'
-import { _resetStaffListForTests } from '@lib/staff-directory'
+import { _resetStaffListForTests, _setImportFailuresForTests, STAFF_MESSAGES } from '@lib/staff-directory'
 import { feedStatus, findFeed, makeFeed } from '@lib/staffing/feed-store'
 
 const TEAM = [
@@ -40,6 +46,7 @@ beforeEach(async () => {
   searchMock.mockResolvedValue({ teamMembers: TEAM })
   audit.length = 0
   shifts.rows = []
+  feedFail.on = false
 })
 
 describe('GET /api/admin/staff-people.json', () => {
@@ -57,11 +64,21 @@ describe('GET /api/admin/staff-people.json', () => {
     expect(body.data.people[2].feed).toEqual({ has: false, createdAt: null, lastUsedAt: null })
   })
 
-  it('says it can start fresh when the Square team cannot be brought in', async () => {
+  it('offers a fresh start only after the import has failed 3 times over at least 10 minutes', async () => {
     searchMock.mockRejectedValue(new Error('square down'))
     const { status, body } = await call('GET')
     expect(status).toBe(503)
-    expect(body.canStartFresh).toBe(true)
+    // One failure (a short blip) never offers it, and the server refuses it too.
+    expect(body.canStartFresh).toBe(false)
+    const early = await call('POST', { action: 'start-fresh' })
+    expect(early.status).toBe(409)
+    expect(early.body.error).toBe(STAFF_MESSAGES.tooSoon)
+    // Three quick tries: still not offered.
+    await call('GET'); await call('GET')
+    expect((await call('GET')).body.canStartFresh).toBe(false)
+    // Failing for over 10 minutes, 3+ tries: offered.
+    await _setImportFailuresForTests(3, Date.now() - 11 * 60_000)
+    expect((await call('GET')).body.canStartFresh).toBe(true)
     const fresh = await call('POST', { action: 'start-fresh' })
     expect(fresh.status).toBe(200)
     expect(fresh.body.data.people.map((p: any) => p.givenName)).toEqual(['Catherine', 'Kaden'])
@@ -116,6 +133,30 @@ describe('No longer working here', () => {
     const all = (await call('GET')).body.data.people
     expect(all.find((p: any) => p.id === 'TM2')).toMatchObject({ active: false, givenName: 'Jessica' })
     expect((await call('POST', { action: 'return', id: 'TM2' })).body.data.person.active).toBe(true)
+  })
+
+  it("a link that couldn't be stopped on leave is said, and it's stopped when they come back", async () => {
+    await call('GET')
+    const { token } = await makeFeed({ staffId: 'TM2' }, { id: 'x', name: 'Jessica' })
+    feedFail.on = true
+    const res = await call('POST', { action: 'leave', id: 'TM2' })
+    expect(res.status).toBe(200)
+    expect(res.body.warning).toBe('Jessica’s calendar link couldn’t be stopped just now. It shows nothing while Jessica isn’t working here, and it’s stopped for good if Jessica comes back.')
+    expect(await findFeed(token)).not.toBeNull()
+    feedFail.on = false
+    const back = await call('POST', { action: 'return', id: 'TM2' })
+    expect(back.body.warning).toBeUndefined()
+    // The old link never wakes up.
+    expect(await findFeed(token)).toBeNull()
+  })
+
+  it("coming back when the old link can't be stopped says what to tap", async () => {
+    await call('GET')
+    await call('POST', { action: 'leave', id: 'TM2' })
+    await makeFeed({ staffId: 'TM2' }, { id: 'x', name: 'Jessica' })
+    feedFail.on = true
+    const back = await call('POST', { action: 'return', id: 'TM2' })
+    expect(back.body.warning).toBe('Jessica’s old calendar link couldn’t be stopped. Tap Stop their calendar link on Jessica’s row.')
   })
 })
 

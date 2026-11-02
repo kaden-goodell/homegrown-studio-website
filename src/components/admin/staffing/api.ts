@@ -17,9 +17,10 @@ export type { StaffingRow, StaffPersonRow }
 export const STAFFING = '/api/admin/staffing.json'
 export const OWNER_FEED = '/api/admin/feed.json'
 export const PEOPLE = '/api/admin/staff-people.json'
+export const PASSCODE = '/api/admin/staff-passcode.json'
 
-/** Owners only: how to reach each person working here. */
-export type Contacts = Record<string, { phone: string | null; email: string | null }>
+/** Owners only: how to reach each person (`left` = no longer working here). */
+export type Contacts = Record<string, { phone: string | null; email: string | null; left?: boolean }>
 
 export interface BoardData { rows: StaffingRow[]; team: { id: string; name: string; role: 'owner' | 'crew' }[]; contacts: Contacts }
 
@@ -105,15 +106,10 @@ export function phoneWords(phone: string | null | undefined): string {
   return ten.length === 10 ? `(${ten.slice(0, 3)}) ${ten.slice(3, 6)}-${ten.slice(6)}` : phone
 }
 
-/**
- * "No one on" / "1 of 2 on" for calendar rows in [fromIso, toIso): a lookup
- * by calendar item. Nothing shows while loading or when staffing can't be
- * read (Home's Needs you says so instead).
- */
-export function useStaffTags(fromIso: string, toIso: string): (item: { kind: string; id: string; sessionId?: string }) => string | undefined {
-  const { data } = useBoard(fromIso, toIso)
+/** "No one on" / "1 of 2 on" by calendar item, from board rows (undefined when covered or not listed). */
+export function tagLookup(rows: StaffingRow[] | null | undefined): (item: { kind: string; id: string; sessionId?: string }) => string | undefined {
   const tags = new Map<string, string>()
-  for (const r of data?.rows ?? []) {
+  for (const r of rows ?? []) {
     const t = staffTag(r)
     if (t) tags.set(r.event.key, t)
   }
@@ -121,6 +117,16 @@ export function useStaffTags(fromIso: string, toIso: string): (item: { kind: str
     const key = eventKeyOf(item)
     return key ? tags.get(key) : undefined
   }
+}
+
+/**
+ * "No one on" / "1 of 2 on" for calendar rows in [fromIso, toIso): a lookup
+ * by calendar item. Nothing shows while loading or when staffing can't be
+ * read (Home's Needs you says so instead).
+ */
+export function useStaffTags(fromIso: string, toIso: string): (item: { kind: string; id: string; sessionId?: string }) => string | undefined {
+  const { data } = useBoard(fromIso, toIso)
+  return tagLookup(data?.rows)
 }
 
 /** Home: the owners' staffing lines for the next two weeks, with contacts for Call / Text. */

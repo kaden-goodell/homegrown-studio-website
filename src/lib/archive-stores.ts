@@ -23,8 +23,11 @@
  *
  * Deliberately left out: `otps` (one-time SMS codes, 10-minute life),
  * `warnings-seen` (which daily-email lines were already shown), throwaway
- * data with no record value, and `calendar-feeds` (scrambled calendar-link
- * keys only; a lost one is replaced with "Make a new link").
+ * data with no record value, `calendar-feeds` (scrambled calendar-link
+ * keys only; a lost one is replaced with "Make a new link"), and
+ * `staff-access` (the staff passcode's salted hash; an owner sets a new one
+ * in /admin). `staff-people` keeps its `import-failures` counter next to the
+ * list; it is harmless in an export.
  */
 export interface ArchiveStoreEntry {
   name: string

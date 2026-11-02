@@ -31,6 +31,9 @@ vi.mock('@lib/party-store', () => ({ getPartyRecord: vi.fn(async (id: string) =>
 vi.mock('@lib/staff-directory', () => ({
   teamWithContacts: vi.fn(async () => ({ people: src.team, source: 'square' })),
   isActiveStaffId: vi.fn(async (id: string) => src.team.some((p) => p.id === id && p.active)),
+  everyoneWithContacts: vi.fn(async () => src.team),
+  staffIdStatus: vi.fn(async (id: string) => (src.team.some((p) => p.id === id && p.active) ? 'yes' : 'no')),
+  FALLBACK_IDS: new Set(['kaden', 'catherine']),
 }))
 vi.mock('@lib/staffing/notify', async (orig) => ({
   ...(await orig<typeof import('@lib/staffing/notify')>()),
@@ -84,7 +87,7 @@ describe('who may', () => {
     src.classes = [c]
     expect((await call('GET', undefined, { query: `?key=${keyOf(c)}`, cookie: null })).status).toBe(401)
     for (const role of ['crew', 'owner'] as const) {
-      const staff = staffCookie({ id: 'TM1', name: 'Kaden', role }).split(';')[0]
+      const staff = (await staffCookie({ id: 'TM1', name: 'Kaden', role })).split(';')[0]
       expect((await call('POST', { action: 'assign', key: keyOf(c), staffId: 'TM2', tell: false }, { cookie: staff })).status).toBe(401)
     }
     expect((await getEntries([keyOf(c)])).size).toBe(0)
@@ -102,11 +105,19 @@ describe('GET', () => {
       { id: 'TM1', name: 'Kaden', role: 'owner' }, { id: 'TM4', name: 'Catherine', role: 'owner' },
       { id: 'TM2', name: 'Jessica', role: 'crew' }, { id: 'TM3', name: 'Sam', role: 'crew' },
     ])
-    expect(r.body.data.teamSource).toBe('square')
+    expect(r.body.data.teamSource).toBe('local')
     // Contact details only in `contacts` (this route is owners only: Call / Text on "Check with Jessica").
     expect(JSON.stringify({ ...r.body.data, contacts: null })).not.toMatch(/example\.com|\+1256/)
     expect(r.body.data.contacts.TM2).toEqual({ phone: '+12565550199', email: 'jessica@example.com' })
     expect((await call('GET', undefined, { query: `?from=${inDays(0)}&to=${inDays(71)}` })).status).toBe(400)
+  })
+
+  it('contacts include people who left (marked left), so Call / Text still work for them; they are not on the team', async () => {
+    src.team = [...src.team, { ...person('TM8', 'Ava'), active: false, phone: '+12565550188' }]
+    const r = await call('GET', undefined, { query: `?from=${inDays(0)}&to=${inDays(14)}` })
+    expect(r.body.data.team.map((m: any) => m.id)).not.toContain('TM8')
+    expect(r.body.data.contacts.TM8).toMatchObject({ phone: '+12565550188', left: true })
+    expect(r.body.data.contacts.TM2.left).toBeUndefined()
   })
 
   it('lines=1: the owners\' staffing lines for two weeks, each with its event key and where it opens', async () => {
@@ -202,7 +213,7 @@ describe('assign and unassign', () => {
   it('refuses unknown or departed people, fallback ids and cancelled events', async () => {
     const c = klass(), cancelled = { ...klass('Gone'), status: 'cancelled' }
     src.classes = [c, cancelled]
-    expect(await call('POST', { action: 'assign', key: keyOf(c), staffId: 'TM9', tell: false })).toEqual({ status: 400, body: { error: "That person isn't on the team list." } })
+    expect(await call('POST', { action: 'assign', key: keyOf(c), staffId: 'TM9', tell: false })).toEqual({ status: 400, body: { error: "That person isn't on the staff list." } })
     expect((await call('POST', { action: 'assign', key: keyOf(c), staffId: 'kaden', tell: false })).status).toBe(400)
     await updateEntry(keyOf(cancelled), (e) => withAssigned(e, { staffId: 'TM2', name: 'Jessica', by: { id: 'x', name: 'Kaden' }, at: 'x', notified: null }), 'on', { id: 'x', name: 'Kaden' })
     expect((await call('POST', { action: 'assign', key: keyOf(cancelled), staffId: 'TM3', tell: false })).status).toBe(409)
@@ -390,7 +401,7 @@ describe('crew route still refuses what /admin allows', () => {
     src.classes = [c]
     const request = new Request('https://x.test/api/staff/shifts.json', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', cookie: staffCookie({ id: 'TM1', name: 'Kaden', role: 'owner' }).split(';')[0] },
+      headers: { 'Content-Type': 'application/json', cookie: (await staffCookie({ id: 'TM1', name: 'Kaden', role: 'owner' })).split(';')[0] },
       body: JSON.stringify({ action: 'assign', key: keyOf(c), staffId: 'TM2' }),
     })
     const res: Response = await (crewRoute as any).POST({ request, url: new URL(request.url) })

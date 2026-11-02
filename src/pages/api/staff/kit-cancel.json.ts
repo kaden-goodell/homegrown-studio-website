@@ -35,7 +35,7 @@ function studioToday(): string {
  * when the week was claimed pre-order).
  */
 export const POST: APIRoute = async ({ request }) => {
-  const staff = staffAuthorized(request)
+  const staff = await staffAuthorized(request)
   if (!staff) return json({ error: 'Unauthorized' }, 401)
   const by = byOf(staff)
 

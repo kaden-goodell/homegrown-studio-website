@@ -19,7 +19,7 @@ const DAY_MS = 86_400_000
 const MAX_RANGE_MS = 70 * DAY_MS // ten weeks
 const DEFAULT_AHEAD_MS = 56 * DAY_MS // eight weeks
 
-export const NOT_ON_TEAM = "You're not on the team list any more. Ask an owner."
+export const NOT_ON_TEAM = "You're not on the staff list any more. Ask an owner."
 export { OWNERS_ASSIGN }
 export const ALREADY_HAPPENED = 'That one has already happened.'
 export const WAS_CANCELLED = 'That one was cancelled.'
@@ -31,7 +31,7 @@ const OWNER_ONLY = new Set(['assign', 'unassign', 'needed'])
 
 /** The signed-in person, checked against the team (a fallback id or someone who left can't use My shifts). */
 async function who(request: Request): Promise<StaffMember | Response> {
-  const me = staffAuthorized(request)
+  const me = await staffAuthorized(request)
   if (!me) return json(401, { error: 'Sign in first.' })
   if (!(await isActiveStaffId(me.id))) return json(403, { error: NOT_ON_TEAM })
   return me

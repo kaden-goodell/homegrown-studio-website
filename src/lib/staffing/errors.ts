@@ -20,4 +20,4 @@ export class StaleError<T> extends StaffingError {
 export const STALE_AVAILABILITY = 'Someone changed your times on another device. Here they are.'
 export const STALE_ENTRY = "Someone else just changed who's on this. Here's the latest."
 export const BUSY_SAVING = 'Someone else is saving at the same moment. Try again.'
-export const NOT_A_PERSON = "That person isn't on the team list."
+export const NOT_A_PERSON = "That person isn't on the staff list."

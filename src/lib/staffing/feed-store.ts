@@ -44,7 +44,7 @@ const tokKey = (hash: string) => `tok-${hash}`
 
 function whoKey(who: Who): string {
   if ('staffId' in who) {
-    if (!storableStaffId(who.staffId)) throw new StaffingError(403, "That person isn't on the team list.")
+    if (!storableStaffId(who.staffId)) throw new StaffingError(403, "That person isn't on the staff list.")
     return `who-staff-${who.staffId}`
   }
   const owner = ownerOf(who.owner)

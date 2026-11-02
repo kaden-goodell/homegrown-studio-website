@@ -49,7 +49,7 @@ function parseDaysPatch(body: any): { ok: true; value?: string[] | null } | { ok
  * used by the settings sheet to show "Last changed by …" on open.
  */
 export const POST: APIRoute = async ({ request }) => {
-  const staff = staffAuthorized(request)
+  const staff = await staffAuthorized(request)
   if (!staff) return bad('Unauthorized', 401)
 
   const body = await request.json().catch(() => null)
@@ -129,7 +129,7 @@ export const POST: APIRoute = async ({ request }) => {
 }
 
 export const GET: APIRoute = async ({ request, url }) => {
-  const staff = staffAuthorized(request)
+  const staff = await staffAuthorized(request)
   if (!staff) return bad('Unauthorized', 401)
 
   const parsed = parseKindId(url.searchParams.get('kind'), url.searchParams.get('id'))

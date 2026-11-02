@@ -73,7 +73,7 @@ export async function saveAvailability(
   by: By,
   expectedUpdatedAt: string | null,
 ): Promise<Availability> {
-  if (!storableStaffId(staffId)) throw new StaffingError(403, "You're not on the team list any more. Ask an owner.")
+  if (!storableStaffId(staffId)) throw new StaffingError(403, "You're not on the staff list any more. Ask an owner.")
   assertClassWritesAllowed() // R41
   const key = keyOf(staffId)
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {

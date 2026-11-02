@@ -103,7 +103,7 @@ function fuzzyMatchesNotAuthorized(name: string, notAuthorized: string): boolean
  *   first day (HOM-213). The pickup code itself is event-scoped, not per-day.
  */
 export const POST: APIRoute = async ({ request }) => {
-  const staff = staffAuthorized(request)
+  const staff = await staffAuthorized(request)
   if (!staff) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   }

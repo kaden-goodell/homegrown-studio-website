@@ -145,7 +145,7 @@ function EventCard({ row, contacts, open, onToggle }: { row: StaffingRow; contac
     <div className={`adm-evcard${needsSomeone(row) ? ' is-short' : ''}`}>
       <button type="button" className="adm-evcard-head" aria-expanded={open} onClick={onToggle}>
         <span className="adm-rm">
-          <b>{row.event.title}{cancelled && <span className="adm-tag is-red">{row.event.status === 'cancelled' ? 'Cancelled' : 'Gone'}</span>}</b>
+          <b>{row.event.title}{cancelled && <span className="adm-tag is-red">{row.event.status === 'cancelled' ? 'Cancelled' : 'Not on the schedule'}</span>}</b>
           <small>{dayAndSpan(row.event.startIso, row.event.endIso)}</small>
           <small className="adm-evcard-state">{stateWords(row)}{row.people.some((p) => p.asked && !p.assigned) ? ' · ★ someone asked' : ''}</small>
         </span>

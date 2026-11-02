@@ -12,7 +12,7 @@ export const prerender = false
  * ours with something still to pay says so ("Waiting on payment").
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!staffAuthorized(request)) {
+  if (!(await staffAuthorized(request))) {
     return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   }
   const parties = (await listParties()).filter((p) => p.status !== 'cancelled')

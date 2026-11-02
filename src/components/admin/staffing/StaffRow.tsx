@@ -75,6 +75,9 @@ export function StaffRow({ eventKey, startIso, days, onChanged, headingLevel = 3
   const cancelled = ev.status !== 'on'
   const many = (days ?? []).length > 1 && ev.kind === 'class'
   const upcomingDays = (days ?? []).filter((d) => Date.parse(d.startIso) > Date.now() - 6 * 3_600_000)
+  // From a day that already happened, Every day / Off every day still tell people about the days to come.
+  const tellsAhead = many && upcomingDays.length > 0
+  const showTell = !cancelled && (!past || tellsAhead)
 
   function applied(next: StaffingRow | null | undefined) {
     if (next && live.current) { setRow(next); onChanged?.(next) }
@@ -84,7 +87,7 @@ export function StaffRow({ eventKey, startIso, days, onChanged, headingLevel = 3
   async function change(p: { staffId: string; name: string }, action: 'assign' | 'unassign', all: boolean) {
     if (busy) return
     setBusy(`${action}-${p.staffId}-${all ? 'all' : 'one'}`)
-    const sendTell = tell && !past && !cancelled
+    const sendTell = tell && !cancelled && (all || !past)
     const keys = all ? (upcomingDays.length ? upcomingDays : days ?? []).map((d) => d.key) : null
     const r = keys
       ? await postAssign({ action, staffId: p.staffId, tell: sendTell, keys, hints: Object.fromEntries((days ?? []).map((d) => [d.key, d.startIso])) })
@@ -128,7 +131,13 @@ export function StaffRow({ eventKey, startIso, days, onChanged, headingLevel = 3
           <span className="adm-small">{assigned.length || row.leftTeam.length ? 'Tell the people on it, then take them off. Nobody is told for you.' : 'Nobody is on it.'}</span>
         </div>
       )}
-      {past && !cancelled && <p className="adm-note">This already happened. Changes are kept for the record, and nobody is told.</p>}
+      {past && !cancelled && (
+        <p className="adm-note">
+          {tellsAhead
+            ? 'This day already happened. Put on and Take off here are kept for the record, and nobody is told. Every day and Off every day tell them about the days still to come.'
+            : 'This already happened. Changes are kept for the record, and nobody is told.'}
+        </p>
+      )}
 
       {!cancelled && (
         <div className="adm-staff-needed" role="group" aria-label="People needed">
@@ -146,7 +155,7 @@ export function StaffRow({ eventKey, startIso, days, onChanged, headingLevel = 3
 
       {cant.map((p) => <CheckWith key={p.staffId} person={p} contacts={contacts} />)}
 
-      {!past && !cancelled && (
+      {showTell && (
         <label className="adm-check adm-staff-tell">
           <input type="checkbox" checked={tell} onChange={(e) => setTell(e.target.checked)} />
           <span>Tell them by text and email</span>
@@ -202,13 +211,14 @@ export function CheckWith({ person, contacts }: { person: Pick<StaffPersonRow, '
     <div className="adm-panel is-warn adm-gap-bottom" role="group" aria-label={`Check with ${person.name}`}>
       <b>{`${person.name} marked this time as Can’t${person.markNote ? ` (${person.markNote})` : ''}`}</b>
       <span className="adm-small">{`Check with ${person.name}, or take ${person.name} off.`}</span>
-      <ContactRow name={person.name} phone={phone} />
+      <ContactRow name={person.name} phone={phone} left={contacts[person.staffId]?.left} />
     </div>
   )
 }
 
-/** Call and Text as links, or how to add a number. */
-export function ContactRow({ name, phone }: { name: string; phone: string | null }) {
+/** Call and Text as links, or how to add a number (someone who left can't be edited, so that's said instead). */
+export function ContactRow({ name, phone, left }: { name: string; phone: string | null; left?: boolean }) {
+  if (!phone && left) return <span className="adm-small">{`${name} no longer works here, and there’s no phone number saved for ${name}.`}</span>
   if (!phone) return <span className="adm-small">{`There’s no phone number saved for ${name}. Add one in More › Staff › People.`}</span>
   return (
     <div className="adm-contactrow">
@@ -222,7 +232,7 @@ function CancelledContacts({ people, contacts }: { people: StaffPersonRow[]; con
   return (
     <div className="adm-gap-top" role="group" aria-label="Tell them">
       <p className="adm-small">{`Tell ${names(people.map((p) => p.name))}:`}</p>
-      {people.map((p) => <ContactRow key={p.staffId} name={p.name} phone={contacts[p.staffId]?.phone ?? null} />)}
+      {people.map((p) => <ContactRow key={p.staffId} name={p.name} phone={contacts[p.staffId]?.phone ?? null} left={contacts[p.staffId]?.left} />)}
     </div>
   )
 }

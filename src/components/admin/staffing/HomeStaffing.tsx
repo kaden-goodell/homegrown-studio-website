@@ -44,7 +44,7 @@ export function HomeStaffing({ onOpen }: { onOpen: (s: Sheet, data?: unknown) =>
   )
 }
 
-function LineRow({ line, contacts, onOpen }: { line: StaffLine; contacts: Record<string, { phone: string | null }>; onOpen: (s: Sheet, data?: unknown) => void }) {
+function LineRow({ line, contacts, onOpen }: { line: StaffLine; contacts: Record<string, { phone: string | null; left?: boolean }>; onOpen: (s: Sheet, data?: unknown) => void }) {
   const toast = useToast()
   const { bump } = useRefresh()
   const [busy, setBusy] = useState('')
@@ -64,7 +64,7 @@ function LineRow({ line, contacts, onOpen }: { line: StaffLine; contacts: Record
       <p>{warningLineText(line)}</p>
       {(line.code === 'assigned-cant' || line.code === 'assigned-cancelled') && (line.staff?.people ?? []).map((p) => (
         <div key={p.staffId} className="adm-stack">
-          <ContactRow name={p.name} phone={contacts[p.staffId]?.phone ?? null} />
+          <ContactRow name={p.name} phone={contacts[p.staffId]?.phone ?? null} left={contacts[p.staffId]?.left} />
           {line.code === 'assigned-cancelled' && (
             <button type="button" className="adm-btn is-ghost is-sm" disabled={!!busy} onClick={() => takeOff(p.staffId, p.name)}>{busy === p.staffId ? 'Saving…' : `Take ${p.name} off`}</button>
           )}

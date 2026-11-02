@@ -138,9 +138,9 @@ describe('My shifts', () => {
   })
 
   it('no tab-level crash when the API fails: the sentence and Try again', async () => {
-    fetchMock.mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: "You're not on the team list any more. Ask an owner." }) })
+    fetchMock.mockResolvedValueOnce({ ok: false, status: 403, json: async () => ({ error: "You're not on the staff list any more. Ask an owner." }) })
     render(<MyShifts staff={STAFF} onOpenRoster={() => {}} />)
-    expect(await screen.findByRole('alert')).toHaveTextContent("You're not on the team list any more. Ask an owner.")
+    expect(await screen.findByRole('alert')).toHaveTextContent("You're not on the staff list any more. Ask an owner.")
     fetchMock.mockResolvedValue(ok(data()))
     fireEvent.click(screen.getByRole('button', { name: 'Try again' }))
     expect(await screen.findAllByTestId('my-shift')).toHaveLength(2)

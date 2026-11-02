@@ -52,7 +52,7 @@ export const DELETE: APIRoute = async ({ request }) => {
   const staffId = (body as { staffId?: unknown }).staffId
   return staffingReply(async () => {
     if (staffId !== undefined) {
-      if (!storableStaffId(staffId)) throw new StaffingError(400, "That person isn't on the team list.")
+      if (!storableStaffId(staffId)) throw new StaffingError(400, "That person isn't on the staff list.")
       const name = (await teamWithContacts().catch(() => ({ people: [] as { id: string; name: string }[] }))).people.find((p) => p.id === staffId)?.name ?? staffId
       await revokeFeed({ staffId }, by)
       await recordAudit({ by: { ...by, role: 'owner' }, action: 'feed.revoke', target: { kind: 'calendar-link', id: staffId, label: name } })

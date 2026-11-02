@@ -20,7 +20,7 @@ const json = (body: unknown, status = 200) =>
  * 503: the caller must not schedule on a guess.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!staffAuthorized(request)) return json({ error: 'Unauthorized' }, 401)
+  if (!(await staffAuthorized(request))) return json({ error: 'Unauthorized' }, 401)
 
   const kind = url.searchParams.get('kind')
   const start = url.searchParams.get('start') ?? ''

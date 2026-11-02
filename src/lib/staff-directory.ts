@@ -22,10 +22,13 @@
  * - teamWithContacts(): server only, with email and phone, for telling a
  *   person they're on a shift.
  * - isActiveStaffId() / staffIdStatus(): someone who no longer works here is
- *   not active: their calendar link answers 404, their /staff writes are
- *   refused, and they leave every picker.
+ *   not active: their calendar link answers 404, every /staff request with
+ *   their sign-in is refused (staff-auth), and they leave every picker.
  * - staffIdForOwner(): /admin knows owners by name ('Catherine' | 'Kaden');
- *   this maps that name to the owner's id by given name.
+ *   this maps that name to the owner's id: the person linked to that owner
+ *   when the list started (so a rename doesn't matter), else by given name.
+ *   The import makes anyone named Catherine or Kaden an owner (Square marks
+ *   only its single account owner).
  *
  * Server only. Contact details never leave the server except to owners
  * (/api/admin/*).
@@ -36,11 +39,10 @@ import { createSquareClient } from '@providers/square/client'
 import { siteConfig } from '@config/site.config'
 import type { SquareConfig } from '@config/site.config'
 import type { By, StaffMember } from '@lib/staff-auth'
-import { OWNERS, type Owner } from '@lib/admin-who'
+import { OWNERS, ownerOf, type Owner } from '@lib/admin-who'
 import { makeKvStore } from '@lib/blob-store'
 import { classWritesRefusal, TestSiteStoreError } from '@lib/classes/test-site-guard'
 import { isEmail, isPhone } from '@lib/contact-rules'
-import { toE164 } from '@lib/quo'
 import { StaffingError } from '@lib/staffing/errors'
 
 const logger = createLogger('staff-directory')
@@ -80,6 +82,12 @@ export interface StaffRecord {
   updatedAt: string
   /** newest first, capped at PERSON_HISTORY_CAP */
   history: { at: string; by: By; change: string }[]
+  /**
+   * Which /admin owner this person is ('Catherine' | 'Kaden'), set when the
+   * list started. It follows the id, so renaming an owner ("Cat") keeps their
+   * whole-studio calendar's "You're on". Absent on lists saved before it existed.
+   */
+  owner?: Owner | null
 }
 
 export interface StaffDoc {
@@ -116,6 +124,12 @@ export function forgetTeamCache(): void {
 export async function _resetStaffListForTests(): Promise<void> {
   cache = null
   await kv.set(KEY, 'null')
+  await kv.set(FAILS_KEY, 'null')
+}
+
+/** @internal test-only: pretend the first import has been failing for a while. */
+export async function _setImportFailuresForTests(tries: number, firstAt: number): Promise<void> {
+  await kv.set(FAILS_KEY, JSON.stringify({ firstAt, tries, lastAt: Date.now() }))
 }
 
 const text = (v: unknown): string | null => {
@@ -150,11 +164,20 @@ async function squareTeamForImport(): Promise<StaffRecord[]> {
   if (active.length === 0) throw new Error('Square returned no active team members')
   const now = new Date().toISOString()
   const by: By = { id: 'system', name: 'Set up' }
+  const given = (m: any) => String(m.givenName ?? '').trim()
+  // Square marks only its one account owner. Catherine and Kaden are both owners
+  // here, so anyone whose first name is one of theirs comes in as an owner too
+  // (and is linked to that /admin owner when exactly one person has the name).
+  const ownerFor = (m: any): Owner | null => {
+    const o = ownerOf(given(m))
+    return o && active.filter((x) => ownerOf(given(x)) === o).length === 1 ? o : null
+  }
   return active.map((m) => ({
     id: m.id,
-    givenName: String(m.givenName ?? '').trim() || 'Someone',
+    givenName: given(m) || 'Someone',
     familyName: String(m.familyName ?? '').trim(),
-    role: m.isOwner ? 'owner' : 'crew',
+    role: m.isOwner || ownerOf(given(m)) ? 'owner' : 'crew',
+    owner: ownerFor(m),
     email: text(m.emailAddress),
     phone: text(m.phoneNumber),
     active: true,
@@ -184,6 +207,7 @@ async function loadDoc(): Promise<{ doc: StaffDoc; saved: boolean }> {
     people = await squareTeamForImport()
   } catch (err) {
     logger.error('Could not bring in the Square team for the first staff list', { error: err instanceof Error ? err.message : String(err) })
+    await noteImportFailure()
     throw new StaffListUnavailable(IMPORT_FAILED)
   }
   const now = new Date().toISOString()
@@ -203,6 +227,40 @@ async function loadDoc(): Promise<{ doc: StaffDoc; saved: boolean }> {
   if (!again.doc) throw new StaffListUnavailable(IMPORT_FAILED)
   cache = { at: Date.now(), doc: again.doc, saved: true }
   return { doc: again.doc, saved: true }
+}
+
+// ---------------------------------------------------------------- first import keeps failing
+
+const FAILS_KEY = 'import-failures'
+/** "Start the list with just the owners" is offered only after this many failed tries… */
+export const FRESH_AFTER_TRIES = 3
+/** …spread over at least this long, so a short Square blip never costs the id links. */
+export const FRESH_AFTER_MS = 10 * 60_000
+
+/** Count a failed first import (best effort; never on a test site sharing the live stores). */
+async function noteImportFailure(now = Date.now()): Promise<void> {
+  if (classWritesRefusal()) return
+  try {
+    const raw = await kv.get(FAILS_KEY)
+    const was = raw ? (JSON.parse(raw) as { firstAt?: number; tries?: number } | null) : null
+    const firstAt = typeof was?.firstAt === 'number' ? was.firstAt : now
+    const tries = (typeof was?.tries === 'number' ? was.tries : 0) + 1
+    await kv.set(FAILS_KEY, JSON.stringify({ firstAt, tries, lastAt: now }))
+  } catch (err) {
+    logger.warn('Could not count a failed staff list import', { error: err instanceof Error ? err.message : String(err) })
+  }
+}
+
+/** True once the first import has failed FRESH_AFTER_TRIES times over at least FRESH_AFTER_MS, and there's still no list. */
+export async function canStartFresh(now = Date.now()): Promise<boolean> {
+  try {
+    if ((await readSaved()).doc) return false
+    const raw = await kv.get(FAILS_KEY)
+    const was = raw ? (JSON.parse(raw) as { firstAt?: number; tries?: number } | null) : null
+    return typeof was?.firstAt === 'number' && (was.tries ?? 0) >= FRESH_AFTER_TRIES && now - was.firstAt >= FRESH_AFTER_MS
+  } catch {
+    return false
+  }
 }
 
 /** Display names: the given name, plus a family initial when two people working here share it. */
@@ -233,6 +291,12 @@ function withNames(records: StaffRecord[]): StaffPerson[] {
 export async function teamWithContacts(): Promise<{ people: StaffPerson[]; source: 'local' }> {
   const { doc } = await loadDoc()
   return { people: withNames(doc.people).filter((p) => p.active), source: 'local' }
+}
+
+/** Server only, owners' screens: everyone with contact details, those who left too (`active: false`), so Call / Text still work for someone still on a cancelled party. */
+export async function everyoneWithContacts(): Promise<StaffPerson[]> {
+  const { doc } = await loadDoc()
+  return withNames(doc.people)
 }
 
 /** Owners only (/admin › People): everyone, those who left too, with their records. */
@@ -278,17 +342,35 @@ export async function staffIdStatus(id: string): Promise<'yes' | 'no' | 'unknown
   }
 }
 
-/** The person an /admin owner name is, by given name among owners working here; null when not found, ambiguous, or unreadable. */
+/**
+ * The person an /admin owner name is: the one linked to that owner when the
+ * list started (follows the id, so a rename doesn't matter), else by given
+ * name among owners working here; null when not found, ambiguous, or unreadable.
+ */
 export async function staffIdForOwner(owner: Owner): Promise<string | null> {
-  let people: StaffPerson[]
+  let people: StaffRecord[]
   try {
-    people = (await teamWithContacts()).people
+    people = (await loadDoc()).doc.people.filter((p) => p.active)
   } catch {
     return null
   }
+  const linked = people.filter((p) => p.owner === owner)
+  if (linked.length === 1) return linked[0].id
   const want = owner.trim().toLowerCase()
-  const hits = people.filter((p) => p.role === 'owner' && p.active && p.givenName.trim().toLowerCase() === want)
+  const hits = people.filter((p) => p.role === 'owner' && !p.owner && p.givenName.trim().toLowerCase() === want)
   return hits.length === 1 ? hits[0].id : null
+}
+
+/**
+ * A staff phone as E.164, from what an owner typed: the digits only, so a
+ * stray leading "+" or "+1" can't make a bad text number. 10 digits → +1…,
+ * 11 starting with 1 → +…; anything else null.
+ */
+export function staffPhone(typed: string): string | null {
+  const d = typed.replace(/\D/g, '')
+  if (d.length === 10) return `+1${d}`
+  if (d.length === 11 && d.startsWith('1')) return `+${d}`
+  return null
 }
 
 // ---------------------------------------------------------------- changes (owners only, /admin)
@@ -307,6 +389,7 @@ export const STAFF_MESSAGES = {
   stale: 'Someone else just changed this person. Here’s the latest.',
   busy: 'Someone else is saving at the same moment. Try again.',
   already: 'There’s already a staff list, so it can’t be started fresh.',
+  tooSoon: 'Give it a few more minutes and try again first. The staff list usually comes back by itself.',
 } as const
 
 export class StaffInputError extends StaffingError {
@@ -325,9 +408,9 @@ export function cleanPerson(raw: unknown): PersonInput {
   if (givenName.length > MAX_NAME) throw new StaffInputError(STAFF_MESSAGES.nameLong, 'givenName')
   if (familyName.length > MAX_NAME) throw new StaffInputError(STAFF_MESSAGES.nameLong, 'familyName')
   if (o.role !== 'owner' && o.role !== 'crew') throw new StaffInputError(STAFF_MESSAGES.role, 'role')
-  if (phone && (!isPhone(phone) || !toE164(phone))) throw new StaffInputError(STAFF_MESSAGES.phone, 'phone')
+  if (phone && (!isPhone(phone) || !staffPhone(phone))) throw new StaffInputError(STAFF_MESSAGES.phone, 'phone')
   if (email && (!isEmail(email) || email.length > MAX_EMAIL)) throw new StaffInputError(STAFF_MESSAGES.email, 'email')
-  return { givenName, familyName, role: o.role, phone: phone ? toE164(phone)! : '', email: email.toLowerCase() }
+  return { givenName, familyName, role: o.role, phone: phone ? staffPhone(phone)! : '', email: email.toLowerCase() }
 }
 
 const fullName = (r: { givenName: string; familyName: string }) => `${r.givenName} ${r.familyName}`.trim().toLowerCase()
@@ -425,11 +508,12 @@ export async function startFresh(by: By): Promise<StaffDoc> {
   if (classWritesRefusal()) throw new TestSiteStoreError()
   const first = await readSaved()
   if (first.doc) throw new StaffingError(409, STAFF_MESSAGES.already)
+  if (!(await canStartFresh())) throw new StaffingError(409, STAFF_MESSAGES.tooSoon)
   const now = new Date().toISOString()
   const people: StaffRecord[] = []
   for (const owner of OWNERS) {
     people.push({
-      id: newId(people), givenName: owner, familyName: '', role: 'owner', email: null, phone: null, active: true, leftAt: null,
+      id: newId(people), givenName: owner, familyName: '', role: 'owner', owner, email: null, phone: null, active: true, leftAt: null,
       from: 'added', createdAt: now, updatedAt: now, history: [{ at: now, by, change: `${by.name} started the list` }],
     })
   }

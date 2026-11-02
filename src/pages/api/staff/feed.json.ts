@@ -9,7 +9,7 @@ import { json, staffingReply } from '@lib/staffing/http'
 
 export const prerender = false
 
-const NOT_ON_TEAM = "You're not on the team list any more. Ask an owner."
+const NOT_ON_TEAM = "You're not on the staff list any more. Ask an owner."
 
 /**
  * The signed-in person's own calendar link (their shifts only).
@@ -17,7 +17,7 @@ const NOT_ON_TEAM = "You're not on the team list any more. Ask an owner."
  * DELETE → stops it.
  */
 async function me(request: Request) {
-  const m = staffAuthorized(request)
+  const m = await staffAuthorized(request)
   if (!m) return json(401, { error: 'Sign in first.' })
   if (!(await isActiveStaffId(m.id))) return json(403, { error: NOT_ON_TEAM })
   if (rateLimited(`staff-feed:${m.id}`, 10, 60_000)) return json(429, { error: "That's a lot of new links at once. Wait a minute and try again." })

@@ -15,7 +15,7 @@ import { printLine } from '@lib/classes/booking-words'
 // Staff-authed server-side (HOM-213) — a printable paper fallback for the
 // door when wifi drops, so it must never be reachable without the same
 // staff cookie the console itself requires.
-if (!staffAuthorized(Astro.request)) {
+if (!(await staffAuthorized(Astro.request))) {
   return new Response('Unauthorized — sign in at /staff first.', { status: 401 })
 }
 

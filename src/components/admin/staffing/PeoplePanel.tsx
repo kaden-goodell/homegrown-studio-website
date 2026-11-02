@@ -5,6 +5,9 @@
  * Working here again. Each person's calendar link: whether they have one,
  * when a phone last checked it, and Stop their calendar link. Every
  * are-you-sure is asked here, never in a browser pop-up.
+ *
+ * Staff passcode (bus factor): an owner sets a new /staff passcode here. It
+ * is never shown back, and saving it signs everyone out of /staff.
  */
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../classes/api'
@@ -13,7 +16,7 @@ import { Failed, Seg, Skeleton } from '../shell/items'
 import { useSheetDirty } from '../shell/Sheet'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
 import { useRefresh } from '../shell/data'
-import { OWNER_FEED, PEOPLE, phoneWords } from './api'
+import { OWNER_FEED, PEOPLE, PASSCODE, phoneWords } from './api'
 import { ContactRow } from './StaffRow'
 
 export interface PersonView {
@@ -54,7 +57,8 @@ export function PeoplePanel() {
   const [busy, setBusy] = useState('')
   const live = useRef(true)
   useEffect(() => () => { live.current = false }, [])
-  useSheetDirty(editing !== null && JSON.stringify(form) !== JSON.stringify(base))
+  const [passDirty, setPassDirty] = useState(false)
+  useSheetDirty((editing !== null && JSON.stringify(form) !== JSON.stringify(base)) || passDirty)
 
   useEffect(() => {
     let current = true
@@ -149,7 +153,7 @@ export function PeoplePanel() {
         {canStartFresh && (
           <div className="adm-panel adm-gap-top">
             <b>Still not working?</b>
-            <span className="adm-small">You can start the staff list with just Catherine and Kaden, then add everyone else. Shifts already saved for the old list won’t show against the new names.</span>
+            <span className="adm-small">You can start the staff list with just Catherine and Kaden, then add everyone else by hand. Anything already saved for your team, like who’s on a shift or a calendar link, won’t carry over to the new list.</span>
             {!freshAsk
               ? <button type="button" className="adm-btn is-ghost" onClick={() => setFreshAsk(true)}>Start the list with just the owners</button>
               : (
@@ -203,7 +207,8 @@ export function PeoplePanel() {
                 {confirm?.id === p.id && confirm.kind === 'leave' && (
                   <div className="adm-panel is-warn adm-gap-top" role="group" aria-label={`${p.name} no longer works here?`}>
                     <b>{`${p.name} no longer works here?`}</b>
-                    <span className="adm-small">{`${p.givenName} leaves the sign-in list and every staff list, and ${p.givenName}’s calendar link stops. Shifts already worked stay on record. You can bring ${p.givenName} back any time.`}</span>
+                    <span className="adm-small">{`${p.givenName} is signed out of /staff, leaves the sign-in list and every staff list, and ${p.givenName}’s calendar link stops. Shifts already worked stay on record. You can bring ${p.givenName} back any time.`}</span>
+                    <span className="adm-small">{`If ${p.givenName} knows the staff passcode, change it below too.`}</span>
                     <div className="adm-two">
                       <button type="button" className="adm-btn is-ghost" onClick={() => setConfirm(null)}>Keep</button>
                       <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => setWorking(p, false)}>{busy === `work-${p.id}` ? 'Saving…' : 'Yes, no longer here'}</button>
@@ -248,6 +253,93 @@ export function PeoplePanel() {
             ))}
           </ul>
         </details>
+      )}
+      <PasscodePanel onDirty={setPassDirty} />
+    </section>
+  )
+}
+
+interface PasscodeView { setInAdmin: boolean; updatedAt: string | null; by: string | null; readOnly: boolean }
+
+/** Staff passcode: change it here; never shown back. Saving signs everyone out of /staff. */
+export function PasscodePanel({ onDirty }: { onDirty?: (dirty: boolean) => void }) {
+  const toast = useToast()
+  const [view, setView] = useState<PasscodeView | null>(null)
+  const [error, setError] = useState('')
+  const [tries, setTries] = useState(0)
+  const [open, setOpen] = useState(false)
+  const [code, setCode] = useState('')
+  const [again, setAgain] = useState('')
+  const [formError, setFormError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const live = useRef(true)
+  useEffect(() => () => { live.current = false }, [])
+  const dirty = open && (code !== '' || again !== '')
+  useEffect(() => { onDirty?.(dirty) }, [dirty])
+
+  useEffect(() => {
+    let current = true
+    setError('')
+    api<PasscodeView>(PASSCODE).then((r) => {
+      if (!current) return
+      if (r.ok && r.data) setView(r.data)
+      else setError(r.error ?? 'Couldn’t check the staff passcode.')
+    })
+    return () => { current = false }
+  }, [tries])
+
+  function close() {
+    setOpen(false)
+    setCode('')
+    setAgain('')
+    setFormError('')
+  }
+
+  async function save() {
+    if (busy || !view) return
+    setBusy(true)
+    const r = await api<{ updatedAt: string }>(PASSCODE, { passcode: code, again, expectedUpdatedAt: view.updatedAt })
+    if (!live.current) return
+    setBusy(false)
+    if (r.ok && r.data) {
+      toast('The staff passcode is changed. Everyone on the iPad will need the new passcode.')
+      close()
+      setTries((n) => n + 1)
+      return
+    }
+    setFormError(r.error ?? DIDNT_SAVE)
+    if (r.status === 409) setTries((n) => n + 1)
+  }
+
+  return (
+    <section aria-label="Staff passcode" className="adm-gap-top">
+      <p className="adm-lbl">Staff passcode</p>
+      {error && <Failed message={error} onRetry={() => setTries((n) => n + 1)} />}
+      {!error && !view && <Skeleton rows={1} label="Checking the staff passcode" />}
+      {view && (
+        <>
+          <p className="adm-small">
+            {view.setInAdmin && view.updatedAt
+              ? `Changed here${view.by ? ` by ${view.by}` : ''} ${dayAndClock(view.updatedAt)}. It’s never shown again after it’s saved.`
+              : 'This is the passcode everyone types to sign in to /staff on the iPad. You can change it any time, for example when someone stops working here.'}
+          </p>
+          {view.readOnly && <p className="adm-note">This test site can’t change the live staff passcode.</p>}
+          {!open ? (
+            <button type="button" className="adm-btn is-ghost" disabled={view.readOnly} onClick={() => setOpen(true)}>Change the staff passcode</button>
+          ) : (
+            <div className="adm-panel adm-gap-top" role="group" aria-label="Change the staff passcode">
+              <b>Change the staff passcode</b>
+              <span className="adm-small">Everyone on the iPad will need the new passcode. Anyone signed in to /staff now is signed out.</span>
+              <label className="adm-fld"><span>New passcode</span><input type="password" value={code} autoComplete="new-password" maxLength={40} onChange={(e) => { setCode(e.target.value); setFormError('') }} /></label>
+              <label className="adm-fld"><span>Type it again</span><input type="password" value={again} autoComplete="new-password" maxLength={40} onChange={(e) => { setAgain(e.target.value); setFormError('') }} /></label>
+              {formError && <p className="adm-error" role="alert">{formError}</p>}
+              <div className="adm-two">
+                <button type="button" className="adm-btn is-ghost" onClick={close}>Cancel</button>
+                <button type="button" className="adm-btn is-pri" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save new passcode'}</button>
+              </div>
+            </div>
+          )}
+        </>
       )}
     </section>
   )

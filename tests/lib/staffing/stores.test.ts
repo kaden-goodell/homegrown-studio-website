@@ -268,7 +268,7 @@ describe('staffing store', () => {
   it('refuses a fallback id or a malformed id inside an entry, writing nothing (I2)', async () => {
     const key = `ses:${uid('ses_')}` as const
     for (const bad of ['kaden', 'catherine', '../x', '']) {
-      await expect(updateEntry(key, (x) => withAssigned(x, assignment(bad, 'Kaden')), 'on', kaden)).rejects.toMatchObject({ status: 400, message: "That person isn't on the team list." })
+      await expect(updateEntry(key, (x) => withAssigned(x, assignment(bad, 'Kaden')), 'on', kaden)).rejects.toMatchObject({ status: 400, message: "That person isn't on the staff list." })
       await expect(updateEntry(key, (x) => withAsk(x, { staffId: bad, name: 'K', at: 'x', note: '' }), 'ask', kaden)).rejects.toBeInstanceOf(StaffingError)
     }
     expect((await getEntries([key])).size).toBe(0)

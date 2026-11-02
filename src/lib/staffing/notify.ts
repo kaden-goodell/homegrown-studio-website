@@ -114,11 +114,11 @@ export async function tellPerson(kind: 'on' | 'off', person: Pick<StaffPerson, '
 
 /** What the owner is told when a message didn't go. */
 export function toldWarning(name: string, r: { hasEmail: boolean; hasPhone: boolean; email: boolean; text: boolean }): string | null {
-  if (!r.hasEmail && !r.hasPhone) return `Saved. Square has no phone or email for ${name}, so no message went.`
+  if (!r.hasEmail && !r.hasPhone) return `Saved. There's no phone or email saved for ${name}, so no message went. Add a phone or email for ${name} in More › Staff › People.`
   const failed = [r.hasPhone && !r.text ? 'text' : null, r.hasEmail && !r.email ? 'email' : null].filter(Boolean)
   if (failed.length === 2) return `Saved. The text and email to ${name} didn't go through.`
   if (failed.length === 1) return `Saved. The ${failed[0]} to ${name} didn't go through.`
-  if (!r.hasPhone) return `Saved. Square has no phone number for ${name}, so only the email went.`
-  if (!r.hasEmail) return `Saved. Square has no email for ${name}, so only the text went.`
+  if (!r.hasPhone) return `Saved. There's no phone number saved for ${name}, so only the email went. Add one in More › Staff › People.`
+  if (!r.hasEmail) return `Saved. There's no email saved for ${name}, so only the text went. Add one in More › Staff › People.`
   return null
 }

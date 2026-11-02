@@ -12,13 +12,13 @@ const unauthorized = () => new Response(JSON.stringify({ error: 'Unauthorized' }
  * their name. Same body as /api/admin/parties/refund.json.
  */
 export const POST: APIRoute = async ({ request }) => {
-  const member = staffAuthorized(request)
+  const member = await staffAuthorized(request)
   if (!member) return unauthorized()
   return partyRefundReply(request, { by: byOf(member), role: member.role }, { reasonRequired: true })
 }
 
 /** GET ?partyId=: the party's saved refund requests, so a waiting one can be checked in Square. */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!staffAuthorized(request)) return unauthorized()
+  if (!(await staffAuthorized(request))) return unauthorized()
   return partyRefundRequestsReply(url)
 }

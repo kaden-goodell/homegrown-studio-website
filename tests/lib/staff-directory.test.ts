@@ -13,15 +13,17 @@ vi.mock('@providers/square/client', () => ({
 import {
   listStaff, teamWithContacts, isActiveStaffId, staffIdStatus, staffIdForOwner, FALLBACK_IDS,
   staffListForOwners, addPerson, editPerson, setWorking, startFresh, ensureCrewPerson, cleanPerson,
-  _resetStaffCache, _resetStaffListForTests, STAFF_MESSAGES, IMPORT_FAILED, StaleStaffError,
+  _resetStaffCache, _resetStaffListForTests, _setImportFailuresForTests, canStartFresh, STAFF_MESSAGES, IMPORT_FAILED, StaleStaffError,
 } from '@lib/staff-directory'
 import { NO_TEST_STORE } from '@lib/classes/test-site-guard'
+import { makeKvStore } from '@lib/blob-store'
 
 const BY = { id: 'owner-catherine', name: 'Catherine' }
 
 const TEAM = [
   { id: 'TM1', givenName: 'Kaden', familyName: 'Goodell', status: 'ACTIVE', isOwner: true, emailAddress: 'k@example.com', phoneNumber: '+12565550100' },
-  { id: 'TM4', givenName: 'Catherine', familyName: 'Goodell', status: 'ACTIVE', isOwner: true, emailAddress: '', phoneNumber: undefined },
+  // Realistic: Square marks only its one account owner. Catherine is an owner here all the same.
+  { id: 'TM4', givenName: 'Catherine', familyName: 'Goodell', status: 'ACTIVE', isOwner: false, emailAddress: '', phoneNumber: undefined },
   { id: 'TM2', givenName: 'Emma', familyName: 'R', status: 'ACTIVE', isOwner: false, emailAddress: 'emma@example.com' },
   { id: 'TM3', givenName: 'Gone', familyName: 'Person', status: 'INACTIVE', isOwner: false, emailAddress: 'gone@example.com' },
 ]
@@ -42,6 +44,20 @@ describe('first use: the Square team is brought in once, with the same ids', () 
       { id: 'TM4', name: 'Catherine', givenName: 'Catherine', familyName: 'Goodell', role: 'owner', email: null, phone: null, active: true },
       { id: 'TM2', name: 'Emma', givenName: 'Emma', familyName: 'R', role: 'crew', email: 'emma@example.com', phone: null, active: true },
     ])
+  })
+
+  it('Square marks only one owner; anyone named Catherine or Kaden still comes in as an owner and is linked', async () => {
+    searchMock.mockResolvedValue({ teamMembers: [
+      { id: 'TM1', givenName: 'Kaden', familyName: 'Goodell', status: 'ACTIVE', isOwner: true },
+      { id: 'TM4', givenName: 'catherine', familyName: 'Goodell', status: 'ACTIVE', isOwner: false },
+      { id: 'TM2', givenName: 'Emma', familyName: 'R', status: 'ACTIVE', isOwner: false },
+    ] })
+    const people = (await staffListForOwners()).people
+    expect(people.map((p) => [p.id, p.role])).toEqual([['TM1', 'owner'], ['TM4', 'owner'], ['TM2', 'crew']])
+    expect(await staffIdForOwner('Catherine')).toBe('TM4')
+    expect(await staffIdForOwner('Kaden')).toBe('TM1')
+    // With Catherine an owner, Kaden can be marked as no longer working here.
+    await expect(setWorking('TM1', false, BY)).resolves.toMatchObject({ changed: true })
   })
 
   it('is idempotent: after the first import Square is never read again, and the ids stay', async () => {
@@ -89,8 +105,17 @@ describe('first use: the Square team is brought in once, with the same ids', () 
     expect(searchMock).toHaveBeenCalledTimes(1)
   })
 
-  it('start fresh is only allowed when there is no list, and makes the two owners', async () => {
+  it('start fresh is only allowed after the import kept failing (3 tries over 10+ minutes), when there is no list, and makes the two owners', async () => {
     searchMock.mockRejectedValue(new Error('square down'))
+    await expect(teamWithContacts()).rejects.toThrow(IMPORT_FAILED)
+    expect(await canStartFresh()).toBe(false)
+    await expect(startFresh(BY)).rejects.toThrow(STAFF_MESSAGES.tooSoon)
+    // Three tries in a row, a minute apart: still too soon.
+    await expect(teamWithContacts()).rejects.toThrow(IMPORT_FAILED)
+    await expect(teamWithContacts()).rejects.toThrow(IMPORT_FAILED)
+    expect(await canStartFresh()).toBe(false)
+    expect(await canStartFresh(Date.now() + 11 * 60_000)).toBe(true)
+    await _setImportFailuresForTests(3, Date.now() - 11 * 60_000)
     const doc = await startFresh(BY)
     expect(doc.people.map((p) => [p.givenName, p.role])).toEqual([['Catherine', 'owner'], ['Kaden', 'owner']])
     expect(doc.people.every((p) => p.id.startsWith('stf_') && !FALLBACK_IDS.has(p.id))).toBe(true)
@@ -140,6 +165,9 @@ describe('adding and editing people', () => {
     expect(() => cleanPerson({ givenName: '', role: 'crew' })).toThrow(STAFF_MESSAGES.givenName)
     expect(() => cleanPerson({ givenName: 'A', role: 'boss' })).toThrow(STAFF_MESSAGES.role)
     expect(() => cleanPerson({ givenName: 'A', role: 'crew', phone: '555' })).toThrow(STAFF_MESSAGES.phone)
+    // A stray leading + (or +1) is ignored: 10 digits always become a US number.
+    expect(cleanPerson({ givenName: 'A', role: 'crew', phone: '+2565550123' }).phone).toBe('+12565550123')
+    expect(cleanPerson({ givenName: 'A', role: 'crew', phone: '+1 (256) 555-0123' }).phone).toBe('+12565550123')
     expect(() => cleanPerson({ givenName: 'A', role: 'crew', email: 'nope' })).toThrow(STAFF_MESSAGES.email)
     expect(() => cleanPerson({ givenName: 'x'.repeat(41), role: 'crew' })).toThrow(STAFF_MESSAGES.nameLong)
   })
@@ -207,8 +235,20 @@ describe('staffIdForOwner', () => {
     expect(await staffIdForOwner('Kaden')).toBe('TM1')
   })
 
-  it('is null when two owners share the given name, or the list cannot be read', async () => {
+  it('the import links each owner by id: a second owner with the same first name, or a rename, changes nothing', async () => {
     await addPerson({ givenName: 'Catherine', familyName: 'Other', role: 'owner', phone: '', email: '' }, BY)
+    expect(await staffIdForOwner('Catherine')).toBe('TM4')
+    const cat = (await staffListForOwners()).people.find((p) => p.id === 'TM4')!
+    await editPerson('TM4', { givenName: 'Cat', familyName: 'Goodell', role: 'owner', phone: '', email: '' }, BY, cat.updatedAt)
+    expect(await staffIdForOwner('Catherine')).toBe('TM4')
+  })
+
+  it('a list saved before owners were linked: by first name, null when two owners share it; null when unreadable', async () => {
+    const kv = makeKvStore('staff-people', 'staff-people')
+    const rec = (id: string, givenName: string) => ({ id, givenName, familyName: '', role: 'owner', email: null, phone: null, active: true, leftAt: null, from: 'square', createdAt: 'x', updatedAt: 'x', history: [] })
+    await kv.set('people', JSON.stringify({ v: 1, startedFrom: 'square', startedAt: 'x', updatedAt: 'x', people: [rec('TM1', 'Kaden'), rec('TM4', 'Catherine'), rec('TM5', 'Catherine')] }))
+    _resetStaffCache()
+    expect(await staffIdForOwner('Kaden')).toBe('TM1')
     expect(await staffIdForOwner('Catherine')).toBeNull()
     await _resetStaffListForTests()
     searchMock.mockRejectedValue(new Error('square down'))

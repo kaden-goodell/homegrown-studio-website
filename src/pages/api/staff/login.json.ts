@@ -15,12 +15,12 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (rateLimited(`staff-login:${clientAddress}`, 5, 5 * 60_000)) {
     return new Response(JSON.stringify({ error: 'Too many attempts — wait a few minutes.' }), { status: 429 })
   }
-  if (!passcodeConfigured()) {
-    return new Response(JSON.stringify({ error: 'Staff access is not configured (set STAFF_PASSCODE).' }), { status: 503 })
+  if (!(await passcodeConfigured())) {
+    return new Response(JSON.stringify({ error: 'Staff sign-in isn’t available right now. Try again in a minute. If it keeps happening, an owner can set the staff passcode in /admin › More › Staff › People.' }), { status: 503 })
   }
   const body = await request.json().catch(() => null)
   const passcode = typeof body?.passcode === 'string' ? body.passcode : ''
-  if (!checkPasscode(passcode)) {
+  if (!(await checkPasscode(passcode))) {
     // A wrong passcode has no staff identity yet; log where it came from.
     // (A good one is logged at pick.json, once a person is chosen. Rate-limited
     // requests return above, so this can't be used to flood the log.)

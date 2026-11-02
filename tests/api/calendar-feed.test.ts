@@ -36,6 +36,7 @@ vi.mock('@lib/staff-directory', () => ({
   isActiveStaffId: vi.fn(async (id: string) => !src.teamDown && src.team.some((p) => p.id === id && p.active)),
   staffIdStatus: vi.fn(async (id: string) => (src.teamDown ? 'unknown' : src.team.some((p) => p.id === id && p.active) ? 'yes' : 'no')),
   staffIdForOwner: vi.fn(async (owner: string) => src.team.find((p) => p.role === 'owner' && p.givenName === owner)?.id ?? null),
+  FALLBACK_IDS: new Set(['kaden', 'catherine']),
 }))
 
 import * as feedRoute from '@pages/api/calendar/feed/[token].ics'
@@ -215,7 +216,7 @@ describe('failures and limits', () => {
 })
 
 describe('making and stopping links', () => {
-  const staffReq = (method: string, me: any) => new Request('https://kaden-own-booking-system--site.netlify.app/api/staff/feed.json', { method, headers: { cookie: staffCookie(me).split(';')[0] } })
+  const staffReq = async (method: string, me: any) => new Request('https://kaden-own-booking-system--site.netlify.app/api/staff/feed.json', { method, headers: { cookie: (await staffCookie(me)).split(';')[0] } })
   const adminReq = (method: string, body?: unknown, who = 'Catherine') => new Request('https://x.test/api/admin/feed.json', {
     method, headers: { 'Content-Type': 'application/json', cookie: adminCookie().split(';')[0], ...(who ? { 'X-Admin-Who': who } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}),
   })
@@ -227,18 +228,18 @@ describe('making and stopping links', () => {
 
   it('crew make a link (shown once, https and webcal), a new one stops the old, DELETE stops it', async () => {
     const me = { id: 'TM2', name: 'Jessica', role: 'crew' }
-    const a = await callRoute(staffFeed, 'POST', staffReq('POST', me))
+    const a = await callRoute(staffFeed, 'POST', await staffReq('POST', me))
     expect(a.status).toBe(200)
     expect(a.body.data.https).toMatch(/^https:\/\/kaden-own-booking-system--site\.netlify\.app\/api\/calendar\/feed\/[A-Za-z0-9_-]{43}\.ics$/)
     expect(a.body.data.webcal).toBe(a.body.data.https.replace('https://', 'webcal://'))
-    const b = await callRoute(staffFeed, 'POST', staffReq('POST', me))
+    const b = await callRoute(staffFeed, 'POST', await staffReq('POST', me))
     expect((await fetchFeed(tokenOf(a.body.data.https))).status).toBe(404)
     expect((await fetchFeed(tokenOf(b.body.data.https))).status).toBe(200)
-    await callRoute(staffFeed, 'DELETE', staffReq('DELETE', me))
+    await callRoute(staffFeed, 'DELETE', await staffReq('DELETE', me))
     expect((await fetchFeed(tokenOf(b.body.data.https))).status).toBe(404)
     expect(src.audit.map((x) => x.action)).toEqual(['feed.make', 'feed.make', 'feed.revoke'])
     // a fallback id can't make one
-    expect((await callRoute(staffFeed, 'POST', staffReq('POST', { id: 'kaden', name: 'Kaden', role: 'owner' }))).status).toBe(403)
+    expect((await callRoute(staffFeed, 'POST', await staffReq('POST', { id: 'kaden', name: 'Kaden', role: 'owner' }))).status).toBe(403)
   })
 
   it('owners: their own whole-studio link; stop a team member\'s link; who has one', async () => {

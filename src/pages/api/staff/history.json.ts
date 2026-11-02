@@ -20,7 +20,7 @@ function bad(detail: string, status = 400): Response {
  * deliberately strips them. Backs the console's read-only "History" sheet.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  const staff = staffAuthorized(request)
+  const staff = await staffAuthorized(request)
   if (!staff) return bad('Unauthorized', 401)
 
   const kind = url.searchParams.get('kind') ?? ''

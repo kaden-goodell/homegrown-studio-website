@@ -94,13 +94,13 @@ describe('tellPerson', () => {
   })
 
   it('missing contact details', async () => {
-    expect((await tellPerson('on', { ...jessica, phone: null }, klass, 'https://x.test')).warning).toBe('Saved. Square has no phone number for Jessica, so only the email went.')
-    expect((await tellPerson('on', { ...jessica, email: null, phone: null }, klass, 'https://x.test')).warning).toBe('Saved. Square has no phone or email for Jessica, so no message went.')
+    expect((await tellPerson('on', { ...jessica, phone: null }, klass, 'https://x.test')).warning).toBe("Saved. There's no phone number saved for Jessica, so only the email went. Add one in More › Staff › People.")
+    expect((await tellPerson('on', { ...jessica, email: null, phone: null }, klass, 'https://x.test')).warning).toBe("Saved. There's no phone or email saved for Jessica, so no message went. Add a phone or email for Jessica in More › Staff › People.")
   })
 
   it('warning wording', () => {
     expect(toldWarning('Jessica', { hasEmail: true, hasPhone: true, email: false, text: false })).toBe("Saved. The text and email to Jessica didn't go through.")
     expect(toldWarning('Jessica', { hasEmail: true, hasPhone: false, email: false, text: false })).toBe("Saved. The email to Jessica didn't go through.")
-    expect(toldWarning('Jessica', { hasEmail: false, hasPhone: true, email: false, text: true })).toBe('Saved. Square has no email for Jessica, so only the text went.')
+    expect(toldWarning('Jessica', { hasEmail: false, hasPhone: true, email: false, text: true })).toBe("Saved. There's no email saved for Jessica, so only the text went. Add one in More › Staff › People.")
   })
 })

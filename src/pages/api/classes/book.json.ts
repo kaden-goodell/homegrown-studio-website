@@ -62,7 +62,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   // Only signed-in staff; the seats are 'door-card', a running session can still be sold, and the
   // online sign-up cutoff doesn't apply.
   const door = new URL(request.url).searchParams.get('door') === '1'
-  const member = door ? staffAuthorized(request) : null
+  const member = door ? await staffAuthorized(request) : null
   if (door && !member) return fail(401, 'invalid', 'Sign in to /staff to sell a seat at the door. Nothing was charged.')
   const sale: SaleOptions = door ? { door: true } : {}
   // R41: a test site with no store of its own never books (or simulates paying for) a live seat.

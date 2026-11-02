@@ -28,7 +28,7 @@ function contactHint(h: HouseholdOnFile): string {
  * is the same shape: an empty array just means no match.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!staffAuthorized(request)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
+  if (!(await staffAuthorized(request))) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   const q = url.searchParams.get('q')?.trim() ?? ''
   if (!q) return new Response(JSON.stringify({ error: 'Missing q' }), { status: 400 })
 

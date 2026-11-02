@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { recordAudit } from '@lib/audit'
 import { toIso } from '@lib/classes/validate'
-import { teamWithContacts, type StaffPerson } from '@lib/staff-directory'
+import { everyoneWithContacts, teamWithContacts, type StaffPerson } from '@lib/staff-directory'
 import type { By } from '@lib/staff-auth'
 import { getEntries, updateEntry } from '@lib/staffing/staffing-store'
 import { refreshRow, rememberSeen, rowByKey, staffingRows, type StaffingRow } from '@lib/staffing/events'
@@ -23,14 +23,14 @@ const MAX_RANGE_MS = 70 * DAY_MS
 
 export const NOT_FOUND = "We couldn't find that class or party. Refresh and try again."
 export const WAS_CANCELLED = "That one was cancelled, so nobody can go on it. You can still take people off."
-export const notOnTeam = (name: string | null) => (name ? `${name} isn't on the team list.` : "That person isn't on the team list.")
+export const notOnTeam = (name: string | null) => (name ? `${name} isn't on the staff list.` : "That person isn't on the staff list.")
 export const NEEDED_RANGE = `Pick a number from 0 to ${MAX_NEEDED}, or Usual.`
 
 const auditBy = (by: By) => ({ ...by, role: 'owner' as const })
 const shownTeam = (people: StaffPerson[]) => people.filter((p) => p.active).map((p) => ({ id: p.id, name: p.name, role: p.role }))
-/** Owners only: how to reach each person working here (Call / Text on "Check with Jessica"). */
+/** Owners only: how to reach each person (Call / Text on "Check with Jessica"), those who left too (`left: true`). */
 const contactsOf = (people: StaffPerson[]) =>
-  Object.fromEntries(people.filter((p) => p.active).map((p) => [p.id, { phone: p.phone, email: p.email }]))
+  Object.fromEntries(people.map((p) => [p.id, { phone: p.phone, email: p.email, ...(p.active ? {} : { left: true }) }]))
 
 /**
  * Owners only.
@@ -54,27 +54,27 @@ export const GET: APIRoute = async ({ request, url }) => {
     const from = studioDate(now.toISOString())
     const [lines, team] = await Promise.all([
       staffingWarnings(from, addDays(from, UNSTAFFED_HORIZON_DAYS - 1), now),
-      teamWithContacts().catch(() => null),
+      everyoneWithContacts().catch(() => null),
     ])
-    return json(200, { data: { lines, contacts: team ? contactsOf(team.people) : {} } })
+    return json(200, { data: { lines, contacts: team ? contactsOf(team) : {} } })
   }
   const key = url.searchParams.get('key')
   if (key !== null) {
     if (!isEventKey(key)) return json(400, { error: NOT_FOUND })
     return staffingReply(async () => {
-      const [row, team] = await Promise.all([rowByKey(key, new Date(), url.searchParams.get('start')), teamWithContacts()])
+      const [row, everyone] = await Promise.all([rowByKey(key, new Date(), url.searchParams.get('start')), everyoneWithContacts()])
       if (!row) throw new StaffingError(404, NOT_FOUND)
       await rememberSeen([row])
-      return { data: { row, contacts: contactsOf(team.people) } }
+      return { data: { row, contacts: contactsOf(everyone) } }
     })
   }
   const from = toIso(url.searchParams.get('from')), to = toIso(url.searchParams.get('to'))
   if (!from || !to || Date.parse(to) <= Date.parse(from)) return json(400, { error: 'Pick a start and an end for the range.' })
   if (Date.parse(to) - Date.parse(from) > MAX_RANGE_MS) return json(400, { error: 'Pick ten weeks or less.' })
   return staffingReply(async () => {
-    const [rows, team] = await Promise.all([staffingRows(from, to, { seats: true }), teamWithContacts()])
+    const [rows, everyone] = await Promise.all([staffingRows(from, to, { seats: true }), everyoneWithContacts()])
     await rememberSeen(rows)
-    return { data: { rows, team: shownTeam(team.people), teamSource: team.source, contacts: contactsOf(team.people) } }
+    return { data: { rows, team: shownTeam(everyone), teamSource: 'local', contacts: contactsOf(everyone) } }
   })
 }
 

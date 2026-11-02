@@ -34,7 +34,7 @@ const REMIND_COOLDOWN_MS = 20 * 60 * 60 * 1000 // one nudge per day is plenty
  * order's custody log, and a 20h cooldown stops double-taps from double-texting.
  */
 export const POST: APIRoute = async ({ request }) => {
-  const staff = staffAuthorized(request)
+  const staff = await staffAuthorized(request)
   if (!staff) return json({ error: 'Unauthorized' }, 401)
   const by = byOf(staff)
 

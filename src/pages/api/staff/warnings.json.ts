@@ -19,7 +19,7 @@ const json = (body: unknown, status = 200) =>
  * who marked Can't) are for the owners' email only: the crew read this panel.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!staffAuthorized(request)) return json({ error: 'Unauthorized' }, 401)
+  if (!(await staffAuthorized(request))) return json({ error: 'Unauthorized' }, 401)
   const from = studioDate(new Date().toISOString())
   const to = addDays(from, WARNING_WINDOW_DAYS - 1)
   try {

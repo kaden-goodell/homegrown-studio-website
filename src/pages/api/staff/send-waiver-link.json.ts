@@ -28,7 +28,7 @@ const json = (body: unknown, status: number) =>
  * already saved regardless).
  */
 export const POST: APIRoute = async ({ request }) => {
-  const staff = staffAuthorized(request)
+  const staff = await staffAuthorized(request)
   if (!staff) return json({ error: 'Unauthorized' }, 401)
 
   const body = await request.json().catch(() => null)

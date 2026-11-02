@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import type { CalendarItem } from '@pages/api/admin/classes/calendar.json'
 import { closureOn, OPEN_WEEKDAYS } from '@config/closures'
 import { useStudio } from './shell/studio'
@@ -8,9 +9,9 @@ import type { Sheet } from './shell/router'
 import { useInbox } from './inbox/InboxData'
 import { useWide } from './shell/useWide'
 import type { InboxSegment } from './inbox/Inbox'
-import { useUnstaffed } from './staffing/useUnstaffed'
+import { countUnstaffed, HOME_STAFF_DAYS } from './staffing/useUnstaffed'
 import { HomeStaffing } from './staffing/HomeStaffing'
-import { useStaffTags } from './staffing/api'
+import { tagLookup, useBoard } from './staffing/api'
 import { dayStartIso } from './classes/dates'
 
 /** "Good morning" by the studio's clock (America/Chicago). */
@@ -37,8 +38,12 @@ export default function Home({ who, onOpen, onInbox }: {
   const studio = useStudio()
   const { items, error, retry } = useCalendar(day, addDays(day, 7))
   const inbox = useInbox()
-  const unstaffed = useUnstaffed()
-  const staffTag = useStaffTags(dayStartIso(day), dayStartIso(addDays(day, 7)))
+  // One staffing read per Home visit: the two-week count and this week's row tags both come from it.
+  // From the moment Home opened (kept steady across renders), as the two-week count always was.
+  const [openedAt] = useState(() => new Date().toISOString())
+  const board = useBoard(openedAt, dayStartIso(addDays(day, HOME_STAFF_DAYS)))
+  const unstaffed = { count: board.data ? countUnstaffed(board.data.rows) : null, error: board.error }
+  const staffTag = tagLookup(board.data?.rows)
   const wide = useWide()
   const days = items ? byDay(items) : null
   const open = (i: CalendarItem, d: string) => onOpen(sheetOf(i, d), i)

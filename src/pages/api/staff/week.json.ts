@@ -23,7 +23,7 @@ export const WEEK_DAYS = 7
  * three days shows each day as it is.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!staffAuthorized(request)) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
+  if (!(await staffAuthorized(request))) return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401 })
   const from = studioDate(new Date().toISOString())
   const to = addDays(from, WEEK_DAYS - 1)
   try {

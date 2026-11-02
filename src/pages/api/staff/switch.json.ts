@@ -14,13 +14,13 @@ const json = (status: number, body: unknown, cookie?: string) =>
  * GET → the team to pick from. POST { staffId } → signed in as them.
  */
 export const GET: APIRoute = async ({ request }) => {
-  const me = staffAuthorized(request)
+  const me = await staffAuthorized(request)
   if (!me) return json(401, { error: 'Signed out — enter the passcode.' })
   return json(200, { data: { staff: await listStaff(), me } })
 }
 
 export const POST: APIRoute = async ({ request }) => {
-  const me = staffAuthorized(request)
+  const me = await staffAuthorized(request)
   if (!me) return json(401, { error: 'Signed out — enter the passcode.' })
   const body = await request.json().catch(() => null)
   const staffId = typeof body?.staffId === 'string' ? body.staffId : ''
@@ -31,5 +31,5 @@ export const POST: APIRoute = async ({ request }) => {
     action: 'staff.switched',
     target: { kind: 'staff', id: next.id, label: `${me.name} → ${next.name}` },
   })
-  return json(200, { data: { staff: next } }, staffCookie(next))
+  return json(200, { data: { staff: next } }, await staffCookie(next))
 }

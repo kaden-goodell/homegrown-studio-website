@@ -84,7 +84,7 @@ describe('who is asking', () => {
   it('403 for a fallback id or someone who left the team; nothing written', async () => {
     src.me = { id: 'kaden', name: 'Kaden', role: 'owner' }
     const r = await call('POST', { action: 'availability', weekly: {}, dates: {}, expectedUpdatedAt: null })
-    expect(r).toEqual({ status: 403, body: { error: "You're not on the team list any more. Ask an owner." } })
+    expect(r).toEqual({ status: 403, body: { error: "You're not on the staff list any more. Ask an owner." } })
     expect(await getAvailability('kaden')).toBeNull()
     src.me = { id: 'TM9', name: 'Morgan', role: 'crew' }
     expect((await call('GET')).status).toBe(403)

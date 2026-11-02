@@ -19,7 +19,7 @@ const json = (status: number, body: unknown) =>
  * have a name keep it.
  */
 export const POST: APIRoute = async ({ request }) => {
-  const member = staffAuthorized(request)
+  const member = await staffAuthorized(request)
   if (!member) return json(401, { error: 'Unauthorized' })
   const body = await request.json().catch(() => null)
   const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')

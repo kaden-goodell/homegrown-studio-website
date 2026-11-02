@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { recordAudit } from '@lib/audit'
 import {
-  addPerson, editPerson, setWorking, staffListForOwners, startFresh,
+  addPerson, canStartFresh, editPerson, setWorking, staffListForOwners, startFresh,
   StaffInputError, StaffListUnavailable, StaleStaffError, type StaffRecord,
 } from '@lib/staff-directory'
 import { feedStatus, revokeFeed } from '@lib/staffing/feed-store'
@@ -45,8 +45,19 @@ export const GET: APIRoute = async ({ request }) => {
       },
     })
   } catch (e) {
-    if (e instanceof StaffListUnavailable) return json(503, { error: e.message, canStartFresh: true })
+    if (e instanceof StaffListUnavailable) return json(503, { error: e.message, canStartFresh: await canStartFresh() })
     return staffingFailure(e)
+  }
+}
+
+/** Stop someone's calendar link; false (logged) when it couldn't be stopped. */
+async function stopLink(r: StaffRecord, by: { id: string; name: string }): Promise<boolean> {
+  try {
+    await revokeFeed({ staffId: r.id }, by)
+    return true
+  } catch (err) {
+    logger.warn('Could not stop the calendar link of someone leaving or coming back', { error: err instanceof Error ? err.message : String(err) })
+    return false
   }
 }
 
@@ -92,18 +103,25 @@ export const POST: APIRoute = async ({ request }) => {
       }
       case 'leave': {
         const { person, changed } = await setWorking(id, false, by)
+        let linkWarning: string | null = null
         if (changed) {
-          // Their calendar link stops now (it would 404 anyway), so a return later doesn't bring an old link back.
-          await revokeFeed({ staffId: person.id }, by).catch(() => {})
-          await recordAudit({ by: auditBy, action: 'staff.leave', target: { kind: 'staff', id: person.id, label: label(person) } })
+          // Their calendar link stops now (it already shows nothing while they're gone).
+          // It's stopped again if they come back, so an old link never wakes up.
+          if (!(await stopLink(person, by))) linkWarning = `${person.givenName}’s calendar link couldn’t be stopped just now. It shows nothing while ${person.givenName} isn’t working here, and it’s stopped for good if ${person.givenName} comes back.`
+          await recordAudit({ by: auditBy, action: 'staff.leave', target: { kind: 'staff', id: person.id, label: label(person) }, details: { linkStopped: !linkWarning } })
         }
-        const warning = changed ? await stillOn(person) : null
+        const warning = [changed ? await stillOn(person) : null, linkWarning].filter(Boolean).join(' ')
         return json(200, { data: { person: shown(person) }, ...(warning ? { warning } : {}) })
       }
       case 'return': {
         const { person, changed } = await setWorking(id, true, by)
-        if (changed) await recordAudit({ by: auditBy, action: 'staff.return', target: { kind: 'staff', id: person.id, label: label(person) } })
-        return json(200, { data: { person: shown(person) } })
+        let warning: string | null = null
+        if (changed) {
+          // An old calendar link stays stopped: they make a new one in /staff, My shifts.
+          if (!(await stopLink(person, by))) warning = `${person.givenName}’s old calendar link couldn’t be stopped. Tap Stop their calendar link on ${person.givenName}’s row.`
+          await recordAudit({ by: auditBy, action: 'staff.return', target: { kind: 'staff', id: person.id, label: label(person) }, details: { linkStopped: !warning } })
+        }
+        return json(200, { data: { person: shown(person) }, ...(warning ? { warning } : {}) })
       }
       case 'start-fresh': {
         const doc = await startFresh(by)

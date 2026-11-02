@@ -372,7 +372,8 @@ describe('Home', () => {
     const f = await signedIn(server({ staffRows: [row('none', 1), row('short', 2), row('staffed', 1), row('none', 0), row('none', 1, 'cancelled'), row('none', 1, 'on', at('2026-10-18', '12:00'))] }))
     const tile = await screen.findByRole('button', { name: 'Need someone on, next 2 weeks: 2' })
     const ranges = f.mock.calls.filter((c: any) => c[0].startsWith('/api/admin/staffing.json?from'))
-    expect(ranges.length).toBeGreaterThan(0)
+    // One staffing read per Home visit: the count and the row tags share it.
+    expect(ranges).toHaveLength(1)
     for (const call of ranges) {
       const q = new URL(`https://x.test${call[0]}`).searchParams
       expect(Date.parse(q.get('to')!) - Date.parse(q.get('from')!)).toBeLessThanOrEqual(14 * 86_400_000)

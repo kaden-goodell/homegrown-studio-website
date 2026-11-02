@@ -8,6 +8,7 @@ import { bodies, ok, refuse } from './fixtures'
 const PEOPLE = '/api/admin/staff-people.json'
 const FEED = '/api/admin/feed.json'
 const STAFFING = '/api/admin/staffing.json'
+const PASSCODE = '/api/admin/staff-passcode.json'
 
 const p = (id: string, givenName: string, over: Record<string, unknown> = {}) => ({
   id, name: givenName, givenName, familyName: '', role: 'crew', phone: null, email: null, active: true, leftAt: null, updatedAt: 'u1',
@@ -26,6 +27,8 @@ beforeEach(() => {
     if (path === PEOPLE && (init.method ?? 'GET') === 'GET') return ok({ data: { people: LIST, saved: true, startedFrom: 'square' } })
     if (path === PEOPLE) return ok({ data: { person: LIST[1] } })
     if (path === FEED) return ok({ data: { stopped: true } })
+    if (path === PASSCODE && (init.method ?? 'GET') === 'GET') return ok({ data: { setInAdmin: false, updatedAt: null, by: null, readOnly: false } })
+    if (path === PASSCODE) return ok({ data: { updatedAt: '2026-11-02T15:00:00.000Z' } })
     throw new Error(`unexpected ${url}`)
   })
   vi.stubGlobal('fetch', fetchMock)
@@ -83,6 +86,8 @@ describe('More › Staff › People (our own list)', () => {
     fireEvent.click(within(jess).getByRole('button', { name: 'No longer working here' }))
     const ask = within(jess).getByRole('group', { name: 'Jessica no longer works here?' })
     expect(ask).toHaveTextContent('calendar link stops')
+    expect(ask).toHaveTextContent('Jessica is signed out of /staff')
+    expect(ask).toHaveTextContent('If Jessica knows the staff passcode, change it below too.')
     expect(bodies(fetchMock, PEOPLE)).toHaveLength(0)
     fetchMock.mockResolvedValueOnce({ ok: true, status: 200, json: async () => ({ data: { person: { ...LIST[1], active: false } }, warning: 'Jessica is still on one class or party coming up.' }) })
     fireEvent.click(within(ask).getByRole('button', { name: 'Yes, no longer here' }))
@@ -113,15 +118,63 @@ describe('More › Staff › People (our own list)', () => {
     expect(bodies(fetchMock, PEOPLE)[0].body).toEqual({ action: 'return', id: 'TM8' })
   })
 
-  it('when the list could not be set up: Try again, and a way to start it with just the owners', async () => {
+  it('one failed set-up only offers Try again (a short blip never costs the links)', async () => {
+    fetchMock.mockResolvedValueOnce(refuse(503, { error: 'We couldn’t set up the staff list yet. Try again in a minute.', canStartFresh: false }))
+    renderSheet(<PeoplePanel />)
+    expect(await screen.findByText('We couldn’t set up the staff list yet. Try again in a minute.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Try again' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Start the list with just the owners' })).toBeNull()
+  })
+
+  it('after it has kept failing: Try again, and a way to start it with just the owners, with what won’t carry over', async () => {
     fetchMock.mockResolvedValueOnce(refuse(503, { error: 'We couldn’t set up the staff list yet. Try again in a minute.', canStartFresh: true }))
     renderSheet(<PeoplePanel />)
     expect(await screen.findByText('We couldn’t set up the staff list yet. Try again in a minute.')).toBeInTheDocument()
+    expect(screen.getByText(/won’t carry over to the new list/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Start the list with just the owners' }))
     fetchMock.mockResolvedValueOnce(ok({ data: { people: [] } }))
     fireEvent.click(screen.getByRole('button', { name: 'Yes, start it' }))
     expect(await screen.findByText('The staff list is started. Add everyone else with Add someone.')).toBeInTheDocument()
     expect(bodies(fetchMock, PEOPLE)[0].body).toEqual({ action: 'start-fresh' })
+  })
+})
+
+describe('Staff passcode', () => {
+  it('Change the staff passcode: typed twice, never shown back, says everyone needs the new one', async () => {
+    renderSheet(<PeoplePanel />)
+    const panel = await screen.findByRole('region', { name: 'Staff passcode' })
+    expect(await within(panel).findByText(/everyone types to sign in to \/staff/)).toBeInTheDocument()
+    fireEvent.click(within(panel).getByRole('button', { name: 'Change the staff passcode' }))
+    const form = within(panel).getByRole('group', { name: 'Change the staff passcode' })
+    expect(form).toHaveTextContent('Everyone on the iPad will need the new passcode.')
+    fireEvent.change(within(form).getByLabelText('New passcode'), { target: { value: 'door-4821' } })
+    fireEvent.change(within(form).getByLabelText('Type it again'), { target: { value: 'door-4821' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save new passcode' }))
+    expect(await screen.findByText('The staff passcode is changed. Everyone on the iPad will need the new passcode.')).toBeInTheDocument()
+    expect(bodies(fetchMock, PASSCODE)[0].body).toEqual({ passcode: 'door-4821', again: 'door-4821', expectedUpdatedAt: null })
+    expect(screen.queryByDisplayValue('door-4821')).toBeNull()
+  })
+
+  it('a refusal shows its sentence in the form', async () => {
+    renderSheet(<PeoplePanel />)
+    const panel = await screen.findByRole('region', { name: 'Staff passcode' })
+    fireEvent.click(await within(panel).findByRole('button', { name: 'Change the staff passcode' }))
+    fetchMock.mockResolvedValueOnce(refuse(400, { error: 'The two passcodes don’t match. Type the same one twice.' }))
+    fireEvent.click(within(panel).getByRole('button', { name: 'Save new passcode' }))
+    expect(await within(panel).findByRole('alert')).toHaveTextContent('The two passcodes don’t match.')
+  })
+
+  it('a test site sharing the live stores cannot change it', async () => {
+    fetchMock.mockImplementation(async (url: string) => {
+      const path = String(url).split('?')[0]
+      if (path === PEOPLE) return ok({ data: { people: LIST, saved: true, startedFrom: 'square' } })
+      if (path === PASSCODE) return ok({ data: { setInAdmin: true, updatedAt: '2026-11-01T15:00:00.000Z', by: 'Catherine', readOnly: true } })
+      throw new Error(`unexpected ${url}`)
+    })
+    renderSheet(<PeoplePanel />)
+    const panel = await screen.findByRole('region', { name: 'Staff passcode' })
+    expect(await within(panel).findByText(/Changed here by Catherine/)).toBeInTheDocument()
+    expect(within(panel).getByRole('button', { name: 'Change the staff passcode' })).toBeDisabled()
   })
 })
 
@@ -160,6 +213,16 @@ describe('Home › Staffing', () => {
     fireEvent.click(within(items[0]).getByRole('button', { name: 'Take Jessica off' }))
     expect(await screen.findByText('Jessica is off it.')).toBeInTheDocument()
     expect(bodies(fetchMock, STAFFING)[0].body).toEqual({ action: 'unassign', staffId: 'TM2', tell: false, key: 'ses:c' })
+  })
+
+  it('someone who left with no phone: says they no longer work here, never "add one in People"', async () => {
+    fetchMock.mockImplementation(async () => ok({ data: {
+      contacts: { TM8: { phone: null, email: null, left: true } },
+      lines: [line({ code: 'assigned-cancelled', when: '', detail: 'Ava is still on Clay, which was cancelled.', action: 'Tell Ava, then take Ava off.', staff: { key: 'ses:c', openHref: null, people: [{ staffId: 'TM8', name: 'Ava' }] } })],
+    } }))
+    renderSheet(<HomeStaffing onOpen={() => {}} />)
+    expect(await screen.findByText('Ava no longer works here, and there’s no phone number saved for Ava.')).toBeInTheDocument()
+    expect(screen.queryByText(/Add one in More/)).toBeNull()
   })
 
   it("staffing that couldn't be checked says so with Try again", async () => {

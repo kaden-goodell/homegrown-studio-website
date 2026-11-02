@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { act, fireEvent, screen, within } from '@testing-library/react'
 import { renderSheet } from '../sheets/harness'
 import { StaffRow } from '@components/admin/staffing/StaffRow'
-import { CONTACTS, bodies, ok, person, refuse, row } from './fixtures'
+import { CONTACTS, at, bodies, dayIn, ok, person, refuse, row } from './fixtures'
 
 const STAFFING = '/api/admin/staffing.json'
 
@@ -118,6 +118,45 @@ describe('Staff section', () => {
       action: 'assign', staffId: 'TM2', tell: true, keys: ['ses:ses_1', 'ses:ses_2'],
       hints: { 'ses:ses_1': days[0].startIso, 'ses:ses_2': days[1].startIso },
     })
+  })
+
+  it('from a day that already happened, Every day and Off every day still tell them about the days to come; a single Put on there tells nobody', async () => {
+    const pastDay = dayIn(-7)
+    const past = row({ day: pastDay, people: [person('TM1', 'Kaden'), person('TM2', 'Jessica', { assigned: true }), person('TM3', 'Sam')] })
+    fetchMock.mockResolvedValueOnce(loaded(past))
+    const days = [
+      { key: 'ses:ses_1', startIso: past.event.startIso },
+      { key: 'ses:ses_2', startIso: at(dayIn(7), '10:00') },
+      { key: 'ses:ses_3', startIso: at(dayIn(14), '10:00') },
+    ]
+    renderSheet(<StaffRow eventKey="ses:ses_1" days={days} />)
+    await screen.findByRole('list', { name: 'Who can work' })
+    // The tick shows (it's about the days still to come), and the note says so.
+    expect(screen.getByRole('checkbox', { name: 'Tell them by text and email' })).toBeChecked()
+    expect(screen.getByText(/Every day and Off every day tell them about the days still to come/)).toBeInTheDocument()
+
+    fetchMock.mockResolvedValueOnce(ok({ data: { rows: [null, null] } }))
+    fireEvent.click(within(screen.getAllByRole('listitem')[2]).getByRole('button', { name: 'Every day' }))
+    expect(await screen.findByText('Sam is on all 2 days.')).toBeInTheDocument()
+    expect(bodies(fetchMock, STAFFING)[0].body).toMatchObject({ action: 'assign', staffId: 'TM3', tell: true, keys: ['ses:ses_2', 'ses:ses_3'] })
+
+    fetchMock.mockResolvedValueOnce(ok({ data: { rows: [null, null] } }))
+    fireEvent.click(within(screen.getAllByRole('listitem')[1]).getByRole('button', { name: 'Off every day' }))
+    expect(await screen.findByText('Jessica is off all 2 days.')).toBeInTheDocument()
+    expect(bodies(fetchMock, STAFFING)[1].body).toMatchObject({ action: 'unassign', staffId: 'TM2', tell: true, keys: ['ses:ses_2', 'ses:ses_3'] })
+
+    fetchMock.mockResolvedValueOnce(ok({ data: { row: past } }))
+    fireEvent.click(within(screen.getAllByRole('listitem')[0]).getByRole('button', { name: 'Put on' }))
+    expect(await screen.findByText('Kaden is on.')).toBeInTheDocument()
+    expect(bodies(fetchMock, STAFFING)[2].body).toMatchObject({ action: 'assign', staffId: 'TM1', tell: false, key: 'ses:ses_1' })
+  })
+
+  it('a past day of a one-day event: no tick, nobody is told', async () => {
+    fetchMock.mockResolvedValueOnce(loaded(row({ day: dayIn(-2) })))
+    renderSheet(<StaffRow eventKey="ses:ses_1" />)
+    await screen.findByRole('list', { name: 'Who can work' })
+    expect(screen.queryByRole('checkbox', { name: 'Tell them by text and email' })).toBeNull()
+    expect(screen.getByText('This already happened. Changes are kept for the record, and nobody is told.')).toBeInTheDocument()
   })
 
   it("a read that fails says so with Try again (never 'nobody can')", async () => {

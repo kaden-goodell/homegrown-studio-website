@@ -55,7 +55,7 @@ const alreadyInSquareOf = (body: any) => body.alreadyInSquare === true
  * seats it added are kept and recorded, and the reply says how many.
  */
 export const POST: APIRoute = async ({ request }) => {
-  const member = staffAuthorized(request)
+  const member = await staffAuthorized(request)
   if (!member) return bad('Unauthorized', 401)
 
   const body = await request.json().catch(() => null)
