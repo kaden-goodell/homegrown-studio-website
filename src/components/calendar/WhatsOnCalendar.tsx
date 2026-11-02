@@ -23,6 +23,14 @@ import {
 } from '@lib/analytics'
 import { OPEN_WEEKDAYS, closureOn, studioOpenOn, type Holiday } from '@config/closures'
 
+/**
+ * Month grid day boxes: tall enough for about six one-line items, so a busy day
+ * doesn't stretch its week and the weeks stay even (Kaden, 1 Nov 2026).
+ */
+const DAY_MIN_HEIGHT = '9.5rem'
+/** Items a day box shows before "+N more". */
+const MAX_CHIPS = 6
+
 /** Months the flat list view loads at once; "Show more" adds one at a time. */
 const LIST_MONTHS_INITIAL = 3
 
@@ -752,7 +760,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
       }}>
         {padded.map((day, i) => {
           if (day === null) {
-            return <div key={`empty-${i}`} style={{ background: 'rgba(255,255,255,0.35)', minHeight: compact ? '2.75rem' : '6rem' }} />
+            return <div key={`empty-${i}`} style={{ background: 'rgba(255,255,255,0.35)', minHeight: compact ? '2.75rem' : DAY_MIN_HEIGHT }} />
           }
           const dateStr = `${monthStr}-${String(day).padStart(2, '0')}`
           // Closed: the usual Mon–Wed, and any day the studio has closed (see closures.ts).
@@ -786,7 +794,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
               }}
               style={{
                 position: 'relative',
-                minHeight: compact ? '2.75rem' : '6rem',
+                minHeight: compact ? '2.75rem' : DAY_MIN_HEIGHT,
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: compact ? 'center' : 'stretch',
@@ -841,7 +849,7 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
                 )
               ) : (
                 <>
-                  {chips.slice(0, 4).map((e) => {
+                  {chips.slice(0, MAX_CHIPS).map((e) => {
                     const clickable = !!e.href
                     const color = colorOf(e)
                     const time = e.kind === 'event' ? '' : chipTime(e.startTime)
@@ -897,9 +905,9 @@ export default function WhatsOnCalendar({ events: initialEvents = [], initialVie
                       <span key={e.id} title={e.title} style={chipStyle}>{inner}</span>
                     )
                   })}
-                  {chips.length > 4 && (
+                  {chips.length > MAX_CHIPS && (
                     <span style={{ fontSize: '0.625rem', fontWeight: 600, color: 'var(--color-muted)', paddingLeft: '6px' }}>
-                      +{chips.length - 4} more
+                      +{chips.length - MAX_CHIPS} more
                     </span>
                   )}
                 </>
