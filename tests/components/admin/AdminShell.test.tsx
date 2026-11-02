@@ -110,6 +110,13 @@ function server(o: any = {}) {
       case '/api/admin/parties/book.json': return ok({ data: { party: ourParty, message: 'Booked Lee’s party for Sun, Oct 25 at 1:00 PM. The payment link for the studio fee ($300) went to Lee by email and text.' } })
       case '/api/admin/parties/times.json': return ok({ data: { minutes: 90, offered: [at('2026-10-24', '14:00')], open: [at('2026-10-24', '14:00')] } })
       case '/api/admin/reports.json': return ok({ data: { month: '2026-10', seatsSold: 74, classSalesCents: 196800, refunds: 1, refundedCents: 1635, partiesBooked: 3, partyFeesCents: 60000 } })
+      case '/api/admin/tax-report.json':
+        if (post) return ok({ data: { sent: true, to: 'kaden@ourhometownstudio.com', at: '2026-10-20T15:00:00Z' } })
+        return ok({ data: {
+          month: new URL(url, 'https://x.test').searchParams.get('month'), orders: 3, partial: false, builtAt: '', classesCategoryMissing: false, lastSent: null,
+          totals: { useCents: 270, salesCents: 0, unsureCents: 0 },
+          summary: { classes: { salesCents: 3000, taxCents: 270, lines: 1 }, cafe: { salesCents: 0, taxCents: 0, lines: 0 }, parties: { salesCents: 30000, taxCents: 0, lines: 1 }, kits: { salesCents: 0, taxCents: 0, lines: 0 }, other: { salesCents: 0, taxCents: 0, lines: 0 } },
+        } })
       case '/api/admin/classes/import-square.json': return ok({ data: { create: [], skip: [], addPhoto: [] } })
       case '/api/party/service-info.json': return ok({ data: { crafts: [{ id: 'c1', name: 'Beaded Necklace', perHeadCents: 1800, perHeadMaxCents: 1800 }] } })
     }
@@ -678,6 +685,26 @@ describe('More', () => {
     expect(within(dialog()).getByText('$600')).toBeInTheDocument()
     expect(within(dialog()).getByText('party fees taken, less refunds')).toBeInTheDocument()
     expect(within(dialog()).getByText(/Craft Café, party crafts and anything else rung up in Square/)).toBeInTheDocument()
+  })
+
+  it('Reports: pick a past month or a whole year; the tax split downloads and sends again', async () => {
+    const f = await signedIn()
+    tab('More')
+    fireEvent.click(await screen.findByRole('button', { name: /Reports/ }))
+    const tax = await within(dialog()).findByRole('region', { name: 'Tax split' })
+    expect(await within(tax).findByText('$2.70')).toBeInTheDocument()
+    expect(within(tax).getByRole('link', { name: 'Download' })).toHaveAttribute('href', expect.stringMatching(/^\/api\/admin\/tax-report\.json\?month=\d{4}-\d{2}&format=csv$/))
+    fireEvent.click(within(tax).getByRole('button', { name: 'Send it again' }))
+    expect(await screen.findByText('Sent to kaden@ourhometownstudio.com.')).toBeInTheDocument()
+    expect(posts(f, '/api/admin/tax-report.json')[0]).toMatchObject({ action: 'send' })
+    const pick = within(dialog()).getByRole('combobox', { name: 'Show' }) as HTMLSelectElement
+    const past = [...pick.options].find((o) => o.value === '2026-09')!
+    fireEvent.change(pick, { target: { value: past.value } })
+    await waitFor(() => expect(f.mock.calls.some((c) => c[0] === '/api/admin/reports.json?period=2026-09')).toBe(true))
+    expect(await within(dialog()).findByText('Tax split, September 2026')).toBeInTheDocument()
+    fireEvent.change(pick, { target: { value: '2026' } })
+    expect(await within(dialog()).findByText('Tax split, all of 2026')).toBeInTheDocument()
+    await waitFor(() => expect(f.mock.calls.some((c) => c[0] === '/api/admin/reports.json?period=2026')).toBe(true))
   })
 
   it('Set up sandbox is not offered on the live site', async () => {

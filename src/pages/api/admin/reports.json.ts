@@ -9,7 +9,7 @@ import { localDate } from '@lib/party-slots'
 export const prerender = false
 
 export interface MonthReport {
-  /** "2026-10", studio time. */
+  /** "2026-10" for a month, or "2026" for a whole year, studio time. */
   month: string
   /** Seats on our classes booked this month (online, door, counter, comp, POS), refunded ones included. */
   seatsSold: number
@@ -24,11 +24,21 @@ export interface MonthReport {
   partyFeesCents: number
 }
 
-const inMonth = (iso: string, month: string) => localDate(iso).slice(0, 7) === month
+/** True when `iso` falls in `period` ("2026-10" a month, "2026" a year), studio time. */
+const inMonth = (iso: string, period: string) => typeof iso === 'string' && localDate(iso).startsWith(period)
 
-/** The month's numbers from our own records. Pure, for the route and its tests. */
-export function monthReport(ledgers: Ledger[], parties: PartyRecord[], now: Date): MonthReport {
-  const month = localDate(now.toISOString()).slice(0, 7)
+export const PERIOD_RE = /^\d{4}(-(0[1-9]|1[0-2]))?$/
+
+/** The month `now` is in, "2026-10", studio time. */
+export const monthOf = (now: Date) => localDate(now.toISOString()).slice(0, 7)
+
+/**
+ * The numbers for a month or a whole year from our own records. `period`
+ * ("2026-09" or "2026") defaults to the month `now` is in. Pure, for the
+ * route and its tests.
+ */
+export function monthReport(ledgers: Ledger[], parties: PartyRecord[], now: Date, period?: string): MonthReport {
+  const month = period ?? monthOf(now)
   let seatsSold = 0, classSalesCents = 0, refunds = 0, refundedCents = 0
   for (const ledger of ledgers) {
     for (const l of ledger.lines) {
@@ -56,17 +66,22 @@ export function monthReport(ledgers: Ledger[], parties: PartyRecord[], now: Date
 }
 
 /**
- * GET: this month so far (studio time) for /admin › More › Reports: class
+ * GET: a month or a year (studio time) for /admin › More › Reports: class
  * seats sold, class sales, refunds, parties booked and party fees taken.
- * Only what our own records hold: Craft Café, party crafts and anything else
- * rung up in Square are in Square's reports. Owners only.
+ * `?period=2026-09` for a past month, `?period=2026` for a year's totals;
+ * this month when left out. A period still to come is refused. Only what our
+ * own records hold: the tax split from Square is tax-report.json. Owners only.
  */
-export const GET: APIRoute = async ({ request }) => {
+export const GET: APIRoute = async ({ request, url }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  const now = new Date()
+  const asked = (url ?? new URL(request.url)).searchParams.get('period')
+  if (asked !== null && !PERIOD_RE.test(asked)) return json(400, { error: 'Pick a month or a year.' })
+  if (asked && asked > monthOf(now).slice(0, asked.length)) return json(400, { error: 'That hasn’t happened yet. Pick this month or an earlier one.' })
   try {
     const [classes, parties] = await Promise.all([listClasses(), listParties()])
     const ledgers = await Promise.all(classes.map((c) => getLedger(c.id)))
-    return json(200, { data: monthReport(ledgers, parties, new Date()) })
+    return json(200, { data: monthReport(ledgers, parties, now, asked ?? undefined) })
   } catch (e) {
     console.error(`[admin/reports] ${e instanceof Error ? e.message : e}`)
     return json(503, { error: "The numbers couldn't be loaded. Try again." })

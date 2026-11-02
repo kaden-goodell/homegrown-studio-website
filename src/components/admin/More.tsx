@@ -13,7 +13,7 @@ const ROWS: [MorePage, string, string][] = [
   ['closed', 'Closed days', ''],
   ['staff', 'Staff', 'Who’s on, who can work, calendar links'],
   ['promos', 'Promotions', 'Coming in stage 4'],
-  ['reports', 'Reports', 'This month: seats sold, sales, refunds'],
+  ['reports', 'Reports', 'Any month or year, and the tax split'],
 ]
 
 /** More: the setup pages, reports, who's using this, and sign out. */

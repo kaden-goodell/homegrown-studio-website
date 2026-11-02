@@ -243,8 +243,10 @@ export const HELP_SECTIONS: HelpSection[] = [
     id: 'reports',
     title: 'Reports',
     points: [
-      'More › **Reports**: this month so far: class seats sold, class sales, class refunds, parties booked and party fees taken.',
-      'Craft Café, party crafts and anything else rung up on the register are in Square’s own reports (Square Dashboard › Reports).',
+      'More › **Reports**: pick a month, or a whole year, under Show. It shows class seats sold, class sales, class refunds, parties booked and party fees taken.',
+      'Under it is the **Tax split** from Square for that month: use tax (classes, Craft Café, parties) and sales tax (take-home kits), refunds taken off. **Download** saves it as a spreadsheet for the accountant. **Send it again** emails it to the tax report list.',
+      'The tax split is also emailed by itself on the 1st of each month. If that email says it couldn’t be made, open Reports, pick that month, and tap **Send it again** once it shows. A month that has ended is remembered; **Ask Square again** reads it fresh.',
+      'Each sale rung up on the register is in the tax split. For the sale-by-sale detail, Square has its own reports (Square Dashboard › Reports).',
     ],
   },
   {
