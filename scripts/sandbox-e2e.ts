@@ -25,6 +25,11 @@
  *   E2E_EMAIL                    where the test bookings' confirmation emails go
  *                                (default kaden+e2e@ourhometownstudio.com).
  *
+ * Scenarios 41–48 are staffing (stage 3, scripts/lib/sandbox-e2e/staffing-scenarios.ts):
+ * they sign a third client in to /staff as "E2E Crew", the sandbox team member
+ * "Set up sandbox" makes (skipped with how to fix it when it isn't there yet),
+ * and never message anyone (tell off on every assign).
+ *
  * Every class it makes is named "E2E <run> …", link-only (scenario 1 makes
  * one public for a moment to check the list), and cancelled at the end with
  * its library entry archived. Nothing is refunded except in scenarios 10 and
@@ -37,12 +42,17 @@ import {
   formatPlan, formatSummary, MissingSecretError, onStop, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, runScenarios,
   SlotAllocator, SquareSandbox, checkStatus, check, type Pending, type Secrets, type StopProcess,
 } from './lib/sandbox-e2e/core'
-import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, scenarios, type Ctx } from './lib/sandbox-e2e/scenarios'
+import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, scenarios } from './lib/sandbox-e2e/scenarios'
+import { staffingScenarios, type StaffingCtx } from './lib/sandbox-e2e/staffing-scenarios'
+import type { Scenario } from './lib/sandbox-e2e/core'
+
+/** Every scenario, in id order: our classes (1–23), then staffing (41–48). */
+export const ALL_SCENARIOS: Scenario<StaffingCtx>[] = [...(scenarios as Scenario<StaffingCtx>[]), ...staffingScenarios]
 
 /** Test bookings text the owners; this is Kaden's number (test texts only ever go to him). */
 const TEST_PHONE = '(402) 980-2907'
 
-async function signIn(secrets: Secrets, ctx: Pick<Ctx, 'admin' | 'staff'>): Promise<void> {
+async function signIn(secrets: Secrets, ctx: Pick<StaffingCtx, 'admin' | 'staff'>): Promise<void> {
   const a = await ctx.admin.post('/api/admin/login.json', { passcode: secrets.adminPasscode })
   checkStatus(a, 200, 'Sign in to /admin')
   check(ctx.admin.jar.has('hg_admin'), 'Signed in to /admin but no cookie came back')
@@ -73,7 +83,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
   }
   let list
   try {
-    list = pick(scenarios, args.only)
+    list = pick(ALL_SCENARIOS, args.only)
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e))
     return 2
@@ -99,10 +109,12 @@ export async function main(argv: string[], env: Record<string, string | undefine
   const hide = [secrets.adminPasscode, secrets.staffPasscode, secrets.sandboxToken]
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
   const gate = new RateGate(4, 60_000)
-  const ctx: Ctx = {
+  const ctx: StaffingCtx = {
     pub: new PreviewClient({ gate }),
     admin: new PreviewClient(),
     staff: new PreviewClient(),
+    crew: new PreviewClient(),
+    staffPasscode: secrets.staffPasscode,
     gate,
     square: secrets.sandboxToken ? new SquareSandbox(secrets.sandboxToken) : null,
     slots: new SlotAllocator('2000-01-01'),
@@ -115,6 +127,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
   const signOut = async () => {
     await ctx.admin.request('DELETE', '/api/admin/login.json').catch(() => undefined)
     await ctx.staff.request('DELETE', '/api/staff/login.json').catch(() => undefined)
+    if (ctx.crew.jar.has('hg_staff')) await ctx.crew.request('DELETE', '/api/staff/login.json').catch(() => undefined)
   }
   // Ctrl-C, a kill or an error nothing caught: the running scenario's cleanups, sign out, exit.
   const pending: Pending = { current: null }

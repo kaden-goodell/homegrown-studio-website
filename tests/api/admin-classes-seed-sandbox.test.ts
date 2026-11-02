@@ -6,7 +6,11 @@ vi.mock('@config/site.config', async (orig) => {
   return { ...real, siteConfig: { ...real.siteConfig, providers: { ...real.siteConfig.providers, catalog: { type: 'square', config: cfg } } } }
 })
 
+const site = vi.hoisted(() => ({ context: 'dev' as string }))
+vi.mock('@lib/deploy-context', () => ({ deployContext: () => site.context }))
+
 import { POST } from '@pages/api/admin/classes/seed-sandbox.json'
+import { NO_TEST_STORE } from '@lib/classes/test-site-guard'
 import { adminCookie } from '@lib/admin-auth'
 
 const signedIn = () => adminCookie().split(';')[0]
@@ -15,17 +19,26 @@ const json = (status: number, body: unknown) => new Response(JSON.stringify(body
 
 /** A fake sandbox catalog: list returns what's there, upsert adds to it. */
 let catalog: any[] = []
+let team: any[] = []
 let calls: { url: string; method: string; body: any }[] = []
 beforeEach(() => {
   vi.stubEnv('ADMIN_PASSCODE', 'owner-secret')
   cfg.environment = 'sandbox'
+  site.context = 'dev'
   catalog = []; calls = []
+  team = [{ id: 'TM_OWNER', given_name: 'Kaden', family_name: 'Goodell', status: 'ACTIVE', is_owner: true }]
   vi.stubGlobal('fetch', vi.fn(async (url: string, init: RequestInit = {}) => {
     const body = init.body ? JSON.parse(String(init.body)) : undefined
     calls.push({ url: String(url), method: init.method ?? 'GET', body })
     expect(String(url)).toMatch(/^https:\/\/connect\.squareupsandbox\.com\/v2\//)
     expect((init.headers as any)['Square-Version']).toBe('2026-01-22')
     if (String(url).includes('/catalog/list')) return json(200, { objects: catalog })
+    if (String(url).endsWith('/team-members/search')) return json(200, { team_members: team.filter((m) => m.status === body?.query?.filter?.status) })
+    if (String(url).endsWith('/team-members')) {
+      const m = { id: `TM_NEW${team.length}`, status: 'ACTIVE', ...body.team_member }
+      team.push(m)
+      return json(200, { team_member: m })
+    }
     if (String(url).endsWith('/catalog/batch-upsert')) {
       const id_mappings = body.batches[0].objects.map((o: any, i: number) => ({ client_object_id: o.id, object_id: `REAL${catalog.length + i}` }))
       const real = new Map(id_mappings.map((m: any) => [m.client_object_id, m.object_id]))
@@ -101,6 +114,50 @@ describe('POST /api/admin/classes/seed-sandbox.json', () => {
     expect(objs[1].item_data.categories).toEqual([{ id: 'PCAT' }])
     expect(out.data.partyCraftCategoryId).toBe('PCAT')
     expect(out.data.classesCategoryId).toBe('CATX')
+  })
+})
+
+describe('the sandbox crew member for the staffing scenarios (stage 3)', () => {
+  it('makes one active "E2E Crew" with a name only (no wage, no booking profile), then reuses it', async () => {
+    const first = await (await POST({ request: req(signedIn()) } as any)).json()
+    const creates = calls.filter((c) => c.url.endsWith('/team-members') && c.method === 'POST')
+    expect(creates).toHaveLength(1)
+    expect(Object.keys(creates[0].body).sort()).toEqual(['idempotency_key', 'team_member'])
+    expect(creates[0].body.team_member).toEqual({ given_name: 'E2E', family_name: 'Crew' })
+    expect(first.data.crewMember).toEqual({ id: 'TM_NEW1', name: 'E2E Crew', created: true })
+    // nothing about bookings, wages or the access token in what goes out or comes back
+    expect(JSON.stringify(calls.map((c) => c.body))).not.toMatch(/booking|wage|pay_rate|is_bookable/i)
+    expect(JSON.stringify(first)).not.toContain('tok')
+
+    calls = []
+    const again = await (await POST({ request: req(signedIn()) } as any)).json()
+    expect(calls.some((c) => c.url.endsWith('/team-members') && c.method === 'POST')).toBe(false)
+    expect(again.data.crewMember).toEqual({ id: 'TM_NEW1', name: 'E2E Crew', created: false })
+  })
+
+  it('an inactive E2E Crew does not count: a fresh active one is made', async () => {
+    team.push({ id: 'TM_OLD', given_name: 'E2E', family_name: 'Crew', status: 'INACTIVE' })
+    const out = await (await POST({ request: req(signedIn()) } as any)).json()
+    expect(out.data.crewMember.created).toBe(true)
+    expect(out.data.crewMember.id).not.toBe('TM_OLD')
+  })
+
+  it('R41: refused on a test site with no store of its own, before any Square call', async () => {
+    const prev = process.env.STORE_NAMESPACE
+    delete process.env.STORE_NAMESPACE
+    site.context = 'deploy-preview'
+    try {
+      const res = await POST({ request: req(signedIn()) } as any)
+      expect(res.status).toBe(409)
+      expect(await res.json()).toEqual({ error: NO_TEST_STORE })
+      expect(calls).toHaveLength(0)
+      // with its own store (the branch preview's STORE_NAMESPACE=preview) it runs
+      process.env.STORE_NAMESPACE = 'preview'
+      expect((await POST({ request: req(signedIn()) } as any)).status).toBe(200)
+    } finally {
+      if (prev === undefined) delete process.env.STORE_NAMESPACE
+      else process.env.STORE_NAMESPACE = prev
+    }
   })
 })
 

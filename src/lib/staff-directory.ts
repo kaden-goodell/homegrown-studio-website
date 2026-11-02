@@ -62,6 +62,11 @@ export function _resetStaffCache(): void {
   failedAt = null
 }
 
+/** Read the team from Square again on the next look (after the sandbox seed adds someone). This server only. */
+export function forgetTeamCache(): void {
+  cache = null
+}
+
 /** @internal test-only: forget the saved last-known team. */
 export async function _resetLastKnownForTests(): Promise<void> {
   await teamKv.set(TEAM_KEY, 'null')

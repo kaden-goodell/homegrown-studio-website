@@ -2,6 +2,8 @@ import type { APIRoute } from 'astro'
 import { randomUUID } from 'node:crypto'
 import { adminAuthorized } from '@lib/admin-auth'
 import { squareFetch, squareSettings } from '@lib/classes/square-api'
+import { classWritesRefusal } from '@lib/classes/test-site-guard'
+import { forgetTeamCache } from '@lib/staff-directory'
 
 export const prerender = false
 const json = (status: number, body: unknown) =>
@@ -32,6 +34,38 @@ async function listAll(types: string): Promise<any[]> {
 
 const sameName = (a: unknown, b: string) => typeof a === 'string' && a.trim().toLowerCase() === b.toLowerCase()
 
+/** The sandbox crew member the staffing end-to-end scenarios sign in as (stage 3). */
+export const E2E_CREW = { givenName: 'E2E', familyName: 'Crew' } as const
+
+/**
+ * Makes sure the sandbox team has one ACTIVE "E2E Crew" (stage 3, Task 11).
+ * Team API only: a name and nothing else (no wage, no booking profile, never
+ * bookable). Returns its id and whether it was just made.
+ */
+async function ensureCrewMember(): Promise<{ id: string; created: boolean }> {
+  const found: any[] = []
+  let cursor: string | undefined
+  do {
+    const res = await squareFetch('/team-members/search', {
+      method: 'POST',
+      body: JSON.stringify({ query: { filter: { status: 'ACTIVE' } }, limit: 100, ...(cursor ? { cursor } : {}) }),
+    })
+    found.push(...(res?.team_members ?? []))
+    cursor = res?.cursor || undefined
+  } while (cursor)
+  const there = found.find((m) => sameName(m?.given_name, E2E_CREW.givenName) && sameName(m?.family_name, E2E_CREW.familyName))
+  if (there?.id) return { id: there.id, created: false }
+  const made = await squareFetch('/team-members', {
+    method: 'POST',
+    body: JSON.stringify({ idempotency_key: randomUUID(), team_member: { given_name: E2E_CREW.givenName, family_name: E2E_CREW.familyName } }),
+  })
+  const id = made?.team_member?.id
+  if (!id) throw new Error("Square didn't return the new team member.")
+  // This server reads the team again on its next look (other servers within ten minutes).
+  forgetTeamCache()
+  return { id, created: true }
+}
+
 /**
  * GET (owners only): `{ data: { sandbox } }`, true only when this site talks
  * to the Square sandbox. /admin shows "Set up sandbox" only then.
@@ -44,14 +78,18 @@ export const GET: APIRoute = async ({ request }) => {
 /**
  * POST (owners only, sandbox only): make sure the sandbox has a "Classes"
  * category, a 9% "Sales tax", a "Party Crafts" category and two party crafts
- * in it (R12), creating whichever is missing. Safe to run again. Returns the
- * ids and the commands that set them for the branch.
+ * in it (R12), and one active team member "E2E Crew" for the staffing
+ * end-to-end scenarios (stage 3), creating whichever is missing. Safe to run
+ * again. Returns the ids and the commands that set them for the branch.
+ * Also refused on a test site with no store of its own (R41).
  */
 export const POST: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
   if (squareSettings().environment !== 'sandbox') {
     return json(409, { error: 'This only runs against the Square sandbox.' })
   }
+  const r41 = classWritesRefusal(request)
+  if (r41) return json(409, { error: r41 })
   try {
     const existing = await listAll('CATEGORY,TAX,ITEM')
     let classesCategoryId: string | undefined = existing.find((o) => o.type === 'CATEGORY' && sameName(o.category_data?.name, CATEGORY_NAME))?.id
@@ -101,11 +139,13 @@ export const POST: APIRoute = async ({ request }) => {
       partyCraftCategoryId ??= ids.get('#partycrafts')
     }
     if (!classesCategoryId || !classTaxId || !partyCraftCategoryId) return json(502, { error: "Square didn't return the new category or tax." })
+    const crew = await ensureCrewMember()
     return json(200, {
       data: {
         classesCategoryId,
         classTaxId,
         partyCraftCategoryId,
+        crewMember: { id: crew.id, name: `${E2E_CREW.givenName} ${E2E_CREW.familyName}`, created: crew.created },
         commands: [
           `npx netlify env:set SQUARE_CLASSES_CATEGORY_ID ${classesCategoryId} --context branch:${BRANCH}`,
           `npx netlify env:set SQUARE_CLASS_TAX_ID ${classTaxId} --context branch:${BRANCH}`,
