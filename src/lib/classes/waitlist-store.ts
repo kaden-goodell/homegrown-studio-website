@@ -12,7 +12,7 @@
  */
 import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
-import type { BookingRequest } from './pricing'
+import type { AgreedLine, BookingRequest } from './pricing'
 import type { CardTrouble } from '@lib/saved-cards'
 import type { Cents } from './types'
 import { assertClassWritesAllowed } from './test-site-guard'
@@ -72,6 +72,13 @@ export interface WaitlistEntry {
   seats: number
   /** The quote total shown at join; never charged above it (OWNER-S4-2). */
   maxCents: Cents
+  /**
+   * D6: each line's net as quoted at join (early-bird included). A seat that
+   * opens later is charged no more than this per line, even once the
+   * early-bird ends or the price rises. Older entries don't have it: the
+   * runner works it out from the class as it was priced when they joined.
+   */
+  agreedLines?: AgreedLine[]
   customer: { givenName: string; familyName: string; email: string; phone: string }
   square: { customerId: string; cardId: string; brand: string; last4: string; expMonth: number; expYear: number }
   consent: { textVersion: string; text: string; at: string; ipHash: string }

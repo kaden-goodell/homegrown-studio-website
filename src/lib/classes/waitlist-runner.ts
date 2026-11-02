@@ -68,7 +68,7 @@ import type { OrderPaymentStatus, Payment } from '@providers/interfaces/payment'
 import { CLASS_TAX_PERCENT, orderLinesFor, UNCLEAR_HOLD_HOURS } from './checkout'
 import { getClass } from './class-store'
 import { claimConfirmation, releaseConfirmation, sendClassConfirmation } from './confirmation'
-import { quote, type Quote } from './pricing'
+import { agreedLinesOf, atAgreedPrices, quote, type AgreedLine, type Quote } from './pricing'
 import { confirm, extendHold, getLedger, hold, release, type HoldInput } from './seat-ledger'
 import { isLiveHold } from './seat-status'
 import type { ScheduledClass } from './types'
@@ -319,6 +319,26 @@ function timeIsUp(cls: ScheduledClass, e: WaitlistEntry, now: Date): boolean {
 
 type Go = 'next' | 'stop'
 
+/**
+ * What this entry is charged at `at` (D6, Kaden 2 Nov): today's price, but
+ * each line no more than they agreed to at join (early-bird included), with
+ * tax on what is charged. The waitlist never takes a code (OWNER-S4-4), so no
+ * code use is counted. An older entry without `agreedLines` gets them from the
+ * class priced as of when they joined, used only when that still adds up to
+ * the amount they agreed to.
+ */
+export function waitlistQuote(cls: ScheduledClass, entry: WaitlistEntry, at: Date): ReturnType<typeof quote> {
+  const priced = quote(cls, { ...entry.request, promoCode: undefined }, at, CLASS_TAX_PERCENT)
+  if (!priced.ok) return priced
+  return { ok: true, value: atAgreedPrices(cls, priced.value, agreedOf(cls, entry), CLASS_TAX_PERCENT) }
+}
+
+function agreedOf(cls: ScheduledClass, entry: WaitlistEntry): AgreedLine[] | null {
+  if (entry.agreedLines?.length) return entry.agreedLines
+  const then = quote(cls, { ...entry.request, promoCode: undefined }, new Date(entry.createdAt), CLASS_TAX_PERCENT)
+  return then.ok && then.value.totalCents === entry.maxCents ? agreedLinesOf(then.value) : null
+}
+
 const holdInputFor = (entry: WaitlistEntry, a: WaitlistAttempt): HoldInput => ({
   bookingId: a.bookingId, passId: entry.request.passId, source: 'online', customer: { ...entry.customer },
   ttlMinutes: WAITLIST_HOLD_MINUTES, ...(entry.request.seats ? { seats: entry.request.seats } : {}), waitlistEntryId: entry.id,
@@ -340,7 +360,7 @@ async function tryToAdd(ctx: Ctx, entry: WaitlistEntry, reason: RunReason): Prom
       return 'stop'
     }
     if (st.state === 'paid' && st.payment) {
-      const priced = quote(cls, { ...entry.request, promoCode: undefined }, new Date(prev.at), CLASS_TAX_PERCENT)
+      const priced = waitlistQuote(cls, entry, new Date(prev.at))
       return finishPaid(ctx, entry, prev, priced.ok ? priced.value : null, st.payment, prev.orderId, undefined)
     }
     if (st.state === 'going-through') {
@@ -350,9 +370,10 @@ async function tryToAdd(ctx: Ctx, entry: WaitlistEntry, reason: RunReason): Prom
     }
   }
 
-  const priced = quote(cls, { ...entry.request, promoCode: undefined }, now, CLASS_TAX_PERCENT)
+  const priced = waitlistQuote(cls, entry, now)
 
-  // Not sold any more (the option was removed), or today's price is above what they agreed to: skipped, never charged.
+  // Not sold any more (the option was removed), or (D6: only when their agreed prices can't be matched line by line,
+  // e.g. the class became taxable) the total is still above what they agreed to: skipped, never charged.
   if (!priced.ok || priced.value.totalCents > entry.maxCents) {
     const why: 'price' | 'gone' = priced.ok ? 'price' : 'gone'
     const n = entry.attempts.length + 1
@@ -417,7 +438,7 @@ async function settleCharging(ctx: Ctx, entry: WaitlistEntry): Promise<Go> {
   }
   if (a.outcome === null && now.getTime() - lastSent(a) < STALE_CHARGE_MS) return 'next'
   const allowed = mayResend(cls, entry, now)
-  const priced = quote(cls, { ...entry.request, promoCode: undefined }, new Date(a.at), CLASS_TAX_PERCENT)
+  const priced = waitlistQuote(cls, entry, new Date(a.at))
 
   // The charge was never sent: Square can't have this money.
   if (a.amountCents === null) {
@@ -887,7 +908,7 @@ export async function decideUnclear(classId: string, entryId: string, choice: 'a
     if (choice === 'add') {
       const st = await askOrder(a, e)
       if (st.state !== 'paid' || !st.payment) throw new UnclearError('Square no longer shows it paid. Check again.')
-      const priced = quote(cls, { ...e.request, promoCode: undefined }, new Date(a.at), CLASS_TAX_PERCENT)
+      const priced = waitlistQuote(cls, e, new Date(a.at))
       await finishPaid(ctx, e, a, priced.ok ? priced.value : null, st.payment, a.orderId!, undefined)
     } else {
       // Asked again under the lock: a payment that showed up meanwhile is never let go.

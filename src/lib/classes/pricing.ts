@@ -16,9 +16,12 @@ export interface BookingRequest {
   seats?: { answers?: Record<string, string>; addOns?: Record<string, number> }[]
   promoCode?: string // stage 4
 }
-/** Stage 4: money off one line. `name` is what the Square receipt shows: "Early-bird", "Code FALLFRIENDS". */
+/**
+ * Stage 4: money off one line. `name` is what the Square receipt shows: "Early-bird", "Code FALLFRIENDS",
+ * "Waitlist price" (D6: a waitlist joiner is charged the price they agreed to, never more).
+ */
 export interface LineDiscount {
-  kind: 'early-bird' | 'promo'; name: string; cents: Cents
+  kind: 'early-bird' | 'promo' | 'waitlist'; name: string; cents: Cents
   /** Stage 4 fix 2 (I1): the code itself on a promo discount, so whoever confirms the seats (the request, Square's payment notice, the nightly catch-up) counts its use. */
   code?: string
 }
@@ -240,4 +243,36 @@ export function quote(cls: ScheduledClass, req: BookingRequest, now: Date, taxPe
       discountCents, promo: p ? { code: p.code, cents: promoCents } : null,
     },
   }
+}
+
+/** What a waitlist joiner agreed to for one line (net, before tax), in quote line order. */
+export interface AgreedLine { key: string; seat: number; cents: Cents }
+
+export const agreedLinesOf = (q: Quote): AgreedLine[] => q.lines.map((l) => ({ key: l.variationKey ?? l.label, seat: l.seat, cents: l.cents }))
+
+/**
+ * D6 (Kaden 2 Nov): a waitlist joiner is charged the price they agreed to,
+ * never more, even after the early-bird ends or the price rises. Each line is
+ * charged min(today's net, agreed net); the difference comes off as a
+ * "Waitlist price" line discount (so Square's order total matches) and tax is
+ * worked out on what is charged. `agreed` must line up with `q.lines` (same
+ * count, key and seat); otherwise `q` comes back unchanged.
+ */
+export function atAgreedPrices(cls: ScheduledClass, q: Quote, agreed: AgreedLine[] | null | undefined, taxPercent: number): Quote {
+  if (!agreed || agreed.length !== q.lines.length) return q
+  if (q.lines.some((l, i) => (l.variationKey ?? l.label) !== agreed[i].key || l.seat !== agreed[i].seat)) return q
+  const pct = cls.content.rules.taxable ? taxPercent : 0
+  let changed = false
+  const lines: QuoteLine[] = q.lines.map((l, i) => {
+    const off = l.cents - Math.max(0, Math.min(l.cents, agreed[i].cents))
+    if (off <= 0) return l
+    changed = true
+    const cents = l.cents - off
+    return { ...l, discounts: [...l.discounts, { kind: 'waitlist', name: 'Waitlist price', cents: off }], cents, taxCents: taxOn(cents, pct) }
+  })
+  if (!changed) return q
+  const subtotalCents = lines.reduce((s, l) => s + l.cents, 0)
+  const tax = lines.reduce((s, l) => s + l.taxCents, 0)
+  const discountCents = lines.reduce((s, l) => s + l.discounts.reduce((t, d) => t + d.cents, 0), 0)
+  return { ...q, lines, subtotalCents, taxCents: tax, totalCents: subtotalCents + tax, discountCents }
 }

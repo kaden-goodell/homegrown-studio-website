@@ -291,3 +291,30 @@ describe('quote — discounts per line (stage 4)', () => {
     expect(q.lines[0]).toMatchObject({ cents: 1350, taxCents: 0 })
   })
 })
+
+import { agreedLinesOf, atAgreedPrices } from '@lib/classes/pricing'
+
+describe('atAgreedPrices (D6)', () => {
+  const two = { ticketTypes: [{ id: 'adult', label: 'Adult' }, { id: 'kid', label: 'Kid' }], prices: { all: { adult: 2000, kid: 1000 } } }
+  it('each line is charged min(today, agreed); the difference is a "Waitlist price" discount; tax on what is charged', () => {
+    const then = quote(make(two), req({ tickets: { adult: 1, kid: 1 } }), NOW, 9)
+    if (!then.ok) throw new Error()
+    const agreed = agreedLinesOf(then.value)
+    // Adult went up to $25, kid went down to $8.
+    const now = quote(make({ ...two, prices: { all: { adult: 2500, kid: 800 } } }), req({ tickets: { adult: 1, kid: 1 } }), NOW, 9)
+    if (!now.ok) throw new Error()
+    const q = atAgreedPrices(make(two), now.value, agreed, 9)
+    expect(q.lines.map((l) => l.cents)).toEqual([2000, 800])
+    expect(q.lines[0].discounts).toEqual([{ kind: 'waitlist', name: 'Waitlist price', cents: 500 }])
+    expect(q.lines[1].discounts).toEqual([])
+    expect(q.lines.map((l) => l.taxCents)).toEqual([180, 72])
+    expect(q.totalCents).toBe(3052)
+    expect(q.discountCents).toBe(500)
+  })
+  it('lines that don’t match what was agreed (other tickets) → unchanged', () => {
+    const now = quote(make(two), req({ tickets: { adult: 2 } }), NOW, 9)
+    if (!now.ok) throw new Error()
+    expect(atAgreedPrices(make(two), now.value, [{ key: 'all:adult', seat: 0, cents: 100 }], 9)).toBe(now.value)
+    expect(atAgreedPrices(make(two), now.value, null, 9)).toBe(now.value)
+  })
+})

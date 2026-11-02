@@ -257,10 +257,76 @@ describe('runWaitlist', () => {
     expect(await chargeSaved(input)).toMatchObject({ kind: 'declined', trouble: 'card-gone' })
   })
 
-  it('price rose since joining → skipped, never charged, owners told', async () => {
+  it('D6: the early-bird ended after they joined at $20 → charged the $20 they agreed to (+ tax), the difference off on the Square line', async () => {
+    const cls = makeClass()
+    cls.content.prices = { all: { person: 3000 } }
+    cls.content.earlyBird = { untilYmd: '2026-10-11', prices: { all: { person: 2000 } } }
+    cls.square.prices = { 'all:person': 2000 }
+    h.square.prices = { VAR: 2000 }
+    const other = await fill(cls)
+    await join(cls, 'Jane')
+    const joined = (await entries(cls))[0]
+    expect(joined.maxCents).toBe(2180)
+    expect(joined.agreedLines).toEqual([{ key: 'all:person', seat: 0, cents: 2000 }])
+
+    // Days later: the early-bird is over and the register is back at $30.
+    const LATER = new Date('2026-10-14T17:00:00.000Z')
+    vi.setSystemTime(LATER)
+    cls.square.prices = { 'all:person': 3000 }
+    h.square.prices = { VAR: 3000 }
+    await release(cls.id, other)
+    const r = await runWaitlist(cls.id, { reason: 'seat-freed' }, LATER)
+    expect(r).toMatchObject({ added: 1, skipped: 0, stopped: null })
+    expect(h.square.classOrderCalls[0].lineDiscounts).toEqual([{ line: 0, name: 'Waitlist price', cents: 1000 }])
+    expect(h.square.chargeSavedCardCalls).toHaveLength(1)
+    expect(h.square.chargeSavedCardCalls[0].amount).toBe(2180)
+    const jane = (await entries(cls))[0]
+    expect(jane.state).toBe('added')
+    const line = (await getLedger(cls.id)).lines.find((l) => l.bookingId === jane.bookingId)!
+    expect(line).toMatchObject({ state: 'confirmed', square: { chargedCents: 2180 } })
+    expect(mail.missed).not.toHaveBeenCalled()
+  })
+
+  it('D6: the price rose since joining → still charged the $20 they agreed to (+ tax)', async () => {
     const cls = makeClass()
     const other = await fill(cls)
     await join(cls, 'Jane')
+    cls.content.prices = { all: { person: 2500 } }
+    cls.square.prices = { 'all:person': 2500 }
+    h.square.prices = { VAR: 2500 }
+    await release(cls.id, other)
+    const r = await runWaitlist(cls.id, { reason: 'seat-freed' }, NOW)
+    expect(r).toMatchObject({ added: 1, skipped: 0 })
+    expect(h.square.classOrderCalls[0].lineDiscounts).toEqual([{ line: 0, name: 'Waitlist price', cents: 500 }])
+    expect(h.square.chargeSavedCardCalls[0].amount).toBe(2180)
+    expect(owners).not.toHaveBeenCalledWith(expect.stringContaining('skipped'))
+  })
+
+  it('D6: an entry saved before D6 (no agreed lines) gets them from the class as priced when it joined (early-bird ended → $20)', async () => {
+    const cls = makeClass()
+    cls.content.prices = { all: { person: 3000 } }
+    cls.content.earlyBird = { untilYmd: '2026-10-11', prices: { all: { person: 2000 } } }
+    const other = await fill(cls)
+    await join(cls, 'Jane')
+    const { mutateWaitlist } = await import('@lib/classes/waitlist-store')
+    await mutateWaitlist(cls.id, (cur) => ({ next: { ...cur, entries: cur.entries.map(({ agreedLines: _x, ...e }) => e) }, result: null }))
+    expect((await entries(cls))[0].agreedLines).toBeUndefined()
+    const LATER = new Date('2026-10-14T17:00:00.000Z')
+    vi.setSystemTime(LATER)
+    cls.square.prices = { 'all:person': 3000 }
+    h.square.prices = { VAR: 3000 }
+    await release(cls.id, other)
+    const r = await runWaitlist(cls.id, { reason: 'seat-freed' }, LATER)
+    expect(r).toMatchObject({ added: 1, skipped: 0 })
+    expect(h.square.chargeSavedCardCalls[0].amount).toBe(2180)
+  })
+
+  it('an older entry whose join price can’t be worked out, with today’s total above what they agreed to → skipped, never charged, owners told', async () => {
+    const cls = makeClass()
+    const other = await fill(cls)
+    await join(cls, 'Jane')
+    const { mutateWaitlist } = await import('@lib/classes/waitlist-store')
+    await mutateWaitlist(cls.id, (cur) => ({ next: { ...cur, entries: cur.entries.map(({ agreedLines: _x, ...e }) => e) }, result: null }))
     cls.content.prices = { all: { person: 2500 } }
     h.square.prices = { VAR: 2500 }
     await release(cls.id, other)
@@ -270,9 +336,22 @@ describe('runWaitlist', () => {
     const jane = (await entries(cls))[0]
     expect(jane).toMatchObject({ state: 'skipped' })
     expect(jane.attempts[0].outcome).toBe('price-rose')
-    expect(h.square.disableCardCalls).toEqual([jane.square.cardId])
     expect(mail.missed).toHaveBeenCalledWith(expect.objectContaining({ why: 'price' }))
     expect(owners.mock.calls[0][0]).toContain('above the $21.80 they agreed to')
+  })
+
+  it('D6: today’s price is lower than what they agreed to → charged today’s price, no discount', async () => {
+    const cls = makeClass()
+    const other = await fill(cls)
+    await join(cls, 'Jane')
+    cls.content.prices = { all: { person: 1500 } }
+    cls.square.prices = { 'all:person': 1500 }
+    h.square.prices = { VAR: 1500 }
+    await release(cls.id, other)
+    const r = await runWaitlist(cls.id, { reason: 'seat-freed' }, NOW)
+    expect(r).toMatchObject({ added: 1, skipped: 0 })
+    expect(h.square.classOrderCalls[0].lineDiscounts).toBeUndefined()
+    expect(h.square.chargeSavedCardCalls[0].amount).toBe(1635)
   })
 
   it('after the cutoff: nobody charged, entries closed (cards off), the seat stays open to the public', async () => {

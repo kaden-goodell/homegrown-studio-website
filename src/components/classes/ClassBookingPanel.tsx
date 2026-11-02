@@ -82,8 +82,8 @@ const CLASS_MESSAGES = {
 const hasEarlyBird = (q: Quote | null): boolean => !!q?.lines.some((l) => l.discounts?.some((d) => d.kind === 'early-bird'))
 
 /** Discounts on a quote, added up by name in the order they first come off: "Early-bird", then "Code FALLFRIENDS". */
-function discountRows(q: Quote): { name: string; kind: 'early-bird' | 'promo'; cents: number }[] {
-  const rows: { name: string; kind: 'early-bird' | 'promo'; cents: number }[] = []
+function discountRows(q: Quote): { name: string; kind: 'early-bird' | 'promo' | 'waitlist'; cents: number }[] {
+  const rows: { name: string; kind: 'early-bird' | 'promo' | 'waitlist'; cents: number }[] = []
   for (const l of q.lines) {
     for (const d of l.discounts ?? []) {
       const row = rows.find((r) => r.name === d.name)

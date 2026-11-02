@@ -25,7 +25,7 @@ import { formatSlotLabel } from '@lib/studio-time'
 import { CLASS_TAX_PERCENT, cleanSeats, seatsLabelFor } from './checkout'
 import { fitsNow, waitlistClosesIso, waitlistOpen } from './waitlist-rules'
 import { getClass } from './class-store'
-import { quote, type BookingRequest } from './pricing'
+import { agreedLinesOf, quote, type BookingRequest } from './pricing'
 import { getLedger } from './seat-ledger'
 import type { ScheduledClass } from './types'
 import {
@@ -216,6 +216,7 @@ export async function joinWaitlist(input: JoinInput, now = new Date()): Promise<
     sessionIds: [...q.sessionIds],
     seats: q.seats,
     maxCents: q.totalCents,
+    agreedLines: agreedLinesOf(q),
     customer: { ...input.customer },
     square: { customerId, cardId: card.cardId, brand: card.brand, last4: card.last4, expMonth: card.expMonth, expYear: card.expYear },
     consent: { textVersion: CONSENT_VERSION, text: consent.text, at: now.toISOString(), ipHash: ipHashOf(input.ip) },

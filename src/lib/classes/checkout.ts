@@ -125,7 +125,8 @@ export function orderLinesFor(
     // class record not), a code absorbed here would be left off the order and charged above the Pay button.
     let carried = Math.max(0, list - catalog)
     for (const d of l.discounts ?? []) {
-      const absorbed = d.kind === 'early-bird' ? Math.min(carried, d.cents) : 0
+      // D6: the waitlist's agreed-price discount is a price too (taken off after the early-bird), so it may absorb what's left.
+      const absorbed = d.kind !== 'promo' ? Math.min(carried, d.cents) : 0
       carried -= absorbed
       const cents = d.cents - absorbed
       if (cents > 0) discounts.push({ line: lines.length, name: d.name, cents })
