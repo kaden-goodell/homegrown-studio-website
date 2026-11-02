@@ -4,6 +4,7 @@
  * set on /admin. A failed request leaves the page as it was.
  * Client-safe: DOM only.
  */
+import { liveSite } from '@lib/site-live'
 export interface CafeHoursPayload {
   weekly: { days: string; time: string }[]
   special: { date: string; name: string; time: string }[]
@@ -50,12 +51,11 @@ export function applyCafeHours(doc: Document, data: CafeHoursPayload): void {
   }
 }
 
+/** One request per page load, shared with the footer and the special-day bar (@lib/site-live). */
 export async function loadCafeHours(doc: Document = document): Promise<void> {
   try {
-    const res = await fetch('/api/cafe-hours.json')
-    if (!res.ok) return
-    const json = await res.json()
-    if (json?.data) applyCafeHours(doc, json.data as CafeHoursPayload)
+    const data = await liveSite()
+    if (data) applyCafeHours(doc, data as unknown as CafeHoursPayload)
   } catch {
     // The page keeps the hours it was built with.
   }
