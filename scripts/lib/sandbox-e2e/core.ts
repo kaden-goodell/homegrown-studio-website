@@ -323,7 +323,7 @@ export interface ScenarioResult { id: number; title: string; outcome: Outcome; m
 
 export interface Args { only: number[] | null; dryRun: boolean; help: boolean; cleanupOnly: boolean }
 
-/** --only 3 / --only 3,5 / --only=3, --dry-run, --cleanup-only, --help. Anything else is refused. */
+/** --only 3 / --only 3,5 / --only 24-40 / --only=3, --dry-run, --cleanup-only, --help. Anything else is refused. */
 export function parseArgs(argv: string[]): Args {
   const out: Args = { only: null, dryRun: false, help: false, cleanupOnly: false }
   for (let i = 0; i < argv.length; i++) {
@@ -333,8 +333,17 @@ export function parseArgs(argv: string[]): Args {
     else if (a === '--help' || a === '-h') out.help = true
     else if (a === '--only' || a.startsWith('--only=')) {
       const raw = a === '--only' ? argv[++i] : a.slice('--only='.length)
-      const ids = String(raw ?? '').split(',').map((s) => s.trim()).filter(Boolean).map(Number)
-      if (!ids.length || ids.some((n) => !Number.isInteger(n) || n < 1)) throw new Error(`--only takes scenario numbers, like --only 3 or --only 3,5 (got ${raw ?? 'nothing'}).`)
+      const bad = () => new Error(`--only takes scenario numbers, like --only 3, --only 3,5 or --only 24-40 (got ${raw ?? 'nothing'}).`)
+      const ids: number[] = []
+      for (const part of String(raw ?? '').split(',').map((s) => s.trim()).filter(Boolean)) {
+        const range = /^(\d+)-(\d+)$/.exec(part)
+        if (range) {
+          const [lo, hi] = [Number(range[1]), Number(range[2])]
+          if (lo < 1 || hi < lo || hi - lo > 200) throw bad()
+          for (let n = lo; n <= hi; n++) ids.push(n)
+        } else ids.push(Number(part))
+      }
+      if (!ids.length || ids.some((n) => !Number.isInteger(n) || n < 1)) throw bad()
       out.only = [...new Set([...(out.only ?? []), ...ids])]
     } else throw new Error(`Unknown option ${a}. Use --only N, --dry-run, --cleanup-only or --help.`)
   }

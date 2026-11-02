@@ -1,5 +1,6 @@
 /**
- * Sandbox end-to-end suite for our own classes (stage 1, Task 17).
+ * Sandbox end-to-end suite for our own classes (stage 1, Task 17) and parties
+ * (stage 2, Task 14).
  *
  * Runs only against the branch preview, which talks to the Square SANDBOX:
  *   https://kaden-own-booking-system--iridescent-croissant-494fc3.netlify.app
@@ -12,18 +13,29 @@
  *   ! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts
  *
  * Options:
- *   --only N      just scenario N (or --only 3,5)
+ *   --only N      just scenario N (or --only 3,5, or a range: --only 24-40)
  *   --dry-run     print what each scenario does; no network, no passcodes needed
  *   --cleanup-only  run no scenarios: cancel "E2E …" classes left by a run that
  *                 stopped part way, archive their library entries, remove
- *                 "E2E block" time and "E2E closure" days (same passcodes, preview only)
+ *                 "E2E block" time and "E2E closure" days, cancel "E2E …"
+ *                 parties and take the E2E package, extras and test days out
+ *                 of Parties setup (same passcodes, preview only)
  *
  * Optional env:
  *   SQUARE_SANDBOX_ACCESS_TOKEN  checks each order, payment, refund and POS item in
- *                                the Square sandbox, and lets scenarios 11 and 22 run.
+ *                                the Square sandbox, and lets scenarios 11, 22 and 40
+ *                                (and the To decide half of 27) run.
  *                                Without it those checks are skipped with a note.
  *   E2E_EMAIL                    where the test bookings' confirmation emails go
  *                                (default kaden+e2e@ourhometownstudio.com).
+ *
+ * Scenarios 1–23 are our classes (stage 1, scripts/lib/sandbox-e2e/scenarios.ts).
+ * Scenarios 24–40 are parties (stage 2, scripts/lib/sandbox-e2e/party-scenarios.ts):
+ * the first one to run adds a $1 "E2E <run> Test party" package (Only with the
+ * link), two $1 extras and dated test party days at 4 AM to Parties setup on the
+ * preview; the run's cleanup (after the last scenario, or on Ctrl-C) takes them
+ * out again. Every party's host is "E2E <run> …"; each scenario cancels its
+ * parties (never refunding); refunds only in 35, 36, 37 and 40 (sandbox money).
  *
  * Every class it makes is named "E2E <run> …", link-only (scenario 1 makes
  * one public for a moment to check the list), and cancelled at the end with
@@ -37,12 +49,27 @@ import {
   formatPlan, formatSummary, MissingSecretError, onStop, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, runScenarios,
   SlotAllocator, SquareSandbox, checkStatus, check, type Pending, type Secrets, type StopProcess,
 } from './lib/sandbox-e2e/core'
-import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, scenarios, type Ctx } from './lib/sandbox-e2e/scenarios'
+import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, scenarios } from './lib/sandbox-e2e/scenarios'
+import { cleanUpPartyLeftovers, PARTY_CLEANUP_PLAN, partyScenarios, type PartyCtx } from './lib/sandbox-e2e/party-scenarios'
+import { Cleanup, type CleanupResult, type Scenario } from './lib/sandbox-e2e/core'
+
+/** Every scenario, in id order: our classes (1–23), then parties (24–40). */
+export const ALL_SCENARIOS: Scenario<PartyCtx>[] = [...(scenarios as Scenario<PartyCtx>[]), ...partyScenarios]
+
+/** Runs the run-level undo steps (Parties setup put back) once, saying what happened. */
+export async function finishRun(runCleanup: Cleanup, log: (line: string) => void): Promise<CleanupResult[]> {
+  if (!runCleanup.size) return []
+  log('\nPutting back what the run changed:')
+  const done = await runCleanup.run()
+  for (const c of done) log(`    ${c.ok ? 'done' : 'NOT done'}: ${c.label}${c.error ? ` (${c.error})` : ''}`)
+  if (done.some((c) => !c.ok)) log('Some of it failed. Run: npx tsx scripts/sandbox-e2e.ts --cleanup-only')
+  return done
+}
 
 /** Test bookings text the owners; this is Kaden's number (test texts only ever go to him). */
 const TEST_PHONE = '(402) 980-2907'
 
-async function signIn(secrets: Secrets, ctx: Pick<Ctx, 'admin' | 'staff'>): Promise<void> {
+async function signIn(secrets: Secrets, ctx: Pick<PartyCtx, 'admin' | 'staff'>): Promise<void> {
   const a = await ctx.admin.post('/api/admin/login.json', { passcode: secrets.adminPasscode })
   checkStatus(a, 200, 'Sign in to /admin')
   check(ctx.admin.jar.has('hg_admin'), 'Signed in to /admin but no cookie came back')
@@ -73,19 +100,19 @@ export async function main(argv: string[], env: Record<string, string | undefine
   }
   let list
   try {
-    list = pick(scenarios, args.only)
+    list = pick(ALL_SCENARIOS, args.only)
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e))
     return 2
   }
   if (args.dryRun && args.cleanupOnly) {
     console.log(`Would clear up what earlier runs left on ${PREVIEW_ORIGIN}:`)
-    for (const step of CLEANUP_PLAN) console.log(`    - ${step}`)
+    for (const step of [...CLEANUP_PLAN, ...PARTY_CLEANUP_PLAN]) console.log(`    - ${step}`)
     return 0
   }
   if (args.dryRun) {
     console.log(formatPlan(list))
-    console.log(`\nSquare-side checks: ${env.SQUARE_SANDBOX_ACCESS_TOKEN ? 'on (SQUARE_SANDBOX_ACCESS_TOKEN set)' : 'off (no SQUARE_SANDBOX_ACCESS_TOKEN; scenarios 11 and 22 would be skipped)'}`)
+    console.log(`\nSquare-side checks: ${env.SQUARE_SANDBOX_ACCESS_TOKEN ? 'on (SQUARE_SANDBOX_ACCESS_TOKEN set)' : 'off (no SQUARE_SANDBOX_ACCESS_TOKEN; scenarios 11, 22 and 40 and the To decide half of 27 would be skipped)'}`)
     return 0
   }
 
@@ -99,7 +126,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
   const hide = [secrets.adminPasscode, secrets.staffPasscode, secrets.sandboxToken]
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
   const gate = new RateGate(4, 60_000)
-  const ctx: Ctx = {
+  const ctx: PartyCtx = {
     pub: new PreviewClient({ gate }),
     admin: new PreviewClient(),
     staff: new PreviewClient(),
@@ -109,6 +136,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
     runTag: new Date().toISOString().slice(5, 16).replace(/[-T:]/g, ''),
     person: { givenName: 'E2E', familyName: 'Sandbox', email: (env.E2E_EMAIL ?? '').trim() || 'kaden+e2e@ourhometownstudio.com', phone: TEST_PHONE },
     settings: null,
+    runCleanup: new Cleanup(),
     sleep,
     log: (line) => console.log(redact(line, hide)),
   }
@@ -119,7 +147,7 @@ export async function main(argv: string[], env: Record<string, string | undefine
   // Ctrl-C, a kill or an error nothing caught: the running scenario's cleanups, sign out, exit.
   const pending: Pending = { current: null }
   const removeStop = onStop({
-    proc: deps.proc ?? process, pending, signOut, log: ctx.log, secrets: hide, exit: deps.exit ?? ((code) => process.exit(code)),
+    proc: deps.proc ?? process, pending, signOut: async () => { await finishRun(ctx.runCleanup, ctx.log).catch(() => undefined); await signOut() }, log: ctx.log, secrets: hide, exit: deps.exit ?? ((code) => process.exit(code)),
   })
 
   try {
@@ -139,20 +167,25 @@ export async function main(argv: string[], env: Record<string, string | undefine
 
     if (args.cleanupOnly) {
       ctx.log('Clearing up what earlier runs left behind ("E2E …" only):')
-      const { done, failed } = await cleanUpLeftovers(ctx, ctx.log)
+      const classes = await cleanUpLeftovers(ctx, ctx.log)
+      const parties = await cleanUpPartyLeftovers(ctx, ctx.log)
+      const done = [...classes.done, ...parties.done], failed = [...classes.failed, ...parties.failed]
       ctx.log(`${done.length} done, ${failed.length} failed${done.length + failed.length ? '' : ' (nothing left over)'}.`)
       return failed.length ? 1 : 0
     }
 
     ctx.log(`Run ${ctx.runTag}: ${list.length} scenario(s); Square-side checks ${ctx.square ? 'on' : 'off (no SQUARE_SANDBOX_ACCESS_TOKEN)'}.`)
     const results = await runScenarios(list, ctx, { secrets: hide, log: ctx.log, pending })
+    const putBack = await finishRun(ctx.runCleanup, ctx.log)
     console.log(`\n${redact(formatSummary(results), hide)}`)
-    return results.every((r) => r.outcome !== 'FAIL') ? 0 : 1
+    return results.every((r) => r.outcome !== 'FAIL') && putBack.every((c) => c.ok) ? 0 : 1
   } catch (e) {
     console.error(redact(`Stopped: ${e instanceof Error ? e.message : String(e)}`, hide))
     return 1
   } finally {
     removeStop()
+    // A run stopped by an error still puts Parties setup back (a no-op when the summary path already did).
+    await finishRun(ctx.runCleanup, ctx.log).catch(() => undefined)
     await signOut()
   }
 }

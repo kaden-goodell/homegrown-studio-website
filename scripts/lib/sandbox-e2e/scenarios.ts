@@ -192,7 +192,7 @@ async function checkPaid(ctx: Ctx, scope: Scope, cls: any, b: Booked, expect: { 
 }
 
 const noted = new WeakSet<Scope>()
-function noSquare(scope: Scope): void {
+export function noSquare(scope: Scope): void {
   if (noted.has(scope)) return
   noted.add(scope)
   scope.note('Square side not checked (no SQUARE_SANDBOX_ACCESS_TOKEN)')
@@ -205,7 +205,7 @@ async function locationIds(sq: SquareSandbox): Promise<string[]> {
 }
 
 /** Orders made since `sinceIso` whose reference is one of these booking ids. */
-async function ordersFor(sq: SquareSandbox, refs: string[], sinceIso: string): Promise<any[]> {
+export async function ordersFor(sq: SquareSandbox, refs: string[], sinceIso: string): Promise<any[]> {
   const out: any[] = []
   let cursor: string | undefined
   for (let page = 0; page < 10; page++) {
@@ -223,7 +223,7 @@ async function ordersFor(sq: SquareSandbox, refs: string[], sinceIso: string): P
 }
 
 /** Nothing was charged for these bookings: no paid order, no tender. */
-async function checkNotCharged(ctx: Ctx, scope: Scope, refs: string[], sinceIso: string): Promise<void> {
+export async function checkNotCharged(ctx: Ctx, scope: Scope, refs: string[], sinceIso: string): Promise<void> {
   if (!ctx.square) return noSquare(scope)
   for (const o of await ordersFor(ctx.square, refs, sinceIso)) {
     check(o.state !== 'COMPLETED', `Square order ${o.id} for ${o.reference_id} is COMPLETED (charged)`)
@@ -231,7 +231,7 @@ async function checkNotCharged(ctx: Ctx, scope: Scope, refs: string[], sinceIso:
   }
 }
 
-const sinceNow = () => new Date(Date.now() - 2 * 60_000).toISOString()
+export const sinceNow = () => new Date(Date.now() - 2 * 60_000).toISOString()
 const sessionLeft = async (ctx: Ctx, classId: string) => {
   const r = await ctx.pub.get(`/api/classes/${classId}.json`)
   checkStatus(r, 200, 'Read the class by its link')
@@ -256,7 +256,7 @@ function startingSoon(minutesAhead: number, lengthMinutes: number): { startIso: 
 }
 
 /** The location the site's own orders use (a sandbox may have several). */
-async function siteLocation(ctx: Ctx, scope: Scope): Promise<string> {
+export async function siteLocation(ctx: Ctx, scope: Scope): Promise<string> {
   const ids = await locationIds(ctx.square!)
   if (ids.length === 1) return ids[0]
   const recent = await ctx.square!.post('/orders/search', {
@@ -288,14 +288,14 @@ async function counterSale(ctx: Ctx, scope: Scope, lines: { variationId: string;
   return { orderId: order.id, totalCents: total }
 }
 
-async function reconcile(ctx: Ctx): Promise<any> {
+export async function reconcile(ctx: Pick<Ctx, 'admin'>): Promise<any> {
   const r = await ctx.admin.post('/api/jobs/reconcile-classes.json?force=1', {})
   checkStatus(r, 200, 'Run the reconcile')
   check(!r.body?.data?.skipped, `Reconcile skipped: ${r.body?.data?.skipped}`)
   return r.body.data
 }
 
-async function toDecide(ctx: Ctx): Promise<any[]> {
+export async function toDecide(ctx: Pick<Ctx, 'admin'>): Promise<any[]> {
   const r = await ctx.admin.get('/api/admin/to-decide.json')
   checkStatus(r, 200, 'Read To decide')
   return r.body.data.items
@@ -306,7 +306,7 @@ async function refund(ctx: Ctx, body: Record<string, unknown>): Promise<Reply> {
   return ctx.admin.post('/api/admin/classes/refund.json', { reason: 'E2E sandbox test', ...body })
 }
 
-async function checkRefundInSquare(ctx: Ctx, scope: Scope, refundId: string, cents: number): Promise<void> {
+export async function checkRefundInSquare(ctx: Ctx, scope: Scope, refundId: string, cents: number): Promise<void> {
   if (!ctx.square) return noSquare(scope)
   check(refundId, 'The refund has no Square refund id')
   const r = (await ctx.square.get(`/refunds/${encodeURIComponent(refundId)}`)).refund
