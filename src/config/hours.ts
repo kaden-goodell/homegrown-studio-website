@@ -22,7 +22,7 @@ export const STUDIO_HOURS: HoursEntry[] = [
   { days: ['Thursday'], opens: '18:00', closes: '20:00' }, // the 6–8 workshop only (Kaden, 1 Nov 2026)
   { days: ['Friday'], opens: '16:00', closes: '21:00' },
   { days: ['Saturday'], opens: '09:00', closes: '21:00' },
-  { days: ['Sunday'], opens: '12:30', closes: '21:00' }, // 1:00 party hosts arrive 12:30
+  { days: ['Sunday'], opens: '13:00', closes: '20:00' }, // first party 1:00, the 6–8 workshop ends at 8 (Kaden, 1 Nov 2026)
 ]
 
 /**
