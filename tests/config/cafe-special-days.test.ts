@@ -5,7 +5,7 @@ import { partyStartsForDate } from '@lib/party-slots'
 
 describe('Craft Café special days', () => {
   it('Nov 7 is all day, 9 AM to 9 PM (the grand opening)', () => {
-    expect(cafeHoursOn('2026-11-07')).toEqual({ opens: '09:00', closes: '21:00' })
+    expect(cafeHoursOn('2026-11-07')).toEqual({ opens: '09:00', closes: '20:00' })
     expect(cafeRunsOn('2026-11-07')).toBe(true)
   })
   it('other Saturdays keep the weekly morning hours; other days have none', () => {

@@ -125,7 +125,7 @@ describe('partyStartsInRange', () => {
 import { partyStartsForDate as startsOn } from '@lib/party-slots'
 describe('parties step aside for Craft Café, an hour each side', () => {
   const now = new Date('2026-10-15T15:00:00Z')
-  it('the all-day grand opening (Sat Nov 7, café 9 AM to 9 PM) leaves no party times', () => {
+  it('the grand opening (Sat Nov 7, café 9 AM to 8 PM) leaves no party times', () => {
     expect(startsOn('2026-11-07', now)).toEqual([])
   })
   it('a normal Saturday keeps its 2:00 party: the café closes at 1, an hour before', () => {

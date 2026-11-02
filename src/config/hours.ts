@@ -51,8 +51,8 @@ export interface CafeSpecialDay {
 
 export const CAFE_SPECIAL_DAYS: CafeSpecialDay[] = [
   // Kaden, 15 Oct 2026: "Make craft cafe all day November 7th. We're going to
-  // do a big giant grand opening." All day = the Saturday studio hours.
-  { date: '2026-11-07', opens: '09:00', closes: '21:00', name: 'Craft Café grand opening' },
+  // do a big giant grand opening." Kaden, 1 Nov 2026: 9 AM to 8 PM.
+  { date: '2026-11-07', opens: '09:00', closes: '20:00', name: 'Craft Café grand opening' },
 ]
 
 /** Café hours on a date: a special day wins over the weekly hours. Null when there's no café that day. */
