@@ -40,14 +40,16 @@
  * Every class it makes is named "E2E <run> …", link-only (scenario 1 makes
  * one public for a moment to check the list), and cancelled at the end with
  * its library entry archived. Nothing is refunded except in scenarios 10 and
- * 17, in the sandbox. Ctrl-C (or a crash) runs the running scenario's
- * cleanups and signs out before exiting. Exit code 0 only when every
+ * 17, in the sandbox. Ctrl-C (or a crash) first halts the running scenario
+ * (its next call to the preview or Square throws; the stop waits up to 20 s
+ * for a call already in flight), then runs its cleanups, puts Parties setup
+ * back and signs out before exiting. Exit code 0 only when every
  * scenario run passed.
  */
 import { pathToFileURL } from 'node:url'
 import {
   formatPlan, formatSummary, MissingSecretError, onStop, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, runScenarios,
-  SlotAllocator, SquareSandbox, checkStatus, check, type Pending, type Secrets, type StopProcess,
+  SlotAllocator, SquareSandbox, checkStatus, check, Halt, type Pending, type Secrets, type StopProcess,
 } from './lib/sandbox-e2e/core'
 import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, scenarios } from './lib/sandbox-e2e/scenarios'
 import { cleanUpPartyLeftovers, PARTY_CLEANUP_PLAN, partyScenarios, type PartyCtx } from './lib/sandbox-e2e/party-scenarios'
@@ -126,12 +128,14 @@ export async function main(argv: string[], env: Record<string, string | undefine
   const hide = [secrets.adminPasscode, secrets.staffPasscode, secrets.sandboxToken]
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
   const gate = new RateGate(4, 60_000)
+  // Ctrl-C halts the running scenario (its next call throws) before anything is cleaned up.
+  const halt = new Halt()
   const ctx: PartyCtx = {
-    pub: new PreviewClient({ gate }),
-    admin: new PreviewClient(),
-    staff: new PreviewClient(),
+    pub: new PreviewClient({ gate, halt }),
+    admin: new PreviewClient({ halt }),
+    staff: new PreviewClient({ halt }),
     gate,
-    square: secrets.sandboxToken ? new SquareSandbox(secrets.sandboxToken) : null,
+    square: secrets.sandboxToken ? new SquareSandbox(secrets.sandboxToken, (u, i) => fetch(u, i), halt) : null,
     slots: new SlotAllocator('2000-01-01'),
     runTag: new Date().toISOString().slice(5, 16).replace(/[-T:]/g, ''),
     person: { givenName: 'E2E', familyName: 'Sandbox', email: (env.E2E_EMAIL ?? '').trim() || 'kaden+e2e@ourhometownstudio.com', phone: TEST_PHONE },
@@ -144,8 +148,8 @@ export async function main(argv: string[], env: Record<string, string | undefine
     await ctx.admin.request('DELETE', '/api/admin/login.json').catch(() => undefined)
     await ctx.staff.request('DELETE', '/api/staff/login.json').catch(() => undefined)
   }
-  // Ctrl-C, a kill or an error nothing caught: the running scenario's cleanups, sign out, exit.
-  const pending: Pending = { current: null }
+  // Ctrl-C, a kill or an error nothing caught: halt the running scenario, run its cleanups, put Parties setup back, sign out, exit.
+  const pending: Pending = { current: null, halt }
   const removeStop = onStop({
     proc: deps.proc ?? process, pending, signOut: async () => { await finishRun(ctx.runCleanup, ctx.log).catch(() => undefined); await signOut() }, log: ctx.log, secrets: hide, exit: deps.exit ?? ((code) => process.exit(code)),
   })
@@ -176,6 +180,11 @@ export async function main(argv: string[], env: Record<string, string | undefine
 
     ctx.log(`Run ${ctx.runTag}: ${list.length} scenario(s); Square-side checks ${ctx.square ? 'on' : 'off (no SQUARE_SANDBOX_ACCESS_TOKEN)'}.`)
     const results = await runScenarios(list, ctx, { secrets: hide, log: ctx.log, pending })
+    if (halt.stopped) {
+      // The stop handler owns the cleanup now; never race it.
+      await pending.stopped
+      return 130
+    }
     const putBack = await finishRun(ctx.runCleanup, ctx.log)
     console.log(`\n${redact(formatSummary(results), hide)}`)
     return results.every((r) => r.outcome !== 'FAIL') && putBack.every((c) => c.ok) ? 0 : 1
@@ -184,9 +193,13 @@ export async function main(argv: string[], env: Record<string, string | undefine
     return 1
   } finally {
     removeStop()
-    // A run stopped by an error still puts Parties setup back (a no-op when the summary path already did).
-    await finishRun(ctx.runCleanup, ctx.log).catch(() => undefined)
-    await signOut()
+    if (halt.stopped) {
+      await pending.stopped?.catch(() => undefined)
+    } else {
+      // A run stopped by an error still puts Parties setup back (a no-op when the summary path already did).
+      await finishRun(ctx.runCleanup, ctx.log).catch(() => undefined)
+      await signOut()
+    }
   }
 }
 

@@ -1,9 +1,9 @@
 // tests/scripts/sandbox-e2e-parties.test.ts — the party scenarios (24–40) and their helpers, against a fake preview (no network).
 import { describe, it, expect, vi, afterEach } from 'vitest'
-import { chicagoToUtcIso, Cleanup, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, runScenarios, SlotAllocator, SquareSandbox, weekdayOf, type RateGate } from '../../scripts/lib/sandbox-e2e/core'
+import { chicagoToUtcIso, Cleanup, Halt, onStop, StoppedError, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, runScenarios, SlotAllocator, SquareSandbox, weekdayOf, type RateGate } from '../../scripts/lib/sandbox-e2e/core'
 import { CLEANUP_PLAN } from '../../scripts/lib/sandbox-e2e/scenarios'
 import {
-  cleanUpPartyLeftovers, icsUtc, linkParts, NO_CRAFT, noHoursWeekdays, parseIcs, PARTY_CLEANUP_PLAN, partyDayPool, partyIdOf, partyScenarios,
+  clashLabel, cleanUpPartyLeftovers, icsUtc, switchOffByTest, linkParts, NO_CRAFT, noHoursWeekdays, parseIcs, PARTY_CLEANUP_PLAN, partyDayPool, partyIdOf, partyScenarios,
   POOL_FIRST_OFFSET, POOL_SIZE, settingsInput, testAddOns, testIds, testPackage, testStarts, withoutTestSetup, withTestSetup, type PartyCtx,
 } from '../../scripts/lib/sandbox-e2e/party-scenarios'
 import { ALL_SCENARIOS, finishRun, main } from '../../scripts/sandbox-e2e'
@@ -117,6 +117,40 @@ describe('party helpers match the site', () => {
     expect(POOL_SIZE).toBeGreaterThanOrEqual(18)
   })
 
+  it('test days stay inside Parties setup’s notice and booking window, or say plainly what to change', () => {
+    const studio = { closures: [], cafeWeekly: [], cafeSpecialDays: [] }
+    const days = partyDayPool('2026-11-02', 5, studio, { times: { dates: {}, bookingWindowDays: 90, minLeadDays: 30 } })
+    expect(days[0] >= '2026-12-02').toBe(true)
+    const wide = partyDayPool('2026-11-02', POOL_SIZE, studio, { times: { dates: {}, bookingWindowDays: 90, minLeadDays: 7 } })
+    expect(wide.every((d) => d <= '2027-01-31')).toBe(true)
+    expect(() => partyDayPool('2026-11-02', POOL_SIZE, studio, { times: { dates: {}, bookingWindowDays: 40, minLeadDays: 7 } }))
+      .toThrow(/booking window \(40 days ahead\).*"Up to \(days ahead\)" to 90/)
+  })
+
+  it('a clash refusal names a test party by the last word of its host’s name, as the site does', () => {
+    expect(clashLabel('Card')).toBe('the Card party')
+    expect(clashLabel('Extra time online')).toBe('the online party')
+  })
+
+  it('the bags extra is owners-only, so the preview’s /book never shows it during a run; the half hour stays online for scenario 29', () => {
+    const [half, bags] = testAddOns('11021500')
+    expect(half.online).toBe(true)
+    expect(bags.online).toBe(false)
+  })
+
+  it('the Square read switch is turned back on only when a test run turned it off', () => {
+    const pkgs = settingsInput(configPartySettings()).packages
+    const withE2E = [...pkgs, testPackage('11021500')]
+    const off = (history: any[]) => ({ readSquareBookings: false, history })
+    expect(switchOffByTest(off([{ before: { readSquareBookings: true, packages: withE2E } }]))).toBe(true)
+    // a later unrelated save doesn't hide it
+    expect(switchOffByTest(off([{ before: { readSquareBookings: false, packages: pkgs } }, { before: { readSquareBookings: true, packages: withE2E } }]))).toBe(true)
+    // an owner turned it off with no test package around: left alone
+    expect(switchOffByTest(off([{ before: { readSquareBookings: true, packages: pkgs } }]))).toBe(false)
+    expect(switchOffByTest(off([]))).toBe(false)
+    expect(switchOffByTest({ readSquareBookings: true, history: [{ before: { readSquareBookings: true, packages: withE2E } }] })).toBe(false)
+  })
+
   it('reads the site’s calendar file and payment link', () => {
     const ics = buildIcs(
       { title: 'A party', startIso: '2026-12-07T10:00:00.000Z', endIso: '2026-12-07T11:30:00.000Z', details: 'x', location: 'y' },
@@ -156,7 +190,7 @@ describe('finishRun', () => {
 
 // ── A fake preview + sandbox for the party scenarios ──────────────────────
 
-interface FakeParty { id: string; status: 'booked' | 'cancelled'; startIso: string; endIso: string; hostName: string; charges: any[]; refunds: any[]; hostToken: string; timeVersion: number }
+interface FakeParty { notTold?: { what: string[]; at: string } | null; id: string; status: 'booked' | 'cancelled'; startIso: string; endIso: string; hostName: string; charges: any[]; refunds: any[]; hostToken: string; timeVersion: number }
 
 function fakePreview(opts: { crafts?: boolean; simulate?: boolean } = {}) {
   const calls: { method: string; url: string; body: any }[] = []
@@ -176,7 +210,7 @@ function fakePreview(opts: { crafts?: boolean; simulate?: boolean } = {}) {
   }
   const view = (p: FakeParty) => ({
     bookingId: p.id, status: p.status, legacy: false, startIso: p.startIso, endIso: p.endIso, hostName: p.hostName, charges: p.charges, refunds: p.refunds,
-    dueCents: 0, paymentState: p.status === 'cancelled' ? 'cancelled' : 'paid', items: [], holdState: { notHeld: null, freeable: [] }, timeVersion: p.timeVersion, notTold: null,
+    dueCents: 0, paymentState: p.status === 'cancelled' ? 'cancelled' : 'paid', items: [], holdState: { notHeld: null, freeable: [] }, timeVersion: p.timeVersion, notTold: p.notTold ?? null,
   })
   const fetch = vi.fn(async (url: string, init: any = {}) => {
     const u = new URL(url)
@@ -245,7 +279,14 @@ function fakePreview(opts: { crafts?: boolean; simulate?: boolean } = {}) {
     if (p === '/api/admin/parties/actions.json' && body.action === 'cancel') {
       const party = parties.get(body.id)!
       party.status = 'cancelled'
+      party.notTold = { what: ['cancelled'], at: '2026-11-02T15:00:00.000Z' }
       return res(200, { data: { party: view(party), message: 'Cancelled. Nothing was refunded.' } })
+    }
+    if (p === '/api/admin/parties/actions.json' && body.action === 'mark-told') {
+      const party = parties.get(body.id)!
+      if (body.notToldAt !== party.notTold?.at) return res(409, { error: 'stale' })
+      party.notTold = null
+      return res(200, { data: { party: view(party) } })
     }
     if (p === '/api/party/invite.ics') {
       const party = parties.get(u.searchParams.get('party')!)!
@@ -314,6 +355,9 @@ describe('party scenarios against a fake preview', () => {
     expect(booked.customer.phone).toBe('(402) 980-2907')
     expect(booked.linkPackageId).toBe(testIds('11021500').pkg)
     expect([...f.parties.values()].every((p) => p.status === 'cancelled')).toBe(true)
+    // no "Host not told yet" left in To decide for a test party
+    expect([...f.parties.values()].every((p) => p.notTold === null)).toBe(true)
+    expect(f.calls.filter((c) => c.body?.action === 'mark-told')).toHaveLength(f.parties.size)
     expect(r.cleanup.map((c) => c.label)).toEqual([expect.stringMatching(/^cancel party pty_/)])
   })
 
@@ -348,7 +392,7 @@ describe('party scenarios against a fake preview', () => {
 })
 
 describe('--cleanup-only for parties', () => {
-  it('cancels only "E2E" parties, frees their held times, and takes only test bits out of Parties setup', async () => {
+  it('cancels only "E2E" parties, taps I told them, frees their held times, clears old "Host not told yet", and takes only test bits out of Parties setup', async () => {
     const calls: { path: string; body: any }[] = []
     const base = settingsInput(configPartySettings())
     const withTest = withTestSetup(base, { runTag: '11011200', days: ['2026-12-07'], starts: ['04:00', '06:30'] })
@@ -372,23 +416,105 @@ describe('--cleanup-only for parties', () => {
         return res(200, { data: { party: p } })
       }
       if (u.pathname === '/api/admin/parties/actions.json' && body.action === 'cancel') {
-        parties[body.id] = { ...parties[body.id], status: 'cancelled' }
+        parties[body.id] = { ...parties[body.id], status: 'cancelled', notTold: { what: ['cancelled'], at: 'n1' } }
         return res(200, { data: {} })
       }
+      if (u.pathname === '/api/admin/parties/actions.json' && body.action === 'mark-told') {
+        parties[body.id] = { ...parties[body.id], notTold: null }
+        return res(200, { data: {} })
+      }
+      if (u.pathname === '/api/admin/to-decide.json' && !body) return res(200, { data: { items: [
+        { id: 'td_old', kind: 'party-not-told', detail: { partyId: 'pty_old', host: 'E2E 10301200 Move' } },
+        { id: 'td_real', kind: 'party-not-told', detail: { partyId: 'pty_real', host: 'Stefanie Justice' } },
+        { id: 'td_pay', kind: 'party-paid-unclear', detail: { partyId: 'pty_x', host: 'E2E 10301200 Pay' } },
+      ] } })
       if (u.pathname === '/api/admin/parties/settings.json' && init.method === 'GET') return res(200, { data: { settings: { ...withTest, updatedAt: 'u1' } } })
       return res(200, { data: {} })
     })
     const admin = new PreviewClient({ fetch })
     const { done, failed } = await cleanUpPartyLeftovers({ admin }, () => undefined, new Date('2026-11-02T15:00:00Z'))
     expect(failed).toEqual([])
-    expect(done).toHaveLength(3)
+    expect(done).toHaveLength(4)
     const posts = calls.filter((c) => c.body)
     expect(posts).toEqual([
       { path: '/api/admin/parties/actions.json', body: { id: 'pty_a', action: 'cancel', note: 'E2E cleanup' } },
+      { path: '/api/admin/parties/actions.json', body: { id: 'pty_a', action: 'mark-told', notToldAt: 'n1' } },
       { path: '/api/admin/parties/actions.json', body: { id: 'pty_b', action: 'free-time', startIso: '2026-12-08T10:00:00.000Z', shownStartIso: '2026-12-08T10:00:00.000Z', shownVersion: 2 } },
+      { path: '/api/admin/to-decide.json', body: { id: 'td_old', action: 'told' } },
       { path: '/api/admin/parties/settings.json', body: { ...base, expectedUpdatedAt: 'u1' } },
     ])
     expect(calls.filter((c) => c.path === '/api/admin/classes/calendar.json')).toHaveLength(3)
     expect(fetch.mock.calls.every(([u]) => new URL(u as string).host === HOST)).toBe(true)
+  })
+})
+
+describe('--cleanup-only puts the Square read switch back after a killed run', () => {
+  it('turns it back on when a test run turned it off, and leaves an owner’s choice alone', async () => {
+    const base = settingsInput(configPartySettings())
+    const run = async (history: any[]) => {
+      const posts: any[] = []
+      const fetch = vi.fn(async (url: string, init: any = {}) => {
+        const u = new URL(url)
+        const body = init.body ? JSON.parse(init.body) : null
+        if (body) posts.push({ path: u.pathname, body })
+        if (u.pathname === '/api/admin/parties/settings.json' && init.method === 'GET') {
+          return res(200, { data: { settings: { ...base, readSquareBookings: false, updatedAt: 'u1', history } } })
+        }
+        return res(200, { data: { items: [] } })
+      })
+      const r = await cleanUpPartyLeftovers({ admin: new PreviewClient({ fetch }) }, () => undefined, new Date('2026-11-02T15:00:00Z'))
+      return { ...r, posts }
+    }
+    const byTest = await run([{ before: { ...base, readSquareBookings: true, packages: [...base.packages, testPackage('11021500')] } }])
+    expect(byTest.failed).toEqual([])
+    expect(byTest.done.at(-1)).toMatch(/turn the Square read back on/)
+    expect(byTest.posts).toEqual([{ path: '/api/admin/parties/settings.json', body: { ...base, readSquareBookings: true, expectedUpdatedAt: 'u1' } }])
+    const byOwner = await run([{ before: { ...base, readSquareBookings: true } }])
+    expect(byOwner.posts).toEqual([])
+  })
+})
+
+describe('Ctrl-C halts the running scenario before anything is cleaned up', () => {
+  it('the scenario’s next call throws, the stop waits for it, then runs its cleanup and the restore; nothing races', async () => {
+    const order: string[] = []
+    let release!: () => void
+    const inFlight = new Promise<void>((r) => { release = r })
+    const fetch = vi.fn(async (url: string) => {
+      const path = new URL(url).pathname
+      order.push(`fetch ${path}`)
+      if (path === '/api/slow') await inFlight
+      return res(200, { data: {} })
+    })
+    const halt = new Halt()
+    const client = new PreviewClient({ fetch, halt })
+    const pending = { current: null as Cleanup | null, halt }
+    const handlers: Record<string, (e?: unknown) => void> = {}
+    const proc = { on: (e: string, fn: any) => { handlers[e] = fn }, off: () => undefined }
+    let exited: number | null = null
+    let scenarioError: unknown = null
+    onStop({
+      proc, pending, log: () => undefined, secrets: [], exit: (c) => { exited = c },
+      signOut: async () => { await client.get('/api/restore'); order.push('restored') },
+    })
+    const results = runScenarios([{
+      id: 39, title: 't', plan: ['p'],
+      run: async (_c, scope) => {
+        scope.cleanup.add('undo', async () => { await client.get('/api/undo'); order.push('undone') })
+        await client.get('/api/slow')
+        order.push('slow came back')
+        try { await client.get('/api/after-stop') } catch (e) { scenarioError = e; throw e }
+      },
+    }], null, { secrets: [], pending })
+    await vi.waitFor(() => expect(order).toContain('fetch /api/slow'))
+    handlers.SIGINT()
+    expect(halt.stopped).toBe(true)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(order).not.toContain('undone') // waits for the call in flight
+    release()
+    expect(await results).toEqual([]) // the runner stops; the stop handler owns the cleanup
+    await (pending as any).stopped
+    expect(scenarioError).toBeInstanceOf(StoppedError)
+    expect(order).toEqual(['fetch /api/slow', 'slow came back', 'fetch /api/undo', 'undone', 'fetch /api/restore', 'restored'])
+    expect(exited).toBe(130)
   })
 })

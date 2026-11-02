@@ -5,6 +5,7 @@
  * assertions, cleanup, the runner and the summary table. Unit tested in
  * tests/scripts/sandbox-e2e.test.ts with a mocked fetch.
  */
+import { AsyncLocalStorage } from 'node:async_hooks'
 
 /** The branch preview: the only site this suite ever talks to. It runs Square SANDBOX. */
 export const PREVIEW_ORIGIN = 'https://kaden-own-booking-system--iridescent-croissant-494fc3.netlify.app'
@@ -143,11 +144,13 @@ export async function readReply(res: Response): Promise<Reply> {
 /** One browser's worth of calls to the preview: its own cookies, never another host, never a redirect followed. */
 export class PreviewClient {
   readonly jar = new CookieJar()
-  constructor(private opts: { fetch?: FetchLike; gate?: RateGate } = {}) {}
+  constructor(private opts: { fetch?: FetchLike; gate?: RateGate; halt?: Halt } = {}) {}
 
   async request(method: string, path: string, init: { body?: unknown; headers?: Record<string, string>; gated?: boolean } = {}): Promise<Reply> {
     const url = assertAllowed(new URL(path, PREVIEW_ORIGIN), 'preview')
+    this.opts.halt?.check()
     if (init.gated && this.opts.gate) await this.opts.gate.take(1)
+    this.opts.halt?.check()
     const headers: Record<string, string> = { Accept: 'application/json', ...(init.headers ?? {}) }
     const cookie = this.jar.header()
     if (cookie) headers.Cookie = cookie
@@ -171,9 +174,10 @@ export class SquareError extends Error {
 
 /** Read-mostly calls to the Square SANDBOX with the sandbox token (never any other host). */
 export class SquareSandbox {
-  constructor(private token: string, private fetchImpl: FetchLike = fetch) {}
+  constructor(private token: string, private fetchImpl: FetchLike = fetch, private halt?: Halt) {}
   async call(method: 'GET' | 'POST', path: string, body?: unknown): Promise<any> {
     const url = assertAllowed(`${SANDBOX_ORIGIN}/v2${path}`, 'square')
+    this.halt?.check()
     const res = await this.fetchImpl(url.toString(), {
       method,
       redirect: 'manual',
@@ -257,8 +261,40 @@ export class Cleanup {
 
 // ── Stopping part way ──────────────────────────────────────────────────────
 
-/** The cleanup of the scenario running now (null between scenarios), for a stop to run. */
-export interface Pending { current: Cleanup | null }
+/**
+ * The cleanup of the scenario running now (null between scenarios, and once
+ * the runner is running that cleanup itself), for a stop to run. With `halt`,
+ * a stop first halts the running scenario: `running` is what it waits for.
+ */
+export interface Pending {
+  current: Cleanup | null
+  halt?: Halt
+  running?: Promise<unknown> | null
+  /** set by a stop: settles once its cleanups and sign-out are done */
+  stopped?: Promise<void>
+}
+
+export class StoppedError extends Error {}
+
+/**
+ * Stops a running scenario on Ctrl-C. After stop(), every request a scenario
+ * makes through a client given this Halt throws StoppedError, so the
+ * scenario ends at its next call instead of racing the cleanups. Cleanups
+ * (and the run's restore) run inside allow(), where requests go through.
+ */
+export class Halt {
+  private on = false
+  private als = new AsyncLocalStorage<true>()
+  stop(): void { this.on = true }
+  get stopped(): boolean { return this.on }
+  allow<T>(fn: () => Promise<T>): Promise<T> { return this.als.run(true, fn) }
+  check(): void {
+    if (this.on && !this.als.getStore()) throw new StoppedError('Stopped (Ctrl-C): the scenario was halted before this call.')
+  }
+}
+
+/** How long a stop waits for the halted scenario's call in flight to come back before cleaning up anyway. */
+export const HALT_WAIT_MS = 20_000
 
 export interface StopProcess {
   on(event: string, fn: (...a: any[]) => void): unknown
@@ -279,6 +315,8 @@ export function onStop(opts: {
   log: (line: string) => void
   secrets: (string | null)[]
   exit: (code: number) => void
+  /** test hook (default HALT_WAIT_MS) */
+  haltWaitMs?: number
 }): () => void {
   let stopping = false
   const handlers = Object.entries(STOP_EVENTS).map(([event, code]) => {
@@ -287,12 +325,26 @@ export function onStop(opts: {
       stopping = true
       const why = event.startsWith('SIG') ? event : `${event}: ${err instanceof Error ? err.message : String(err)}`
       opts.log(redact(`\nStopping (${why}). Cleaning up what the running scenario made…`, opts.secrets))
-      void (async () => {
-        const left = opts.pending.current
-        opts.pending.current = null
-        const done = left ? await left.run() : []
+      // Synchronously, before anything awaits: the scenario's next call throws, and its cleanup is ours now.
+      const halt = opts.pending.halt
+      halt?.stop()
+      const left = opts.pending.current
+      opts.pending.current = null
+      const allowed = <T>(f: () => Promise<T>) => (halt ? halt.allow(f) : f())
+      opts.pending.stopped = (async () => {
+        const running = opts.pending.running
+        if (halt && running) {
+          let timer: ReturnType<typeof setTimeout> | undefined
+          const waited = await Promise.race([
+            running.then(() => true, () => true),
+            new Promise<false>((r) => { timer = setTimeout(() => r(false), opts.haltWaitMs ?? HALT_WAIT_MS) }),
+          ])
+          clearTimeout(timer)
+          if (!waited) opts.log('    (the running scenario had not stopped yet; cleaning up anyway)')
+        }
+        const done = left ? await allowed(() => left.run()) : []
         for (const c of done) opts.log(redact(`    ${c.ok ? 'cleaned' : 'NOT cleaned'}: ${c.label}${c.error ? ` (${c.error})` : ''}`, opts.secrets))
-        await opts.signOut().catch(() => undefined)
+        await allowed(() => opts.signOut()).catch(() => undefined)
         if (done.some((c) => !c.ok)) opts.log('Some cleanup failed. Run: npx tsx scripts/sandbox-e2e.ts --cleanup-only')
         opts.exit(code)
       })()
@@ -367,30 +419,41 @@ export async function runScenarios<C>(
   const log = opts.log ?? (() => undefined)
   const now = opts.now ?? (() => Date.now())
   const results: ScenarioResult[] = []
+  const halt = opts.pending?.halt
   for (const s of list) {
+    if (halt?.stopped) break
     const cleanup = new Cleanup()
     if (opts.pending) opts.pending.current = cleanup
     const notes: string[] = []
     const scope: Scope = { cleanup, note: (m) => { notes.push(redact(m, opts.secrets)); log(`    note: ${redact(m, opts.secrets)}`) } }
     log(`\n[${s.id}] ${s.title}`)
     const started = now()
-    let outcome: Outcome = 'PASS'
+    let outcome = 'PASS' as Outcome
     let detail = ''
-    try {
-      await s.run(ctx, scope)
-    } catch (e) {
-      const msg = redact(e instanceof Error ? e.message : String(e), opts.secrets)
-      if (e instanceof SkipScenario) { outcome = 'SKIP'; detail = msg }
-      else { outcome = 'FAIL'; detail = e instanceof AssertionFailed ? msg : `${e instanceof Error ? e.name : 'Error'}: ${msg}` }
-    }
-    const cleaned = (await cleanup.run()).map((c) => ({ ...c, ...(c.error ? { error: redact(c.error, opts.secrets) } : {}) }))
+    const work = (async () => {
+      try {
+        await s.run(ctx, scope)
+      } catch (e) {
+        const msg = redact(e instanceof Error ? e.message : String(e), opts.secrets)
+        if (e instanceof SkipScenario) { outcome = 'SKIP'; detail = msg }
+        else { outcome = 'FAIL'; detail = e instanceof AssertionFailed ? msg : `${e instanceof Error ? e.name : 'Error'}: ${msg}` }
+      }
+    })()
+    if (opts.pending) opts.pending.running = work
+    await work
+    // Stopped part way: the stop handler runs this scenario's cleanup (it took it), not us.
+    if (halt?.stopped) break
+    if (opts.pending?.current === cleanup) opts.pending.current = null
+    const cleaning = halt ? halt.allow(() => cleanup.run()) : cleanup.run()
+    if (opts.pending) opts.pending.running = cleaning
+    const cleaned = (await cleaning).map((c) => ({ ...c, ...(c.error ? { error: redact(c.error, opts.secrets) } : {}) }))
+    if (opts.pending) opts.pending.running = null
     const broken = cleaned.filter((c) => !c.ok)
     if (broken.length) {
       const what = `cleanup failed: ${broken.map((c) => `${c.label} (${c.error})`).join('; ')}`
       if (outcome !== 'FAIL') outcome = 'FAIL'
       detail = detail ? `${detail}; ${what}` : what
     }
-    if (opts.pending?.current === cleanup) opts.pending.current = null
     const r: ScenarioResult = { id: s.id, title: s.title, outcome, ms: now() - started, detail, notes, cleanup: cleaned }
     log(`    ${outcome}${detail ? ` - ${detail}` : ''}`)
     results.push(r)

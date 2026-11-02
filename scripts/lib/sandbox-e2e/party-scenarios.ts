@@ -9,21 +9,33 @@
  *     how to fix it ("Set up sandbox" + SQUARE_PARTY_CRAFT_CATEGORY_ID);
  *   - Parties setup on the preview (STORE_NAMESPACE=preview, never live) gets
  *     a test package "E2E <run> Test party" ($1, 90 minutes, Only with the
- *     link: S2-R18), an "E2E <run> extra half hour" ($1, 30 minutes), "E2E
- *     <run> bags" ($1 per guest), and POOL_SIZE dated party days at 4:00 and
+ *     link: S2-R18), an "E2E <run> extra half hour" ($1, 30 minutes, offered
+ *     online: scenario 29 books it on /book), "E2E <run> bags" ($1 per guest,
+ *     NOT offered online: only owners add it), and POOL_SIZE dated party days at 4:00 and
  *     6:30 AM (or 4:00 and 4:00 + the longest package + cleanup), on studio
  *     days with no opening hours (Mon–Wed), no café, no closure, no dated
  *     party day already, 20+ days out (clear of the staffing scenarios' next
- *     two weeks and stage 1's 90–300 days). Nothing real is ever offered at
- *     4 AM, so a test party can't take a customer's time.
+ *     two weeks and stage 1's 90–300 days) and inside Parties setup's notice
+ *     and booking window. Nothing real is ever offered at 4 AM, so a test
+ *     party can't take a customer's time.
+ *     What anyone on the preview sees while a run is going: dated days apply
+ *     to every package (Parties setup has no link-only time), and the extra
+ *     half hour is offered online, so /book on the PREVIEW shows 4 AM times
+ *     and the "E2E … extra half hour" until the run's cleanup. Don't walk
+ *     through the preview during a run. The live site never sees any of it
+ *     (party writes are refused on any site without STORE_NAMESPACE).
  *   - The run's cleanup (after the last scenario, and on Ctrl-C) takes those
  *     package, extras and days out of Parties setup again and puts the Square
  *     read switch back as it was.
+ *   - A stop (Ctrl-C) halts the running scenario first: its next request to
+ *     the preview throws, and the stop waits for it to settle before the
+ *     cleanups and the Parties setup restore run (core.ts Halt).
  *
  * Every party it books has a host named "E2E <run> …", the email E2E_EMAIL
  * and Kaden's phone (the preview reroutes every email and text to Kaden
  * anyway). Each scenario cancels its parties at the end (cancelling never
- * refunds) and lets go of any time still held for them. Money: sandbox card
+ * refunds), taps "I told them" so no "Host not told yet" item is left in To
+ * decide, and lets go of any time still held for them. Money: sandbox card
  * nonces only. Refunds only in 35, 36, 37 and 40 (sandbox money), and 27's
  * own sandbox payment is refunded by its cleanup.
  *
@@ -108,20 +120,30 @@ export function noHoursWeekdays(): Set<string> {
 }
 
 /**
- * The test party days: from today + POOL_FIRST_OFFSET, only weekdays with no
- * opening hours, never a closed day, a café day or a day Parties setup
- * already has dated times for.
+ * The test party days: from today + POOL_FIRST_OFFSET (or later, for Parties
+ * setup's notice; a dated day is offered even before the first party day), only weekdays with no opening
+ * hours, never a closed day, a café day or a day Parties setup already has
+ * dated times for, and never past the booking window (/book wouldn't offer
+ * them). Too few such days → a plain error saying what to change.
  */
 export function partyDayPool(todayYmd: string, n: number, studioSettings: any, partySettings: any): string[] {
   const allowed = noHoursWeekdays()
   const busy = blockedDay(studioSettings)
-  const dated = new Set(Object.keys(partySettings?.times?.dates ?? {}))
+  const t = partySettings?.times ?? {}
+  const dated = new Set(Object.keys(t.dates ?? {}))
+  const windowDays = Number.isInteger(t.bookingWindowDays) ? t.bookingWindowDays : 90
+  const leadDays = Number.isInteger(t.minLeadDays) ? t.minLeadDays : 0
+  const last = addDays(todayYmd, windowDays)
+  let d = addDays(todayYmd, Math.max(POOL_FIRST_OFFSET, leadDays))
   const out: string[] = []
-  let d = addDays(todayYmd, POOL_FIRST_OFFSET)
-  for (let guard = 0; out.length < n; guard++) {
-    if (guard > 2000) throw new Error('No free days for test parties found.')
+  for (; out.length < n && d <= last; d = addDays(d, 1)) {
     if (allowed.has(weekdayOf(d)) && !busy(d) && !dated.has(d)) out.push(d)
-    d = addDays(d, 1)
+  }
+  if (out.length < n) {
+    throw new Error(
+      `Only ${out.length} free test party days inside the preview's booking window (${windowDays} days ahead); the run needs ${n}. `
+      + 'In the preview\'s /admin › Parties setup, set "Up to (days ahead)" to 90, save, and run this again.',
+    )
   }
   return out
 }
@@ -141,7 +163,8 @@ export function testAddOns(runTag: string) {
   const ids = testIds(runTag)
   return [
     { id: ids.half, label: `E2E ${runTag} extra half hour`, priceCents: 100, per: 'party' as const, extraMinutes: 30 as const, maxQty: 1, online: true, archived: false },
-    { id: ids.bags, label: `E2E ${runTag} bags`, priceCents: 100, per: 'guest' as const, extraMinutes: 0 as const, maxQty: 1, online: true, archived: false },
+    // Owners only (scenario 33 adds it from /admin): never on the preview's /book during a run.
+    { id: ids.bags, label: `E2E ${runTag} bags`, priceCents: 100, per: 'guest' as const, extraMinutes: 0 as const, maxQty: 1, online: false, archived: false },
   ]
 }
 
@@ -316,18 +339,37 @@ export async function act(ctx: PartyCtx, id: string, action: string, extra: Reco
   return ownerPost(ctx, '/api/admin/parties/actions.json', { id, action, ...extra })
 }
 
-/** Cancel a test party (never refunds) and let go of any time still held for it. Nothing when it was never made. */
-export async function cancelTestParty(ctx: PartyCtx, id: string): Promise<void> {
+/**
+ * Cancel a test party (never refunds), tap "I told them" so its "Host not
+ * told yet" item leaves To decide, and let go of any time still held for it.
+ * Nothing when it was never made. Used by every scenario's cleanup and by --cleanup-only.
+ */
+export async function clearTestParty(ctx: Pick<PartyCtx, 'admin'>, id: string): Promise<void> {
+  const owner = (action: string, extra: Record<string, unknown> = {}) =>
+    ctx.admin.request('POST', '/api/admin/parties/actions.json', { body: { id, action, ...extra }, headers: OWNER_HEADERS })
   let p = await partyOf(ctx, id)
   if (!p || p.legacy) return
   if (p.status !== 'cancelled') {
-    checkStatus(await act(ctx, id, 'cancel', { note: 'E2E cleanup' }), 200, `Cancel ${id}`)
+    checkStatus(await owner('cancel', { note: 'E2E cleanup' }), 200, `Cancel ${id}`)
+    p = await partyOf(ctx, id)
+  }
+  if (p?.notTold?.at) {
+    checkStatus(await owner('mark-told', { notToldAt: p.notTold.at }), 200, `I told them (${id})`)
     p = await partyOf(ctx, id)
   }
   for (const f of (p?.holdState?.freeable ?? []) as { startIso: string }[]) {
-    const r = await act(ctx, id, 'free-time', { startIso: f.startIso, shownStartIso: p.startIso, shownVersion: p.timeVersion })
-    checkStatus(r, 200, `Free ${f.startIso} for ${id}`)
+    checkStatus(await owner('free-time', { startIso: f.startIso, shownStartIso: p.startIso, shownVersion: p.timeVersion }), 200, `Free ${f.startIso} for ${id}`)
   }
+}
+
+/** A scenario's cleanup for one party (see clearTestParty). */
+export async function cancelTestParty(ctx: PartyCtx, id: string): Promise<void> {
+  await clearTestParty(ctx, id)
+}
+
+/** How a clash refusal names a test party: "the <last word of the host's name> party" (conflicts.ts partyName). */
+export function clashLabel(what: string): string {
+  return `the ${what.trim().split(/\s+/).pop()} party`
 }
 
 const registered = new WeakMap<Scope, Set<string>>()
@@ -731,7 +773,7 @@ export const partyScenarios: Scenario<PartyCtx>[] = [
     plan: [
       '/admin Book a party, Take card now (sandbox card): paid via admin-card',
       'the same attempt again → replay, still one charge',
-      'another booking at that time → refused naming the party; a start an hour ago → refused (R37); nothing charged for either',
+      'another booking at that time → refused "Clashes with the Card party, …"; a start an hour ago → refused (R37); nothing charged for either',
     ],
     async run(ctx, scope) {
       const s = await ensureParty(ctx)
@@ -748,7 +790,7 @@ export const partyScenarios: Scenario<PartyCtx>[] = [
       cleanUpParty(ctx, scope, partyIdOf(clashKey))
       const clash = await adminBook(ctx, { startIso: start, what: 'Clash', pay: 'link', key: clashKey })
       checkStatus(clash.reply, 409, 'Booking over a party')
-      check(String(clash.reply.body?.error ?? '').includes(`E2E ${ctx.runTag}`), `The refusal doesn't name the party in the way: ${clash.reply.body?.error}`)
+      check(String(clash.reply.body?.error ?? '').startsWith(`Clashes with ${clashLabel('Card')},`), `The refusal doesn't name the party in the way ("Clashes with ${clashLabel('Card')}, …"): ${clash.reply.body?.error}`)
       const pastKey = `e2e-${randomUUID()}`
       cleanUpParty(ctx, scope, partyIdOf(pastKey))
       const past = await adminBook(ctx, { startIso: new Date(Date.now() - 60 * 60_000).toISOString(), what: 'Past', pay: 'link', key: pastKey })
@@ -813,7 +855,7 @@ export const partyScenarios: Scenario<PartyCtx>[] = [
     title: 'Move: free, taken, same time; reminder; hold buttons',
     plan: [
       'owner books A 4:00 by card; a link booking holds 4:00 on another day B',
-      'moving A onto B 4:00 → refused naming it; moving A to B 6:30 → moved, A 4:00 offered again, money untouched, calendar file SEQUENCE 1',
+      'moving A onto B 4:00 → refused "Clashes with the Blocker party, …"; moving A to B 6:30 → moved, A 4:00 offered again, money untouched, calendar file SEQUENCE 1',
       'moving to the time it is on → "Nothing changed", nothing to tell the host',
       '"Host not told yet" is set; To decide lists it; "I told them" there clears it; a second move (to A 6:30) sets it, the sheet\'s I told them clears it',
       'Hold this time again / Put the end time back / Free the old time each answer "nothing changed" when all is right; freeing its own time or from a stale screen is refused',
@@ -828,7 +870,7 @@ export const partyScenarios: Scenario<PartyCtx>[] = [
 
       const onto = await act(ctx, a.partyId, 'move', { startIso: at(s, dayB, 0), fromIso: at(s, dayA, 0) })
       checkStatus(onto, 409, 'Moving onto a booked party')
-      check(String(onto.body?.error ?? '').includes(`E2E ${ctx.runTag}`), `The refusal doesn't name the party in the way: ${onto.body?.error}`)
+      check(String(onto.body?.error ?? '').startsWith(`Clashes with ${clashLabel('Blocker')},`), `The refusal doesn't name the party in the way ("Clashes with ${clashLabel('Blocker')}, …"): ${onto.body?.error}`)
       check(!!(await partyOf(ctx, blocker.partyId)), 'The blocker party is gone')
 
       const to = at(s, dayB, 1)
@@ -1107,9 +1149,23 @@ export const partyScenarios: Scenario<PartyCtx>[] = [
 
 /** What --cleanup-only does for parties (also printed by --cleanup-only --dry-run). */
 export const PARTY_CLEANUP_PLAN = [
-  'cancel every booked party in the next 120 days whose host starts "E2E " (cancelling never refunds anyone), and free any time still held for one',
+  'cancel every booked party in the next 120 days whose host starts "E2E " (cancelling never refunds anyone), tap "I told them" on it, and free any time still held for one',
+  'tap "I told them" on every "Host not told yet" in To decide whose host starts "E2E " (cancelled test parties of older runs)',
   'take packages and extras named "E2E …" and dated party days that start before 8 AM out of Parties setup',
+  'tick "Keep their times blocked on the calendar" (the Square read) again if a test run turned it off and was stopped before putting it back',
 ]
+
+/**
+ * True when the Square read switch is off because a test run turned it off
+ * (scenario 24) and was killed before turning it back on: the save that
+ * turned it off was made while an "E2E …" package was in Parties setup.
+ * A switch an owner turned off with no test package around is left alone.
+ */
+export function switchOffByTest(settings: any): boolean {
+  if (settings?.readSquareBookings !== false) return false
+  const offSave = ((settings.history ?? []) as any[]).find((h) => h?.before?.readSquareBookings === true)
+  return !!offSave && ((offSave.before.packages ?? []) as any[]).some((p) => isTest(p?.name))
+}
 
 const LOOK_AHEAD_DAYS = 120
 const WINDOW_DAYS = 40
@@ -1129,8 +1185,6 @@ export async function cleanUpPartyLeftovers(ctx: Pick<PartyCtx, 'admin'>, log: (
       log(`    FAILED: ${msg}`)
     }
   }
-  const owner = (body: unknown) => ctx.admin.request('POST', '/api/admin/parties/actions.json', { body, headers: OWNER_HEADERS })
-
   const seen = new Set<string>()
   for (let off = 0; off < LOOK_AHEAD_DAYS; off += WINDOW_DAYS) {
     const from = new Date(now.getTime() + off * 86_400_000).toISOString()
@@ -1140,24 +1194,25 @@ export async function cleanUpPartyLeftovers(ctx: Pick<PartyCtx, 'admin'>, log: (
     for (const it of (cal.body.data?.items ?? []) as any[]) {
       if (it.kind !== 'party' || !isTest(it.hostName) || seen.has(it.id)) continue
       seen.add(it.id)
-      await step(`clear party ${it.hostName} (${it.id})`, async () => {
-        let p = await partyOf(ctx, it.id)
-        if (!p || p.legacy) return
-        if (p.status !== 'cancelled') {
-          checkStatus(await owner({ id: it.id, action: 'cancel', note: 'E2E cleanup' }), 200, 'Cancel')
-          p = await partyOf(ctx, it.id)
-        }
-        for (const f of (p?.holdState?.freeable ?? []) as { startIso: string }[]) {
-          checkStatus(await owner({ id: it.id, action: 'free-time', startIso: f.startIso, shownStartIso: p.startIso, shownVersion: p.timeVersion }), 200, 'Free the time')
-        }
-      })
+      await step(`clear party ${it.hostName} (${it.id})`, () => clearTestParty(ctx, it.id))
     }
   }
 
+  // Cancelled test parties of older runs that still say "Host not told yet" (the calendar no longer lists them).
+  for (const item of (await toDecide(ctx)) ?? []) {
+    if (item.kind !== 'party-not-told' || !isTest(item.detail?.host)) continue
+    await step(`I told them: ${item.detail.host} (${item.detail.partyId})`, async () => {
+      checkStatus(await ctx.admin.request('POST', '/api/admin/to-decide.json', { body: { id: item.id, action: 'told' }, headers: OWNER_HEADERS }), 200, 'I told them')
+    })
+  }
+
   const { settings } = await readPartySettings(ctx)
-  const next = withoutTestSetup(settingsInput(settings))
+  const next = withoutTestSetup(settingsInput(settings), switchOffByTest(settings) ? { readSquareBookings: true } : {})
   if (next) {
-    await step('take the E2E package, extras and test days out of Parties setup', async () => {
+    const label = next.readSquareBookings !== settings.readSquareBookings
+      ? 'take the E2E package, extras and test days out of Parties setup, and turn the Square read back on (a test run turned it off)'
+      : 'take the E2E package, extras and test days out of Parties setup'
+    await step(label, async () => {
       const r = await ctx.admin.request('POST', '/api/admin/parties/settings.json', { body: { ...next, expectedUpdatedAt: settings.updatedAt }, headers: OWNER_HEADERS })
       checkStatus(r, 200, 'Save Parties setup')
     })
