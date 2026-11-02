@@ -8,7 +8,8 @@
  *   - nothing here sends her to a developer, the hosting dashboard or code.
  * "Look in Square" steps appear only where Square is genuinely the only place
  * (bookings and classes made in Square before the switch, sales rung up on the
- * register, and what Square itself did with a payment), each labelled so.
+ * register), each labelled so. What Square did with a payment or a refund is
+ * asked from the app itself (Ask Square, and the checks before Refund it).
  *
  * Sections marked `comingWith` describe screens that arrive when the staffing
  * (stage 3) or extras (stage 4) work is merged; they stay hidden until then
@@ -252,9 +253,8 @@ export const HELP_SECTIONS: HelpSection[] = [
     points: [
       'Parties and classes booked in Square before the switch, until they’ve run.',
       'Sales rung up on the register (refunds go back on the register).',
-      'Checking what Square did with a payment or refund when the site got no answer.',
     ],
-    square: [SQ_LEGACY_PARTY, SQ_LEGACY_CLASS, SQ_REGISTER, SQ_PAYMENT],
+    square: [SQ_LEGACY_PARTY, SQ_LEGACY_CLASS, SQ_REGISTER],
   },
   // ── Arrive with stage 3 (staffing) ──
   {
@@ -316,8 +316,8 @@ export const HELP_ROWS: HelpRow[] = [
   { id: 'party-hold-orphan', see: 'Party time held, no party', where: `${TODO}, ${HOME}`, means: 'A time is blocked with no party on it, usually a booking that stopped halfway.', tap: '**Free this time**. It waits by itself while a payment might still be going through.', buttons: ['Free this time'] },
   { id: 'party-not-told', see: 'Host not told yet', where: `${TODO}, the party`, means: 'You moved, changed or cancelled a party and the host hasn’t heard.', tap: 'Open the party › **Email <name> the details** (or the new details), or after a call or text, **I told them**.', buttons: ['I told them'] },
   { id: 'party-no-confirmation', see: 'Party booked, no confirmation', where: TODO, means: 'The party is paid and booked, but its confirmation email didn’t go.', tap: '**Open the party** › **Email <name> the details**, then **Done** here.', buttons: ['Open the party', 'Done'] },
-  { id: 'party-paid-elsewhere', see: 'Party payment to check', where: TODO, means: 'Square took a payment the site couldn’t book a party from (often someone who paid, changed their mind and paid again).', tap: '**Refund it** (the whole payment goes back to their card, they get a refund email), or, when the party still owes at least that much, **Put it toward the party** (recorded as paid, no money moves). Already settled another way: **It’s already sorted**.', buttons: ['Refund it', 'Put it toward the party', 'It’s already sorted'] },
-  { id: 'party-booking-unclear', see: 'Party payment unclear (a new booking)', where: TODO, means: 'Someone was paying for a new party and Square never answered.', tap: 'Look the payment up in Square, then **Confirm the party** (it books it and the host gets their confirmation) or **It wasn’t paid** (the held time is let go).', buttons: ['Confirm the party', 'It wasn’t paid'], square: SQ_PAYMENT },
+  { id: 'party-paid-elsewhere', see: 'Party payment to check', where: TODO, means: 'Square took a payment the site couldn’t book a party from (often someone who paid, changed their mind and paid again).', tap: '**Refund it** (the site asks Square first; what is left on the payment goes back to their card, they get a refund email), or, when the party still owes at least that much, **Put it toward the party** (recorded as paid, no money moves). If Square already refunded it, only **It’s already sorted** is offered; if some went back, **Refund the rest**. A refund Square never answered is finished with **Refund it** (never twice). Already settled another way: **It’s already sorted**.', buttons: ['Refund it', 'Put it toward the party', 'It’s already sorted'] },
+  { id: 'party-booking-unclear', see: 'Party payment unclear (a new booking)', where: TODO, means: 'Someone was paying for a new party and Square never answered.', tap: '**Confirm the party** or **It wasn’t paid**. Both ask Square first and act only on what it shows: Confirm books it once Square shows the payment (the host gets their confirmation); It wasn’t paid only works when Square shows no payment, and lets the held time go.', buttons: ['Confirm the party', 'It wasn’t paid'] },
   { id: 'party-payment-unclear', see: 'Party payment unclear (on a booked party)', where: TODO, means: 'A payment by link or a card taken here got no answer from Square.', tap: '**It went through** or **It didn’t go through**. The site asks Square again first, so it can’t record the wrong one. Until you decide, Move and Cancel on that party wait.', buttons: ['It went through', 'It didn’t go through'] },
   { id: 'party-paid-after-cancel', see: 'Paid after the party was cancelled', where: `${HOME}, the party`, means: 'Money came in after a cancel.', tap: 'Open the party › Payments › **Refund**, if it should go back.', buttons: ['Refund'] },
   { id: 'two-parties', see: 'Two parties at once', where: HOME, means: 'Two parties are booked too close together.', tap: 'Open one › **Move**. If one says “Booked in Square”, move the other, or move that one in Square.', buttons: ['Move'], square: SQ_LEGACY_PARTY },
@@ -338,14 +338,14 @@ export const HELP_ROWS: HelpRow[] = [
   { id: 'pos-needs-days', see: 'Counter seat needs its day', where: `${TODO}, ${HOME}`, means: 'A seat rung up on the register for a class with several dates needs its day.', tap: 'Pick the day › **Save the day**.', buttons: ['Save the day'] },
   { id: 'door-unpaid', see: 'Not paid at the counter', where: `${TODO}, ${HOME}`, means: 'Someone added at the door to pay at the counter has no matching sale.', tap: '**Mark paid at the counter** if they paid another way, or **Free the seat** to take them off the list.', buttons: ['Mark paid at the counter'] },
   { id: 'counter-match-check', see: 'Check a counter sale', where: `${TODO}, ${HOME}`, means: 'A register sale was matched to someone; make sure it was them.', tap: '**Yes, it was <name>**, or pick who it was › **It was <name>**.', buttons: ['Pick who it was'] },
-  { id: 'paid-not-seated', see: 'Paid, no seat', where: `${TODO}, ${HOME}`, means: 'Square shows someone paid online, but their seat was let go (usually a slow payment).', tap: '**Give them their seat** (even if the date is full), or refund them in Square and tap **I sorted it out in Square**.', buttons: ['I sorted it out in Square'], square: SQ_REFUND_PAYMENT },
+  { id: 'paid-not-seated', see: 'Paid, no seat', where: `${TODO}, ${HOME}`, means: 'Square shows someone paid online, but their seat was let go (usually a slow payment).', tap: '**Give them their seat** (even if the date is full), or **Refund it** (the site asks Square first; the payment goes back to their card and they get a refund email; tapping twice never refunds twice). Settled another way: **It’s already sorted**.', buttons: ['Give them their seat', 'Refund it', 'It’s already sorted'] },
   { id: 'classes-unreadable', see: 'Classes / Classes in Square couldn’t be checked', where: HOME, means: 'The check couldn’t read the classes just now.', tap: 'Refresh the page to try again. If it’s still there after an hour, look over the day on the Calendar yourself.', buttons: [] },
 
   // Refunds (classes and parties)
   { id: 'refund-plain', see: 'Refund done in Square', where: `${TODO}, ${HOME}`, means: 'Someone refunded a class booking in Square; the seat is still taken here.', tap: '**Free a seat** (puts it back on sale, no money moves) or **Keep their seat**.', buttons: ['Keep their seat'] },
-  { id: 'refund-failed', see: 'Refund didn’t go through', where: `${TODO}, ${HOME}`, means: 'Square couldn’t finish a refund.', tap: 'Look at the payment in Square; refund again from the booking if it should go back. Then **Mark as handled**.', buttons: ['Mark as handled'], square: SQ_PAYMENT },
+  { id: 'refund-failed', see: 'Refund didn’t go through', where: `${TODO}, ${HOME}`, means: 'Square couldn’t finish a refund.', tap: '**Ask Square** to see what it shows now. If it failed, **Try the refund again** (a new refund of the same amount; tapping twice never refunds twice). Settled another way: **Mark as handled** and say how.', buttons: ['Ask Square', 'Try the refund again', 'Mark as handled'] },
   { id: 'refund-unfinished', see: 'Refund half finished', where: `${TODO}, ${HOME}`, means: 'A refund went through in Square but wasn’t finished here.', tap: '**Finish it**. It marks it done and emails the customer once.', buttons: ['Finish it'] },
-  { id: 'refund-unconfirmed', see: 'Refund with no answer', where: `${TODO}, ${HOME}`, means: 'Square never answered about a refund for a day.', tap: 'Look it up in Square, then **It went through** or **It didn’t go through**.', buttons: ['It went through', 'It didn’t go through'], square: SQ_PAYMENT },
+  { id: 'refund-unconfirmed', see: 'Refund with no answer', where: `${TODO}, ${HOME}`, means: 'Square never answered about a refund for a day.', tap: '**Ask Square**. It shows what Square did with the refund, then only the buttons that fit: **It went through** (records it with Square’s refund, the customer emailed once), **Try the refund again** (the same request, so never twice) or **It didn’t go through**.', buttons: ['Ask Square', 'It went through', 'Try the refund again', 'It didn’t go through'] },
 
   // Arrive with stage 3 (staffing)
   { id: 'unstaffed', see: '<event> has no one on yet / has N of M on', where: HOME, means: 'A class or party needs people and doesn’t have them.', tap: 'More › Staff, or the event › **Staff** › **Put on**.', buttons: [], comingWith: 'staffing' },

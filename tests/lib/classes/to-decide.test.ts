@@ -38,6 +38,15 @@ import { listDoorUnpaid } from '@lib/classes/door-unpaid'
 import { groupBookings } from '@lib/classes/admin-actions'
 import { paidWay } from '@lib/classes/booking-words'
 import type { ScheduledClass } from '@lib/classes/types'
+import { providers } from '@config/providers'
+
+/** What Square shows on a payment (To decide's Ask Square reads it): these refunds. */
+function squareShows(refunds: { id: string; amountCents: number; status: string; paymentId?: string }[]) {
+  return vi.spyOn(providers.payment as any, 'readPayment').mockImplementation(async (id: any) => ({
+    id, orderId: null, status: 'COMPLETED', amountCents: 100000, refundedCents: 0, createdAt: '2026-10-19T10:00:00.000Z',
+    refunds: refunds.map((r) => ({ paymentId: id, createdAt: '2026-10-19T11:00:00.000Z', ...r })),
+  }))
+}
 
 const NOW = new Date('2026-10-20T15:00:00Z')
 const CATHERINE = { id: 'owner-catherine', name: 'Catherine' }
@@ -189,7 +198,7 @@ describe('refunds', () => {
     await flag('refund-failed', cls, 'bkg_f', { status: 'FAILED' })
     const item = await find('refund-failed')
     expect(item.head).toBe(`Square couldn’t finish a $16.35 refund for Ada Lovelace (${cls.content.name}).`)
-    expect((await decide(item.id, 'handled', {}, CATHERINE, NOW)).decided.what).toBe('Checked in Square')
+    expect((await decide(item.id, 'handled', {}, CATHERINE, NOW)).decided.what).toBe('Marked as handled')
   })
 
   async function savedRequest(cls: ScheduledClass, bookingId: string, lineId: string, over: Record<string, unknown> = {}) {
@@ -214,7 +223,7 @@ describe('refunds', () => {
     expect((await listRefundRequests(cls.id, 'bkg_hf'))[0].status).toBe('done')
   })
 
-  it('no answer from Square: It went through saves the refund; It didn’t go through saves nothing', async () => {
+  it('no answer from Square: It went through saves the refund Square shows; It didn’t go through saves nothing', async () => {
     const cls = makeClass(); classes.list = [cls]
     const a = line({ bookingId: 'bkg_u1' }), b = line({ bookingId: 'bkg_u2' })
     await seed(cls, [a, b])
@@ -224,12 +233,127 @@ describe('refunds', () => {
     await flag('refund-unconfirmed', cls, 'bkg_u2', { requestId: r2.id, squareRefundId: '', status: 'pending' })
     const list = (await items()).filter((i) => i.kind === 'refund-unconfirmed' && !i.done)
     const one = list.find((i) => i.detail.bookingId === 'bkg_u1')!, two = list.find((i) => i.detail.bookingId === 'bkg_u2')!
-    expect((await decide(one.id, 'went-through', {}, CATHERINE, NOW)).decided.what).toBe('It went through')
-    expect((await decide(two.id, 'did-not-go-through', {}, CATHERINE, NOW)).decided.what).toBe('It didn’t go through')
+    const spy = squareShows([{ id: 'RF-u1', amountCents: 500, status: 'COMPLETED' }])
+    try {
+      expect((await decide(one.id, 'went-through', {}, CATHERINE, NOW)).decided.what).toBe('It went through: $5 recorded with Square’s refund')
+      // That Square refund is on the records now: for the other booking Square shows none, so it can be stopped.
+      expect((await decide(two.id, 'did-not-go-through', {}, CATHERINE, NOW)).decided.what).toBe('It didn’t go through: Square shows no refund')
+    } finally {
+      spy.mockRestore()
+    }
     const ledger = await getLedger(cls.id)
-    expect(ledger.lines.find((l) => l.id === a.id)!.refunds.map((r) => r.cents)).toEqual([500])
+    expect(ledger.lines.find((l) => l.id === a.id)!.refunds.map((r) => [r.cents, r.squareRefundId])).toEqual([[500, 'RF-u1']])
     expect(ledger.lines.find((l) => l.id === b.id)!.refunds).toEqual([])
     expect((await listRefundRequests(cls.id, 'bkg_u2'))[0].status).toBe('turned-down')
+  })
+})
+
+describe('Ask Square on a refund (no Square dashboard needed)', () => {
+  async function savedReq(cls: ScheduledClass, bookingId: string, lineId: string, cents = 500) {
+    return createRefundRequest({
+      id: uid('req'), inputHash: uid('h'), classId: cls.id, bookingId, paymentId: 'p1', kind: 'custom', freeSeat: false,
+      reason: 'Sick', by: CATHERINE, role: 'owner', lines: [{ id: lineId, cents }], totalCents: cents, prior: 0, rawKey: 'raw', failures: 0,
+      idempotencyKey: `refund:${uid('k')}`, status: 'pending', squareRefundId: null, answered: false,
+      createdAt: '2026-10-19T10:00:00.000Z', updatedAt: '2026-10-19T10:00:00.000Z',
+    } as any)
+  }
+  async function unconfirmed(bookingId: string) {
+    const cls = makeClass(); classes.list = [cls]
+    const l = line({ bookingId })
+    await seed(cls, [l])
+    const req = await savedReq(cls, bookingId, l.id)
+    const id = `flag-refund-unconfirmed-${uid('f')}`
+    await flagsKv.set(id, JSON.stringify({ id, kind: 'refund-unconfirmed', classId: cls.id, bookingId, paymentId: 'p1', squareRefundId: '', cents: 500, refundCents: 500, status: 'pending', at: NOW.toISOString(), resolved: null, requestId: req.id }))
+    const item = (await items()).find((i) => i.kind === 'refund-unconfirmed' && i.detail.bookingId === bookingId && !i.done)!
+    return { cls, l, req, item }
+  }
+
+  it('Square shows no refund: Ask Square says so; It went through is refused; Try the refund again re-sends the saved key (never twice) and records it', async () => {
+    const { cls, l, req, item } = await unconfirmed('bkg_ask1')
+    const spy = squareShows([])
+    const send = vi.spyOn(providers.payment, 'refundPayment').mockResolvedValue({ id: 'RF-again', paymentId: 'p1', amountCents: 500, status: 'COMPLETED' })
+    try {
+      const { askSquare } = await import('@lib/classes/to-decide')
+      expect(await askSquare(item.id, NOW)).toMatchObject({ state: 'none', next: ['retry', 'did-not-go-through'] })
+      await expect(decide(item.id, 'went-through', {}, CATHERINE, NOW)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^Square shows no \$5 refund on this payment/) })
+      const done = await decide(item.id, 'retry', {}, CATHERINE, NOW)
+      expect(done.decided.what).toBe('Tried again: Square refunded $5 (emailed)')
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(send.mock.calls[0][0]).toMatchObject({ paymentId: 'p1', amountCents: 500, idempotencyKey: req.idempotencyKey })
+      expect((await getLedger(cls.id)).lines.find((x) => x.id === l.id)!.refunds.map((r) => [r.cents, r.squareRefundId])).toEqual([[500, 'RF-again']])
+      expect((await items()).some((i) => i.id === item.id && !i.done)).toBe(false)
+    } finally {
+      spy.mockRestore(); send.mockRestore()
+    }
+  })
+
+  it('Square shows the refund still going through: nothing can be chosen yet (no record, no retry, no stop)', async () => {
+    const { item } = await unconfirmed('bkg_ask2')
+    const spy = squareShows([{ id: 'RF-pend', amountCents: 500, status: 'PENDING' }])
+    try {
+      const { askSquare } = await import('@lib/classes/to-decide')
+      expect(await askSquare(item.id, NOW)).toMatchObject({ state: 'pending', next: [] })
+      for (const a of ['went-through', 'retry', 'did-not-go-through']) await expect(decide(item.id, a, {}, CATHERINE, NOW)).rejects.toMatchObject({ status: 409 })
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('Square can’t be read: Ask Square says to try again; nothing changes', async () => {
+    const { item } = await unconfirmed('bkg_ask3')
+    const spy = vi.spyOn(providers.payment as any, 'readPayment').mockRejectedValue(new Error('Square 500'))
+    try {
+      const { askSquare } = await import('@lib/classes/to-decide')
+      await expect(askSquare(item.id, NOW)).rejects.toMatchObject({ status: 503, message: 'Square couldn’t be asked just now. Try again in a minute. Nothing was changed.' })
+      await expect(decide(item.id, 'did-not-go-through', {}, CATHERINE, NOW)).rejects.toMatchObject({ status: 503 })
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  it('Refund didn’t go through: Ask Square reads that refund; Try the refund again sends a new refund once (its own key), and Square’s events on it are never recorded as new money', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    const l = line({ bookingId: 'bkg_rf1', refunds: [{ id: 'rfe_old', cents: 500, reason: 'Sick', by: CATHERINE, at: '2026-10-19T10:00:00.000Z', freedSeat: false, squareRefundId: 'RF-old' } as any] })
+    await seed(cls, [l])
+    const id = `flag-refund-failed-${uid('f')}`
+    await flagsKv.set(id, JSON.stringify({ id, kind: 'refund-failed', classId: cls.id, bookingId: 'bkg_rf1', paymentId: 'p1', squareRefundId: 'RF-old', cents: 500, refundCents: 500, status: 'FAILED', at: NOW.toISOString(), resolved: null }))
+    const item = (await items()).find((i) => i.kind === 'refund-failed' && i.detail.flagId === id && !i.done)!
+    expect(item.hint).toBe('Ask Square, then try it again or mark it handled')
+    const read = vi.spyOn(providers.payment as any, 'readRefund').mockResolvedValue({ id: 'RF-old', paymentId: 'p1', amountCents: 500, status: 'FAILED', createdAt: null })
+    const send = vi.spyOn(providers.payment, 'refundPayment').mockResolvedValue({ id: 'RF-new', paymentId: 'p1', amountCents: 500, status: 'COMPLETED' })
+    try {
+      const { askSquare } = await import('@lib/classes/to-decide')
+      expect(await askSquare(item.id, NOW)).toMatchObject({ state: 'failed', next: ['retry', 'handled'] })
+      const done = await decide(item.id, 'retry', {}, CATHERINE, NOW)
+      expect(done.decided.what).toBe('Sent the refund again: Square refunded $5')
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(send.mock.calls[0][0]).toMatchObject({ paymentId: 'p1', amountCents: 500, idempotencyKey: expect.stringMatching(/^rfx-[0-9a-f]{32}$/) })
+      const { handleRefund } = await import('@lib/classes/square-events')
+      expect(await handleRefund({ id: 'RF-new', payment_id: 'p1', status: 'COMPLETED', amount_money: { amount: 500 } }, NOW)).toEqual({ action: 'ignored', why: 'already-recorded' })
+      expect((await getLedger(cls.id)).lines[0].refunds).toHaveLength(1)
+      expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'refund-sent-again' }))
+    } finally {
+      read.mockRestore(); send.mockRestore()
+    }
+  })
+
+  it('Refund didn’t go through, but Square now shows it went through: only Mark as handled; Try again is refused', async () => {
+    const cls = makeClass(); classes.list = [cls]
+    await seed(cls, [line({ bookingId: 'bkg_rf2' })])
+    const id = `flag-refund-failed-${uid('f')}`
+    await flagsKv.set(id, JSON.stringify({ id, kind: 'refund-failed', classId: cls.id, bookingId: 'bkg_rf2', paymentId: 'p1', squareRefundId: 'RF-ok', cents: 500, refundCents: 500, status: 'FAILED', at: NOW.toISOString(), resolved: null }))
+    const item = (await items()).find((i) => i.kind === 'refund-failed' && i.detail.flagId === id && !i.done)!
+    const read = vi.spyOn(providers.payment as any, 'readRefund').mockResolvedValue({ id: 'RF-ok', paymentId: 'p1', amountCents: 500, status: 'COMPLETED', createdAt: null })
+    const send = vi.spyOn(providers.payment, 'refundPayment')
+    try {
+      const { askSquare } = await import('@lib/classes/to-decide')
+      expect(await askSquare(item.id, NOW)).toMatchObject({ state: 'done', next: ['handled'] })
+      await expect(decide(item.id, 'retry', {}, CATHERINE, NOW)).rejects.toMatchObject({ status: 409 })
+      expect(send).not.toHaveBeenCalled()
+      expect((await decide(item.id, 'handled', { reason: 'Went through after all' }, CATHERINE, NOW)).decided.what).toBe('Marked as handled: Went through after all')
+    } finally {
+      read.mockRestore(); send.mockRestore()
+    }
   })
 })
 
@@ -258,7 +382,7 @@ describe('refunds on parties (scope "party")', () => {
     expect(item).toMatchObject({ kind: 'refund-failed', head: 'Square couldn’t finish a $50 refund on the Justice party.', className: 'the Justice party' })
     expect(item.classId).toBeUndefined()
     expect(item.detail).toMatchObject({ partyId, partyDay: '2026-11-14', refundCents: 5000 })
-    expect((await decide(item.id, 'handled', {}, CATHERINE, NOW)).decided.what).toBe('Checked in Square')
+    expect((await decide(item.id, 'handled', {}, CATHERINE, NOW)).decided.what).toBe('Marked as handled')
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({ target: { kind: 'party', id: partyId, label: 'the Justice party' } }))
   })
 
@@ -273,8 +397,13 @@ describe('refunds on parties (scope "party")', () => {
     await flag('refund-unconfirmed', partyId, { requestId: req.id, squareRefundId: '', status: 'pending' })
     const item = await partyItem(partyId)
     expect(item.head).toBe('A $50 refund on the Justice party got no answer from Square for a day.')
-    expect((await decide(item.id, 'went-through', {}, CATHERINE, NOW)).decided.what).toBe('It went through')
-    expect((await getPartyRecord(partyId))!.refunds).toEqual([expect.objectContaining({ cents: 5000, requestId: req.id, squareRefundId: null })])
+    const spy = squareShows([{ id: 'RF-party', amountCents: 5000, status: 'COMPLETED' }])
+    try {
+      expect((await decide(item.id, 'went-through', {}, CATHERINE, NOW)).decided.what).toBe('It went through: $50 recorded with Square’s refund')
+    } finally {
+      spy.mockRestore()
+    }
+    expect((await getPartyRecord(partyId))!.refunds).toEqual([expect.objectContaining({ cents: 5000, requestId: req.id, squareRefundId: 'RF-party' })])
     expect((await listRefundRequests('party', partyId))[0].status).toBe('done')
     expect(email).toHaveBeenCalledTimes(1)
     expect((await items()).some((i) => i.detail.partyId === partyId && !i.done)).toBe(false)

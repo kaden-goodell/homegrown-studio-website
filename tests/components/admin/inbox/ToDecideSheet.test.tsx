@@ -14,7 +14,7 @@ afterEach(() => vi.unstubAllGlobals())
 const item = (over: any) => ({ id: 'td_1', title: 'Title', head: 'What happened.', hint: 'Do it', at: '2026-10-18T16:42:00.000Z', detail: {}, ...over })
 
 /** The routes the sheet and the inbox use. A decision marks the item done (as the server's list then shows it). */
-function server(items: any[], o: { decide?: (b: any) => any; amount?: number | null; classes?: any[]; bookings?: any[] } = {}) {
+function server(items: any[], o: { decide?: (b: any) => any; ask?: (b: any) => any; amount?: number | null; classes?: any[]; bookings?: any[] } = {}) {
   let list = items
   return vi.fn(async (url: string, init?: any) => {
     const path = url.split('?')[0]
@@ -31,6 +31,8 @@ function server(items: any[], o: { decide?: (b: any) => any; amount?: number | n
           return ok({ data: { items: list } })
         }
         if (post.action === 'names') return ok({ data: { named: post.names.filter((x: any) => x.name.trim()).length } })
+        // Ask Square: read only, nothing decided.
+        if (post.action === 'ask') return o.ask ? o.ask(post) : refuse(503, { error: 'Square couldn’t be asked just now. Try again in a minute. Nothing was changed.' })
         if (post.action === 'texted') {
           // R40: a note; the item keeps waiting.
           list = list.map((i) => (i.id === post.id ? { ...i, detail: { ...i.detail, note: { what: 'Texted the people booked', by: 'Catherine', at: '2026-10-19T15:00:00.000Z' } } } : i))
@@ -157,25 +159,53 @@ describe('To decide sheets', () => {
     await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'keep' }]))
   })
 
-  it('refund kinds: Square couldn’t finish it (Mark as handled), half finished (Finish it), no answer (went through / didn’t)', async () => {
+  it('refund kinds: Square couldn’t finish it (Ask Square, then Try the refund again or Mark as handled with a reason), half finished (Finish it)', async () => {
     const failed = item({ id: 'td_f', kind: 'refund-failed', title: 'Refund didn’t go through', detail: { refundCents: 500 } })
     const unfinished = item({ id: 'td_u', kind: 'refund-unfinished', title: 'Refund half finished', detail: { refundCents: 500 } })
     const unconfirmed = item({ id: 'td_n', kind: 'refund-unconfirmed', title: 'Refund with no answer', detail: { refundCents: 500 } })
-    const one = show([failed, unfinished, unconfirmed], {}, 'td_f')
-    expect(await screen.findByText('Square couldn’t finish this refund. Check it in Square, then mark it handled.')).toBeInTheDocument()
+    const failedAnswer = { state: 'failed', cents: 500, refundId: 'RF1', at: null, next: ['retry', 'handled'], message: 'Square shows this $5 refund failed, so the money didn’t go back.' }
+    const one = show([failed, unfinished, unconfirmed], { ask: () => ok({ data: { asked: failedAnswer } }) }, 'td_f')
+    expect(await screen.findByText(/Tap Ask Square to see what it shows now/)).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/Check it in Square|Look it up in Square/)
+    expect(within(footer()).queryByRole('button', { name: 'Try the refund again' })).toBeNull()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Ask Square' }))
+    expect(await screen.findByText('Square shows it failed')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Try the refund again' }))
+    expect(screen.getByText('Try the $5 refund again?')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Keep it' }))
+    // Mark as handled asks what happened first.
     fireEvent.click(within(footer()).getByRole('button', { name: 'Mark as handled' }))
-    await waitFor(() => expect(decisions(one.f)).toEqual([{ id: 'td_f', action: 'handled' }]))
+    const save = within(footer()).getByRole('button', { name: 'Mark as handled' })
+    expect(save).toBeDisabled()
+    fireEvent.change(screen.getByLabelText(/What happened/), { target: { value: 'Gave cash back' } })
+    fireEvent.click(save)
+    await waitFor(() => expect(decisions(one.f)).toEqual([{ id: 'td_f', action: 'ask' }, { id: 'td_f', action: 'handled', reason: 'Gave cash back' }]))
     one.unmount()
 
     const two = show([failed, unfinished, unconfirmed], {}, 'td_u')
     fireEvent.click(await screen.findByRole('button', { name: 'Finish it' }))
     await waitFor(() => expect(decisions(two.f)).toEqual([{ id: 'td_u', action: 'finish' }]))
-    two.unmount()
+  })
 
-    const three = show([failed, unfinished, unconfirmed], {}, 'td_n')
-    expect(await screen.findByText(/Look it up in Square, then say what you saw/)).toBeInTheDocument()
-    fireEvent.click(within(footer()).getByRole('button', { name: 'It didn’t go through' }))
-    await waitFor(() => expect(decisions(three.f)).toEqual([{ id: 'td_n', action: 'did-not-go-through' }]))
+  it('a refund with no answer: Ask Square first; then only the buttons that fit what Square shows', async () => {
+    const t = item({ id: 'td_n', kind: 'refund-unconfirmed', title: 'Refund with no answer', detail: { refundCents: 500 } })
+    let answer: any = { state: 'done', cents: 500, refundId: 'RF9', at: null, next: ['went-through'], message: 'Square shows a $5 refund on this payment. Tap It went through to record it here.' }
+    const { f } = show([t], { ask: () => ok({ data: { asked: answer } }) }, 'td_n')
+    expect(await screen.findByText(/Tap Ask Square: it reads the payment/)).toBeInTheDocument()
+    expect(within(footer()).queryByRole('button', { name: 'It went through' })).toBeNull()
+    expect(within(footer()).queryByRole('button', { name: 'It didn’t go through' })).toBeNull()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Ask Square' }))
+    expect(await screen.findByText('Square shows it went through')).toBeInTheDocument()
+    expect(within(footer()).queryByRole('button', { name: 'Try the refund again' })).toBeNull()
+    // Square shows none: Try the refund again (the same request) or It didn’t go through.
+    answer = { state: 'none', cents: 500, refundId: null, at: null, next: ['retry', 'did-not-go-through'], message: 'Square shows no $5 refund on this payment, so it didn’t go through.' }
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Ask Square again' }))
+    expect(await screen.findByText('Square shows no refund')).toBeInTheDocument()
+    expect(within(footer()).queryByRole('button', { name: 'It went through' })).toBeNull()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Try the refund again' }))
+    expect(screen.getByText(/The same request goes to Square again, so it can never refund twice/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Try the refund again' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_n', action: 'ask' }, { id: 'td_n', action: 'ask' }, { id: 'td_n', action: 'retry' }]))
   })
 
   it('a refund on a party: Open the party opens its sheet; a class refund has no such button', async () => {
@@ -186,7 +216,7 @@ describe('To decide sheets', () => {
     expect(one.sheet.open).toHaveBeenCalledWith({ kind: 'party', day: '2026-11-14', id: 'pty_abc123' })
     one.unmount()
     show([item({ kind: 'refund-failed', title: 'Refund didn’t go through', detail: { refundCents: 500 } })])
-    expect(await screen.findByText('Square couldn’t finish this refund. Check it in Square, then mark it handled.')).toBeInTheDocument()
+    expect(await screen.findByText(/Tap Ask Square to see what it shows now/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Open the party' })).toBeNull()
   })
 
@@ -293,22 +323,33 @@ describe('To decide sheets', () => {
     await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'move', toLineId: 'led_d' }]))
   })
 
-  it('R42: paid online with no seat: Give them their seat, or say it was sorted out in Square', async () => {
-    const t = item({ kind: 'paid-not-seated', title: 'Paid, no seat', className: 'Looms', classId: 'cls_1', head: 'Square shows $32.70 paid for 1 seat of Looms, but the seats were let go before the booking finished. Nothing was refunded.', detail: { paidId: 'pns-O1', orderId: 'O1', why: 'no-seats', cents: 3270, seats: 1, canSeat: true } })
+  it('R42: paid online with no seat: Give them their seat, Refund it, or It’s already sorted (never “in Square”)', async () => {
+    const t = item({ kind: 'paid-not-seated', title: 'Paid, no seat', className: 'Looms', classId: 'cls_1', head: 'Square shows $32.70 paid for 1 seat of Looms, but the seats were let go before the booking finished. Nothing was refunded.', detail: { paidId: 'pns-O1', orderId: 'O1', why: 'no-seats', cents: 3270, seats: 1, canSeat: true, canRefund: true, canSort: true, leftCents: 3270, name: 'Ada Lovelace', email: 'ada@example.com' } })
     const { f } = show([t])
     expect(await screen.findByText('$32.70')).toBeInTheDocument()
-    expect(within(footer()).getByRole('button', { name: 'I sorted it out in Square' })).toBeInTheDocument()
+    expect(within(footer()).getByRole('button', { name: 'Refund it' })).toBeInTheDocument()
+    expect(within(footer()).getByRole('button', { name: 'It’s already sorted' })).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/in Square/)
     fireEvent.click(within(footer()).getByRole('button', { name: 'Give them their seat' }))
     await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'seat' }]))
   })
 
-  it('R42: a second payment can only be sorted out in Square', async () => {
-    const t = item({ kind: 'paid-not-seated', title: 'Paid, no seat', className: 'Looms', detail: { paidId: 'pns-O2', orderId: 'O2', why: 'other-order', cents: 3270, seats: 1, canSeat: false } })
+  it('R42: Refund it asks first, naming who and how much; It’s already sorted is confirmed too', async () => {
+    const t = item({ kind: 'paid-not-seated', title: 'Paid, no seat', className: 'Looms', detail: { paidId: 'pns-O2', orderId: 'O2', why: 'other-order', cents: 3270, seats: 1, canSeat: false, canRefund: true, canSort: true, leftCents: 3270, name: 'Ada Lovelace', email: 'ada@example.com' } })
     const { f } = show([t])
-    const sorted = await screen.findByRole('button', { name: 'I sorted it out in Square' })
+    const refund = await screen.findByRole('button', { name: 'Refund it' })
     expect(within(footer()).queryByRole('button', { name: /Give them/ })).toBeNull()
-    fireEvent.click(sorted)
-    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'sorted' }]))
+    fireEvent.click(refund)
+    expect(screen.getByText('Refund $32.70 to Ada Lovelace?')).toBeInTheDocument()
+    expect(screen.getByText(/and Ada gets a refund email/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Keep it' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'It’s already sorted' }))
+    expect(screen.getByText('Clear this $32.70 payment?')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Keep it' }))
+    expect(decisions(f)).toEqual([])
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund it' }))
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund $32.70' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'refund', cents: 3270 }]))
   })
 
   it('T15: no Undo when the decision wrote nothing to take back (the seat was already free)', async () => {
@@ -376,7 +417,7 @@ describe('To decide sheets', () => {
   })
 
   it('fix round 2: Refund it asks first, naming who and how much, then sends; Keep it sends nothing', async () => {
-    const t = item({ id: 'td_pe', kind: 'party-paid-unclear', title: 'Party payment to check', detail: { partyId: 'pty_x', orderId: 'O', cents: 30000, elsewhere: true, why: 'retired', name: 'Alice Smith', canApply: false } })
+    const t = item({ id: 'td_pe', kind: 'party-paid-unclear', title: 'Party payment to check', detail: { partyId: 'pty_x', orderId: 'O', cents: 30000, elsewhere: true, why: 'retired', name: 'Alice Smith', email: 'alice@example.com', canApply: false } })
     const { f } = show([t], {}, 'td_pe')
     fireEvent.click(await screen.findByRole('button', { name: 'Refund it' }))
     expect(screen.getByText('Refund $300 to Alice Smith?')).toBeInTheDocument()
@@ -385,7 +426,43 @@ describe('To decide sheets', () => {
     expect(decisions(f)).toEqual([])
     fireEvent.click(within(footer()).getByRole('button', { name: 'Refund it' }))
     fireEvent.click(within(footer()).getByRole('button', { name: 'Refund $300' }))
-    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_pe', action: 'refund' }]))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_pe', action: 'refund', cents: 30000 }]))
+  })
+
+  it('M6: no email on file: the confirm promises no email', async () => {
+    const t = item({ id: 'td_ne', kind: 'party-paid-unclear', title: 'Party payment to check', detail: { partyId: 'pty_x', orderId: 'O', cents: 30000, elsewhere: true, why: 'no-checkout', name: 'Alice Smith', email: '', canApply: false } })
+    show([t], {}, 'td_ne')
+    fireEvent.click(await screen.findByRole('button', { name: 'Refund it' }))
+    expect(screen.getByText(/no email on file, so nobody is emailed/)).toBeInTheDocument()
+    expect(screen.queryByText(/gets a refund email/)).toBeNull()
+  })
+
+  it('M1/M2: a refund Square never answered: the note says so, only Refund it (no Put it toward, no It’s already sorted)', async () => {
+    const t = item({ id: 'td_rs', kind: 'party-paid-unclear', title: 'Party payment to check', detail: { partyId: 'pty_x', orderId: 'O', cents: 30000, elsewhere: true, why: 'other-payment', name: 'Stefanie Justice', canApply: false, refundStarted: true, startedCents: 30000, canRefund: true, canSort: false, dueCents: 30000 } })
+    show([t], {}, 'td_rs')
+    expect(await screen.findByText(/was sent to Square and it never answered/)).toBeInTheDocument()
+    expect(within(footer()).getByRole('button', { name: 'Refund it' })).toBeInTheDocument()
+    expect(within(footer()).queryByRole('button', { name: 'Put it toward the party' })).toBeNull()
+    expect(within(footer()).queryByRole('button', { name: 'It’s already sorted' })).toBeNull()
+  })
+
+  it('I2: Square already refunded it: the item says so and offers only It’s already sorted (confirmed)', async () => {
+    const t = item({ id: 'td_bk', kind: 'party-paid-unclear', title: 'Party payment to check', detail: { partyId: 'pty_x', orderId: 'O', cents: 30000, elsewhere: true, why: 'retired', name: 'Alice Smith', canApply: false, backCents: 30000, leftCents: 0, canRefund: false, canSort: true } })
+    const { f } = show([t], {}, 'td_bk')
+    expect(await screen.findByText('Refunded in Square')).toBeInTheDocument()
+    expect(screen.getByText(/Square already refunded this \$300/)).toBeInTheDocument()
+    expect(within(footer()).queryByRole('button', { name: /Refund/ })).toBeNull()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'It’s already sorted' }))
+    expect(screen.getByText(/Square already refunded it. Clearing it notes who cleared it/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Clear it' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_bk', action: 'sorted' }]))
+  })
+
+  it('M4: other-payment that can go toward the party: the note says it isn’t on the party yet and what it still owes', async () => {
+    const t = item({ id: 'td_m4', kind: 'party-paid-unclear', title: 'Party payment to check', detail: { partyId: 'pty_x', orderId: 'O', cents: 30000, elsewhere: true, why: 'other-payment', name: 'Stefanie Justice', canApply: true, dueCents: 30000 } })
+    show([t], {}, 'td_m4')
+    expect(await screen.findByText('Square shows $300 paid on Stefanie’s party from another order (an older link or a second try), so it isn’t on the party yet. The party still owes $300: put it toward that, or refund it.')).toBeInTheDocument()
+    expect(document.body.textContent).not.toMatch(/already paid by another order/)
   })
 
   it('fix round 2: a payment the party still owes can go toward it, confirmed first; Square’s refusal shows in the sheet', async () => {
@@ -400,7 +477,7 @@ describe('To decide sheets', () => {
     expect(screen.getByText('Put $300 toward Stefanie’s party?')).toBeInTheDocument()
     expect(screen.getByText(/No money moves and nothing is sent to Stefanie/)).toBeInTheDocument()
     fireEvent.click(within(footer()).getByRole('button', { name: 'Put it toward the party' }))
-    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_pa', action: 'refund' }, { id: 'td_pa', action: 'apply' }]))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_pa', action: 'refund', cents: 30000 }, { id: 'td_pa', action: 'apply' }]))
   })
   it('fix round: the Square order is its own row with Copy', async () => {
     const t = item({ id: 'td_po', kind: 'party-payment-unclear', title: 'Party payment unclear', detail: { partyId: 'pty_abc123', partyDay: '2026-11-14', cents: 30000, via: 'link', orderId: 'ORD_123' } })

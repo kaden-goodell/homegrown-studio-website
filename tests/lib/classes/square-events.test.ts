@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 // Square answers from fixtures; the seat ledger and kv stores are real (temp dir).
 const sq = vi.hoisted(() => ({
@@ -10,6 +10,7 @@ const sq = vi.hoisted(() => ({
   fail: null as null | RegExp,
   refundPages: [] as any[][],
   searchCursor: false,
+  customers: new Map<string, any>(),
 }))
 vi.mock('@lib/classes/square-api', () => ({
   SQUARE_API_VERSION: '2026-01-22',
@@ -25,6 +26,7 @@ vi.mock('@lib/classes/square-api', () => ({
       return { order }
     }
     if ((m = path.match(/^\/payments\/([^/]+)$/))) return { payment: sq.payments.get(decodeURIComponent(m[1])) }
+    if ((m = path.match(/^\/customers\/([^/]+)$/))) return { customer: sq.customers.get(decodeURIComponent(m[1])) ?? null }
     if (path === '/catalog/batch-retrieve') {
       const objects = body.object_ids.map((id: string) => sq.catalog.get(id)).filter(Boolean)
       const related = objects.map((o: any) => sq.catalog.get(o.item_variation_data?.item_id)).filter(Boolean)
@@ -48,7 +50,8 @@ const freed = vi.hoisted(() => vi.fn(async () => undefined))
 const texts = vi.hoisted(() => vi.fn(async (_: string) => ({ attempted: 1, sent: 1 })))
 vi.mock('@lib/owner-alert', () => ({ alertOwners: texts }))
 const confirmations = vi.hoisted(() => vi.fn(async (_: any) => ({ sent: true })))
-vi.mock('@lib/email', async (orig) => ({ ...(await orig<typeof import('@lib/email')>()), sendWorkshopConfirmationEmail: confirmations }))
+const refundEmails = vi.hoisted(() => vi.fn(async (_: any) => ({ sent: true })))
+vi.mock('@lib/email', async (orig) => ({ ...(await orig<typeof import('@lib/email')>()), sendWorkshopConfirmationEmail: confirmations, sendRefundEmail: refundEmails }))
 vi.mock('@lib/classes/refunds', async (orig) => ({ ...(await orig<typeof import('@lib/classes/refunds')>()), onSeatFreed: freed }))
 
 import {
@@ -65,6 +68,7 @@ import { defaultRules } from '@lib/classes/validate'
 import { createPartyRecord, getPartyRecord, updatePartyRecord, type PartyRecord } from '@lib/party-store'
 import { recordPartyPayment } from '@lib/parties/party-payments'
 import type { ScheduledClass } from '@lib/classes/types'
+import { providers } from '@config/providers'
 
 const NOW = new Date('2026-10-20T15:00:00Z')
 const by = { id: 'k', name: 'Kaden' }
@@ -592,14 +596,14 @@ describe('R42: our own online bookings Square shows paid', () => {
     expect((await getLedger(cls.id)).lines.filter((l) => l.bookingId === bookingId)).toHaveLength(1)
   })
 
-  it('“I sorted it out in Square” just closes the item', async () => {
+  it('“It’s already sorted” just closes the item', async () => {
     const cls = makeClass(); classes.list = [cls]
     const bookingId = `bkg_${uid('sort').toLowerCase()}`
     const o = ownOrder(cls, bookingId)
     sq.orders.set(o.id, o)
     await handleSquareEvent(paymentDone(o), NOW)
     const item = (await listToDecide(NOW)).items.find((i) => i.kind === 'paid-not-seated' && i.detail.orderId === o.id)!
-    expect((await decide(item.id, 'sorted', {}, by, NOW)).decided.what).toBe('Sorted out in Square')
+    expect((await decide(item.id, 'sorted', {}, by, NOW)).decided.what).toBe('Already sorted')
     expect((await listPaidNotSeated()).filter((p) => p.orderId === o.id)).toEqual([])
     expect((await getLedger(cls.id)).lines).toHaveLength(0)
   })
@@ -611,6 +615,85 @@ describe('R42: our own online bookings Square shows paid', () => {
     sq.orders.set(o.id, o)
     expect(await handleSquareEvent(orderUpdated(o), NOW)).toMatchObject({ skipped: 'not-ours' })
     expect((await listPaidNotSeated()).filter((p) => p.orderId === o.id)).toEqual([])
+  })
+
+  describe('Paid, no seat › Refund it (no Square dashboard)', () => {
+    const shows = (paymentId: string, refunds: { id: string; amountCents: number; status: string }[] = []) =>
+      ({ id: paymentId, orderId: null, status: 'COMPLETED', amountCents: 3270, refundedCents: 0, createdAt: null, refunds: refunds.map((r) => ({ ...r, paymentId, createdAt: null })) })
+    async function waiting() {
+      const cls = makeClass(); classes.list = [cls]
+      const bookingId = `bkg_${uid('pnsr').toLowerCase()}`
+      const o = ownOrder(cls, bookingId)
+      sq.orders.set(o.id, o)
+      sq.customers.set('CUST_LOU', { given_name: 'Lou', family_name: 'Lost', email_address: 'lou@example.com' })
+      await handleSquareEvent(paymentDone(o), NOW)
+      const item = (await listToDecide(NOW)).items.find((i) => i.kind === 'paid-not-seated' && i.detail.orderId === o.id && !i.done)!
+      return { cls, o, item, paymentId: o.tenders[0].payment_id as string }
+    }
+    let read: any, refundCall: any
+    beforeEach(() => {
+      refundEmails.mockClear()
+      read = vi.spyOn(providers.payment as any, 'readPayment').mockImplementation(async (id: any) => shows(id))
+      refundCall = vi.spyOn(providers.payment, 'refundPayment').mockImplementation(async (p: any) => ({ id: `RFP-${p.idempotencyKey.slice(-6)}`, paymentId: p.paymentId, amountCents: p.amountCents, status: 'COMPLETED' }))
+    })
+    afterEach(() => { read.mockRestore(); refundCall.mockRestore() })
+
+    it('names who paid and offers Refund it; refunds exactly that payment once, emails them once, audits, and the item is done', async () => {
+      const { o, item, paymentId } = await waiting()
+      expect(item.detail).toMatchObject({ name: 'Lou Lost', email: 'lou@example.com', canRefund: true, canSort: true, leftCents: 3270 })
+      expect(item.hint).toBe('Give them their seat, or refund it')
+      const done = await decide(item.id, 'refund', { cents: 3270 }, by, NOW)
+      expect(done.decided.what).toBe('Refunded $32.70 to Lou (emailed)')
+      expect(refundCall).toHaveBeenCalledTimes(1)
+      expect(refundCall.mock.calls[0][0]).toMatchObject({ paymentId, amountCents: 3270 })
+      expect(refundEmails).toHaveBeenCalledTimes(1)
+      expect(refundEmails.mock.calls[0][0]).toMatchObject({ to: 'lou@example.com', givenName: 'Lou', cents: 3270, keptSeat: false, className: 'Camp' })
+      expect((await listPaidNotSeated()).filter((p) => p.orderId === o.id)).toEqual([])
+      // The order echo and the refund's own event change nothing more.
+      await handleSquareEvent(paymentDone(o), NOW)
+      const rid = `RFP-${refundCall.mock.calls[0][0].idempotencyKey.slice(-6)}`
+      expect(await handleRefund({ id: rid, payment_id: paymentId, status: 'COMPLETED', amount_money: { amount: 3270, currency: 'USD' } }, NOW)).toEqual({ action: 'ignored', why: 'ours' })
+      expect(refundCall).toHaveBeenCalledTimes(1)
+      expect(refundEmails).toHaveBeenCalledTimes(1)
+      expect((await listToDecide(NOW)).items.some((i) => i.kind === 'paid-not-seated' && i.detail.orderId === o.id && !i.done)).toBe(false)
+    })
+
+    it('Square gives no answer: the item says a refund was started, It’s already sorted is refused, and Refund it re-sends the same key', async () => {
+      const { o, item } = await waiting()
+      refundCall.mockRejectedValueOnce(new Error('socket hang up'))
+      await expect(decide(item.id, 'refund', { cents: 3270 }, by, NOW)).rejects.toMatchObject({ status: 502 })
+      const now = (await listToDecide(NOW)).items.find((i) => i.kind === 'paid-not-seated' && i.detail.orderId === o.id && !i.done)!
+      expect(now.detail).toMatchObject({ refundStarted: true, canSeat: false, canSort: false })
+      await expect(decide(now.id, 'sorted', {}, by, NOW)).rejects.toMatchObject({ status: 409 })
+      await decide(now.id, 'refund', { cents: 3270 }, by, NOW)
+      expect(refundCall.mock.calls[1][0].idempotencyKey).toBe(refundCall.mock.calls[0][0].idempotencyKey)
+    })
+
+    it('Square already refunded it: nothing is sent; the item says so and offers It’s already sorted', async () => {
+      const { o, item, paymentId } = await waiting()
+      read.mockImplementation(async () => shows(paymentId, [{ id: 'RF-dash', amountCents: 3270, status: 'COMPLETED' }]))
+      await expect(decide(item.id, 'refund', { cents: 3270 }, by, NOW)).rejects.toMatchObject({ status: 409, extra: { reload: true } })
+      expect(refundCall).not.toHaveBeenCalled()
+      const now = (await listToDecide(NOW)).items.find((i) => i.kind === 'paid-not-seated' && i.detail.orderId === o.id && !i.done)!
+      expect(now.detail).toMatchObject({ canRefund: false, canSeat: false, backCents: 3270 })
+      expect(now.hint).toBe('It’s already sorted')
+    })
+
+    it('a second payment on a paid booking: the refund email says they were charged twice and the booking hasn’t changed', async () => {
+      const cls = makeClass(); classes.list = [cls]
+      const bookingId = `bkg_${uid('twice').toLowerCase()}`
+      const first = ownOrder(cls, bookingId)
+      sq.orders.set(first.id, first)
+      await putLines(cls.id, [ownLine(bookingId)])
+      await handleSquareEvent(paymentDone(first), NOW)
+      const second = ownOrder(cls, bookingId)
+      sq.orders.set(second.id, second)
+      await handleSquareEvent(paymentDone(second), NOW)
+      const item = (await listToDecide(NOW)).items.find((i) => i.kind === 'paid-not-seated' && i.detail.orderId === second.id && !i.done)!
+      expect(item.detail).toMatchObject({ why: 'other-order', canSeat: false, canRefund: true })
+      await decide(item.id, 'refund', { cents: 3270 }, by, NOW)
+      expect(refundEmails.mock.calls[0][0]).toMatchObject({ duplicate: 'class-twice' })
+    })
   })
 })
 

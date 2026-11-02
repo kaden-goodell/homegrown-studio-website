@@ -8,12 +8,16 @@
  *   pos-unmatched        a counter sale of a class item matched no class
  *                        → Match to a class (seats as a counter sale) · Not for a class
  *   refund-plain         a refund made in Square: → Keep their seat · Free a seat
- *   refund-failed        Square couldn't finish one of our refunds → Mark as handled
- *                        (class or party refunds alike: a party one reads "the
- *                        Justice party" and its sheet opens the party)
+ *   refund-failed        Square couldn't finish one of our refunds → Ask Square ·
+ *                        Try the refund again (a new Square refund, its own key) ·
+ *                        Mark as handled (with a reason) (class or party refunds
+ *                        alike: a party one reads "the Justice party")
  *   refund-unfinished    "It went through" was saved but never finished → Finish it
- *   refund-unconfirmed   our refund got no answer from Square in 24 h
- *                        → It went through · It didn't go through
+ *   refund-unconfirmed   our refund got no answer from Square in 24 h → Ask Square
+ *                        (reads the payment's refunds) · It went through (only
+ *                        once Square shows it, recorded with Square's refund) ·
+ *                        Try the refund again (the same saved key: never twice) ·
+ *                        It didn't go through (only while Square shows none)
  *   pos-needs-days       a counter seat of a pick-your-days pass → pick the day(s)
  *   below-minimum        short of its minimum within 3 days of its decide-by
  *                        → Keep it running · Text the people booked
@@ -25,7 +29,8 @@
  *                        mid-charge) and nobody retried it; its time is held
  *                        → Confirm the party (once Square shows it paid) · It wasn't paid
  *                        Or Square shows a party order paid with nothing here
- *                        to record it from → Sorted it in Square
+ *                        to record it from → Refund it · Put it toward the party ·
+ *                        It's already sorted (parties/paid-elsewhere)
  *   party-payment-unclear a payment on a party already booked (its payment link,
  *                        or a card taken in /admin) got no answer from Square
  *                        → It went through (recorded from Square's payment on that
@@ -45,7 +50,8 @@
  * writes.
  *   paid-not-seated      Square shows one of our online bookings paid, but its
  *                        seats were let go before it could be confirmed (R42)
- *                        → Give them their seat (over capacity if need be) · Sorted it in Square
+ *                        → Give them their seat (over capacity if need be) · Refund it
+ *                        (classes/paid-not-seated-refund) · It's already sorted
  *
  * The decisions reuse the setters the rest of the system uses: setPosDays,
  * decideRefundFlag, clearRefundRequest, freeSeatOnly, recordPos, setNames,
@@ -58,10 +64,10 @@ import { studioDate } from '@lib/studio-time'
 import { getClass, listClasses } from './class-store'
 import { listCounterMatchChecks, listDoorUnpaid } from './door-unpaid'
 import { clearRefundRequest, freeSeatOnly, RefundError } from './refunds'
-import { listRefundRequests } from './refund-requests'
+import { changeRefundRequest, hashOf, isWaiting, listRefundRequests, type SavedRefundRequest } from './refund-requests'
 import {
-  decideRefundFlag, listPaidNotSeated, openPaidNotSeated, listPosNeedsDays, listRefundFlags, listUnmatchedPos, reopenRefundFlag, resolvePaidNotSeated, resolveUnmatchedPos,
-  seatPaidOrder, setPosDays, splitCents, type RefundFlag,
+  bumpFlagRetries, decideRefundFlag, getRefundFlag, listPaidNotSeated, openPaidNotSeated, listPosNeedsDays, listRefundFlags, listUnmatchedPos, reopenRefundFlag, resolvePaidNotSeated, resolveUnmatchedPos,
+  saveReplacementRefund, seatPaidOrder, setPosDays, splitCents, type RefundFlag,
 } from './square-events'
 import { squareFetch } from './square-api'
 import {
@@ -72,10 +78,16 @@ import { assertClassWritesAllowed, TestSiteStoreError } from './test-site-guard'
 import { onStaffConsole } from './staff-view'
 import { getPartyRecord, isOurs, listParties, PartyNotFoundError, updatePartyRecord, type PartyRecord } from '@lib/party-store'
 import { clearPartyRefundRequest, partyLabel } from '@lib/parties/refunds'
-import { PAID_ELSEWHERE_SCOPE, PARTY_SCOPE } from '@lib/booking-core/refund-runner'
-import { applyPaidElsewhere, canTakePayment, PaidElsewhereError, refundPaidElsewhere } from '@lib/parties/paid-elsewhere'
+import { LOOSE_PAYMENT_SCOPES, PAID_ELSEWHERE_SCOPE, PAID_NOT_SEATED_SCOPE, PARTY_SCOPE, retrySavedRequest } from '@lib/booking-core/refund-runner'
+import { refundBookFor, claimSquareRefund } from '@lib/booking-core/refund-books'
+import { refundKey, SQUARE_REFUND_FINAL_CODES, SQUARE_ALREADY_REFUNDED } from '@lib/booking-core/refund-words'
+import { squareErrorCodes } from '@lib/checkout-attempt'
+import {
+  applyPaidElsewhere, canTakePayment, PaidElsewhereError, paidElsewhereItemId, refundPaidElsewhere, sortPaidElsewhere, unfinishedRefund,
+} from '@lib/parties/paid-elsewhere'
+import { pnsCustomer, refundPaidNotSeated } from './paid-not-seated-refund'
 import { dueCents } from '@lib/parties/money'
-import { deleteCheckout, deletePaidElsewhere, listCheckouts } from '@lib/parties/party-checkouts'
+import { deleteCheckout, listCheckouts } from '@lib/parties/party-checkouts'
 import { confirmUnclearParty, notPaidUnclearParty, paidElsewhereWhy, PartyUnclearError } from '@lib/parties/square-orders'
 import { recordLinkCharge, tellLinkPaid } from '@lib/parties/pay-balance'
 import { holdsBetween } from '@lib/parties/party-book'
@@ -238,11 +250,11 @@ async function partyRefundItem(f: RefundFlag, id: string): Promise<ToDecideItem 
   }
   switch (f.kind) {
     case 'refund-failed':
-      return { ...base, title: 'Refund didn’t go through', head: `Square couldn’t finish a ${amount} refund on ${label}.`, hint: 'Check it in Square' }
+      return { ...base, title: 'Refund didn’t go through', head: `Square couldn’t finish a ${amount} refund on ${label}.`, hint: 'Ask Square, then try it again or mark it handled' }
     case 'refund-unfinished':
       return { ...base, title: 'Refund half finished', head: `A ${amount} refund on ${label} was checked in Square but never finished here.`, hint: 'Finish it' }
     case 'refund-unconfirmed':
-      return { ...base, title: 'Refund with no answer', head: `A ${amount} refund on ${label} got no answer from Square for a day.`, hint: 'Check Square, then say what you saw' }
+      return { ...base, title: 'Refund with no answer', head: `A ${amount} refund on ${label} got no answer from Square for a day.`, hint: 'Ask Square what happened' }
     default:
       // Refunds made in Square on a party are recorded as money, with no seat to decide (S2-R24): never flagged.
       return null
@@ -254,8 +266,8 @@ async function refundItems(cache: ClassCache, skip: Set<string>): Promise<ToDeci
   for (const f of await listRefundFlags()) {
     const id = tokenOf(f.id)
     if (skip.has(id)) continue
-    // A refund of a payment on no party: its own "Party payment to check" item covers it (never "A class").
-    if (f.classId === PAID_ELSEWHERE_SCOPE) continue
+    // A refund of a payment on no booking: its own "Party payment to check" / "Paid, no seat" item covers it (never "A class").
+    if (LOOSE_PAYMENT_SCOPES.has(f.classId)) continue
     if (f.classId === PARTY_SCOPE) {
       const item = await partyRefundItem(f, id)
       if (item) out.push(item)
@@ -282,13 +294,13 @@ async function refundItems(cache: ClassCache, skip: Set<string>): Promise<ToDeci
         out.push({ ...base, title: 'Refund done in Square', head: `${amount} refunded in Square on ${name}’s booking (${className}). Free a seat?`, hint: 'Free a seat or keep it' })
         break
       case 'refund-failed':
-        out.push({ ...base, title: 'Refund didn’t go through', head: `Square couldn’t finish a ${amount} refund for ${name} (${className}).`, hint: 'Check it in Square' })
+        out.push({ ...base, title: 'Refund didn’t go through', head: `Square couldn’t finish a ${amount} refund for ${name} (${className}).`, hint: 'Ask Square, then try it again or mark it handled' })
         break
       case 'refund-unfinished':
         out.push({ ...base, title: 'Refund half finished', head: `A ${amount} refund for ${name} (${className}) was checked in Square but never finished here.`, hint: 'Finish it' })
         break
       case 'refund-unconfirmed':
-        out.push({ ...base, title: 'Refund with no answer', head: `A ${amount} refund for ${name} (${className}) got no answer from Square for a day.`, hint: 'Check Square, then say what you saw' })
+        out.push({ ...base, title: 'Refund with no answer', head: `A ${amount} refund for ${name} (${className}) got no answer from Square for a day.`, hint: 'Ask Square what happened' })
         break
     }
   }
@@ -414,25 +426,51 @@ async function partyItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]>
         continue
       }
     }
-    const id = tokenOf(elsewhere ? `ppe-${safeKey(c.orderId ?? '')}` : `ppu-${c.partyId}`)
+    const id = elsewhere ? paidElsewhereItemId(c.orderId ?? '') : tokenOf(`ppu-${c.partyId}`)
     if (skip.has(id)) continue
     const cents = c.squareCents ?? c.quotedCents
-    // Paid elsewhere on a party of ours that still owes at least this much: it can go toward that party (DV12).
-    const party = elsewhere && c.why === 'other-payment' ? await getPartyRecord(c.partyId).catch(() => null) : null
-    const canApply = elsewhere && c.why === 'other-payment' && canTakePayment(party, cents)
+    if (!elsewhere) {
+      out.push({
+        id, kind: 'party-paid-unclear', title: 'Party payment unclear', at: c.updatedAt,
+        head: `${who}’s ${money(cents)} party payment for ${when} got no answer from Square. The time is held, not confirmed.`,
+        hint: 'Confirm the party (it asks Square first), or say it wasn’t paid',
+        detail: { partyId: c.partyId, orderId: c.orderId, cents, elsewhere, why: c.why ?? null, startIso: c.startIso, email: c.host.email, phone: c.host.phone },
+      })
+      continue
+    }
+    // Paid elsewhere: what is in flight or already back in Square decides what can still be done.
+    const started = unfinishedRefund(await listRefundRequests(PAID_ELSEWHERE_SCOPE, c.orderId ?? ''))
+    const back = Math.min(cents, c.squareRefunded?.cents ?? 0)
+    const left = cents - back
+    // On a party of ours that still owes at least this much, nothing back and nothing started: it can go toward that party (DV12).
+    const party = c.why === 'other-payment' ? await getPartyRecord(c.partyId).catch(() => null) : null
+    const canApply = !started && back === 0 && c.why === 'other-payment' && canTakePayment(party, cents)
+    const name = `${c.host.firstName} ${c.host.lastName}`.trim() || party?.hostName || ''
+    const paid = `Square shows ${money(cents)} paid for a party (${who}, ${when})`
+    const head = started
+      ? `A refund of ${money(started.totalCents)} was started (${who}, ${when}), but Square didn’t confirm it. Tap Refund it to finish it (it never refunds twice).`
+      : left <= 0
+        ? `${paid}, and Square already refunded it. Nothing more is owed back. Tap It’s already sorted to clear this.`
+        : back > 0
+          ? `${paid}. ${money(back)} of it was already refunded in Square, so ${money(left)} is left.`
+          : c.refundFailed
+            ? `${paid}, but ${paidElsewhereWhy(c.why)}. A ${money(c.refundFailed.cents)} refund of it didn’t go through in Square, so nothing was refunded.`
+            : canApply
+              ? `${paid} from another order, so it isn’t on the party yet. Nothing was refunded.`
+              : `${paid}, but ${paidElsewhereWhy(c.why)}. Nothing was refunded.`
     out.push({
-      id, kind: 'party-paid-unclear', title: elsewhere ? 'Party payment to check' : 'Party payment unclear', at: c.updatedAt,
-      head: elsewhere
-        ? `Square shows ${money(cents)} paid for a party (${who}, ${when}), but ${paidElsewhereWhy(c.why)}. Nothing was refunded.`
-        : `${who}’s ${money(cents)} party payment for ${when} got no answer from Square. The time is held, not confirmed.`,
-      hint: elsewhere ? (canApply ? 'Refund it, or put it toward the party' : 'Refund it') : 'Check Square, then confirm the party or say it wasn’t paid',
+      id, kind: 'party-paid-unclear', title: 'Party payment to check', at: c.updatedAt,
+      head,
+      hint: started ? 'Refund it to finish the refund'
+        : left <= 0 ? 'It’s already sorted'
+          : back > 0 ? 'Refund the rest, or say it’s already sorted'
+            : canApply ? 'Refund it, or put it toward the party' : 'Refund it',
       detail: {
         partyId: c.partyId, orderId: c.orderId, cents, elsewhere, why: c.why ?? null, startIso: c.startIso, email: c.host.email, phone: c.host.phone,
-        ...(elsewhere ? {
-          paymentId: c.paymentId ?? null, canApply,
-          name: `${c.host.firstName} ${c.host.lastName}`.trim() || party?.hostName || '',
-          ...(party ? { partyDay: studioDate(party.startIso), dueCents: dueCents(party) } : {}),
-        } : {}),
+        paymentId: c.paymentId ?? null, canApply, name,
+        refundStarted: !!started, startedCents: started?.totalCents ?? null, backCents: back, leftCents: left,
+        canRefund: !!started || left > 0, canSort: !started,
+        ...(party ? { partyDay: studioDate(party.startIso), dueCents: dueCents(party) } : {}),
       },
     })
   }
@@ -488,7 +526,7 @@ async function partyPaymentItems(skip: Set<string>, now: Date, parties: () => Pr
     out.push({
       id, kind: 'party-payment-unclear', title: 'Party payment unclear', at: p.at ?? p.until,
       head: `${r.hostName}’s ${money(cents)} payment (${via}) for their party on ${whenText(r.startIso)} got no answer from Square.`,
-      hint: 'Check Square, then say whether it went through',
+      hint: 'Say whether it went through (it asks Square first)',
       detail: { partyId: r.bookingId, partyDay: studioDate(r.startIso), attemptId: p.attemptId, orderId: p.orderId ?? null, cents, via: p.via ?? 'link', until: p.until },
     })
   }
@@ -511,7 +549,7 @@ async function partyHoldItems(skip: Set<string>, now: Date, parties: () => Promi
     listCheckouts(),
   ])
   const known = new Set(records.map((r) => r.bookingId))
-  const paying = new Set(checkouts.filter((c) => c.state !== 'retired').map((c) => c.partyId))
+  const paying = new Set(checkouts.filter((c) => c.state !== 'retired' && c.state !== 'settled').map((c) => c.partyId))
   const out: ToDecideItem[] = []
   for (const h of holds) {
     if (!lastingHold(h) || known.has(h.partyId) || paying.has(h.partyId) || Date.parse(h.endIso) <= now.getTime()) continue
@@ -532,6 +570,7 @@ const dollars = (c: Cents) => `$${(c / 100).toFixed(2)}`
 
 async function paidNotSeatedItems(cache: ClassCache, skip: Set<string>): Promise<ToDecideItem[]> {
   const out: ToDecideItem[] = []
+  const customers = new Map<string, Awaited<ReturnType<typeof pnsCustomer>>>()
   // Sorted out since (the customer's retry recorded the seats, or an owner gave them) are left out.
   for (const p of await openPaidNotSeated()) {
     const id = tokenOf(p.id)
@@ -540,15 +579,35 @@ async function paidNotSeatedItems(cache: ClassCache, skip: Set<string>): Promise
     const className = cls?.content.name ?? 'A class'
     const seats = p.lines.reduce((n, l) => n + l.qty, 0)
     const first = cls ? [...cls.sessions].sort((a, b) => a.startIso.localeCompare(b.startIso))[0] : undefined
+    // Who paid (read once from Square, for the refund confirm and email). Unreadable: no name, still refundable.
+    const key = p.customerId ?? ''
+    if (key && !customers.has(key)) customers.set(key, await pnsCustomer(key))
+    const customer = key ? customers.get(key) ?? null : null
+    const name = customer ? `${customer.givenName} ${customer.familyName}`.trim() : ''
+    const started = unfinishedRefund(await listRefundRequests(PAID_NOT_SEATED_SCOPE, p.id))
+    const back = Math.min(p.chargedCents, p.squareRefunded?.cents ?? 0)
+    const left = p.chargedCents - back
+    const paid = p.why === 'no-seats'
+      ? `Square shows ${dollars(p.chargedCents)} paid for ${seatsText(seats)} of ${className}, but the seats were let go before the booking finished`
+      : `Square shows a second payment of ${dollars(p.chargedCents)} for a ${className} booking that was already paid`
+    const head = started
+      ? `A refund of ${dollars(started.totalCents)} for ${name || 'this payment'} (${className}) was started, but Square didn’t confirm it. Tap Refund it to finish it (it never refunds twice).`
+      : left <= 0 ? `${paid}, and Square already refunded it. Tap It’s already sorted to clear this.`
+        : back > 0 ? `${paid}. ${dollars(back)} of it was already refunded in Square, so ${dollars(left)} is left.`
+          : p.refundFailed ? `${paid}. A ${dollars(p.refundFailed.cents)} refund of it didn’t go through in Square, so nothing was refunded.`
+            : `${paid}. Nothing was refunded.`
+    const canSeat = p.why === 'no-seats' && !!cls && cls.status !== 'cancelled' && !started && back === 0
+    const canRefund = !!p.paymentId && (!!started || left > 0)
     out.push({
       id, kind: 'paid-not-seated', title: 'Paid, no seat', at: p.at, classId: p.classId, className,
-      head: p.why === 'no-seats'
-        ? `Square shows ${dollars(p.chargedCents)} paid for ${seatsText(seats)} of ${className}, but the seats were let go before the booking finished. Nothing was refunded.`
-        : `Square shows a second payment of ${dollars(p.chargedCents)} for a ${className} booking that was already paid. Nothing was refunded.`,
-      hint: p.why === 'no-seats' ? 'Give them their seat, or sort it out in Square' : 'Check it in Square',
+      head,
+      hint: started ? 'Refund it to finish the refund'
+        : left <= 0 ? 'It’s already sorted'
+          : canSeat ? 'Give them their seat, or refund it' : 'Refund it',
       detail: {
         paidId: p.id, orderId: p.orderId, bookingId: p.bookingId, why: p.why, cents: p.chargedCents, seats,
-        canSeat: p.why === 'no-seats' && !!cls && cls.status !== 'cancelled', firstStartIso: first?.startIso ?? null,
+        canSeat, canRefund, canSort: !started, refundStarted: !!started, startedCents: started?.totalCents ?? null, backCents: back, leftCents: left,
+        name, email: customer?.email ?? '', firstStartIso: first?.startIso ?? null,
       },
     })
   }
@@ -611,15 +670,15 @@ export async function listToDecide(now = new Date()): Promise<{ items: ToDecideI
 const ACTIONS: Record<ToDecideKind, string[]> = {
   'pos-unmatched': ['match', 'dismiss'],
   'refund-plain': ['keep', 'free'],
-  'refund-failed': ['handled'],
+  'refund-failed': ['handled', 'retry'],
   'refund-unfinished': ['finish'],
-  'refund-unconfirmed': ['went-through', 'did-not-go-through'],
+  'refund-unconfirmed': ['went-through', 'did-not-go-through', 'retry'],
   'pos-needs-days': ['set-days'],
   'below-minimum': ['keep-running', 'texted'],
   'door-unpaid': ['paid', 'free'],
   'counter-match-check': ['confirm', 'move'],
   'party-paid-unclear': ['confirm', 'not-paid', 'sorted', 'refund', 'apply'],
-  'paid-not-seated': ['seat', 'sorted'],
+  'paid-not-seated': ['seat', 'sorted', 'refund'],
   'party-not-told': ['told'],
   'party-payment-unclear': ['went-through', 'did-not-go-through'],
   'party-no-confirmation': ['sorted'],
@@ -645,10 +704,21 @@ const asRefund = async <T>(fn: () => Promise<T>): Promise<T> => {
   try {
     return await fn()
   } catch (e) {
-    if (e instanceof RefundError) throw new DecideError(e.status, e.message)
+    if (e instanceof RefundError) throw new DecideError(e.status, e.message, e.extra?.reload ? { reload: true } : {})
+    if (e instanceof PaidElsewhereError) throw new DecideError(e.status, e.message, e.extra)
     throw e
   }
 }
+
+/** "Refunded $300 to Alice (emailed)" / "(no email on file)" / "(the email didn't go out)": what a refund did, plainly. */
+function refundedWhat(cents: Cents, who: string, email: string, emailed: boolean): string {
+  const to = who ? ` to ${who}` : ''
+  return `Refunded ${money(cents)}${to}${emailed ? ' (emailed)' : email ? ' (the email didn’t go out)' : ' (no email on file)'}`
+}
+
+/** What the owner's confirm showed (the amount): refused server side when Square now shows a different amount left. */
+const confirmedCents = (body: any): Cents | undefined => (typeof body?.cents === 'number' && Number.isFinite(body.cents) ? Math.round(body.cents) : undefined)
+const reasonOf = (body: any, fallback: string) => (typeof body?.reason === 'string' && body.reason.trim() ? body.reason.trim().slice(0, 500) : fallback)
 
 /** Reads the counter sale's line from Square (read only): its money, payments and when it was rung up. */
 async function readSale(orderId: string, lineUid: string): Promise<{ units: { priceCents: Cents; taxCents: Cents }[]; totalCents: Cents; paymentIds: string[]; saleIso: string }> {
@@ -807,23 +877,25 @@ async function decideItem(item: ToDecideItem, action: string, body: any, by: By,
       const entries = await newFreeEntries(item.classId!, watch, before)
       return { decided: await record(item, `Freed ${seatsText(entries.length || 1)}. Back on sale`, by, action, entries.length ? { classId: item.classId!, entries, flagId: str(d.flagId) } : undefined) }
     }
-    case 'refund-failed':
+    case 'refund-failed': {
+      if (action === 'retry') return { decided: await record(item, await retryFailedRefund(item, by), by, action) }
       await asRefund(() => decideRefundFlag(str(d.flagId), 'dismissed', actor))
-      return { decided: await record(item, 'Checked in Square', by, action) }
-    case 'refund-unfinished':
-    case 'refund-unconfirmed': {
-      const outcome = item.kind === 'refund-unfinished' || action === 'went-through' ? 'went-through' : 'did-not-go-through'
+      const why = typeof body?.reason === 'string' ? body.reason.trim().slice(0, 200) : ''
+      return { decided: await record(item, why ? `Marked as handled: ${why}` : 'Marked as handled', by, action) }
+    }
+    case 'refund-unfinished': {
       const requestId = str(d.requestId)
       const partyId = str(d.partyId)
       const req = (await listRefundRequests(partyId ? PARTY_SCOPE : item.classId!, str(d.bookingId))).find((r) => r.id === requestId)
       if (!req) throw new DecideError(404, 'That refund isn’t on the booking any more.')
       await asRefund<unknown>(() => (partyId
-        ? clearPartyRefundRequest({ partyId, requestId, outcome, reason: 'Checked in Square (To decide)' }, actor)
-        : clearRefundRequest({ classId: item.classId!, bookingId: str(d.bookingId), requestId, outcome, reason: 'Checked in Square (To decide)' }, actor)))
+        ? clearPartyRefundRequest({ partyId, requestId, outcome: 'went-through', reason: 'Finished (To decide)' }, actor)
+        : clearRefundRequest({ classId: item.classId!, bookingId: str(d.bookingId), requestId, outcome: 'went-through', reason: 'Finished (To decide)' }, actor)))
       await decideRefundFlag(str(d.flagId), 'dismissed', actor).catch(() => undefined)
-      const what = item.kind === 'refund-unfinished' ? 'Finished the refund' : outcome === 'went-through' ? 'It went through' : 'It didn’t go through'
-      return { decided: await record(item, what, by, action) }
+      return { decided: await record(item, 'Finished the refund', by, action) }
     }
+    case 'refund-unconfirmed':
+      return { decided: await record(item, await decideUnconfirmed(item, action, by), by, action) }
     case 'pos-needs-days': {
       const ids = strs(body?.sessionIds)
       try {
@@ -858,11 +930,19 @@ async function decideItem(item: ToDecideItem, action: string, body: any, by: By,
     }
     case 'paid-not-seated': {
       const paidId = str(d.paidId)
-      if (action === 'sorted') {
-        await resolvePaidNotSeated(paidId, by, 'sorted')
-        return { decided: await record(item, 'Sorted out in Square', by, action) }
+      if (action === 'refund') {
+        // Exactly that Square payment, through the shared refund runner (Square read first; saved first, never twice, emailed once, audited).
+        const out = await asRefund(() => refundPaidNotSeated(paidId, reasonOf(body, 'Paid, no seat (To decide)'), by, { cents: confirmedCents(body), now }))
+        return { decided: await record(item, refundedWhat(out.cents, out.firstName || firstWord(str(d.name)).replace(/^them$/, ''), out.email || str(d.email), out.emailed), by, action) }
       }
-      if (d.canSeat !== true) throw new DecideError(409, 'This one can’t be seated from here. Check it in Square.')
+      if (action === 'sorted') {
+        if (unfinishedRefund(await listRefundRequests(PAID_NOT_SEATED_SCOPE, paidId))) {
+          throw new DecideError(409, 'A refund of this payment was started and Square didn’t confirm it. Tap Refund it to finish it (it never refunds twice).')
+        }
+        await resolvePaidNotSeated(paidId, by, 'sorted')
+        return { decided: await record(item, 'Already sorted', by, action) }
+      }
+      if (d.canSeat !== true) throw new DecideError(409, 'This one can’t be seated. Refund it instead, or tap It’s already sorted if it was settled another way.')
       const entry = (await listPaidNotSeated()).find((p) => p.id === paidId)
       if (!entry) throw new DecideError(404, 'This isn’t waiting any more.')
       const customer = await squareCustomer(entry.customerId)
@@ -911,26 +991,19 @@ async function decideItem(item: ToDecideItem, action: string, body: any, by: By,
       if (d.elsewhere === true) {
         const orderId = str(d.orderId)
         if (action === 'refund') {
-          // Exactly that Square payment, through the shared refund runner (saved first, never twice, emailed once, audited).
-          const reason = typeof body?.reason === 'string' && body.reason.trim() ? body.reason.trim().slice(0, 500) : 'Paid twice (To decide)'
-          const out = await asRefund(() => refundPaidElsewhere(orderId, reason, by))
-          const who = out.firstName || firstWord(str(d.name)) || 'them'
-          return { decided: await record(item, `Refunded ${money(out.cents)} to ${who}${out.emailed ? ' (emailed)' : ''}`, by, action) }
+          // Exactly that Square payment, through the shared refund runner (Square read first; saved first, never twice, emailed once, audited).
+          const out = await asRefund(() => refundPaidElsewhere(orderId, reasonOf(body, 'Paid twice (To decide)'), by, { cents: confirmedCents(body), now }))
+          const who = out.firstName || (str(d.name).trim() ? firstWord(str(d.name)) : '')
+          return { decided: await record(item, refundedWhat(out.cents, who, out.email || str(d.email), out.emailed), by, action) }
         }
         if (action === 'apply') {
-          try {
-            const out = await applyPaidElsewhere(orderId, by, now)
-            const left = out.dueLeft > 0 ? `, ${money(out.dueLeft)} still to pay` : ''
-            return { decided: await record(item, `Put ${money(out.cents)} toward ${out.firstName ? `${out.firstName}’s` : 'the'} party${left}`, by, action) }
-          } catch (e) {
-            if (e instanceof PaidElsewhereError) throw new DecideError(e.status, e.message)
-            throw e
-          }
+          const out = await asRefund(() => applyPaidElsewhere(orderId, by, now))
+          const left = out.dueLeft > 0 ? `, ${money(out.dueLeft)} still to pay` : ''
+          return { decided: await record(item, `Put ${money(out.cents)} toward ${out.firstName ? `${out.firstName}’s` : 'the'} party${left}`, by, action) }
         }
         if (action !== 'sorted') throw new DecideError(400, 'That isn’t one of the choices for this.')
-        await assertPartyLockHeld()
-        await deletePaidElsewhere(orderId)
-        return { decided: await record(item, 'Already sorted', by, action) }
+        await asRefund(() => sortPaidElsewhere(orderId, by, now))
+        return { decided: await record(item, Number(d.backCents) > 0 ? 'Already sorted (Square refunded it)' : 'Already sorted', by, action) }
       }
       if (action === 'sorted' || action === 'refund' || action === 'apply') throw new DecideError(400, 'That isn’t one of the choices for this.')
       try {
@@ -1031,6 +1104,179 @@ async function decidePartyPayment(partyId: string, attemptId: string, wentThroug
   await assertPartyLockHeld()
   await updatePartyRecord(partyId, (r) => (r.paying?.attemptId === attemptId ? { ...r, paying: null } : null), 'Payment didn’t go through (checked in Square, To decide)', by)
   return 'It didn’t go through: nothing was charged, a new payment can start'
+}
+
+// ---------------------------------------------------------------- Ask Square (refunds)
+
+/** What Square says about one of our refunds (To decide's "Ask Square"), with the buttons that fit. */
+export interface AskAnswer {
+  state: 'done' | 'pending' | 'failed' | 'none'
+  cents: Cents
+  /** Square's refund, when one matched */
+  refundId: string | null
+  at: string | null
+  message: string
+  /** the choices that fit what Square said (action names) */
+  next: string[]
+}
+
+export const SQUARE_ASK_FAILED = 'Square couldn’t be asked just now. Try again in a minute. Nothing was changed.'
+const NOT_WAITING_ON_SQUARE = 'This refund isn’t waiting on Square any more. Reload to see it.'
+const shortDay = (iso: string | null) => (iso && Number.isFinite(Date.parse(iso)) ? dayText(studioDate(iso)) : '')
+
+/** The saved requests' scope an item's refund lives in. */
+const scopeOf = (item: ToDecideItem) => (typeof item.detail.partyId === 'string' && item.detail.partyId
+  ? { classId: PARTY_SCOPE, bookingId: str(item.detail.partyId) }
+  : { classId: item.classId ?? '', bookingId: str(item.detail.bookingId) })
+
+/** Square refund ids already recorded on this booking (never matched again as "ours"). */
+async function knownRefundIds(scope: { classId: string; bookingId: string }): Promise<Set<string>> {
+  const ids = new Set<string>()
+  for (const r of await listRefundRequests(scope.classId, scope.bookingId)) if (r.squareRefundId) ids.add(r.squareRefundId)
+  if (scope.classId === PARTY_SCOPE) {
+    for (const f of (await getPartyRecord(scope.bookingId).catch(() => null))?.refunds ?? []) if (f.squareRefundId) ids.add(f.squareRefundId)
+  } else if (scope.classId) {
+    for (const l of (await getLedger(scope.classId)).lines) for (const r of l.refunds) if (r.squareRefundId) ids.add(r.squareRefundId)
+  }
+  return ids
+}
+
+/** A refund with no answer: its saved request and what Square shows on the payment (a refund of that amount not on our records). */
+async function unconfirmedState(item: ToDecideItem): Promise<{ req: SavedRefundRequest; scope: { classId: string; bookingId: string }; answer: AskAnswer }> {
+  const scope = scopeOf(item)
+  const req = (await listRefundRequests(scope.classId, scope.bookingId)).find((r) => r.id === str(item.detail.requestId))
+  if (!req || !isWaiting(req)) throw new DecideError(404, NOT_WAITING_ON_SQUARE)
+  if (!providers.payment.readPayment) throw new DecideError(503, SQUARE_ASK_FAILED)
+  let pay
+  try {
+    pay = await providers.payment.readPayment(req.paymentId)
+  } catch {
+    throw new DecideError(503, SQUARE_ASK_FAILED)
+  }
+  const known = await knownRefundIds(scope)
+  const cands = pay.refunds.filter((r) => r.amountCents === req.totalCents && !known.has(r.id))
+  const amount = money(req.totalCents)
+  const hit = cands.find((r) => r.status === 'COMPLETED') ?? cands.find((r) => r.status === 'PENDING') ?? cands.find((r) => /^(FAILED|REJECTED)$/.test(r.status)) ?? null
+  const at = hit?.createdAt ?? null
+  const answer: AskAnswer = !hit
+    ? { state: 'none', cents: req.totalCents, refundId: null, at: null, next: ['retry', 'did-not-go-through'],
+      message: `Square shows no ${amount} refund on this payment, so it didn’t go through. Try the refund again (it re-sends the same request, so it can never refund twice), or tap It didn’t go through to stop it here.` }
+    : hit.status === 'COMPLETED'
+      ? { state: 'done', cents: req.totalCents, refundId: hit.id, at, next: ['went-through'],
+        message: `Square shows a ${amount} refund on this payment${shortDay(at) ? `, made ${shortDay(at)}` : ''}. Tap It went through to record it here (the customer gets their refund email once).` }
+      : hit.status === 'PENDING'
+        ? { state: 'pending', cents: req.totalCents, refundId: hit.id, at, next: [],
+          message: `Square shows this ${amount} refund still going through. Ask again later. Nothing was changed.` }
+        : { state: 'failed', cents: req.totalCents, refundId: hit.id, at, next: ['retry', 'did-not-go-through'],
+          message: `Square shows this ${amount} refund failed, so nothing went back. Try the refund again, or tap It didn’t go through to stop it here.` }
+  return { req, scope, answer }
+}
+
+/** A refund Square failed after we recorded it: the flag and what Square shows for that refund now. */
+async function failedState(item: ToDecideItem): Promise<{ flag: RefundFlag; answer: AskAnswer }> {
+  const flag = await getRefundFlag(str(item.detail.flagId))
+  if (!flag || flag.resolved) throw new DecideError(404, 'This isn’t waiting any more.')
+  if (!providers.payment.readRefund) throw new DecideError(503, SQUARE_ASK_FAILED)
+  let r
+  try {
+    r = flag.squareRefundId ? await providers.payment.readRefund(flag.squareRefundId) : null
+  } catch {
+    throw new DecideError(503, SQUARE_ASK_FAILED)
+  }
+  const cents = flag.refundCents ?? flag.cents
+  const amount = money(cents)
+  const at = r?.createdAt ?? null
+  const answer: AskAnswer = r?.status === 'COMPLETED'
+    ? { state: 'done', cents, refundId: r.id, at, next: ['handled'], message: `Square now shows this ${amount} refund went through after all. Tap Mark as handled.` }
+    : r?.status === 'PENDING'
+      ? { state: 'pending', cents, refundId: r.id, at, next: [], message: `Square shows this ${amount} refund still going through. Ask again later. Nothing was changed.` }
+      : { state: 'failed', cents, refundId: r?.id ?? null, at, next: ['retry', 'handled'],
+        message: `Square shows this ${amount} refund failed, so the money didn’t go back. Try the refund again (Square is asked for a new ${amount} refund on the same payment), or mark it handled and say why.` }
+  return { flag, answer }
+}
+
+/**
+ * "Ask Square" on a refund that got no answer or that Square failed: reads
+ * the payment's refunds (or that refund) and says what Square shows, with
+ * the next buttons. Read only: nothing is decided or sent.
+ */
+export async function askSquare(id: string, now = new Date()): Promise<AskAnswer> {
+  const item = await openItem(id, now)
+  if (item.kind === 'refund-unconfirmed') return (await unconfirmedState(item)).answer
+  if (item.kind === 'refund-failed') return (await failedState(item)).answer
+  throw new DecideError(400, 'Square can’t be asked about this one.')
+}
+
+/** It went through / Try the refund again / It didn't go through on a refund with no answer: each acts only on what Square shows now. */
+async function decideUnconfirmed(item: ToDecideItem, action: string, by: By): Promise<string> {
+  const actor = { by, role: 'owner' as const }
+  const { req, scope, answer } = await unconfirmedState(item)
+  const flagId = str(item.detail.flagId)
+  if (action === 'went-through') {
+    if (answer.state !== 'done' || !answer.refundId) throw new DecideError(409, answer.message)
+    const claimed = await claimSquareRefund({ id: answer.refundId, paymentId: req.paymentId, cents: req.totalCents }, [scope], { requestIds: [req.id] })
+    if (!claimed) throw new DecideError(409, 'That refund couldn’t be matched here. Reload and ask Square again.')
+    await decideRefundFlag(flagId, 'dismissed', actor).catch(() => undefined)
+    return `It went through: ${money(req.totalCents)} recorded with Square’s refund`
+  }
+  if (action === 'did-not-go-through') {
+    if (answer.state === 'done' || answer.state === 'pending') throw new DecideError(409, answer.message)
+    const reason = 'Square shows no refund (To decide)'
+    await asRefund<unknown>(() => (scope.classId === PARTY_SCOPE
+      ? clearPartyRefundRequest({ partyId: scope.bookingId, requestId: req.id, outcome: 'did-not-go-through', reason }, actor)
+      : clearRefundRequest({ classId: scope.classId, bookingId: scope.bookingId, requestId: req.id, outcome: 'did-not-go-through', reason }, actor)))
+    await decideRefundFlag(flagId, 'dismissed', actor).catch(() => undefined)
+    return 'It didn’t go through: Square shows no refund'
+  }
+  // Try the refund again.
+  if (answer.state === 'done' || answer.state === 'pending') throw new DecideError(409, answer.message)
+  if (answer.state === 'failed') {
+    // Square failed that try: the next one is a new try (a new key), never the same failed answer again.
+    await changeRefundRequest(scope.classId, scope.bookingId, req.id, (r) => (r.status !== 'pending' ? null : {
+      ...r, status: 'turned-down', failures: r.failures + 1,
+      idempotencyKey: refundKey(r.bookingId, r.lines.map((x) => x.id), r.totalCents, r.prior, r.failures + 1),
+    }))
+  }
+  const book = await refundBookFor(scope)
+  if (!book) throw new DecideError(404, 'That booking isn’t here any more.')
+  const out = await asRefund(() => retrySavedRequest(book, req.id, actor))
+  await decideRefundFlag(flagId, 'dismissed', actor).catch(() => undefined)
+  return `Tried again: Square refunded ${money(out.cents)}${out.emailed ? ' (emailed)' : ''}`
+}
+
+/**
+ * "Try the refund again" on a refund Square failed after we recorded it: a new
+ * Square refund of the same amount on the same payment (its own key, so a
+ * double tap or a retry after no answer never refunds twice). Remembered as
+ * standing in for the failed one, so Square's events on it are never recorded
+ * as new money.
+ */
+async function retryFailedRefund(item: ToDecideItem, by: By): Promise<string> {
+  const { flag, answer } = await failedState(item)
+  if (answer.state !== 'failed') throw new DecideError(409, answer.message)
+  const cents = answer.cents
+  const key = `rfx-${hashOf('refund-retry', flag.id, flag.retries ?? 0)}`
+  let refund
+  try {
+    refund = await providers.payment.refundPayment({ paymentId: flag.paymentId, amountCents: cents, idempotencyKey: key, reason: 'Sent again (To decide)' })
+  } catch (e) {
+    if (squareErrorCodes(e).some((c) => SQUARE_REFUND_FINAL_CODES.includes(c))) throw new DecideError(409, `${SQUARE_ALREADY_REFUNDED} Tap Mark as handled.`)
+    throw new DecideError(502, 'Square didn’t answer. Try again: it won’t refund twice.')
+  }
+  if (/^(FAILED|REJECTED)$/i.test(refund.status)) {
+    await bumpFlagRetries(flag.id)
+    throw new DecideError(502, 'Square turned it down again, so nothing was refunded. Try again later, or mark it handled.')
+  }
+  await saveReplacementRefund({
+    refundId: refund.id, replaces: flag.squareRefundId, classId: flag.classId, bookingId: flag.bookingId, paymentId: flag.paymentId, cents, at: new Date().toISOString(),
+  })
+  await decideRefundFlag(flag.id, 'dismissed', { by, role: 'owner' }).catch(() => undefined)
+  await recordAudit({
+    by: { ...by, role: 'owner' }, action: 'refund-sent-again',
+    target: flag.classId === PARTY_SCOPE ? { kind: 'party', id: flag.bookingId, label: item.className ?? item.title } : { kind: 'class', id: flag.classId, label: item.className ?? item.title },
+    details: { flagId: flag.id, paymentId: flag.paymentId, cents, failedRefundId: flag.squareRefundId, squareRefundId: refund.id },
+  }).catch(() => undefined)
+  return `Sent the refund again: Square ${/PENDING/i.test(refund.status) ? 'is refunding' : 'refunded'} ${money(cents)}`
 }
 
 /**
