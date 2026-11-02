@@ -271,6 +271,17 @@ export const HELP_SECTIONS: HelpSection[] = [
       'Crew set when they can work and ask to work things on /staff › My shifts.',
     ],
   },
+  {
+    id: 'admin-access',
+    title: 'Owners and the admin passcode',
+    points: [
+      'More › **Admin access** shows who the owners are and when the /admin passcode was last changed.',
+      'The owners are the people marked **Owner** in More › Staff › People. To add an owner, add them (or edit them) as Owner. To take someone off, edit them to **Crew** or tap **No longer working here**. **Change who’s an owner** opens that list. There’s always at least one owner. Each owner picks their name under “Who’s using this?”, and gets the alerts picked for them in More › **Notifications**.',
+      '**Change the admin passcode**: type the one you use now, then the new one twice (at least 8 letters or numbers, and not the staff passcode), then **Save new admin passcode**. Every other phone or iPad signed in to /admin is signed out. The one you’re on stays signed in. Change it when an owner leaves, a phone is lost, or someone else saw it, and write it somewhere safe.',
+      'After 8 wrong passcodes from one place, /admin makes that place wait 15 minutes before trying again.',
+      'If nobody remembers the passcode: whoever holds the website’s hosting login (it’s on the studio’s accounts sheet) changes the ADMIN_PASSCODE setting there and redeploys the site. Sign in with that one, then save a new one in **Admin access**. The old setting never works again by itself.',
+    ],
+  },
   // ── Arrive with stage 4 (extras) ──
   {
     id: 'promotions',

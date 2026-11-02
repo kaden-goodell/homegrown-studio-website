@@ -42,7 +42,7 @@ export const E2E_CREW = { givenName: 'E2E', familyName: 'Crew' } as const
  * to the Square sandbox. /admin shows "Set up sandbox" only then.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   return json(200, { data: { sandbox: squareSettings().environment === 'sandbox' } })
 }
 
@@ -55,7 +55,7 @@ export const GET: APIRoute = async ({ request }) => {
  * Also refused on a test site with no store of its own (R41).
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   if (squareSettings().environment !== 'sandbox') {
     return json(409, { error: 'This only runs against the Square sandbox.' })
   }
@@ -111,7 +111,7 @@ export const POST: APIRoute = async ({ request }) => {
     }
     if (!classesCategoryId || !classTaxId || !partyCraftCategoryId) return json(502, { error: "Square didn't return the new category or tax." })
     // On our own staff list (D5), never the Square team: a name and nothing else.
-    const crew = await ensureCrewPerson(E2E_CREW.givenName, E2E_CREW.familyName, adminActor(request))
+    const crew = await ensureCrewPerson(E2E_CREW.givenName, E2E_CREW.familyName, await adminActor(request))
     return json(200, {
       data: {
         classesCategoryId,

@@ -62,7 +62,7 @@ export function monthReport(ledgers: Ledger[], parties: PartyRecord[], now: Date
  * rung up in Square are in Square's reports. Owners only.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   try {
     const [classes, parties] = await Promise.all([listClasses(), listParties()])
     const ledgers = await Promise.all(classes.map((c) => getLedger(c.id)))

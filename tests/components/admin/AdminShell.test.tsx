@@ -198,6 +198,40 @@ describe('sign in', () => {
     expect(await screen.findByRole('heading', { name: 'Good morning, Catherine' })).toBeInTheDocument()
   })
 
+  it('the picker offers the owners from the staff list (as sign-in last heard); someone no longer an owner is asked again', async () => {
+    localStorage.setItem('admin-owners', JSON.stringify(['Catherine', 'Dana']))
+    localStorage.setItem('admin-who', 'Kaden')
+    const base = server({ signedOut: true })
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (url === '/api/admin/login.json' && init?.method === 'POST') { await base(url, init); return ok({ data: { ok: true, owners: ['Catherine', 'Dana', 'Lee'] } }) }
+      return base(url, init)
+    })
+    vi.stubGlobal('fetch', f)
+    render(<AdminShell />)
+    await screen.findByLabelText('Passcode')
+    // Kaden is not on the list this device last heard, so nobody is picked; Dana (added later) is offered.
+    expect(screen.queryByRole('button', { name: 'Kaden' })).toBeNull()
+    fireEvent.change(screen.getByLabelText('Passcode'), { target: { value: 'owner-secret' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Dana' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(await screen.findByRole('heading', { name: 'Good morning, Dana' })).toBeInTheDocument()
+    expect(JSON.parse(localStorage.getItem('admin-owners')!)).toEqual(['Catherine', 'Dana', 'Lee'])
+  })
+
+  it('signed in, but the owner this device remembers was taken off: asks who is using it, from the owners now', async () => {
+    localStorage.setItem('admin-who', 'Kaden')
+    const base = server()
+    vi.stubGlobal('fetch', vi.fn(async (url: string, init?: any) => (url === '/api/admin/admin-access.json'
+      ? ok({ data: { owners: [{ id: 'TM4', name: 'Catherine' }, { id: 'stf_1', name: 'Dana' }] } })
+      : base(url, init))))
+    render(<AdminShell />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Dana' }))
+    expect(screen.queryByRole('button', { name: 'Kaden' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+    expect(await screen.findByRole('heading', { name: 'Good morning, Dana' })).toBeInTheDocument()
+    expect(localStorage.getItem('admin-who')).toBe('Dana')
+  })
+
   it('a 401 from anything, later, goes back to sign-in', async () => {
     let n = 0
     const base = server()

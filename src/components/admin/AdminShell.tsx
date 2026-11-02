@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import '../../styles/booking-panel.css'
 import '../../styles/admin.css'
-import { OWNERS, type Owner } from '@lib/admin-who'
-import { api, LOGIN, onAdminSignedOut, setAdminWho, TO_DECIDE } from './classes/api'
+import { ownerOf, type Owner } from '@lib/admin-who'
+import { ADMIN_ACCESS, api, LOGIN, onAdminSignedOut, setAdminWho, TO_DECIDE } from './classes/api'
 import CalendarView from './classes/CalendarView'
 import ClassesTab from './ClassesTab'
 import Home from './Home'
@@ -17,7 +17,7 @@ import { homeTabOf, isFormSheet, isTab, parseHash, sheetToken, TABS, type Sheet,
 import { SheetFrame, SheetProvider, type SheetApi } from './shell/Sheet'
 import { ToastHost } from './shell/Toast'
 import { useWide } from './shell/useWide'
-import { rememberedOwner, rememberOwner } from './shell/who'
+import { ownersFrom, rememberedOwner, rememberedOwners, rememberOwner, rememberOwners } from './shell/who'
 import { BlockedSheet, CafeSheet, ClosedSheet, DaySheet, LegacySheet } from './sheets/CalendarSheets'
 import { BookPartySheet } from './parties/BookPartySheet'
 import { PartySheet } from './parties/PartySheet'
@@ -29,6 +29,7 @@ import { NewClassSheet, RunAgainSheet, ScheduleFromLibrarySheet } from './sheets
 import { StaffSheet } from './sheets/StaffSheet'
 import { ComingSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet } from './sheets/MoreSheets'
 import { HelpSheet } from './sheets/HelpSheet'
+import { AdminAccessSheet } from './sheets/OwnerSheets'
 import { ClosedDaysSheet, HoursSheet } from './sheets/SettingsSheets'
 import { ImportSquareSheet } from './sheets/ImportSquareSheet'
 import { StudioProvider } from './shell/studio'
@@ -53,25 +54,46 @@ type Auth = 'checking' | 'signed-out' | 'ready'
 export default function AdminShell() {
   const [auth, setAuth] = useState<Auth>('checking')
   const [who, setWhoState] = useState<Owner | null>(() => rememberedOwner())
+  /** The owners (the staff list's Owners): last heard on this device until the server answers. */
+  const [owners, setOwnersState] = useState<Owner[]>(() => rememberedOwners())
 
-  const setWho = useCallback((o: Owner) => {
-    rememberOwner(o)
-    setAdminWho(o)
+  const setWho = useCallback((o: Owner | null) => {
+    if (o) rememberOwner(o)
+    setAdminWho(o ?? '')
     setWhoState(o)
   }, [])
+
+  /** The server's owner list: remembered, and someone no longer an owner is asked who's using this again. */
+  const takeOwners = useCallback((list: Owner[] | null, current: Owner | null) => {
+    if (!list) return current
+    rememberOwners(list)
+    setOwnersState(list)
+    const still = current ? ownerOf(current, list) : null
+    if (current && !still) setWho(null)
+    else if (still && still !== current) setWho(still)
+    return still
+  }, [setWho])
 
   useEffect(() => {
     setAdminWho(who ?? '')
     onAdminSignedOut(() => setAuth('signed-out'))
     let live = true
-    api(TO_DECIDE).then((r) => { if (live && r.status !== 401) setAuth('ready') })
+    api(TO_DECIDE).then((r) => {
+      if (!live || r.status === 401) return
+      setAuth('ready')
+      api<{ owners?: { name: string }[] }>(ADMIN_ACCESS).then((a) => {
+        if (live && a.ok) takeOwners(ownersFrom(a.data?.owners?.map((o) => o.name)), who)
+      })
+    })
     return () => { live = false; onAdminSignedOut(null) }
   }, [])
 
-  const whoValue = useMemo(() => ({ who, setWho }), [who, setWho])
+  const whoValue = useMemo(() => ({ who, setWho, owners }), [who, setWho, owners])
   if (auth === 'checking') return <div className="adm adm-signin" aria-busy="true"><p className="adm-muted">Loading…</p></div>
-  if (auth === 'signed-out') return <SignIn who={who} onSignedIn={(o) => { setWho(o); setAuth('ready') }} />
-  if (!who) return <PickWho onPick={setWho} />
+  if (auth === 'signed-out') {
+    return <SignIn who={who} owners={owners} onSignedIn={(o, list) => { setWho(takeOwners(list, o)); setAuth('ready') }} />
+  }
+  if (!who) return <PickWho owners={owners} onPick={setWho} />
   return (
     <WhoContext.Provider value={whoValue}>
       <ToastHost>
@@ -83,20 +105,20 @@ export default function AdminShell() {
   )
 }
 
-function WhoPicker({ value, onChange }: { value: Owner | null; onChange: (o: Owner) => void }) {
+function WhoPicker({ value, owners, onChange }: { value: Owner | null; owners: Owner[]; onChange: (o: Owner) => void }) {
   return (
     <div>
       <p className="field-label" id="adm-who-label" style={{ marginBottom: '0.375rem' }}>Who’s using this?</p>
-      <Seg label="Who’s using this?" value={value ?? ''} options={OWNERS.map((o) => [o, o] as [string, string])} onChange={(o) => onChange(o as Owner)} />
+      <Seg label="Who’s using this?" value={value ?? ''} options={owners.map((o) => [o, o] as [string, string])} onChange={(o) => onChange(o as Owner)} />
     </div>
   )
 }
 
 /** Passcode and who's using it. One tap: the button says "Signing in…" and can't be pressed twice. */
-function SignIn({ who: remembered, onSignedIn }: { who: Owner | null; onSignedIn: (o: Owner) => void }) {
+function SignIn({ who: remembered, owners, onSignedIn }: { who: Owner | null; owners: Owner[]; onSignedIn: (o: Owner, owners: Owner[] | null) => void }) {
   const [passcode, setPasscode] = useState('')
   const [show, setShow] = useState(false)
-  const [who, setWho] = useState<Owner | null>(remembered)
+  const [who, setWho] = useState<Owner | null>(remembered ? ownerOf(remembered, owners) : null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   async function submit(e: FormEvent) {
@@ -106,11 +128,11 @@ function SignIn({ who: remembered, onSignedIn }: { who: Owner | null; onSignedIn
     if (!who) return setError('Pick who’s using this.')
     setError('')
     setBusy(true)
-    const r = await api(LOGIN, { passcode })
+    const r = await api<{ owners?: unknown }>(LOGIN, { passcode })
     setBusy(false)
     if (!r.ok) return setError(r.status === 401 && r.error === 'Sign in first.' ? 'That passcode isn’t right.' : r.error ?? 'That didn’t work.')
     setPasscode('')
-    onSignedIn(who)
+    onSignedIn(who, ownersFrom(r.data?.owners))
   }
   return (
     <div className="adm adm-signin">
@@ -131,7 +153,7 @@ function SignIn({ who: remembered, onSignedIn }: { who: Owner | null; onSignedIn
             <button type="button" className="adm-btn is-ghost is-sm" aria-pressed={show} onClick={() => setShow(!show)}>{show ? 'Hide' : 'Show'}</button>
           </div>
         </div>
-        <WhoPicker value={who} onChange={setWho} />
+        <WhoPicker value={who} owners={owners} onChange={setWho} />
         {error && <p role="alert" className="field-error">{error}</p>}
         <button type="submit" className="adm-btn is-pri" disabled={busy}>{busy ? 'Signing in…' : 'Sign in'}</button>
       </form>
@@ -139,14 +161,14 @@ function SignIn({ who: remembered, onSignedIn }: { who: Owner | null; onSignedIn
   )
 }
 
-/** Signed in on this device before "Who's using this?" existed: ask once. */
-function PickWho({ onPick }: { onPick: (o: Owner) => void }) {
+/** Signed in, but nobody picked on this device (or the one picked is no longer an owner): ask once. */
+function PickWho({ owners, onPick }: { owners: Owner[]; onPick: (o: Owner) => void }) {
   const [who, setWho] = useState<Owner | null>(null)
   return (
     <div className="adm adm-signin">
       <form className="adm-card" onSubmit={(e) => { e.preventDefault(); if (who) onPick(who) }} aria-label="Who’s using this?">
         <p className="adm-brand">Hometown Studio · Admin</p>
-        <WhoPicker value={who} onChange={setWho} />
+        <WhoPicker value={who} owners={owners} onChange={setWho} />
         <p className="adm-small adm-muted">Changes you make are saved under this name. You can change it under More.</p>
         <button type="submit" className="adm-btn is-pri" disabled={!who}>Continue</button>
       </form>
@@ -437,6 +459,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
         case 'import': return <ImportSquareSheet />
         case 'sandbox': return <SandboxSheet />
         case 'who': return <WhoSheet />
+        case 'access': return <AdminAccessSheet />
         case 'help': return <HelpSheet />
       }
   }

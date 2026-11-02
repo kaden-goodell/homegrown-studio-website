@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
-import { ownerOf, ADMIN_WHO_HEADER } from '@lib/admin-who'
+import { ADMIN_WHO_HEADER } from '@lib/admin-who'
+import { resolveOwner } from '@lib/admin-owners'
 import { recordAudit } from '@lib/audit'
 import { teamWithContacts } from '@lib/staff-directory'
 import { feedStatus, makeFeed, revokeFeed } from '@lib/staffing/feed-store'
@@ -20,8 +21,8 @@ export const PICK_WHO = 'Choose who you are at the top of /admin first.'
  * DELETE {} → stops the acting owner's link; DELETE { staffId } → stops that team member's link.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
-  const owner = ownerOf(request.headers.get(ADMIN_WHO_HEADER))
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
+  const owner = (await resolveOwner(request.headers.get(ADMIN_WHO_HEADER)))?.name ?? null
   return staffingReply(async () => {
     const { people } = await teamWithContacts()
     const active = people.filter((p) => p.active)
@@ -34,10 +35,10 @@ export const GET: APIRoute = async ({ request }) => {
 }
 
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
-  const owner = ownerOf(request.headers.get(ADMIN_WHO_HEADER))
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
+  const owner = (await resolveOwner(request.headers.get(ADMIN_WHO_HEADER)))?.name ?? null
   if (!owner) return json(400, { error: PICK_WHO })
-  const by = adminActor(request)
+  const by = await adminActor(request)
   return staffingReply(async () => {
     const { token } = await makeFeed({ owner }, by)
     await recordAudit({ by: { ...by, role: 'owner' }, action: 'feed.make', target: { kind: 'calendar-link', id: `owner-${owner}`, label: owner } })
@@ -46,9 +47,9 @@ export const POST: APIRoute = async ({ request }) => {
 }
 
 export const DELETE: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = (await request.json().catch(() => ({}))) ?? {}
-  const by = adminActor(request)
+  const by = await adminActor(request)
   const staffId = (body as { staffId?: unknown }).staffId
   return staffingReply(async () => {
     if (staffId !== undefined) {
@@ -58,7 +59,7 @@ export const DELETE: APIRoute = async ({ request }) => {
       await recordAudit({ by: { ...by, role: 'owner' }, action: 'feed.revoke', target: { kind: 'calendar-link', id: staffId, label: name } })
       return { data: { stopped: true } }
     }
-    const owner = ownerOf(request.headers.get(ADMIN_WHO_HEADER))
+    const owner = (await resolveOwner(request.headers.get(ADMIN_WHO_HEADER)))?.name ?? null
     if (!owner) throw new StaffingError(400, PICK_WHO)
     await revokeFeed({ owner }, by)
     await recordAudit({ by: { ...by, role: 'owner' }, action: 'feed.revoke', target: { kind: 'calendar-link', id: `owner-${owner}`, label: owner } })

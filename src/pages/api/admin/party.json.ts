@@ -42,7 +42,7 @@ export interface AdminPartyGuest {
  * the sheet can say so instead of showing nobody. Owners only.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const id = url.searchParams.get('id') ?? ''
   if (!ID_RE.test(id)) return json(400, { error: 'Pick a party.' })
   let record

@@ -47,10 +47,10 @@ export const prerender = false
  *                 claim as the payment link, so the two never both charge)
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object') return json(400, { error: 'Nothing to do.' })
-  const by = adminActor(request)
+  const by = await adminActor(request)
   switch (body.action) {
     case 'move': return partyReply(() => moveParty(body, by, request))
     case 'cancel': return partyReply(() => cancelParty(body, by, request))
@@ -70,7 +70,7 @@ export const POST: APIRoute = async ({ request }) => {
   }
 }
 
-async function takeCard(body: any, by: ReturnType<typeof adminActor>, request: Request) {
+async function takeCard(body: any, by: Awaited<ReturnType<typeof adminActor>>, request: Request) {
   if (!isAttemptId(body.attemptId)) throw new PartyActionError(400, 'Reload the page and try again.')
   const expectedCents = body.expectedCents
   if (typeof expectedCents !== 'number' || !Number.isInteger(expectedCents) || expectedCents <= 0) throw new PartyActionError(400, 'Nothing to charge.')

@@ -48,7 +48,7 @@ const contactsOf = (people: StaffPerson[]) =>
  * Reading a row also remembers its times, so a moved event updates in phone calendars.
  */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   if (url.searchParams.get('lines') === '1') {
     const now = new Date()
     const from = studioDate(now.toISOString())
@@ -115,10 +115,10 @@ function hintFor(body: Record<string, unknown>, key: EventKey): string | null {
  *     someone else changed it since the sheet loaded → 409 with the latest.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object') return json(400, { error: "We couldn't read that. Try again." })
-  const by = adminActor(request)
+  const by = await adminActor(request)
   const origin = new URL(request.url).origin
   const keys = keysOf(body)
   if (!keys) return json(400, { error: NOT_FOUND })

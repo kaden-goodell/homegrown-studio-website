@@ -402,7 +402,7 @@ function PersonForm({ form, error, busy, title, onChange, onSave, onCancel }: {
         <label className="adm-fld"><span>Last name</span><input value={form.familyName} maxLength={40} autoComplete="off" aria-invalid={bad('familyName')} onChange={(e) => onChange({ ...form, familyName: e.target.value })} /></label>
       </div>
       <Seg label="Owner or crew" value={form.role} options={[['crew', 'Crew'], ['owner', 'Owner']]} onChange={(role) => onChange({ ...form, role })} />
-      <p className="adm-small adm-muted" style={{ margin: '0.25rem 0 0.75rem' }}>Pick Owner only for Catherine and Kaden. Everyone else is Crew.</p>
+      <p className="adm-small adm-muted" style={{ margin: '0.25rem 0 0.75rem' }}>Owners can use /admin and get the alerts picked for them in More › Notifications. Everyone else is Crew.</p>
       <label className="adm-fld"><span>Mobile phone (for shift texts)</span><input type="tel" inputMode="tel" value={form.phone} autoComplete="off" aria-invalid={bad('phone')} onChange={(e) => onChange({ ...form, phone: e.target.value })} /></label>
       <label className="adm-fld"><span>Email (for shift emails)</span><input type="email" inputMode="email" value={form.email} autoComplete="off" aria-invalid={bad('email')} onChange={(e) => onChange({ ...form, email: e.target.value })} /></label>
       {error && <p className="adm-error" role="alert">{error.text}</p>}

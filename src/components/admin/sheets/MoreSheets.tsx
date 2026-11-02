@@ -9,7 +9,7 @@ import { SheetFrame, useSheet } from '../shell/Sheet'
 import { useToast } from '../shell/Toast'
 
 /** Who is using /admin, and how to change it (More › Using as). */
-export const WhoContext = createContext<{ who: Owner | null; setWho: (o: Owner) => void }>({ who: null, setWho: () => {} })
+export const WhoContext = createContext<{ who: Owner | null; setWho: (o: Owner) => void; owners?: Owner[] }>({ who: null, setWho: () => {}, owners: [...OWNERS] })
 
 export function ComingSheet({ title, stage, what }: { title: string; stage: number; what: string }) {
   return (
@@ -64,14 +64,14 @@ export function ReportsSheet() {
 
 /** Change who is using /admin on this device. */
 export function WhoSheet() {
-  const { who, setWho } = useContext(WhoContext)
+  const { who, setWho, owners = [...OWNERS] } = useContext(WhoContext)
   const toast = useToast()
   return (
     <SheetFrame title="Who’s using this?" subtitle="Changes you make are saved under this name.">
       <Seg
         label="Who’s using this?"
         value={who ?? ''}
-        options={OWNERS.map((o) => [o, o] as [string, string])}
+        options={owners.map((o) => [o, o] as [string, string])}
         onChange={(o) => { setWho(o as Owner); toast(`Now using as ${o}.`) }}
       />
     </SheetFrame>

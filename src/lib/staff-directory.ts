@@ -385,6 +385,32 @@ export async function staffListReadable(): Promise<boolean> {
 }
 
 /**
+ * The owners working here (role Owner), with contact details, from the SAVED
+ * list only: never starts the first import from Square (so /admin and the
+ * alert senders never call Square for it). null when no list has been saved
+ * yet (the bootstrap owners apply). When the store can't be read: the last
+ * list this server read, else it throws.
+ */
+export async function savedOwners(): Promise<StaffPerson[] | null> {
+  let doc: StaffDoc | null
+  if (cache && cache.saved && Date.now() - cache.at < CACHE_MS) doc = cache.doc
+  else {
+    try {
+      doc = (await readSaved()).doc
+      if (doc) {
+        cache = { at: Date.now(), doc, saved: true }
+        lastKnown = doc
+      }
+    } catch (err) {
+      if (!lastKnown) throw err
+      doc = lastKnown
+    }
+  }
+  if (!doc) return null
+  return withNames(doc.people).filter((p) => p.active && p.role === 'owner')
+}
+
+/**
  * The person an /admin owner name is: the one linked to that owner when the
  * list started (follows the id, so a rename doesn't matter), else by given
  * name among owners working here; null when not found, ambiguous, or unreadable.
@@ -400,6 +426,9 @@ export async function staffIdForOwner(owner: Owner): Promise<string | null> {
   const linked = people.filter((p) => p.owner === owner && p.role === 'owner')
   if (linked.length === 1) return linked[0].id
   const want = owner.trim().toLowerCase()
+  // An owner added later has no link: their name as the staff list shows it ("Dana", or "Dana R." when two share it).
+  const named = withNames(people).filter((p) => p.role === 'owner' && p.name.trim().toLowerCase() === want)
+  if (named.length === 1 && !people.find((r) => r.id === named[0].id)?.owner) return named[0].id
   const hits = people.filter((p) => p.role === 'owner' && !p.owner && p.givenName.trim().toLowerCase() === want)
   return hits.length === 1 ? hits[0].id : null
 }

@@ -34,7 +34,7 @@ const DAY_MS = 86_400_000
  * Every change is audited. Contact details only ever go to owners.
  */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   try {
     const list = await staffListForOwners()
     const statuses = await Promise.all(list.people.map((p) => feedStatus({ staffId: p.id }).catch(() => null)))
@@ -85,10 +85,10 @@ async function stillOn(r: StaffRecord): Promise<string | null> {
 }
 
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
   if (!body || typeof body !== 'object') return json(400, { error: "We couldn't read that. Try again." })
-  const by = adminActor(request)
+  const by = await adminActor(request)
   const auditBy = { ...by, role: 'owner' as const }
   const id = typeof body.id === 'string' ? body.id : ''
   try {

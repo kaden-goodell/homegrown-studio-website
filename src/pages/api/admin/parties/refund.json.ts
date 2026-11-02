@@ -14,12 +14,12 @@ export const prerender = false
  * in X-Admin-Who); a reason is optional.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
-  return partyRefundReply(request, { by: adminActor(request), role: 'owner' }, { reasonRequired: false })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
+  return partyRefundReply(request, { by: await adminActor(request), role: 'owner' }, { reasonRequired: false })
 }
 
 /** GET ?partyId=: the party's saved refund requests (who asked, when, how much, which payment). */
 export const GET: APIRoute = async ({ request, url }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   return partyRefundRequestsReply(url)
 }

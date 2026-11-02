@@ -30,14 +30,14 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllEnvs())
 
 describe('owners', () => {
-  it('the fixed list is Catherine and Kaden; adminActor believes only them', () => {
+  it('until a staff list exists, the owners are Catherine and Kaden; adminActor believes only them', async () => {
     expect(OWNERS).toEqual(['Catherine', 'Kaden'])
     expect(ownerOf(' catherine ')).toBe('Catherine')
     expect(ownerOf('Owner')).toBeNull()
     const req = (who?: string) => new Request('https://x.test/', { headers: who ? { 'X-Admin-Who': who } : {} })
-    expect(adminActor(req('KADEN'))).toEqual({ id: 'owner-kaden', name: 'Kaden' })
-    expect(adminActor(req('Someone'))).toEqual({ id: 'admin', name: 'Owner' })
-    expect(adminActor(req())).toEqual({ id: 'admin', name: 'Owner' })
+    expect(await adminActor(req('KADEN'))).toEqual({ id: 'owner-kaden', name: 'Kaden' })
+    expect(await adminActor(req('Someone'))).toEqual({ id: 'admin', name: 'Owner' })
+    expect(await adminActor(req())).toEqual({ id: 'admin', name: 'Owner' })
   })
 })
 

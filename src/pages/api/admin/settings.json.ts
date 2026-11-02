@@ -19,7 +19,7 @@ const UNREADABLE = 'The studio settings couldn’t be reached. Try again.'
 
 /** GET: Craft Café's hours, special days and the closed days, as saved (or the config, until an owner first saves). Owners only. */
 export const GET: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   try {
     return json(200, { data: { settings: await getSettingsView() } })
   } catch (e) {
@@ -52,9 +52,9 @@ async function squareFrom(days: Parameters<typeof rewriteCafeWindows>[0], reques
  * POST { action: 'square-retry' }: write the café windows again from what's saved.
  */
 export const POST: APIRoute = async ({ request }) => {
-  if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
+  if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
   const body = await request.json().catch(() => null)
-  const by = adminActor(request)
+  const by = await adminActor(request)
 
   if (body?.action === 'square-retry') {
     let days
