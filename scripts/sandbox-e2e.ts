@@ -25,6 +25,13 @@
  *   E2E_EMAIL                    where the test bookings' confirmation emails go
  *                                (default kaden+e2e@ourhometownstudio.com).
  *
+ * Scenarios 1–23 are our classes (stage 1, scripts/lib/sandbox-e2e/scenarios.ts).
+ * Scenarios 49+ are the stage 4 extras (scripts/lib/sandbox-e2e/extras-scenarios.ts):
+ * promo codes and the half-cent proof, early-bird, free bookings, repeating
+ * dates, the waitlist with saved sandbox cards, saved-card proofs, Register
+ * setup, the early-bird register price, the reader (simulated) and the
+ * customer's own cancel (D2). 24–48 belong to stages 2 and 3 (other branches).
+ *
  * Every class it makes is named "E2E <run> …", link-only (scenario 1 makes
  * one public for a moment to check the list), and cancelled at the end with
  * its library entry archived. Nothing is refunded except in scenarios 10 and
@@ -38,6 +45,11 @@ import {
   SlotAllocator, SquareSandbox, checkStatus, check, type Pending, type Secrets, type StopProcess,
 } from './lib/sandbox-e2e/core'
 import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, scenarios, type Ctx } from './lib/sandbox-e2e/scenarios'
+import { cleanUpExtrasLeftovers, EXTRAS_CLEANUP_PLAN, EXTRAS_NEED_TOKEN, extrasScenarios } from './lib/sandbox-e2e/extras-scenarios'
+import type { Scenario } from './lib/sandbox-e2e/core'
+
+/** Every scenario, in id order: our classes (1–23), then the stage 4 extras (49+). */
+export const ALL_SCENARIOS: Scenario<Ctx>[] = [...scenarios, ...extrasScenarios]
 
 /** Test bookings text the owners; this is Kaden's number (test texts only ever go to him). */
 const TEST_PHONE = '(402) 980-2907'
@@ -73,19 +85,19 @@ export async function main(argv: string[], env: Record<string, string | undefine
   }
   let list
   try {
-    list = pick(scenarios, args.only)
+    list = pick(ALL_SCENARIOS, args.only)
   } catch (e) {
     console.error(e instanceof Error ? e.message : String(e))
     return 2
   }
   if (args.dryRun && args.cleanupOnly) {
     console.log(`Would clear up what earlier runs left on ${PREVIEW_ORIGIN}:`)
-    for (const step of CLEANUP_PLAN) console.log(`    - ${step}`)
+    for (const step of [...EXTRAS_CLEANUP_PLAN, ...CLEANUP_PLAN]) console.log(`    - ${step}`)
     return 0
   }
   if (args.dryRun) {
     console.log(formatPlan(list))
-    console.log(`\nSquare-side checks: ${env.SQUARE_SANDBOX_ACCESS_TOKEN ? 'on (SQUARE_SANDBOX_ACCESS_TOKEN set)' : 'off (no SQUARE_SANDBOX_ACCESS_TOKEN; scenarios 11 and 22 would be skipped)'}`)
+    console.log(`\nSquare-side checks: ${env.SQUARE_SANDBOX_ACCESS_TOKEN ? 'on (SQUARE_SANDBOX_ACCESS_TOKEN set)' : `off (no SQUARE_SANDBOX_ACCESS_TOKEN; scenarios 11, 22, ${EXTRAS_NEED_TOKEN.join(', ')} would be skipped, and the others' Square checks)`}`)
     return 0
   }
 
@@ -139,7 +151,9 @@ export async function main(argv: string[], env: Record<string, string | undefine
 
     if (args.cleanupOnly) {
       ctx.log('Clearing up what earlier runs left behind ("E2E …" only):')
-      const { done, failed } = await cleanUpLeftovers(ctx, ctx.log)
+      const extras = await cleanUpExtrasLeftovers(ctx, ctx.log)
+      const classes = await cleanUpLeftovers(ctx, ctx.log)
+      const done = [...extras.done, ...classes.done], failed = [...extras.failed, ...classes.failed]
       ctx.log(`${done.length} done, ${failed.length} failed${done.length + failed.length ? '' : ' (nothing left over)'}.`)
       return failed.length ? 1 : 0
     }

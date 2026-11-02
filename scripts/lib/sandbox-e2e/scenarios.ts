@@ -75,11 +75,11 @@ export function testContent(c: ContentInput): any {
   }
 }
 
-const nameOf = (ctx: Ctx, what: string) => `E2E ${ctx.runTag} ${what}`.slice(0, 80)
+export const nameOf = (ctx: Ctx, what: string) => `E2E ${ctx.runTag} ${what}`.slice(0, 80)
 
 const registered = new WeakMap<Scope, Set<string>>()
 /** Cleanup for a class: cancel it, then archive its library entry (registered so they run in that order). Once per class. */
-function cleanUpClass(ctx: Ctx, scope: Scope, cls: any): void {
+export function cleanUpClass(ctx: Ctx, scope: Scope, cls: any): void {
   const seen = registered.get(scope) ?? new Set<string>()
   registered.set(scope, seen)
   if (seen.has(cls.id)) return
@@ -127,7 +127,7 @@ async function archiveLibrary(ctx: Ctx, libraryId: string): Promise<void> {
   checkStatus(r, 200, `Archive library ${libraryId}`)
 }
 
-async function updateClass(ctx: Ctx, classId: string, change: Record<string, unknown>): Promise<Reply> {
+export async function updateClass(ctx: Ctx, classId: string, change: Record<string, unknown>): Promise<Reply> {
   const { class: cls } = await bookingsOf(ctx, classId)
   return ctx.admin.post('/api/admin/classes/classes.json', { action: 'update', id: classId, expectedUpdatedAt: cls.updatedAt, ...change })
 }
@@ -150,7 +150,7 @@ export async function book(
 }
 
 /** A booking that should have gone through: the reply, the ledger, and Square's order and payment. */
-async function checkPaid(ctx: Ctx, scope: Scope, cls: any, b: Booked, expect: { seatPrices: number[]; sessionIds?: string[]; tickets?: Record<string, number>; giftCard?: boolean }) {
+export async function checkPaid(ctx: Ctx, scope: Scope, cls: any, b: Booked, expect: { seatPrices: number[]; sessionIds?: string[]; tickets?: Record<string, number>; giftCard?: boolean }) {
   checkStatus(b.reply, 200, 'Booking')
   const d = b.reply.body.data
   check(!d.simulated, 'The preview simulated the payment (DEV_BYPASS_PAYMENT is on for the branch); turn it off so the sandbox is charged')
@@ -192,7 +192,7 @@ async function checkPaid(ctx: Ctx, scope: Scope, cls: any, b: Booked, expect: { 
 }
 
 const noted = new WeakSet<Scope>()
-function noSquare(scope: Scope): void {
+export function noSquare(scope: Scope): void {
   if (noted.has(scope)) return
   noted.add(scope)
   scope.note('Square side not checked (no SQUARE_SANDBOX_ACCESS_TOKEN)')
@@ -205,7 +205,7 @@ async function locationIds(sq: SquareSandbox): Promise<string[]> {
 }
 
 /** Orders made since `sinceIso` whose reference is one of these booking ids. */
-async function ordersFor(sq: SquareSandbox, refs: string[], sinceIso: string): Promise<any[]> {
+export async function ordersFor(sq: SquareSandbox, refs: string[], sinceIso: string): Promise<any[]> {
   const out: any[] = []
   let cursor: string | undefined
   for (let page = 0; page < 10; page++) {
@@ -223,7 +223,7 @@ async function ordersFor(sq: SquareSandbox, refs: string[], sinceIso: string): P
 }
 
 /** Nothing was charged for these bookings: no paid order, no tender. */
-async function checkNotCharged(ctx: Ctx, scope: Scope, refs: string[], sinceIso: string): Promise<void> {
+export async function checkNotCharged(ctx: Ctx, scope: Scope, refs: string[], sinceIso: string): Promise<void> {
   if (!ctx.square) return noSquare(scope)
   for (const o of await ordersFor(ctx.square, refs, sinceIso)) {
     check(o.state !== 'COMPLETED', `Square order ${o.id} for ${o.reference_id} is COMPLETED (charged)`)
@@ -231,8 +231,8 @@ async function checkNotCharged(ctx: Ctx, scope: Scope, refs: string[], sinceIso:
   }
 }
 
-const sinceNow = () => new Date(Date.now() - 2 * 60_000).toISOString()
-const sessionLeft = async (ctx: Ctx, classId: string) => {
+export const sinceNow = () => new Date(Date.now() - 2 * 60_000).toISOString()
+export const sessionLeft = async (ctx: Ctx, classId: string) => {
   const r = await ctx.pub.get(`/api/classes/${classId}.json`)
   checkStatus(r, 200, 'Read the class by its link')
   return (r.body.workshop.own.sessions as any[]).map((s) => s.left)
@@ -244,19 +244,19 @@ async function publicList(ctx: Ctx): Promise<any[]> {
   return r.body?.workshops ?? r.body?.data?.workshops ?? (Array.isArray(r.body) ? r.body : [])
 }
 
-async function squareItem(sq: SquareSandbox, id: string): Promise<any> {
+export async function squareItem(sq: SquareSandbox, id: string): Promise<any> {
   return (await sq.get(`/catalog/object/${encodeURIComponent(id)}?include_related_objects=false`)).object
 }
 const hidden = (o: any) => o.present_at_all_locations === false && !(o.present_at_location_ids ?? []).length
 
 /** Pick a day for the class right now: refuses unless it can start `minutes` from now today. */
-function startingSoon(minutesAhead: number, lengthMinutes: number): { startIso: string; endIso: string; capacity: number } {
+export function startingSoon(minutesAhead: number, lengthMinutes: number): { startIso: string; endIso: string; capacity: number } {
   const start = Math.ceil((Date.now() + minutesAhead * 60_000) / 60_000) * 60_000
   return { startIso: new Date(start).toISOString(), endIso: new Date(start + lengthMinutes * 60_000).toISOString(), capacity: 6 }
 }
 
 /** The location the site's own orders use (a sandbox may have several). */
-async function siteLocation(ctx: Ctx, scope: Scope): Promise<string> {
+export async function siteLocation(ctx: Ctx, scope: Scope): Promise<string> {
   const ids = await locationIds(ctx.square!)
   if (ids.length === 1) return ids[0]
   const recent = await ctx.square!.post('/orders/search', {
@@ -288,25 +288,25 @@ async function counterSale(ctx: Ctx, scope: Scope, lines: { variationId: string;
   return { orderId: order.id, totalCents: total }
 }
 
-async function reconcile(ctx: Ctx): Promise<any> {
+export async function reconcile(ctx: Ctx): Promise<any> {
   const r = await ctx.admin.post('/api/jobs/reconcile-classes.json?force=1', {})
   checkStatus(r, 200, 'Run the reconcile')
   check(!r.body?.data?.skipped, `Reconcile skipped: ${r.body?.data?.skipped}`)
   return r.body.data
 }
 
-async function toDecide(ctx: Ctx): Promise<any[]> {
+export async function toDecide(ctx: Ctx): Promise<any[]> {
   const r = await ctx.admin.get('/api/admin/to-decide.json')
   checkStatus(r, 200, 'Read To decide')
   return r.body.data.items
 }
 
 /** Refund through /admin. */
-async function refund(ctx: Ctx, body: Record<string, unknown>): Promise<Reply> {
+export async function refund(ctx: Ctx, body: Record<string, unknown>): Promise<Reply> {
   return ctx.admin.post('/api/admin/classes/refund.json', { reason: 'E2E sandbox test', ...body })
 }
 
-async function checkRefundInSquare(ctx: Ctx, scope: Scope, refundId: string, cents: number): Promise<void> {
+export async function checkRefundInSquare(ctx: Ctx, scope: Scope, refundId: string, cents: number): Promise<void> {
   if (!ctx.square) return noSquare(scope)
   check(refundId, 'The refund has no Square refund id')
   const r = (await ctx.square.get(`/refunds/${encodeURIComponent(refundId)}`)).refund
