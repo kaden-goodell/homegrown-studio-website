@@ -123,6 +123,13 @@ describe('More › Notifications', () => {
     expect(screen.getByText(/Nothing is set here yet/)).toBeInTheDocument()
   })
 
+  it('M1: the archive row says when a new owner or new email starts getting it', async () => {
+    nv.rows[4] = { ...nv.rows[4], held: [{ name: 'Dana', until: '2026-11-03T21:10:00.000Z' }] }
+    renderSheet(<NotifySheet />)
+    const archive = await screen.findByRole('group', { name: 'Weekly records archive' })
+    expect(archive).toHaveTextContent(/Dana starts getting this .*\. A new owner or a new email waits a day, so nobody can quietly send the records somewhere new\./)
+  })
+
   it('untick, save: sends every row’s picks with the version it loaded, and says what changed', async () => {
     const { dirty } = renderSheet(<NotifySheet />)
     const tax = await screen.findByRole('group', { name: 'Monthly tax split' })

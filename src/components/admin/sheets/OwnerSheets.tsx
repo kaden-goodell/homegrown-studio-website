@@ -26,18 +26,31 @@ export interface AccessView {
   min: number
   owners: { id: string | null; name: string; hasEmail: boolean; hasPhone: boolean }[]
   ownerSource: 'staff-list' | 'bootstrap'
+  /** L1: wrong /admin passcodes typed today, across the whole site. */
+  failedToday?: number
+  manyFailed?: boolean
 }
+
+/** M1(c): what the passcode-changed toast ends with. */
+export const PASSCODE_CHANGED_TOAST = 'The admin passcode is changed. Every other phone or iPad signed in to /admin is signed out and needs the new one. This one stays signed in. Check More › Admin access and Notifications for anything you didn’t change.'
 
 /** "Catherine and Kaden", "Ann, Bea and Cy". */
 export const andList = (list: string[]) => (list.length <= 1 ? list[0] ?? '' : `${list.slice(0, -1).join(', ')} and ${list[list.length - 1]}`)
 
-export function AdminAccessSheet() {
-  const sheet = useSheet()
+/**
+ * The change-the-admin-passcode form (Admin access, and Staff › People right
+ * after an owner is taken off, M2). `expectedUpdatedAt`: what was loaded.
+ */
+export function AdminPasscodeForm({ expectedUpdatedAt, min, onDone, onCancel, onStale, onDirty }: {
+  expectedUpdatedAt: string | null
+  min: number
+  onDone: () => void
+  onCancel: () => void
+  /** Someone else changed it first: reload what's shown. */
+  onStale?: () => void
+  onDirty?: (dirty: boolean) => void
+}) {
   const toast = useToast()
-  const [view, setView] = useState<AccessView | null>(null)
-  const [error, setError] = useState('')
-  const [tries, setTries] = useState(0)
-  const [open, setOpen] = useState(false)
   const [current, setCurrent] = useState('')
   const [code, setCode] = useState('')
   const [again, setAgain] = useState('')
@@ -46,7 +59,88 @@ export function AdminAccessSheet() {
   const [busy, setBusy] = useState(false)
   const live = useRef(true)
   useEffect(() => () => { live.current = false }, [])
-  useSheetDirty(open && (current !== '' || code !== '' || again !== ''))
+  const dirty = current !== '' || code !== '' || again !== ''
+  useEffect(() => { onDirty?.(dirty) }, [dirty])
+
+  async function save() {
+    if (busy) return
+    if (!current) return setFormError('Type the passcode you use now first.')
+    setBusy(true)
+    const r = await api<{ updatedAt: string }>(ADMIN_ACCESS, { current, passcode: code, again, expectedUpdatedAt })
+    if (!live.current) return
+    setBusy(false)
+    if (r.ok) {
+      toast(PASSCODE_CHANGED_TOAST)
+      onDirty?.(false)
+      onDone()
+      return
+    }
+    setFormError(r.error ?? DIDNT_SAVE)
+    if (r.status === 409) onStale?.()
+  }
+
+  return (
+    <div className="adm-panel adm-gap-top" role="group" aria-label="Change the admin passcode">
+      <b>Change the admin passcode</b>
+      <span className="adm-small">Every other phone or iPad signed in to /admin is signed out and needs the new one. This one stays signed in.</span>
+      <span className="adm-small">{`Use at least ${min} letters or numbers, with no space at the start or end, and not the staff passcode. Write it somewhere safe: nobody can look it up later.`}</span>
+      <label className="adm-fld"><span>Passcode you use now</span><input type={show ? 'text' : 'password'} value={current} autoComplete="current-password" maxLength={64} onChange={(e) => { setCurrent(e.target.value); setFormError('') }} /></label>
+      <label className="adm-fld"><span>New passcode</span><input type={show ? 'text' : 'password'} value={code} autoComplete="new-password" maxLength={64} onChange={(e) => { setCode(e.target.value); setFormError('') }} /></label>
+      <label className="adm-fld"><span>New passcode again</span><input type={show ? 'text' : 'password'} value={again} autoComplete="new-password" maxLength={64} onChange={(e) => { setAgain(e.target.value); setFormError('') }} /></label>
+      <button type="button" className="adm-btn is-ghost is-sm" aria-pressed={show} onClick={() => setShow(!show)}>{show ? 'Hide passcodes' : 'Show passcodes'}</button>
+      {formError && <p className="adm-error" role="alert">{formError}</p>}
+      <div className="adm-two">
+        <button type="button" className="adm-btn is-ghost" onClick={() => { onDirty?.(false); onCancel() }}>Cancel</button>
+        <button type="button" className="adm-btn is-pri" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save new admin passcode'}</button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * M2: shown in Staff › People right after an owner is taken off (made Crew or
+ * No longer working here). Their phone may still be signed in to /admin, so
+ * it offers the passcode change right there.
+ */
+export function OwnerRemovedPrompt({ name, onClose }: { name: string; onClose: () => void }) {
+  const [form, setForm] = useState(false)
+  const [view, setView] = useState<AccessView | null>(null)
+  const [error, setError] = useState('')
+  const [dirty, setDirty] = useState(false)
+  useSheetDirty(dirty)
+  async function openForm() {
+    setError('')
+    const r = await api<AccessView>(ADMIN_ACCESS)
+    if (r.ok && r.data) { setView(r.data); setForm(true) }
+    else setError(r.error ?? 'Couldn’t check admin access.')
+  }
+  return (
+    <div className="adm-panel is-warn adm-gap-bottom" role="group" aria-label="Change the admin passcode now?">
+      <b>Change the admin passcode now?</b>
+      <span className="adm-small">{`${name}’s phone may still be signed in to /admin. Changing the admin passcode signs every other phone and iPad out.`}</span>
+      {error && <p className="adm-error" role="alert">{error}</p>}
+      {!form ? (
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" onClick={onClose}>Not now</button>
+          <button type="button" className="adm-btn is-pri" onClick={openForm}>Change it now</button>
+        </div>
+      ) : view && (
+        view.readOnly
+          ? <p className="adm-note">This test site can’t change the live admin passcode.</p>
+          : <AdminPasscodeForm expectedUpdatedAt={view.updatedAt} min={view.min} onDirty={setDirty} onDone={onClose} onCancel={onClose} />
+      )}
+    </div>
+  )
+}
+
+export function AdminAccessSheet() {
+  const sheet = useSheet()
+  const [view, setView] = useState<AccessView | null>(null)
+  const [error, setError] = useState('')
+  const [tries, setTries] = useState(0)
+  const [open, setOpen] = useState(false)
+  const [dirty, setDirty] = useState(false)
+  useSheetDirty(open && dirty)
 
   useEffect(() => {
     let on = true
@@ -58,31 +152,6 @@ export function AdminAccessSheet() {
     })
     return () => { on = false }
   }, [tries])
-
-  function close() {
-    setOpen(false)
-    setCurrent('')
-    setCode('')
-    setAgain('')
-    setFormError('')
-  }
-
-  async function save() {
-    if (busy || !view) return
-    if (!current) return setFormError('Type the passcode you use now first.')
-    setBusy(true)
-    const r = await api<{ updatedAt: string }>(ADMIN_ACCESS, { current, passcode: code, again, expectedUpdatedAt: view.updatedAt })
-    if (!live.current) return
-    setBusy(false)
-    if (r.ok) {
-      toast('The admin passcode is changed. Every other phone or iPad signed in to /admin is signed out and needs the new one. This one stays signed in.')
-      close()
-      setTries((n) => n + 1)
-      return
-    }
-    setFormError(r.error ?? DIDNT_SAVE)
-    if (r.status === 409) setTries((n) => n + 1)
-  }
 
   const names = view ? view.owners.map((o) => o.name) : []
   return (
@@ -116,6 +185,9 @@ export function AdminAccessSheet() {
 
           <section aria-label="Admin passcode" className="adm-gap-top">
             <p className="adm-lbl">Admin passcode</p>
+            {view.manyFailed && (
+              <p className="adm-panel is-warn" role="alert">{`Someone typed a wrong /admin passcode ${view.failedToday} times today. If that wasn’t one of you, change the admin passcode now.`}</p>
+            )}
             {view.damaged && (
               <p className="adm-panel is-warn" role="alert">The saved admin passcode couldn’t be read. Set a new one below to fix it.</p>
             )}
@@ -131,20 +203,7 @@ export function AdminAccessSheet() {
             {!open ? (
               <button type="button" className="adm-btn is-ghost" disabled={view.readOnly} onClick={() => setOpen(true)}>Change the admin passcode</button>
             ) : (
-              <div className="adm-panel adm-gap-top" role="group" aria-label="Change the admin passcode">
-                <b>Change the admin passcode</b>
-                <span className="adm-small">Every other phone or iPad signed in to /admin is signed out and needs the new one. This one stays signed in.</span>
-                <span className="adm-small">{`Use at least ${view.min} letters or numbers, and not the staff passcode. Write it somewhere safe: nobody can look it up later.`}</span>
-                <label className="adm-fld"><span>Passcode you use now</span><input type={show ? 'text' : 'password'} value={current} autoComplete="current-password" maxLength={64} onChange={(e) => { setCurrent(e.target.value); setFormError('') }} /></label>
-                <label className="adm-fld"><span>New passcode</span><input type={show ? 'text' : 'password'} value={code} autoComplete="new-password" maxLength={64} onChange={(e) => { setCode(e.target.value); setFormError('') }} /></label>
-                <label className="adm-fld"><span>New passcode again</span><input type={show ? 'text' : 'password'} value={again} autoComplete="new-password" maxLength={64} onChange={(e) => { setAgain(e.target.value); setFormError('') }} /></label>
-                <button type="button" className="adm-btn is-ghost is-sm" aria-pressed={show} onClick={() => setShow(!show)}>{show ? 'Hide passcodes' : 'Show passcodes'}</button>
-                {formError && <p className="adm-error" role="alert">{formError}</p>}
-                <div className="adm-two">
-                  <button type="button" className="adm-btn is-ghost" onClick={close}>Cancel</button>
-                  <button type="button" className="adm-btn is-pri" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save new admin passcode'}</button>
-                </div>
-              </div>
+              <AdminPasscodeForm expectedUpdatedAt={view.updatedAt} min={view.min} onDirty={setDirty} onDone={() => { setOpen(false); setTries((n) => n + 1) }} onStale={() => setTries((n) => n + 1)} onCancel={() => setOpen(false)} />
             )}
           </section>
         </>
@@ -250,6 +309,9 @@ export function NotifySheet() {
               {r.channels.includes('email') && (
                 <span className="adm-small">{`Emails go to ${goes(r.goesTo.email)}${r.from.email === 'setup' ? ' (from the site setup)' : ''}.`}</span>
               )}
+              {(r.held ?? []).map((h) => (
+                <span key={h.name} className="adm-small">{`${h.name} starts getting this ${dayAndClock(h.until)}. A new owner or a new email waits a day, so nobody can quietly send the records somewhere new.`}</span>
+              ))}
               {r.channels.includes('text') && (
                 <span className="adm-small">{`Texts go to ${r.goesTo.text?.length ? r.goesTo.text.map((t) => `the phone ending ${t.replace('…', '')}`).join(', ') : 'nobody yet: add a mobile in Staff › People'}${r.goesTo.text?.length && r.from.text === 'setup' ? ' (from the site setup)' : ''}.`}</span>
               )}
@@ -292,7 +354,7 @@ export function ConnectionsSheet() {
       {!view && <Skeleton rows={3} label="Checking emails, texts and Square" />}
       {view && (
         <>
-          <p className="adm-note">Tests go to your own email and mobile in Staff › People.{view.testSite ? ' This is a test site, so they go to the test inbox and phone instead.' : ''} A test that goes through clears the warning.</p>
+          <p className="adm-note">Tests go to your own email and mobile in Staff › People.{view.muted ? ' This is a test site, so no emails or texts go out here (they’re listed in More › Messages).' : view.testSite ? ' This is a test site, so they go to the test inbox and phone instead.' : ''} A test that goes through clears the warning.</p>
           {(['email', 'text', 'square'] as Service[]).map((s) => {
             const h = view[s]
             const help = HELP_SECTIONS.find((x) => x.id === SERVICE_HELP[s])

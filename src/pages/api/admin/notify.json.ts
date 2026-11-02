@@ -5,6 +5,8 @@ import { classWritesRefusal, TestSiteStoreError } from '@lib/classes/test-site-g
 import { createLogger } from '@lib/logger'
 import { NOTIFY_MESSAGES, NotifyError, notifyView, ROW_LABEL, saveNotify } from '@lib/notify-settings'
 import { json } from '@lib/staffing/http'
+import { noticeNotifyChange } from '@lib/owner-change-notice'
+import { ownersSnapshot } from '@lib/owner-notice'
 
 export const prerender = false
 
@@ -15,7 +17,8 @@ const logger = createLogger('api:notify')
  * GET  → NotifyView + { readOnly }: each row, who's picked, where it goes now and whether that is set here or the site setup.
  * POST { rows: { [row]: staffId[] }, expectedUpdatedAt } → { updatedAt, changed: [labels] }
  *   Owners only, at least one per row, an email for the email rows. Someone
- *   else saved first → 409. Audited (which rows, never contact details).
+ *   else saved first → 409. Audited (which rows, never contact details). The
+ *   other owners are emailed and texted which rows changed (M1).
  */
 export const GET: APIRoute = async ({ request }) => {
   if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
@@ -37,6 +40,16 @@ export const POST: APIRoute = async ({ request }) => {
     const saved = await saveNotify(body.rows, by, expected)
     const changed = saved.changed.map((r) => ROW_LABEL[r])
     await recordAudit({ by: { ...by, role: 'owner' }, action: 'notify.saved', target: { kind: 'settings', id: 'notify', label: 'Notifications' }, details: { changed: changed.join(', ') } })
+    // M1: the other owners hear which rows now go to whom (at their own addresses, not through these picks).
+    try {
+      const owners = await ownersSnapshot()
+      const view = await notifyView()
+      const names = new Map(view.owners.map((o) => [o.id, o.name]))
+      const rows = view.rows.filter((r) => saved.changed.includes(r.row)).map((r) => ({ label: r.label, to: r.picked.map((id) => names.get(id) ?? 'someone') }))
+      await noticeNotifyChange(by, owners, rows)
+    } catch (err) {
+      logger.warn('Could not tell the other owners about a Notifications change', { error: err instanceof Error ? err.message : String(err) })
+    }
     return json(200, { data: { updatedAt: saved.updatedAt, changed } })
   } catch (e) {
     if (e instanceof NotifyError) return json(e.status, { error: e.message, ...(e.message === NOTIFY_MESSAGES.stale ? { stale: true } : {}) })

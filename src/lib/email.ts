@@ -77,7 +77,9 @@ export async function sendEmail(input: {
     logger.error('Email send failed', { error: err instanceof Error ? err.message : String(err) })
     // Home warns when emails stop (G2); a new password needs a fresh connection, so drop this one.
     _transport = null
-    await noteFailure('email', emailFailureKind(err))
+    // Only a refused login or Gmail being unreachable counts; one rejected recipient doesn't (H1).
+    const kind = emailFailureKind(err)
+    if (kind) await noteFailure('email', kind)
     return { sent: false }
   }
 }

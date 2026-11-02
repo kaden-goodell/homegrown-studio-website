@@ -63,6 +63,8 @@ export interface StaffPerson extends StaffMember {
   email: string | null
   phone: string | null
   active: boolean
+  /** When they became an Owner or their email last changed (M1); absent for people who've been here all along. */
+  contactSince?: string | null
 }
 
 /** One person on our list, as saved. */
@@ -88,6 +90,14 @@ export interface StaffRecord {
    * whole-studio calendar's "You're on". Absent on lists saved before it existed.
    */
   owner?: Owner | null
+  /**
+   * M1: when they were made an Owner (added as one, edited to one, or back
+   * working here as one), or an Owner's email changed. The weekly archive
+   * waits 24 hours before going to them, and the emailed /admin recovery link
+   * skips them for 72 hours. Absent (null) for people who were there from the
+   * start (the import or the first two owners).
+   */
+  contactSince?: string | null
 }
 
 export interface StaffDoc {
@@ -184,8 +194,10 @@ async function squareTeamForImport(): Promise<StaffRecord[]> {
   const by: By = { id: 'system', name: 'Set up' }
   const given = (m: any) => String(m.givenName ?? '').trim()
   // Square marks only its one account owner. Catherine and Kaden are both owners
-  // here, so anyone whose first name is one of theirs comes in as an owner too
-  // (and is linked to that /admin owner when exactly one person has the name).
+  // here, so the ONE person whose first name is one of theirs comes in as an
+  // owner too, linked to that /admin owner. Two people sharing the name both
+  // come in as Crew (unless Square marks one its owner): Owner now means
+  // alerts and the records archive, so a guess never makes someone an owner (L4).
   const ownerFor = (m: any): Owner | null => {
     const o = ownerOf(given(m))
     return o && active.filter((x) => ownerOf(given(x)) === o).length === 1 ? o : null
@@ -194,7 +206,7 @@ async function squareTeamForImport(): Promise<StaffRecord[]> {
     id: m.id,
     givenName: given(m) || 'Someone',
     familyName: String(m.familyName ?? '').trim(),
-    role: m.isOwner || ownerOf(given(m)) ? 'owner' : 'crew',
+    role: m.isOwner || ownerFor(m) ? 'owner' : 'crew',
     owner: ownerFor(m),
     email: text(m.emailAddress),
     phone: text(m.phoneNumber),
@@ -304,6 +316,7 @@ function withNames(records: StaffRecord[]): StaffPerson[] {
       email: r.email,
       phone: r.phone,
       active: r.active,
+      ...(r.contactSince ? { contactSince: r.contactSince } : {}),
     }
   })
 }
@@ -528,6 +541,7 @@ export async function addPerson(raw: unknown, by: By): Promise<StaffRecord> {
       id: newId(doc.people), givenName: input.givenName, familyName: input.familyName, role: input.role,
       email: input.email || null, phone: input.phone || null, active: true, leftAt: null, from: 'added',
       createdAt: now, updatedAt: now, history: [{ at: now, by, change: `${by.name} added them` }],
+      contactSince: input.role === 'owner' ? now : null,
     }
     return { doc: { ...doc, people: [...doc.people, rec] }, result: rec }
   })
@@ -552,7 +566,10 @@ export async function editPerson(id: string, raw: unknown, by: By, expectedUpdat
     if (what.length === 0) return { doc, result: was, unchanged: true }
     // Made crew: no longer linked to an /admin owner (S4), so "You're on" never follows the wrong person.
     const owner = input.role === 'crew' ? null : was.owner
-    const next = pushHistory({ ...was, givenName: input.givenName, familyName: input.familyName, role: input.role, owner, phone: input.phone || null, email: input.email || null }, now, by, `${by.name} changed ${what.join(', ')}`)
+    // M1: a new owner, or an owner's new email, is a new address for the records (archive waits a day).
+    const newAddress = input.role === 'owner' && (was.role !== 'owner' || (was.email ?? '') !== input.email)
+    const contactSince = newAddress ? now : (was.contactSince ?? null)
+    const next = pushHistory({ ...was, givenName: input.givenName, familyName: input.familyName, role: input.role, owner, phone: input.phone || null, email: input.email || null, contactSince }, now, by, `${by.name} changed ${what.join(', ')}`)
     const people = doc.people.slice()
     people[at] = next
     return { doc: { ...doc, people }, result: next }
@@ -568,7 +585,8 @@ export async function setWorking(id: string, active: boolean, by: By): Promise<{
     if (was.active === active) return { doc, result: { person: was, changed: false }, unchanged: true }
     if (active && doc.people.some((p) => p.id !== id && p.active && fullName(p) === fullName(was))) throw new StaffInputError(STAFF_MESSAGES.same, null)
     if (!active && was.role === 'owner' && activeOwners(doc.people).length <= 1) throw new StaffInputError(STAFF_MESSAGES.lastOwner, null)
-    const next = pushHistory({ ...was, active, leftAt: active ? null : now }, now, by, active ? `${by.name} marked them as working here again` : `${by.name} marked them as no longer working here`)
+    const back = active && was.role === 'owner'
+    const next = pushHistory({ ...was, active, leftAt: active ? null : now, ...(back ? { contactSince: now } : {}) }, now, by, active ? `${by.name} marked them as working here again` : `${by.name} marked them as no longer working here`)
     const people = doc.people.slice()
     people[at] = next
     return { doc: { ...doc, people }, result: { person: next, changed: true } }

@@ -10,6 +10,8 @@ import { staffingRows } from '@lib/staffing/events'
 import { json, staffingFailure } from '@lib/staffing/http'
 import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import { createLogger } from '@lib/logger'
+import { noticeOwnerChange } from '@lib/owner-change-notice'
+import { ownersSnapshot } from '@lib/owner-notice'
 
 export const prerender = false
 
@@ -91,17 +93,22 @@ export const POST: APIRoute = async ({ request }) => {
   const by = await adminActor(request)
   const auditBy = { ...by, role: 'owner' as const }
   const id = typeof body.id === 'string' ? body.id : ''
+  // M1: the owners and their contacts before the change, so the other owners are told at the addresses they had.
+  const before = body.action === 'start-fresh' ? null : await ownersSnapshot()
+  const tell = async () => noticeOwnerChange(by, before, await ownersSnapshot())
   try {
     switch (body.action) {
       case 'add': {
         const r = await addPerson(body, by)
         await recordAudit({ by: auditBy, action: 'staff.add', target: { kind: 'staff', id: r.id, label: label(r) }, details: { role: r.role, phone: !!r.phone, email: !!r.email } })
+        await tell()
         return json(200, { data: { person: shown(r) } })
       }
       case 'edit': {
         const expected = typeof body.expectedUpdatedAt === 'string' ? body.expectedUpdatedAt : undefined
         const r = await editPerson(id, body, by, expected)
         await recordAudit({ by: auditBy, action: 'staff.edit', target: { kind: 'staff', id: r.id, label: label(r) }, details: { change: r.history[0]?.change ?? '' } })
+        await tell()
         return json(200, { data: { person: shown(r) } })
       }
       case 'leave': {
@@ -112,6 +119,7 @@ export const POST: APIRoute = async ({ request }) => {
           // It's stopped again if they come back, so an old link never wakes up.
           if (!(await stopLink(person, by))) linkWarning = `${person.givenName}’s calendar link couldn’t be stopped just now. It shows nothing while ${person.givenName} isn’t working here, and it’s stopped for good if ${person.givenName} comes back.`
           await recordAudit({ by: auditBy, action: 'staff.leave', target: { kind: 'staff', id: person.id, label: label(person) }, details: { linkStopped: !linkWarning } })
+          await tell()
         }
         const warning = [changed ? await stillOn(person) : null, linkWarning].filter(Boolean).join(' ')
         return json(200, { data: { person: shown(person) }, ...(warning ? { warning } : {}) })
@@ -123,6 +131,7 @@ export const POST: APIRoute = async ({ request }) => {
           // An old calendar link stays stopped: they make a new one in /staff, My shifts.
           if (!(await stopLink(person, by))) warning = `${person.givenName}’s old calendar link couldn’t be stopped. Tap Stop their calendar link on ${person.givenName}’s row.`
           await recordAudit({ by: auditBy, action: 'staff.return', target: { kind: 'staff', id: person.id, label: label(person) }, details: { linkStopped: !warning } })
+          await tell()
         }
         return json(200, { data: { person: shown(person) }, ...(warning ? { warning } : {}) })
       }

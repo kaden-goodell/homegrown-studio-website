@@ -26,4 +26,18 @@ describe('admin auth is always awaited', () => {
     }
     expect(bad).toEqual([])
   })
+
+  it('the auth calls are never renamed on import, and never awaited inside an expression (L7: blind spots of the check above)', () => {
+    const bad: string[] = []
+    for (const f of [...files('src'), ...files('netlify')]) {
+      if (f.endsWith('src/lib/admin-auth.ts')) continue
+      const text = readFileSync(f, 'utf8')
+      // `import { adminAuthorized as authed }` would hide every call from the check above.
+      for (const m of text.matchAll(/import\s*(?:type\s*)?\{[^}]*\b(adminAuthorized|adminConfigured|checkAdminPasscode|adminActor|adminDoor)\s+as\s+\w+[^}]*\}/g)) bad.push(`${f}: renamed import of ${m[1]}`)
+      // `import * as auth from '@lib/admin-auth'` then auth.adminAuthorized(...) is caught by the line check; a default re-export isn't possible.
+      // `await (adminAuthorized(req) && x)` awaits the && result, not the call.
+      for (const m of text.matchAll(/await\s*\(\s*(adminAuthorized|adminConfigured|checkAdminPasscode|adminActor)\([^)]*\)\s*(&&|\|\||\?\?)/g)) bad.push(`${f}: await of an expression around ${m[1]}`)
+    }
+    expect(bad).toEqual([])
+  })
 })

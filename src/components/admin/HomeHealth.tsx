@@ -10,7 +10,7 @@ import { api, HEALTH } from './classes/api'
 import type { Sheet } from './shell/router'
 import { dayAndClock } from './shell/time'
 
-export type HealthView = Record<Service, ServiceHealth> & { testSite?: boolean }
+export type HealthView = Record<Service, ServiceHealth> & { testSite?: boolean; muted?: boolean }
 
 export const SERVICE_NAME: Record<Service, string> = { email: 'Emails', text: 'Texts', square: 'Square' }
 export const TEST_LABEL: Record<Service, string> = { email: 'Send me a test email', text: 'Send me a test text', square: 'Check Square' }

@@ -32,7 +32,24 @@ export interface NotifyDoc {
 }
 
 /** An owner as the staff list holds them (the fields the rules need). */
-export interface NotifyOwner { id: string; name: string; email: string | null; phone: string | null }
+export interface NotifyOwner {
+  id: string; name: string; email: string | null; phone: string | null
+  /** When they became an owner or their email changed (M1); null/absent = from the start. */
+  contactSince?: string | null
+}
+
+/** M1: the weekly archive waits this long before going to a new owner or an owner's new email. */
+export const NEW_ADDRESS_HOLD_MS = 24 * 60 * 60_000
+/** Rows that wait for a new address (the weekly archive: every waiver, check-in and incident). */
+export const HELD_ROWS: readonly NotifyRow[] = ['archive']
+
+/** When a held row starts going to this owner, or null when it already does. */
+export function heldUntil(o: NotifyOwner, now = Date.now()): string | null {
+  const since = o.contactSince ? Date.parse(o.contactSince) : NaN
+  if (!Number.isFinite(since)) return null
+  const until = since + NEW_ADDRESS_HOLD_MS
+  return until > now ? new Date(until).toISOString() : null
+}
 
 /** A saved notifications doc, or null when it is missing or unreadable. Never throws. */
 export function parseNotifyDoc(json: string | null): NotifyDoc | null {
@@ -59,7 +76,12 @@ export function ownersFromStaffJson(json: string | null): NotifyOwner[] | null {
     if (!doc || !Array.isArray(doc.people)) return null
     return doc.people
       .filter((p: any) => p && p.active && p.role === 'owner' && typeof p.id === 'string')
-      .map((p: any) => ({ id: p.id, name: String(p.givenName ?? ''), email: typeof p.email === 'string' && p.email ? p.email : null, phone: typeof p.phone === 'string' && p.phone ? p.phone : null }))
+      .map((p: any) => ({
+        id: p.id, name: String(p.givenName ?? ''),
+        email: typeof p.email === 'string' && p.email ? p.email : null,
+        phone: typeof p.phone === 'string' && p.phone ? p.phone : null,
+        contactSince: typeof p.contactSince === 'string' ? p.contactSince : null,
+      }))
   } catch {
     return null
   }
@@ -77,10 +99,13 @@ export function pickedOwners(doc: NotifyDoc, owners: NotifyOwner[], row: NotifyR
  * The addresses (or phone numbers) a row goes to on `channel`, from the
  * owners picked on the saved screen. null = use the site's setup instead:
  * nothing saved on the screen yet, no staff list, or nobody picked has one.
+ * The weekly archive skips an owner whose address is less than a day old
+ * (M1, heldUntil).
  */
-export function savedRecipients(doc: NotifyDoc | null, owners: NotifyOwner[] | null, row: NotifyRow, channel: NotifyChannel): string[] | null {
+export function savedRecipients(doc: NotifyDoc | null, owners: NotifyOwner[] | null, row: NotifyRow, channel: NotifyChannel, now = Date.now()): string[] | null {
   if (!doc || !owners || owners.length === 0) return null
-  const out = pickedOwners(doc, owners, row).map((o) => (channel === 'email' ? o.email : o.phone)).filter((x): x is string => !!x)
+  const picked = pickedOwners(doc, owners, row).filter((o) => !HELD_ROWS.includes(row) || !heldUntil(o, now))
+  const out = picked.map((o) => (channel === 'email' ? o.email : o.phone)).filter((x): x is string => !!x)
   const unique = [...new Set(out.map((x) => x.trim()).filter(Boolean))]
   return unique.length ? unique : null
 }

@@ -78,10 +78,29 @@ describe('saved on the screen: each row goes to the picked owners’ staff list 
   it('removing an owner: their rows fall to whoever is left; when all picked owners left, every owner', async () => {
     const dana = await addPerson({ givenName: 'Dana', familyName: 'Reyes', role: 'owner', phone: '256-555-0123', email: 'dana@example.com' }, BY)
     await saveNotify({ ...ALL(['TM1', 'TM4']), 'tax-report': ['TM1', dana.id], archive: [dana.id] }, BY, null)
+    // M1: a brand-new owner's address waits a day for the records archive (the site setup gets it meanwhile, and the screen says when it starts).
+    expect(await emailsFor('archive')).toBe('kaden@ourhometownstudio.com, catherine@ourhometownstudio.com')
+    expect((await notifyView()).rows.find((r) => r.row === 'archive')!.held).toEqual([{ name: 'Dana', until: expect.any(String) }])
+    expect(await emailsFor('tax-report')).toBe('kaden@example.com, dana@example.com') // only the archive waits
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(Date.now() + 24 * 3600_000 + 60_000)
     expect(await emailsFor('archive')).toBe('dana@example.com')
+    expect((await notifyView()).rows.find((r) => r.row === 'archive')!.held).toEqual([])
+    vi.useRealTimers()
     await setWorking(dana.id, false, BY)
     expect(await emailsFor('tax-report')).toBe('kaden@example.com')
     expect(await emailsFor('archive')).toBe('kaden@example.com, cat@example.com')
+  })
+
+  it('M1: an owner’s changed email waits a day for the archive; a phone change or a crew edit doesn’t', async () => {
+    await saveNotify(ALL(['TM1', 'TM4']), BY, null)
+    expect(await emailsFor('archive')).toBe('kaden@example.com, cat@example.com')
+    const cat = (await staffListForOwners()).people.find((x) => x.id === 'TM4')!
+    const moved = await editPerson('TM4', { givenName: 'Catherine', familyName: 'Goodell', role: 'owner', phone: '+12565550104', email: 'new-cat@example.com' }, BY, (cat as any).updatedAt)
+    expect(await emailsFor('archive')).toBe('kaden@example.com')
+    expect(await emailsFor('warnings-email')).toBe('kaden@example.com, new-cat@example.com')
+    await editPerson('TM4', { givenName: 'Catherine', familyName: 'Goodell', role: 'owner', phone: '+12565550199', email: 'new-cat@example.com' }, BY, moved.updatedAt)
+    expect(((await staffListForOwners()).people.find((x) => x.id === 'TM4') as any).contactSince).toBe(moved.contactSince)
   })
 
   it('an owner with no mobile: texts fall back to the site’s numbers; an email row with nobody to email is refused', async () => {

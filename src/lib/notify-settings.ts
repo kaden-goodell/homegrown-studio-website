@@ -28,7 +28,7 @@ import { createLogger } from '@lib/logger'
 import type { By } from '@lib/staff-auth'
 import { savedOwners, type StaffPerson } from '@lib/staff-directory'
 import {
-  ARCHIVE_FALLBACK, NOTIFY_ROWS, ROW_CHANNELS, parseNotifyDoc, pickedOwners, savedRecipients,
+  ARCHIVE_FALLBACK, HELD_ROWS, NOTIFY_ROWS, ROW_CHANNELS, heldUntil, parseNotifyDoc, pickedOwners, savedRecipients,
   type NotifyChannel, type NotifyDoc, type NotifyOwner, type NotifyRow,
 } from '@lib/notify-recipients'
 
@@ -86,7 +86,7 @@ async function readDoc(): Promise<NotifyDoc | null> {
   return doc
 }
 
-const toOwner = (p: StaffPerson): NotifyOwner => ({ id: p.id, name: p.name, email: p.email, phone: p.phone })
+const toOwner = (p: StaffPerson): NotifyOwner => ({ id: p.id, name: p.name, email: p.email, phone: p.phone, contactSince: p.contactSince ?? null })
 
 function envPhones(): string[] {
   const meta: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {}
@@ -141,6 +141,8 @@ export interface NotifyRowView {
   goesTo: { email?: string[]; text?: string[] }
   /** 'screen': set here; 'setup': from the site setup (never saved here, or nobody picked has one). */
   from: { email?: 'screen' | 'setup'; text?: 'screen' | 'setup' }
+  /** M1: picked owners this row waits for (a new owner or a new email: it starts a day later). */
+  held: { name: string; until: string }[]
 }
 
 export interface NotifyView {
@@ -172,7 +174,10 @@ export async function notifyView(): Promise<NotifyView> {
       goesTo[ch] = ch === 'text' ? list.map(lastFour) : list
       from[ch] = saved ? 'screen' : 'setup'
     }
-    return { row, label: ROW_LABEL[row], channels, picked, goesTo, from }
+    const held = doc && staff && HELD_ROWS.includes(row)
+      ? pickedOwners(doc, owners, row).flatMap((o) => { const until = heldUntil(o); return until && o.email ? [{ name: o.name, until }] : [] })
+      : []
+    return { row, label: ROW_LABEL[row], channels, picked, goesTo, from, held }
   })
   return { saved: !!doc, updatedAt: doc?.updatedAt ?? null, by: doc?.by.name ?? null, owners, noList: !staff, rows }
 }

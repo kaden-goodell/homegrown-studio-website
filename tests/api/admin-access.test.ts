@@ -74,7 +74,9 @@ describe('/admin › Admin access: the passcode', () => {
     expect(await signedIn(other)).toBe(200)
     expect((await call('GET')).body.data).toMatchObject({ setInAdmin: false, updatedAt: null, by: null, damaged: false, settingTookOver: false, readOnly: false, min: 8 })
 
-    const saved = await call('POST', change('owner-secret', '  studio-door-7 ', { again: 'studio-door-7' }))
+    // L3: nothing is trimmed: a space at an end is refused in words, never silently dropped.
+    expect(await call('POST', change('owner-secret', '  studio-door-7 '))).toMatchObject({ status: 400, body: { error: ADMIN_PASSCODE_MESSAGES.spaces } })
+    const saved = await call('POST', change('owner-secret', 'studio-door-7'))
     expect(saved.status).toBe(200)
     expect(saved.cookie).toMatch(/^hg_admin=/)
     expect(await signedIn(saved.cookie!)).toBe(200) // the saving device signs in again on the spot

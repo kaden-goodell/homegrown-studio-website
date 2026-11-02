@@ -87,8 +87,27 @@ describe('/api/admin/health.json', () => {
     expect((await call('GET')).body.data.email.state).toBe('failing')
   })
 
-  it('on a test site the message goes to the test inbox, and the answer says so', async () => {
+  it('M5: on the muted test site nothing is sent, the answer says “Not sent”, it is never a success, and the warning stays', async () => {
     vi.stubEnv('STORE_NAMESPACE', 'preview')
+    vi.stubEnv('SQUARE_ENVIRONMENT', 'sandbox')
+    await staffListForOwners()
+    await noteFailure('email', 'auth')
+    const fetchMock = vi.fn(async () => new Response('{}', { status: 202 }))
+    vi.stubGlobal('fetch', fetchMock)
+    const r = await call('POST', { action: 'test-email' })
+    expect(r.body.data).toEqual({ ok: false, muted: true, message: route.HEALTH_MESSAGES.muted })
+    expect(r.body.data.message).toMatch(/^Not sent — this is a test site/)
+    expect(sendMail).not.toHaveBeenCalled()
+    const t = await call('POST', { action: 'test-text' }, { who: 'Kaden' })
+    expect(t.body.data).toEqual({ ok: false, muted: true, message: route.HEALTH_MESSAGES.muted })
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(audit.map((a) => a.details)).toEqual([{ ok: false, muted: true }, { ok: false, muted: true }])
+    expect((await call('GET')).body.data).toMatchObject({ muted: true, email: { state: 'failing' } })
+  })
+
+  it('on a test site with messages turned on, the message goes to the test inbox, and the answer says so', async () => {
+    vi.stubEnv('STORE_NAMESPACE', 'preview')
+    vi.stubEnv('PREVIEW_MESSAGES', 'on')
     await staffListForOwners()
     const r = await call('POST', { action: 'test-email' })
     expect(r.body.data.message).toMatch(/goes to the test inbox and phone instead/)
@@ -118,6 +137,12 @@ describe('/api/admin/health.json', () => {
     expect((await call('GET')).body.data.square.state).toBe('failing')
     fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ location: { id: 'L1' } }), { status: 200 }))
     expect((await call('POST', { action: 'check-square' })).body.data.ok).toBe(true)
+    expect((await call('GET')).body.data.square.state).toBe('ok')
+  })
+
+  it('Check Square: a 403 for one missing permission is “couldn’t reach”, not a refused key, and doesn’t warn', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ errors: [{ code: 'INSUFFICIENT_SCOPES' }] }), { status: 403 })))
+    expect((await call('POST', { action: 'check-square' })).body.data).toEqual({ ok: false, message: route.HEALTH_MESSAGES.squareDown })
     expect((await call('GET')).body.data.square.state).toBe('ok')
   })
 

@@ -26,7 +26,11 @@
  * data with no record value, `calendar-feeds` (scrambled calendar-link
  * keys only; a lost one is replaced with "Make a new link"), and
  * `staff-access` (the staff passcode's salted hash; an owner sets a new one
- * in /admin). `staff-people` keeps its `import-failures` counter next to the
+ * in /admin), `admin-access` (the /admin passcode's salted hash, its marker,
+ * recovery-link tokens and the wrong-passcode count), `outbound-keys` (the
+ * Gmail app password and Quo key pasted in /admin, encrypted) and
+ * `outbound-health` (whether emails, texts and Square are working).
+ * `staff-people` keeps its `import-failures` counter next to the
  * list; it is harmless in an export.
  */
 export interface ArchiveStoreEntry {

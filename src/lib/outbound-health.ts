@@ -3,7 +3,7 @@
  *
  * Every send or call reports how it went: email.ts (Gmail), quo.ts (texts)
  * and the Square calls (classes/square-api.ts and the Square SDK client, only
- * when Square refuses the site's key: 401/403). One small record per service
+ * when Square refuses the site's key itself: squareAnswerKind). One small record per service
  * in kv `outbound-health`: since when it has been failing, how many in a row,
  * auth (the key or password was refused) or other (network, Square/Google
  * hiccup), and when it last worked. A success clears it. Never the message,
@@ -13,7 +13,8 @@
  * Check Square and What to do) while one is failing, so it never depends on
  * email working. The moment one starts failing, the owners also hear by the
  * other way: a text when emails stop, an email when texts stop, both for
- * Square.
+ * Square. At most once per service per 12 hours (ALERT_GAP_MS), however
+ * often it flaps.
  *
  * Best effort: nothing here ever throws or slows a send down beyond one small
  * read a minute. Never written from a test site that shares the live stores
@@ -41,9 +42,14 @@ export interface HealthRecord {
   kind: FailureKind | null
   /** When the owners were told by the other way, for this run. */
   toldAt: string | null
+  /** The last time the owners were told about this service, kept when a run clears (H1: at most one alert per 12 hours). */
+  lastToldAt: string | null
 }
 
-const EMPTY: HealthRecord = { failingSince: null, lastFailureAt: null, lastOkAt: null, count: 0, kind: null, toldAt: null }
+const EMPTY: HealthRecord = { failingSince: null, lastFailureAt: null, lastOkAt: null, count: 0, kind: null, toldAt: null, lastToldAt: null }
+
+/** At most one "the other way" alert per service in this long, however often it flaps (H1: Kaden, "you're blowing up my phone"). */
+export const ALERT_GAP_MS = 12 * 60 * 60_000
 
 let store: KvStore | null = null
 const kv = (): KvStore => (store ??= makeKvStore('outbound-health', 'outbound-health'))
@@ -80,16 +86,55 @@ export function isFailing(r: HealthRecord | null): boolean {
   return r.kind === 'auth' ? r.count >= 1 : r.count >= 2
 }
 
-/** Gmail: a refused login (EAUTH, 534/535) is auth; anything else other. */
-export function emailFailureKind(err: unknown): FailureKind {
-  const e = err as { code?: unknown; responseCode?: unknown; message?: unknown } | null
-  if (e && (e.code === 'EAUTH' || e.responseCode === 535 || e.responseCode === 534)) return 'auth'
-  if (e && typeof e.message === 'string' && /Invalid login|Username and Password not accepted|BadCredentials/i.test(e.message)) return 'auth'
-  return 'other'
+/** Connection-level nodemailer codes: Gmail itself can't be reached or dropped us. */
+const EMAIL_CONNECTION_CODES = new Set(['ECONNECTION', 'ETIMEDOUT', 'ESOCKET', 'EDNS', 'ECONNREFUSED', 'ECONNRESET', 'ENOTFOUND', 'EAI_AGAIN', 'EPIPE'])
+
+/**
+ * Does a Gmail error mean emails aren't going out? A refused login (EAUTH,
+ * 534/535) is auth; Gmail unreachable or saying "try later" (connection
+ * codes, 421/454, 4.4.x/5.4.x) is other; anything else is null and doesn't
+ * count (H1): a rejected recipient (EENVELOPE, 550–553) is one customer's
+ * odd address, not the service failing, and a customer can type one.
+ */
+export function emailFailureKind(err: unknown): FailureKind | null {
+  const e = err as { code?: unknown; responseCode?: unknown; message?: unknown; response?: unknown } | null
+  if (!e) return null
+  if (e.code === 'EAUTH' || e.responseCode === 535 || e.responseCode === 534) return 'auth'
+  if (typeof e.message === 'string' && /Invalid login|Username and Password not accepted|BadCredentials/i.test(e.message)) return 'auth'
+  if (e.code === 'EENVELOPE') return null
+  if (typeof e.code === 'string' && EMAIL_CONNECTION_CODES.has(e.code)) return 'other'
+  if (e.responseCode === 421 || e.responseCode === 454) return 'other'
+  const text = `${typeof e.response === 'string' ? e.response : ''} ${typeof e.message === 'string' ? e.message : ''}`
+  if (/\b[45]\.4\.\d{1,3}\b/.test(text)) return 'other'
+  return null
 }
 
-/** An HTTP status from Quo or Square: 401/403 are auth. */
+/** An HTTP status from Quo: 401/403 are auth. */
 export const statusKind = (status: number): FailureKind => (status === 401 || status === 403 ? 'auth' : 'other')
+
+/** Square error codes that mean the site's key itself is refused (H1). */
+const SQUARE_KEY_REFUSED = new Set(['UNAUTHORIZED', 'ACCESS_TOKEN_EXPIRED', 'ACCESS_TOKEN_REVOKED'])
+
+/**
+ * How a Square answer counts (H1): 'refused' only when Square refuses the
+ * site's key (401, or a 403 whose first error is UNAUTHORIZED /
+ * ACCESS_TOKEN_EXPIRED / ACCESS_TOKEN_REVOKED); 'ignore' for any other 403
+ * (a permission the key lacks for one endpoint, e.g. INSUFFICIENT_SCOPES,
+ * says nothing about the key working); 'ok' for every other answer.
+ */
+export function squareAnswerKind(status: number, body: unknown): 'refused' | 'ignore' | 'ok' {
+  if (status === 401) return 'refused'
+  if (status !== 403) return 'ok'
+  const code = (body as { errors?: { code?: unknown }[] } | null)?.errors?.[0]?.code
+  return typeof code === 'string' && SQUARE_KEY_REFUSED.has(code) ? 'refused' : 'ignore'
+}
+
+/** Report one Square answer to the health record. Never throws. */
+export async function noteSquareAnswer(status: number, body: unknown): Promise<void> {
+  const k = squareAnswerKind(status, body)
+  if (k === 'refused') await noteFailure('square', 'auth')
+  else if (k === 'ok') await noteOk('square')
+}
 
 /** Count one failure. Never throws. */
 export async function noteFailure(service: Service, kind: FailureKind, now = new Date()): Promise<void> {
@@ -107,8 +152,13 @@ export async function noteFailure(service: Service, kind: FailureKind, now = new
         count: Math.min(cur.count + 1, 10_000),
         kind: kind === 'auth' || cur.kind === 'auth' ? 'auth' : 'other',
       }
-      becameFailing = isFailing(next) && !cur.toldAt
-      if (becameFailing) next.toldAt = now.toISOString()
+      if (isFailing(next) && !cur.toldAt) {
+        // One alert per service per 12 hours, whatever happens in between (a fail → ok → fail flap is still one).
+        const quiet = cur.lastToldAt && now.getTime() - Date.parse(cur.lastToldAt) < ALERT_GAP_MS
+        becameFailing = !quiet
+        next.toldAt = quiet ? cur.lastToldAt : now.toISOString()
+        if (!quiet) next.lastToldAt = now.toISOString()
+      } else becameFailing = false
       if (await kv().setIfMatch(service, JSON.stringify(next), etag, value !== null)) {
         rec = next
         known.set(service, { failing: true, at: Date.now() })

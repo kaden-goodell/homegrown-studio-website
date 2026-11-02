@@ -277,7 +277,7 @@ export const HELP_SECTIONS: HelpSection[] = [
     intro: 'The website sends emails through the studio’s Google account, texts through Quo, and takes payments through Square. If one stops, Home says so.',
     points: [
       'More › **Email, texts and Square** shows whether each one is working, with **Send me a test email**, **Send me a test text** and **Check Square**. The test email and text go to your own email and mobile in More › Staff › People.',
-      'When one stops, Home shows a warning with the same buttons and **What to do**. The owners also hear the other way: a text when emails stop, an email when texts stop. The warning clears by itself as soon as one goes through.',
+      'When one stops, Home shows a warning with the same buttons and **What to do**. The owners also hear the other way: a text when emails stop, an email when texts stop. That alert comes at most once every 12 hours for each one, so a service that keeps stopping and starting doesn’t fill your phone. The warning clears by itself as soon as one goes through.',
       'Nothing booked is lost while one is down. Call or text anyone waiting on an email, and take payments on the Square app on the iPad if the website can’t.',
     ],
   },
@@ -320,9 +320,11 @@ export const HELP_SECTIONS: HelpSection[] = [
     points: [
       'More › **Admin access** shows who the owners are and when the /admin passcode was last changed.',
       'The owners are the people marked **Owner** in More › Staff › People. To add an owner, add them (or edit them) as Owner. To take someone off, edit them to **Crew** or tap **No longer working here**. **Change who’s an owner** opens that list. There’s always at least one owner. Each owner picks their name under “Who’s using this?”, and gets the alerts picked for them in More › **Notifications**.',
-      '**Change the admin passcode**: type the one you use now, then the new one twice (at least 8 letters or numbers, and not the staff passcode), then **Save new admin passcode**. Every other phone or iPad signed in to /admin is signed out. The one you’re on stays signed in. Change it when an owner leaves, a phone is lost, or someone else saw it, and write it somewhere safe.',
-      'After 8 wrong passcodes from one place, /admin makes that place wait 15 minutes before trying again.',
-      'If nobody remembers the passcode: whoever holds the website’s hosting login (it’s on the studio’s accounts sheet) changes the ADMIN_PASSCODE setting there and redeploys the site. Sign in with that one, then save a new one in **Admin access**. The old setting never works again by itself.',
+      '**Change the admin passcode**: type the one you use now, then the new one twice (at least 8 letters or numbers, no space at the start or end, and not the staff passcode), then **Save new admin passcode**. Every other phone or iPad signed in to /admin is signed out. The one you’re on stays signed in. Change it when an owner leaves, a phone is lost, or someone else saw it, and write it somewhere safe. The other owners get an email and a text saying you changed it.',
+      'Taking an owner off in Staff › People (made **Crew**, or **No longer working here**) asks **Change the admin passcode now?** right there, because their phone may still be signed in to /admin. **Change it now** shows the form; **Not now** leaves it.',
+      'When someone is made an owner, an owner is taken off, or an owner’s email or mobile changes, the other owners get an email and a text at the email and mobile they had before. If you get one you didn’t expect, check Staff › People and **Notifications**, and change the admin passcode.',
+      'After 8 wrong passcodes from one place, /admin makes that place wait 15 minutes before trying again. After 20 wrong ones in a day from anywhere, the owners get a text and an email, and **Admin access** says so. After 200 in a day, passcode sign-in pauses until the next day (the email link under **Forgot the passcode?** still works).',
+      'If nobody remembers the passcode and email isn’t working either (the last resort): whoever holds the website’s hosting login (it’s on the studio’s accounts sheet) sets the ADMIN_PASSCODE setting there to a new one of at least 8 letters or numbers and redeploys the site. Sign in with that one, then save a new one in **Admin access**. Every owner gets an email and a text when that happens. A setting that was in force at one of the last changes here never works again, even if it’s put back.',
     ],
   },
   {
@@ -332,7 +334,8 @@ export const HELP_SECTIONS: HelpSection[] = [
       'More › **Notifications** decides who gets each of these: texts when something needs you, “someone just booked”, the morning warnings and heads-up emails, the monthly tax split, and the weekly records archive.',
       'Tick the owners for each one, then **Save notifications**. They go to each owner’s email and mobile in More › Staff › People (**Edit emails and mobiles** opens it).',
       'Until you save here, everything goes where the site was set up to send it, and the screen shows where. The tax split and the records archive go to both owners.',
-      'Someone who stops being an owner stops getting them. If nobody picked for one is left, it goes to every owner. Texts for an owner with no mobile on file go to the phone numbers the site was set up with.',
+      'Someone who stops being an owner stops getting them. If nobody picked for one is left, it goes to every owner. An owner with no mobile on file gets no texts; only when nobody picked has a mobile do the texts go to the phone numbers the site was set up with.',
+      'The weekly records archive waits a day before it goes to a new owner, or to an owner’s new email. The screen shows when it starts. Saving this screen sends the other owners an email and a text saying what changed.',
       'Keep the weekly archive emails: they are the record of every waiver, check-in and incident.',
     ],
   },

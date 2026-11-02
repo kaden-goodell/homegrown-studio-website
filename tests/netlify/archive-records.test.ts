@@ -160,6 +160,18 @@ describe('who gets the archive (G5)', () => {
     const read = async (store: string) => (store === 'notify-settings' ? notify({ archive: ['TM4'] }) : staff)
     expect(await archiveTo(read)).toBe('cat@example.com')
   })
+  it('M1: an owner made (or whose email changed) under 24 hours ago doesn’t get it yet; the others do', async () => {
+    const archiveTo = await load()
+    const fresh = JSON.stringify({ people: [
+      { id: 'TM1', givenName: 'Kaden', role: 'owner', active: true, email: 'kaden@example.com', phone: null },
+      { id: 'TM9', givenName: 'Dana', role: 'owner', active: true, email: 'thief@example.com', phone: null, contactSince: new Date(Date.now() - 3600_000).toISOString() },
+      { id: 'TM8', givenName: 'Bea', role: 'owner', active: true, email: 'bea@example.com', phone: null, contactSince: new Date(Date.now() - 25 * 3600_000).toISOString() },
+    ] })
+    expect(await archiveTo(async (store: string) => (store === 'notify-settings' ? notify({}) : fresh))).toBe('kaden@example.com, bea@example.com')
+    // Only the new one picked: the site setup gets it until the day is up.
+    delete process.env.ARCHIVE_TO
+    expect(await archiveTo(async (store: string) => (store === 'notify-settings' ? notify({ archive: ['TM9'] }) : fresh))).toBe('kaden@ourhometownstudio.com, catherine@ourhometownstudio.com')
+  })
   it('a row never set goes to every owner (never crew)', async () => {
     const archiveTo = await load()
     expect(await archiveTo(async (store: string) => (store === 'notify-settings' ? notify({}) : staff))).toBe('kaden@example.com, cat@example.com')

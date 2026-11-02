@@ -7,6 +7,7 @@ import { squareFetch, squareSettings } from '@lib/classes/square-api'
 import { sendEmail } from '@lib/email'
 import { createLogger } from '@lib/logger'
 import { outboundConfigured, outboundHealthNow } from '@lib/outbound-status'
+import { messagesMuted } from '@lib/preview-outbound'
 import { sendQuoText } from '@lib/quo'
 import { rateLimited } from '@lib/rate-limit'
 import { json } from '@lib/staffing/http'
@@ -32,9 +33,11 @@ export const HEALTH_MESSAGES = {
   squareRefused: 'Square refused the website’s key. See What to do.',
   squareDown: 'Couldn’t reach Square just now. Try again in a few minutes. If it keeps happening, see What to do.',
   tooMany: 'That’s a lot of tests. Wait a few minutes and try again.',
+  /** M5: the sandbox preview sends nothing at all, so a test there proves nothing and is never a success. */
+  muted: 'Not sent — this is a test site, so no emails or texts go out here. It’s listed in More › Messages.',
 } as const
 
-/** On a test site every message goes to the test inbox and phone (preview-outbound.ts). */
+/** A test site with messages turned back on (PREVIEW_MESSAGES=on): everything goes to the test inbox and phone (preview-outbound.ts). */
 const onTestSite = () => !!(typeof process !== 'undefined' && (process.env.STORE_NAMESPACE ?? '').trim())
 
 const configured = outboundConfigured
@@ -44,13 +47,15 @@ const configured = outboundConfigured
  * GET → { email, text, square: { state: ok|failing|not-set|unknown, since, kind, count, lastOkAt }, testSite }
  * POST { action: 'test-email' | 'test-text' | 'check-square' } → { ok, message }
  *   The test email and text go to the signed-in owner's own email and mobile
- *   on the staff list (on a test site, to the test inbox and phone instead).
+ *   on the staff list (on a test site with messages on, to the test inbox and
+ *   phone instead; on the muted test site nothing is sent and the answer says
+ *   "Not sent", never a success).
  *   Check Square makes one read. Each result also updates the health record
  *   (a working send clears the warning). Rate limited; audited (never contact details).
  */
 export const GET: APIRoute = async ({ request }) => {
   if (!(await adminAuthorized(request))) return json(401, { error: 'Sign in first.' })
-  return json(200, { data: { ...(await outboundHealthNow()), testSite: onTestSite() } })
+  return json(200, { data: { ...(await outboundHealthNow()), testSite: onTestSite(), muted: messagesMuted() } })
 }
 
 export const POST: APIRoute = async ({ request, clientAddress }) => {
@@ -70,10 +75,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
       await audit(true)
       return json(200, { data: { ok: true, message: 'Square answered. The website’s connection to Square is working.' } })
     } catch (e) {
-      const status = (e as { status?: number }).status
+      const { status, keyRefused } = e as { status?: number; keyRefused?: boolean }
       await audit(false)
       logger.warn('Check Square failed', { status })
-      return json(200, { data: { ok: false, message: status === 401 || status === 403 ? HEALTH_MESSAGES.squareRefused : HEALTH_MESSAGES.squareDown } })
+      return json(200, { data: { ok: false, message: keyRefused ? HEALTH_MESSAGES.squareRefused : HEALTH_MESSAGES.squareDown } })
     }
   }
 
@@ -81,9 +86,15 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (!owner) return json(400, { error: HEALTH_MESSAGES.pickWho })
   if (!owner.id) return json(400, { error: HEALTH_MESSAGES.noList })
   const note = onTestSite() ? ' This is a test site, so it goes to the test inbox and phone instead.' : ''
+  // M5: on the muted test site nothing is sent; say so, never "Sent", and never count it as working.
+  const mutedAnswer = async () => {
+    await recordAudit({ by: { ...by, role: 'owner' }, action: `health.${action}`, target: { kind: 'settings', id: 'health', label: 'Email, texts and Square' }, details: { ok: false, muted: true } })
+    return json(200, { data: { ok: false, muted: true, message: HEALTH_MESSAGES.muted } })
+  }
 
   if (action === 'test-email') {
     if (!owner.email) return json(400, { error: HEALTH_MESSAGES.noEmail })
+    if (messagesMuted()) return mutedAnswer()
     if (!configured().email) return json(200, { data: { ok: false, message: HEALTH_MESSAGES.emailNotSet } })
     const line = `This is the test email you asked for from /admin. If you’re reading it, emails from the website are going out.`
     const { sent } = await sendEmail({ to: owner.email, subject: 'Test email from the Hometown Studio website', text: line, html: `<p>${line}</p>` })
@@ -92,6 +103,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   }
 
   if (!owner.phone) return json(400, { error: HEALTH_MESSAGES.noPhone })
+  if (messagesMuted()) return mutedAnswer()
   if (!configured().text) return json(200, { data: { ok: false, message: HEALTH_MESSAGES.textNotSet } })
   try {
     await sendQuoText({ to: owner.phone, content: 'Hometown Studio: this is the test text you asked for from /admin. Texts from the website are going out.' })

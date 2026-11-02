@@ -106,6 +106,59 @@ describe('More › Staff › People (our own list)', () => {
     expect(bodies(fetchMock, PEOPLE)[0].body).toEqual({ action: 'leave', id: 'TM2' })
   })
 
+  it('M2: taking an owner off asks “Change the admin passcode now?” in the same sheet; Change it now shows the form and saves it', async () => {
+    const ADMIN_ACCESS = '/api/admin/admin-access.json'
+    const owners = [LIST[0], p('TM1', 'Kaden', { role: 'owner', familyName: 'Goodell' }), LIST[1]]
+    const base = fetchMock.getMockImplementation() as (url: string, init?: RequestInit) => Promise<unknown>
+    fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      const path = String(url).split('?')[0]
+      if (path === PEOPLE && (init.method ?? 'GET') === 'GET') return ok({ data: { people: owners, saved: true, startedFrom: 'square' } })
+      if (path === PEOPLE) return ok({ data: { person: { ...owners[1], active: false } } })
+      if (path === ADMIN_ACCESS && (init.method ?? 'GET') === 'GET') return ok({ data: { setInAdmin: true, updatedAt: '2026-11-01T15:00:00.000Z', by: 'Kaden', damaged: false, settingTookOver: false, readOnly: false, min: 8, owners: [], ownerSource: 'staff-list' } })
+      if (path === ADMIN_ACCESS) return ok({ data: { updatedAt: '2026-11-02T15:00:00.000Z' } })
+      return base(url, init)
+    })
+    renderSheet(<PeoplePanel />)
+    const working = await screen.findByRole('list', { name: 'Working here' })
+    const kaden = within(working).getAllByRole('listitem')[1]
+    fireEvent.click(within(kaden).getByRole('button', { name: 'No longer working here' }))
+    fireEvent.click(within(within(kaden).getByRole('group')).getByRole('button', { name: 'Yes, no longer here' }))
+    const prompt = await screen.findByRole('group', { name: 'Change the admin passcode now?' })
+    expect(prompt).toHaveTextContent('Kaden’s phone may still be signed in to /admin.')
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Change it now' }))
+    const form = await within(prompt).findByRole('group', { name: 'Change the admin passcode' })
+    fireEvent.change(within(form).getByLabelText('Passcode you use now'), { target: { value: 'old-pass-1' } })
+    fireEvent.change(within(form).getByLabelText('New passcode'), { target: { value: 'new-pass-22' } })
+    fireEvent.change(within(form).getByLabelText('New passcode again'), { target: { value: 'new-pass-22' } })
+    fireEvent.click(within(form).getByRole('button', { name: 'Save new admin passcode' }))
+    expect(await screen.findByText(/The admin passcode is changed\..*Check More › Admin access and Notifications for anything you didn’t change\./)).toBeInTheDocument()
+    expect(bodies(fetchMock, ADMIN_ACCESS)[0].body).toEqual({ current: 'old-pass-1', passcode: 'new-pass-22', again: 'new-pass-22', expectedUpdatedAt: '2026-11-01T15:00:00.000Z' })
+    expect(screen.queryByRole('group', { name: 'Change the admin passcode now?' })).not.toBeInTheDocument()
+  })
+
+  it('M2: Not now closes the question; taking crew off never asks', async () => {
+    renderSheet(<PeoplePanel />)
+    const working = await screen.findByRole('list', { name: 'Working here' })
+    const jess = within(working).getAllByRole('listitem')[1]
+    fireEvent.click(within(jess).getByRole('button', { name: 'No longer working here' }))
+    fireEvent.click(within(within(jess).getByRole('group')).getByRole('button', { name: 'Yes, no longer here' }))
+    await screen.findByText('Jessica is no longer on the staff list.')
+    expect(screen.queryByRole('group', { name: 'Change the admin passcode now?' })).not.toBeInTheDocument()
+  })
+
+  it('M2: editing an owner to Crew asks too, and Not now closes it', async () => {
+    renderSheet(<PeoplePanel />)
+    const working = await screen.findByRole('list', { name: 'Working here' })
+    const cat = within(working).getAllByRole('listitem')[0]
+    fireEvent.click(within(cat).getByRole('button', { name: 'Edit' }))
+    fireEvent.click(within(cat).getByRole('button', { name: 'Crew' }))
+    fireEvent.click(within(cat).getByRole('button', { name: /^Save/ }))
+    const prompt = await screen.findByRole('group', { name: 'Change the admin passcode now?' })
+    expect(prompt).toHaveTextContent('Catherine’s phone may still be signed in to /admin.')
+    fireEvent.click(within(prompt).getByRole('button', { name: 'Not now' }))
+    expect(screen.queryByRole('group', { name: 'Change the admin passcode now?' })).not.toBeInTheDocument()
+  })
+
   it('Stop their calendar link asks in the sheet first, then stops only that person’s link', async () => {
     renderSheet(<PeoplePanel />)
     const working = await screen.findByRole('list', { name: 'Working here' })

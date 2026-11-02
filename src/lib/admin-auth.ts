@@ -16,7 +16,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { By } from '@lib/staff-auth'
 import { ADMIN_WHO_HEADER } from '@lib/admin-who'
 import { resolveOwner } from '@lib/admin-owners'
-import { envIsNewSince, matchesAdminRecord, readAdminPasscode } from '@lib/admin-passcode'
+import { envIsNewSince, matchesAdminRecord, noticeEnvTakeover, readAdminPasscode } from '@lib/admin-passcode'
 
 const COOKIE = 'hg_admin'
 const MAX_AGE = 30 * 24 * 60 * 60 // 30 days, in seconds
@@ -41,18 +41,35 @@ function safeEq(a: string, b: string): boolean {
 /** What the door checks against right now: a signing key and a passcode check. null = nobody gets in. */
 interface Access { key: string; check: (input: string) => Promise<boolean>; source: 'admin' | 'setting' }
 
-async function access(): Promise<Access | null> {
+/** Why nobody can sign in right now: the store can't be read, the saved passcode is damaged, or none is set up. */
+export type AdminDoorClosed = 'unreadable' | 'damaged' | 'none'
+
+async function door(): Promise<{ access: Access } | { closed: AdminDoorClosed }> {
   const state = await readAdminPasscode()
-  if (state === 'unreadable') return null
+  if (state === 'unreadable') return { closed: 'unreadable' }
   const p = envAdminPasscode()
   if (state.kind === 'set' && !envIsNewSince(state.marker, p)) {
     const rec = state.rec
-    return { key: `${rec.hash}:${rec.gen}:admin-cookie`, check: (input) => matchesAdminRecord(rec, input), source: 'admin' }
+    return { access: { key: `${rec.hash}:${rec.gen}:admin-cookie`, check: (input) => matchesAdminRecord(rec, input), source: 'admin' } }
   }
-  // Once an owner has set one, only a deliberately NEW setting opens the door (forgotten or damaged passcode); the old one never comes back.
-  if (state.kind !== 'none' && !envIsNewSince(state.marker, p)) return null
-  if (!p) return null
-  return { key: envKey(p), check: async (input) => typeof input === 'string' && safeEq(input, p), source: 'setting' }
+  if (state.kind !== 'none') {
+    // Once an owner has set one, only a deliberately NEW setting opens the door (forgotten or damaged passcode); the old ones never come back.
+    if (!envIsNewSince(state.marker, p)) return { closed: state.kind === 'damaged' ? 'damaged' : 'none' }
+    await noticeEnvTakeover(p) // M4: the owners hear the first time
+  }
+  if (!p) return { closed: 'none' }
+  return { access: { key: envKey(p), check: async (input) => typeof input === 'string' && safeEq(input, p), source: 'setting' } }
+}
+
+async function access(): Promise<Access | null> {
+  const d = await door()
+  return 'access' in d ? d.access : null
+}
+
+/** 'open', or why nobody can sign in (sign-in shows a different message for each). */
+export async function adminDoor(): Promise<'open' | AdminDoorClosed> {
+  const d = await door()
+  return 'access' in d ? 'open' : d.closed
 }
 
 /** True when there is an admin passcode (set in /admin, or ADMIN_PASSCODE) and it can be read. */
