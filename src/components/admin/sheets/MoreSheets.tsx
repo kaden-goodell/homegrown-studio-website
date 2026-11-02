@@ -2,7 +2,8 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import type { MonthReport } from '@pages/api/admin/reports.json'
 import { OWNERS, type Owner } from '@lib/admin-who'
 import { formatMoney } from '@lib/money'
-import { api, REPORTS, SEED } from '../classes/api'
+import { api, PREVIEW_MESSAGES, REPORTS, SEED } from '../classes/api'
+import type { MutedMessage } from '@lib/preview-outbound'
 import { monthLabel } from '../classes/dates'
 import { Failed, Seg, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet } from '../shell/Sheet'
@@ -125,6 +126,43 @@ export function SandboxSheet() {
           {seed.commands.map((cmd) => <code key={cmd} style={{ display: 'block', overflowWrap: 'anywhere', userSelect: 'all', fontSize: '0.85rem' }}>{cmd}</code>)}
         </div>
       )}
+    </SheetFrame>
+  )
+}
+
+/** The sandbox preview only: the emails and texts it would have sent (none are sent there). */
+export function PreviewMessagesSheet() {
+  const [r, setR] = useState<{ muted: boolean; messages: MutedMessage[] } | null>(null)
+  const [error, setError] = useState('')
+  const [tries, setTries] = useState(0)
+  useEffect(() => {
+    let live = true
+    setError('')
+    api<{ muted: boolean; messages: MutedMessage[] }>(PREVIEW_MESSAGES).then((x) => {
+      if (!live) return
+      if (x.ok && x.data) setR(x.data)
+      else setError(x.error ?? '')
+    })
+    return () => { live = false }
+  }, [tries])
+  const when = (iso: string) => new Date(iso).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  return (
+    <SheetFrame title="Messages this site would have sent" subtitle="Test site only: nothing here was sent">
+      {error ? <Failed message={error} onRetry={() => setTries((t) => t + 1)} />
+        : !r ? <Skeleton rows={3} />
+        : !r.muted ? <p className="adm-note">Only on the test site. This site sends its emails and texts for real.</p>
+        : !r.messages.length ? <p className="adm-note">Nothing yet. Emails and texts this test site would have sent show here, newest first.</p>
+        : (
+          <ul className="adm-mlist" aria-label="Messages not sent">
+            {r.messages.map((m) => (
+              <li key={m.id} className="adm-card" style={{ margin: '0 0 8px' }}>
+                <p style={{ margin: 0 }}><b>{m.kind === 'email' ? 'Email' : 'Text'} to {m.to}</b> <small>{when(m.at)}</small></p>
+                {m.subject && <p style={{ margin: '2px 0 0' }}>{m.subject}</p>}
+                {m.firstLine && <p className="adm-note" style={{ margin: '2px 0 0', overflowWrap: 'anywhere' }}>{m.firstLine}</p>}
+              </li>
+            ))}
+          </ul>
+        )}
     </SheetFrame>
   )
 }
