@@ -9,7 +9,7 @@ import { boldParts, HELP_SECTIONS } from '@lib/admin-help'
 import type { Service } from '@lib/outbound-health'
 import { problemText, TestButton, useHealth } from '../HomeHealth'
 import type { NotifyView, NotifyRow } from '@lib/notify-settings'
-import { ADMIN_ACCESS, api, NOTIFY } from '../classes/api'
+import { ADMIN_ACCESS, api, KEYS, NOTIFY } from '../classes/api'
 import { Failed, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet, useSheetDirty } from '../shell/Sheet'
 import { dayAndClock } from '../shell/time'
@@ -343,10 +343,100 @@ function HelpText({ text }: { text: string }) {
   return <>{boldParts(text).map((part, i) => (i % 2 ? <b key={i} className="adm-dark">{part}</b> : <span key={i}>{part}</span>))}</>
 }
 
+interface KeyState { setInAdmin: boolean; updatedAt: string | null; by: string | null; broken: boolean }
+interface KeysView { gmail: KeyState; quo: KeyState; canStore: boolean; gmailUser: string | null; quoFromLast4: string | null; readOnly: boolean; muted: boolean }
+
+const KEY_TITLE: Record<'gmail' | 'quo', string> = { gmail: 'Paste a new Gmail app password', quo: 'Paste a new Quo key' }
+
+/**
+ * Paste a new Gmail app password or Quo key (never the Square token): Test it
+ * (a real login and a test message to your own email or mobile), then the
+ * admin passcode and Save it. Never shown back after saving.
+ */
+export function KeyPaste({ service, keys, onSaved }: { service: 'gmail' | 'quo'; keys: KeysView; onSaved: () => void }) {
+  const toast = useToast()
+  const [open, setOpen] = useState(false)
+  const [value, setValue] = useState('')
+  const [current, setCurrent] = useState('')
+  const [tested, setTested] = useState<{ ok: boolean; text: string } | null>(null)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState('')
+  useSheetDirty(open && (value !== '' || current !== ''))
+  const st = keys[service]
+  const label = service === 'gmail' ? 'Gmail app password' : 'Quo key'
+
+  function close() { setOpen(false); setValue(''); setCurrent(''); setTested(null); setError('') }
+
+  async function test() {
+    if (busy) return
+    setBusy('test'); setError(''); setTested(null)
+    const r = await api<{ ok: boolean; message: string }>(KEYS, { action: 'test', service, value })
+    setBusy('')
+    if (r.ok && r.data) setTested({ ok: r.data.ok, text: r.data.message })
+    else setError(r.error ?? DIDNT_SAVE)
+  }
+  async function save() {
+    if (busy) return
+    if (!current) return setError('Type the admin passcode you use now first.')
+    setBusy('save'); setError('')
+    const r = await api<{ updatedAt: string }>(KEYS, { action: 'save', service, value, current })
+    setBusy('')
+    if (r.ok) {
+      toast(`Saved. ${service === 'gmail' ? 'Emails' : 'Texts'} now go out with the new ${label}. The other owners got an email and a text saying so.`)
+      close()
+      onSaved()
+      return
+    }
+    setError(r.error ?? DIDNT_SAVE)
+  }
+
+  return (
+    <div className="adm-gap-top">
+      {st.setInAdmin && !st.broken && st.updatedAt && <span className="adm-small adm-muted">{`The ${label} was pasted here${st.by ? ` by ${st.by}` : ''} ${dayAndClock(st.updatedAt)}. It’s never shown again.`}</span>}
+      {st.broken && <p className="adm-panel is-warn" role="alert">{`The ${label} saved here can’t be read, so the one from the site setup is in use. Paste a new one below.`}</p>}
+      {!keys.canStore ? (
+        <span className="adm-small adm-muted">{`This site can’t keep a ${label} safely (a setting is missing), so use the steps under What to do.`}</span>
+      ) : keys.readOnly ? (
+        <span className="adm-small adm-muted">This test site can’t change the live site’s keys.</span>
+      ) : !open ? (
+        <button type="button" className="adm-btn is-ghost" onClick={() => setOpen(true)}>{KEY_TITLE[service]}</button>
+      ) : (
+        <div className="adm-panel" role="group" aria-label={KEY_TITLE[service]}>
+          <b>{KEY_TITLE[service]}</b>
+          <span className="adm-small">
+            {service === 'gmail'
+              ? `For the studio’s Google account${keys.gmailUser ? ` (${keys.gmailUser})` : ''}. Make it under What to do, then paste the 16 letters here.`
+              : `From the studio’s Quo account (the number ending ${keys.quoFromLast4 ?? '…'}). Make it under What to do, then paste it here.`}
+          </span>
+          <label className="adm-fld"><span>{`New ${label}`}</span><input type="password" value={value} autoComplete="off" spellCheck={false} maxLength={200} onChange={(e) => { setValue(e.target.value); setTested(null); setError('') }} /></label>
+          <button type="button" className="adm-btn is-ghost" disabled={!value || !!busy} onClick={test}>{busy === 'test' ? 'Testing…' : 'Test it'}</button>
+          <span className="adm-small adm-muted">{service === 'gmail' ? 'Test it signs in to Google with it and sends a test email to your own email in Staff › People.' : 'Test it checks the key belongs to the studio’s number and sends a test text to your own mobile in Staff › People.'}</span>
+          {tested && <p role={tested.ok ? 'status' : 'alert'} className={tested.ok ? 'adm-small' : 'adm-error'}>{tested.text}</p>}
+          {tested?.ok && (
+            <label className="adm-fld"><span>Admin passcode you use now</span><input type="password" value={current} autoComplete="current-password" maxLength={64} onChange={(e) => { setCurrent(e.target.value); setError('') }} /></label>
+          )}
+          {error && <p className="adm-error" role="alert">{error}</p>}
+          <div className="adm-two">
+            <button type="button" className="adm-btn is-ghost" onClick={close}>Cancel</button>
+            <button type="button" className="adm-btn is-pri" disabled={!tested?.ok || !!busy} onClick={save}>{busy === 'save' ? 'Saving…' : 'Save it'}</button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function ConnectionsSheet() {
   const { data } = useSheet()
   const focus = data && typeof data === 'object' ? (data as { focus?: Service }).focus : undefined
   const { view, reload } = useHealth()
+  const [keys, setKeys] = useState<KeysView | null>(null)
+  const [keyTries, setKeyTries] = useState(0)
+  useEffect(() => {
+    let on = true
+    api<KeysView>(KEYS).then((r) => { if (on && r.ok && r.data) setKeys(r.data) })
+    return () => { on = false }
+  }, [keyTries])
   const focused = useRef<HTMLElement | null>(null)
   useEffect(() => { if (view && focus) focused.current?.scrollIntoView?.({ block: 'start' }) }, [view, focus])
   return (
@@ -367,6 +457,7 @@ export function ConnectionsSheet() {
                   {broken ? problemText(s, h) : h.state === 'unknown' ? 'Couldn’t check just now.' : h.lastOkAt ? `Working. Last trouble cleared ${dayAndClock(h.lastOkAt)}.` : 'Working: nothing has failed lately.'}
                 </span>
                 {h.state !== 'not-set' && <TestButton service={s} primary={broken} onDone={reload} />}
+                {s !== 'square' && keys && <KeyPaste service={s === 'email' ? 'gmail' : 'quo'} keys={keys} onSaved={() => { setKeyTries((n) => n + 1); reload() }} />}
                 {help && (
                   <details className="adm-fold-group adm-help-fold" open={focus === s || broken}>
                     <summary><span>What to do if it stops</span><i className="adm-chevron" aria-hidden="true" /></summary>

@@ -11,6 +11,7 @@
 import { createLogger } from '@lib/logger'
 import { messagesMuted, outboundEnv, previewText, recordMuted } from '@lib/preview-outbound'
 import { noteFailure, noteOk, statusKind } from '@lib/outbound-health'
+import { storedKey, storedKeyKnown } from '@lib/outbound-keys'
 
 const logger = createLogger('quo')
 
@@ -21,9 +22,26 @@ function env(name: string): string {
   return meta[name] || (typeof process !== 'undefined' ? process.env[name] : '') || ''
 }
 
+/** Whether texts are set up (sync): the site setup's key, or one pasted in /admin that this server has already read. quoReadyNow() always reads the store. */
 export function quoConfigured(): boolean {
-  return !!env('QUO_API_KEY') && !!env('QUO_FROM_NUMBER')
+  return (!!env('QUO_API_KEY') || storedKeyKnown('quo')) && !!env('QUO_FROM_NUMBER')
 }
+
+/** The Quo key in use: the one pasted in /admin (outbound-keys.ts), else the site setup's. */
+export async function quoKey(): Promise<string> {
+  return (await storedKey('quo')) ?? env('QUO_API_KEY')
+}
+
+/** Whether texts can be sent at all, counting a key pasted in /admin. */
+export async function quoReadyNow(): Promise<boolean> {
+  return !!env('QUO_FROM_NUMBER') && !!(await quoKey())
+}
+
+/** The studio number texts go out from (QUO_FROM_NUMBER, fixed in the site setup). */
+export const quoFromNumber = () => env('QUO_FROM_NUMBER')
+
+export const QUO_PHONE_NUMBERS_URL = 'https://api.quo.com/v1/phone-numbers'
+export const QUO_MESSAGES_URL = API_URL
 
 /** US-centric E.164 normalization: "(256) 555-0123" → "+12565550123". */
 export function toE164(phone: string): string | null {
@@ -63,7 +81,7 @@ export async function sendQuoText(input: { to: string; content: string }): Promi
   try {
     res = await fetch(API_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: env('QUO_API_KEY') },
+      headers: { 'Content-Type': 'application/json', Authorization: await quoKey() },
       body: JSON.stringify({ content: input.content, from: env('QUO_FROM_NUMBER'), to: [to] }),
     })
   } catch (err) {

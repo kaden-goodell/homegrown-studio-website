@@ -88,8 +88,8 @@ export async function tellOwners(input: {
     logger.warn('Owner notice email failed', { error: err instanceof Error ? err.message : String(err) })
   }
   try {
-    const { quoConfigured, sendQuoText } = await import('@lib/quo')
-    if (phones.length && quoConfigured()) {
+    const { quoReadyNow, sendQuoText } = await import('@lib/quo')
+    if (phones.length && (await quoReadyNow())) {
       const full = `Hometown Studio: ${input.line}`
       const text = full.length > TEXT_MAX ? `${full.slice(0, TEXT_MAX - 1)}…` : full
       const results = await Promise.allSettled(phones.map((to) => sendQuoText({ to, content: text })))

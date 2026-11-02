@@ -68,7 +68,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   const audit = (ok: boolean) => recordAudit({ by: { ...by, role: 'owner' }, action: `health.${action}`, target: { kind: 'settings', id: 'health', label: 'Email, texts and Square' }, details: { ok } })
 
   if (action === 'check-square') {
-    if (!configured().square) return json(200, { data: { ok: false, message: HEALTH_MESSAGES.squareNotSet } })
+    if (!(await configured()).square) return json(200, { data: { ok: false, message: HEALTH_MESSAGES.squareNotSet } })
     const { locationId } = squareSettings()
     try {
       await squareFetch(locationId ? `/locations/${encodeURIComponent(locationId)}` : '/locations')
@@ -95,7 +95,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
   if (action === 'test-email') {
     if (!owner.email) return json(400, { error: HEALTH_MESSAGES.noEmail })
     if (messagesMuted()) return mutedAnswer()
-    if (!configured().email) return json(200, { data: { ok: false, message: HEALTH_MESSAGES.emailNotSet } })
+    if (!(await configured()).email) return json(200, { data: { ok: false, message: HEALTH_MESSAGES.emailNotSet } })
     const line = `This is the test email you asked for from /admin. If you’re reading it, emails from the website are going out.`
     const { sent } = await sendEmail({ to: owner.email, subject: 'Test email from the Hometown Studio website', text: line, html: `<p>${line}</p>` })
     await audit(sent)
@@ -104,7 +104,7 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
 
   if (!owner.phone) return json(400, { error: HEALTH_MESSAGES.noPhone })
   if (messagesMuted()) return mutedAnswer()
-  if (!configured().text) return json(200, { data: { ok: false, message: HEALTH_MESSAGES.textNotSet } })
+  if (!(await configured()).text) return json(200, { data: { ok: false, message: HEALTH_MESSAGES.textNotSet } })
   try {
     await sendQuoText({ to: owner.phone, content: 'Hometown Studio: this is the test text you asked for from /admin. Texts from the website are going out.' })
     await audit(true)

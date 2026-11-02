@@ -219,4 +219,41 @@ describe('emails, texts and Square (G2)', () => {
     expect(email).toHaveTextContent('App passwords')
     expect(screen.getByText(/This is a test site, so they go to the test inbox and phone instead/)).toBeInTheDocument()
   })
+
+  it('Paste a new Gmail app password: Test it first, then the admin passcode and Save it; never for Square', async () => {
+    const KEYS = '/api/admin/keys.json'
+    const st = { setInAdmin: false, updatedAt: null, by: null, broken: false }
+    const keysView = { gmail: st, quo: { ...st, setInAdmin: true, updatedAt: '2026-11-01T15:00:00Z', by: 'Kaden' }, canStore: true, gmailUser: 'studio@example.com', quoFromLast4: '1710', readOnly: false, muted: false }
+    hv = { email: failing, text: okH, square: okH }
+    fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      if (String(url) === KEYS) {
+        if ((init.method ?? 'GET') === 'GET') return ok({ data: keysView })
+        const b = JSON.parse(String(init.body))
+        return b.action === 'test'
+          ? ok({ data: { ok: true, message: 'Google accepted it, and a test email went to cat@example.com. Check it arrived, then tap Save it.' } })
+          : ok({ data: { updatedAt: '2026-11-02T15:00:00Z' } })
+      }
+      if ((init.method ?? 'GET') === 'GET') return ok({ data: hv })
+      return ok({ data: answer })
+    })
+    renderSheet(<ConnectionsSheet />, { data: { focus: 'email' } })
+    const email = await screen.findByRole('region', { name: 'Emails' })
+    fireEvent.click(await within(email).findByRole('button', { name: 'Paste a new Gmail app password' }))
+    const panel = within(email).getByRole('group', { name: 'Paste a new Gmail app password' })
+    expect(panel).toHaveTextContent('For the studio’s Google account (studio@example.com).')
+    expect(within(panel).getByRole('button', { name: 'Save it' })).toBeDisabled()
+    fireEvent.change(within(panel).getByLabelText('New Gmail app password'), { target: { value: 'abcd efgh ijkl mnop' } })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Test it' }))
+    expect(await within(panel).findByRole('status')).toHaveTextContent('Google accepted it')
+    fireEvent.change(within(panel).getByLabelText('Admin passcode you use now'), { target: { value: 'owner-secret' } })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Save it' }))
+    expect(await screen.findByText('Saved. Emails now go out with the new Gmail app password. The other owners got an email and a text saying so.')).toBeInTheDocument()
+    expect(posts(fetchMock, KEYS).map((p: any) => p.body)).toEqual([
+      { action: 'test', service: 'gmail', value: 'abcd efgh ijkl mnop' },
+      { action: 'save', service: 'gmail', value: 'abcd efgh ijkl mnop', current: 'owner-secret' },
+    ])
+    const texts = screen.getByRole('region', { name: 'Texts' })
+    expect(texts).toHaveTextContent('The Quo key was pasted here by Kaden')
+    expect(within(screen.getByRole('region', { name: 'Square' })).queryByRole('button', { name: /Paste/ })).toBeNull()
+  })
 })
