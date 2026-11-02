@@ -20,8 +20,10 @@ describe('sendRefundEmail', () => {
   it('a duplicate payment is worded as a refund of the extra payment, never a cancellation, with no date (M3)', async () => {
     await email.sendRefundEmail({ to: 'a@example.com', givenName: 'Alice', className: 'your party', cents: 30000, keptSeat: false, party: { startIso: null }, duplicate: 'changed-party' })
     let m = mockSendMail.mock.calls[0][0]
-    expect(m.text).toContain('You were charged twice when you changed your party. We refunded the extra $300 to your card.')
-    expect(m.text).toContain('Your party booking hasn’t changed.')
+    // An earlier try: never assumes they booked again after it (M-5).
+    expect(m.text).toContain('We refunded $300 to your card for an earlier party checkout you changed and started again.')
+    expect(m.text).toContain('If you finished booking after that, your party is still booked.')
+    expect(m.text).not.toMatch(/charged twice|hasn’t changed/)
     expect(m.text).not.toMatch(/craft with you again|Saturday/)
     await email.sendRefundEmail({ to: 'a@example.com', givenName: 'Alice', className: 'your party', cents: 30000, keptSeat: false, party: { startIso: null }, duplicate: 'unmatched-party' })
     m = mockSendMail.mock.calls[1][0]
@@ -30,6 +32,10 @@ describe('sendRefundEmail', () => {
     m = mockSendMail.mock.calls[2][0]
     expect(m.text).toContain('You were charged twice for Candles. We refunded the extra $32.70 to your card.')
     expect(m.text).toContain('Your booking hasn’t changed.')
+    // Paid after the last seats went: says why they aren't booked (M-5).
+    await email.sendRefundEmail({ to: 'a@example.com', givenName: 'Ada', className: 'Camp 3', cents: 6540, keptSeat: false, duplicate: 'class-no-seats' })
+    m = mockSendMail.mock.calls[3][0]
+    expect(m.text).toContain('Your payment for Camp 3 came through after its last seats were taken, so you aren’t booked. We refunded the full $65.40 to your card.')
     for (const c of mockSendMail.mock.calls) expect(c[0].text.split('Text us at')[0]).not.toContain(':')
   })
 

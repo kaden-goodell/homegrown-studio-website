@@ -383,16 +383,25 @@ describe('To decide sheets', () => {
     expect(await screen.findByText(/^Done · /)).toBeInTheDocument()
   })
 
-  it('Task 13: an unclear payment on a booked party: It went through / It didn’t go through, Open the party; Square’s refusal shows in the sheet', async () => {
+  it('Task 13: an unclear payment on a booked party: Ask Square first, then only the buttons that fit; Square’s refusal shows in the sheet; Open the party', async () => {
     const t = item({ id: 'td_pp', kind: 'party-payment-unclear', title: 'Party payment unclear', head: 'Stefanie Justice’s $300 payment (payment link) for their party on Sat Nov 14 2 PM got no answer from Square.',
       detail: { partyId: 'pty_abc123', partyDay: '2026-11-14', cents: 30000, via: 'link', until: '2026-11-03T15:00:00.000Z' } })
-    const one = show([t], { decide: (b) => (b.action === 'went-through' ? refuse(409, { error: 'Square shows no payment on this order yet, so nothing was recorded.' }) : null) }, 'td_pp')
+    let answer: any = { state: 'done', cents: 30000, refundId: null, at: null, title: 'Square shows it paid', next: ['went-through'], message: 'Square shows this payment went through. Tap It went through, so it’s recorded on the party.' }
+    const one = show([t], { ask: () => ok({ data: { asked: answer } }), decide: (b) => (b.action === 'went-through' ? refuse(409, { error: 'Square shows no payment on this order yet, so nothing was recorded.' }) : null) }, 'td_pp')
     expect(await screen.findByText('$300')).toBeInTheDocument()
     expect(screen.getByText(/Nothing is charged or refunded from here\./)).toBeInTheDocument()
+    expect(screen.queryByText(/Look for it in Square/)).toBeNull()
+    expect(within(footer()).queryByRole('button', { name: 'It went through' })).toBeNull()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Ask Square' }))
+    expect(await screen.findByText('Square shows it paid')).toBeInTheDocument()
+    expect(within(footer()).queryByRole('button', { name: 'It didn’t go through' })).toBeNull()
     fireEvent.click(within(footer()).getByRole('button', { name: 'It went through' }))
     expect(await screen.findByRole('alert')).toHaveTextContent('Square shows no payment on this order yet, so nothing was recorded.')
+    answer = { state: 'none', cents: 0, refundId: null, at: null, title: 'Square has no order for it', next: ['did-not-go-through'], message: 'Square has no order for this payment, so nothing was paid. It clears by itself within a day, or tap It didn’t go through.' }
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Ask Square again' }))
+    expect(await screen.findByText('Square has no order for it')).toBeInTheDocument()
     fireEvent.click(within(footer()).getByRole('button', { name: 'It didn’t go through' }))
-    await waitFor(() => expect(decisions(one.f)).toEqual([{ id: 'td_pp', action: 'went-through' }, { id: 'td_pp', action: 'did-not-go-through' }]))
+    await waitFor(() => expect(decisions(one.f)).toEqual([{ id: 'td_pp', action: 'ask' }, { id: 'td_pp', action: 'went-through' }, { id: 'td_pp', action: 'ask' }, { id: 'td_pp', action: 'did-not-go-through' }]))
     one.unmount()
     const two = show([t], {}, 'td_pp')
     fireEvent.click(await screen.findByRole('button', { name: 'Open the party' }))

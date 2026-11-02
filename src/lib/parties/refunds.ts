@@ -22,6 +22,7 @@ import { formatMoney } from '@lib/money'
 import type { By } from '@lib/staff-auth'
 import { getPartyRecord, isOurs, updatePartyRecord, type PartyRecord, type PartyRefund } from '@lib/party-store'
 import { hashOf, listRefundRequests, type SavedRefundRequest } from '@lib/classes/refund-requests'
+import { actOnRequest, askAboutRequest } from '@lib/booking-core/ask-square'
 import {
   clearRequest, PARTY_SCOPE, runRefund, type AlreadyRefunded, type RefundBook, type RefundResult as RunnerResult,
 } from '@lib/booking-core/refund-runner'
@@ -324,20 +325,21 @@ export async function partyRefundRequestsReply(url: URL): Promise<Response> {
 /**
  * Route handler body shared by /admin (owners) and /staff (crew, reason
  * required). POST `{ partyId, chargeId, cents, reason, attempt, again? }`
- * refunds; POST `{ action: 'clear', partyId, requestId, outcome, reason }`
- * is "It went through / It didn't go through".
+ * refunds; POST `{ action: 'ask-request', partyId, requestId }` asks Square
+ * about a refund still waiting (read only) and `{ action: 'request-decide',
+ * partyId, requestId, outcome }` takes the step that fits (booking-core/ask-square).
  */
 export async function partyRefundReply(request: Request, actor: { by: By; role: 'owner' | 'crew' }, opts: { reasonRequired: boolean }): Promise<Response> {
   try {
     const body = await request.json().catch(() => null)
-    if (body && typeof body === 'object' && (body.action === 'clear' || body.action === 'clear-request')) {
-      const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : ''
-      if (opts.reasonRequired && reason.length < 3) throw new RefundError(400, 'Add what you saw in Square.')
+    if (body && typeof body === 'object' && (body.action === 'ask-request' || body.action === 'request-decide')) {
+      // A refund still waiting on Square: Ask Square (read only), then only the action that fits what Square shows.
       const str = (v: unknown) => (typeof v === 'string' ? v : '')
-      const r = await clearPartyRefundRequest(
-        { partyId: str(body.partyId), requestId: str(body.requestId), outcome: body.outcome as PartyClearOutcome, reason }, actor,
-      )
-      return json(200, { data: r })
+      const rec = str(body.partyId) ? await getPartyRecord(str(body.partyId)) : null
+      if (!rec) throw new RefundError(404, NO_SUCH_PARTY)
+      const scope = { classId: PARTY_SCOPE, bookingId: rec.bookingId }
+      if (body.action === 'ask-request') return json(200, { data: { asked: (await askAboutRequest(scope, str(body.requestId))).answer } })
+      return json(200, { data: await actOnRequest(scope, str(body.requestId), str(body.outcome), actor) })
     }
     const ask = readPartyRefundBody(body, opts)
     return json(200, { data: await refundParty(ask, actor) })

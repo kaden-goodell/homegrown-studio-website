@@ -322,7 +322,7 @@ export class SquarePaymentProvider implements PaymentProvider {
     }
   }
 
-  async findOrderByReference(referenceId: string, aroundIso: string): Promise<{ orderId: string } | null> {
+  async findOrderByReference(referenceId: string, aroundIso: string, opts: { totalCents?: number } = {}): Promise<{ orderId: string } | null> {
     const t = Date.parse(aroundIso)
     const start = new Date((Number.isFinite(t) ? t : Date.now()) - 86_400_000).toISOString()
     const end = new Date((Number.isFinite(t) ? t : Date.now()) + 86_400_000).toISOString()
@@ -337,7 +337,8 @@ export class SquarePaymentProvider implements PaymentProvider {
           query: { filter: { date_time_filter: { created_at: { start_at: start, end_at: end } } } },
         }),
       })
-      const hit = (res?.orders ?? []).find((o: any) => o?.reference_id === referenceId)
+      const hit = (res?.orders ?? []).find((o: any) => o?.reference_id === referenceId
+        && (opts.totalCents === undefined || Number(o?.total_money?.amount) === opts.totalCents))
       if (hit?.id) return { orderId: String(hit.id) }
       cursor = res?.cursor
       if (!cursor) break

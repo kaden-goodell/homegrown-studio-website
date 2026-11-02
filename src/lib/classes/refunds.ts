@@ -20,6 +20,7 @@ import { getLedger, noteRefundFailed, recordRefund, recordRequestRefund, type Le
 import { isPaidLine, leftOn, seatFreed } from './seat-status'
 import type { Cents, ScheduledClass } from './types'
 import { hashOf, listRefundRequests, type SavedRefundRequest } from './refund-requests'
+import { actOnRequest, askAboutRequest } from '@lib/booking-core/ask-square'
 import {
   clearRequest, runRefund, type AlreadyRefunded, type RefundBook, type RefundResult as RunnerResult,
 } from '@lib/booking-core/refund-runner'
@@ -454,15 +455,14 @@ export async function refundReply(request: Request, actor: { by: By; role: 'owne
       const r = await freeSeatOnly(typeof body.classId === 'string' ? body.classId : '', typeof body.bookingId === 'string' ? body.bookingId : '', lineIds, actor, reason)
       return json(200, { data: r })
     }
-    if (body && typeof body === 'object' && body.action === 'clear-request') {
-      const reason = typeof body.reason === 'string' ? body.reason.trim().slice(0, 500) : ''
-      if (opts.reasonRequired && reason.length < 3) throw new RefundError(400, 'Add what you saw in Square.')
+    if (body && typeof body === 'object' && (body.action === 'ask-request' || body.action === 'request-decide')) {
+      // A refund still waiting on Square: Ask Square (read only), then only the action that fits what Square shows.
       const str = (v: unknown) => (typeof v === 'string' ? v : '')
-      const r = await clearRefundRequest(
-        { classId: str(body.classId), bookingId: str(body.bookingId), requestId: str(body.requestId), outcome: body.outcome as ClearOutcome, reason },
-        actor,
-      )
-      return json(200, { data: r })
+      const cls = str(body.classId) ? await getClass(str(body.classId)) : null
+      if (!cls) throw new RefundError(404, 'That class does not exist.')
+      const scope = { classId: cls.id, bookingId: str(body.bookingId) }
+      if (body.action === 'ask-request') return json(200, { data: { asked: (await askAboutRequest(scope, str(body.requestId))).answer } })
+      return json(200, { data: await actOnRequest(scope, str(body.requestId), str(body.outcome), actor) })
     }
     const req = readRefundBody(body, opts)
     const r = await refundClassBooking(req, actor)

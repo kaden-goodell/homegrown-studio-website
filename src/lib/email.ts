@@ -712,11 +712,12 @@ export async function sendRefundEmail(input: {
   party?: { startIso: string | null }
   /**
    * A refund of a duplicate payment, never worded as a cancellation:
-   * 'changed-party' (paid twice when they changed their party), 'unmatched-party'
+   * 'changed-party' (an earlier checkout they changed and started again), 'unmatched-party'
    * (a party payment we couldn't match to a booking), 'class-twice' (charged
-   * twice for a class booking that stays as it is).
+   * twice for a class booking that stays as it is), 'class-no-seats' (a class
+   * payment that came through after its last seats were taken: not booked).
    */
-  duplicate?: 'changed-party' | 'unmatched-party' | 'class-twice'
+  duplicate?: 'changed-party' | 'unmatched-party' | 'class-twice' | 'class-no-seats'
 }): Promise<{ sent: boolean }> {
   const address = '525 Hughes Rd, Suite F, Madison, AL 35758'
   const phone = siteConfig.contactPhone
@@ -728,11 +729,13 @@ export async function sendRefundEmail(input: {
     : null
   const ask = phone ? [`Questions? Text us at ${phone}.`] : []
   const lines = input.duplicate === 'changed-party'
-    ? [`You were charged twice when you changed your party. We refunded the extra ${amount} to ${card}.`, 'Your party booking hasn’t changed.', ...ask]
+    ? [`We refunded ${amount} to ${card} for an earlier party checkout you changed and started again.`, 'If you finished booking after that, your party is still booked.', ...ask]
     : input.duplicate === 'unmatched-party'
       ? [`We refunded ${amount} to ${card} for a party payment we couldn’t match to a booking.`, ...ask]
       : input.duplicate === 'class-twice'
         ? [`You were charged twice for ${input.className}. We refunded the extra ${amount} to ${card}.`, 'Your booking hasn’t changed.', ...ask]
+        : input.duplicate === 'class-no-seats'
+          ? [`Your payment for ${input.className} came through after its last seats were taken, so you aren’t booked. We refunded the full ${amount} to ${card}.`, 'We hope to see you at another class soon.', ...ask]
         : input.party
     ? [
       `We refunded ${amount} to ${card} for your party${partyDay ? ` on ${partyDay}` : ''}.`,

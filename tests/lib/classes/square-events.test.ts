@@ -694,6 +694,39 @@ describe('R42: our own online bookings Square shows paid', () => {
       await decide(item.id, 'refund', { cents: 3270 }, by, NOW)
       expect(refundEmails.mock.calls[0][0]).toMatchObject({ duplicate: 'class-twice' })
     })
+
+    it('M-5: seats let go: the refund email says why they aren’t booked', async () => {
+      const { item } = await waiting()
+      await decide(item.id, 'refund', { cents: 3270 }, by, NOW)
+      expect(refundEmails.mock.calls[0][0]).toMatchObject({ duplicate: 'class-no-seats', className: 'Camp' })
+    })
+
+    it('I-2: a refund made in Square that then FAILS is taken back off: Give them their seat comes back; a stale note is cleared by Square’s $0', async () => {
+      const { o, item, paymentId } = await waiting()
+      const itemNow = async () => (await listToDecide(NOW)).items.find((i) => i.kind === 'paid-not-seated' && i.detail.orderId === o.id && !i.done)!
+      expect(await handleRefund({ id: 'RF-pns', payment_id: paymentId, status: 'PENDING', amount_money: { amount: 1000 } }, NOW)).toEqual({ action: 'noted', cents: 1000 })
+      expect((await itemNow()).detail).toMatchObject({ backCents: 1000, leftCents: 2270, canSeat: false })
+      expect(await handleRefund({ id: 'RF-pns', payment_id: paymentId, status: 'FAILED', amount_money: { amount: 1000 } }, NOW)).toEqual({ action: 'noted', cents: 0 })
+      expect((await itemNow()).detail).toMatchObject({ backCents: 0, leftCents: 3270, canSeat: true })
+      // A note left behind (its FAILED event lost): the next Refund reads Square, which shows $0, and the note goes.
+      await handleRefund({ id: 'RF-pns2', payment_id: paymentId, status: 'PENDING', amount_money: { amount: 1000 } }, NOW)
+      await expect(decide(item.id, 'refund', { cents: 2270 }, by, NOW)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^Square shows nothing refunded on this \$32\.70 payment now, so \$32\.70 is left/) })
+      expect(refundCall).not.toHaveBeenCalled()
+      expect((await itemNow()).detail).toMatchObject({ backCents: 0, leftCents: 3270, canSeat: true })
+    })
+
+    it('M-2: Give them their seat and Refund it never both go through: tapped together, one wins; seat after a started refund is refused', async () => {
+      const { cls, o, item } = await waiting()
+      const both = await Promise.allSettled([decide(item.id, 'seat', {}, by, NOW), decide(item.id, 'refund', { cents: 3270 }, by, NOW)])
+      expect(both.filter((r) => r.status === 'fulfilled')).toHaveLength(1)
+      const seated = (await getLedger(cls.id)).lines.some((l) => l.square.orderId === o.id && l.state === 'confirmed')
+      expect(seated && refundCall.mock.calls.length > 0).toBe(false)
+      const second = await waiting()
+      refundCall.mockRejectedValueOnce(new Error('socket hang up'))
+      await expect(decide(second.item.id, 'refund', { cents: 3270 }, by, NOW)).rejects.toMatchObject({ status: 502 })
+      await expect(decide(second.item.id, 'seat', {}, by, NOW)).rejects.toMatchObject({ status: 409 })
+      expect((await getLedger(second.cls.id)).lines.some((l) => l.square.orderId === second.o.id && l.state === 'confirmed')).toBe(false)
+    })
   })
 })
 

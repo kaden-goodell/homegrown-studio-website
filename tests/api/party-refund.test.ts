@@ -9,11 +9,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   refundPayment: vi.fn(),
+  /** What Square shows on a payment (Ask Square). */
+  readPayment: vi.fn(),
   audit: vi.fn(),
   email: vi.fn(),
   staff: null as null | { id: string; name: string; role: 'owner' | 'crew' },
 }))
-vi.mock('@config/providers', () => ({ providers: { payment: { refundPayment: mocks.refundPayment } } }))
+vi.mock('@config/providers', () => ({ providers: { payment: { refundPayment: mocks.refundPayment, readPayment: mocks.readPayment } } }))
 vi.mock('@lib/audit', () => ({ recordAudit: mocks.audit }))
 vi.mock('@lib/email', () => ({ sendRefundEmail: mocks.email }))
 vi.mock('@lib/staff-auth', () => ({
@@ -69,10 +71,17 @@ async function party(overOf: Partial<PartyRecord> | ((id: string) => Partial<Par
 }
 const ask = (partyId: string, cents: number, over: Record<string, unknown> = {}) => ({ partyId, chargeId: 'chg_1', cents, reason: '', attempt: uid('tok_'), ...over })
 
+/** Square shows these refunds on the payment (Ask Square reads them). */
+const squareShows = (refunds: { id: string; amountCents: number; status?: string }[]) => mocks.readPayment.mockReset().mockImplementation(async (paymentId: string) => ({
+  id: paymentId, orderId: null, status: 'COMPLETED', amountCents: 0, refundedCents: 0, createdAt: null,
+  refunds: refunds.map((r) => ({ paymentId, status: 'COMPLETED', createdAt: null, ...r })),
+}))
+
 beforeEach(() => {
   vi.stubEnv('ADMIN_PASSCODE', 'owner-secret')
   mocks.refundPayment.mockReset().mockImplementation(async (i: any) => ({ id: uid('rf_'), paymentId: i.paymentId, amountCents: i.amountCents, status: 'PENDING' }))
   mocks.audit.mockReset().mockResolvedValue(undefined)
+  squareShows([])
   mocks.email.mockReset().mockResolvedValue({ sent: true })
   mocks.staff = { id: 'sam', name: 'Sam', role: 'crew' }
 })
@@ -158,7 +167,7 @@ describe('owner refunds', () => {
 })
 
 describe('R29 waiting blocks', () => {
-  it('no answer → 502; a different refund → 409 naming the waiting one; "It went through" finishes it; then the other goes', async () => {
+  it('no answer → 502; a different refund → 409 naming the waiting one; Ask Square › It went through finishes it; then the other goes', async () => {
     const p = await party()
     mocks.refundPayment.mockRejectedValueOnce(new Error('timeout'))
     const first = await admin(ask(p.id, 5000, { attempt: 'tok_first1' }))
@@ -169,11 +178,17 @@ describe('R29 waiting blocks', () => {
     const list = await requests(p.id)
     expect(list.body.data.requests).toEqual([expect.objectContaining({ cents: 5000, status: 'pending', chargeId: 'chg_1', by: { id: 'admin', name: 'Owner' } })])
     const requestId = list.body.data.requests[0].requestId
-    const cleared = await admin({ action: 'clear', partyId: p.id, requestId, outcome: 'went-through', reason: 'Saw it in Square' })
-    expect(cleared).toMatchObject({ status: 200, body: { data: { status: 'done', refundable: { chg_1: 25000 } } } })
-    expect((await getPartyRecord(p.id))!.refunds).toEqual([expect.objectContaining({ cents: 5000, squareRefundId: null, requestId })])
+    // The free-text "I checked Square" is gone: only what Square shows is recorded.
+    expect((await admin({ action: 'clear', partyId: p.id, requestId, outcome: 'went-through', reason: 'Saw it in Square' })).status).toBe(400)
+    expect((await admin({ action: 'request-decide', partyId: p.id, requestId, outcome: 'went-through' })).status).toBe(409)
+    squareShows([{ id: 'RF_seen_1', amountCents: 5000 }])
+    expect((await admin({ action: 'ask-request', partyId: p.id, requestId })).body.data.asked).toMatchObject({ state: 'done', refundId: 'RF_seen_1', next: ['went-through'] })
+    const cleared = await admin({ action: 'request-decide', partyId: p.id, requestId, outcome: 'went-through' })
+    expect(cleared).toMatchObject({ status: 200, body: { data: { action: 'went-through', cents: 5000, emailed: true } } })
+    expect((await getPartyRecord(p.id))!.refunds).toEqual([expect.objectContaining({ cents: 5000, squareRefundId: 'RF_seen_1', requestId })])
     expect(mocks.email).toHaveBeenCalledTimes(1)
-    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'party-refund-checked', details: expect.objectContaining({ outcome: 'went-through', requestId }) }))
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'party-refund', details: expect.objectContaining({ via: 'checked-in-square', requestId }) }))
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'refund-ask-square', target: expect.objectContaining({ kind: 'party', id: p.id }) }))
     expect((await admin(ask(p.id, 2000))).status).toBe(200)
   })
 
@@ -235,13 +250,14 @@ describe('one email per request (R30)', () => {
 })
 
 describe('fix round 1', () => {
-  it('"It went through", then Square\'s refund arrives (webhook and nightly): one entry, which learns the Square id; one email', async () => {
+  it('Ask Square › "It went through", then Square\'s refund arrives (webhook and nightly): one entry, with the Square id; one email', async () => {
     const p = await party()
     await recordPartyPayment(p.paymentId, p.id, 'chg_1')
     mocks.refundPayment.mockRejectedValueOnce(new Error('timeout'))
     await admin(ask(p.id, 5000))
     const requestId = (await requests(p.id)).body.data.requests[0].requestId
-    expect((await admin({ action: 'clear', partyId: p.id, requestId, outcome: 'went-through', reason: 'Saw it' })).status).toBe(200)
+    squareShows([{ id: 'RF_late_1', amountCents: 5000 }])
+    expect((await admin({ action: 'request-decide', partyId: p.id, requestId, outcome: 'went-through' })).status).toBe(200)
     const sq = { id: 'RF_late_1', status: 'COMPLETED', amount_money: { amount: 5000, currency: 'USD' }, payment_id: p.paymentId }
     expect(await handleRefund(sq, new Date())).toEqual({ action: 'ignored', why: 'ours' })
     expect(await handleRefund(sq, new Date())).toMatchObject({ action: 'ignored' })

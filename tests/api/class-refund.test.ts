@@ -3,11 +3,13 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   refundPayment: vi.fn(),
+  /** What Square shows on a payment (Ask Square): no refunds unless a test says so. */
+  readPayment: vi.fn(async (paymentId: string) => ({ id: paymentId, orderId: null, status: 'COMPLETED', amountCents: 0, refundedCents: 0, refunds: [] as any[], createdAt: null })),
   audit: vi.fn(),
   email: vi.fn(),
   staff: null as null | { id: string; name: string; role: 'owner' | 'crew' },
 }))
-vi.mock('@config/providers', () => ({ providers: { payment: { refundPayment: mocks.refundPayment } } }))
+vi.mock('@config/providers', () => ({ providers: { payment: { refundPayment: mocks.refundPayment, readPayment: mocks.readPayment } } }))
 vi.mock('@lib/audit', () => ({ recordAudit: mocks.audit }))
 // Lets a test make the ledger save fail after Square took the refund.
 const ledgerFail = vi.hoisted(() => ({ n: 0, onRead: null as null | (() => Promise<void>) }))
@@ -111,6 +113,7 @@ beforeEach(() => {
   vi.stubEnv('ADMIN_PASSCODE', 'owner-secret')
   mocks.refundPayment.mockReset().mockImplementation(async (i: any) => ({ id: `rf_${++n}`, paymentId: i.paymentId, amountCents: i.amountCents, status: 'PENDING' }))
   mocks.audit.mockReset().mockResolvedValue(undefined)
+  mocks.readPayment.mockReset().mockImplementation(async (paymentId: string) => ({ id: paymentId, orderId: null, status: 'COMPLETED', amountCents: 0, refundedCents: 0, refunds: [], createdAt: null }))
   mocks.email.mockReset().mockResolvedValue({ sent: true })
   mocks.staff = { id: 'sam', name: 'Sam', role: 'crew' }
   ledgerFail.n = 0
@@ -366,7 +369,7 @@ describe('fix round 1', () => {
     const y = await admin({ classId, bookingId: 'bkg_r1', kind: 'custom', cents: 500, lineIds: [b.id] })
     expect(y.status).toBe(409)
     expect(y.body.error).toBe(STILL_WAITING_ON_SQUARE)
-    expect(STILL_WAITING_ON_SQUARE).toBe('A refund on this booking is still waiting on Square. Check it in Square first.')
+    expect(STILL_WAITING_ON_SQUARE).toBe('A refund on this booking is still waiting on Square’s answer. Tap Ask Square on it first.')
     expect(y.body.pending).toMatchObject({ requestId: expect.any(String), cents: 3270 })
     expect(mocks.refundPayment).toHaveBeenCalledTimes(1)
     // retry X: must replay X's original key so Square can't refund it twice
@@ -572,7 +575,13 @@ describe('fix round 2: one saved request per refund, so a retry never refunds tw
   })
 })
 
-describe('fix round 3: a refund still waiting on Square, checked by a person; one email per refund', () => {
+/** Square shows this refund on the payment (Ask Square reads it). */
+const squareShows = (refunds: { id: string; amountCents: number; status?: string }[]) => mocks.readPayment.mockImplementation(async (paymentId: string) => ({
+  id: paymentId, orderId: null, status: 'COMPLETED', amountCents: 0, refundedCents: 0, createdAt: null,
+  refunds: refunds.map((r) => ({ paymentId, status: 'COMPLETED', createdAt: null, ...r })),
+}))
+
+describe('fix round 3 (Ask Square since task 13 round 4): a refund still waiting on Square; one email per refund', () => {
   const paidWith = (paymentId: string, chargedCents?: number) => ({ orderId: 'o1', paymentId, lineUid: null, ...(chargedCents ? { chargedCents } : {}) })
   const seat = (n: number, paymentId: string) => line({ seat: n, priceCents: 2500, taxCents: 0, square: paidWith(paymentId, 5000) })
   const fromSquare = (id: string, paymentId: string, cents: number) => ({ id, status: 'COMPLETED', payment_id: paymentId, amount_money: { amount: cents, currency: 'USD' }, location_id: 'LOC1' })
@@ -590,15 +599,23 @@ describe('fix round 3: a refund still waiting on Square, checked by a person; on
 
   it('"It went through": saved as asked, by who asked, cleared by who checked; one email; Square\'s refund later changes nothing', async () => {
     const { a, b, classId, ask, requestId } = await waiting('pay_wt')
-    const r = await admin({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through', reason: 'Saw it in Square' })
+    // Square shows nothing yet: It went through is refused (only what Square shows is recorded)
+    const asked = await admin({ action: 'ask-request', classId, bookingId: 'bkg_r1', requestId })
+    expect(asked.body.data.asked).toMatchObject({ state: 'none', next: ['retry', 'did-not-go-through'] })
+    expect((await admin({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through' })).status).toBe(409)
+    squareShows([{ id: 'rf_wt', amountCents: 2000 }])
+    expect((await admin({ action: 'ask-request', classId, bookingId: 'bkg_r1', requestId })).body.data.asked).toMatchObject({ state: 'done', refundId: 'rf_wt', next: ['went-through'] })
+    const r = await admin({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through' })
     expect(r.status).toBe(200)
+    expect(r.body.data).toMatchObject({ action: 'went-through', cents: 2000, emailed: true })
     let after = await byId(classId)
-    expect(after[a.id].refunds).toEqual([expect.objectContaining({ cents: 2000, freedSeat: false, by: { id: 'admin', name: 'Owner' }, reason: 'Sick' })])
+    expect(after[a.id].refunds).toEqual([expect.objectContaining({ cents: 2000, freedSeat: false, by: { id: 'admin', name: 'Owner' }, reason: 'Sick', squareRefundId: 'rf_wt' })])
     expect(after[b.id].refunds).toEqual([])
     const [req] = await listRefundRequests(classId, 'bkg_r1')
-    expect(req).toMatchObject({ status: 'done', cleared: { outcome: 'went-through', by: { id: 'admin', name: 'Owner' }, reason: 'Saw it in Square' } })
+    expect(req).toMatchObject({ status: 'done', squareRefundId: 'rf_wt' })
     expect(mocks.email).toHaveBeenCalledTimes(1)
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-refund', details: expect.objectContaining({ via: 'checked-in-square', cents: 2000 }) }))
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'refund-ask-square', by: { id: 'admin', name: 'Owner', role: 'owner' }, details: expect.objectContaining({ action: 'went-through', squareSaid: 'done', squareRefundId: 'rf_wt' }) }))
     // Square's own refund shows up later: it is ours, nothing new written, no second email
     expect(await handleRefund(fromSquare('rf_wt', 'pay_wt', 2000), new Date())).toMatchObject({ action: 'ignored', why: 'ours' })
     after = await byId(classId)
@@ -616,10 +633,10 @@ describe('fix round 3: a refund still waiting on Square, checked by a person; on
   it('"It didn\'t go through": nothing saved, a different refund may be made, and the same one again reuses its key', async () => {
     const { classId, ask, b, requestId } = await waiting('pay_dn')
     const x1 = mocks.refundPayment.mock.calls[0][0].idempotencyKey
-    const r = await admin({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId, outcome: 'did-not-go-through' })
+    const r = await admin({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'did-not-go-through' })
     expect(r.status).toBe(200)
     expect(Object.values(await byId(classId)).every((l) => l.refunds.length === 0)).toBe(true)
-    expect((await listRefundRequests(classId, 'bkg_r1'))[0]).toMatchObject({ status: 'turned-down', cleared: { outcome: 'did-not-go-through' } })
+    expect((await listRefundRequests(classId, 'bkg_r1'))[0]).toMatchObject({ status: 'turned-down', cleared: { outcome: 'did-not-go-through', reason: 'Square shows no $20 refund (Ask Square)' } })
     expect(mocks.email).not.toHaveBeenCalled()
     mocks.refundPayment.mockImplementationOnce(async (i: any) => ({ id: 'rf_other', paymentId: i.paymentId, amountCents: i.amountCents, status: 'COMPLETED' }))
     expect((await admin({ classId, bookingId: 'bkg_r1', kind: 'person', lineIds: [b.id] })).status).toBe(200)
@@ -629,21 +646,36 @@ describe('fix round 3: a refund still waiting on Square, checked by a person; on
     expect(mocks.refundPayment.mock.calls.at(-1)![0].idempotencyKey).toBe(x1)
   })
 
-  it('clearing needs the request to still be waiting, and crew must give a reason (logged as them)', async () => {
+  it('Ask Square needs the request to still be waiting; crew use it too, the reason filled in from Square (logged as them); the old free-text check is gone', async () => {
     const { classId, requestId } = await waiting('pay_cr')
     mocks.staff = { id: 'sam', name: 'Sam', role: 'crew' }
-    const noReason = await staff({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId, outcome: 'did-not-go-through' })
-    expect(noReason.status).toBe(400)
-    const ok = await staff({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId, outcome: 'did-not-go-through', reason: 'Not in Square' })
+    expect((await staff({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId, outcome: 'did-not-go-through', reason: 'Not in Square' })).status).toBe(400)
+    expect((await staff({ action: 'ask-request', classId, bookingId: 'bkg_r1', requestId })).body.data.asked.state).toBe('none')
+    const ok = await staff({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'did-not-go-through' })
     expect(ok.status).toBe(200)
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({
       action: 'class-refund-checked', by: { id: 'sam', name: 'Sam', role: 'crew' },
-      details: expect.objectContaining({ outcome: 'did-not-go-through', reason: 'Not in Square', requestId }),
+      details: expect.objectContaining({ outcome: 'did-not-go-through', reason: 'Square shows no $20 refund (Ask Square)', requestId }),
     }))
-    const again = await admin({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through' })
-    expect(again.status).toBe(409)
-    expect((await admin({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId: 'nope', outcome: 'went-through' })).status).toBe(404)
-    expect((await admin({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId, outcome: 'maybe' })).status).toBe(400)
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'refund-ask-square', by: { id: 'sam', name: 'Sam', role: 'crew' } }))
+    const again = await admin({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through' })
+    expect(again.status).toBe(404)
+    expect((await admin({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId: 'nope', outcome: 'went-through' })).status).toBe(404)
+    expect((await admin({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'maybe' })).status).toBe(400)
+  })
+
+  it('Square shows the waiting refund failed: Try the refund again sends a new try (a new key), never the failed one; Square still going through offers nothing', async () => {
+    const { classId, requestId } = await waiting('pay_fx')
+    const x1 = mocks.refundPayment.mock.calls[0][0].idempotencyKey
+    squareShows([{ id: 'rf_fx', amountCents: 2000, status: 'PENDING' }])
+    expect((await admin({ action: 'ask-request', classId, bookingId: 'bkg_r1', requestId })).body.data.asked).toMatchObject({ state: 'pending', next: [] })
+    expect((await admin({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'retry' })).status).toBe(409)
+    squareShows([{ id: 'rf_fx', amountCents: 2000, status: 'FAILED' }])
+    mocks.refundPayment.mockImplementationOnce(async (i: any) => ({ id: 'rf_fx2', paymentId: i.paymentId, amountCents: i.amountCents, status: 'COMPLETED' }))
+    const r = await admin({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'retry' })
+    expect(r.status).toBe(200)
+    expect(mocks.refundPayment.mock.calls.at(-1)![0].idempotencyKey).not.toBe(x1)
+    expect(Object.values(await byId(classId)).flatMap((l) => l.refunds).map((x) => [x.cents, x.squareRefundId])).toEqual([[2000, 'rf_fx2']])
   })
 
   it('finished by Square\'s webhook: the customer is emailed once; the retry answered as done does not email again', async () => {
@@ -698,7 +730,8 @@ describe('fix round 4: identical refunds match forever, atomic refund state, Squ
     it('"It went through" by someone else, then the asker re-enters it from a reloaded screen: nothing goes to Square', async () => {
       const { classId, ask, requestId } = await waiting('pay_i1')
       mocks.staff = { id: 'sam', name: 'Sam', role: 'crew' }
-      expect((await staff({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through', reason: 'Saw it in Square' })).status).toBe(200)
+      squareShows([{ id: 'rf_i1', amountCents: 2500 }])
+      expect((await staff({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through' })).status).toBe(200)
       // the asker hasn't been told yet
       expect((await listRefundRequests(classId, 'bkg_r1'))[0].answered).toBe(false)
       for (const attempt of ['att-reloaded', undefined]) {
@@ -853,13 +886,15 @@ describe('fix round 4: identical refunds match forever, atomic refund state, Squ
 
     it('"It went through": the request save fails after the money was written; doing it again finishes it, never writes twice', async () => {
       const { a, b, classId, requestId } = await waiting('pay_m3')
+      squareShows([{ id: 'rf_m3', amountCents: 2500 }])
       requestFail.done = 1
-      const first = await admin({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through', reason: 'Saw it' })
+      const first = await admin({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through' })
       expect(first.status).toBe(503)
       expect((await byId(classId))[b.id].refunds).toHaveLength(1)
-      // it can't now be marked "didn't go through": the money is on the ledger
-      expect((await admin({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId, outcome: 'did-not-go-through' })).status).toBe(409)
-      const again = await admin({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through', reason: 'Saw it' })
+      // it can't now be marked "didn't go through": Square shows that refund, and it is still this request's
+      expect((await admin({ action: 'ask-request', classId, bookingId: 'bkg_r1', requestId })).body.data.asked).toMatchObject({ state: 'done', refundId: 'rf_m3' })
+      expect((await admin({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'did-not-go-through' })).status).toBe(409)
+      const again = await admin({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through' })
       expect(again.status).toBe(200)
       const after = await byId(classId)
       expect(after[b.id].refunds).toEqual([expect.objectContaining({ cents: 2500, freedSeat: true })])
@@ -874,8 +909,9 @@ describe('fix round 4: identical refunds match forever, atomic refund state, Squ
 
     it('"It went through" half done, then Square\'s refund arrives: it finishes the request, money written once', async () => {
       const { b, classId, requestId } = await waiting('pay_m3b')
+      squareShows([{ id: 'rf_m3b', amountCents: 2500 }])
       requestFail.done = 1
-      expect((await admin({ action: 'clear-request', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through' })).status).toBe(503)
+      expect((await admin({ action: 'request-decide', classId, bookingId: 'bkg_r1', requestId, outcome: 'went-through' })).status).toBe(503)
       expect(await handleRefund(fromSquare('rf_m3b', 'pay_m3b', 2500), new Date())).toMatchObject({ action: 'ignored', why: 'ours' })
       expect((await byId(classId))[b.id].refunds).toHaveLength(1)
       expect((await listRefundRequests(classId, 'bkg_r1'))[0]).toMatchObject({ status: 'done', squareRefundId: 'rf_m3b' })

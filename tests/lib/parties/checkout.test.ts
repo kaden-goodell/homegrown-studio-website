@@ -69,7 +69,7 @@ import { localToUtcISO } from '@lib/parties/party-times'
 import { getPartyRecord } from '@lib/party-store'
 import { partyForPayment } from '@lib/parties/party-payments'
 import { isStartOpen } from '@lib/parties/open-times'
-import { listToDecide, decide } from '@lib/classes/to-decide'
+import { listToDecide, decide, askSquare } from '@lib/classes/to-decide'
 
 const NOW = new Date('2027-02-01T15:00:00.000Z')
 const at = (ymd: string, hhmm: string) => localToUtcISO(ymd, hhmm)
@@ -568,6 +568,31 @@ describe('Task 13: To decide for parties (Task 7 carry-overs, Task 11 handoff)',
       expect(item!.detail).toMatchObject({ partyDay: '2027-05-15', cents: 30000, via: 'link', orderId })
     })
 
+    it('M-4: Ask Square on it shows what Square did; with no order kept, the order carrying the party id for that amount is found; none at all: “Square has no order”, It didn’t go through clears it', async () => {
+      const none = await partyPayingUnclear('2027-05-08', { order: null, orderId: null })
+      const a = await itemFor(none.partyId)
+      expect(await askSquare(a!.id, NOW)).toMatchObject({ state: 'none', title: 'Square has no order for it', next: ['did-not-go-through'], message: 'Square has no order for this payment, so nothing was paid. It clears by itself within a day, or tap It didn’t go through.' })
+      expect(m.findOrderByReference).toHaveBeenCalledWith(none.partyId, NOW.toISOString(), { totalCents: 30000 })
+      await expect(decide(a!.id, 'went-through', {}, owner, NOW)).rejects.toMatchObject({ status: 409, message: expect.stringMatching(/^Square has no order for this payment/) })
+      expect((await decide(a!.id, 'did-not-go-through', {}, owner, NOW)).decided.what).toBe('It didn’t go through: Square has no order for it, a new payment can start')
+      expect((await getPartyRecord(none.partyId))!.paying).toBeNull()
+
+      const found = await partyPayingUnclear('2027-05-09', { order: null, orderId: null })
+      m.findOrderByReference.mockResolvedValue({ orderId: 'ord-by-ref' })
+      m.paid.set('ord-by-ref', { id: 'pay-by-ref', orderId: 'ord-by-ref', amount: 30000, status: 'completed', receiptUrl: null })
+      const b = await itemFor(found.partyId)
+      expect(await askSquare(b!.id, NOW)).toMatchObject({ state: 'done', title: 'Square shows it paid', next: ['went-through'] })
+      expect((await decide(b!.id, 'went-through', {}, owner, NOW)).decided.what).toBe('It went through: $300 recorded on the party')
+      expect((await getPartyRecord(found.partyId))!.charges).toEqual([expect.objectContaining({ paymentId: 'pay-by-ref', orderId: 'ord-by-ref' })])
+    })
+
+    it('Ask Square on an unpaid order offers only It didn’t go through; nothing is written by asking', async () => {
+      const { partyId } = await partyPayingUnclear('2027-05-10')
+      const item = await itemFor(partyId)
+      expect(await askSquare(item!.id, NOW)).toMatchObject({ state: 'none', title: 'Square shows no payment', next: ['did-not-go-through'] })
+      expect((await getPartyRecord(partyId))!.paying?.state).toBe('unclear')
+    })
+
     it('a card taken in /admin names who took it; one whose 24 hours ran out is not listed', async () => {
       const card = await partyPayingUnclear('2027-05-16', { via: 'admin-card', by: { id: 'c', name: 'Catherine' } })
       expect((await itemFor(card.partyId))!.head).toContain('(card taken in /admin by Catherine)')
@@ -602,7 +627,7 @@ describe('Task 13: To decide for parties (Task 7 carry-overs, Task 11 handoff)',
       const { partyId, orderId } = await partyPayingUnclear('2027-05-29')
       m.paid.set(orderId, { id: 'pay-there', orderId, amount: 30000, status: 'completed', receiptUrl: null })
       const item = await itemFor(partyId)
-      await expect(decide(item!.id, 'did-not-go-through', {}, owner, NOW)).rejects.toMatchObject({ status: 409, message: 'Square shows this payment went through. Choose It went through, so it’s recorded on the party.' })
+      await expect(decide(item!.id, 'did-not-go-through', {}, owner, NOW)).rejects.toMatchObject({ status: 409, message: 'Square shows this payment went through. Tap It went through, so it’s recorded on the party.' })
       expect((await getPartyRecord(partyId))!.paying?.state).toBe('unclear')
     })
 
@@ -1054,6 +1079,58 @@ describe('fix round 2 (Task 13 re-review 1)', () => {
       expect(done.decided.what).toBe('Confirmed the party')
       expect(m.findOrderByReference).toHaveBeenCalledWith(partyIdFor(inp.key), expect.any(String))
       expect((await getPartyRecord(partyIdFor(inp.key)))!.charges![0].paymentId).toBe('pay-found')
+    })
+  })
+
+  describe('task 13 fix round 4: what Square shows refunded is always saved (I-2), and its “already refunded” answer fits what is left (M-1)', () => {
+    const refundEvent = async (r: Record<string, unknown>) => (await import('@lib/classes/square-events')).handleRefund(r, NOW)
+    const itemOf = async (orderId: string) => (await listToDecide(NOW)).items.find((i) => !i.done && i.detail.orderId === orderId)
+    const shows = (paymentId: string, refunds: { id: string; amountCents: number; status: string }[], amountCents = 30000) =>
+      ({ id: paymentId, orderId: null, status: 'COMPLETED', amountCents, refundedCents: 0, createdAt: '2027-01-30T18:00:00.000Z', refunds: refunds.map((r) => ({ ...r, paymentId, createdAt: '2027-01-31T10:00:00.000Z' })) })
+
+    it('I-2 (PA): a refund made in Square that then FAILS is taken back off the item: the whole payment can go toward the party or be refunded again', async () => {
+      const partyId = await booked('2027-08-07', { feePaid: false })
+      const { orderId, paymentId } = await paidElsewhere(partyId)
+      expect(await refundEvent({ id: 'RF-pa', payment_id: paymentId, status: 'PENDING', amount_money: { amount: 10000 } })).toEqual({ action: 'noted', cents: 10000 })
+      expect((await itemOf(orderId))!.detail).toMatchObject({ backCents: 10000, leftCents: 20000, canApply: false })
+      expect(await refundEvent({ id: 'RF-pa', payment_id: paymentId, status: 'FAILED', amount_money: { amount: 10000 } })).toEqual({ action: 'noted', cents: 0 })
+      const now = (await itemOf(orderId))!
+      expect(now.detail).toMatchObject({ backCents: 0, leftCents: 30000, canApply: true, canRefund: true })
+      expect(now.hint).toBe('Refund it, or put it toward the party')
+      expect((await decide(now.id, 'apply', {}, owner, NOW)).decided.what).toMatch(/^Put \$300 toward/)
+    })
+
+    it('I-2: a stale note (Square’s FAILED event never came): Refund the rest is refused once, the note is cleared from Square’s $0, and Refund it then refunds the whole payment', async () => {
+      const partyId = newId()
+      await saveCheckout(ck(partyId, { state: 'retired' }) as any)
+      const { orderId, paymentId } = await paidElsewhere(partyId)
+      await refundEvent({ id: 'RF-st', payment_id: paymentId, status: 'PENDING', amount_money: { amount: 10000 } })
+      const stale = (await itemOf(orderId))!
+      expect(stale.detail).toMatchObject({ leftCents: 20000 })
+      await expect(decide(stale.id, 'refund', { cents: 20000 }, owner, NOW)).rejects.toMatchObject({
+        status: 409, message: 'Square shows nothing refunded on this $300 payment now, so $300 is left. Look at it again before refunding. Nothing was refunded.', extra: { reload: true },
+      })
+      expect(m.refundPayment).not.toHaveBeenCalled()
+      const now = (await itemOf(orderId))!
+      expect(now.detail).toMatchObject({ backCents: 0, leftCents: 30000, canRefund: true })
+      expect((await decide(now.id, 'refund', { cents: 30000 }, owner, NOW)).decided.what).toBe('Refunded $300 to Alice (emailed)')
+      expect(m.refundPayment.mock.calls[0][0]).toMatchObject({ paymentId, amountCents: 30000 })
+    })
+
+    it('M-1 (PB): no answer, $100 refunded in Square meanwhile, Square says “already refunded” to the retry: the words offer Refund the rest for what is left', async () => {
+      const partyId = newId()
+      await saveCheckout(ck(partyId, { state: 'retired' }) as any)
+      const { orderId, paymentId, item } = await paidElsewhere(partyId)
+      m.refundPayment.mockRejectedValueOnce(new Error('socket hang up'))
+      await expect(decide(item.id, 'refund', { cents: 30000 }, owner, NOW)).rejects.toMatchObject({ status: 502 })
+      m.readPayment.mockResolvedValue(shows(paymentId, [{ id: 'RF-pb', amountCents: 10000, status: 'COMPLETED' }]))
+      m.refundPayment.mockRejectedValueOnce(Object.assign(new Error('refund amount invalid'), { errors: [{ code: 'REFUND_AMOUNT_INVALID' }] }))
+      const again = (await itemOf(orderId))!
+      await expect(decide(again.id, 'refund', { cents: 30000 }, owner, NOW)).rejects.toMatchObject({
+        status: 409, message: 'Square shows $100 of this $300 payment already refunded, so $200 is left. Nothing more was refunded. Tap Refund the rest.',
+      })
+      const now = (await itemOf(orderId))!
+      expect(now.detail).toMatchObject({ backCents: 10000, leftCents: 20000, canRefund: true, refundStarted: false })
     })
   })
 })

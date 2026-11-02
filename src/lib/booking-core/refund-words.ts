@@ -24,7 +24,7 @@ export const SQUARE_ALREADY_REFUNDED = 'Square says this payment was already ref
 export const SQUARE_REFUND_FINAL_CODES = ['REFUND_AMOUNT_INVALID', 'REFUND_ALREADY_PENDING', 'PAYMENT_NOT_REFUNDABLE']
 
 export const NOT_WAITING = "That refund isn't waiting on Square any more."
-export const STILL_WAITING_ON_SQUARE = 'A refund on this booking is still waiting on Square. Check it in Square first.'
+export const STILL_WAITING_ON_SQUARE = 'A refund on this booking is still waiting on Square’s answer. Tap Ask Square on it first.'
 export const AGAIN_IS_STALE = 'Someone already refunded this again. Check the list.'
 export const AGAIN_NEEDS_THE_SCREEN = 'To repeat a refund, use "Refund again" on the refund screen.'
 export const REFUND_JUST_MADE = 'Another refund was just made on this booking. Look at the booking again before refunding more.'

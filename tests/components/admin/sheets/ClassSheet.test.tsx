@@ -72,12 +72,12 @@ describe('class sheet › Bookings', () => {
     expect(posts(f, REFUND)[0].headers['X-Admin-Who']).toBe('Catherine')
   })
 
-  it('a refund still waiting on Square shows "I checked Square" on its row (R29)', async () => {
+  it('a refund still waiting on Square shows Ask Square on its row (R29, no dashboard)', async () => {
     const waiting = { requestId: 'rq_1', cents: 6540, at: '2031-03-02T15:00:00Z', by: { id: 'owner-kaden', name: 'Kaden' }, people: [{ name: 'Ada Lovelace', cents: 6540 }], dates: [] }
     vi.stubGlobal('fetch', server({ bookings: [booking({ waiting })] }))
     renderSheet(<ClassSheet id="cls_1" />)
     expect(await screen.findByText('A refund is waiting on Square')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'It went through' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ask Square' })).toBeInTheDocument()
   })
 
   it('more than one date: seats on each date', async () => {

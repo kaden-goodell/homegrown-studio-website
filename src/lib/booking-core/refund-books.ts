@@ -51,7 +51,7 @@ export async function refundBookFor(scope: RefundScope, hint: { label?: string }
 export function claimSquareRefund(
   refund: { id: string; paymentId: string; cents: Cents },
   bookings: { classId: string; bookingId: string; label?: string }[],
-  opts: { requestIds?: string[]; exactOnly?: boolean } = {},
+  opts: { requestIds?: string[]; exactOnly?: boolean; how?: 'checked-in-square' | 'square-webhook' } = {},
 ): Promise<boolean> {
   // A request no book can write is not claimed: the caller records Square's refund the usual way (every Square
   // refund recorded), and the stuck request shows up as "no answer" after a day. Every other caller still throws.

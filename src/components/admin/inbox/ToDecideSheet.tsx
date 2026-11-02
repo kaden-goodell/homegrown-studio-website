@@ -168,7 +168,7 @@ function OneChoice({ item, note, action, button, working }: { item: ToDecideItem
 function Asked({ answer }: { answer: AskAnswer }) {
   return (
     <div className={`adm-panel adm-gap-top${answer.state === 'failed' || answer.state === 'none' ? ' is-warn' : ''}`} role="status">
-      <b>{answer.state === 'done' ? 'Square shows it went through' : answer.state === 'pending' ? 'Square shows it still going through' : answer.state === 'failed' ? 'Square shows it failed' : 'Square shows no refund'}</b>
+      <b>{answer.title ? answer.title : answer.state === 'done' ? 'Square shows it went through' : answer.state === 'pending' ? 'Square shows it still going through' : answer.state === 'failed' ? 'Square shows it failed' : 'Square shows no refund'}</b>
       <span className="adm-small">{answer.message}</span>
     </div>
   )
@@ -405,27 +405,28 @@ function PartyNotTold({ item }: { item: ToDecideItem }) {
   )
 }
 
-/** A payment on a booked party (link, or a card taken here) that Square never answered. */
+/** A payment on a booked party (link, or a card taken here) that Square never answered: Ask Square, then only the buttons that fit. */
 function PartyPaymentUnclear({ item }: { item: ToDecideItem }) {
   const d = item.detail as Detail & { cents?: number; until?: string }
-  const { send, busy, error } = useDecide(item)
+  const { send, busy, error, ask } = useDecide(item)
+  const [answer, setAnswer] = useState<AskAnswer | null>(null)
+  const next = answer?.next ?? []
+  const footer = (
+    <div className="adm-stack">
+      {next.includes('went-through') && <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'went-through' })}>{label(busy, 'went-through', 'It went through', 'Recording…')}</button>}
+      {next.includes('did-not-go-through') && <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => send({ action: 'did-not-go-through' })}>{label(busy, 'did-not-go-through', 'It didn’t go through', 'Saving…')}</button>}
+      <button type="button" className={`adm-btn ${answer ? 'is-ghost' : 'is-pri'}`} disabled={!!busy} onClick={async () => setAnswer(await ask())}>{label(busy, 'ask', answer ? 'Ask Square again' : 'Ask Square', 'Asking Square…')}</button>
+    </div>
+  )
   return (
-    <SheetFrame
-      title={item.title}
-      subtitle="To decide"
-      footer={(
-        <div className="adm-two">
-          <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => send({ action: 'did-not-go-through' })}>{label(busy, 'did-not-go-through', 'It didn’t go through', 'Checking Square…')}</button>
-          <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'went-through' })}>{label(busy, 'went-through', 'It went through', 'Checking Square…')}</button>
-        </div>
-      )}
-    >
+    <SheetFrame title={item.title} subtitle="To decide" footer={footer}>
       <Head item={item} />
       {kv('Payment', formatMoney(d.cents ?? 0))}
       {typeof d.orderId === 'string' && d.orderId && <SquareOrder id={d.orderId} />}
       <p className="adm-note adm-gap-top">
-        Tap either one: we ask Square about this payment first and act only on what it shows. It went through records the payment on the party (the host gets their email once), and It didn’t go through only works when Square shows no payment, and lets a new payment start. Nothing is charged or refunded from here.
+        Tap Ask Square: it looks up this payment and shows what Square did, then the right next step. It went through records the payment on the party (the host gets their email once). It didn’t go through lets a new payment start. Nothing is charged or refunded from here.
       </p>
+      {answer && <Asked answer={answer} />}
       {d.until && <p className="adm-small">{`Until then, Move, Cancel and new payments on this party wait. If nobody decides, it clears on ${dayAndClock(d.until)} and the next payment asks Square first.`}</p>}
       <OpenParty item={item} />
       <ErrorLine text={error} />
@@ -433,7 +434,7 @@ function PartyPaymentUnclear({ item }: { item: ToDecideItem }) {
   )
 }
 
-/** The Square order id in its own row, with Copy (to search for it in Square). */
+/** The Square order id in its own row, with Copy: only an aid (say, on a call with Square), never a step. */
 function SquareOrder({ id }: { id: string }) {
   const toast = useToast()
   return (
@@ -913,9 +914,7 @@ function PaidNoSeat({ item }: { item: ToDecideItem }) {
       <p className="adm-note adm-gap-top">
         {d.refundStarted
           ? `A refund of ${formatMoney(refundCents)} was sent to Square and it never answered. Tap Refund it: the same request goes again, so it can never refund twice.`
-          : d.canSeat
-            ? 'Giving them their seat puts them on the class, paid by this payment, even if the date is full. Or refund the payment: it goes back to their card and they get a refund email. Already settled another way? Tap It’s already sorted.'
-            : 'Refund the payment: it goes back to their card and they get a refund email. Already settled another way? Tap It’s already sorted.'}
+          : `${d.canSeat ? 'Giving them their seat puts them on the class, paid by this payment, even if the date is full. Or refund the payment' : 'Refund the payment'}: it goes back to their card${d.email ? ' and they get a refund email' : ' (no email on file, so nobody is emailed)'}. Already settled another way? Tap It’s already sorted.`}
       </p>
       {item.classId && <OpenClass id={item.classId} />}
       <ErrorLine text={error} />

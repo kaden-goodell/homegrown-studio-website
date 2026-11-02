@@ -7,10 +7,11 @@ export const prerender = false
 
 /**
  * POST `{ partyId, chargeId, cents, reason, attempt, again? }`: refund all or
- * part of one payment on a party. `{ action: 'clear', partyId, requestId,
- * outcome, reason }`: "It went through / It didn't go through" for a refund
- * Square never answered. Owners only (the one named in X-Admin-Who); a reason
- * is optional.
+ * part of one payment on a party. `{ action: 'ask-request', partyId,
+ * requestId }`: Ask Square about a refund it never answered (read only);
+ * `{ action: 'request-decide', partyId, requestId, outcome }`: the step that
+ * fits Square's answer (booking-core/ask-square). Owners only (the one named
+ * in X-Admin-Who); a reason is optional.
  */
 export const POST: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })

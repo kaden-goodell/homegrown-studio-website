@@ -198,7 +198,8 @@ describe('refunds', () => {
     await flag('refund-failed', cls, 'bkg_f', { status: 'FAILED' })
     const item = await find('refund-failed')
     expect(item.head).toBe(`Square couldn’t finish a $16.35 refund for Ada Lovelace (${cls.content.name}).`)
-    expect((await decide(item.id, 'handled', {}, CATHERINE, NOW)).decided.what).toBe('Marked as handled')
+    await expect(decide(item.id, 'handled', {}, CATHERINE, NOW)).rejects.toMatchObject({ status: 400 })
+    expect((await decide(item.id, 'handled', { reason: 'Gave cash back' }, CATHERINE, NOW)).decided.what).toBe('Marked as handled: Gave cash back')
   })
 
   async function savedRequest(cls: ScheduledClass, bookingId: string, lineId: string, over: Record<string, unknown> = {}) {
@@ -357,6 +358,75 @@ describe('Ask Square on a refund (no Square dashboard needed)', () => {
   })
 })
 
+describe('task 13 fix round 4: Try the refund again is written down before Square is called', () => {
+  async function failedFlag(bookingId: string, onLedger = true) {
+    const cls = makeClass(); classes.list = [cls]
+    const refunds = onLedger ? [{ id: 'rfe_old', cents: 500, reason: 'Sick', by: CATHERINE, at: '2026-10-19T10:00:00.000Z', freedSeat: false, squareRefundId: `RF-old-${bookingId}` } as any] : []
+    await seed(cls, [line({ bookingId, refunds })])
+    const id = `flag-refund-failed-${uid('f')}`
+    await flagsKv.set(id, JSON.stringify({ id, kind: 'refund-failed', classId: cls.id, bookingId, paymentId: `p-${bookingId}`, squareRefundId: `RF-old-${bookingId}`, cents: 500, refundCents: 500, status: 'FAILED', at: NOW.toISOString(), resolved: null }))
+    const item = (await items()).find((i) => i.kind === 'refund-failed' && i.detail.flagId === id && !i.done)!
+    return { cls, id, item }
+  }
+
+  it('I-1 (PH): no answer, but Square made it; its event lands; the second tap: one refund on the books, no "Refund done in Square" item, the same key both times', async () => {
+    const { cls, item } = await failedFlag('bkg_ph')
+    const read = vi.spyOn(providers.payment as any, 'readRefund').mockResolvedValue({ id: 'RF-old-bkg_ph', paymentId: 'p-bkg_ph', amountCents: 500, status: 'FAILED', createdAt: null })
+    const send = vi.spyOn(providers.payment, 'refundPayment').mockRejectedValueOnce(new Error('timeout')).mockResolvedValueOnce({ id: 'RF-new-ph', paymentId: 'p-bkg_ph', amountCents: 500, status: 'COMPLETED' })
+    try {
+      await expect(decide(item.id, 'retry', {}, CATHERINE, NOW)).rejects.toMatchObject({ status: 502 })
+      const { handleRefund, listRefundFlags: flags } = await import('@lib/classes/square-events')
+      // Square's event for the refund it made (seconds later, or the nightly 48-hour list).
+      const event = { id: 'RF-new-ph', payment_id: 'p-bkg_ph', status: 'COMPLETED', amount_money: { amount: 500 }, created_at: new Date().toISOString() }
+      expect(await handleRefund(event, NOW)).toEqual({ action: 'ignored', why: 'already-recorded' })
+      expect(await handleRefund(event, NOW)).toEqual({ action: 'ignored', why: 'already-recorded' })
+      expect((await getLedger(cls.id)).lines[0].refunds.map((r) => [r.cents, r.squareRefundId])).toEqual([[500, 'RF-old-bkg_ph']])
+      expect((await flags()).some((f) => f.kind === 'plain-refund' && f.squareRefundId === 'RF-new-ph')).toBe(false)
+      const done = await decide(item.id, 'retry', {}, CATHERINE, NOW)
+      expect(done.decided.what).toBe('Sent the refund again: Square refunded $5')
+      expect(send.mock.calls[1][0].idempotencyKey).toBe(send.mock.calls[0][0].idempotencyKey)
+      expect((await getLedger(cls.id)).lines[0].refunds).toHaveLength(1)
+      expect((await items()).some((i) => !i.done && i.kind === 'refund-plain' && i.classId === cls.id)).toBe(false)
+    } finally {
+      read.mockRestore(); send.mockRestore()
+    }
+  })
+
+  it('a written-down try Square failed: its FAILED event raises nothing new; another refund of the same amount made in Square later is still its own', async () => {
+    const { cls, item } = await failedFlag('bkg_ff')
+    const read = vi.spyOn(providers.payment as any, 'readRefund').mockResolvedValue({ id: 'RF-old-bkg_ff', paymentId: 'p-bkg_ff', amountCents: 500, status: 'FAILED', createdAt: null })
+    const send = vi.spyOn(providers.payment, 'refundPayment').mockResolvedValueOnce({ id: 'RF-fail-ff', paymentId: 'p-bkg_ff', amountCents: 500, status: 'FAILED' })
+    try {
+      await expect(decide(item.id, 'retry', {}, CATHERINE, NOW)).rejects.toMatchObject({ status: 502, message: expect.stringMatching(/^Square turned it down again/) })
+      const { handleRefund } = await import('@lib/classes/square-events')
+      expect(await handleRefund({ id: 'RF-fail-ff', payment_id: 'p-bkg_ff', status: 'FAILED', amount_money: { amount: 500 } }, NOW)).toEqual({ action: 'ignored', why: 'pending' })
+      expect((await items()).filter((i) => !i.done && i.kind === 'refund-failed' && i.classId === cls.id)).toHaveLength(1)
+    } finally {
+      read.mockRestore(); send.mockRestore()
+    }
+  })
+
+  it('M-3: Square failed a refund that was never written on the booking: not sent again from here; its saved request is turned down so the booking’s Refund sends a new one', async () => {
+    const { cls, item } = await failedFlag('bkg_m3', false)
+    const req = await createRefundRequest({
+      id: uid('req'), inputHash: uid('h'), classId: cls.id, bookingId: 'bkg_m3', paymentId: 'p-bkg_m3', kind: 'booking', freeSeat: false,
+      reason: 'Sick', by: CATHERINE, role: 'owner', lines: [{ id: 'led_x', cents: 500 }], totalCents: 500, prior: 0, rawKey: 'raw-m3', failures: 0,
+      idempotencyKey: 'refund:m3', status: 'sent', squareRefundId: 'RF-old-bkg_m3', answered: false, createdAt: '2026-10-19T10:00:00.000Z', updatedAt: '2026-10-19T10:00:00.000Z',
+    } as any)
+    const read = vi.spyOn(providers.payment as any, 'readRefund').mockResolvedValue({ id: 'RF-old-bkg_m3', paymentId: 'p-bkg_m3', amountCents: 500, status: 'FAILED', createdAt: null })
+    const send = vi.spyOn(providers.payment, 'refundPayment')
+    try {
+      const done = await decide(item.id, 'retry', {}, CATHERINE, NOW)
+      expect(done.decided.what).toBe('Not sent again: Square failed it before it was saved here, so nothing was refunded. Refund it again from the class booking')
+      expect(send).not.toHaveBeenCalled()
+      expect((await listRefundRequests(cls.id, 'bkg_m3')).find((r) => r.id === req.id)).toMatchObject({ status: 'turned-down', failures: 1 })
+      expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'refund-not-sent-again' }))
+    } finally {
+      read.mockRestore(); send.mockRestore()
+    }
+  })
+})
+
 describe('refunds on parties (scope "party")', () => {
   async function party() {
     const id = uid('pty_')
@@ -382,7 +452,8 @@ describe('refunds on parties (scope "party")', () => {
     expect(item).toMatchObject({ kind: 'refund-failed', head: 'Square couldn’t finish a $50 refund on the Justice party.', className: 'the Justice party' })
     expect(item.classId).toBeUndefined()
     expect(item.detail).toMatchObject({ partyId, partyDay: '2026-11-14', refundCents: 5000 })
-    expect((await decide(item.id, 'handled', {}, CATHERINE, NOW)).decided.what).toBe('Marked as handled')
+    await expect(decide(item.id, 'handled', {}, CATHERINE, NOW)).rejects.toMatchObject({ status: 400 })
+    expect((await decide(item.id, 'handled', { reason: 'Gave cash back' }, CATHERINE, NOW)).decided.what).toBe('Marked as handled: Gave cash back')
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({ target: { kind: 'party', id: partyId, label: 'the Justice party' } }))
   })
 

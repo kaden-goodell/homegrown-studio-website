@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import type { BookingView } from '@lib/classes/admin-actions'
 import { formatMoney } from '@lib/money'
+import type { AskAnswer } from '@lib/booking-core/ask-square'
 
 /** A fresh token for one refund ask (kept across its retries). */
 function newAttempt(): string {
@@ -52,6 +53,88 @@ export interface WaitingRefund {
   dates: string[]
 }
 
+/**
+ * A refund still waiting on Square's answer: Ask Square (read only), then only
+ * the buttons that fit what Square shows (the same flow as /admin › To decide):
+ * It went through (recorded with Square's refund) · Try the refund again (the
+ * same request when Square shows none, a new one when it failed: never twice)
+ * · It didn't go through. Nobody types what they saw: the reason comes from
+ * Square's answer, and each step is logged with who tapped it.
+ */
+function WaitingOnSquare({ text, endpoint, ids, send, onSettled }: {
+  text: string
+  endpoint: string
+  /** which request: { classId, bookingId, requestId } or { partyId, requestId } */
+  ids: Record<string, string>
+  send: Send
+  onSettled: (message: string) => void
+}) {
+  const [answer, setAnswer] = useState<AskAnswer | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [error, setError] = useState('')
+  const [retrying, setRetrying] = useState(false)
+  const next = answer?.next ?? []
+  const amount = formatMoney(answer?.cents ?? 0)
+
+  async function ask() {
+    setBusy('ask')
+    setError('')
+    const r = await send<{ asked: AskAnswer }>(endpoint, { action: 'ask-request', ...ids })
+    setBusy(null)
+    if (r.ok && r.data?.asked) setAnswer(r.data.asked)
+    else setError(r.error ?? 'Square couldn’t be asked just now. Try again in a minute.')
+  }
+
+  async function act(outcome: 'went-through' | 'retry' | 'did-not-go-through') {
+    setBusy(outcome)
+    setError('')
+    const r = await send<{ cents: number; emailed: boolean }>(endpoint, { action: 'request-decide', ...ids, outcome })
+    setBusy(null)
+    setRetrying(false)
+    if (!r.ok || !r.data) {
+      setError(r.error ?? '')
+      // Square showed something else by now: its new answer, with the buttons that fit it.
+      if (r.extra?.asked) setAnswer(r.extra.asked as AskAnswer)
+      return
+    }
+    const emailed = r.data.emailed ? ' They’ve been emailed.' : ''
+    onSettled(outcome === 'did-not-go-through'
+      ? 'Saved. That refund didn’t go through, so you can refund again.'
+      : `Saved. ${formatMoney(r.data.cents)} refunded.${emailed}`)
+  }
+
+  return (
+    <div role="group" aria-label="A refund is waiting on Square" style={{ ...box, borderColor: '#b45309' }}>
+      <p style={{ margin: 0, fontWeight: 700 }}>A refund is waiting on Square</p>
+      <p style={{ margin: 0 }}>{text}</p>
+      {answer && (
+        <div role="status" style={{ display: 'grid', gap: '0.2rem' }}>
+          <p style={{ margin: 0, fontWeight: 600 }}>{answer.state === 'done' ? 'Square shows it went through' : answer.state === 'pending' ? 'Square shows it still going through' : answer.state === 'failed' ? 'Square shows it failed' : 'Square shows no refund'}</p>
+          <p style={hintText}>{answer.message}</p>
+        </div>
+      )}
+      {error && <p role="alert" style={errorText}>{error}</p>}
+      {retrying ? (
+        <div role="group" aria-label={`Try the ${amount} refund again?`} style={{ display: 'grid', gap: '0.4rem' }}>
+          <p style={{ margin: 0, fontWeight: 600 }}>{`Try the ${amount} refund again?`}</p>
+          <p style={hintText}>{answer?.state === 'failed' ? `Square is asked for a new ${amount} refund on the same payment. Tapping twice never refunds twice.` : 'The same request goes to Square again, so it can never refund twice.'}</p>
+          <div style={row}>
+            <button type="button" className="btn btn-primary" disabled={!!busy} style={dim(!!busy)} onClick={() => act('retry')}>{busy === 'retry' ? 'Refunding…' : 'Try the refund again'}</button>
+            <button type="button" className="btn btn-secondary" disabled={!!busy} onClick={() => { setRetrying(false); setError('') }}>Back</button>
+          </div>
+        </div>
+      ) : (
+        <div style={row}>
+          {next.includes('went-through') && <button type="button" className="btn btn-primary" disabled={!!busy} style={dim(!!busy)} onClick={() => act('went-through')}>{busy === 'went-through' ? 'Recording…' : 'It went through'}</button>}
+          {next.includes('retry') && <button type="button" className="btn btn-primary" disabled={!!busy} style={dim(!!busy)} onClick={() => { setRetrying(true); setError('') }}>Try the refund again</button>}
+          {next.includes('did-not-go-through') && <button type="button" className="btn btn-secondary" disabled={!!busy} style={dim(!!busy)} onClick={() => act('did-not-go-through')}>{busy === 'did-not-go-through' ? 'Saving…' : 'It didn’t go through'}</button>}
+          <button type="button" className={answer ? 'btn btn-secondary' : 'btn btn-primary'} disabled={!!busy} style={dim(!!busy)} onClick={ask}>{busy === 'ask' ? 'Asking Square…' : answer ? 'Ask Square again' : 'Ask Square'}</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export const ADMIN_REFUND = '/api/admin/classes/refund.json'
 export const STAFF_REFUND = '/api/staff/class-refund.json'
 
@@ -65,8 +148,7 @@ type Kind = 'booking' | 'person' | 'session' | 'custom'
  * the server works them out again from the ledger.
  *
  * A refund still waiting on Square (`waiting`, or a 409 naming one) shows
- * "Check it in Square" with "It went through" / "It didn't go through"; the
- * person says what they saw (R29). "Refund again" sends again:{of, token},
+ * Ask Square, then only the steps that fit what Square shows (WaitingOnSquare). "Refund again" sends again:{of, token},
  * one token per "Already refunded" answer, reused across retries (R31); when
  * a retry finds its own repeat already finished, it shows as refunded.
  */
@@ -78,7 +160,7 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   reasonRequired?: boolean
   /** the card's last four digits, when the screen knows them */
   last4?: string
-  /** a refund on this booking still waiting for someone to check Square */
+  /** a refund on this booking still waiting on Square's answer */
   waiting?: WaitingRefund | null
   /** /staff: a counter (POS) sale is refunded at the register where it was rung up, not from here */
   counterSalesAtRegister?: boolean
@@ -114,7 +196,6 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   // A refund waiting on Square: from the screen's data, or named by a 409 when a new refund was refused.
   const [waiting, setWaiting] = useState<WaitingRefund | null>(waitingProp)
   useEffect(() => { setWaiting(waitingProp) }, [waitingProp?.requestId])
-  const [seen, setSeen] = useState('')
 
   const label = (t: string) => ticketLabel?.(t) ?? t
   // A different ask is not the one already made: back to "Confirm refund".
@@ -206,23 +287,6 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
     onDone?.()
   }
 
-  /** "I checked Square": the waiting refund went through, or didn't. Reason = what they saw. */
-  async function check(outcome: 'went-through' | 'did-not-go-through') {
-    if (!waiting) return
-    setBusy(true)
-    setError('')
-    const r = await send<{ status: string }>(endpoint, {
-      action: 'clear-request', classId, bookingId: booking.bookingId, requestId: waiting.requestId, outcome, reason: seen.trim(),
-    })
-    setBusy(false)
-    if (!r.ok) { setError(r.error ?? ''); return }
-    setDone(outcome === 'went-through' ? `Saved. ${formatMoney(waiting.cents)} refunded.` : 'Saved. That refund didn’t go through, so you can refund again.')
-    setWaiting(null)
-    setSeen('')
-    setError('')
-    onDone?.()
-  }
-
   const reasonBox = (
     <label style={{ display: 'grid', gap: '0.3rem' }}>
       <span style={fieldLabel}>{reasonRequired ? 'Reason' : 'Reason (optional)'}</span>
@@ -231,23 +295,15 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
   )
 
   if (waiting) {
-    const seenOk = !reasonRequired || seen.trim().length >= 3
     const when = new Date(waiting.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' })
     return (
-      <div role="group" aria-label="Check a refund in Square" style={{ ...box, borderColor: '#b45309' }}>
-        <p style={{ margin: 0, fontWeight: 700 }}>A refund is waiting on Square</p>
-        <p style={{ margin: 0 }}>{`${formatMoney(waiting.cents)} for ${waiting.people.map((p) => p.name).join(', ') || 'this booking'}, asked by ${waiting.by.name} on ${when}. Square never said whether it went through. Look for it in Square, then say what you saw.`}</p>
-        <label style={{ display: 'grid', gap: '0.3rem' }}>
-          <span style={fieldLabel}>{reasonRequired ? 'What you saw in Square' : 'What you saw in Square (optional)'}</span>
-          <input type="text" value={seen} maxLength={500} onChange={(e) => setSeen(e.target.value)} style={input} />
-        </label>
-        {error && <p role="alert" style={errorText}>{error}</p>}
-        <div style={row}>
-          <button type="button" className="btn btn-primary" disabled={busy || !seenOk} style={dim(busy || !seenOk)} onClick={() => check('went-through')}>It went through</button>
-          <button type="button" className="btn btn-secondary" disabled={busy || !seenOk} style={dim(busy || !seenOk)} onClick={() => check('did-not-go-through')}>It didn’t go through</button>
-        </div>
-        {!seenOk && <p data-testid="refund-hint" style={hintText}>Add what you saw in Square.</p>}
-      </div>
+      <WaitingOnSquare
+        text={`${formatMoney(waiting.cents)} for ${waiting.people.map((p) => p.name).join(', ') || 'this booking'}, asked by ${waiting.by.name} on ${when}. Square never said whether it went through. Tap Ask Square: it reads the payment and shows what Square did, then the right next step.`}
+        endpoint={endpoint}
+        ids={{ classId, bookingId: booking.bookingId, requestId: waiting.requestId }}
+        send={send}
+        onSettled={(message) => { setDone(message); setWaiting(null); setError(''); onDone?.() }}
+      />
     )
   }
 
@@ -396,7 +452,7 @@ const givenName = (name: string) => name.trim().split(/\s+/)[0] || 'they'
  *
  * The same flows as RefundPanel: one attempt token across retries, "Already
  * refunded" with Refund again (R31), and a refund still waiting on Square
- * turns into "It went through / It didn't go through" (R29).
+ * turns into Ask Square and the steps that fit its answer (WaitingOnSquare).
  */
 export function AmountRefundPanel({ partyId, payer, charges, endpoint = ADMIN_PARTY_REFUND, reasonRequired = false, waiting: waitingProp = null, send = api, onDone, cancelled = false }: {
   partyId: string
@@ -426,7 +482,6 @@ export function AmountRefundPanel({ partyId, payer, charges, endpoint = ADMIN_PA
   const [attempt, setAttempt] = useState(newAttempt)
   const [waiting, setWaiting] = useState<WaitingAmountRefund | null>(waitingProp)
   useEffect(() => { setWaiting(waitingProp) }, [waitingProp?.requestId])
-  const [seen, setSeen] = useState('')
   // A different ask is not the one already made.
   useEffect(() => { setAlready(''); setAgainOf(null) }, [chargeId, all, amount])
   useEffect(() => { if (!refundable.some((c) => c.id === chargeId) && refundable[0]) setChargeId(refundable[0].id) }, [refundable.map((c) => c.id).join()])
@@ -481,38 +536,16 @@ export function AmountRefundPanel({ partyId, payer, charges, endpoint = ADMIN_PA
     onDone?.(text)
   }
 
-  async function check(outcome: 'went-through' | 'did-not-go-through') {
-    if (!waiting) return
-    setBusy(true)
-    setError('')
-    const r = await send<{ status: string }>(endpoint, { action: 'clear', partyId, requestId: waiting.requestId, outcome, reason: seen.trim() })
-    setBusy(false)
-    if (!r.ok) { setError(r.error ?? ''); return }
-    const text = outcome === 'went-through' ? `Saved. ${formatMoney(waiting.cents)} refunded.` : 'Saved. That refund didn’t go through, so you can refund again.'
-    setDone(text)
-    setWaiting(null)
-    setSeen('')
-    onDone?.(text)
-  }
-
   if (waiting) {
-    const seenOk = !reasonRequired || seen.trim().length >= 3
     const when = new Date(waiting.at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'America/Chicago' })
     return (
-      <div role="group" aria-label="Check a refund in Square" style={{ ...box, borderColor: '#b45309' }}>
-        <p style={{ margin: 0, fontWeight: 700 }}>A refund is waiting on Square</p>
-        <p style={{ margin: 0 }}>{`${formatMoney(waiting.cents)} back to ${payer}, asked by ${waiting.by.name} on ${when}. Square never said whether it went through. Look for it in Square, then say what you saw.`}</p>
-        <label style={{ display: 'grid', gap: '0.3rem' }}>
-          <span style={fieldLabel}>{reasonRequired ? 'What you saw in Square' : 'What you saw in Square (optional)'}</span>
-          <input type="text" value={seen} maxLength={500} onChange={(e) => setSeen(e.target.value)} style={input} />
-        </label>
-        {error && <p role="alert" style={errorText}>{error}</p>}
-        <div style={row}>
-          <button type="button" className="btn btn-primary" disabled={busy || !seenOk} style={dim(busy || !seenOk)} onClick={() => check('went-through')}>It went through</button>
-          <button type="button" className="btn btn-secondary" disabled={busy || !seenOk} style={dim(busy || !seenOk)} onClick={() => check('did-not-go-through')}>It didn’t go through</button>
-        </div>
-        {!seenOk && <p data-testid="refund-hint" style={hintText}>Add what you saw in Square.</p>}
-      </div>
+      <WaitingOnSquare
+        text={`${formatMoney(waiting.cents)} back to ${payer}, asked by ${waiting.by.name} on ${when}. Square never said whether it went through. Tap Ask Square: it reads the payment and shows what Square did, then the right next step.`}
+        endpoint={endpoint}
+        ids={{ partyId, requestId: waiting.requestId }}
+        send={send}
+        onSettled={(message) => { setDone(message); setWaiting(null); setError(''); onDone?.(message) }}
+      />
     )
   }
 

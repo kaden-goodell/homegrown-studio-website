@@ -16,14 +16,16 @@ import { formatMoney } from '@lib/money'
 import type { By } from '@lib/staff-auth'
 import { PAID_NOT_SEATED_SCOPE, retrySavedRequest, runRefund, type RefundBook } from '@lib/booking-core/refund-runner'
 import { RefundError, refundKeyRaw } from '@lib/booking-core/refund-words'
-import { PaidElsewhereError, squareSays, unfinishedRefund } from '@lib/parties/paid-elsewhere'
+import { alreadyRefundedText, backText, PaidElsewhereError, refundedNote, squareSays, unfinishedRefund } from '@lib/parties/paid-elsewhere'
 import { getClass } from './class-store'
+import { getLedger } from './seat-ledger'
 import { hashOf, listRefundRequests, type SavedRefundRequest } from './refund-requests'
 import { squareFetch } from './square-api'
 import { getPaidNotSeated, notePaidNotSeated, resolvePaidNotSeated, type PaidNotSeated } from './square-events'
 import type { Cents } from './types'
 
 export const PNS_NOT_WAITING = 'This isn’t waiting any more.'
+export const PNS_SEATED = 'They have their seat now, and this payment pays for it. Refund it from the class booking if it should go back.'
 
 /** The customer on the Square order, read only (name and email for the confirm and the refund email). Null when none or unreadable. */
 export async function pnsCustomer(customerId: string | null): Promise<{ givenName: string; familyName: string; email: string } | null> {
@@ -70,6 +72,10 @@ export async function paidNotSeatedRefundBook(
       const now = await waiting(paidId)
       if (!now || !entry || now.paymentId !== entry.paymentId) throw new RefundError(404, PNS_NOT_WAITING)
       if (cents <= 0 || cents > now.chargedCents) throw new RefundError(409, PNS_NOT_WAITING)
+      // Seated meanwhile (by an owner, or the customer's own retry): this payment pays for that seat now.
+      if ((await getLedger(now.classId)).lines.some((l) => l.bookingId === now.bookingId && l.square.orderId === now.orderId && (l.state === 'confirmed' || l.state === 'refunded'))) {
+        throw new RefundError(409, PNS_SEATED, { reload: true })
+      }
       const saved = await listRefundRequests(PAID_NOT_SEATED_SCOPE, paidId)
       const rawKey = refundKeyRaw(`pns:${paidId}`, [now.paymentId!], cents, 0)
       const failures = saved.filter((s) => s.rawKey === rawKey).reduce((m, s) => Math.max(m, s.failures), 0)
@@ -88,7 +94,7 @@ export async function paidNotSeatedRefundBook(
     async email(r, w) {
       return (await sendRefundEmail({
         to: w.email, givenName: w.firstName, className: w.className, cents: r.totalCents, keptSeat: false,
-        ...(w.why === 'other-order' ? { duplicate: 'class-twice' as const } : {}),
+        duplicate: w.why === 'other-order' ? 'class-twice' as const : 'class-no-seats' as const,
       })).sent
     },
     audit: (r, squareRefundId, how) => recordAudit({
@@ -132,11 +138,11 @@ export async function refundPaidNotSeated(
   const total = sq.amountCents || entry.chargedCents
   const left = Math.max(0, total - sq.backCents)
   const at = (opts.now ?? new Date()).toISOString()
-  if (sq.backCents > 0) await notePaidNotSeated(paidId, { cents: sq.backCents, at, ids: sq.refundIds })
+  await notePaidNotSeated(paidId, refundedNote(sq, at))
   if (left <= 0) throw new RefundError(409, `Square shows this ${formatMoney(total)} payment already refunded, so nothing more was refunded. Tap It’s already sorted to clear this.`, { reload: true })
   const shown = opts.cents ?? (entry.chargedCents - (entry.squareRefunded?.cents ?? 0))
   if (shown !== left) {
-    throw new RefundError(409, `Square shows ${formatMoney(sq.backCents)} of this ${formatMoney(total)} payment already refunded, so ${formatMoney(left)} is left. Look at it again before refunding. Nothing was refunded.`, { reload: true })
+    throw new RefundError(409, `${backText(sq.backCents, total)}, so ${formatMoney(left)} is left. Look at it again before refunding. Nothing was refunded.`, { reload: true })
   }
   const book = await paidNotSeatedRefundBook(paidId, { entry, cents: left })
   const out = await finalAnswer(entry, () => runRefund(book, { reason }, actor), opts.now)
@@ -158,7 +164,7 @@ async function finalAnswer<T>(entry: PaidNotSeated, fn: () => Promise<T>, now?: 
   } catch (e) {
     if (!(e instanceof RefundError) || e.extra?.squareSaid !== 'already-refunded') throw e
     const sq = await squareSays(entry.paymentId!).catch(() => null)
-    if (sq && sq.backCents > 0) await notePaidNotSeated(entry.id, { cents: sq.backCents, at: (now ?? new Date()).toISOString(), ids: sq.refundIds }).catch(() => undefined)
-    throw new RefundError(409, `${e.message} Tap It’s already sorted to clear this.`, { reload: true })
+    if (sq) await notePaidNotSeated(entry.id, refundedNote(sq, (now ?? new Date()).toISOString())).catch(() => undefined)
+    throw new RefundError(409, alreadyRefundedText(e.message, sq, entry.chargedCents), { reload: true })
   }
 }

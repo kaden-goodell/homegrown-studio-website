@@ -17,7 +17,7 @@ export const POST: APIRoute = async ({ request }) => {
   return partyRefundReply(request, { by: byOf(member), role: member.role }, { reasonRequired: true })
 }
 
-/** GET ?partyId=: the party's saved refund requests, so a waiting one can be checked in Square. */
+/** GET ?partyId=: the party's saved refund requests, so a waiting one can be asked about (Ask Square). */
 export const GET: APIRoute = async ({ request, url }) => {
   if (!(await staffAuthorized(request))) return unauthorized()
   return partyRefundRequestsReply(url)

@@ -380,7 +380,7 @@ export async function claimSquareRefundWith(
   bookFor: RefundBookFinder,
   refund: { id: string; paymentId: string; cents: Cents },
   bookings: { classId: string; bookingId: string; label?: string }[],
-  opts: { requestIds?: string[]; exactOnly?: boolean } = {},
+  opts: { requestIds?: string[]; exactOnly?: boolean; how?: 'checked-in-square' | 'square-webhook' } = {},
 ): Promise<boolean> {
   let found: SavedRefundRequest | null = null
   let label: string | undefined
@@ -408,7 +408,8 @@ export async function claimSquareRefundWith(
   }
   const written = await book.write(found, refund.id)
   if (await markRequestDone(found.classId, found.bookingId, found.id, refund.id)) {
-    await book.audit(found, refund.id, 'square-webhook').catch(() => undefined)
+    // `how`: a person's Ask Square (It went through) or Square's own event (the default).
+    await book.audit(found, refund.id, opts.how ?? 'square-webhook').catch(() => undefined)
   }
   if (book.afterWrite) await book.afterWrite(found, written).catch(() => undefined)
   await emailOnce(book, found, written)

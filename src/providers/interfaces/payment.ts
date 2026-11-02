@@ -151,10 +151,11 @@ export interface PaymentProvider {
 
   /**
    * Read only: the order at our location carrying this reference id (our
-   * party id), created around `aroundIso` (a day either side). Null when
+   * party id), created around `aroundIso` (a day either side), for exactly
+   * `opts.totalCents` when given (a party carries several orders). Null when
    * there is none. Throws when Square can't be read.
    */
-  findOrderByReference?(referenceId: string, aroundIso: string): Promise<{ orderId: string } | null>
+  findOrderByReference?(referenceId: string, aroundIso: string, opts?: { totalCents?: number }): Promise<{ orderId: string } | null>
 
   /** Void an order after a failed charge (kits: no orphaned orders). */
   cancelOrder(input: { orderId: string; version: number; locationId: string }): Promise<void>

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
-import RefundPanel, { AmountRefundPanel, STAFF_PARTY_REFUND, STAFF_REFUND } from '@components/shared/RefundPanel'
+import RefundPanel, { ADMIN_REFUND, AmountRefundPanel, STAFF_PARTY_REFUND, STAFF_REFUND } from '@components/shared/RefundPanel'
 
 const booking: any = {
   bookingId: 'bkg_1', customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com', phone: '' },
@@ -165,32 +165,53 @@ describe('RefundPanel', () => {
     expect(sent[1]).toEqual(sent[0])
   })
 
-  it('crew: a refund waiting on Square shows "I checked Square" with a reason, and posts the outcome', async () => {
-    const fetchMock = vi.fn(async (_url: string, _init?: any) => ok({ data: { status: 'done', lines: [] } }))
+  it('crew: a refund waiting on Square shows Ask Square first, then only the buttons that fit Square’s answer (nothing typed)', async () => {
+    const asked = { state: 'done', cents: 3270, refundId: 'RF1', at: null, next: ['went-through'], message: 'Square shows a $32.70 refund on this payment. Tap It went through to record it here.' }
+    const fetchMock = vi.fn(async (_url: string, init?: any) => (JSON.parse(init.body).action === 'ask-request' ? ok({ data: { asked } }) : ok({ data: { what: 'x', action: 'went-through', cents: 3270, emailed: true } })))
     vi.stubGlobal('fetch', fetchMock)
     const onDone = vi.fn()
     const waiting = { requestId: 'req_w', cents: 3270, at: '2026-10-18T15:00:00Z', by: { id: 'sam', name: 'Sam' }, people: [{ name: 'Ada Lovelace', cents: 3270 }], dates: [] }
     render(<RefundPanel classId="cls_1" booking={booking} endpoint={STAFF_REFUND} reasonRequired waiting={waiting} onDone={onDone} />)
     expect(screen.getByText(/\$32\.70 for Ada Lovelace, asked by Sam on Oct 18/)).toBeInTheDocument()
-    const went = screen.getByRole('button', { name: 'It went through' })
-    expect(went).toBeDisabled()
-    fireEvent.change(screen.getByLabelText('What you saw in Square'), { target: { value: 'Shows refunded' } })
-    fireEvent.click(went)
+    expect(screen.queryByText(/in Square, then/)).toBeNull()
+    expect(screen.queryByRole('textbox')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'It went through' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Square' }))
+    expect(await screen.findByText('Square shows it went through')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Try the refund again' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'It went through' }))
     await waitFor(() => expect(onDone).toHaveBeenCalled())
     expect(fetchMock.mock.calls[0][0]).toBe(STAFF_REFUND)
-    expect(JSON.parse((fetchMock.mock.calls[0] as any)[1].body)).toEqual({ action: 'clear-request', classId: 'cls_1', bookingId: 'bkg_1', requestId: 'req_w', outcome: 'went-through', reason: 'Shows refunded' })
-    expect(await screen.findByText('Saved. $32.70 refunded.')).toBeInTheDocument()
+    expect(JSON.parse((fetchMock.mock.calls[0] as any)[1].body)).toEqual({ action: 'ask-request', classId: 'cls_1', bookingId: 'bkg_1', requestId: 'req_w' })
+    expect(JSON.parse((fetchMock.mock.calls[1] as any)[1].body)).toEqual({ action: 'request-decide', classId: 'cls_1', bookingId: 'bkg_1', requestId: 'req_w', outcome: 'went-through' })
+    expect(await screen.findByText('Saved. $32.70 refunded. They’ve been emailed.')).toBeInTheDocument()
   })
 
-  it('a new refund refused because one is waiting on Square turns into the check', async () => {
+  it('Square shows no refund: Try the refund again is confirmed first (the same request), or It didn’t go through', async () => {
+    const asked = { state: 'none', cents: 3270, refundId: null, at: null, next: ['retry', 'did-not-go-through'], message: 'Square shows no $32.70 refund on this payment, so it didn’t go through.' }
+    const fetchMock = vi.fn(async (_url: string, init?: any) => (JSON.parse(init.body).action === 'ask-request' ? ok({ data: { asked } }) : ok({ data: { what: 'x', action: 'retry', cents: 3270, emailed: false } })))
+    vi.stubGlobal('fetch', fetchMock)
+    const waiting = { requestId: 'req_w', cents: 3270, at: '2026-10-18T15:00:00Z', by: { id: 'sam', name: 'Sam' }, people: [], dates: [] }
+    render(<RefundPanel classId="cls_1" booking={booking} endpoint={ADMIN_REFUND} waiting={waiting} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Square' }))
+    expect(await screen.findByText('Square shows no refund')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'It didn’t go through' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try the refund again' }))
+    expect(screen.getByText('The same request goes to Square again, so it can never refund twice.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try the refund again' }))
+    expect(await screen.findByText('Saved. $32.70 refunded.')).toBeInTheDocument()
+    expect(JSON.parse((fetchMock.mock.calls[1] as any)[1].body)).toMatchObject({ action: 'request-decide', outcome: 'retry' })
+  })
+
+  it('a new refund refused because one is waiting on Square turns into Ask Square', async () => {
     const pending = { requestId: 'req_p', cents: 1000, at: '2026-10-18T15:00:00Z', by: { id: 'admin', name: 'Owner' }, people: [], dates: [] }
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 409, json: async () => ({ error: 'A refund on this booking is still waiting on Square. Check it in Square first.', pending }) })))
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 409, json: async () => ({ error: 'A refund on this booking is still waiting on Square’s answer. Tap Ask Square on it first.', pending }) })))
     render(<RefundPanel classId="cls_1" booking={booking} endpoint={STAFF_REFUND} reasonRequired />)
     fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
     fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'Sick kid' } })
     fireEvent.click(screen.getByRole('button', { name: 'Confirm refund' }))
-    expect(await screen.findByRole('group', { name: 'Check a refund in Square' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'It didn’t go through' })).toBeInTheDocument()
+    expect(await screen.findByRole('group', { name: 'A refund is waiting on Square' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Ask Square' })).toBeInTheDocument()
   })
 
   it('I2: fields have a visible border and 16px text; a disabled Confirm looks disabled and says what is missing', () => {
@@ -211,12 +232,7 @@ describe('RefundPanel', () => {
     expect(screen.getByTestId('refund-hint')).toHaveTextContent('Add an amount to refund.')
   })
 
-  it('free their seat and the Square check say what is missing too', () => {
-    const waiting = { requestId: 'req_w', cents: 100, at: '2026-10-18T15:00:00Z', by: { id: 'sam', name: 'Sam' }, people: [], dates: [] }
-    const { unmount } = render(<RefundPanel classId="cls_1" booking={booking} endpoint={STAFF_REFUND} reasonRequired waiting={waiting} />)
-    expect(screen.getByTestId('refund-hint')).toHaveTextContent('Add what you saw in Square.')
-    expect(screen.getByRole('button', { name: 'It went through' }).style.opacity).toBe('0.5')
-    unmount()
+  it('free their seat says what is missing too', () => {
     render(<RefundPanel classId="cls_1" booking={booking} endpoint={STAFF_REFUND} reasonRequired />)
     fireEvent.click(screen.getByRole('button', { name: 'Free their seat' }))
     expect(screen.getByTestId('refund-hint')).toHaveTextContent('Add a reason to free the seat.')
@@ -313,26 +329,32 @@ describe('AmountRefundPanel (parties)', () => {
     expect(b3.attempt).toBe(b1.attempt)
   })
 
-  it('a refund waiting on Square: It went through / It didn’t go through, posted as a clear', async () => {
-    const f = vi.fn(async () => ok({ data: { status: 'done', refunds: [], refundable: {} } }))
+  it('a refund waiting on Square: Ask Square, then It didn’t go through (posted with the party, nothing typed)', async () => {
+    const asked = { state: 'failed', cents: 30000, refundId: 'RF2', at: null, next: ['retry', 'did-not-go-through'], message: 'Square shows this $300 refund failed, so nothing went back.' }
+    const f = vi.fn(async (_url: string, init?: any) => (JSON.parse(init.body).action === 'ask-request' ? ok({ data: { asked } }) : ok({ data: { what: 'x', action: 'did-not-go-through', cents: 0, emailed: false } })))
     vi.stubGlobal('fetch', f)
     const onDone = vi.fn()
     render(<AmountRefundPanel partyId="pty_1" payer="Stefanie Justice" charges={charges} onDone={onDone}
       waiting={{ requestId: 'req_w', cents: 30000, at: '2031-03-03T15:00:00Z', by: { id: 'owner-kaden', name: 'Kaden' }, chargeId: 'chg_1' }} />)
     expect(screen.getByText(/\$300 back to Stefanie Justice, asked by Kaden on Mar 3\. Square never said whether it went through\./)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'It went through' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Ask Square' }))
+    expect(await screen.findByText('Square shows it failed')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Try the refund again' }))
+    expect(screen.getByText('Square is asked for a new $300 refund on the same payment. Tapping twice never refunds twice.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Back' }))
+    fireEvent.click(screen.getByRole('button', { name: 'It didn’t go through' }))
     await waitFor(() => expect(onDone).toHaveBeenCalled())
-    expect(JSON.parse((f.mock.calls[0] as any)[1].body)).toEqual({ action: 'clear', partyId: 'pty_1', requestId: 'req_w', outcome: 'went-through', reason: '' })
-    expect(screen.getByText('Saved. $300 refunded.')).toBeInTheDocument()
+    expect(JSON.parse((f.mock.calls[1] as any)[1].body)).toEqual({ action: 'request-decide', partyId: 'pty_1', requestId: 'req_w', outcome: 'did-not-go-through' })
+    expect(screen.getByText('Saved. That refund didn’t go through, so you can refund again.')).toBeInTheDocument()
   })
 
-  it('a new refund refused because one is waiting on Square turns into the check', async () => {
+  it('a new refund refused because one is waiting on Square turns into Ask Square', async () => {
     const pending = { requestId: 'req_p', cents: 5000, at: '2031-03-03T15:00:00Z', by: { id: 'owner-kaden', name: 'Kaden' }, chargeId: 'chg_2' }
-    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 409, json: async () => ({ error: 'A refund on this party is waiting on Square.', pending }) })))
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false, status: 409, json: async () => ({ error: 'A refund on this booking is still waiting on Square’s answer. Tap Ask Square on it first.', pending }) })))
     render(<AmountRefundPanel partyId="pty_1" payer="Stefanie Justice" charges={charges} />)
     fireEvent.click(screen.getByRole('button', { name: 'Refund' }))
     fireEvent.click(screen.getByRole('button', { name: 'Refund $300' }))
-    expect(await screen.findByRole('group', { name: 'Check a refund in Square' })).toBeInTheDocument()
+    expect(await screen.findByRole('group', { name: 'A refund is waiting on Square' })).toBeInTheDocument()
   })
 
   it('crew: a reason is needed, and it goes to the staff route', async () => {

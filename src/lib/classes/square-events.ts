@@ -80,6 +80,17 @@ const paidNotSeatedKv = makeKvStore('paid-not-seated', 'paid-not-seated')
 /** A refund To decide sent again after Square failed the first one: new Square refund id → what it stands in for. */
 const replacementsKv = makeKvStore('refund-replacements', 'refund-replacements')
 export interface ReplacementRefund { refundId: string; replaces: string; classId: string; bookingId: string; paymentId: string; cents: Cents; at: string }
+/**
+ * A "Try the refund again" written down BEFORE Square is called (key `pend-<flag>-<try>`), so a refund Square
+ * made whose answer never reached us (or a crash after it) is still known as the replacement when its event lands.
+ * `refundId` is filled in from Square's answer or from that event; `failed` = Square failed that try.
+ */
+export interface PendingReplacement {
+  key: string; flagId: string; retries: number; replaces: string; classId: string; bookingId: string; paymentId: string; cents: Cents; at: string
+  refundId: string | null; failed?: boolean
+}
+/** A pending replacement matches a Square refund made this long after it was written down at most (the nightly refund list covers 48 h). */
+const PENDING_MATCH_MS = 2 * 86_400_000
 const ATTEMPTS = 3
 
 export interface UnmatchedPos {
@@ -605,7 +616,7 @@ async function changePaidNotSeated(id: string, fn: (p: PaidNotSeated) => PaidNot
 }
 
 /** What Square shows already refunded on a waiting entry's payment (so the item says it and offers what fits). */
-export async function notePaidNotSeated(id: string, squareRefunded: NonNullable<PaidNotSeated['squareRefunded']>): Promise<void> {
+export async function notePaidNotSeated(id: string, squareRefunded: PaidNotSeated['squareRefunded']): Promise<void> {
   await changePaidNotSeated(id, (p) => (p.resolved || JSON.stringify(p.squareRefunded ?? null) === JSON.stringify(squareRefunded) ? null : { ...p, squareRefunded }))
 }
 
@@ -803,7 +814,8 @@ export async function handleRefund(refund: any, now: Date, opts: { order?: any; 
   if (!paymentId || !refund?.id) return { action: 'ignored', why: 'not-ours' }
   // A party payment first (a read failure throws: never "not a party"; the nightly run tries again).
   // A refund To decide sent again in place of one Square failed: its money is already on the records.
-  const replaced = await replacementsKv.get(`rpl-${safeKey(String(refund.id))}`)
+  const replaced = (await replacementsKv.get(`rpl-${safeKey(String(refund.id))}`)) ?? (await claimPendingReplacement(refund, now))
+  if (replaced === 'failed-try') return { action: 'ignored', why: 'pending' }
   if (replaced) {
     const r = JSON.parse(replaced) as ReplacementRefund
     const st = String(refund.status ?? '')
@@ -974,13 +986,27 @@ async function handleLooseRefund(refund: any, now: Date): Promise<RefundOutcome 
     cents: prev?.ids?.includes(refundId) ? prev.cents : (prev?.cents ?? 0) + cents,
     at: now.toISOString(), ids: [...new Set([...(prev?.ids ?? []), refundId])],
   })
+  // A refund made in Square that we noted, then Square failed it: its money is taken back off the note (null when none is left).
+  const unseen = (prev: { cents: Cents; ids?: string[] } | null | undefined) => {
+    const ids = (prev?.ids ?? []).filter((x) => x !== refundId)
+    const left = Math.max(0, (prev?.cents ?? 0) - cents)
+    return left > 0 && ids.length ? { cents: left, at: now.toISOString(), ids } : null
+  }
+  const failedNoted = (prev: { ids?: string[] } | null | undefined) => (status === 'FAILED' || status === 'REJECTED') && !!prev?.ids?.includes(refundId)
 
   const pe = await paidElsewhereForPayment(paymentId)
   if (pe?.orderId) {
     const orderId = pe.orderId
     const ours = (await listRefundRequests(PAID_ELSEWHERE_SCOPE, orderId)).find((r) => r.squareRefundId === refundId)
     if (status === 'FAILED' || status === 'REJECTED') {
-      if (!ours) return { action: 'ignored', why: 'pending' }
+      if (!ours) {
+        if (pe.state === 'paid-elsewhere' && failedNoted(pe.squareRefunded)) {
+          await notePaidElsewhere(orderId, { squareRefunded: unseen(pe.squareRefunded) })
+          logger.info('A refund made in Square on a party payment to check failed: taken back off the item', { refundId, orderId })
+          return { action: 'noted', cents: 0 }
+        }
+        return { action: 'ignored', why: 'pending' }
+      }
       await reopenAfterFailedRefund(orderId, ours, now)
       return { action: 'flagged', kind: 'refund-failed' }
     }
@@ -999,7 +1025,13 @@ async function handleLooseRefund(refund: any, now: Date): Promise<RefundOutcome 
   if (pns) {
     const ours = (await listRefundRequests(PAID_NOT_SEATED_SCOPE, pns.id)).find((r) => r.squareRefundId === refundId)
     if (status === 'FAILED' || status === 'REJECTED') {
-      if (!ours) return { action: 'ignored', why: 'pending' }
+      if (!ours) {
+        if (!pns.resolved && failedNoted(pns.squareRefunded)) {
+          await notePaidNotSeated(pns.id, unseen(pns.squareRefunded))
+          return { action: 'noted', cents: 0 }
+        }
+        return { action: 'ignored', why: 'pending' }
+      }
       await reopenPaidNotSeatedAfterFailure(pns, ours, now)
       return { action: 'flagged', kind: 'refund-failed' }
     }
@@ -1302,6 +1334,78 @@ export async function bumpFlagRetries(id: string): Promise<void> {
 /** A refund sent again in place of a failed one: Square's later events on it are known (never recorded twice). */
 export async function saveReplacementRefund(r: ReplacementRefund): Promise<void> {
   await putOnce(replacementsKv, `rpl-${safeKey(r.refundId)}`, r)
+}
+
+const pendingKey = (flagId: string, retries: number) => `pend-${safeKey(flagId)}-${retries}`
+
+/** "Try the refund again" is written down before Square is called (kept as it is when this try was written before). */
+export async function savePendingReplacement(p: PendingReplacement): Promise<void> {
+  await putOnce(replacementsKv, pendingKey(p.flagId, p.retries), p)
+}
+
+/**
+ * Square answered a written-down try: its refund id is filled in. A refund Square made becomes the
+ * replacement (its events are known); a failed one is only marked, so its FAILED event raises nothing new.
+ */
+export async function fillPendingReplacement(flagId: string, retries: number, refundId: string, failed: boolean): Promise<void> {
+  const k = pendingKey(flagId, retries)
+  for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
+    const { value, etag } = await replacementsKv.getWithMeta(k)
+    if (!value) break
+    const cur = JSON.parse(value) as PendingReplacement
+    if (cur.refundId === refundId && !!cur.failed === failed) break
+    if (await replacementsKv.setIfMatch(k, JSON.stringify({ ...cur, refundId, ...(failed ? { failed: true } : {}) }), etag, true)) break
+  }
+  if (failed) return
+  const raw = await replacementsKv.get(k)
+  const p = raw ? (JSON.parse(raw) as PendingReplacement) : null
+  if (p) await saveReplacementRefund({ refundId, replaces: p.replaces, classId: p.classId, bookingId: p.bookingId, paymentId: p.paymentId, cents: p.cents, at: p.at })
+}
+
+/** True when this Square refund id is already written on that booking's own records (never a replacement then). */
+async function onRecords(classId: string, bookingId: string, refundId: string): Promise<boolean> {
+  if (classId === PARTY_SCOPE) return ((await getPartyRecord(bookingId).catch(() => null))?.refunds ?? []).some((f) => f.squareRefundId === refundId)
+  if (!classId.startsWith('cls_')) return false
+  return (await getLedger(classId)).lines.some((l) => l.refunds.some((r) => r.squareRefundId === refundId))
+}
+
+/**
+ * A Square refund that is a written-down "Try the refund again" whose answer never reached us: matched by payment
+ * and amount (and Square's idempotency key when the event carries one), never the refund it replaces, made
+ * after it was written down. Its refund id is filled in; returns the replacement (as `rpl-` holds it), or
+ * 'failed-try' when Square failed that try (nothing new to raise), or null when it isn't one.
+ */
+async function claimPendingReplacement(refund: any, now: Date): Promise<string | 'failed-try' | null> {
+  const refundId = String(refund.id)
+  const keys = (await replacementsKv.list()).filter((k) => k.startsWith('pend-'))
+  if (!keys.length) return null
+  const all = (await Promise.all(keys.map((k) => replacementsKv.get(k)))).filter((j): j is string => !!j).map((j) => JSON.parse(j) as PendingReplacement)
+  const known = all.find((p) => p.refundId === refundId)
+  if (known?.failed) return 'failed-try'
+  // When Square made it (an event without a time is matched by `now`, the time we learn of it).
+  const created = Date.parse(String(refund.created_at ?? '')) || null
+  const cents = money(refund.amount_money)
+  const key = typeof refund.idempotency_key === 'string' ? refund.idempotency_key : ''
+  const inWindow = (p: PendingReplacement) => {
+    const t = created ?? now.getTime()
+    return (created === null || t >= Date.parse(p.at) - 60_000) && t - Date.parse(p.at) <= PENDING_MATCH_MS
+  }
+  const hit = known ?? all.find((p) => !p.refundId && p.paymentId === String(refund.payment_id) && p.cents === cents && p.replaces !== refundId
+    && (!key || key === p.key) && inWindow(p))
+  if (!hit) return null
+  if (!known && (await onRecords(hit.classId, hit.bookingId, refundId))) return null
+  const failed = /^(FAILED|REJECTED)$/.test(String(refund.status ?? ''))
+  await fillPendingReplacement(hit.flagId, hit.retries, refundId, failed)
+  logger.info('Square refund is a "Try the refund again" whose answer never reached us', { refundId, flagId: hit.flagId, failed })
+  if (failed) return 'failed-try'
+  return JSON.stringify({ refundId, replaces: hit.replaces, classId: hit.classId, bookingId: hit.bookingId, paymentId: hit.paymentId, cents: hit.cents, at: hit.at } satisfies ReplacementRefund)
+}
+
+/** The refund Square failed is on that booking's records (or is itself a replacement): a retry may stand in for it. */
+export async function failedRefundOnBooks(flag: RefundFlag): Promise<boolean> {
+  if (!flag.squareRefundId) return false
+  if (await replacementsKv.get(`rpl-${safeKey(flag.squareRefundId)}`)) return true
+  return onRecords(flag.classId, flag.bookingId, flag.squareRefundId)
 }
 
 /**

@@ -85,10 +85,15 @@ export async function squareSays(paymentId: string): Promise<SquareSays> {
   }
 }
 
+/** What Square shows already refunded, as the item keeps it: always written (a $0 answer clears an old note, I-2). */
+export { backText }
+export const refundedNote = (sq: SquareSays, at: string) => (sq.backCents > 0 ? { cents: sq.backCents, at, ids: sq.refundIds } : null)
+
 /** "Square shows $300 of this $300 payment already refunded" (owners' words). */
 const backText = (back: Cents, total: Cents) => (back >= total
   ? `Square shows this ${formatMoney(total)} payment already refunded`
-  : `Square shows ${formatMoney(back)} of this ${formatMoney(total)} payment already refunded`)
+  : back <= 0 ? `Square shows nothing refunded on this ${formatMoney(total)} payment now`
+    : `Square shows ${formatMoney(back)} of this ${formatMoney(total)} payment already refunded`)
 
 type Entry = PartyCheckout & { orderId: string; paymentId: string; squareCents: Cents }
 
@@ -225,7 +230,7 @@ export async function refundPaidElsewhere(
   const total = sq.amountCents || entry.squareCents
   const left = Math.max(0, total - sq.backCents)
   const at = (opts.now ?? new Date()).toISOString()
-  if (sq.backCents > 0) await notePaidElsewhere(orderId, { squareRefunded: { cents: sq.backCents, at, ids: sq.refundIds } })
+  await notePaidElsewhere(orderId, { squareRefunded: refundedNote(sq, at) })
   if (left <= 0) throw new PaidElsewhereError(409, `${backText(sq.backCents, total)}, so nothing more was refunded. Tap It’s already sorted to clear this.`, { reload: true })
   const shown = opts.cents ?? (entry.squareCents - (entry.squareRefunded?.cents ?? 0))
   if (shown !== left) {
@@ -243,11 +248,22 @@ async function finalAnswer<T>(orderId: string, entry: Entry, fn: () => Promise<T
   } catch (e) {
     if (!(e instanceof RefundError) || e.extra?.squareSaid !== 'already-refunded') throw e
     const sq = await squareSays(entry.paymentId).catch(() => null)
-    if (sq && sq.backCents > 0) {
-      await notePaidElsewhere(orderId, { squareRefunded: { cents: sq.backCents, at: (now ?? new Date()).toISOString(), ids: sq.refundIds } }).catch(() => undefined)
-    }
-    throw new PaidElsewhereError(409, `${e.message} Tap It’s already sorted to clear this.`, { reload: true })
+    if (sq) await notePaidElsewhere(orderId, { squareRefunded: refundedNote(sq, (now ?? new Date()).toISOString()) }).catch(() => undefined)
+    throw new PaidElsewhereError(409, alreadyRefundedText(e.message, sq, entry.squareCents), { reload: true })
   }
+}
+
+/**
+ * Square's "already refunded" answer, in words that fit what is left (M-1): money still owed back offers
+ * Refund the rest; nothing left offers It's already sorted; Square unreadable says to look again.
+ */
+export function alreadyRefundedText(said: string, sq: SquareSays | null, paidCents: Cents): string {
+  if (!sq) return `${said} Look at it again before choosing.`
+  const total = sq.amountCents || paidCents
+  const left = Math.max(0, total - sq.backCents)
+  if (left > 0 && sq.backCents > 0) return `${backText(sq.backCents, total)}, so ${formatMoney(left)} is left. Nothing more was refunded. Tap Refund the rest.`
+  if (left > 0) return `${backText(0, total)}. Nothing was refunded. Look at it again, then tap Refund it.`
+  return `${said} Tap It’s already sorted to clear this.`
 }
 
 // ── It's already sorted ───────────────────────────────────────────────────────
@@ -321,8 +337,8 @@ export async function applyPaidElsewhere(orderId: string, by: By, now: Date = ne
   const cents = entry.squareCents
   // Square first: money it already sent back (or is sending) is never credited to the party.
   const sq = await squareSays(entry.paymentId)
+  await notePaidElsewhere(orderId, { squareRefunded: refundedNote(sq, now.toISOString()) })
   if (sq.backCents > 0) {
-    await notePaidElsewhere(orderId, { squareRefunded: { cents: sq.backCents, at: now.toISOString(), ids: sq.refundIds } })
     throw new PaidElsewhereError(409, `${backText(sq.backCents, sq.amountCents || cents)}, so it can’t go toward the party. If that settles it, tap It’s already sorted.`, { reload: true })
   }
   if (sq.status !== 'COMPLETED') throw new PaidElsewhereError(409, 'Square doesn’t show this payment as complete, so it can’t go toward the party. Nothing was changed.')
