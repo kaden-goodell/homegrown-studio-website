@@ -25,6 +25,7 @@ import { takenCents } from './booking-words'
 import { archiveClassInSquare, CLASS_TAX_NOT_SET, syncClassToSquare } from './square-catalog'
 import { contentChanges } from './content-diff'
 import { chicagoYmd } from './chicago-day'
+import { readPattern, repeatDates } from './repeat'
 import { dropEndedEarlyBird, dropUnchangedEndedEarlyBird } from './early-bird'
 import { bookingCap, describeRequest, isFreeBooking, remainingOn, sessionShare } from './refunds'
 import { isWaiting, listRefundRequests } from './refund-requests'
@@ -323,10 +324,11 @@ interface Reserved { classId: string; libraryId: string }
  * finds the class (and library entry) the first try made instead of making
  * a second one.
  */
-async function reserveCreate(createKey: unknown): Promise<Reserved | null> {
+async function reserveCreate(createKey: unknown, child?: string): Promise<Reserved | null> {
   if (createKey === undefined || createKey === null) return null
   if (typeof createKey !== 'string' || !CREATE_KEY_RE.test(createKey)) throw new ActionError(400, 'Reload the page and try again.')
-  const k = `ck-${digest(createKey).slice(0, 40)}`
+  // Repeat (stage 4): each date has its own child key `${createKey}:${ymd}`, so a retry replays every date it made.
+  const k = `ck-${digest(child ? `${createKey}:${child}` : createKey).slice(0, 40)}`
   for (let attempt = 0; attempt < 3; attempt++) {
     const { value, etag } = await createKeys.getWithMeta(k)
     if (value) return JSON.parse(value) as Reserved
@@ -407,9 +409,9 @@ export async function linkClassToLibrary(body: { id?: unknown }, by: By = ADMIN_
  * saved first. A library failure never loses the class: it is added and the
  * reply warns.
  */
-export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; createKey?: unknown }, by: By = ADMIN_BY): Promise<Saved<{ class: ScheduledClass; replay?: true }>> {
+export async function scheduleClass(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; createKey?: unknown }, by: By = ADMIN_BY, opts: { childKey?: string } = {}): Promise<Saved<{ class: ScheduledClass; replay?: true }>> {
   // R35: the same Add sent again (a lost reply, a retry) finds what the first one made.
-  const reserved = await reserveCreate(body.createKey)
+  const reserved = await reserveCreate(body.createKey, opts.childKey)
   if (reserved) {
     const made = await getClass(reserved.classId)
     if (made) return finishCreate(made, by)
@@ -859,6 +861,151 @@ export async function unblockTime(body: { id?: unknown }, by: By = ADMIN_BY): Pr
   if (typeof body.id !== 'string' || !body.id) throw new ActionError(400, 'Pick the blocked time to remove.')
   await removeBlocked(body.id, by)
   await audit(by, 'blocked-time-remove', { kind: 'blocked-time', id: body.id })
+}
+
+// ── Repeating dates (stage 4, Task 7) ──────────────────────────────────────
+
+/** How long one `repeat` request keeps adding before it answers and the sheet sends it again (each date is its own POS write). */
+export const repeatLimits = { budgetMs: 6_000 }
+export const PASSED = 'That date has passed.'
+
+export interface RepeatDateCheck { ymd: string; ok: boolean; reason: string | null }
+
+function readRepeat(body: { sessions?: unknown; pattern?: unknown }, now: Date) {
+  const sessions = okSessions(body.sessions)
+  const p = readPattern(body.pattern)
+  if (!p.ok) throw new ActionError(400, p.error, { field: 'repeat' })
+  const r = repeatDates(sessions, p.value, chicagoYmd(now))
+  if (!r.ok) throw new ActionError(400, r.error, { field: 'repeat' })
+  return { sessions, dates: r.value }
+}
+
+async function canShareOf(body: { libraryId?: unknown; content?: unknown }): Promise<boolean> {
+  const c = body.content as { rules?: { canShareRoom?: unknown } } | undefined
+  if (c && typeof c === 'object') return c.rules?.canShareRoom === true
+  if (typeof body.libraryId === 'string' && body.libraryId) {
+    const lib = await getLibrary(body.libraryId)
+    return lib?.versions[lib.versions.length - 1]?.content.rules.canShareRoom === true
+  }
+  return false
+}
+
+/** Each date with ✓ or the plain reason it's skipped: passed, a closed day, or what it clashes with. One schedule read for all of them. */
+async function checkDates(dates: { ymd: string; sessions: Session[] }[], canShareRoom: boolean, now: Date): Promise<RepeatDateCheck[]> {
+  const all = dates.flatMap((d) => d.sessions)
+  const pad = PARTY_CLEANUP_MINUTES * 60_000
+  const from = Math.min(...all.map((s) => Date.parse(s.startIso))) - pad
+  const to = Math.max(...all.map((s) => Date.parse(s.endIso))) + pad
+  let busy: Busy[]
+  try {
+    busy = await busyBetween(new Date(from).toISOString(), new Date(to).toISOString())
+  } catch {
+    throw new ActionError(503, "The schedule couldn't be checked. Try again.")
+  }
+  return dates.map(({ ymd, sessions }) => {
+    if (sessions.some((s) => Date.parse(s.startIso) < now.getTime())) return { ymd, ok: false, reason: PASSED }
+    const found = sessions.flatMap((s) => clashes({ startIso: s.startIso, endIso: s.endIso, kind: 'class', canShareRoom }, busy))
+    const unique = found.filter((b, i) => found.findIndex((x) => x.id === b.id && x.startIso === b.startIso) === i)
+    if (!unique.length) return { ymd, ok: true, reason: null }
+    const closed = unique.find((b) => b.kind === 'closed')
+    return { ymd, ok: false, reason: closed ? `${closed.label}.` : clashMessage(unique) }
+  })
+}
+
+/** The dates a repeat would make, each with ✓ or why it's skipped. Writes nothing. */
+export async function repeatPreview(body: { libraryId?: unknown; content?: unknown; sessions?: unknown; pattern?: unknown }, now = new Date()): Promise<Saved<{ dates: RepeatDateCheck[] }>> {
+  const { dates } = readRepeat(body, now)
+  return { data: { dates: await checkDates(dates, await canShareOf(body), now) } }
+}
+
+export interface RepeatResult {
+  /** Made now or on an earlier try (a replay), in date order. */
+  created: { ymd: string; class: ScheduledClass; warning?: string }[]
+  /** Dates that couldn't be added: passed, closed, or clashing (checked again as each one is added). */
+  skipped: { ymd: string; reason: string }[]
+  /** Dates not tried yet: `time` = this request ran out of time (send it again), `error` = something broke (Try the rest again). */
+  left: string[]
+  leftBecause: 'time' | 'error' | null
+}
+
+/**
+ * Repeat a class (S4-R6): one scheduled class per date, each with its own POS
+ * item, made one by one through scheduleClass with the child key
+ * `${createKey}:${ymd}` (R35), so the same request sent again (a lost reply,
+ * "Try the rest again", or the sheet carrying on after `left`) answers with
+ * what it already made and never makes a second class or POS item. From
+ * scratch, the one library entry is made first (named by the create key);
+ * if it can't be, nothing is added. Each date runs R37 and the clash check on
+ * its own; one that fails is listed in `skipped` and the others stand.
+ * `skip`: dates she unticked.
+ */
+export async function repeatClass(body: {
+  libraryId?: unknown; content?: unknown; sessions?: unknown; status?: unknown; alsoUpdateLibrary?: unknown; createKey?: unknown; pattern?: unknown; skip?: unknown
+}, by: By = ADMIN_BY, now = new Date()): Promise<Saved<RepeatResult>> {
+  if (typeof body.createKey !== 'string' || !CREATE_KEY_RE.test(body.createKey)) throw new ActionError(400, 'Reload the page and try again.')
+  const { sessions, dates } = readRepeat(body, now)
+  const skip = new Set(Array.isArray(body.skip) ? body.skip.filter((d): d is string => typeof d === 'string') : [])
+  const status = okStatus(body.status, 'draft')
+  const wanted = dates.filter((d) => !skip.has(d.ymd))
+  if (!wanted.length) throw new ActionError(400, 'Tick at least one date.', { field: 'repeat' })
+
+  let libraryId = typeof body.libraryId === 'string' && body.libraryId ? body.libraryId : undefined
+  let content: unknown = body.content
+  if (!libraryId) {
+    // One library entry for every date, named by the create key: a retry finds it, never a second.
+    const parent = (await reserveCreate(body.createKey))!
+    const usual = usualFrom(dropEndedEarlyBird(okContent(body.content), now).content, sessions)
+    try {
+      const lib = await saveLibraryVersion({ createId: parent.libraryId, content: usual, by, note: `Added with the class on ${formatDay(sessions[0].startIso).replace(',', '')}` })
+      libraryId = lib.id
+      if (lib.versions.length === 1) await audit(by, 'class-library-save', { kind: 'class-library', id: lib.id, label: usual.name }, { version: 1, auto: true })
+    } catch (e) {
+      console.warn(`[classes] library entry for a repeat failed: ${e instanceof Error ? e.message : e}`)
+      throw new ActionError(503, "The library couldn't be reached, so nothing was added. Try again.")
+    }
+    content = usual
+  } else if (content === undefined) {
+    const lib = await getLibrary(libraryId)
+    if (!lib) throw new ActionError(404, 'That class is not in the library.')
+  }
+
+  const checks = new Map((await checkDates(wanted, await canShareOf({ libraryId, content }), now)).map((c) => [c.ymd, c]))
+  const out: RepeatResult = { created: [], skipped: [], left: [], leftBecause: null }
+  const started = Date.now()
+  for (let i = 0; i < wanted.length; i++) {
+    const d = wanted[i]
+    if (i > 0 && Date.now() - started > repeatLimits.budgetMs) {
+      out.left = wanted.slice(i).map((x) => x.ymd)
+      out.leftBecause = 'time'
+      break
+    }
+    try {
+      const r = await scheduleClass(
+        { libraryId, content, sessions: d.sessions, status, createKey: body.createKey, ...(body.alsoUpdateLibrary === true ? { alsoUpdateLibrary: true } : {}) },
+        by,
+        { childKey: d.ymd },
+      )
+      out.created.push({ ymd: d.ymd, class: r.data.class, ...(r.warning ? { warning: r.warning } : {}) })
+    } catch (e) {
+      if (e instanceof ActionError && (e.status === 400 || e.status === 409)) {
+        // The preview's sentence when it had one ("Closed for Thanksgiving."), else what the create said.
+        out.skipped.push({ ymd: d.ymd, reason: checks.get(d.ymd)?.reason ?? e.message })
+        continue
+      }
+      // Nothing made yet: answer with the error itself (storage down, the test-site guard), as a single Add would.
+      if (!out.created.length && !out.skipped.length) throw e
+      console.warn(`[classes] repeat stopped at ${d.ymd}: ${e instanceof Error ? e.message : e}`)
+      out.left = wanted.slice(i).map((x) => x.ymd)
+      out.leftBecause = 'error'
+      break
+    }
+  }
+  if (out.created.length) {
+    const name = out.created[0].class.content.name
+    await audit(by, 'class-repeat', { kind: 'class', id: out.created[0].class.id, label: name }, { added: out.created.length, skipped: out.skipped.length, left: out.left.length })
+  }
+  const warnings = [...new Set(out.created.map((c) => c.warning).filter(Boolean))]
+  return { data: out, ...(warnings.length ? { warning: warnings.join(' ') } : {}) }
 }
 
 // ── Route replies ──────────────────────────────────────────────────────────

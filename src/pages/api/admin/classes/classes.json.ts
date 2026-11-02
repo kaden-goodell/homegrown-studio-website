@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { toIso } from '@lib/classes/validate'
 import {
-  ActionError, cancelClass, classesBetween, duplicateClass, json, fixRegisterPrice, linkClassToLibrary, reply, scheduleClass, updateScheduledClass,
+  ActionError, cancelClass, classesBetween, duplicateClass, json, fixRegisterPrice, linkClassToLibrary, repeatClass, repeatPreview, reply, scheduleClass, updateScheduledClass,
 } from '@lib/classes/admin-actions'
 
 export const prerender = false
@@ -20,6 +20,9 @@ export const GET: APIRoute = async ({ request, url }) => {
  * Who made the change comes from the X-Admin-Who header (see adminActor).
  * POST { action: 'create', libraryId? | content, sessions, status, alsoUpdateLibrary?, createKey? } (every new class lands in the library;
  *        the same createKey again returns the class it made, R35)
+ *      { action: 'repeat-preview', libraryId? | content, sessions, pattern } (the dates a repeat makes, each ✓ or why it's skipped; writes nothing)
+ *      { action: 'repeat', …create body, pattern, skip: ymd[], createKey } (one class per date, child keys `${createKey}:${ymd}`, R35;
+ *        `left` + `leftBecause: 'time'` means send the same body again to carry on)
  *      { action: 'duplicate', id, sessions, status?, createKey? }
  *      { action: 'link-library', id } (puts an unlinked class in the library, R36)
  *      { action: 'update', id, content?, sessions?, status?, alsoUpdateLibrary?, confirmMove? }
@@ -33,6 +36,8 @@ export const POST: APIRoute = async ({ request }) => {
   return reply(async () => {
     switch (body?.action) {
       case 'create': return scheduleClass(body, by)
+      case 'repeat-preview': return repeatPreview(body)
+      case 'repeat': return repeatClass(body, by)
       case 'duplicate': return duplicateClass(body, by)
       case 'update': return updateScheduledClass(body, by)
       case 'cancel': return cancelClass(body, by)

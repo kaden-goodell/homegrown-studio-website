@@ -7,7 +7,7 @@
  * (Schedule it) or from a class (Run it again).
  */
 import { useEffect, useRef, useState } from 'react'
-import type { LibraryRun } from '@lib/classes/admin-actions'
+import type { LibraryRun, RepeatResult } from '@lib/classes/admin-actions'
 import { sameDetails } from '@lib/classes/content-diff'
 import type { ClassContent, LibraryClass, ScheduledClass } from '@lib/classes/types'
 import { api, BOOKINGS, CLASSES } from '../classes/api'
@@ -17,6 +17,7 @@ import DateRows, { checkRows, endAfter, lengthOf, newDateRow, onOrAfter, weekLat
 import { addDays, dayLabel, nextOpenDay, partsOf, today } from '../classes/dates'
 import { closureOn, closures as configClosures, type Closure } from '@config/closures'
 import { useStudio } from '../shell/studio'
+import RepeatSection, { NO_REPEAT, patternOf, tickedDates, useRepeatPreview, type Repeat } from '../classes/RepeatSection'
 import { latestOf, priceOf, ranText } from '../classes/labels'
 import { useLibraryList } from '../classes/library-data'
 import { useRefresh } from '../shell/data'
@@ -26,6 +27,12 @@ import { SheetFrame, useSheet, useSheetDirty } from '../shell/Sheet'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
 
 export const ADDED = 'Added. It’s on the calendar and in your library.'
+export const addedMany = (n: number) => `Added ${n} classes. They’re on the calendar and in your library.`
+export const draftsMany = (n: number) => `Saved ${n} drafts. They’re in your library and go on the website when you open them.`
+
+/** What a repeat that didn't add every ticked date says, with a way to finish. */
+interface RepeatOutcome { total: number; created: RepeatResult['created']; skipped: RepeatResult['skipped']; left: string[]; warning?: string; status: 'open' | 'draft' }
+const days = (list: string[]) => list.map(dayLabel).join(', ')
 
 type From = { kind: 'lib'; id: string } | { kind: 'class'; id: string }
 /** The library class it links to (and its details), and the details the form was filled with. */
@@ -89,8 +96,14 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
   const [errors, setErrors] = useState<Errors>({})
   const [datesError, setDatesError] = useState('')
   const [busy, setBusy] = useState('')
+  const [repeat, setRepeat] = useState<Repeat>(NO_REPEAT)
+  const [repeatError, setRepeatError] = useState('')
+  const [progress, setProgress] = useState('')
+  const [outcome, setOutcome] = useState<RepeatOutcome | null>(null)
+  /** The repeat as last sent: "Try the rest again" sends exactly this again (same key, so what was made is never made twice). */
+  const sentRepeat = useRef<Record<string, unknown> | null>(null)
 
-  const dirty = ready && snapshot(f, rows) !== start
+  const dirty = ready && (snapshot(f, rows) !== start || repeat.kind !== 'none')
   useSheetDirty(dirty)
 
   function begin(form: Form, r: DateRow[], p: Picked | null) {
@@ -159,6 +172,9 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
   const built = build(f)
   // The choice only when she changed the details here and they differ from the library's (Q9).
   const differs = !!picked?.content && built.ok && !sameDetails(built.content, picked.content) && !sameDetails(built.content, picked.startedFrom)
+  const repeating = repeat.kind !== 'none'
+  const preview = useRepeatPreview(repeat, checkedRows.ok ? checkedRows.sessions : null, { content: built.ok ? built.content : undefined, libraryId: picked?.libraryId ?? null })
+  const ticked = repeating ? tickedDates(repeat, preview.dates).length : 1
 
   async function add(status: 'open' | 'draft', alsoLibrary = false) {
     setDatesError('')
@@ -177,6 +193,7 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
     const first = rows[0]
     // From scratch, the library's usual length and seats come from the first date.
     const content: ClassContent = picked?.libraryId ? b.content : { ...b.content, defaultMinutes: lengthOf(first.day, first.start, first.end) || b.content.defaultMinutes, defaultCapacity: checked.sessions[0].capacity }
+    if (repeating) return addRepeat(status, alsoLibrary, content, checked.sessions)
     setBusy(status === 'draft' ? 'draft' : alsoLibrary ? 'both' : 'add')
     const r = await api<{ class: ScheduledClass; replay?: boolean }>(CLASSES, {
       action: 'create', content, sessions: checked.sessions, status, createKey: createKey.current,
@@ -205,20 +222,99 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
     open({ kind: 'class', id: made.id })
   }
 
+  async function addRepeat(status: 'open' | 'draft', alsoLibrary: boolean, content: ClassContent, sessions: unknown[]) {
+    setRepeatError('')
+    const pattern = patternOf(repeat)
+    if (!pattern) { setRepeatError('Pick an until date.'); return }
+    if (!preview.dates) { setRepeatError(preview.error || 'One moment, the dates are still being checked.'); return }
+    const chosen = tickedDates(repeat, preview.dates)
+    if (!chosen.length) { setRepeatError('Tick at least one date.'); return }
+    const req = {
+      action: 'repeat', content, sessions, status, createKey: createKey.current, pattern,
+      skip: preview.dates.filter((d) => !chosen.some((c) => c.ymd === d.ymd)).map((d) => d.ymd),
+      ...(picked?.libraryId ? { libraryId: picked.libraryId } : {}),
+      ...(alsoLibrary ? { alsoUpdateLibrary: true } : {}),
+    }
+    sentRepeat.current = req
+    setBusy(status === 'draft' ? 'draft' : alsoLibrary ? 'both' : 'add')
+    await sendRepeat(req, chosen.length, status)
+  }
+
+  /** Sends the repeat, carrying on while the server says it ran out of time (each send replays what's made). */
+  async function sendRepeat(req: Record<string, unknown>, total: number, status: 'open' | 'draft') {
+    let r = await api<RepeatResult>(CLASSES, req)
+    for (let i = 0; i < 12 && r.ok && r.data?.leftBecause === 'time'; i++) {
+      setProgress(`Added ${r.data.created.length} of ${total}…`)
+      r = await api<RepeatResult>(CLASSES, req)
+    }
+    setBusy('')
+    setProgress('')
+    if (!r.ok || !r.data) {
+      if (r.extra.field === 'repeat') { setRepeatError(r.error ?? DIDNT_SAVE); return }
+      const k = r.extra.field ? fieldOf(r.extra.field, f) : r.status === 409 ? 'dates' : 'form'
+      if (k === 'dates') setDatesError(r.error ?? DIDNT_SAVE)
+      const next = { [k]: r.error ?? DIDNT_SAVE } as Errors
+      setErrors(next)
+      if (k !== 'form') requestAnimationFrame(() => focusFirstError(body.current, next))
+      return
+    }
+    const d = r.data
+    if (d.created.length) bump()
+    if (!d.skipped.length && !d.left.length) return finishRepeat(d.created, status, r.warning)
+    setOutcome({ total, created: d.created, skipped: d.skipped, left: d.left, status, ...(r.warning ? { warning: r.warning } : {}) })
+  }
+
+  function finishRepeat(created: RepeatResult['created'], status: 'open' | 'draft', warning?: string) {
+    setOutcome(null)
+    setStart(snapshot(f, rows))
+    setRepeat(NO_REPEAT)
+    createKey.current = newKey()
+    setDirty(false)
+    if (!created.length) return
+    const n = created.length
+    toast(warning ?? (n === 1 ? (status === 'draft' ? 'Saved as a draft. It’s in your library; it goes on the website when you open it.' : ADDED) : status === 'draft' ? draftsMany(n) : addedMany(n)))
+    open({ kind: 'class', id: created[0].class.id })
+  }
+
   const line = errors.form || fixLine(errors, 'above')
+  const many = repeating && (ticked !== 1 || !preview.dates)
+  const addLabel = repeating ? (!preview.dates ? 'Add classes' : ticked === 1 ? 'Add 1 class' : `Add ${ticked} classes`) : 'Add class'
+  const outcomePanel = outcome && (
+    <div className="adm-panel" role="alert" aria-label="What was added">
+      <b>{outcome.created.length ? `Added ${outcome.created.length} of ${outcome.total}.` : 'Nothing was added yet.'}</b>
+      {outcome.created.length > 0 && <span className="adm-small">{`Added ${days(outcome.created.map((c) => c.ymd))}.`}</span>}
+      {outcome.skipped.map((x) => <span key={x.ymd} className="adm-small">{`Not added ${dayLabel(x.ymd)}. ${x.reason}`}</span>)}
+      {outcome.left.length > 0 && <span className="adm-small">{`Not added yet ${days(outcome.left)}.`}</span>}
+      {outcome.warning && <span className="adm-small">{outcome.warning}</span>}
+      <div className="adm-two">
+        {outcome.left.length > 0 && (
+          <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => { setBusy('add'); sendRepeat(sentRepeat.current!, outcome.total, outcome.status) }}>
+            {busy ? 'Adding…' : 'Try the rest again'}
+          </button>
+        )}
+        {outcome.created.length > 0 && (
+          <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => finishRepeat(outcome.created, outcome.status, outcome.warning)}>
+            {outcome.left.length ? 'Stop here' : 'Done'}
+          </button>
+        )}
+      </div>
+    </div>
+  )
   const footer = (
     <div className="adm-stack">
       {line && <p className="adm-footline" role="alert">{line}</p>}
-      {differs
+      {progress && <p className="adm-small adm-muted adm-center" aria-live="polite">{progress}</p>}
+      {outcomePanel}
+      {!outcome && (differs
         ? (
           <>
             <p className="adm-small adm-muted adm-center">You changed the details. Keep the changes for:</p>
-            <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => add('open')}>{busy === 'add' ? 'Adding…' : 'Only this class'}</button>
-            <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => add('open', true)}>{busy === 'both' ? 'Adding…' : 'This class and the library'}</button>
+            <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => add('open')}>{busy === 'add' ? 'Adding…' : many ? 'Only these classes' : 'Only this class'}</button>
+            <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => add('open', true)}>{busy === 'both' ? 'Adding…' : many ? 'These classes and the library' : 'This class and the library'}</button>
           </>
         )
-        : <button type="button" className="adm-btn is-pri" disabled={!!busy || !ready} onClick={() => add('open')}>{busy === 'add' ? 'Adding…' : 'Add class'}</button>}
-      <button type="button" className="adm-quiet" disabled={!!busy || !ready} onClick={() => add('draft')}>{busy === 'draft' ? 'Saving…' : 'Save as draft'}</button>
+        : <button type="button" className="adm-btn is-pri" disabled={!!busy || !ready} onClick={() => add('open')}>{busy === 'add' ? 'Adding…' : addLabel}</button>)}
+      {!outcome && <button type="button" className="adm-quiet" disabled={!!busy || !ready} onClick={() => add('draft')}>{busy === 'draft' ? 'Saving…' : many ? (preview.dates ? `Save ${ticked} as drafts` : 'Save as drafts') : 'Save as draft'}</button>}
     </div>
   )
 
@@ -265,6 +361,14 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
             <PreviewButton f={f} sessions={previewSessions} />
             <DetailsFields f={f} set={(fn) => setF((cur) => fn(cur))} errors={errors} sessions={rows.map((r, i) => ({ id: r.id, label: `Date ${i + 1}` }))}>
               <DateRows rows={rows} onChange={(r) => { setRows(r); setDatesError('') }} error={datesError} />
+              <RepeatSection
+                value={repeat}
+                onChange={(r) => { setRepeat(r); setRepeatError('') }}
+                firstDay={checkedRows.ok ? [...rows].map((r) => r.day).sort()[0] ?? '' : ''}
+                multi={rows.length > 1}
+                preview={preview}
+                error={repeatError}
+              />
             </DetailsFields>
             <p className="adm-note">It goes into your library on its own, so you can run it again later.</p>
           </>
