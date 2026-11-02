@@ -14,7 +14,7 @@
  */
 import { localDate, localToUtcISO } from '../parties/party-times'
 import type { Result } from '../classes/validate'
-import type { Availability, DayMark, EventKey, StaffableEvent, StaffableKind, StaffedState, StaffingEntry, TimeRange, Verdict } from './types'
+import type { Ask, Assignment, Availability, DayMark, EventKey, StaffableEvent, StaffableKind, StaffedState, StaffingEntry, TimeRange, Verdict } from './types'
 
 export const DEFAULT_NEEDED: Readonly<Record<StaffableKind, number>> = { class: 1, party: 1, 'legacy-class': 1 }
 export const MAX_NEEDED = 6
@@ -215,4 +215,31 @@ export function validateAvailability(raw: unknown, now: Date): Result<Pick<Avail
     dates[day] = sortMarks(marks)
   }
   return { ok: true, value: { weekly, dates } }
+}
+
+// ---------------------------------------------------------------- entry changes (pure; used inside updateEntry)
+
+/** Puts someone on (once: an existing assignment for the same person is kept as it was). */
+export function withAssigned(e: StaffingEntry, a: Assignment): StaffingEntry {
+  if (e.assigned.some((x) => x.staffId === a.staffId)) return e
+  return { ...e, assigned: [...e.assigned, a] }
+}
+
+export function withoutAssigned(e: StaffingEntry, staffId: string): StaffingEntry {
+  return { ...e, assigned: e.assigned.filter((x) => x.staffId !== staffId) }
+}
+
+/** Adds this person's "I'd like to work this", or replaces their note. */
+export function withAsk(e: StaffingEntry, ask: Ask): StaffingEntry {
+  return { ...e, asks: [...e.asks.filter((x) => x.staffId !== ask.staffId), ask] }
+}
+
+export function withoutAsk(e: StaffingEntry, staffId: string): StaffingEntry {
+  return { ...e, asks: e.asks.filter((x) => x.staffId !== staffId) }
+}
+
+/** Records the event's times and title as seen now; SEQUENCE goes up when the times moved (a calendar app then updates it in place). */
+export function withSeen(e: StaffingEntry, ev: { startIso: string; endIso: string; title: string }): StaffingEntry {
+  const seen = { startIso: ev.startIso, endIso: ev.endIso, title: ev.title }
+  return { ...e, seen, sequence: e.seen && movedSince(e, ev) ? e.sequence + 1 : e.sequence }
 }
