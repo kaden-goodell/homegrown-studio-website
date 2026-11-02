@@ -3,6 +3,7 @@ import { getStore } from '@netlify/blobs'
 import { exportAll, buildArchiveAttachments, type ArchiveKvStore } from '../../src/lib/archive-export'
 import { ARCHIVE_STORES, ARCHIVE_STORE_NAMES } from '../../src/lib/archive-stores'
 import { blobStoreName } from '../../src/lib/blob-store-name'
+import { ARCHIVE_FALLBACK, ownersFromStaffJson, parseNotifyDoc, savedRecipients } from '../../src/lib/notify-recipients'
 
 /**
  * Weekly self-archive (HOM-217, Audit finding H3): exports every legal
@@ -94,12 +95,31 @@ async function sendMail(input: {
   return true
 }
 
-function archiveTo(): string {
-  return process.env.ARCHIVE_TO || 'kaden@ourhometownstudio.com'
+/**
+ * Who gets the archive: the owners picked in /admin › More › Notifications
+ * (their emails on the staff list), read straight from the two stores (this
+ * function can't import the site's code). Until an owner saves there, or when
+ * nobody picked has an email or the stores can't be read: ARCHIVE_TO, else
+ * both owners (never one mailbox).
+ */
+export async function archiveTo(read: (store: string, key: string) => Promise<string | null> = readStoreKey): Promise<string> {
+  try {
+    const [notify, staff] = await Promise.all([read('notify-settings', 'settings'), read('staff-people', 'people')])
+    const saved = savedRecipients(parseNotifyDoc(notify), ownersFromStaffJson(staff), 'archive', 'email')
+    if (saved) return saved.join(', ')
+  } catch (err) {
+    console.warn('[archive-records] Could not read who gets the archive; using the setup', err instanceof Error ? err.message : String(err))
+  }
+  return process.env.ARCHIVE_TO || ARCHIVE_FALLBACK.join(', ')
+}
+
+async function readStoreKey(store: string, key: string): Promise<string | null> {
+  const s = getStore({ name: blobStoreName(store, process.env), consistency: 'strong' })
+  return (await s.get(key, { type: 'text' })) ?? null
 }
 
 export default async () => {
-  const to = archiveTo()
+  const to = await archiveTo()
   const dryRun = process.env.ARCHIVE_DRY_RUN === '1'
   const dateStr = new Date().toISOString().slice(0, 10)
 

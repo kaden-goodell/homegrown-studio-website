@@ -7,8 +7,8 @@
 import { randomUUID } from 'node:crypto'
 import { makeKvStore } from '@lib/blob-store'
 import { sendEmail } from '@lib/email'
+import { recipientsFor } from '@lib/notify-settings'
 import { photoAttachments } from '@lib/form-photos'
-import { siteConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
 
 const logger = createLogger('submissions')
@@ -185,7 +185,7 @@ export async function emailOwnersCopy({ subject, email, photos = [] }: { subject
   const html = ownerEmailHtmlOf(email)
   const attachments = photoAttachments(photos)
   const replyTo = email.person.email
-  const sent = await Promise.all(siteConfig.ownerEmails.map((to) => sendEmail({ to, subject, text, html, attachments, replyTo }).then((x) => x.sent).catch(() => false)))
+  const sent = await Promise.all((await recipientsFor('warnings-email', 'email')).map((to) => sendEmail({ to, subject, text, html, attachments, replyTo }).then((x) => x.sent).catch(() => false)))
   return sent.some(Boolean)
 }
 

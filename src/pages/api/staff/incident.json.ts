@@ -4,7 +4,7 @@ import { createIncident, type IncidentRecord } from '@lib/incident-store'
 import { mutateCheckin } from '@lib/checkin-store'
 import { eventKey, EVENT_KIND_RE, type EventKind } from '@lib/events'
 import { sendIncidentEmail } from '@lib/email'
-import { siteConfig } from '@config/site.config'
+import { recipientsFor } from '@lib/notify-settings'
 import { createLogger } from '@lib/logger'
 import { recordAudit } from '@lib/audit'
 import { paymentBypassEnabled } from '@lib/dev-flags'
@@ -74,7 +74,7 @@ function parseParentNotified(raw: any, fallbackBy: string): IncidentRecord['pare
  * - When `event` is set and any `who[]` entry carries a `waiverId`, appends
  *   an `{ action: 'incident' }` `CheckinEvent` to that household's custody
  *   log (grouped — one append per distinct waiverId, not per person).
- * - Emails `siteConfig.ownerEmails` immediately. Both the custody-log append
+ * - Emails the owners (More › Notifications, warnings row) immediately. Both the custody-log append
  *   and the email are non-fatal: a failure is logged, and the email failure
  *   is surfaced as `emailed: false` in the (still-200) response — the
  *   incident itself is always saved once validation passes.
@@ -145,7 +145,7 @@ export const POST: APIRoute = async ({ request }) => {
   let emailed = false
   try {
     const r = await sendIncidentEmail({
-      to: siteConfig.ownerEmails,
+      to: await recipientsFor('warnings-email', 'email'),
       who: whoLabel,
       eventLabel,
       at: record.at,

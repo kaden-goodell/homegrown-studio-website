@@ -1,9 +1,11 @@
 /**
- * More › Admin access (G4): who the owners are (the staff list's Owners) and
- * the /admin passcode.
+ * Owner-only screens under More › Owners and alerts:
+ *   - Admin access (G4): who the owners are (the staff list's Owners) and the /admin passcode.
+ *   - Notifications (G5): which owners get which alerts and reports.
  */
 import { useEffect, useRef, useState } from 'react'
-import { ADMIN_ACCESS, api } from '../classes/api'
+import type { NotifyView, NotifyRow } from '@lib/notify-settings'
+import { ADMIN_ACCESS, api, NOTIFY } from '../classes/api'
 import { Failed, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet, useSheetDirty } from '../shell/Sheet'
 import { dayAndClock } from '../shell/time'
@@ -141,6 +143,117 @@ export function AdminAccessSheet() {
               </div>
             )}
           </section>
+        </>
+      )}
+    </SheetFrame>
+  )
+}
+
+// ── More › Notifications (G5) ─────────────────────────────────────────────
+
+const ROW_WHAT: Record<NotifyRow, string> = {
+  'owner-texts': 'A text when something needs you: a payment problem, a request, a class short of its minimum.',
+  'booking-alerts': 'A text and an email each time someone books and pays.',
+  'warnings-email': 'The morning warnings email, incident reports, and emails about problems or forms sent in.',
+  'tax-report': 'On the 1st, last month’s tax split for the tax return.',
+  archive: 'Every Sunday, a copy of every waiver, check-in and incident record. Keep these emails.',
+}
+
+type Picks = Record<NotifyRow, string[]>
+const picksOf = (v: NotifyView): Picks => Object.fromEntries(v.rows.map((r) => [r.row, r.picked])) as Picks
+const samePicks = (a: Picks, b: Picks) => Object.keys(a).every((k) => [...a[k as NotifyRow]].sort().join() === [...(b[k as NotifyRow] ?? [])].sort().join())
+
+export function NotifySheet() {
+  const toast = useToast()
+  const sheet = useSheet()
+  const [view, setView] = useState<(NotifyView & { readOnly: boolean }) | null>(null)
+  const [picks, setPicks] = useState<Picks | null>(null)
+  const [error, setError] = useState('')
+  const [saveError, setSaveError] = useState('')
+  const [tries, setTries] = useState(0)
+  const [busy, setBusy] = useState(false)
+  const live = useRef(true)
+  useEffect(() => () => { live.current = false }, [])
+
+  useEffect(() => {
+    let on = true
+    setError('')
+    api<NotifyView & { readOnly: boolean }>(NOTIFY).then((r) => {
+      if (!on) return
+      if (r.ok && r.data) { setView(r.data); setPicks(picksOf(r.data)) }
+      else setError(r.error ?? 'Couldn’t load the notifications.')
+    })
+    return () => { on = false }
+  }, [tries])
+
+  const dirty = !!view && !!picks && !samePicks(picks, picksOf(view))
+  useSheetDirty(dirty)
+
+  function toggle(row: NotifyRow, id: string) {
+    setSaveError('')
+    setPicks((p) => (p ? { ...p, [row]: p[row].includes(id) ? p[row].filter((x) => x !== id) : [...p[row], id] } : p))
+  }
+
+  async function save() {
+    if (!view || !picks || busy) return
+    setBusy(true)
+    const r = await api<{ updatedAt: string; changed: string[] }>(NOTIFY, { rows: picks, expectedUpdatedAt: view.updatedAt })
+    if (!live.current) return
+    setBusy(false)
+    if (r.ok && r.data) {
+      toast(r.data.changed.length ? `Saved. Changed: ${r.data.changed.join(', ')}. Everything else stays as it was.` : 'Saved. Nothing changed.')
+      setTries((n) => n + 1)
+      return
+    }
+    setSaveError(r.error ?? DIDNT_SAVE)
+    if (r.status === 409) setTries((n) => n + 1)
+  }
+
+  const goes = (list: string[] | undefined) => (list && list.length ? list.join(', ') : 'nobody yet')
+  return (
+    <SheetFrame
+      title="Notifications"
+      subtitle="Which owners get which alerts and reports"
+      footer={view && !view.noList && !view.readOnly
+        ? <button type="button" className="adm-btn is-pri" disabled={!dirty || busy} onClick={save}>{busy ? 'Saving…' : 'Save notifications'}</button>
+        : undefined}
+    >
+      {error && <Failed message={error} onRetry={() => setTries((n) => n + 1)} />}
+      {!error && !view && <Skeleton rows={4} label="Loading the notifications" />}
+      {view && picks && (
+        <>
+          <p className="adm-note">
+            {view.noList
+              ? 'Start the staff list in Staff › People first, so there are owners to pick. Until then everything goes where it always has, shown below.'
+              : view.saved && view.updatedAt
+              ? `Changed here${view.by ? ` by ${view.by}` : ''} ${dayAndClock(view.updatedAt)}. Emails and texts go to each owner’s email and mobile in Staff › People.`
+              : 'Nothing is set here yet, so everything goes where the site was set up to send it (shown under each). Tick who should get each one, then save.'}
+          </p>
+          {view.readOnly && <p className="adm-note">This test site can’t change the live notifications.</p>}
+          {view.rows.map((r) => (
+            <fieldset key={r.row} className="adm-card adm-gap-top" aria-label={r.label}>
+              <legend className="adm-dark"><b>{r.label}</b></legend>
+              <span className="adm-small adm-muted">{ROW_WHAT[r.row]}</span>
+              {!view.noList && view.owners.map((o) => {
+                const missing = r.channels.includes('email') && !o.email ? 'no email in Staff › People' : r.channels.includes('text') && !o.phone ? 'no mobile in Staff › People' : ''
+                return (
+                  <label key={o.id} className="adm-check">
+                    <input type="checkbox" checked={picks[r.row].includes(o.id)} disabled={view.readOnly} onChange={() => toggle(r.row, o.id)} />
+                    <span>{o.name}{missing && <small className="adm-muted">{` · ${missing}`}</small>}</span>
+                  </label>
+                )
+              })}
+              {r.channels.includes('email') && (
+                <span className="adm-small">{`Emails go to ${goes(r.goesTo.email)}${r.from.email === 'setup' ? ' (from the site setup)' : ''}.`}</span>
+              )}
+              {r.channels.includes('text') && (
+                <span className="adm-small">{`Texts go to ${r.goesTo.text?.length ? r.goesTo.text.map((t) => `the phone ending ${t.replace('…', '')}`).join(', ') : 'nobody yet: add a mobile in Staff › People'}${r.goesTo.text?.length && r.from.text === 'setup' ? ' (from the site setup)' : ''}.`}</span>
+              )}
+            </fieldset>
+          ))}
+          {saveError && <p className="adm-error" role="alert">{saveError}</p>}
+          <p className="adm-small adm-muted adm-gap-top">What’s shown is what’s saved. Changes count from the next message.</p>
+          <button type="button" className="adm-btn is-ghost" onClick={() => sheet.open({ kind: 'more', page: 'staff' }, { part: 'people' })}>Edit emails and mobiles</button>
         </>
       )}
     </SheetFrame>

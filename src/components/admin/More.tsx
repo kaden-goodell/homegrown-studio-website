@@ -19,6 +19,7 @@ const ROWS: [MorePage, string, string][] = [
 /** Owner-only access and alerts (G2, G4, G5). */
 const OWNER_ROWS: [MorePage, string, string][] = [
   ['access', 'Admin access', 'Who the owners are, and the /admin passcode'],
+  ['notify', 'Notifications', 'Who gets texts, warnings, the tax split and the records archive'],
 ]
 
 /** More: the setup pages, reports, who's using this, and sign out. */

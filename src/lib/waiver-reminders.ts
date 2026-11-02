@@ -34,9 +34,9 @@ import { agreementState, type AgreementState } from '@lib/waiver-coverage'
 import { studioDate, formatTime } from '@lib/studio-time'
 import { makeKvStore } from '@lib/blob-store'
 import { sendEmail } from '@lib/email'
+import { recipientsFor } from '@lib/notify-settings'
 import { sendQuoText, toE164, quoConfigured } from '@lib/quo'
 import { withUtm } from '@lib/utm'
-import { siteConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
 import type { Workshop } from '@providers/interfaces/workshop'
 import { listClasses } from '@lib/classes/class-store'
@@ -367,6 +367,6 @@ async function sendOwnerSummary(plan: ReminderPlan, sent: ReminderRun['sent']): 
   if (!summary) return false
   const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   const html = `<pre style="font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;font-size:14px;line-height:1.5;white-space:pre-wrap;">${esc(summary.text)}</pre>`
-  const results = await Promise.all(siteConfig.ownerEmails.map((to) => sendEmail({ to, subject: summary.subject, text: summary.text, html }).then((r) => r.sent).catch(() => false)))
+  const results = await Promise.all((await recipientsFor('warnings-email', 'email')).map((to) => sendEmail({ to, subject: summary.subject, text: summary.text, html }).then((r) => r.sent).catch(() => false)))
   return results.some(Boolean)
 }

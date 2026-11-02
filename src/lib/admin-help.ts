@@ -282,6 +282,17 @@ export const HELP_SECTIONS: HelpSection[] = [
       'If nobody remembers the passcode: whoever holds the website’s hosting login (it’s on the studio’s accounts sheet) changes the ADMIN_PASSCODE setting there and redeploys the site. Sign in with that one, then save a new one in **Admin access**. The old setting never works again by itself.',
     ],
   },
+  {
+    id: 'notifications',
+    title: 'Who gets texts, emails and reports',
+    points: [
+      'More › **Notifications** decides who gets each of these: texts when something needs you, “someone just booked”, the morning warnings and heads-up emails, the monthly tax split, and the weekly records archive.',
+      'Tick the owners for each one, then **Save notifications**. They go to each owner’s email and mobile in More › Staff › People (**Edit emails and mobiles** opens it).',
+      'Until you save here, everything goes where the site was set up to send it, and the screen shows where. The tax split and the records archive go to both owners.',
+      'Someone who stops being an owner stops getting them. If nobody picked for one is left, it goes to every owner. Texts for an owner with no mobile on file go to the phone numbers the site was set up with.',
+      'Keep the weekly archive emails: they are the record of every waiver, check-in and incident.',
+    ],
+  },
   // ── Arrive with stage 4 (extras) ──
   {
     id: 'promotions',

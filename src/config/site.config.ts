@@ -241,7 +241,8 @@ export const siteConfig: SiteConfig = {
   url: SITE_URL,
   contactEmail: 'contact@ourhometownstudio.com', // real Workspace alias; hello@ does not exist
   ownerEmails: ['kaden@ourhometownstudio.com', 'catherine@ourhometownstudio.com'],
-  taxReportEmails: ['kaden@ourhometownstudio.com'],
+  // Both owners (stopgap, G5): never one mailbox. More › Notifications overrides it.
+  taxReportEmails: ['kaden@ourhometownstudio.com', 'catherine@ourhometownstudio.com'],
   contactPhone: '(256) 464-1710',
   address: {
     street: '525 Hughes Rd, Suite F',

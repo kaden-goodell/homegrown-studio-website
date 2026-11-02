@@ -1,6 +1,6 @@
 import type { APIRoute } from 'astro'
 import { createHmac, timingSafeEqual } from 'node:crypto'
-import { siteConfig } from '@config/site.config'
+import { emailsFor } from '@lib/notify-settings'
 import { SITE_URL } from '@config/site-url'
 import { createLogger } from '@lib/logger'
 import { sendEmail } from '@lib/email'
@@ -87,7 +87,7 @@ export const POST: APIRoute = async ({ request }) => {
     const subject = '⚠ Couldn’t check the studio schedule today'
     const body = ['This morning’s check for schedule conflicts couldn’t read Square or the studio’s records.', `Open ${SITE_URL}/staff and tap Try again.`]
     await sendEmail({
-      to: siteConfig.ownerEmails.join(', '),
+      to: await emailsFor('warnings-email'),
       subject,
       text: body.join('\n'),
       html: `<div style="max-width:560px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">${body.map((l) => `<p style="margin:0 0 8px;font-size:14px;color:#3d3630;">${esc(l)}</p>`).join('')}</div>`,
@@ -123,7 +123,7 @@ export const POST: APIRoute = async ({ request }) => {
   <p style="margin:0;font-size:13px;color:#6f635b;">${esc(footer)}</p>
 </div>`
 
-  const { sent } = await sendEmail({ to: siteConfig.ownerEmails.join(', '), subject, html, text })
+  const { sent } = await sendEmail({ to: await emailsFor('warnings-email'), subject, html, text })
   if (sent) await digest.commit()
   return json({ data: { count: lines.length, sent } }, 200)
 }

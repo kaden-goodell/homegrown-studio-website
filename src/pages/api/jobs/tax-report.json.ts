@@ -1,6 +1,7 @@
 import type { APIRoute } from 'astro'
 import { createHmac, timingSafeEqual } from 'node:crypto'
 import { siteConfig, type SquareConfig } from '@config/site.config'
+import { emailsFor } from '@lib/notify-settings'
 import { createLogger } from '@lib/logger'
 import { sendEmail } from '@lib/email'
 import { loadCatalogIndex, loadOrders, loadSourceOrders, summarizeTax, renderTaxReport, previousMonth } from '@lib/tax-report'
@@ -32,14 +33,14 @@ function allowed(request: Request): boolean {
 /**
  * Run on the 1st by netlify/functions/tax-report.ts: last month's tax,
  * split into use tax and sales tax (src/lib/tax-report.ts), emailed to
- * siteConfig.taxReportEmails. A report that can't be built emails too, so a
+ * the owners picked in More › Notifications (both owners by default). A report that can't be built emails too, so a
  * missing email never quietly means "nothing to report". Read-only.
  */
 export const POST: APIRoute = async ({ request }) => {
   if (!allowed(request)) return json({ error: 'Not allowed' }, 403)
   const body = await request.json().catch(() => ({}))
   const month = typeof body?.month === 'string' && /^\d{4}-\d{2}$/.test(body.month) ? body.month : previousMonth()
-  const to = siteConfig.taxReportEmails.join(', ')
+  const to = await emailsFor('tax-report')
   try {
     const config = siteConfig.providers.payment.config as SquareConfig
     const [index, orders] = await Promise.all([loadCatalogIndex(config), loadOrders(config, month)])

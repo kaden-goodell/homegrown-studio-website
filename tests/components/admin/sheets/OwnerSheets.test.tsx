@@ -1,9 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { renderSheet, ok, refuse, posts } from './harness'
-import { AdminAccessSheet } from '@components/admin/sheets/OwnerSheets'
+import { AdminAccessSheet, NotifySheet } from '@components/admin/sheets/OwnerSheets'
 
 const ACCESS = '/api/admin/admin-access.json'
+const NOTIFY = '/api/admin/notify.json'
 
 const view = (over: Record<string, unknown> = {}) => ({
   setInAdmin: false, updatedAt: null, by: null, damaged: false, settingTookOver: false, readOnly: false, min: 8,
@@ -79,5 +80,79 @@ describe('More › Admin access', () => {
     expect(await screen.findByText('This test site can’t change the live admin passcode.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Change the admin passcode' })).toBeDisabled()
     expect(screen.getByText(/The passcode from the site setup is in use/)).toBeInTheDocument()
+  })
+})
+
+const row = (r: string, label: string, channels: string[], over: Record<string, unknown> = {}) => ({
+  row: r, label, channels, picked: ['TM4', 'TM1'],
+  goesTo: { ...(channels.includes('email') ? { email: ['kaden@ourhometownstudio.com', 'catherine@ourhometownstudio.com'] } : {}), ...(channels.includes('text') ? { text: ['…2907'] } : {}) },
+  from: { ...(channels.includes('email') ? { email: 'setup' } : {}), ...(channels.includes('text') ? { text: 'setup' } : {}) }, ...over,
+})
+const notifyView = (over: Record<string, unknown> = {}) => ({
+  saved: false, updatedAt: null, by: null, noList: false, readOnly: false,
+  owners: [{ id: 'TM4', name: 'Catherine', email: 'cat@example.com', phone: '+12565550104' }, { id: 'TM1', name: 'Kaden', email: null, phone: '+14025550101' }],
+  rows: [
+    row('owner-texts', 'Texts when something needs you', ['text']),
+    row('booking-alerts', 'Someone just booked', ['text', 'email']),
+    row('warnings-email', 'Morning warnings and heads-up emails', ['email']),
+    row('tax-report', 'Monthly tax split', ['email']),
+    row('archive', 'Weekly records archive', ['email']),
+  ],
+  ...over,
+})
+
+describe('More › Notifications', () => {
+  let nv: any
+  beforeEach(() => {
+    nv = notifyView()
+    fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => {
+      if ((init.method ?? 'GET') === 'GET') return ok({ data: nv })
+      return ok({ data: { updatedAt: '2026-11-02T15:00:00.000Z', changed: ['Monthly tax split'] } })
+    })
+  })
+
+  it('each row says what it is, who is ticked, and where it goes now (from the site setup until saved)', async () => {
+    renderSheet(<NotifySheet />)
+    const tax = await screen.findByRole('group', { name: 'Monthly tax split' })
+    expect(tax).toHaveTextContent('On the 1st, last month’s tax split')
+    expect(tax).toHaveTextContent('Emails go to kaden@ourhometownstudio.com, catherine@ourhometownstudio.com (from the site setup).')
+    expect(tax).toHaveTextContent('Kaden · no email in Staff › People')
+    const texts = screen.getByRole('group', { name: 'Texts when something needs you' })
+    expect(texts).toHaveTextContent('Texts go to the phone ending 2907 (from the site setup).')
+    expect(screen.getByText(/Nothing is set here yet/)).toBeInTheDocument()
+  })
+
+  it('untick, save: sends every row’s picks with the version it loaded, and says what changed', async () => {
+    const { dirty } = renderSheet(<NotifySheet />)
+    const tax = await screen.findByRole('group', { name: 'Monthly tax split' })
+    expect(screen.getByRole('button', { name: 'Save notifications' })).toBeDisabled()
+    fireEvent.click(within(tax).getByRole('checkbox', { name: /Kaden/ }))
+    expect(dirty()).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Save notifications' }))
+    expect(await screen.findByText('Saved. Changed: Monthly tax split. Everything else stays as it was.')).toBeInTheDocument()
+    const sent = posts(fetchMock, NOTIFY)[0].body
+    expect(sent.expectedUpdatedAt).toBeNull()
+    expect(sent.rows['tax-report']).toEqual(['TM4'])
+    expect(sent.rows.archive).toEqual(['TM4', 'TM1'])
+  })
+
+  it('a refusal shows in plain words', async () => {
+    fetchMock.mockImplementation(async (url: string, init: RequestInit = {}) => ((init.method ?? 'GET') === 'GET'
+      ? ok({ data: nv })
+      : refuse(400, { error: 'Pick at least one owner for “Weekly records archive”.' })))
+    renderSheet(<NotifySheet />)
+    const archive = await screen.findByRole('group', { name: 'Weekly records archive' })
+    fireEvent.click(within(archive).getByRole('checkbox', { name: /Kaden/ }))
+    fireEvent.click(within(archive).getByRole('checkbox', { name: /Catherine/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save notifications' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Pick at least one owner for “Weekly records archive”.')
+  })
+
+  it('no staff list yet: nothing to tick, says where things go and how to start', async () => {
+    nv = notifyView({ noList: true, owners: [] })
+    renderSheet(<NotifySheet />)
+    expect(await screen.findByText(/Start the staff list in Staff › People first/)).toBeInTheDocument()
+    expect(screen.queryByRole('checkbox')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Save notifications' })).toBeNull()
   })
 })
