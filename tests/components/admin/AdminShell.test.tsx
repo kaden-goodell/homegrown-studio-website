@@ -189,6 +189,23 @@ describe('sign in', () => {
     expect(await screen.findByText('That passcode isn’t right.')).toBeInTheDocument()
   })
 
+  it('M3: Forgot the passcode? emails the owners a link from the sign-in page (nothing to type), and says what happens', async () => {
+    const base = server({ signedOut: true })
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (url === '/api/admin/recover.json') return ok({ data: { message: 'A link is on its way to every owner’s email on the staff list. It works once, for 15 minutes. Check spam if it isn’t there in a minute.' } })
+      return base(url, init)
+    })
+    vi.stubGlobal('fetch', f)
+    render(<AdminShell />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Forgot the passcode?' }))
+    const panel = screen.getByRole('group', { name: 'Forgot the passcode?' })
+    expect(panel).toHaveTextContent('We’ll email a link to every owner’s email in Staff › People. It works once, for 15 minutes')
+    fireEvent.click(within(panel).getByRole('button', { name: 'Email the owners a link' }))
+    expect(await within(panel).findByRole('status')).toHaveTextContent('A link is on its way to every owner’s email')
+    const sent = f.mock.calls.find((c) => c[0] === '/api/admin/recover.json')!
+    expect(JSON.parse(sent[1].body)).toEqual({ action: 'request' })
+  })
+
   it('signed in already but nobody picked yet: asks who once', async () => {
     localStorage.clear()
     vi.stubGlobal('fetch', server())
