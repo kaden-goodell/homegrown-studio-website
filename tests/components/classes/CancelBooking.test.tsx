@@ -66,6 +66,24 @@ describe('Can’t make it? page', () => {
     expect(bodies(f)[0].attempt).not.toBe(bodies(f)[1].attempt)
   })
 
+  it('F4: no reply (a dropped connection) or the site failing: the next tap continues the SAME press; never says nothing changed', async () => {
+    let call = 0
+    const f = show(view({ seats: [seat(1)] }), () => {
+      call++
+      if (call === 1) throw new Error('offline')
+      return refuse(503, { error: 'We couldn’t do that just now. Nothing changed. Try again in a minute.' })
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel and refund $21.80' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, cancel and refund' }))
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('You’ll never be refunded twice')
+    expect(alert).not.toHaveTextContent('Nothing changed')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel and refund $21.80' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Yes, cancel and refund' }))
+    await waitFor(() => expect(f).toHaveBeenCalledTimes(2))
+    expect(bodies(f)[1].attempt).toBe(bodies(f)[0].attempt)
+  })
+
   it('inside 48 hours: the policy and a note box; sending it says we got it', async () => {
     const why = 'Your class is less than 48 hours away, so it can’t be cancelled and refunded online.'
     const f = show(view({ mode: 'request', why, seats: [seat(1, { canPick: false })] }), () => ok({ result: 'requested', view: view({ mode: 'request', why, state: 'requested', request: { at: '', note: 'Sick' }, seats: [seat(1, { canPick: false })] }) }))

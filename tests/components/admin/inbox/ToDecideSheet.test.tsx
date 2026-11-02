@@ -534,3 +534,42 @@ describe('To decide › reader payments (fix round 5)', () => {
     await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'refund' }]))
   })
 })
+
+describe('To decide › customers’ own cancels (D2 review fixes)', () => {
+  const unclear = (over: any = {}) => item({ kind: 'cancel-unclear', title: 'Customer’s cancel, refund unclear', classId: 'cls_1', detail: { bookingId: 'bkg_1', attempt: 'att_1', cents: 3270, state: 'unclear', name: 'Ada Lovelace', ...over } })
+
+  it('F3: Ask Square showing no refund turns into “Square shows no refund — try again” and “Release the seats, no refund” (asked first)', async () => {
+    const { f } = show([unclear()], {
+      decide: (b) => (b.action === 'ask' ? refuse(409, { error: 'Square shows no refund on their payment.', noRefund: true }) : null),
+    })
+    fireEvent.click(await screen.findByRole('button', { name: 'Ask Square' }))
+    const retry = await within(footer()).findByRole('button', { name: 'Square shows no refund — try again' })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Release the seats, no refund' }))
+    expect(within(footer()).getByText(/they stay booked, and nothing is refunded/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Release the seats' }))
+    await waitFor(() => expect(decisions(f).at(-1)).toEqual({ id: 'td_1', action: 'release' }))
+    expect(retry).toBeTruthy()
+  })
+
+  it('F3: an item already known to show no refund opens on those two choices', async () => {
+    const { f } = show([unclear({ noRefundSeen: true })])
+    fireEvent.click(await screen.findByRole('button', { name: 'Square shows no refund — try again' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'retry' }]))
+  })
+
+  it('F6: the sentence follows the booking: free, no payment, partly refunded, 48+ hours out', async () => {
+    const base = { kind: 'cancel-request', title: 'Customer asked to cancel', className: 'Candles', classId: 'cls_1', head: 'Ada asked to cancel.' }
+    const cases: [any, RegExp][] = [
+      [{ reason: 'free', canRefund: false, refundCents: 0 }, /This booking was free, so there’s nothing to refund/],
+      [{ reason: 'no-payment', canRefund: false }, /no card payment on record/],
+      [{ reason: 'partly', canRefund: false }, /Part of this booking was already refunded/],
+      [{ reason: 'outside', canRefund: true, refundCents: 3270 }, /more than 48 hours out, so a refund is within the policy/],
+    ]
+    for (const [detail, text] of cases) {
+      const { unmount } = show([item({ ...base, detail: { bookingId: 'bkg_1', name: 'Ada', lineIds: ['led_a'], seats: 1, ...detail } })])
+      expect(await screen.findByText(text)).toBeInTheDocument()
+      expect(screen.queryByText(/inside 48 hours/)).toBeNull()
+      unmount()
+    }
+  })
+})

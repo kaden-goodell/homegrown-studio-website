@@ -52,6 +52,20 @@ describe('party host pages stay private', () => {
     expect(layout).toContain('!noAnalytics && <Analytics />')
     expect(layout).toContain('<meta name="referrer" content="same-origin" />')
   })
+
+  it('F1: the class cancel link (token in the path) sends nothing to GA4, PostHog or Meta, and no referrer', async () => {
+    vi.resetModules()
+    vi.stubEnv('PUBLIC_META_PIXEL_ID', '123456789012345')
+    const { metaPixelAllowed } = await import('@lib/meta-pixel')
+    expect(metaPixelAllowed('ourhometownstudio.com', '/classes/cancel/tok.abc.def')).toBe(false)
+    expect(metaPixelAllowed('ourhometownstudio.com', '/classes/clay-camp')).toBe(true)
+    const { readFileSync } = await import('node:fs')
+    const page = readFileSync('src/pages/classes/cancel/[token].astro', 'utf8')
+    const layout = readFileSync('src/layouts/Layout.astro', 'utf8')
+    expect(page).toMatch(/<Layout[^>]*\bnoAnalytics\b/)
+    expect(page).toMatch(/<Layout[^>]*\bnoReferrer\b/)
+    expect(layout).toContain('{noReferrer ? <meta name="referrer" content="no-referrer" />')
+  })
 })
 
 describe('links that carry a party host key', () => {

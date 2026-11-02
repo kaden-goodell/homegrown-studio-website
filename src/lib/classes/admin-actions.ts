@@ -902,12 +902,13 @@ export async function classBookings(id: unknown): Promise<{ class: ScheduledClas
   const ledger = await getLedger(cls.id)
   const now = new Date()
   const bookings = await Promise.all(groupBookings(ledger, now).map(async (b): Promise<ClassBooking> => {
-    const waitingReq = b.paidHere ? (await listRefundRequests(cls.id, b.bookingId).catch(() => [])).find(isWaiting) : undefined
+    const saved = b.paidHere ? await listRefundRequests(cls.id, b.bookingId).catch(() => []) : []
+    const waitingReq = saved.find(isWaiting)
     const rec = await getCancelRecord(b.bookingId).catch(() => null)
     const lines = ledger.lines.filter((l) => l.bookingId === b.bookingId)
     let cancelPath: string | null = null
     try { cancelPath = b.customer && b.state !== 'held' ? cancelPathFor(cls.id, b.bookingId) : null } catch { cancelPath = null }
-    return { ...b, waiting: waitingReq ? describeRequest(waitingReq, ledger, cls) : null, cancelPath, cancelLine: cancelWords(rec, lines, now) }
+    return { ...b, waiting: waitingReq ? describeRequest(waitingReq, ledger, cls) : null, cancelPath, cancelLine: cancelWords(rec, lines, now, saved) }
   }))
   // Fix round 4: what Register setup has now, so the sheet can show "Update the register" for a class on an old tax.
   const register = await registerInForce().catch(() => null)

@@ -98,3 +98,31 @@ describe('D2 cancel options', () => {
     expect(cancelOptions(cls(), [line({ square: { orderId: null, paymentId: null, lineUid: null } })], at(72), policy)).toMatchObject({ mode: 'request', why: CANCEL_WHY.noPayment })
   })
 })
+
+describe('F9: 48 hours by the studio clock across a clock change', () => {
+  // Spring forward (Sun Mar 8, 2026): a Mon Mar 9 1:00 PM CDT class.
+  const MON = '2026-03-09T18:00:00.000Z'
+  const spring = cls({ sessions: [{ id: 's1', startIso: MON, endIso: '2026-03-09T20:00:00.000Z', capacity: 6 }] })
+  it('Sat 12:30 PM before a Mon 1:00 PM class is 48½ clock hours (47½ real ones): self-serve', () => {
+    const satNoonThirty = new Date('2026-03-07T18:30:00.000Z') // 12:30 PM CST
+    const o = cancelOptions(spring, [line()], satNoonThirty, policy)
+    expect(o.hoursLeft).toBeCloseTo(47.5)
+    expect(o.policyHoursLeft).toBeCloseTo(48.5)
+    expect(o.mode).toBe('self')
+  })
+  it('Sat 1:30 PM is 47½ clock hours: inside the policy', () => {
+    expect(cancelOptions(spring, [line()], new Date('2026-03-07T19:30:00.000Z'), policy).mode).toBe('request')
+  })
+})
+
+describe('F11: the class sheet line', () => {
+  it('says "Cancelling online…" while a press is in flight, and names a turned-down refund', async () => {
+    const { cancelWords } = await import('@lib/classes/self-cancel')
+    const now = new Date('2026-11-10T12:00:00.000Z')
+    const base = { classId: 'cls_1', bookingId: 'bkg_1', customer: null, asks: [], updatedAt: '' }
+    const t = { attempt: 'att_1', lineIds: ['led_x'], cents: 2180, free: false, at: new Date(now.getTime() - 60_000).toISOString(), state: 'cancelling' as const }
+    expect(cancelWords({ ...base, tries: [t] }, [], now)).toBe('Cancelling online… ($21.80 refund on its way)')
+    expect(cancelWords({ ...base, tries: [{ ...t, at: new Date(now.getTime() - 10 * 60_000).toISOString() }] }, [], now)).toMatch(/waiting on Square \(To decide › Ask Square\)/)
+    expect(cancelWords({ ...base, tries: [{ ...t, state: 'turned-down' }] }, [], now)).toBe('Online cancel’s $21.80 refund turned down by Square; still booked (To decide)')
+  })
+})

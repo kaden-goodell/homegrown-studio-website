@@ -9,12 +9,38 @@ const m = vi.hoisted(() => ({
   alert: vi.fn(),
   runWaitlist: vi.fn(),
   keys: new Map<string, any>(),
+  /** F4: a crash in the refund step, before its request is saved or after */
+  boom: null as null | 'before' | 'after',
 }))
+vi.mock('@lib/booking-core/refund-runner', async (orig) => {
+  const real = await orig<typeof import('@lib/booking-core/refund-runner')>()
+  return {
+    ...real,
+    runRefund: async (...args: Parameters<typeof real.runRefund>) => {
+      if (m.boom === 'before') throw new Error('blob blip')
+      if (m.boom === 'after') {
+        try { return await real.runRefund(...args) } catch { throw new Error('crash after the request was saved') }
+      }
+      return real.runRefund(...args)
+    },
+  }
+})
 vi.mock('@config/providers', () => ({ providers: { payment: { refundPayment: m.refundPayment } } }))
 vi.mock('@lib/audit', () => ({ recordAudit: m.audit }))
 vi.mock('@lib/email', () => ({ sendRefundEmail: m.email }))
 vi.mock('@lib/owner-alert', () => ({ alertOwners: m.alert }))
 vi.mock('@lib/classes/waitlist-runner', () => ({ runWaitlist: m.runWaitlist, decideUnclear: vi.fn(), UnclearError: class extends Error {} }))
+// F3: Ask Square reads the payment (read only): what Square refunded on it is every refund it made (by key).
+vi.mock('@lib/classes/square-api', async (orig) => ({
+  ...(await orig<typeof import('@lib/classes/square-api')>()),
+  squareFetch: vi.fn(async (path: string) => {
+    const p = /^\/payments\/([^/]+)$/.exec(path)
+    if (!p) throw new Error(`unexpected Square call ${path}`)
+    const id = decodeURIComponent(p[1])
+    const back = [...m.keys.values()].filter((r) => r.paymentId === id && r.status === 'COMPLETED').reduce((s, r) => s + r.amountCents, 0)
+    return { payment: { id, status: 'COMPLETED', total_money: { amount: 6540 }, refunded_money: { amount: back } } }
+  }),
+}))
 
 import * as route from '@pages/api/classes/cancel.json'
 import { createClass } from '@lib/classes/class-store'
@@ -84,6 +110,7 @@ beforeEach(() => {
   m.email.mockReset().mockResolvedValue({ sent: true })
   m.alert.mockReset().mockResolvedValue({ attempted: 1, sent: 1 })
   m.runWaitlist.mockReset().mockResolvedValue({})
+  m.boom = null
 })
 
 describe('the link', () => {
@@ -160,6 +187,26 @@ describe('48+ hours ahead: cancel and refund', () => {
     for (const r of [x, y]) expect([200, 409]).toContain(r.status)
     expect(new Set(m.refundPayment.mock.calls.map((c) => c[0].idempotencyKey)).size).toBe(1)
     expect((await byId(classId))[lines[1].id].refunds).toHaveLength(1)
+    // F2: one refund is one try: one owner text, one audit, and the totals count it once.
+    expect(m.alert).toHaveBeenCalledTimes(1)
+    expect(m.audit.mock.calls.filter(([e]: any[]) => e.action === 'class-self-cancel')).toHaveLength(1)
+    const loser = [x, y].find((r) => r.status === 409)
+    if (loser) expect(loser.body.view).toBeTruthy()
+    expect((await get(t)).body.data.refundedCents).toBe(3270)
+    const rec = (await getCancelRecord((await getLedger(classId)).lines[1].bookingId))!
+    expect(rec.tries.filter((x) => x.state === 'done')).toHaveLength(1)
+    const { cancelWords } = await import('@lib/classes/self-cancel')
+    expect(cancelWords(rec, (await getLedger(classId)).lines, new Date())).toBe('Cancelled online by the customer · 1 seat, $32.70 refunded')
+  })
+
+  it('F2: a second tab pressing after the first finished is refused with the booking as it stands (nothing sent)', async () => {
+    const { t, lines } = await setup(two)
+    await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: attempt() })
+    const again = await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: attempt() })
+    expect(again.status).toBe(409)
+    expect(again.body.view.seats[0].state).toBe('cancelled')
+    expect(m.refundPayment).toHaveBeenCalledTimes(1)
+    expect(m.alert).toHaveBeenCalledTimes(1)
   })
 
   it('a booking for several dates is cancelled whole; some of its seats are refused', async () => {
@@ -184,7 +231,12 @@ describe('48+ hours ahead: cancel and refund', () => {
 describe('when Square doesn’t answer, or says no', () => {
   it('no answer: the seats stay held as cancelling, owners texted once, To decide › Ask Square sends the same request and finishes it', async () => {
     const { classId, bookingId, t, lines } = await setup(two)
-    m.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    // Square made the refund, but its answer never reached us.
+    const lost = async (i: any) => {
+      if (!m.keys.has(i.idempotencyKey)) m.keys.set(i.idempotencyKey, { id: `rf_${m.keys.size + 1}`, paymentId: i.paymentId, amountCents: i.amountCents, status: 'COMPLETED' })
+      throw new Error('timeout')
+    }
+    m.refundPayment.mockImplementationOnce(lost)
     const a = attempt()
     const r = await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: a })
     expect(r.status).toBe(200)
@@ -197,7 +249,7 @@ describe('when Square doesn’t answer, or says no', () => {
     expect(m.alert.mock.calls[0][0]).toMatch(/Square didn’t answer the \$32\.70 refund\. Their seats stay held\. Open \/admin › To decide and tap Ask Square\./)
     const firstKey = m.refundPayment.mock.calls[0][0].idempotencyKey
     // The same press again (a retry from the page) keeps it unclear and doesn't text again.
-    m.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    m.refundPayment.mockImplementationOnce(lost)
     await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: a })
     expect(m.alert).toHaveBeenCalledTimes(1)
 
@@ -227,6 +279,133 @@ describe('when Square doesn’t answer, or says no', () => {
     expect(item.detail.state).toBe('turned-down')
     const seen = await decide(item.id, 'seen', {}, { id: 'cat', name: 'Catherine' })
     expect(seen.decided.what).toBe('Seen. They’re still booked')
+  })
+})
+
+describe('F3: a refund Square never answers never leaves Catherine stuck', () => {
+  const cat = { id: 'cat', name: 'Catherine' }
+  async function unanswered() {
+    const env = await setup(two)
+    m.refundPayment.mockRejectedValueOnce(new Error('timeout')) // Square never got it: no refund on the payment
+    const a = attempt()
+    const r = await post({ t: env.t, action: 'cancel', lineIds: [env.lines[0].id], attempt: a })
+    expect(r.body.data.result).toBe('cancelling')
+    const item = (await listToDecide()).items.find((i) => i.kind === 'cancel-unclear' && i.detail.bookingId === env.bookingId)!
+    return { ...env, a, item }
+  }
+
+  it('Ask Square reads the payment first: no refund shown → said so (nothing sent); then "try again" sends the very same request', async () => {
+    const { classId, lines, item } = await unanswered()
+    const firstKey = m.refundPayment.mock.calls[0][0].idempotencyKey
+    await expect(decide(item.id, 'retry', {}, cat)).rejects.toThrow(/Ask Square first/)
+    await expect(decide(item.id, 'ask', {}, cat)).rejects.toMatchObject({ status: 409, extra: { noRefund: true } })
+    expect(m.refundPayment).toHaveBeenCalledTimes(1) // asking sent nothing
+    const again = (await listToDecide()).items.find((i) => i.id === item.id)!
+    expect(again.detail).toMatchObject({ noRefundSeen: true })
+    expect(again.hint).toBe('Try again, or release the seats')
+    const done = await decide(item.id, 'retry', {}, cat)
+    expect(done.decided.what).toBe('The refund went through. They’re cancelled and got $32.70 back')
+    expect(m.refundPayment).toHaveBeenCalledTimes(2)
+    expect(m.refundPayment.mock.calls[1][0].idempotencyKey).toBe(firstKey)
+    expect((await byId(classId))[lines[0].id].refunds).toHaveLength(1)
+  })
+
+  it('Release the seats, no refund: only after Square showed none; the request is cleared (audited), the seats stop being held, nothing refunded', async () => {
+    const { t, lines, item } = await unanswered()
+    await expect(decide(item.id, 'release', {}, cat)).rejects.toThrow(/Ask Square first/)
+    await expect(decide(item.id, 'ask', {}, cat)).rejects.toMatchObject({ extra: { noRefund: true } })
+    const done = await decide(item.id, 'release', {}, cat)
+    expect(done.decided.what).toBe('Square showed no refund. Seats released; they’re still booked and nothing was refunded')
+    expect(m.refundPayment).toHaveBeenCalledTimes(1)
+    expect(m.audit.mock.calls.some(([e]: any[]) => e.action === 'class-self-cancel-released')).toBe(true)
+    expect(m.audit.mock.calls.some(([e]: any[]) => e.action === 'class-refund-checked' || /checked/.test(e.action))).toBe(true)
+    const v = (await get(t)).body.data
+    expect(v.seats[0]).toMatchObject({ state: 'booked', canPick: true })
+    expect((await listToDecide()).items.filter((i) => i.kind === 'cancel-unclear' && !i.done)).toHaveLength(0)
+    expect(lines).toHaveLength(2)
+  })
+
+  it('a day on, the nightly run raises no second, generic "Refund with no answer" for a customer’s cancel (one item, not two)', async () => {
+    await unanswered()
+    const { flagUnconfirmedRequests } = await import('@lib/classes/square-events')
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date(Date.now() + 25 * 3_600_000))
+      expect(await flagUnconfirmedRequests(new Date())).toBe(0)
+      const items = (await listToDecide()).items.filter((i) => !i.done)
+      expect(items.some((i) => i.kind === 'refund-unconfirmed')).toBe(false)
+      expect(items.some((i) => i.kind === 'cancel-unclear')).toBe(true)
+    } finally { vi.useRealTimers() }
+  })
+
+  it('a request cleared as turned down (by anyone) never leaves the seats held: the try reads turned-down', async () => {
+    const { classId, bookingId, t, a } = await unanswered()
+    const { listRefundRequests } = await import('@lib/classes/refund-requests')
+    const { clearRequest } = await import('@lib/booking-core/refund-runner')
+    const { classRefundBook } = await import('@lib/classes/refunds')
+    const r = (await listRefundRequests(classId, bookingId))[0]
+    await clearRequest(await classRefundBook(classId, bookingId), r.id, 'did-not-go-through', 'checked', { by: cat, role: 'owner' })
+    expect((await get(t)).body.data.seats[0].state).toBe('booked')
+    const item = (await listToDecide()).items.find((i) => i.kind === 'cancel-unclear' && i.detail.attempt === a && !i.done)!
+    expect(item.detail.state).toBe('turned-down')
+  })
+})
+
+describe('F4: a crash in the middle of a press', () => {
+  it('before anything was saved: the press stops, nothing stays held, the page says nothing changed; a new press works', async () => {
+    const { t, lines } = await setup(two)
+    m.boom = 'before'
+    const r = await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: attempt() })
+    expect(r.status).toBe(503)
+    expect(r.body.error).toMatch(/Nothing changed/)
+    expect((await get(t)).body.data.seats[0]).toMatchObject({ state: 'booked', canPick: true })
+    expect(m.alert).not.toHaveBeenCalled()
+    m.boom = null
+    expect((await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: attempt() })).body.data.result).toBe('cancelled')
+  })
+
+  it('after the refund request was saved: treated as no answer — seats held, owners texted and To decide shows it at once', async () => {
+    const { bookingId, t, lines } = await setup(two)
+    m.boom = 'after'
+    m.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    const r = await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: attempt() })
+    expect(r.status).toBe(200)
+    expect(r.body.data.result).toBe('cancelling')
+    expect(m.alert).toHaveBeenCalledTimes(1)
+    expect(m.alert.mock.calls[0][0]).toMatch(/Open \/admin › To decide and tap Ask Square/)
+    expect((await listToDecide()).items.some((i) => i.kind === 'cancel-unclear' && i.detail.bookingId === bookingId)).toBe(true)
+  })
+})
+
+describe('F5, F7, F8: notes', () => {
+  it('F5: every seat already has a goodwill refund but is still booked → the page explains and offers a note (never a dead end)', async () => {
+    const { t } = await setup((b) => [
+      line({ bookingId: b, seat: 1, state: 'refunded', refunds: [{ id: 'rfe_1', cents: 500, at: new Date().toISOString(), by: { id: 'cat', name: 'Catherine' }, reason: 'goodwill', freedSeat: false } as any] }),
+    ])
+    const v = (await get(t)).body.data
+    expect(v).toMatchObject({ mode: 'request', why: CANCEL_WHY.partly })
+    expect(v.state).not.toBe('over')
+  })
+
+  it('F7: a long note is cut in the owner text so “Open /admin › To decide” always fits; To decide keeps it whole', async () => {
+    const { bookingId, t } = await setup(two, 30)
+    const note = 'x'.repeat(400)
+    await post({ t, action: 'request', note })
+    const text = m.alert.mock.calls[0][0] as string
+    expect(text).toMatch(/Open \/admin › To decide to refund, free the seat or keep their booking\.$/)
+    expect(text.length).toBeLessThanOrEqual(300)
+    const item = (await listToDecide()).items.find((i) => i.kind === 'cancel-request' && i.detail.bookingId === bookingId)!
+    expect(item.detail.note).toBe(note)
+    expect(item.detail.reason).toBe('inside')
+  })
+
+  it('F8: at most 3 owner texts a day per booking link; later notes still save and show', async () => {
+    const { bookingId, t } = await setup(two, 30)
+    for (const n of ['one', 'two', 'three', 'four']) await post({ t, action: 'request', note: n })
+    expect(m.alert).toHaveBeenCalledTimes(3)
+    expect((await getCancelRecord(bookingId))!.asks.map((a) => a.note)).toEqual(['one', 'two', 'three', 'four'])
+    const item = (await listToDecide()).items.find((i) => i.kind === 'cancel-request' && i.detail.bookingId === bookingId)!
+    expect(item.detail.note).toBe('four')
   })
 })
 

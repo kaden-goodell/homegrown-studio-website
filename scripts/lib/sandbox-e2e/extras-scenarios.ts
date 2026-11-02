@@ -222,14 +222,16 @@ const PRICE15 = { single: { person: 1500 } }
 export const extrasScenarios: Scenario<Ctx>[] = [
   {
     id: 49,
-    title: 'S4-1 Half cent: 30% off $15, Square rounds like us',
+    title: 'HARD GATE · S4-1 Half cent: 30% off $15, Square rounds like us',
     plan: [
       'code E2E…A, 30% off, this class only; quote: line net $10.50, tax 95 cents (94.5 rounded half up)',
       'book 1 seat with it; Square order line total and tax equal the quote on every line',
       'if Square rounds the half cent another way: FAIL (percent codes must not ship)',
-      'needs SQUARE_SANDBOX_ACCESS_TOKEN for the Square half (skipped without it)',
+      'HARD GATE: needs SQUARE_SANDBOX_ACCESS_TOKEN; without it the whole scenario is SKIPPED (never counted as a pass)',
     ],
     async run(ctx, scope) {
+      // T2: a gate proven by half its checks isn't proven: SKIP before anything is booked.
+      if (!ctx.square) throw new SkipScenario('HARD GATE needs SQUARE_SANDBOX_ACCESS_TOKEN')
       const cls = await makeClass(ctx, scope, { content: testContent({ name: nameOf(ctx, 'Half cent'), prices: PRICE15 }), sessions: ctx.slots.sessions(1) })
       const code = e2eCode(ctx.runTag, 'A')
       await makeCode(ctx, scope, { code, off: { kind: 'percent', percent: 30 }, appliesTo: { kind: 'classes', libraryIds: [], classIds: [cls.id] } })
@@ -243,7 +245,6 @@ export const extrasScenarios: Scenario<Ctx>[] = [
       checkEqual(b.reply.body.data.totalChargedCents, 1145, 'Charged')
       const mine = await ledgerBooking(ctx, cls.id, b.bookingId)
       checkEqual(mine.paidCents, 1145, 'Ledger paid')
-      if (!ctx.square) return noSquare(scope)
       const order = (await ctx.square.get(`/orders/${encodeURIComponent(b.reply.body.data.orderId)}`)).order
       const li = (order.line_items ?? [])[0]
       const tax = Number(li?.total_tax_money?.amount)
@@ -599,7 +600,7 @@ export const extrasScenarios: Scenario<Ctx>[] = [
   },
   {
     id: 61,
-    title: 'Saved-card proofs straight against the sandbox (Cards + Payments)',
+    title: 'HARD GATE · Saved-card proofs straight against the sandbox (Cards + Payments)',
     plan: [
       'a sandbox customer; CreateCard twice with one key → one card; a new key with the same nonce → noted',
       'CreatePayment on the saved card with customer_details (seller-initiated) → COMPLETED (HARD GATE: refused = FAIL); same key again → same payment; same key, other amount → IDEMPOTENCY_KEY_REUSED',
@@ -609,7 +610,7 @@ export const extrasScenarios: Scenario<Ctx>[] = [
     ],
     async run(ctx, scope) {
       const sq = ctx.square
-      if (!sq) throw new SkipScenario('needs SQUARE_SANDBOX_ACCESS_TOKEN')
+      if (!sq) throw new SkipScenario('HARD GATE needs SQUARE_SANDBOX_ACCESS_TOKEN')
       const loc = await siteLocation(ctx, scope)
       const customer = (await sq.post('/customers', {
         idempotency_key: randomUUID(), given_name: 'E2E', family_name: `Cards ${ctx.runTag}`, email_address: ctx.person.email, reference_id: `e2e-${ctx.runTag}`,
@@ -801,7 +802,8 @@ export const extrasScenarios: Scenario<Ctx>[] = [
     plan: [
       'book 2 seats ($21.80 each); the booking\'s "Can’t make it?" link opens a page that lets them cancel',
       'cancel seat 1 → $21.80 refunded in Square, seat 1 freed; the same tap again → nothing new',
-      'two tabs cancel seat 2 at once → exactly one refund; the page then shows the whole booking cancelled',
+      'two tabs cancel seat 2 at once → exactly one refund (the other tab: "changed"); the page then shows the whole booking cancelled',
+      'the class sheet line counts it once: "Cancelled online by the customer · 2 seats, $43.60 refunded"',
       'Square shows exactly 2 refunds on the payment',
     ],
     async run(ctx, scope) {
@@ -824,13 +826,16 @@ export const extrasScenarios: Scenario<Ctx>[] = [
       checkEqual([after1.seatsComing, after1.refundedCents], [1, 2180], 'Ledger after seat 1 (coming, refunded)')
       const [x, y] = await Promise.all(['B', 'C'].map(() => cancelPost(ctx, { t, action: 'cancel', lineIds: [s2.lineId], attempt: `e2e-${randomUUID()}` })))
       check([x, y].some((r) => r.status === 200 && r.body.data.result === 'cancelled'), `Neither tab cancelled seat 2: ${sayReply(x)} / ${sayReply(y)}`)
-      for (const r of [x, y]) check(r.status === 200 || (r.status === 409 && ['changed', 'already'].includes(r.body?.code)), `A tab answered ${sayReply(r)}`)
+      for (const r of [x, y]) check(r.status === 200 || (r.status === 409 && r.body?.code === 'changed'), `A tab answered ${sayReply(r)}`)
       const end = await cancelView(ctx, t)
       checkEqual(end.state, 'cancelled', 'Page state after both seats')
       checkEqual((end.seats as any[]).map((s) => s.state), ['cancelled', 'cancelled'], 'Seats on the page')
       const third = await cancelPost(ctx, { t, action: 'cancel', lineIds: [s1.lineId, s2.lineId], attempt: `e2e-${randomUUID()}` })
       check(third.status === 200 || third.status === 409, `A third cancel: ${sayReply(third)}`)
-      checkEqual((await ledgerBooking(ctx, cls.id, b.bookingId)).refundedCents, 4360, 'Ledger refunded in total')
+      const row = await ledgerBooking(ctx, cls.id, b.bookingId)
+      checkEqual(row.refundedCents, 4360, 'Ledger refunded in total')
+      // T3/F2: the class sheet counts each refund once, whatever the two tabs did.
+      checkEqual(row.cancelLine, 'Cancelled online by the customer · 2 seats, $43.60 refunded', 'Class sheet line')
       if (!ctx.square) return noSquare(scope)
       const refunds = await refundsOn(ctx, scope, b.reply.body.data.paymentId, since)
       checkEqual(refunds.length, 2, 'Square refunds on the payment')
@@ -952,4 +957,4 @@ export async function cleanUpExtrasLeftovers(ctx: Pick<Ctx, 'admin' | 'square'>,
 }
 
 /** Extras scenarios that skip without SQUARE_SANDBOX_ACCESS_TOKEN (the rest only skip their Square half). */
-export const EXTRAS_NEED_TOKEN = [57, 61, 64]
+export const EXTRAS_NEED_TOKEN = [49, 57, 61, 64]

@@ -40,14 +40,15 @@ export default function CancelBooking({ token, initial }: { token: string; initi
     setPicked((cur) => (v.wholeOnly || still.length === 1 ? still : cur.filter((id) => still.includes(id))))
   }
 
-  async function post(body: Record<string, unknown>): Promise<{ ok: boolean; data?: any; error?: string; view?: CancelView }> {
+  async function post(body: Record<string, unknown>): Promise<{ ok: boolean; status: number; code?: string; data?: any; error?: string; view?: CancelView }> {
     try {
       const res = await fetch(API, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ t: token, ...body }) })
       const j = await res.json().catch(() => null)
-      if (res.ok && j?.data) return { ok: true, data: j.data }
-      return { ok: false, error: j?.error ?? 'We couldn’t do that just now. Nothing changed. Try again in a minute.', view: j?.view }
+      if (res.ok && j?.data) return { ok: true, status: res.status, data: j.data }
+      return { ok: false, status: res.status, code: typeof j?.code === 'string' ? j.code : undefined, error: j?.error ?? 'We couldn’t do that just now. Try again in a minute. You’ll never be refunded twice.', view: j?.view }
     } catch {
-      return { ok: false, error: 'We couldn’t reach the studio’s site. Nothing changed. Check your connection and try again.' }
+      // F4: we can't tell whether the press reached us, so we never say "nothing changed" here.
+      return { ok: false, status: 0, error: 'We couldn’t reach the studio’s site. Check your connection and tap the button again. You’ll never be refunded twice.' }
     }
   }
 
@@ -65,8 +66,9 @@ export default function CancelBooking({ token, initial }: { token: string; initi
     }
     if (r.view) take(r.view)
     setError(r.error ?? '')
+    // F4: no reply, or the site failed: the same press again (it continues, never a second refund).
     // A refused or changed press is over: the next one is a new press.
-    attempt.current = newAttemptId()
+    if (!(r.status === 0 || (r.status >= 500 && r.code !== 'square'))) attempt.current = newAttemptId()
   }
 
   async function send() {

@@ -86,7 +86,7 @@ describe('secrets', () => {
   })
 
   it('the run line is the one in the brief, and in the script header', async () => {
-    expect(RUN_LINE).toBe('! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts')
+    expect(RUN_LINE).toBe('! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" PREVIEW_OWNER_ALERT_NUMBERS="$(npx netlify env:get OWNER_ALERT_NUMBERS --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts')
     const { readFileSync } = await import('node:fs')
     expect(readFileSync('scripts/sandbox-e2e.ts', 'utf8')).toContain(RUN_LINE)
     expect(readFileSync('docs/superpowers/plans/stage1-real-money-checklist.md', 'utf8')).toContain(RUN_LINE)
@@ -459,6 +459,20 @@ describe('main', () => {
     expect(err.mock.calls.flat().join('\n')).toContain('not set. Run it with: !')
   })
 
+  it('T4 preflight: stops before any network unless the preview texts owners on Kaden’s number only', async () => {
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+    const err = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const env = { ADMIN_PASSCODE: ADMIN, STAFF_PASSCODE: STAFF }
+    expect(await main(['--only', '2'], env)).toBe(2)
+    expect(await main(['--only', '2'], { ...env, PREVIEW_OWNER_ALERT_NUMBERS: '+14029802907,+12565550100' })).toBe(2)
+    expect(fetch).not.toHaveBeenCalled()
+    expect(err.mock.calls.flat().join('\n')).toMatch(/isn't Kaden's \(402\) 980-2907/)
+    const { ownerNumbersProblem } = await import('../../scripts/lib/sandbox-e2e/core')
+    expect(ownerNumbersProblem('(402) 980-2907')).toBeNull()
+    expect(ownerNumbersProblem('+1 402 980 2907, 4029802907')).toBeNull()
+  })
+
   it('stops before booking when the preview is not on the sandbox, never printing a passcode', async () => {
     const fetch = vi.fn(async (url: string, _init?: RequestInit) => {
       const p = new URL(url).pathname
@@ -473,7 +487,7 @@ describe('main', () => {
     vi.spyOn(console, 'log').mockImplementation((...a) => { out.push(a.join(' ')) })
     vi.spyOn(console, 'error').mockImplementation((...a) => { out.push(a.join(' ')) })
     const proc = new EventEmitter()
-    expect(await main(['--only', '2'], { ADMIN_PASSCODE: ADMIN, STAFF_PASSCODE: STAFF }, { proc, exit: vi.fn() })).toBe(1)
+    expect(await main(['--only', '2'], { ADMIN_PASSCODE: ADMIN, STAFF_PASSCODE: STAFF, PREVIEW_OWNER_ALERT_NUMBERS: '+14029802907' }, { proc, exit: vi.fn() })).toBe(1)
     expect(out.join('\n')).toContain('not on the Square sandbox')
     const deletes = fetch.mock.calls.filter(([, init]) => (init as any)?.method === 'DELETE').map(([u]) => new URL(u as string).pathname)
     expect(deletes).toEqual(['/api/admin/login.json', '/api/staff/login.json'])
@@ -636,7 +650,8 @@ describe('stage 4 extras scenarios (49+)', () => {
     expect(await main(['--dry-run', '--only', '49,65'], {})).toBe(0)
     expect(fetch).not.toHaveBeenCalled()
     const out = log.mock.calls.flat().join('\n')
-    expect(out).toContain('[49] S4-1 Half cent')
+    expect(out).toContain('[49] HARD GATE · S4-1 Half cent')
+    expect(EXTRAS_NEED_TOKEN).toContain(49)
     expect(out).toContain('[65] D2')
     for (const id of EXTRAS_NEED_TOKEN) expect(out).toContain(String(id))
   })

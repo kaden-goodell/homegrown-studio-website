@@ -1075,6 +1075,9 @@ export async function flagUnconfirmedRequests(now: Date): Promise<number> {
   for (const r of await allRefundRequests()) {
     // A reader payment's refund stays on its own To decide item (Refund it sends the same request again): never flagged here.
     if (r.classId === READER_SCOPE) continue
+    // F3: a customer's own cancel keeps its refund on its own To decide item (Customer's cancel, refund unclear,
+    // with Ask Square in the app): never a second, generic "Refund with no answer" for the same refund.
+    if (r.by.id.startsWith('customer-online')) continue
     if (checkedButUnfinished(r) && now.getTime() - Date.parse(r.cleared!.at) >= UNFINISHED_AFTER_MS) {
       open++
       const id = `flag-refund-unfinished-${safeKey(r.id)}`

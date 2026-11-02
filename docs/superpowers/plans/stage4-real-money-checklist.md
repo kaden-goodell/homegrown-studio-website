@@ -6,7 +6,7 @@ The sandbox E2E (`npx tsx scripts/sandbox-e2e.ts --only 49-67`, scenarios in `sc
 
 ## Before you start
 
-- [ ] Make a **hidden, link-only "Test" class** at **$1**, capacity **1**, taxable, starting at least 3 days out (so the 48-hour cancel works). Use your own cards. Texts go to your phone (402) 980-2907, and owner texts reach the owner numbers.
+- [ ] Make a **hidden, link-only "Test" class** at **$1**, capacity **4**, taxable, starting at least 3 days out (so the 48-hour cancel works). Use your own cards. Texts go to your phone (402) 980-2907, and owner texts reach the owner numbers.
 - [ ] Netlify (prod): `SQUARE_POS_CLIENT_ID` is the application id the POS API callback URLs are registered on (`https://ourhometownstudio.com/staff/pos-return`). `LOOKUP_SIGNING_SECRET` is set (the cancel links are signed with it).
 - [ ] The iPad has the **Square Point of Sale** app, signed in at the studio location.
 - [ ] /admin › More › Register setup shows the 9% class tax and the Classes category in use, and "Charge on the reader" is **Off**.
@@ -30,11 +30,12 @@ The sandbox E2E (`npx tsx scripts/sandbox-e2e.ts --only 49-67`, scenarios in `sc
 
 7. [ ] Code `TESTFREE`, 100% off, use limit 1. Book → no card form, "You're booked", the confirmation email says "free". Square shows **no** order or payment.
    - Home shows no "books for free with no use limit" warning, because it has a limit.
+   - Open the free booking's "Can't make it?" link → **Cancel my seat** → "Done. Your seat is cancelled. This booking was free…". Square still shows nothing; the owners get one "…It was a free booking…" text.
    - Turn it off afterwards.
 
 ## C. The waitlist with real saved cards
 
-8. [ ] Book the only seat with **card A**. On another device, open the class: it says full, with **Join the waitlist**. Join with **card B** and tick the consent. In Square › Customers, card B is on file.
+8. [ ] Set the test class's capacity to the seats it has booked now plus **1**, then book that last seat with **card A**. On another device, open the class: it says full, with **Join the waitlist**. Join with **card B** and tick the consent. In Square › Customers, card B is on file.
 9. [ ] /admin › the class › Bookings › **Refund and free the seat** on card A's booking.
    - Within a minute card B is charged **$1.09** by itself.
    - You get "You're in" by text and email.
@@ -47,7 +48,7 @@ The sandbox E2E (`npx tsx scripts/sandbox-e2e.ts --only 49-67`, scenarios in `sc
    - To decide shows "Waitlist card didn't go through" with **Got it**.
    - The next person in line (if any) is added.
    - In Square, check the failed payment's error. It must read as a decline, not a setup problem (the run must not stop with "The waitlist has stopped").
-12. [ ] Unfreeze the card.
+12. [ ] Unfreeze the card. Put the test class's capacity back to **4**.
 
 ## D. Charge on the reader (a real iPad; the POS API has no sandbox)
 
@@ -70,6 +71,8 @@ The sandbox E2E (`npx tsx scripts/sandbox-e2e.ts --only 49-67`, scenarios in `sc
     - Square shows one refund of $1.09.
     - The class sheet row says "Cancelled online by the customer".
 22. [ ] Tap Yes again quickly and reload the link: still one refund in Square.
+    - Two tabs: book 2 more seats, open the link in **two tabs**, tick the same seat in both and press Yes in both. Square shows **one** refund; the other tab says "Your booking just changed…"; the owners get **one** text; the class sheet's total counts it once.
+    - Privacy: open a cancel link on prod, then check GA4 (Realtime) and PostHog (Activity): **no** pageview for `/classes/cancel/…` at all, and no event anywhere carrying the token.
 23. [ ] Move the class so it starts in under 48 hours. Open the link for the other seat: it shows the policy and **Send us a note**. Send "test".
     - The owners get the text.
     - To decide shows "Customer asked to cancel". Tap **Keep their booking**.
@@ -87,5 +90,5 @@ The sandbox E2E (`npx tsx scripts/sandbox-e2e.ts --only 49-67`, scenarios in `sc
 - Apple Pay with a real wallet: step 2. Real Square gift cards: step 5.
 - Square's half-cent tax rounding on a live charge: step 2 (scenario 49 shows it on the sandbox first).
 - The hourly early-bird register flip on the live catalog: step 4.
-- A Square refund that never answers (no sandbox switch for it): covered by unit tests only. The customer sees "We're finishing your refund", the seats stay held, and To decide › **Ask Square** sends the same request again.
+- A Square refund that never answers (no sandbox switch for it): covered by unit tests only. The customer sees "We're finishing your refund", the seats stay held, the owners get a text, and To decide › **Ask Square** reads the payment first: a refund Square made finishes the cancel (the same request again, never a second refund); none → **Square shows no refund — try again** (the same request) or **Release the seats, no refund** (they stay booked).
 - Renewing an expired Square connection: no button can do it. The site says so in plain words and the register keeps working.

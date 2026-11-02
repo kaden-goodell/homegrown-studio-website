@@ -949,17 +949,31 @@ function CancelRequest({ item }: { item: ToDecideItem }) {
       {d.canRefund ? kv('Refund would be', formatMoney(d.refundCents ?? 0)) : null}
       {d.why && <p className="adm-small adm-gap-top">{`What their page told them: ${d.why}`}</p>}
       <p className="adm-note adm-gap-top">
-        {d.canRefund
-          ? 'Our policy inside 48 hours is studio credit or a free seat transfer, but you can refund if you’d like. Keep their booking if you’re giving credit or moving them, then call or text them.'
-          : d.source === 'comp'
-            ? 'This seat was a gift, so there’s no money to refund. Free the seat to give it to someone else, or keep it.'
-            : 'This was paid at the studio, so any refund goes back at the register. Free the seat here once that’s done, or keep their booking.'}
+        {cancelNote(d)}
       </p>
       <Contact d={d} />
       {item.classId && <OpenClass id={item.classId} />}
       <ErrorLine text={error} />
     </SheetFrame>
   )
+}
+
+/** F6: the sentence under a customer's note, chosen from why it can (or can't) be refunded here. */
+function cancelNote(d: Detail): string {
+  switch (d.reason ?? (d.source === 'comp' ? 'comp' : undefined)) {
+    case 'comp': return 'This seat was a gift, so there’s no money to refund. Free the seat to give it to someone else, or keep it.'
+    case 'free': return 'This booking was free, so there’s nothing to refund. Free the seat to cancel it, or keep their booking.'
+    case 'studio': return 'This was paid at the studio, so any refund goes back at the register. Free the seat here once that’s done, or keep their booking.'
+    case 'partly': return 'Part of this booking was already refunded. Refund what’s left from the class sheet if they should get more back, then free the seat; or keep their booking.'
+    case 'no-payment': return 'There’s no card payment on record for this booking, so it can’t be refunded from here. Free the seat or keep their booking, and sort out any money with them.'
+    case 'started': return 'Their class has already started. You can still refund if you’d like, free the seat, or keep their booking. Then call or text them.'
+    case 'inside': return 'Our policy inside 48 hours is studio credit or a free seat transfer, but you can refund if you’d like. Keep their booking if you’re giving credit or moving them, then call or text them.'
+    case 'outside': return 'They’re more than 48 hours out, so a refund is within the policy. Refund and free the seat, or keep their booking if you’ve agreed something else.'
+    default:
+      return d.canRefund
+        ? 'You can refund and free the seat, free the seat with no refund, or keep their booking. Then call or text them.'
+        : 'This can’t be refunded from here. Free the seat or keep their booking, and sort out any money with them.'
+  }
 }
 
 /**
@@ -970,24 +984,45 @@ function CancelRequest({ item }: { item: ToDecideItem }) {
  */
 function CancelUnclear({ item }: { item: ToDecideItem }) {
   const d = item.detail as Detail
-  const { send, busy, error } = useDecide(item)
+  const { send, busy, error, setError } = useDecide(item)
   const turned = d.state === 'turned-down'
-  return (
-    <SheetFrame
-      title={item.title}
-      subtitle={item.className}
-      footer={(
-        <div className="adm-stack">
-          <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'ask' })}>{label(busy, 'ask', turned ? 'Try the refund again' : 'Ask Square', 'Asking Square…')}</button>
-          {turned && <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => send({ action: 'seen' })}>{label(busy, 'seen', 'Got it', 'Saving…')}</button>}
+  // F3: Ask Square reads Square first; when it shows no refund, Try again (the same request) or Release the seats.
+  const [noRefund, setNoRefund] = useState<boolean>(d.noRefundSeen === true)
+  const [sure, setSure] = useState(false)
+  async function ask() {
+    const r = await send({ action: 'ask' })
+    if (!r.ok && r.extra?.noRefund) setNoRefund(true)
+  }
+  const footer = sure
+    ? (
+      <div className="adm-panel is-warn" role="group" aria-label="Release the seats, no refund?">
+        <b>Release the seats, no refund?</b>
+        <span className="adm-small">{`Square shows no refund, so ${d.name}’s cancel is called off: their seats stop being held, they stay booked, and nothing is refunded. Call them to sort it out.`}</span>
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" onClick={() => setSure(false)}>Not yet</button>
+          <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'release' })}>{label(busy, 'release', 'Release the seats', 'Checking Square…')}</button>
         </div>
-      )}
-    >
+      </div>
+    )
+    : (
+      <div className="adm-stack">
+        {turned && <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'ask' })}>{label(busy, 'ask', 'Try the refund again', 'Asking Square…')}</button>}
+        {turned && <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => send({ action: 'seen' })}>{label(busy, 'seen', 'Got it', 'Saving…')}</button>}
+        {!turned && !noRefund && <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={ask}>{label(busy, 'ask', 'Ask Square', 'Asking Square…')}</button>}
+        {!turned && noRefund && <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'retry' })}>{label(busy, 'retry', 'Square shows no refund — try again', 'Sending…')}</button>}
+        {!turned && noRefund && <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => { setSure(true); setError('') }}>Release the seats, no refund</button>}
+        {!turned && noRefund && <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={ask}>{label(busy, 'ask', 'Ask Square again', 'Asking Square…')}</button>}
+      </div>
+    )
+  return (
+    <SheetFrame title={item.title} subtitle={item.className} footer={footer}>
       <Head item={item} />
       {kv('Refund', formatMoney(d.cents ?? 0))}
       <p className="adm-note adm-gap-top">{turned
         ? 'Try the refund again sends it to Square once more. Or call them, and tap Got it to leave them booked.'
-        : 'Ask Square sends the same refund request again. If Square already made it, it hands that one back, so nobody is refunded twice. Once it’s through, their seats go back on sale and they get the refund email.'}</p>
+        : noRefund
+          ? 'Square shows no refund on their payment. Try again sends the very same refund once more; Square never makes it twice. Or release the seats: they stay booked and nothing is refunded.'
+          : 'Ask Square looks at their payment first. If Square made the refund, the cancel finishes (nobody is refunded twice), their seats go back on sale and they get the refund email.'}</p>
       <Contact d={d} />
       {item.classId && <OpenClass id={item.classId} />}
       <ErrorLine text={error} />

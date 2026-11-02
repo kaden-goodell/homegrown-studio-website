@@ -12,6 +12,8 @@ const logger = createLogger('page:class-cancel')
 // only shows the booking; cancelling takes a tap and a second "Yes" (a link
 // checker or an email preview never cancels anything). A wrong token and a
 // missing booking look the same.
+// F1: the token is in the address, so the page sends nothing to GA4, PostHog or the Meta Pixel (noAnalytics, as the
+// party host page) and no referrer at all (noReferrer), so the token never reaches the next page's analytics either.
 const token = Astro.params.token ?? ''
 Astro.response.headers.set('Cache-Control', 'private, no-store')
 Astro.response.headers.set('Referrer-Policy', 'no-referrer')
@@ -31,7 +33,7 @@ if (problem === 'missing') Astro.response.status = 404
 if (problem === 'failed') Astro.response.status = 503
 ---
 
-<Layout title="Your booking" description="Cancel or change your Hometown Studio class booking." noindex>
+<Layout title="Your booking" description="Cancel or change your Hometown Studio class booking." noindex noAnalytics noReferrer>
   <section class="max-w-xl mx-auto px-4 sm:px-6 pb-20" style="padding-top: 5.5rem;">
     {view ? (
       <CancelBooking client:load token={token} initial={view} />

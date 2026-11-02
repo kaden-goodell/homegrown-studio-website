@@ -50,6 +50,24 @@ export interface CancelOptions {
   firstStartIso: string | null
   /** hours from now to the first session (negative once it started) */
   hoursLeft: number
+  /**
+   * F9: the same by the studio's wall clock (Chicago), which the 48-hour policy is read by: across a clock
+   * change, "Sat 12:30 PM before a Mon 1:00 PM class" is 48½ hours, as it looks to the customer.
+   */
+  policyHoursLeft: number
+}
+
+/** Chicago wall-clock time of an instant, as if it were UTC (so two of them subtract to clock hours). */
+function wallMs(ms: number): number {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+    .formatToParts(new Date(ms))
+  const n = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0)
+  return Date.UTC(n('year'), n('month') - 1, n('day'), n('hour'), n('minute'), n('second'))
+}
+
+/** Hours between two instants by the studio's wall clock (F9). */
+export function wallHoursBetween(fromMs: number, toIso: string): number {
+  return (wallMs(Date.parse(toIso)) - wallMs(fromMs)) / 3_600_000
 }
 
 /** Seat sources a customer can't cancel and get refunded online (the money isn't a card payment we took online). */
@@ -112,6 +130,7 @@ export function cancelOptions(
   const last = sessions[sessions.length - 1]
   const firstStartIso = first?.startIso ?? null
   const hoursLeft = first ? (Date.parse(first.startIso) - now.getTime()) / 3_600_000 : 0
+  const policyHoursLeft = first ? wallHoursBetween(now.getTime(), first.startIso) : 0
   const label = (l: LedgerLine) => cls.content.ticketTypes.find((t) => t.id === l.ticketTypeId)?.label ?? 'Seat'
   const cancelling = opts.cancelling ?? new Set<string>()
   // A seat that can still be cancelled: coming, with nothing refunded on it yet.
@@ -123,13 +142,17 @@ export function cancelOptions(
     return { lineId: l.id, seat: l.seat, label: label(l), cents: pickable ? split.get(l.id) ?? 0 : 0, state, canPick: pickable }
   })
   const wholeOnly = lines.some((l) => l.sessionIds.length > 1)
-  const base = { firstStartIso, hoursLeft, wholeOnly }
+  const base = { firstStartIso, hoursLeft, policyHoursLeft, wholeOnly }
   const answer = (mode: CancelMode, why: string | null): CancelOptions => ({ ...base, mode, why, seats: seatsWith(mode === 'self' || mode === 'free') })
 
   if (!lines.length || !first) return answer('none', null)
   if (cls.status === 'cancelled') return answer('none', CANCEL_WHY.classCancelled)
   if (last && Date.parse(last.endIso) <= now.getTime()) return answer('none', CANCEL_WHY.over)
-  if (!open.length) return answer('none', null)
+  if (!open.length) {
+    // F5: seats still coming, each with a goodwill refund on it already: not a dead end, a note for the owners.
+    if (lines.some((l) => isComing(l) && !cancelling.has(l.id))) return answer('request', CANCEL_WHY.partly)
+    return answer('none', null)
+  }
   if (hoursLeft <= 0) return answer('request', CANCEL_WHY.started)
   if (open.some((l) => l.source === 'comp')) return answer('request', CANCEL_WHY.comp)
   if (open.some((l) => STUDIO_PAID.has(l.source))) return answer('request', CANCEL_WHY.studio)
@@ -137,7 +160,7 @@ export function cancelOptions(
   if (wholeOnly && open.length < lines.length) return answer('request', CANCEL_WHY.partly)
   if (open.every(isFree)) return answer('free', null)
   if (open.some((l) => !l.square.paymentId || l.square.paymentId !== open[0].square.paymentId)) return answer('request', CANCEL_WHY.noPayment)
-  if (hoursLeft < opts.policyHours) return answer('request', CANCEL_WHY.inside(opts.policyHours))
+  if (policyHoursLeft < opts.policyHours) return answer('request', CANCEL_WHY.inside(opts.policyHours))
   return answer('self', null)
 }
 

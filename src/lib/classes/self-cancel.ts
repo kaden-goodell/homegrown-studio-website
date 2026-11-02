@@ -39,13 +39,14 @@ import { tokenOf } from './decided'
 import { getLedger, type LedgerLine } from './seat-ledger'
 import { seatFreed } from './seat-status'
 import type { Cents, ScheduledClass } from './types'
-import { listRefundRequests, isWaiting } from './refund-requests'
+import { listRefundRequests, isWaiting, type SavedRefundRequest } from './refund-requests'
 import { classRefundBook, freeSeatOnly, ALREADY_FREE, type RefundRequest } from './refunds'
-import { runRefund } from '@lib/booking-core/refund-runner'
+import { clearRequest, runRefund } from '@lib/booking-core/refund-runner'
+import { squareFetch } from './square-api'
 import { RefundError, REFUND_JUST_MADE, SQUARE_NO_ANSWER, SQUARE_TURNED_DOWN, STILL_WAITING_ON_SQUARE } from '@lib/booking-core/refund-words'
 import { assertClassWritesAllowed } from './test-site-guard'
 import { cancelToken, readCancelToken } from './self-cancel-token'
-import { bookingLinesOf, cancelOptions, cancelSplit, pickedSeats, type CancelOptions, type CancelSeat } from './self-cancel-rules'
+import { bookingLinesOf, cancelOptions, cancelSplit, pickedSeats, wallHoursBetween, type CancelOptions, type CancelSeat } from './self-cancel-rules'
 
 const logger = createLogger('classes:self-cancel')
 
@@ -72,10 +73,19 @@ export interface CancelTry {
   doneAt?: string
   /** the owners were texted about this try's outcome (once) */
   told?: boolean
+  /** F3: an owner's Ask Square found no refund on the payment (then: try again · release the seats) */
+  noRefundSeenAt?: string
+  /** F3: an owner released the held seats with no refund (Square showed none): the cancel is called off */
+  released?: { by: By; at: string }
 }
 
 /** One "Send us a note". */
 export interface CancelAsk { at: string; note: string; lineIds: string[]; why: string; told: boolean }
+
+/** F8: at most this many owner texts per booking link in a day (notes past it still save and show in To decide). */
+export const OWNER_TEXTS_PER_DAY = 3
+/** F7: the note is cut to this in the owner text, so "Open /admin › To decide" always fits (To decide has it in full). */
+export const NOTE_IN_TEXT_MAX = 120
 
 export interface CancelRecord {
   classId: string
@@ -139,14 +149,53 @@ const setTry = (rec: Omit<CancelRecord, 'tries' | 'asks' | 'updatedAt'>, attempt
 /** A try still in flight this long (a crash between sending and the answer) counts as unclear. */
 export const CANCEL_STALE_MS = 5 * 60_000
 
+const sameIds = (a: string[], b: string[]) => a.length === b.length && [...a].sort().join() === [...b].sort().join()
+
+/**
+ * The refund request a customer's press saved (the shared runner saves it before Square is called): the
+ * customer's own, for exactly these seats and this amount, made since the press. Null = nothing was saved,
+ * so nothing can have gone to Square.
+ */
+export function requestOfTry(t: Pick<CancelTry, 'lineIds' | 'cents' | 'at'>, saved: SavedRefundRequest[]): SavedRefundRequest | null {
+  const since = Date.parse(t.at) - 60_000
+  return saved
+    .filter((r) => r.by.id.startsWith('customer-online') && r.totalCents === t.cents && sameIds(r.lines.map((x) => x.id), t.lineIds) && Date.parse(r.createdAt) >= since)
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))[0] ?? null
+}
+
 /**
  * A try's state as it stands: unclear or in flight whose seats were freed
  * since (Square's webhook or "It went through" finished the refund) is done.
+ * F3: its saved refund request decides too: done/sent → done, turned down →
+ * turned-down (so a request cleared as "didn't go through" never leaves the
+ * seats held).
  */
-export function tryState(t: CancelTry, lines: LedgerLine[], now: Date): CancelTry['state'] {
+export function tryState(t: CancelTry, lines: LedgerLine[], now: Date, saved?: SavedRefundRequest[]): CancelTry['state'] {
   if ((t.state === 'unclear' || t.state === 'cancelling') && t.lineIds.length && t.lineIds.every((id) => { const l = lines.find((x) => x.id === id); return !!l && seatFreed(l) })) return 'done'
+  if ((t.state === 'unclear' || t.state === 'cancelling') && saved && !t.free) {
+    const r = requestOfTry(t, saved)
+    if (r?.status === 'turned-down') return 'turned-down'
+    if (r && (r.status === 'done' || (r.status === 'sent' && !!r.squareRefundId))) return 'done'
+  }
   if (t.state === 'cancelling' && now.getTime() - Date.parse(t.at) >= CANCEL_STALE_MS) return 'unclear'
   return t.state
+}
+
+/** F2: what came back online, counting one Square refund once (two presses that ended on the same refund). */
+function refundedOnline(done: CancelTry[]): { cents: Cents; seats: number } {
+  const seen = new Set<string>()
+  let cents = 0
+  const seats = new Set<string>()
+  for (const t of done) {
+    for (const id of t.lineIds) seats.add(id)
+    if (t.free) continue
+    if (t.refundId) {
+      if (seen.has(t.refundId)) continue
+      seen.add(t.refundId)
+    }
+    cents += t.cents
+  }
+  return { cents, seats: seats.size }
 }
 
 // ---------------------------------------------------------------- what the page shows
@@ -167,7 +216,7 @@ export interface CancelView {
   refundedCents: Cents
 }
 
-interface Loaded { cls: ScheduledClass; lines: LedgerLine[]; rec: CancelRecord | null; opts: CancelOptions; view: CancelView }
+interface Loaded { cls: ScheduledClass; lines: LedgerLine[]; rec: CancelRecord | null; opts: CancelOptions; view: CancelView; saved: SavedRefundRequest[] }
 
 export class CancelError extends Error {
   constructor(public status: number, public code: 'not-found' | 'invalid' | 'changed' | 'request-only' | 'square' | 'unavailable', message: string, public view?: CancelView) { super(message) }
@@ -198,14 +247,14 @@ async function load(token: unknown, now: Date): Promise<Loaded & { classId: stri
   // Held as "cancelling": a try Square hasn't answered, or any refund on these seats still waiting on Square.
   const cancelling = new Set<string>()
   for (const t of rec?.tries ?? []) {
-    const st = tryState(t, lines, now)
+    const st = tryState(t, lines, now, saved)
     if (st === 'cancelling' || st === 'unclear') for (const id of t.lineIds) cancelling.add(id)
   }
   for (const r of saved.filter(isWaiting)) for (const x of r.lines) cancelling.add(x.id)
   const opts = cancelOptions(cls, lines, now, { policyHours: policyWindows.workshopRefundHours, cancelling })
   const first = opts.firstStartIso
   const ask = rec?.asks[rec.asks.length - 1] ?? null
-  const done = (rec?.tries ?? []).filter((t) => tryState(t, lines, now) === 'done')
+  const done = (rec?.tries ?? []).filter((t) => tryState(t, lines, now, saved) === 'done')
   const allGone = opts.seats.every((s) => s.state === 'cancelled')
   const state: CancelView['state'] = opts.seats.some((s) => s.state === 'cancelling')
     ? 'cancelling'
@@ -216,9 +265,9 @@ async function load(token: unknown, now: Date): Promise<Loaded & { classId: stri
     state, mode: opts.mode, why: opts.why, policyHours: policyWindows.workshopRefundHours,
     seats: opts.seats, wholeOnly: opts.wholeOnly,
     request: ask ? { at: ask.at, note: ask.note } : null,
-    refundedCents: done.reduce((s, t) => s + (t.free ? 0 : t.cents), 0),
+    refundedCents: refundedOnline(done).cents,
   }
-  return { ...ids, cls, lines, rec, opts, view }
+  return { ...ids, cls, lines, rec, opts, view, saved }
 }
 
 export async function cancelView(token: unknown, now = new Date()): Promise<CancelView> {
@@ -251,7 +300,7 @@ export async function selfCancel(input: { token: unknown; lineIds: unknown; atte
   const mine = first.rec?.tries.find((t) => t.attempt === attempt)
 
   // A press already finished: the same answer (a double tap, a reload, a reused link).
-  if (mine && tryState(mine, first.lines, now) === 'done') return { result: 'cancelled', cents: mine.free ? 0 : mine.cents, view: first.view }
+  if (mine && tryState(mine, first.lines, now, first.saved) === 'done') return { result: 'cancelled', cents: mine.free ? 0 : mine.cents, view: first.view }
 
   let t: CancelTry
   if (mine && mine.state !== 'stopped') {
@@ -266,11 +315,22 @@ export async function selfCancel(input: { token: unknown; lineIds: unknown; atte
     const cents = free ? 0 : cancelSplit(first.lines, ids).reduce((s, x) => s + x.cents, 0)
     t = { attempt, lineIds: [...ids].sort(), cents, free, at: now.toISOString(), state: 'cancelling' }
     const put = t
-    await mutate(base, (cur) => {
+    // F2: two tabs (or two devices) pressing at once: a seat another press is cancelling, or has cancelled, is
+    // refused here, before anything is sent, so one refund is one try (one text, one audit, the right totals).
+    const clash = await mutate(base, (cur): { next: CancelRecord | null; result: 'busy' | 'done' | null } => {
+      const other = cur.tries
+        .filter((x) => x.attempt !== attempt && x.lineIds.some((id) => put.lineIds.includes(id)))
+        .map((x) => tryState(x, first.lines, now, first.saved))
+      if (other.some((st) => st === 'cancelling' || st === 'unclear')) return { next: null, result: 'busy' }
+      if (other.some((st) => st === 'done')) return { next: null, result: 'done' }
       const i = cur.tries.findIndex((x) => x.attempt === attempt)
       const tries = i < 0 ? [...cur.tries, put] : cur.tries.map((x, n) => (n === i ? put : x))
       return { next: { ...cur, customer: cur.customer ?? base.customer, tries: tries.slice(-20) }, result: null }
     })
+    if (clash) {
+      const view = await cancelView(cancelToken(base.classId, base.bookingId), now)
+      throw new CancelError(409, 'changed', clash === 'busy' ? CANCEL_MESSAGES.stillFinishing : CANCEL_MESSAGES.changed, view)
+    }
   }
 
   if (t.free) return finishFree(first, base, t, now)
@@ -287,7 +347,15 @@ export async function selfCancel(input: { token: unknown; lineIds: unknown; atte
   } catch (e) {
     if (e instanceof RefundError) return refundTrouble(e, base, t, first, now)
     logger.error('Self-cancel refund failed', { bookingId, error: e instanceof Error ? e.message : String(e) })
-    throw new CancelError(503, 'unavailable', CANCEL_MESSAGES.unavailable)
+    // F4: was the refund request saved (so it may have gone to Square)? None → nothing was sent: the press is
+    // stopped and nothing stays held. Saved, or we can't tell → treated as no answer: the seats stay held, the
+    // owners are texted and To decide shows it now (not after 5 minutes), and the customer is told honestly.
+    const saved = await listRefundRequests(cls.id, bookingId).catch(() => null)
+    if (saved && !requestOfTry(t, saved)) {
+      await setTry(base, t.attempt, (cur) => (cur.state === 'cancelling' ? { ...cur, state: 'stopped' } : null)).catch(() => undefined)
+      throw new CancelError(503, 'unavailable', CANCEL_MESSAGES.unavailable, await cancelView(cancelToken(base.classId, base.bookingId), now).catch(() => undefined))
+    }
+    return refundTrouble(new RefundError(502, SQUARE_NO_ANSWER), base, t, first, now)
   }
   return finished(base, t, refundId, cls, now)
 }
@@ -295,13 +363,19 @@ export async function selfCancel(input: { token: unknown; lineIds: unknown; atte
 /** The refund went through (now, or on a retry): the try is done; only the call that marks it done texts and audits. */
 async function finished(base: Omit<CancelRecord, 'tries' | 'asks' | 'updatedAt'>, t: CancelTry, refundId: string, cls: ScheduledClass, now: Date): Promise<CancelResult> {
   let first = false
-  await setTry(base, t.attempt, (cur) => {
+  let sameRefund = false
+  await mutate(base, (cur) => {
     // Set on every CAS try: only the write that actually lands counts.
-    first = cur.state !== 'done'
-    if (!first) return null
-    return { ...cur, state: 'done', refundId: refundId || null, doneAt: now.toISOString(), told: true }
+    first = false
+    const i = cur.tries.findIndex((x) => x.attempt === t.attempt)
+    if (i < 0 || cur.tries[i].state === 'done') return { next: null, result: null }
+    first = true
+    // F2: another press already finished on this very Square refund: it told the owners and audited it.
+    sameRefund = !!refundId && cur.tries.some((x, n) => n !== i && x.state === 'done' && x.refundId === refundId)
+    const tries = cur.tries.map((x, n) => (n === i ? { ...x, state: 'done' as const, refundId: refundId || null, doneAt: now.toISOString(), told: true } : x))
+    return { next: { ...cur, tries }, result: null }
   }).catch(() => undefined)
-  if (first) await tellDone(base, t, cls)
+  if (first && !sameRefund) await tellDone(base, t, cls)
   const view = await cancelView(cancelToken(base.classId, base.bookingId), now)
   return { result: 'cancelled', cents: t.free ? 0 : t.cents, view }
 }
@@ -333,6 +407,8 @@ async function finishFree(first: Loaded & { bookingId: string }, base: Omit<Canc
     }
     if (!(e instanceof RefundError && e.message === ALREADY_FREE) && !(await freedNow().catch(() => false))) {
       logger.error('Self-cancel free seat failed', { bookingId: first.bookingId, error: e instanceof Error ? e.message : String(e) })
+      // F4: no money is involved: the press stops and nothing stays held.
+      await setTry(base, t.attempt, (cur) => (cur.state === 'cancelling' ? { ...cur, state: 'stopped' } : null)).catch(() => undefined)
       throw new CancelError(503, 'unavailable', CANCEL_MESSAGES.unavailable)
     }
   }
@@ -384,22 +460,27 @@ export async function askToCancel(input: { token: unknown; note: unknown; lineId
   const asked = Array.isArray(input.lineIds) ? input.lineIds.filter((x): x is string => typeof x === 'string' && booked.includes(x)) : []
   const lineIds = asked.length ? asked : booked
   const base = { classId: first.cls.id, bookingId: first.bookingId, customer: first.lines.find((l) => l.customer)?.customer ?? null }
-  const ask: CancelAsk = { at: now.toISOString(), note, lineIds, why: first.opts.why ?? '', told: true }
-  // The same note sent twice (a double tap, a reload) is one note.
+  // The same note sent twice (a double tap, a reload) is one note. F8: at most OWNER_TEXTS_PER_DAY owner texts per
+  // booking link a day; a note past that still saves and shows in To decide.
+  let text = false
   const added = await mutate(base, (cur) => {
     const last = cur.asks[cur.asks.length - 1]
     if (last && last.note === note && now.getTime() - Date.parse(last.at) < 10 * 60_000) return { next: null, result: false }
+    const textedToday = cur.asks.filter((a) => a.told && now.getTime() - Date.parse(a.at) < 86_400_000).length
+    text = textedToday < OWNER_TEXTS_PER_DAY
+    const ask: CancelAsk = { at: now.toISOString(), note, lineIds, why: first.opts.why ?? '', told: text }
     return { next: { ...cur, customer: cur.customer ?? base.customer, asks: [...cur.asks, ask].slice(-10) }, result: true }
   })
   if (added) {
     const when = first.view.whenLabel
-    const inside = first.opts.hoursLeft > 0 && first.opts.hoursLeft < policyWindows.workshopRefundHours
-    await alertOwners(`${nameOf(base.customer)} asked to cancel ${seatsText(lineIds.length)} of ${first.cls.content.name} (${when})${inside ? `, inside ${policyWindows.workshopRefundHours} hours` : ''}${note ? `: “${note}”` : ''}. Open /admin › To decide to refund, free the seat or keep their booking.`).catch(() => undefined)
+    const inside = first.opts.hoursLeft > 0 && first.opts.policyHoursLeft < policyWindows.workshopRefundHours
+    const short = note.length > NOTE_IN_TEXT_MAX ? `${note.slice(0, NOTE_IN_TEXT_MAX - 1).trimEnd()}…` : note
+    if (text) await alertOwners(`${nameOf(base.customer)} asked to cancel ${seatsText(lineIds.length)} of ${first.cls.content.name} (${when})${inside ? `, inside ${policyWindows.workshopRefundHours} hours` : ''}${short ? `: “${short}”` : ''}. Open /admin › To decide to refund, free the seat or keep their booking.`).catch(() => undefined)
     await recordAudit({
       by: { id: 'customer-online', name: `${nameOf(base.customer)} (online)`, role: 'owner' },
       action: 'class-cancel-request',
       target: { kind: 'class', id: first.cls.id, label: first.cls.content.name },
-      details: { bookingId: first.bookingId, lines: lineIds.join(','), note: note.slice(0, 200) },
+      details: { bookingId: first.bookingId, lines: lineIds.join(','), note: note.slice(0, 200), ...(text ? {} : { texted: false }) },
     }).catch(() => undefined)
   }
   return { result: 'requested', view: await cancelView(cancelToken(base.classId, base.bookingId), now) }
@@ -408,15 +489,25 @@ export async function askToCancel(input: { token: unknown; note: unknown; lineId
 // ---------------------------------------------------------------- for /admin
 
 /** One line for the booking row on the class sheet (null = nothing to say). */
-export function cancelWords(rec: CancelRecord | null, lines: LedgerLine[], now: Date): string | null {
+export function cancelWords(rec: CancelRecord | null, lines: LedgerLine[], now: Date, saved?: SavedRefundRequest[]): string | null {
   if (!rec) return null
-  const tries = rec.tries.map((t) => ({ t, st: tryState(t, lines, now) }))
-  const unclear = tries.find((x) => x.st === 'unclear' || x.st === 'cancelling')
+  const tries = rec.tries.map((t) => ({ t, st: tryState(t, lines, now, saved) }))
+  // F11: a press still in flight (its first 5 minutes) isn't in To decide yet.
+  const flying = tries.find((x) => x.st === 'cancelling')
+  if (flying) return `Cancelling online… (${formatMoney(flying.t.cents)} refund on its way)`
+  const unclear = tries.find((x) => x.st === 'unclear')
   if (unclear) return `Cancelling online · ${formatMoney(unclear.t.cents)} refund waiting on Square (To decide › Ask Square)`
-  const done = tries.filter((x) => x.st === 'done')
+  const done = tries.filter((x) => x.st === 'done').map((x) => x.t)
+  const lastDown = [...tries].reverse().find((x) => x.st === 'turned-down' && !x.t.released)
+  const laterDone = lastDown ? tries.slice(tries.indexOf(lastDown) + 1).some((x) => x.st === 'done') : false
   const ask = rec.asks[rec.asks.length - 1]
   const bits: string[] = []
-  if (done.length) bits.push(`Cancelled online by the customer · ${seatsText(done.reduce((n, x) => n + x.t.lineIds.length, 0))}${done.some((x) => !x.t.free) ? `, ${formatMoney(done.reduce((s, x) => s + (x.t.free ? 0 : x.t.cents), 0))} refunded` : ''}`)
+  if (done.length) {
+    // F2: one Square refund counted once.
+    const total = refundedOnline(done)
+    bits.push(`Cancelled online by the customer · ${seatsText(total.seats)}${done.some((t) => !t.free) ? `, ${formatMoney(total.cents)} refunded` : ''}`)
+  }
+  if (lastDown && !laterDone) bits.push(`Online cancel’s ${formatMoney(lastDown.t.cents)} refund turned down by Square; still booked (To decide)`)
   if (ask) bits.push(`Asked to cancel${ask.note ? `: “${ask.note}”` : ''}`)
   return bits.length ? bits.join(' · ') : null
 }
@@ -427,6 +518,92 @@ export async function retrySelfCancel(classId: string, bookingId: string, attemp
   const t = rec?.tries.find((x) => x.attempt === attempt)
   if (!rec || !t) throw new CancelError(404, 'not-found', 'That cancel isn’t on the booking any more.')
   return selfCancel({ token: cancelToken(classId, bookingId), lineIds: t.lineIds, attempt }, now)
+}
+
+/** What Square shows on the payment, read only: money refunded on it that isn't on our records yet (a refund we never heard back about). */
+async function unrecordedRefund(classId: string, bookingId: string, r: SavedRefundRequest): Promise<boolean> {
+  let p: any
+  try {
+    p = (await squareFetch(`/payments/${encodeURIComponent(r.paymentId)}`, { method: 'GET' }))?.payment
+  } catch {
+    throw new CancelError(503, 'unavailable', 'Square isn’t answering right now. Their seats stay held. Try again in a few minutes.')
+  }
+  if (!p) throw new CancelError(503, 'unavailable', 'Square isn’t answering right now. Their seats stay held. Try again in a few minutes.')
+  const back = Number(p.refunded_money?.amount) || 0
+  const lines = bookingLinesOf(await getLedger(classId), bookingId)
+  const recorded = lines.filter((l) => l.square.paymentId === r.paymentId).reduce((s, l) => s + l.refunds.reduce((a, x) => a + x.cents, 0), 0)
+  return back > recorded
+}
+
+export type CancelAskAnswer = { result: 'cancelled' | 'cancelling'; cents: Cents } | { result: 'no-refund' }
+
+/**
+ * F3 "Ask Square" on a customer's cancel whose refund Square didn't answer.
+ * Square is read first: a refund on the payment we haven't recorded → the
+ * saved request is sent again with the same key (Square hands back that same
+ * refund, never a second one) and the cancel finishes. No refund shown → said
+ * so; the owner then picks Try again (the same request, same key) or Release
+ * the seats (no refund). Nothing is ever sent on top of a possibly-sent refund.
+ */
+export async function askSquareAboutCancel(classId: string, bookingId: string, attempt: string, now = new Date()): Promise<CancelAskAnswer> {
+  const rec = await getCancelRecord(bookingId)
+  const t = rec?.tries.find((x) => x.attempt === attempt)
+  if (!rec || !t) throw new CancelError(404, 'not-found', 'That cancel isn’t on the booking any more.')
+  const r = requestOfTry(t, await listRefundRequests(classId, bookingId))
+  if (!r || r.status === 'done' || r.status === 'turned-down') {
+    // Nothing was saved (so nothing went to Square), or it's settled: the page reads it as it stands.
+    const out = await retrySelfCancel(classId, bookingId, attempt, now)
+    return { result: out.result, cents: out.cents }
+  }
+  if (await unrecordedRefund(classId, bookingId, r)) {
+    const out = await retrySelfCancel(classId, bookingId, attempt, now)
+    return { result: out.result, cents: out.cents }
+  }
+  await setTry({ classId, bookingId, customer: rec.customer }, attempt, (cur) => (cur.state === 'done' ? null : { ...cur, noRefundSeenAt: now.toISOString() })).catch(() => undefined)
+  return { result: 'no-refund' }
+}
+
+/**
+ * F3 "Release the seats, no refund": only after Ask Square showed no refund,
+ * and read again now. The saved request is cleared as "didn't go through"
+ * (the shared runner's check, audited); the press is called off, so the seats
+ * stop being held and the customer stays booked. Nothing is refunded.
+ */
+export async function releaseSelfCancel(classId: string, bookingId: string, attempt: string, by: By, now = new Date()): Promise<void> {
+  const rec = await getCancelRecord(bookingId)
+  const t = rec?.tries.find((x) => x.attempt === attempt)
+  if (!rec || !t) throw new CancelError(404, 'not-found', 'That cancel isn’t on the booking any more.')
+  if (t.released) return
+  if (!t.noRefundSeenAt) throw new CancelError(409, 'changed', 'Ask Square first. Their seats stay held until we know about the refund.')
+  const cls = await getClass(classId)
+  if (!cls) throw new CancelError(404, 'not-found', 'That class isn’t on file any more.')
+  const r = requestOfTry(t, await listRefundRequests(classId, bookingId))
+  if (r && (r.status === 'pending' || r.status === 'sent')) {
+    if (await unrecordedRefund(classId, bookingId, r)) throw new CancelError(409, 'changed', 'Square shows a refund on this payment now. Tap Ask Square to finish the cancel.')
+    try {
+      const book = await classRefundBook(classId, bookingId, { cls })
+      await clearRequest(book, r.id, 'did-not-go-through', 'Square showed no refund (To decide › Release the seats)', { by, role: 'owner' })
+    } catch (e) {
+      if (!(e instanceof RefundError)) throw e
+      // Already settled by someone else: read it again.
+      const fresh = requestOfTry(t, await listRefundRequests(classId, bookingId))
+      if (fresh?.status === 'done') throw new CancelError(409, 'changed', 'The refund went through meanwhile, so they’re cancelled.')
+    }
+  }
+  let wrote = false
+  await setTry({ classId, bookingId, customer: rec.customer }, attempt, (cur) => {
+    wrote = false
+    if (cur.state === 'done' || cur.released) return null
+    wrote = true
+    return { ...cur, state: 'stopped', released: { by: { id: by.id, name: by.name }, at: now.toISOString() } }
+  })
+  if (wrote) {
+    await recordAudit({
+      by: { ...by, role: 'owner' }, action: 'class-self-cancel-released',
+      target: { kind: 'class', id: classId, label: cls.content.name },
+      details: { bookingId, attempt, cents: t.cents, lines: t.lineIds.join(',') },
+    }).catch(() => undefined)
+  }
 }
 
 // ---------------------------------------------------------------- To decide and the warnings
@@ -464,60 +641,89 @@ export const cancelUnclearId = (bookingId: string, attempt: string) => itemIdOf(
 
 export async function cancelItems(decided: ReadonlySet<string>, now: Date, readClass: (id: string) => Promise<ScheduledClass | null> = (id) => getClass(id).catch(() => null)): Promise<CancelItem[]> {
   const out: CancelItem[] = []
+  // F10: ledgers read once per class, and only for records with something still open.
+  const ledgers = new Map<string, Promise<Awaited<ReturnType<typeof getLedger>>>>()
+  const ledgerOf = (classId: string) => {
+    if (!ledgers.has(classId)) ledgers.set(classId, getLedger(classId))
+    return ledgers.get(classId)!
+  }
   for (const rec of await listCancelRecords()) {
+    // Nothing open without reading anything else: every press settled (done, stopped) and the last note decided.
+    const lastAsk = rec.asks[rec.asks.length - 1]
+    const pressOpen = rec.tries.some((t) => t.state === 'cancelling' || t.state === 'unclear' || (t.state === 'turned-down' && !decided.has(cancelUnclearId(rec.bookingId, t.attempt))))
+    const askOpen = !!lastAsk && !decided.has(cancelRequestId(rec.bookingId, lastAsk.at))
+    if (!pressOpen && !askOpen) continue
     const cls = await readClass(rec.classId)
     if (!cls) continue
-    const lines = bookingLinesOf(await getLedger(cls.id), rec.bookingId)
+    const lines = bookingLinesOf(await ledgerOf(cls.id), rec.bookingId)
+    const saved = pressOpen ? await listRefundRequests(cls.id, rec.bookingId).catch(() => [] as SavedRefundRequest[]) : []
     const who = nameOf(rec.customer ?? lines.find((l) => l.customer)?.customer ?? null)
     const first = [...cls.sessions].filter((s) => lines.some((l) => l.sessionIds.includes(s.id))).sort((a, b) => a.startIso.localeCompare(b.startIso))[0]
     const when = first ? formatSlotLabel(first.startIso) : ''
     const contact = { name: who, email: rec.customer?.email ?? '', phone: rec.customer?.phone ?? '', bookingId: rec.bookingId }
     // A customer's own cancel that Square didn't answer, or turned down (and they haven't cancelled since).
-    const states = rec.tries.map((t) => ({ t, st: tryState(t, lines, now) }))
+    const states = rec.tries.map((t) => ({ t, st: tryState(t, lines, now, saved) }))
     states.forEach(({ t, st }, i) => {
       const later = states.slice(i + 1).some((x) => x.st === 'done' || x.st === 'unclear' || x.st === 'cancelling')
       if (st !== 'unclear' && !(st === 'turned-down' && !later)) return
       const id = cancelUnclearId(rec.bookingId, t.attempt)
       if (decided.has(id)) return
       const unclear = st === 'unclear'
+      const noRefund = unclear && !!t.noRefundSeenAt
       out.push({
         id, kind: 'cancel-unclear', at: t.at, classId: cls.id, className: cls.content.name,
         title: unclear ? 'Customer’s cancel, refund unclear' : 'Customer’s cancel, refund turned down',
         head: unclear
-          ? `${who} cancelled ${seatsText(t.lineIds.length)} of ${cls.content.name} (${when}) online, and Square didn’t answer the ${formatMoney(t.cents)} refund. Their seats are held until we know.`
+          ? `${who} cancelled ${seatsText(t.lineIds.length)} of ${cls.content.name} (${when}) online, and Square didn’t answer the ${formatMoney(t.cents)} refund. Their seats are held until we know.${noRefund ? ' When you asked, Square showed no refund on their payment.' : ''}`
           : `${who} tried to cancel ${seatsText(t.lineIds.length)} of ${cls.content.name} (${when}) online, but Square turned the ${formatMoney(t.cents)} refund down. Nothing was refunded and they’re still booked. The page told them to try again or send a note.`,
-        hint: unclear ? 'Ask Square' : 'Try the refund again, or call them',
+        hint: noRefund ? 'Try again, or release the seats' : unclear ? 'Ask Square' : 'Try the refund again, or call them',
         warning: unclear
           ? `${cls.content.name}: ${who} cancelled online and Square didn’t answer the ${formatMoney(t.cents)} refund. Their seats are held.`
           : `${cls.content.name}: ${who}’s online cancel was turned down by Square. Nothing was refunded; they’re still booked.`,
-        detail: { ...contact, attempt: t.attempt, cents: t.cents, seats: t.lineIds.length, state: st },
+        detail: { ...contact, attempt: t.attempt, cents: t.cents, seats: t.lineIds.length, state: st, noRefundSeen: noRefund },
       })
     })
     // The last note they sent, while there's still something booked to decide about.
-    const ask = rec.asks[rec.asks.length - 1]
-    if (ask) {
+    const ask = lastAsk
+    if (ask && askOpen) {
       const id = cancelRequestId(rec.bookingId, ask.at)
       const booked = lines.filter((l) => isComingLine(l))
       const lineIds = ask.lineIds.filter((x) => booked.some((l) => l.id === x))
       const ids = lineIds.length ? lineIds : booked.map((l) => l.id)
-      if (!decided.has(id) && ids.length) {
+      if (ids.length) {
         const chosen = lines.filter((l) => ids.includes(l.id))
         const refundCents = cancelSplit(lines, ids).reduce((s, x) => s + x.cents, 0)
         const canRefund = refundCents > 0 && chosen.every((l) => (l.source === 'online' || l.source === 'door-card' || l.source === 'door-reader') && !!l.square.paymentId && l.refunds.length === 0)
-        const hours = first ? (Date.parse(first.startIso) - Date.parse(ask.at)) / 3_600_000 : 0
-        const inside = hours > 0 && hours < policyWindows.workshopRefundHours
+        const hours = first ? wallHoursBetween(Date.parse(ask.at), first.startIso) : 0
+        const elapsed = first ? (Date.parse(first.startIso) - Date.parse(ask.at)) / 3_600_000 : 0
+        const inside = elapsed > 0 && hours < policyWindows.workshopRefundHours
+        // F6: which sentence To decide shows under the choices.
+        const reason: CancelReason = chosen.some((l) => l.source === 'comp')
+          ? 'comp'
+          : chosen.length && chosen.every((l) => (l.source === 'online' || l.source === 'door-card') && !l.square.paymentId && (l.square.chargedCents ?? 0) === 0)
+            ? 'free'
+            : chosen.some((l) => l.source === 'door-counter' || l.source === 'pos')
+              ? 'studio'
+              : chosen.some((l) => l.refunds.length > 0)
+                ? 'partly'
+                : chosen.some((l) => !l.square.paymentId)
+                  ? 'no-payment'
+                  : elapsed <= 0 ? 'started' : inside ? 'inside' : 'outside'
         out.push({
           id, kind: 'cancel-request', at: ask.at, classId: cls.id, className: cls.content.name,
           title: 'Customer asked to cancel',
           head: `${who} asked to cancel ${seatsText(ids.length)} of ${cls.content.name} (${when})${inside ? `, ${Math.max(1, Math.floor(hours))} hours before it starts` : ''}.${ask.note ? ` Their note: “${ask.note}”` : ''}`,
           hint: 'Refund, free the seat, or keep their booking',
           warning: `${cls.content.name}: ${who} asked to cancel ${seatsText(ids.length)}${ask.note ? ` (“${ask.note.slice(0, 80)}”)` : ''}.`,
-          detail: { ...contact, lineIds: ids, seats: ids.length, note: ask.note, why: ask.why, canRefund, refundCents, inside, source: chosen[0]?.source ?? null },
+          detail: { ...contact, lineIds: ids, seats: ids.length, note: ask.note, why: ask.why, canRefund, refundCents, inside, reason, source: chosen[0]?.source ?? null },
         })
       }
     }
   }
   return out
 }
+
+/** F6: why a customer's note can (or can't) be refunded from To decide, for the sentence under the choices. */
+export type CancelReason = 'comp' | 'free' | 'studio' | 'partly' | 'no-payment' | 'started' | 'inside' | 'outside'
 
 const isComingLine = (l: LedgerLine) => (l.state === 'confirmed' || l.state === 'refunded') && !seatFreed(l)

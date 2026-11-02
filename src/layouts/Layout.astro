@@ -41,9 +41,15 @@ interface Props {
    * analytics or ad pixel at all, so the key never reaches GA, PostHog or Meta.
    */
   noAnalytics?: boolean
+  /**
+   * D2: a page whose PATH carries a private key (the class "Can't make it?" link): no referrer at all, so the
+   * key never rides along to the next page's analytics either (same-origin would still send the full address
+   * to our own pages).
+   */
+  noReferrer?: boolean
 }
 
-const { bare, noAnalytics } = Astro.props
+const { bare, noAnalytics, noReferrer } = Astro.props
 // Host page and payment link (S2-R9a): no GA4, no Meta Pixel, no session recording; the key leaves the address bar first.
 // A page that says noAnalytics (the host page) gets no PostHog at all either.
 const privateParty = isPrivatePartyPage(Astro.url.pathname)
@@ -62,7 +68,7 @@ const bodyFont = fonts.body.replace(/ /g, '+')
     <script is:inline set:html={PAGE_KEY_SCRIPT} />
     <SeoHead {...Astro.props} />
     {/* Every page: our address never goes to other sites (a private page's key included). */}
-    <meta name="referrer" content="same-origin" />
+    {noReferrer ? <meta name="referrer" content="no-referrer" /> : <meta name="referrer" content="same-origin" />}
     {!noAnalytics && <PostHog noRecording={!!bare || Astro.url.pathname.startsWith('/waiver') || privateParty} />}
     <ViewTransitions />
     <link rel="preconnect" href="https://fonts.googleapis.com" />

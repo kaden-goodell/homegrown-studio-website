@@ -91,7 +91,7 @@ import {
   keepLateReader, keepReaderPayment, readerDecideItems, ReaderDecideError, refundExtraReader, refundLateReader, refundMismatchedReader, sortedExtraReader,
 } from './reader-decide'
 import { siteConfig } from '@config/site.config'
-import { cancelItems, CancelError, retrySelfCancel } from './self-cancel'
+import { askSquareAboutCancel, cancelItems, CancelError, releaseSelfCancel, retrySelfCancel } from './self-cancel'
 import { cancelSplit } from './self-cancel-rules'
 import { refundClassBooking } from './refunds'
 
@@ -557,7 +557,7 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'reader-extra': ['refund', 'sorted'],
   'reader-late': ['keep', 'refund'],
   'cancel-request': ['refund', 'free', 'keep'],
-  'cancel-unclear': ['ask', 'seen'],
+  'cancel-unclear': ['ask', 'seen', 'retry', 'release'],
 }
 
 async function record(item: ToDecideItem, what: string, by: By, action: string, undo?: Decided['undo']): Promise<Decided> {
@@ -907,13 +907,29 @@ export async function decide(id: string, action: string, body: any, by: By, now 
         return { decided: await record(item, 'Seen. They’re still booked', by, action) }
       }
       try {
+        if (action === 'release') {
+          // F3: only after Ask Square showed no refund (read again first); the cancel is called off, nothing refunded.
+          await releaseSelfCancel(item.classId!, str(d.bookingId), str(d.attempt), by, now)
+          return { decided: await record(item, 'Square showed no refund. Seats released; they’re still booked and nothing was refunded', by, action) }
+        }
+        if (action === 'retry' && d.noRefundSeen !== true) throw new DecideError(409, 'Ask Square first. Their seats stay held until we know about the refund.')
+        if (action === 'ask' && d.state === 'unclear') {
+          // F3: Square is read first; the same request is sent again only when Square shows the refund (never a second one).
+          const a = await askSquareAboutCancel(item.classId!, str(d.bookingId), str(d.attempt), now)
+          if (a.result === 'no-refund') {
+            throw new DecideError(409, 'Square shows no refund on their payment. Try again sends the same refund once more (Square never makes it twice), or release the seats with no refund.', { noRefund: true })
+          }
+          if (a.result === 'cancelling') throw new DecideError(503, 'Square still hasn’t answered. Their seats stay held. Try again in a few minutes.')
+          return { decided: await record(item, `Square showed the refund. They’re cancelled and got ${money(a.cents)} back`, by, action) }
+        }
+        // 'retry' (Square showed no refund) and a turned-down refund's "Try the refund again": the saved request again.
         const r = await retrySelfCancel(item.classId!, str(d.bookingId), str(d.attempt), now)
         if (r.result === 'cancelling') throw new DecideError(503, 'Square still hasn’t answered. Their seats stay held. Try again in a few minutes.')
-        return { decided: await record(item, `Square showed the refund. They’re cancelled and got ${money(r.cents)} back`, by, action) }
+        return { decided: await record(item, `The refund went through. They’re cancelled and got ${money(r.cents)} back`, by, action) }
       } catch (e) {
         if (e instanceof DecideError) throw e
         if (e instanceof CancelError) {
-          throw new DecideError(409, e.code === 'square'
+          throw new DecideError(e.status === 503 ? 503 : 409, e.code === 'square'
             ? 'Square turned the refund down, so nothing was refunded and they’re still booked. Call them if you like, then tap Got it.'
             : e.message)
         }

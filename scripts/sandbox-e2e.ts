@@ -9,7 +9,7 @@
  * Run it (Kaden, from the repo root; the passcodes go straight from the
  * branch's Netlify env into this process and are never printed):
  *
- *   ! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts
+ *   ! ADMIN_PASSCODE="$(npx netlify env:get ADMIN_PASSCODE --context branch:kaden/own-booking-system)" STAFF_PASSCODE="$(npx netlify env:get STAFF_PASSCODE --context branch:kaden/own-booking-system)" PREVIEW_OWNER_ALERT_NUMBERS="$(npx netlify env:get OWNER_ALERT_NUMBERS --context branch:kaden/own-booking-system)" npx tsx scripts/sandbox-e2e.ts
  *
  * Options:
  *   --only N      just scenario N (or --only 3,5)
@@ -22,6 +22,8 @@
  *   SQUARE_SANDBOX_ACCESS_TOKEN  checks each order, payment, refund and POS item in
  *                                the Square sandbox, and lets scenarios 11 and 22 run.
  *                                Without it those checks are skipped with a note.
+ *   (required) PREVIEW_OWNER_ALERT_NUMBERS  the branch's OWNER_ALERT_NUMBERS: the run stops unless it is
+ *                                Kaden's (402) 980-2907 only (owner texts go there).
  *   E2E_EMAIL                    where the test bookings' confirmation emails go
  *                                (default kaden+e2e@ourhometownstudio.com).
  *
@@ -41,7 +43,7 @@
  */
 import { pathToFileURL } from 'node:url'
 import {
-  formatPlan, formatSummary, MissingSecretError, onStop, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, runScenarios,
+  formatPlan, formatSummary, MissingSecretError, onStop, ownerNumbersProblem, parseArgs, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, runScenarios,
   SlotAllocator, SquareSandbox, checkStatus, check, type Pending, type Secrets, type StopProcess,
 } from './lib/sandbox-e2e/core'
 import { blockedDay, CLEANUP_PLAN, cleanUpLeftovers, firstDay, scenarios, type Ctx } from './lib/sandbox-e2e/scenarios'
@@ -108,6 +110,9 @@ export async function main(argv: string[], env: Record<string, string | undefine
     if (e instanceof MissingSecretError) { console.error(e.message); return 2 }
     throw e
   }
+  // T4: owner texts must reach Kaden only. Checked before anything goes over the network.
+  const owners = ownerNumbersProblem(env.PREVIEW_OWNER_ALERT_NUMBERS)
+  if (owners) { console.error(owners); return 2 }
   const hide = [secrets.adminPasscode, secrets.staffPasscode, secrets.sandboxToken]
   const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms))
   const gate = new RateGate(4, 60_000)
