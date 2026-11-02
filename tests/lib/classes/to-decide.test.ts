@@ -457,6 +457,9 @@ describe('fix round 1', () => {
 })
 
 describe('fix round 2', () => {
+  // Oct 24 is the "future" session here: pin the clock to NOW so these never age (only Date is faked).
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(NOW) })
+  afterEach(() => { vi.useRealTimers() })
   const future = () => makeClass({ sessions: [{ id: 'ses_a', startIso: '2026-10-24T18:00:00.000Z', endIso: '2026-10-24T20:00:00.000Z', capacity: 1 }] })
   async function freedPlain(cls: ScheduledClass, extra: LedgerLine[] = []) {
     classes.list = [cls]

@@ -67,8 +67,11 @@ beforeEach(() => {
   mocks.get.mockReset().mockResolvedValue({ object: item })
   mocks.upsert.mockReset().mockImplementation(async (r: any) => ({ catalogObject: { ...r.object, version: 4 } }))
   mocks.sandbox = false
+  // The config's closed days (Halloween, Thanksgiving, Christmas) must still be ahead: pin the clock (only Date is faked).
+  vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true })
+  vi.setSystemTime(new Date('2026-10-20T15:00:00Z'))
 })
-afterEach(() => vi.unstubAllEnvs())
+afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers() })
 
 const loaded = async () => (await call('GET')).body.data.settings
 const save = async (over: Record<string, unknown>, who = 'Catherine') => {

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { makeKvStore, type KvStore } from '@lib/blob-store'
 import { pickupThursdayFor } from '@lib/kit-dates'
 
@@ -164,7 +164,11 @@ function ctx(body: any, url = 'http://localhost/api/kits/order.json') {
 describe('POST /api/kits/order.json', () => {
   let POST: any
 
+  // The party is Jun 5, 2027: pin the clock well before it so it never becomes past (only Date is faked).
+  afterEach(() => { vi.useRealTimers() })
   beforeEach(async () => {
+    vi.useFakeTimers({ toFake: ['Date'], shouldAdvanceTime: true })
+    vi.setSystemTime(new Date('2027-01-04T15:00:00.000Z'))
     vi.clearAllMocks()
     _setKitKvForTests(makeKvStore('kits', 'kits', { _blobStore: makeCasBlobStore() }))
 
