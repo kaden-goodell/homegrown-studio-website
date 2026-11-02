@@ -102,6 +102,7 @@ export const STAGE4_HELP_SECTIONS: HelpSection[] = [
       'On /staff › the class › **Sell a seat** › **Charge on the reader**: fill in who and how many, tap the charge button, finish it in the Square app, and the iPad comes back with the seat paid.',
       'If it never comes back, the class list shows “Waiting on the reader” with **Check again** and **Let the seat go**. Let the seat go asks Square first, so a paid seat is never let go.',
       'After 15 minutes it’s in To decide too: **Ask Square** or **Let the seat go**.',
+      'If Square shows a payment that doesn’t match (a different amount, another location, split between a gift card and a card), To decide offers **Keep it, they paid $X** or **Refund it and let the seat go**. A second payment for one sale, or one that came in late, shows there too with its own buttons.',
     ],
   },
 ]
@@ -120,13 +121,16 @@ export const STAGE4_HELP_ROWS: HelpRow[] = [
   { id: 'waitlist-declined', see: 'Waitlist card didn’t go through / Waitlist price went up / Waitlist choice not sold any more', where: `${TODO}, ${HOME}`, means: 'The seat went to the next person. They weren’t charged and came off the list (the sheet says whether they were texted and emailed).', tap: 'Call or text them if you like, then **Got it**.', buttons: ['Got it'], comingWith: 'extras' },
   { id: 'cancel-request', see: 'Customer asked to cancel', where: `${TODO}, ${HOME}`, means: 'A customer sent a note from their “Can’t make it?” page (inside 48 hours, a gift seat, or paid at the studio). Their seats are still booked.', tap: '**Refund and free the seat** (their card gets the money back and they get the refund email), **Free the seat, no refund**, or **Keep their booking** (for studio credit or moving them). Each asks first. Then call or text them with what you decided.', buttons: ['Refund and free the seat', 'Free the seat, no refund', 'Keep their booking'], comingWith: 'extras' },
   { id: 'cancel-unclear', see: 'Customer’s cancel, refund unclear / refund turned down', where: `${TODO}, ${HOME}`, means: 'A customer cancelled online and Square didn’t answer the refund (their seats are held), or turned it down (nothing refunded, still booked).', tap: '**Ask Square**: it sends the same refund again, and Square never makes it twice; once it’s through they’re cancelled and emailed. Turned down: **Try the refund again**, or call them and tap **Got it**.', buttons: ['Ask Square', 'Try the refund again', 'Got it'], comingWith: 'extras' },
-  { id: 'reader-waiting', see: 'Reader payment didn’t come back / Reader payment didn’t match', where: `${TODO}, ${HOME}`, means: 'A “Charge on the reader” sale never came back from the Square app, or Square showed a payment that doesn’t match. The seat is held, not paid.', tap: '**Ask Square**: if it shows the payment, they get their seat. If not, and they didn’t pay (or paid another way), **Let the seat go**. Nothing is refunded or charged from here.', buttons: ['Ask Square', 'Let the seat go'], comingWith: 'extras' },
+  { id: 'reader-waiting', see: 'Reader payment didn’t come back / Reader payment didn’t match', where: `${TODO}, ${HOME}`, means: 'A “Charge on the reader” sale never came back from the Square app, or Square showed a payment for it that doesn’t match. The seat isn’t marked paid.', tap: 'Didn’t come back: **Ask Square**; if it shows the payment, they get their seat. If not, and they didn’t pay (or paid another way), **Let the seat go**. Didn’t match: **Keep it, they paid $X** (if it’s less than the seat, it asks you to confirm the amount) or **Refund it and let the seat go** (the whole payment goes back to their card). Square is checked first every time.', buttons: ['Ask Square', 'Let the seat go', 'Keep it, they paid $X', 'Refund it and let the seat go'], comingWith: 'extras' },
+  { id: 'reader-extra', see: 'Second reader payment / Reader payment with no seat', where: `${TODO}, ${HOME}`, means: 'The card was run twice for one sale (the seat is paid once), or a payment that doesn’t match came in after the seat was let go. Nothing was refunded.', tap: '**Refund it** sends that payment back to their card (Square never refunds it twice). Already settled it with them another way? **It’s already sorted**. Each asks first.', buttons: ['Refund it', 'It’s already sorted'], comingWith: 'extras' },
+  { id: 'reader-late', see: 'Reader payment came in late', where: `${TODO}, ${HOME}`, means: 'A reader payment came in after its seat was let go, or after its 30-minute hold ran out and the class filled. They have their seat (maybe over capacity).', tap: '**Keep them**, or **Refund and free the seat** (it asks first; the money goes back to their card).', buttons: ['Keep them', 'Refund and free the seat'], comingWith: 'extras' },
+  { id: 'waitlist-refund', see: 'Waitlist charge on a cancelled class', where: `${TODO}, ${HOME}`, means: 'The waitlist charged someone just as you cancelled the class. They weren’t told they’re in. Nothing was refunded.', tap: '**Refund them** (it asks first; the money goes back to their card and they get the refund email), or **It’s already sorted** if you refunded them from the class already.', buttons: ['Refund them', 'It’s already sorted'], comingWith: 'extras' },
 ]
 
 /** The stage 4 warning codes (the merge adds each to admin-help's WARNING_HELP). */
 export type Stage4WarningCode = Extract<WarningCode,
   'not-on-register' | 'pos-price-stale' | 'register-old-setup' | 'register-setup-missing' | 'promo-free-unlimited'
-  | 'waitlist-unknown' | 'waitlist-declined' | 'waitlist-stopped' | 'waitlist-card-on' | 'reader-waiting' | 'cancel-request' | 'cancel-unclear'>
+  | 'waitlist-unknown' | 'waitlist-declined' | 'waitlist-refund' | 'waitlist-stopped' | 'waitlist-card-on' | 'reader-waiting' | 'cancel-request' | 'cancel-unclear'>
 
 export const STAGE4_WARNING_HELP: Record<Stage4WarningCode, string[]> = {
   'not-on-register': ['not-on-register'],
@@ -136,15 +140,16 @@ export const STAGE4_WARNING_HELP: Record<Stage4WarningCode, string[]> = {
   'promo-free-unlimited': ['promo-free-unlimited'],
   'waitlist-unknown': ['waitlist-unknown'],
   'waitlist-declined': ['waitlist-declined'],
+  'waitlist-refund': ['waitlist-refund'],
   'waitlist-stopped': ['waitlist-stopped'],
   'waitlist-card-on': ['waitlist-card-on'],
-  'reader-waiting': ['reader-waiting'],
+  'reader-waiting': ['reader-waiting', 'reader-extra', 'reader-late'],
   'cancel-request': ['cancel-request'],
   'cancel-unclear': ['cancel-unclear'],
 }
 
 /** The stage 4 To decide kinds (the merge adds each to admin-help's TO_DECIDE_HELP). */
-export type Stage4ToDecideKind = Extract<ToDecideKind, 'waitlist-unknown' | 'waitlist-declined' | 'reader-waiting' | 'cancel-request' | 'cancel-unclear'>
+export type Stage4ToDecideKind = Extract<ToDecideKind, 'waitlist-unknown' | 'waitlist-declined' | 'waitlist-refund' | 'reader-waiting' | 'reader-extra' | 'reader-late' | 'cancel-request' | 'cancel-unclear'>
 
 export const STAGE4_TO_DECIDE_HELP: Record<Stage4ToDecideKind, string[]> = {
   'waitlist-unknown': ['waitlist-unknown'],
@@ -152,4 +157,7 @@ export const STAGE4_TO_DECIDE_HELP: Record<Stage4ToDecideKind, string[]> = {
   'reader-waiting': ['reader-waiting'],
   'cancel-request': ['cancel-request'],
   'cancel-unclear': ['cancel-unclear'],
+  'waitlist-refund': ['waitlist-refund'],
+  'reader-extra': ['reader-extra'],
+  'reader-late': ['reader-late'],
 }

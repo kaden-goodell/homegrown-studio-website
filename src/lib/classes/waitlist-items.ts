@@ -8,6 +8,9 @@
  *   waitlist-declined  a card didn't go through (or the price rose since
  *                      they joined), so they came off the list
  *                      → Got it (call them if you like)
+ *   waitlist-refund    R4: Square took the charge just as the class was
+ *                      cancelled; nobody told them they're in
+ *                      → Refund them (and free the seat) · It's already sorted
  * And, for the warnings only (Task 12), each pointing at a button on the class sheet:
  *   waitlist-stopped   the waitlist stopped on a setup problem, the register or
  *                      Square being down while a seat it could take is free
@@ -30,7 +33,7 @@ export const WAITLIST_DECLINED_DAYS = 14
 
 export interface WaitlistItem {
   id: string
-  kind: 'waitlist-unknown' | 'waitlist-declined'
+  kind: 'waitlist-unknown' | 'waitlist-declined' | 'waitlist-refund'
   at: string
   entry: WaitlistEntry
   /** "Potholder Looms: …" for the warnings line. */
@@ -62,7 +65,14 @@ export async function waitlistItems(cls: ScheduledClass, decided: Set<string>, n
     if (!a) continue
     const id = waitlistItemId(e)
     if (decided.has(id)) continue
-    if (e.state === 'charging' && a.outcome === 'unknown') {
+    if (e.state === 'added' && a.outcome === 'paid' && a.cancelledPaid) {
+      const money = a.amountCents ? formatMoney(a.amountCents) : 'the class'
+      out.push({
+        id, kind: 'waitlist-refund', at: a.at, entry: e,
+        warning: `${name}: the waitlist charged ${nameOf(e)} ${money} just as the class was cancelled. Nothing was refunded.`,
+        head: `The waitlist charged ${nameOf(e)}’s saved card (ending ${e.square.last4}) ${money} just as ${name} was cancelled. They weren’t told they’re in. Nothing was refunded.`,
+      })
+    } else if (e.state === 'charging' && a.outcome === 'unknown') {
       const money = a.amountCents ? formatMoney(a.amountCents) : 'the class'
       out.push({
         id, kind: 'waitlist-unknown', at: a.at, entry: e,

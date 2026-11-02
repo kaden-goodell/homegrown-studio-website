@@ -4,7 +4,7 @@
  * request to /api/admin/to-decide.json, recorded with who made it. Afterwards
  * the sheet shows "Done · what was done".
  */
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import type { ToDecideItem } from '@pages/api/admin/to-decide.json'
 import type { ClassBooking } from '@lib/classes/admin-actions'
 import type { ScheduledClass } from '@lib/classes/types'
@@ -109,7 +109,10 @@ export function ToDecideSheet({ id }: { id: string }) {
     case 'paid-not-seated': return <PaidNoSeat item={t} />
     case 'waitlist-unknown': return <WaitlistUnclear item={t} />
     case 'waitlist-declined': return <WaitlistDeclined item={t} />
+    case 'waitlist-refund': return <WaitlistRefund item={t} />
     case 'reader-waiting': return <ReaderWaiting item={t} />
+    case 'reader-extra': return <ReaderExtra item={t} />
+    case 'reader-late': return <ReaderLate item={t} />
     case 'cancel-request': return <CancelRequest item={t} />
     case 'cancel-unclear': return <CancelUnclear item={t} />
   }
@@ -612,7 +615,7 @@ function PaidNoSeat({ item }: { item: ToDecideItem }) {
             </button>
           )}
           <button type="button" className={`adm-btn ${d.canSeat ? 'is-ghost' : 'is-pri'}`} disabled={!!busy} onClick={() => send({ action: 'sorted' })}>
-            {label(busy, 'sorted', 'I sorted it out in Square', 'Saving…')}
+            {label(busy, 'sorted', 'It’s already sorted', 'Saving…')}
           </button>
         </div>
       )}
@@ -623,8 +626,8 @@ function PaidNoSeat({ item }: { item: ToDecideItem }) {
       {kv('Square order', String(d.orderId ?? ''))}
       <p className="adm-note adm-gap-top">
         {d.canSeat
-          ? 'Giving them their seat puts them on the class, paid by this payment, even if the date is full. Or refund them in Square, then say you sorted it out. Nothing is refunded for you.'
-          : 'Look the payment up in Square and refund it there if it was a second charge. Then say you sorted it out. Nothing is refunded for you.'}
+          ? 'Giving them their seat puts them on the class, paid by this payment, even if the date is full. Already settled it with them another way? Tap It’s already sorted. Nothing is refunded from here.'
+          : 'Already settled it with them another way? Tap It’s already sorted. Nothing is refunded from here.'}
       </p>
       {item.classId && <OpenClass id={item.classId} />}
       <ErrorLine text={error} />
@@ -723,43 +726,181 @@ function WaitlistDeclined({ item }: { item: ToDecideItem }) {
   )
 }
 
+/** R4: the waitlist charged someone just as their class was cancelled: Refund them (frees the seat), or It's already sorted. Each asks first. */
+function WaitlistRefund({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail
+  const { send, busy, error, setError } = useDecide(item)
+  const [sure, setSure] = useState<null | 'refund' | 'sorted'>(null)
+  const amount = d.cents ? formatMoney(d.cents) : 'their payment'
+  const footer = sure
+    ? (
+      <div className="adm-panel is-warn" role="group" aria-label={sure === 'refund' ? `Refund ${d.name}?` : 'Already sorted?'}>
+        <b>{sure === 'refund' ? `Refund ${d.name} ${amount}?` : 'Already sorted?'}</b>
+        <span className="adm-small">{sure === 'refund'
+          ? `It goes back to their card ending ${d.last4}${d.email ? ' and they get a refund email' : ''}. Square never refunds it twice.`
+          : 'Only if you already refunded them from the class sheet or settled it another way. Nothing is refunded here.'}</span>
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" onClick={() => setSure(null)}>Not yet</button>
+          {sure === 'refund'
+            ? <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'refund' })}>{label(busy, 'refund', 'Refund them', 'Refunding…')}</button>
+            : <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'sorted' })}>{label(busy, 'sorted', 'It’s already sorted', 'Saving…')}</button>}
+        </div>
+      </div>
+    )
+    : (
+      <div className="adm-stack">
+        <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => { setSure('refund'); setError('') }}>Refund them</button>
+        <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => { setSure('sorted'); setError('') }}>It’s already sorted</button>
+      </div>
+    )
+  return (
+    <SheetFrame title={item.title} subtitle={item.className} footer={footer}>
+      <Head item={item} />
+      {d.cents ? kv('Charge', formatMoney(d.cents)) : null}
+      <p className="adm-note adm-gap-top">They weren’t told they’re in. Refund them, then call or text them if you like.</p>
+      <Contact d={d} />
+      {item.classId && <OpenClass id={item.classId} />}
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
 /**
  * Stage 4: a "Charge on the reader" sale that never came back from the Square
- * app (or whose payment didn't match). Ask Square seats them when Square shows
- * the payment; Let the seat go asks Square first and is refused when it shows paid.
+ * app: Ask Square seats them when Square shows the payment; Let the seat go
+ * asks Square first and is refused when it shows paid. R1: Square showed a
+ * payment that didn't match: Keep it (they paid $X; a shortfall is confirmed
+ * by its amount) or Refund it and let the seat go. Square is read again first
+ * either way. Only the choices that fit show.
  */
 function ReaderWaiting({ item }: { item: ToDecideItem }) {
   const d = item.detail as Detail
-  const { send, busy, error } = useDecide(item)
-  const [sure, setSure] = useState(false)
-  return (
-    <SheetFrame
-      title={item.title}
-      subtitle={item.className}
-      footer={sure
-        ? (
-          <div className="adm-panel is-warn" role="group" aria-label="Let the seat go?">
-            <b>Let the seat go?</b>
-            <span className="adm-small">{`Square is asked first. If it shows the payment, ${d.name} keeps the seat. If not, the seat goes back on sale. Nothing is refunded or charged.`}</span>
-            <div className="adm-two">
-              <button type="button" className="adm-btn is-ghost" onClick={() => setSure(false)}>Keep it held</button>
-              <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'let-go' })}>{label(busy, 'let-go', 'Let the seat go', 'Asking Square…')}</button>
-            </div>
-          </div>
-        )
+  const { send, busy, error, setError } = useDecide(item)
+  const [sure, setSure] = useState<null | 'let-go' | 'refund' | 'keep'>(null)
+  const [short, setShort] = useState<{ paidCents: number; askedCents: number; shortCents: number } | null>(null)
+  const choices: string[] = Array.isArray(d.choices) ? d.choices : ['check', 'let-go']
+  const paid = typeof d.paidCents === 'number' ? d.paidCents : null
+  const keepLabel = paid !== null ? `Keep it, they paid ${formatMoney(paid)}` : 'Keep it'
+  async function keep(confirmPaidCents?: number) {
+    const r = await send({ action: 'keep', ...(confirmPaidCents !== undefined ? { body: { confirmPaidCents } } : {}) })
+    if (!r.ok && r.extra?.short) { setShort(r.extra.short); setSure('keep'); setError('') }
+  }
+  const panel = (label: string, text: string, keepIt: string, go: ReactNode) => (
+    <div className="adm-panel is-warn" role="group" aria-label={label}>
+      <b>{label}</b>
+      <span className="adm-small">{text}</span>
+      <div className="adm-two">
+        <button type="button" className="adm-btn is-ghost" onClick={() => { setSure(null); setShort(null) }}>{keepIt}</button>
+        {go}
+      </div>
+    </div>
+  )
+  const footer = sure === 'let-go'
+    ? panel('Let the seat go?', `Square is asked first. If it shows the payment, ${d.name} keeps the seat. If not, the seat goes back on sale. Nothing is refunded or charged.`, 'Keep it held',
+      <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'let-go' })}>{label(busy, 'let-go', 'Let the seat go', 'Asking Square…')}</button>)
+    : sure === 'refund'
+      ? panel(`Refund ${d.name}${paid !== null ? ` ${formatMoney(paid)}` : ''}?`, `Square is checked first. The whole payment goes back to their card${d.email ? ' and they get a refund email' : ''}, and the seat goes back on sale. Square never refunds it twice.`, 'Not yet',
+        <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'refund' })}>{label(busy, 'refund', 'Refund it', 'Refunding…')}</button>)
+      : sure === 'keep' && short
+        ? panel(`Keep ${formatMoney(short.paidCents)}?`, `Square shows ${formatMoney(short.paidCents)} paid, ${formatMoney(short.shortCents)} less than the ${formatMoney(short.askedCents)} seat. Keeping it marks the seat paid with ${formatMoney(short.paidCents)}. A refund later can give back at most that.`, 'Not yet',
+          <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => keep(short.paidCents)}>{label(busy, 'keep', `Keep ${formatMoney(short.paidCents)}`, 'Saving…')}</button>)
         : (
           <div className="adm-stack">
-            <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'check' })}>{label(busy, 'check', 'Ask Square', 'Asking Square…')}</button>
-            <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => setSure(true)}>Let the seat go</button>
+            {choices.includes('keep') && <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => keep()}>{label(busy, 'keep', keepLabel, 'Checking Square…')}</button>}
+            {choices.includes('refund') && <button type="button" className={`adm-btn ${choices.includes('keep') ? 'is-ghost' : 'is-pri'}`} disabled={!!busy} onClick={() => { setSure('refund'); setError('') }}>Refund it and let the seat go</button>}
+            {choices.includes('check') && <button type="button" className={`adm-btn ${choices.includes('refund') ? 'is-ghost' : 'is-pri'}`} disabled={!!busy} onClick={() => send({ action: 'check' })}>{label(busy, 'check', 'Ask Square', 'Asking Square…')}</button>}
+            {choices.includes('let-go') && <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => { setSure('let-go'); setError('') }}>Let the seat go</button>}
           </div>
-        )}
-    >
+        )
+  const money = choices.includes('refund')
+  return (
+    <SheetFrame title={item.title} subtitle={item.className} footer={footer}>
       <Head item={item} />
-      {kv('Amount', formatMoney(d.cents))}
+      {kv('Asked', formatMoney(d.cents))}
+      {paid !== null && kv('Square shows', formatMoney(paid))}
       {d.by && kv('Sold by', String(d.by))}
-      <p className="adm-note adm-gap-top">{d.offline
-        ? 'Square took this payment while the iPad was offline. It shows up once the iPad is back online. Ask Square then.'
-        : 'Ask Square looks for this payment in Square. If it went through, the seat is marked paid. Nobody is charged twice.'}</p>
+      <p className="adm-note adm-gap-top">{money
+        ? choices.includes('keep')
+          ? 'Keep it marks the seat paid with what Square shows. Refund it sends the whole payment back to their card and lets the seat go. Square is checked first either way.'
+          : 'This payment was split between a gift card and a card, which the website can’t keep: a refund later couldn’t go back on one payment. Refund it, then charge them again with Pay on the iPad.'
+        : d.offline
+          ? 'Square took this payment while the iPad was offline. It shows up once the iPad is back online. Ask Square then.'
+          : 'Ask Square looks for this payment in Square. If it went through, the seat is marked paid. Nobody is charged twice.'}</p>
+      <Contact d={d} />
+      {item.classId && <OpenClass id={item.classId} />}
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+/** R2: a second reader payment (or one with no seat): Refund it, or It's already sorted. Each asks in the sheet first. */
+function ReaderExtra({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail
+  const { send, busy, error, setError } = useDecide(item)
+  const [sure, setSure] = useState<null | 'refund' | 'sorted'>(null)
+  const amount = d.cents ? formatMoney(d.cents) : 'this payment'
+  const footer = sure
+    ? (
+      <div className="adm-panel is-warn" role="group" aria-label={sure === 'refund' ? `Refund ${amount}?` : `Clear this ${amount} payment?`}>
+        <b>{sure === 'refund' ? `Refund ${amount} to ${d.name}?` : `Clear this ${amount} payment?`}</b>
+        <span className="adm-small">{sure === 'refund'
+          ? `Square is checked first. The whole payment goes back to their card${d.email ? ' and they get a refund email' : ''}. Their seat stays as it is. Square never refunds it twice.`
+          : 'Only if you’ve already settled it with them another way. Nothing is refunded.'}</span>
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" onClick={() => setSure(null)}>Not yet</button>
+          {sure === 'refund'
+            ? <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'refund' })}>{label(busy, 'refund', 'Refund it', 'Refunding…')}</button>
+            : <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'sorted' })}>{label(busy, 'sorted', 'It’s already sorted', 'Saving…')}</button>}
+        </div>
+      </div>
+    )
+    : (
+      <div className="adm-stack">
+        <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => { setSure('refund'); setError('') }}>Refund it</button>
+        {!d.refundStarted && <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => { setSure('sorted'); setError('') }}>It’s already sorted</button>}
+      </div>
+    )
+  return (
+    <SheetFrame title={item.title} subtitle={item.className} footer={footer}>
+      <Head item={item} />
+      {d.cents ? kv('Payment', formatMoney(d.cents)) : null}
+      <p className="adm-note adm-gap-top">{d.refundStarted
+        ? 'A refund of this payment was already sent. Refund it finishes that same refund; Square never refunds it twice.'
+        : 'Refund it sends the payment back to their card. Already settled another way? Tap It’s already sorted.'}</p>
+      <Contact d={d} />
+      {item.classId && <OpenClass id={item.classId} />}
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+/** R3: a reader payment came in late (after Let go, or after its hold ran out): Keep them, or Refund and free the seat. */
+function ReaderLate({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail
+  const { send, busy, error, setError } = useDecide(item)
+  const [sure, setSure] = useState(false)
+  const footer = sure
+    ? (
+      <div className="adm-panel is-warn" role="group" aria-label={`Refund ${d.name}?`}>
+        <b>{`Refund ${d.name} ${formatMoney(d.cents ?? 0)} and free the seat?`}</b>
+        <span className="adm-small">{`The payment goes back to their card${d.email ? ' and they get a refund email' : ''}, and their seat goes back on sale. Square never refunds it twice.`}</span>
+        <div className="adm-two">
+          <button type="button" className="adm-btn is-ghost" onClick={() => setSure(false)}>Not yet</button>
+          <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'refund' })}>{label(busy, 'refund', 'Refund and free the seat', 'Refunding…')}</button>
+        </div>
+      </div>
+    )
+    : (
+      <div className="adm-stack">
+        <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'keep' })}>{label(busy, 'keep', 'Keep them', 'Saving…')}</button>
+        <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => { setSure(true); setError('') }}>Refund and free the seat</button>
+      </div>
+    )
+  return (
+    <SheetFrame title={item.title} subtitle={item.className} footer={footer}>
+      <Head item={item} />
+      {kv('Paid', formatMoney(d.cents ?? 0))}
+      <p className="adm-note adm-gap-top">{d.overCapacity ? 'The class has one more person than its capacity. Keep them if there’s room at the table.' : 'Keep them if they should have the seat.'}</p>
       <Contact d={d} />
       {item.classId && <OpenClass id={item.classId} />}
       <ErrorLine text={error} />

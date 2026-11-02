@@ -61,7 +61,7 @@ import { seatsLabelFor } from './checkout'
 import { claimConfirmation, markConfirmationRetry, releaseConfirmation, sendClassConfirmation, takeConfirmationRetry } from './confirmation'
 import { bookingCap, freeSeatOnly, onSeatFreed } from './refunds'
 import { claimSquareRefund } from '@lib/booking-core/refund-books'
-import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
+import { PARTY_SCOPE, READER_SCOPE } from '@lib/booking-core/refund-runner'
 import { allRefundRequests, listRefundRequests, UNCONFIRMED_AFTER_MS, type SavedRefundRequest } from './refund-requests'
 import { getClass } from './class-store'
 import { isComing, isPaidLine, leftOn } from './seat-status'
@@ -594,7 +594,7 @@ export async function openPaidNotSeated(): Promise<PaidNotSeated[]> {
   return all.filter((_, i) => !seated[i])
 }
 
-/** An owner seated them or sorted it out in Square: it leaves the list. */
+/** An owner seated them or said it’s already sorted: it leaves the list. */
 export async function resolvePaidNotSeated(id: string, by: By, how: 'seated' | 'sorted'): Promise<void> {
   for (let attempt = 0; attempt < ATTEMPTS; attempt++) {
     const { value, etag } = await paidNotSeatedKv.getWithMeta(id)
@@ -1073,6 +1073,8 @@ const checkedButUnfinished = (r: SavedRefundRequest) => r.status === 'sent' && !
 export async function flagUnconfirmedRequests(now: Date): Promise<number> {
   let open = 0
   for (const r of await allRefundRequests()) {
+    // A reader payment's refund stays on its own To decide item (Refund it sends the same request again): never flagged here.
+    if (r.classId === READER_SCOPE) continue
     if (checkedButUnfinished(r) && now.getTime() - Date.parse(r.cleared!.at) >= UNFINISHED_AFTER_MS) {
       open++
       const id = `flag-refund-unfinished-${safeKey(r.id)}`

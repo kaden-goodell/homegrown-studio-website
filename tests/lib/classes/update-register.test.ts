@@ -202,6 +202,14 @@ describe('Update them all (Register setup)', () => {
     expect(store.synced).toHaveLength(2)
   })
 
+  it('M-e: classes the sheet gave up on (skip) are left out of the run', async () => {
+    await pickNewTax()
+    store.classes = [cls('a1'), cls('a2')]
+    const r = await updateAllToSetup(KADEN, { now: NOW, skip: ['a1'] })
+    expect(r.updated.map((x) => x.id)).toEqual(['a2'])
+    expect(store.synced).toEqual(['a2'])
+  })
+
   it('out of time: the rest come back as left; the next call carries on (resumable)', async () => {
     await pickNewTax()
     store.classes = [cls('a1'), cls('a2'), cls('a3')]

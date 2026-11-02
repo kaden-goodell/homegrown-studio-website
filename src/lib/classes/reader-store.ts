@@ -52,11 +52,42 @@ export interface ReaderSale {
   /** Square took it offline; it finishes when the iPad is back online */
   offline?: { clientTransactionId: string; at: string }
   /** the last order Square showed that didn't pass (the seat stays held; owners decide) */
-  problem?: { why: OrderRefusal | 'linked'; orderId: string; at: string }
-  paid?: { orderId: string; paymentId: string | null; paymentIds: string[]; tipCents: Cents; at: string; how: 'return' | 'check' | 'square' }
+  problem?: { why: OrderRefusal | 'linked'; orderId: string; at: string; paidCents?: Cents; paymentIds?: string[] }
+  paid?: {
+    orderId: string; paymentId: string | null; paymentIds: string[]; tipCents: Cents; at: string
+    /** 'kept': an owner kept a payment that didn't match ("Keep it, they paid $X") */
+    how: 'return' | 'check' | 'square' | 'kept'
+    /** what Square shows was paid for the seat (less any tip), when an owner kept it */
+    paidCents?: Cents
+    kept?: { by: By; at: string; why: OrderRefusal | 'linked'; shortCents: Cents }
+  }
+  /**
+   * R2: other payments Square shows for this sale once it was paid (the card run twice), or the
+   * order that didn't match when another one paid the seat. Each is an item in To decide
+   * (Refund it · It's already sorted) until an owner answers it.
+   */
+  extraPayments?: ReaderExtraPayment[]
+  /**
+   * R3: paid after the seat was let go, or after its 30-minute hold ran out and the class filled
+   * (seated over capacity). An item in To decide (Keep them · Refund and free the seat).
+   */
+  late?: { at: string; overCapacity: boolean; afterLetGo: boolean; decided?: { what: 'kept' | 'refunded'; by: By; at: string } }
+  /** Refunds sent back on payments of this sale that weren't its seat's (the shared refund runner writes these). */
+  refunds?: { paymentId: string; orderId: string; cents: Cents; squareRefundId: string | null; requestId: string; at: string; by: By }[]
   ended?: { at: string; why: string; by: By | null }
   /** the crew-facing answer of the return that finished it, so a replay gets the same one */
   answer?: { message: string; outcome: string }
+}
+
+export interface ReaderExtraPayment {
+  orderId: string
+  paymentIds: string[]
+  /** what Square shows (less any tip) */
+  cents: Cents
+  at: string
+  /** the order that didn't match before another paid the seat (so it's a second payment now) */
+  from: 'second' | 'mismatch'
+  decided?: { what: 'refunded' | 'sorted'; by: By; at: string }
 }
 
 export async function getReaderSale(bookingId: string): Promise<ReaderSale | null> {
@@ -105,11 +136,16 @@ function withLock<T>(k: string, fn: () => Promise<T>): Promise<T> {
   return run
 }
 
-/** Every sale still waiting on the reader (for the roster and To decide). */
-export async function listWaitingReaderSales(): Promise<ReaderSale[]> {
+/** Every sale on file (To decide also looks at paid ones: a second payment, a late payment). */
+export async function listReaderSales(): Promise<ReaderSale[]> {
   const keys = (await salesKv.list()).filter((k) => k.startsWith('rdr-'))
   const all = await Promise.all(keys.map((k) => salesKv.get(k)))
-  return all.filter((j): j is string => !!j).map((j) => JSON.parse(j) as ReaderSale).filter((s) => s.state === 'waiting')
+  return all.filter((j): j is string => !!j).map((j) => JSON.parse(j) as ReaderSale)
+}
+
+/** Every sale still waiting on the reader (for the roster and To decide). */
+export async function listWaitingReaderSales(): Promise<ReaderSale[]> {
+  return (await listReaderSales()).filter((s) => s.state === 'waiting')
 }
 
 export interface ReaderOrderLink {

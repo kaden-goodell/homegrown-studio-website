@@ -76,7 +76,8 @@ export const GET: APIRoute = async ({ request }) => {
  *     Answers { id, made, choices }; the sheet then saves the pick. `seen` (the ids the sheet listed) lets a retry after a
  *     lost reply still audit the one it made (N9).
  *   { action: 'update-classes' } — "Update them all": every upcoming class on an old tax or category is sent again with
- *     the ones in force (batched by time; `left` > 0 → call again). Each class updated is audited.
+ *     the ones in force (batched by time; `left` > 0 → call again). Each class updated is audited. `skip` (ids): classes
+ *     the sheet gave up on this run (M-e: 5 failures each), left for their own Update the register.
  */
 export const POST: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
@@ -112,7 +113,8 @@ export const POST: APIRoute = async ({ request }) => {
       return json(200, { data: { setup: await getRegisterSetupView().catch(() => saved), changed, notOnRegister: (await missing()) ?? [], oldSetup: await oldSetup() } })
     }
     if (body?.action === 'update-classes') {
-      const r = await updateAllToSetup(by)
+      const skip = Array.isArray(body.skip) ? body.skip.filter((x: unknown): x is string => typeof x === 'string').slice(0, 500) : []
+      const r = await updateAllToSetup(by, { skip })
       for (const c of r.updated) {
         await recordAudit({ by: { ...by, role: 'owner' }, action: 'class-update-register', target: { kind: 'class', id: c.id, label: c.name }, details: { from: 'Register setup' } })
       }

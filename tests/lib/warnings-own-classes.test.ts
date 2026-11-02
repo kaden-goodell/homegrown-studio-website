@@ -239,8 +239,11 @@ describe('Task 12: stage 4 warnings, each pointing at a button', () => {
     await sale('bkg_r2', '2026-10-15T14:55:00.000Z') // 5 minutes: not yet
     await sale('bkg_r3', '2026-10-15T14:58:00.000Z', { why: 'amount', orderId: 'O', at: '2026-10-15T14:59:00.000Z' })
     const list = (await listWarnings(WINDOW, { now: NOW })).filter((x) => x.code === 'reader-waiting')
-    expect(list.map((w) => w.itemId).sort()).toEqual(['reader-bkg_r1', 'reader-bkg_r3'])
-    expect(list.find((w) => w.itemId === 'reader-bkg_r1')!.detail).toBe('Clay Camp Sat Oct 17 1:00 PM: Gia Winner’s $10.90 reader payment never came back from the Square app. The seat is held.')
+    const { readerWaitingId } = await import('@lib/classes/reader-decide')
+    expect(list.map((w) => w.itemId).sort()).toEqual([readerWaitingId('bkg_r1'), readerWaitingId('bkg_r3')].sort())
+    // R3: an hour on, the 30-minute hold has run out, so it no longer says the seat is held.
+    expect(list.find((w) => w.itemId === readerWaitingId('bkg_r1'))!.detail).toBe('Clay Camp Sat Oct 17 1:00 PM: Gia Winner’s $10.90 reader payment never came back from the Square app.')
+    expect(list.find((w) => w.itemId === readerWaitingId('bkg_r3'))!.detail).toBe('Clay Camp Sat Oct 17 1:00 PM: Square shows a payment for Gia Winner’s reader sale that doesn’t match the amount asked. The seat isn’t marked paid. Keep it or refund it.')
     expect(list.every((w) => w.action === OWNERS_DECIDE)).toBe(true)
   })
 

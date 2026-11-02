@@ -826,7 +826,67 @@ describe('money rules: never charge after close or leave, reuse keys until a fin
     expect((await getLedger(cls.id)).lines.find((l) => l.bookingId === jane.attempts[0].bookingId)).toMatchObject({ state: 'confirmed', square: { paymentId: 'PAY-LATE' } })
     expect(texts).not.toHaveBeenCalled()
     expect(mail.confirm).not.toHaveBeenCalled()
-    expect(owners).toHaveBeenCalledWith('Jane Doe was charged $21.80 by the waitlist just before Potholder Looms was cancelled. Refund them from the class sheet.')
+    expect(owners).toHaveBeenCalledWith('Jane Doe was charged $21.80 by the waitlist just before Potholder Looms was cancelled. They weren\'t told they\'re in. Open /admin › To decide › Waitlist charge on a cancelled class to refund them.')
+  })
+
+  it('R4: the class is cancelled while the run builds the order → the class is read again before charging; nothing is charged', async () => {
+    const cls = makeClass()
+    const other = await fill(cls)
+    await join(cls, 'Jane')
+    await release(cls.id, other)
+    const realOrder = h.square.createClassOrder.bind(h.square)
+    // Catherine cancels the class (the store's copy) just as the order is made.
+    h.square.createClassOrder = vi.fn(async (input: any) => {
+      h.classes.set(cls.id, { ...cls, status: 'cancelled' })
+      return realOrder(input)
+    })
+    texts.mockClear(); mail.confirm.mockClear()
+    await runWaitlist(cls.id, { reason: 'seat-freed' }, NOW)
+    expect(h.square.chargeSavedCardCalls).toHaveLength(0)
+    const jane = (await entries(cls))[0]
+    expect(jane.state).toBe('closed')
+    expect((await getLedger(cls.id)).lines.filter((l) => l.bookingId === jane.attempts[0].bookingId && l.state === 'held')).toHaveLength(0)
+    expect(texts).not.toHaveBeenCalled()
+    expect(mail.confirm).not.toHaveBeenCalled()
+  })
+
+  it('R4: cancelled while Square takes the charge → nobody tells them they’re in; owners get the To decide refund item (with a button)', async () => {
+    const cls = makeClass()
+    const other = await fill(cls)
+    await join(cls, 'Jane')
+    await release(cls.id, other)
+    const realCharge = h.square.chargeSavedCard.bind(h.square)
+    h.square.chargeSavedCard = vi.fn(async (input: any) => {
+      const out = await realCharge(input)
+      h.classes.set(cls.id, { ...cls, status: 'cancelled' })
+      return out
+    })
+    texts.mockClear(); mail.confirm.mockClear(); owners.mockClear()
+    await runWaitlist(cls.id, { reason: 'seat-freed' }, NOW)
+    const jane = (await entries(cls))[0]
+    expect(jane.state).toBe('added')
+    expect(jane.attempts[0]).toMatchObject({ outcome: 'paid', cancelledPaid: true })
+    expect(texts).not.toHaveBeenCalled()
+    expect(mail.confirm).not.toHaveBeenCalled()
+    expect(owners).toHaveBeenCalledWith('Jane Doe was charged $21.80 by the waitlist just before Potholder Looms was cancelled. They weren\'t told they\'re in. Open /admin › To decide › Waitlist charge on a cancelled class to refund them.')
+    const { waitlistItems } = await import('@lib/classes/waitlist-items')
+    const items = await waitlistItems({ ...cls, status: 'cancelled' }, new Set(), at(1))
+    expect(items).toEqual([expect.objectContaining({ kind: 'waitlist-refund', head: expect.stringMatching(/They weren’t told they’re in\. Nothing was refunded\./) })])
+  })
+
+  it('M-c: a resumed try with a nearly-run-out hold gets a full 30 minutes again before the resend', async () => {
+    const cls = makeClass()
+    const other = await fill(cls)
+    await join(cls, 'Jane', 'TIMEOUT_LATER')
+    await release(cls.id, other)
+    await runWaitlist(cls.id, { reason: 'seat-freed' }, NOW)
+    const jane = (await entries(cls))[0]
+    h.square.savedCards.get(jane.square.cardId).behaviour = 'ok'
+    const later = new Date(NOW.getTime() + 25 * 60_000)
+    await runWaitlist(cls.id, { reason: 'sweep' }, later)
+    const line = (await getLedger(cls.id)).lines.find((l) => l.bookingId === jane.attempts[0].bookingId)!
+    expect(line.state).toBe('confirmed')
+    expect(line.overCapacity ?? false).toBe(false)
   })
 
   it('I4: a class cancelled with an unclear charge that Square shows unpaid → never resent, closed and card off once 30 minutes pass (never stuck)', async () => {

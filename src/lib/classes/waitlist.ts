@@ -31,7 +31,9 @@ import type { ScheduledClass } from './types'
 import {
   cardStillOn, getWaitlist, isOnList, mutateWaitlist, updateEntry, type Waitlist, type WaitlistEntry,
 } from './waitlist-store'
-import { closesLabel, consentChangedMessage, consentText, CONSENT_VERSION, MAX_WAITING_PER_CLASS, WAITLIST_MESSAGES } from './waitlist-words'
+import { closesLabel, consentChangedMessage, consentText, CONSENT_VERSION, MAX_WAITING_PER_CLASS, sameWords, WAITLIST_MESSAGES, wordsCarry } from './waitlist-words'
+import { formatMoney } from '@lib/money'
+import { signingSecret } from '@lib/reuse-token'
 
 const logger = createLogger('classes:waitlist')
 
@@ -47,8 +49,8 @@ const sha = (s: string) => createHash('sha256').update(s).digest('hex')
 
 /** M4: the consent's IP, kept only as a keyed hash (an IPv4 address alone is easy to reverse). */
 function ipHashOf(ip: string): string {
-  const env: any = (typeof import.meta !== 'undefined' && (import.meta as any).env) || {}
-  const secret = env.LOOKUP_SIGNING_SECRET || (typeof process !== 'undefined' ? process.env.LOOKUP_SIGNING_SECRET : '') || 'dev-only-not-a-secret'
+  // M-f: the site's signing secret, which fails closed in production (never a silent dev fallback there).
+  const secret = signingSecret()
   return createHmac('sha256', secret).update(`waitlist-ip:${ip}`).digest('hex').slice(0, 16)
 }
 
@@ -107,7 +109,7 @@ export interface JoinInput {
    * (and its words). The join is refused, with nothing saved, when today's
    * differ; the stored consent is exactly what was shown.
    */
-  consentShown?: { maxCents: number; closesIso: string; text?: string } | null
+  consentShown?: { maxCents: number; closesIso: string; text?: string; firstStartIso?: string } | null
   ip: string
   origin: string
 }
@@ -124,11 +126,11 @@ export interface JoinResult {
 const positionOf = (list: Waitlist, id: string) => list.entries.filter((e) => isOnList(e)).findIndex((e) => e.id === id) + 1
 
 /** The consent sentence for these sessions at this price (what the panel shows, built from the same values). */
-export function consentFor(cls: ScheduledClass, sessionIds: string[], maxCents: number): { text: string; closesIso: string } | null {
+export function consentFor(cls: ScheduledClass, sessionIds: string[], maxCents: number): { text: string; closesIso: string; firstStartIso: string } | null {
   const closesIso = waitlistClosesIso(cls, sessionIds)
   const picked = cls.sessions.filter((s) => sessionIds.includes(s.id)).sort((a, b) => a.startIso.localeCompare(b.startIso))
   if (!closesIso || !picked.length) return null
-  return { closesIso, text: consentText({ className: cls.content.name, startIso: picked[0].startIso, more: picked.length > 1, closesIso, maxCents }) }
+  return { closesIso, firstStartIso: picked[0].startIso, text: consentText({ className: cls.content.name, startIso: picked[0].startIso, more: picked.length > 1, closesIso, maxCents }) }
 }
 
 /** Takes a card back off file. Never throws: a failure is logged (the card sits unused on file; Square keeps it). */
@@ -172,11 +174,20 @@ export async function joinWaitlist(input: JoinInput, now = new Date()): Promise<
   const shown = input.consentShown
   const priceChanged = !shown || shown.maxCents !== q.totalCents
   const closesChanged = !shown || Date.parse(shown.closesIso) !== Date.parse(consent.closesIso)
-  const wordsChanged = !!shown && typeof shown.text === 'string' && shown.text !== consent.text
-  if (priceChanged || closesChanged || wordsChanged) {
-    logger.info('Waitlist join refused: the consent shown differs from today’s', { classId: cls.id, priceChanged, closesChanged, wordsChanged })
-    throw new WaitlistError(409, 'consent_changed', consentChangedMessage({ why: !shown ? 'other' : priceChanged ? 'price' : closesChanged ? 'closes' : 'other', maxCents: q.totalCents, closesIso: consent.closesIso }), { maxCents: q.totalCents, closesIso: consent.closesIso })
+  // M-a: the stable facts (class, first date, amount, close time) decide, never the class's name or the spacing.
+  // A first date that differs is a different class time; words that differ (a rename while the panel was open,
+  // or an older page's wording) are kept exactly as shown when they still carry the same amount and close time.
+  const dateChanged = !!shown?.firstStartIso && Date.parse(shown.firstStartIso) !== Date.parse(consent.firstStartIso)
+  const shownText = typeof shown?.text === 'string' ? shown.text : null
+  const wordsDiffer = shownText !== null && !sameWords(shownText, consent.text)
+  const wordsChanged = wordsDiffer && !(wordsCarry(shownText!, formatMoney(q.totalCents)) && wordsCarry(shownText!, closesLabel(consent.closesIso)))
+  if (priceChanged || closesChanged || dateChanged || wordsChanged) {
+    logger.info('Waitlist join refused: the consent shown differs from today’s', { classId: cls.id, priceChanged, closesChanged, dateChanged, wordsChanged })
+    throw new WaitlistError(409, 'consent_changed', consentChangedMessage({ why: !shown ? 'other' : priceChanged ? 'price' : closesChanged ? 'closes' : 'other', maxCents: q.totalCents, closesIso: consent.closesIso }), { maxCents: q.totalCents, closesIso: consent.closesIso, text: consent.text })
   }
+  const storedConsent = wordsDiffer ? { textVersion: 'as-shown', text: shownText! } : { textVersion: CONSENT_VERSION, text: consent.text }
+  // M-f: worked out before anything is saved, so a missing secret refuses the join with no card on file.
+  const ipHash = ipHashOf(input.ip)
 
   const ledger = await getLedger(cls.id)
   if (fitsNow(cls, ledger, q.sessionIds, q.seats, now)) throw new WaitlistError(409, 'spot_open', WAITLIST_MESSAGES.spotOpen)
@@ -219,7 +230,7 @@ export async function joinWaitlist(input: JoinInput, now = new Date()): Promise<
     agreedLines: agreedLinesOf(q),
     customer: { ...input.customer },
     square: { customerId, cardId: card.cardId, brand: card.brand, last4: card.last4, expMonth: card.expMonth, expYear: card.expYear },
-    consent: { textVersion: CONSENT_VERSION, text: consent.text, at: now.toISOString(), ipHash: ipHashOf(input.ip) },
+    consent: { ...storedConsent, at: now.toISOString(), ipHash },
     leaveHash: hash,
     state: 'waiting',
     attempts: [],

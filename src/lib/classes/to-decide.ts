@@ -34,12 +34,17 @@
  *   waitlist-declined    a waitlist card didn't go through (or the price rose)
  *                        → Got it
  *   reader-waiting       a "Charge on the reader" sale never came back from the
- *                        Square app (15 minutes on), or Square showed an order
- *                        for it that didn't match → Ask Square · Let the seat go
- *                        (Square is asked first; refused when it shows paid)
+ *                        Square app (15 minutes on) → Ask Square · Let the seat go
+ *                        (Square is asked first; refused when it shows paid); or
+ *                        Square showed a payment for it that didn't match (R1)
+ *                        → Keep it, they paid $X · Refund it and let the seat go
+ *   reader-extra         R2: a second reader payment for one sale (or one after
+ *                        its seat was let go) → Refund it · It's already sorted
+ *   reader-late          R3: a reader payment after the seat was let go or its
+ *                        hold ran out → Keep them · Refund and free the seat
  *   paid-not-seated      Square shows one of our online bookings paid, but its
  *                        seats were let go before it could be confirmed (R42)
- *                        → Give them their seat (over capacity if need be) · Sorted it in Square
+ *                        → Give them their seat (over capacity if need be) · It's already sorted
  *   cancel-request       D2: a customer sent a note from their "Can't make it?"
  *                        page (inside 48 hours, a gift seat, paid at the studio…)
  *                        → Refund and free the seat · Free the seat, no refund ·
@@ -81,8 +86,10 @@ import type { Cents, ScheduledClass } from './types'
 import { waitlistItems } from './waitlist-items'
 import { waitlistClassIds } from './waitlist-store'
 import { decideUnclear, UnclearError } from './waitlist-runner'
-import { listWaitingReaderSales } from './reader-store'
-import { checkReaderSale, letReaderSeatGo, readerNeedsDeciding, readerWhen, ReaderError } from './reader-flow'
+import { checkReaderSale, letReaderSeatGo, ReaderError } from './reader-flow'
+import {
+  keepLateReader, keepReaderPayment, readerDecideItems, ReaderDecideError, refundExtraReader, refundLateReader, refundMismatchedReader, sortedExtraReader,
+} from './reader-decide'
 import { siteConfig } from '@config/site.config'
 import { cancelItems, CancelError, retrySelfCancel } from './self-cancel'
 import { cancelSplit } from './self-cancel-rules'
@@ -91,7 +98,7 @@ import { refundClassBooking } from './refunds'
 export type ToDecideKind =
   | 'pos-unmatched' | 'refund-plain' | 'refund-failed' | 'refund-unfinished' | 'refund-unconfirmed'
   | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check' | 'party-paid-unclear' | 'paid-not-seated'
-  | 'waitlist-unknown' | 'waitlist-declined' | 'reader-waiting'
+  | 'waitlist-unknown' | 'waitlist-declined' | 'waitlist-refund' | 'reader-waiting' | 'reader-extra' | 'reader-late'
   | 'cancel-request' | 'cancel-unclear'
 
 /** One thing waiting for an owner (or decided lately). */
@@ -434,7 +441,7 @@ async function paidNotSeatedItems(cache: ClassCache, skip: Set<string>): Promise
       head: p.why === 'no-seats'
         ? `Square shows ${dollars(p.chargedCents)} paid for ${seatsText(seats)} of ${className}, but the seats were let go before the booking finished. Nothing was refunded.`
         : `Square shows a second payment of ${dollars(p.chargedCents)} for a ${className} booking that was already paid. Nothing was refunded.`,
-      hint: p.why === 'no-seats' ? 'Give them their seat, or sort it out in Square' : 'Check it in Square',
+      hint: p.why === 'no-seats' ? 'Give them their seat, or say it’s already sorted' : 'Say it’s already sorted',
       detail: {
         paidId: p.id, orderId: p.orderId, bookingId: p.bookingId, why: p.why, cents: p.chargedCents, seats,
         canSeat: p.why === 'no-seats' && !!cls && cls.status !== 'cancelled', firstStartIso: first?.startIso ?? null,
@@ -454,12 +461,12 @@ async function waitlistDecideItems(cache: ClassCache, skip: Set<string>, now: Da
       const e = w.entry
       out.push({
         id: w.id, kind: w.kind, at: w.at, classId: cls.id, className: cls.content.name,
-        title: w.kind === 'waitlist-unknown' ? 'Waitlist charge unclear' : e.state === 'skipped' ? (e.attempts[e.attempts.length - 1]?.skipWhy === 'gone' ? 'Waitlist choice not sold any more' : 'Waitlist price went up') : 'Waitlist card didn’t go through',
+        title: w.kind === 'waitlist-refund' ? 'Waitlist charge on a cancelled class' : w.kind === 'waitlist-unknown' ? 'Waitlist charge unclear' : e.state === 'skipped' ? (e.attempts[e.attempts.length - 1]?.skipWhy === 'gone' ? 'Waitlist choice not sold any more' : 'Waitlist price went up') : 'Waitlist card didn’t go through',
         head: w.head,
-        hint: w.kind === 'waitlist-unknown' ? 'Ask Square what happened, then decide here' : 'Call them if you like',
+        hint: w.kind === 'waitlist-refund' ? 'Refund them' : w.kind === 'waitlist-unknown' ? 'Ask Square what happened, then decide here' : 'Call them if you like',
         detail: {
           entryId: e.id, name: `${e.customer.givenName} ${e.customer.familyName}`.trim(), phone: e.customer.phone, email: e.customer.email,
-          cents: e.attempts[e.attempts.length - 1]?.amountCents ?? null, last4: e.square.last4, state: e.state,
+          cents: e.attempts[e.attempts.length - 1]?.amountCents ?? null, last4: e.square.last4, state: e.state, bookingId: e.bookingId ?? null,
         },
       })
     }
@@ -467,29 +474,11 @@ async function waitlistDecideItems(cache: ClassCache, skip: Set<string>, now: Da
   return out
 }
 
-/** Stage 4: reader sales the Square app never answered (or whose order didn't match). */
+/** Stage 4: reader sales the Square app never answered, payments that didn't match, second and late payments. */
 async function readerItems(skip: Set<string>, now: Date): Promise<ToDecideItem[]> {
-  const out: ToDecideItem[] = []
-  for (const s of await listWaitingReaderSales()) {
-    if (!readerNeedsDeciding(s, now)) continue
-    const id = tokenOf(`reader-${s.bookingId}`)
-    if (skip.has(id)) continue
-    const name = `${s.customer.givenName} ${s.customer.familyName}`.trim()
-    const sent = new Date(s.startedAt).toLocaleTimeString('en-US', { timeZone: 'America/Chicago', hour: 'numeric', minute: '2-digit' })
-    out.push({
-      id, kind: 'reader-waiting', title: s.problem ? 'Reader payment didn’t match' : 'Reader payment didn’t come back', at: s.startedAt,
-      classId: s.classId, className: s.className,
-      head: s.problem
-        ? `${name}, ${s.seatsLabel} of ${s.className} on ${readerWhen(s)}. Square shows a payment for this sale that doesn’t match the ${money(s.amountCents)} asked, so the seat is held, not paid. Nothing was refunded.`
-        : `${name}, ${s.seatsLabel} of ${s.className} on ${readerWhen(s)}. ${money(s.amountCents)} was sent to the Square app at ${sent} and the payment never came back here. The seat is held.`,
-      hint: 'Ask Square, or let the seat go',
-      detail: {
-        bookingId: s.bookingId, name, email: s.customer.email, phone: s.customer.phone, cents: s.amountCents, by: s.by.name,
-        startedAt: s.startedAt, problem: s.problem?.why ?? null, offline: !!s.offline,
-      },
-    })
-  }
-  return out
+  return (await readerDecideItems(skip, now)).map((r) => ({
+    id: r.id, kind: r.kind, title: r.title, head: r.head, hint: r.hint, at: r.at, classId: r.classId, className: r.className, detail: r.detail,
+  }))
 }
 
 /** D2: customers' notes asking to cancel, and their own cancels Square didn't answer (or turned down). */
@@ -563,7 +552,10 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'paid-not-seated': ['seat', 'sorted'],
   'waitlist-unknown': ['add', 'keep', 'off'],
   'waitlist-declined': ['seen'],
-  'reader-waiting': ['check', 'let-go'],
+  'waitlist-refund': ['refund', 'sorted'],
+  'reader-waiting': ['check', 'let-go', 'keep', 'refund'],
+  'reader-extra': ['refund', 'sorted'],
+  'reader-late': ['keep', 'refund'],
   'cancel-request': ['refund', 'free', 'keep'],
   'cancel-unclear': ['ask', 'seen'],
 }
@@ -783,7 +775,7 @@ export async function decide(id: string, action: string, body: any, by: By, now 
       const paidId = str(d.paidId)
       if (action === 'sorted') {
         await resolvePaidNotSeated(paidId, by, 'sorted')
-        return { decided: await record(item, 'Sorted out in Square', by, action) }
+        return { decided: await record(item, 'Already sorted', by, action) }
       }
       if (d.canSeat !== true) throw new DecideError(409, 'This one can’t be seated from here. Check it in Square.')
       const entry = (await listPaidNotSeated()).find((p) => p.id === paidId)
@@ -820,9 +812,30 @@ export async function decide(id: string, action: string, body: any, by: By, now 
     }
     case 'waitlist-declined':
       return { decided: await record(item, 'Seen', by, action) }
+    case 'waitlist-refund': {
+      // R4: refunded through the class refund (the shared runner: Square never twice), freeing the seat.
+      if (action === 'sorted') return { decided: await record(item, 'Already sorted. Nothing was refunded here', by, action) }
+      const bookingId = str(d.bookingId)
+      if (!bookingId) throw new DecideError(409, 'Their booking isn’t on the class, so it can’t be refunded from here. Tap It’s already sorted once it’s settled.')
+      const r = await asRefund(() => refundClassBooking({
+        classId: item.classId!, bookingId, kind: 'booking', freeSeat: true, reason: 'Waitlist charge on a cancelled class (To decide)',
+        attempt: `wlr${item.id.replace(/[^A-Za-z0-9_-]/g, '')}`.slice(0, 80),
+      }, actor))
+      return { decided: await record(item, r.already ? r.already.message : `Refunded ${money(r.cents)} and freed the seat`, by, action) }
+    }
     case 'reader-waiting': {
       const origin = siteConfig.url.replace(/\/$/, '')
       try {
+        // R1: only the choices that fit what Square showed (the sheet shows the same list).
+        if (!strs(d.choices).includes(action)) throw new DecideError(409, 'That isn’t one of the choices for this any more. Close it and open it again.')
+        if (action === 'keep') {
+          const k = await keepReaderPayment(str(d.bookingId), by, { origin, now, ...(Number.isInteger(body?.confirmPaidCents) ? { confirmPaidCents: Number(body.confirmPaidCents) } : {}) })
+          return { decided: await record(item, `Kept. They paid ${money(k.paidCents)} and have their seat${k.overCapacity ? ' (over capacity)' : ''}`, by, action) }
+        }
+        if (action === 'refund') {
+          const r = await refundMismatchedReader(str(d.bookingId), by, { origin, now })
+          return { decided: await record(item, `Refunded ${money(r.cents)} and let the seat go`, by, action) }
+        }
         if (action === 'let-go') {
           await letReaderSeatGo(str(d.bookingId), { ...by, role: 'owner' }, origin, now)
           return { decided: await record(item, 'Square showed no payment. The seat was let go', by, action) }
@@ -831,9 +844,39 @@ export async function decide(id: string, action: string, body: any, by: By, now 
         if (r.outcome === 'paid') return { decided: await record(item, 'Square showed it paid. They have their seat', by, action) }
         throw new DecideError(r.outcome === 'unknown' ? 503 : 409, r.outcome === 'not-found'
           ? 'Square doesn’t show this payment. Their seat stays held. If they paid another way, or didn’t pay, let the seat go.'
-          : r.message)
+          : r.outcome === 'refused'
+            // The crew's words say "Ask Catherine or Kaden": owners get their own buttons instead (R1).
+            ? 'Square shows a payment for this sale that doesn’t match. Close this and open it again to keep it or refund it.'
+            : r.message)
       } catch (e) {
         if (e instanceof ReaderError) throw new DecideError(e.status, e.message)
+        if (e instanceof ReaderDecideError) throw new DecideError(e.status, e.message, e.extra)
+        throw e
+      }
+    }
+    case 'reader-extra': {
+      try {
+        if (action === 'refund') {
+          const r = await refundExtraReader(str(d.bookingId), str(d.orderId), by, now)
+          return { decided: await record(item, `Refunded ${money(r.cents)}`, by, action) }
+        }
+        await sortedExtraReader(str(d.bookingId), str(d.orderId), by, now)
+        return { decided: await record(item, 'Already sorted. Nothing was refunded', by, action) }
+      } catch (e) {
+        if (e instanceof ReaderDecideError) throw new DecideError(e.status, e.message, e.extra)
+        throw e
+      }
+    }
+    case 'reader-late': {
+      try {
+        if (action === 'keep') {
+          await keepLateReader(str(d.bookingId), by, now)
+          return { decided: await record(item, 'Kept them in the class', by, action) }
+        }
+        const r = await refundLateReader(str(d.bookingId), by, now)
+        return { decided: await record(item, r.already ?? `Refunded ${money(r.cents)} and freed the seat`, by, action) }
+      } catch (e) {
+        if (e instanceof ReaderDecideError) throw new DecideError(e.status, e.message, e.extra)
         throw e
       }
     }

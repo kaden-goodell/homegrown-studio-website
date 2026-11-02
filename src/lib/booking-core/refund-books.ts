@@ -4,6 +4,7 @@
  * made is never written as plain money while our saved request waits).
  *
  *   'party'  → the party refund book (parties/refunds)
+ *   'reader' → a reader payment that wasn't a seat's (classes/reader-refund)
  *   'cls_…'  → the class refund book (classes/refunds)
  *   anything else throws: a wiring miss surfaces (the webhook logs it, the
  *   nightly run tries again) instead of recording a refund twice.
@@ -16,8 +17,9 @@
  */
 import { classRefundBook } from '@lib/classes/refunds'
 import { partyRefundBook } from '@lib/parties/refunds'
+import { readerRefundBook } from '@lib/classes/reader-refund'
 import type { Cents } from '@lib/classes/types'
-import { claimSquareRefundWith, PARTY_SCOPE, type RefundBook, type RefundScope } from './refund-runner'
+import { claimSquareRefundWith, PARTY_SCOPE, READER_SCOPE, type RefundBook, type RefundScope } from './refund-runner'
 
 /** A saved request whose scope no book knows (never written by our own code; a corrupted document). */
 export class UnknownRefundScope extends Error {
@@ -32,6 +34,7 @@ export class UnknownRefundScope extends Error {
  */
 export async function refundBookFor(scope: RefundScope, hint: { label?: string } = {}): Promise<RefundBook<unknown> | null> {
   if (scope.classId === PARTY_SCOPE) return partyRefundBook(scope.bookingId, hint) as Promise<RefundBook<unknown> | null>
+  if (scope.classId === READER_SCOPE) return readerRefundBook(scope.bookingId) as Promise<RefundBook<unknown>>
   if (scope.classId.startsWith('cls_')) return classRefundBook(scope.classId, scope.bookingId, hint) as Promise<RefundBook<unknown>>
   throw new UnknownRefundScope(scope.classId)
 }

@@ -132,6 +132,32 @@ describe('More › Register setup', () => {
     expect(screen.queryByRole('button', { name: 'Update them all' })).toBeNull()
   })
 
+  it('M-e: a class that keeps failing is tried 5 times, then left out and named with its own button below; the others still update', async () => {
+    const old = [{ id: 'cls_a', name: 'Clay Camp', startIso: '2031-01-10T18:00:00Z' }, { id: 'cls_b', name: 'Looms', startIso: '2031-01-11T18:00:00Z' }]
+    let round = 0
+    const f = server({
+      setup: setup({ classTaxId: 'T9', classesCategoryId: 'C1', updatedAt: 'u0', source: { tax: 'saved', category: 'saved' } }),
+      oldSetup: old,
+      post: (b) => {
+        if (b.action !== 'update-classes') return null
+        round++
+        const skip: string[] = b.skip ?? []
+        if (skip.includes('cls_a')) return ok({ data: { updated: 0, failed: [], left: 0, oldSetup: [old[0]] } })
+        return ok({ data: { updated: round === 1 ? 1 : 0, failed: [old[0]], left: 0, oldSetup: [old[0]] } })
+      },
+    })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<RegisterSetupSheet />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Update them all' }))
+    expect(await screen.findByText('Clay Camp didn’t update after 5 tries. Square didn’t take it. Open it below and tap Update the register in a few minutes.')).toBeInTheDocument()
+    const bodies = posts(f, REGISTER).map((p: any) => p.body)
+    expect(bodies).toHaveLength(6)
+    expect(bodies.slice(0, 5).every((b: any) => !b.skip.includes('cls_a'))).toBe(true)
+    expect(bodies[5].skip).toEqual(['cls_a'])
+    // Its row is still there, opening the class (which has Update the register).
+    expect(screen.getByRole('button', { name: /Clay Camp/ })).toBeInTheDocument()
+  })
+
   it('Update them all stopped by a wrong tax: says so where she can fix it', async () => {
     vi.stubGlobal('fetch', server({
       setup: setup({ classTaxId: 'T9', classesCategoryId: 'C1', updatedAt: 'u0', source: { tax: 'saved', category: 'saved' } }),

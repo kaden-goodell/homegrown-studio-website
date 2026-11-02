@@ -32,12 +32,12 @@ import { bookingIdFor, CLASS_TAX_PERCENT, seatsLabelFor, soldOutMessage } from '
 import { claimConfirmation, releaseConfirmation, sendClassConfirmation } from './confirmation'
 import { quote, type BookingRequest } from './pricing'
 import {
-  bookingInNote, checkReaderOrder, isSetupError, parseReaderReturn, posPaymentUrl, readerErrorMessage, readerNote, refusalMessage,
-  signState, verifyState, READER_CLOCK_SLACK_MS, READER_DECIDE_AFTER_MS, READER_HOLD_MINUTES, READER_OFFLINE_HOLD_HOURS, READER_STATE_TTL_MS,
+  bookingInNote, checkReaderOrder, isSetupError, paidForSeat, parseReaderReturn, paymentIdsOf, posPaymentUrl, readerErrorMessage, readerNote, refusalMessage,
+  signState, verifyState, MONEY_REFUSALS, READER_CLOCK_SLACK_MS, READER_DECIDE_AFTER_MS, READER_HOLD_MINUTES, READER_OFFLINE_HOLD_HOURS, READER_STATE_TTL_MS,
   type OrderRefusal,
 } from './reader'
 import {
-  createReaderSale, getReaderSale, linkReaderOrder, updateReaderSale, type ReaderSale,
+  createReaderSale, getReaderSale, linkReaderOrder, updateReaderSale, type ReaderExtraPayment, type ReaderSale,
 } from './reader-store'
 import { readerClientId, readerStatus } from './reader-setting'
 import { confirm, extendHold, getLedger, hold, release, type HoldInput, type LedgerLine } from './seat-ledger'
@@ -51,7 +51,11 @@ const dollars = (c: number) => `$${(c / 100).toFixed(2)}`
 
 /** What the door (or To decide) gets back: a plain sentence and what happened. */
 export type ReaderOutcome = 'paid' | 'waiting' | 'cancelled' | 'let-go' | 'refused' | 'not-found' | 'unknown'
-export interface ReaderAnswer { outcome: ReaderOutcome; message: string; bookingId: string; classId: string; amountCents: number }
+export interface ReaderAnswer {
+  outcome: ReaderOutcome; message: string; bookingId: string; classId: string; amountCents: number
+  /** refused: why the order Square showed isn't this sale's payment */
+  why?: OrderRefusal | 'linked'
+}
 
 export class ReaderError extends Error {
   constructor(public status: number, message: string, public code?: string) { super(message) }
@@ -61,10 +65,14 @@ const PAID_MESSAGE = (s: Pick<ReaderSale, 'customer' | 'amountCents'>) =>
   `Paid ${dollars(s.amountCents)} on the reader. ${s.customer.givenName} is on the class list.`
 const SQUARE_DOWN = 'Square couldn’t be reached to check the payment. The seat stays held. Tap Check again in a minute.'
 const NOT_FOUND = 'Square doesn’t show this payment yet. The seat stays held. If they paid another way, let the seat go.'
+/** Crew and owners: a payment that didn't match is never let go by itself (R1). */
+export const MISMATCH_HELD = 'Square shows a payment for this sale that doesn’t match, so the seat stays held until Catherine or Kaden keep it or refund it in /admin › To decide.'
 const OFFLINE = 'Square took the payment offline and finishes it when the iPad is back online. The seat stays held. Tap Check again later.'
 
-const answerOf = (s: ReaderSale, outcome: ReaderOutcome, message: string): ReaderAnswer =>
-  ({ outcome, message, bookingId: s.bookingId, classId: s.classId, amountCents: s.amountCents })
+const answerOf = (s: ReaderSale, outcome: ReaderOutcome, message: string, why?: OrderRefusal | 'linked'): ReaderAnswer =>
+  ({ outcome, message, bookingId: s.bookingId, classId: s.classId, amountCents: s.amountCents, ...(why ? { why } : {}) })
+
+const nameOfSale = (s: ReaderSale) => `${s.customer.givenName} ${s.customer.familyName}`.trim()
 
 const holdInputOf = (s: ReaderSale, ttlMinutes = READER_HOLD_MINUTES): HoldInput => ({
   bookingId: s.bookingId, passId: s.request.passId, source: 'door-reader', customer: s.customer, ttlMinutes, by: { id: s.by.id, name: s.by.name },
@@ -227,7 +235,8 @@ export async function settleReaderOrder(sale: ReaderSale, order: any, how: 'retu
   if (!verdict.ok) return refuse(sale, verdict.why, String(order?.id ?? ''), now, order)
   if (sale.state === 'paid') {
     if (sale.paid?.orderId === verdict.orderId) return answerOf(sale, 'paid', sale.answer?.message ?? PAID_MESSAGE(sale))
-    await alertOwners(`A second reader payment came in for one sale: ${sale.customer.givenName} ${sale.customer.familyName}, ${sale.className}, ${dollars(sale.amountCents)} (order ${verdict.orderId}). The seat was already paid. Refund the second payment at the register.`).catch(() => undefined)
+    // R2: the card was run twice for one sale. The seat is paid once; the second payment waits in To decide.
+    await noteExtraPayment(sale.bookingId, { orderId: verdict.orderId, paymentIds: verdict.paymentIds, cents: sale.amountCents, at: now.toISOString(), from: 'second' })
     return answerOf(sale, 'paid', sale.answer?.message ?? PAID_MESSAGE(sale))
   }
   const cls = await getClass(sale.classId)
@@ -239,40 +248,110 @@ export async function settleReaderOrder(sale: ReaderSale, order: any, how: 'retu
   })
   if (link === 'other') return refuse(sale, 'linked', verdict.orderId, now, order)
 
-  const late = sale.state !== 'waiting'
+  const r = await markReaderPaid(sale, cls, {
+    orderId: verdict.orderId, paymentId: verdict.paymentId, paymentIds: verdict.paymentIds, tipCents: verdict.tipCents, chargedCents: sale.amountCents, how,
+  }, origin, now)
+  return answerOf(sale, 'paid', r.message)
+}
+
+export interface PaidWith {
+  orderId: string; paymentId: string | null; paymentIds: string[]; tipCents: number
+  /** what the seat records as charged (the held amount; or, when an owner kept a payment that didn't match, what Square shows) */
+  chargedCents: number
+  how: 'return' | 'check' | 'square' | 'kept'
+  kept?: NonNullable<NonNullable<ReaderSale['paid']>['kept']>
+}
+
+/**
+ * Seats a reader sale as paid with one order: the seats are confirmed (rebuilt
+ * over capacity if the hold ran out: the money is taken), the sale is written
+ * "paid" once (CAS), and only that call sends the confirmation, the audit and
+ * the owners' texts. An order that didn't match earlier, still undecided,
+ * becomes a second payment to answer in To decide (R2). A payment that came
+ * after the seat was let go, or after its 30-minute hold ran out and the class
+ * filled, is late (R3): owners are texted and it shows in To decide.
+ */
+export async function markReaderPaid(sale: ReaderSale, cls: ScheduledClass, paid: PaidWith, origin: string, now: Date): Promise<{ message: string; wrote: boolean; lines: LedgerLine[] }> {
   const lines = await confirm(sale.classId, sale.bookingId,
-    { orderId: verdict.orderId, paymentId: verdict.paymentId, chargedCents: sale.amountCents },
+    { orderId: paid.orderId, paymentId: paid.paymentId, chargedCents: paid.chargedCents },
     { cls, quote: sale.quote, input: holdInputOf(sale) }, now)
+  // R3: over capacity that nobody asked for = the hold ran out before the payment came in.
+  const overNow = !sale.overCapacity && lines.some((l) => l.overCapacity)
   const message = PAID_MESSAGE(sale)
   // Only the call that writes "paid" sends the confirmation and the audit (a double return does neither twice).
   let wrote = false
+  let late: ReaderSale['late'] | undefined
+  let moved: ReaderExtraPayment | null = null
   const after = await updateReaderSale(sale.bookingId, (cur) => {
     wrote = false
+    late = undefined
+    moved = null
     if (cur.state === 'paid') return null
     wrote = true
+    const afterLetGo = cur.state !== 'waiting'
+    late = paid.how !== 'kept' && (afterLetGo || overNow) ? { at: now.toISOString(), overCapacity: overNow || lines.some((l) => l.overCapacity), afterLetGo } : undefined
+    // An order that didn't match, still waiting for an owner, is a second payment now (it isn't what paid the seat).
+    const p = cur.problem
+    moved = p && MONEY_REFUSALS.has(p.why) && p.orderId !== paid.orderId && !(cur.extraPayments ?? []).some((x) => x.orderId === p.orderId)
+      ? { orderId: p.orderId, paymentIds: p.paymentIds ?? [], cents: p.paidCents ?? 0, at: now.toISOString(), from: 'mismatch' }
+      : null
     return {
       ...cur, state: 'paid',
-      paid: { orderId: verdict.orderId, paymentId: verdict.paymentId, paymentIds: verdict.paymentIds, tipCents: verdict.tipCents, at: now.toISOString(), how },
+      paid: {
+        orderId: paid.orderId, paymentId: paid.paymentId, paymentIds: paid.paymentIds, tipCents: paid.tipCents, at: now.toISOString(), how: paid.how,
+        ...(paid.how === 'kept' ? { paidCents: paid.chargedCents } : {}), ...(paid.kept ? { kept: paid.kept } : {}),
+      },
+      ...(late ? { late } : {}),
+      ...(moved ? { extraPayments: [...(cur.extraPayments ?? []), moved] } : {}),
       answer: { message, outcome: 'paid' },
     }
   })
-  if (!wrote) return answerOf(sale, 'paid', after?.answer?.message ?? message)
+  if (!wrote) return { message: after?.answer?.message ?? message, wrote, lines }
 
-  logger.info('Reader sale paid', { bookingId: sale.bookingId, orderId: verdict.orderId, how })
-  if (late) {
-    const over = lines.some((l) => l.overCapacity)
-    await alertOwners(`A reader payment came in after its seat was let go: ${sale.customer.givenName} ${sale.customer.familyName}, ${sale.className}, ${dollars(sale.amountCents)}. They have their seat${over ? ' (over capacity)' : ''}. If they shouldn’t, refund it from the class in /admin.`).catch(() => undefined)
+  logger.info('Reader sale paid', { bookingId: sale.bookingId, orderId: paid.orderId, how: paid.how })
+  const who = `${nameOfSale(sale)}, ${sale.className}, ${dollars(sale.amountCents)}`
+  const lateNow = late as ReaderSale['late'] | undefined
+  if (lateNow) {
+    await alertOwners(lateNow.afterLetGo
+      ? `A reader payment came in after its seat was let go: ${who}. They have their seat${lateNow.overCapacity ? ' (over capacity)' : ''}. Open /admin › To decide › Reader payment came in late to keep them or refund it.`
+      : `A reader payment came in after its 30-minute hold ran out: ${who}. They have their seat (over capacity). Open /admin › To decide › Reader payment came in late to keep them or refund it.`).catch(() => undefined)
   }
+  const movedNow = moved as ReaderExtraPayment | null
+  if (movedNow) await alertExtra(sale, movedNow)
   await recordAudit({
-    by: auditBy(sale.by), action: 'seat.sold-on-reader', target: { kind: 'workshop', id: sale.classId, label: sale.className },
+    by: auditBy(sale.by), action: paid.how === 'kept' ? 'seat.reader-kept' : 'seat.sold-on-reader', target: { kind: 'workshop', id: sale.classId, label: sale.className },
     details: {
-      bookingId: sale.bookingId, orderId: verdict.orderId, paymentId: verdict.paymentId ?? '', amountCents: sale.amountCents, how,
-      seats: sale.seats, email: sale.customer.email, name: `${sale.customer.givenName} ${sale.customer.familyName}`,
-      ...(verdict.tipCents ? { tipCents: verdict.tipCents } : {}),
+      bookingId: sale.bookingId, orderId: paid.orderId, paymentId: paid.paymentId ?? '', amountCents: sale.amountCents, how: paid.how,
+      seats: sale.seats, email: sale.customer.email, name: nameOfSale(sale),
+      ...(paid.tipCents ? { tipCents: paid.tipCents } : {}),
+      ...(paid.kept ? { keptBy: paid.kept.by.name, chargedCents: paid.chargedCents, shortCents: paid.kept.shortCents, why: paid.kept.why } : {}),
+      ...(lateNow ? { late: true, overCapacity: lateNow.overCapacity } : {}),
     },
   })
   if (sale.sendEmail) await sendOnce(sale, cls, lines, origin)
-  return answerOf(sale, 'paid', message)
+  return { message, wrote, lines }
+}
+
+/** R2: records another payment Square shows for a sale already paid (once per order) and texts the owners once. */
+async function noteExtraPayment(bookingId: string, extra: ReaderExtraPayment): Promise<void> {
+  let added = false
+  const after = await updateReaderSale(bookingId, (cur) => {
+    added = false
+    if ((cur.extraPayments ?? []).some((x) => x.orderId === extra.orderId) || cur.paid?.orderId === extra.orderId) return null
+    added = true
+    return { ...cur, extraPayments: [...(cur.extraPayments ?? []), extra] }
+  }).catch((e) => {
+    logger.error('Second reader payment not recorded', { bookingId, orderId: extra.orderId, error: e instanceof Error ? e.message : String(e) })
+    return null
+  })
+  if (added && after) await alertExtra(after, extra)
+}
+
+async function alertExtra(sale: ReaderSale, extra: ReaderExtraPayment): Promise<void> {
+  const amount = extra.cents ? `, ${dollars(extra.cents)}` : ''
+  await alertOwners(sale.state === 'paid'
+    ? `A second reader payment came in for one sale: ${nameOfSale(sale)}, ${sale.className}${amount}. The seat was already paid. Open /admin › To decide › Second reader payment to refund it.`
+    : `A reader payment that doesn't match came in after its seat was let go: ${nameOfSale(sale)}, ${sale.className}${amount}. Nobody has a seat for it. Open /admin › To decide › Reader payment with no seat to refund it.`).catch(() => undefined)
 }
 
 /** The confirmation, as for any door sale, at most once per booking. */
@@ -292,20 +371,39 @@ async function sendOnce(sale: ReaderSale, cls: ScheduledClass, lines: LedgerLine
 
 async function refuse(sale: ReaderSale, why: OrderRefusal | 'linked', orderId: string, now: Date, order: any): Promise<ReaderAnswer> {
   logger.error('Reader order refused', { bookingId: sale.bookingId, orderId, why, total: order?.total_money?.amount ?? null })
-  // A paid sale is never unpaid by a stray order.
-  if (sale.state === 'paid') return answerOf(sale, 'paid', sale.answer?.message ?? PAID_MESSAGE(sale))
+  const money = MONEY_REFUSALS.has(why)
+  const { paidCents } = paidForSeat(order)
+  // A paid sale is never unpaid by a stray order. One that names this sale is money taken for it: a second payment (R2).
+  if (sale.state === 'paid') {
+    const names = (order?.tenders ?? []).some((t: any) => bookingInNote(t?.note) === sale.bookingId)
+    if (money && names && orderId && sale.paid?.orderId !== orderId) {
+      await noteExtraPayment(sale.bookingId, { orderId, paymentIds: paymentIdsOf(order), cents: paidCents, at: now.toISOString(), from: 'second' })
+    }
+    return answerOf(sale, 'paid', sale.answer?.message ?? PAID_MESSAGE(sale))
+  }
+  // 'not-completed' fixes itself: nothing for an owner.
+  if (why === 'not-completed') return answerOf(sale, sale.state === 'waiting' ? 'waiting' : sale.state, refusalMessage(why), why)
+  // After the seat was let go (or the app said cancelled), money Square took for this sale waits in To decide as a payment to refund.
+  if (sale.state !== 'waiting') {
+    if (money && orderId) await noteExtraPayment(sale.bookingId, { orderId, paymentIds: paymentIdsOf(order), cents: paidCents, at: now.toISOString(), from: 'mismatch' })
+    return answerOf(sale, 'refused', refusalMessage(why), why)
+  }
   const before = sale.problem
-  await updateReaderSale(sale.bookingId, (cur) => (cur.state === 'paid' ? null : { ...cur, problem: { why, orderId, at: now.toISOString() } })).catch(() => undefined)
-  // 'not-completed' fixes itself; anything else is for an owner, once per order and reason.
-  if (why !== 'not-completed' && !(before?.orderId === orderId && before.why === why)) {
+  await updateReaderSale(sale.bookingId, (cur) => (cur.state === 'paid' ? null : {
+    ...cur, problem: { why, orderId, at: now.toISOString(), paidCents, paymentIds: paymentIdsOf(order) },
+  })).catch(() => undefined)
+  // For an owner, once per order and reason.
+  if (!(before?.orderId === orderId && before.why === why)) {
     const shown = typeof order?.total_money?.amount === 'number' ? ` Square shows ${dollars(order.total_money.amount)}.` : ''
     const what: Record<typeof why, string> = {
       amount: 'a different amount', tender: 'not paid by card or gift card', location: 'taken at another Square location',
-      old: 'from before the sale started', linked: 'already used for another seat', 'not-ours': 'for a different sale',
+      old: 'from before the sale started', late: 'finished more than a day after the sale started', split: 'split between a gift card and a card',
+      linked: 'already used for another seat', 'not-ours': 'for a different sale',
     }
-    await alertOwners(`Reader payment didn't match (${what[why]}): ${sale.customer.givenName} ${sale.customer.familyName}, ${sale.className}, ${dollars(sale.amountCents)} expected.${shown} The seat is held, not marked paid. Open /admin › To decide to Ask Square or let the seat go.`).catch(() => undefined)
+    const next = money ? 'Open /admin › To decide › Reader payment didn’t match to keep it or refund it.' : 'Open /admin › To decide to Ask Square or let the seat go.'
+    await alertOwners(`Reader payment didn't match (${what[why]}): ${nameOfSale(sale)}, ${sale.className}, ${dollars(sale.amountCents)} expected.${shown} The seat is held, not marked paid. ${next}`).catch(() => undefined)
   }
-  return answerOf(sale, why === 'not-completed' ? 'waiting' : 'refused', refusalMessage(why))
+  return answerOf(sale, 'refused', refusalMessage(why), why)
 }
 
 // ---------------------------------------------------------------- ask Square
@@ -376,10 +474,13 @@ export async function letReaderSeatGo(bookingId: string, by: By & { role?: 'owne
   if (!sale) throw new ReaderError(404, 'That sale isn’t on file.')
   if (sale.state === 'paid') throw new ReaderError(409, 'This seat is paid, so it stays. Refund it from the class if you need to.')
   if (sale.state !== 'waiting') return answerOf(sale, sale.state, sale.answer?.message ?? 'The seat was already let go.')
+  // R1: Square took money for this sale that didn't match: an owner keeps it or refunds it (letting the seat go here would keep the money).
+  if (sale.problem && MONEY_REFUSALS.has(sale.problem.why)) throw new ReaderError(409, MISMATCH_HELD, 'mismatch')
   const asked = await checkReaderSale(bookingId, origin, now)
   if (asked.outcome === 'paid') throw new ReaderError(409, `Square shows this paid, so the seat is theirs. ${asked.message}`, 'paid')
   if (asked.outcome === 'unknown') throw new ReaderError(503, 'Square couldn’t be reached to check first, so the seat stays held. Try again in a minute.')
-  if (asked.outcome === 'refused') throw new ReaderError(409, `Square shows a payment for this sale that doesn’t match, so the seat stays held. ${asked.message}`)
+  // An order that isn't this sale's money (another booking's, or a counter sale) doesn't keep the seat.
+  if (asked.outcome === 'refused' && asked.why && MONEY_REFUSALS.has(asked.why)) throw new ReaderError(409, MISMATCH_HELD, 'mismatch')
   await release(sale.classId, bookingId)
   const message = 'The seat was let go. Nothing was charged.'
   const after = await updateReaderSale(bookingId, (cur) => (cur.state !== 'waiting' ? null : {
@@ -416,7 +517,12 @@ export async function settleReaderOrderFromSquare(order: any, origin: string, no
 
 /** A sale waiting long enough (or with an order that didn't match) to be in /admin › To decide. */
 export function readerNeedsDeciding(s: ReaderSale, now: Date): boolean {
-  return s.state === 'waiting' && (!!s.problem || now.getTime() - Date.parse(s.startedAt) >= READER_DECIDE_AFTER_MS)
+  return s.state === 'waiting' && ((!!s.problem && s.problem.why !== 'not-completed') || now.getTime() - Date.parse(s.startedAt) >= READER_DECIDE_AFTER_MS)
+}
+
+/** When the seat's hold runs out (30 minutes; a day for a payment Square took offline). */
+export function readerHoldEnds(s: ReaderSale): number {
+  return s.offline ? Date.parse(s.offline.at) + READER_OFFLINE_HOLD_HOURS * 3_600_000 : Date.parse(s.startedAt) + READER_HOLD_MINUTES * 60_000
 }
 
 /** "Sat Nov 7 4:30 PM". */

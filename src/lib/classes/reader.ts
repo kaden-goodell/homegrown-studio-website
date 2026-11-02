@@ -177,7 +177,18 @@ export function readerErrorMessage(code: string): string {
 
 // ---------------------------------------------------------------- checking the order Square shows
 
-export type OrderRefusal = 'location' | 'not-completed' | 'amount' | 'tender' | 'old' | 'not-ours'
+/**
+ * Why an order isn't a sale's payment:
+ *   old    made before the sale started (an older payment can't be borrowed)
+ *   late   finished more than a day after the sale started (an offline payment that came in very late)
+ *   split  paid in more than one part (a gift card and a card): refused, because a seat's refund goes back
+ *          on one payment (M-d). Catherine keeps it out of trouble with Refund it in To decide.
+ *   not-ours  it names another booking, or it sold catalog items (a counter sale, R5)
+ */
+export type OrderRefusal = 'location' | 'not-completed' | 'amount' | 'tender' | 'old' | 'late' | 'split' | 'not-ours'
+
+/** Refusals where the money is this sale's (Square shows it took a payment for it): Catherine keeps it or refunds it. */
+export const MONEY_REFUSALS: ReadonlySet<OrderRefusal | 'linked'> = new Set(['amount', 'tender', 'old', 'late', 'split', 'location'])
 
 export type OrderCheck =
   | { ok: true; orderId: string; paymentId: string | null; paymentIds: string[]; tipCents: Cents }
@@ -202,19 +213,34 @@ export function checkReaderOrder(
   if (!orderId) return { ok: false, why: 'not-ours' }
   if (expect.locationId && order.location_id !== expect.locationId) return { ok: false, why: 'location' }
   if (order.state !== 'COMPLETED') return { ok: false, why: 'not-completed' }
+  // R5: a reader payment carries an amount and a note, never catalog items. One that sold items is a counter sale.
+  const items: any[] = Array.isArray(order.line_items) ? order.line_items : []
+  if (items.some((li) => typeof li?.catalog_object_id === 'string' && li.catalog_object_id)) return { ok: false, why: 'not-ours' }
   const tenders: any[] = Array.isArray(order.tenders) ? order.tenders : []
   const named = tenders.map((t) => bookingInNote(t?.note)).filter((x): x is string => !!x)
   if (named.some((b) => b !== expect.bookingId)) return { ok: false, why: 'not-ours' }
   const created = Date.parse(order.created_at ?? '')
   const started = Date.parse(expect.startedAt)
-  if (!Number.isFinite(created) || created < started - READER_CLOCK_SLACK_MS || created > started + READER_STATE_TTL_MS) {
-    return { ok: false, why: 'old' }
-  }
+  if (!Number.isFinite(created) || created < started - READER_CLOCK_SLACK_MS) return { ok: false, why: 'old' }
+  if (created > started + READER_STATE_TTL_MS) return { ok: false, why: 'late' }
   if (!tenders.length || tenders.some((t) => !READER_ORDER_TENDERS.has(String(t?.type)))) return { ok: false, why: 'tender' }
   const tip = cents(order.total_tip_money)
   if (cents(order.total_money) - tip !== expect.amountCents) return { ok: false, why: 'amount' }
-  const paymentIds = [...new Set(tenders.map((t) => t?.payment_id ?? t?.id).filter((x): x is string => typeof x === 'string' && !!x))]
+  const paymentIds = paymentIdsOf(order)
+  if (paymentIds.length > 1 || tenders.length > 1) return { ok: false, why: 'split' }
   return { ok: true, orderId, paymentId: paymentIds[0] ?? null, paymentIds, tipCents: tip }
+}
+
+/** Every Square payment on an order (one per tender). */
+export function paymentIdsOf(order: any): string[] {
+  const tenders: any[] = Array.isArray(order?.tenders) ? order.tenders : []
+  return [...new Set(tenders.map((t) => t?.payment_id ?? t?.id).filter((x): x is string => typeof x === 'string' && !!x))]
+}
+
+/** What Square shows was paid on an order for the seat: its total less any tip. */
+export function paidForSeat(order: any): { paidCents: Cents; tipCents: Cents } {
+  const tip = cents(order?.total_tip_money)
+  return { paidCents: cents(order?.total_money) - tip, tipCents: tip }
 }
 
 /** What the crew read when the order Square shows doesn't pass. The seat stays held; owners hear of it. */
@@ -225,6 +251,8 @@ export function refusalMessage(why: OrderRefusal | 'linked'): string {
     case 'location': return 'That payment was taken at another Square location, so the seat isn’t marked paid. It stays held. Ask Catherine or Kaden.'
     case 'not-completed': return 'Square doesn’t show that payment as finished yet. The seat stays held. Tap Check again in a minute.'
     case 'old': return 'That payment is from before this sale, so the seat isn’t marked paid. It stays held. Ask Catherine or Kaden.'
+    case 'late': return 'That payment finished more than a day after this sale started, so the seat isn’t marked paid. It stays held. Ask Catherine or Kaden.'
+    case 'split': return 'That payment was split between a gift card and a card, which the website can’t record, so the seat isn’t marked paid. It stays held. Ask Catherine or Kaden.'
     case 'linked': return 'That payment already paid for another seat, so this seat isn’t marked paid. It stays held. Ask Catherine or Kaden.'
     case 'not-ours': return 'That payment is for a different sale, so this seat isn’t marked paid. It stays held. Ask Catherine or Kaden.'
   }

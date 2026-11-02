@@ -125,9 +125,14 @@ describe('checking the order Square shows', () => {
   it('passes ours to the letter', () => {
     expect(checkReaderOrder(order(), expect_)).toEqual({ ok: true, orderId: 'ORD1', paymentId: 'PAY1', paymentIds: ['PAY1'], tipCents: 0 })
   })
-  it('a gift card, or a card and a gift card together, is fine', () => {
-    expect(checkReaderOrder(order({ tenders: [{ id: 'G', type: 'SQUARE_GIFT_CARD' }, { id: 'C', type: 'CARD' }] }), expect_))
-      .toMatchObject({ ok: true, paymentIds: ['G', 'C'] })
+  it('a gift card is fine; a gift card and a card together (split) is refused, M-d', () => {
+    expect(checkReaderOrder(order({ tenders: [{ id: 'G', type: 'SQUARE_GIFT_CARD' }] }), expect_)).toMatchObject({ ok: true, paymentIds: ['G'] })
+    expect(checkReaderOrder(order({ tenders: [{ id: 'G', type: 'SQUARE_GIFT_CARD' }, { id: 'C', type: 'CARD' }] }), expect_)).toEqual({ ok: false, why: 'split' })
+  })
+  it('R5: an order with catalog items (a counter sale) is never a reader payment', () => {
+    expect(checkReaderOrder(order({ line_items: [{ uid: 'l1', catalog_object_id: 'VAR1', quantity: '1' }] }), expect_)).toEqual({ ok: false, why: 'not-ours' })
+    // a custom-amount line (no catalog id) is what the POS app makes: fine
+    expect(checkReaderOrder(order({ line_items: [{ uid: 'l1', name: 'Custom Amount', quantity: '1' }] }), expect_)).toMatchObject({ ok: true })
   })
   it('a tip on top is allowed and kept apart', () => {
     expect(checkReaderOrder(order({ total_money: { amount: 3770 }, total_tip_money: { amount: 500 } }), expect_)).toMatchObject({ ok: true, tipCents: 500 })
@@ -144,7 +149,8 @@ describe('checking the order Square shows', () => {
   })
   it('an order from before the sale started (or a day after) → refused', () => {
     expect(checkReaderOrder(order({ created_at: new Date(NOW.getTime() - 10 * 60_000).toISOString() }), expect_)).toEqual({ ok: false, why: 'old' })
-    expect(checkReaderOrder(order({ created_at: new Date(NOW.getTime() + READER_STATE_TTL_MS + 60_000).toISOString() }), expect_)).toEqual({ ok: false, why: 'old' })
+    // M-b: a day after is "late", not "old"
+    expect(checkReaderOrder(order({ created_at: new Date(NOW.getTime() + READER_STATE_TTL_MS + 60_000).toISOString() }), expect_)).toEqual({ ok: false, why: 'late' })
     expect(checkReaderOrder(order({ created_at: undefined }), expect_)).toEqual({ ok: false, why: 'old' })
   })
   it('cash (or any other tender) → refused (OWNER-S4-9)', () => {

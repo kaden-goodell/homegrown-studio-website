@@ -7,8 +7,12 @@
  */
 import { formatMoney } from '@lib/money'
 
-/** Bumped whenever the consent sentence changes; stored with each entry. 2: the class and its date are named (I2). */
-export const CONSENT_VERSION = 'wl-consent-2'
+/**
+ * Bumped whenever the consent sentence changes; stored with each entry. 2: the class and its date are named (I2).
+ * 3: "even if the price goes up later" (D6). Entries joined under an older version keep their stored text and are
+ * honoured as they are (the runner never reads the version).
+ */
+export const CONSENT_VERSION = 'wl-consent-3'
 
 export const MAX_WAITING_PER_CLASS = 40
 
@@ -33,8 +37,14 @@ export function closesLabel(iso: string): string {
  */
 export function consentText(input: { className: string; startIso: string; more?: boolean; closesIso: string; maxCents: number }): string {
   const when = `${input.more ? 'starts ' : ''}${closesLabel(input.startIso)}`
-  return `Save my card with Square. If a spot opens in ${input.className} (${when}) before the waitlist closes on ${closesLabel(input.closesIso)}, Hometown Studio adds me and charges this card up to ${formatMoney(input.maxCents)} without asking again. I’ll get a text and an email right away. I can leave the waitlist any time and my card comes off.`
+  return `Save my card with Square. If a spot opens in ${input.className} (${when}) before the waitlist closes on ${closesLabel(input.closesIso)}, Hometown Studio adds me and charges this card up to ${formatMoney(input.maxCents)}, even if the price goes up later, without asking again. I’ll get a text and an email right away. I can leave the waitlist any time and my card comes off.`
 }
+
+/** M-a: consent words compared without caring about spacing (browser and server may space "8 AM" differently). */
+export const sameWords = (a: string, b: string) => norm(a) === norm(b)
+const norm = (s: string) => s.replace(/[\s\u00a0\u202f]+/g, ' ').trim()
+/** The words carry the amount and the close time, however they're spaced. */
+export const wordsCarry = (text: string, part: string) => norm(text).includes(norm(part))
 
 export const WAITLIST_MESSAGES = {
   closed: 'The waitlist for this class has closed.',

@@ -66,7 +66,7 @@ function shownFor(cls: ScheduledClass, tickets: Record<string, number> = { perso
   const q = quote(cls, { passId: 'all', tickets, ...(sessionIds ? { sessionIds } : {}) }, NOW, 9)
   if (!q.ok) return null
   const c = consentFor(cls, q.value.sessionIds, q.value.totalCents)
-  return c ? { maxCents: q.value.totalCents, closesIso: c.closesIso, text: c.text } : null
+  return c ? { maxCents: q.value.totalCents, closesIso: c.closesIso, text: c.text, firstStartIso: c.firstStartIso } : null
 }
 const joinBody = (cls: ScheduledClass, over: Record<string, any> = {}) => ({
   action: 'join', classId: cls.id, attemptId: attempt(), passId: 'all', tickets: { person: 1 }, customer,
@@ -235,7 +235,7 @@ describe('waitlist join', () => {
     await fill(cls)
     const body = joinBody(cls)
     expect(Object.keys(body).sort()).toEqual(['action', 'attemptId', 'cardToken', 'classId', 'consent', 'consentShown', 'customer', 'passId', 'tickets', 'verificationToken'])
-    expect(Object.keys(body.consentShown!).sort()).toEqual(['closesIso', 'maxCents', 'text'])
+    expect(Object.keys(body.consentShown!).sort()).toEqual(['closesIso', 'firstStartIso', 'maxCents', 'text'])
   })
 
   it('I2: a stale price in the consent shown is refused with the new amount; nothing is saved', async () => {
@@ -254,8 +254,8 @@ describe('waitlist join', () => {
     const fresh = shownFor(cls)!
     const ok = await call(joinBody(cls, { consentShown: fresh }))
     expect(ok.status).toBe(200)
-    expect((await getWaitlist(cls.id)).entries[0].consent).toMatchObject({ text: fresh.text, textVersion: 'wl-consent-2' })
-    expect(fresh.text).toContain('up to $25.07')
+    expect((await getWaitlist(cls.id)).entries[0].consent).toMatchObject({ text: fresh.text, textVersion: 'wl-consent-3' })
+    expect(fresh.text).toContain('up to $25.07, even if the price goes up later, without asking again')
   })
 
   it('I2: a changed close time, changed words, or a page too old to send the consent are refused too', async () => {
@@ -264,11 +264,60 @@ describe('waitlist join', () => {
     const shown = shownFor(cls)!
     const closes = await call(joinBody(cls, { consentShown: { ...shown, closesIso: '2026-10-17T12:00:00.000Z' } }))
     expect(await closes.json()).toMatchObject({ code: 'consent_changed', detail: 'The waitlist now closes Sat, Oct 17 at 8 AM. Check it and tick the box again. Nothing was charged.' })
-    const words = await call(joinBody(cls, { consentShown: { ...shown, text: shown.text.replace('up to', 'at most') } }))
-    expect((await words.json()).code).toBe('consent_changed')
+    // Words that no longer carry the amount are refused, and the reply carries today's words.
+    const words = await call(joinBody(cls, { consentShown: { ...shown, text: shown.text.replace(/\$[\d.]+/, 'whatever it costs') } }))
+    expect(await words.json()).toMatchObject({ code: 'consent_changed', text: shown.text })
+    const date = await call(joinBody(cls, { consentShown: { ...shown, firstStartIso: '2026-10-31T15:00:00.000Z' } }))
+    expect((await date.json()).code).toBe('consent_changed')
     const old = await call(joinBody(cls, { consentShown: undefined }))
     expect(await old.json()).toMatchObject({ code: 'consent_changed', detail: 'The details changed. Check them and tick the box again. Nothing was charged.' })
     expect(h.square.saveCardCalls).toHaveLength(0)
+  })
+
+  it('M-a: a class renamed while the panel was open joins (stable ids decide); the words shown are stored as shown', async () => {
+    const cls = makeClass()
+    await fill(cls)
+    const shown = shownFor(cls)!
+    cls.content.name = 'Potholder Looms (new name)'
+    const res = await call(joinBody(cls, { consentShown: shown }))
+    expect(res.status).toBe(200)
+    expect((await getWaitlist(cls.id)).entries[0].consent).toMatchObject({ text: shown.text, textVersion: 'as-shown' })
+  })
+
+  it('M-a: spacing differences (a narrow space before AM) are the same words', async () => {
+    const cls = makeClass()
+    await fill(cls)
+    const shown = shownFor(cls)!
+    const res = await call(joinBody(cls, { consentShown: { ...shown, text: shown.text.replace(/ AM/g, '\u202fAM') } }))
+    expect(res.status).toBe(200)
+    expect((await getWaitlist(cls.id)).entries[0].consent).toMatchObject({ text: shown.text, textVersion: 'wl-consent-3' })
+  })
+
+  it('wl-consent-3: an older page’s wl-consent-2 words (same amount and close time) still join, kept as shown', async () => {
+    const cls = makeClass()
+    await fill(cls)
+    const shown = shownFor(cls)!
+    const v2 = shown.text.replace(', even if the price goes up later,', '')
+    const res = await call(joinBody(cls, { consentShown: { ...shown, text: v2 } }))
+    expect(res.status).toBe(200)
+    expect((await getWaitlist(cls.id)).entries[0].consent).toMatchObject({ text: v2, textVersion: 'as-shown' })
+  })
+
+  it('M-f: in production with no signing secret the join is refused before any card is saved (no dev fallback)', async () => {
+    const cls = makeClass()
+    await fill(cls)
+    const before = { secret: process.env.LOOKUP_SIGNING_SECRET, prod: process.env.PROD }
+    delete process.env.LOOKUP_SIGNING_SECRET
+    process.env.PROD = 'true'
+    try {
+      const res = await call(joinBody(cls))
+      expect(res.status).toBeGreaterThanOrEqual(500)
+      expect(h.square.saveCardCalls).toHaveLength(0)
+      expect((await getWaitlist(cls.id)).entries).toHaveLength(0)
+    } finally {
+      if (before.secret === undefined) delete process.env.LOOKUP_SIGNING_SECRET; else process.env.LOOKUP_SIGNING_SECRET = before.secret
+      if (before.prod === undefined) delete process.env.PROD; else process.env.PROD = before.prod
+    }
   })
 
   it('M4: the consent keeps only a keyed hash of the IP', async () => {

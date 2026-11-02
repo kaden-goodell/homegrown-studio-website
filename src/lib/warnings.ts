@@ -28,8 +28,7 @@ import type { Workshop } from '@providers/interfaces/workshop'
 import { getClass, listClasses } from '@lib/classes/class-store'
 import { cardsStillOn, waitlistItems, waitlistStop } from '@lib/classes/waitlist-items'
 import { waitlistOrNull } from '@lib/classes/waitlist-store'
-import { listWaitingReaderSales } from '@lib/classes/reader-store'
-import { readerNeedsDeciding } from '@lib/classes/reader-flow'
+import { readerDecideItems } from '@lib/classes/reader-decide'
 import { listPromos } from '@lib/promos/promo-store'
 import { cancelItems } from '@lib/classes/self-cancel'
 import { couldBeFree, promoState } from '@lib/promos/rules'
@@ -63,6 +62,8 @@ export type WarningCode =
   | 'register-old-setup'
   // Stage 4 waitlist: a saved-card charge Square never answered (seat held), or a card that didn't go through / a price that rose
   | 'waitlist-unknown' | 'waitlist-declined'
+  // R4: the waitlist charged someone just as their class was cancelled (nobody told them they're in): refund from To decide
+  | 'waitlist-refund'
   // Task 12: the waitlist stopped with a free seat it could take; a saved card Square hasn't confirmed off file
   | 'waitlist-stopped' | 'waitlist-card-on'
   // Task 12: a "Charge on the reader" payment that never came back (or didn't match); the seat is held
@@ -93,7 +94,7 @@ export interface Warning {
 /** Items that aren't tied to a day: they stay until an owner decides. */
 export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>([
   'pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated', 'waitlist-unknown', 'waitlist-declined',
-  'waitlist-card-on', 'reader-waiting', 'register-setup-missing', 'promo-free-unlimited', 'cancel-request', 'cancel-unclear',
+  'waitlist-refund', 'waitlist-card-on', 'reader-waiting', 'register-setup-missing', 'promo-free-unlimited', 'cancel-request', 'cancel-unclear',
 ])
 
 /** Days ahead the panel and the daily email look. */
@@ -434,18 +435,9 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
       action: OWNERS_DECIDE,
     })
   }
-  // Task 12: reader sales the Square app never answered (15 minutes on) or whose order didn't match. The seat is held.
-  for (const sale of await listWaitingReaderSales().catch(() => [])) {
-    if (!readerNeedsDeciding(sale, now)) continue
-    const who = `${sale.customer.givenName} ${sale.customer.familyName}`.trim() || 'A door sale'
-    const when = `${formatCalendarDay(studioDate(sale.firstStartIso))} ${formatTime(sale.firstStartIso)}`
-    out.push({
-      code: 'reader-waiting', eventKind: 'workshop', eventId: sale.classId, when: sale.startedAt, title: sale.className, itemId: `reader-${sale.bookingId}`,
-      detail: sale.problem
-        ? `${sale.className} ${when}: Square shows a payment for ${who}’s reader sale that doesn’t match the ${formatMoney(sale.amountCents)} asked. The seat is held, not paid.`
-        : `${sale.className} ${when}: ${who}’s ${formatMoney(sale.amountCents)} reader payment never came back from the Square app. The seat is held.`,
-      action: OWNERS_DECIDE,
-    })
+  // Task 12: reader sales the Square app never answered, payments that didn't match, second and late payments (each with its To decide buttons).
+  for (const r of await readerDecideItems(decided, now).catch(() => [])) {
+    out.push({ code: 'reader-waiting', eventKind: 'workshop', eventId: r.classId, when: r.at, title: r.className, itemId: r.id, detail: r.warning, action: OWNERS_DECIDE })
   }
   // D2: customers' notes asking to cancel, and their own cancels Square didn't answer, until an owner decides in To decide.
   for (const c of await cancelItems(decided, now, async (id) => byId.get(id) ?? (await getClass(id).catch(() => null))).catch(() => [])) {

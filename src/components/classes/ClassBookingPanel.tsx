@@ -579,12 +579,12 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
    * the waitlist still open, and keeps only Square's card id.
    */
   /** I2: the consent exactly as shown (its amount, close time and words), or null before it can be shown. */
-  function consentShown(): { maxCents: number; closesIso: string; text: string } | null {
+  function consentShown(): { maxCents: number; closesIso: string; text: string; firstStartIso: string } | null {
     const terms = wlTerms && wlTerms.shape === shape ? wlTerms : null
     const maxCents = terms?.maxCents ?? q?.totalCents ?? 0
     const closesIso = terms?.closesIso ?? wlClosesIso
     if (!closesIso || !wlFirstStart || maxCents <= 0) return null
-    return { maxCents, closesIso, text: consentText({ className: workshop.name, startIso: wlFirstStart, more: wlSessions.length > 1, closesIso, maxCents }) }
+    return { maxCents, closesIso, firstStartIso: wlFirstStart, text: consentText({ className: workshop.name, startIso: wlFirstStart, more: wlSessions.length > 1, closesIso, maxCents }) }
   }
 
   async function handleJoin(e?: FormEvent) {

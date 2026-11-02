@@ -107,6 +107,13 @@ type Actor = { by: By; role: 'owner' | 'crew' }
 export const PARTY_SCOPE = 'party'
 
 /**
+ * Stage 4 (R1/R2): a reader payment that isn't a seat's (it didn't match, or a second payment for one
+ * sale). bookingId = `{reader booking id}~{Square payment id}`; one request per payment
+ * (classes/reader-refund).
+ */
+export const READER_SCOPE = 'reader'
+
+/**
  * Finds the book that writes refunds for a scope (the static list is
  * booking-core/refund-books: classes and parties, an unknown scope throws).
  * The runner itself knows no booking kind. `hint.label` is the name the

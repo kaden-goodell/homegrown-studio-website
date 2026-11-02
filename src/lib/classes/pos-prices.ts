@@ -156,11 +156,13 @@ export const UPDATE_ALL_BUDGET_MS = 4_000
  * class an owner saved meanwhile is skipped (their save sent the new setup).
  * Stops before any write when the setup itself isn't right in Square.
  */
-export async function updateAllToSetup(by: By, opts: { now?: Date; budgetMs?: number } = {}): Promise<{ updated: OldSetupRow[]; failed: OldSetupRow[]; left: OldSetupRow[] }> {
+export async function updateAllToSetup(by: By, opts: { now?: Date; budgetMs?: number; skip?: string[] } = {}): Promise<{ updated: OldSetupRow[]; failed: OldSetupRow[]; left: OldSetupRow[] }> {
   const started = Date.now()
   const now = opts.now ?? new Date()
   const budget = opts.budgetMs ?? UPDATE_ALL_BUDGET_MS
-  const rows = await classesOnOldSetup(now)
+  // M-e: classes that kept failing this run (the sheet sends them back) are left for their own Update the register.
+  const skip = new Set(opts.skip ?? [])
+  const rows = (await classesOnOldSetup(now)).filter((r) => !skip.has(r.id))
   if (!rows.length) return { updated: [], failed: [], left: [] }
   const choices = await listRegisterChoices()
   const reg = await registerInForce()

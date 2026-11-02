@@ -61,7 +61,10 @@ export const POST: APIRoute = async ({ request, clientAddress }) => {
     const verificationToken = typeof body.verificationToken === 'string' && body.verificationToken.length <= 4000 ? body.verificationToken : null
     const cs = body.consentShown
     const consentShown = cs && typeof cs === 'object' && Number.isInteger(cs.maxCents) && typeof cs.closesIso === 'string' && cs.closesIso.length <= 40
-      ? { maxCents: Number(cs.maxCents), closesIso: cs.closesIso, ...(typeof cs.text === 'string' && cs.text.length <= 1000 ? { text: cs.text } : {}) }
+      ? {
+        maxCents: Number(cs.maxCents), closesIso: cs.closesIso, ...(typeof cs.text === 'string' && cs.text.length <= 1000 ? { text: cs.text } : {}),
+        ...(typeof cs.firstStartIso === 'string' && cs.firstStartIso.length <= 40 ? { firstStartIso: cs.firstStartIso } : {}),
+      }
       : null
 
     const data = await joinWaitlist({

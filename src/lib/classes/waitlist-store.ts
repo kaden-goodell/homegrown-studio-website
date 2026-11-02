@@ -62,6 +62,8 @@ export interface WaitlistAttempt {
   skipWhy?: 'price' | 'gone'
   /** What we actually sent the family about this try (M5). */
   told?: { text: boolean; email: boolean }
+  /** R4: Square took this charge just as the class was cancelled; nobody told them they're in. Owners refund it from To decide. */
+  cancelledPaid?: boolean
 }
 
 export interface WaitlistEntry {

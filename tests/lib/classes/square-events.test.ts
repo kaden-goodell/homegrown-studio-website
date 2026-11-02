@@ -608,14 +608,14 @@ describe('R42: our own online bookings Square shows paid', () => {
     expect((await getUses(code))!.used.map((u) => u.bookingId)).toEqual([bookingId])
   })
 
-  it('“I sorted it out in Square” just closes the item', async () => {
+  it('“It’s already sorted” just closes the item', async () => {
     const cls = makeClass(); classes.list = [cls]
     const bookingId = `bkg_${uid('sort').toLowerCase()}`
     const o = ownOrder(cls, bookingId)
     sq.orders.set(o.id, o)
     await handleSquareEvent(paymentDone(o), NOW)
     const item = (await listToDecide(NOW)).items.find((i) => i.kind === 'paid-not-seated' && i.detail.orderId === o.id)!
-    expect((await decide(item.id, 'sorted', {}, by, NOW)).decided.what).toBe('Sorted out in Square')
+    expect((await decide(item.id, 'sorted', {}, by, NOW)).decided.what).toBe('Already sorted')
     expect((await listPaidNotSeated()).filter((p) => p.orderId === o.id)).toEqual([])
     expect((await getLedger(cls.id)).lines).toHaveLength(0)
   })

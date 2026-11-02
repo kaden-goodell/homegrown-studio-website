@@ -505,7 +505,11 @@ async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Qu
   // The seat: this try's hold if it is still running, else a new hold under the same booking.
   const ledger = await getLedger(cls.id)
   const held = ledger.lines.some((l) => l.bookingId === a.bookingId && isLiveHold(l, now))
-  if (!held) {
+  if (held) {
+    // M-c: a resumed try's hold may be nearly out: it runs a full 30 minutes from this charge.
+    await extendHold(cls.id, a.bookingId, new Date(now.getTime() + WAITLIST_HOLD_MINUTES * 60_000).toISOString())
+      .catch((e) => logger.error('Could not extend the waitlist hold before the charge', { bookingId: a.bookingId, error: String(e) }))
+  } else {
     let ok = false
     try {
       ok = (await hold(cls, q, holdInput, now)).ok
@@ -573,6 +577,28 @@ async function proceed(ctx: Ctx, entry: WaitlistEntry, a: WaitlistAttempt, q: Qu
       await tellOwnersOfDrift(`Waitlist price differed — ${cls.content.name}`, `booking ${a.bookingId}`, q.totalCents, order.totalCents, '')
     }
     amount = order.totalCents
+  }
+
+  // R4: the class as it is right now (it may have been cancelled, or its waitlist closed, while this run worked).
+  // Not allowed any more → nothing is sent: a try never sent settles at once; one sent before is asked about read only.
+  let live: ScheduledClass | null
+  try {
+    live = await getClass(cls.id)
+  } catch (err) {
+    logger.error('Could not re-read the class before a waitlist charge — nothing sent', { classId: cls.id, error: String(err) })
+    if (!sentBefore) {
+      await letGoOf(cls.id, a.bookingId)
+      await backToWaiting(ctx, entry, a, 'error', 'The class couldn’t be read just before the charge, so nothing was sent. Still waiting; not charged.')
+    }
+    ctx.result.stopped = 'error'
+    return 'stop'
+  }
+  const now2 = new Date(Math.max(now.getTime(), Date.now()))
+  const fresh: ScheduledClass = live ?? { ...cls, status: 'cancelled' }
+  if (!mayResend(fresh, entry, now2)) {
+    const settleCtx: Ctx = { ...ctx, cls: fresh }
+    if (!sentBefore) return settleNotPaid(settleCtx, entry, a, 'never-sent')
+    return settleCharging(settleCtx, entry)
   }
 
   // Written down before the charge: every resend of this try sends exactly this (order, amount, note, key).
@@ -655,17 +681,22 @@ async function finishPaid(
   const { cls, now, result } = ctx
   const chargedCents = payment.amount || a.amountCents || q?.totalCents || 0
   const holdInput: HoldInput = input ?? holdInputFor(entry, a)
+  // R4: cancelled meanwhile (by an owner while this run charged)? Read it again before telling anyone they're in.
+  const reread = await getClass(cls.id).then((c) => ({ c }), () => null)
+  const cancelled = cls.status === 'cancelled' || (reread !== null && (reread.c === null || reread.c.status === 'cancelled'))
   // The entry first: once Square has the money, nobody may ever charge this person again.
   const added = await updateEntry(cls.id, entry.id, (e) => ({
-    ...patchAttempt(e, a.n, { orderId, amountCents: chargedCents, outcome: 'paid', paymentId: payment.id }), state: 'added', bookingId: a.bookingId,
+    ...patchAttempt(e, a.n, { orderId, amountCents: chargedCents, outcome: 'paid', paymentId: payment.id, ...(cancelled ? { cancelledPaid: true } : {}) }), state: 'added', bookingId: a.bookingId,
   }), { by: ctx.by, change: `Added and charged ${money(chargedCents)} to the card ending ${entry.square.last4}` }, now)
   if (!added) logger.error('WAITLIST PAID BUT ENTRY NOT MARKED ADDED', { entryId: entry.id, orderId })
   result.added++
 
   let recorded = true
+  let overCapacity = false
   try {
     if (!q) throw new Error('no quote to record the seats from')
-    await confirm(cls.id, a.bookingId, { orderId, paymentId: payment.id, chargedCents, ...(lineTotals ? { lineTotals } : {}) }, { cls, quote: q, input: holdInput }, now)
+    const lines = await confirm(cls.id, a.bookingId, { orderId, paymentId: payment.id, chargedCents, ...(lineTotals ? { lineTotals } : {}) }, { cls, quote: q, input: holdInput }, now)
+    overCapacity = lines.some((l) => l.overCapacity)
   } catch (err) {
     recorded = false
     logger.error('WAITLIST PAID, SEATS NOT RECORDED', { entryId: entry.id, bookingId: a.bookingId, orderId, error: String(err) })
@@ -674,8 +705,8 @@ async function finishPaid(
   await cardOffAndNote(cls.id, added ?? entry, now)
 
   const name = nameOfEntry(entry)
-  if (cls.status === 'cancelled') {
-    await alertOwners(`${name} was charged ${money(chargedCents)} by the waitlist just before ${cls.content.name} was cancelled. Refund them from the class sheet.`).catch(() => undefined)
+  if (cancelled) {
+    await alertOwners(`${name} was charged ${money(chargedCents)} by the waitlist just before ${cls.content.name} was cancelled. They weren't told they're in. Open /admin › To decide › Waitlist charge on a cancelled class to refund them.`).catch(() => undefined)
   } else {
     const start = firstStart(cls, entry.sessionIds)
     const seatsLabel = waitlistSeatsWords(cls, entry)
@@ -689,12 +720,12 @@ async function finishPaid(
       if (!sent) await releaseConfirmation(a.bookingId)
     }
     await text(entry.customer.phone, `Hometown Studio here. A spot opened in ${cls.content.name} on ${whenWords(start)} and you're in! We charged ${money(chargedCents)} to your card ending ${entry.square.last4}. See you there.`)
-    await alertOwners(`Waitlist added ${name} to ${cls.content.name} (${money(chargedCents)}).${entry.leaveAskedAt ? ' They had asked to leave, but Square shows the charge went through, so they’re in.' : ''}${recorded ? '' : ` Their seats aren't recorded yet; Square's payment notice books them, or it shows in /admin › To decide. Order ${orderId}.`}`).catch(() => undefined)
+    await alertOwners(`Waitlist added ${name} to ${cls.content.name} (${money(chargedCents)}).${overCapacity ? ' Their seat ran over capacity (the hold ran out while Square answered).' : ''}${entry.leaveAskedAt ? ' They had asked to leave, but Square shows the charge went through, so they’re in.' : ''}${recorded ? '' : ' Their seats aren\'t recorded yet. Square\'s payment notice books them; if it can\'t, it shows in /admin › To decide › Paid, no seat with Give them their seat.'}`).catch(() => undefined)
   }
   await recordAudit({
     by: ctx.by ? { ...ctx.by, role: 'owner' } : { id: 'waitlist', name: 'Waitlist', role: 'owner' },
     action: 'waitlist-added', target: { kind: 'class', id: cls.id, label: cls.content.name },
-    details: { entryId: entry.id, bookingId: a.bookingId, orderId, paymentId: payment.id, cents: chargedCents, n: a.n, name, recovered: a.outcome === 'unknown', cancelled: cls.status === 'cancelled' },
+    details: { entryId: entry.id, bookingId: a.bookingId, orderId, paymentId: payment.id, cents: chargedCents, n: a.n, name, recovered: a.outcome === 'unknown', cancelled, ...(overCapacity ? { overCapacity } : {}) },
   }).catch(() => undefined)
   return 'next'
 }

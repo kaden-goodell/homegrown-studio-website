@@ -538,23 +538,30 @@ export function RegisterSetupSheet() {
    * few seconds per call; this keeps calling while it makes progress, so one
    * tap does them all. Safe to tap again: a class already updated isn't sent.
    */
+  /** M-e: a class that fails this many rounds in one run is left out of the rest of it and listed with its own button. */
+  const UPDATE_TRIES_PER_CLASS = 5
   async function updateAll() {
     setUpdateError('')
     let done = 0
     setUpdating({ done })
+    const fails = new Map<string, { row: NotOnRegisterRow; n: number }>()
+    const gaveUp = () => [...fails.values()].filter((f) => f.n >= UPDATE_TRIES_PER_CLASS).map((f) => f.row)
     for (let round = 0; round < 50; round++) {
-      const r = await api<{ updated: number; failed: NotOnRegisterRow[]; left: number; oldSetup: NotOnRegisterRow[] }>(REGISTER, { action: 'update-classes' })
+      const r = await api<{ updated: number; failed: NotOnRegisterRow[]; left: number; oldSetup: NotOnRegisterRow[] }>(REGISTER, { action: 'update-classes', skip: gaveUp().map((c) => c.id) })
       if (!r.ok || !r.data) { setUpdateError(r.error ?? DIDNT_SAVE); break }
       const data = r.data
       done += data.updated
+      for (const f of data.failed) fails.set(f.id, { row: f, n: (fails.get(f.id)?.n ?? 0) + 1 })
       setUpdating({ done })
       setD((cur) => cur && ({ ...cur, oldSetup: data.oldSetup }))
-      if (data.failed.length && !data.left) {
-        setUpdateError(`${data.failed.length === 1 ? `${data.failed[0].name} didn’t` : `${data.failed.length} classes didn’t`} update. Square didn’t take it just now. Tap Update them all again in a few minutes.`)
-        break
-      }
-      if (!data.left || (!data.updated && !data.failed.length)) {
-        if (!data.oldSetup.length) toast(done === 1 ? 'Updated 1 class. The register is up to date.' : `Updated ${done} classes. The register is up to date.`)
+      const stuck = gaveUp().filter((c) => data.oldSetup.some((o) => o.id === c.id))
+      // Done: nothing left this run (the classes given up on are listed below, each opens with Update the register).
+      if (!data.left && !data.failed.length) {
+        if (stuck.length) {
+          setUpdateError(`${stuck.length === 1 ? `${stuck[0].name} didn’t` : `${stuck.length} classes didn’t`} update after ${UPDATE_TRIES_PER_CLASS} tries. Square didn’t take it. Open ${stuck.length === 1 ? 'it' : 'each one'} below and tap Update the register in a few minutes.`)
+        } else if (!data.oldSetup.length) {
+          toast(done === 1 ? 'Updated 1 class. The register is up to date.' : `Updated ${done} classes. The register is up to date.`)
+        }
         break
       }
     }
