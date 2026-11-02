@@ -430,6 +430,20 @@ describe('Party sheet', () => {
     expect(posts(f, ACT)[0].body).toEqual({ id: ID, action: 'free-time', startIso: T1, shownStartIso: T1, shownVersion: 2 })
   })
 
+  it('held longer than the party (extra time stopped by a lost lease): Put the end time back sends fit-hold, the panel goes at once', async () => {
+    const message = 'The calendar now holds Stefanie’s party until it ends, Sat, Mar 15 at 3:30 PM. The time after it is free again. Nothing was sent to Stefanie.'
+    const f = server(party({ holdState: { notHeld: null, freeable: [], longer: true } }), {
+      [ACT]: { body: { data: { party: { ...party(), holdState: { notHeld: null, freeable: [] } }, message } } },
+    })
+    open()
+    const panel = await screen.findByRole('group', { name: 'Held longer than the party' })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Put the end time back' }))
+    await waitFor(() => expect(posts(f, ACT)).toHaveLength(1))
+    expect(posts(f, ACT)[0].body).toEqual({ id: ID, action: 'fit-hold' })
+    expect(await screen.findByRole('heading', { name: 'Held time' })).toHaveAccessibleDescription(message)
+    await waitFor(() => expect(screen.queryByRole('group', { name: 'Held longer than the party' })).toBeNull())
+  })
+
   it('fix round: a leftover hold after a move: Free the old time names both times', async () => {
     const OLD = at('2031-03-08', '14:00')
     const f = server(party({ holdState: { notHeld: null, freeable: [{ startIso: OLD, why: 'leftover' }] } }), {

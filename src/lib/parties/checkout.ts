@@ -571,6 +571,10 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
   // The price the owner's sheet showed (I1): checked only on a fresh attempt. A retry of an attempt
   // still going through (its hold, or its unpaid order carried on) charges what it started with; a
   // "price changed" there could be false and would start a second booking (T12 re-review N3).
+  // Left as is on purpose (T12 re-review 2, Nit 2): a payment-link booking retried after its first try
+  // already held the time (`mine`) skips this check too and goes ahead at the price quoted now. Refusing
+  // there would strand the first try's payment-link hold, and the link and its email carry the amount
+  // actually quoted, so what the host pays is what they are shown. The window is a few seconds.
   if (!mine && !reuse && input.expectedCents !== undefined && input.expectedCents !== quotedCents) {
     logger.info('Owner booking refused: the price changed since the sheet opened', { partyId, expected: input.expectedCents, quoted: quotedCents })
     return refuse(409, 'invalid', PRICE_CHANGED_MESSAGE, 'price', { why: 'price_changed', newCents: quotedCents, oldCents: input.expectedCents })

@@ -34,6 +34,8 @@ const m = vi.hoisted(() => ({
   pause: { before: 0, after: 0, onPause: null as null | (() => void) },
   /** runs (once) before the next compare-and-set read of a party record: to change the store in between */
   beforeGetMeta: null as null | ((k: string) => void),
+  /** the party lease check: `passes` more checks go through, then each one finds the lease taken over (-1: never) */
+  fence: { passes: -1 },
   paid: new Map<string, any>(),
   data: new Map<string, { value: string; etag: string }>(),
   n: 0,
@@ -110,6 +112,17 @@ vi.mock('@lib/kit-store', async (orig) => ({
   ...(await orig<typeof import('@lib/kit-store')>()),
   releaseWeekClaim: (...a: any[]) => m.releaseClaim(...a),
 }))
+vi.mock('@lib/parties/party-lock', async (orig) => {
+  const real = await orig<typeof import('@lib/parties/party-lock')>()
+  return {
+    ...real,
+    assertPartyLockHeld: async () => {
+      if (m.fence.passes === 0) throw new real.PartyLockLostError('taken')
+      if (m.fence.passes > 0) m.fence.passes--
+      return real.assertPartyLockHeld()
+    },
+  }
+})
 vi.mock('@lib/parties/legacy-square', async (orig) => ({
   ...(await orig<typeof import('@lib/parties/legacy-square')>()),
   legacyRemaining: (...a: any[]) => m.legacy(...a),
@@ -1633,3 +1646,123 @@ describe('Task 13 fix round: the party sheet’s hold buttons (Hold this time ag
   })
 })
 
+describe('merge follow-ups (Task 13 into admin-d)', () => {
+  const LOST = /^Someone else started changing this party at the same moment, so this stopped\./
+  const fenceAfter = (n: number) => { m.fence.passes = n }
+  beforeEach(() => { m.fence.passes = -1 })
+
+  it('a lease taken over before the party book is written: Free this time, Hold this time again, Put the end time back and the same-time Move write nothing', async () => {
+    const { holdTime, releaseTime, resizeTime } = await import('@lib/parties/party-book')
+    const w = weekend()
+    // Free this time on a cancelled party still holding its time.
+    const c = await linkParty(w.sat2)
+    await act({ id: c, action: 'cancel' })
+    const cr = (await getPartyRecord(c))!
+    await holdTime({ partyId: c, startIso: w.sat2, endIso: cr.endIso!, ttlMinutes: null }, [], NOW)
+    m.audit.mockClear()
+    fenceAfter(0)
+    const free = await act({ id: c, action: 'free-time', startIso: w.sat2, shownStartIso: cr.startIso, shownVersion: cr.calendarSeq ?? 0 })
+    expect(free.status).toBe(409)
+    expect(free.body.error).toMatch(LOST)
+    expect(await holdsOf(c)).toHaveLength(1)
+    fenceAfter(-1)
+    // Hold this time again, and the same-time Move's quiet re-hold.
+    const b = await linkParty(w.sun1)
+    await releaseTime(b, w.sun1)
+    fenceAfter(0)
+    expect((await act({ id: b, action: 'hold-again' })).body.error).toMatch(LOST)
+    fenceAfter(0)
+    expect((await act({ id: b, action: 'move', startIso: w.sun1, fromIso: w.sun1 })).body.error).toMatch(LOST)
+    expect(await holdsOf(b)).toEqual([])
+    fenceAfter(-1)
+    // Put the end time back.
+    const e = await linkParty(w.sun330)
+    const er = (await getPartyRecord(e))!
+    const longer = new Date(Date.parse(er.endIso!) + 30 * 60_000).toISOString()
+    expect((await resizeTime(e, w.sun330, longer, [], NOW)).ok).toBe(true)
+    fenceAfter(0)
+    expect((await act({ id: e, action: 'fit-hold' })).body.error).toMatch(LOST)
+    expect((await holdsOf(e))[0].endIso).toBe(longer)
+    expect(audits('party-free-time').concat(audits('party-hold-again'), audits('party-fit-hold'))).toEqual([])
+  })
+
+  it('To decide’s party decisions are fenced too: “I told them” with the lease taken over saves nothing', async () => {
+    const { listToDecide, decide, DecideError } = await import('@lib/classes/to-decide')
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    await act({ id, action: 'move', startIso: w.sun1 })
+    const before = (await getPartyRecord(id))!.notTold
+    const item = (await listToDecide(NOW)).items.find((i) => i.kind === 'party-not-told' && i.detail.partyId === id)!
+    fenceAfter(0)
+    const err = await decide(item.id, 'told', {}, KADEN, NOW).catch((x) => x)
+    expect(err).toBeInstanceOf(DecideError)
+    expect(err.status).toBe(409)
+    expect(err.message).toMatch(LOST)
+    fenceAfter(-1)
+    expect((await getPartyRecord(id))!.notTold).toEqual(before)
+    // Under the lock, and a second tap after the first is told “Already done”.
+    expect((await decide(item.id, 'told', {}, KADEN, NOW)).decided.what).toBe('Told them')
+    expect((await getPartyRecord(id))!.notTold).toBeNull()
+  })
+
+  it('the release-hold name is the same action as Free the old time (one button, one set of rules)', async () => {
+    const w = weekend()
+    const id = (await book(cardBody(w.sat2))).body.data.party.bookingId
+    expect((await moveTime(id, { startIso: w.sat2 }, { startIso: w.sun1, endIso: new Date(Date.parse(w.sun1) + 90 * 60_000).toISOString() }, [], NOW)).ok).toBe(true)
+    const rec = (await getPartyRecord(id))!
+    await updatePartyRecord(id, (r) => ({ ...r, paying: { attemptId: randomUUID(), state: 'charging', until: new Date(NOW.getTime() + 5 * 60_000).toISOString(), via: 'link', quotedCents: 30000 } as any }), 'test', null)
+    // Waits while a payment goes through, under either name.
+    const r = await act({ id, action: 'release-hold', holdIso: w.sun1, shownStartIso: rec.startIso, shownVersion: rec.calendarSeq ?? 0 })
+    expect(r.status).toBe(409)
+    expect(r.body.error).toMatch(/going through/)
+    expect(await holdsOf(id)).toHaveLength(2)
+  })
+
+  it('releaseTime says whether it removed anything, so the reply never claims a time was freed when it wasn’t (re-review 2 Nit 1)', async () => {
+    const { releaseTime } = await import('@lib/parties/party-book')
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    expect(await releaseTime(id, w.sun1)).toBe(false)
+    expect(await releaseTime(id, w.sat2)).toBe(true)
+    expect(await releaseTime(id, w.sat2)).toBe(false)
+  })
+
+  it('moving back clears the time reminder only when the host was told that end too (re-review 2 Minor 1)', async () => {
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const told = (await getPartyRecord(id))!.linkSent!.at(-1)!
+    expect(told.email || told.text).toBe(true)
+    // Told by the payment link, which carries no end time. The extra half hour makes the party end later.
+    expect((await act({ id, action: 'add-extra', addOnId: 'add_half', count: 1, createKey: `x_${randomUUID()}` })).status).toBe(200)
+    await act({ id, action: 'move', startIso: w.sun1 })
+    await act({ id, action: 'move', startIso: w.sat2 })
+    expect((await getPartyRecord(id))!.notTold).toMatchObject({ what: ['time'] })
+  })
+
+  it('extra time stopped by a lost lease after the calendar grew: Put the end time back holds the party to its saved end, nothing sent (re-review 2 Nit 3)', async () => {
+    const { partyHoldState } = await import('@lib/parties/hold-actions')
+    const w = weekend()
+    const id = await linkParty(w.sat2)
+    const rec = (await getPartyRecord(id))!
+    // The calendar grows (first check passes), then the lease is gone before the record is saved.
+    fenceAfter(1)
+    const add = await act({ id, action: 'add-extra', addOnId: 'add_half', count: 1, createKey: `x_${randomUUID()}` })
+    fenceAfter(-1)
+    expect(add.status).toBe(409)
+    expect(add.body.error).toMatch(/add it again to finish it, or tap Put the end time back if it isn’t wanted\.$/)
+    expect((await getPartyRecord(id))!.endIso).toBe(rec.endIso)
+    expect(Date.parse((await holdsOf(id))[0].endIso)).toBeGreaterThan(Date.parse(rec.endIso!))
+    expect((await partyHoldState(rec, NOW))!.longer).toBe(true)
+    m.audit.mockClear(); m.confirmEmail.mockClear(); m.text.mockClear(); m.linkEmail.mockClear()
+    const fit = await act({ id, action: 'fit-hold' })
+    expect(fit.status, JSON.stringify(fit.body)).toBe(200)
+    expect(fit.body.data.message).toMatch(/^The calendar now holds Stefanie’s party until it ends, .*\. The time after it is free again\. Nothing was sent to Stefanie\.$/)
+    expect(fit.body.data.party.holdState.longer).toBeUndefined()
+    expect((await holdsOf(id))[0].endIso).toBe(rec.endIso)
+    expect(audits('party-fit-hold')).toHaveLength(1)
+    const again = await act({ id, action: 'fit-hold' })
+    expect(again.body.data).toMatchObject({ replay: true, message: 'The calendar already shows Stefanie’s party ending when it ends. Nothing changed.' })
+    expect(audits('party-fit-hold')).toHaveLength(1)
+    expect(m.confirmEmail).not.toHaveBeenCalled(); expect(m.text).not.toHaveBeenCalled(); expect(m.linkEmail).not.toHaveBeenCalled()
+  })
+})

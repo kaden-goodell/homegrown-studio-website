@@ -299,7 +299,10 @@ export function noteNotTold(cur: PartyRecord, what: Untold, by: By, now: Date, n
   const at = now.toISOString()
   if (what === 'time' && next) {
     const told = lastToldEntry(cur)
-    if (told && sameStart(told.startIso, next.startIso) && (!told.endIso || sameStart(told.endIso, next.endIso))) {
+    // Only when the host was told this very span: an entry without an end (the payment link's text, or a
+    // confirmation saved before ends were kept) can't prove the end matches, so the reminder stays
+    // (T12 re-review 2, Minor 1). A leftover reminder costs one tap; a wrongly cleared one leaves the host untold.
+    if (told && told.endIso && sameStart(told.startIso, next.startIso) && sameStart(told.endIso, next.endIso)) {
       const rest = (prev?.what ?? []).filter((w) => w !== 'time' && w !== 'cancelled')
       return rest.length ? { at, by, what: rest } : null
     }
@@ -689,7 +692,7 @@ async function addExtraLocked(
   } catch (e) {
     if (extra > 0 && (e instanceof PartyLockLostError || partyLockTaken())) {
       // The lease was lost: no shrink-back (it could undo another server's write, N2c).
-      throw new PartyActionError(409, `${e instanceof PartyLockLostError && e.reason === 'unreachable' ? 'The party couldn’t be reached for a while' : 'Someone else started changing this party at the same moment'}, so ${q.value.label} wasn’t added. The calendar may already show the party ${extra} minutes longer. Open the party again and add it again to finish it.`)
+      throw new PartyActionError(409, `${e instanceof PartyLockLostError && e.reason === 'unreachable' ? 'The party couldn’t be reached for a while' : 'Someone else started changing this party at the same moment'}, so ${q.value.label} wasn’t added. The calendar may already show the party ${extra} minutes longer. Open the party again: add it again to finish it, or tap Put the end time back if it isn’t wanted.`)
     }
     if (extra > 0) {
       // Back to the party's end as saved now (another extra may have grown it meanwhile); unreadable → leave it longer (safe).

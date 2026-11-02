@@ -7,7 +7,7 @@ import {
   addPartyExtra, adminPartyView, cancelParty, markPartyTold, editPartyDetails, json, LEGACY_PARTY, moveParty, partyReply,
   PartyActionError, paymentGoingThrough, paymentWaitMessage, removePartyExtra, sendPartyDetails, sendPartyLink,
 } from '@lib/parties/admin-actions'
-import { freePartyTime, holdPartyAgain } from '@lib/parties/hold-actions'
+import { fitPartyHold, freePartyTime, holdPartyAgain } from '@lib/parties/hold-actions'
 import { ownerTakeCardMessage, ownerTakeCardUnknown } from '@lib/parties/owner-messages'
 import { payBalance } from '@lib/parties/pay-balance'
 import { partyWhenLabel } from '@lib/parties/payment-link'
@@ -40,6 +40,8 @@ export const prerender = false
  *                 cancelled party, "Free the old time" on a booked one: never the time a booked party is
  *                 on, never on a stale screen (start or timeVersion changed), waits while a payment goes
  *                 through). `release-hold { holdIso, … }` is the same action under its earlier name.
+ *   fit-hold      {}                                   → { party, message } ("Put the end time back": the
+ *                 calendar hold runs past the party's saved end; held to that end again, never longer)
  *   take-card     { attemptId, paymentToken, expectedCents } → { party, paidCents, receiptUrl }
  *                 (what is due, by card in /admin: the same one-payment-at-a-time
  *                 claim as the payment link, so the two never both charge)
@@ -60,6 +62,7 @@ export const POST: APIRoute = async ({ request }) => {
     case 'take-card': return partyReply(() => takeCard(body, by, request))
     case 'mark-told': return partyReply(() => markPartyTold(body, by, request))
     case 'hold-again': return partyReply(() => holdPartyAgain(body, by, request))
+    case 'fit-hold': return partyReply(() => fitPartyHold(body, by, request))
     case 'free-time': return partyReply(() => freePartyTime(body, by, request))
     // The earlier name of free-time (T12): the same rules, `holdIso` for the time.
     case 'release-hold': return partyReply(() => freePartyTime({ ...body, startIso: body.startIso ?? body.holdIso }, by, request))

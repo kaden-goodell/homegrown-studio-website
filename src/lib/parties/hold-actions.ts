@@ -20,6 +20,11 @@
  *                        host message, no money. The only "let a time go"
  *                        action: the route's `release-hold` (T12's name) is an
  *                        alias of it.
+ *   fitPartyHold         "Put the end time back": a booked party held on the
+ *                        calendar past its end (extra time whose adding
+ *                        stopped after the calendar grew, T12 re-review 2 Nit
+ *                        3) is held to its saved end again. Only ever shrinks
+ *                        to what the record says. No host message, no money.
  *   freeOrphanHold       To decide's "Free this time" for a held time with no
  *                        party record at all: only once the hold is older than
  *                        the checkout hold window plus a margin (so it can't be
@@ -44,7 +49,7 @@ import {
   type AdminPartyView,
 } from './admin-actions'
 import { holdAgain } from './hold-again'
-import { holdsBetween, releaseTime, type PartyHold } from './party-book'
+import { holdsBetween, releaseTime, resizeTime, type PartyHold } from './party-book'
 import { assertPartyLockHeld } from './party-lock'
 import { listCheckouts } from './party-checkouts'
 import { partyWhenLabel } from './payment-link'
@@ -75,6 +80,8 @@ export interface PartyHoldState {
   notHeld: 'missing' | 'short' | null
   /** held times of this party it isn't on (still to come) */
   freeable: FreeableHold[]
+  /** a booked party of ours, still to come, held on the calendar past its end: "Put the end time back" */
+  longer?: boolean
 }
 
 /** The party book's view of this party, for its sheet. Null for a Square-booked party or when the book can't be read. */
@@ -93,17 +100,19 @@ export async function partyHoldState(r: PartyRecord, now: Date = new Date()): Pr
   }
   const cancelled = r.status === 'cancelled'
   let notHeld: PartyHoldState['notHeld'] = null
+  let longer = false
   if (!cancelled && t > now.getTime()) {
     const mine = holds.find((h) => same(h.startIso, r.startIso))
     const end = partyEndIso(r)
     if (!mine) notHeld = 'missing'
     else if (end && Date.parse(mine.endIso) < Date.parse(end)) notHeld = 'short'
+    else if (end && Date.parse(mine.endIso) > Date.parse(end)) longer = true
   }
   const freeable = holds
     .filter((h) => cancelled || !same(h.startIso, r.startIso))
     .map((h): FreeableHold => ({ startIso: h.startIso, why: cancelled ? 'cancelled' : 'leftover' }))
     .sort((a, b) => a.startIso.localeCompare(b.startIso))
-  return { notHeld, freeable }
+  return { notHeld, freeable, ...(longer ? { longer } : {}) }
 }
 
 // ── Hold this time again ────────────────────────────────────────────────────
@@ -219,6 +228,49 @@ export async function freePartyTime(
         ? `${when} is free again, so others can book it. Nothing was sent to ${first} and no money moved.`
         : `${when} is free again. ${first}’s party stays on ${partyWhenLabel(r.startIso)}. Nothing was sent to ${first}.`,
     }
+  })
+}
+
+// ── Put the end time back ───────────────────────────────────────────────────
+
+/**
+ * "Put the end time back": the party's calendar hold runs past the party's
+ * saved end (an extra-time add that stopped after the calendar grew, when
+ * the lease was lost and the shrink-back was rightly skipped). Holds it to
+ * the saved end again. The record, re-read inside the party's lock, is the
+ * truth, so this only ever shrinks the hold to it: never grows it, never
+ * moves the party. Fenced before it writes; audited; nothing sent.
+ */
+export async function fitPartyHold(body: { id?: unknown }, by: By, request: Request, now: Date = new Date()): Promise<HoldActionResult> {
+  return locked(body.id, request, async () => {
+    const r = await writable(body.id, request)
+    notCancelled(r)
+    if (Date.parse(r.startIso) <= now.getTime()) throw new PartyActionError(409, 'This party has already started, so its time doesn’t need changing.')
+    const first = firstOf(r.hostName)
+    const end = partyEndIso(r)
+    const view = async () => ({ ...adminPartyView(r, now), holdState: await partyHoldState(r, now) })
+    let hold: PartyHold | null
+    try {
+      hold = await holdAt(r.bookingId, r.startIso, now)
+    } catch (e) {
+      logger.error('Party book unreadable before putting the end time back', { partyId: r.bookingId, error: String(e) })
+      throw new PartyActionError(503, CALENDAR_UNREADABLE)
+    }
+    if (!end || !hold || Date.parse(hold.endIso) <= Date.parse(end)) {
+      return { party: await view(), message: `The calendar already shows ${first}’s party ending when it ends. Nothing changed.`, replay: true }
+    }
+    // Fencing: never write the party book after another server took this party's lease over.
+    await assertPartyLockHeld()
+    let fitted: Awaited<ReturnType<typeof resizeTime>>
+    try {
+      fitted = await resizeTime(r.bookingId, r.startIso, end, [], now)
+    } catch (e) {
+      logger.error('Party hold not put back to its end', { partyId: r.bookingId, error: String(e) })
+      throw new PartyActionError(503, 'The end time couldn’t be put back just now. Try again in a minute. Nothing else changed.')
+    }
+    if (!fitted.ok) throw new PartyActionError(409, `${fitted.message} Nothing else changed.`)
+    await audit(by, 'party-fit-hold', r, { startIso: r.startIso, endIso: end, heldUntil: hold.endIso })
+    return { party: await view(), message: `The calendar now holds ${first}’s party until it ends, ${partyWhenLabel(end)}. The time after it is free again. Nothing was sent to ${first}.` }
   })
 }
 

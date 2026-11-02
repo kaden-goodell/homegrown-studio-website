@@ -572,8 +572,9 @@ function MovePanel({ party: p, onClose, onMoved }: { party: AdminParty; onClose:
 /**
  * The party book's repairs, each one button with its own safety rules on the server:
  * "Hold this time again" (a booked party whose time isn't held), "Free this time" (a cancelled
- * party still holding a time) and "Free the old time" (a leftover hold after a move). Nothing
- * is sent to the host and no money moves.
+ * party still holding a time), "Free the old time" (a leftover hold after a move, sent with the
+ * start and version this screen shows so a stale screen is refused) and "Put the end time back"
+ * (held past the party's end). Nothing is sent to the host and no money moves.
  */
 function HoldPanels({ party: p, onDone }: { party: AdminParty; onDone: (text: string) => void }) {
   const { bump } = useRefresh()
@@ -603,7 +604,8 @@ function HoldPanels({ party: p, onDone }: { party: AdminParty; onDone: (text: st
     onDone(r.data.message)
   }
   const notHeld = !cancelled && st.notHeld
-  if (!notHeld && st.freeable.length === 0) return null
+  const longer = !cancelled && !notHeld && st.longer === true
+  if (!notHeld && !longer && st.freeable.length === 0) return null
   return (
     <div className="adm-stack adm-gap-bottom">
       {notHeld && (
@@ -613,6 +615,13 @@ function HoldPanels({ party: p, onDone }: { party: AdminParty; onDone: (text: st
             ? `The extra time of ${first}’s party isn’t held, so someone else could book right after it. Holding it again keeps the party where it is and sends nothing to ${first}.`
             : `${dayAndClock(p.startIso)} isn’t held for ${first}’s party, so someone else could book it. Holding it again keeps the party where it is and sends nothing to ${first}.`}</span>
           <button type="button" className="adm-btn is-pri" disabled={busy === 'hold'} onClick={() => send({ action: 'hold-again' }, 'hold')}>{busy === 'hold' ? 'Holding…' : 'Hold this time again'}</button>
+        </div>
+      )}
+      {longer && (
+        <div className="adm-panel is-warn" role="group" aria-label="Held longer than the party">
+          <b>Held longer than the party</b>
+          <span className="adm-small">{`The calendar holds ${first}’s party past its end (extra time that wasn’t added), so nobody can book right after it. Putting the end time back frees that time. The party stays as it is and nothing is sent to ${first}.`}</span>
+          <button type="button" className="adm-btn is-ghost" disabled={busy === 'fit'} onClick={() => send({ action: 'fit-hold' }, 'fit')}>{busy === 'fit' ? 'Putting it back…' : 'Put the end time back'}</button>
         </div>
       )}
       {st.freeable.map((f) => {
