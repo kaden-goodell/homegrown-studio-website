@@ -9,6 +9,8 @@ const { mockListAllWorkshops, mockListBookings, mockProviders } = vi.hoisted(() 
   }
   return { mockListAllWorkshops, mockListBookings, mockProviders }
 })
+// Staffing lines have their own tests (tests/lib/staffing/warnings.test.ts).
+vi.mock('@lib/staffing/warnings', () => ({ staffingWarnings: async () => [] }))
 vi.mock('@config/providers', () => ({ providers: mockProviders }))
 vi.mock('@config/site.config', () => ({ siteConfig: { providers: { booking: { config: { locationId: 'LOC' } } } } }))
 

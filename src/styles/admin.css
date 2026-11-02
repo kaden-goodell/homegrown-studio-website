@@ -2380,3 +2380,8 @@ body:has(.adm-sheet-layer.is-panel) .adm-toasts {
   font-size: 0.9rem;
   cursor: pointer;
 }
+/* Home › Needs you: the staffing count spans the row under the four inbox counts. */
+.adm-need .is-wide {
+  grid-column: 1 / -1;
+  min-height: 3.25rem;
+}

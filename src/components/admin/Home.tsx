@@ -8,6 +8,7 @@ import type { Sheet } from './shell/router'
 import { useInbox } from './inbox/InboxData'
 import { useWide } from './shell/useWide'
 import type { InboxSegment } from './inbox/Inbox'
+import { useUnstaffed } from './staffing/useUnstaffed'
 
 /** "Good morning" by the studio's clock (America/Chicago). */
 export function greeting(now = new Date()): string {
@@ -33,6 +34,7 @@ export default function Home({ who, onOpen, onInbox }: {
   const studio = useStudio()
   const { items, error, retry } = useCalendar(day, addDays(day, 7))
   const inbox = useInbox()
+  const unstaffed = useUnstaffed()
   const wide = useWide()
   const days = items ? byDay(items) : null
   const open = (i: CalendarItem, d: string) => onOpen(sheetOf(i, d), i)
@@ -97,6 +99,15 @@ export default function Home({ who, onOpen, onInbox }: {
             <small>{label}</small>
           </button>
         ))}
+        <button
+          type="button"
+          className="is-wide"
+          onClick={() => onOpen({ kind: 'more', page: 'staff' })}
+          aria-label={`Need someone on, next 2 weeks: ${unstaffed.count !== null ? unstaffed.count : unstaffed.error ? 'couldn’t check' : 'not loaded'}`}
+        >
+          <b>{count(unstaffed.count ?? 0, unstaffed.count !== null, !!unstaffed.error)}</b>
+          <small>{unstaffed.error ? 'Couldn’t check staffing. Tap to open Staff.' : 'Need someone on, next 2 weeks'}</small>
+        </button>
       </div>
     </div>
   )

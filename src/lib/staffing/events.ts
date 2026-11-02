@@ -378,7 +378,16 @@ export async function rememberSeen(rows: StaffingRow[]): Promise<void> {
  * gone when they were still to come and Square was really read for them
  * (a Square-booked party: the owners' read switch on, not the sandbox).
  */
-export async function orphanEntries(now: Date): Promise<{ key: EventKey; entry: StaffingEntry; status: 'cancelled' | 'gone' }[]> {
+export interface Orphan {
+  key: EventKey
+  entry: StaffingEntry
+  status: 'cancelled' | 'gone'
+  /** the title and start when still known (a cancelled class or party), else what was last seen */
+  title: string | null
+  startIso: string | null
+}
+
+export async function orphanEntries(now: Date): Promise<Orphan[]> {
   const fromMs = now.getTime() - ORPHAN_LOOK_BACK_MS
   const keys = await listAllEntryKeys()
   const all = await getEntries(keys)
@@ -388,7 +397,7 @@ export async function orphanEntries(now: Date): Promise<{ key: EventKey; entry: 
   if (staffed.length === 0) return []
 
   const { events } = await collect(new Date(fromMs).toISOString(), new Date(now.getTime() + ORPHAN_LOOK_AHEAD_MS).toISOString(), now)
-  const statusOf = new Map(events.map((e) => [e.key, e.status]))
+  const eventOf = new Map(events.map((e) => [e.key, e]))
   const stillToCome = (e: StaffingEntry) => !!e.seen && Date.parse(e.seen.endIso) > now.getTime()
 
   let sessions: Map<string, ScheduledClass> | null = null
@@ -405,28 +414,29 @@ export async function orphanEntries(now: Date): Promise<{ key: EventKey; entry: 
     return legacyPartiesRead
   }
 
-  const out: { key: EventKey; entry: StaffingEntry; status: 'cancelled' | 'gone' }[] = []
+  const out: Orphan[] = []
+  const lastSeen = (entry: StaffingEntry) => ({ title: entry.seen?.title ?? null, startIso: entry.seen?.startIso ?? null })
   for (const entry of staffed) {
     const key = entry.key
-    const known = statusOf.get(key)
-    if (known === 'on') continue
-    if (known === 'cancelled' || known === 'gone') { out.push({ key, entry, status: known }); continue }
+    const known = eventOf.get(key)
+    if (known?.status === 'on') continue
+    if (known) { out.push({ key, entry, status: known.status as 'cancelled' | 'gone', title: known.title, startIso: known.startIso }); continue }
     const id = key.slice(key.indexOf(':') + 1)
     if (key.startsWith('ses:')) {
       const c = await classOfSession(id)
-      if (!c) out.push({ key, entry, status: 'gone' })
+      if (!c) out.push({ key, entry, status: 'gone', ...lastSeen(entry) })
       else if (c.status === 'cancelled') {
         const s = c.sessions.find((x) => x.id === id)!
-        if (Date.parse(s.endIso) >= fromMs) out.push({ key, entry, status: 'cancelled' })
+        if (Date.parse(s.endIso) >= fromMs) out.push({ key, entry, status: 'cancelled', title: c.content.name, startIso: s.startIso })
       }
     } else if (key.startsWith('party:pty_')) {
       const rec = await getPartyRecord(id)
-      if (!rec) out.push({ key, entry, status: 'gone' })
-      else if (rec.status === 'cancelled' && Date.parse(partyEnd(rec)) >= fromMs) out.push({ key, entry, status: 'cancelled' })
+      if (!rec) out.push({ key, entry, status: 'gone', ...lastSeen(entry) })
+      else if (rec.status === 'cancelled' && Date.parse(partyEnd(rec)) >= fromMs) out.push({ key, entry, status: 'cancelled', title: partyTitle(rec.guestCount), startIso: rec.startIso })
     } else if (key.startsWith('party:')) {
-      if (stillToCome(entry) && (await squarePartiesRead())) out.push({ key, entry, status: 'gone' })
+      if (stillToCome(entry) && (await squarePartiesRead())) out.push({ key, entry, status: 'gone', ...lastSeen(entry) })
     } else if (key.startsWith('legacy:')) {
-      if (stillToCome(entry)) out.push({ key, entry, status: 'gone' })
+      if (stillToCome(entry)) out.push({ key, entry, status: 'gone', ...lastSeen(entry) })
     }
   }
   return out

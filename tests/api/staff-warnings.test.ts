@@ -8,6 +8,7 @@ vi.mock('@lib/warnings', () => ({
   listWarnings: (...a: any[]) => mockListWarnings(...a),
   warningLine: (w: any) => `LINE ${w.detail}`,
   WARNING_WINDOW_DAYS: 60,
+  OWNER_ONLY_CODES: new Set(['unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable']),
 }))
 
 import { GET } from '@pages/api/staff/warnings.json'
@@ -42,6 +43,16 @@ describe('GET /api/staff/warnings.json', () => {
     mockListWarnings.mockResolvedValue([W])
     const { data } = await (await GET(ctx())).json()
     expect(data.warnings).toEqual([{ ...W, line: 'LINE Pumpkin Pails: 27 seats sold, 25 capacity.' }])
+  })
+
+  it('never shows the crew the owners-only staffing lines', async () => {
+    const staffing = ['unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable'].map((code) => ({ ...W, code, detail: `staffing ${code}` }))
+    mockListWarnings.mockResolvedValue([W, ...staffing])
+    for (const role of ['crew', 'owner'] as const) {
+      authed = { id: 'k', name: 'Kaden', role }
+      const { data } = await (await GET(ctx())).json()
+      expect(data.warnings.map((w: any) => w.code)).toEqual(['oversold'])
+    }
   })
 
   it('answers 503 when the scan cannot run, never an empty list', async () => {

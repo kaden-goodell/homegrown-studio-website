@@ -36,6 +36,7 @@ import { formatMoney } from '@lib/money'
 import { getPartyRecord } from '@lib/party-store'
 import { partyLabel } from '@lib/parties/refunds'
 import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
+import { staffingWarnings } from '@lib/staffing/warnings'
 
 const logger = createLogger('warnings')
 
@@ -45,6 +46,8 @@ export type WarningCode =
   | 'below-minimum' | 'pos-unmatched' | 'pos-needs-days' | 'refund-flag' | 'door-unpaid' | 'counter-match-check' | 'classes-unreadable'
   // R42: Square shows one of our online bookings paid, but its seats were let go
   | 'paid-not-seated'
+  // stage 3 staffing (owners only): nobody (or too few) on, someone on who can't, someone on a cancelled one
+  | 'unstaffed' | 'assigned-cant' | 'assigned-cancelled' | 'staffing-unreadable'
 
 export interface Warning {
   code: WarningCode
@@ -63,7 +66,10 @@ export interface Warning {
 }
 
 /** Items that aren't tied to a day: they stay until an owner decides. */
-export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated'])
+export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated', 'assigned-cancelled'])
+
+/** Lines for the owners only (the daily email): never on the /staff panel, which the crew read. */
+export const OWNER_ONLY_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['unstaffed', 'assigned-cant', 'assigned-cancelled', 'staffing-unreadable'])
 
 /** Days ahead the panel and the daily email look. */
 export const WARNING_WINDOW_DAYS = 60
@@ -383,9 +389,10 @@ export async function listWarnings({ from, to }: { from: string; to: string }, o
       detail: 'Our classes couldn’t be checked for problems.', action: 'Refresh to try again.',
     }]
   })
-  // The owners' closed days (config until they first save on /admin).
-  const [s, own, closed] = await Promise.all([scan(from, to), ownOrError, getClosures()])
-  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s, closed), ...(await seatCounts(s)), ...own].sort((a, b) =>
+  // The owners' closed days (config until they first save on /admin). Staffing
+  // lines never fail the scan: a staffing read that fails is one line of its own.
+  const [s, own, closed, staffing] = await Promise.all([scan(from, to), ownOrError, getClosures(), staffingWarnings(from, to, now)])
+  return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s, closed), ...(await seatCounts(s)), ...own, ...staffing].sort((a, b) =>
     a.when.localeCompare(b.when),
   )
 }
