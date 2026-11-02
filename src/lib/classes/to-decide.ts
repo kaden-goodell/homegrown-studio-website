@@ -26,6 +26,11 @@
  *                        → Confirm the party (once Square shows it paid) · It wasn't paid
  *                        Or Square shows a party order paid with nothing here
  *                        to record it from → Sorted it in Square
+ *   waitlist-unknown     the waitlist charged a saved card and Square never said
+ *                        whether it went through; the seat is held
+ *                        → Check Square again · I sorted it out in Square
+ *   waitlist-declined    a waitlist card didn't go through (or the price rose)
+ *                        → Got it
  *   paid-not-seated      Square shows one of our online bookings paid, but its
  *                        seats were let go before it could be confirmed (R42)
  *                        → Give them their seat (over capacity if need be) · Sorted it in Square
@@ -59,10 +64,14 @@ import { PARTY_SCOPE } from '@lib/booking-core/refund-runner'
 import { deletePaidElsewhere, listCheckouts } from '@lib/parties/party-checkouts'
 import { confirmUnclearParty, notPaidUnclearParty, PartyUnclearError } from '@lib/parties/square-orders'
 import type { Cents, ScheduledClass } from './types'
+import { waitlistItems } from './waitlist-items'
+import { waitlistClassIds } from './waitlist-store'
+import { checkEntryAgain, sortedInSquare } from './waitlist-runner'
 
 export type ToDecideKind =
   | 'pos-unmatched' | 'refund-plain' | 'refund-failed' | 'refund-unfinished' | 'refund-unconfirmed'
   | 'pos-needs-days' | 'below-minimum' | 'door-unpaid' | 'counter-match-check' | 'party-paid-unclear' | 'paid-not-seated'
+  | 'waitlist-unknown' | 'waitlist-declined'
 
 /** One thing waiting for an owner (or decided lately). */
 export interface ToDecideItem {
@@ -414,6 +423,29 @@ async function paidNotSeatedItems(cache: ClassCache, skip: Set<string>): Promise
   return out
 }
 
+/** Stage 4: the waitlist's unclear charges and declined cards, across every class with a waitlist. */
+async function waitlistDecideItems(cache: ClassCache, skip: Set<string>, now: Date): Promise<ToDecideItem[]> {
+  const out: ToDecideItem[] = []
+  for (const classId of await waitlistClassIds()) {
+    const cls = await classOf(cache, classId)
+    if (!cls) continue
+    for (const w of await waitlistItems(cls, skip, now)) {
+      const e = w.entry
+      out.push({
+        id: w.id, kind: w.kind, at: w.at, classId: cls.id, className: cls.content.name,
+        title: w.kind === 'waitlist-unknown' ? 'Waitlist charge unclear' : e.state === 'skipped' ? 'Waitlist price went up' : 'Waitlist card didn’t go through',
+        head: w.head,
+        hint: w.kind === 'waitlist-unknown' ? 'Check Square again, or sort it out in Square' : 'Call them if you like',
+        detail: {
+          entryId: e.id, name: `${e.customer.givenName} ${e.customer.familyName}`.trim(), phone: e.customer.phone, email: e.customer.email,
+          cents: e.attempts[e.attempts.length - 1]?.amountCents ?? null, last4: e.square.last4, state: e.state,
+        },
+      })
+    }
+  }
+  return out
+}
+
 /**
  * Everything waiting, newest first, then what was decided in the last two
  * weeks. Each source is read on its own: one that fails is named in
@@ -437,6 +469,7 @@ export async function listToDecide(now = new Date()): Promise<{ items: ToDecideI
     safe('counter checks', () => matchItems(skip, now)),
     safe('party payments', () => partyItems(skip, now)),
     safe('paid bookings', () => paidNotSeatedItems(cache, skip)),
+    safe('waitlist', () => waitlistDecideItems(cache, skip, now)),
   ])
   const open = groups.flat().sort((a, b) => b.at.localeCompare(a.at))
   // Notes on waiting items (R40: "Texted the people booked"), shown on the item.
@@ -473,6 +506,8 @@ const ACTIONS: Record<ToDecideKind, string[]> = {
   'counter-match-check': ['confirm', 'move'],
   'party-paid-unclear': ['confirm', 'not-paid', 'sorted'],
   'paid-not-seated': ['seat', 'sorted'],
+  'waitlist-unknown': ['check', 'sorted'],
+  'waitlist-declined': ['seen'],
 }
 
 async function record(item: ToDecideItem, what: string, by: By, action: string, undo?: Decided['undo']): Promise<Decided> {
@@ -707,6 +742,26 @@ export async function decide(id: string, action: string, body: any, by: By, now 
       const decided = await record(item, `Gave them ${seatsText(lines.length)}${over ? ' (over capacity)' : ''}`, by, action)
       return { decided, classId: item.classId, seats: lines.map((l) => ({ lineId: l.id, seat: l.seat, named: !!l.customer })) }
     }
+    case 'waitlist-unknown': {
+      const entryId = str(d.entryId)
+      if (action === 'sorted') {
+        try {
+          await sortedInSquare(item.classId!, entryId, by, now)
+        } catch (e) {
+          throw new DecideError(409, e instanceof Error ? e.message : 'That didn’t work. Try again.')
+        }
+        return { decided: await record(item, 'Sorted out in Square. Their seat was let go', by, action) }
+      }
+      const r = await checkEntryAgain(item.classId!, entryId, by, now)
+      if (r.state === 'added') return { decided: await record(item, 'Square showed it paid. They’re added', by, action) }
+      if (r.state === 'declined') return { decided: await record(item, 'Square said the card didn’t go through. They came off the list', by, action) }
+      if (r.state === 'waiting') return { decided: await record(item, 'Square showed it wasn’t paid. They’re back on the waitlist', by, action) }
+      throw new DecideError(409, r.result.stopped === 'busy'
+        ? 'The waitlist is running for this class right now. Try again in a minute.'
+        : 'Square still hasn’t said. Their seat stays held. Try again in a few minutes, or check the payment in Square.')
+    }
+    case 'waitlist-declined':
+      return { decided: await record(item, 'Seen', by, action) }
     case 'counter-match-check': {
       if (action === 'confirm') {
         await markCounterMatchChecked(item.classId!, str(d.lineId), by, now)

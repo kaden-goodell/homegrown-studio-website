@@ -30,6 +30,8 @@ interface RosterData {
   bookings?: (BookingView & { name: string; seatsToday: number; waiting: WaitingRefund | null })[]
   /** Our own classes: ticket type id → label. */
   ticketLabels?: Record<string, string>
+  /** Stage 4: people on this day's waitlist. */
+  waitlistWaiting?: number
 }
 
 /**
@@ -378,6 +380,11 @@ export default function Roster({
             </div>
           ))}
         </div>
+        {!!data.waitlistWaiting && (
+          <p data-testid="roster-waitlist" style={{ margin: '0.5rem 0 0', fontSize: '0.9rem', fontWeight: 600, color: 'var(--color-muted)' }}>
+            {`${data.waitlistWaiting} waiting on the waitlist`}
+          </p>
+        )}
 
         {incidents.length > 0 && (
           <div style={{ display: 'flex', justifyContent: 'center', marginTop: '0.7rem' }}>

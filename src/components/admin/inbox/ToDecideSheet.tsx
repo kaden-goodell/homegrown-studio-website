@@ -105,6 +105,8 @@ export function ToDecideSheet({ id }: { id: string }) {
     case 'counter-match-check': return <CounterCheck item={t} />
     case 'party-paid-unclear': return <PartyPaidUnclear item={t} />
     case 'paid-not-seated': return <PaidNoSeat item={t} />
+    case 'waitlist-unknown': return <WaitlistUnclear item={t} />
+    case 'waitlist-declined': return <WaitlistDeclined item={t} />
   }
 }
 
@@ -619,6 +621,68 @@ function PaidNoSeat({ item }: { item: ToDecideItem }) {
           ? 'Giving them their seat puts them on the class, paid by this payment, even if the date is full. Or refund them in Square, then say you sorted it out. Nothing is refunded for you.'
           : 'Look the payment up in Square and refund it there if it was a second charge. Then say you sorted it out. Nothing is refunded for you.'}
       </p>
+      {item.classId && <OpenClass id={item.classId} />}
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+// ---------------------------------------------------------------- waitlist (stage 4)
+
+function Contact({ d }: { d: Detail }) {
+  return (
+    <p className="adm-small adm-links adm-gap-top">
+      {d.phone && <a href={`tel:${String(d.phone).replace(/[^\d+]/g, '')}`}>{d.phone}</a>}
+      {d.email && <a href={`mailto:${d.email}`}>{d.email}</a>}
+    </p>
+  )
+}
+
+function WaitlistUnclear({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail
+  const { send, busy, error } = useDecide(item)
+  const [sure, setSure] = useState(false)
+  return (
+    <SheetFrame
+      title={item.title}
+      subtitle={item.className}
+      footer={sure
+        ? (
+          <div className="adm-panel is-warn" role="group" aria-label="Sorted it out in Square?">
+            <b>Sorted it out in Square?</b>
+            <span className="adm-small">{`Their held seat is let go and ${d.name} comes off the waitlist. Nobody is told and nothing is refunded for you. Only do this once you’ve checked the payment in Square.`}</span>
+            <div className="adm-two">
+              <button type="button" className="adm-btn is-ghost" onClick={() => setSure(false)}>Not yet</button>
+              <button type="button" className="adm-btn is-danger" disabled={!!busy} onClick={() => send({ action: 'sorted' })}>{label(busy, 'sorted', 'Yes, I sorted it out', 'Saving…')}</button>
+            </div>
+          </div>
+        )
+        : (
+          <div className="adm-stack">
+            <button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'check' })}>{label(busy, 'check', 'Check Square again', 'Asking Square…')}</button>
+            <button type="button" className="adm-btn is-ghost" disabled={!!busy} onClick={() => setSure(true)}>I sorted it out in Square</button>
+          </div>
+        )}
+    >
+      <Head item={item} />
+      {d.cents ? kv('Charge', formatMoney(d.cents)) : null}
+      {kv('Card', `ending ${d.last4}`)}
+      <p className="adm-note adm-gap-top">Check Square again asks Square about this charge. If it went through they’re added and texted; if it didn’t, they go back on the waitlist. Nobody is ever charged twice.</p>
+      <Contact d={d} />
+      {item.classId && <OpenClass id={item.classId} />}
+      <ErrorLine text={error} />
+    </SheetFrame>
+  )
+}
+
+function WaitlistDeclined({ item }: { item: ToDecideItem }) {
+  const d = item.detail as Detail
+  const { send, busy, error } = useDecide(item)
+  return (
+    <SheetFrame title={item.title} subtitle={item.className} footer={<button type="button" className="adm-btn is-pri" disabled={!!busy} onClick={() => send({ action: 'seen' })}>{label(busy, 'seen', 'Got it', 'Saving…')}</button>}>
+      <Head item={item} />
+      <p className="adm-note adm-gap-top">Nothing was charged and their card is off file. You can call or text them if you’d like to help them book.</p>
+      <Contact d={d} />
       {item.classId && <OpenClass id={item.classId} />}
       <ErrorLine text={error} />
     </SheetFrame>

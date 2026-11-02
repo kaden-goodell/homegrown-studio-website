@@ -203,8 +203,19 @@ export function planRefund(ledger: Ledger, req: RefundRequest): RefundPlan {
   return { lines, totalCents, paymentId, freeSeat, prior, failures: failuresOn(booking, rawKey), rawKey }
 }
 
-/** Stage 4 (waitlist) hooks in here. Called after a refund frees seats. */
-export async function onSeatFreed(_classId: string, _sessionIds: string[]): Promise<void> {}
+/**
+ * Stage 4: a refund or "free the seat" freed seats → the waitlist runs (adds
+ * and charges the next person who fits). A refund that keeps the seat never
+ * calls this. Never throws: a freed seat is never undone by a waitlist problem.
+ */
+export async function onSeatFreed(classId: string, _sessionIds: string[]): Promise<void> {
+  try {
+    const { runWaitlist } = await import('./waitlist-runner')
+    await runWaitlist(classId, { reason: 'seat-freed' })
+  } catch (err) {
+    console.error(`[classes/refund] waitlist run after a freed seat failed: ${err instanceof Error ? err.message : String(err)}`)
+  }
+}
 
 export interface RefundResult {
   refundId: string

@@ -12,6 +12,7 @@ import { describeRequest } from './refunds'
 import { isWaiting, listRefundRequests } from './refund-requests'
 import { getLedger, setNames, type Ledger, type LedgerLine } from './seat-ledger'
 import { COUNTER_SALE_NO_NAME, holdsSeat, ownRosterChoices, sessionsOn } from './staff-view'
+import { waitlistOrNull, isOnList } from './waitlist-store'
 
 export type WaitingRefund = ReturnType<typeof describeRequest>
 
@@ -30,6 +31,8 @@ export interface OwnRoster {
   bookings: RosterBooking[]
   /** ticket type id → label ("Adult"), for the refund panel */
   ticketLabels: Record<string, string>
+  /** Stage 4: people on the waitlist for this day (0 when none or it can't be read) */
+  waitlistWaiting: number
 }
 
 const fullName = (c: LedgerLine['customer']) => (c ? `${c.givenName} ${c.familyName}`.trim() : '')
@@ -56,6 +59,7 @@ export async function ownRoster(event: StudioEvent, day: string, signerEmails: s
     choices: ownRosterChoices(cls, ledger, day, signerEmails, now),
     bookings,
     ticketLabels: Object.fromEntries(cls.content.ticketTypes.map((t) => [t.id, t.label])),
+    waitlistWaiting: ((await waitlistOrNull(cls.id))?.entries ?? []).filter((e) => isOnList(e) && e.sessionIds.some((id) => today.has(id))).length,
   }
 }
 

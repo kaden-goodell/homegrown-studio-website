@@ -44,6 +44,8 @@ import type { SaleOptions } from '@lib/classes/pricing'
 import { earlyBirdRunning } from '@lib/classes/early-bird'
 import { countUse, extendUse, getPromo, getUses, releaseUse, reserveUse } from '@lib/promos/promo-store'
 import { normalizeCode, promoRefusal, PROMO_REFUSALS, usesLeft } from '@lib/promos/rules'
+import { getWaitlist } from '@lib/classes/waitlist-store'
+import { waitlistGoesFirst } from '@lib/classes/waitlist-rules'
 import type { PromoCode } from '@lib/promos/types'
 
 const logger = createLogger('api:classes:book')
@@ -243,6 +245,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
 
   // Simulated payments (local dev and previews), and free bookings (D3): hold and confirm, no Square order or payment.
   if (simulated || free) {
+    const first = await waitlistFirst(cls, now)
+    if (first) return first
     if (free) await lookUpCustomer()
     const noUse = await holdPromo(now)
     if (noUse) return noUse
@@ -268,6 +272,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   }
 
   // ── 2. The customer (not fatal), the code's use, then hold the seats ────────
+  const first = await waitlistFirst(cls, now)
+  if (first) return first
   await lookUpCustomer()
   const noUse = await holdPromo(now)
   if (noUse) return noUse
@@ -364,6 +370,32 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   return finish({ cls, q: q!, lines, charged, receiptUrl: payment.receiptUrl ?? null, simulated: false, onFile })
 
   // ── helpers (closures over this request) ────────────────────────────────────
+
+  /**
+   * Stage 4, waitlist first: someone waiting fits the free seats and this
+   * booking would take one they need → sold out, nothing held or charged, and
+   * the waitlist runs (after the reply). At the door "Add over capacity"
+   * still seats them. A waitlist we can't read charges nothing (fail closed).
+   */
+  async function waitlistFirst(c: ScheduledClass, at: Date): Promise<Response | null> {
+    if (door && body.overCapacity === true) return null
+    let short: string | null
+    try {
+      short = waitlistGoesFirst(c, await getLedger(c.id), await getWaitlist(c.id), q!.sessionIds, q!.seats, at)
+    } catch (err) {
+      logger.error('Waitlist unreadable before booking — refusing', { classId: c.id, error: String(err) })
+      return fail(502, 'unavailable')
+    }
+    if (!short) return null
+    logger.info('Booking refused: the waitlist goes first', { classId: c.id, bookingId, door })
+    const kick = import('@lib/classes/waitlist-runner').then(({ runWaitlist }) => runWaitlist(c.id, { reason: 'booking', origin: new URL(request.url).origin })).catch(() => undefined)
+    const netlify = (locals as { netlify?: { context?: { waitUntil?: (p: Promise<unknown>) => void } } } | undefined)?.netlify?.context
+    if (typeof netlify?.waitUntil === 'function') netlify.waitUntil(kick)
+    else await kick
+    return fail(409, 'sold_out', door
+      ? 'That seat goes to someone on the waitlist first. Nothing was charged. Ask Catherine or Kaden if they should be seated anyway.'
+      : soldOutMessage(c, short, 0))
+  }
 
   function setQuote(c: ScheduledClass, value: Quote) {
     q = value

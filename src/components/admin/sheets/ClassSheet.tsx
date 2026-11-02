@@ -476,7 +476,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
               </p>
             )}
             {bookings.map((b) => <BookingRow key={b.bookingId} b={b} cls={cls} ticket={ticket} onChanged={() => { load(); bump() }} />)}
-            <WaitlistSection classId={cls.id} freeSeats={false} onChanged={() => { load(); bump() }} />
+            <WaitlistSection classId={cls.id} onChanged={() => { load(); bump() }} />
           </section>
         )}
 

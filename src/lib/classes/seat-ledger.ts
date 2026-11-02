@@ -77,6 +77,8 @@ export interface LedgerLine {
    * /admin › To decide and reads "Paid at the counter". No money is recorded.
    */
   paidAtCounter?: { at: string; by: By }
+  /** Stage 4 (S4-R4): a booking the waitlist made (an ordinary online booking, refundable like any other). */
+  waitlistEntryId?: string
 }
 /** A door seat taken "to pay at the counter" that no sale has paid and no owner has marked paid. */
 export const unpaidDoorSeat = (l: LedgerLine) => l.source === 'door-counter' && l.state === 'confirmed' && !l.square.orderId && !l.paidAtCounter
@@ -94,6 +96,8 @@ export interface HoldInput {
   /** POS and the door's "squeeze one more" skip the capacity check */
   allowOverCapacity?: boolean
   by?: By
+  /** Stage 4: the waitlist entry this booking is for. */
+  waitlistEntryId?: string
 }
 export type HoldResult = { ok: true; lines: LedgerLine[] } | { ok: false; reason: 'sold_out'; sessionId: string; left: number }
 
@@ -185,6 +189,7 @@ function buildLines(q: Quote, input: HoldInput, now: Date, expires: string | nul
       by: input.by ?? null,
       refunds: [],
       at: now.toISOString(),
+      ...(input.waitlistEntryId ? { waitlistEntryId: input.waitlistEntryId } : {}),
     }
   })
 }

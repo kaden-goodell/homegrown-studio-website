@@ -42,7 +42,11 @@ vi.mock('@lib/classes/seat-ledger', async (orig) => {
   return { ...real, confirm: (...a: Parameters<typeof real.confirm>) => (confirmFails ? Promise.reject(new Error('Concurrent update — please retry')) : real.confirm(...a)) }
 })
 
+const runWaitlistSpy = vi.hoisted(() => vi.fn(async () => ({})))
+vi.mock('@lib/classes/waitlist-runner', () => ({ runWaitlist: runWaitlistSpy }))
+
 import { getLedger, hold } from '@lib/classes/seat-ledger'
+import { mutateWaitlist } from '@lib/classes/waitlist-store'
 import { handleOrder } from '@lib/classes/square-events'
 import { quote } from '@lib/classes/pricing'
 import { bookingIdFor, PRICE_MISMATCH_MESSAGE, classMessages } from '@lib/classes/checkout'
@@ -1242,5 +1246,66 @@ describe('stage 4: codes, the shown total and free bookings at checkout', () => 
       const { seatsTaken } = await import('@lib/classes/seat-ledger')
       expect(seatsTaken(await getLedger(cls.id), 'ses_sat', NOW)).toBe(0)
     })
+  })
+})
+
+describe('stage 4: waitlist first', () => {
+  async function waiting(cls: ScheduledClass, seats: number) {
+    await mutateWaitlist(cls.id, (cur) => ({
+      next: {
+        ...cur, entries: [...cur.entries, {
+          id: `wle_${String(++seq).padStart(16, '0')}`, createdAt: NOW.toISOString(), request: { passId: 'all', tickets: { adult: seats } },
+          sessionIds: ['ses_sat', 'ses_sun'], seats, maxCents: 99999,
+          customer: { givenName: 'W', familyName: 'Aiting', email: 'w@example.com', phone: '' },
+          square: { customerId: 'c', cardId: 'card', brand: 'VISA', last4: '4242', expMonth: 1, expYear: 2030 },
+          consent: { textVersion: 'v', text: 't', at: '', ipHash: '' }, leaveHash: 'h', state: 'waiting' as const, attempts: [], history: [],
+        }],
+      },
+      result: null,
+    }))
+  }
+  async function takeAllBut(cls: ScheduledClass, free: number) {
+    const cap = cls.sessions[0].capacity
+    const q = quote(cls, { passId: 'all', tickets: { adult: cap - free } }, NOW, 9)
+    if (!q.ok) throw new Error(q.error)
+    await hold(cls, q.value, { bookingId: `bkg_taken${++seq}`, passId: 'all', source: 'online', customer: null, ttlMinutes: 600 }, NOW)
+  }
+
+  it('a public booking the next waiting person fits is refused as sold out, nothing held or charged, and the waitlist runs', async () => {
+    const cls = makeClass({ capacity: 3 })
+    await takeAllBut(cls, 1)
+    await waiting(cls, 1)
+    const res = await POST(ctx(body(cls, { tickets: { adult: 1 } })))
+    expect(res.status).toBe(409)
+    expect((await res.json()).code).toBe('sold_out')
+    expect(mockCreateClassOrder).not.toHaveBeenCalled()
+    expect(mockProcessPayment).not.toHaveBeenCalled()
+    expect(await linesOf(cls)).toHaveLength(0)
+    expect(runWaitlistSpy).toHaveBeenCalledWith(cls.id, expect.objectContaining({ reason: 'booking' }))
+  })
+
+  it('a booking no waiting entry fits goes ahead (the pair waiting needs 2, 1 is free)', async () => {
+    const cls = makeClass({ capacity: 3 })
+    await takeAllBut(cls, 1)
+    await waiting(cls, 2)
+    mockProcessPayment.mockResolvedValue({ id: 'PAY1', orderId: 'ORDER1', amount: 6540, status: 'completed', receiptUrl: null })
+    mockCreateClassOrder.mockImplementation(async () => ({ orderId: 'ORDER1', totalCents: 6540, lineTotals: [] }))
+    const res = await POST(ctx(body(cls, { tickets: { adult: 1 } })))
+    expect(res.status).toBe(200)
+    expect(runWaitlistSpy).not.toHaveBeenCalled()
+  })
+
+  it('at the door, Add over capacity still seats them', async () => {
+    staffMember = { id: 'c', name: 'Crew', role: 'crew' }
+    const cls = makeClass({ capacity: 3 })
+    await takeAllBut(cls, 1)
+    await waiting(cls, 1)
+    mockProcessPayment.mockResolvedValue({ id: 'PAY1', orderId: 'ORDER1', amount: 6540, status: 'completed', receiptUrl: null })
+    mockCreateClassOrder.mockImplementation(async () => ({ orderId: 'ORDER1', totalCents: 6540, lineTotals: [] }))
+    const refused = await POST(ctx(body(cls, { tickets: { adult: 1 } }), undefined, '?door=1'))
+    expect(refused.status).toBe(409)
+    newAttempt()
+    const ok = await POST(ctx(body(cls, { tickets: { adult: 1 }, overCapacity: true }), undefined, '?door=1'))
+    expect(ok.status).toBe(200)
   })
 })

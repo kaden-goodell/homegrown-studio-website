@@ -45,3 +45,26 @@ export function waitingOn(list: Waitlist | null, sessionId: string): number {
   return (list?.entries ?? []).filter((e) => isOnList(e) && e.sessionIds.includes(sessionId)).length
 }
 
+
+/**
+ * Waitlist first (Task 10): a public or door booking for `seats` on these
+ * sessions would take a seat someone waiting needs. True when a waiting entry
+ * whose waitlist is still open fits now, shares a date with the booking, and
+ * would no longer fit after it. A booking that leaves room for them is fine.
+ * Comps and counter (POS) sales never ask this.
+ */
+export function waitlistGoesFirst(cls: ScheduledClass, ledger: Ledger, list: Waitlist, sessionIds: string[], seats: number, now: Date): string | null {
+  const open = cls.status === 'open'
+  for (const e of list.entries) {
+    if (e.state !== 'waiting' || !open || !waitlistOpen(cls, e.sessionIds, now)) continue
+    if (!e.sessionIds.some((id) => sessionIds.includes(id))) continue
+    if (!fitsNow(cls, ledger, e.sessionIds, e.seats, now)) continue
+    const short = e.sessionIds.find((id) => {
+      if (!sessionIds.includes(id)) return false
+      const s = cls.sessions.find((x) => x.id === id)!
+      return s.capacity - seatsTaken(ledger, id, now) - seats < e.seats
+    })
+    if (short) return short
+  }
+  return null
+}

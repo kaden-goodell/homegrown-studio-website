@@ -16,9 +16,10 @@ import { telHref } from '../inbox/describe'
 
 export interface RunAnswer { added: number; declined: number; unknown: number; skipped: number; stopped: string | null; note: string }
 
-export default function WaitlistSection({ classId, freeSeats, onChanged }: { classId: string; freeSeats: boolean; onChanged?: () => void }) {
+export default function WaitlistSection({ classId, onChanged }: { classId: string; onChanged?: () => void }) {
   const toast = useToast()
   const [rows, setRows] = useState<WaitlistRow[] | null>(null)
+  const [canRun, setCanRun] = useState(false)
   const [error, setError] = useState('')
   const [asking, setAsking] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
@@ -26,18 +27,19 @@ export default function WaitlistSection({ classId, freeSeats, onChanged }: { cla
   const [ran, setRan] = useState<string>('')
 
   async function load() {
-    const r = await api<{ rows: WaitlistRow[] }>(`${WAITLIST}?id=${encodeURIComponent(classId)}`)
-    if (r.ok && r.data) { setRows(r.data.rows); setError('') } else setError(r.error ?? DIDNT_SAVE)
+    const r = await api<{ rows: WaitlistRow[]; canRun: boolean }>(`${WAITLIST}?id=${encodeURIComponent(classId)}`)
+    if (r.ok && r.data) { setRows(r.data.rows); setCanRun(!!r.data.canRun); setError('') } else setError(r.error ?? DIDNT_SAVE)
   }
   useEffect(() => { void load() }, [classId])
 
   async function remove(row: WaitlistRow) {
     setBusy(row.id)
-    const r = await api<{ rows: WaitlistRow[] }>(WAITLIST, { action: 'remove', classId, entryId: row.id })
+    const r = await api<{ rows: WaitlistRow[]; canRun: boolean }>(WAITLIST, { action: 'remove', classId, entryId: row.id })
     setBusy(null)
     setAsking(null)
     if (r.ok && r.data) {
       setRows(r.data.rows)
+      setCanRun(!!r.data.canRun)
       toast(`${row.name} is off the waitlist. Their card came off and they got an email.`)
       onChanged?.()
     } else {
@@ -49,10 +51,11 @@ export default function WaitlistSection({ classId, freeSeats, onChanged }: { cla
   async function run() {
     setBusy('run')
     setRan('')
-    const r = await api<{ rows: WaitlistRow[]; run: RunAnswer }>(WAITLIST, { action: 'run', classId })
+    const r = await api<{ rows: WaitlistRow[]; canRun: boolean; run: RunAnswer }>(WAITLIST, { action: 'run', classId })
     setBusy(null)
     if (r.ok && r.data) {
       setRows(r.data.rows)
+      setCanRun(!!r.data.canRun)
       setRan(r.data.run.note)
       onChanged?.()
     } else {
@@ -72,10 +75,10 @@ export default function WaitlistSection({ classId, freeSeats, onChanged }: { cla
           {error} <button type="button" className="adm-btn is-ghost is-sm" onClick={() => { setError(''); void load() }}>Try again</button>
         </p>
       )}
-      {waiting.length > 0 && freeSeats && (
+      {waiting.length > 0 && canRun && (
         <div className="adm-panel" role="group" aria-label="Run the waitlist">
-          <b>A seat is free and people are waiting.</b>
-          <span className="adm-small">This adds the next person whose group fits and charges their saved card, up to what they agreed to. Each person is charged once at most.</span>
+          <b>{waiting.some((r) => r.state === 'charging') ? 'Someone is being added, or Square hasn’t answered yet.' : 'A seat is free and people are waiting.'}</b>
+          <span className="adm-small">Running it asks Square about anything unclear first, then adds the next person whose group fits and charges their saved card, up to what they agreed to. Nobody is charged twice.</span>
           <button type="button" className="adm-btn is-pri" disabled={busy === 'run'} onClick={run}>{busy === 'run' ? 'Running…' : 'Run the waitlist now'}</button>
         </div>
       )}

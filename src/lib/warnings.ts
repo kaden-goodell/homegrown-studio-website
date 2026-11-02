@@ -26,6 +26,7 @@ import { formatCalendarDay, formatTime, formatTimeSpan, studioDate, studioDayUtc
 import { classSpanOf, classesOverlap, partyBlocksClass, partyName, type ClassSpan, type PartySpan } from '@lib/conflicts'
 import type { Workshop } from '@providers/interfaces/workshop'
 import { getClass, listClasses } from '@lib/classes/class-store'
+import { waitlistItems } from '@lib/classes/waitlist-items'
 import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
 import { listPosNeedsDays, listRefundFlags, listUnmatchedPos, openPaidNotSeated, type RefundFlag } from '@lib/classes/square-events'
 import { onStaffConsole } from '@lib/classes/staff-view'
@@ -51,6 +52,8 @@ export type WarningCode =
   | 'pos-price-stale'
   // Fix round 3: a class that should be on the register isn't (setup not done, or a save's register write failed)
   | 'not-on-register'
+  // Stage 4 waitlist: a saved-card charge Square never answered (seat held), or a card that didn't go through / a price that rose
+  | 'waitlist-unknown' | 'waitlist-declined'
 
 export interface Warning {
   code: WarningCode
@@ -69,7 +72,7 @@ export interface Warning {
 }
 
 /** Items that aren't tied to a day: they stay until an owner decides. */
-export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated'])
+export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>(['pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated', 'waitlist-unknown', 'waitlist-declined'])
 
 /** Days ahead the panel and the daily email look. */
 export const WARNING_WINDOW_DAYS = 60
@@ -323,6 +326,12 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
         code: 'not-on-register', eventKind: 'workshop', eventId: cls.id, when: firstLeft?.startIso ?? now.toISOString(), title: name,
         detail: `${name} isn’t on the register yet, so it can’t be booked online.`,
         action: 'An owner opens the class in /admin and taps Put it on the register.',
+      })
+    }
+    // Stage 4: the waitlist's unclear charges and cards that didn't go through, until an owner decides in To decide.
+    for (const w of await waitlistItems(cls, decided, now)) {
+      out.push({
+        code: w.kind, eventKind: 'workshop', eventId: cls.id, when: w.at, title: name, itemId: w.id, detail: w.warning, action: OWNERS_DECIDE,
       })
     }
     const min = cls.content.rules.minimumToRun
