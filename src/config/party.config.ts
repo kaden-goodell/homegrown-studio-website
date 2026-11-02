@@ -90,7 +90,8 @@ export const partyConfig = {
  * start + party + cleanup ≤ `lastWrap`, so the evening workshop slot stays clear.
  * Weekdays not listed have no parties (Mon–Wed).
  * Weekly shape from Nov 7 (Kaden, 1 Nov 2026):
- *   Thu/Fri: party 4:30–6 · workshop 7–9
+ *   Thu: workshop 6–8 only (Kaden, 1 Nov 2026: no Thursday party; people won't stay out till 9)
+ *   Fri: party 4:30–6 · workshop 7–9
  *   Sat: Craft Café 9–1 · party 2–3:30 · party 4:30–6 · workshop 7–9
  *   Sun: party 1:00 · party 3:30 · workshop 6–8
  * Each party is 90 min + the hour's cleanup, so lastWrap 19:00 clears the room
@@ -99,7 +100,6 @@ export const partyConfig = {
  */
 export const partyDays: Record<number, { firstStart: string; lastWrap: string }> = {
   0: { firstStart: '13:00', lastWrap: '18:00' }, // Sunday: 1:00, 3:30
-  4: { firstStart: '16:30', lastWrap: '19:00' }, // Thursday: 4:30
   5: { firstStart: '16:30', lastWrap: '19:00' }, // Friday: 4:30
   6: { firstStart: '14:00', lastWrap: '19:00' }, // Saturday: 2:00, 4:30
 }
@@ -127,7 +127,6 @@ export const partyDateOverrides: Record<string, { firstStart: string; lastWrap: 
   '2026-10-22': { firstStart: '16:00', lastWrap: '21:00' },
   '2026-10-23': { firstStart: '16:00', lastWrap: '18:30' },
   '2026-10-29': { firstStart: '16:00', lastWrap: '18:30' },
-  '2026-11-05': { firstStart: '16:00', lastWrap: '18:30' },
   '2026-11-06': { firstStart: '16:00', lastWrap: '18:30' },
   '2026-10-24': { firstStart: '09:00', lastWrap: '21:30' },
 }
