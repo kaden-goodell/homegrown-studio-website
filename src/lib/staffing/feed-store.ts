@@ -81,10 +81,19 @@ async function forget(hash: string | null): Promise<void> {
   }
 }
 
-/** Makes a person's link, stopping their previous one. The raw token is returned once and never stored. */
+export const LINK_RACE = 'A new link was just made on another screen at the same moment. Tap Make a new link again.'
+
+/**
+ * Makes a person's link, stopping their previous one. The raw token is
+ * returned once and never stored. Two taps at the same moment: the first to
+ * land wins and the other is told to try again (409), so nobody is ever shown
+ * a link that is already dead.
+ */
 export async function makeFeed(who: Who, by: By): Promise<{ token: string; record: FeedRecord }> {
   const k = whoKey(who)
   assertClassWritesAllowed() // R41
+  const pointer = await kv.getWithMeta(k)
+  const prev = pointer.value ? ((JSON.parse(pointer.value) as { hash: string | null } | null)?.hash ?? null) : null
   const token = randomBytes(32).toString('base64url')
   const hash = sha256(token)
   const record: FeedRecord = {
@@ -97,7 +106,11 @@ export async function makeFeed(who: Who, by: By): Promise<{ token: string; recor
     lastUsedAt: null,
   }
   if (!(await kv.setIfMatch(tokKey(hash), JSON.stringify(record), null, false))) throw new StaffingError(503, BUSY_SAVING)
-  const prev = await setCurrent(k, hash)
+  const pointed = await kv.setIfMatch(k, JSON.stringify({ hash, at: new Date().toISOString() }), pointer.etag, pointer.value !== null)
+  if (!pointed) {
+    await forget(hash)
+    throw new StaffingError(409, LINK_RACE)
+  }
   if (prev && prev !== hash) await forget(prev)
   return { token, record }
 }

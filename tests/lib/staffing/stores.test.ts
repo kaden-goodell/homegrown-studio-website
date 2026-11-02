@@ -5,7 +5,10 @@ import { join } from 'node:path'
 // The fs-backed store never loses a CAS, so wrap setIfMatch: a test can make
 // the next conditional write lose once, running another writer first (a
 // concurrent writer landing between the read and the write).
-const hook = vi.hoisted(() => ({ beforeLose: null as null | (() => Promise<void>), loseNext: false }))
+const hook = vi.hoisted(() => ({ beforeLose: null as null | (() => Promise<void>), loseNext: false, writes: 0, loseKey: null as string | null }))
+// R41 tests play a deploy preview with no store of its own; everything else plays local dev.
+const site = vi.hoisted(() => ({ context: 'dev' as string }))
+vi.mock('@lib/deploy-context', () => ({ deployContext: () => site.context }))
 vi.mock('@lib/blob-store', async (orig) => {
   const real = await orig<typeof import('@lib/blob-store')>()
   return {
@@ -14,7 +17,16 @@ vi.mock('@lib/blob-store', async (orig) => {
       const kv = real.makeKvStore(...a)
       return {
         ...kv,
+        set: async (...b: Parameters<typeof kv.set>) => { hook.writes++; return kv.set(...b) },
         setIfMatch: async (...b: Parameters<typeof kv.setIfMatch>) => {
+          hook.writes++
+          if (hook.loseKey && b[0].startsWith(hook.loseKey)) {
+            hook.loseKey = null
+            const other = hook.beforeLose
+            hook.beforeLose = null
+            if (other) await other()
+            return false
+          }
           if (hook.loseNext) {
             hook.loseNext = false
             const other = hook.beforeLose
@@ -30,9 +42,10 @@ vi.mock('@lib/blob-store', async (orig) => {
 })
 
 import { getAvailability, getAvailabilityMany, saveAvailability } from '@lib/staffing/availability-store'
-import { getEntries, listAllEntryKeys, updateEntry } from '@lib/staffing/staffing-store'
-import { findFeed, makeFeed, revokeFeed, touchFeed } from '@lib/staffing/feed-store'
+import { getEntries, listAllEntryKeys, noteSeen, readPartyIndex, updateEntry } from '@lib/staffing/staffing-store'
+import { findFeed, LINK_RACE, makeFeed, revokeFeed, touchFeed } from '@lib/staffing/feed-store'
 import { StaleError, StaffingError } from '@lib/staffing/errors'
+import { TestSiteStoreError } from '@lib/classes/test-site-guard'
 import { withAssigned, withoutAssigned, withAsk, withoutAsk, withSeen } from '@lib/staffing/rules'
 import type { Assignment, DayMark } from '@lib/staffing/types'
 
@@ -45,6 +58,7 @@ const assignment = (staffId: string, name: string): Assignment => ({ staffId, na
 
 beforeEach(() => {
   hook.loseNext = false
+  hook.loseKey = null
   hook.beforeLose = null
 })
 
@@ -163,6 +177,7 @@ describe('staffing store', () => {
     await expect(updateEntry(key, (x) => ({ ...x, needed: 3 }), 'Needs 3', kaden, null)).rejects.toBeInstanceOf(StaleError)
     try {
       await updateEntry(key, (x) => ({ ...x, needed: 3 }), 'Needs 3', kaden, '2020-01-01T00:00:00.000Z')
+      expect.unreachable()
     } catch (e) {
       expect((e as StaleError<any>).message).toBe("Someone else just changed who's on this. Here's the latest.")
       expect((e as StaleError<any>).current.needed).toBe(2)
@@ -173,8 +188,8 @@ describe('staffing store', () => {
 
   it('caps history at 100, and the key in the record can never be changed by fn', async () => {
     const key = `ses:${uid('ses_')}` as const
-    let e = await updateEntry(key, (x) => x, 'x', kaden)
-    for (let i = 0; i < 105; i++) e = await updateEntry(key, (x) => ({ ...x, key: 'ses:other' as const }), `x${i}`, kaden)
+    let e = await updateEntry(key, (x) => ({ ...x, needed: 1 }), 'x', kaden)
+    for (let i = 0; i < 105; i++) e = await updateEntry(key, (x) => ({ ...x, needed: i % 2 ? 1 : 2, key: 'ses:other' as const }), `x${i}`, kaden)
     expect(e.history).toHaveLength(100)
     expect(e.history[0].change).toBe('x104')
     expect(e.key).toBe(key)
@@ -187,7 +202,7 @@ describe('staffing store', () => {
     const lose = async () => { losses++; if (losses < 3) { hook.loseNext = true; hook.beforeLose = lose } }
     hook.loseNext = true
     hook.beforeLose = lose
-    await expect(updateEntry(key, (x) => x, 'x', kaden)).rejects.toMatchObject({ status: 503 })
+    await expect(updateEntry(key, (x) => ({ ...x, needed: 2 }), 'x', kaden)).rejects.toMatchObject({ status: 503 })
   })
 
   it('asks: add, replace note, remove; unassign', async () => {
@@ -203,16 +218,109 @@ describe('staffing store', () => {
     expect(e.assigned).toEqual([])
   })
 
-  it('withSeen bumps the sequence only when the times change', async () => {
+  it('seen: no history line, updatedAt unchanged, SEQUENCE up only when the times move (I3)', async () => {
     const key = `ses:${uid('ses_')}` as const
     const ev = { startIso: '2026-10-25T18:00:00.000Z', endIso: '2026-10-25T20:00:00.000Z', title: 'Needlepoint 101' }
-    let e = await updateEntry(key, (x) => withSeen(x, ev), 'seen', kaden)
+    expect(await noteSeen(key, ev)).toBeNull() // no record is made just to remember a time
+    expect((await getEntries([key])).size).toBe(0)
+    const a = await updateEntry(key, (x) => withAssigned(x, assignment('TM2', 'Jessica')), 'on', kaden)
+    let e = (await noteSeen(key, ev))!
+    expect(e).toMatchObject({ seen: ev, sequence: 0, updatedAt: a.updatedAt })
+    expect(e.history).toHaveLength(1)
+    e = (await noteSeen(key, { ...ev, title: 'Needlepoint' }))!
     expect(e.sequence).toBe(0)
-    e = await updateEntry(key, (x) => withSeen(x, { ...ev, title: 'Needlepoint' }), 'seen', kaden)
-    expect(e.sequence).toBe(0)
-    e = await updateEntry(key, (x) => withSeen(x, { ...ev, startIso: '2026-10-25T19:00:00.000Z' }), 'seen', kaden)
+    e = (await noteSeen(key, { ...ev, startIso: '2026-10-25T19:00:00.000Z' }))!
     expect(e.sequence).toBe(1)
     expect(e.seen!.startIso).toBe('2026-10-25T19:00:00.000Z')
+    expect(e.updatedAt).toBe(a.updatedAt)
+    expect(e.history).toHaveLength(1)
+    // a screen that loaded before the feed read can still save (not stale)
+    const b = await updateEntry(key, (x) => ({ ...x, needed: 2 }), 'Needs 2', kaden, a.updatedAt)
+    expect(b).toMatchObject({ needed: 2, sequence: 1 })
+    // the same times again: nothing written
+    const before = hook.writes
+    await noteSeen(key, { ...ev, startIso: '2026-10-25T19:00:00.000Z' })
+    expect(hook.writes).toBe(before)
+  })
+
+  it('a change that changes nothing writes nothing: no history, no updatedAt, no new record (I3)', async () => {
+    const key = `ses:${uid('ses_')}` as const
+    let before = hook.writes
+    const none = await updateEntry(key, (x) => withoutAssigned(x, 'TM2'), 'off', kaden)
+    expect(none.updatedAt).toBeNull()
+    expect(hook.writes).toBe(before)
+    expect((await getEntries([key])).size).toBe(0)
+    const a = await updateEntry(key, (x) => withAssigned(x, assignment('TM2', 'Jessica')), 'on', kaden)
+    before = hook.writes
+    const again = await updateEntry(key, (x) => withAssigned(x, assignment('TM2', 'Jessica')), 'on', kaden)
+    expect(hook.writes).toBe(before)
+    expect(again.updatedAt).toBe(a.updatedAt)
+    expect(again.history).toHaveLength(1)
+  })
+
+  it('the event option remembers seen in the same write', async () => {
+    const key = `ses:${uid('ses_')}` as const
+    const ev = { startIso: '2026-10-25T18:00:00.000Z', endIso: '2026-10-25T20:00:00.000Z', title: 'Needlepoint 101' }
+    const e = await updateEntry(key, (x) => withAssigned(x, assignment('TM2', 'Jessica')), 'on', kaden, undefined, { event: ev })
+    expect(e.seen).toEqual(ev)
+  })
+
+  it('refuses a fallback id or a malformed id inside an entry, writing nothing (I2)', async () => {
+    const key = `ses:${uid('ses_')}` as const
+    for (const bad of ['kaden', 'catherine', '../x', '']) {
+      await expect(updateEntry(key, (x) => withAssigned(x, assignment(bad, 'Kaden')), 'on', kaden)).rejects.toMatchObject({ status: 400, message: "That person isn't on the team list." })
+      await expect(updateEntry(key, (x) => withAsk(x, { staffId: bad, name: 'K', at: 'x', note: '' }), 'ask', kaden)).rejects.toBeInstanceOf(StaffingError)
+    }
+    expect((await getEntries([key])).size).toBe(0)
+  })
+
+  it('party index: our parties with people, by last-seen start; gone when nobody is left (I4)', async () => {
+    const p = `party:${uid('pty_')}` as const, sq = `party:${uid('SQB')}` as const
+    const ev = { startIso: '2026-12-05T19:00:00.000Z', endIso: '2026-12-05T21:00:00.000Z', title: 'Party' }
+    await updateEntry(p, (x) => withAssigned(x, assignment('TM2', 'Jessica')), 'on', kaden, undefined, { event: ev })
+    await updateEntry(sq, (x) => withAssigned(x, assignment('TM2', 'Jessica')), 'on', kaden, undefined, { event: ev })
+    let idx = await readPartyIndex()
+    expect(idx[p]).toBe(ev.startIso)
+    expect(idx[sq]).toBeUndefined() // Square-booked parties never need it
+    await noteSeen(p, { ...ev, startIso: '2026-12-12T19:00:00.000Z', endIso: '2026-12-12T21:00:00.000Z' })
+    expect((await readPartyIndex())[p]).toBe('2026-12-12T19:00:00.000Z')
+    await updateEntry(p, (x) => withoutAssigned(x, 'TM2'), 'off', kaden)
+    idx = await readPartyIndex()
+    expect(idx[p]).toBeUndefined()
+    expect(await listAllEntryKeys()).not.toContain('idx-parties')
+  })
+})
+
+describe('R41: a test site sharing the live stores writes nothing (I5)', () => {
+  const asPreview = async (fn: () => Promise<void>) => {
+    const prevNs = process.env.STORE_NAMESPACE
+    delete process.env.STORE_NAMESPACE
+    site.context = 'deploy-preview'
+    try { await fn() } finally {
+      site.context = 'dev'
+      if (prevNs !== undefined) process.env.STORE_NAMESPACE = prevNs
+    }
+  }
+
+  it('availability, entries, seen and feed links are all refused with nothing written', async () => {
+    const id = uid('TMR'), key = `ses:${uid('ses_')}` as const
+    const existing = `ses:${uid('ses_')}` as const
+    await updateEntry(existing, (x) => withAssigned(x, assignment('TM2', 'Jessica')), 'on', kaden)
+    const { token } = await makeFeed({ staffId: 'TMR1' }, kaden)
+    const before = hook.writes
+    await asPreview(async () => {
+      await expect(saveAvailability(id, 'J', empty(), kaden, null)).rejects.toBeInstanceOf(TestSiteStoreError)
+      await expect(updateEntry(key, (x) => withAssigned(x, assignment('TM2', 'Jessica')), 'on', kaden)).rejects.toBeInstanceOf(TestSiteStoreError)
+      await expect(noteSeen(existing, { startIso: '2026-10-25T18:00:00.000Z', endIso: '2026-10-25T20:00:00.000Z', title: 'x' })).rejects.toBeInstanceOf(TestSiteStoreError)
+      await expect(makeFeed({ staffId: 'TMR2' }, kaden)).rejects.toBeInstanceOf(TestSiteStoreError)
+      await expect(revokeFeed({ staffId: 'TMR1' }, kaden)).rejects.toBeInstanceOf(TestSiteStoreError)
+      const found = await findFeed(token)
+      await touchFeed(found!.hash, new Date('2030-01-01T00:00:00.000Z'))
+    })
+    expect(hook.writes).toBe(before)
+    expect(await getAvailability(id)).toBeNull()
+    expect((await getEntries([key])).size).toBe(0)
+    expect((await findFeed(token))!.lastUsedAt).toBeNull()
   })
 })
 
@@ -271,6 +379,14 @@ describe('calendar feed store', () => {
     }
     // right shape, wrong token
     expect(await findFeed('A'.repeat(43))).toBeNull()
+  })
+
+  it('two "Make a new link" taps at once: one wins, the other is told to try again, nobody holds a dead link (M6)', async () => {
+    let other: { token: string } | null = null
+    hook.loseKey = 'who-staff-TM10'
+    hook.beforeLose = async () => { other = await makeFeed({ staffId: 'TM10' }, kaden) }
+    await expect(makeFeed({ staffId: 'TM10' }, kaden)).rejects.toMatchObject({ status: 409, message: LINK_RACE })
+    expect(await findFeed(other!.token)).not.toBeNull()
   })
 
   it('never makes a link for a fallback id', async () => {

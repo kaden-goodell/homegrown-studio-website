@@ -2,6 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const { searchMock } = vi.hoisted(() => ({ searchMock: vi.fn() }))
 
+// R41 tests play a deploy preview with no store of its own; everything else plays local dev.
+const site = vi.hoisted(() => ({ context: 'dev' as string }))
+vi.mock('@lib/deploy-context', () => ({ deployContext: () => site.context }))
+
 vi.mock('@providers/square/client', () => ({
   createSquareClient: () => ({ teamMembers: { search: searchMock } }),
 }))
@@ -201,5 +205,61 @@ describe('staffIdForOwner', () => {
     await _resetLastKnownForTests()
     searchMock.mockRejectedValue(new Error('square down'))
     expect(await staffIdForOwner('Kaden')).toBeNull()
+  })
+})
+
+describe('a Square failure is remembered for a minute (M3)', () => {
+  beforeEach(async () => {
+    _resetStaffCache()
+    await _resetLastKnownForTests()
+    searchMock.mockReset()
+    searchMock.mockResolvedValue({ teamMembers: TEAM })
+  })
+
+  it('goes straight to the saved team for a minute, then asks Square again', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(new Date('2026-11-01T15:00:00.000Z'))
+      await teamWithContacts()
+      _resetStaffCache() // forget the good answer; the saved copy stays
+      vi.setSystemTime(new Date('2026-11-01T15:20:00.000Z'))
+      searchMock.mockReset()
+      searchMock.mockRejectedValue(new Error('square down'))
+      expect((await teamWithContacts()).source).toBe('last-known')
+      expect((await teamWithContacts()).source).toBe('last-known')
+      expect(await isActiveStaffId('TM2')).toBe(true)
+      expect(searchMock).toHaveBeenCalledTimes(1)
+      vi.setSystemTime(new Date('2026-11-01T15:21:01.000Z'))
+      searchMock.mockResolvedValue({ teamMembers: TEAM })
+      expect((await teamWithContacts()).source).toBe('square')
+      expect(searchMock).toHaveBeenCalledTimes(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+})
+
+describe('R41: the last-known team on a test site sharing the live stores', () => {
+  beforeEach(async () => {
+    _resetStaffCache()
+    await _resetLastKnownForTests()
+    searchMock.mockReset()
+    searchMock.mockResolvedValue({ teamMembers: TEAM })
+  })
+
+  it('is never written there (a sandbox team must not replace the live one)', async () => {
+    const prevNs = process.env.STORE_NAMESPACE
+    delete process.env.STORE_NAMESPACE
+    site.context = 'deploy-preview'
+    try {
+      expect((await teamWithContacts()).source).toBe('square')
+    } finally {
+      site.context = 'dev'
+      if (prevNs !== undefined) process.env.STORE_NAMESPACE = prevNs
+    }
+    // Nothing was saved: with Square down there is no copy to fall back on.
+    _resetStaffCache()
+    searchMock.mockRejectedValue(new Error('square down'))
+    await expect(teamWithContacts()).rejects.toThrow()
   })
 })

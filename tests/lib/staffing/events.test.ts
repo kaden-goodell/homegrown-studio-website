@@ -49,8 +49,9 @@ vi.mock('@lib/parties/legacy-square', () => ({
   onSandbox: () => src.sandbox,
 }))
 
-import { staffableBetween, staffingRows, orphanEntries } from '@lib/staffing/events'
-import { updateEntry } from '@lib/staffing/staffing-store'
+import { staffableBetween, staffingRows, orphanEntries, crewView, rowForCrew, eventForCrew, rememberSeen } from '@lib/staffing/events'
+import { getEntries, updateEntry } from '@lib/staffing/staffing-store'
+import { getPartyRecord } from '@lib/party-store'
 import { getAvailability, saveAvailability } from '@lib/staffing/availability-store'
 
 /** Saves over whatever an earlier test left (the store lives for the whole file). */
@@ -141,6 +142,33 @@ describe('staffableBetween', () => {
     expect(ev).toMatchObject({ key: `party:${sq}`, title: 'Party', detail: { hostFirst: null } })
   })
 
+  it('a paid (booked) party whose record failed to save is still staffable as plain "Party" (I1)', async () => {
+    const paid = uid('pty_'), paying = uid('pty_')
+    src.parties = [partyBusy(paid, at(24, 14), at(24, 16), 'booked'), partyBusy(paying, at(25, 14), at(25, 16), 'held')]
+    const evs = await staffableBetween(FROM, TO)
+    expect(evs.map((e) => e.key)).toEqual([`party:${paid}`])
+    expect(evs[0]).toMatchObject({ title: 'Party', status: 'on' })
+  })
+
+  it('an id that cannot be a staffing key is left off, not shown unassignable (M2)', async () => {
+    src.legacy = [{ id: 'BAD ID/1', name: 'Odd', startIso: at(24, 18), endIso: at(24, 20) }, { id: 'GOOD1', name: 'Fine', startIso: at(24, 18), endIso: at(24, 20) }]
+    expect((await staffableBetween(FROM, TO)).map((e) => e.key)).toEqual(['legacy:GOOD1'])
+  })
+
+  it('cancelled parties are found from the party index near the range only (I4)', async () => {
+    const near = uid('pty_'), far = uid('pty_')
+    src.records.set(near, { bookingId: near, hostName: 'A', guestCount: 4, status: 'cancelled', source: 'ours', startIso: at(30, 13), endIso: at(30, 15) })
+    src.records.set(far, { bookingId: far, hostName: 'B', guestCount: 4, status: 'cancelled', source: 'ours', startIso: '2027-06-05T18:00:00.000Z', endIso: '2027-06-05T20:00:00.000Z' })
+    await updateEntry(`party:${near}`, on('TM2', 'Jessica'), 'on', kaden, undefined, { event: { startIso: at(30, 13), endIso: at(30, 15), title: 'Party' } })
+    await updateEntry(`party:${far}`, on('TM2', 'Jessica'), 'on', kaden, undefined, { event: { startIso: '2027-06-05T18:00:00.000Z', endIso: '2027-06-05T20:00:00.000Z', title: 'Party' } })
+    vi.mocked(getPartyRecord).mockClear()
+    const evs = await staffableBetween(FROM, TO)
+    expect(evs.find((e) => e.key === `party:${near}`)?.status).toBe('cancelled')
+    const read = vi.mocked(getPartyRecord).mock.calls.map((c) => c[0])
+    expect(read).toContain(near)
+    expect(read).not.toContain(far)
+  })
+
   it('legacy Square classes are staffable', async () => {
     src.legacy = [{ id: 'SCHED1', name: 'Pottery', startIso: at(24, 18), endIso: at(24, 20) }]
     const [ev] = await staffableBetween(FROM, TO)
@@ -161,7 +189,8 @@ describe('staffableBetween', () => {
   it('a cancelled party with someone on it shows as cancelled', async () => {
     const p = uid('pty_')
     src.records.set(p, { bookingId: p, hostName: 'Ann B', guestCount: 9, status: 'cancelled', source: 'ours', startIso: at(30, 13), endIso: at(30, 15), durationMinutes: 120 })
-    await updateEntry(`party:${p}`, on('TM2', 'Jessica'), 'on', kaden)
+    // assigned while it was still on (the route passes the event, which feeds the party index)
+    await updateEntry(`party:${p}`, on('TM2', 'Jessica'), 'on', kaden, undefined, { event: { startIso: at(30, 13), endIso: at(30, 15), title: 'Party' } })
     const evs = await staffableBetween(FROM, TO)
     expect(evs.find((e) => e.key === `party:${p}`)).toMatchObject({ status: 'cancelled', title: 'Party · 9 guests', startIso: at(30, 13), endIso: at(30, 15) })
     // outside the range: not listed
@@ -188,10 +217,11 @@ describe('staffingRows', () => {
     const [row] = await staffingRows(FROM, TO)
     expect(row.state).toBe('staffed')
     expect(row.needed).toBe(1)
+    // assigned first, then asked, then by name (M5)
     expect(row.people).toEqual([
-      { staffId: 'TM1', name: 'Kaden', verdict: 'unknown', asked: false, assigned: false },
-      { staffId: 'TM2', name: 'Jessica', verdict: 'unknown', asked: false, assigned: true },
-      { staffId: 'TM3', name: 'Sam', verdict: 'cant', asked: true, assigned: false },
+      { staffId: 'TM2', name: 'Jessica', verdict: 'unknown', asked: false, assigned: true, askNote: '', markNote: '' },
+      { staffId: 'TM3', name: 'Sam', verdict: 'cant', asked: true, assigned: false, askNote: 'pick me', markNote: '' },
+      { staffId: 'TM1', name: 'Kaden', verdict: 'unknown', asked: false, assigned: false, askNote: '', markNote: '' },
     ])
     for (const p of row.people) expect(['kaden', 'catherine']).not.toContain(p.staffId)
     // contact details never ride along
@@ -266,6 +296,17 @@ describe('staffingRows', () => {
     expect(body).not.toMatch(/secret note|private|Stefanie|Sam/)
   })
 
+  it('owners see the note on a "can\'t" and the note on an ask (M5)', async () => {
+    const c = klass()
+    src.classes = [c]
+    await updateEntry(`ses:${c.sessions[0].id}`, (e) => withAsk(e, { staffId: 'TM2', name: 'Jessica', at: 'x', note: 'I love this one' }), 'ask', kaden)
+    await setTimes('TM3', 'Sam', { '6': { kind: 'cant', range: { from: '09:00', to: '13:00' }, note: 'dentist' } })
+    const [row] = await staffingRows(FROM, TO)
+    expect(row.people.find((p) => p.staffId === 'TM2')).toMatchObject({ asked: true, askNote: 'I love this one' })
+    expect(row.people.find((p) => p.staffId === 'TM3')).toMatchObject({ verdict: 'cant', markNote: 'dentist' })
+    expect(row.people.map((p) => p.staffId)).toEqual(['TM2', 'TM1', 'TM3']) // asked, then by name
+  })
+
   it('throws when the team cannot be read (never "nobody\'s available")', async () => {
     src.classes = [klass()]
     src.teamFails = true
@@ -325,5 +366,79 @@ describe('orphanEntries', () => {
     src.sandbox = true
     by = new Map((await orphanEntries(now)).map((o) => [o.key, o.status]))
     expect(by.has(`party:${sq}`)).toBe(false)
+  })
+})
+
+describe('crew view (M4: one place strips what crew may not see)', () => {
+  it('eventForCrew drops the host name; rowForCrew keeps only that person', async () => {
+    const p = uid('pty_')
+    src.records.set(p, { bookingId: p, hostName: 'Stefanie Justice', guestCount: 14, status: 'booked', source: 'ours', startIso: at(24, 14) })
+    src.parties = [partyBusy(p, at(24, 14), at(24, 16))]
+    await updateEntry(`party:${p}`, on('TM2', 'Jessica'), 'on', kaden)
+    await updateEntry(`party:${p}`, (e) => withAsk(e, { staffId: 'TM3', name: 'Sam', at: 'x', note: 'secret' }), 'ask', kaden)
+    const [row] = await staffingRows(FROM, TO)
+    expect(row.event.detail.hostFirst).toBe('Stefanie')
+    expect(eventForCrew(row.event).detail).toEqual({ guests: 14 })
+    const crew = rowForCrew(row, 'TM2')
+    expect(crew.people.map((x) => x.staffId)).toEqual(['TM2'])
+    expect(crew.leftTeam).toEqual([])
+    expect(JSON.stringify(crew)).not.toMatch(/Stefanie|secret|Sam/)
+  })
+
+  it('crewView: mine = what they are on; open = upcoming events not theirs, with their own ask only', async () => {
+    const mine = klass(), other = klass({ content: { name: 'Weaving', rules: {} } }), past = klass({ content: { name: 'Old', rules: {} }, sessions: [{ id: uid('ses_'), startIso: at(20, 10), endIso: at(20, 12), capacity: 5 }] })
+    src.classes = [mine, other, past]
+    const p = uid('pty_')
+    src.records.set(p, { bookingId: p, hostName: 'Stefanie Justice', guestCount: 14, status: 'booked', source: 'ours', startIso: at(25, 14) })
+    src.parties = [partyBusy(p, at(25, 14), at(25, 16))]
+    await updateEntry(`ses:${mine.sessions[0].id}`, on('TM2', 'Jessica'), 'on', kaden)
+    await updateEntry(`ses:${mine.sessions[0].id}`, on('TM3', 'Sam'), 'on', kaden)
+    await updateEntry(`ses:${other.sessions[0].id}`, (e) => withAsk(e, { staffId: 'TM2', name: 'Jessica', at: 'x', note: 'me please' }), 'ask', kaden)
+    await updateEntry(`ses:${other.sessions[0].id}`, (e) => withAsk(e, { staffId: 'TM3', name: 'Sam', at: 'x', note: 'private' }), 'ask', kaden)
+    const now = new Date(at(22, 9))
+    const v = await crewView(FROM, TO, 'TM2', now)
+    expect(v.mine.map((r) => r.event.key)).toEqual([`ses:${mine.sessions[0].id}`])
+    expect(v.mine[0].entry!.assigned.map((a) => a.name)).toEqual(['Jessica', 'Sam']) // "With Sam"
+    expect(v.open.map((e) => e.key)).toEqual([`ses:${other.sessions[0].id}`, `party:${p}`])
+    expect(v.open[0]).toMatchObject({ asked: true, askNote: 'me please' })
+    expect(v.open[1]).toMatchObject({ asked: false, title: 'Party · 14 guests' })
+    expect(JSON.stringify(v)).not.toMatch(/Stefanie|private|example\.com/)
+  })
+})
+
+describe('rememberSeen', () => {
+  it('writes seen only for entries that exist and differ; SEQUENCE follows a move', async () => {
+    const c = klass(), quiet = klass({ content: { name: 'Nobody', rules: {} } })
+    src.classes = [c, quiet]
+    const key = `ses:${c.sessions[0].id}` as const
+    const a = await updateEntry(key, on('TM2', 'Jessica'), 'on', kaden)
+    let rows = await staffingRows(FROM, TO)
+    await rememberSeen(rows)
+    expect(rows.find((r) => r.event.key === key)!.entry!.seen!.startIso).toBe(c.sessions[0].startIso)
+    expect((await getEntries([`ses:${quiet.sessions[0].id}`])).size).toBe(0) // no record made
+    c.sessions[0] = { ...c.sessions[0], startIso: at(24, 11), endIso: at(24, 13) }
+    rows = await staffingRows(FROM, TO)
+    await rememberSeen(rows)
+    const e = (await getEntries([key])).get(key)!
+    expect(e.sequence).toBe(1)
+    expect(e.updatedAt).toBe(a.updatedAt)
+  })
+})
+
+describe('orphanEntries: an entry never seen and long untouched is left alone (M7)', () => {
+  it('uses updatedAt when there is no seen', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    const oldKey = `ses:${uid('ses_')}` as const
+    try {
+      vi.setSystemTime(new Date('2026-08-01T15:00:00.000Z'))
+      await updateEntry(oldKey, on('TM2', 'Jessica'), 'on', kaden)
+    } finally {
+      vi.useRealTimers()
+    }
+    const freshKey = `ses:${uid('ses_')}` as const
+    await updateEntry(freshKey, on('TM2', 'Jessica'), 'on', kaden)
+    const by = new Map((await orphanEntries(new Date())).map((o) => [o.key, o.status]))
+    expect(by.has(oldKey)).toBe(false)
+    expect(by.get(freshKey)).toBe('gone')
   })
 })

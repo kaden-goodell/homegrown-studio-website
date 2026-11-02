@@ -21,6 +21,8 @@ export const MAX_NEEDED = 6
 export const MAX_MARKS_PER_DAY = 4
 export const MAX_NOTE = 120
 export const DATE_WINDOW_DAYS = 365
+/** Dates in one save (a year of days, with room to spare); more is refused before any work. */
+export const MAX_DATES = 400
 
 // ---------------------------------------------------------------- keys
 
@@ -80,9 +82,15 @@ function marksOn(a: Availability, day: string): DayMark[] {
  * unknown. An event touching two studio days checks both.
  */
 export function verdict(a: Availability | null, ev: { startIso: string; endIso: string }): Verdict {
-  if (!a) return 'unknown'
+  return verdictWithNote(a, ev).verdict
+}
+
+/** verdict, plus the note on the "can't" mark that decided it ("dentist"), for owner screens. */
+export function verdictWithNote(a: Availability | null, ev: { startIso: string; endIso: string }): { verdict: Verdict; note: string } {
+  const none = { verdict: 'unknown' as Verdict, note: '' }
+  if (!a) return none
   const s = Date.parse(ev.startIso), e = Date.parse(ev.endIso)
-  if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return 'unknown'
+  if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return none
   const first = localDate(ev.startIso)
   const last = localDate(new Date(e - 1).toISOString())
   const cans: [number, number][] = []
@@ -90,14 +98,14 @@ export function verdict(a: Availability | null, ev: { startIso: string; endIso: 
     for (const m of marksOn(a, day)) {
       const [ms, me] = markSpan(day, m.range)
       if (m.kind === 'cant') {
-        if (ms < e && me > s) return 'cant'
+        if (ms < e && me > s) return { verdict: 'cant', note: m.note ?? '' }
       } else {
         const cs = Math.max(ms, s), ce = Math.min(me, e)
         if (ce > cs) cans.push([cs, ce])
       }
     }
   }
-  if (cans.length === 0) return 'unknown'
+  if (cans.length === 0) return none
   cans.sort((x, y) => x[0] - y[0])
   let covered = 0, curS = cans[0][0], curE = cans[0][1]
   for (const [cs, ce] of cans.slice(1)) {
@@ -105,7 +113,7 @@ export function verdict(a: Availability | null, ev: { startIso: string; endIso: 
     else { covered += curE - curS; curS = cs; curE = ce }
   }
   covered += curE - curS
-  return covered >= e - s ? 'can' : 'partly'
+  return { verdict: covered >= e - s ? 'can' : 'partly', note: '' }
 }
 
 // ---------------------------------------------------------------- staffed or not
@@ -193,11 +201,13 @@ export function validateAvailability(raw: unknown, now: Date): Result<Pick<Avail
     weekly[day] = r.value
   }
 
+  const dateKeys = Object.keys((raw.dates ?? {}) as Record<string, unknown>)
+  if (dateKeys.length > MAX_DATES) return fail("That's too many dates in one save. Take some off and try again.")
   const today = localDate(now.toISOString())
   const earliest = addDays(today, -1)
   const latest = addDays(today, DATE_WINDOW_DAYS)
   const dates: Record<string, DayMark[]> = {}
-  for (const day of Object.keys((raw.dates ?? {}) as Record<string, unknown>).sort()) {
+  for (const day of dateKeys.sort()) {
     const list = (raw.dates as Record<string, unknown>)[day]
     if (!realDate(day)) return fail('Pick a real date.', `dates.${day}`)
     if (!Array.isArray(list)) return fail("We couldn't read those times. Try again.", `dates.${day}`)

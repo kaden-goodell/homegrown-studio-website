@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  eventKeyOf, isEventKey, verdict, neededFor, staffedState, validateAvailability, movedSince, DEFAULT_NEEDED,
+  eventKeyOf, isEventKey, verdict, verdictWithNote, neededFor, staffedState, validateAvailability, movedSince, DEFAULT_NEEDED,
 } from '@lib/staffing/rules'
 import type { Availability, DayMark, StaffingEntry, StaffableEvent } from '@lib/staffing/types'
 
@@ -169,5 +169,21 @@ describe('validateAvailability', () => {
     const dates: Record<string, DayMark[]> = {}
     for (let i = -1; i <= 365; i++) dates[new Date(Date.UTC(2026, 9, 20 + i, 12)).toISOString().slice(0, 10)] = [can()]
     expect(Object.keys(ok({ weekly: {}, dates }).dates).length).toBe(367)
+  })
+})
+
+describe('verdictWithNote and the date cap', () => {
+  it('carries the note of the "can\'t" that decided it', () => {
+    const a = avail({ '6': cant('09:00', '12:00', 'dentist') })
+    expect(verdictWithNote(a, satAt(10))).toEqual({ verdict: 'cant', note: 'dentist' })
+    expect(verdictWithNote(a, satAt(14))).toEqual({ verdict: 'unknown', note: '' })
+    expect(verdictWithNote(avail({ '6': can(undefined, undefined, 'any time') }), satAt(14))).toEqual({ verdict: 'can', note: '' })
+  })
+
+  it('refuses more than 400 dates in one save with a plain sentence, before any work (M9)', () => {
+    const dates: Record<string, unknown> = {}
+    for (let i = 0; i < 401; i++) dates[`2020-01-${String(i).padStart(3, '0')}`] = []
+    const r = validateAvailability({ weekly: {}, dates }, new Date('2026-10-20T15:00:00.000Z'))
+    expect(r).toEqual({ ok: false, error: "That's too many dates in one save. Take some off and try again.", field: undefined })
   })
 })

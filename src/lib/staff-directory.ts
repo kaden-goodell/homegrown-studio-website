@@ -52,10 +52,14 @@ const teamKv = makeKvStore('staff-team', 'staff-team')
 const TEAM_KEY = 'team'
 
 let cache: { at: number; people: StaffPerson[] } | null = null
+/** When Square last failed: for a minute after, go straight to the saved team instead of waiting on Square again. */
+let failedAt: number | null = null
+const FAILURE_TTL_MS = 60 * 1000
 
-/** @internal test-only: clear the cached roster. */
+/** @internal test-only: clear the cached roster (and a remembered Square failure). */
 export function _resetStaffCache(): void {
   cache = null
+  failedAt = null
 }
 
 /** @internal test-only: forget the saved last-known team. */
@@ -72,11 +76,19 @@ const text = (v: unknown): string | null => {
 async function squareTeam(): Promise<StaffPerson[]> {
   const now = Date.now()
   if (cache && now - cache.at < CACHE_TTL_MS) return cache.people
+  if (failedAt !== null && now - failedAt < FAILURE_TTL_MS) throw new Error('Square team lookup failed a moment ago')
 
-  const client = createSquareClient(siteConfig.providers.catalog.config as SquareConfig)
-  const res: any = await client.teamMembers.search({ query: { filter: { status: 'ACTIVE' } } })
-  const active = ((res.teamMembers ?? []) as any[]).filter((m) => m.status === 'ACTIVE')
-  if (active.length === 0) throw new Error('Square returned no active team members')
+  let active: any[]
+  try {
+    const client = createSquareClient(siteConfig.providers.catalog.config as SquareConfig)
+    const res: any = await client.teamMembers.search({ query: { filter: { status: 'ACTIVE' } } })
+    active = ((res.teamMembers ?? []) as any[]).filter((m) => m.status === 'ACTIVE')
+    if (active.length === 0) throw new Error('Square returned no active team members')
+  } catch (err) {
+    failedAt = now
+    throw err
+  }
+  failedAt = null
 
   // Two staff sharing a given name ("Sam", "Sam") get a family initial
   // appended so the picker grid never shows two identical buttons.

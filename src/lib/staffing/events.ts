@@ -32,23 +32,44 @@ import { onSandbox } from '@lib/parties/legacy-square'
 import { getPartySettings } from '@lib/parties/settings-store'
 import { localDate } from '@lib/parties/party-times'
 import { teamWithContacts } from '@lib/staff-directory'
+import { createLogger } from '@lib/logger'
+import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import type { ScheduledClass } from '@lib/classes/types'
 import { getAvailabilityMany } from './availability-store'
-import { getEntries, listAllEntryKeys } from './staffing-store'
-import { neededFor, staffedState, verdict } from './rules'
-import type { EventKey, StaffableEvent, StaffedState, StaffingEntry, Verdict } from './types'
+import { getEntries, listAllEntryKeys, noteSeen, readPartyIndex } from './staffing-store'
+import { eventKeyOf, neededFor, staffedState, verdictWithNote } from './rules'
+import type { Availability, EventKey, StaffableEvent, StaffedState, StaffingEntry, Verdict } from './types'
+
+export interface StaffPersonRow {
+  staffId: string
+  name: string
+  verdict: Verdict
+  asked: boolean
+  assigned: boolean
+  /** what they wrote when they asked ('' when none) */
+  askNote: string
+  /** the note on their "can't" for this time ("dentist"), '' when none */
+  markNote: string
+}
 
 export interface StaffingRow {
   event: StaffableEvent
   entry: StaffingEntry | null
   state: StaffedState
   needed: number
-  people: { staffId: string; name: string; verdict: Verdict; asked: boolean; assigned: boolean }[]
+  /** Assigned first, then the people who asked, then everyone else; by name within each. */
+  people: StaffPersonRow[]
   /** Owner views: people still on this event who are no longer on the team (they don't count, S3-R6). Always [] for crew. */
   leftTeam: { staffId: string; name: string }[]
 }
 
+/** An event a crew member could ask to work, with whether they already asked. */
+export type OpenEvent = StaffableEvent & { asked: boolean; askNote: string }
+
+const logger = createLogger('staffing-events')
 const DAY_MS = 86_400_000
+/** How far a party's last-seen start may be from the range and still be checked for a cancellation (a party can move). */
+const INDEX_MARGIN_MS = 62 * DAY_MS
 const ORPHAN_LOOK_BACK_MS = 30 * DAY_MS
 const ORPHAN_LOOK_AHEAD_MS = 366 * DAY_MS
 
@@ -68,16 +89,23 @@ function partyEnd(r: PartyRecord): string {
   return new Date(Date.parse(r.startIso) + (r.durationMinutes ?? partyConfig.durationMinutes) * 60_000).toISOString()
 }
 
-function sessionEvent(c: ScheduledClass, s: ScheduledClass['sessions'][number], status: StaffableEvent['status']): StaffableEvent {
+/** The staffing key, or null (logged) for an id that can't be a key: the event then can't be staffed. */
+function keyOrSkip(b: { kind: string; id: string; sessionId?: string }): EventKey | null {
+  const key = eventKeyOf(b)
+  if (!key) logger.warn('An event id cannot be a staffing key; it is left off the staffing board', { kind: b.kind, id: b.id, sessionId: b.sessionId })
+  return key
+}
+
+function sessionEvent(key: EventKey, c: ScheduledClass, s: ScheduledClass['sessions'][number], status: StaffableEvent['status']): StaffableEvent {
   return {
-    key: `ses:${s.id}`, kind: 'class', title: c.content.name, startIso: s.startIso, endIso: s.endIso,
+    key, kind: 'class', title: c.content.name, startIso: s.startIso, endIso: s.endIso,
     status, openHref: href({ kind: 'class', id: c.id }), detail: {},
   }
 }
 
-function partyEvent(id: string, startIso: string, endIso: string, rec: PartyRecord | null, status: StaffableEvent['status']): StaffableEvent {
+function partyEvent(key: EventKey, id: string, startIso: string, endIso: string, rec: PartyRecord | null, status: StaffableEvent['status']): StaffableEvent {
   return {
-    key: `party:${id}`, kind: 'party', title: partyTitle(rec?.guestCount), startIso, endIso, status,
+    key, kind: 'party', title: partyTitle(rec?.guestCount), startIso, endIso, status,
     openHref: href({ kind: 'party', day: localDate(startIso), id }),
     detail: { ...(typeof rec?.guestCount === 'number' ? { guests: rec.guestCount } : {}), hostFirst: firstName(rec?.hostName) },
   }
@@ -86,11 +114,11 @@ function partyEvent(id: string, startIso: string, endIso: string, rec: PartyReco
 /** The events in range plus every staffing entry they have (one read of each). */
 async function collect(fromIso: string, toIso: string, now: Date): Promise<{ events: StaffableEvent[]; entries: Map<EventKey, StaffingEntry> }> {
   const from = Date.parse(fromIso), to = Date.parse(toIso)
-  const [classes, parties, legacy, allKeys] = await Promise.all([
+  const [classes, parties, legacy, index] = await Promise.all([
     listClasses({ fromIso, toIso }),
     partyBusy(fromIso, toIso, now, { labels: false }),
     legacyClassSpans(fromIso, toIso),
-    listAllEntryKeys(),
+    readPartyIndex(),
   ])
 
   const on: StaffableEvent[] = []
@@ -99,8 +127,10 @@ async function collect(fromIso: string, toIso: string, now: Date): Promise<{ eve
     if (c.status === 'draft') continue
     for (const s of c.sessions) {
       if (!overlapsRange(s.startIso, s.endIso, from, to)) continue
-      if (c.status === 'cancelled') cancelledSessions.push(sessionEvent(c, s, 'cancelled'))
-      else on.push(sessionEvent(c, s, 'on'))
+      const key = keyOrSkip({ kind: 'class', id: c.id, sessionId: s.id })
+      if (!key) continue
+      if (c.status === 'cancelled') cancelledSessions.push(sessionEvent(key, c, s, 'cancelled'))
+      else on.push(sessionEvent(key, c, s, 'on'))
     }
   }
 
@@ -108,21 +138,33 @@ async function collect(fromIso: string, toIso: string, now: Date): Promise<{ eve
   parties.forEach((b, i) => {
     const rec = records[i]
     if (rec?.status === 'cancelled') return
-    // A party-book time with no record is someone paying right now (a few minutes' hold): not a party yet.
-    if (b.party && !rec) return
-    on.push(partyEvent(b.id, b.startIso, b.endIso, rec, 'on'))
+    // A party-book time still HELD with no record is someone paying right now
+    // (a few minutes' hold): not a party yet. A BOOKED one with no record is a
+    // paid party whose record didn't save: still a party to staff.
+    if (b.party?.state === 'held' && !rec) return
+    const key = keyOrSkip({ kind: 'party', id: b.id })
+    if (key) on.push(partyEvent(key, b.id, b.startIso, b.endIso, rec, 'on'))
   })
 
   for (const l of legacy) {
+    const key = keyOrSkip({ kind: 'legacy-class', id: l.id })
+    if (!key) continue
     on.push({
-      key: `legacy:${l.id}`, kind: 'legacy-class', title: l.name, startIso: l.startIso, endIso: l.endIso, status: 'on',
+      key, kind: 'legacy-class', title: l.name, startIso: l.startIso, endIso: l.endIso, status: 'on',
       openHref: href({ kind: 'legacy', day: localDate(l.startIso), id: l.id }), detail: {},
     })
   }
 
-  // Our parties with staffing that are no longer on the schedule: maybe cancelled.
+  // Our parties with staffing that are no longer on the schedule: maybe
+  // cancelled. Only those last seen near this range (the party index), so a
+  // read never grows with every party ever staffed.
   const onKeys = new Set(on.map((e) => e.key))
-  const partyCandidates = allKeys.filter((k) => k.startsWith('party:pty_') && !onKeys.has(k))
+  const partyCandidates = Object.entries(index)
+    .filter(([k, startIso]) => {
+      const t = Date.parse(startIso)
+      return !onKeys.has(k as EventKey) && Number.isFinite(t) && t >= from - INDEX_MARGIN_MS && t < to + INDEX_MARGIN_MS
+    })
+    .map(([k]) => k as EventKey)
   const entries = await getEntries([...on.map((e) => e.key), ...cancelledSessions.map((e) => e.key), ...partyCandidates])
 
   const cancelled = cancelledSessions.filter((e) => hasPeople(entries.get(e.key)))
@@ -132,7 +174,7 @@ async function collect(fromIso: string, toIso: string, now: Date): Promise<{ eve
     const rec = candRecords[i]
     if (rec?.status !== 'cancelled') return
     const endIso = partyEnd(rec)
-    if (overlapsRange(rec.startIso, endIso, from, to)) cancelled.push(partyEvent(rec.bookingId, rec.startIso, endIso, rec, 'cancelled'))
+    if (overlapsRange(rec.startIso, endIso, from, to)) cancelled.push(partyEvent(k, rec.bookingId, rec.startIso, endIso, rec, 'cancelled'))
   })
 
   const events = [...on, ...cancelled].sort((a, b) => Date.parse(a.startIso) - Date.parse(b.startIso) || a.key.localeCompare(b.key))
@@ -141,6 +183,14 @@ async function collect(fromIso: string, toIso: string, now: Date): Promise<{ eve
 
 export async function staffableBetween(fromIso: string, toIso: string): Promise<StaffableEvent[]> {
   return (await collect(fromIso, toIso, new Date())).events
+}
+
+// ---------------------------------------------------------------- what crew may see
+
+/** An event as crew may see it: never the party host's name. */
+export function eventForCrew(e: StaffableEvent): StaffableEvent {
+  const { hostFirst: _host, ...detail } = e.detail
+  return { ...e, detail }
 }
 
 /** What a crew member may see of an entry: everyone on it (names), only their own ask, no history. */
@@ -153,35 +203,107 @@ function entryForCrew(e: StaffingEntry, staffId: string): StaffingEntry {
   }
 }
 
-export async function staffingRows(fromIso: string, toIso: string, opts: { onlyStaffId?: string } = {}): Promise<StaffingRow[]> {
-  const [{ events, entries }, { people: team }] = await Promise.all([collect(fromIso, toIso, new Date()), teamWithContacts()])
-  const active = team.filter((p) => p.active)
-  const activeIds = new Set(active.map((p) => p.id))
-  const only = opts.onlyStaffId
-  const shown = only ? active.filter((p) => p.id === only) : active
-  const availability = await getAvailabilityMany(shown.map((p) => p.id))
+/**
+ * A row as one crew member may see it: only them in `people`, only their own
+ * ask, no history, no host name, nobody's availability but theirs, no
+ * left-the-team list. The one place this rule lives (screens, feeds, APIs).
+ */
+export function rowForCrew(row: StaffingRow, staffId: string): StaffingRow {
+  return {
+    ...row,
+    event: eventForCrew(row.event),
+    entry: row.entry ? entryForCrew(row.entry, staffId) : null,
+    people: row.people.filter((p) => p.staffId === staffId),
+    leftTeam: [],
+  }
+}
 
-  const rows: StaffingRow[] = []
-  for (const event of events) {
+const peopleOrder = (a: StaffPersonRow, b: StaffPersonRow) =>
+  Number(b.assigned) - Number(a.assigned) || Number(b.asked) - Number(a.asked) || a.name.localeCompare(b.name)
+
+function buildRows(events: StaffableEvent[], entries: Map<EventKey, StaffingEntry>, active: { id: string; name: string }[], availability: Map<string, Availability>): StaffingRow[] {
+  const activeIds = new Set(active.map((p) => p.id))
+  return events.map((event) => {
     const entry = entries.get(event.key) ?? null
-    if (only && !(entry?.assigned.some((a) => a.staffId === only) || entry?.asks.some((a) => a.staffId === only))) continue
-    const people = shown.map((p) => ({
-      staffId: p.id,
-      name: p.name,
-      verdict: verdict(availability.get(p.id) ?? null, event),
-      asked: !!entry?.asks.some((a) => a.staffId === p.id),
-      assigned: !!entry?.assigned.some((a) => a.staffId === p.id),
-    }))
-    rows.push({
-      event: only ? { ...event, detail: { ...event.detail, hostFirst: undefined } } : event,
-      entry: entry && only ? entryForCrew(entry, only) : entry,
+    const people = active.map((p): StaffPersonRow => {
+      const v = verdictWithNote(availability.get(p.id) ?? null, event)
+      const ask = entry?.asks.find((a) => a.staffId === p.id)
+      return {
+        staffId: p.id, name: p.name, verdict: v.verdict,
+        asked: !!ask, assigned: !!entry?.assigned.some((a) => a.staffId === p.id),
+        askNote: ask?.note ?? '', markNote: v.note,
+      }
+    }).sort(peopleOrder)
+    return {
+      event, entry,
       state: staffedState(entry, event.kind, (id) => activeIds.has(id)),
       needed: neededFor(entry, event.kind),
       people,
-      leftTeam: only ? [] : (entry?.assigned ?? []).filter((a) => !activeIds.has(a.staffId)).map((a) => ({ staffId: a.staffId, name: a.name })),
+      leftTeam: (entry?.assigned ?? []).filter((a) => !activeIds.has(a.staffId)).map((a) => ({ staffId: a.staffId, name: a.name })),
+    }
+  })
+}
+
+/**
+ * Owner rows for every event in range. `onlyStaffId` (crew): only events
+ * that person is on or asked for, each passed through rowForCrew.
+ */
+export async function staffingRows(fromIso: string, toIso: string, opts: { onlyStaffId?: string } = {}): Promise<StaffingRow[]> {
+  const [{ events, entries }, { people: team }] = await Promise.all([collect(fromIso, toIso, new Date()), teamWithContacts()])
+  const active = team.filter((p) => p.active)
+  const only = opts.onlyStaffId
+  const shown = only ? active.filter((p) => p.id === only) : active
+  const availability = await getAvailabilityMany(shown.map((p) => p.id))
+  if (!only) return buildRows(events, entries, active, availability)
+  const theirs = events.filter((ev) => {
+    const e = entries.get(ev.key)
+    return !!(e?.assigned.some((a) => a.staffId === only) || e?.asks.some((a) => a.staffId === only))
+  })
+  return buildRows(theirs, entries, active, availability).map((r) => rowForCrew(r, only))
+}
+
+/**
+ * One crew member's view, from one read of the schedule: `mine` = rows they
+ * are on (crew-safe, cancelled ones too so they hear about it); `open` =
+ * events still to come that are on and not theirs, with whether they asked.
+ * Nobody else's availability, asks or notes; no host names.
+ */
+export async function crewView(fromIso: string, toIso: string, staffId: string, now: Date = new Date()): Promise<{ mine: StaffingRow[]; open: OpenEvent[] }> {
+  const [{ events, entries }, { people: team }] = await Promise.all([collect(fromIso, toIso, now), teamWithContacts()])
+  const active = team.filter((p) => p.active)
+  const availability = await getAvailabilityMany(active.some((p) => p.id === staffId) ? [staffId] : [])
+  const isMine = (ev: StaffableEvent) => !!entries.get(ev.key)?.assigned.some((a) => a.staffId === staffId)
+  const mine = buildRows(events.filter(isMine), entries, active, availability).map((r) => rowForCrew(r, staffId))
+  const open = events
+    .filter((ev) => ev.status === 'on' && !isMine(ev) && Date.parse(ev.startIso) > now.getTime())
+    .map((ev): OpenEvent => {
+      const ask = entries.get(ev.key)?.asks.find((a) => a.staffId === staffId)
+      return { ...eventForCrew(ev), asked: !!ask, askNote: ask?.note ?? '' }
     })
+  return { mine, open }
+}
+
+/**
+ * Remembers each row's times as seen (calendar SEQUENCE goes up when an event
+ * moved), for entries that exist and only when something differs. Best
+ * effort: never throws, skipped on a test site sharing the live stores.
+ * Updates the rows' entries in place with what was saved.
+ */
+export async function rememberSeen(rows: StaffingRow[]): Promise<void> {
+  if (classWritesRefusal()) return
+  const todo = rows.filter((r) => r.entry && r.event.status === 'on' && (
+    !r.entry.seen || r.entry.seen.title !== r.event.title
+    || Date.parse(r.entry.seen.startIso) !== Date.parse(r.event.startIso) || Date.parse(r.entry.seen.endIso) !== Date.parse(r.event.endIso)))
+  for (let i = 0; i < todo.length; i += 4) {
+    await Promise.all(todo.slice(i, i + 4).map(async (r) => {
+      try {
+        const saved = await noteSeen(r.event.key, { startIso: r.event.startIso, endIso: r.event.endIso, title: r.event.title })
+        if (saved && r.entry) { r.entry.seen = saved.seen; r.entry.sequence = saved.sequence }
+      } catch (err) {
+        logger.warn('Could not note when an event was seen', { key: r.event.key, error: err instanceof Error ? err.message : String(err) })
+      }
+    }))
   }
-  return rows
 }
 
 /**
@@ -194,7 +316,9 @@ export async function orphanEntries(now: Date): Promise<{ key: EventKey; entry: 
   const fromMs = now.getTime() - ORPHAN_LOOK_BACK_MS
   const keys = await listAllEntryKeys()
   const all = await getEntries(keys)
-  const staffed = [...all.values()].filter((e) => e.assigned.length > 0 && !(e.seen && Date.parse(e.seen.endIso) < fromMs))
+  // Long past: by when it was last seen, or (never seen) when it was last changed.
+  const lastKnown = (e: StaffingEntry) => (e.seen ? Date.parse(e.seen.endIso) : e.updatedAt ? Date.parse(e.updatedAt) : Infinity)
+  const staffed = [...all.values()].filter((e) => e.assigned.length > 0 && !(lastKnown(e) < fromMs))
   if (staffed.length === 0) return []
 
   const { events } = await collect(new Date(fromMs).toISOString(), new Date(now.getTime() + ORPHAN_LOOK_AHEAD_MS).toISOString(), now)
