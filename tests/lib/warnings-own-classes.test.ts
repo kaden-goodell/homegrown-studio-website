@@ -268,4 +268,20 @@ describe('Task 12: stage 4 warnings, each pointing at a button', () => {
     await savePromo({ ...p, maxUses: 1 }, by, p.updatedAt, NOW)
     expect((await listWarnings(WINDOW, { now: NOW })).some((x) => x.code === 'promo-free-unlimited')).toBe(false)
   })
+
+  it('D2: a customer’s note asking to cancel shows until an owner decides it in To decide', async () => {
+    const { askToCancel } = await import('@lib/classes/self-cancel')
+    const { cancelToken } = await import('@lib/classes/self-cancel-token')
+    own.classes = [camp()]
+    own.ledgers.set('cls_camp', { classId: 'cls_camp', lines: [{
+      ...seat(['ses_1', 'ses_2']), bookingId: 'bkg_note', source: 'online', priceCents: 1000, taxCents: 90,
+      customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com', phone: '' }, square: { orderId: 'O', paymentId: 'P', lineUid: null, chargedCents: 1090 },
+    }] })
+    await askToCancel({ token: cancelToken('cls_camp', 'bkg_note'), note: 'Sick' }, NOW)
+    const w = (await listWarnings(WINDOW, { now: NOW })).find((x) => x.code === 'cancel-request')!
+    expect(w).toMatchObject({ eventId: 'cls_camp', action: OWNERS_DECIDE })
+    expect(w.detail).toBe('Clay Camp: Ada Lovelace asked to cancel 1 seat (“Sick”).')
+    expect(UNDATED_CODES.has('cancel-request')).toBe(true)
+  })
 })
+

@@ -39,7 +39,7 @@ describe('archive store list', () => {
     const found = [...files.flatMap((f) => storeNamesIn(join(dir, f))), ...storeNamesIn(join(root, 'src/lib/saved-card-alerts.ts'))]
     expect(found).toEqual(expect.arrayContaining(['promo-codes', 'promo-uses', 'card-setup-alerts']))
     for (const name of found) expect(ARCHIVE_STORE_NAMES, `store "${name}" is missing from the archive`).toContain(name)
-    for (const name of ['waitlists', 'reader-sales', 'reader-orders', 'pos-price-alerts']) expect(ARCHIVE_STORE_NAMES).toContain(name)
+    for (const name of ['waitlists', 'reader-sales', 'reader-orders', 'pos-price-alerts', 'class-cancels']) expect(ARCHIVE_STORE_NAMES).toContain(name)
   })
 
   it('covers the class photos and the legacy seat picks', () => {

@@ -80,6 +80,12 @@ describe('class sheet › Bookings', () => {
     expect(screen.getByRole('button', { name: 'It went through' })).toBeInTheDocument()
   })
 
+  it('D2: what the customer did on their own cancel page shows on their row', async () => {
+    vi.stubGlobal('fetch', server({ bookings: [booking({ cancelLine: 'Cancelled online by the customer · 1 seat, $32.70 refunded' })] }))
+    renderSheet(<ClassSheet id="cls_1" />)
+    expect(await screen.findByTestId('cancel-line')).toHaveTextContent('Cancelled online by the customer · 1 seat, $32.70 refunded')
+  })
+
   it('more than one date: seats on each date', async () => {
     const multi = cls({ sessions: [
       { id: 'ses_1', startIso: at('2031-03-12', '10:00'), endIso: at('2031-03-12', '11:30'), capacity: 10 },

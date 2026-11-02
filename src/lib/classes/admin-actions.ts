@@ -26,6 +26,8 @@ import { takenCents } from './booking-words'
 import { archiveClassInSquare, CLASS_TAX_NOT_SET, syncClassToSquare } from './square-catalog'
 import { CLASSES_CATEGORY_NOT_SET, PICK_CATEGORY, PICK_TAX, REGISTER_DOWN, type SetupNeeded } from './register-words'
 import { isSquareConnectionError, registerInForce, RegisterSetupError } from './register-setup'
+import { cancelWords, getCancelRecord } from './self-cancel'
+import { cancelPathFor } from './self-cancel-token'
 import type { RegisterInForce } from './pos-plan'
 import { contentChanges } from './content-diff'
 import { chicagoYmd } from './chicago-day'
@@ -886,8 +888,13 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
   }).sort((a, b) => a.at.localeCompare(b.at))
 }
 
-/** A booking on the class sheet: with the refund still waiting on Square, if any (R29), so its row can ask someone to check. */
-export type ClassBooking = BookingView & { waiting: ReturnType<typeof describeRequest> | null }
+/**
+ * A booking on the class sheet: with the refund still waiting on Square, if
+ * any (R29), so its row can ask someone to check; D2: the customer's own
+ * "Can't make it?" page and what they did there (cancelled online, cancelling,
+ * asked to cancel).
+ */
+export type ClassBooking = BookingView & { waiting: ReturnType<typeof describeRequest> | null; cancelPath: string | null; cancelLine: string | null }
 
 /** The class, its bookings, and seats taken on each date (holds included, as the ledger counts them). */
 export async function classBookings(id: unknown): Promise<{ class: ScheduledClass; bookings: ClassBooking[]; seatsTaken: Record<string, number>; register: RegisterInForce | null }> {
@@ -896,7 +903,11 @@ export async function classBookings(id: unknown): Promise<{ class: ScheduledClas
   const now = new Date()
   const bookings = await Promise.all(groupBookings(ledger, now).map(async (b): Promise<ClassBooking> => {
     const waitingReq = b.paidHere ? (await listRefundRequests(cls.id, b.bookingId).catch(() => [])).find(isWaiting) : undefined
-    return { ...b, waiting: waitingReq ? describeRequest(waitingReq, ledger, cls) : null }
+    const rec = await getCancelRecord(b.bookingId).catch(() => null)
+    const lines = ledger.lines.filter((l) => l.bookingId === b.bookingId)
+    let cancelPath: string | null = null
+    try { cancelPath = b.customer && b.state !== 'held' ? cancelPathFor(cls.id, b.bookingId) : null } catch { cancelPath = null }
+    return { ...b, waiting: waitingReq ? describeRequest(waitingReq, ledger, cls) : null, cancelPath, cancelLine: cancelWords(rec, lines, now) }
   }))
   // Fix round 4: what Register setup has now, so the sheet can show "Update the register" for a class on an old tax.
   const register = await registerInForce().catch(() => null)

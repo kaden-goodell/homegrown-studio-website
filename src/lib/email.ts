@@ -400,6 +400,8 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   sessionLines?: string[]
   /** Stage 4: a first sentence under the heading (the waitlist's "A spot opened and you're in!"). */
   lead?: string
+  /** D2: the booking's own "Can't make it?" page (cancel and refund 48+ hours ahead, or send a note). */
+  cancelUrl?: string
 }): Promise<{ sent: boolean }> {
   const dollars = (cents: number) => `$${(cents / 100).toFixed(2).replace(/\.00$/, '')}`
   const paid = dollars(input.totalChargedCents)
@@ -439,6 +441,7 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
     `Know someone who'd love this? ${input.workshopUrl}`,
     ``,
     `Changing plans: ${input.policyLine}. Details: ${input.policyUrl}`,
+    ...(input.cancelUrl ? [`Can’t make it? Cancel or change your booking here ${input.cancelUrl}`] : []),
     ...(input.receiptUrl ? [``, `Receipt: ${input.receiptUrl}`] : []),
     ``,
     `Questions? Text us at ${phone}.`,
@@ -477,6 +480,7 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   <p style="margin:14px 0 2px;font-size:14px;color:#3d3630;">Know someone who&rsquo;d love this?</p>
   <p style="margin:0 0 6px;"><a href="${esc(input.workshopUrl)}" style="color:#7a4a2e;font-size:13px;word-break:break-all;">${esc(input.workshopUrl)}</a></p>
   <p style="${MUTED}margin-top:14px;"><strong>Changing plans:</strong> ${esc(input.policyLine)}. <a href="${esc(input.policyUrl)}" style="color:#7a4a2e;">Full policy</a></p>
+  ${input.cancelUrl ? `<p style="margin:4px 0 0;"><a href="${esc(input.cancelUrl)}" style="${LINK}font-size:13px;">Can&rsquo;t make it? Cancel or change your booking</a></p>` : ''}
   ${input.receiptUrl ? `<p style="margin:10px 0 0;"><a href="${esc(input.receiptUrl)}" style="color:#7a4a2e;font-size:13px;">View your receipt</a></p>` : ''}
   <p style="${P}margin-top:14px;">Questions? Text us at <strong>${esc(phone)}</strong>.</p>
   <hr style="border:none;border-top:1px solid #e8e0d8;margin:20px 0 10px;" />

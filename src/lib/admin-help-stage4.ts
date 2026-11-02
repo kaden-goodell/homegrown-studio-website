@@ -83,6 +83,18 @@ export const STAGE4_HELP_SECTIONS: HelpSection[] = [
     ],
   },
   {
+    id: 'self-cancel',
+    title: 'Customers cancelling a class themselves',
+    comingWith: 'extras',
+    points: [
+      'Every class confirmation email has a “Can’t make it? Cancel or change your booking” link, just for that booking.',
+      'More than 48 hours before the class, the customer picks the seats that can’t come and cancels them. They get back exactly what those seats cost, tax included, on their card, and the refund email. The seats go back on sale and the waitlist runs. You get a text saying so; the class shows “Cancelled online by the customer”.',
+      'A free booking (a 100% code) can be cancelled any time before the class; nothing is refunded.',
+      'Inside 48 hours, for a gift seat, a seat paid at the studio or a booking for several dates partly refunded, the page shows the policy and lets them send you a note instead. You get a text and it’s in To decide.',
+      'If Square doesn’t answer a refund, their seats stay held as “Cancelling online” and it’s in To decide with **Ask Square**. Nobody is refunded twice.',
+    ],
+  },
+  {
     id: 'reader',
     title: 'Charge on the reader (at the door)',
     comingWith: 'extras',
@@ -106,13 +118,15 @@ export const STAGE4_HELP_ROWS: HelpRow[] = [
   { id: 'waitlist-card-on', see: '<name> is off the waitlist, but Square hasn’t confirmed their saved card came off file yet', where: `${HOME}, ${SHEET}`, means: 'Their card is still saved with Square. Nothing will be charged; it’s retried every 10 minutes.', tap: 'Open the class › Waitlist › **Take the card off now**.', buttons: ['Take the card off now'], comingWith: 'extras' },
   { id: 'waitlist-unknown', see: 'Waitlist charge unclear', where: `${TODO}, ${HOME}`, means: 'The waitlist charged someone’s saved card and Square didn’t answer. Their seat is held.', tap: 'The sheet asks Square for you and says what it shows. Paid: **Add them**. No payment (after half an hour): **Keep them waiting** (that charge is never sent again) or **Take them off** (card comes off, they get an email). Still going through: **Check Square again** later.', buttons: ['Add them', 'Keep them waiting', 'Take them off', 'Check Square again'], comingWith: 'extras' },
   { id: 'waitlist-declined', see: 'Waitlist card didn’t go through / Waitlist price went up / Waitlist choice not sold any more', where: `${TODO}, ${HOME}`, means: 'The seat went to the next person. They weren’t charged and came off the list (the sheet says whether they were texted and emailed).', tap: 'Call or text them if you like, then **Got it**.', buttons: ['Got it'], comingWith: 'extras' },
+  { id: 'cancel-request', see: 'Customer asked to cancel', where: `${TODO}, ${HOME}`, means: 'A customer sent a note from their “Can’t make it?” page (inside 48 hours, a gift seat, or paid at the studio). Their seats are still booked.', tap: '**Refund and free the seat** (their card gets the money back and they get the refund email), **Free the seat, no refund**, or **Keep their booking** (for studio credit or moving them). Each asks first. Then call or text them with what you decided.', buttons: ['Refund and free the seat', 'Free the seat, no refund', 'Keep their booking'], comingWith: 'extras' },
+  { id: 'cancel-unclear', see: 'Customer’s cancel, refund unclear / refund turned down', where: `${TODO}, ${HOME}`, means: 'A customer cancelled online and Square didn’t answer the refund (their seats are held), or turned it down (nothing refunded, still booked).', tap: '**Ask Square**: it sends the same refund again, and Square never makes it twice; once it’s through they’re cancelled and emailed. Turned down: **Try the refund again**, or call them and tap **Got it**.', buttons: ['Ask Square', 'Try the refund again', 'Got it'], comingWith: 'extras' },
   { id: 'reader-waiting', see: 'Reader payment didn’t come back / Reader payment didn’t match', where: `${TODO}, ${HOME}`, means: 'A “Charge on the reader” sale never came back from the Square app, or Square showed a payment that doesn’t match. The seat is held, not paid.', tap: '**Ask Square**: if it shows the payment, they get their seat. If not, and they didn’t pay (or paid another way), **Let the seat go**. Nothing is refunded or charged from here.', buttons: ['Ask Square', 'Let the seat go'], comingWith: 'extras' },
 ]
 
 /** The stage 4 warning codes (the merge adds each to admin-help's WARNING_HELP). */
 export type Stage4WarningCode = Extract<WarningCode,
   'not-on-register' | 'pos-price-stale' | 'register-old-setup' | 'register-setup-missing' | 'promo-free-unlimited'
-  | 'waitlist-unknown' | 'waitlist-declined' | 'waitlist-stopped' | 'waitlist-card-on' | 'reader-waiting'>
+  | 'waitlist-unknown' | 'waitlist-declined' | 'waitlist-stopped' | 'waitlist-card-on' | 'reader-waiting' | 'cancel-request' | 'cancel-unclear'>
 
 export const STAGE4_WARNING_HELP: Record<Stage4WarningCode, string[]> = {
   'not-on-register': ['not-on-register'],
@@ -125,13 +139,17 @@ export const STAGE4_WARNING_HELP: Record<Stage4WarningCode, string[]> = {
   'waitlist-stopped': ['waitlist-stopped'],
   'waitlist-card-on': ['waitlist-card-on'],
   'reader-waiting': ['reader-waiting'],
+  'cancel-request': ['cancel-request'],
+  'cancel-unclear': ['cancel-unclear'],
 }
 
 /** The stage 4 To decide kinds (the merge adds each to admin-help's TO_DECIDE_HELP). */
-export type Stage4ToDecideKind = Extract<ToDecideKind, 'waitlist-unknown' | 'waitlist-declined' | 'reader-waiting'>
+export type Stage4ToDecideKind = Extract<ToDecideKind, 'waitlist-unknown' | 'waitlist-declined' | 'reader-waiting' | 'cancel-request' | 'cancel-unclear'>
 
 export const STAGE4_TO_DECIDE_HELP: Record<Stage4ToDecideKind, string[]> = {
   'waitlist-unknown': ['waitlist-unknown'],
   'waitlist-declined': ['waitlist-declined'],
   'reader-waiting': ['reader-waiting'],
+  'cancel-request': ['cancel-request'],
+  'cancel-unclear': ['cancel-unclear'],
 }

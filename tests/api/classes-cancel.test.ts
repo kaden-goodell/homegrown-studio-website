@@ -1,0 +1,312 @@
+// @vitest-environment node
+// D2: customers cancel their own class seats from the "Can't make it?" link.
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+
+const m = vi.hoisted(() => ({
+  refundPayment: vi.fn(),
+  audit: vi.fn(),
+  email: vi.fn(),
+  alert: vi.fn(),
+  runWaitlist: vi.fn(),
+  keys: new Map<string, any>(),
+}))
+vi.mock('@config/providers', () => ({ providers: { payment: { refundPayment: m.refundPayment } } }))
+vi.mock('@lib/audit', () => ({ recordAudit: m.audit }))
+vi.mock('@lib/email', () => ({ sendRefundEmail: m.email }))
+vi.mock('@lib/owner-alert', () => ({ alertOwners: m.alert }))
+vi.mock('@lib/classes/waitlist-runner', () => ({ runWaitlist: m.runWaitlist, decideUnclear: vi.fn(), UnclearError: class extends Error {} }))
+
+import * as route from '@pages/api/classes/cancel.json'
+import { createClass } from '@lib/classes/class-store'
+import { getLedger, type LedgerLine } from '@lib/classes/seat-ledger'
+import { makeKvStore } from '@lib/blob-store'
+import { cancelToken, readCancelToken } from '@lib/classes/self-cancel-token'
+import { getCancelRecord } from '@lib/classes/self-cancel'
+import { decide, listToDecide } from '@lib/classes/to-decide'
+import { CANCEL_WHY } from '@lib/classes/self-cancel-rules'
+import type { ClassContent } from '@lib/classes/types'
+
+const ledgerKv = makeKvStore('seat-ledger', 'seat-ledger')
+
+function content(): ClassContent {
+  return {
+    name: 'Candles', description: 'Make a thing.', imageUrl: null, instructor: null,
+    rules: { ages: '', dropOff: false, madeToOrder: false, taxable: true, maxPerBooking: 10, signupCutoffHours: null, minimumToRun: null, linkOnly: false, joinPartway: true, waitlistCutoffHours: 2, canShareRoom: false },
+    ticketTypes: [{ id: 'person', label: 'Person' }],
+    passes: [{ id: 'all', label: 'Full', covers: { kind: 'all' } }],
+    prices: { all: { person: 3000 } }, questions: [], addOns: [], defaultCapacity: 12, defaultMinutes: 90,
+  }
+}
+let n = 0
+let bk = 0
+function line(over: Partial<LedgerLine>): LedgerLine {
+  return {
+    id: `led_c${++n}`, bookingId: 'bkg_c1', sessionIds: ['ses_c1'], ticketTypeId: 'person', passId: 'all', seat: 1,
+    priceCents: 3000, taxCents: 270, addOns: {}, addOnCents: 0, addOnTaxCents: 0, answers: {}, source: 'online',
+    state: 'confirmed', holdExpiresAt: null,
+    customer: { givenName: 'Ada', familyName: 'Lovelace', email: 'ada@example.com', phone: '(402) 980-2907' },
+    square: { orderId: 'o1', paymentId: 'pay_1', lineUid: null, chargedCents: 6540 }, by: null, refunds: [], at: new Date().toISOString(),
+    ...over,
+  }
+}
+/** A class `hours` from now with these seats; returns the class id and the booking's token. */
+async function setup(lines: (bookingId: string) => LedgerLine[], hours = 7 * 24) {
+  const start = new Date(Date.now() + hours * 3_600_000)
+  const sessions = [{ id: 'ses_c1', startIso: start.toISOString(), endIso: new Date(start.getTime() + 5400e3).toISOString(), capacity: 12 }]
+  const cls = await createClass({ content: content(), sessions, status: 'open', by: { id: 'admin', name: 'Owner' } })
+  const bookingId = `bkg_c${++bk}x`
+  const ls = lines(bookingId)
+  await ledgerKv.set(`ledger-${cls.id}`, JSON.stringify({ classId: cls.id, lines: ls }))
+  return { classId: cls.id, bookingId, t: cancelToken(cls.id, bookingId), lines: ls }
+}
+const two = (bookingId: string) => [line({ bookingId, seat: 1 }), line({ bookingId, seat: 2 })]
+
+async function get(t: string) {
+  const res: Response = await route.GET({ url: new URL(`https://x.test/api/classes/cancel.json?t=${encodeURIComponent(t)}`), clientAddress: `198.51.100.${(n % 200) + 1}` } as any)
+  return { status: res.status, body: await res.json() }
+}
+async function post(body: unknown) {
+  const request = new Request('https://x.test/api/classes/cancel.json', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  const res: Response = await route.POST({ request, clientAddress: `203.0.113.${(++n % 200) + 1}` } as any)
+  return { status: res.status, body: await res.json() }
+}
+const byId = async (classId: string) => Object.fromEntries((await getLedger(classId)).lines.map((l) => [l.id, l]))
+const attempt = () => `att_${Math.random().toString(36).slice(2, 12)}`
+
+beforeEach(() => {
+  m.keys.clear()
+  // Square hands back the same refund for the same key (never two).
+  m.refundPayment.mockReset().mockImplementation(async (i: any) => {
+    if (!m.keys.has(i.idempotencyKey)) m.keys.set(i.idempotencyKey, { id: `rf_${m.keys.size + 1}`, paymentId: i.paymentId, amountCents: i.amountCents, status: 'COMPLETED' })
+    return m.keys.get(i.idempotencyKey)
+  })
+  m.audit.mockReset().mockResolvedValue(undefined)
+  m.email.mockReset().mockResolvedValue({ sent: true })
+  m.alert.mockReset().mockResolvedValue({ attempted: 1, sent: 1 })
+  m.runWaitlist.mockReset().mockResolvedValue({})
+})
+
+describe('the link', () => {
+  it('is signed: a changed class, booking or signature reads as missing, the same 404 as a booking that isn’t there', async () => {
+    const { classId, bookingId, t } = await setup(two)
+    expect(readCancelToken(t)).toEqual({ classId, bookingId })
+    const [c, b, sig] = t.split('.')
+    for (const bad of [`${c}.bkg_other.${sig}`, `${c}.${b}.${sig.slice(0, -1)}x`, `${c}.${b}`, 'junk', `${t}.x`]) {
+      const r = await get(bad)
+      expect(r.status, bad).toBe(404)
+      expect(r.body.error).toMatch(/^We couldn’t find that booking\./)
+    }
+    const missing = await get(cancelToken(classId, 'bkg_nothere'))
+    expect(missing.status).toBe(404)
+  })
+})
+
+describe('48+ hours ahead: cancel and refund', () => {
+  it('shows each seat with what it gives back; cancelling one refunds exactly that seat, frees it, runs the waitlist, emails, texts the owners, audits', async () => {
+    const { classId, bookingId, t, lines } = await setup(two)
+    const v = await get(t)
+    expect(v.status).toBe(200)
+    expect(v.body.data).toMatchObject({ className: 'Candles', state: 'open', mode: 'self', policyHours: 48, wholeOnly: false })
+    expect(v.body.data.seats.map((s: any) => [s.seat, s.cents, s.canPick])).toEqual([[1, 3270, true], [2, 3270, true]])
+
+    const r = await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: attempt() })
+    expect(r.status).toBe(200)
+    expect(r.body.data).toMatchObject({ result: 'cancelled', cents: 3270 })
+    expect(m.refundPayment).toHaveBeenCalledTimes(1)
+    expect(m.refundPayment.mock.calls[0][0]).toMatchObject({ paymentId: 'pay_1', amountCents: 3270 })
+    const after = await byId(classId)
+    expect(after[lines[0].id]).toMatchObject({ state: 'refunded' })
+    expect(after[lines[0].id].refunds[0]).toMatchObject({ cents: 3270, freedSeat: true, by: { id: 'customer-online', name: 'Ada Lovelace (online)' } })
+    expect(after[lines[1].id].state).toBe('confirmed')
+    expect(m.runWaitlist).toHaveBeenCalledWith(classId, { reason: 'seat-freed' })
+    expect(m.email).toHaveBeenCalledWith(expect.objectContaining({ to: 'ada@example.com', cents: 3270, keptSeat: false }))
+    expect(m.alert).toHaveBeenCalledTimes(1)
+    expect(m.alert.mock.calls[0][0]).toMatch(/^Ada Lovelace cancelled 1 seat of Candles \(.+\) online and got \$32\.70 back\. The seat is back on sale\.$/)
+    expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-self-cancel', details: expect.objectContaining({ bookingId, cents: 3270 }) }))
+    expect(m.audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-refund' }))
+    // The page now: seat 1 cancelled, seat 2 still pickable.
+    expect(r.body.data.view.seats.map((s: any) => [s.state, s.canPick])).toEqual([['cancelled', false], ['booked', true]])
+    expect(r.body.data.view.refundedCents).toBe(3270)
+    // Catherine sees it on the class sheet, with the booking's own link.
+    const { classBookings } = await import('@lib/classes/admin-actions')
+    const row = (await classBookings(classId)).bookings.find((b) => b.bookingId === bookingId)!
+    expect(row.cancelPath).toBe(`/classes/cancel/${t}`)
+    expect(row.cancelLine).toBe('Cancelled online by the customer · 1 seat, $32.70 refunded')
+  })
+
+  it('a double tap (the same press twice) and a reused link never refund twice', async () => {
+    const { t, lines } = await setup(two)
+    const a = attempt()
+    const [x, y] = await Promise.all([post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: a }), post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: a })])
+    expect([x.status, y.status]).toEqual([200, 200])
+    expect(new Set(m.refundPayment.mock.calls.map((c) => c[0].idempotencyKey)).size).toBe(1)
+    const again = await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: a })
+    expect(again.body.data).toMatchObject({ result: 'cancelled', cents: 3270 })
+    // A new press for the same seat (another tab, later): it isn't booked any more.
+    const later = await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: attempt() })
+    expect(later.status).toBe(409)
+    expect(later.body.code).toBe('changed')
+    expect(new Set(m.refundPayment.mock.calls.map((c) => c[0].idempotencyKey)).size).toBe(1)
+    expect(m.alert).toHaveBeenCalledTimes(1)
+  })
+
+  it('two tabs cancelling the same seat at once: one refund, written once', async () => {
+    const { classId, t, lines } = await setup(two)
+    const [x, y] = await Promise.all([
+      post({ t, action: 'cancel', lineIds: [lines[1].id], attempt: attempt() }),
+      post({ t, action: 'cancel', lineIds: [lines[1].id], attempt: attempt() }),
+    ])
+    expect([x, y].some((r) => r.status === 200 && r.body.data.result === 'cancelled')).toBe(true)
+    for (const r of [x, y]) expect([200, 409]).toContain(r.status)
+    expect(new Set(m.refundPayment.mock.calls.map((c) => c[0].idempotencyKey)).size).toBe(1)
+    expect((await byId(classId))[lines[1].id].refunds).toHaveLength(1)
+  })
+
+  it('a booking for several dates is cancelled whole; some of its seats are refused', async () => {
+    const { t, lines } = await setup((bookingId) => [line({ bookingId, seat: 1, sessionIds: ['ses_c1', 'ses_c2'] }), line({ bookingId, seat: 2, sessionIds: ['ses_c1', 'ses_c2'] })])
+    const v = await get(t)
+    expect(v.body.data.wholeOnly).toBe(true)
+    const part = await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: attempt() })
+    expect(part.status).toBe(409)
+    expect(part.body.error).toBe('This booking covers more than one date, so all of its seats are cancelled together.')
+    expect(m.refundPayment).not.toHaveBeenCalled()
+    const whole = await post({ t, action: 'cancel', lineIds: lines.map((l) => l.id), attempt: attempt() })
+    expect(whole.body.data).toMatchObject({ result: 'cancelled', cents: 6540 })
+  })
+
+  it('prices never come from the page: the amount is the booking’s, whatever is sent', async () => {
+    const { t, lines } = await setup(two)
+    await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: attempt(), cents: 99999 })
+    expect(m.refundPayment.mock.calls[0][0].amountCents).toBe(3270)
+  })
+})
+
+describe('when Square doesn’t answer, or says no', () => {
+  it('no answer: the seats stay held as cancelling, owners texted once, To decide › Ask Square sends the same request and finishes it', async () => {
+    const { classId, bookingId, t, lines } = await setup(two)
+    m.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    const a = attempt()
+    const r = await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: a })
+    expect(r.status).toBe(200)
+    expect(r.body.data.result).toBe('cancelling')
+    expect(r.body.data.view.state).toBe('cancelling')
+    expect(r.body.data.view.seats[0]).toMatchObject({ state: 'cancelling', canPick: false })
+    expect((await byId(classId))[lines[0].id].state).toBe('confirmed') // not freed until the refund is known
+    expect(m.runWaitlist).not.toHaveBeenCalled()
+    expect(m.alert).toHaveBeenCalledTimes(1)
+    expect(m.alert.mock.calls[0][0]).toMatch(/Square didn’t answer the \$32\.70 refund\. Their seats stay held\. Open \/admin › To decide and tap Ask Square\./)
+    const firstKey = m.refundPayment.mock.calls[0][0].idempotencyKey
+    // The same press again (a retry from the page) keeps it unclear and doesn't text again.
+    m.refundPayment.mockRejectedValueOnce(new Error('timeout'))
+    await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: a })
+    expect(m.alert).toHaveBeenCalledTimes(1)
+
+    const { items } = await listToDecide()
+    const item = items.find((i) => i.kind === 'cancel-unclear' && i.detail.bookingId === bookingId)!
+    expect(item.title).toBe('Customer’s cancel, refund unclear')
+    expect(item.head).toMatch(/^Ada Lovelace cancelled 1 seat of Candles .* online, and Square didn’t answer the \$32\.70 refund\. Their seats are held until we know\.$/)
+    // "Got it" can't hide an unclear refund.
+    await expect(decide(item.id, 'seen', {}, { id: 'cat', name: 'Catherine' })).rejects.toThrow(/Ask Square first/)
+    const done = await decide(item.id, 'ask', {}, { id: 'cat', name: 'Catherine' })
+    expect(done.decided.what).toBe('Square showed the refund. They’re cancelled and got $32.70 back')
+    expect(m.refundPayment.mock.calls.at(-1)![0].idempotencyKey).toBe(firstKey)
+    expect((await byId(classId))[lines[0].id].refunds).toHaveLength(1)
+    expect(m.runWaitlist).toHaveBeenCalledTimes(1)
+    expect((await get(t)).body.data.seats[0].state).toBe('cancelled')
+  })
+
+  it('turned down: nothing refunded, still booked, the page says try again or send a note; To decide offers Try the refund again / Got it', async () => {
+    const { classId, bookingId, t, lines } = await setup(two)
+    m.refundPayment.mockResolvedValueOnce({ id: 'rf_x', paymentId: 'pay_1', amountCents: 3270, status: 'FAILED' })
+    const r = await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: attempt() })
+    expect(r.status).toBe(502)
+    expect(r.body).toMatchObject({ code: 'square', error: 'The refund didn’t go through just now, so nothing changed and your seats are still booked. Try again in a few minutes, or send us a note.' })
+    expect((await byId(classId))[lines[0].id].state).toBe('confirmed')
+    const { items } = await listToDecide()
+    const item = items.find((i) => i.kind === 'cancel-unclear' && i.detail.bookingId === bookingId)!
+    expect(item.detail.state).toBe('turned-down')
+    const seen = await decide(item.id, 'seen', {}, { id: 'cat', name: 'Catherine' })
+    expect(seen.decided.what).toBe('Seen. They’re still booked')
+  })
+})
+
+describe('inside 48 hours and the other request cases: a note, Catherine decides', () => {
+  it('inside 48 hours: cancelling is refused (nothing sent), the page shows the policy, a note reaches the owners and To decide', async () => {
+    const { classId, bookingId, t, lines } = await setup(two, 30)
+    const v = await get(t)
+    expect(v.body.data).toMatchObject({ mode: 'request', why: CANCEL_WHY.inside(48) })
+    const refused = await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: attempt() })
+    expect(refused.status).toBe(409)
+    expect(refused.body.code).toBe('request-only')
+    expect(m.refundPayment).not.toHaveBeenCalled()
+
+    const note = await post({ t, action: 'request', note: 'My kid is sick, can we get credit?' })
+    expect(note.status).toBe(200)
+    expect(note.body.data.view).toMatchObject({ state: 'requested', request: { note: 'My kid is sick, can we get credit?' } })
+    // a double tap is one note, one text
+    await post({ t, action: 'request', note: 'My kid is sick, can we get credit?' })
+    expect(m.alert).toHaveBeenCalledTimes(1)
+    expect(m.alert.mock.calls[0][0]).toMatch(/^Ada Lovelace asked to cancel 2 seats of Candles \(.+\), inside 48 hours: “My kid is sick, can we get credit\?”\. Open \/admin › To decide/)
+    expect((await getCancelRecord(bookingId))!.asks).toHaveLength(1)
+
+    const { items } = await listToDecide()
+    const item = items.find((i) => i.kind === 'cancel-request' && i.detail.bookingId === bookingId)!
+    expect(item).toMatchObject({ title: 'Customer asked to cancel', classId })
+    expect(item.detail).toMatchObject({ canRefund: true, refundCents: 6540, seats: 2, inside: true })
+    const done = await decide(item.id, 'refund', {}, { id: 'cat', name: 'Catherine' })
+    expect(done.decided.what).toBe('Refunded $65.40 and freed 2 seats')
+    expect(m.refundPayment.mock.calls[0][0].amountCents).toBe(6540)
+    expect(Object.values(await byId(classId)).every((l) => l.state === 'refunded')).toBe(true)
+    // decided: it doesn't show again
+    expect((await listToDecide()).items.find((i) => i.id === item.id)?.done).toBe('Refunded $65.40 and freed 2 seats')
+  })
+
+  it('Free the seat, no refund (with Undo) and Keep their booking', async () => {
+    const one = await setup(two, 30)
+    await post({ t: one.t, action: 'request', note: 'Can’t come' })
+    const other = await setup(two, 30)
+    await post({ t: other.t, action: 'request', note: '' })
+    const { items } = await listToDecide()
+    const i1 = items.find((i) => i.kind === 'cancel-request' && i.detail.bookingId === one.bookingId)!
+    const freed = await decide(i1.id, 'free', {}, { id: 'cat', name: 'Catherine' })
+    expect(freed.decided.what).toBe('Freed 2 seats. No refund')
+    expect(freed.decided.undo?.entries).toHaveLength(2)
+    expect(m.refundPayment).not.toHaveBeenCalled()
+    const i2 = items.find((i) => i.kind === 'cancel-request' && i.detail.bookingId === other.bookingId)!
+    const kept = await decide(i2.id, 'keep', {}, { id: 'cat', name: 'Catherine' })
+    expect(kept.decided.what).toBe('Kept their booking')
+    expect(Object.values(await byId(other.classId)).every((l) => l.state === 'confirmed')).toBe(true)
+  })
+
+  it('a gift seat goes to a note (no refund offered); a seat paid at the counter too', async () => {
+    const comp = await setup((bookingId) => [line({ bookingId, source: 'comp', square: { orderId: null, paymentId: null, lineUid: null } })])
+    expect((await get(comp.t)).body.data).toMatchObject({ mode: 'request', why: CANCEL_WHY.comp })
+    await post({ t: comp.t, action: 'request', note: 'Thanks but we can’t come' })
+    const item = (await listToDecide()).items.find((i) => i.kind === 'cancel-request' && i.detail.bookingId === comp.bookingId)!
+    expect(item.detail.canRefund).toBe(false)
+    const counter = await setup((bookingId) => [line({ bookingId, source: 'door-counter', square: { orderId: null, paymentId: null, lineUid: null } })])
+    expect((await get(counter.t)).body.data).toMatchObject({ mode: 'request', why: CANCEL_WHY.studio })
+  })
+
+  it('a note over 500 characters is refused in words', async () => {
+    const { t } = await setup(two, 30)
+    const r = await post({ t, action: 'request', note: 'x'.repeat(501) })
+    expect(r.status).toBe(400)
+    expect(r.body.error).toBe('Keep the note under 500 characters.')
+  })
+})
+
+describe('a free ($0) booking', () => {
+  it('cancels with nothing refunded, any time before it starts; a double tap is fine', async () => {
+    const { classId, t, lines } = await setup((bookingId) => [line({ bookingId, priceCents: 0, taxCents: 0, square: { orderId: null, paymentId: null, lineUid: null, chargedCents: 0 } })], 3)
+    expect((await get(t)).body.data.mode).toBe('free')
+    const a = attempt()
+    const [x, y] = await Promise.all([post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: a }), post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: a })])
+    expect([x.body.data?.result, y.body.data?.result]).toEqual(['cancelled', 'cancelled'])
+    expect(x.body.data.cents).toBe(0)
+    expect(m.refundPayment).not.toHaveBeenCalled()
+    expect((await byId(classId))[lines[0].id].refunds).toHaveLength(1)
+    expect(m.alert.mock.calls[0][0]).toMatch(/It was a free booking, so nothing was refunded\. The seat is back on sale\.$/)
+    expect((await get(t)).body.data.state).toBe('cancelled')
+  })
+})

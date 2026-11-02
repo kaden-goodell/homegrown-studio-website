@@ -592,6 +592,7 @@ function BookingRow({ b, cls, ticket, onChanged }: { b: ClassBooking; cls: Sched
         </p>
       )}
       {b.overCapacity && <p className="adm-small adm-warntext">This seat landed after the class was full. Check the room has space.</p>}
+      {b.cancelLine && <p className="adm-small" data-testid="cancel-line">{b.cancelLine}</p>}
       <div data-refund-slot={b.bookingId}>
         {b.state !== 'held' && <RefundPanel classId={cls.id} booking={b} ticketLabel={ticket} waiting={b.waiting} counterSalesAtRegister send={(url, body) => api(url, body)} onDone={onChanged} />}
       </div>

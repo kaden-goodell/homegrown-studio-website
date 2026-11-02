@@ -16,7 +16,7 @@
  * with what was bought, every payment and refund) and the index of which party
  * each Square payment is for, the party book (which party holds which time) and the party checkouts still in flight or unclear.
  * Stage 4 adds the waitlists, reader sales, promo codes and their uses, the
- * saved-card setup alert markers.
+ * saved-card setup alert markers and the customers' own cancels (D2).
  * tests/lib/archive-stores.test.ts fails when a store under src/lib/classes,
  * src/lib/parties or src/lib/promos (or the saved-card alerts) is missing here.
  *
@@ -77,6 +77,8 @@ export const ARCHIVE_STORES: ArchiveStoreEntry[] = [
   { name: 'promo-uses' },
   // Stage 4: one marker per Chicago day when Square refused a saved-card request (the owners' text went out once)
   { name: 'card-setup-alerts' },
+  // D2: customers' own online cancels and their "Send us a note" requests (what they asked, what happened)
+  { name: 'class-cancels' },
   // A small photo comes along; a large one is listed by key (the live store keeps it).
   { name: 'class-photos', maxValueBytes: 300 * 1024 },
 ]

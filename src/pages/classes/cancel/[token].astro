@@ -1,0 +1,48 @@
+---
+export const prerender = false
+
+import Layout from '@layouts/Layout.astro'
+import CancelBooking from '@components/classes/CancelBooking'
+import { cancelView, CancelError, CANCEL_MESSAGES, type CancelView } from '@lib/classes/self-cancel'
+import { createLogger } from '@lib/logger'
+
+const logger = createLogger('page:class-cancel')
+
+// D2: the "Can't make it?" link from a class confirmation email. Opening it
+// only shows the booking; cancelling takes a tap and a second "Yes" (a link
+// checker or an email preview never cancels anything). A wrong token and a
+// missing booking look the same.
+const token = Astro.params.token ?? ''
+Astro.response.headers.set('Cache-Control', 'private, no-store')
+Astro.response.headers.set('Referrer-Policy', 'no-referrer')
+
+let view: CancelView | null = null
+let problem: 'missing' | 'failed' | null = null
+try {
+  view = await cancelView(token)
+} catch (err) {
+  if (err instanceof CancelError && err.code === 'not-found') problem = 'missing'
+  else {
+    problem = 'failed'
+    logger.error('Cancel page failed', { error: err instanceof Error ? err.message : String(err) })
+  }
+}
+if (problem === 'missing') Astro.response.status = 404
+if (problem === 'failed') Astro.response.status = 503
+---
+
+<Layout title="Your booking" description="Cancel or change your Hometown Studio class booking." noindex>
+  <section class="max-w-xl mx-auto px-4 sm:px-6 pb-20" style="padding-top: 5.5rem;">
+    {view ? (
+      <CancelBooking client:load token={token} initial={view} />
+    ) : (
+      <div class="text-center">
+        <h1 class="text-3xl sm:text-4xl font-heading font-bold" style="color: var(--color-dark);">
+          {problem === 'missing' ? 'We couldn’t find that booking' : 'We couldn’t load this just now'}
+        </h1>
+        <p class="mt-4" style="color: var(--color-text);">{problem === 'missing' ? CANCEL_MESSAGES.notFound : 'Please refresh in a minute.'}</p>
+        <p class="mt-6"><a href="/workshops" class="btn btn-primary">See workshops</a></p>
+      </div>
+    )}
+  </section>
+</Layout>

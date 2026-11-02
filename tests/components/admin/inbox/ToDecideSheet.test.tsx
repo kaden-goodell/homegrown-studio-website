@@ -413,3 +413,55 @@ describe('To decide › waitlist', () => {
     await waitFor(() => expect(decisions(f)[0]).toEqual({ id: 'td_1', action: 'seen' }))
   })
 })
+
+describe('D2: customers’ own cancels', () => {
+  const req = (over: any = {}) => item({
+    kind: 'cancel-request', title: 'Customer asked to cancel', className: 'Candles', classId: 'cls_1',
+    head: 'Ada Lovelace asked to cancel 2 seats of Candles (Sat, Nov 14 · 1:00 PM CT), 30 hours before it starts. Their note: “Sick”',
+    detail: { bookingId: 'bkg_1', name: 'Ada Lovelace', email: 'ada@example.com', phone: '(402) 980-2907', lineIds: ['led_a', 'led_b'], seats: 2, note: 'Sick', why: 'Your class is less than 48 hours away…', canRefund: true, refundCents: 6540, inside: true, source: 'online' },
+    ...over,
+  })
+
+  it('a note: Refund and free the seat asks first, naming who and how much; Not yet sends nothing', async () => {
+    const { f } = show([req()])
+    expect(await screen.findByText(/asked to cancel 2 seats of Candles/)).toBeInTheDocument()
+    expect(screen.getByText('$65.40')).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund and free the seat' }))
+    const ask = screen.getByRole('group', { name: 'Refund Ada Lovelace?' })
+    expect(ask).toHaveTextContent('Refund $65.40 and free Ada Lovelace’s 2 seats?')
+    fireEvent.click(within(ask).getByRole('button', { name: 'Not yet' }))
+    expect(decisions(f)).toEqual([])
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Refund and free the seat' }))
+    fireEvent.click(within(screen.getByRole('group', { name: 'Refund Ada Lovelace?' })).getByRole('button', { name: 'Refund and free the seat' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'refund' }]))
+  })
+
+  it('a gift seat offers no refund: Free the seat, no refund (asks first) or Keep their booking', async () => {
+    const base = req()
+    const { f } = show([{ ...base, detail: { ...base.detail, canRefund: false, refundCents: 0, source: 'comp' } }])
+    await screen.findByText(/asked to cancel 2 seats/)
+    expect(within(footer()).queryByRole('button', { name: 'Refund and free the seat' })).toBeNull()
+    expect(screen.getByText(/This seat was a gift/)).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Keep their booking' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'keep' }]))
+  })
+
+  it('a refund Square didn’t answer: Ask Square only; a turned-down one adds Got it', async () => {
+    const unclear = item({ kind: 'cancel-unclear', title: 'Customer’s cancel, refund unclear', classId: 'cls_1', detail: { bookingId: 'bkg_1', attempt: 'att_1', cents: 3270, state: 'unclear', name: 'Ada Lovelace' } })
+    const { f } = show([unclear])
+    await screen.findByText('Customer’s cancel, refund unclear')
+    expect(within(footer()).queryByRole('button', { name: 'Got it' })).toBeNull()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Ask Square' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'ask' }]))
+  })
+
+  it('turned down: Try the refund again or Got it', async () => {
+    const turned = item({ kind: 'cancel-unclear', title: 'Customer’s cancel, refund turned down', classId: 'cls_1', detail: { bookingId: 'bkg_1', attempt: 'att_1', cents: 3270, state: 'turned-down', name: 'Ada Lovelace' } })
+    const { f } = show([turned])
+    await screen.findByText('Customer’s cancel, refund turned down')
+    expect(within(footer()).getByRole('button', { name: 'Try the refund again' })).toBeInTheDocument()
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Got it' }))
+    await waitFor(() => expect(decisions(f)).toEqual([{ id: 'td_1', action: 'seen' }]))
+  })
+})
+

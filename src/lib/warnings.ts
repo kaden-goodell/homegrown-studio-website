@@ -31,6 +31,7 @@ import { waitlistOrNull } from '@lib/classes/waitlist-store'
 import { listWaitingReaderSales } from '@lib/classes/reader-store'
 import { readerNeedsDeciding } from '@lib/classes/reader-flow'
 import { listPromos } from '@lib/promos/promo-store'
+import { cancelItems } from '@lib/classes/self-cancel'
 import { couldBeFree, promoState } from '@lib/promos/rules'
 import { getLedger, seatsTaken } from '@lib/classes/seat-ledger'
 import { listPosNeedsDays, listRefundFlags, listUnmatchedPos, openPaidNotSeated, type RefundFlag } from '@lib/classes/square-events'
@@ -70,6 +71,8 @@ export type WarningCode =
   | 'register-setup-missing'
   // Task 12: an active promo code that books for free with no use limit
   | 'promo-free-unlimited'
+  // D2: a customer asked to cancel (a note), or their own cancel's refund Square didn't answer / turned down
+  | 'cancel-request' | 'cancel-unclear'
 
 export interface Warning {
   code: WarningCode
@@ -90,7 +93,7 @@ export interface Warning {
 /** Items that aren't tied to a day: they stay until an owner decides. */
 export const UNDATED_CODES: ReadonlySet<WarningCode> = new Set<WarningCode>([
   'pos-unmatched', 'pos-needs-days', 'refund-flag', 'door-unpaid', 'counter-match-check', 'paid-not-seated', 'waitlist-unknown', 'waitlist-declined',
-  'waitlist-card-on', 'reader-waiting', 'register-setup-missing', 'promo-free-unlimited',
+  'waitlist-card-on', 'reader-waiting', 'register-setup-missing', 'promo-free-unlimited', 'cancel-request', 'cancel-unclear',
 ])
 
 /** Days ahead the panel and the daily email look. */
@@ -443,6 +446,10 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
         : `${sale.className} ${when}: ${who}’s ${formatMoney(sale.amountCents)} reader payment never came back from the Square app. The seat is held.`,
       action: OWNERS_DECIDE,
     })
+  }
+  // D2: customers' notes asking to cancel, and their own cancels Square didn't answer, until an owner decides in To decide.
+  for (const c of await cancelItems(decided, now, async (id) => byId.get(id) ?? (await getClass(id).catch(() => null))).catch(() => [])) {
+    out.push({ code: c.kind, eventKind: 'workshop', eventId: c.classId, when: c.at, title: c.className, itemId: c.id, detail: c.warning, action: OWNERS_DECIDE })
   }
   for (const f of flags) {
     if (f.classId === PARTY_SCOPE) {

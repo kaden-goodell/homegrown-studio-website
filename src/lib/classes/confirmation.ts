@@ -12,6 +12,7 @@ import { summarize } from '@lib/seo'
 import { withUtm } from '@lib/utm'
 import { makeKvStore } from '@lib/blob-store'
 import type { ScheduledClass } from './types'
+import { cancelPathFor } from './self-cancel-token'
 
 const sentKv = makeKvStore('class-confirmations', 'class-confirmations')
 
@@ -54,6 +55,15 @@ export async function takeConfirmationRetry(bookingId: string): Promise<boolean>
 /** The confirmation didn't go out: let a later finish try again. */
 export async function releaseConfirmation(bookingId: string): Promise<void> {
   await sentKv.set(`sent-${bookingId.replace(/[^A-Za-z0-9_-]/g, '_')}`, '').catch(() => undefined)
+}
+
+/** The "Can't make it?" link, or nothing when it can't be signed (never stops a confirmation). */
+function cancelLink(origin: string, classId: string, bookingId: string): { cancelUrl?: string } {
+  try {
+    return { cancelUrl: `${origin}${cancelPathFor(classId, bookingId)}` }
+  } catch {
+    return {}
+  }
 }
 
 export async function sendClassConfirmation(input: {
@@ -134,6 +144,8 @@ export async function sendClassConfirmation(input: {
     ...(sessions.length > 1 ? { sessionLines: sessions.map((s) => formatDayAndSpan(s.startIso, s.endIso)) } : {}),
     ...(input.pickLines?.length ? { pickLines: input.pickLines } : {}),
     ...(input.lead ? { lead: input.lead } : {}),
+    // D2: their own page to cancel 48+ hours ahead (refunded) or send a note. Signed; no store needed.
+    ...(cancelLink(origin, cls.id, input.bookingId)),
   })
   return sent
 }

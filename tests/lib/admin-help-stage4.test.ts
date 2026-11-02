@@ -38,8 +38,10 @@ describe('stage 4 Help covers everything', () => {
     }
   })
 
-  it('the screens: promotions, repeat, register, waitlist, reader', () => {
-    expect(STAGE4_HELP_SECTIONS.map((s) => s.id)).toEqual(expect.arrayContaining(['promotions', 'repeat', 'register', 'waitlist', 'reader']))
+  it('the screens: promotions, repeat, register, waitlist, reader, customers cancelling', () => {
+    expect(STAGE4_HELP_SECTIONS.map((s) => s.id)).toEqual(expect.arrayContaining(['promotions', 'repeat', 'register', 'waitlist', 'reader', 'self-cancel']))
+    expect(Object.keys(STAGE4_TO_DECIDE_HELP)).toEqual(expect.arrayContaining(['cancel-request', 'cancel-unclear']))
+    expect(Object.keys(STAGE4_WARNING_HELP)).toEqual(expect.arrayContaining(['cancel-request', 'cancel-unclear']))
   })
 
   it('ids are unique and everything is marked as arriving with extras', () => {
