@@ -156,3 +156,11 @@ export async function touchFeed(hash: string, now: Date): Promise<void> {
     logger.warn('Could not note a calendar link was used', { error: err instanceof Error ? err.message : String(err) })
   }
 }
+
+/** Whether this person has a working link now (the screen says "You have a link" without showing it). */
+export async function hasFeed(who: Who): Promise<boolean> {
+  let k: string
+  try { k = whoKey(who) } catch { return false }
+  const json = await kv.get(k)
+  return !!(json && (JSON.parse(json) as { hash: string | null } | null)?.hash)
+}

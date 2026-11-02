@@ -185,6 +185,21 @@ export async function staffableBetween(fromIso: string, toIso: string): Promise<
   return (await collect(fromIso, toIso, new Date())).events
 }
 
+/** The window an ask, an assignment or a lookup by key searches: from a day back to ten weeks ahead (the screens never show further). */
+export const LOOKUP_BACK_MS = DAY_MS
+export const LOOKUP_AHEAD_MS = 70 * DAY_MS
+
+/**
+ * One event by its key, searched from a day back to ten weeks ahead, with its
+ * entry (null when nobody touched it). Null when it isn't in that window.
+ * Throws when a source can't be read.
+ */
+export async function eventByKey(key: EventKey, now: Date = new Date()): Promise<{ event: StaffableEvent; entry: StaffingEntry | null } | null> {
+  const { events, entries } = await collect(new Date(now.getTime() - LOOKUP_BACK_MS).toISOString(), new Date(now.getTime() + LOOKUP_AHEAD_MS).toISOString(), now)
+  const event = events.find((e) => e.key === key)
+  return event ? { event, entry: entries.get(key) ?? null } : null
+}
+
 // ---------------------------------------------------------------- what crew may see
 
 /** An event as crew may see it: never the party host's name. */
