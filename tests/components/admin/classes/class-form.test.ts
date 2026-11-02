@@ -35,4 +35,11 @@ describe('class form: the early-bird round-trips (review Important 5)', () => {
     const b = build({ ...f, prices: { pas_full: { adult: '20', kid: '20' } } })
     expect(b.ok).toBe(true)
   })
+  it('M-a: an ended early-bird is never sent, so removing a seat kind can\'t turn it into a refused save', () => {
+    const ended = { ...two, earlyBird: { untilYmd: '2020-01-01', prices: { pas_full: { adult: 2500, kid: 1500 } } } }
+    const f = toForm(ended)
+    const b = build({ ...f, ticketTypes: [f.ticketTypes[0]], prices: { pas_full: { adult: '30' } } })
+    expect(b.ok).toBe(true)
+    expect(b.ok && 'earlyBird' in b.content).toBe(false)
+  })
 })

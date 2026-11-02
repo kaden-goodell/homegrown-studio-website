@@ -25,6 +25,7 @@ import { NoPhoto } from '../ClassesTab'
 import { Failed, Seg, Skeleton } from '../shell/items'
 import { SheetFrame, useSheet, useSheetDirty } from '../shell/Sheet'
 import { DIDNT_SAVE, useToast } from '../shell/Toast'
+import { earlyBirdLabel, earlyBirdRunning } from '@lib/classes/early-bird'
 
 export const ADDED = 'Added. It’s on the calendar and in your library.'
 export const addedMany = (n: number) => `Added ${n} classes. They’re on the calendar and in your library.`
@@ -318,6 +319,10 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
     </div>
   )
 
+  // M-f: a copied class whose early-bird still runs brings it along; say so, so it's never a surprise.
+  const copiedEarlyBird = picked && f.ebOn && picked.startedFrom.earlyBird && earlyBirdRunning(picked.startedFrom, new Date())
+    ? earlyBirdLabel(picked.startedFrom)
+    : ''
   const title = from?.kind === 'class' ? 'Run it again' : 'New class'
   const subtitle = from && picked ? picked.name : day ? `On ${dayLabel(day)}` : undefined
 
@@ -357,6 +362,9 @@ export function NewClassSheet({ day, from }: { day?: string; from?: From }) {
                 })}
                 {pickable && pickable.length > 0 && <p className="adm-lbl">Details</p>}
               </section>
+            )}
+            {copiedEarlyBird && (
+              <p className="adm-note" role="status" data-testid="copied-early-bird">{`This copies its early-bird too: ${copiedEarlyBird}. Turn it off under the price if these dates shouldn’t have it.`}</p>
             )}
             <PreviewButton f={f} sessions={previewSessions} />
             <DetailsFields f={f} set={(fn) => setF((cur) => fn(cur))} errors={errors} sessions={rows.map((r, i) => ({ id: r.id, label: `Date ${i + 1}` }))}>

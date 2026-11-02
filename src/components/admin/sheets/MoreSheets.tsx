@@ -125,7 +125,7 @@ export function ReportsSheet() {
             </div>
           )}
           <p className="adm-note" style={{ marginTop: '0.75rem' }}>
-            Covers our own classes (seats booked online, at the door and on the POS this month, with tax and extras; comps count as seats at $0) and parties booked on the website this month. Refunds are this month’s, whenever the seat was sold. Craft Café, party crafts and anything else rung up in Square are in Square’s reports.
+            Covers our own classes (seats booked online, at the door and at the register this month, with tax and extras; comps count as seats at $0) and parties booked on the website this month. Refunds are this month’s, whenever the seat was sold. Craft Café, party crafts and anything else rung up in Square are in Square’s reports.
           </p>
         </>
       )}

@@ -379,7 +379,7 @@ describe('syncClassToSquare — no second item, cancelled, description, empty pl
 
   it('refuses a class with nothing to sell before calling Square', async () => {
     const c = cls(); c.content.prices = {}; c.content.addOns = []
-    await expect(syncClassToSquare(c)).rejects.toThrow('Add a price before putting this class on the POS.')
+    await expect(syncClassToSquare(c)).rejects.toThrow('Add a price before putting this class on the register.')
     expect(calls).toHaveLength(0)
   })
 })

@@ -211,7 +211,10 @@ export function build(f: Form, opts: { usual?: boolean } = {}): Built {
   if (!(maxPer >= 1 && maxPer <= 40)) errors.rules = 'The most people per booking is 1 to 40.'
   else rules.maxPerBooking = maxPer
 
-  const eb = f.ebOn ? buildEarlyBird(f, prices) : null
+  // M-a: an early-bird whose last day has passed is never sent (the editor says "It's left off when you save"),
+  // so a changed price list can't turn it into a refused save.
+  const ebEnded = /^\d{4}-\d{2}-\d{2}$/.test(f.ebUntil) && f.ebUntil < today()
+  const eb = f.ebOn && !ebEnded ? buildEarlyBird(f, prices) : null
   if (eb && !eb.ok) errors.earlybird = eb.error
 
   if (Object.keys(errors).length) return { ok: false, errors }

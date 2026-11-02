@@ -63,3 +63,15 @@ export function posPricesStale(cls: ScheduledClass, now: Date): boolean {
   return variationPlan(cls, now).some((p) => have[p.key] !== p.cents)
 }
 
+
+/**
+ * Fix round 3: the class should be on the register (open or closed, not over)
+ * but isn't, or is missing a seat or extra it now sells: /admin shows "Put it
+ * on the register". Browser-safe.
+ */
+export function notOnRegister(cls: ScheduledClass, now: Date): boolean {
+  if (cls.status !== 'open' && cls.status !== 'closed') return false
+  if (!cls.sessions.some((s) => Date.parse(s.endIso) > now.getTime())) return false
+  if (!cls.square.itemId) return true
+  return variationPlan(cls, now).some((p) => !cls.square.variations[p.key])
+}

@@ -575,7 +575,7 @@ describe('More', () => {
     await signedIn()
     tab('More')
     const setup = await screen.findByRole('list', { name: 'Setup' })
-    expect(within(setup).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Parties setup', 'Hours & Craft Café', 'Closed days', 'Staff', 'Promotions', 'Reports'])
+    expect(within(setup).getAllByRole('button').map((b) => b.querySelector('b')?.textContent)).toEqual(['Parties setup', 'Hours & Craft Café', 'Closed days', 'Staff', 'Promotions', 'Register setup', 'Reports'])
     expect(within(setup).getByRole('button', { name: /Staff/ })).toHaveTextContent('Coming in stage 3')
     expect(within(setup).getByRole('button', { name: /Promotions/ })).toHaveTextContent('Codes, early-bird')
     fireEvent.click(within(setup).getByRole('button', { name: /Parties setup/ }))

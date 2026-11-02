@@ -96,7 +96,7 @@ export default function RepeatSection({ value, onChange, firstDay, multi, previe
       {value.kind !== 'none' && (
         <div className="adm-repeat-list">
           <p className="adm-small adm-muted" aria-live="polite">
-            {!firstDay ? 'Fill in the dates above to see the list.' : preview.checking ? 'Checking the dates…' : preview.dates ? `${ticked} ${ticked === 1 ? 'class' : 'classes'}, each one its own class on the calendar and the POS. Untick a date to leave it out.` : ''}
+            {!firstDay ? 'Fill in the dates above to see the list.' : preview.checking ? 'Checking the dates…' : preview.dates ? `${ticked} ${ticked === 1 ? 'class' : 'classes'}, each one its own class on the calendar and the register. Untick a date to leave it out.` : ''}
           </p>
           {preview.error && <p role="alert" className="adm-error">{preview.error}</p>}
           {error && <p role="alert" className="adm-error adm-fielderr">{error}</p>}

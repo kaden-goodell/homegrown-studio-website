@@ -18,11 +18,13 @@ import { CREATE_KEY_RE } from '@lib/booking-core/ids'
 import type { By } from '@lib/staff-auth'
 import { formatDay, formatTime } from '@lib/studio-time'
 import { addBlocked, listBlocked, removeBlocked, type BlockedTime } from './blocked-time'
-import { fixPosPrices, FIX_FAILED } from './pos-prices'
+import { ClassGoneError, fixPosPrices, FIX_FAILED, putOnRegister } from './pos-prices'
 import { ClassExistsError, createClass, getClass, listClasses, StaleClassError, updateClass } from './class-store'
 import { archiveLibrary, getLibrary, LibraryStaleError, listLibrary, restoreLibraryVersion, saveLibraryVersion } from './library-store'
 import { takenCents } from './booking-words'
 import { archiveClassInSquare, CLASS_TAX_NOT_SET, syncClassToSquare } from './square-catalog'
+import { CLASSES_CATEGORY_NOT_SET, PICK_CATEGORY, PICK_TAX, REGISTER_DOWN, type SetupNeeded } from './register-words'
+import { isSquareConnectionError } from './register-setup'
 import { contentChanges } from './content-diff'
 import { chicagoYmd } from './chicago-day'
 import { readPattern, repeatDates } from './repeat'
@@ -44,11 +46,13 @@ import { LiveSquareFromTestSiteError, TestSiteStoreError } from './test-site-gua
  */
 export const ADMIN_BY: By = { id: 'admin', name: 'Owner' }
 
-export const SYNC_WARNING = "Saved. The POS item didn't update. Try Save again."
-export const TAX_WARNING = "Saved, but it isn't on the POS: Class tax isn't set up yet. It can't be sold until it is."
+export const SYNC_WARNING = "Saved. The register didn't update. Try Save again."
+export const TAX_WARNING = `Saved, but it isn't on the register yet: the class tax isn't picked. ${PICK_TAX} Then tap Put it on the register.`
+export const CATEGORY_WARNING = `Saved, but it isn't on the register yet: the Classes category isn't picked. ${PICK_CATEGORY} Then tap Put it on the register.`
+export const REGISTER_DOWN_WARNING = `Saved. ${REGISTER_DOWN}`
 export const LIBRARY_WARNING = "Saved. The library didn't update. Try again."
 export const NEW_LIBRARY_WARNING = "Added. It'll go into the library the next time you open or save it."
-export const CANCEL_WARNING = "Cancelled. The POS item didn't come off. Try Cancel again."
+export const CANCEL_WARNING = "Cancelled. The register item didn't come off. Try Cancel again."
 
 /** A refusal the owner reads: an HTTP status, a plain sentence, and anything extra for the screen. */
 export class ActionError extends Error {
@@ -170,8 +174,51 @@ async function syncPos(cls: ScheduledClass, by: By): Promise<{ cls: ScheduledCla
     return { cls: await updateClass(cls.id, { square }, by, 'POS item updated') }
   } catch (e) {
     console.warn(`[classes] POS sync for ${cls.id} failed: ${e instanceof Error ? e.message : e}`)
-    if (e instanceof LiveSquareFromTestSiteError) return { cls, warning: `Saved, but not on the POS. ${e.message}` }
-    return { cls, warning: e instanceof Error && e.message === CLASS_TAX_NOT_SET ? TAX_WARNING : SYNC_WARNING }
+    if (e instanceof LiveSquareFromTestSiteError) return { cls, warning: `Saved, but not on the register. ${e.message}` }
+    const msg = e instanceof Error ? e.message : ''
+    if (msg === CLASS_TAX_NOT_SET) return { cls, warning: TAX_WARNING }
+    if (msg === CLASSES_CATEGORY_NOT_SET) return { cls, warning: CATEGORY_WARNING }
+    if (isSquareConnectionError(e)) return { cls, warning: REGISTER_DOWN_WARNING }
+    return { cls, warning: SYNC_WARNING }
+  }
+}
+
+/**
+ * One rule for what the register buttons answer when they can't finish (M-e):
+ * a deleted class, a test-site block, a setup step not done (with `setup`, so
+ * the sheet shows the Register setup button), a register connection that
+ * isn't working, or Square refusing (`failed`).
+ */
+function registerButtonError(e: unknown, failed: string, what: string): never {
+  if (e instanceof ActionError) throw e
+  if (e instanceof ClassGoneError) throw new ActionError(404, e.message)
+  if (e instanceof StaleClassError) throw new ActionError(409, 'Someone saved this class just now. Reload it, then try again.', { stale: true })
+  if (e instanceof TestSiteStoreError || e instanceof LiveSquareFromTestSiteError) throw new ActionError(503, e.message)
+  const msg = e instanceof Error ? e.message : String(e)
+  if ((e as { refusal?: boolean })?.refusal) throw new ActionError(400, msg)
+  if (msg === CLASS_TAX_NOT_SET) throw new ActionError(503, `${what}: the class tax isn't picked. ${PICK_TAX}`, { setup: 'tax' satisfies SetupNeeded })
+  if (msg === CLASSES_CATEGORY_NOT_SET) throw new ActionError(503, `${what}: the Classes category isn't picked. ${PICK_CATEGORY}`, { setup: 'category' satisfies SetupNeeded })
+  if (isSquareConnectionError(e)) throw new ActionError(503, REGISTER_DOWN, { connection: true })
+  throw new ActionError(502, failed)
+}
+
+/** What "Put it on the register" says when Square refuses. */
+export const PUT_FAILED = 'Square didn’t take the class just now. Nothing else changed. Try again in a few minutes.'
+
+/**
+ * "Put it on the register" (fix round 3): a class that should be on the
+ * register and isn't. See putOnRegister for the safety rules. Audited when it
+ * changes something; 'already' writes nothing.
+ */
+export async function putClassOnRegister(body: { id?: unknown }, by: By = ADMIN_BY): Promise<{ data: { class: ScheduledClass; result: 'put' | 'already' }; warning?: string }> {
+  if (typeof body.id !== 'string' || !body.id) throw new ActionError(400, 'Reload the page and try again.')
+  try {
+    const { result, cls } = await putOnRegister(body.id, by)
+    if (result === 'put') await audit(by, 'class-sync-pos', { kind: 'class', id: cls.id, label: cls.content.name })
+    return { data: { class: cls, result } }
+  } catch (e) {
+    console.warn(`[classes] put on the register for ${String(body.id)} failed: ${e instanceof Error ? e.message : e}`)
+    registerButtonError(e, PUT_FAILED, "It can't go on the register yet")
   }
 }
 
@@ -187,11 +234,8 @@ export async function fixRegisterPrice(body: { id?: unknown }, by: By = ADMIN_BY
     if (result === 'fixed') await audit(by, 'class-fix-register-price', { kind: 'class', id: cls.id, label: cls.content.name })
     return { data: { class: cls, result } }
   } catch (e) {
-    if (e instanceof StaleClassError) throw new ActionError(409, 'Someone saved this class just now. Reload it, then try again.')
-    if (e instanceof LiveSquareFromTestSiteError) throw new ActionError(503, e.message)
-    if (e instanceof Error && e.message === CLASS_TAX_NOT_SET) throw new ActionError(503, "The register price can't be set: Class tax isn't set up yet.")
     console.warn(`[classes] fix register price for ${String(body.id)} failed: ${e instanceof Error ? e.message : e}`)
-    throw new ActionError(502, FIX_FAILED)
+    registerButtonError(e, FIX_FAILED, "The register price can't be set yet")
   }
 }
 

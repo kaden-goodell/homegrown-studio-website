@@ -270,7 +270,7 @@ export function PartySheet({ day, id }: { day: string; id: string }) {
           {kv('Crafts', `${p.craftName}, paid at the studio for whoever comes`)}
           <div className="adm-panel" style={{ marginTop: '0.75rem' }}>
             <b>Studio fee paid when they booked</b>
-            <span className="adm-small">Crafts are rung up on the POS on the day. Receipts and refunds are in Square.</span>
+            <span className="adm-small">Crafts are rung up on the register on the day. Receipts and refunds are in Square.</span>
           </div>
         </>
       )}

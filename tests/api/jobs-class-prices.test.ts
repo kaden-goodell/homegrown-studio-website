@@ -6,7 +6,11 @@ const store = vi.hoisted(() => ({
   fresh: new Map<string, any>(),
   /** updateClass refuses: someone saved the class after it was read. */
   staleOnWrite: new Set<string>(),
+  /** syncClassToSquare throws this for the class (fix 3: setup, connection, test-site errors). */
+  syncError: new Map<string, Error>(),
 }))
+const audits = vi.hoisted(() => vi.fn(async (_: any) => undefined))
+vi.mock('@lib/audit', () => ({ recordAudit: audits }))
 const texts = vi.hoisted(() => vi.fn(async (_: string) => ({ attempted: 1, sent: 1 })))
 vi.mock('@lib/owner-alert', () => ({ alertOwners: texts }))
 vi.mock('@lib/classes/class-store', () => {
@@ -17,7 +21,9 @@ vi.mock('@lib/classes/class-store', () => {
     getClass: async (id: string) => store.fresh.get(id) ?? store.classes.find((c) => c.id === id) ?? null,
     updateClass: async (id: string, patch: any, by: any, change: string, opts: any = {}) => {
       if (store.staleOnWrite.has(id)) throw new StaleClassError('stale')
-      store.updates.push({ id, patch, by, change, opts }); return { id }
+      store.updates.push({ id, patch, by, change, opts })
+      const was = store.fresh.get(id) ?? store.classes.find((c) => c.id === id)
+      return { ...(was ?? {}), id, ...patch }
     },
   }
 })
@@ -27,8 +33,9 @@ vi.mock('@lib/classes/square-catalog', async (orig) => {
     ...real,
     syncClassToSquare: async (cls: any, now: Date) => {
       store.synced.push(cls.id)
+      if (store.syncError.has(cls.id)) throw store.syncError.get(cls.id)
       if (store.syncFails.has(cls.id)) throw new Error('Square down')
-      return { itemId: cls.square.itemId, variations: cls.square.variations, prices: Object.fromEntries(real.variationPlan(cls, now).map((p) => [p.key, p.cents])) }
+      return { itemId: cls.square.itemId ?? 'NEW_ITEM', variations: cls.square.itemId ? cls.square.variations : Object.fromEntries(real.variationPlan(cls, now).map((p) => [p.key, `V_${p.key}`])), prices: Object.fromEntries(real.variationPlan(cls, now).map((p) => [p.key, p.cents])) }
     },
   }
 })
@@ -62,7 +69,8 @@ const AFTER = new Date('2026-11-02T06:01:00Z') // Mon Nov 2, 12:01 AM Chicago (C
 
 beforeEach(() => {
   vi.stubEnv('LOOKUP_SIGNING_SECRET', SECRET)
-  store.classes = []; store.updates = []; store.synced = []; store.syncFails = new Set(); store.fresh = new Map(); store.staleOnWrite = new Set()
+  store.classes = []; store.updates = []; store.synced = []; store.syncFails = new Set(); store.fresh = new Map(); store.staleOnWrite = new Set(); store.syncError = new Map()
+  audits.mockClear()
   texts.mockClear()
 })
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs() })
@@ -177,6 +185,81 @@ describe('Fix the register price now (owner button)', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     await expect(fixRegisterPrice({ id: 'cls_down' }, { id: 'k', name: 'K' })).rejects.toMatchObject({ status: 502, message: 'Square didn’t take the new price just now. Nothing else changed. Try again in a few minutes.' })
     expect(store.updates).toEqual([])
+    warn.mockRestore()
+  })
+})
+
+describe('fix 3: Put it on the register, and what the register buttons say when they can’t finish', () => {
+  const KADEN = { id: 'owner-kaden', name: 'Kaden' }
+  const offPos = (id: string, over: any = {}) => cls(id, { square: { itemId: null, variations: {} }, ...over })
+  beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(AFTER) })
+
+  it('a class not on the register goes on: re-read, guarded write, saved on the version read, audited', async () => {
+    const { putClassOnRegister } = await import('@lib/classes/admin-actions')
+    store.classes = [offPos('cls_new', { updatedAt: 'v3' })]
+    const r = await putClassOnRegister({ id: 'cls_new' }, KADEN)
+    expect(r.data.result).toBe('put')
+    expect(store.synced).toEqual(['cls_new'])
+    expect(store.updates[0]).toMatchObject({ change: 'Put on the register', opts: { expectedUpdatedAt: 'v3' }, patch: { square: { itemId: 'NEW_ITEM' } } })
+    expect(audits).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-sync-pos', target: expect.objectContaining({ id: 'cls_new' }) }))
+  })
+
+  it('already on the register with every seat: nothing written, nothing audited', async () => {
+    const { putClassOnRegister } = await import('@lib/classes/admin-actions')
+    store.classes = [cls('cls_ok')]
+    expect((await putClassOnRegister({ id: 'cls_ok' }, KADEN)).data.result).toBe('already')
+    expect(store.synced).toEqual([])
+    expect(audits).not.toHaveBeenCalled()
+  })
+
+  it('a draft, a cancelled class and one that’s over are refused in words, before Square', async () => {
+    const { putClassOnRegister } = await import('@lib/classes/admin-actions')
+    store.classes = [offPos('cls_d', { status: 'draft' }), offPos('cls_c', { status: 'cancelled' }), offPos('cls_o', { sessions: [{ id: 's', startIso: '2026-10-01T18:00:00Z', endIso: '2026-10-01T19:00:00Z', capacity: 10 }] })]
+    await expect(putClassOnRegister({ id: 'cls_d' }, KADEN)).rejects.toMatchObject({ status: 400, message: 'Drafts stay off the register. Open the class first.' })
+    await expect(putClassOnRegister({ id: 'cls_c' }, KADEN)).rejects.toMatchObject({ status: 400, message: 'A cancelled class doesn’t go on the register.' })
+    await expect(putClassOnRegister({ id: 'cls_o' }, KADEN)).rejects.toMatchObject({ status: 400, message: 'This class is over, so it doesn’t go on the register.' })
+    expect(store.synced).toEqual([])
+  })
+
+  it('class tax or category not picked: the answer names Register setup and carries the button', async () => {
+    const { putClassOnRegister, fixRegisterPrice } = await import('@lib/classes/admin-actions')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    store.classes = [offPos('cls_t'), offPos('cls_k'), cls('cls_p')]
+    store.syncError.set('cls_t', new Error("Class tax isn't set up yet."))
+    store.syncError.set('cls_k', new Error("Classes category isn't set up yet."))
+    store.syncError.set('cls_p', new Error("Class tax isn't set up yet."))
+    await expect(putClassOnRegister({ id: 'cls_t' }, KADEN)).rejects.toMatchObject({ status: 503, message: "It can't go on the register yet: the class tax isn't picked. Open More › Register setup and pick the 9% tax.", extra: { setup: 'tax' } })
+    await expect(putClassOnRegister({ id: 'cls_k' }, KADEN)).rejects.toMatchObject({ status: 503, message: "It can't go on the register yet: the Classes category isn't picked. Open More › Register setup and pick the Classes category.", extra: { setup: 'category' } })
+    await expect(fixRegisterPrice({ id: 'cls_p' }, KADEN)).rejects.toMatchObject({ status: 503, extra: { setup: 'tax' }, message: expect.stringMatching(/^The register price can't be set yet: the class tax isn't picked\./) })
+    expect(store.updates).toEqual([])
+    warn.mockRestore()
+  })
+
+  it('M-e: a deleted class, a test-site block, an expired token and a Square refusal each say their own thing', async () => {
+    const { fixRegisterPrice, putClassOnRegister } = await import('@lib/classes/admin-actions')
+    const { TestSiteStoreError } = await import('@lib/classes/test-site-guard')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    await expect(fixRegisterPrice({ id: 'cls_gone' }, KADEN)).rejects.toMatchObject({ status: 404, message: 'That class is gone. Reload the page.' })
+    await expect(putClassOnRegister({ id: 'cls_gone' }, KADEN)).rejects.toMatchObject({ status: 404 })
+    store.classes = [cls('cls_ts'), cls('cls_tok'), offPos('cls_sq')]
+    store.syncError.set('cls_ts', new TestSiteStoreError())
+    store.syncError.set('cls_tok', Object.assign(new Error('Square said: expired'), { status: 401, errors: [{ code: 'ACCESS_TOKEN_EXPIRED', category: 'AUTHENTICATION_ERROR' }] }))
+    store.syncError.set('cls_sq', new Error('Square said: nope'))
+    await expect(fixRegisterPrice({ id: 'cls_ts' }, KADEN)).rejects.toMatchObject({ status: 503, message: 'This test site has no store of its own. Set STORE_NAMESPACE first.' })
+    await expect(fixRegisterPrice({ id: 'cls_tok' }, KADEN)).rejects.toMatchObject({ status: 503, message: 'The register connection isn’t working right now. Ring it up at the regular price meanwhile.', extra: { connection: true } })
+    await expect(putClassOnRegister({ id: 'cls_sq' }, KADEN)).rejects.toMatchObject({ status: 502, message: 'Square didn’t take the class just now. Nothing else changed. Try again in a few minutes.' })
+    warn.mockRestore()
+  })
+
+  it('M-h: someone saved the class meanwhile → 409, and no audit row; a fix that lands is audited', async () => {
+    const { fixRegisterPrice } = await import('@lib/classes/admin-actions')
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    store.classes = [cls('cls_stale'), cls('cls_fixme')]
+    store.staleOnWrite.add('cls_stale')
+    await expect(fixRegisterPrice({ id: 'cls_stale' }, KADEN)).rejects.toMatchObject({ status: 409, message: 'Someone saved this class just now. Reload it, then try again.' })
+    expect(audits).not.toHaveBeenCalled()
+    await fixRegisterPrice({ id: 'cls_fixme' }, KADEN)
+    expect(audits).toHaveBeenCalledWith(expect.objectContaining({ action: 'class-fix-register-price', by: expect.objectContaining({ name: 'Kaden', role: 'owner' }) }))
     warn.mockRestore()
   })
 })

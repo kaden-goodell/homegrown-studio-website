@@ -32,7 +32,7 @@ import { onStaffConsole } from '@lib/classes/staff-view'
 import { listCounterMatchChecks, listDoorUnpaid } from '@lib/classes/door-unpaid'
 import { decidedIds, minimumItemId } from '@lib/classes/decided'
 import type { ScheduledClass } from '@lib/classes/types'
-import { posPricesStale } from '@lib/classes/square-catalog'
+import { notOnRegister, posPricesStale } from '@lib/classes/pos-plan'
 import { earlyBirdRunning } from '@lib/classes/early-bird'
 import { formatMoney } from '@lib/money'
 import { getPartyRecord } from '@lib/party-store'
@@ -49,6 +49,8 @@ export type WarningCode =
   | 'paid-not-seated'
   // Stage 4 (I2): the register's price for a class isn't its current price (the early-bird ended or started, the POS didn't follow)
   | 'pos-price-stale'
+  // Fix round 3: a class that should be on the register isn't (setup not done, or a save's register write failed)
+  | 'not-on-register'
 
 export interface Warning {
   code: WarningCode
@@ -309,9 +311,18 @@ async function ownClassWarnings(from: string, to: string, now: Date): Promise<Wa
       out.push({
         code: 'pos-price-stale', eventKind: 'workshop', eventId: cls.id, when: firstLeft?.startIso ?? now.toISOString(), title: name,
         detail: earlyBirdRunning(cls.content, now)
-          ? `The POS doesn’t have the early-bird price for ${name} yet.`
-          : `POS price still early-bird for ${name}. The early-bird has ended.`,
+          ? `The register doesn’t have the early-bird price for ${name} yet.`
+          : `The register still rings the early-bird price for ${name}. The early-bird has ended.`,
         action: 'An owner opens the class in /admin and taps Fix the register price now.',
+      })
+    }
+    // Fix round 3: it can't be booked online or rung up until it's on the register.
+    if (notOnRegister(cls, now)) {
+      const firstLeft = sessions.find((s) => Date.parse(s.endIso) > now.getTime()) ?? sessions[0]
+      out.push({
+        code: 'not-on-register', eventKind: 'workshop', eventId: cls.id, when: firstLeft?.startIso ?? now.toISOString(), title: name,
+        detail: `${name} isn’t on the register yet, so it can’t be booked online.`,
+        action: 'An owner opens the class in /admin and taps Put it on the register.',
       })
     }
     const min = cls.content.rules.minimumToRun

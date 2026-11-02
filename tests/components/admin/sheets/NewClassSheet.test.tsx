@@ -310,6 +310,16 @@ describe('New class: the early-bird (stage 4, review Important 5)', () => {
     await waitFor(() => expect(sheet.open).toHaveBeenCalled())
     expect(posts(f, CLASSES)[0].body.content.earlyBird).toEqual(eb)
   })
+  it('M-f: Schedule it from a library class with a running early-bird says the copy brings it; turning it off hides the note', async () => {
+    const eb = { untilYmd: '2031-03-15', prices: { pas_full: { person: 2500 } } }
+    vi.stubGlobal('fetch', server({ library: [lib('lib_eb', content({ name: 'Pottery', earlyBird: eb }))] }))
+    renderSheet(<NewClassSheet from={{ kind: 'lib', id: 'lib_eb' }} />)
+    const note = await screen.findByTestId('copied-early-bird')
+    expect(note).toHaveTextContent('This copies its early-bird too: Early-bird $25 until Sat Mar 15. Turn it off under the price if these dates shouldn’t have it.')
+    fireEvent.click(screen.getByLabelText('Early-bird price'))
+    expect(screen.queryByTestId('copied-early-bird')).toBeNull()
+  })
+
   it('turned on for a new class: last day and price; a price that isn\'t lower is refused in place', async () => {
     const f = server()
     vi.stubGlobal('fetch', f)

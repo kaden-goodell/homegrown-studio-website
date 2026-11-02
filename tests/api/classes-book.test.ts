@@ -327,7 +327,7 @@ describe('POST /api/classes/book.json', () => {
     expect(mockOwnerEmail).toHaveBeenCalledTimes(1)
     const mail = mockOwnerEmail.mock.calls[0][0]
     expect(mail.subject).toMatch(/Pottery Weekend/)
-    expect(mail.text).toBe(`Square total was $14.40 lower than the quote on booking ${bookingIdFor(ATTEMPT)} (quote $174.40, Square $160.00). Check the class's tax on the POS.`)
+    expect(mail.text).toBe(`Square total was $14.40 lower than the quote on booking ${bookingIdFor(ATTEMPT)} (quote $174.40, Square $160.00). Check the class tax in /admin › More › Register setup, then open the class and tap Save.`)
     expect(mockAlertOwners).not.toHaveBeenCalled()
   })
 
@@ -366,7 +366,7 @@ describe('POST /api/classes/book.json', () => {
     const json = await res.json()
     expect(res.status).toBe(502)
     expect(json.code).toBe('unavailable')
-    expect(mockAlertOwners).toHaveBeenCalledWith("Class Pottery Weekend isn't on the POS yet. Open it in /admin and Save.")
+    expect(mockAlertOwners).toHaveBeenCalledWith("Pottery Weekend isn't on the register yet, so it can't be booked online. Open the class in /admin and tap Put it on the register.")
     expect((await linesOf(cls)).filter((l) => l.state === 'held')).toHaveLength(0)
     expect(mockCreateClassOrder).not.toHaveBeenCalled()
   })
@@ -1036,7 +1036,7 @@ describe('stage 4: codes, the shown total and free bookings at checkout', () => 
       expect(res.status).toBe(200)
       expect(mockProcessPayment.mock.calls[0][0].amount).toBe(5450)
       expect(mockOwnerEmail).toHaveBeenCalledTimes(1)
-      expect(JSON.stringify(mockOwnerEmail.mock.calls[0][0])).toContain('The POS still had the early-bird price. It goes back to the regular price within the hour.')
+      expect(JSON.stringify(mockOwnerEmail.mock.calls[0][0])).toContain('The register still had the early-bird price. It goes back to the regular price within the hour.')
     })
 
     it('M1: our record says early-bird but Square is already back at the regular price: the code still goes, so the charge is the Pay button\'s', async () => {
@@ -1068,6 +1068,21 @@ describe('stage 4: codes, the shown total and free bookings at checkout', () => 
       expect((await again.json()).code).toBe('in_progress')
       expect(mockCreateClassOrder).not.toHaveBeenCalled()
       expect(mockFindOrderPayment).not.toHaveBeenCalled()
+    })
+
+    it('M-g: a free booking whose seats weren\'t recorded still counts its code\'s use, exactly once (a one-use code can\'t go twice)', async () => {
+      const cls = makeClass()
+      const code = await makeCode({ off: { kind: 'percent', percent: 100 }, maxUses: 1 })
+      confirmFails = true
+      const free = one(cls, { promoCode: code, paymentToken: '', expectedTotalCents: 0, customer: { ...customer, email: 'mg@example.com' } })
+      expect((await POST(ctx(free))).status).toBe(200)
+      expect((await usesOf(code))!.used.map((u: any) => u.bookingId)).toHaveLength(1)
+      expect(mockAlertOwners.mock.calls.map((c) => c[0]).join('\n')).toContain(`code ${code}: its use is already counted`)
+      // Someone else trying the same one-use code is told it's used up.
+      confirmFails = false
+      const other = await POST(ctx(one(cls, { promoCode: code, paymentToken: '', expectedTotalCents: 0, customer: { ...customer, email: 'other@example.com' } })))
+      expect(other.status).toBe(409)
+      expect((await usesOf(code))!.used).toHaveLength(1)
     })
   })
 

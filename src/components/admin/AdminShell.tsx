@@ -27,7 +27,7 @@ import {
   BookPartySheet, ComingSheet, PartiesSetupSheet, ReportsSheet, SandboxSheet, WhoContext, WhoSheet,
 } from './sheets/MoreSheets'
 import { PromoSheet, PromosSheet } from './promos/PromosSheet'
-import { ClosedDaysSheet, HoursSheet } from './sheets/SettingsSheets'
+import { ClosedDaysSheet, HoursSheet, RegisterSetupSheet } from './sheets/SettingsSheets'
 import { ImportSquareSheet } from './sheets/ImportSquareSheet'
 import { StudioProvider } from './shell/studio'
 
@@ -432,6 +432,7 @@ function SheetContent({ sheet: s }: { sheet: Sheet }) {
         case 'closed': return <ClosedDaysSheet />
         case 'staff': return <ComingSheet title="Staff" stage={3} what="who can work when, and who’s on each class and party." />
         case 'promos': return <PromosSheet />
+        case 'register': return <RegisterSetupSheet />
         case 'reports': return <ReportsSheet />
         case 'import': return <ImportSquareSheet />
         case 'sandbox': return <SandboxSheet />

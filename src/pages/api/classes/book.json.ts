@@ -263,7 +263,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const orderLines = orderLinesFor(cls, q!, req.seats)
   if (!orderLines.ok) {
     logger.error('Class not on the POS — refusing', { classId: cls.id, missing: orderLines.missing })
-    await alertOwners(`Class ${cls.content.name} isn't on the POS yet. Open it in /admin and Save.`).catch(() => undefined)
+    await alertOwners(`${cls.content.name} isn't on the register yet, so it can't be booked online. Open the class in /admin and tap Put it on the register.`).catch(() => undefined)
     return fail(502, 'unavailable')
   }
 
@@ -318,7 +318,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     logger.error('Class order total far above the quote — refusing', { bookingId, orderId: order.orderId, quote: q!.totalCents, square: order.totalCents })
     await letGo('price mismatch')
     await alertOwners(
-      `Class booking refused, price mismatch: ${cls.content.name}, booking ${bookingId}. Quote ${dollars(q!.totalCents)}, Square ${dollars(order.totalCents)}. Check the class's prices on the POS. Nothing was charged.`,
+      `Class booking refused, price mismatch: ${cls.content.name}, booking ${bookingId}. Quote ${dollars(q!.totalCents)}, Square ${dollars(order.totalCents)}. Open the class in /admin and tap Save so the register gets its prices. Nothing was charged.`,
     ).catch(() => undefined)
     return fail(502, 'unavailable', PRICE_MISMATCH_MESSAGE)
   }
@@ -334,8 +334,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     await tellOwnersOfDrift(
       `Class price differed — ${cls.content.name}`, `booking ${bookingId}`, q!.totalCents, order.totalCents,
       verdict.driftCents > 0 ? '' : posBehind
-        ? 'The POS still had the early-bird price. It goes back to the regular price within the hour.'
-        : "Check the class's tax on the POS.",
+        ? 'The register still had the early-bird price. It goes back to the regular price within the hour.'
+        : 'Check the class tax in /admin › More › Register setup, then open the class and tap Save.',
     )
   }
   const charged = order.totalCents
@@ -476,9 +476,12 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
       return lines
     } catch (err) {
       logger.error('PAID CLASS SEATS NOT RECORDED', { bookingId, orderId: square.orderId, error: String(err) })
+      // M-g: a free booking has no Square order, so no payment notice will ever count its code. The booking is
+      // real, so count the use now (exactly once: confirmUse is keyed by the booking id).
+      if (!square.orderId) await useThePromo(c)
       await keepHeld()
       await alertOwners(
-        `${simulated ? '(test booking, no action needed) ' : ''}Class paid, seats not recorded yet: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Held a day; ${square.orderId ? `Square's payment notice books them, or it shows in /admin › To decide. Order ${square.orderId}` : 'Nothing was charged (a free booking); add them by hand in /admin'}, booking ${bookingId}.`,
+        `${simulated ? '(test booking, no action needed) ' : ''}Class paid, seats not recorded yet: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Held a day; ${square.orderId ? `Square's payment notice books them, or it shows in /admin › To decide. Order ${square.orderId}` : `Nothing was charged (a free booking); add them by hand in /admin${q!.promo ? ` (code ${q!.promo.code}: its use is already counted)` : ''}`}, booking ${bookingId}.`,
       ).catch(() => undefined)
       // Answer from the quote: the customer has paid.
       return q!.lines.filter((l) => l.kind === 'seat').map((l) => ({

@@ -43,7 +43,7 @@ function camp(over: Record<string, any> = {}) {
       { id: 'ses_1', startIso: '2026-10-17T18:00:00.000Z', endIso: '2026-10-17T20:00:00.000Z', capacity: 40 },
       { id: 'ses_2', startIso: '2026-10-18T18:00:00.000Z', endIso: '2026-10-18T20:00:00.000Z', capacity: 40 },
     ],
-    square: { itemId: null, variations: {} }, createdAt: '', updatedAt: '', by: { id: 'k', name: 'K' }, history: [],
+    square: { itemId: 'ITEM', variations: { 'all:person': 'V' } }, createdAt: '', updatedAt: '', by: { id: 'k', name: 'K' }, history: [],
   }
 }
 
@@ -118,10 +118,21 @@ describe('warnings for our own classes', () => {
     own.classes = [onPos({ 'all:person': 800 })]
     const w = (await listWarnings(WINDOW, { now: NOW })).find((x) => x.code === 'pos-price-stale')!
     expect(w).toMatchObject({ eventId: 'cls_camp', when: '2026-10-17T18:00:00.000Z' })
-    expect(warningLine(w)).toBe('Sat Oct 17 · POS price still early-bird for Clay Camp. The early-bird has ended. An owner opens the class in /admin and taps Fix the register price now.')
+    expect(warningLine(w)).toBe('Sat Oct 17 · The register still rings the early-bird price for Clay Camp. The early-bird has ended. An owner opens the class in /admin and taps Fix the register price now.')
     // Fixed (the job or a save put the regular price on the POS): gone.
     own.classes = [onPos({ 'all:person': 1000 })]
     expect((await listWarnings(WINDOW, { now: NOW })).some((x) => x.code === 'pos-price-stale')).toBe(false)
+  })
+
+  it('fix 3: a class that should be on the register and isn’t is on the panel with the button to press; drafts and complete ones aren’t', async () => {
+    own.classes = [{ ...camp(), square: { itemId: null, variations: {} } }]
+    const w = (await listWarnings(WINDOW, { now: NOW })).find((x) => x.code === 'not-on-register')!
+    expect(warningLine(w)).toBe('Sat Oct 17 · Clay Camp isn’t on the register yet, so it can’t be booked online. An owner opens the class in /admin and taps Put it on the register.')
+    // Missing a seat it now sells counts too.
+    own.classes = [{ ...camp(), content: { ...camp().content, ticketTypes: [{ id: 'person', label: 'Person' }, { id: 'kid', label: 'Kid' }], prices: { all: { person: 1000, kid: 500 } } } }]
+    expect((await listWarnings(WINDOW, { now: NOW })).some((x) => x.code === 'not-on-register')).toBe(true)
+    own.classes = [{ ...camp(), status: 'draft', square: { itemId: null, variations: {} } }, camp()]
+    expect((await listWarnings(WINDOW, { now: NOW })).some((x) => x.code === 'not-on-register')).toBe(false)
   })
 
   it('a class store that can’t be read says so in one line (never an all clear), and the rest still shows', async () => {

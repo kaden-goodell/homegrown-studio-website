@@ -214,7 +214,7 @@ describe('scheduling', () => {
     mocks.sync.mockRejectedValueOnce(new Error('Square down'))
     const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('Square Down'), sessions: [ses('2031-01-23', '17:00', '18:00')], status: 'open' })
     expect(r.status).toBe(200)
-    expect(r.body.warning).toBe("Saved. The POS item didn't update. Try Save again.")
+    expect(r.body.warning).toBe("Saved. The register didn't update. Try Save again.")
     expect(await getClass(r.body.data.class.id)).not.toBeNull()
   })
 
@@ -222,7 +222,7 @@ describe('scheduling', () => {
     mocks.sync.mockRejectedValueOnce(new Error("Class tax isn't set up yet."))
     const r = await call(classes, 'POST', '/api/admin/classes/classes.json', { action: 'create', content: content('No Tax Yet'), sessions: [ses('2031-01-30', '17:00', '18:00')], status: 'open' })
     expect(r.status).toBe(200)
-    expect(r.body.warning).toBe("Saved, but it isn't on the POS: Class tax isn't set up yet. It can't be sold until it is.")
+    expect(r.body.warning).toBe("Saved, but it isn't on the register yet: the class tax isn't picked. Open More › Register setup and pick the 9% tax. Then tap Put it on the register.")
     expect((await getClass(r.body.data.class.id))!.square.itemId).toBeNull()
   })
 

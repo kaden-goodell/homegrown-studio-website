@@ -4,6 +4,7 @@ import { siteConfig, type SquareConfig } from '@config/site.config'
 import { createLogger } from '@lib/logger'
 import { sendEmail } from '@lib/email'
 import { loadCatalogIndex, loadOrders, loadSourceOrders, summarizeTax, renderTaxReport, previousMonth } from '@lib/tax-report'
+import { registerIds } from '@lib/classes/register-setup'
 
 export const prerender = false
 const logger = createLogger('api:jobs:tax-report')
@@ -41,7 +42,8 @@ export const POST: APIRoute = async ({ request }) => {
   const month = typeof body?.month === 'string' && /^\d{4}-\d{2}$/.test(body.month) ? body.month : previousMonth()
   const to = siteConfig.taxReportEmails.join(', ')
   try {
-    const config = siteConfig.providers.payment.config as SquareConfig
+    // The Classes category the owners picked in More › Register setup, else the site's value.
+    const config = { ...(siteConfig.providers.payment.config as SquareConfig), classesCategoryId: (await registerIds()).classesCategoryId }
     const [index, orders] = await Promise.all([loadCatalogIndex(config), loadOrders(config, month)])
     const sources = await loadSourceOrders(config, orders)
     const report = renderTaxReport(month, summarizeTax(orders, index, sources), { classesCategoryMissing: !config.classesCategoryId })

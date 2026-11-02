@@ -12,9 +12,11 @@ import { siteConfig } from '@config/site.config'
 import { formatDay } from '@lib/studio-time'
 import { squareFetch, squareSettings } from './square-api'
 import { assertClassWritesAllowed, assertSquareCatalogWriteAllowed } from './test-site-guard'
+import { registerIds } from './register-setup'
+import { CLASS_TAX_NOT_SET, CLASSES_CATEGORY_NOT_SET } from './register-words'
 import type { Cents, ScheduledClass } from './types'
 
-export { EARLY_BIRD_SUFFIX, posPricesNow, posPricesStale, variationPlan, type PlannedVariation } from './pos-plan'
+export { EARLY_BIRD_SUFFIX, notOnRegister, posPricesNow, posPricesStale, variationPlan, type PlannedVariation } from './pos-plan'
 import { plainName, variationPlan } from './pos-plan'
 
 /** "Pottery · Sat Oct 17" — first session's day in studio time. */
@@ -79,8 +81,8 @@ async function uploadImage(itemId: string, imageUrl: string, className: string):
   await squareFetch('/catalog/images', { method: 'POST', body: form })
 }
 
-/** Thrown (before any Square call) when a taxable class would go on the POS with no SQUARE_CLASS_TAX_ID. */
-export const CLASS_TAX_NOT_SET = "Class tax isn't set up yet."
+/** Thrown (before any Square call) when a taxable class would go on the register with no class tax picked (More › Register setup). */
+export { CLASS_TAX_NOT_SET, CLASSES_CATEGORY_NOT_SET }
 
 /**
  * Create or update the class's POS item. Reuses variation ids by key,
@@ -92,15 +94,16 @@ export const CLASS_TAX_NOT_SET = "Class tax isn't set up yet."
 export async function syncClassToSquare(cls: ScheduledClass, now: Date = new Date()): Promise<ScheduledClass['square']> {
   assertClassWritesAllowed() // R41: a test site with no store of its own never writes the live POS
   assertSquareCatalogWriteAllowed(squareSettings().environment) // N3: nor does any test site pointed at the live Square
-  const cfg = squareSettings()
-  const categoryId = cfg.classesCategoryId || ''
-  if (!categoryId) throw new Error("Classes category isn't set up yet.")
-  const taxId = cfg.classTaxId || ''
+  // The owners' picks in More › Register setup, else the site's values.
+  const ids = await registerIds()
+  const categoryId = ids.classesCategoryId || ''
+  if (!categoryId) throw new Error(CLASSES_CATEGORY_NOT_SET)
+  const taxId = ids.classTaxId || ''
   // Fail closed: a taxable class put on the POS without its tax would be sold untaxed.
   // A cancelled class is still taken off the POS.
   if (!taxId && cls.content.rules.taxable && cls.status !== 'cancelled') throw new Error(CLASS_TAX_NOT_SET)
   const plan = variationPlan(cls, now)
-  if (!plan.length) throw new Error('Add a price before putting this class on the POS.')
+  if (!plan.length) throw new Error('Add a price before putting this class on the register.')
 
   let current = cls.square.itemId ? await fetchItem(cls.square.itemId) : null
   let known: Record<string, string> = cls.square.variations

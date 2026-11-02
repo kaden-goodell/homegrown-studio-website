@@ -101,6 +101,18 @@ describe('Edit details (library)', () => {
     expect(sheet.setDirty).toHaveBeenLastCalledWith(false)
   })
 
+  it('M-h: Edit details keeps a running early-bird on a save of anything else', async () => {
+    const eb = { untilYmd: '2031-03-10', prices: { pas_full: { person: 2000 } } }
+    const withEb = lib('lib_1', content({ earlyBird: eb, defaultCapacity: 8 }))
+    const f = server([withEb])
+    vi.stubGlobal('fetch', f)
+    renderSheet(<LibraryEditSheet id="lib_1" />)
+    fireEvent.change(await screen.findByLabelText('Description'), { target: { value: 'Make two mugs.' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save to the library' }))
+    await waitFor(() => expect(posts(f, LIBRARY)).toHaveLength(1))
+    expect(posts(f, LIBRARY)[0].body.content.earlyBird).toEqual(eb)
+  })
+
   it('a usual length out of range is fixed before sending', async () => {
     const f = server()
     vi.stubGlobal('fetch', f)

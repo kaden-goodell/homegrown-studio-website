@@ -13,6 +13,7 @@ import { formatDayAndSpan } from '@lib/studio-time'
 import { seatsLeftLabel } from '@lib/workshop-rules'
 import { quote, type BookingRequest, type Quote } from '@lib/classes/pricing'
 import { asScheduledClass, currentPriceCents, type OwnClassData, type PublicPass } from '@lib/classes/public-class'
+import { shortDay } from '@lib/classes/chicago-day'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import BookingPanel from '@components/shared/BookingPanel'
 import BookingConfirmed, { ConfirmedBlock } from '@components/shared/BookingConfirmed'
@@ -837,7 +838,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
                         return (
                           <>
                             <s aria-label={`was ${formatMoney(regular, workshop.currency)}`}>{formatMoney(regular, workshop.currency)}</s>{' '}
-                            {formatMoney(now, workshop.currency)} each, early-bird
+                            {`${formatMoney(now, workshop.currency)} each, early-bird${own.earlyBird?.untilYmd ? ` until ${shortDay(own.earlyBird.untilYmd)}` : ''}`}
                           </>
                         )
                       })()}

@@ -46,6 +46,7 @@ import { recordAudit } from '@lib/audit'
 import type { By } from '@lib/staff-auth'
 import { listClasses } from './class-store'
 import { squareFetch, squareSettings } from './square-api'
+import { registerIds } from './register-setup'
 import { codeFromDiscountName, codeOnLines } from '@lib/promos/rules'
 import { confirmUse, countUse } from '@lib/promos/promo-store'
 import { confirmBooking, getLedger, moveLines, paidBy, recordPos, recordRefund, type LedgerLine, type PosLineInput } from './seat-ledger'
@@ -233,7 +234,7 @@ export class CatalogCache {
   async prefetch(variationIds: Iterable<string>): Promise<void> {
     const todo = [...new Set(variationIds)].filter((id) => id && !this.known.has(id) && !this.failed.has(id))
     if (!todo.length) return
-    const categoryId = squareSettings().classesCategoryId || ''
+    const categoryId = (await registerIds()).classesCategoryId || ''
     for (let i = 0; i < todo.length; i += CATALOG_BATCH) {
       const ids = todo.slice(i, i + CATALOG_BATCH)
       try {

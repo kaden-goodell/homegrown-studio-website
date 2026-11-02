@@ -183,7 +183,7 @@ export function renderTaxReport(month: string, s: TaxSummary, opts: { partial?: 
   const sum = (kind: 'use' | 'sales' | 'unsure') => (Object.keys(s) as Bucket[]).filter((b) => BUCKET_TAX[b] === kind).reduce((t, b) => t + s[b].taxCents, 0)
   const use = sum('use'), sales = sum('sales'), unsure = sum('unsure')
   const rows = (Object.keys(s) as Bucket[]).filter((b) => s[b].lines > 0 || s[b].taxCents !== 0)
-  const caveat = opts.classesCategoryMissing ? 'Note: the Classes category is not set (SQUARE_CLASSES_CATEGORY_ID), so our own classes may be under Craft Café. All are use tax, so the use-tax total is the same.' : ''
+  const caveat = opts.classesCategoryMissing ? 'Note: the Classes category isn’t picked yet (in /admin, More › Register setup), so our own classes may be under Craft Café. All are use tax, so the use-tax total is the same.' : ''
   const title = `Tax collected, ${monthName}${opts.partial ? ' (so far)' : ''}`
   const text = [
     title,

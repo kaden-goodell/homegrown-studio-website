@@ -228,4 +228,46 @@ describe('More › Promotions: one code', () => {
     expect(posts(f, PROMOS)[0].body).toMatchObject({ action: 'save', expectedUpdatedAt: 'u1', fields: { code: 'FALLFRIENDS', maxUses: 40 } })
     expect(await within(footer()).findByRole('button', { name: 'Turn off' })).toBeInTheDocument()
   })
+
+  it('M-b: "Made by" names who made the code, not who saved it last', async () => {
+    const history = [
+      { at: '2026-10-20T15:00:00Z', by: { id: 'owner-kaden', name: 'Kaden' }, change: 'Made the code' },
+      { at: '2026-10-25T15:00:00Z', by: { id: 'owner-catherine', name: 'Catherine' }, change: 'On or off' },
+    ]
+    vi.stubGlobal('fetch', server({ one: { code: promo({ history }), names, uses: [], givenBack: [] } }))
+    renderSheet(<PromoSheet id="FALLFRIENDS" />)
+    expect(await screen.findByText('Made by Kaden on Tue Oct 20.')).toBeInTheDocument()
+  })
+
+  it('M-d: giving back the use of a booking that is still coming says their seats stay booked', async () => {
+    const coming = { ...maya, cancelled: false }
+    vi.stubGlobal('fetch', server({ one: { code: promo({ maxUses: 1 }), names, uses: [coming], givenBack: [] } }))
+    renderSheet(<PromoSheet id="FALLFRIENDS" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Give this use back' }))
+    expect(screen.getByRole('group', { name: 'Give Maya Rivera’s use back?' })).toHaveTextContent('FALLFRIENDS then works one more time. Their seats stay booked.')
+  })
+
+  it('M-c: someone saved the code meanwhile: Reload brings theirs in and keeps what she typed; the next Save uses the new version', async () => {
+    let n = 0
+    const theirs = promo({ label: 'Changed by Kaden', endsYmd: '2026-12-15', updatedAt: 'u9' })
+    const f = vi.fn(async (url: string, init?: any) => {
+      if (init?.method !== 'POST') return ok({ data: { code: n ? theirs : promo(), names, uses: [], givenBack: [] } })
+      const b = JSON.parse(init.body)
+      if (b.expectedUpdatedAt === 'u1') { n++; return refuse(409, { error: 'Someone changed this code just now. Reload to see it, then try again.', stale: true }) }
+      return ok({ data: { code: promo({ ...b.fields, updatedAt: 'u10' }) } })
+    })
+    vi.stubGlobal('fetch', f)
+    renderSheet(<PromoSheet id="FALLFRIENDS" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.change(box('Use limit (optional)'), { target: { value: '40' } })
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save' }))
+    const panel = await screen.findByRole('group', { name: 'Someone changed this code' })
+    fireEvent.click(within(panel).getByRole('button', { name: 'Reload' }))
+    expect(await screen.findByText('Loaded the latest. What you typed is kept. Check it, then save.')).toBeInTheDocument()
+    expect(box('Use limit (optional)').value).toBe('40')
+    fireEvent.click(within(footer()).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(posts(f, PROMOS)).toHaveLength(2))
+    expect(posts(f, PROMOS)[1].body).toMatchObject({ expectedUpdatedAt: 'u9', fields: { maxUses: 40, label: 'Changed by Kaden', endsYmd: '2026-12-15' } })
+  })
 })
+

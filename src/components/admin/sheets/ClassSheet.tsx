@@ -9,7 +9,7 @@
  */
 import { earlyBirdRunning } from '@lib/classes/early-bird'
 import { shortDay } from '@lib/classes/chicago-day'
-import { posPricesStale } from '@lib/classes/pos-plan'
+import { notOnRegister, posPricesStale } from '@lib/classes/pos-plan'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import type { ClassBooking, PersonToTell } from '@lib/classes/admin-actions'
 import { contentChanges, sameDetails } from '@lib/classes/content-diff'
@@ -394,7 +394,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
     <SheetFrame tall title={c.name} subtitle={subtitle} footer={footer}>
       <div ref={body}>
         <Seg label="Show" value={tab} options={TABS} onChange={(t) => { setTab(t); setTexting(false) }} />
-        <RegisterPrice cls={cls} onFixed={(saved) => { setData((d) => (d ? { ...d, cls: saved } : d)); bump() }} />
+        <RegisterPanel cls={cls} onFixed={(saved) => { setData((d) => (d ? { ...d, cls: saved } : d)); bump() }} />
 
         {tab === 'bookings' && (
           <section aria-label="Bookings">
@@ -501,7 +501,7 @@ export function ClassSheet({ id, tab: firstTab = 'bookings' }: { id: string; tab
                         </>
                       )
                       : <span>Nobody is booked.</span>}
-                    <span className="adm-small">It comes off the website and the POS.</span>
+                    <span className="adm-small">It comes off the website and the register.</span>
                     {cancelError && <p role="alert" className="adm-error">{cancelError}</p>}
                     <div className="adm-two">
                       <button type="button" className="adm-btn is-ghost" onClick={() => { setAsking(false); setCancelError('') }}>Keep it</button>
@@ -598,32 +598,49 @@ function BookingRow({ b, cls, ticket, onChanged }: { b: ClassBooking; cls: Sched
 }
 
 /**
- * D4: the register (POS) doesn't ring this class's current price (the
- * early-bird ended or started and the hourly update didn't land). One line and
- * the button that fixes it; the server re-checks and writes only the prices.
+ * The class and the register, one panel with two states:
+ *  - fix round 3: it should be on the register and isn't (or is missing a
+ *    seat it now sells) → "Put it on the register";
+ *  - D4: the register doesn't ring its current price (the early-bird ended or
+ *    started and the hourly update didn't land) → "Fix the register price now".
+ * The server re-checks and writes through the guarded path. A setup step not
+ * done (class tax, Classes category) comes back with the button that opens
+ * More › Register setup.
  */
-function RegisterPrice({ cls, onFixed }: { cls: ScheduledClass; onFixed: (c: ScheduledClass) => void }) {
+function RegisterPanel({ cls, onFixed }: { cls: ScheduledClass; onFixed: (c: ScheduledClass) => void }) {
   const toast = useToast()
+  const { open } = useSheet()
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
+  const [error, setError] = useState<{ text: string; setup: boolean } | null>(null)
   const now = new Date()
-  if (!posPricesStale(cls, now)) return null
+  const missing = notOnRegister(cls, now)
+  if (!missing && !posPricesStale(cls, now)) return null
   const running = !!cls.content.earlyBird && earlyBirdRunning(cls.content, now)
-  async function fix() {
+  async function run() {
     setBusy(true)
-    setError('')
-    const r = await api<{ class: ScheduledClass; result: 'fixed' | 'already' }>(CLASSES, { action: 'fix-register-price', id: cls.id })
+    setError(null)
+    const r = await api<{ class: ScheduledClass; result: string }>(CLASSES, { action: missing ? 'sync-pos' : 'fix-register-price', id: cls.id })
     setBusy(false)
-    if (!r.ok || !r.data) { setError(r.error ?? DIDNT_SAVE); return }
+    if (!r.ok || !r.data) { setError({ text: r.error ?? DIDNT_SAVE, setup: !!r.extra.setup }); return }
     onFixed(r.data.class)
-    toast(r.data.result === 'fixed' ? 'The register has the right price now.' : 'The register already had the right price.')
+    if (missing) toast(r.data.result === 'put' ? 'It’s on the register now. People can book it online.' : 'It was already on the register.')
+    else toast(r.data.result === 'fixed' ? 'The register has the right price now.' : 'The register already had the right price.')
   }
   return (
-    <div className="adm-panel is-warn" role="status" data-testid="register-price">
-      <b>{running ? 'The register doesn’t have the early-bird price yet.' : 'The register still rings the early-bird price, which has ended.'}</b>
-      <span className="adm-small">Nothing about anyone’s booking changes. This only puts the right seat prices on the register.</span>
-      <button type="button" className="adm-btn is-pri" disabled={busy} onClick={fix}>{busy ? 'Fixing…' : 'Fix the register price now'}</button>
-      {error && <p className="adm-error" role="alert">{error}</p>}
+    <div className="adm-panel is-warn" role="group" aria-label="The register" data-testid={missing ? 'not-on-register' : 'register-price'}>
+      <b>{missing
+        ? 'This class isn’t on the register yet, so it can’t be booked online.'
+        : running ? 'The register doesn’t have the early-bird price yet.' : 'The register still rings the early-bird price, which has ended.'}</b>
+      <span className="adm-small">{missing
+        ? 'Nothing about anyone’s booking changes. This puts the class and its prices on the register.'
+        : 'Nothing about anyone’s booking changes. This puts this class’s current prices on the register.'}</span>
+      <button type="button" className="adm-btn is-pri" disabled={busy} onClick={run}>
+        {busy ? (missing ? 'Putting it on…' : 'Fixing…') : missing ? 'Put it on the register' : 'Fix the register price now'}
+      </button>
+      {error && <p className="adm-error" role="alert">{error.text}</p>}
+      {error?.setup && (
+        <button type="button" className="adm-btn is-ghost" onClick={() => open({ kind: 'more', page: 'register' }, { back: { kind: 'class', id: cls.id }, label: cls.content.name })}>Open Register setup</button>
+      )}
     </div>
   )
 }

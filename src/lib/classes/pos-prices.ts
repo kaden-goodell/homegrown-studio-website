@@ -28,6 +28,7 @@ import { chicagoYmd } from './chicago-day'
 import { getClass, listClasses, StaleClassError, updateClass } from './class-store'
 import { earlyBirdRunning } from './early-bird'
 import { posPricesStale, syncClassToSquare } from './square-catalog'
+import { notOnRegister } from './pos-plan'
 import type { ScheduledClass } from './types'
 
 const logger = createLogger('classes:pos-prices')
@@ -68,11 +69,44 @@ export const FIX_FAILED = 'Square didn’t take the new price just now. Nothing 
  */
 export async function fixPosPrices(classId: string, by: By, now = new Date()): Promise<{ result: 'fixed' | 'already'; cls: ScheduledClass }> {
   const cls = await getClass(classId)
-  if (!cls) throw new Error('That class is gone. Reload and try again.')
+  if (!cls) throw new ClassGoneError()
   if (!posPricesStale(cls, now)) return { result: 'already', cls }
   const square = await syncClassToSquare(cls, now)
   const saved = await updateClass(cls.id, { square }, by, 'Register price fixed', { expectedUpdatedAt: cls.updatedAt })
   return { result: 'fixed', cls: saved }
+}
+
+/** The class was deleted (or never existed) between the sheet loading and the button. */
+export class ClassGoneError extends Error {
+  constructor() { super('That class is gone. Reload the page.'); this.name = 'ClassGoneError' }
+}
+
+/** Why "Put it on the register" can't run for this class ('' = it can). */
+export function putOnRegisterRefusal(cls: ScheduledClass, now: Date): string {
+  if (cls.status === 'draft') return 'Drafts stay off the register. Open the class first.'
+  if (cls.status === 'cancelled') return 'A cancelled class doesn’t go on the register.'
+  if (!cls.sessions.some((s) => Date.parse(s.endIso) > now.getTime())) return 'This class is over, so it doesn’t go on the register.'
+  return ''
+}
+
+/**
+ * "Put it on the register" (fix round 3): an owner's button on the class
+ * sheet for a class that should be on the register but isn't (or is missing
+ * a seat it now sells). The same safety as "Fix the register price now":
+ * owners only (the route), re-reads the class, the guarded write
+ * (syncClassToSquare: R41/N3, tax and category checks), the record saved only
+ * on the version read, and 'already' writes nothing. A replay after a lost
+ * reply finds the item by SKU, so nothing is made twice.
+ */
+export async function putOnRegister(classId: string, by: By, now = new Date()): Promise<{ result: 'put' | 'already'; cls: ScheduledClass }> {
+  const cls = await getClass(classId)
+  if (!cls) throw new ClassGoneError()
+  const refusal = putOnRegisterRefusal(cls, now)
+  if (refusal) throw Object.assign(new Error(refusal), { refusal: true })
+  if (!notOnRegister(cls, now)) return { result: 'already', cls }
+  const square = await syncClassToSquare(cls, now)
+  const saved = await updateClass(cls.id, { square }, by, 'Put on the register', { expectedUpdatedAt: cls.updatedAt })
+  return { result: 'put', cls: saved }
 }
 
 export async function followCurrentPricesOnPos(now = new Date()): Promise<{ checked: number; updated: string[]; failed: string[] }> {

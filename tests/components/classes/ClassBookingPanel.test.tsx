@@ -510,7 +510,7 @@ describe('ClassBookingPanel — stage 4: early-bird, codes, free, the price chan
     const cls = make({ ...onePass, earlyBird: { untilYmd: '2026-10-22', prices: { all: { person: 3000 } } } })
     open(cls)
     expect(screen.getByText('$40', { selector: 's' })).toBeInTheDocument()
-    expect(screen.getByText(/\$30 each, early-bird/)).toBeInTheDocument()
+    expect(screen.getByText(/\$30 each, early-bird until Thu Oct 22/)).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /^Continue/ })).toHaveTextContent(/Continue · \$30(\.00)?$/)
     cont()
     await screen.findByTestId('payment-form')

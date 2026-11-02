@@ -135,7 +135,7 @@ function PromoDetail({ code }: { code: string }) {
   }, [code, tries])
 
   if (editing && d) {
-    return <PromoForm existing={d.code} onSaved={(saved) => { setD({ ...d, code: saved }); setEditing(false) }} onCancel={() => setEditing(false)} />
+    return <PromoForm existing={d.code} onSaved={(saved) => { setD({ ...d, code: saved }); setEditing(false) }} onCancel={() => { setEditing(false); setTries((n) => n + 1) }} />
   }
 
   async function setActive(active: boolean, from: PromoView, undoable = true) {
@@ -201,7 +201,7 @@ function PromoDetail({ code }: { code: string }) {
           <div className="adm-kv"><span>Use limit</span><span>{p.maxUses === null ? 'No limit' : `${p.maxUses} booking${p.maxUses === 1 ? '' : 's'}`}</span></div>
           <div className="adm-kv"><span>On or off</span><span>{p.active ? 'On' : 'Off'}</span></div>
           {p.label && <div className="adm-kv"><span>Your note</span><span>{p.label}</span></div>}
-          <p className="adm-small adm-muted">{`Made by ${p.by.name}${p.createdAt ? ` on ${whenOf(p.createdAt)}` : ''}.`}</p>
+          <p className="adm-small adm-muted">{madeBy(p)}</p>
           {state === 'ended' && <p className="adm-note">This code has ended. To use it again, Edit and pick a new last day.</p>}
           {state === 'used-up' && <p className="adm-note">Every use is taken. To let more people use it, Edit and raise the use limit.</p>}
           {actionError && <p className="adm-error" role="alert">{actionError}</p>}
@@ -221,7 +221,7 @@ function PromoDetail({ code }: { code: string }) {
                 ? (
                   <div className="adm-panel" role="group" aria-label={`Give ${u.who}’s use back?`}>
                     <b>{`Give ${u.who}’s use back?`}</b>
-                    <span className="adm-small">{`${p.code} then works one more time.`}</span>
+                    <span className="adm-small">{`${p.code} then works one more time.${u.cancelled ? '' : ' Their seats stay booked.'}`}</span>
                     <div className="adm-two">
                       <button type="button" className="adm-btn is-ghost" disabled={busy} onClick={() => setAsking(null)}>Keep it used</button>
                       <button type="button" className="adm-btn is-pri" disabled={busy} onClick={() => giveBack(u.bookingId)}>{busy ? 'Giving it back…' : 'Give it back'}</button>
@@ -246,6 +246,13 @@ function PromoDetail({ code }: { code: string }) {
       )}
     </SheetFrame>
   )
+}
+
+/** M-b: who MADE the code (the first history entry), not whoever saved it last. */
+function madeBy(p: PromoView): string {
+  const maker = p.history.find((h) => h.change === 'Made the code')?.by.name
+  const on = p.createdAt ? ` on ${whenOf(p.createdAt)}` : ''
+  return maker ? `Made by ${maker}${on}.` : `Made${on}.`
 }
 
 /** Every picked class by name, one per line's worth: "Clay Camp (every date), Looms · Sat Oct 24". */
@@ -317,8 +324,12 @@ export function PromoForm({ existing, onSaved, onCancel }: { existing?: PromoVie
   const toast = useToast()
   const { bump } = useRefresh()
   const isNew = !existing
-  const [start] = useState(() => draftOf(existing))
+  /** The copy this form edits: replaced by Reload after someone else saved it (M-c). */
+  const [base, setBase] = useState<PromoView | undefined>(existing)
+  const [start, setStart] = useState(() => draftOf(existing))
   const [d, setD] = useState<Draft>(start)
+  const [stale, setStale] = useState(false)
+  const [reloading, setReloading] = useState(false)
   const [errors, setErrors] = useState<DraftErrors>({})
   const [saving, setSaving] = useState(false)
   const [askLimit, setAskLimit] = useState(false)
@@ -371,9 +382,10 @@ export function PromoForm({ existing, onSaved, onCancel }: { existing?: PromoVie
     setErrors({})
     setAskLimit(false)
     setSaving(true)
-    const r = await api<{ code: PromoView }>(PROMOS, { action: 'save', fields: b.fields, expectedUpdatedAt: existing ? existing.updatedAt : null })
+    const r = await api<{ code: PromoView }>(PROMOS, { action: 'save', fields: b.fields, expectedUpdatedAt: base ? base.updatedAt : null })
     setSaving(false)
     if (!r.ok || !r.data) {
+      if (r.status === 409 && r.extra.stale) { setStale(true); return }
       const field = (r.extra.field as keyof DraftErrors | undefined) ?? 'form'
       const e = { [field]: r.error ?? DIDNT_SAVE } as DraftErrors
       setErrors(e)
@@ -388,6 +400,26 @@ export function PromoForm({ existing, onSaved, onCancel }: { existing?: PromoVie
     else open({ kind: 'promo', id: saved.code })
   }
 
+  /**
+   * M-c: someone saved this code while it was open here. Load theirs, and keep
+   * every box she changed (anything she didn't touch takes their value).
+   */
+  async function reload() {
+    if (!base) return
+    setReloading(true)
+    const r = await api<OneCode>(`${PROMOS}?code=${encodeURIComponent(base.code)}`)
+    setReloading(false)
+    if (!r.ok || !r.data) { setErrors({ form: r.error ?? 'The code didn’t load. Try again.' }); return }
+    const theirs = draftOf(r.data.code)
+    const merged = Object.fromEntries((Object.keys(theirs) as (keyof Draft)[]).map((k) => [k, JSON.stringify(d[k]) !== JSON.stringify(start[k]) ? d[k] : theirs[k]])) as unknown as Draft
+    setBase(r.data.code)
+    setStart(theirs)
+    setD(merged)
+    setStale(false)
+    setErrors({})
+    toast('Loaded the latest. What you typed is kept. Check it, then save.')
+  }
+
   function setLimitNow() {
     setAskLimit(false)
     requestAnimationFrame(() => { limitBox.current?.scrollIntoView?.({ block: 'center' }); limitBox.current?.focus() })
@@ -398,7 +430,18 @@ export function PromoForm({ existing, onSaved, onCancel }: { existing?: PromoVie
     setD((cur) => ({ ...cur, [key]: on ? [...cur[key], id] : cur[key].filter((x) => x !== id) }))
   }
 
-  const footer = askLimit
+  const footer = stale
+    ? (
+      <div className="adm-panel is-warn" role="group" aria-label="Someone changed this code">
+        <b>Someone changed this code just now.</b>
+        <span className="adm-small">Reload brings in their changes and keeps what you typed.</span>
+        <div className="adm-two">
+          {onCancel && <button type="button" className="adm-btn is-ghost" onClick={onCancel}>Cancel</button>}
+          <button type="button" className="adm-btn is-pri" disabled={reloading} onClick={reload}>{reloading ? 'Reloading…' : 'Reload'}</button>
+        </div>
+      </div>
+    )
+    : askLimit
     ? (
       <div className="adm-panel is-warn" role="group" aria-label="Save with no use limit?">
         <b>{`${freeWords} Save it with no use limit?`}</b>

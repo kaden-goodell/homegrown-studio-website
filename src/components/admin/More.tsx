@@ -11,6 +11,7 @@ const ROWS: [MorePage, string, string][] = [
   ['closed', 'Closed days', ''],
   ['staff', 'Staff', 'Coming in stage 3'],
   ['promos', 'Promotions', 'Codes, early-bird'],
+  ['register', 'Register setup', 'The class tax and Classes category on the register'],
   ['reports', 'Reports', 'This month: seats sold, sales, refunds'],
 ]
 
