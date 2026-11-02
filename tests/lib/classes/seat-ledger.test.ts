@@ -571,3 +571,56 @@ describe('R32/N1/R34: which door seat a counter sale pays', () => {
     expect(lines.find((l) => l.bookingId === 'bkg_fam2')!.square.orderId).toBeNull()
   })
 })
+
+describe('stage 4: discounted seats keep their list price, discounts and Square\'s line totals', () => {
+  const promo = { code: 'FIVE', label: '', off: { kind: 'amount' as const, cents: 500 }, per: 'booking' as const, appliesTo: { kind: 'all' as const }, includeExtras: false, endsYmd: null, maxUses: null, active: true, createdAt: '', updatedAt: '', by, history: [] }
+  const withGlaze = () => make(8, { addOns: [{ id: 'glaze', label: 'Glaze', priceCents: 400, maxPerSeat: 1 }] })
+  const dq = (cls: ScheduledClass) => {
+    const r = quote(cls, { passId: 'all', tickets: { person: 3 }, seats: [{ addOns: { glaze: 1 } }, {}, {}] }, NOW, 9, { promo })
+    if (!r.ok) throw new Error(r.error)
+    return r.value
+  }
+  it('hold writes the net price, the list price and the discounts; an undiscounted line has neither', async () => {
+    const cls = withGlaze()
+    const quoteD = dq(cls)
+    const inp = input()
+    const h = await hold(cls, quoteD, inp, NOW)
+    expect(h.ok && h.lines.map((l) => [l.seat, l.priceCents, l.listCents, l.discounts, l.addOnCents])).toEqual([
+      [1, 2833, 3000, [{ kind: 'promo', name: 'Code FIVE', cents: 167 }], 400],
+      [2, 2833, 3000, [{ kind: 'promo', name: 'Code FIVE', cents: 167 }], 0],
+      [3, 2834, 3000, [{ kind: 'promo', name: 'Code FIVE', cents: 166 }], 0],
+    ])
+    const plain = await hold(cls, q(cls, { seats: [{}] }), input(), NOW)
+    expect(plain.ok && 'listCents' in plain.lines[0]).toBe(false)
+    expect(plain.ok && 'discounts' in plain.lines[0]).toBe(false)
+  })
+  it('confirm keeps Square\'s per-line totals per seat, its add-on lines included; a refund of one seat uses them', async () => {
+    const cls = withGlaze()
+    const quoteD = dq(cls)
+    const inp = input()
+    await hold(cls, quoteD, inp, NOW)
+    // Square's numbers, one cent off ours on seat 1's add-on tax, in quote line order (seat 1, glaze, seat 2, seat 3).
+    const lineTotals = [{ totalCents: 2833 + 255, taxCents: 255 }, { totalCents: 400 + 37, taxCents: 37 }, { totalCents: 2833 + 255, taxCents: 255 }, { totalCents: 2834 + 255, taxCents: 255 }]
+    const charged = lineTotals.reduce((s, l) => s + l.totalCents, 0)
+    const lines = await confirm(cls.id, inp.bookingId, { orderId: 'o1', paymentId: 'p1', chargedCents: charged, lineTotals }, { cls, quote: quoteD, input: inp }, NOW)
+    expect(lines.map((l) => [l.seat, l.square.lineNetCents, l.square.lineTaxCents])).toEqual([[1, 3233, 292], [2, 2833, 255], [3, 2834, 255]])
+    const { paidOn } = await import('@lib/classes/seat-status')
+    expect(paidOn(lines[0])).toBe(3525) // Square's, not our 2833 + 255 + 400 + 36
+    await expect(recordRefund(cls.id, [lines[0].id], { cents: 3526, reason: 'x', by, freeSeat: true, squareRefundId: 'r1' })).rejects.toThrow('more than was paid')
+    const after = await recordRefund(cls.id, [lines[0].id], { cents: 3525, reason: 'x', by, freeSeat: true, squareRefundId: 'r1' })
+    expect(after[0].state).toBe('refunded')
+  })
+  it('line totals that don\'t add up to the charge (or don\'t match the quote\'s lines) are not kept', async () => {
+    const cls = withGlaze()
+    const quoteD = dq(cls)
+    const inp = input()
+    await hold(cls, quoteD, inp, NOW)
+    const lines = await confirm(cls.id, inp.bookingId, { orderId: 'o1', paymentId: 'p1', chargedCents: 99, lineTotals: [{ totalCents: 1, taxCents: 0 }] }, { cls, quote: quoteD, input: inp }, NOW)
+    expect(lines.every((l) => l.square.lineNetCents === undefined && l.square.lineTaxCents === undefined)).toBe(true)
+  })
+  it('paidOn of an old line (no Square line totals) is unchanged', async () => {
+    const { paidOn } = await import('@lib/classes/seat-status')
+    expect(paidOn({ priceCents: 3000, taxCents: 270, addOnCents: 400, addOnTaxCents: 36 })).toBe(3706)
+    expect(paidOn({ priceCents: 3000, taxCents: 270, addOnCents: 0, addOnTaxCents: 0, square: {} })).toBe(3270)
+  })
+})

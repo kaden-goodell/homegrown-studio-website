@@ -182,6 +182,22 @@ describe('POST /api/classes/book.json', () => {
     expect(mockReport).toHaveBeenCalledWith(expect.objectContaining({ bookingId, amountCents: 16000 }))
   })
 
+  it('stage 4: the ledger keeps Square\'s own per-line totals, and refunds use them', async () => {
+    const cls = makeClass()
+    // Square's numbers, a cent different from ours on the kid's tax: the ledger records Square's.
+    const lineTotals = [{ totalCents: 6540, taxCents: 540 }, { totalCents: 6540, taxCents: 540 }, { totalCents: 4361, taxCents: 361 }]
+    mockCreateClassOrder.mockImplementation(async (p: any) => ({
+      orderId: 'ORDER1', totalCents: 17441, lineUids: p.lines.map((_: any, i: number) => `u${i}`), lineTotals: lineTotals.map((l, i) => ({ uid: `u${i}`, ...l })),
+    }))
+    mockProcessPayment.mockResolvedValue({ id: 'PAY1', orderId: 'ORDER1', amount: 17441, status: 'completed', receiptUrl: null })
+    const res = await POST(ctx(body(cls)))
+    expect(res.status).toBe(200)
+    const lines = (await linesOf(cls)).sort((a, b) => a.seat - b.seat)
+    expect(lines.map((l) => [l.square.lineNetCents, l.square.lineTaxCents])).toEqual([[6000, 540], [6000, 540], [4000, 361]])
+    const { paidOn } = await import('@lib/classes/seat-status')
+    expect(paidOn(lines[2])).toBe(4361)
+  })
+
   it('prices from the class, never from the body', async () => {
     const cls = makeClass()
     const res = await POST(ctx(body(cls, { priceCents: 1, totalCents: 1, price: 1, amount: 1 })))

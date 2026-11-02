@@ -219,7 +219,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   }
 
   // ── 3. One Square order ─────────────────────────────────────────────────────
-  let order: { orderId: string; totalCents: number }
+  let order: { orderId: string; totalCents: number; lineTotals?: { totalCents: number; taxCents: number }[] }
   try {
     order = await createOrder(orderLines.lines)
   } catch (err) {
@@ -276,7 +276,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   }
 
   // ── Paid. Nothing below may turn this into a failure. ───────────────────────
-  const lines = await confirmPaid(cls, { orderId: order.orderId, paymentId: payment.id, chargedCents: charged })
+  const lines = await confirmPaid(cls, { orderId: order.orderId, paymentId: payment.id, chargedCents: charged, lineTotals: order.lineTotals })
   return finish({ cls, q: q!, lines, charged, receiptUrl: payment.receiptUrl ?? null, simulated: false, onFile })
 
   // ── helpers (closures over this request) ────────────────────────────────────
@@ -320,7 +320,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     const { payment: found, order } = earlier
     logger.warn('An earlier try of this attempt was paid — recording the seats', { bookingId, orderId: order.orderId })
     const charged = found.amount || order.totalCents
-    const confirmed = await confirmPaid(c, { orderId: order.orderId, paymentId: found.id, chargedCents: charged })
+    const confirmed = await confirmPaid(c, { orderId: order.orderId, paymentId: found.id, chargedCents: charged, lineTotals: order.lineTotals })
     return finish({ cls: c, q: q!, lines: confirmed, charged, receiptUrl: found.receiptUrl ?? null, simulated: false, onFile })
   }
 
@@ -345,7 +345,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   }
 
   /** Paid: confirm the seats. Never fails the booking; a failed write tells a person and keeps the hold. */
-  async function confirmPaid(c: ScheduledClass, square: { orderId: string; paymentId: string | null; chargedCents: number }): Promise<LedgerLine[]> {
+  async function confirmPaid(c: ScheduledClass, square: { orderId: string; paymentId: string | null; chargedCents: number; lineTotals?: { totalCents: number; taxCents: number }[] }): Promise<LedgerLine[]> {
     try {
       return await confirm(c.id, bookingId, square, { cls: c, quote: q!, input: holdInput! }, new Date())
     } catch (err) {

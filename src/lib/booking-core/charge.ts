@@ -119,14 +119,14 @@ export async function chargeOrder(input: {
  * order, and then says whether it is paid. Anything that can't be asked is
  * 'unknown', never 'unpaid'.
  */
-export async function paidOnOrder(
-  makeOrder: () => Promise<{ orderId: string; totalCents: number }>,
+export async function paidOnOrder<O extends { orderId: string; totalCents: number }>(
+  makeOrder: () => Promise<O>,
 ): Promise<
-  | { kind: 'paid'; payment: Payment; order: { orderId: string; totalCents: number } }
+  | { kind: 'paid'; payment: Payment; order: O }
   | { kind: 'unpaid' }
   | { kind: 'unknown'; error?: unknown }
 > {
-  let order: { orderId: string; totalCents: number }
+  let order: O
   let found: Payment | null
   try {
     order = await makeOrder()

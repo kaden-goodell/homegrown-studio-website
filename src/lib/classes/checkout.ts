@@ -67,26 +67,32 @@ export function cutoffRefusal(cls: ScheduledClass, sessionIds: string[], now: Da
 }
 
 export type OrderLine = { catalogObjectId: string; quantity: 1; note: string }
+/** Stage 4 (S4-R1): money off one order line (index into `lines`), as a LINE_ITEM-scoped fixed amount. */
+export type OrderLineDiscount = { line: number; name: string; cents: number }
 
 /**
  * Square order lines for a quote, in quote order (the order's totals follow
- * the same order). `missing` names the first line the POS item doesn't carry.
+ * the same order), and the discounts on them, one per discount per line,
+ * in the order they came off. `missing` names the first line the POS item
+ * doesn't carry.
  */
 export function orderLinesFor(
   cls: ScheduledClass,
   q: Quote,
   seats?: { answers?: Record<string, string> }[],
-): { ok: true; lines: OrderLine[] } | { ok: false; missing: string } {
+): { ok: true; lines: OrderLine[]; discounts: OrderLineDiscount[] } | { ok: false; missing: string } {
   const lines: OrderLine[] = []
+  const discounts: OrderLineDiscount[] = []
   for (const l of q.lines) {
     const id = l.variationKey ? cls.square.variations[l.variationKey] : undefined
     if (!id) return { ok: false, missing: l.variationKey ?? l.label }
     const answers = l.kind === 'seat'
       ? cls.content.questions.map((qu) => seats?.[l.seat]?.answers?.[qu.id] ? `${qu.label} ${seats[l.seat].answers![qu.id]}` : '').filter(Boolean)
       : []
+    for (const d of l.discounts ?? []) if (d.cents > 0) discounts.push({ line: lines.length, name: d.name, cents: d.cents })
     lines.push({ catalogObjectId: id, quantity: 1, note: [`Seat ${l.seat + 1}`, l.label, ...answers].join(' · ').slice(0, 500) })
   }
-  return { ok: true, lines }
+  return { ok: true, lines, discounts }
 }
 
 /** "2 Adults, 1 Kid" on a class with ticket types; "2 seats" on one with a single kind of seat. */

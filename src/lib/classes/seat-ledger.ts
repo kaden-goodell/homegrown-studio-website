@@ -7,7 +7,7 @@
  */
 import { makeKvStore } from '@lib/blob-store'
 import type { By } from '@lib/staff-auth'
-import type { Quote } from './pricing'
+import type { LineDiscount, Quote } from './pricing'
 import type { Cents, ScheduledClass } from './types'
 import { newId } from './validate'
 import { studioDate } from '@lib/studio-time'
@@ -23,8 +23,12 @@ export interface LedgerLine {
   ticketTypeId: string
   passId: string
   seat: number               // 1-based within the booking
-  /** the seat itself; add-on money is kept apart in addOnCents/addOnTaxCents */
+  /** the seat itself, net of any discount; add-on money is kept apart in addOnCents/addOnTaxCents (also net) */
   priceCents: Cents; taxCents: Cents
+  /** Stage 4, set only on a discounted seat: the seat's catalog price before discounts. */
+  listCents?: Cents
+  /** Stage 4, set only on a discounted seat: what came off this seat and its extras (early-bird, code), as on the receipt. */
+  discounts?: LineDiscount[]
   addOns: Record<string, number>
   addOnCents: Cents; addOnTaxCents: Cents
   answers: Record<string, string>
@@ -37,7 +41,15 @@ export interface LedgerLine {
    * paymentIds: every payment on the order when it was paid with several
    * tenders (POS split tender); paymentId is the first. A refund on any of them is this seat's.
    */
-  square: { orderId: string | null; paymentId: string | null; lineUid: string | null; chargedCents?: Cents; paymentIds?: string[] }
+  /**
+   * lineNetCents / lineTaxCents (stage 4): what Square itself computed for this
+   * seat's order lines (the seat and its extras), net of discounts and tax.
+   * When present, refunds use these (money we record = money Square computed).
+   */
+  square: {
+    orderId: string | null; paymentId: string | null; lineUid: string | null; chargedCents?: Cents; paymentIds?: string[]
+    lineNetCents?: Cents; lineTaxCents?: Cents
+  }
   by: By | null
   /** requestId: the saved refund request this entry was written for (our own refunds), so it is never written twice */
   /** id: set on entries written since fix round 2 (11b-C), so an Undo can take back exactly the entry its decision wrote */
@@ -134,12 +146,19 @@ function buildLines(q: Quote, input: HoldInput, now: Date, expires: string | nul
   return q.lines.filter((l) => l.kind === 'seat').map((sl) => {
     const addOns: Record<string, number> = {}
     let addOnCents = 0, addOnTaxCents = 0
+    const discounts: LineDiscount[] = (sl.discounts ?? []).map((d) => ({ ...d }))
     for (const al of q.lines) {
       if (al.kind !== 'addon' || al.seat !== sl.seat) continue
       const addId = (al.variationKey ?? '').replace(/^addon:/, '')
       addOns[addId] = (addOns[addId] ?? 0) + 1
       addOnCents += al.cents
       addOnTaxCents += al.taxCents
+      // One entry per kind and name for the seat and its extras.
+      for (const d of al.discounts ?? []) {
+        const same = discounts.find((x) => x.kind === d.kind && x.name === d.name)
+        if (same) same.cents += d.cents
+        else discounts.push({ ...d })
+      }
     }
     return {
       id: newId('led'),
@@ -150,6 +169,7 @@ function buildLines(q: Quote, input: HoldInput, now: Date, expires: string | nul
       seat: sl.seat + 1,
       priceCents: sl.cents,
       taxCents: sl.taxCents,
+      ...(discounts.length ? { listCents: sl.listCents ?? sl.cents, discounts } : {}),
       addOns,
       addOnCents,
       addOnTaxCents,
@@ -202,10 +222,21 @@ export async function hold(cls: ScheduledClass, q: Quote, input: HoldInput, now:
  * refunded seat and no held seat is already paid and recorded: its paid lines
  * are returned unchanged and nothing is rebuilt (safe to retry or replay).
  */
+/**
+ * What Square charged, as the booking path hands it to confirm. `lineTotals`
+ * (stage 4): Square's own per-line totals of the order, in the quote's line
+ * order; kept on each seat when they match the quote's lines and add up to
+ * the charge.
+ */
+export type PaidOnSquare = {
+  orderId: string | null; paymentId: string | null; chargedCents?: Cents
+  lineTotals?: { totalCents: Cents; taxCents: Cents }[]
+}
+
 export async function confirm(
   classId: string,
   bookingId: string,
-  square: { orderId: string | null; paymentId: string | null; chargedCents?: Cents },
+  square: PaidOnSquare,
   fallback: { cls: ScheduledClass; quote: Quote; input: HoldInput },
   now: Date,
   /** requireLiveHold: only convert a hold still running; with none, write nothing and return [] (no rebuild past capacity) */
@@ -221,10 +252,24 @@ export async function confirm(
  * order, not what was asked), a booking with no held or paid seats is left
  * alone: nothing is written and `lines` is empty.
  */
+/** Square's per-line totals summed per seat (0-based quote seat → net and tax), or null when they can't be trusted. */
+function squareTotalsBySeat(square: PaidOnSquare, q: Quote | undefined): Map<number, { net: Cents; tax: Cents }> | null {
+  const t = square.lineTotals
+  if (!t || !q || t.length !== q.lines.length) return null
+  const sum = t.reduce((s, x) => s + x.totalCents, 0)
+  if (typeof square.chargedCents === 'number' && sum !== square.chargedCents) return null
+  const out = new Map<number, { net: Cents; tax: Cents }>()
+  q.lines.forEach((l, i) => {
+    const cur = out.get(l.seat) ?? { net: 0, tax: 0 }
+    out.set(l.seat, { net: cur.net + t[i].totalCents - t[i].taxCents, tax: cur.tax + t[i].taxCents })
+  })
+  return out
+}
+
 export async function confirmBooking(
   classId: string,
   bookingId: string,
-  square: { orderId: string | null; paymentId: string | null; chargedCents?: Cents },
+  square: PaidOnSquare,
   fallback: { cls: ScheduledClass; quote?: Quote; input?: HoldInput },
   now: Date,
   opts: { requireLiveHold?: boolean } = {},
@@ -239,10 +284,15 @@ export async function confirmBooking(
       return none
     }
     if (!hasHeld && (!fallback.quote || !fallback.input)) return none
-    const sq = (l: LedgerLine) => ({
-      ...l.square, orderId: square.orderId, paymentId: square.paymentId,
-      ...(square.chargedCents !== undefined ? { chargedCents: square.chargedCents } : {}),
-    })
+    const bySeat = squareTotalsBySeat(square, fallback.quote)
+    const sq = (l: LedgerLine): LedgerLine['square'] => {
+      const mine = bySeat?.get(l.seat - 1)
+      return {
+        ...l.square, orderId: square.orderId, paymentId: square.paymentId,
+        ...(square.chargedCents !== undefined ? { chargedCents: square.chargedCents } : {}),
+        ...(mine ? { lineNetCents: mine.net, lineTaxCents: mine.tax } : {}),
+      }
+    }
     let lines: LedgerLine[]
     if (hasHeld) {
       // Convert this booking's holds (even expired, unswept ones); sweep everyone else's expired holds.

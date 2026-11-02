@@ -182,3 +182,112 @@ describe('door sales (crew at the door)', () => {
     expect(sessionsForPass(make(), 'day', ['ses_a'], after, { door: true }).ok).toBe(false)
   })
 })
+
+// ── Stage 4: discounts per line ──────────────────────────────────────────────
+import { splitAmount } from '@lib/classes/pricing'
+import type { PromoCode } from '@lib/promos/types'
+
+const promo = (over: Partial<PromoCode> = {}): PromoCode => ({
+  code: 'FALLFRIENDS', label: '', off: { kind: 'percent', percent: 10 }, per: 'booking', appliesTo: { kind: 'all' },
+  includeExtras: false, endsYmd: null, maxUses: null, active: true, createdAt: '', updatedAt: '', by: { id: 'c', name: 'C' }, history: [], ...over,
+})
+const one = (over: Partial<ClassContent> = {}) => make({ passes: [{ id: 'all', label: 'Full', covers: { kind: 'all' } }], prices: { all: { person: 1500 } }, ...over })
+const ok = <T,>(r: { ok: true; value: T } | { ok: false; error: string }): T => { if (!r.ok) throw new Error(r.error); return r.value }
+
+describe('splitAmount', () => {
+  it('largest remainder, ties to the earlier line', () => {
+    expect(splitAmount(500, [1500, 1500, 1500])).toEqual([167, 167, 166])
+    expect(splitAmount(100, [1000, 3000])).toEqual([25, 75])
+    expect(splitAmount(1, [100, 100, 100])).toEqual([1, 0, 0])
+  })
+  it('never above a line; zero lines take nothing', () => {
+    expect(splitAmount(300, [100, 200])).toEqual([100, 200])
+    expect(splitAmount(50, [0, 100])).toEqual([0, 50])
+    expect(splitAmount(0, [100])).toEqual([0])
+    expect(splitAmount(10, [])).toEqual([])
+    expect(splitAmount(999, [100, 200])).toEqual([100, 200]) // capped at the lines' sum
+  })
+  it('always adds up', () => {
+    for (const [t, ls] of [[777, [333, 444, 555]], [5, [1, 1, 1, 1, 1, 1, 1]], [1234, [999, 1, 2000]]] as [number, number[]][]) {
+      const out = splitAmount(t, ls)
+      expect(out.reduce((s, x) => s + x, 0)).toBe(Math.min(t, ls.reduce((s, x) => s + x, 0)))
+      out.forEach((x, i) => expect(x).toBeLessThanOrEqual(ls[i]))
+    }
+  })
+})
+
+describe('quote — discounts per line (stage 4)', () => {
+  it('no discount: list = net, no discounts, totals as before', () => {
+    const q = ok(quote(make(), req({ tickets: { person: 3 } }), NOW, 9))
+    expect(q.lines.every((l) => l.listCents === l.cents && l.discounts.length === 0)).toBe(true)
+    expect(q.discountCents).toBe(0)
+    expect(q.promo).toBeNull()
+    expect(q.totalCents).toBe(4905)
+  })
+  it('early-bird before and after its Chicago end', () => {
+    const c = one({ earlyBird: { untilYmd: '2026-10-20', prices: { all: { person: 1200 } } } })
+    const before = ok(quote(c, req(), new Date('2026-10-21T04:59:00Z'), 9)) // 11:59 PM CDT Oct 20
+    expect(before.lines[0]).toMatchObject({ listCents: 1500, cents: 1200, taxCents: 108, discounts: [{ kind: 'early-bird', name: 'Early-bird', cents: 300 }] })
+    expect(before.totalCents).toBe(1308)
+    const after = ok(quote(c, req(), new Date('2026-10-21T05:00:00Z'), 9))
+    expect(after.lines[0]).toMatchObject({ listCents: 1500, cents: 1500, discounts: [] })
+  })
+  it('10% of $15 = $1.50 off, tax on $13.50', () => {
+    const q = ok(quote(one(), req(), NOW, 9, { promo: promo() }))
+    expect(q.lines[0]).toMatchObject({ listCents: 1500, cents: 1350, taxCents: 122, discounts: [{ kind: 'promo', name: 'Code FALLFRIENDS', cents: 150 }] })
+    expect(q.promo).toEqual({ code: 'FALLFRIENDS', cents: 150 })
+    expect(q.discountCents).toBe(150)
+    expect(q.subtotalCents).toBe(1350)
+    expect(q.totalCents).toBe(1472)
+  })
+  it('split pennies: $5 per booking over 3 × $15 → 167/167/166, the add-on untouched', () => {
+    const c = one({ addOns: [{ id: 'glaze', label: 'Glaze', priceCents: 400, maxPerSeat: 1 }] })
+    const r = req({ tickets: { person: 3 }, seats: [{ addOns: { glaze: 1 } }, {}, {}] })
+    const q = ok(quote(c, r, NOW, 9, { promo: promo({ off: { kind: 'amount', cents: 500 } }) }))
+    expect(q.lines.map((l) => [l.kind, l.cents, l.discounts.map((d) => d.cents)])).toEqual([
+      ['seat', 1333, [167]], ['addon', 400, []], ['seat', 1333, [167]], ['seat', 1334, [166]],
+    ])
+    expect(q.promo).toEqual({ code: 'FALLFRIENDS', cents: 500 })
+    // With extras: the add-on shares the $5 by its size.
+    const x = ok(quote(c, r, NOW, 9, { promo: promo({ off: { kind: 'amount', cents: 500 }, includeExtras: true }) }))
+    expect(x.lines.map((l) => l.discounts[0]?.cents ?? 0)).toEqual([153, 41, 153, 153])
+    expect(x.promo!.cents).toBe(500)
+  })
+  it('$20 per booking on a $15 total → $15 off, a $0 line with no tax', () => {
+    const q = ok(quote(one(), req(), NOW, 9, { promo: promo({ off: { kind: 'amount', cents: 2000 } }) }))
+    expect(q.lines[0]).toMatchObject({ cents: 0, taxCents: 0, discounts: [{ kind: 'promo', cents: 1500 }] })
+    expect(q.totalCents).toBe(0)
+    expect(q.promo!.cents).toBe(1500)
+  })
+  it('$ off each person: per seat, never below 0; extras too only when switched on', () => {
+    const c = make({ passes: [{ id: 'all', label: 'Full', covers: { kind: 'all' } }], ticketTypes: [{ id: 'adult', label: 'Adult' }, { id: 'kid', label: 'Kid' }], prices: { all: { adult: 2000, kid: 300 } } })
+    const q = ok(quote(c, req({ tickets: { adult: 1, kid: 1 } }), NOW, 9, { promo: promo({ off: { kind: 'amount', cents: 500 }, per: 'seat' }) }))
+    expect(q.lines.map((l) => [l.cents, l.discounts[0]?.cents])).toEqual([[1500, 500], [0, 300]])
+    expect(q.promo!.cents).toBe(800)
+  })
+  it('early-bird + 50% code stack: the code comes off the early-bird price', () => {
+    const c = one({ earlyBird: { untilYmd: '2026-10-30', prices: { all: { person: 1200 } } } })
+    const q = ok(quote(c, req(), NOW, 9, { promo: promo({ off: { kind: 'percent', percent: 50 } }) }))
+    expect(q.lines[0]).toMatchObject({
+      listCents: 1500, cents: 600, taxCents: 54,
+      discounts: [{ kind: 'early-bird', name: 'Early-bird', cents: 300 }, { kind: 'promo', name: 'Code FALLFRIENDS', cents: 600 }],
+    })
+    expect(q.discountCents).toBe(900)
+  })
+  it('a percent that makes a half-cent tax rounds as taxCents does (half up)', () => {
+    // 30% off $15 = $10.50; 9% of 1050 = 94.5 → 95
+    const q = ok(quote(one(), req(), NOW, 9, { promo: promo({ off: { kind: 'percent', percent: 30 } }) }))
+    expect(q.lines[0]).toMatchObject({ cents: 1050, taxCents: 95 })
+    expect(q.totalCents).toBe(1145)
+  })
+  it('a code that is off, ended or not for this class is not applied by quote()', () => {
+    expect(ok(quote(one(), req(), NOW, 9, { promo: promo({ active: false }) })).promo).toBeNull()
+    expect(ok(quote(one(), req(), NOW, 9, { promo: promo({ endsYmd: '2026-10-19' }) })).promo).toBeNull()
+    expect(ok(quote(one(), req(), NOW, 9, { promo: promo({ appliesTo: { kind: 'classes', libraryIds: [], classIds: ['cls_other'] } }) })).promo).toBeNull()
+  })
+  it('a not-taxable class: discounts, no tax', () => {
+    const c = one({ rules: { ...one().content.rules, taxable: false } })
+    const q = ok(quote(c, req(), NOW, 9, { promo: promo() }))
+    expect(q.lines[0]).toMatchObject({ cents: 1350, taxCents: 0 })
+  })
+})
