@@ -47,12 +47,22 @@ export interface CafeSpecialDay {
   /** HH:MM, 24-hour */
   closes: string
   name: string
+  /**
+   * Optional announcement: a slim bar on every page plus a big card on the
+   * homepage and the Craft Café page, from `daysBefore` days ahead until the
+   * café closes that day (see special-day-notice.ts). Leave it off for a
+   * quiet special day.
+   */
+  announce?: { headline: string; daysBefore: number }
 }
 
 export const CAFE_SPECIAL_DAYS: CafeSpecialDay[] = [
   // Kaden, 15 Oct 2026: "Make craft cafe all day November 7th. We're going to
   // do a big giant grand opening." Kaden, 1 Nov 2026: 9 AM to 8 PM.
-  { date: '2026-11-07', opens: '09:00', closes: '20:00', name: 'Craft Café grand opening' },
+  {
+    date: '2026-11-07', opens: '09:00', closes: '20:00', name: 'Craft Café grand opening',
+    announce: { headline: 'Grand Opening Day', daysBefore: 21 },
+  },
 ]
 
 /** Café hours on a date: a special day wins over the weekly hours. Null when there's no café that day. */

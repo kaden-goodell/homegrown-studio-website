@@ -62,10 +62,9 @@ describe('site copy', () => {
       expect(home).toContain("price: 'Priced per seat'")
     })
 
-    it('sends the opening banner to the calendar, not the booking page', () => {
-      const banner = home.slice(home.indexOf('id="opening-banner"'), home.indexOf('</div>', home.indexOf('id="opening-banner"')))
-      expect(banner).toContain('href="/calendar"')
-      expect(banner).not.toContain('href="/book"')
+    it('shows the special-day card under the hero instead of the old opening banner', () => {
+      expect(home).toContain('<DayNoticeCard where="home" />')
+      expect(home).not.toContain('id="opening-banner"')
     })
 
     it('says "See the calendar"', () => {

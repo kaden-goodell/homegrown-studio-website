@@ -1,0 +1,112 @@
+---
+import { siteConfig } from '@config/site.config'
+import { cafeDayNotices, activeDayNotice } from '@lib/special-day-notice'
+
+interface Props {
+  /** Where the card sits, for the CTA tracking names. */
+  where: 'home' | 'cafe'
+  /** On the Craft Café page the menu is below, so its button scrolls there. */
+  menuHref?: string
+}
+const { where, menuHref = '/craft-cafe#menu' } = Astro.props
+
+// The big "blowout" card for an announced Craft Café special day (hours.ts
+// `announce`). Copy approved by Kaden, 1 Nov 2026.
+const notices = cafeDayNotices()
+const active = activeDayNotice(new Date(), notices)
+const { street, city, state, zip } = siteConfig.address
+const directionsUrl = `https://maps.google.com/?q=${encodeURIComponent(`${siteConfig.name}, ${street}, ${city}, ${state} ${zip}`)}`
+---
+
+{notices.map((n) => (
+  <section
+    data-day-notice="card"
+    data-from={n.showFromIso}
+    data-until={n.showUntilIso}
+    hidden={active?.date !== n.date}
+    class="day-notice-card glass-strong"
+    aria-label={`${n.headline}, ${n.shortDate}`}
+  >
+    <p class="day-notice-eyebrow"><span aria-hidden="true">{'✦ '}</span>{n.headline}<span aria-hidden="true">{' ✦'}</span></p>
+    <div class="day-notice-when">
+      <div class="day-notice-date" aria-hidden="true">
+        <span>{n.weekday}</span>
+        <strong>{n.monthDay}</strong>
+      </div>
+      <div>
+        <p class="day-notice-what">Craft Café open</p>
+        <p class="day-notice-hours">{n.hours}</p>
+      </div>
+    </div>
+    <p class="day-notice-body">Walk in any time that day. Pick a craft, grab a seat, pay for what you make. No booking needed.</p>
+    <div class="day-notice-actions">
+      <a class="btn btn-primary" href={menuHref} data-track-cta={`day_notice_${where}_menu`}>See the craft menu</a>
+      <a class="btn btn-quiet" href={directionsUrl} target="_blank" rel="noopener" data-track-cta={`day_notice_${where}_directions`}>Get directions</a>
+    </div>
+    {n.regularHours && <p class="day-notice-note">One day only. Regular Craft Café hours are {n.regularHours}.</p>}
+  </section>
+))}
+<script>import '@lib/day-notice-client'</script>
+
+<style>
+  .day-notice-card {
+    max-width: 40rem;
+    margin: 0 auto;
+    padding: 2rem 1.5rem;
+    border-radius: 1.25rem;
+    text-align: center;
+    border: 2px solid var(--tone-studio);
+  }
+  .day-notice-card[hidden] { display: none; }
+  .day-notice-eyebrow {
+    margin: 0 0 1.25rem;
+    font-size: 0.875rem;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    background: linear-gradient(90deg, var(--tone-studio-ink), var(--color-primary), #d4a24c, var(--color-primary), var(--tone-studio-ink));
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: day-notice-shine 4s linear infinite;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .day-notice-eyebrow { animation: none; }
+  }
+  @keyframes day-notice-shine { to { background-position: 200% center; } }
+  .day-notice-when {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1.25rem;
+    margin-bottom: 1.25rem;
+  }
+  .day-notice-date {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.75rem;
+    background: var(--tone-studio-soft);
+    color: var(--tone-studio-ink);
+    line-height: 1.1;
+  }
+  .day-notice-date span { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.1em; }
+  .day-notice-date strong { font-size: 1.375rem; }
+  .day-notice-what { margin: 0; text-align: left; font-size: 1rem; color: var(--color-muted); }
+  .day-notice-hours {
+    margin: 0;
+    text-align: left;
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: clamp(1.75rem, 6vw, 2.5rem);
+    line-height: 1.1;
+    color: var(--color-dark);
+  }
+  .day-notice-body { margin: 0 auto 1.5rem; max-width: 28rem; font-size: 1rem; line-height: 1.5; color: var(--color-dark); }
+  .day-notice-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem; }
+  .day-notice-actions .btn { min-height: 2.75rem; }
+  .day-notice-note { margin: 1.25rem 0 0; font-size: 0.8125rem; color: var(--color-muted); }
+</style>

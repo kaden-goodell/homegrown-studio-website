@@ -1,0 +1,39 @@
+---
+import { cafeDayNotices, activeDayNotice } from '@lib/special-day-notice'
+
+// A slim bar above the header for an announced Craft Café special day
+// (hours.ts `announce`), e.g. "🎉 Grand Opening Day Sat Nov 7 · Craft Café 9 AM – 8 PM →".
+const notices = cafeDayNotices()
+const active = activeDayNotice(new Date(), notices)
+---
+
+{notices.map((n) => (
+  <a
+    href="/craft-cafe"
+    data-day-notice="bar"
+    data-from={n.showFromIso}
+    data-until={n.showUntilIso}
+    data-track-cta="day_notice_bar"
+    hidden={active?.date !== n.date}
+    class="day-notice-bar"
+  >
+    <span aria-hidden="true">{'🎉 '}</span><strong>{n.headline}</strong>{` ${n.shortDate} · `}<span class="nowrap">{`Craft Café ${n.hours} `}<span aria-hidden="true">→</span></span>
+  </a>
+))}
+<script>import '@lib/day-notice-client'</script>
+
+<style>
+  .day-notice-bar {
+    display: block;
+    padding: 0.5rem 1rem;
+    text-align: center;
+    font-size: 0.875rem;
+    line-height: 1.35;
+    color: white;
+    background: var(--tone-studio-ink);
+    text-decoration: none;
+  }
+  .day-notice-bar[hidden] { display: none; }
+  .nowrap { white-space: nowrap; }
+  .day-notice-bar:hover { text-decoration: underline; }
+</style>

@@ -5,6 +5,7 @@ import Layout from '@layouts/StaticLayout.astro'
 import { siteConfig } from '@config/site.config'
 import CraftMenu from '@components/open-studio/CraftMenu'
 import { OPEN_STUDIO_START_DATE, OPEN_STUDIO_START_LABEL } from '@config/opening'
+import DayNoticeCard from '@components/shared/DayNoticeCard.astro'
 
 // Walk-in hours start after the grand opening; until then the page explains that.
 const walkInOpen = new Date() >= new Date(OPEN_STUDIO_START_DATE + 'T00:00:00-06:00')
@@ -29,6 +30,11 @@ const steps = [
       <p data-walkin="before" hidden={walkInOpen} class="mt-5 rounded-full px-5 py-2 text-sm font-semibold" style="background: var(--tone-studio-soft); color: var(--tone-studio-ink); width: fit-content; margin-inline: auto;">
         Walk-in hours begin {OPEN_STUDIO_START_LABEL}. Until then, <a href="/workshops" class="underline" data-track-cta="cafe_before_open_workshops">grab a workshop seat</a> or <a href="/book" class="underline" data-track-cta="cafe_before_open_party">book a party</a>.
       </p>
+    </div>
+
+    <!-- An announced special day (the grand opening), from hours.ts. -->
+    <div class="mb-16">
+      <DayNoticeCard where="cafe" menuHref="#menu" />
     </div>
 
     <!-- How it works -->
@@ -62,7 +68,7 @@ const steps = [
     </div>
 
     <!-- Craft menu -->
-    <div class="text-center mb-10 fade-in">
+    <div id="menu" class="text-center mb-10 fade-in" style="scroll-margin-top: 6rem;">
       <h2 class="text-3xl sm:text-4xl font-heading font-bold" style="color: var(--color-dark);">The craft menu</h2>
       <p class="text-base mt-3 max-w-xl mx-auto" style="color: var(--color-muted);">
         Prices are at the counter — pay for each craft you make. Make one, or make a few.
