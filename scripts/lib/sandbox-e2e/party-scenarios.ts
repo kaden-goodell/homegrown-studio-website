@@ -615,7 +615,7 @@ export const partyScenarios: Scenario<PartyCtx>[] = [
       for (const k of keys) cleanUpParty(ctx, scope, partyIdOf(k))
       await ctx.gate.take(2)
       const both = await Promise.all(keys.map((k, i) => publicBook(ctx, { startIso: start, what: `Race ${i + 1}`, attemptId: k, gated: false })))
-      checkEqual(both.map((b) => b.reply.status).sort(), [200, 409], 'Answers')
+      checkEqual(both.map((b) => b.reply.status).sort(), [200, 409], `Answers (${both.map((b) => sayReply(b.reply)).join(' | ')})`)
       const winner = both.find((b) => b.reply.status === 200)!
       const loser = both.find((b) => b.reply.status === 409)!
       checkEqual(loser.reply.body?.code, 'slot_taken', 'The refused one says the time was taken')

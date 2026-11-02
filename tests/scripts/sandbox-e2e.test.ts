@@ -6,7 +6,7 @@ import {
   lineTax, MissingSecretError, onStop, parseArgs, type Pending, pick, PREVIEW_ORIGIN, PreviewClient, RateGate, readSecrets, redact, RefusedHostError, RUN_LINE,
   runScenarios, SkipScenario, SlotAllocator, SquareError, SquareSandbox, SQUARE_SANDBOX_VERSION, totalWithTax, type Scenario,
 } from '../../scripts/lib/sandbox-e2e/core'
-import { blockedDay, bookingIdOf, cleanUpLeftovers, CLEANUP_PLAN, firstDay, scenarios, testContent, type Ctx } from '../../scripts/lib/sandbox-e2e/scenarios'
+import { blockedDay, bookingIdOf, cleanUpLeftovers, CLEANUP_PLAN, firstDay, scenarios, tenderTookMoney, testContent, type Ctx } from '../../scripts/lib/sandbox-e2e/scenarios'
 import { main } from '../../scripts/sandbox-e2e'
 import { bookingIdFor } from '@lib/classes/checkout'
 import { SQUARE_API_VERSION } from '@lib/classes/square-api'
@@ -114,6 +114,19 @@ describe('cookies and requests', () => {
     expect(init.headers['Content-Type']).toBe('application/json')
     await c.get('/api/admin/classes/bookings.json?id=cls_x')
     expect(fetch.mock.calls[1][1].headers.Cookie).toBe('hg_admin=xyz.sig')
+  })
+
+  it('sends Origin like a browser on a DELETE or POST (Astro refuses a body-less DELETE without it), never on a GET', async () => {
+    const fetch = vi.fn(async () => res(200, { data: {} }))
+    const c = new PreviewClient({ fetch })
+    await c.request('DELETE', '/api/staff/feed.json')
+    await c.post('/api/staff/feed.json', {})
+    await c.get('/api/staff/feed.json')
+    const calls = fetch.mock.calls as unknown as [string, any][]
+    expect(calls[0][1].headers.Origin).toBe(PREVIEW_ORIGIN)
+    expect(calls[0][1].headers['Content-Type']).toBeUndefined()
+    expect(calls[1][1].headers.Origin).toBe(PREVIEW_ORIGIN)
+    expect(calls[2][1].headers.Origin).toBeUndefined()
   })
 
   it('a gated call waits for the gate', async () => {
@@ -585,5 +598,15 @@ describe('stopping part way', () => {
       { path: '/api/admin/classes/blocked.json', body: { action: 'remove', id: 'blk_a' } },
       { path: '/api/admin/settings.json', body: { cafeWeekly: [], cafeSpecialDays: [], closures: [{ id: 'c1', from: '2026-12-25', to: '2026-12-25', name: 'Christmas' }], expectedUpdatedAt: 's1' } },
     ])
+  })
+})
+
+describe('nothing charged', () => {
+  it('a declined card\'s FAILED tender (and a voided hold) is not a payment; anything else is', () => {
+    expect(tenderTookMoney({ type: 'CARD', card_details: { status: 'FAILED' } })).toBe(false)
+    expect(tenderTookMoney({ type: 'CARD', card_details: { status: 'VOIDED' } })).toBe(false)
+    expect(tenderTookMoney({ type: 'CARD', card_details: { status: 'CAPTURED' } })).toBe(true)
+    expect(tenderTookMoney({ type: 'CARD', card_details: { status: 'AUTHORIZED' } })).toBe(true)
+    expect(tenderTookMoney({ type: 'CASH' })).toBe(true)
   })
 })

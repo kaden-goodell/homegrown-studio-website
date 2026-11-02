@@ -155,6 +155,10 @@ export class PreviewClient {
     const cookie = this.jar.header()
     if (cookie) headers.Cookie = cookie
     if (init.body !== undefined) headers['Content-Type'] = 'application/json'
+    // A browser sends Origin on every same-origin request that isn't GET/HEAD; Astro's
+    // origin check refuses a body-less POST/PUT/PATCH/DELETE without it (403
+    // "Cross-site DELETE form submissions are forbidden"), so send it like a browser.
+    if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) headers.Origin = url.origin
     const res = await (this.opts.fetch ?? fetch)(url.toString(), {
       method,
       headers,

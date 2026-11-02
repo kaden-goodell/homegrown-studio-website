@@ -222,12 +222,26 @@ export async function ordersFor(sq: SquareSandbox, refs: string[], sinceIso: str
   return out
 }
 
-/** Nothing was charged for these bookings: no paid order, no tender. */
+/**
+ * True when an order tender took or held money. Square attaches a tender to the
+ * order even for a declined card (card_details.status FAILED, seen in the sandbox
+ * on 2026-11-02 after a declined-card booking), and a voided authorization
+ * (VOIDED) released its hold; neither charged anyone.
+ */
+export function tenderTookMoney(t: any): boolean {
+  const status = t?.card_details?.status
+  return !(status === 'FAILED' || status === 'VOIDED')
+}
+
+/** Nothing was charged for these bookings: no completed order, no tender that took money. */
 export async function checkNotCharged(ctx: Ctx, scope: Scope, refs: string[], sinceIso: string): Promise<void> {
   if (!ctx.square) return noSquare(scope)
   for (const o of await ordersFor(ctx.square, refs, sinceIso)) {
     check(o.state !== 'COMPLETED', `Square order ${o.id} for ${o.reference_id} is COMPLETED (charged)`)
-    check(!(o.tenders ?? []).length, `Square order ${o.id} for ${o.reference_id} has a payment`)
+    // A declined card still leaves a tender on the order (Square records the attempt
+    // with card_details.status FAILED); only a tender that moved or held money counts.
+    const live = (o.tenders ?? []).filter(tenderTookMoney)
+    check(!live.length, `Square order ${o.id} for ${o.reference_id} has a payment (${live.map((t: any) => t.card_details?.status ?? t.type).join(', ')})`)
   }
 }
 
@@ -577,10 +591,10 @@ export const scenarios: Scenario<Ctx>[] = [
       })
       const sale = await counterSale(ctx, scope, [{ variationId: cls.square.variations['single:person'], qty: 2 }])
       checkEqual(sale.totalCents, totalWithTax([2000, 2000]), 'Counter sale total')
-      await reconcile(ctx)
+      const ran = await reconcile(ctx)
       const counter = async () => (await bookingsOf(ctx, cls.id)).bookings.filter((x) => x.source === 'pos')
       let pos = await counter()
-      checkEqual(pos.length, 1, 'Counter bookings')
+      checkEqual(pos.length, 1, `Counter bookings (order ${sale.orderId}; the reconcile said ${JSON.stringify(ran)})`)
       checkEqual(pos[0].lineIds.length, 2, 'Counter seats')
       checkEqual(pos[0].customer, null, 'Counter seat name before naming')
       await reconcile(ctx)
