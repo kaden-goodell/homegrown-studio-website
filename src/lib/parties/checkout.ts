@@ -479,7 +479,11 @@ export async function bookParty(input: BookInput, now: Date = new Date()): Promi
   // ── 1. Settings, quote, date ───────────────────────────────────────────────
   let days: Awaited<ReturnType<typeof getStudioDays>>
   try {
-    ;[settings, days] = await Promise.all([getPartySettings({ strict: true }), getStudioDays({ strict: true, fresh: true })])
+    // Fresh, not this server's 60-second memory: a package or extra the owners saved a moment
+    // ago on another server would otherwise be refused here as "isn't available" (400) — seen
+    // in the sandbox e2e run of 2026-11-02, where the losing racer of two bookings landed on a
+    // server that remembered Parties setup from before the test package was added.
+    ;[settings, days] = await Promise.all([getPartySettings({ strict: true, fresh: true }), getStudioDays({ strict: true, fresh: true })])
   } catch (err) {
     logger.error('Party settings or studio days unreadable — refusing', { partyId, error: String(err) })
     return refuse(503, 'unavailable', partyMessages.unavailable)

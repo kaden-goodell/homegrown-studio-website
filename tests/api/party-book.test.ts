@@ -340,6 +340,25 @@ describe('POST /api/party/book.json: one order, one charge, no Square booking', 
     expect(m.createOrder.mock.calls[0][0].lineItems).toEqual([{ name: 'Party — Test party', quantity: 1, pricePerUnit: 100, note: 'pkg_test' }])
   })
 
+  it('a package saved on another server a moment ago books: the booking reads Parties setup fresh, not this server\'s 60-second memory', async () => {
+    const { makeKvStore } = await import('@lib/blob-store')
+    const raw = makeKvStore('party-settings', 'party-settings')
+    await getPartySettings() // this server remembers the settings as they are now
+    const before = (await raw.get('settings'))!
+    const cur = JSON.parse(before)
+    // Another server (the owner's /admin) saves a new link-only package.
+    await raw.set('settings', JSON.stringify({ ...cur, packages: [...cur.packages, { ...cur.packages.find((p: any) => p.id === 'pkg_test'), id: 'pkg_fresh', name: 'Fresh party' }] }))
+    try {
+      const start = at('2027-03-14', '13:00')
+      const r = await post(body(start, { packageId: 'pkg_fresh', linkPackageId: 'pkg_fresh', guests: 2 }))
+      expect(r.status).toBe(200)
+      expect(m.createOrder.mock.calls[0][0].lineItems[0]).toMatchObject({ name: 'Party — Fresh party', note: 'pkg_fresh' })
+    } finally {
+      await raw.set('settings', before)
+      resetPartySettingsCache()
+    }
+  })
+
   it('an online extra half hour lengthens the record’s end and the hold, and is on the order', async () => {
     const start = at('2027-04-11', '13:00')
     const b = body(start, { addOns: { add_time: 1 } })
