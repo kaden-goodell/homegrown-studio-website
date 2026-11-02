@@ -7,6 +7,7 @@ vi.mock('@lib/warnings', async (orig) => ({
   WARNING_WINDOW_DAYS: 60,
   // the real list, so the digest treats exactly the real undated codes as undated
   UNDATED_CODES: (await orig<typeof import('@lib/warnings')>()).UNDATED_CODES,
+  OWNER_ONLY_CODES: (await orig<typeof import('@lib/warnings')>()).OWNER_ONLY_CODES,
 }))
 const mockMinimum = vi.fn()
 vi.mock('@lib/classes/minimum-to-run', () => ({ runMinimumToRunAlerts: (...a: any[]) => mockMinimum(...a) }))
@@ -67,6 +68,7 @@ describe('POST /api/jobs/daily-warnings.json', () => {
     expect(mail.subject).toBe('⚠ Studio schedule needs attention (2)')
     expect(mail.text).toContain('Sun Oct 18 · Pumpkin Pails: 27 seats sold, 25 capacity. Sort it out in Square.')
     expect(mail.text).toContain('https://ourhometownstudio.com/staff')
+    expect(mail.text).not.toContain('/admin#more-staff') // no staffing lines, no /admin link
     expect(mail.html).toContain('Pumpkin Pails: 27 seats sold, 25 capacity.')
   })
 
@@ -120,6 +122,9 @@ describe('undated items and the minimum to run', () => {
     await POST(ctx(dailyWarningsJobKey(SECRET)))
     const day1 = mockSendEmail.mock.calls[0][0].text
     expect(day1).toContain('Potholder Looms at 10 AM has no one on yet.')
+    // staffing lines link to /admin › More › Staff (the /staff panel doesn't show them)
+    expect(day1).toContain('https://ourhometownstudio.com/admin#more-staff')
+    expect(mockSendEmail.mock.calls[0][0].html).toContain('href="https://ourhometownstudio.com/admin#more-staff"')
     expect(day1).toContain('Jessica is still on Weaving, which was cancelled.')
     vi.setSystemTime(new Date('2026-10-07T12:00:00.000Z'))
     await POST(ctx(dailyWarningsJobKey(SECRET)))

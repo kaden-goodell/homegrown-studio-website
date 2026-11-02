@@ -64,8 +64,13 @@ export interface StaffingRow {
   leftTeam: { staffId: string; name: string }[]
 }
 
-/** An event a crew member could ask to work, with whether they already asked. */
-export type OpenEvent = StaffableEvent & { asked: boolean; askNote: string }
+/**
+ * An event a crew member could ask to work, with whether they already asked
+ * and whether it still needs someone (a yes/no only: never who is on, or how
+ * many). A cancelled one shows here only while they still have an ask on it,
+ * so they hear it was cancelled instead of it vanishing.
+ */
+export type OpenEvent = StaffableEvent & { asked: boolean; askNote: string; needsSomeone: boolean }
 
 const logger = createLogger('staffing-events')
 const DAY_MS = 86_400_000
@@ -101,6 +106,7 @@ function sessionEvent(key: EventKey, c: ScheduledClass, s: ScheduledClass['sessi
   return {
     key, kind: 'class', title: c.content.name, startIso: s.startIso, endIso: s.endIso,
     status, openHref: href({ kind: 'class', id: c.id }), detail: {},
+    roster: { kind: 'workshop', id: c.id, day: localDate(s.startIso) },
   }
 }
 
@@ -108,6 +114,7 @@ function partyEvent(key: EventKey, id: string, startIso: string, endIso: string,
   return {
     key, kind: 'party', title: partyTitle(rec?.guestCount), startIso, endIso, status,
     openHref: href({ kind: 'party', day: localDate(startIso), id }),
+    roster: { kind: 'party', id, day: localDate(startIso) },
     detail: { ...(typeof rec?.guestCount === 'number' ? { guests: rec.guestCount } : {}), hostFirst: firstName(rec?.hostName) },
   }
 }
@@ -159,6 +166,7 @@ async function collect(fromIso: string, toIso: string, now: Date, opts: { seats?
     on.push({
       key, kind: 'legacy-class', title: l.name, startIso: l.startIso, endIso: l.endIso, status: 'on',
       openHref: href({ kind: 'legacy', day: localDate(l.startIso), id: l.id }), detail: {},
+      roster: { kind: 'workshop', id: l.id, day: localDate(l.startIso) },
     })
   }
 
@@ -207,19 +215,70 @@ export async function staffableBetween(fromIso: string, toIso: string): Promise<
   return (await collect(fromIso, toIso, new Date())).events
 }
 
-/** The window an ask, an assignment or a lookup by key searches: from a day back to ten weeks ahead (the screens never show further). */
+/** The window a lookup by key falls back to when nothing better is known: a day back to ten weeks ahead. */
 export const LOOKUP_BACK_MS = DAY_MS
 export const LOOKUP_AHEAD_MS = 70 * DAY_MS
+/** How much either side of a known start a lookup reads (a class or party can't be longer than a day). */
+const AROUND_MS = DAY_MS
+
+const validIso = (v: unknown): number | null => {
+  if (typeof v !== 'string' || v.length > 40) return null
+  const t = Date.parse(v)
+  return Number.isFinite(t) ? t : null
+}
 
 /**
- * One event by its key, searched from a day back to ten weeks ahead, with its
- * entry (null when nobody touched it). Null when it isn't in that window.
- * Throws when a source can't be read.
+ * Where to look for one event, best guess first, for ANY date (a December
+ * camp, last week's class): our class session by its key, our party by its
+ * record, then the start the screen showed (`hint`: only picks where to
+ * look; the schedule is still read, so a wrong hint just finds nothing),
+ * then when the event was last seen, then a day back to ten weeks ahead.
  */
-export async function eventByKey(key: EventKey, now: Date = new Date()): Promise<{ event: StaffableEvent; entry: StaffingEntry | null } | null> {
-  const { events, entries } = await collect(new Date(now.getTime() - LOOKUP_BACK_MS).toISOString(), new Date(now.getTime() + LOOKUP_AHEAD_MS).toISOString(), now)
-  const event = events.find((e) => e.key === key)
-  return event ? { event, entry: entries.get(key) ?? null } : null
+async function windowsFor(key: EventKey, now: Date, hint?: string | null): Promise<[string, string][]> {
+  const starts: number[] = []
+  const id = key.slice(key.indexOf(':') + 1)
+  if (key.startsWith('ses:')) {
+    for (const c of await listClasses()) {
+      const s = c.sessions.find((x) => x.id === id)
+      if (s) { starts.push(Date.parse(s.startIso)); break }
+    }
+  } else if (key.startsWith('party:pty_')) {
+    const rec = await getPartyRecord(id)
+    if (rec) starts.push(Date.parse(rec.startIso))
+  }
+  const h = validIso(hint)
+  if (h !== null) starts.push(h)
+  const seen = (await getEntries([key])).get(key)?.seen
+  if (seen) starts.push(Date.parse(seen.startIso))
+  const out: [string, string][] = []
+  for (const t of starts) {
+    if (!Number.isFinite(t)) continue
+    const w: [string, string] = [new Date(t - AROUND_MS).toISOString(), new Date(t + AROUND_MS).toISOString()]
+    if (!out.some((x) => x[0] === w[0])) out.push(w)
+  }
+  out.push([new Date(now.getTime() - LOOKUP_BACK_MS).toISOString(), new Date(now.getTime() + LOOKUP_AHEAD_MS).toISOString()])
+  return out
+}
+
+/** One event and the read it came from, for any date. Null when it isn't on the schedule (or is a cancelled one nobody is on). */
+async function locate(key: EventKey, now: Date, hint: string | null | undefined, seats: boolean): Promise<{ event: StaffableEvent; entries: Map<EventKey, StaffingEntry> } | null> {
+  for (const [fromIso, toIso] of await windowsFor(key, now, hint)) {
+    const { events, entries } = await collect(fromIso, toIso, now, seats ? { seats: key } : {})
+    const event = events.find((e) => e.key === key)
+    if (event) return { event, entries }
+  }
+  return null
+}
+
+/**
+ * One event by its key, on any date, with its entry (null when nobody
+ * touched it). `hint`: the start the screen showed, to find a Square-booked
+ * party or a legacy Square class (ours are found by their own records).
+ * Null when it isn't on the schedule. Throws when a source can't be read.
+ */
+export async function eventByKey(key: EventKey, now: Date = new Date(), hint?: string | null): Promise<{ event: StaffableEvent; entry: StaffingEntry | null } | null> {
+  const found = await locate(key, now, hint, false)
+  return found ? { event: found.event, entry: found.entries.get(key) ?? null } : null
 }
 
 // ---------------------------------------------------------------- what crew may see
@@ -230,11 +289,17 @@ export function eventForCrew(e: StaffableEvent): StaffableEvent {
   return { ...e, detail }
 }
 
-/** What a crew member may see of an entry: everyone on it (names), only their own ask, no history. */
-function entryForCrew(e: StaffingEntry, staffId: string): StaffingEntry {
+/**
+ * What a crew member may see of an entry: everyone still on the team who is
+ * on it (names only; someone who left is not "With Morgan"), only their own
+ * ask, no history.
+ */
+function entryForCrew(e: StaffingEntry, staffId: string, departed: ReadonlySet<string>): StaffingEntry {
   return {
     ...e,
-    assigned: e.assigned.map((a) => (a.staffId === staffId ? a : { ...a, notified: null })),
+    assigned: e.assigned
+      .filter((a) => a.staffId === staffId || !departed.has(a.staffId))
+      .map((a) => (a.staffId === staffId ? a : { ...a, notified: null })),
     asks: e.asks.filter((a) => a.staffId === staffId),
     history: [],
   }
@@ -249,7 +314,7 @@ export function rowForCrew(row: StaffingRow, staffId: string): StaffingRow {
   return {
     ...row,
     event: eventForCrew(row.event),
-    entry: row.entry ? entryForCrew(row.entry, staffId) : null,
+    entry: row.entry ? entryForCrew(row.entry, staffId, new Set(row.leftTeam.map((p) => p.staffId))) : null,
     people: row.people.filter((p) => p.staffId === staffId),
     leftTeam: [],
   }
@@ -300,17 +365,16 @@ export async function staffingRows(fromIso: string, toIso: string, opts: { onlyS
 }
 
 /**
- * One owner row by key (searched from a day back to ten weeks ahead, like
- * eventByKey), with its seat count, or null. Throws when a source or the team can't be read.
+ * One owner row by key, on any date (past ones too, to see who worked it),
+ * with its seat count, or null. `hint` as for eventByKey. Throws when a
+ * source or the team can't be read.
  */
-export async function rowByKey(key: EventKey, now: Date = new Date()): Promise<StaffingRow | null> {
-  const fromIso = new Date(now.getTime() - LOOKUP_BACK_MS).toISOString(), toIso = new Date(now.getTime() + LOOKUP_AHEAD_MS).toISOString()
-  const [{ events, entries }, { people: team }] = await Promise.all([collect(fromIso, toIso, now, { seats: key }), teamWithContacts()])
-  const event = events.find((e) => e.key === key)
-  if (!event) return null
+export async function rowByKey(key: EventKey, now: Date = new Date(), hint?: string | null): Promise<StaffingRow | null> {
+  const [found, { people: team }] = await Promise.all([locate(key, now, hint, true), teamWithContacts()])
+  if (!found) return null
   const active = team.filter((p) => p.active)
   const availability = await getAvailabilityMany(active.map((p) => p.id))
-  return buildRows([event], entries, active, availability)[0]
+  return buildRows([found.event], found.entries, active, availability)[0]
 }
 
 /** The same owner row with a just-saved entry (verdicts and names kept; who's on, who asked and the counts redone). */
@@ -331,7 +395,9 @@ export function refreshRow(row: StaffingRow, entry: StaffingEntry): StaffingRow 
 /**
  * One crew member's view, from one read of the schedule: `mine` = rows they
  * are on (crew-safe, cancelled ones too so they hear about it); `open` =
- * events still to come that are on and not theirs, with whether they asked.
+ * events still to come that are on and not theirs, with whether they asked
+ * and whether someone is still needed, plus cancelled ones they asked for
+ * (shown as Cancelled, never silently dropped).
  * Nobody else's availability, asks or notes; no host names.
  */
 export async function crewView(fromIso: string, toIso: string, staffId: string, now: Date = new Date()): Promise<{ mine: StaffingRow[]; open: OpenEvent[] }> {
@@ -339,12 +405,18 @@ export async function crewView(fromIso: string, toIso: string, staffId: string, 
   const active = team.filter((p) => p.active)
   const availability = await getAvailabilityMany(active.some((p) => p.id === staffId) ? [staffId] : [])
   const isMine = (ev: StaffableEvent) => !!entries.get(ev.key)?.assigned.some((a) => a.staffId === staffId)
+  const activeIds = new Set(active.map((p) => p.id))
   const mine = buildRows(events.filter(isMine), entries, active, availability).map((r) => rowForCrew(r, staffId))
+  const askOf = (ev: StaffableEvent) => entries.get(ev.key)?.asks.find((a) => a.staffId === staffId)
   const open = events
-    .filter((ev) => ev.status === 'on' && !isMine(ev) && Date.parse(ev.startIso) > now.getTime())
+    .filter((ev) => !isMine(ev) && Date.parse(ev.startIso) > now.getTime() && (ev.status === 'on' || !!askOf(ev)))
     .map((ev): OpenEvent => {
-      const ask = entries.get(ev.key)?.asks.find((a) => a.staffId === staffId)
-      return { ...eventForCrew(ev), asked: !!ask, askNote: ask?.note ?? '' }
+      const ask = askOf(ev)
+      const entry = entries.get(ev.key) ?? null
+      return {
+        ...eventForCrew(ev), asked: !!ask, askNote: ask?.note ?? '',
+        needsSomeone: ev.status === 'on' && staffedState(entry, ev.kind, (id) => activeIds.has(id)) !== 'staffed',
+      }
     })
   return { mine, open }
 }

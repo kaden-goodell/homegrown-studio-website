@@ -53,6 +53,19 @@ describe('the words', () => {
     for (const s of [m.text, m.subject, ...m.lines]) noSentenceColon(s)
   })
 
+  it('several days of one class: ONE message listing the days', () => {
+    const day = (d: number) => ({ ...klass, startIso: `2026-12-${d}T15:00:00.000Z`, endIso: `2026-12-${d}T18:00:00.000Z` }) // 9 AM to 12 PM CST
+    let m = shiftMessage('on', [day(23), day(21), day(22)], 'x/staff')
+    expect(m.text).toBe("Hometown Studio here. You're on Needlepoint 101, Mon Dec 21, Tue Dec 22 and Wed Dec 23, 9 AM to 12 PM. See your shifts at x/staff")
+    expect(m.subject).toBe("You're on Needlepoint 101, 3 days from Mon Dec 21")
+    // different times each day: each day says its own
+    m = shiftMessage('on', [day(21), { ...day(22), endIso: '2026-12-22T19:00:00.000Z' }], 'x/staff')
+    expect(m.lines[0]).toBe("You're on Needlepoint 101, Mon Dec 21 9 AM to 12 PM and Tue Dec 22 9 AM to 1 PM.")
+    m = shiftMessage('off', [day(21), day(22)], 'x/staff')
+    expect(m.text).toBe("Hometown Studio here. You're no longer on Needlepoint 101, Mon Dec 21 and Tue Dec 22. Thanks!")
+    for (const s of [m.text, m.subject, ...m.lines]) noSentenceColon(s)
+  })
+
   it('clock and day helpers', () => {
     expect(shiftClock('2026-10-25T17:00:00.000Z')).toBe('12 PM')
     expect(shiftClock('2026-10-25T05:00:00.000Z')).toBe('12 AM')

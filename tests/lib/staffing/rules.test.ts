@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
-  eventKeyOf, isEventKey, verdict, verdictWithNote, neededFor, staffedState, validateAvailability, movedSince, DEFAULT_NEEDED,
+  eventKeyOf, isEventKey, verdict, verdictWithNote, neededFor, staffedState, validateAvailability, movedSince, DEFAULT_NEEDED, withAssigned, withAsk,
 } from '@lib/staffing/rules'
 import type { Availability, DayMark, StaffingEntry, StaffableEvent } from '@lib/staffing/types'
 
@@ -108,10 +108,26 @@ describe('neededFor and staffedState', () => {
   })
 })
 
+describe('asks and assignments', () => {
+  const ask = (staffId: string, note = '', at = 'a1') => ({ staffId, name: staffId, at, note })
+  const a = (staffId: string) => ({ staffId, name: staffId, by: { id: 'o', name: 'Kaden' }, at: 'x', notified: null })
+  it('putting someone on clears their ask (and only theirs)', () => {
+    const e = entry({ asks: [ask('TM2'), ask('TM3')] })
+    expect(withAssigned(e, a('TM2')).asks.map((x) => x.staffId)).toEqual(['TM3'])
+    // already on with a stray ask: the ask goes
+    expect(withAssigned(entry({ assigned: [a('TM2')], asks: [ask('TM2')] }), a('TM2')).asks).toEqual([])
+  })
+  it('asking again with the same note changes nothing; a new note keeps when they first asked', () => {
+    const e = entry({ asks: [ask('TM2', 'hi', 'first')] })
+    expect(withAsk(e, ask('TM2', 'hi', 'second'))).toBe(e)
+    expect(withAsk(e, ask('TM2', 'new', 'second')).asks[0]).toMatchObject({ note: 'new', at: 'first' })
+  })
+})
+
 describe('movedSince', () => {
   const ev: StaffableEvent = {
     key: 'ses:ses_1', kind: 'class', title: 'Needlepoint 101', startIso: '2026-10-25T18:00:00.000Z', endIso: '2026-10-25T20:00:00.000Z',
-    status: 'on', openHref: '#class-cls_1', detail: {},
+    status: 'on', openHref: '#class-cls_1', detail: {}, roster: { kind: 'workshop', id: 'cls_1', day: '2026-10-25' },
   }
   it('false with nothing seen or the same times; true when either time changed', () => {
     expect(movedSince(entry(), ev)).toBe(false)

@@ -229,19 +229,31 @@ export function validateAvailability(raw: unknown, now: Date): Result<Pick<Avail
 
 // ---------------------------------------------------------------- entry changes (pure; used inside updateEntry)
 
-/** Puts someone on (once: an existing assignment for the same person is kept as it was). */
+/**
+ * Puts someone on (once: an existing assignment for the same person is kept
+ * as it was). Their "I'd like to work this" is done with once they're on, so
+ * it is cleared (taking them off later doesn't bring back an old ask).
+ */
 export function withAssigned(e: StaffingEntry, a: Assignment): StaffingEntry {
-  if (e.assigned.some((x) => x.staffId === a.staffId)) return e
-  return { ...e, assigned: [...e.assigned, a] }
+  const asks = e.asks.filter((x) => x.staffId !== a.staffId)
+  if (e.assigned.some((x) => x.staffId === a.staffId)) return asks.length === e.asks.length ? e : { ...e, asks }
+  return { ...e, assigned: [...e.assigned, a], asks }
 }
 
 export function withoutAssigned(e: StaffingEntry, staffId: string): StaffingEntry {
   return { ...e, assigned: e.assigned.filter((x) => x.staffId !== staffId) }
 }
 
-/** Adds this person's "I'd like to work this", or replaces their note. */
+/**
+ * Adds this person's "I'd like to work this", or replaces their note. Asking
+ * again with the same note changes nothing (a double tap writes no second
+ * history line); a new note keeps when they first asked.
+ */
 export function withAsk(e: StaffingEntry, ask: Ask): StaffingEntry {
-  return { ...e, asks: [...e.asks.filter((x) => x.staffId !== ask.staffId), ask] }
+  const was = e.asks.find((x) => x.staffId === ask.staffId)
+  if (was && was.note === ask.note) return e
+  const next = was ? { ...ask, at: was.at } : ask
+  return { ...e, asks: [...e.asks.filter((x) => x.staffId !== ask.staffId), next] }
 }
 
 export function withoutAsk(e: StaffingEntry, staffId: string): StaffingEntry {

@@ -35,7 +35,7 @@ describe('GET /api/staff/warnings.json', () => {
   it('scans today and the next 59 studio days', async () => {
     const res = await GET(ctx())
     expect(res.status).toBe(200)
-    expect(mockListWarnings).toHaveBeenCalledWith({ from: '2026-10-06', to: '2026-12-04' })
+    expect(mockListWarnings).toHaveBeenCalledWith({ from: '2026-10-06', to: '2026-12-04' }, { staffing: false })
     expect((await res.json()).data).toEqual({ from: '2026-10-06', to: '2026-12-04', warnings: [] })
   })
 
@@ -43,6 +43,11 @@ describe('GET /api/staff/warnings.json', () => {
     mockListWarnings.mockResolvedValue([W])
     const { data } = await (await GET(ctx())).json()
     expect(data.warnings).toEqual([{ ...W, line: 'LINE Pumpkin Pails: 27 seats sold, 25 capacity.' }])
+  })
+
+  it('skips the staffing scan altogether (it reads every staffing record; the crew never see those lines)', async () => {
+    await GET(ctx())
+    expect(mockListWarnings.mock.calls[0][1]).toEqual({ staffing: false })
   })
 
   it('never shows the crew the owners-only staffing lines', async () => {

@@ -11,6 +11,7 @@ import { crewView, eventByKey } from '@lib/staffing/events'
 import { isEventKey, MAX_NOTE, validateAvailability, withAsk, withoutAsk } from '@lib/staffing/rules'
 import { StaffingError } from '@lib/staffing/errors'
 import { json, staffingReply } from '@lib/staffing/http'
+import { OWNERS_ASSIGN } from '@lib/staffing/crew-copy'
 
 export const prerender = false
 
@@ -19,7 +20,7 @@ const MAX_RANGE_MS = 70 * DAY_MS // ten weeks
 const DEFAULT_AHEAD_MS = 56 * DAY_MS // eight weeks
 
 export const NOT_ON_TEAM = "You're not on the team list any more. Ask an owner."
-export const OWNERS_ASSIGN = 'Only an owner can put people on a class or party. Ask in /admin.'
+export { OWNERS_ASSIGN }
 export const ALREADY_HAPPENED = 'That one has already happened.'
 export const WAS_CANCELLED = 'That one was cancelled.'
 export const NOT_FOUND = "We couldn't find that class or party. Refresh and try again."
@@ -107,11 +108,13 @@ export const POST: APIRoute = async ({ request }) => {
   const key = body.key
   if (!isEventKey(key)) return json(400, { error: NOT_FOUND })
   const note = typeof body.note === 'string' ? body.note.trim() : ''
+  // The start the screen showed: only says where to look (the schedule is still read).
+  const hint = typeof body.startIso === 'string' ? body.startIso : null
   if (note.length > MAX_NOTE) return json(400, { error: 'Keep the note under 120 characters.' })
 
   return staffingReply(async () => {
     const now = new Date()
-    const found = await eventByKey(key, now)
+    const found = await eventByKey(key, now, hint)
     if (!found) throw new StaffingError(404, NOT_FOUND)
     const { event, entry } = found
     if (Date.parse(event.startIso) <= now.getTime()) throw new StaffingError(409, ALREADY_HAPPENED)

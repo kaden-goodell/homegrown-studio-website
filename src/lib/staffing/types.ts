@@ -66,6 +66,8 @@ export interface StaffableEvent {
   status: 'on' | 'cancelled' | 'gone'
   /** /admin hash that opens it */
   openHref: string
+  /** What /staff opens for it: the roster (`/api/staff/roster.json?kind&id&day`). Ids only, safe for crew. */
+  roster: { kind: 'workshop' | 'party'; id: string; day: string }
   /** hostFirst: owners' views only (never sent to crew) */
   detail: { seats?: string; guests?: number; hostFirst?: string | null }
 }

@@ -109,7 +109,7 @@ describe("crew can't assign", () => {
       src.me = me
       for (const action of ['assign', 'unassign', 'needed']) {
         const r = await call('POST', { action, key: keyOf(c), staffId: me.id, needed: 0, tell: false })
-        expect(r).toEqual({ status: 403, body: { error: 'Only an owner can put people on a class or party. Ask in /admin.' } })
+        expect(r).toEqual({ status: 403, body: { error: 'Only an owner can put people on a class or party. Ask Catherine or Kaden.' } })
       }
     }
     expect((await getEntries([keyOf(c)])).size).toBe(0)
@@ -190,6 +190,22 @@ describe('asks', () => {
     expect((await getEntries([keyOf(past)])).size).toBe(0)
   })
 
+  it('asking on a camp months away works (any date, not only the next ten weeks)', async () => {
+    const camp = klass('Winter Camp', inDays(95))
+    src.classes = [camp]
+    expect((await call('POST', { action: 'ask', key: keyOf(camp) })).status).toBe(200)
+    expect((await call('POST', { action: 'unask', key: keyOf(camp) })).status).toBe(200)
+  })
+
+  it('a double tap writes one history line', async () => {
+    const c = klass()
+    src.classes = [c]
+    await call('POST', { action: 'ask', key: keyOf(c), note: 'me please' })
+    await call('POST', { action: 'ask', key: keyOf(c), note: 'me please' })
+    const e = (await getEntries([keyOf(c)])).get(keyOf(c))!
+    expect(e.history.filter((h) => h.change === 'Jessica asked to work this')).toHaveLength(1)
+  })
+
   it('a note over 120 characters is refused', async () => {
     const c = klass()
     src.classes = [c]
@@ -221,6 +237,41 @@ describe('GET', () => {
     expect(d.open.every((x: any) => x.asked === false)).toBe(true)
     const text = JSON.stringify(r.body)
     expect(text).not.toMatch(/Sam|secret note|private reason|Stefanie|example\.com|\+1256/)
+  })
+
+  it('open events say whether someone is still needed (yes or no only, never who), and link to the /staff roster', async () => {
+    const full = klass('Full'), empty = klass('Empty', inDays(4))
+    src.classes = [full, empty]
+    await updateEntry(keyOf(full), (e) => withAssigned(e, { staffId: 'TM3', name: 'Sam', by: kaden, at: 'x', notified: null }), 'on', kaden)
+    const d = (await call('GET')).body.data
+    const byKey = (k: string) => d.open.find((x: any) => x.key === k)
+    expect(byKey(keyOf(full)).needsSomeone).toBe(false)
+    expect(byKey(keyOf(empty)).needsSomeone).toBe(true)
+    expect(byKey(keyOf(empty)).roster).toEqual({ kind: 'workshop', id: empty.id, day: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) })
+    expect(JSON.stringify(d.open)).not.toMatch(/Sam/)
+  })
+
+  it('an ask on a class that then gets cancelled stays in the list as Cancelled instead of vanishing', async () => {
+    const c = klass('Weaving')
+    src.classes = [c]
+    await call('POST', { action: 'ask', key: keyOf(c) })
+    c.status = 'cancelled'
+    const d = (await call('GET')).body.data
+    expect(d.open).toEqual([expect.objectContaining({ key: keyOf(c), status: 'cancelled', asked: true, needsSomeone: false })])
+    // and the ask can still be taken back
+    expect((await call('POST', { action: 'unask', key: keyOf(c) })).status).toBe(200)
+    expect((await call('GET')).body.data.open).toEqual([])
+  })
+
+  it('"With X" never names someone who left the team', async () => {
+    const c = klass()
+    src.classes = [c]
+    src.team.push(person('TM5', 'Morgan'))
+    await updateEntry(keyOf(c), (e) => withAssigned(e, { staffId: 'TM2', name: 'Jessica', by: kaden, at: 'x', notified: null }), 'on', kaden)
+    await updateEntry(keyOf(c), (e) => withAssigned(e, { staffId: 'TM5', name: 'Morgan', by: kaden, at: 'x', notified: null }), 'on', kaden)
+    src.team = src.team.filter((p) => p.id !== 'TM5')
+    const d = (await call('GET')).body.data
+    expect(d.mine[0].entry.assigned.map((a: any) => a.name)).toEqual(['Jessica'])
   })
 
   it('refuses a range over ten weeks', async () => {

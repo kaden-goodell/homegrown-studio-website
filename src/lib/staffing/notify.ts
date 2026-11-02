@@ -42,22 +42,37 @@ export function shiftWhat(ev: Pick<StaffableEvent, 'kind' | 'title' | 'detail'>)
   return typeof g === 'number' && g > 0 ? `a party for ${g} ${g === 1 ? 'guest' : 'guests'}` : 'a party'
 }
 
-/** The text and the email's words for one change. */
-export function shiftMessage(kind: 'on' | 'off', ev: Pick<StaffableEvent, 'kind' | 'title' | 'detail' | 'startIso' | 'endIso'>, shiftsLink: string): { text: string; subject: string; lines: string[] } {
-  const what = shiftWhat(ev)
-  const day = shiftDay(ev.startIso)
+type ShiftEvent = Pick<StaffableEvent, 'kind' | 'title' | 'detail' | 'startIso' | 'endIso'>
+
+/** "Mon Dec 21", "Mon Dec 21 and Tue Dec 22", "Mon Dec 21, Tue Dec 22 and Wed Dec 23". */
+function listOf(parts: string[]): string {
+  if (parts.length <= 1) return parts[0] ?? ''
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]}`
+}
+
+/**
+ * The text and the email's words for one change, on one event or on several
+ * days of the same class (one message for a multi-day class, never one per day).
+ */
+export function shiftMessage(kind: 'on' | 'off', evOrDays: ShiftEvent | ShiftEvent[], shiftsLink: string): { text: string; subject: string; lines: string[] } {
+  const days = (Array.isArray(evOrDays) ? evOrDays : [evOrDays]).slice().sort((a, b) => Date.parse(a.startIso) - Date.parse(b.startIso))
+  const what = shiftWhat(days[0])
+  const dayList = listOf(days.map((d) => shiftDay(d.startIso)))
+  const subjectDays = days.length === 1 ? shiftDay(days[0].startIso) : `${days.length} days from ${shiftDay(days[0].startIso)}`
   if (kind === 'on') {
-    const when = `${day}, ${shiftClock(ev.startIso)} to ${shiftClock(ev.endIso)}`
+    const clock = (d: ShiftEvent) => `${shiftClock(d.startIso)} to ${shiftClock(d.endIso)}`
+    const sameTimes = days.every((d) => clock(d) === clock(days[0]))
+    const when = sameTimes ? `${dayList}, ${clock(days[0])}` : listOf(days.map((d) => `${shiftDay(d.startIso)} ${clock(d)}`))
     return {
       text: `Hometown Studio here. You're on ${what}, ${when}. See your shifts at ${shiftsLink}`,
-      subject: `You're on ${what}, ${day}`,
+      subject: `You're on ${what}, ${subjectDays}`,
       lines: [`You're on ${what}, ${when}.`, 'Your shifts are all on the staff page.'],
     }
   }
   return {
-    text: `Hometown Studio here. You're no longer on ${what}, ${day}. Thanks!`,
-    subject: `You're no longer on ${what}, ${day}`,
-    lines: [`You're no longer on ${what}, ${day}.`, 'Thanks!'],
+    text: `Hometown Studio here. You're no longer on ${what}, ${dayList}. Thanks!`,
+    subject: `You're no longer on ${what}, ${subjectDays}`,
+    lines: [`You're no longer on ${what}, ${dayList}.`, 'Thanks!'],
   }
 }
 
@@ -74,7 +89,7 @@ export interface Told { email: boolean; text: boolean; warning: string | null }
  * Sends the email and the text to one person. Never throws. `warning` is
  * what the owner should hear when something didn't go (null when both went).
  */
-export async function tellPerson(kind: 'on' | 'off', person: Pick<StaffPerson, 'name' | 'givenName' | 'email' | 'phone'>, ev: Pick<StaffableEvent, 'kind' | 'title' | 'detail' | 'startIso' | 'endIso'>, origin: string): Promise<Told> {
+export async function tellPerson(kind: 'on' | 'off', person: Pick<StaffPerson, 'name' | 'givenName' | 'email' | 'phone'>, ev: ShiftEvent | ShiftEvent[], origin: string): Promise<Told> {
   const link = shiftsLinkFor(origin)
   const msg = shiftMessage(kind, ev, link.bare)
   const name = person.name

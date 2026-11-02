@@ -9,6 +9,7 @@ const src = vi.hoisted(() => ({
   records: new Map<string, any>(),
   team: [] as any[],
   scheduleFails: false,
+  teamDown: false,
   audit: [] as any[],
 }))
 
@@ -32,7 +33,8 @@ vi.mock('@lib/classes/studio-schedule', () => ({
 vi.mock('@lib/party-store', () => ({ getPartyRecord: vi.fn(async (id: string) => src.records.get(id) ?? null) }))
 vi.mock('@lib/staff-directory', () => ({
   teamWithContacts: vi.fn(async () => ({ people: src.team, source: 'square' })),
-  isActiveStaffId: vi.fn(async (id: string) => src.team.some((p) => p.id === id && p.active)),
+  isActiveStaffId: vi.fn(async (id: string) => !src.teamDown && src.team.some((p) => p.id === id && p.active)),
+  staffIdStatus: vi.fn(async (id: string) => (src.teamDown ? 'unknown' : src.team.some((p) => p.id === id && p.active) ? 'yes' : 'no')),
   staffIdForOwner: vi.fn(async (owner: string) => src.team.find((p) => p.role === 'owner' && p.givenName === owner)?.id ?? null),
 }))
 
@@ -74,6 +76,7 @@ beforeEach(() => {
   src.records = new Map()
   src.team = [person('TM1', 'Kaden', 'owner'), person('TM4', 'Catherine', 'owner'), person('TM2', 'Jessica'), person('TM3', 'Sam')]
   src.scheduleFails = false
+  src.teamDown = false
   src.audit = []
 })
 
@@ -149,6 +152,20 @@ describe('scope from the record', () => {
   })
 })
 
+describe('people who left', () => {
+  it('a crew calendar never says "With Morgan" once Morgan has left the team', async () => {
+    const c = klass('Needlepoint 101')
+    src.classes = [c]
+    src.team.push(person('TM5', 'Morgan'))
+    await put(keyOf(c), 'TM2', 'Jessica')
+    await put(keyOf(c), 'TM5', 'Morgan')
+    src.team = src.team.filter((p) => p.id !== 'TM5')
+    const { token } = await makeFeed({ staffId: 'TM2' }, by)
+    const ev = parseIcs((await fetchFeed(token)).body).events[0]
+    expect(ev.DESCRIPTION).toBe('Just you on this one.')
+  })
+})
+
 describe('moves and cancellations', () => {
   it('a moved class keeps its UID and its SEQUENCE goes up; a cancelled one says CANCELLED', async () => {
     const c = klass('Needlepoint 101')
@@ -176,6 +193,17 @@ describe('failures and limits', () => {
     src.scheduleFails = true
     const r = await fetchFeed(token)
     expect(r.status).toBe(503)
+  })
+
+  it('a real crew link while the team list cannot be read at all: 503 with Retry-After (not a dead-looking 404); a bad token still 404s', async () => {
+    const { token } = await makeFeed({ staffId: 'TM3' }, by)
+    src.teamDown = true
+    const r = await fetchFeed(token)
+    expect(r.status).toBe(503)
+    expect(r.headers.get('retry-after')).toBe('300')
+    expect(r.body).toBe('Try again soon')
+    const bad = await fetchFeed('A'.repeat(43))
+    expect(bad).toMatchObject({ status: 404, body: 'Not found' })
   })
 
   it('60 a minute from one address, then 429', async () => {

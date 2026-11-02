@@ -1,7 +1,7 @@
 import type { APIRoute } from 'astro'
 import { rateLimited } from '@lib/rate-limit'
 import { createLogger } from '@lib/logger'
-import { isActiveStaffId } from '@lib/staff-directory'
+import { staffIdStatus } from '@lib/staff-directory'
 import { findFeed, touchFeed } from '@lib/staffing/feed-store'
 import { feedFor, studioLocation } from '@lib/staffing/feed-events'
 import { buildFeed } from '@lib/staffing/ics-feed'
@@ -12,6 +12,8 @@ const logger = createLogger('api:calendar-feed')
 
 /** Every refusal answers exactly like this: a wrong, stopped, replaced or departed person's link looks missing. */
 const notFound = () => new Response('Not found', { status: 404, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' } })
+
+const tryAgain = () => new Response('Try again soon', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '300' } })
 
 /**
  * A read-only calendar link for a phone (stage 3). No cookie: the secret
@@ -28,10 +30,20 @@ export const GET: APIRoute = async ({ params, request, clientAddress }) => {
   let record
   try {
     record = await findFeed(token)
-    if (record && record.scope === 'mine' && !(record.staffId && (await isActiveStaffId(record.staffId)))) record = null
+    if (record && record.scope === 'mine') {
+      // A real link whose person can't be checked right now (Square down, no
+      // saved team): try again soon, so the phone keeps the subscription. A
+      // link that isn't real never gets this far (the same 404 as always).
+      const status = record.staffId ? await staffIdStatus(record.staffId) : 'no'
+      if (status === 'unknown') {
+        logger.warn('Calendar link: the team list could not be read')
+        return tryAgain()
+      }
+      if (status === 'no') record = null
+    }
   } catch (err) {
     logger.error('Calendar link check failed', { error: err instanceof Error ? err.message : String(err) })
-    return new Response('Try again soon', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '300' } })
+    return tryAgain()
   }
   if (!record) return notFound()
 
@@ -42,7 +54,7 @@ export const GET: APIRoute = async ({ params, request, clientAddress }) => {
     body = buildFeed(events, { name, now, location: studioLocation() })
   } catch (err) {
     logger.error('Calendar feed could not be built', { error: err instanceof Error ? err.message : String(err) })
-    return new Response('Try again soon', { status: 503, headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Retry-After': '300' } })
+    return tryAgain()
   }
   await touchFeed(record.hash, now)
   return new Response(body, {

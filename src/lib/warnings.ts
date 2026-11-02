@@ -379,7 +379,12 @@ function refundFlagDetail(f: RefundFlag, name: string): string {
   }
 }
 
-export async function listWarnings({ from, to }: { from: string; to: string }, opts: { now?: Date } = {}): Promise<Warning[]> {
+/**
+ * `staffing: false` skips the staffing scan altogether (the /staff panel: the
+ * crew never see those lines, and the scan reads every staffing record).
+ * Only the owners' daily email includes it.
+ */
+export async function listWarnings({ from, to }: { from: string; to: string }, opts: { now?: Date; staffing?: boolean } = {}): Promise<Warning[]> {
   const now = opts.now ?? new Date()
   // Our classes can't be read: say so in one line rather than hiding the Square and party warnings (never an all clear).
   const ownOrError = ownClassWarnings(from, to, now).catch((e): Warning[] => {
@@ -391,7 +396,7 @@ export async function listWarnings({ from, to }: { from: string; to: string }, o
   })
   // The owners' closed days (config until they first save on /admin). Staffing
   // lines never fail the scan: a staffing read that fails is one line of its own.
-  const [s, own, closed, staffing] = await Promise.all([scan(from, to), ownOrError, getClosures(), staffingWarnings(from, to, now)])
+  const [s, own, closed, staffing] = await Promise.all([scan(from, to), ownOrError, getClosures(), opts.staffing === false ? Promise.resolve([] as Warning[]) : staffingWarnings(from, to, now)])
   return [...classOverParty(s), ...classOverClass(s), ...oversold(s), ...partyOnClosedDay(s, closed), ...(await seatCounts(s)), ...own, ...staffing].sort((a, b) =>
     a.when.localeCompare(b.when),
   )

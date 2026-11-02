@@ -23,7 +23,8 @@ export const GET: APIRoute = async ({ request }) => {
   const from = studioDate(new Date().toISOString())
   const to = addDays(from, WARNING_WINDOW_DAYS - 1)
   try {
-    const warnings = await listWarnings({ from, to })
+    // The staffing scan is skipped here (owners get it by email and on /admin); the filter below is a second guard.
+    const warnings = await listWarnings({ from, to }, { staffing: false })
     const shown = warnings.filter((w) => !OWNER_ONLY_CODES.has(w.code))
     return json({ data: { from, to, warnings: shown.map((w) => ({ ...w, line: warningLine(w) })) } })
   } catch (err) {

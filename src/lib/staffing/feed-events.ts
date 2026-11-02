@@ -23,6 +23,7 @@ import { staffIdForOwner } from '@lib/staff-directory'
 import type { Owner } from '@lib/admin-who'
 import { crewView, rememberSeen, staffingRows, type StaffingRow } from './events'
 import type { FeedEvent } from './ics-feed'
+import { PARTY_ARRIVAL } from './crew-copy'
 import type { FeedRecord } from './feed-store'
 
 const DAY_MS = 86_400_000
@@ -32,7 +33,8 @@ const UID_DOMAIN = 'ourhometownstudio.com'
 
 export const CREW_FEED_NAME = 'Hometown Studio · my shifts'
 export const OWNER_FEED_NAME = 'Hometown Studio'
-export const PARTY_EARLY = 'Be there 30 minutes before it starts.'
+/** The party arrival line: one constant, owner decision pending (see crew-copy.ts). */
+export const PARTY_EARLY = PARTY_ARRIVAL
 
 export const studioLocation = (): string => {
   const a = siteConfig.address
@@ -55,7 +57,7 @@ export function crewFeedEvents(rows: StaffingRow[], staffId: string): FeedEvent[
     .map((r) => {
       const others = r.entry!.assigned.filter((a) => a.staffId !== staffId).map((a) => a.name)
       const parts = [others.length ? `With ${namesList(others)}.` : 'Just you on this one.']
-      if (r.event.kind === 'party' && r.event.status === 'on') parts.push(PARTY_EARLY)
+      if (r.event.kind === 'party' && r.event.status === 'on' && PARTY_EARLY) parts.push(PARTY_EARLY)
       if (r.event.status !== 'on') parts.unshift('This was cancelled.')
       return {
         uid: uidOf(r.event.key),
@@ -124,11 +126,13 @@ function nextDay(ymd: string): string {
 export async function feedFor(record: FeedRecord, now: Date, origin: string): Promise<{ name: string; events: FeedEvent[] }> {
   const fromIso = new Date(now.getTime() - FEED_BACK_MS).toISOString()
   const toIso = new Date(now.getTime() + FEED_AHEAD_MS).toISOString()
-  if (record.scope === 'mine' && record.staffId) {
+  if (record.scope === 'mine') {
+    if (!record.staffId) throw new Error('A crew calendar link without a person')
     const { mine } = await crewView(fromIso, toIso, record.staffId, now)
     await rememberSeen(mine)
     return { name: CREW_FEED_NAME, events: crewFeedEvents(mine, record.staffId) }
   }
+  if (record.scope !== 'all') throw new Error('A calendar link with an unknown scope')
   const [rows, other, youId] = await Promise.all([
     staffingRows(fromIso, toIso, { seats: true }),
     blockedAndClosedBusy(fromIso, toIso),

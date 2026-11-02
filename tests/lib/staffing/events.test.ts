@@ -49,7 +49,7 @@ vi.mock('@lib/parties/legacy-square', () => ({
   onSandbox: () => src.sandbox,
 }))
 
-import { staffableBetween, staffingRows, orphanEntries, crewView, rowForCrew, eventForCrew, rememberSeen } from '@lib/staffing/events'
+import { staffableBetween, staffingRows, orphanEntries, crewView, rowForCrew, eventForCrew, rememberSeen, eventByKey, rowByKey } from '@lib/staffing/events'
 import { getEntries, updateEntry } from '@lib/staffing/staffing-store'
 import { getPartyRecord } from '@lib/party-store'
 import { getAvailability, saveAvailability } from '@lib/staffing/availability-store'
@@ -94,6 +94,24 @@ beforeEach(() => {
   src.partiesFail = false
   src.readSquareBookings = true
   src.sandbox = false
+})
+
+describe('lookup by key, any date', () => {
+  const now = new Date('2026-10-20T15:00:00.000Z')
+  it('our class session months out and a past one are found by the session itself', async () => {
+    const far = klass({ sessions: [{ id: uid('ses_'), startIso: at(24, 10).replace('2026-10', '2027-01'), endIso: at(24, 12).replace('2026-10', '2027-01'), capacity: 8 }] })
+    const past = klass({ sessions: [{ id: uid('ses_'), startIso: '2026-10-03T15:00:00.000Z', endIso: '2026-10-03T17:00:00.000Z', capacity: 8 }] })
+    src.classes = [far, past]
+    expect((await eventByKey(`ses:${far.sessions[0].id}`, now))?.event.title).toBe('Needlepoint 101')
+    expect((await rowByKey(`ses:${past.sessions[0].id}`, now))?.event.key).toBe(`ses:${past.sessions[0].id}`)
+  })
+  it('a legacy Square class far away: found with the hint, not without; a garbage hint is ignored', async () => {
+    src.legacy = [{ id: 'clssch_x', name: 'Square Weaving', startIso: '2027-02-06T16:00:00.000Z', endIso: '2027-02-06T18:00:00.000Z' }]
+    expect(await eventByKey('legacy:clssch_x', now)).toBeNull()
+    expect(await eventByKey('legacy:clssch_x', now, 'not a date')).toBeNull()
+    const found = await eventByKey('legacy:clssch_x', now, '2027-02-06T16:00:00.000Z')
+    expect(found?.event).toMatchObject({ kind: 'legacy-class', title: 'Square Weaving', roster: { kind: 'workshop', id: 'clssch_x', day: '2027-02-06' } })
+  })
 })
 
 describe('staffableBetween', () => {

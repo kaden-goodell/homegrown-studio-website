@@ -32,7 +32,8 @@ vi.mock('@lib/staff-directory', () => ({
   teamWithContacts: vi.fn(async () => ({ people: src.team, source: 'square' })),
   isActiveStaffId: vi.fn(async (id: string) => src.team.some((p) => p.id === id && p.active)),
 }))
-vi.mock('@lib/staffing/notify', () => ({
+vi.mock('@lib/staffing/notify', async (orig) => ({
+  ...(await orig<typeof import('@lib/staffing/notify')>()),
   tellPerson: vi.fn(async (kind: string, person: any, ev: any, origin: string) => { src.told.push({ kind, person, ev, origin }); return src.tellResult }),
 }))
 
@@ -169,12 +170,11 @@ describe('assign and unassign', () => {
     expect(r.body.warning).toBe("Sam marked this time as Can't (dentist).")
   })
 
-  it('refuses unknown or departed people, fallback ids, cancelled and past events', async () => {
-    const c = klass(), past = klass('Old', inDays(0, -5)), cancelled = { ...klass('Gone'), status: 'cancelled' }
-    src.classes = [c, past, cancelled]
+  it('refuses unknown or departed people, fallback ids and cancelled events', async () => {
+    const c = klass(), cancelled = { ...klass('Gone'), status: 'cancelled' }
+    src.classes = [c, cancelled]
     expect(await call('POST', { action: 'assign', key: keyOf(c), staffId: 'TM9', tell: false })).toEqual({ status: 400, body: { error: "That person isn't on the team list." } })
     expect((await call('POST', { action: 'assign', key: keyOf(c), staffId: 'kaden', tell: false })).status).toBe(400)
-    expect((await call('POST', { action: 'assign', key: keyOf(past), staffId: 'TM2', tell: false })).body.error).toBe('That one has already happened.')
     await updateEntry(keyOf(cancelled), (e) => withAssigned(e, { staffId: 'TM2', name: 'Jessica', by: { id: 'x', name: 'Kaden' }, at: 'x', notified: null }), 'on', { id: 'x', name: 'Kaden' })
     expect((await call('POST', { action: 'assign', key: keyOf(cancelled), staffId: 'TM3', tell: false })).status).toBe(409)
     // taking someone off a cancelled class is fine, and nobody is texted about a cancelled class from here
@@ -201,6 +201,121 @@ describe('assign and unassign', () => {
     ])
     expect([a.status, b.status]).toEqual([200, 200])
     expect((await getEntries([keyOf(c)])).get(keyOf(c))!.assigned.map((x) => x.staffId).sort()).toEqual(['TM2', 'TM3'])
+  })
+})
+
+describe('any date (a December camp, last week\'s class)', () => {
+  it('a camp more than ten weeks out can be read and assigned; refreshing never says it can\'t be found', async () => {
+    const camp = klass('Winter Camp', inDays(90))
+    src.classes = [camp]
+    const r = await call('GET', undefined, { query: `?key=${keyOf(camp)}` })
+    expect(r.status).toBe(200)
+    expect(r.body.data.row.event).toMatchObject({ key: keyOf(camp), title: 'Winter Camp' })
+    const a = await call('POST', { action: 'assign', key: keyOf(camp), staffId: 'TM2', tell: true })
+    expect(a.status).toBe(200)
+    expect(a.body.data.row.people[0]).toMatchObject({ staffId: 'TM2', assigned: true })
+    expect(src.told).toHaveLength(1)
+    // and again later: still found
+    expect((await call('GET', undefined, { query: `?key=${keyOf(camp)}` })).body.data.row.state).toBe('staffed')
+  })
+
+  it('one of our parties months away is found by its own record', async () => {
+    const p = uid('pty_')
+    src.records.set(p, { bookingId: p, hostName: 'Ann Lee', guestCount: 9, status: 'booked', source: 'ours', startIso: inDays(120) })
+    src.parties = [{ kind: 'party', id: p, label: 'a party', startIso: inDays(120), endIso: inDays(120, 2), party: { state: 'booked', partyId: p } }]
+    const r = await call('POST', { action: 'assign', key: `party:${p}`, staffId: 'TM3', tell: false })
+    expect(r.status).toBe(200)
+    expect(r.body.data.row.event.title).toBe('Party · 9 guests')
+  })
+
+  it('a Square-booked party far away is found with the start the sheet shows (the hint only says where to look)', async () => {
+    const sq = uid('SQB')
+    src.parties = [{ kind: 'party', id: sq, label: 'a party', startIso: inDays(100), endIso: inDays(100, 2) }]
+    expect((await call('GET', undefined, { query: `?key=party:${sq}` })).status).toBe(404)
+    const r = await call('GET', undefined, { query: `?key=party:${sq}&start=${encodeURIComponent(inDays(100))}` })
+    expect(r.status).toBe(200)
+    // a wrong hint just finds nothing; it can't invent an event
+    expect((await call('GET', undefined, { query: `?key=party:${sq}&start=${encodeURIComponent(inDays(40))}` })).status).toBe(404)
+    const a = await call('POST', { action: 'assign', key: `party:${sq}`, staffId: 'TM2', tell: false, startIso: inDays(100) })
+    expect(a.status).toBe(200)
+    // once someone is on it, its last-seen time finds it even without the hint
+    expect((await call('GET', undefined, { query: `?key=party:${sq}` })).status).toBe(200)
+  })
+
+  it("last week's class shows who worked it; owners may still put someone on for the record (nobody is messaged)", async () => {
+    const past = klass('Old Class', inDays(-6))
+    src.classes = [past]
+    await updateEntry(keyOf(past), (e) => withAssigned(e, { staffId: 'TM2', name: 'Jessica', by: { id: 'x', name: 'Kaden' }, at: 'x', notified: null }), 'on', { id: 'x', name: 'Kaden' })
+    const r = await call('GET', undefined, { query: `?key=${keyOf(past)}` })
+    expect(r.status).toBe(200)
+    expect(r.body.data.row.people.filter((p: any) => p.assigned).map((p: any) => p.name)).toEqual(['Jessica'])
+    // Record-keeping: assigning in the past is allowed for owners, and nobody is texted about it.
+    const a = await call('POST', { action: 'assign', key: keyOf(past), staffId: 'TM3', tell: true })
+    expect(a.status).toBe(200)
+    expect(a.body.warning).toBe('Saved for the record. Nobody was told, because it has already happened.')
+    expect(src.told).toEqual([])
+    expect(src.audit[0]).toMatchObject({ action: 'staffing.assign', details: { staffId: 'TM3', past: true } })
+    // taking someone off a past class is allowed too, silently
+    expect((await call('POST', { action: 'unassign', key: keyOf(past), staffId: 'TM2', tell: true })).status).toBe(200)
+    expect(src.told).toEqual([])
+  })
+})
+
+describe('several days of one class at once', () => {
+  function camp(days = 3) {
+    const id = uid('cls_')
+    return {
+      id, status: 'open', content: { name: 'Needlepoint Camp', rules: {} },
+      sessions: Array.from({ length: days }, (_, i) => ({ id: uid('ses_'), startIso: inDays(10 + i), endIso: inDays(10 + i, 3), capacity: 10 })),
+    }
+  }
+  it('puts them on every day and sends ONE message listing the days', async () => {
+    const c = camp()
+    src.classes = [c]
+    const keys = c.sessions.map((s: any) => `ses:${s.id}`)
+    const r = await call('POST', { action: 'assign', keys, staffId: 'TM2', tell: true })
+    expect(r.status).toBe(200)
+    expect(r.body.data.rows.map((x: any) => x.state)).toEqual(['staffed', 'staffed', 'staffed'])
+    expect(src.told).toHaveLength(1)
+    expect(src.told[0].ev.map((e: any) => e.key)).toEqual(keys)
+    const entries = await getEntries(keys as any)
+    for (const k of keys) expect(entries.get(k as any)!.assigned[0]).toMatchObject({ staffId: 'TM2', notified: { email: true, text: true } })
+    expect(src.audit.filter((a) => a.action === 'staffing.assign')).toHaveLength(3)
+    // off every day: one message again
+    await call('POST', { action: 'unassign', keys, staffId: 'TM2', tell: true })
+    expect(src.told).toHaveLength(2)
+    expect(src.told[1]).toMatchObject({ kind: 'off' })
+    expect(src.told[1].ev).toHaveLength(3)
+  })
+
+  it('only the days they were not already on are messaged', async () => {
+    const c = camp()
+    src.classes = [c]
+    const keys = c.sessions.map((s: any) => `ses:${s.id}`)
+    await call('POST', { action: 'assign', key: keys[0], staffId: 'TM2', tell: false })
+    await call('POST', { action: 'assign', keys, staffId: 'TM2', tell: true })
+    expect(src.told[0].ev.map((e: any) => e.key)).toEqual(keys.slice(1))
+  })
+
+  it('refuses days of different classes, and too many or repeated keys', async () => {
+    const a = klass('One'), b = klass('Two', inDays(4))
+    src.classes = [a, b]
+    expect((await call('POST', { action: 'assign', keys: [keyOf(a), keyOf(b)], staffId: 'TM2', tell: false })).body.error).toBe("Those aren't days of the same class.")
+    expect((await call('POST', { action: 'assign', keys: [keyOf(a), keyOf(a)], staffId: 'TM2', tell: false })).status).toBe(400)
+    expect((await call('POST', { action: 'assign', keys: Array.from({ length: 15 }, (_, i) => `ses:x${i}`), staffId: 'TM2', tell: false })).status).toBe(400)
+    expect((await getEntries([keyOf(a), keyOf(b)])).size).toBe(0)
+  })
+})
+
+describe('asks after assigning', () => {
+  it('putting someone on clears their ask, so a later take-off does not show them as asked again', async () => {
+    const c = klass()
+    src.classes = [c]
+    await updateEntry(keyOf(c), (e) => ({ ...e, asks: [{ staffId: 'TM2', name: 'Jessica', at: 'x', note: 'pick me' }] }), 'ask', { id: 'TM2', name: 'Jessica' })
+    let r = await call('POST', { action: 'assign', key: keyOf(c), staffId: 'TM2', tell: false })
+    expect(r.body.data.row.people.find((p: any) => p.staffId === 'TM2')).toMatchObject({ assigned: true, asked: false })
+    r = await call('POST', { action: 'unassign', key: keyOf(c), staffId: 'TM2', tell: false })
+    expect(r.body.data.row.people.find((p: any) => p.staffId === 'TM2')).toMatchObject({ assigned: false, asked: false })
   })
 })
 

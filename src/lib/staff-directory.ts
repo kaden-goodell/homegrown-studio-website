@@ -195,6 +195,21 @@ export async function isActiveStaffId(id: string): Promise<boolean> {
   }
 }
 
+/**
+ * Like isActiveStaffId, but tells "not on the team" ('no') apart from "the
+ * team can't be read at all" ('unknown': Square down and no saved copy), so a
+ * calendar link can answer "try again soon" instead of looking dead.
+ */
+export async function staffIdStatus(id: string): Promise<'yes' | 'no' | 'unknown'> {
+  if (typeof id !== 'string' || !id || FALLBACK_IDS.has(id)) return 'no'
+  try {
+    const { people } = await teamWithContacts()
+    return people.some((p) => p.id === id && p.active) ? 'yes' : 'no'
+  } catch {
+    return 'unknown'
+  }
+}
+
 /** The team member an /admin owner name is, by given name among owners; null when not found, ambiguous, or the team can't be read. */
 export async function staffIdForOwner(owner: Owner): Promise<string | null> {
   let people: StaffPerson[]

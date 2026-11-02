@@ -6,7 +6,7 @@ import { createLogger } from '@lib/logger'
 import { sendEmail } from '@lib/email'
 import { addDays } from '@lib/kit-dates'
 import { studioDate } from '@lib/studio-time'
-import { listWarnings, warningLine, WARNING_WINDOW_DAYS } from '@lib/warnings'
+import { listWarnings, OWNER_ONLY_CODES, warningLine, WARNING_WINDOW_DAYS } from '@lib/warnings'
 import { providers } from '@config/providers'
 import { checkSession, loadSessionRecord } from '@lib/square-dashboard'
 import { digestWarnings, stillToDecideLine } from '@lib/warning-digest'
@@ -111,10 +111,14 @@ export const POST: APIRoute = async ({ request }) => {
   const onlySignIn = !!signIn && lines.length === 1
   const subject = onlySignIn ? '⚠ The site’s Square sign-in needs re-saving' : `⚠ Studio schedule needs attention (${lines.length})`
   const footer = 'Nothing has been changed. Each line needs a person.'
-  const text = [...lines, '', `Open the staff console: ${SITE_URL}/staff`, '', footer].join('\n')
+  // Staffing lines are fixed in /admin (More › Staff), which the /staff panel doesn't show.
+  const staffing = digest.full.some((w) => OWNER_ONLY_CODES.has(w.code))
+  const adminStaff = `${SITE_URL}/admin#more-staff`
+  const text = [...lines, '', ...(staffing ? [`Who's on, in /admin › More › Staff: ${adminStaff}`] : []), `Open the staff console: ${SITE_URL}/staff`, '', footer].join('\n')
   const html = `<div style="max-width:560px;font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
   <p style="margin:0 0 10px;font-size:15px;font-weight:700;color:#b91c1c;">${esc(subject)}</p>
   <ul style="margin:0 0 12px;padding-left:18px;">${lines.map((l) => `<li style="margin:0 0 6px;font-size:14px;color:#3d3630;">${esc(l)}</li>`).join('')}</ul>
+  ${staffing ? `<p style="margin:0 0 10px;"><a href="${esc(adminStaff)}" style="color:#7a4a2e;font-weight:600;">Who's on: open /admin › More › Staff</a></p>` : ''}
   <p style="margin:0 0 10px;"><a href="${esc(SITE_URL)}/staff" style="color:#7a4a2e;font-weight:600;">Open the staff console</a></p>
   <p style="margin:0;font-size:13px;color:#6f635b;">${esc(footer)}</p>
 </div>`
