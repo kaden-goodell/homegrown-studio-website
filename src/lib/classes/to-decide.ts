@@ -1439,6 +1439,19 @@ async function failedState(item: ToDecideItem): Promise<{ flag: RefundFlag; answ
  * party payment Square never answered: reads Square and says what it shows,
  * with the next buttons. Read only: nothing is decided or sent.
  */
+/**
+ * Kinds whose "Ask Square" is a decision, not a read: a customer's own cancel
+ * (D2) asks Square by sending the very same saved refund request again, and
+ * finishes the cancel when Square shows it. The route sends these to decide().
+ */
+const ASK_DECIDES: ReadonlySet<ToDecideKind> = new Set<ToDecideKind>(['cancel-unclear'])
+
+/** True when this item's Ask Square goes through decide() (see ASK_DECIDES). An item that's gone or done is left to askSquare's own refusal. */
+export async function askDecides(id: string, now = new Date()): Promise<boolean> {
+  const item = await openItem(id, now).catch(() => null)
+  return !!item && ASK_DECIDES.has(item.kind)
+}
+
 export async function askSquare(id: string, now = new Date()): Promise<AskAnswer> {
   const item = await openItem(id, now)
   if (item.kind === 'refund-unconfirmed') return unconfirmedAnswer(item)

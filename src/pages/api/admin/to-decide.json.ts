@@ -2,7 +2,7 @@ import type { APIRoute } from 'astro'
 import { adminActor, adminAuthorized } from '@lib/admin-auth'
 import { json } from '@lib/classes/admin-actions'
 import { TestSiteStoreError } from '@lib/classes/test-site-guard'
-import { askSquare, decide, DecideError, listToDecide, nameCounterSeats, openItem, saleAmount, undoDecision, type AskAnswer, type ToDecideItem } from '@lib/classes/to-decide'
+import { askDecides, askSquare, decide, DecideError, listToDecide, nameCounterSeats, openItem, saleAmount, undoDecision, type AskAnswer, type ToDecideItem } from '@lib/classes/to-decide'
 
 export const prerender = false
 
@@ -41,6 +41,8 @@ export const GET: APIRoute = async ({ request, url }) => {
  * matched counter sale's seats.
  * POST { id, action: 'ask' }: "Ask Square" on a refund with no answer or one
  * Square failed: what Square shows now, and the choices that fit (read only).
+ * On a customer's own cancel (cancel-unclear) it is a decision instead: the
+ * same saved refund goes to Square again (never a second refund).
  */
 export const POST: APIRoute = async ({ request }) => {
   if (!adminAuthorized(request)) return json(401, { error: 'Sign in first.' })
@@ -53,7 +55,8 @@ export const POST: APIRoute = async ({ request }) => {
     }
     if (typeof body?.id !== 'string' || typeof body?.action !== 'string') return json(400, { error: 'Pick what to do.' })
     if (body.action === 'undo') { await undoDecision(body.id, by); return json(200, { data: { undone: body.id } }) }
-    if (body.action === 'ask') return json(200, { data: { asked: await askSquare(body.id) } })
+    // A customer's own cancel (cancel-unclear): its Ask Square re-sends the same saved refund, so it is a decision.
+    if (body.action === 'ask' && !(await askDecides(body.id))) return json(200, { data: { asked: await askSquare(body.id) } })
     return json(200, { data: await decide(body.id, body.action, body, by) })
   } catch (e) {
     if (e instanceof DecideError) return json(e.status, { error: e.message, ...e.extra })

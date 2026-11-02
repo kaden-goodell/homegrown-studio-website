@@ -49,6 +49,8 @@ import { makeKvStore } from '@lib/blob-store'
 import { cancelToken, readCancelToken } from '@lib/classes/self-cancel-token'
 import { getCancelRecord } from '@lib/classes/self-cancel'
 import { decide, listToDecide } from '@lib/classes/to-decide'
+import * as toDecideRoute from '@pages/api/admin/to-decide.json'
+import { adminCookie } from '@lib/admin-auth'
 import { CANCEL_WHY } from '@lib/classes/self-cancel-rules'
 import type { ClassContent } from '@lib/classes/types'
 
@@ -265,6 +267,29 @@ describe('when Square doesn’t answer, or says no', () => {
     expect((await byId(classId))[lines[0].id].refunds).toHaveLength(1)
     expect(m.runWaitlist).toHaveBeenCalledTimes(1)
     expect((await get(t)).body.data.seats[0].state).toBe('cancelled')
+  })
+
+  it('merge: /admin’s to-decide route sends Ask Square on a customer’s cancel to the decision (same refund again), not the read-only Ask Square', async () => {
+    vi.stubEnv('ADMIN_PASSCODE', 'owner-secret')
+    const { classId, bookingId, t, lines } = await setup(two)
+    const lost = async (i: any) => {
+      if (!m.keys.has(i.idempotencyKey)) m.keys.set(i.idempotencyKey, { id: `rf_${m.keys.size + 1}`, paymentId: i.paymentId, amountCents: i.amountCents, status: 'COMPLETED' })
+      throw new Error('timeout')
+    }
+    m.refundPayment.mockImplementationOnce(lost)
+    await post({ t, action: 'cancel', lineIds: [lines[0].id], attempt: attempt() })
+    const { items } = await listToDecide()
+    const item = items.find((i) => i.kind === 'cancel-unclear' && i.detail.bookingId === bookingId)!
+    const request = new Request('https://x.test/api/admin/to-decide.json', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', cookie: adminCookie().split(';')[0] }, body: JSON.stringify({ id: item.id, action: 'ask' }),
+    })
+    const res: Response = await (toDecideRoute as any).POST({ request, url: new URL(request.url) })
+    const body = await res.json()
+    expect(res.status).toBe(200)
+    expect(body.data.asked).toBeUndefined()
+    expect(body.data.decided.what).toBe('Square showed the refund. They’re cancelled and got $32.70 back')
+    expect((await byId(classId))[lines[0].id].refunds).toHaveLength(1)
+    vi.unstubAllEnvs()
   })
 
   it('turned down: nothing refunded, still booked, the page says try again or send a note; To decide offers Try the refund again / Got it', async () => {

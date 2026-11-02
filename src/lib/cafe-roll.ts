@@ -42,7 +42,7 @@ export async function rollCafeWindows(
       if (!was) {
         const send = deps.email ?? sendEmail
         const line = `Craft Café’s hours didn’t roll forward in Square tonight: ${result.message}`
-        const body = [line, '', 'The public calendar shows the café from Square, so it may stop showing future café days. Open /admin › More › Hours & Craft Café and save, or tell Kaden.']
+        const body = [line, '', 'The public calendar shows the café from Square, so it may stop showing future café days. Open /admin › More › Hours & Craft Café and tap Save to try again.']
         emailed = (await send({ to: siteConfig.ownerEmails.join(', '), subject: '⚠ Craft Café hours didn’t update in Square', text: body.join('\n'), html: body.filter(Boolean).map((l) => `<p>${l}</p>`).join('') })).sent
         if (emailed) await alerts.set(ALERT_KEY, JSON.stringify({ since: now.toISOString() }))
       }
