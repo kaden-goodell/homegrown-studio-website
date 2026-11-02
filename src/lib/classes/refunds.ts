@@ -38,6 +38,11 @@ export type RefundKind = 'booking' | 'person' | 'session' | 'custom'
 export const REFUND_KINDS: RefundKind[] = ['booking', 'person', 'session', 'custom']
 
 export const AT_THE_REGISTER = 'Refund this at the register, then free the seat.'
+/** D3: said when someone tries to refund a booking that cost nothing. */
+export const NOTHING_TO_REFUND_FREE = 'This booking was free, so there’s nothing to refund. Free the seat instead.'
+/** D3: an online or iPad booking that came to $0: no order, no payment, $0 charged. */
+export const isFreeBooking = (l: Pick<LedgerLine, 'source' | 'square'>) =>
+  (l.source === 'online' || l.source === 'door-card') && !l.square.paymentId && !l.square.orderId && l.square.chargedCents === 0
 export const ALREADY_FREE = 'That seat is already free.'
 
 export interface RefundRequest {
@@ -140,6 +145,8 @@ export function planRefund(ledger: Ledger, req: RefundRequest): RefundPlan {
     }).sort((a, b) => a.seat - b.seat)
   }
 
+  // D3: a free booking (a code or a $0 early-bird) has nothing to refund; its seat can still be freed.
+  if (chosen.every(isFreeBooking)) throw new RefundError(409, NOTHING_TO_REFUND_FREE)
   const paymentId = chosen[0].square.paymentId
   if (!paymentId || chosen.some((l) => l.square.paymentId !== paymentId)) throw new RefundError(400, NOT_PAID_HERE)
 

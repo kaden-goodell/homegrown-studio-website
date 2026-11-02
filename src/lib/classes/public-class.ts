@@ -148,3 +148,14 @@ export function asScheduledClass(own: OwnClassData, name: string): ScheduledClas
     createdAt: '', updatedAt: '', by: { id: '', name: '' }, history: [],
   }
 }
+
+/**
+ * The price a seat costs right now (D4): its early-bird price while the
+ * early-bird runs (the server only sends a running one), else the regular
+ * price. The card, the panel and the door screens all say this number.
+ */
+export function currentPriceCents(own: Pick<OwnClassData, 'prices' | 'earlyBird'>, passId: string, ticketTypeId: string): Cents | undefined {
+  const regular = own.prices[passId]?.[ticketTypeId]
+  const eb = own.earlyBird?.prices[passId]?.[ticketTypeId]
+  return eb !== undefined && regular !== undefined && eb < regular ? eb : regular
+}

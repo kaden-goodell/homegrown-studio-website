@@ -46,6 +46,35 @@ describe('orderLinesFor — per-line discounts (stage 4)', () => {
   })
 })
 
+describe('orderLinesFor — D4: the POS item already carries the early-bird price', () => {
+  const req = { passId: 'all', tickets: { person: 2 }, seats: [{ addOns: { glaze: 1 } }, {}] }
+  it('the early-bird the catalog carries is never taken twice: only the code goes to Square', () => {
+    const onPos = { ...cls, square: { ...cls.square, prices: { 'all:person': 1200, 'addon:glaze': 400 } } }
+    const r = quote(onPos, req, NOW, 9, { promo })
+    if (!r.ok) throw new Error(r.error)
+    const o = orderLinesFor(onPos, r.value)
+    expect(o.ok && o.discounts).toEqual([{ line: 0, name: 'Code TEN', cents: 120 }, { line: 2, name: 'Code TEN', cents: 120 }])
+    expect(o.ok && o.shortCents).toBe(0)
+  })
+  it('POS still at the early-bird price after it ended (before the hourly flip): the code absorbs it, the rest is short', () => {
+    const later = new Date('2026-11-01T12:00:00Z')
+    const onPos = { ...cls, square: { ...cls.square, prices: { 'all:person': 1200, 'addon:glaze': 400 } } }
+    const r = quote(onPos, req, later, 9, { promo })
+    if (!r.ok) throw new Error(r.error)
+    // Quote: $15 − 10% = $13.50 a seat; the POS says $12, so nothing comes off and each seat is $1.50 short.
+    const o = orderLinesFor(onPos, r.value)
+    expect(o.ok && o.discounts).toEqual([])
+    expect(o.ok && o.shortCents).toBe(300)
+  })
+  it('POS still at the regular price while the early-bird runs (saved while Square was down): the early-bird goes as a discount', () => {
+    const onPos = { ...cls, square: { ...cls.square, prices: { 'all:person': 1500, 'addon:glaze': 400 } } }
+    const r = quote(onPos, req, NOW, 9)
+    if (!r.ok) throw new Error(r.error)
+    const o = orderLinesFor(onPos, r.value)
+    expect(o.ok && o.discounts).toEqual([{ line: 0, name: 'Early-bird', cents: 300 }, { line: 2, name: 'Early-bird', cents: 300 }])
+  })
+})
+
 describe('planRefund — a discounted seat refunds what Square charged for it (stage 4)', () => {
   const line = (seat: number, over: Partial<LedgerLine> = {}): LedgerLine => ({
     id: `led_${seat}`, bookingId: 'bkg_1', sessionIds: ['s1'], ticketTypeId: 'person', passId: 'all', seat,

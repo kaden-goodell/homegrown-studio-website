@@ -284,6 +284,8 @@ export default function RefundPanel({ classId, booking, ticketLabel, endpoint = 
             ? <span style={{ ...muted, fontSize: '0.9rem' }}>Paid at the counter. Refund it at the register, then free the seat here.</span>
           : atRegister
             ? <span style={{ ...muted, fontSize: '0.9rem' }}>Refund this at the register, where it was rung up.</span>
+            : booking.free
+              ? <span style={{ ...muted, fontSize: '0.9rem' }}>This booking was free, so there’s nothing to refund. Free the seat instead.</span>
             : !booking.paidHere && booking.source !== 'comp' && <span style={{ ...muted, fontSize: '0.9rem' }}>Refund this one in Square, where it was paid.</span>}
         {done && <span role="status" style={{ fontWeight: 600 }}>{done}</span>}
       </div>

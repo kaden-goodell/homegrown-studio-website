@@ -193,6 +193,20 @@ describe('Sell a seat, pay at the counter', () => {
   })
 })
 
+describe('D4: the door honours the early-bird', () => {
+  it('a pay-at-the-counter seat during the early-bird is owed the early-bird price (what the POS item now rings); the register pays it with no leftover discount', async () => {
+    const cls = await createClass({ content: content({ questions: [], earlyBird: { untilYmd: '2026-10-25', prices: { day: { adult: 3000 } } } }), sessions: sessions(), status: 'open', by })
+    const r = await post(compRoute, { scheduleId: cls.id, ...person, passId: 'day', sessionIds: ['ses_tue'], tickets: { adult: 1 }, payAtRegister: true })
+    expect(r.status).toBe(200)
+    // $30 + 9% = $32.70
+    expect(r.body.data.dueCents).toBe(3270)
+    await recordPos(cls, { bookingId: 'bkg_pos_EB', orderId: 'OEB', paymentId: 'PEB', chargedCents: 3270, saleIso: '2026-10-20T16:00:00.000Z', lines: [{ lineUid: 'L1', passId: 'day', ticketTypeId: 'adult', sessionIds: ['ses_tue'], units: [{ priceCents: 3000, taxCents: 270 }] }] }, NOW)
+    const [line] = (await getLedger(cls.id)).lines
+    expect(line).toMatchObject({ source: 'door-counter', priceCents: 3000, taxCents: 270, square: { orderId: 'OEB' } })
+    expect(line.discounts).toBeUndefined()
+  })
+})
+
 describe('Roster for our class', () => {
   async function signed(classId: string, first: string, email: string) {
     const rec: any = {

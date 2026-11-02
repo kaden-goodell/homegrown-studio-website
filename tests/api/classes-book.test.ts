@@ -814,3 +814,291 @@ describe('Pay on the iPad (door mode, Task 14)', () => {
     expect((await linesOf(cls))[0]).toMatchObject({ source: 'door-card', overCapacity: true })
   })
 })
+
+describe('stage 4: codes, the shown total and free bookings at checkout', () => {
+  let codeN = 0
+  const by = { id: 'c', name: 'Catherine' }
+  async function makeCode(over: Record<string, any> = {}) {
+    const { savePromo } = await import('@lib/promos/promo-store')
+    const code = `${over.prefix ?? 'CODE'}${++codeN}${Date.now().toString(36).slice(-4).toUpperCase()}`
+    const { prefix: _p, ...rest } = over
+    await savePromo({ code, label: '', off: { kind: 'percent', percent: 10 }, appliesTo: { kind: 'all' }, ...rest }, by, null, NOW)
+    return code
+  }
+  /** Square as the mock provider prices it: catalog prices, line discounts off before 9%. */
+  async function squareApplies() {
+    const { MockPaymentProvider } = await import('@providers/mock/payment')
+    const sq = new MockPaymentProvider()
+    sq.prices = { VAR_ALL_ADULT: 6000, VAR_ALL_KID: 4000, VAR_DAY_ADULT: 3500, VAR_DAY_KID: 2500 }
+    mockCreateClassOrder.mockImplementation((p: any) => sq.createClassOrder(p))
+    mockProcessPayment.mockImplementation(async (p: any) => ({ id: 'PAY1', orderId: p.orderId, amount: p.amount, status: 'completed', receiptUrl: null }))
+  }
+  const usesOf = async (code: string) => (await import('@lib/promos/promo-store')).getUses(code)
+  const one = (cls: ScheduledClass, over: Record<string, any> = {}) => body(cls, { tickets: { adult: 1 }, ...over })
+
+  it('a code: Square gets it as line discounts, the ledger keeps the net, the use is confirmed', async () => {
+    await squareApplies()
+    const cls = makeClass()
+    const code = await makeCode({ off: { kind: 'percent', percent: 25 } })
+    // $60 − 25% = $45, tax 405 → 4905
+    const res = await POST(ctx(one(cls, { promoCode: code.toLowerCase(), expectedTotalCents: 4905 })))
+    expect(res.status).toBe(200)
+    expect(mockCreateClassOrder.mock.calls[0][0].lineDiscounts).toEqual([{ line: 0, name: `Code ${code}`, cents: 1500 }])
+    expect(mockProcessPayment.mock.calls[0][0].amount).toBe(4905)
+    const [line] = await linesOf(cls)
+    expect(line).toMatchObject({ priceCents: 4500, listCents: 6000, discounts: [{ kind: 'promo', name: `Code ${code}`, cents: 1500 }] })
+    const uses = await usesOf(code)
+    expect(uses!.used.map((u) => u.bookingId)).toEqual([bookingIdFor(ATTEMPT)])
+    expect(uses!.holds).toEqual([])
+    expect(mockAnnounce.mock.calls[0][0].extra).toContain(`Code ${code} −$15.00`)
+  })
+
+  it('a code typed with a dash and spaces still works', async () => {
+    await squareApplies()
+    const cls = makeClass()
+    const code = await makeCode({ prefix: 'FALLFRIENDS' })
+    const typed = ` ${code.slice(0, 4)}-${code.slice(4)} `
+    const res = await POST(ctx(one(cls, { promoCode: typed, expectedTotalCents: 5886 })))
+    expect(res.status).toBe(200)
+  })
+
+  it('an unknown or turned-off code: 409 with the same sentence, nothing held, no order', async () => {
+    const cls = makeClass()
+    const off = await makeCode({ active: false })
+    for (const c of ['NOSUCHCODE', off, '!!']) {
+      newAttempt()
+      const res = await POST(ctx(one(cls, { promoCode: c })))
+      const json = await res.json()
+      expect(res.status).toBe(409)
+      expect(json.code).toBe('promo')
+      expect(json.detail).toBe("That code isn't valid. Nothing was charged.")
+    }
+    expect((await getLedger(cls.id)).lines).toHaveLength(0)
+    expect(mockCreateClassOrder).not.toHaveBeenCalled()
+  })
+
+  it('ended, not for this class: kind sentences, nothing held', async () => {
+    const cls = makeClass()
+    const ended = await makeCode({ endsYmd: '2026-10-10' })
+    vi.setSystemTime(new Date('2026-10-11T06:00:00.000Z')) // Oct 11, 1 AM Chicago
+    let res = await POST(ctx(one(cls, { promoCode: ended })))
+    expect((await res.json()).detail).toBe('That code has ended. Nothing was charged.')
+    newAttempt()
+    const other = await makeCode({ appliesTo: { kind: 'classes', classIds: ['cls_someother'], libraryIds: [] } })
+    res = await POST(ctx(one(cls, { promoCode: other })))
+    expect((await res.json()).detail).toBe("That code isn't for this class. Nothing was charged.")
+    expect(mockCreateClassOrder).not.toHaveBeenCalled()
+  })
+
+  it('used up between Apply and Pay: 409 before any Square call, nothing held', async () => {
+    const cls = makeClass()
+    const code = await makeCode({ maxUses: 1 })
+    const { reserveUse, confirmUse } = await import('@lib/promos/promo-store')
+    await reserveUse(code, 'bkg_someone', new Date(NOW.getTime() + 600_000).toISOString(), NOW, 1)
+    await confirmUse(code, 'bkg_someone', cls.id)
+    const res = await POST(ctx(one(cls, { promoCode: code })))
+    expect(res.status).toBe(409)
+    expect((await res.json()).detail).toBe('That code has been used up. Nothing was charged.')
+    expect(mockFindOrCreate).not.toHaveBeenCalled()
+    expect(mockCreateClassOrder).not.toHaveBeenCalled()
+    expect((await getLedger(cls.id)).lines).toHaveLength(0)
+  })
+
+  it('a declined card gives the code\'s use back', async () => {
+    await squareApplies()
+    const cls = makeClass()
+    const code = await makeCode({ maxUses: 1 })
+    mockProcessPayment.mockRejectedValueOnce(Object.assign(new Error('CARD_DECLINED'), { statusCode: 402, errors: [{ code: 'CARD_DECLINED', category: 'PAYMENT_METHOD_ERROR' }] }))
+    const res = await POST(ctx(one(cls, { promoCode: code })))
+    expect(res.status).toBe(402)
+    const uses = await usesOf(code)
+    expect(uses!.holds).toEqual([])
+    expect(uses!.used).toEqual([])
+  })
+
+  it('no answer from Square: the code\'s use stays with the held seats for a day', async () => {
+    await squareApplies()
+    const cls = makeClass()
+    const code = await makeCode({ maxUses: 1 })
+    mockProcessPayment.mockRejectedValueOnce(new Error('socket hang up'))
+    const res = await POST(ctx(one(cls, { promoCode: code })))
+    expect(res.status).toBe(502)
+    const uses = await usesOf(code)
+    expect(uses!.holds).toHaveLength(1)
+    expect(Date.parse(uses!.holds[0].until)).toBeGreaterThanOrEqual(NOW.getTime() + 23 * 3_600_000)
+    // Someone else can't take the last use meanwhile.
+    newAttempt()
+    const other = await POST(ctx(one(cls, { promoCode: code })))
+    expect((await other.json()).detail).toBe('That code has been used up. Nothing was charged.')
+  })
+
+  it('a retry of the same attempt never takes a second use', async () => {
+    await squareApplies()
+    const cls = makeClass()
+    const code = await makeCode({ maxUses: 1 })
+    expect((await POST(ctx(one(cls, { promoCode: code })))).status).toBe(200)
+    const again = await POST(ctx(one(cls, { promoCode: code })))
+    expect(again.status).toBe(200)
+    expect((await again.json()).data.replayed).toBe(true)
+    expect((await usesOf(code))!.used).toHaveLength(1)
+    expect(mockProcessPayment).toHaveBeenCalledTimes(1)
+  })
+
+  describe('review I2: never more than the Pay button said', () => {
+    it('early-bird ended while they sat on the pay step: nothing held or charged, the new total and why', async () => {
+      const cls = makeClass({ content: { earlyBird: { untilYmd: '2026-10-10', prices: { all: { adult: 5000 } } } } })
+      vi.setSystemTime(new Date('2026-10-11T05:00:30.000Z')) // just after midnight Chicago
+      const res = await POST(ctx(one(cls, { expectedTotalCents: 5450 })))
+      const json = await res.json()
+      expect(res.status).toBe(409)
+      expect(json.code).toBe('price_changed')
+      expect(json.detail).toBe('The price changed to $65.40 because the early-bird ended. Nothing was charged.')
+      expect(json.quote.totalCents).toBe(6540)
+      expect(json.quote.lines[0]).not.toHaveProperty('variationKey')
+      expect((await getLedger(cls.id)).lines).toHaveLength(0)
+      expect(mockCreateClassOrder).not.toHaveBeenCalled()
+      // They confirm the new total: booked at it.
+      await squareApplies()
+      newAttempt()
+      const ok = await POST(ctx(one(cls, { expectedTotalCents: 6540 })))
+      expect(ok.status).toBe(200)
+      expect(mockProcessPayment.mock.calls[0][0].amount).toBe(6540)
+    })
+    it('any other rise says just the new total', async () => {
+      const cls = makeClass()
+      const res = await POST(ctx(one(cls, { expectedTotalCents: 6000 })))
+      expect((await res.json()).detail).toBe('The price changed to $65.40. Nothing was charged.')
+    })
+    it('lower or the same as shown is charged at Square\'s total (R14)', async () => {
+      await squareApplies()
+      const cls = makeClass()
+      const res = await POST(ctx(one(cls, { expectedTotalCents: 9999 })))
+      expect(res.status).toBe(200)
+      expect(mockProcessPayment.mock.calls[0][0].amount).toBe(6540)
+    })
+  })
+
+  describe('D3: free bookings', () => {
+    let em = 0
+    /** A free booking's body: no card, the $0 shown; a fresh email each time (free bookings are limited per email). */
+    const fb = (cls: ScheduledClass, over: Record<string, any> = {}) =>
+      one(cls, { paymentToken: '', expectedTotalCents: 0, customer: { ...customer, email: `free${++em}@example.com` }, ...over })
+    const expectFree = async (cls: ScheduledClass, res: Response) => {
+      expect(res.status).toBe(200)
+      const json = await res.json()
+      expect(json.data.totalChargedCents).toBe(0)
+      expect(mockCreateClassOrder).not.toHaveBeenCalled()
+      expect(mockProcessPayment).not.toHaveBeenCalled()
+      const lines = await linesOf(cls)
+      expect(lines.length).toBeGreaterThan(0)
+      expect(lines.every((l) => l.state === 'confirmed' && l.source === 'online' && l.priceCents === 0 && l.taxCents === 0 && l.square.orderId === null && l.square.paymentId === null && l.square.chargedCents === 0)).toBe(true)
+      expect(mockSendEmail).toHaveBeenCalledTimes(1)
+      expect(mockSendEmail.mock.calls[0][0]).toMatchObject({ totalChargedCents: 0, free: true })
+      expect(mockAnnounce).toHaveBeenCalledWith(expect.objectContaining({ paidCents: 0 }))
+      return lines
+    }
+    it('a 100% code: no card, no Square order or payment, seats confirmed at $0 with the discount, use confirmed', async () => {
+      const cls = makeClass()
+      const code = await makeCode({ off: { kind: 'percent', percent: 100 }, maxUses: 1 })
+      const res = await POST(ctx(fb(cls, { promoCode: code })))
+      const [line] = await expectFree(cls, res)
+      expect(line).toMatchObject({ listCents: 6000, discounts: [{ kind: 'promo', name: `Code ${code}`, cents: 6000 }] })
+      expect((await usesOf(code))!.used).toHaveLength(1)
+      expect(mockAnnounce.mock.calls[0][0].extra).toContain(`Code ${code} −$60.00`)
+    })
+    it('a $ code bigger than the price', async () => {
+      const cls = makeClass()
+      const code = await makeCode({ off: { kind: 'amount', cents: 10_000 } })
+      await expectFree(cls, await POST(ctx(fb(cls, { promoCode: code }))))
+    })
+    it('a $0 early-bird with no code', async () => {
+      const cls = makeClass({ content: { earlyBird: { untilYmd: '2026-10-30', prices: { all: { adult: 0 } } } } })
+      const lines = await expectFree(cls, await POST(ctx(fb(cls))))
+      expect(lines[0].discounts).toEqual([{ kind: 'early-bird', name: 'Early-bird', cents: 6000 }])
+    })
+    it('a booking that isn\'t free still needs a card', async () => {
+      const cls = makeClass()
+      const res = await POST(ctx(one(cls, { paymentToken: '' })))
+      expect(res.status).toBe(400)
+      expect(mockCreateClassOrder).not.toHaveBeenCalled()
+    })
+    it('a page that thought it was free, after the code ended: price_changed, nothing booked', async () => {
+      const cls = makeClass()
+      const code = await makeCode({ off: { kind: 'percent', percent: 100 }, endsYmd: '2026-10-10' })
+      vi.setSystemTime(new Date('2026-10-11T06:00:00.000Z'))
+      const res = await POST(ctx(fb(cls, { promoCode: code })))
+      expect(res.status).toBe(409)
+      expect((await res.json()).code).toBe('promo')
+      expect((await getLedger(cls.id)).lines).toHaveLength(0)
+    })
+    it('sold out: the seats aren\'t held and the code\'s use is given back', async () => {
+      const cls = makeClass({ capacity: 1 })
+      await hold(cls, (quote(cls, { passId: 'all', tickets: { adult: 1 } }, NOW, 9) as any).value, { bookingId: 'bkg_first', passId: 'all', source: 'online', customer: null, ttlMinutes: 60 }, NOW)
+      const code = await makeCode({ off: { kind: 'percent', percent: 100 }, maxUses: 5 })
+      const res = await POST(ctx(fb(cls, { promoCode: code })))
+      expect(res.status).toBe(409)
+      expect((await res.json()).code).toBe('sold_out')
+      const uses = await usesOf(code)
+      expect(uses?.holds ?? []).toEqual([])
+      expect(uses?.used ?? []).toEqual([])
+    })
+    it('race: two people on the last use of a free code — one booked, one told it is used up, nothing charged', async () => {
+      const cls = makeClass()
+      const code = await makeCode({ off: { kind: 'percent', percent: 100 }, maxUses: 1 })
+      newAttempt()
+      const a = one(cls, { promoCode: code, paymentToken: '', expectedTotalCents: 0, customer: { ...customer, email: 'a@example.com' } })
+      newAttempt()
+      const b = one(cls, { promoCode: code, paymentToken: '', expectedTotalCents: 0, customer: { ...customer, email: 'b@example.com' } })
+      const [ra, rb] = await Promise.all([POST(ctx(a)), POST(ctx(b))])
+      const codes = [ra.status, rb.status].sort()
+      expect(codes).toEqual([200, 409])
+      const loser = ra.status === 409 ? ra : rb
+      expect((await loser.json()).detail).toBe('That code has been used up. Nothing was charged.')
+      expect((await usesOf(code))!.used).toHaveLength(1)
+      expect((await getLedger(cls.id)).lines.filter((l) => l.state === 'confirmed')).toHaveLength(1)
+    })
+    it('a replay of a free booking answers booked again, nothing more', async () => {
+      const cls = makeClass()
+      const code = await makeCode({ off: { kind: 'percent', percent: 100 } })
+      const same = fb(cls, { promoCode: code })
+      await POST(ctx(same))
+      const again = await POST(ctx(same))
+      const json = await again.json()
+      expect(json.data).toMatchObject({ replayed: true, totalChargedCents: 0 })
+      expect((await linesOf(cls))).toHaveLength(1)
+    })
+    it('free bookings are limited per email (abuse guard)', async () => {
+      const cls = makeClass({ capacity: 20 })
+      const code = await makeCode({ off: { kind: 'percent', percent: 100 } })
+      const statuses: number[] = []
+      for (let i = 0; i < 4; i++) {
+        newAttempt()
+        statuses.push((await POST(ctx(one(cls, { promoCode: code, paymentToken: '', expectedTotalCents: 0, customer: { ...customer, email: 'farm@example.com' } })))).status)
+      }
+      expect(statuses).toEqual([200, 200, 200, 429])
+    })
+    it('at the door (Pay on the iPad): a free code books a door-card seat at $0 with no card', async () => {
+      staffMember = { id: 'sam', name: 'Sam', role: 'crew' }
+      const cls = makeClass()
+      const code = await makeCode({ off: { kind: 'percent', percent: 100 } })
+      const res = await POST(ctx(fb(cls, { promoCode: code }), undefined, '?door=1'))
+      expect(res.status).toBe(200)
+      const [line] = await linesOf(cls)
+      expect(line).toMatchObject({ source: 'door-card', priceCents: 0, by: { id: 'sam', name: 'Sam' }, square: { orderId: null, paymentId: null, chargedCents: 0 } })
+      expect(mockProcessPayment).not.toHaveBeenCalled()
+    })
+    it('a free booking has nothing to refund, but its seat can still be freed', async () => {
+      const cls = makeClass()
+      const code = await makeCode({ off: { kind: 'percent', percent: 100 } })
+      await POST(ctx(fb(cls, { promoCode: code })))
+      const { planRefund, NOTHING_TO_REFUND_FREE } = await import('@lib/classes/refunds')
+      const ledger = await getLedger(cls.id)
+      expect(() => planRefund(ledger, { classId: cls.id, bookingId: bookingIdFor(ATTEMPT), kind: 'booking', reason: 'x' } as any)).toThrow(NOTHING_TO_REFUND_FREE)
+      const { recordRefund } = await import('@lib/classes/seat-ledger')
+      const [line] = await linesOf(cls)
+      await recordRefund(cls.id, [line.id], { cents: 0, reason: 'cancelled', by, freeSeat: true, squareRefundId: null })
+      const { seatsTaken } = await import('@lib/classes/seat-ledger')
+      expect(seatsTaken(await getLedger(cls.id), 'ses_sat', NOW)).toBe(0)
+    })
+  })
+})

@@ -15,7 +15,7 @@ vi.mock('@config/site.config', async (orig) => {
 })
 
 import { SQUARE_API_VERSION, squareBaseUrl, squareFetch } from '@lib/classes/square-api'
-import { variationPlan, syncClassToSquare, archiveClassInSquare, classIdFromVariation } from '@lib/classes/square-catalog'
+import { variationPlan, syncClassToSquare, archiveClassInSquare, classIdFromVariation, posPricesNow, posPricesStale } from '@lib/classes/square-catalog'
 import { LIVE_SQUARE_FROM_TEST_SITE, squareCatalogRefusal } from '@lib/classes/test-site-guard'
 import type { ScheduledClass } from '@lib/classes/types'
 
@@ -107,6 +107,46 @@ describe('variationPlan', () => {
     c.content.prices = { all: { adult: 6000 } }
     c.content.addOns = []
     expect(variationPlan(c)).toEqual([{ key: 'all:adult', name: 'Adult', cents: 6000 }])
+  })
+})
+
+describe('D4: the POS item carries the current price (early-bird while it runs)', () => {
+  const eb = { untilYmd: '2026-10-10', prices: { all: { adult: 5000 } } }
+  const before = new Date('2026-10-10T12:00:00Z') // Sat Oct 10, Chicago morning
+  const after = new Date('2026-10-11T05:00:00Z') // Sun Oct 11, 12 AM Chicago (CDT)
+  it('variationPlan: the early-bird cell at its early-bird price while it runs, regular after; other cells and add-ons unchanged', () => {
+    const c = cls(); c.content.earlyBird = eb
+    expect(variationPlan(c, before).map((p) => [p.key, p.cents])).toEqual([['all:adult', 5000], ['all:kid', 4000], ['wk:adult', 2500], ['addon:glaze', 500]])
+    expect(variationPlan(c, after).map((p) => [p.key, p.cents])).toEqual([['all:adult', 6000], ['all:kid', 4000], ['wk:adult', 2500], ['addon:glaze', 500]])
+    expect(variationPlan(c, null).map((p) => p.cents)).toEqual([6000, 4000, 2500, 500])
+  })
+  it('sync sends the early-bird price to Square and returns the prices it set', async () => {
+    replies.push(upsertEcho())
+    const c = cls(); c.content.earlyBird = eb
+    const sq = await syncClassToSquare(c, before)
+    const vars = ups()[0].body.batches[0].objects[0].item_data.variations
+    expect(vars[0].item_variation_data.price_money).toEqual({ amount: 5000, currency: 'USD' })
+    expect(sq.prices).toEqual({ 'all:adult': 5000, 'all:kid': 4000, 'wk:adult': 2500, 'addon:glaze': 500 })
+  })
+  it('posPricesNow: the recorded prices, or the regular prices for a class synced before D4', () => {
+    const c = cls(); c.content.earlyBird = eb
+    expect(posPricesNow(c)).toEqual({ 'all:adult': 6000, 'all:kid': 4000, 'wk:adult': 2500, 'addon:glaze': 500 })
+    c.square = { itemId: 'I', variations: {}, prices: { 'all:adult': 5000 } }
+    expect(posPricesNow(c)).toEqual({ 'all:adult': 5000 })
+  })
+  it('posPricesStale: only a class on the POS, not over, whose prices differ from today\'s', () => {
+    const c = cls({ square: { itemId: 'I', variations: {}, prices: { 'all:adult': 5000, 'all:kid': 4000, 'wk:adult': 2500, 'addon:glaze': 500 } } })
+    c.content.earlyBird = eb
+    expect(posPricesStale(c, before)).toBe(false)
+    expect(posPricesStale(c, after)).toBe(true) // ended: flip back to $60
+    expect(posPricesStale({ ...c, status: 'draft' }, after)).toBe(false)
+    expect(posPricesStale({ ...c, square: { ...c.square, itemId: null } }, after)).toBe(false)
+    expect(posPricesStale(c, new Date('2026-10-19T00:00:00Z'))).toBe(false) // the class is over
+    // Saved while the POS was down: the early-bird runs but the POS still has the regular price.
+    const old = cls({ square: { itemId: 'I', variations: {} } }); old.content.earlyBird = eb
+    expect(posPricesStale(old, before)).toBe(true)
+    // No early-bird, synced before D4: nothing to do.
+    expect(posPricesStale(cls({ square: { itemId: 'I', variations: {} } }), after)).toBe(false)
   })
 })
 

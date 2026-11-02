@@ -67,7 +67,16 @@ export interface ScheduledClass {
   status: ClassStatus
   /** POS item. variations key `${passId}:${ticketTypeId}` (seats) or `addon:${addOnId}` → variation id.
    *  imageUrl = the class image last uploaded to Square (re-uploaded only when it changes). */
-  square: { itemId: string | null; variations: Record<string, string>; imageUrl?: string | null }
+  square: {
+    itemId: string | null; variations: Record<string, string>; imageUrl?: string | null
+    /**
+     * Stage 4 (D4): the price each variation was last given on the POS, by key.
+     * A seat cell follows the current price: its early-bird price while it
+     * runs, the regular price after. Absent (classes put on the POS before
+     * this) = the regular prices.
+     */
+    prices?: Record<string, Cents>
+  }
   createdAt: string
   updatedAt: string
   by: { id: string; name: string }

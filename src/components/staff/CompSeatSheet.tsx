@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { SeatOption } from '@lib/seat-options'
 import { btn, field } from '@components/staff/ui'
 import ClassBookingPanel from '@components/classes/ClassBookingPanel'
-import { asScheduledClass, type OwnClassData } from '@lib/classes/public-class'
+import { asScheduledClass, currentPriceCents, type OwnClassData } from '@lib/classes/public-class'
 import { quote } from '@lib/classes/pricing'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import { formatDayAndSpan, studioDate } from '@lib/studio-time'
@@ -335,7 +335,7 @@ export default function CompSeatSheet({
       {!household && soldTypes.map((t) => (
         <div key={t.id} style={{ marginBottom: '0.65rem' }}>
           <label htmlFor={`comp-tickets-${t.id}`} style={{ display: 'block', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)', marginBottom: '0.2rem' }}>
-            {soldTypes.length > 1 ? `${t.label} seats` : 'Seats'}{sell && pass ? ` (${money2(ownData.prices[pass.id][t.id])} each before tax)` : ''}
+            {soldTypes.length > 1 ? `${t.label} seats` : 'Seats'}{sell && pass ? ` (${money2(currentPriceCents(ownData, pass.id, t.id) ?? 0)} each before tax${ownData.earlyBird?.prices[pass.id]?.[t.id] !== undefined ? ', early-bird' : ''})` : ''}
           </label>
           <input
             id={`comp-tickets-${t.id}`} type="number" min={0} max={10} value={tickets[t.id] ?? 0}

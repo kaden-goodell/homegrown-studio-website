@@ -4,6 +4,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import ClassBookingPanel from '@components/classes/ClassBookingPanel'
 import { toPublicClass } from '@lib/classes/public-view'
 import { defaultRules } from '@lib/classes/validate'
+import { quote as quoteOf } from '@lib/classes/pricing'
 import type { Ledger, LedgerLine } from '@lib/classes/seat-ledger'
 import type { ClassContent, ScheduledClass } from '@lib/classes/types'
 import { _forgetContact } from '@lib/remembered-contact'
@@ -479,5 +480,137 @@ describe('ClassBookingPanel — door mode on a full day', () => {
     expect(screen.queryByTestId('door-full')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: /Sun, Oct 25/ }))
     expect(screen.getByTestId('door-full')).toBeInTheDocument()
+  })
+})
+
+describe('ClassBookingPanel — stage 4: early-bird, codes, free, the price changed', () => {
+  const promo = (over: Record<string, any> = {}): any => ({
+    code: 'FALLFRIENDS', label: '', off: { kind: 'percent', percent: 25 }, per: 'booking', appliesTo: { kind: 'all' }, includeExtras: false,
+    endsYmd: null, maxUses: null, active: true, createdAt: '', updatedAt: '', by: { id: 'k', name: 'K' }, history: [], ...over,
+  })
+  const onePass = { passes: [{ id: 'all', label: 'Full series', covers: { kind: 'all' as const } }], prices: { all: { person: 4000 } } }
+  const codeReply = (cls: ScheduledClass, p: any, people = 1) => {
+    const r = quoteOf(cls, { passId: 'all', tickets: { person: people } }, NOW, 9, { promo: p })
+    if (!r.ok) throw new Error(r.error)
+    return serverSays(200, { data: { code: p.code, quote: r.value } })
+  }
+  async function toPay(cls: ScheduledClass) {
+    open(cls)
+    cont()
+    await screen.findByText('Have a code?')
+    fillContact()
+  }
+  async function applyCode(text: string) {
+    fireEvent.click(screen.getByRole('button', { name: 'Have a code?' }))
+    fireEvent.change(screen.getByLabelText('Code'), { target: { value: text } })
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
+  }
+
+  it('early-bird: the regular price struck through on step 1, the early-bird on Continue (before tax), a line for it on the pay step', async () => {
+    const cls = make({ ...onePass, earlyBird: { untilYmd: '2026-10-22', prices: { all: { person: 3000 } } } })
+    open(cls)
+    expect(screen.getByText('$40', { selector: 's' })).toBeInTheDocument()
+    expect(screen.getByText(/\$30 each, early-bird/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Continue/ })).toHaveTextContent(/Continue · \$30(\.00)?$/)
+    cont()
+    await screen.findByTestId('payment-form')
+    const rows = screen.getAllByTestId('discount-row')
+    expect(rows.map((r) => r.textContent)).toEqual(['Early-bird−$10'])
+    expect(screen.getByText(/1 seat × \$40/)).toBeInTheDocument()
+    // $30 + 9% = $32.70: the same on the button and the wallet sheet.
+    expect(screen.getByRole('button', { name: 'Pay $32.70' })).toBeInTheDocument()
+    expect(paymentFormProps.wallet).toMatchObject({ amount: '32.70' })
+  })
+
+  it('a code: Apply asks the server, the summary shows the code, the Pay button and the booking carry its total', async () => {
+    const cls = make(onePass)
+    const fetchMock = vi.fn(async (url: string) => (url === '/api/classes/promo.json' ? codeReply(cls, promo()) : bookedReply({ totalChargedCents: 3270 })))
+    vi.stubGlobal('fetch', fetchMock)
+    await toPay(cls)
+    await applyCode('fall-friends')
+    await screen.findByText(/Code FALLFRIENDS/)
+    expect(JSON.parse((fetchMock.mock.calls[0] as any)[1].body)).toMatchObject({ classId: 'cls_1', code: 'fall-friends', request: { passId: 'all', tickets: { person: 1 } } })
+    expect(screen.getAllByTestId('discount-row').map((r) => r.textContent)).toEqual(['Code FALLFRIENDS Remove−$10'])
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $32.70' }))
+    await screen.findByText('You’re booked')
+    const book = fetchMock.mock.calls.find((c) => c[0] === '/api/classes/book.json') as any
+    expect(JSON.parse(book[1].body)).toMatchObject({ promoCode: 'FALLFRIENDS', expectedTotalCents: 3270 })
+  })
+
+  it('Remove takes the code off and the total goes back', async () => {
+    const cls = make(onePass)
+    vi.stubGlobal('fetch', vi.fn(async () => codeReply(cls, promo())))
+    await toPay(cls)
+    await applyCode('FALLFRIENDS')
+    await screen.findByRole('button', { name: 'Pay $32.70' })
+    fireEvent.click(screen.getByRole('button', { name: 'Remove Code FALLFRIENDS' }))
+    expect(screen.getByRole('button', { name: 'Pay $43.60' })).toBeInTheDocument()
+    expect(screen.queryByTestId('discount-row')).toBeNull()
+  })
+
+  it('a code that doesn\'t work says so kindly and changes nothing; Enter in the field never pays', async () => {
+    const cls = make(onePass)
+    const fetchMock = vi.fn(async () => serverSays(409, { detail: 'That code has ended.' }))
+    vi.stubGlobal('fetch', fetchMock)
+    await toPay(cls)
+    fireEvent.click(screen.getByRole('button', { name: 'Have a code?' }))
+    const field = screen.getByLabelText('Code')
+    expect(field).toHaveAttribute('autocapitalize', 'characters')
+    expect(field).toHaveAttribute('autocorrect', 'off')
+    fireEvent.change(field, { target: { value: 'oldcode' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+    await screen.findByText('That code has ended.')
+    expect((fetchMock.mock.calls as any[]).every((c) => c[0] === '/api/classes/promo.json')).toBe(true)
+    expect(tokenCalls).toBe(0)
+    expect(screen.getByRole('button', { name: 'Pay $43.60' })).toBeInTheDocument()
+  })
+
+  it('free with a code: no card form, "Free with your code", Book it sends no card and the $0', async () => {
+    const cls = make(onePass)
+    const fetchMock = vi.fn(async (url: string) => (url === '/api/classes/promo.json'
+      ? codeReply(cls, promo({ off: { kind: 'percent', percent: 100 } }))
+      : bookedReply({ totalChargedCents: 0, ticketsLabel: '1 seat' })))
+    vi.stubGlobal('fetch', fetchMock)
+    await toPay(cls)
+    await applyCode('FREEDAY')
+    await screen.findByText('Free with your code')
+    expect(screen.queryByTestId('payment-form')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Book it' }))
+    await screen.findByText('You’re booked')
+    expect(tokenCalls).toBe(0)
+    const book = fetchMock.mock.calls.find((c) => c[0] === '/api/classes/book.json') as any
+    expect(JSON.parse(book[1].body)).toMatchObject({ paymentToken: '', expectedTotalCents: 0, promoCode: 'FALLFRIENDS' })
+    expect(document.body.textContent).toContain('1 seat for Clay Camp, free.')
+  })
+
+  it('the price changed (early-bird ended at midnight): the new total and why, nothing charged; the next tap pays it', async () => {
+    const cls = make({ ...onePass, earlyBird: { untilYmd: '2026-10-22', prices: { all: { person: 3000 } } } })
+    const regular = quoteOf(make(onePass), { passId: 'all', tickets: { person: 1 } }, NOW, 9)
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(serverSays(409, { code: 'price_changed', detail: 'The price changed to $43.60 because the early-bird ended. Nothing was charged.', quote: (regular as any).value }))
+      .mockResolvedValueOnce(bookedReply({ totalChargedCents: 4360 }))
+    vi.stubGlobal('fetch', fetchMock)
+    await toPay(cls)
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $32.70' }))
+    await screen.findByText('The price changed to $43.60 because the early-bird ended. Nothing was charged.')
+    expect(screen.queryByTestId('discount-row')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $43.60' }))
+    await screen.findByText('You’re booked')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body).expectedTotalCents).toBe(3270)
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body).expectedTotalCents).toBe(4360)
+  })
+
+  it('a code that stopped working between Apply and Pay comes off with the server\'s sentence; nothing charged', async () => {
+    const cls = make(onePass)
+    const fetchMock = vi.fn(async (url: string) => (url === '/api/classes/promo.json'
+      ? codeReply(cls, promo())
+      : serverSays(409, { code: 'promo', detail: 'That code has been used up. Nothing was charged.' })))
+    vi.stubGlobal('fetch', fetchMock)
+    await toPay(cls)
+    await applyCode('FALLFRIENDS')
+    await screen.findByRole('button', { name: 'Pay $32.70' })
+    fireEvent.click(screen.getByRole('button', { name: 'Pay $32.70' }))
+    await screen.findByText('That code has been used up. Nothing was charged.')
+    expect(screen.getByRole('button', { name: 'Pay $43.60' })).toBeInTheDocument()
   })
 })

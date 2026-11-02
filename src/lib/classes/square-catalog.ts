@@ -12,27 +12,56 @@ import { siteConfig } from '@config/site.config'
 import { formatDay } from '@lib/studio-time'
 import { squareFetch, squareSettings } from './square-api'
 import { sellableCells } from './validate'
+import { earlyBirdCents } from './early-bird'
 import { assertClassWritesAllowed, assertSquareCatalogWriteAllowed } from './test-site-guard'
 import type { Cents, ScheduledClass } from './types'
 
 export interface PlannedVariation { key: string; name: string; cents: Cents }
 
-/** Every variation the POS item should carry, in a stable order. */
-export function variationPlan(cls: ScheduledClass): PlannedVariation[] {
+/**
+ * Every variation the POS item should carry, in a stable order. A seat cell
+ * carries its CURRENT price (D4): the early-bird price while the early-bird
+ * runs at `now`, the regular price otherwise, so the register rings what a
+ * customer at the door is owed with nothing for the crew to adjust.
+ */
+export function variationPlan(cls: ScheduledClass, now: Date | null = new Date()): PlannedVariation[] {
   const c = cls.content
   const singlePass = c.passes.length === 1
   const plan: PlannedVariation[] = []
   for (const cell of sellableCells(c)) {
     const pass = c.passes.find((p) => p.id === cell.passId)!
     const ticket = c.ticketTypes.find((t) => t.id === cell.ticketTypeId)!
+    // now = null: the regular prices (what a class put on the POS before D4 carries).
+    const eb = now ? earlyBirdCents(c, cell.passId, cell.ticketTypeId, now) : null
     plan.push({
       key: `${cell.passId}:${cell.ticketTypeId}`,
       name: singlePass ? ticket.label : `${pass.label} · ${ticket.label}`,
-      cents: cell.cents,
+      cents: eb !== null && eb < cell.cents ? eb : cell.cents,
     })
   }
   for (const a of c.addOns) plan.push({ key: `addon:${a.id}`, name: `${a.label} (add-on)`, cents: a.priceCents })
   return plan
+}
+
+/**
+ * D4: what each POS variation carries now, by key: the prices last sent
+ * (`square.prices`), or the regular prices for a class put on the POS before
+ * prices were recorded.
+ */
+export function posPricesNow(cls: ScheduledClass): Record<string, Cents> {
+  return cls.square.prices ?? Object.fromEntries(variationPlan(cls, null).map((p) => [p.key, p.cents]))
+}
+
+/**
+ * D4: the class is on the POS (open or closed, not over) and a variation's
+ * price there isn't its current price: the early-bird has started (saved
+ * while the POS was down) or ended since the last sync.
+ */
+export function posPricesStale(cls: ScheduledClass, now: Date): boolean {
+  if (!cls.square.itemId || (cls.status !== 'open' && cls.status !== 'closed')) return false
+  if (!cls.sessions.some((s) => Date.parse(s.endIso) > now.getTime())) return false
+  const have = posPricesNow(cls)
+  return variationPlan(cls, now).some((p) => have[p.key] !== p.cents)
 }
 
 /** "Pottery · Sat Oct 17" — first session's day in studio time. */
@@ -104,9 +133,10 @@ export const CLASS_TAX_NOT_SET = "Class tax isn't set up yet."
  * Create or update the class's POS item. Reuses variation ids by key,
  * drops variations no longer sold (left out of the item, which Square
  * removes), and uploads the image only when its URL changed. Returns the
- * ids to save on the class.
+ * ids to save on the class, and the price each variation now carries (D4:
+ * the current price, early-bird while it runs).
  */
-export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledClass['square']> {
+export async function syncClassToSquare(cls: ScheduledClass, now: Date = new Date()): Promise<ScheduledClass['square']> {
   assertClassWritesAllowed() // R41: a test site with no store of its own never writes the live POS
   assertSquareCatalogWriteAllowed(squareSettings().environment) // N3: nor does any test site pointed at the live Square
   const cfg = squareSettings()
@@ -116,7 +146,7 @@ export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledC
   // Fail closed: a taxable class put on the POS without its tax would be sold untaxed.
   // A cancelled class is still taken off the POS.
   if (!taxId && cls.content.rules.taxable && cls.status !== 'cancelled') throw new Error(CLASS_TAX_NOT_SET)
-  const plan = variationPlan(cls)
+  const plan = variationPlan(cls, now)
   if (!plan.length) throw new Error('Add a price before putting this class on the POS.')
 
   let current = cls.square.itemId ? await fetchItem(cls.square.itemId) : null
@@ -206,7 +236,7 @@ export async function syncClassToSquare(cls: ScheduledClass): Promise<ScheduledC
       console.warn(`[classes] image upload for ${cls.id} failed: ${e?.message ?? e}`)
     }
   }
-  return { itemId, variations: out, imageUrl }
+  return { itemId, variations: out, imageUrl, prices: Object.fromEntries(plan.map((p) => [p.key, p.cents])) }
 }
 
 /**

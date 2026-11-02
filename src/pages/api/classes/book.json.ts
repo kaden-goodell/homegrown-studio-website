@@ -15,7 +15,7 @@ import { isPhone, CONTACT_MESSAGES } from '@lib/contact-rules'
 import { onFileToAskAbout } from '@lib/email-fix'
 import { formatSlotLabel } from '@lib/studio-time'
 import { getClass } from '@lib/classes/class-store'
-import { quote as quoteFor, type BookingRequest, type Quote } from '@lib/classes/pricing'
+import { quote as quoteFor, type BookingRequest, type Quote, type QuoteOptions } from '@lib/classes/pricing'
 import { confirm, extendHold, getLedger, hold, release, type HoldInput, type LedgerLine } from '@lib/classes/seat-ledger'
 import {
   bookingIdFor,
@@ -28,6 +28,8 @@ import {
   CLASS_TAX_PERCENT,
   HOLD_MINUTES,
   PRICE_MISMATCH_MESSAGE,
+  priceChangedMessage,
+  publicQuote,
   UNCLEAR_HOLD_HOURS,
   cleanSeats,
   type ClassCheckoutCode,
@@ -39,6 +41,10 @@ import type { ScheduledClass } from '@lib/classes/types'
 import { byOf, staffAuthorized } from '@lib/staff-auth'
 import { classWritesRefusal } from '@lib/classes/test-site-guard'
 import type { SaleOptions } from '@lib/classes/pricing'
+import { earlyBirdRunning } from '@lib/classes/early-bird'
+import { confirmUse, extendUse, getPromo, getUses, releaseUse, reserveUse } from '@lib/promos/promo-store'
+import { normalizeCode, promoRefusal, PROMO_REFUSALS, usesLeft } from '@lib/promos/rules'
+import type { PromoCode } from '@lib/promos/types'
 
 const logger = createLogger('api:classes:book')
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -57,6 +63,15 @@ const dollars = (cents: number): string => `$${(cents / 100).toFixed(2)}`
  * already paid → the stored answer, still running → "give it a minute". Never
  * a second charge. Every failure is one of three honest answers: not charged,
  * charged, or unknown. A refused card lets the seats go; no answer keeps them.
+ *
+ * Stage 4: a promo code (`promoCode`) is checked before anything is held and
+ * reserves a use with the seats (released on a definite failure, kept with
+ * them on no answer, confirmed when paid); the early-bird and the code go to
+ * Square as per-line discounts. The page sends the total it showed
+ * (`expectedTotalCents`): a higher total now charges nothing and answers
+ * `price_changed` with the new one (review I2). A $0 total (D3: a 100% code,
+ * a code bigger than the price, a $0 early-bird) books with no card, no
+ * Square order and no payment.
  */
 export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   // "Pay on the iPad" (/staff Sell a seat, ?door=1): the same checkout, run by the crew at the door.
@@ -65,7 +80,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const door = new URL(request.url).searchParams.get('door') === '1'
   const member = door ? staffAuthorized(request) : null
   if (door && !member) return fail(401, 'invalid', 'Sign in to /staff to sell a seat at the door. Nothing was charged.')
-  const sale: SaleOptions = door ? { door: true } : {}
+  const saleBase: SaleOptions = door ? { door: true } : {}
   // R41: a test site with no store of its own never books (or simulates paying for) a live seat.
   const testSite = classWritesRefusal(request)
   if (testSite) return fail(503, 'unavailable', testSite)
@@ -89,7 +104,14 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   if (!isAttemptId(body.attemptId)) return fail(400, 'invalid', 'This page is out of date. Reload it and book again. Nothing was charged.')
   const attemptId: string = body.attemptId
   const simulated = paymentBypassEnabled(request)
-  if (!simulated && (!paymentToken || paymentToken.length > 4000)) return fail(400, 'invalid')
+  // A card is needed unless the booking turns out to be free (checked once it is priced).
+  if (paymentToken.length > 4000) return fail(400, 'invalid')
+  // Stage 4: the code as typed ("fall-friends" reads as FALLFRIENDS); one that can't be a code is refused here.
+  const typedCode = typeof body.promoCode === 'string' ? body.promoCode.trim().slice(0, 60) : ''
+  const promoCode = typedCode ? normalizeCode(typedCode) : null
+  if (typedCode && !promoCode) return fail(409, 'promo', `${PROMO_REFUSALS.invalid} Nothing was charged.`)
+  // Review I2: the total the page showed on the Pay button.
+  const expectedTotalCents = Number.isInteger(body.expectedTotalCents) && body.expectedTotalCents >= 0 ? (body.expectedTotalCents as number) : null
 
   const givenName = String(body.customer?.givenName ?? '').trim()
   const familyName = String(body.customer?.familyName ?? '').trim()
@@ -136,6 +158,20 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   }
   const inProgress = mine.some((l) => l.state === 'held' && l.holdExpiresAt && Date.parse(l.holdExpiresAt) > now.getTime())
 
+  // ── Stage 4: the code, read before anything is held. A store we can't read charges nothing. ──
+  let promo: PromoCode | null = null
+  let promoUses: Awaited<ReturnType<typeof getUses>> = null
+  if (promoCode) {
+    try {
+      promo = await getPromo(promoCode)
+      promoUses = promo ? await getUses(promoCode) : null
+    } catch (err) {
+      logger.error('Promo codes unreadable before booking — refusing', { classId, error: String(err) })
+      return fail(502, 'unavailable')
+    }
+  }
+  const sale: QuoteOptions = { ...saleBase, ...(promo ? { promo } : {}) }
+
   const who = `${givenName} ${familyName} (${email}, ${phone})`
   // Set once the quote is known.
   let q: Quote
@@ -180,14 +216,45 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   const cutoff = door ? null : cutoffRefusal(cls, q!.sessionIds, now)
   if (cutoff) return fail(409, 'not_open', cutoff)
 
-  // Simulated payments (local dev and previews): hold and confirm, no Square.
-  if (simulated) {
+  // The code works on this class now, with a use left (its own earlier hold or use doesn't count against it).
+  if (promoCode) {
+    const usedByMe = !!promoUses?.used.some((u) => u.bookingId === bookingId)
+    const refusal = promoRefusal(promo, cls, now, promo && !usedByMe ? usesLeft(promo, promoUses, now, bookingId) : null)
+    if (refusal) return fail(409, 'promo', `${refusal} Nothing was charged.`)
+  }
+
+  // Review I2: never more than the page showed. Higher now → nothing held or charged; the new total goes back.
+  if (expectedTotalCents === null) {
+    logger.warn('Class booking sent no shown total — charging the server total', { bookingId })
+  } else if (q!.totalCents > expectedTotalCents) {
+    const ebEnded = !!cls.content.earlyBird && !earlyBirdRunning(cls.content, now)
+    logger.info('Class price rose since the page showed it — nothing charged', { bookingId, shown: expectedTotalCents, now: q!.totalCents, ebEnded })
+    return priceChanged(q!, priceChangedMessage(q!.totalCents, ebEnded))
+  }
+
+  const free = q!.totalCents === 0
+  if (!free && !simulated && !paymentToken) return fail(400, 'invalid')
+  // D3: free bookings get the booking routes' guards plus one of their own (a code can't be farmed for seats).
+  if (free && !door && rateLimited(`class-free:${email.toLowerCase()}`, 3, 60 * 60_000)) {
+    return fail(429, 'unavailable', 'That’s a lot of free bookings in a row. Give it a little while, or call us and we’ll book you in.')
+  }
+
+  // Simulated payments (local dev and previews), and free bookings (D3): hold and confirm, no Square order or payment.
+  if (simulated || free) {
+    if (free) await lookUpCustomer()
+    const noUse = await holdPromo(now)
+    if (noUse) return noUse
     const held = await holdSeats(cls, now)
-    if (held) return held
-    logger.warn('Payment bypassed (simulated class booking)', { classId: cls.id, bookingId })
-    const orderId = `sim-${bookingId}`
+    if (held) {
+      // The same attempt already running owns this booking's use: leave it be.
+      if (!(await isInProgress(held))) await letGoPromo('seats not held')
+      return held
+    }
+    if (simulated && !free) logger.warn('Payment bypassed (simulated class booking)', { classId: cls.id, bookingId })
+    const orderId = free ? null : `sim-${bookingId}`
+    if (free) logger.info('Free class booking (no Square order or payment)', { classId: cls.id, bookingId, code: q!.promo?.code ?? null })
     const lines = await confirmPaid(cls, { orderId, paymentId: null, chargedCents: q!.totalCents })
-    return finish({ cls, q: q!, lines, charged: q!.totalCents, receiptUrl: null, simulated: true, onFile: null })
+    return finish({ cls, q: q!, lines, charged: q!.totalCents, receiptUrl: null, simulated: simulated && !free, onFile: free ? onFile : null })
   }
 
   // Every line must be on the POS item before anything is held.
@@ -198,10 +265,13 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     return fail(502, 'unavailable')
   }
 
-  // ── 2. The customer (not fatal), then hold the seats ────────────────────────
+  // ── 2. The customer (not fatal), the code's use, then hold the seats ────────
   await lookUpCustomer()
+  const noUse = await holdPromo(now)
+  if (noUse) return noUse
   const notHeld = await holdSeats(cls, now)
   if (notHeld) {
+    if (!(await isInProgress(notHeld))) await letGoPromo('seats not held')
     if (notHeld.status !== 409 || (await notHeld.clone().json()).code !== 'sold_out') return notHeld
     // Full now. If an earlier try of this attempt paid (its hold ran out and
     // the seat was resold), the booking stands: record it, never say "not charged".
@@ -217,6 +287,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     } catch (err) {
       logger.error('HELD SEATS NOT RELEASED (they run out by themselves)', { bookingId, why, error: String(err) })
     }
+    await letGoPromo(why)
   }
 
   // ── 3. One Square order ─────────────────────────────────────────────────────
@@ -250,6 +321,8 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     return fail(502, 'unavailable', PRICE_MISMATCH_MESSAGE)
   }
   if (verdict.kind === 'charge-and-tell') {
+    // D4: the POS item still had the early-bird price after it ended (the hourly flip hadn't run yet).
+    const posBehind = orderLines.shortCents > 0 && verdict.driftCents < 0
     if (verdict.driftCents > 0) {
       logger.warn('Class order total a little above the quote — charging Square’s total', { bookingId, quote: q!.totalCents, square: order.totalCents })
     } else {
@@ -258,7 +331,9 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     }
     await tellOwnersOfDrift(
       `Class price differed — ${cls.content.name}`, `booking ${bookingId}`, q!.totalCents, order.totalCents,
-      verdict.driftCents > 0 ? '' : "Check the class's tax on the POS.",
+      verdict.driftCents > 0 ? '' : posBehind
+        ? 'The POS still had the early-bird price. It goes back to the regular price within the hour.'
+        : "Check the class's tax on the POS.",
     )
   }
   const charged = order.totalCents
@@ -346,22 +421,73 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
   }
 
   async function keepHeld() {
+    const until = new Date(Date.now() + UNCLEAR_HOLD_HOURS * 3_600_000).toISOString()
     try {
-      await extendHold(cls!.id, bookingId, new Date(Date.now() + UNCLEAR_HOLD_HOURS * 3_600_000).toISOString())
+      await extendHold(cls!.id, bookingId, until)
     } catch (err) {
       logger.error('Could not extend the hold on an unclear payment', { bookingId, error: String(err) })
+    }
+    // R15: the code's use stays with the seats while nobody knows whether they paid.
+    if (q?.promo) {
+      await extendUse(q.promo.code, bookingId, until).catch((err) => {
+        logger.error('Could not keep the code\'s use with an unclear payment', { bookingId, code: q!.promo!.code, error: String(err) })
+      })
+    }
+  }
+
+  /**
+   * Reserve the code's use for this booking, as long as its seat hold, before
+   * anything is held or charged. Used up → 409 with the sentence; a store
+   * that can't be written → 502 (fail closed). null = go on.
+   */
+  async function holdPromo(at: Date): Promise<Response | null> {
+    if (!q?.promo || !promo) return null
+    try {
+      const r = await reserveUse(q.promo.code, bookingId, new Date(at.getTime() + HOLD_MINUTES * 60_000).toISOString(), at, promo.maxUses)
+      if (r === 'used-up') return fail(409, 'promo', `${PROMO_REFUSALS.usedUp} Nothing was charged.`)
+      return null
+    } catch (err) {
+      logger.error('Promo use not reserved — refusing', { bookingId, code: q.promo.code, error: String(err) })
+      return fail(502, 'unavailable')
+    }
+  }
+
+  /** A booking that didn't go through gives its code's use back (it runs out by itself if this fails). */
+  async function letGoPromo(why: string) {
+    if (!q?.promo) return
+    await releaseUse(q.promo.code, bookingId).catch((err) => {
+      logger.error('Promo use not released (it runs out by itself)', { bookingId, why, code: q!.promo!.code, error: String(err) })
+    })
+  }
+
+  /** M6: paid → the hold becomes a use. Tried twice; a failure tells the owners (the code could go one over). */
+  async function useThePromo(c: ScheduledClass) {
+    if (!q?.promo) return
+    const code = q.promo.code
+    for (let i = 0; i < 2; i++) {
+      try {
+        await confirmUse(code, bookingId, c.id)
+        return
+      } catch (err) {
+        if (i === 1) {
+          logger.error('PROMO USE NOT RECORDED on a paid booking', { bookingId, code, error: String(err) })
+          await alertOwners(`Code ${code} was used on a paid booking (${bookingId}, ${c.content.name}) but the use wasn't counted. If it has a use limit, it may go one over.`).catch(() => undefined)
+        }
+      }
     }
   }
 
   /** Paid: confirm the seats. Never fails the booking; a failed write tells a person and keeps the hold. */
-  async function confirmPaid(c: ScheduledClass, square: { orderId: string; paymentId: string | null; chargedCents: number; lineTotals?: { totalCents: number; taxCents: number }[] }): Promise<LedgerLine[]> {
+  async function confirmPaid(c: ScheduledClass, square: { orderId: string | null; paymentId: string | null; chargedCents: number; lineTotals?: { totalCents: number; taxCents: number }[] }): Promise<LedgerLine[]> {
     try {
-      return await confirm(c.id, bookingId, square, { cls: c, quote: q!, input: holdInput! }, new Date())
+      const lines = await confirm(c.id, bookingId, square, { cls: c, quote: q!, input: holdInput! }, new Date())
+      await useThePromo(c)
+      return lines
     } catch (err) {
       logger.error('PAID CLASS SEATS NOT RECORDED', { bookingId, orderId: square.orderId, error: String(err) })
       await keepHeld()
       await alertOwners(
-        `${simulated ? '(test booking, no action needed) ' : ''}Class paid, seats not recorded yet: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Held a day; Square's payment notice books them, or it shows in /admin › To decide. Order ${square.orderId}, booking ${bookingId}.`,
+        `${simulated ? '(test booking, no action needed) ' : ''}Class paid, seats not recorded yet: ${who}, ${seatsLabel}, ${c.content.name}, ${formatSlotLabel(firstStart)}. Held a day; ${square.orderId ? `Square's payment notice books them, or it shows in /admin › To decide. Order ${square.orderId}` : 'Nothing was charged (a free booking); add them by hand in /admin'}, booking ${bookingId}.`,
       ).catch(() => undefined)
       // Answer from the quote: the customer has paid.
       return q!.lines.filter((l) => l.kind === 'seat').map((l) => ({
@@ -407,6 +533,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
           origin: new URL(request.url).origin,
           bookingId, cls: c, sessionIds: qq.sessionIds, seats: qq.seats, seatsLabel,
           email, givenName, receiptUrl: f.receiptUrl, totalChargedCents: f.charged,
+          ...(f.charged === 0 && !f.simulated ? { free: true } : {}),
           ...(pickLines.length ? { pickLines } : {}),
           ...(f.onFile ? { alsoTo: f.onFile } : {}),
         }).catch((err) => {
@@ -423,7 +550,7 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
           : announceBooking({
               kind: 'class', who: `${givenName} ${familyName}`, what: `${seatsLabel}, ${c.content.name}`,
               when: formatSlotLabel(firstStart), paidCents: f.charged, email, phone,
-              ...(pickLines.length ? { extra: pickLines.join('; ') } : {}),
+              ...(pickLines.length || qq.promo || qq.discountCents ? { extra: [...pickLines, ...discountNotes(qq)].join('; ') } : {}),
             }),
         // A door sale on the studio iPad isn't a site conversion.
         door ? Promise.resolve() : reportBooking({
@@ -467,6 +594,26 @@ export const POST: APIRoute = async ({ request, clientAddress, locals }) => {
     }
     return success(c, f.lines, { receiptUrl: f.receiptUrl, emailSent, chargedCents: f.charged, ...(f.simulated ? { simulated: true } : {}) })
   }
+}
+
+/** The answer says the same attempt is still running elsewhere. */
+async function isInProgress(res: Response): Promise<boolean> {
+  return res.status === 409 && (await res.clone().json().catch(() => ({})))?.code === 'in_progress'
+}
+
+/** For the owners' text: "Early-bird −$10.00", "Code FALLFRIENDS −$4.50". */
+function discountNotes(q: Quote): string[] {
+  const by = new Map<string, number>()
+  for (const l of q.lines) for (const d of l.discounts) by.set(d.name, (by.get(d.name) ?? 0) + d.cents)
+  return [...by].map(([name, cents]) => `${name} −${dollars(cents)}`)
+}
+
+/** Review I2: the new total, so the page can show it and let them pay it. Nothing was held or charged. */
+function priceChanged(q: Quote, detail: string): Response {
+  return new Response(
+    JSON.stringify({ error: 'Unable to book class', code: 'price_changed', detail, quote: publicQuote(q) }),
+    { status: 409, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } },
+  )
 }
 
 /** The booked answer. A replay rebuilds it from the ledger's paid lines. */

@@ -14,6 +14,7 @@ import { ticketSummary } from '@lib/ticket-types'
 import type { Quote } from './pricing'
 import type { LedgerLine } from './seat-ledger'
 import { paidOn } from './seat-status'
+import { posPricesNow } from './square-catalog'
 import type { ScheduledClass } from './types'
 
 /**
@@ -26,14 +27,31 @@ export const CLASS_TAX_PERCENT = 9
 /** How long a seat is held, the drift rule (R14), the unclear-charge hold (R15): shared with parties. */
 export { HOLD_MINUTES, PRICE_DRIFT_TOLERANCE_CENTS, UNCLEAR_HOLD_HOURS } from '@lib/booking-core/charge'
 
-/** One more answer than the shared codes: a try with this attempt is still running. */
-export type ClassCheckoutCode = CheckoutErrorCode | 'in_progress'
+/**
+ * More answers than the shared codes: a try with this attempt is still
+ * running; a code that doesn't work (stage 4); the total went up since the
+ * page showed it (stage 4, review I2: nothing charged, the new total sent).
+ */
+export type ClassCheckoutCode = CheckoutErrorCode | 'in_progress' | 'promo' | 'price_changed'
 
 export const classMessages: Record<ClassCheckoutCode, string> = {
   ...workshopMessages,
   already_booked: 'You already have a seat in this class. Check your email for the confirmation.',
   not_open: 'This class isn’t open for booking. Nothing was charged.',
   in_progress: 'We’re still finishing your last try. Give it a minute, then check your email before trying again.',
+  promo: 'That code isn\'t valid. Nothing was charged.',
+  price_changed: 'The price changed. Nothing was charged. Check the new total, then try again.',
+}
+
+/**
+ * Review I2: the page's total was lower than the price now (an early-bird or
+ * a code ended, a price changed). Said with the new total; nothing charged.
+ */
+export function priceChangedMessage(newTotalCents: number, earlyBirdEnded: boolean): string {
+  const total = `$${(newTotalCents / 100).toFixed(2)}`
+  return earlyBirdEnded
+    ? `The price changed to ${total} because the early-bird ended. Nothing was charged.`
+    : `The price changed to ${total}. Nothing was charged.`
 }
 
 export const PRICE_MISMATCH_MESSAGE = 'We couldn’t price your booking. Nothing was charged. Please try again in a few minutes.'
@@ -75,24 +93,44 @@ export type OrderLineDiscount = { line: number; name: string; cents: number }
  * the same order), and the discounts on them, one per discount per line,
  * in the order they came off. `missing` names the first line the POS item
  * doesn't carry.
+ *
+ * D4: the POS item's seat prices follow the current price, so while the
+ * early-bird runs the catalog line already costs the early-bird price. The
+ * discounts sent are only what takes the CATALOG price down to the quote's
+ * net: the part of the early-bird the catalog already carries is left out
+ * (never taken twice). `short` is how much a line's catalog price was
+ * already under the quote's net (the POS hadn't caught up with an early-bird
+ * that just ended); Square's lower total is then charged (R14).
  */
 export function orderLinesFor(
   cls: ScheduledClass,
   q: Quote,
   seats?: { answers?: Record<string, string> }[],
-): { ok: true; lines: OrderLine[]; discounts: OrderLineDiscount[] } | { ok: false; missing: string } {
+): { ok: true; lines: OrderLine[]; discounts: OrderLineDiscount[]; shortCents: number } | { ok: false; missing: string } {
   const lines: OrderLine[] = []
   const discounts: OrderLineDiscount[] = []
+  const onPos = posPricesNow(cls)
+  let shortCents = 0
   for (const l of q.lines) {
     const id = l.variationKey ? cls.square.variations[l.variationKey] : undefined
     if (!id) return { ok: false, missing: l.variationKey ?? l.label }
     const answers = l.kind === 'seat'
       ? cls.content.questions.map((qu) => seats?.[l.seat]?.answers?.[qu.id] ? `${qu.label} ${seats[l.seat].answers![qu.id]}` : '').filter(Boolean)
       : []
-    for (const d of l.discounts ?? []) if (d.cents > 0) discounts.push({ line: lines.length, name: d.name, cents: d.cents })
+    const list = l.listCents ?? l.cents
+    const catalog = l.variationKey && typeof onPos[l.variationKey] === 'number' ? onPos[l.variationKey] : list
+    // Already off on the POS item (the early-bird it carries); comes off this line's discounts first.
+    let carried = Math.max(0, list - catalog)
+    for (const d of l.discounts ?? []) {
+      const absorbed = Math.min(carried, d.cents)
+      carried -= absorbed
+      const cents = d.cents - absorbed
+      if (cents > 0) discounts.push({ line: lines.length, name: d.name, cents })
+    }
+    shortCents += carried
     lines.push({ catalogObjectId: id, quantity: 1, note: [`Seat ${l.seat + 1}`, l.label, ...answers].join(' · ').slice(0, 500) })
   }
-  return { ok: true, lines, discounts }
+  return { ok: true, lines, discounts, shortCents }
 }
 
 /** "2 Adults, 1 Kid" on a class with ticket types; "2 seats" on one with a single kind of seat. */
@@ -125,4 +163,13 @@ export function cleanSeats(cls: ScheduledClass, seats: unknown[]): { answers?: R
     const addOns = seat.addOns && typeof seat.addOns === 'object' && !Array.isArray(seat.addOns) ? (seat.addOns as Record<string, number>) : undefined
     return { answers, ...(addOns ? { addOns } : {}) }
   })
+}
+
+/** The quote as the booking panel shows it (no catalog ids). */
+export function publicQuote(q: Quote) {
+  return {
+    lines: q.lines.map((l) => ({ kind: l.kind, seat: l.seat, ticketTypeId: l.ticketTypeId, label: l.label, listCents: l.listCents, discounts: l.discounts, cents: l.cents, taxCents: l.taxCents })),
+    sessionIds: q.sessionIds, seats: q.seats, subtotalCents: q.subtotalCents, taxCents: q.taxCents, totalCents: q.totalCents,
+    discountCents: q.discountCents, promo: q.promo,
+  }
 }

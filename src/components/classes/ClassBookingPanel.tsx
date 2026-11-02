@@ -12,7 +12,7 @@ import { workshopRefundLine } from '@lib/refund-lines'
 import { formatDayAndSpan } from '@lib/studio-time'
 import { seatsLeftLabel } from '@lib/workshop-rules'
 import { quote, type BookingRequest, type Quote } from '@lib/classes/pricing'
-import { asScheduledClass, type OwnClassData, type PublicPass } from '@lib/classes/public-class'
+import { asScheduledClass, currentPriceCents, type OwnClassData, type PublicPass } from '@lib/classes/public-class'
 import type { WorkshopData } from '@components/workshops/WorkshopExplorer'
 import BookingPanel from '@components/shared/BookingPanel'
 import BookingConfirmed, { ConfirmedBlock } from '@components/shared/BookingConfirmed'
@@ -73,6 +73,24 @@ const CLASS_MESSAGES = {
   already_booked: 'You already have a seat in this class. Check your email for the confirmation.',
   not_open: 'This class isn’t open for booking. Nothing was charged.',
 }
+
+/** Discounts on a quote, added up by name in the order they first come off: "Early-bird", then "Code FALLFRIENDS". */
+function discountRows(q: Quote): { name: string; kind: 'early-bird' | 'promo'; cents: number }[] {
+  const rows: { name: string; kind: 'early-bird' | 'promo'; cents: number }[] = []
+  for (const l of q.lines) {
+    for (const d of l.discounts ?? []) {
+      const row = rows.find((r) => r.name === d.name)
+      if (row) row.cents += d.cents
+      else rows.push({ name: d.name, kind: d.kind, cents: d.cents })
+    }
+  }
+  return rows.filter((r) => r.cents > 0).sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'early-bird' ? -1 : 1))
+}
+
+const linkButton = {
+  background: 'none', border: 0, padding: '0.25rem 0', minHeight: '2.75rem', font: 'inherit', fontSize: '0.9375rem',
+  fontWeight: 600, color: 'var(--color-primary)', textDecoration: 'underline', cursor: 'pointer',
+} as const
 
 type SeatInfo = { answers: Record<string, string>; addOns: Record<string, number> }
 const EMPTY_SEAT: SeatInfo = { answers: {}, addOns: {} }
@@ -209,6 +227,15 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     bookingId: string | null; receiptUrl: string | null; emailSent: boolean; chargedCents: number | null; ticketsLabel: string | null; sessionIds: string[]
   }>(null)
   const [askToLeave, setAskToLeave] = useState(false)
+  // Stage 4: a code, priced by the server for this exact booking (shape); and the server's own total after "the price changed".
+  const [codeOpen, setCodeOpen] = useState(false)
+  const [codeText, setCodeText] = useState('')
+  const [codeError, setCodeError] = useState<string | null>(null)
+  const [applying, setApplying] = useState(false)
+  const [applied, setApplied] = useState<null | { code: string; quote: Quote; shape: string }>(null)
+  const [repriced, setRepriced] = useState<null | { quote: Quote; shape: string; code: string | null; note: string }>(null)
+  const codeInputId = useId()
+  const codeErrorId = useId()
 
   const paymentFormRef = useRef<PaymentFormRef>(null)
   const contactRef = useRef<ContactFieldsHandle>(null)
@@ -263,6 +290,17 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   useEffect(() => {
     attemptId.current = newAttemptId()
   }, [shape])
+
+  // What the Pay button, the summary and the wallet say: the server's total after "the price changed", else
+  // the server's price with the code, else the same quote the server makes (early-bird included).
+  const codeQ = applied && applied.shape === shape ? applied.quote : null
+  const serverQ = repriced && repriced.shape === shape && repriced.code === (codeQ ? applied!.code : null) ? repriced.quote : null
+  const shown: Quote | null = serverQ ?? codeQ ?? q
+  const free = !!shown && shown.totalCents === 0
+  // Back to change the booking with a code on: price it again for the new seats.
+  useEffect(() => {
+    if (applied && applied.shape !== shape && step === 'pay') void applyCode(applied.code, true)
+  }, [shape, step])
 
   const classItem = (quantity = Math.max(1, total)): AnalyticsItem => ({
     item_id: own.classId, item_name: workshop.name, item_category: 'class', price: workshop.price / 100, quantity,
@@ -456,19 +494,65 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
     return true
   }
 
+  /** "Have a code?": the server prices this booking with it, or says why not. Nothing is held. */
+  async function applyCode(raw: string, quiet = false) {
+    const code = raw.trim()
+    if (!code) {
+      setCodeError('Type the code first.')
+      return
+    }
+    if (!full.ok) return
+    setApplying(true)
+    setCodeError(null)
+    try {
+      const res = await fetch(door ? '/api/classes/promo.json?door=1' : '/api/classes/promo.json', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ classId: own.classId, code, request }),
+      })
+      const body = await res.json().catch(() => null)
+      if (res.ok && body?.data?.quote) {
+        setApplied({ code: String(body.data.code), quote: body.data.quote as Quote, shape })
+        setRepriced(null)
+        setCodeOpen(false)
+        setCodeText('')
+        setError(null)
+        return
+      }
+      setApplied(null)
+      setCodeOpen(true)
+      setCodeError(typeof body?.detail === 'string' ? body.detail : 'We couldn’t check that code just now. Try again in a minute.')
+    } catch {
+      if (quiet) setApplied(null)
+      setCodeOpen(true)
+      setCodeError('We couldn’t check that code just now. Try again in a minute.')
+    } finally {
+      setApplying(false)
+    }
+  }
+
+  function removeCode() {
+    setApplied(null)
+    setRepriced(null)
+    setCodeError(null)
+  }
+
   /** `walletToken`: Apple Pay or Google Pay already approved the payment. */
   async function handlePay(e?: FormEvent, walletToken?: string) {
     e?.preventDefault()
-    if (processing || (!walletToken && !paymentReady)) return
-    if (!readyToPay() || !q) return
+    if (processing || (!walletToken && !free && !paymentReady)) return
+    if (!readyToPay() || !q || !shown) return
     setError(null)
     setProcessing(true)
-    tr.trackPaymentStarted(q.totalCents / 100)
+    tr.trackPaymentStarted(shown.totalCents / 100)
     try {
-      // One order, one charge: one token pays for every seat.
+      // One order, one charge: one token pays for every seat. A free booking (D3) needs no card at all.
       let token: string
-      let sourceKind: 'card' | 'gift_card' | 'wallet'
-      if (walletToken) {
+      let sourceKind: 'card' | 'gift_card' | 'wallet' | 'free'
+      if (free) {
+        token = ''
+        sourceKind = 'free'
+      } else if (walletToken) {
         token = walletToken
         sourceKind = 'wallet'
       } else {
@@ -481,7 +565,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           throw new Error('We couldn’t read that card. Check the number, date and code, then try again. Nothing was charged.')
         }
       }
-      tr.trackAddPaymentInfo('workshop', q.totalCents / 100, sourceKind)
+      if (sourceKind !== 'free') tr.trackAddPaymentInfo('workshop', shown.totalCents / 100, sourceKind)
 
       let res: Response
       try {
@@ -497,6 +581,9 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
             seats,
             attemptId: attemptId.current,
             paymentToken: token,
+            ...(codeQ ? { promoCode: applied!.code } : {}),
+            // Review I2: the total on the Pay button; a higher one now charges nothing.
+            expectedTotalCents: shown.totalCents,
             customer: {
               givenName: contact.firstName.trim(),
               familyName: contact.lastName.trim(),
@@ -522,6 +609,19 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
         const keep = outcomeUnknown(failure) || body?.code === 'in_progress'
         if (!keep) attemptId.current = newAttemptId()
         if (body?.code) tr.trackBookingProblem('workshop', String(body.code))
+        // The total went up (an early-bird or a code ended): show the new one and let them pay it. Nothing was charged.
+        if (body?.code === 'price_changed' && body.quote && typeof body.quote.totalCents === 'number') {
+          setRepriced({ quote: body.quote as Quote, shape, code: codeQ ? applied!.code : null, note: String(body.detail ?? '') })
+          return
+        }
+        // The code stopped working between Apply and Pay: it comes off, and the total without it shows.
+        if (body?.code === 'promo') {
+          setApplied(null)
+          setRepriced(null)
+          setCodeOpen(true)
+          setCodeError(typeof body.detail === 'string' ? body.detail : CLASS_MESSAGES.unavailable)
+          return
+        }
         const message = messageForFailure(failure, CLASS_MESSAGES)
         if (keep) {
           setStuck(message)
@@ -584,13 +684,13 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
       location: `${STUDIO_ADDRESS.name}, ${STUDIO_ADDRESS_LINE}`,
     }))
     const calendarEvent = calendarEvents.length === 1 ? calendarEvents[0] : null
-    const paid = b.chargedCents ?? q?.totalCents ?? 0
+    const paid = b.chargedCents ?? shown?.totalCents ?? 0
     return (
       <BookingConfirmed
         heading="You’re booked"
         what={
           <>
-            {b.ticketsLabel ?? ticketsLabel} for <strong>{workshop.name}</strong>, {formatMoney(paid, workshop.currency)} paid{own.taxPercent > 0 ? ', tax included' : ''}.
+            {b.ticketsLabel ?? ticketsLabel} for <strong>{workshop.name}</strong>, {paid === 0 ? 'free' : `${formatMoney(paid, workshop.currency)} paid${own.taxPercent > 0 ? ', tax included' : ''}`}.
           </>
         }
         email={contact.email.trim()}
@@ -662,7 +762,7 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           {shownPasses.length > 1 && (
             <div role="group" aria-label="Choose an option" style={{ display: 'grid', gap: '0.5rem' }}>
               {shownPasses.map((p) => {
-                const prices = soldTypes(p.id).map((t) => own.prices[p.id][t.id])
+                const prices = soldTypes(p.id).map((t) => currentPriceCents(own, p.id, t.id) ?? own.prices[p.id][t.id])
                 const from = Math.min(...prices)
                 const open = canBook(p)
                 return (
@@ -718,7 +818,19 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
                 <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', flexWrap: 'wrap' }}>
                   <div>
                     <p style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>{word}</p>
-                    <p style={{ margin: '0.125rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>{formatMoney(own.prices[passId][t.id], workshop.currency)} each</p>
+                    <p style={{ margin: '0.125rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>
+                      {(() => {
+                        const regular = own.prices[passId][t.id]
+                        const now = currentPriceCents(own, passId, t.id) ?? regular
+                        if (now >= regular) return `${formatMoney(regular, workshop.currency)} each`
+                        return (
+                          <>
+                            <s aria-label={`was ${formatMoney(regular, workshop.currency)}`}>{formatMoney(regular, workshop.currency)}</s>{' '}
+                            {formatMoney(now, workshop.currency)} each, early-bird
+                          </>
+                        )
+                      })()}
+                    </p>
                   </div>
                   <Counter
                     label={word.toLowerCase()}
@@ -806,48 +918,112 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
 
   // ── Step 3: contact and payment ───────────────────────────────────────────
   function renderPay() {
-    const lines = q?.lines ?? []
-    // "2 Adults × $20" and "1 Glitter × $3": seats by ticket type, extras by name.
+    const lines = shown?.lines ?? []
+    // "2 Adults × $20" and "1 Glitter × $3": seats by ticket type at their regular price, extras by name;
+    // then what came off ("Early-bird −$10.00", "Code FALLFRIENDS −$4.50"), then tax. The Pay button says the total.
     const groups = new Map<string, { label: string; n: number; each: number; seat: boolean }>()
     for (const l of lines) {
-      const key = `${l.kind}:${l.kind === 'seat' ? l.ticketTypeId : l.label}:${l.cents}`
-      const g = groups.get(key) ?? { label: l.label, n: 0, each: l.cents, seat: l.kind === 'seat' }
+      const each = l.listCents ?? l.cents
+      const key = `${l.kind}:${l.kind === 'seat' ? l.ticketTypeId : l.label}:${each}`
+      const g = groups.get(key) ?? { label: l.label, n: 0, each, seat: l.kind === 'seat' }
       g.n++
       groups.set(key, g)
     }
+    const offs = shown ? discountRows(shown) : []
+    const row = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '1rem', fontSize: '0.875rem', color: 'var(--color-text)', marginTop: '0.125rem' } as const
     return (
       <form id={formId} onSubmit={handlePay} noValidate>
         <ContactFields ref={contactRef} value={contact} onChange={setContact} phoneRequired disabled={processing} />
 
-        <div style={{ margin: '1.25rem 0', padding: '0.875rem 1rem', borderRadius: '0.75rem', background: 'var(--color-sand)' }}>
+        <div style={{ margin: '1.25rem 0 0.5rem', padding: '0.875rem 1rem', borderRadius: '0.75rem', background: 'var(--color-sand)' }}>
           <p style={{ margin: 0, fontSize: '0.9375rem', color: 'var(--color-dark)' }}>
             {workshop.name}{own.passes.length > 1 && pass ? `, ${pass.label}` : ''}
           </p>
           {[...groups.values()].map((g, i) => (
-            <div key={i} style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.875rem', color: 'var(--color-text)', marginTop: '0.125rem' }}>
+            <div key={i} style={row}>
               <span>
                 {g.seat && own.ticketTypes.length <= 1 ? plural(g.n, 'seat') : `${g.n} ${g.seat && g.n !== 1 ? `${g.label}s` : g.label}`} × {formatMoney(g.each, workshop.currency)}
               </span>
               <span>{formatMoney(g.each * g.n, workshop.currency)}</span>
             </div>
           ))}
-          {q && q.taxCents > 0 && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', fontSize: '0.875rem', color: 'var(--color-text)', marginTop: '0.25rem' }}>
+          {offs.map((d) => (
+            <div key={d.name} style={row} data-testid="discount-row">
+              <span>
+                {d.name}
+                {d.kind === 'promo' && codeQ && (
+                  <>
+                    {' '}
+                    <button type="button" onClick={removeCode} disabled={processing} style={{ ...linkButton, minHeight: 0, padding: 0, fontSize: '0.875rem' }} aria-label={`Remove ${d.name}`}>
+                      Remove
+                    </button>
+                  </>
+                )}
+              </span>
+              <span>&minus;{formatMoney(d.cents, workshop.currency)}</span>
+            </div>
+          ))}
+          {shown && shown.taxCents > 0 && (
+            <div style={{ ...row, marginTop: '0.25rem' }}>
               <span>Tax</span>
-              <span>{formatMoney(q.taxCents, workshop.currency)}</span>
+              <span>{formatMoney(shown.taxCents, workshop.currency)}</span>
             </div>
           )}
           {/* No total line here: the Pay button says it (Kaden, 18 Oct 2026). */}
         </div>
 
-        <PaymentForm
-          bookingKind="workshop"
-          ref={paymentFormRef}
-          wallet={q ? { amount: (q.totalCents / 100).toFixed(2), label: `Hometown Studio, ${workshop.name}` } : undefined}
-          onWalletToken={(token) => handlePay(undefined, token)}
-          canPayWithWallet={() => (readyToPay() ? null : 'Add the details marked above first.')}
-          onReadyChange={setPaymentReady}
-        />
+        {/* Stage 4: "Have a code?" — on the pay step only, the field opens on a tap. */}
+        <div style={{ marginBottom: '1rem' }}>
+          {!codeQ && !codeOpen && (
+            <button type="button" style={linkButton} onClick={() => { setCodeOpen(true); setCodeError(null) }} disabled={processing}>
+              Have a code?
+            </button>
+          )}
+          {!codeQ && codeOpen && (
+            <div>
+              <label htmlFor={codeInputId} style={{ display: 'block', margin: '0.25rem 0', fontSize: '0.875rem', fontWeight: 600, color: 'var(--color-dark)' }}>Code</label>
+              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                <input
+                  id={codeInputId}
+                  type="text"
+                  value={codeText}
+                  onChange={(e) => { setCodeText(e.target.value); setCodeError(null) }}
+                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void applyCode(codeText) } }}
+                  autoCapitalize="characters"
+                  autoCorrect="off"
+                  autoComplete="off"
+                  spellCheck={false}
+                  enterKeyHint="done"
+                  maxLength={40}
+                  disabled={applying || processing}
+                  aria-invalid={codeError ? true : undefined}
+                  aria-describedby={codeError ? codeErrorId : undefined}
+                  style={{ flex: 1, minWidth: 0, minHeight: '2.75rem', padding: '0.5rem 0.75rem', borderRadius: '0.75rem', border: '1.5px solid var(--color-field-border)', background: 'var(--color-surface)', fontSize: '1rem', color: 'var(--color-dark)', textTransform: 'uppercase' }}
+                />
+                <button type="button" className="btn btn-secondary" style={{ width: 'auto', minHeight: '2.75rem' }} onClick={() => void applyCode(codeText)} disabled={applying || processing}>
+                  {applying ? 'Checking…' : 'Apply'}
+                </button>
+              </div>
+            </div>
+          )}
+          {codeError && <p id={codeErrorId} role="alert" className="field-error" style={{ marginTop: '0.375rem' }}>{codeError}</p>}
+        </div>
+
+        {free ? (
+          <div data-testid="free-booking" style={{ padding: '0.875rem 1rem', borderRadius: '0.75rem', border: '1.5px solid var(--color-primary)', background: 'rgba(var(--color-primary-rgb), 0.08)' }}>
+            <p style={{ margin: 0, fontSize: '0.9375rem', fontWeight: 600, color: 'var(--color-dark)' }}>{codeQ ? 'Free with your code' : 'This one is free'}</p>
+            <p style={{ margin: '0.125rem 0 0', fontSize: '0.875rem', color: 'var(--color-text)' }}>No card needed.</p>
+          </div>
+        ) : (
+          <PaymentForm
+            bookingKind="workshop"
+            ref={paymentFormRef}
+            wallet={shown ? { amount: (shown.totalCents / 100).toFixed(2), label: `Hometown Studio, ${workshop.name}` } : undefined}
+            onWalletToken={(token) => handlePay(undefined, token)}
+            canPayWithWallet={() => (readyToPay() ? null : 'Add the details marked above first.')}
+            onReadyChange={setPaymentReady}
+          />
+        )}
 
         <div style={{ marginTop: '1rem' }}>
           <label style={{ display: 'flex', alignItems: 'flex-start', gap: '0.625rem', cursor: 'pointer', minHeight: '2.75rem' }}>
@@ -877,6 +1053,9 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
           )}
         </div>
 
+        {serverQ && repriced?.note && (
+          <p role="alert" data-testid="price-changed" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5, fontWeight: 600, color: 'var(--color-dark)' }}>{repriced.note}</p>
+        )}
         {error && (
           <p role="alert" className="field-error" style={{ marginTop: '0.875rem', fontSize: '0.9375rem', lineHeight: 1.5 }}>{error}</p>
         )}
@@ -901,8 +1080,8 @@ export default function ClassBookingPanel({ workshop, onClose, onBooked, onAvail
   } else {
     footer = (
       <>
-        <button type="submit" form={formId} className="btn btn-primary" disabled={processing || !paymentReady || !q}>
-          {processing ? 'Processing…' : !paymentReady ? 'Loading payment form…' : `Pay ${formatMoney(q?.totalCents ?? 0, workshop.currency)}`}
+        <button type="submit" form={formId} className="btn btn-primary" disabled={processing || applying || (!free && !paymentReady) || !shown}>
+          {processing ? 'Processing…' : free ? 'Book it' : !paymentReady ? 'Loading payment form…' : `Pay ${formatMoney(shown?.totalCents ?? 0, workshop.currency)}`}
         </button>
         <p style={{ margin: '0.5rem 0 0', textAlign: 'center', fontSize: '0.8125rem', lineHeight: 1.4, color: 'var(--color-text)' }}>{workshopRefundLine()}</p>
       </>

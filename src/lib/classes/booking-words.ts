@@ -10,6 +10,8 @@ export interface BookingWordsInput {
   paidHere: boolean
   /** a door seat an owner marked paid at the counter (no sale matched it) */
   paidAtCounter?: boolean
+  /** D3: booked online or on the iPad for $0 (a code or a $0 early-bird): no Square payment, nothing to refund */
+  free?: boolean
   overCapacity: boolean
 }
 
@@ -19,8 +21,8 @@ export const crewSeat = (source: LedgerLine['source']) => source === 'comp' || s
 /** "Paid online", "Comped", "Not paid yet" (a pay-at-the-counter seat never rung up)… */
 export function paidWay(b: BookingWordsInput): string {
   switch (b.source) {
-    case 'online': return 'Paid online'
-    case 'door-card': return 'Paid on the iPad'
+    case 'online': return b.free ? 'Free booking' : 'Paid online'
+    case 'door-card': return b.free ? 'Free booking' : 'Paid on the iPad'
     case 'door-counter': return b.paidHere || b.paidAtCounter ? 'Paid at the counter' : 'Not paid yet'
     case 'comp': return 'Comped'
     case 'pos': return 'Counter sale'

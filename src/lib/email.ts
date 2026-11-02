@@ -376,6 +376,8 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   totalChargedCents: number
   /** A giveaway seat: say "comped" instead of an amount paid. */
   comped?: boolean
+  /** D3: a booking that came to $0 (a code or a $0 early-bird): say "free" instead of "$0 paid". */
+  free?: boolean
   /** Seats added at the door, paid at the register: say what's due instead of "paid". */
   dueAtStudioCents?: number
   receiptUrl: string | null
@@ -402,6 +404,8 @@ export async function sendWorkshopConfirmationEmail(input: ConfirmationExtras & 
   const seatWord = input.seatsLabel ?? (input.seats === 1 ? '1 seat' : `${input.seats} seats`)
   const paidWords = input.comped
     ? 'comped'
+    : input.free
+      ? 'free'
     : input.dueAtStudioCents !== undefined
       ? `${dollars(input.dueAtStudioCents)} to pay at the studio`
       : `${paid} paid`

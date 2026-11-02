@@ -74,6 +74,8 @@ export async function sendClassConfirmation(input: {
   alsoTo?: string
   /** a free seat from /staff: says "comped", not an amount paid */
   comped?: boolean
+  /** D3: a booking that came to $0 (a code or a $0 early-bird): says "free", not "$0 paid" */
+  free?: boolean
   /** a door seat paid at the counter: what is still to pay there */
   dueAtStudioCents?: number
 }): Promise<boolean> {
@@ -112,13 +114,14 @@ export async function sendClassConfirmation(input: {
     seatsLabel: input.seatsLabel,
     totalChargedCents: input.totalChargedCents,
     ...(input.comped ? { comped: true } : {}),
+    ...(input.free ? { free: true } : {}),
     ...(input.dueAtStudioCents !== undefined ? { dueAtStudioCents: input.dueAtStudioCents } : {}),
     receiptUrl: input.receiptUrl,
     waiverUrl,
     workshopUrl: classUrl,
     directionsUrl: `https://maps.google.com/?q=${encodeURIComponent('Hometown Studio, 525 Hughes Rd, Suite F, Madison, AL 35758')}`,
     // A free or not-yet-paid seat has nothing to refund; ask them to free it up instead.
-    policyLine: input.comped || input.dueAtStudioCents !== undefined
+    policyLine: input.comped || input.free || input.dueAtStudioCents !== undefined
       ? 'Can’t make it? Text or email us so we can pass your seat to someone else'
       : checkoutPolicySummary.workshop,
     policyUrl: `${origin}${POLICY_PATH}#${POLICY_ANCHORS.workshops}`,

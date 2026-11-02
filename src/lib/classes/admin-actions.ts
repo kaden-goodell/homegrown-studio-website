@@ -25,7 +25,7 @@ import { archiveClassInSquare, CLASS_TAX_NOT_SET, syncClassToSquare } from './sq
 import { contentChanges } from './content-diff'
 import { chicagoYmd } from './chicago-day'
 import { dropEndedEarlyBird, dropUnchangedEndedEarlyBird } from './early-bird'
-import { bookingCap, describeRequest, remainingOn, sessionShare } from './refunds'
+import { bookingCap, describeRequest, isFreeBooking, remainingOn, sessionShare } from './refunds'
 import { isWaiting, listRefundRequests } from './refund-requests'
 import { getLedger, seatsTaken, type Ledger, type LedgerLine } from './seat-ledger'
 import { isComing, isLiveHold, isPaidLine, paidOn, seatFreed, takesSeat } from './seat-status'
@@ -709,6 +709,8 @@ export interface BookingView {
   refundable: RefundableSeat[]
   /** false = comp, POS or counter: refunds happen in Square */
   paidHere: boolean
+  /** D3: booked online or on the iPad at $0 (no Square payment): nothing to refund, freeing the seat still works */
+  free: boolean
   /** a door seat an owner marked paid at the counter (To decide) */
   paidAtCounter: boolean
   /** most the booking can still give back: remaining on its seats, capped at what Square charged less refunds */
@@ -763,6 +765,7 @@ export function groupBookings(ledger: Ledger, now = new Date()): BookingView[] {
         freed: seatFreed(l),
       })),
       paidHere: !!first.square.paymentId,
+      free: isFreeBooking(first),
       paidAtCounter: lines.some((l) => !!l.paidAtCounter),
       refundableCents: Math.min(
         lines.filter(isPaidLine).reduce((s, l) => s + remainingOn(l), 0),
